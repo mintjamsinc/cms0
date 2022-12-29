@@ -1,0 +1,835 @@
+nodeTypes:
+  #------------------------------------------------------------------------------
+  # Base Primary Node Type
+  #------------------------------------------------------------------------------
+  # All repositories must supply the base primary node type, nt:base, as a
+  # built-in type.
+  #
+
+  #
+  # nt:base is an abstract primary node type that is the base type for all other
+  # primary node types. It is the only primary node type without supertypes.
+  #
+  - name: "nt:base"
+    attributes: [abstract]
+    propertyDefinitions:
+      - name: "jcr:primaryType"
+        type: "NAME"
+        attributes: [mandatory, autocreated, protected, COMPUTE]
+      - name: "jcr:mixinTypes"
+        type: "NAME"
+        attributes: [protected, multiple, COMPUTE]
+
+  #------------------------------------------------------------------------------
+  # Standard Application Node Types
+  #------------------------------------------------------------------------------
+  # JCR defines a number of standard application node types designed to support
+  # common application-level entities. A repository may supply zero or more of
+  # these as built-in types.
+  #
+
+  #
+  # This abstract node type serves as the supertype of nt:file and nt:folder and
+  # inherits the item definitions of mix:created and so requires the presence of
+  # that node type (see mix:created).
+  #
+  - name: "nt:hierarchyNode"
+    attributes: [abstract]
+    superTypes: ["mix:created"]
+
+  #
+  # Nodes of this node type may be used to represent files. This node type
+  # inherits the item definitions of nt:hierarchyNode and requires a single child
+  # node called jcr:content. The jcr:content node is used to hold the actual
+  # content of the file. This child node is mandatory, but not auto-created. Its
+  # node type will be application-dependent and therefore it must be added by the
+  # user. A common approach is to make the jcr:content a node of type
+  # nt:resource. The jcr:content child node is also designated as the primary
+  # child item of its parent.
+  #
+  - name: "nt:file"
+    superTypes: ["nt:hierarchyNode"]
+    primaryItem: "jcr:content"
+    childNodeDefinitions:
+      - name: "jcr:content"
+        requiredTypes: ["nt:base"]
+        attributes: [mandatory]
+
+  #
+  # The nt:linkedFile node type is similar to nt:file, except that the content
+  # node is not stored directly as a child node, but rather is specified by a
+  # REFERENCE property. This allows the content node to reside anywhere in the
+  # workspace and to be referenced by multiple nt:linkedFile nodes. The content
+  # node must be referenceable. Support for this node type requires support for
+  # referenceable nodes with referential integrity.
+  #
+  - name: "nt:linkedFile"
+    superTypes: ["nt:hierarchyNode"]
+    primaryItem: "jcr:content"
+    propertyDefinitions:
+      - name: "jcr:content"
+        type: "REFERENCE"
+        attributes: [mandatory]
+
+  #
+  # Nodes of this type may be used to represent folders or directories. This node
+  # type inherits the item definitions of nt:hierarchyNode and adds the ability
+  # to have any number of other nt:hierarchyNode child nodes with any names. This
+  # means, in particular, that it can have child nodes of types nt:folder,
+  # nt:file or nt:linkedFile.
+  #
+  - name: "nt:folder"
+    superTypes: ["nt:hierarchyNode"]
+    childNodeDefinitions:
+      - name: "*"
+        requiredTypes: ["nt:hierarchyNode"]
+        attributes: [VERSION]
+
+  #
+  # This node type may be used to represent the content of a file. In particular,
+  # the jcr:content subnode of an nt:file node will often be an nt:resource. Note
+  # that the definition of this node type indicates multiple inheritance.
+  #
+  - name: "nt:resource"
+    superTypes: ["mix:mimeType", "mix:lastModified"]
+    primaryItem: "jcr:data"
+    propertyDefinitions:
+      - name: "jcr:data"
+        type: "BINARY"
+        attributes: [mandatory]
+
+  #
+  # This mixin node type can be used to add standardized title and description
+  # properties to a node.
+  #
+  - name: "mix:title"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:title"
+        type: "STRING"
+        attributes: ["protected?", "OPV?"]
+      - name: "jcr:description"
+        type: "STRING"
+        attributes: ["protected?", "OPV?"]
+
+  #
+  # This mixin node type can be used to add standardized creation information
+  # properties to a node. In implementations that make these properties
+  # protected, their values are controlled by the repository, which should set
+  # them appropriately upon the initial persist of a node with this mixin type.
+  # In cases where this mixin is added to an already existing node the semantics
+  # of these properties are implementation specific.
+  #
+  - name: "mix:created"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:created"
+        type: "DATE"
+        attributes: [autocreated, "protected?", "OPV?"]
+      - name: "jcr:createdBy"
+        type: "STRING"
+        attributes: [autocreated, "protected?", "OPV?"]
+
+  #
+  # This mixin node type can be used to provide standardized modification
+  # information properties to a node. In implementations that make these
+  # properties protected, their values are controlled by the repository, which
+  # should set them appropriately upon a significant modification of the subgraph
+  # of a node with this mixin. What constitutes a significant modification will
+  # depend on the semantics of the various parts of a node's subgraph and is
+  # implementation-dependent.
+  #
+  - name: "mix:lastModified"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:lastModified"
+        type: "DATE"
+        attributes: [autocreated, "protected?", "OPV?"]
+      - name: "jcr:lastModifiedBy"
+        type: "STRING"
+        attributes: [autocreated, "protected?", "OPV?"]
+
+  #
+  # This mixin node type can be used to provide a standardized property that
+  # specifies the natural language in which the content of a node is expressed.
+  # The value of the jcr:language property should be a language code as defined
+  # in RFC 4646. Examples include “en” (English), “en-US” (United States
+  # English), “de” (German) and “de-CH” (Swiss German).
+  #
+  - name: "mix:language"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:language"
+        type: "STRING"
+        attributes: ["protected?", "OPV?"]
+
+  #
+  # This mixin node type can be used to provide standardized mimetype and
+  # encoding properties to a node.
+  # 
+  # If a node of this type has a primary item that is a single-value BINARY
+  # property then jcr:mimeType property indicates the media type applicable to
+  # the contents of that property and, if that media type is one to which a text
+  # encoding applies, the jcr:encoding property indicates the character set
+  # used.
+  # 
+  # If a node of this type does not meet the above precondition then the
+  # interpretation of the jcr:mimeType and jcr:encoding properties is
+  # implementation-dependent.
+  #
+  - name: "mix:mimeType"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:mimeType"
+        type: "STRING"
+        attributes: ["protected?", "OPV?"]
+      - name: "jcr:encoding"
+        type: "STRING"
+        attributes: ["protected?", "OPV?"]
+
+  #
+  # This node type may be used to represent the location of a JCR item not just
+  # within a particular workspace but within the space of all workspaces in all
+  # JCR repositories.
+  # 
+  # The jcr:protocol property stores a string holding the protocol through which
+  # the target repository is to be accessed.
+  # 
+  # The jcr:host property stores a string holding the host name of the system
+  # through which the repository is to be accessed.
+  # 
+  # The jcr:port property stores a string holding the port number through which
+  # the target repository is to be accessed.
+  # 
+  # The semantics of these properties are left undefined but are assumed to be
+  # known by the application. The names and descriptions of the properties are
+  # not normative and the repository does not enforce any particular semantic
+  # interpretation on them.
+  # 
+  # The jcr:repository property stores a string holding the name of the target
+  # repository.
+  # 
+  # The jcr:workspace property stores the name of a workspace.
+  # 
+  # The jcr:path property stores a path to an item.
+  # 
+  # The jcr:id property stores a weak reference to a node.
+  # 
+  # In most cases either the jcr:path or the jcr:id property would be used, but
+  # not both, since they may point to different nodes. If any of the properties
+  # other than jcr:path and jcr:id are missing, the address can be interpreted as
+  # relative to the current container at the same level as the missing specifier.
+  # For example, if no repository is specified, then the address can be
+  # interpreted as referring to a workspace and path or id within the current
+  # repository.
+  #
+  - name: "nt:address"
+    propertyDefinitions:
+      - name: "jcr:protocol"
+        type: "STRING"
+      - name: "jcr:host"
+        type: "STRING"
+      - name: "jcr:port"
+        type: "STRING"
+      - name: "jcr:repository"
+        type: "STRING"
+      - name: "jcr:workspace"
+        type: "STRING"
+      - name: "jcr:path"
+        type: "PATH"
+      - name: "jcr:id"
+        type: "WEAKREFERENCE"
+
+  #------------------------------------------------------------------------------
+  # Entity Tags
+  #------------------------------------------------------------------------------
+  # It is often useful for an application to be able to quickly find whether the
+  # value of a BINARY property has changed since the last time it was checked.
+  # This is particularly useful when determining whether to invalidate a cache
+  # containing a copy of the BINARY value.
+  # 
+  # The mix:etag mixin type defines a standardized identity validator for BINARY
+  # properties similar to the entity tags used in HTTP/1.1.
+  #
+
+  #
+  # A jcr:etag property is an opaque string whose syntax is identical to that
+  # defined for entity tags in HTTP/1.1. Semantically, the jcr:etag is comparable
+  # to the HTTP/1.1 strong entity tag.
+  # 
+  # On creation of a mix:etag node N, or assignment of mix:etag to N, the
+  # repository must create a jcr:etag property with an implementation determined
+  # value.
+  # 
+  # The value of the jcr:etag property must change immediately on persist of any
+  # of the following changes to N:
+  # 
+  # - A BINARY property is added to N.
+  # 
+  # - A BINARY property is removed from N.
+  # 
+  # - The value of an existing BINARY property of N changes.
+  #
+  - name: "mix:etag"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:etag"
+        type: "STRING"
+        attributes: [protected, autocreated]
+
+  #------------------------------------------------------------------------------
+  # Unstructured Content
+  #------------------------------------------------------------------------------
+  # Support for unstructured content may be provided by supporting a free-form
+  # node type: nt:unstructured. Support for this node type requires support for
+  # the UNDEFINED property type value.
+  #
+
+  #
+  # This node type is used to store unstructured content. It allows any number of
+  # child nodes or properties with any names. It also allows multiple nodes
+  # having the same name as well as both multi-value and single-value properties
+  # with any names. This node type also supports client-orderable child nodes.
+  #
+  - name: "nt:unstructured"
+    attributes: [orderable]
+    propertyDefinitions:
+      - name: "*"
+        type: "UNDEFINED"
+        attributes: [multiple]
+      - name: "*"
+        type: "UNDEFINED"
+    childNodeDefinitions:
+      - name: "*"
+        requiredTypes: ["nt:base"]
+        defaultType: "nt:unstructured"
+        attributes: [sns, VERSION]
+
+  #------------------------------------------------------------------------------
+  # Node Type Definition Storage
+  #------------------------------------------------------------------------------
+  # A repository may expose the definitions of its available node types in
+  # content using the node types nt:nodeType, nt:propertyDefinition and
+  # nt:childNodeDefinition. If a repository exposes node type definitions in
+  # content, then that repository must also support the system node and the node
+  # type definitions should be located below /jcr:system/jcr:nodeTypes. Support
+  # for these node types also requires support for same-name siblings.
+  #
+
+  #
+  # This node type is used to store a node type definition. Property and child
+  # node definitions within the node type definition are stored as same-name
+  # sibling nodes of type nt:propertyDefinition and nt:childNodeDefinition.
+  #
+  - name: "nt:nodeType"
+    propertyDefinitions:
+      - name: "jcr:nodeTypeName"
+        type: "NAME"
+        attributes: [protected, mandatory]
+      - name: "jcr:supertypes"
+        type: "NAME"
+        attributes: [multiple, protected]
+      - name: "jcr:isAbstract"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:isQueryable"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:isMixin"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:hasOrderableChildNodes"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:primaryItemName"
+        type: "NAME"
+        attributes: [protected]
+    childNodeDefinitions:
+      - name: "jcr:propertyDefinition"
+        requiredTypes: ["nt:propertyDefinition"]
+        defaultType: "nt:propertyDefinition"
+        attributes: [protected, sns]
+      - name: "jcr:childNodeDefinition"
+        requiredTypes: ["nt:childNodeDefinition"]
+        defaultType: "nt:childNodeDefinition"
+        attributes: [protected, sns]
+
+  #
+  # This node type used to store a property definition within a node type
+  # definition, which itself is stored as an nt:nodeType node.
+  #
+  - name: "nt:propertyDefinition"
+    propertyDefinitions:
+      - name: "jcr:name"
+        type: "NAME"
+        attributes: [protected]
+      - name: "jcr:autoCreated"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:mandatory"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:onParentVersion"
+        type: "STRING"
+        attributes: [protected, mandatory]
+        valueConstraints: ['COPY', 'VERSION', 'INITIALIZE', 'COMPUTE', 'IGNORE', 'ABORT']
+      - name: "jcr:protected"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:requiredType"
+        type: "STRING"
+        attributes: [protected, mandatory]
+        valueConstraints: ['STRING', 'URI', 'BINARY', 'LONG', 'DOUBLE', 'DECIMAL', 'BOOLEAN', 'DATE', 'NAME', 'PATH', 'REFERENCE', 'WEAKREFERENCE', 'UNDEFINED']
+      - name: "jcr:valueConstraints"
+        type: "STRING"
+        attributes: [protected, multiple]
+      - name: "jcr:defaultValues"
+        type: "UNDEFINED"
+        attributes: [protected, multiple]
+      - name: "jcr:multiple"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:availableQueryOperators"
+        type: "NAME"
+        attributes: [protected, mandatory, multiple]
+      - name: "jcr:isFullTextSearchable"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:isQueryOrderable"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+
+  #
+  # This node type used to store a child node definition within a node type
+  # definition, which itself is stored as an nt:nodeType node.
+  #
+  - name: "nt:childNodeDefinition"
+    propertyDefinitions:
+      - name: "jcr:name"
+        type: "NAME"
+        attributes: [protected]
+      - name: "jcr:autoCreated"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:mandatory"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:onParentVersion"
+        type: "STRING"
+        attributes: [protected, mandatory]
+        valueConstraints: ['COPY', 'VERSION', 'INITIALIZE', 'COMPUTE', 'IGNORE', 'ABORT']
+      - name: "jcr:protected"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+      - name: "jcr:requiredPrimaryTypes"
+        type: "NAME"
+        defaultValues: ['nt:base']
+        attributes: [protected, mandatory, multiple]
+      - name: "jcr:defaultPrimaryType"
+        type: "NAME"
+        attributes: [protected]
+      - name: "jcr:sameNameSiblings"
+        type: "BOOLEAN"
+        attributes: [protected, mandatory]
+
+  #------------------------------------------------------------------------------
+  # Referenceable Nodes
+  #------------------------------------------------------------------------------
+  # A repository may support referenceable nodes. A node must be referenceable to
+  # serve as the target of a reference property, which is either a WEAKREFERENCE
+  # or REFERENCE. To be referenceable a node must be of type mix:referenceable.
+  #
+
+  #
+  # This node type adds an auto-created, mandatory, protected STRING property to
+  # the node, called jcr:uuid, which exposes the identifier of the node. Note
+  # that the term “UUID” is used for backward compatibility with JCR 1.0 and does
+  # not necessarily imply the use of the UUID syntax, or global uniqueness.
+  # 
+  # The identifier of a referenceable node must be a referenceable identifier.
+  # Referenceable identifiers must fulfill a number of constraints beyond the
+  # minimum required of standard identifiers.
+  # 
+  # A reference property is a property that holds the referenceable identifier of
+  # a referenceable node and therefore serves as a pointer to that node. The two
+  # types of reference properties, REFERENCE and WEAKREFERENCE differ in that the
+  # former enforces referential integrity while the latter does not. A repository
+  # may support only WEAKREFERENCE or both WEAKREFERENCE and REFERENCE property
+  # types.
+  #
+  - name: "mix:referenceable"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:uuid"
+        type: "STRING"
+        attributes: [mandatory, autocreated, protected, INITIALIZE]
+
+  #------------------------------------------------------------------------------
+  # Shareable Nodes
+  #------------------------------------------------------------------------------
+  # The ability to address the same piece of data via more than one path is a
+  # common feature of many content storage systems. In JCR this feature is
+  # supported through shareable nodes.
+  # 
+  # Two or more shareable nodes in the same workspace may belong to a shared set.
+  # Each node within that set has its own unique path within the workspace but
+  # all share exactly the same set of child nodes and properties. This means that
+  # while the shared nodes are distinct from a path perspective, they are
+  # effectively the same node for purposes of operations that access their common
+  # subgraph.
+  #
+
+  #
+  # All shareable nodes are referenceable.
+  #
+  - name: "mix:shareable"
+    attributes: [mixin]
+    superTypes: ["mix:referenceable"]
+
+  #------------------------------------------------------------------------------
+  # Versionable Nodes
+  #------------------------------------------------------------------------------
+  # Under simple versioning, a versionable node must be mix:simpleVersionable.
+  # Under full versioning, it must be mix:versionable.
+  #
+
+  #
+  # The mix:simpleVersionable type exposes the node’s checked-out status as a
+  # BOOLEAN property.
+  #
+  - name: "mix:simpleVersionable"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:isCheckedOut"
+        type: "BOOLEAN"
+        defaultValues: ['true']
+        attributes: [mandatory, autocreated, protected, IGNORE]
+
+  #
+  # The mixin mix:versionable is a subtype of mix:simpleVersionable and
+  # mix:referenceable, and adds properties exposing a number of additional
+  # versioning-related attributes.
+  #
+  - name: "mix:versionable"
+    attributes: [mixin]
+    superTypes: ["mix:simpleVersionable", "mix:referenceable"]
+    propertyDefinitions:
+      - name: "jcr:versionHistory"
+        type: "REFERENCE"
+        attributes: [mandatory, protected, IGNORE]
+        valueConstraints: ['nt:versionHistory']
+      - name: "jcr:baseVersion"
+        type: "REFERENCE"
+        attributes: [mandatory, protected, IGNORE]
+        valueConstraints: ['nt:version']
+      - name: "jcr:predecessors"
+        type: "REFERENCE"
+        attributes: [mandatory, protected, multiple, IGNORE]
+        valueConstraints: ['nt:version']
+      - name: "jcr:mergeFailed"
+        type: "REFERENCE"
+        attributes: [protected, multiple, ABORT]
+        valueConstraints: ['nt:version']
+      - name: "jcr:activity"
+        type: "REFERENCE"
+        attributes: [protected, IGNORE]
+        valueConstraints: ['nt:activity']
+      - name: "jcr:configuration"
+        type: "REFERENCE"
+        attributes: [protected, IGNORE]
+        valueConstraints: ['nt:configuration']
+
+  #------------------------------------------------------------------------------
+  # Versions
+  #------------------------------------------------------------------------------
+  # Under simple versioning, a version is represented by a Version object and the
+  # attributes of the version are accessible only through methods of that class.
+  # 
+  # Under full versioning a version is represented by both a Version object and a
+  # node of type nt:version within the version storage. The attributes of a
+  # version are accessible both through methods of the Version class and through
+  # the properties of nt:version.
+  # 
+  # Each version has a name unique within its version history that is assigned
+  # automatically on creation of the version. The format of the name is
+  # implementation-dependant. Under full versioning this is the name of the
+  # nt:version node representing the version. Under simple versioning this is
+  # simply the name returned when Item.getName() is called on the Version object.
+  # 
+  # Version is a subclass of Node. However, since under simple versioning a
+  # version is not represented by a node, most of the Node methods inherited by
+  # Version are not required to function. The single exception is Item.getName()
+  # as mentioned above. Under full versioning the Node methods inherited by
+  # Version function as expected on the nt:version node.
+  # 
+  # Under full versioning the nt:version nodes representing the versions within a
+  # given history are always created as direct child nodes of the
+  # nt:versionHistory node representing that history.
+  #
+
+  #
+  # nt:version inherits the STRING jcr:uuid from mix:referenceable, making every
+  # nt:version node referenceable. Additionally, it defines properties that
+  # expose the following attributes.
+  #
+  - name: "nt:version"
+    superTypes: ["mix:referenceable"]
+    propertyDefinitions:
+      - name: "jcr:created"
+        type: "DATE"
+        attributes: [mandatory, autocreated, protected, ABORT]
+      - name: "jcr:predecessors"
+        type: "REFERENCE"
+        attributes: [protected, multiple, ABORT]
+        valueConstraints: ['nt:version']
+      - name: "jcr:successors"
+        type: "REFERENCE"
+        attributes: [protected, multiple, ABORT]
+        valueConstraints: ['nt:version']
+      - name: "jcr:activity"
+        type: "REFERENCE"
+        attributes: [protected, ABORT]
+        valueConstraints: ['nt:activity']
+    childNodeDefinitions:
+      - name: "jcr:frozenNode"
+        requiredTypes: ["nt:frozenNode"]
+        attributes: [protected, ABORT]
+
+  #------------------------------------------------------------------------------
+  # Frozen Nodes
+  #------------------------------------------------------------------------------
+  # When a version is created, the versionable subgraph of its versionable node
+  # is copied to a frozen node within the new version. On check-in the child
+  # nodes and properties that constitute the versionable subgraph are copied and
+  # placed as child items of the frozen node under the same names as they had
+  # under the versionable node.
+  # 
+  # Which child nodes and properties are copied, and in the case of child nodes,
+  # the depth of the subgraph to be copied, constitutes the versionable state of
+  # the node and is determined by the on-parent-version settings defined in the
+  # node type of the versionable node.
+  # 
+  # Regardless of the node type of the original versionable, all frozen nodes are
+  # of the type nt:frozenNode. Under both simple and full versioning, the frozen
+  # node of a version is accessible directly from the Version object. Under full
+  # versioning, the frozen node is also accessible as the child node
+  # jcr:frozenNode of the nt:version node. Under simple versioning the frozen
+  # node is a Node object but does not have a parent, and consequently methods
+  # called on the frozen node that depend upon having a parent will throw an
+  # exception. Under full versioning the frozen node's parent is the nt:version
+  # node to which it belongs.
+  # 
+  # A frozen node always has the name jcr:frozenNode. Under full versioning this
+  # is the name under which it exists as a child of its nt:version node. Under
+  # simple versioning this is simply the name returned when Item.getName() is
+  # called on the frozen node.
+  #
+
+  #
+  # nt:frozenNode defines the following properties and child nodes.
+  #
+  - name: "nt:frozenNode"
+    attributes: [orderable]
+    propertyDefinitions:
+      - name: "jcr:frozenPrimaryType"
+        type: "NAME"
+        attributes: [mandatory, autocreated, protected, ABORT]
+      - name: "jcr:frozenMixinTypes"
+        type: "NAME"
+        attributes: [protected, multiple, ABORT]
+      - name: "jcr:frozenUuid"
+        type: "STRING"
+        attributes: [protected, ABORT]
+      - name: "*"
+        type: "UNDEFINED"
+        attributes: [protected, ABORT]
+      - name: "*"
+        type: "UNDEFINED"
+        attributes: [protected, multiple, ABORT]
+    childNodeDefinitions:
+      - name: "*"
+        requiredTypes: ["nt:base"]
+        attributes: [protected, sns, ABORT]
+
+  #------------------------------------------------------------------------------
+  # Version History
+  #------------------------------------------------------------------------------
+  # Under simple versioning a version history is represented by a VersionHistory
+  # object. Under full versioning a version history is represented by both a
+  # VersionHistory object and a node of type nt:versionHistory.
+  # 
+  # A version history is created upon creation of a new versionable node. Under
+  # full versioning this results that an nt:versionHistory node being created
+  # automatically within the version storage subgraph in an implementation
+  # determined location and with an implementation-determined name.
+  # 
+  # VersionHistory is a subclass of Node. However, since under simple versioning
+  # a version history is not represented by a node, the Node methods inherited by
+  # VersionHistory are not required to function. Under full versioning those
+  # methods will function as expected on the nt:versionHistory node representing
+  # the history.
+  # 
+
+  #
+  # This type inherits the STRING jcr:uuid from mix:referenceable, making every
+  # nt:versionHistory node referenceable. It also defines properties and child
+  # nodes representing the following attributes.
+  #
+  - name: "nt:versionHistory"
+    superTypes: ["mix:referenceable"]
+    propertyDefinitions:
+      - name: "jcr:versionableUuid"
+        type: "STRING"
+        attributes: [mandatory, autocreated, protected, ABORT]
+      - name: "jcr:copiedFrom"
+        type: "WEAKREFERENCE"
+        attributes: [protected, ABORT]
+        valueConstraints: ['nt:version']
+    childNodeDefinitions:
+      - name: "jcr:rootVersion"
+        requiredTypes: ["nt:version"]
+        defaultType: "nt:version"
+        attributes: [mandatory, autocreated, protected, ABORT]
+      - name: "jcr:versionLabels"
+        requiredTypes: ["nt:versionLabels"]
+        defaultType: "nt:versionLabels"
+        attributes: [protected, ABORT]
+      - name: "*"
+        requiredTypes: ["nt:version"]
+        defaultType: "nt:version"
+        attributes: [protected, ABORT]
+
+  #------------------------------------------------------------------------------
+  # Version Labels
+  #------------------------------------------------------------------------------
+  # A version label is a JCR name, unique among the labels within a version
+  # history, that identifies a single version within that history. A version can
+  # have zero or more labels.
+  # 
+  # Labels are can be assigned, removed and retrieved through the API. Versions
+  # can also be retrieved by label.
+  # 
+  # Under full versioning labels are also exposed through an nt:versionLabels
+  # child node of nt:versionHistory called jcr:versionLabels. This node holds a
+  # set of reference properties that record all labels that have been assigned to
+  # the versions within this version history. Each label is represented by a
+  # single reference property which uses the label itself as its name and points
+  # to that nt:version child node to which the label applies. The
+  # nt:versionLabels node type has the following definition:
+  #
+  - name: "nt:versionLabels"
+    propertyDefinitions:
+      - name: "*"
+        type: "REFERENCE"
+        attributes: [protected, ABORT]
+        valueConstraints: ['nt:version']
+
+  #
+  # The definition of nt:versionedChild is:
+  #
+  - name: "nt:versionedChild"
+    propertyDefinitions:
+      - name: "jcr:childVersionHistory"
+        type: "REFERENCE"
+        attributes: [mandatory, autocreated, protected, ABORT]
+        valueConstraints: ['nt:versionHistory']
+
+  #------------------------------------------------------------------------------
+  # Locking
+  #------------------------------------------------------------------------------
+  # A lock is placed on a node by calling LockManager.lock. The node on which a
+  # lock is placed is called the holding node of that lock. Only nodes with mixin
+  # node type mix:lockable (inherited as part of their primary node type or
+  # explicitly assigned) may hold locks. The definition of mix:lockable is:
+  #
+  - name: "mix:lockable"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:lockOwner"
+        type: "STRING"
+        attributes: [protected, IGNORE]
+      - name: "jcr:lockIsDeep"
+        type: "BOOLEAN"
+        attributes: [protected, IGNORE]
+
+  #------------------------------------------------------------------------------
+  # Stored Query
+  #------------------------------------------------------------------------------
+  # When a new Query object is first created it is a transient query. If the
+  # repository supports the node type nt:query, then a transient query can be
+  # stored in content by calling
+  # 
+  # Node Query.storeAsNode(String absPath).
+  # 
+  # This creates an nt:query node at the specified path. A save is required to
+  # persist the node.
+  # 
+  # The nt:query node type is defined as follows:
+  #
+  - name: "nt:query"
+    propertyDefinitions:
+      - name: "jcr:statement"
+        type: "STRING"
+      - name: "jcr:language"
+        type: "STRING"
+
+  #------------------------------------------------------------------------------
+  # Lifecycle Management
+  #------------------------------------------------------------------------------
+  # A repository may support lifecycle management, enabling users to:
+  # 
+  # - Discover the state of a node within a lifecycle.
+  # 
+  # - Promote or demote nodes through a lifecycle by following a transition from
+  #   the current state to a new state.
+  # 
+  # The names and semantics of the supported lifecycle states and transitions are
+  # implementation-specific.
+  # 
+  # Whether an implementation supports lifecycle management can be determined by
+  # querying the repository descriptor table with
+  # 
+  # Repository.OPTION_LIFECYCLE_SUPPORTED.
+  # 
+  # A return value of true indicates support.
+  #
+
+  #
+  # Only nodes with mixin node type mix:lifecycle may participate in a lifecycle.
+  # The mixin adds two properties:
+  # 
+  # - jcr:lifecyclePolicy: This property is a reference to another node that
+  #   contains lifecycle policy information. The definition of the referenced node
+  #   is not specified.
+  # 
+  # - jcr:currentLifecycleState: This property is a string identifying the current
+  #   lifecycle state of this node. The format of this string is not specified.
+  #
+  - name: "mix:lifecycle"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "jcr:lifecyclePolicy"
+        type: "REFERENCE"
+        attributes: [protected, INITIALIZE]
+      - name: "jcr:currentLifecycleState"
+        type: "STRING"
+        attributes: [protected, INITIALIZE]
+
+  #------------------------------------------------------------------------------
+  # MintJams
+  #------------------------------------------------------------------------------
+  - name: "mi:root"
+    superTypes: ["nt:hierarchyNode"]
+    childNodeDefinitions:
+      - name: "*"
+        requiredTypes: ["nt:hierarchyNode"]
+        attributes: [VERSION]
+
+  - name: "mi:anyProperties"
+    attributes: [mixin]
+    propertyDefinitions:
+      - name: "*"
+        type: "UNDEFINED"
+        attributes: [multiple]
+      - name: "*"
+        type: "UNDEFINED"

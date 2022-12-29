@@ -1,0 +1,9 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: MintJams CMS Runtime for Linux x64
+Bundle-SymbolicName: org.mintjams.rt.cms.linux.x86_64
+Bundle-Version: 1.0.0
+Fragment-Host: org.mintjams.rt.cms;bundle-version="[1.0.0,2.0.0)"
+Automatic-Module-Name: org.mintjams.rt.cms.linux.x86.64
+Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-Vendor: MintJams Inc.

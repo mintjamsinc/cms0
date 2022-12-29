@@ -1,0 +1,10 @@
+defaultNodes:
+  - path: /
+    primaryType: mi:root
+    acl:
+      - group: everyone
+        privileges: jcr:read, jcr:readAccessControl, jcr:lockManagement, jcr:versionManagement, jcr:nodeTypeManagement
+        effect: allow
+      - user: anonymous
+        privileges: jcr:all
+        effect: deny

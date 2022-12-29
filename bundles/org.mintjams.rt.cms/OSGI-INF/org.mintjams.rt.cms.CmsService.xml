@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.3.0" activate="activate" configuration-policy="optional" deactivate="deactivate" enabled="true" immediate="true" name="org.mintjams.rt.cms.CmsService">
+   <reference cardinality="1..1" field="fEventAdmin" interface="org.osgi.service.event.EventAdmin" name="fEventAdmin" policy="static"/>
+   <reference cardinality="1..1" field="fLoggerFactory" interface="org.osgi.service.log.LoggerFactory" name="fLoggerFactory" policy="static"/>
+   <reference cardinality="1..1" field="fRepository" interface="javax.jcr.Repository" name="fRepository" policy="static"/>
+   <implementation class="org.mintjams.rt.cms.internal.CmsService"/>
+</scr:component>
