@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -270,9 +271,9 @@ public class IndexableDocument implements SearchIndex.Document {
 		List<Object> values = fProperties.get(name);
 		if (values == null) {
 			values = new ArrayList<>();
+			fProperties.put(name, values);
 		}
 		values.add(value);
-		fProperties.put(name, values);
 		return this;
 	}
 
@@ -309,6 +310,10 @@ public class IndexableDocument implements SearchIndex.Document {
 				}
 
 				if (fContent instanceof Path) {
+					if (Files.size((Path) fContent) == 0) {
+						break;
+					}
+
 					try {
 						_contentString = Strings.defaultString(new Tika().parseToString((Path) fContent));
 					} catch (ZeroByteFileException ex) {

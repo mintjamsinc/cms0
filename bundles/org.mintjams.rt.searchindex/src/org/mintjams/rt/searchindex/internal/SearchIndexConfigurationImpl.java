@@ -22,25 +22,42 @@
 
 package org.mintjams.rt.searchindex.internal;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.CharFilterFactory;
+import org.apache.lucene.analysis.TokenFilterFactory;
+import org.apache.lucene.analysis.TokenizerFactory;
+import org.apache.lucene.analysis.custom.CustomAnalyzer;
 import org.mintjams.searchindex.SearchIndex;
 import org.mintjams.searchindex.SearchIndexConfiguration;
 import org.mintjams.tools.collections.AdaptableList;
+import org.mintjams.tools.collections.AdaptableMap;
+import org.mintjams.tools.io.IOs;
+import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.osgi.Configuration;
 import org.mintjams.tools.osgi.VariableProvider;
+import org.snakeyaml.engine.v2.api.Load;
+import org.snakeyaml.engine.v2.api.LoadSettings;
 
 public class SearchIndexConfigurationImpl implements SearchIndexConfiguration {
 
 	private static final String PROP_DATA_PATH = "dataPath";
 	private static final String PROP_CONFIG_PATH = "configPath";
 
-	private Map<String, Object> fConfig = new HashMap<>();
+	private final Map<String, Object> fConfig = new HashMap<>();
 
 	@Override
 	public SearchIndexConfiguration setDataPath(Path path) {
@@ -62,6 +79,23 @@ public class SearchIndexConfigurationImpl implements SearchIndexConfiguration {
 		if (!Files.exists(configPath)) {
 			Files.createDirectories(configPath);
 		}
+
+		Path searchPath = configPath.resolve("search.yml");
+		if (!Files.exists(searchPath)) {
+			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(searchPath, StandardOpenOption.CREATE_NEW))) {
+				try (InputStream in = getClass().getResourceAsStream("search.yml")) {
+					IOs.copy(in, out);
+				}
+			}
+		}
+
+		try (InputStream in = new BufferedInputStream(Files.newInputStream(searchPath))) {
+			Map<String, Object> config = (Map<String, Object>) new Load(LoadSettings.builder().build()).loadFromInputStream(in);
+			config.remove(PROP_DATA_PATH);
+			config.remove(PROP_CONFIG_PATH);
+			fConfig.putAll(config);
+		}
+
 		Path mappingPath = configPath.resolve("mapping.txt");
 		if (!Files.exists(mappingPath)) {
 			Files.createFile(mappingPath);
@@ -136,6 +170,90 @@ public class SearchIndexConfigurationImpl implements SearchIndexConfiguration {
 		String v = adapt(fConfig.get(PROP_CONFIG_PATH), String.class).trim();
 		v = Configuration.create(Activator.getDefault().getBundleContext()).with(new VariableProviderImpl()).replaceVariables(v);
 		return Path.of(v).normalize();
+	}
+
+	public Analyzer getAnalyzer(String name) throws IOException {
+		if (!fConfig.containsKey("analyzers")) {
+			return null;
+		}
+
+		List<String> names = new ArrayList<>();
+		names.add(name);
+		if (name.indexOf("@") != -1) {
+			names.add(name.substring(0, name.indexOf("@")));
+		}
+
+		Map<String, Object> analyzers = (Map<String, Object>) fConfig.get("analyzers");
+		for (String k : names) {
+			Object settings = analyzers.get(k);
+			if (settings == null) {
+				continue;
+			}
+
+			if (settings instanceof List) {
+				CustomAnalyzer.Builder builder = CustomAnalyzer.builder(getConfigPath());
+				for (Object setting : (List<Object>) settings) {
+					if (setting instanceof String) {
+						Class<?> type;
+						try {
+							type = Activator.getDefault().getBundleClassLoader().loadClass((String) setting);
+						} catch (ClassNotFoundException ex) {
+							throw Cause.create(ex).wrap(IOException.class);
+						}
+						Map<String, String> params = new HashMap<>();
+						if (TokenizerFactory.class.isAssignableFrom(type)) {
+							builder.withTokenizer((Class<TokenizerFactory>) type, params);
+						} else if (CharFilterFactory.class.isAssignableFrom(type)) {
+							builder.addCharFilter((Class<CharFilterFactory>) type, params);
+						} else if (TokenFilterFactory.class.isAssignableFrom(type)) {
+							builder.addTokenFilter((Class<TokenFilterFactory>) type, params);
+						} else {
+							throw new IOException("Invalid factory type for analyzer '" + k + "': " + type.getName());
+						}
+						continue;
+					}
+
+					if (setting instanceof Map) {
+						Map<String, Object> settingMap = (Map<String, Object>) setting;
+						Class<?> type;
+						try {
+							type = Activator.getDefault().getBundleClassLoader().loadClass((String) settingMap.get("type"));
+						} catch (ClassNotFoundException ex) {
+							throw Cause.create(ex).wrap(IOException.class);
+						}
+						Map<String, String> params = new HashMap<>();
+						if (!settingMap.containsKey("attributes")) {
+							// empty attributes
+						} else if (settingMap.get("attributes") instanceof Map) {
+							AdaptableMap<String, Object> attributes = AdaptableMap.<String, Object>newBuilder().putAll((Map<String, Object>) settingMap.get("attributes")).build();
+							for (String key : attributes.keySet()) {
+								params.put(key, attributes.getString(key));
+							}
+						} else {
+							throw new IOException("Invalid attributes for analyzer '" + k + "': " + type.getName());
+						}
+
+						if (TokenizerFactory.class.isAssignableFrom(type)) {
+							builder.withTokenizer((Class<TokenizerFactory>) type, params);
+						} else if (CharFilterFactory.class.isAssignableFrom(type)) {
+							builder.addCharFilter((Class<CharFilterFactory>) type, params);
+						} else if (TokenFilterFactory.class.isAssignableFrom(type)) {
+							builder.addTokenFilter((Class<TokenFilterFactory>) type, params);
+						} else {
+							throw new IOException("Invalid factory type for analyzer '" + k + "': " + type.getName());
+						}
+						continue;
+					}
+
+					throw new IOException("Invalid configuration for analyzer '" + k + "': " + setting.getClass().getName());
+				}
+				return builder.build();
+			}
+
+			throw new IOException("Invalid configuration for analyzer '" + k + "'.");
+		}
+
+		return null;
 	}
 
 	private <AdapterType> AdapterType adapt(Object value, Class<AdapterType> adapterType) {

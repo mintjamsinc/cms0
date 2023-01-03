@@ -84,6 +84,10 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 	private final String fStatement;
 	private List<Clause> fClauses;
+	private String fCompiled;
+	private OrderByClause fOrderByClause;
+	private FacetAccumulateClause fFacetAccumulateClause;
+	private AutoCompleteClause fAutoCompleteClause;
 
 	public JcrXPathQuery(String statement, SearchIndexImpl searchIndex) {
 		super(searchIndex);
@@ -97,12 +101,13 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 	@Override
 	public SearchIndex.QueryResult execute() throws IOException {
+		long startTime = System.currentTimeMillis();
 		SearchIndexQueryResult result = SearchIndexQueryResult.create(this);
 		try {
 			IndexSearcher documentSearcher = fSearchIndex.getDocumentReader().getIndexSearcher();
-			Query luceneQuery = getDocumentQuery();
+			getCompiled(); // compile
 
-			long startTime = System.currentTimeMillis();
+			Query luceneQuery = getDocumentQuery();
 
 			if (getLimit() > 0) {
 				Sort luceneSort = getSort();
@@ -184,14 +189,35 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				}
 			}
 
-			AutoComplete autoComplete = getAutoComplete();
-			if (autoComplete != null) {
+			if (hasAutoCompleteQuery()) {
 				IndexSearcher suggestionSearcher = fSearchIndex.getSuggestionReader().getIndexSearcher();
-				TopFieldCollector collector = TopFieldCollector.create(autoComplete.getSort(), autoComplete.getLimit(), autoComplete.getLimit());
-				suggestionSearcher.search(autoComplete.getQuery(), collector);
-				for (ScoreDoc socreDoc : collector.topDocs().scoreDocs) {
-					Document doc = suggestionSearcher.doc(socreDoc.doc);
-					result.addSuggestion(doc.get("_suggestion"));
+				List<String> suggestions = new ArrayList<>();
+				int numHits = 10;
+				for (AutoComplete autoComplete = getAutoComplete(suggestions);
+						suggestions.size() < autoComplete.getLimit();
+						autoComplete = getAutoComplete(suggestions)) {
+					Sort luceneSort = autoComplete.getSort();
+					TopFieldCollector collector = TopFieldCollector.create(luceneSort, numHits, numHits);
+
+					suggestionSearcher.search(autoComplete.getQuery(), collector);
+					ScoreDoc[] scoreDocs = collector.topDocs().scoreDocs;
+					if (scoreDocs.length == 0) {
+						break;
+					}
+
+					for (ScoreDoc socreDoc : scoreDocs) {
+						Document doc = suggestionSearcher.doc(socreDoc.doc);
+						String suggestion = doc.get("_suggestion");
+						result.addSuggestion(suggestion);
+						suggestions.add(suggestion);
+						if (suggestions.size() >= autoComplete.getLimit()) {
+							break;
+						}
+					}
+
+					if (scoreDocs.length < numHits) {
+						break;
+					}
 				}
 			}
 
@@ -202,50 +228,65 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 	private org.apache.lucene.search.Query getDocumentQuery() throws IOException {
 		try {
-			String q = compile();
 			StandardQueryParser parser = new StandardQueryParser(fSearchIndex.getDocumentReader().getAnalyzer());
 			parser.setPointsConfigMap(getPointsConfigMap());
 			parser.setAllowLeadingWildcard(true);
-			return parser.parse(q, "_identifier");
+			return parser.parse(getCompiled(), "_identifier");
 		} catch (QueryNodeException ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
 	}
 
-	private String compile() {
-		if (fClauses == null) {
-			fClauses = new ArrayList<>();
-			for (String stmt = fStatement; !Strings.isBlank(stmt);) {
-				boolean matches = false;
-				for (ClauseExtractor clause : ClauseExtractor.values()) {
-					if (clause.match(stmt)) {
-						matches = true;
-						stmt = clause.extract(stmt, fClauses, this);
-						break;
+	private String getCompiled() {
+		if (fCompiled == null) {
+			if (fClauses == null) {
+				fClauses = new ArrayList<>();
+				for (String stmt = fStatement; !Strings.isBlank(stmt);) {
+					boolean matches = false;
+					for (ClauseExtractor clause : ClauseExtractor.values()) {
+						if (clause.match(stmt)) {
+							matches = true;
+							stmt = clause.extract(stmt, fClauses, this);
+							break;
+						}
 					}
+					if (matches) {
+						continue;
+					}
+
+					throw new InvalidQuerySyntaxException(fStatement);
 				}
-				if (matches) {
+			}
+
+			StringBuilder stmt = new StringBuilder();
+			stmt.append(getAuthorizablesStatement());
+			for (Clause e : fClauses) {
+				String q = e.compile();
+				if (e instanceof OrderByClause) {
+					fOrderByClause = (OrderByClause) e;
+					continue;
+				}
+				if (e instanceof FacetAccumulateClause) {
+					fFacetAccumulateClause = (FacetAccumulateClause) e;
+					continue;
+				}
+				if (e instanceof AutoCompleteClause) {
+					fAutoCompleteClause = (AutoCompleteClause) e;
 					continue;
 				}
 
-				throw new InvalidQuerySyntaxException(fStatement);
-			}
-		}
+				if (Strings.isEmpty(q)) {
+					continue;
+				}
 
-		StringBuilder stmt = new StringBuilder();
-		stmt.append(getAuthorizablesStatement());
-		for (Clause e : fClauses) {
-			String q = e.compile();
-			if (Strings.isEmpty(q)) {
-				continue;
+				if (stmt.length() > 0) {
+					stmt.append(" AND ");
+				}
+				stmt.append(q);
 			}
-
-			if (stmt.length() > 0) {
-				stmt.append(" AND ");
-			}
-			stmt.append(q);
+			fCompiled = stmt.toString();
 		}
-		return stmt.toString();
+		return fCompiled;
 	}
 
 	private Map<String, PointsConfig> getPointsConfigMap() {
@@ -258,51 +299,54 @@ public class JcrXPathQuery extends SearchIndexQuery {
 	}
 
 	private Sort getSort() {
-		for (Clause e : fClauses) {
-			if (e instanceof OrderByClause) {
-				return ((OrderByClause) e).getSort();
-			}
+		if (fOrderByClause != null) {
+			return fOrderByClause.getSort();
 		}
 		return new Sort(new SortField("_path", SortField.Type.STRING));
 	}
 
 	private List<FacetAccumulateClause.Facet> listFacets() {
-		for (Clause e : fClauses) {
-			if (e instanceof FacetAccumulateClause) {
-				return ((FacetAccumulateClause) e).listFacets();
-			}
+		if (fFacetAccumulateClause != null) {
+			return fFacetAccumulateClause.listFacets();
 		}
 		return new ArrayList<>();
 	}
 
-	private AutoComplete getAutoComplete() throws IOException {
-		for (Clause e : fClauses) {
-			if (e instanceof AutoCompleteClause) {
-				AutoCompleteClause clause = (AutoCompleteClause) e;
-				StringBuilder stmt = new StringBuilder();
-				stmt.append(getAuthorizablesStatement());
-				String[] s = clause.getText().split("\\s");
-				for (int i = 0; i < s.length; i++) {
-					if (stmt.length() > 0) {
-						stmt.append(" AND ");
-					}
+	private boolean hasAutoCompleteQuery() {
+		return (fAutoCompleteClause != null);
+	}
 
-					stmt.append(QueryStatements.escape("_completion")).append(":").append(QueryStatements.escape(s[i]));
-					if (i == s.length - 1) {
-						stmt.append("*");
-					}
-				}
+	private AutoComplete getAutoComplete(List<String> excludes) throws IOException {
+		StringBuilder stmt = new StringBuilder();
+		stmt.append(getCompiled());
 
-				StandardQueryParser parser = new StandardQueryParser(fSearchIndex.getSuggestionReader().getAnalyzer());
-				try {
-					return new AutoComplete().setQuery(parser.parse(stmt.toString(), "_suggestion"))
-							.setLimit(clause.getLimit()).setSort(clause.getSort());
-				} catch (QueryNodeException ex) {
-					throw Cause.create(ex).wrap(IOException.class);
-				}
+		for (String s : excludes) {
+			if (stmt.length() > 0) {
+				stmt.append(" AND ");
+			}
+
+			stmt.append("NOT(").append(QueryStatements.escape("_suggestion")).append(":").append(QueryStatements.escape(s)).append(")");
+		}
+
+		String[] s = fAutoCompleteClause.getText().split("\\s");
+		for (int i = 0; i < s.length; i++) {
+			if (stmt.length() > 0) {
+				stmt.append(" AND ");
+			}
+
+			stmt.append(QueryStatements.escape("_completion")).append(":").append(QueryStatements.escape(s[i]));
+			if (i == s.length - 1) {
+				stmt.append("*");
 			}
 		}
-		return null;
+
+		StandardQueryParser parser = new StandardQueryParser(fSearchIndex.getSuggestionReader().getAnalyzer());
+		try {
+			return new AutoComplete().setQuery(parser.parse(stmt.toString(), "_suggestion"))
+					.setLimit(fAutoCompleteClause.getLimit()).setSort(fAutoCompleteClause.getSort());
+		} catch (QueryNodeException ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
 	}
 
 	@Override

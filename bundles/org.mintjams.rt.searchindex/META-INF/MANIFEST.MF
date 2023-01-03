@@ -7,12 +7,14 @@ Automatic-Module-Name: org.mintjams.rt.searchindex
 Bundle-RequiredExecutionEnvironment: JavaSE-11
 Bundle-Vendor: %Plugin.provider
 Import-Package: org.osgi.framework;version="1.10.0",
+ org.osgi.framework.wiring;version="1.2.0",
  org.osgi.service.log;version="1.5.0"
 Bundle-Activator: org.mintjams.rt.searchindex.internal.Activator
 Require-Bundle: org.mintjams.searchindex;bundle-version="1.0.0",
  org.mintjams.tools;bundle-version="2.0.0",
  org.mintjams.jcr;bundle-version="1.0.0",
- org.snakeyaml.engine;bundle-version="2.3.0"
+ org.snakeyaml.engine;bundle-version="2.3.0",
+ org.apache.tika;bundle-version="2.6.0"
 Bundle-ClassPath: .,
  lib/antlr4-runtime-4.5.1-1.jar,
  lib/asm-7.2.jar,
@@ -57,6 +59,5 @@ Bundle-ClassPath: .,
  lib/morfologik-polish-2.1.9.jar,
  lib/morfologik-stemming-2.1.9.jar,
  lib/morfologik-ukrainian-search-4.9.1.jar,
- lib/opennlp-tools-1.9.1.jar,
- lib/tika-server.jar
+ lib/opennlp-tools-1.9.1.jar
 Bundle-ActivationPolicy: lazy

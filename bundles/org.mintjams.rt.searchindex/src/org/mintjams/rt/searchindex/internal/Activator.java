@@ -32,6 +32,7 @@ import org.mintjams.tools.osgi.Registration;
 import org.mintjams.tools.osgi.Tracker;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
+import org.osgi.framework.wiring.BundleWiring;
 import org.osgi.service.log.Logger;
 import org.osgi.service.log.LoggerFactory;
 
@@ -98,6 +99,10 @@ public class Activator implements BundleActivator {
 
 	public static Activator getDefault() {
 		return fActivator;
+	}
+
+	public ClassLoader getBundleClassLoader() {
+		return fBundleContext.getBundle().adapt(BundleWiring.class).getClassLoader();
 	}
 
 	public BundleContext getBundleContext() {

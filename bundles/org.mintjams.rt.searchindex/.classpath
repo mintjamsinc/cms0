@@ -45,7 +45,6 @@
 	<classpathentry exported="true" kind="lib" path="lib/morfologik-stemming-2.1.9.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/morfologik-ukrainian-search-4.9.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/opennlp-tools-1.9.1.jar"/>
-	<classpathentry exported="true" kind="lib" path="lib/tika-server.jar"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-11">
 		<attributes>
 			<attribute name="module" value="true"/>

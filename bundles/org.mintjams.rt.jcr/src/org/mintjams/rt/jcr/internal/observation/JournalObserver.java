@@ -313,7 +313,7 @@ public class JournalObserver implements Adaptable, Closeable {
 		try {
 			suggestionWriter.delete(itemId);
 			List<String> suggestions = new ArrayList<>();
-			for (String key : fWorkspaceProvider.getConfiguration().getPropertyKeysForSuggestions()) {
+			for (String key : fWorkspaceProvider.getConfiguration().getSuggestionPropertyKeys()) {
 				if (!contentNode.hasProperty(key)) {
 					continue;
 				}
@@ -328,10 +328,102 @@ public class JournalObserver implements Adaptable, Closeable {
 				}
 			}
 			if (!suggestions.isEmpty()) {
-				for (String text : suggestions) {
+				for (String suggestionText : suggestions) {
 					suggestionWriter.update(suggestion -> {
 						try {
-							suggestion.setSuggestion(text).setSuggestionBundleIdentifier(itemId);
+							suggestion.setIdentifier(itemId).setPath(item.getPath());
+
+							String mimeType = null;
+							try {
+								if (contentNode.hasProperty(JcrProperty.JCR_MIMETYPE)) {
+									mimeType = contentNode.getProperty(JcrProperty.JCR_MIMETYPE).getString();
+								}
+								if (Strings.isEmpty(mimeType)) {
+									mimeType = adaptTo(FileTypeDetector.class).probeContentType(Path.of(item.getName()));
+								}
+								if (Strings.isEmpty(mimeType)) {
+									mimeType = JcrProperty.DEFAULT_MIMETYPE;
+								}
+								suggestion.setMimeType(mimeType);
+							} catch (PathNotFoundException ignore) {
+								mimeType = JcrProperty.DEFAULT_MIMETYPE;
+								suggestion.setMimeType(mimeType);
+							}
+
+							String encoding = null;
+							try {
+								if (mimeType.startsWith("text/")) {
+									if (contentNode.hasProperty(JcrProperty.JCR_ENCODING)) {
+										encoding = contentNode.getProperty(JcrProperty.JCR_ENCODING).getString();
+									}
+									if (Strings.isEmpty(encoding)) {
+										encoding = StandardCharsets.UTF_8.name();
+									}
+									suggestion.setEncoding(encoding);
+								}
+							} catch (PathNotFoundException ignore) {
+								suggestion.setEncoding(null);
+							}
+
+							try {
+								Property dataProperty = contentNode.getProperty(JcrProperty.JCR_DATA);
+								if (mimeType.startsWith("text/")) {
+									String text = dataProperty.getString();
+									suggestion.setSize(text.getBytes(encoding).length);
+									suggestion.setContent(text);
+								} else {
+									suggestion.setSize(dataProperty.getLength());
+									suggestion.setContent(Adaptables.getAdapter(dataProperty.getValue(), Path.class));
+								}
+							} catch (PathNotFoundException ignore) {
+								suggestion.setSize(0);
+								suggestion.setContent("");
+							}
+
+							List<String> primaryTypes = new ArrayList<>();
+							primaryTypes.addAll(getPrimaryTypes(item));
+							for (String name : getPrimaryTypes(contentNode)) {
+								if (!primaryTypes.contains(name)) {
+									primaryTypes.add(name);
+								}
+							}
+							for (String name : primaryTypes) {
+								addProperty(suggestion, JcrProperty.JCR_PRIMARY_TYPE_NAME,
+										JcrValue.create(name, PropertyType.STRING));
+							}
+
+							List<String> mixinTypes = new ArrayList<>();
+							mixinTypes.addAll(getMixinTypes(item));
+							for (String name : getMixinTypes(contentNode)) {
+								if (!mixinTypes.contains(name)) {
+									mixinTypes.add(name);
+								}
+							}
+							for (String name : mixinTypes) {
+								addProperty(suggestion, JcrProperty.JCR_MIXIN_TYPES_NAME,
+										JcrValue.create(name, PropertyType.STRING));
+							}
+
+							for (Node node : new Node[] { item, contentNode }) {
+								for (PropertyIterator i = node.getProperties(); i.hasNext();) {
+									Property property = i.nextProperty();
+									if (property.getName().equals(JcrProperty.JCR_PRIMARY_TYPE_NAME)
+											|| property.getName().equals(JcrProperty.JCR_MIXIN_TYPES_NAME)
+											|| property.getName().equals(JcrProperty.JCR_DATA_NAME)) {
+										continue;
+									}
+
+									if (property.isMultiple()) {
+										for (Value value : property.getValues()) {
+											addProperty(suggestion, property.getName(), value);
+										}
+									} else {
+										addProperty(suggestion, property.getName(), property.getValue());
+									}
+								}
+							}
+
+							suggestion.setSuggestion(suggestionText);
 
 							for (String name : authorized) {
 								suggestion.addAuthorized(name);
@@ -420,6 +512,32 @@ public class JournalObserver implements Adaptable, Closeable {
 		}
 
 		document.addProperty(name, value.getString());
+	}
+
+	private void addProperty(SearchIndex.Suggestion suggestion, String name, Value value) throws ValueFormatException, RepositoryException {
+		int type = value.getType();
+		if (type == PropertyType.BINARY || type == PropertyType.NAME || type == PropertyType.PATH
+				|| type == PropertyType.URI || type == PropertyType.REFERENCE || type == PropertyType.WEAKREFERENCE) {
+			suggestion.addProperty(name, "");
+			return;
+		}
+
+		if (type == PropertyType.BOOLEAN) {
+			suggestion.addProperty(name, value.getBoolean());
+			return;
+		}
+
+		if (type == PropertyType.DATE) {
+			suggestion.addProperty(name, value.getDate());
+			return;
+		}
+
+		if (type == PropertyType.DECIMAL || type == PropertyType.DOUBLE || type == PropertyType.LONG) {
+			suggestion.addProperty(name, value.getDecimal());
+			return;
+		}
+
+		suggestion.addProperty(name, value.getString());
 	}
 
 	private List<String> getPrimaryTypes(Node item) throws RepositoryException {

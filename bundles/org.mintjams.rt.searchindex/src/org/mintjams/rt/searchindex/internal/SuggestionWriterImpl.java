@@ -27,20 +27,7 @@ import java.io.IOException;
 import java.util.function.UnaryOperator;
 
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.charfilter.MappingCharFilterFactory;
-import org.apache.lucene.analysis.cjk.CJKWidthFilterFactory;
-import org.apache.lucene.analysis.core.LowerCaseFilterFactory;
-import org.apache.lucene.analysis.core.StopFilterFactory;
-import org.apache.lucene.analysis.custom.CustomAnalyzer;
-import org.apache.lucene.analysis.icu.ICUTransformFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseBaseFormFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseCompletionFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseIterationMarkCharFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseKatakanaStemFilterFactory;
-import org.apache.lucene.analysis.ja.JapanesePartOfSpeechStopFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseTokenizerFactory;
 import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
-import org.apache.lucene.analysis.pattern.PatternReplaceCharFilterFactory;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.IndexWriter;
@@ -82,7 +69,7 @@ public class SuggestionWriterImpl implements SearchIndex.SuggestionWriter, Close
 	@Override
 	public SearchIndex.SuggestionWriter delete(String... identifiers) throws IOException {
 		for (String identifier : identifiers) {
-			fIndexWriter.deleteDocuments(new Term("_bundleIdentifier", identifier));
+			fIndexWriter.deleteDocuments(new Term("_identifier", identifier));
 			fHasChanges = true;
 		}
 		return this;
@@ -111,41 +98,10 @@ public class SuggestionWriterImpl implements SearchIndex.SuggestionWriter, Close
 
 	private Analyzer getAnalyzer() throws IOException {
 		if (fAnalyzer == null) {
-			Analyzer completionAnalyzer = CustomAnalyzer.builder(adaptTo(SearchIndexConfigurationImpl.class).getConfigPath())
-					.addCharFilter(MappingCharFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("mapping", "mapping.txt")
-							.build())
-					.addCharFilter(PatternReplaceCharFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("pattern", "\\s+")
-							.put("replacement", " ")
-							.build())
-					.addCharFilter(JapaneseIterationMarkCharFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("normalizeKanji", "true")
-							.put("normalizeKana", "true")
-							.build())
-					.withTokenizer(JapaneseTokenizerFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("userDictionary", "userdict.txt")
-							.build())
-					.addTokenFilter(JapaneseBaseFormFilterFactory.class, AdaptableMap.<String, String>newBuilder().build())
-					.addTokenFilter(JapanesePartOfSpeechStopFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("tags", "stoptags.txt")
-							.build())
-					.addTokenFilter(StopFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("words", "stopwords.txt")
-							.build())
-					.addTokenFilter(CJKWidthFilterFactory.class, AdaptableMap.<String, String>newBuilder().build())
-					.addTokenFilter(ICUTransformFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("id", "Hiragana-Katakana")
-							.build())
-					.addTokenFilter(JapaneseKatakanaStemFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("minimumLength", "4")
-							.build())
-					.addTokenFilter(LowerCaseFilterFactory.class, AdaptableMap.<String, String>newBuilder().build())
-					.addTokenFilter(JapaneseCompletionFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("mode", "INDEX")
-							.build())
-					.build();
-
+			Analyzer completionAnalyzer = adaptTo(SearchIndexConfigurationImpl.class).getAnalyzer("completion@index");
+			if (completionAnalyzer == null) {
+				completionAnalyzer = new StandardAnalyzer();
+			}
 			fAnalyzer = fCloser.register(new PerFieldAnalyzerWrapper(new StandardAnalyzer(),
 					AdaptableMap.<String, Analyzer>newBuilder().put("_completion", completionAnalyzer).build()));
 		}

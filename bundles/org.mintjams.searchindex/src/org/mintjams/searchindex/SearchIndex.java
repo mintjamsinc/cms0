@@ -80,9 +80,35 @@ public interface SearchIndex extends Closeable {
 	}
 
 	interface Suggestion {
-		Suggestion setSuggestion(String suggestion);
+		Suggestion setIdentifier(String identifier);
 
-		Suggestion setSuggestionBundleIdentifier(String identifier);
+		Suggestion setPath(String path);
+
+		Suggestion setMimeType(String mimeType);
+
+		Suggestion setEncoding(String encoding);
+
+		Suggestion setSize(long size);
+
+		Suggestion setContent(String text);
+
+		Suggestion setContent(Path path);
+
+		Suggestion setContent(InputStream stream);
+
+		Suggestion addProperty(String name, String value);
+
+		Suggestion addProperty(String name, BigDecimal value);
+
+		Suggestion addProperty(String name, java.util.Date value);
+
+		Suggestion addProperty(String name, Calendar value);
+
+		Suggestion addProperty(String name, boolean value);
+
+		Suggestion removeProperty(String name);
+
+		Suggestion setSuggestion(String suggestion);
 
 		Suggestion addAuthorized(String... name);
 

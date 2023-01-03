@@ -26,20 +26,9 @@ import java.io.Closeable;
 import java.io.IOException;
 
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.analysis.charfilter.MappingCharFilterFactory;
-import org.apache.lucene.analysis.cjk.CJKWidthFilterFactory;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
-import org.apache.lucene.analysis.core.LowerCaseFilterFactory;
-import org.apache.lucene.analysis.core.StopFilterFactory;
-import org.apache.lucene.analysis.custom.CustomAnalyzer;
-import org.apache.lucene.analysis.icu.ICUTransformFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseBaseFormFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseIterationMarkCharFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseKatakanaStemFilterFactory;
-import org.apache.lucene.analysis.ja.JapanesePartOfSpeechStopFilterFactory;
-import org.apache.lucene.analysis.ja.JapaneseTokenizerFactory;
 import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
-import org.apache.lucene.analysis.pattern.PatternReplaceCharFilterFactory;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyReader;
 import org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter;
 import org.apache.lucene.index.DirectoryReader;
@@ -107,38 +96,10 @@ public class DocumentReader implements Closeable, Adaptable {
 
 	public Analyzer getAnalyzer() throws IOException {
 		if (fAnalyzer == null) {
-			Analyzer fulltextAnalyzer = CustomAnalyzer.builder(adaptTo(SearchIndexConfigurationImpl.class).getConfigPath())
-					.addCharFilter(MappingCharFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("mapping", "mapping.txt")
-							.build())
-					.addCharFilter(PatternReplaceCharFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("pattern", "\\s+")
-							.put("replacement", " ")
-							.build())
-					.addCharFilter(JapaneseIterationMarkCharFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("normalizeKanji", "true")
-							.put("normalizeKana", "true")
-							.build())
-					.withTokenizer(JapaneseTokenizerFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("userDictionary", "userdict.txt")
-							.build())
-					.addTokenFilter(JapaneseBaseFormFilterFactory.class, AdaptableMap.<String, String>newBuilder().build())
-					.addTokenFilter(JapanesePartOfSpeechStopFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("tags", "stoptags.txt")
-							.build())
-					.addTokenFilter(StopFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("words", "stopwords.txt")
-							.build())
-					.addTokenFilter(CJKWidthFilterFactory.class, AdaptableMap.<String, String>newBuilder().build())
-					.addTokenFilter(ICUTransformFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("id", "Hiragana-Katakana")
-							.build())
-					.addTokenFilter(JapaneseKatakanaStemFilterFactory.class, AdaptableMap.<String, String>newBuilder()
-							.put("minimumLength", "4")
-							.build())
-					.addTokenFilter(LowerCaseFilterFactory.class, AdaptableMap.<String, String>newBuilder().build())
-					.build();
-
+			Analyzer fulltextAnalyzer = adaptTo(SearchIndexConfigurationImpl.class).getAnalyzer("fulltext@query");
+			if (fulltextAnalyzer == null) {
+				fulltextAnalyzer = new StandardAnalyzer();
+			}
 			fAnalyzer = fCloser.register(new PerFieldAnalyzerWrapper(new KeywordAnalyzer(),
 					AdaptableMap.<String, Analyzer>newBuilder().put("_fulltext", fulltextAnalyzer).build()));
 		}

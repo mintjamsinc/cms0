@@ -88,17 +88,17 @@ public class JcrWorkspaceProviderConfiguration {
 		return (List<Map<String, Object>>) fConfig.get("defaultNodes");
 	}
 
-	private List<String> _propertyKeysForSuggestions = null;
-	public List<String> getPropertyKeysForSuggestions() {
-		if (_propertyKeysForSuggestions == null) {
+	private List<String> _suggestionPropertyKeys = null;
+	public List<String> getSuggestionPropertyKeys() {
+		if (_suggestionPropertyKeys == null) {
 			ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
 			try {
-				_propertyKeysForSuggestions = Arrays.asList(el.getStringArray("config.search.suggestions.propertyKeys"));
+				_suggestionPropertyKeys = Arrays.asList(el.getStringArray("config.search.suggestion.propertyKeys"));
 			} catch (Throwable ignore) {
-				_propertyKeysForSuggestions = new ArrayList<>();
+				_suggestionPropertyKeys = new ArrayList<>();
 			}
 		}
-		return _propertyKeysForSuggestions;
+		return _suggestionPropertyKeys;
 	}
 
 	private List<Map<String, Object>> _accessControlFilters = null;
