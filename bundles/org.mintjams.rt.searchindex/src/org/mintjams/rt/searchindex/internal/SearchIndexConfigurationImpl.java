@@ -30,7 +30,6 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -82,7 +81,7 @@ public class SearchIndexConfigurationImpl implements SearchIndexConfiguration {
 
 		Path searchPath = configPath.resolve("search.yml");
 		if (!Files.exists(searchPath)) {
-			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(searchPath, StandardOpenOption.CREATE_NEW))) {
+			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(searchPath))) {
 				try (InputStream in = getClass().getResourceAsStream("search.yml")) {
 					IOs.copy(in, out);
 				}

@@ -31,7 +31,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.security.Principal;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -277,7 +276,7 @@ public class WorkspaceQuery implements Adaptable {
 			Path path = getPath(id);
 			Files.createDirectories(path.getParent());
 			try (InputStream in = data.getStream()) {
-				try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path, StandardOpenOption.CREATE_NEW))) {
+				try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
 					IOs.copy(in, out);
 				}
 			}

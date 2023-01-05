@@ -28,7 +28,6 @@ import java.io.InputStream;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Map;
 
 import javax.servlet.http.HttpServlet;
@@ -57,7 +56,7 @@ public class WorkspaceServletProviderConfiguration {
 		}
 		Path webPath = configPath.resolve("web.yml");
 		if (!Files.exists(webPath)) {
-			try (Writer out = Files.newBufferedWriter(webPath, StandardOpenOption.CREATE_NEW)) {
+			try (Writer out = Files.newBufferedWriter(webPath)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 						.put("contextPath", "/bin/cms.cgi/" + getWorkspaceName())
 						.build());

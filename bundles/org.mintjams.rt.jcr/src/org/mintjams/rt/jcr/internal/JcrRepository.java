@@ -128,6 +128,8 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 	private void prepare() throws IOException {
 		prepareRepositoryDescriptors();
 
+		IOs.deleteIfExists(fConfiguration.getTmpPath());
+
 		for (Path path : new Path[] {
 				fConfiguration.getEtcPath(),
 				fConfiguration.getTmpPath(),
@@ -137,8 +139,6 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 				Files.createDirectories(path);
 			}
 		}
-
-		IOs.deleteIfExists(fConfiguration.getTmpPath());
 
 		prepareWorkspaces();
 	}

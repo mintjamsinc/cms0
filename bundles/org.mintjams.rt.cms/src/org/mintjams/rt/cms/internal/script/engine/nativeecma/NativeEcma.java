@@ -31,7 +31,6 @@ import java.io.OutputStream;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Enumeration;
 import java.util.List;
 
@@ -72,7 +71,7 @@ public class NativeEcma implements Closeable {
 				continue;
 			}
 
-			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(f, StandardOpenOption.CREATE_NEW))) {
+			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(f))) {
 				try (InputStream in = new BufferedInputStream(entry.openStream())) {
 					IOs.copy(in, out);
 				}

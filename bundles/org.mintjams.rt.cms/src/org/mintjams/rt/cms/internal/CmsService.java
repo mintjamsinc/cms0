@@ -29,7 +29,6 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -126,7 +125,7 @@ public class CmsService {
 			}
 			Path bootIdPath = etcPath.resolve("boot.id");
 			if (!Files.exists(bootIdPath)) {
-				try (Writer out = Files.newBufferedWriter(bootIdPath, StandardOpenOption.CREATE_NEW)) {
+				try (Writer out = Files.newBufferedWriter(bootIdPath)) {
 					out.write(UUID.randomUUID().toString());
 				}
 			}

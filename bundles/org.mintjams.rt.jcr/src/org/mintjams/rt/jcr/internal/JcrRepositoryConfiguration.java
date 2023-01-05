@@ -30,7 +30,6 @@ import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -69,7 +68,7 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		}
 		Path repositoryPath = etcPath.resolve("repository.yml");
 		if (!Files.exists(repositoryPath)) {
-			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(repositoryPath, StandardOpenOption.CREATE_NEW))) {
+			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(repositoryPath))) {
 				try (InputStream in = getClass().getResourceAsStream("repository.yml")) {
 					IOs.copy(in, out);
 				}

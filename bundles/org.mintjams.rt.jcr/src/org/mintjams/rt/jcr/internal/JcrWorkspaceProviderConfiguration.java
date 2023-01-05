@@ -29,7 +29,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -59,7 +58,7 @@ public class JcrWorkspaceProviderConfiguration {
 		}
 		Path jcrPath = configPath.resolve("jcr.yml");
 		if (!Files.exists(jcrPath)) {
-			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(jcrPath, StandardOpenOption.CREATE_NEW))) {
+			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(jcrPath))) {
 				try (InputStream in = getClass().getResourceAsStream("jcr.yml")) {
 					IOs.copy(in, out);
 				}

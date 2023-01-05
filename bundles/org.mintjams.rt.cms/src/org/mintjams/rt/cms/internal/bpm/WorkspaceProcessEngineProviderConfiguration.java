@@ -29,7 +29,6 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -68,7 +67,7 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		}
 		Path bpmPath = configPath.resolve("bpm.yml");
 		if (!Files.exists(bpmPath)) {
-			try (Writer out = Files.newBufferedWriter(bpmPath, StandardOpenOption.CREATE_NEW)) {
+			try (Writer out = Files.newBufferedWriter(bpmPath)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 						.put("jdbcURL", "jdbc:h2:" + getDataPath().resolve("data").toAbsolutePath())
 						.build());

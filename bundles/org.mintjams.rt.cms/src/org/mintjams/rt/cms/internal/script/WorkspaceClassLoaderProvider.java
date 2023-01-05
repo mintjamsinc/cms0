@@ -30,7 +30,6 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -168,7 +167,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 				String itemPath = item.getPath();
 				Path path = fCachePath.resolve(itemPath.substring(1));
 				Files.createDirectories(path.getParent());
-				try (OutputStream out = Files.newOutputStream(path, StandardOpenOption.CREATE)) {
+				try (OutputStream out = Files.newOutputStream(path)) {
 					try (InputStream in = JCRs.getContentAsStream(item)) {
 						IOs.copy(in, out);
 					}
@@ -229,11 +228,19 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 
 	public static class WorkspaceClassLoader extends URLClassLoader implements Adaptable {
 		private final ScriptCacheImpl fScriptCache = new ScriptCacheImpl();
-		private GroovyClassLoader fGroovyClassLoader;
+		private final GroovyClassLoader fGroovyClassLoader;
 
 		private WorkspaceClassLoader(URL[] urls, ClassLoader parent) {
 			super(urls, parent);
 			fGroovyClassLoader = new GroovyClassLoader(this, null);
+		}
+
+		@Override
+		public void close() throws IOException {
+			try {
+				fGroovyClassLoader.close();
+			} catch (Throwable ignore) {}
+			super.close();
 		}
 
 		@SuppressWarnings("unchecked")

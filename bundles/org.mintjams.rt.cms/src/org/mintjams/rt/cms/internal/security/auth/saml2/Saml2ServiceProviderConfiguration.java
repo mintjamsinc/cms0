@@ -30,7 +30,6 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -116,7 +115,7 @@ public class Saml2ServiceProviderConfiguration {
 									.build())
 							.build())
 					.build();
-			try (Writer out = Files.newBufferedWriter(saml2Path, StandardOpenOption.CREATE_NEW)) {
+			try (Writer out = Files.newBufferedWriter(saml2Path)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(yaml);
 				out.append(yamlString);
 			}

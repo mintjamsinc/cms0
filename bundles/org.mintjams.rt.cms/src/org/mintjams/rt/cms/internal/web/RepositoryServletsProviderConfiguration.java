@@ -28,7 +28,6 @@ import java.io.InputStream;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Map;
 
 import javax.servlet.ServletException;
@@ -60,7 +59,7 @@ public class RepositoryServletsProviderConfiguration {
 			}
 			Path cmsPath = configPath.resolve("cms.yml");
 			if (!Files.exists(cmsPath)) {
-				try (Writer out = Files.newBufferedWriter(cmsPath, StandardOpenOption.CREATE_NEW)) {
+				try (Writer out = Files.newBufferedWriter(cmsPath)) {
 					String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 							.put("startWebURI", DEFAULT_START_WEB_URI)
 							.build());

@@ -28,7 +28,6 @@ import java.io.InputStream;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Map;
 
 import org.mintjams.rt.cms.internal.CmsService;
@@ -54,7 +53,7 @@ public class WorkspaceIntegrationEngineProviderConfiguration {
 		}
 		Path eipPath = configPath.resolve("eip.yml");
 		if (!Files.exists(eipPath)) {
-			try (Writer out = Files.newBufferedWriter(eipPath, StandardOpenOption.CREATE_NEW)) {
+			try (Writer out = Files.newBufferedWriter(eipPath)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 						.build());
 				out.append(yamlString);

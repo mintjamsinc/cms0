@@ -25,7 +25,6 @@ package org.mintjams.rt.searchindex.internal;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -169,7 +168,7 @@ public class SearchIndexImpl implements SearchIndex, Adaptable {
 	public void save() throws IOException {
 		synchronized (fMultiValuedDimensions) {
 			if (fHasMultiValuedDimensionsChanges) {
-				Files.writeString(fConfig.getMultiValuedPath(), String.join("\n", fMultiValuedDimensions), StandardCharsets.UTF_8, StandardOpenOption.CREATE);
+				Files.writeString(fConfig.getMultiValuedPath(), String.join("\n", fMultiValuedDimensions), StandardCharsets.UTF_8);
 				fHasMultiValuedDimensionsChanges = false;
 			}
 		}
