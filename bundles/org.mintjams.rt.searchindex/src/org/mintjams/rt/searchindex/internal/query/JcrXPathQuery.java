@@ -341,6 +341,8 @@ public class JcrXPathQuery extends SearchIndexQuery {
 		}
 
 		StandardQueryParser parser = new StandardQueryParser(fSearchIndex.getSuggestionReader().getAnalyzer());
+		parser.setPointsConfigMap(getPointsConfigMap());
+		parser.setAllowLeadingWildcard(true);
 		try {
 			return new AutoComplete().setQuery(parser.parse(stmt.toString(), "_suggestion"))
 					.setLimit(fAutoCompleteClause.getLimit()).setSort(fAutoCompleteClause.getSort());
