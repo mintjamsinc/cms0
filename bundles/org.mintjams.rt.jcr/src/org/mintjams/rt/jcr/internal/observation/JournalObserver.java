@@ -193,6 +193,7 @@ public class JournalObserver implements Adaptable, Closeable {
 			return;
 		}
 
+		WorkspaceQuery workspaceQuery = Adaptables.getAdapter(item, WorkspaceQuery.class);
 		List<String> authorized = getAuthorized(item);
 
 		SearchIndex.DocumentWriter documentWriter = adaptTo(SearchIndex.class).getDocumentWriter();
@@ -314,6 +315,7 @@ public class JournalObserver implements Adaptable, Closeable {
 			suggestionWriter.delete(itemId);
 			List<String> suggestions = new ArrayList<>();
 			for (String key : fWorkspaceProvider.getConfiguration().getSuggestionPropertyKeys()) {
+				key = workspaceQuery.getResolved(key);
 				if (!contentNode.hasProperty(key)) {
 					continue;
 				}
