@@ -322,10 +322,19 @@ public class JournalObserver implements Adaptable, Closeable {
 
 				Property p = contentNode.getProperty(key);
 				if (!p.isMultiple()) {
-					suggestions.add(p.getString());
+					for (String v : p.getString().split("\r?\n|\r")) {
+						if (Strings.isEmpty(v)) {
+							continue;
+						}
+						suggestions.add(v);
+					}
 				} else {
 					for (Value v : p.getValues()) {
-						suggestions.add(v.getString());
+						String s = v.getString();
+						if (Strings.isEmpty(s)) {
+							continue;
+						}
+						suggestions.add(s);
 					}
 				}
 			}
