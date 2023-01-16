@@ -67,6 +67,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	private final Map<Path, String> fCachedFiles = new HashMap<>();
 	private final Closer fCloser = Closer.create();
 	private WorkspaceClassLoader fWorkspaceClassLoader;
+	private boolean fHasChanges;
 
 	public WorkspaceClassLoaderProvider(String workspaceName) throws IOException {
 		this(workspaceName, new WorkspaceClassLoaderProvider[0]);
@@ -173,6 +174,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					}
 				}
 				fCachedFiles.put(path, itemPath);
+				fHasChanges = true;
 				CmsService.getLogger(getClass()).info("Deployed: " + itemPath);
 			}
 			return;
@@ -195,6 +197,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 				Path path = fCachePath.resolve(itemPath.substring(1));
 				fCachedFiles.remove(path);
 				Files.deleteIfExists(path);
+				fHasChanges = true;
 				CmsService.getLogger(getClass()).info("Undeployed: " + itemPath);
 			}
 			return;
@@ -207,6 +210,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					if (path.startsWith(parentPath)) {
 						String removedItemPath = fCachedFiles.remove(path);
 						if (removedItemPath != null) {
+							fHasChanges = true;
 							CmsService.getLogger(getClass()).info("Undeployed: " + removedItemPath);
 						}
 					}
@@ -219,9 +223,14 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 
 	private void resetClassLoader() {
 		synchronized (fCachedFiles) {
+			if (!fHasChanges) {
+				return;
+			}
+
 			if (fWorkspaceClassLoader != null) {
 				IOs.closeQuietly(fWorkspaceClassLoader);
 				fWorkspaceClassLoader = null;
+				fHasChanges = false;
 			}
 		}
 	}
