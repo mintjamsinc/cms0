@@ -128,7 +128,7 @@ public class ScriptReader extends FilterReader {
 		try (Reader _this = this) {
 			ScriptCache scriptCache = Adaptables.getAdapter(fClassLoader, ScriptCache.class);
 			if (scriptCache != null) {
-				ScriptCache.Entry cached = scriptCache.getScriptCacheEntry("jcr://" + fScriptName);
+				ScriptCache.Entry cached = scriptCache.getScriptCacheEntry(fScriptName);
 				if (cached != null && cached.getLastModified().compareTo(fLastModified) == 0) {
 					try (Closeable c = ClassLoaders.withClassLoader(fClassLoader)) {
 						return cached.getScript().eval(fScriptContext);
@@ -179,7 +179,9 @@ public class ScriptReader extends FilterReader {
 			try (Closeable c = ClassLoaders.withClassLoader(fClassLoader)) {
 				if (engine instanceof Compilable) {
 					CompiledScript script = ((Compilable) engine).compile(this);
-					scriptCache.setScriptCacheEntry(fScriptName, script, fLastModified);
+					if (scriptCache != null) {
+						scriptCache.setScriptCacheEntry(fScriptName, script, fLastModified);
+					}
 					return script.eval(fScriptContext);
 				}
 
