@@ -122,10 +122,9 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		int cacheSize = Integer.parseInt(Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.session.nodeCacheSize"), "64"));
 		int value = cacheSize;
 		try {
-			value = BigDecimal.valueOf(Runtime.getRuntime().maxMemory())
-					.multiply(BigDecimal.valueOf(0.5))
-					.subtract(BigDecimal.valueOf(Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()))
-					.divide(BigDecimal.valueOf(4194304)).intValue();
+			value = BigDecimal.valueOf(Runtime.getRuntime().freeMemory())
+					.multiply(BigDecimal.valueOf(0.2))
+					.divide(BigDecimal.valueOf(1048576)).intValue();
 		} catch (Throwable ignore) {}
 		if (value < 8) {
 			value = 8;
