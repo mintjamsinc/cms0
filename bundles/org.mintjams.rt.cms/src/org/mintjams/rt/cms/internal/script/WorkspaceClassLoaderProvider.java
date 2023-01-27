@@ -68,6 +68,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	private final Closer fCloser = Closer.create();
 	private WorkspaceClassLoader fWorkspaceClassLoader;
 	private boolean fHasChanges;
+	private ClassLoaderCloser fClassLoaderCloser;
 
 	public WorkspaceClassLoaderProvider(String workspaceName) throws IOException {
 		this(workspaceName, new WorkspaceClassLoaderProvider[0]);
@@ -80,6 +81,9 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	}
 
 	public synchronized void open() throws IOException, RepositoryException {
+		fClassLoaderCloser = fCloser.register(new ClassLoaderCloser());
+		fClassLoaderCloser.open();
+
 		Deployer deployer = fCloser.register(new Deployer());
 		deployer.open();
 	}
@@ -228,7 +232,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			}
 
 			if (fWorkspaceClassLoader != null) {
-				IOs.closeQuietly(fWorkspaceClassLoader);
+				fClassLoaderCloser.addClassLoader(fWorkspaceClassLoader);
 				fWorkspaceClassLoader = null;
 				fHasChanges = false;
 			}
@@ -469,6 +473,97 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					}
 				}
 				return false;
+			}
+		}
+	}
+
+	private class ClassLoaderCloser implements Closeable {
+		private Thread fThread;
+		private boolean fCloseRequested;
+		private final List<ClassLoaderEntry> fEntries = new ArrayList<>();
+
+		private ClassLoaderCloser open() {
+			if (fThread != null) {
+				return this;
+			}
+
+			fThread = new Thread(new Task());
+			fThread.setDaemon(true);
+			fThread.start();
+
+			return this;
+		}
+
+		public void addClassLoader(WorkspaceClassLoader classLoader) {
+			synchronized (fEntries) {
+				fEntries.add(new ClassLoaderEntry(classLoader));
+				fEntries.notifyAll();
+			}
+		}
+
+		@Override
+		public void close() throws IOException {
+			if (fCloseRequested) {
+				return;
+			}
+
+			fCloseRequested = true;
+			try {
+				fThread.interrupt();
+				fThread.join(10000);
+			} catch (InterruptedException ignore) {}
+			fThread = null;
+			fCloseRequested = false;
+		}
+
+		private class Task implements Runnable {
+			@Override
+			public void run() {
+				while (!fCloseRequested) {
+					ClassLoaderEntry entry;
+					synchronized (fEntries) {
+						if (fEntries.isEmpty()) {
+							try {
+								fEntries.wait();
+							} catch (InterruptedException ignore) {}
+							continue;
+						}
+
+						if (!fEntries.get(0).isExpired()) {
+							try {
+								Thread.sleep(3000);
+							} catch (InterruptedException ignore) {}
+							continue;
+						}
+						entry = fEntries.remove(0);
+					}
+
+					IOs.closeQuietly(entry.getClassLoader());
+				}
+
+				synchronized (fEntries) {
+					while (!fEntries.isEmpty()) {
+						IOs.closeQuietly(fEntries.remove(0).getClassLoader());
+					}
+				}
+			}
+		}
+
+		private class ClassLoaderEntry {
+			private final WorkspaceClassLoader fWorkspaceClassLoader;
+			private final long fTime;
+
+			private ClassLoaderEntry(WorkspaceClassLoader classLoader) {
+				fWorkspaceClassLoader = classLoader;
+				fTime = System.currentTimeMillis();
+			}
+
+			public WorkspaceClassLoader getClassLoader() {
+				return fWorkspaceClassLoader;
+			}
+
+			public boolean isExpired() {
+				return (System.currentTimeMillis() - fTime > 10000);
 			}
 		}
 	}
