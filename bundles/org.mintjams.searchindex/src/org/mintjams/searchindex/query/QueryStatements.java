@@ -30,7 +30,7 @@ import java.util.List;
 public class QueryStatements {
 
 	private static final String[] ESCAPES = new String[] { "\\", "\"", "`", "<", ">", "#", "%", "{", "}", "|", "^", "~",
-			"[", "]", ";", "/", "?", ":", "@", "=", "+", "&", "-", "!", "(", ")", "*" };
+			"[", "]", ";", "/", "?", ":", "@", "=", "+", "&", "-", "!", "(", ")", "*", " ", "¥t", "¥r", "¥n" };
 
 	private QueryStatements() {}
 
