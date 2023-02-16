@@ -130,8 +130,8 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		private final java.util.Properties fSystemProperties = System.getProperties();
 
 		private VariableProviderImpl() {
-			fSystemProperties.put("repository.home", CmsService.getRepositoryPath());
-			fSystemProperties.put("workspace.home", CmsService.getWorkspacePath(getWorkspaceName()));
+			fSystemProperties.setProperty("repository.home", CmsService.getRepositoryPath().toString());
+			fSystemProperties.setProperty("workspace.home", CmsService.getWorkspacePath(getWorkspaceName()).toString());
 		}
 
 		@Override
