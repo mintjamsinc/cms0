@@ -46,6 +46,8 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
 import org.mintjams.tools.collections.AdaptableList;
 import org.mintjams.tools.collections.AdaptableMap;
+import org.mintjams.tools.osgi.Configuration;
+import org.mintjams.tools.osgi.VariableProvider;
 import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
@@ -90,10 +92,16 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		ProcessEngineConfigurationImpl config = (ProcessEngineConfigurationImpl) ProcessEngineConfiguration.createStandaloneProcessEngineConfiguration();
 		config.setClassLoader(new WorkspaceDelegatingClassLoader(getWorkspaceName()))
 				.setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE)
-				.setJdbcUrl(adapt(fConfig.get("jdbcURL"), String.class))
+				.setJdbcUrl(getJdbcURL())
 				.setScriptingEngines(scriptingEngines)
 				.setJobExecutorActivate(true);
 		return config.buildProcessEngine();
+	}
+
+	private String getJdbcURL() {
+		String v = adapt(fConfig.get("jdbcURL"), String.class).trim();
+		v = Configuration.create(CmsService.getDefault().getBundleContext()).with(new VariableProviderImpl()).replaceVariables(v);
+		return v;
 	}
 
 	public String getWorkspaceName() {
@@ -116,6 +124,34 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		return AdaptableList.<Object>newBuilder()
 				.setEncoding(StandardCharsets.UTF_8.name())
 				.add(value).build().adapt(0, adapterType).getValue();
+	}
+
+	private class VariableProviderImpl implements VariableProvider {
+		private final java.util.Properties fSystemProperties = System.getProperties();
+
+		private VariableProviderImpl() {
+			fSystemProperties.put("repository.home", CmsService.getRepositoryPath());
+			fSystemProperties.put("workspace.home", CmsService.getWorkspacePath(getWorkspaceName()));
+		}
+
+		@Override
+		public Object getVariable(String name) {
+			String value = CmsService.getDefault().getBundleContext().getProperty(name);
+			if (value != null) {
+				return value;
+			}
+
+			value = fSystemProperties.getProperty(name);
+			if (value != null) {
+				return value;
+			}
+
+			if ("osgi.instance.area".equals(name)) {
+				return ".";
+			}
+
+			return null;
+		}
 	}
 
 }
