@@ -63,6 +63,10 @@ public class IndexableDocument implements SearchIndex.Document {
 	private String fMimeType;
 	private String fEncoding;
 	private Long fSize;
+	private java.util.Date fCreated;
+	private String fCreatedBy;
+	private java.util.Date fLastModified;
+	private String fLastModifiedBy;
 	private Object fContent;
 	private final Map<String, List<Object>> fProperties = new HashMap<>();
 	private boolean fStored;
@@ -114,6 +118,30 @@ public class IndexableDocument implements SearchIndex.Document {
 		}
 
 		fSize = size;
+		return this;
+	}
+
+	@Override
+	public SearchIndex.Document setCreated(Date created) {
+		fCreated = created;
+		return this;
+	}
+
+	@Override
+	public SearchIndex.Document setCreatedBy(String createdBy) {
+		fCreatedBy = createdBy;
+		return this;
+	}
+
+	@Override
+	public SearchIndex.Document setLastModified(Date lastModified) {
+		fLastModified = lastModified;
+		return this;
+	}
+
+	@Override
+	public SearchIndex.Document setLastModifiedBy(String lastModifiedBy) {
+		fLastModifiedBy = lastModifiedBy;
 		return this;
 	}
 
@@ -255,6 +283,30 @@ public class IndexableDocument implements SearchIndex.Document {
 			long value = fSize.longValue();
 			doc.add(new LongPoint("_size", value));
 			doc.add(new SortedNumericDocValuesField("_size", value));
+		}
+
+		if (fCreated != null) {
+			long value = fCreated.getTime();
+			doc.add(new LongPoint("_created", value));
+			doc.add(new SortedNumericDocValuesField("_created", value));
+		}
+
+		if (fCreatedBy != null) {
+			doc.add(new StringField("_createdBy", fCreatedBy, Field.Store.NO));
+			doc.add(new SortedDocValuesField("_createdBy", new BytesRef(fCreatedBy)));
+			fulltext.append("\n").append(Strings.defaultIfEmpty(fCreatedBy, StandardCharsets.UTF_8.toString()));
+		}
+
+		if (fLastModified != null) {
+			long value = fLastModified.getTime();
+			doc.add(new LongPoint("_lastModified", value));
+			doc.add(new SortedNumericDocValuesField("_lastModified", value));
+		}
+
+		if (fLastModifiedBy != null) {
+			doc.add(new StringField("_lastModifiedBy", fLastModifiedBy, Field.Store.NO));
+			doc.add(new SortedDocValuesField("_lastModifiedBy", new BytesRef(fLastModifiedBy)));
+			fulltext.append("\n").append(Strings.defaultIfEmpty(fLastModifiedBy, StandardCharsets.UTF_8.toString()));
 		}
 
 		doc.add(new TextField("_fulltext", fulltext.toString(), Field.Store.NO));

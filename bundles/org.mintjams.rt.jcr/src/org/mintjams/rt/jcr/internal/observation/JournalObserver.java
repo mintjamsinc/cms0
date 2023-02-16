@@ -273,12 +273,25 @@ public class JournalObserver implements Adaptable, Closeable {
 								JcrValue.create(name, PropertyType.STRING));
 					}
 
+					addProperty(document, JcrProperty.JCR_CREATED_NAME,
+							item.getProperty(JcrProperty.JCR_CREATED_NAME).getValue());
+					addProperty(document, JcrProperty.JCR_CREATED_BY_NAME,
+							item.getProperty(JcrProperty.JCR_CREATED_BY_NAME).getValue());
+					addProperty(document, JcrProperty.JCR_LAST_MODIFIED_NAME,
+							item.getProperty(JcrProperty.JCR_LAST_MODIFIED_NAME).getValue());
+					addProperty(document, JcrProperty.JCR_LAST_MODIFIED_BY_NAME,
+							item.getProperty(JcrProperty.JCR_LAST_MODIFIED_BY_NAME).getValue());
+
 					for (Node node : new Node[] { item, contentNode }) {
 						for (PropertyIterator i = node.getProperties(); i.hasNext();) {
 							Property property = i.nextProperty();
 							if (property.getName().equals(JcrProperty.JCR_PRIMARY_TYPE_NAME)
 									|| property.getName().equals(JcrProperty.JCR_MIXIN_TYPES_NAME)
-									|| property.getName().equals(JcrProperty.JCR_DATA_NAME)) {
+									|| property.getName().equals(JcrProperty.JCR_DATA_NAME)
+									|| property.getName().equals(JcrProperty.JCR_CREATED_NAME)
+									|| property.getName().equals(JcrProperty.JCR_CREATED_BY_NAME)
+									|| property.getName().equals(JcrProperty.JCR_LAST_MODIFIED_NAME)
+									|| property.getName().equals(JcrProperty.JCR_LAST_MODIFIED_BY_NAME)) {
 								continue;
 							}
 
@@ -415,12 +428,25 @@ public class JournalObserver implements Adaptable, Closeable {
 										JcrValue.create(name, PropertyType.STRING));
 							}
 
+							addProperty(suggestion, JcrProperty.JCR_CREATED_NAME,
+									item.getProperty(JcrProperty.JCR_CREATED_NAME).getValue());
+							addProperty(suggestion, JcrProperty.JCR_CREATED_BY_NAME,
+									item.getProperty(JcrProperty.JCR_CREATED_BY_NAME).getValue());
+							addProperty(suggestion, JcrProperty.JCR_LAST_MODIFIED_NAME,
+									item.getProperty(JcrProperty.JCR_LAST_MODIFIED_NAME).getValue());
+							addProperty(suggestion, JcrProperty.JCR_LAST_MODIFIED_BY_NAME,
+									item.getProperty(JcrProperty.JCR_LAST_MODIFIED_BY_NAME).getValue());
+
 							for (Node node : new Node[] { item, contentNode }) {
 								for (PropertyIterator i = node.getProperties(); i.hasNext();) {
 									Property property = i.nextProperty();
 									if (property.getName().equals(JcrProperty.JCR_PRIMARY_TYPE_NAME)
 											|| property.getName().equals(JcrProperty.JCR_MIXIN_TYPES_NAME)
-											|| property.getName().equals(JcrProperty.JCR_DATA_NAME)) {
+											|| property.getName().equals(JcrProperty.JCR_DATA_NAME)
+											|| property.getName().equals(JcrProperty.JCR_CREATED_NAME)
+											|| property.getName().equals(JcrProperty.JCR_CREATED_BY_NAME)
+											|| property.getName().equals(JcrProperty.JCR_LAST_MODIFIED_NAME)
+											|| property.getName().equals(JcrProperty.JCR_LAST_MODIFIED_BY_NAME)) {
 										continue;
 									}
 

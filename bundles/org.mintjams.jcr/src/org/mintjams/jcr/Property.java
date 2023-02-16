@@ -29,7 +29,9 @@ public interface Property extends javax.jcr.Property {
 	String JCR_ENCODING_NAME = "jcr:encoding";
 	String JCR_MIMETYPE_NAME = "jcr:mimeType";
 	String JCR_DATA_NAME = "jcr:data";
+	String JCR_CREATED_NAME = "jcr:created";
 	String JCR_CREATED_BY_NAME = "jcr:createdBy";
+	String JCR_LAST_MODIFIED_NAME = "jcr:lastModified";
 	String JCR_LAST_MODIFIED_BY_NAME = "jcr:lastModifiedBy";
 	String JCR_FROZEN_PRIMARY_TYPE_NAME = "jcr:frozenPrimaryType";
 	String JCR_FROZEN_MIXIN_TYPES_NAME = "jcr:mixinTypes";

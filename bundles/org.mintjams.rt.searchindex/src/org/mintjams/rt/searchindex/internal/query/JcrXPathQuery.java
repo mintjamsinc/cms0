@@ -80,6 +80,10 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			.put("jcr:mimeType", "_mimeType")
 			.put("jcr:encoding", "_encoding")
 			.put("jcr:contentLength", "_size")
+			.put("jcr:created", "_created")
+			.put("jcr:createdBy", "_createdBy")
+			.put("jcr:lastModified", "_lastModified")
+			.put("jcr:lastModifiedBy", "_lastModifiedBy")
 			.build();
 
 	private final String fStatement;

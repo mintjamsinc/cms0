@@ -59,6 +59,10 @@ public class IndexableSuggestion implements SearchIndex.Suggestion {
 	private String fMimeType;
 	private String fEncoding;
 	private Long fSize;
+	private java.util.Date fCreated;
+	private String fCreatedBy;
+	private java.util.Date fLastModified;
+	private String fLastModifiedBy;
 	private Object fContent;
 	private final Map<String, List<Object>> fProperties = new HashMap<>();
 	private String fSuggestion;
@@ -109,6 +113,30 @@ public class IndexableSuggestion implements SearchIndex.Suggestion {
 		}
 
 		fSize = size;
+		return this;
+	}
+
+	@Override
+	public SearchIndex.Suggestion setCreated(Date created) {
+		fCreated = created;
+		return this;
+	}
+
+	@Override
+	public SearchIndex.Suggestion setCreatedBy(String createdBy) {
+		fCreatedBy = createdBy;
+		return this;
+	}
+
+	@Override
+	public SearchIndex.Suggestion setLastModified(Date lastModified) {
+		fLastModified = lastModified;
+		return this;
+	}
+
+	@Override
+	public SearchIndex.Suggestion setLastModifiedBy(String lastModifiedBy) {
+		fLastModifiedBy = lastModifiedBy;
 		return this;
 	}
 
@@ -245,6 +273,26 @@ public class IndexableSuggestion implements SearchIndex.Suggestion {
 		if (fSize != null) {
 			long value = fSize.longValue();
 			doc.add(new LongPoint("_size", value));
+		}
+
+		if (fCreated != null) {
+			long value = fCreated.getTime();
+			doc.add(new LongPoint("_created", value));
+		}
+
+		if (fCreatedBy != null) {
+			doc.add(new StringField("_createdBy", fCreatedBy, Field.Store.NO));
+			fulltext.append("\n").append(Strings.defaultIfEmpty(fCreatedBy, StandardCharsets.UTF_8.toString()));
+		}
+
+		if (fLastModified != null) {
+			long value = fLastModified.getTime();
+			doc.add(new LongPoint("_lastModified", value));
+		}
+
+		if (fLastModifiedBy != null) {
+			doc.add(new StringField("_lastModifiedBy", fLastModifiedBy, Field.Store.NO));
+			fulltext.append("\n").append(Strings.defaultIfEmpty(fLastModifiedBy, StandardCharsets.UTF_8.toString()));
 		}
 
 		doc.add(new TextField("_fulltext", fulltext.toString(), Field.Store.NO));

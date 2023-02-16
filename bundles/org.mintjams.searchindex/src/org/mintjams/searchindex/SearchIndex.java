@@ -54,6 +54,14 @@ public interface SearchIndex extends Closeable {
 
 		Document setSize(long size);
 
+		Document setCreated(java.util.Date created);
+
+		Document setCreatedBy(String createdBy);
+
+		Document setLastModified(java.util.Date lastModified);
+
+		Document setLastModifiedBy(String lastModifiedBy);
+
 		Document setContent(String text);
 
 		Document setContent(Path path);
@@ -89,6 +97,14 @@ public interface SearchIndex extends Closeable {
 		Suggestion setEncoding(String encoding);
 
 		Suggestion setSize(long size);
+
+		Suggestion setCreated(java.util.Date created);
+
+		Suggestion setCreatedBy(String createdBy);
+
+		Suggestion setLastModified(java.util.Date lastModified);
+
+		Suggestion setLastModifiedBy(String lastModifiedBy);
 
 		Suggestion setContent(String text);
 
