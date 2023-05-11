@@ -278,9 +278,9 @@ public class JournalObserver implements Adaptable, Closeable {
 					addProperty(document, JcrProperty.JCR_CREATED_BY_NAME,
 							item.getProperty(JcrProperty.JCR_CREATED_BY_NAME).getValue());
 					addProperty(document, JcrProperty.JCR_LAST_MODIFIED_NAME,
-							item.getProperty(JcrProperty.JCR_LAST_MODIFIED_NAME).getValue());
+							contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_NAME).getValue());
 					addProperty(document, JcrProperty.JCR_LAST_MODIFIED_BY_NAME,
-							item.getProperty(JcrProperty.JCR_LAST_MODIFIED_BY_NAME).getValue());
+							contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_BY_NAME).getValue());
 
 					for (Node node : new Node[] { item, contentNode }) {
 						for (PropertyIterator i = node.getProperties(); i.hasNext();) {
