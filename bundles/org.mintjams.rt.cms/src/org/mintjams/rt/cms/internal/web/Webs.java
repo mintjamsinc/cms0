@@ -107,10 +107,10 @@ public class Webs {
 
 		try {
 			if (isIncludeRequest(context)) {
-				return JCRs.normalizePath(decode((String) getRequest(context).getAttribute(RequestDispatcher.INCLUDE_PATH_INFO)));
+				return JCRs.normalizePath((String) getRequest(context).getAttribute(RequestDispatcher.INCLUDE_PATH_INFO));
 			}
 
-			return JCRs.normalizePath(decode(getRequest(context).getPathInfo()));
+			return JCRs.normalizePath(getRequest(context).getPathInfo());
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IllegalStateException.class);
 		}
