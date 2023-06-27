@@ -244,7 +244,11 @@ public class ResourceImpl implements Resource, Adaptable {
 	@Override
 	public Resource addReferenceable() throws ResourceException {
 		try {
-			JcrAction.create(getNode()).addLockToken().addLockable().checkLock().addReferenceable();
+			JcrAction jcrAction = JcrAction.create(getNode()).addLockToken();
+			if (jcrAction.isLockable()) {
+				jcrAction.checkLock();
+			}
+			jcrAction.addReferenceable();
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
@@ -254,7 +258,11 @@ public class ResourceImpl implements Resource, Adaptable {
 	@Override
 	public Resource removeReferenceable() throws ResourceException {
 		try {
-			JcrAction.create(getNode()).addLockToken().addLockable().checkLock().removeReferenceable();
+			JcrAction jcrAction = JcrAction.create(getNode()).addLockToken();
+			if (jcrAction.isLockable()) {
+				jcrAction.checkLock();
+			}
+			jcrAction.removeReferenceable();
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
@@ -472,7 +480,11 @@ public class ResourceImpl implements Resource, Adaptable {
 	@Override
 	public Resource addVersionControl() throws ResourceException {
 		try {
-			JcrAction.create(getNode()).addLockToken().addLockable().checkLock().removeReferenceable().addVersionControl();
+			JcrAction jcrAction = JcrAction.create(getNode()).addLockToken();
+			if (jcrAction.isLockable()) {
+				jcrAction.checkLock();
+			}
+			jcrAction.addVersionControl();
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}

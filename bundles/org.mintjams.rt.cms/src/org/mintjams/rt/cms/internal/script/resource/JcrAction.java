@@ -168,6 +168,10 @@ public class JcrAction implements Adaptable {
 		getVersionManager().restore(getPath(), versionName, true);
 	}
 
+	public boolean isLockable() throws RepositoryException {
+		return getNode().isNodeType(NodeType.MIX_LOCKABLE);
+	}
+
 	public boolean isVersionControlled() throws RepositoryException {
 		return getNode().isNodeType(NodeType.MIX_VERSIONABLE);
 	}
