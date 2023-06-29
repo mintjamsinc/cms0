@@ -938,10 +938,10 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 					if (!getSession().getUserID().equals(checkedOutBy)) {
 						Map<String, AdaptableMap<String, Object>> replaced = new HashMap<>();
 						for (Map.Entry<String, AdaptableMap<String, Object>> e : properties.entrySet()) {
-							if (!e.getKey().startsWith(NamespaceRegistry.PREFIX_JCR + ":")) {
-								continue;
+							if (e.getKey().startsWith(NamespaceRegistry.PREFIX_JCR + ":") ||
+									e.getKey().equals(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY_NAME)) {
+								replaced.put(e.getKey(), e.getValue());
 							}
-							replaced.put(e.getKey(), e.getValue());
 						}
 
 						Node frozenNode;
@@ -949,7 +949,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 							frozenNode = getBaseVersion().getFrozenNode();
 						} else {
 							String relPath = getPath().substring(versionControlledNode.getPath().length());
-							frozenNode = getBaseVersion().getFrozenNode().getNode(relPath);
+							frozenNode = versionControlledNode.getBaseVersion().getFrozenNode().getNode(relPath.substring(1));
 						}
 						try (Query.Result result = getWorkspaceQuery().items().listProperties(frozenNode.getIdentifier(), null, 0)) {
 							for (AdaptableMap<String, Object> itemData : result) {
@@ -964,7 +964,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 									} else if (k.equals(org.mintjams.jcr.Property.JCR_MIMETYPE_NAME) ||
 											k.equals(org.mintjams.jcr.Property.JCR_ENCODING_NAME) ||
 											k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_NAME) ||
-											k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_BY_NAME)) {
+											k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_BY_NAME) ||
+											k.equals(org.mintjams.jcr.Property.JCR_DATA_NAME)) {
 										// do nothing
 									} else {
 										continue;

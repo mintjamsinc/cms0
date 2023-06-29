@@ -25,6 +25,7 @@ package org.mintjams.jcr;
 public interface Property extends javax.jcr.Property {
 
 	String MI_CHECKED_OUT_BY = "{" + NamespaceRegistry.NAMESPACE_MI + "}checkedOutBy";
+	String MI_CHECKED_OUT_BY_NAME = NamespaceRegistry.PREFIX_MI + ":checkedOutBy";
 
 	String JCR_PRIMARY_TYPE_NAME = "jcr:primaryType";
 	String JCR_MIXIN_TYPES_NAME = "jcr:mixinTypes";
