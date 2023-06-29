@@ -54,6 +54,7 @@ import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.observation.Event;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.Activator;
 import org.mintjams.rt.jcr.internal.JcrNode;
 import org.mintjams.rt.jcr.internal.JcrProperty;
@@ -135,6 +136,11 @@ public class JournalObserver implements Adaptable, Closeable {
 	public void buildSearchIndex(Node item) throws RepositoryException, IOException {
 		String path = item.getPath();
 		if (path.equals("/" + JcrNode.JCR_SYSTEM_NAME) || path.startsWith("/" + JcrNode.JCR_SYSTEM_NAME + "/")) {
+			return;
+		}
+
+		Node versionControlledNode = JCRs.getVersionControlledNode(item);
+		if (versionControlledNode != null && versionControlledNode.isCheckedOut()) {
 			return;
 		}
 

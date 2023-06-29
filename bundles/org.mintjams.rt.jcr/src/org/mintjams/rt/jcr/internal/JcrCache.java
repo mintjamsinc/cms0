@@ -98,7 +98,7 @@ public class JcrCache implements Adaptable, Closeable {
 	}
 
 	public Map<String, AdaptableMap<String, Object>> getProperties(String identifier) {
-		if (fNodes.containsKey(identifier)) {
+		if (fProperties.containsKey(identifier)) {
 			fNodeUsed.remove(identifier);
 			fNodeUsed.add(identifier);
 			return fProperties.get(identifier);

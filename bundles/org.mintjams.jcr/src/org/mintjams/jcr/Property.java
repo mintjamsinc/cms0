@@ -24,6 +24,8 @@ package org.mintjams.jcr;
 
 public interface Property extends javax.jcr.Property {
 
+	String MI_CHECKED_OUT_BY = "{" + NamespaceRegistry.NAMESPACE_MI + "}checkedOutBy";
+
 	String JCR_PRIMARY_TYPE_NAME = "jcr:primaryType";
 	String JCR_MIXIN_TYPES_NAME = "jcr:mixinTypes";
 	String JCR_ENCODING_NAME = "jcr:encoding";
@@ -34,6 +36,6 @@ public interface Property extends javax.jcr.Property {
 	String JCR_LAST_MODIFIED_NAME = "jcr:lastModified";
 	String JCR_LAST_MODIFIED_BY_NAME = "jcr:lastModifiedBy";
 	String JCR_FROZEN_PRIMARY_TYPE_NAME = "jcr:frozenPrimaryType";
-	String JCR_FROZEN_MIXIN_TYPES_NAME = "jcr:mixinTypes";
+	String JCR_FROZEN_MIXIN_TYPES_NAME = "jcr:frozenMixinTypes";
 
 }

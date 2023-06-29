@@ -30,6 +30,7 @@ public interface Node extends javax.jcr.Node {
 	String JCR_VERSION_STORAGE_NAME = "jcr:versionStorage";
 	String JCR_CONTENT_NAME = "jcr:content";
 	String JCR_ROOT_VERSION_NAME = "jcr:rootVersion";
+	String JCR_FROZEN_NODE_NAME = "jcr:frozenNode";
 
 	String[] getPropertyKeys() throws RepositoryException;
 

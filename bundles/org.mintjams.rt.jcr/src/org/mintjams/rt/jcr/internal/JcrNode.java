@@ -75,6 +75,7 @@ import javax.jcr.version.VersionHistory;
 import org.mintjams.jcr.JcrName;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.NamespaceProvider;
+import org.mintjams.jcr.NamespaceRegistry;
 import org.mintjams.jcr.UncheckedRepositoryException;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.jcr.util.JCRs;
@@ -858,16 +859,16 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			}
 		}
 
-		Node fileNode = null;
-		if (JCRs.isFile(this) || JCRs.isFolder(this)) {
-			fileNode = this;
-		} else if (!JCRs.isInSystem(this)) {
-			fileNode = JCRs.getFileNode(this);
-		}
-		if (fileNode != null) {
-			if (fileNode.isNodeType(NodeType.MIX_SIMPLE_VERSIONABLE) || fileNode.isNodeType(NodeType.MIX_VERSIONABLE)) {
-				if (!fileNode.isCheckedOut()) {
-					throw new VersionException("Node '" + getPath() + "' is checked-in.");
+		Node versionControlledNode = JCRs.getVersionControlledNode(this);
+		if (versionControlledNode != null) {
+			if (!versionControlledNode.isCheckedOut()) {
+				throw new VersionException("Node '" + getPath() + "' is checked-in.");
+			}
+
+			if (versionControlledNode.hasProperty(JcrProperty.MI_CHECKED_OUT_BY)) {
+				String checkedOutBy = versionControlledNode.getProperty(JcrProperty.MI_CHECKED_OUT_BY).getString();
+				if (!getSession().getUserID().equals(checkedOutBy)) {
+					throw new VersionException("Node '" + getPath() + "' is checked-out.");
 				}
 			}
 		}
@@ -928,6 +929,59 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 				throw Cause.create(ex).wrap(RepositoryException.class);
 			}
 			jcrCache.setProperties(getIdentifier(), properties);
+
+			try {
+				Node versionControlledNode = JCRs.getVersionControlledNode(this);
+				if (versionControlledNode != null && versionControlledNode.isCheckedOut() &&
+						versionControlledNode.hasProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)) {
+					String checkedOutBy = versionControlledNode.getProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY).getString();
+					if (!getSession().getUserID().equals(checkedOutBy)) {
+						Map<String, AdaptableMap<String, Object>> replaced = new HashMap<>();
+						for (Map.Entry<String, AdaptableMap<String, Object>> e : properties.entrySet()) {
+							if (!e.getKey().startsWith(NamespaceRegistry.PREFIX_JCR + ":")) {
+								continue;
+							}
+							replaced.put(e.getKey(), e.getValue());
+						}
+
+						Node frozenNode;
+						if (getIdentifier().equals(versionControlledNode.getIdentifier())) {
+							frozenNode = getBaseVersion().getFrozenNode();
+						} else {
+							String relPath = getPath().substring(versionControlledNode.getPath().length());
+							frozenNode = getBaseVersion().getFrozenNode().getNode(relPath);
+						}
+						try (Query.Result result = getWorkspaceQuery().items().listProperties(frozenNode.getIdentifier(), null, 0)) {
+							for (AdaptableMap<String, Object> itemData : result) {
+								String k = itemData.getString("item_name");
+								if (k.startsWith(NamespaceRegistry.PREFIX_JCR + ":")) {
+									if (k.equals(org.mintjams.jcr.Property.JCR_FROZEN_PRIMARY_TYPE_NAME)) {
+										k = org.mintjams.jcr.Property.JCR_PRIMARY_TYPE_NAME;
+										itemData.put("item_name", k);
+									} else if (k.equals(org.mintjams.jcr.Property.JCR_FROZEN_MIXIN_TYPES_NAME)) {
+										k = org.mintjams.jcr.Property.JCR_MIXIN_TYPES_NAME;
+										itemData.put("item_name", k);
+									} else if (k.equals(org.mintjams.jcr.Property.JCR_MIMETYPE_NAME) ||
+											k.equals(org.mintjams.jcr.Property.JCR_ENCODING_NAME) ||
+											k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_NAME) ||
+											k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_BY_NAME)) {
+										// do nothing
+									} else {
+										continue;
+									}
+								}
+								replaced.put(k, itemData);
+							}
+						}
+
+						properties = replaced;
+						jcrCache.setProperties(getIdentifier(), properties);
+					}
+				}
+			} catch (Throwable ex) {
+				jcrCache.setProperties(getIdentifier(), null);
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
 		}
 		return properties;
 	}

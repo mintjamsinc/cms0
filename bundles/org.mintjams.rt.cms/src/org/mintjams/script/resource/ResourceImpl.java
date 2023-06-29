@@ -41,6 +41,7 @@ import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
 
 import org.mintjams.jcr.JcrPath;
+import org.mintjams.jcr.NamespaceRegistry;
 import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.Privilege;
 import org.mintjams.jcr.util.JCRs;
@@ -712,14 +713,14 @@ public class ResourceImpl implements Resource, Adaptable {
 				Node destContentNode = destNode.getNode(Node.JCR_CONTENT);
 				for (javax.jcr.PropertyIterator i = getContentNode().getProperties(); i.hasNext();) {
 					javax.jcr.Property p = i.nextProperty();
-					if (p.getName().startsWith("jcr:")) {
+					if (p.getName().startsWith(NamespaceRegistry.PREFIX_JCR + ":")) {
 						if (!p.getName().equals(org.mintjams.jcr.Property.JCR_MIMETYPE_NAME)
 								&& !p.getName().equals(org.mintjams.jcr.Property.JCR_ENCODING_NAME)) {
 							continue;
 						}
 					}
 
-					if (!p.getName().startsWith("jcr:")) {
+					if (!p.getName().startsWith(NamespaceRegistry.PREFIX_JCR + ":")) {
 						if (destContentNode.hasProperty(p.getName())) {
 							destContentNode.getProperty(p.getName()).remove();
 						}

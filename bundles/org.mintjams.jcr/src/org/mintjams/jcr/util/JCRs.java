@@ -277,7 +277,7 @@ public class JCRs {
 			return getContentAsStream(node.getNode(Node.JCR_FROZEN_NODE));
 		}
 
-		if (isFrozenNode(node) && node.getName().equals("jcr:frozenNode")) {
+		if (isFrozenNode(node) && node.getName().equals(org.mintjams.jcr.Node.JCR_FROZEN_NODE_NAME)) {
 			Node contentNode = getContentNode(node);
 			return new BufferedInputStream(((org.mintjams.jcr.Binary) contentNode.getProperty(Property.JCR_DATA).getBinary()).getStream());
 		}
@@ -296,7 +296,7 @@ public class JCRs {
 			return getContentAsReader(node.getNode(Node.JCR_FROZEN_NODE));
 		}
 
-		if (isFrozenNode(node) && node.getName().equals("jcr:frozenNode")) {
+		if (isFrozenNode(node) && node.getName().equals(org.mintjams.jcr.Node.JCR_FROZEN_NODE_NAME)) {
 			Node contentNode = getContentNode(node);
 			String encoding = Strings.defaultIfEmpty(getEncoding(node), StandardCharsets.UTF_8.name());
 			return new BufferedReader(new InputStreamReader(((org.mintjams.jcr.Binary) contentNode.getProperty(Property.JCR_DATA).getBinary()).getStream(), encoding));
@@ -385,6 +385,30 @@ public class JCRs {
 		return getVersionHistoryNode(node.getParent());
 	}
 
+	public static Node getVersionControlledNode(Node node) throws RepositoryException {
+		if (isRoot(node)) {
+			return null;
+		}
+
+		if (isInSystem(node)) {
+			return null;
+		}
+
+		if (isFolder(node)) {
+			return null;
+		}
+
+		if (isContentNode(node)) {
+			return getVersionControlledNode(node.getParent());
+		}
+
+		if (node.isNodeType(NodeType.MIX_SIMPLE_VERSIONABLE) || node.isNodeType(NodeType.MIX_VERSIONABLE)) {
+			return node;
+		}
+
+		return getVersionControlledNode(node.getParent());
+	}
+
 	public static Node getFileOrFolderNode(Node node) throws RepositoryException {
 		if (isFile(node) || isFolder(node)) {
 			return node;
@@ -416,7 +440,7 @@ public class JCRs {
 			return getLastModified(node.getNode(Node.JCR_FROZEN_NODE));
 		}
 
-		if (isFrozenNode(node) && node.getName().equals("jcr:frozenNode")) {
+		if (isFrozenNode(node) && node.getName().equals(org.mintjams.jcr.Node.JCR_FROZEN_NODE_NAME)) {
 			return getContentNode(node).getProperty(Property.JCR_LAST_MODIFIED).getDate().getTime();
 		}
 
@@ -436,7 +460,7 @@ public class JCRs {
 			return getLastModifiedBy(node.getNode(Node.JCR_FROZEN_NODE));
 		}
 
-		if (isFrozenNode(node) && node.getName().equals("jcr:frozenNode")) {
+		if (isFrozenNode(node) && node.getName().equals(org.mintjams.jcr.Node.JCR_FROZEN_NODE_NAME)) {
 			return getContentNode(node).getProperty(Property.JCR_LAST_MODIFIED_BY).getString();
 		}
 
@@ -460,7 +484,7 @@ public class JCRs {
 			return getMimeType(node.getNode(Node.JCR_FROZEN_NODE));
 		}
 
-		if (isFrozenNode(node) && node.getName().equals("jcr:frozenNode")) {
+		if (isFrozenNode(node) && node.getName().equals(org.mintjams.jcr.Node.JCR_FROZEN_NODE_NAME)) {
 			Node contentNode = getContentNode(node);
 			try {
 				return Strings.defaultIfEmpty(contentNode.getProperty(Property.JCR_MIMETYPE).getString(), "application/octet-stream");
@@ -488,7 +512,7 @@ public class JCRs {
 			return getEncoding(node.getNode(Node.JCR_FROZEN_NODE));
 		}
 
-		if (isFrozenNode(node) && node.getName().equals("jcr:frozenNode")) {
+		if (isFrozenNode(node) && node.getName().equals(org.mintjams.jcr.Node.JCR_FROZEN_NODE_NAME)) {
 			Node contentNode = getContentNode(node);
 			try {
 				return contentNode.getProperty(Property.JCR_ENCODING).getString();
@@ -512,7 +536,7 @@ public class JCRs {
 			return getContentLength(node.getNode(Node.JCR_FROZEN_NODE));
 		}
 
-		if (isFrozenNode(node) && node.getName().equals("jcr:frozenNode")) {
+		if (isFrozenNode(node) && node.getName().equals(org.mintjams.jcr.Node.JCR_FROZEN_NODE_NAME)) {
 			return getContentNode(node).getProperty(Property.JCR_DATA).getLength();
 		}
 
