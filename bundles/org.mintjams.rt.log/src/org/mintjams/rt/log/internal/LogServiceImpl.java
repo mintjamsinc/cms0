@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -126,10 +126,17 @@ public class LogServiceImpl implements LogService {
 		private final String fName;
 		private final Class<? extends Logger> fLoggerType;
 
-		public LoggerKey(Bundle bundle, String name, Class<? extends Logger> loggerType) {
-			this.fBundle = bundle;
-			this.fName = name;
-			this.fLoggerType = loggerType;
+		private LoggerKey(Bundle bundle, String name, Class<? extends Logger> loggerType) {
+			fBundle = bundle;
+			fName = name;
+			fLoggerType = loggerType;
+		}
+
+		@Override
+		public int hashCode() {
+			long bundleId = (fBundle != null) ? fBundle.getBundleId() : -1;
+			String loggerTypeName = (fLoggerType != null) ? fLoggerType.getClass().getName() : null;
+			return (LoggerKey.class.getSimpleName() + "|" + bundleId + "|" + fName + "|" + loggerTypeName).hashCode();
 		}
 
 		@Override
@@ -137,48 +144,13 @@ public class LogServiceImpl implements LogService {
 			if (obj == null) {
 				return false;
 			}
-
 			if (this == obj) {
 				return true;
 			}
-
-			if (!getClass().equals(obj.getClass())) {
+			if (!(obj instanceof LoggerKey)) {
 				return false;
 			}
-
-			LoggerKey other = (LoggerKey) obj;
-
-			if (fBundle == null) {
-				if (other.fBundle != null) {
-					return false;
-				}
-			} else {
-				if (fBundle.getBundleId() != other.fBundle.getBundleId()) {
-					return false;
-				}
-			}
-
-			if (fName == null) {
-				if (other.fName != null) {
-					return false;
-				}
-			} else {
-				if (!fName.equals(other.fName)) {
-					return false;
-				}
-			}
-
-			if (fLoggerType == null) {
-				if (other.fLoggerType != null) {
-					return false;
-				}
-			} else {
-				if (!fLoggerType.equals(other.fLoggerType)) {
-					return false;
-				}
-			}
-
-			return true;
+			return (hashCode() == obj.hashCode());
 		}
 	}
 

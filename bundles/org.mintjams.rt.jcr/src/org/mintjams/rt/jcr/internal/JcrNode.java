@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -108,7 +108,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public void accept(ItemVisitor mixinName) throws RepositoryException {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
@@ -341,7 +341,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	public void followLifecycleTransition(String transition)
 			throws UnsupportedRepositoryOperationException, InvalidLifecycleTransitionException, RepositoryException {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
@@ -629,14 +629,14 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	public void removeShare()
 			throws VersionException, LockException, ConstraintViolationException, RepositoryException {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
 	public void removeSharedSet()
 			throws VersionException, LockException, ConstraintViolationException, RepositoryException {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
@@ -816,7 +816,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	public void update(String srcWorkspace) throws NoSuchWorkspaceException, AccessDeniedException, LockException,
 			InvalidItemStateException, RepositoryException {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
@@ -1016,7 +1016,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public int hashCode() {
 		try {
-			return getIdentifier().hashCode();
+			return (JcrNode.class.getSimpleName() + "|" + getIdentifier()).hashCode();
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IllegalStateException.class);
 		}

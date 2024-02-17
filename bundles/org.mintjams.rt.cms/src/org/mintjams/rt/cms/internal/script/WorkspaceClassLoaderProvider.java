@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -31,6 +31,7 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,28 +63,21 @@ import groovy.lang.GroovyClassLoader;
 public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 
 	private final String fWorkspaceName;
-	private final WorkspaceClassLoaderProvider[] fSharedWorkspaceClassLoaders;
 	private final Path fCachePath;
 	private final Map<Path, String> fCachedFiles = new HashMap<>();
 	private final Closer fCloser = Closer.create();
-	private WorkspaceClassLoader fWorkspaceClassLoader;
+	private final WorkspaceClassLoader fWorkspaceClassLoader;
+	private final GroovyClassLoader fGroovyClassLoader;
 	private boolean fHasChanges;
-	private ClassLoaderCloser fClassLoaderCloser;
 
 	public WorkspaceClassLoaderProvider(String workspaceName) throws IOException {
-		this(workspaceName, new WorkspaceClassLoaderProvider[0]);
-	}
-
-	public WorkspaceClassLoaderProvider(String workspaceName, WorkspaceClassLoaderProvider... sharedWorkspaceClassLoaders) throws IOException {
 		fWorkspaceName = workspaceName;
-		fSharedWorkspaceClassLoaders = sharedWorkspaceClassLoaders;
 		fCachePath = Files.createTempDirectory(CmsService.getRepositoryPath().resolve("tmp"), "cld-");
+		fWorkspaceClassLoader = new WorkspaceClassLoader();
+		fGroovyClassLoader = new GroovyClassLoader(fWorkspaceClassLoader, null, false);
 	}
 
 	public synchronized void open() throws IOException, RepositoryException {
-		fClassLoaderCloser = fCloser.register(new ClassLoaderCloser());
-		fClassLoaderCloser.open();
-
 		Deployer deployer = fCloser.register(new Deployer());
 		deployer.open();
 	}
@@ -107,153 +101,113 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	}
 
 	public ClassLoader getClassLoader() {
-		synchronized (fCachedFiles) {
-			if (fWorkspaceClassLoader == null) {
-				try {
-					List<URL> urls = new ArrayList<>();
-					for (WorkspaceClassLoaderProvider e : fSharedWorkspaceClassLoaders) {
-						e.addIfExists("usr/share/classes", urls);
-						e.collectFiles("usr/share/lib", urls);
-					}
-					collectFiles("lib", urls);
-					addIfExists("usr/local/classes", urls);
-					collectFiles("usr/local/lib", urls);
-					addIfExists("content/WEB-INF/classes", urls);
-					collectFiles("content/WEB-INF/lib", urls);
-					fWorkspaceClassLoader = new WorkspaceClassLoader(urls.toArray(URL[]::new), CmsService.getDefault().getBundleClassLoader());
-				} catch (Throwable ex) {
-					throw Cause.create(ex).wrap(IllegalStateException.class, "An error occurred while creating the class loader: " + fWorkspaceName);
-				}
-			}
-			return fWorkspaceClassLoader;
-		}
+		return fWorkspaceClassLoader;
 	}
 
-	private void addIfExists(String directoryPath, List<URL> urls) throws IOException {
-		addIfExists(fCachePath.resolve(directoryPath), urls);
-	}
-
-	private void addIfExists(Path directoryPath, List<URL> urls) throws IOException {
-		if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
-			return;
-		}
-
-		urls.add(directoryPath.toUri().toURL());
-	}
-
-	private void collectFiles(String directoryPath, List<URL> urls) throws IOException {
-		collectFiles(fCachePath.resolve(directoryPath), urls);
-	}
-
-	private void collectFiles(Path directoryPath, List<URL> urls) throws IOException {
-		if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
-			return;
-		}
-
-		try (Stream<Path> stream = Files.list(directoryPath)) {
-			stream.forEach(path -> {
-				try {
-					if (Files.isDirectory(path)) {
-						collectFiles(path, urls);
-						return;
-					}
-
-					urls.add(path.toUri().toURL());
-				} catch (IOException ex) {
-					throw (IllegalStateException) new IllegalStateException(ex.getMessage()).initCause(ex);
-				}
-			});
-		}
-	}
-
-	private void deploy(Node item) throws IOException, RepositoryException {
-		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FILE_NAME)) {
-			synchronized (fCachedFiles) {
-				String itemPath = item.getPath();
-				Path path = fCachePath.resolve(itemPath.substring(1));
-				Files.createDirectories(path.getParent());
-				try (OutputStream out = Files.newOutputStream(path)) {
-					try (InputStream in = JCRs.getContentAsStream(item)) {
-						IOs.copy(in, out);
-					}
-				}
-				fCachedFiles.put(path, itemPath);
-				fHasChanges = true;
-				CmsService.getLogger(getClass()).info("Deployed: " + itemPath);
-			}
-			return;
-		}
-
-		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FOLDER_NAME)) {
-			NodeIterator i = item.getNodes();
-			while (i.hasNext()) {
-				deploy(i.nextNode());
-			}
-			return;
-		}
-	}
-
-	private void undeploy(String itemPath, Event event) throws IOException, RepositoryException {
-		String nodeType = event.getProperty("type").toString();
-
-		if (nodeType.equals(NodeType.NT_FILE_NAME)) {
-			synchronized (fCachedFiles) {
-				Path path = fCachePath.resolve(itemPath.substring(1));
-				fCachedFiles.remove(path);
-				Files.deleteIfExists(path);
-				fHasChanges = true;
-				CmsService.getLogger(getClass()).info("Undeployed: " + itemPath);
-			}
-			return;
-		}
-
-		if (nodeType.equals(NodeType.NT_FOLDER_NAME)) {
-			synchronized (fCachedFiles) {
-				Path parentPath = fCachePath.resolve(itemPath.substring(1));
-				for (Path path : fCachedFiles.keySet().toArray(Path[]::new)) {
-					if (path.startsWith(parentPath)) {
-						String removedItemPath = fCachedFiles.remove(path);
-						if (removedItemPath != null) {
-							fHasChanges = true;
-							CmsService.getLogger(getClass()).info("Undeployed: " + removedItemPath);
-						}
-					}
-				}
-				IOs.deleteIfExists(parentPath);
-			}
-			return;
-		}
-	}
-
-	private void resetClassLoader() {
-		synchronized (fCachedFiles) {
-			if (!fHasChanges) {
-				return;
-			}
-
-			if (fWorkspaceClassLoader != null) {
-				fClassLoaderCloser.addClassLoader(fWorkspaceClassLoader);
-				fWorkspaceClassLoader = null;
-				fHasChanges = false;
-			}
-		}
-	}
-
-	public static class WorkspaceClassLoader extends URLClassLoader implements Adaptable {
+	public class WorkspaceClassLoader extends URLClassLoader implements Adaptable {
 		private final ScriptCacheImpl fScriptCache = new ScriptCacheImpl();
-		private final GroovyClassLoader fGroovyClassLoader;
+		private URLClassLoader fInnerLoader;
 
-		private WorkspaceClassLoader(URL[] urls, ClassLoader parent) {
-			super(urls, parent);
-			fGroovyClassLoader = new GroovyClassLoader(this, null);
+		private WorkspaceClassLoader() {
+			super(WorkspaceClassLoader.class.getSimpleName() + "/" + getWorkspaceName(), new URL[0], CmsService.getDefault().getBundleClassLoader());
 		}
 
 		@Override
 		public void close() throws IOException {
-			try {
-				fGroovyClassLoader.close();
-			} catch (Throwable ignore) {}
+			synchronized (fCachedFiles) {
+				if (fInnerLoader != null) {
+					IOs.closeQuietly(fInnerLoader);
+					fInnerLoader = null;
+				}
+				fScriptCache.clear();
+			}
 			super.close();
+		}
+
+		@Override
+		protected Class<?> findClass(String name) throws ClassNotFoundException {
+			return getInnerClassLoader().loadClass(name);
+		}
+
+		@Override
+		public URL findResource(String name) {
+			return getInnerClassLoader().getResource(name);
+		}
+
+		@Override
+		public Enumeration<URL> findResources(String name) throws IOException {
+			return getInnerClassLoader().getResources(name);
+		}
+
+		private void reload() {
+			synchronized (fCachedFiles) {
+				if (!fHasChanges) {
+					return;
+				}
+
+				fHasChanges = false;
+				if (fInnerLoader != null) {
+					IOs.closeQuietly(fInnerLoader);
+					fInnerLoader = null;
+				}
+				fScriptCache.clear();
+			}
+		}
+
+		private URLClassLoader getInnerClassLoader() {
+			synchronized (fCachedFiles) {
+				if (fInnerLoader == null) {
+					try {
+						List<URL> urls = new ArrayList<>();
+						collectFiles("lib", urls);
+						addIfExists("usr/local/classes", urls);
+						collectFiles("usr/local/lib", urls);
+						addIfExists("content/WEB-INF/classes", urls);
+						collectFiles("content/WEB-INF/lib", urls);
+						fInnerLoader = new URLClassLoader(urls.toArray(URL[]::new), null);
+					} catch (Throwable ex) {
+						throw Cause.create(ex).wrap(IllegalStateException.class, "An error occurred while creating the class loader: " + fWorkspaceName);
+					}
+				}
+				return fInnerLoader;
+			}
+		}
+
+		private void addIfExists(String directoryPath, List<URL> urls) throws IOException {
+			addIfExists(fCachePath.resolve(directoryPath), urls);
+		}
+
+		private void addIfExists(Path directoryPath, List<URL> urls) throws IOException {
+			if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
+				return;
+			}
+
+			urls.add(directoryPath.toUri().toURL());
+		}
+
+		private void collectFiles(String directoryPath, List<URL> urls) throws IOException {
+			collectFiles(fCachePath.resolve(directoryPath), urls);
+		}
+
+		private void collectFiles(Path directoryPath, List<URL> urls) throws IOException {
+			if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
+				return;
+			}
+
+			try (Stream<Path> stream = Files.list(directoryPath)) {
+				stream.forEach(path -> {
+					try {
+						if (Files.isDirectory(path)) {
+							collectFiles(path, urls);
+							return;
+						}
+
+						urls.add(path.toUri().toURL());
+					} catch (IOException ex) {
+						throw (IllegalStateException) new IllegalStateException(ex.getMessage()).initCause(ex);
+					}
+				});
+			}
 		}
 
 		@SuppressWarnings("unchecked")
@@ -287,7 +241,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			}
 
 			ScriptCacheEntryImpl sce = new ScriptCacheEntryImpl(scriptName, script, lastModified);
-			fScripts.put(scriptName, sce);
+			fScripts.put(sce.getScriptName(), sce);
 			return sce;
 		}
 
@@ -408,6 +362,65 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			fCloseRequested = false;
 		}
 
+		private void deploy(Node item) throws IOException, RepositoryException {
+			if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FILE_NAME)) {
+				synchronized (fCachedFiles) {
+					String itemPath = item.getPath();
+					Path path = fCachePath.resolve(itemPath.substring(1));
+					Files.createDirectories(path.getParent());
+					try (OutputStream out = Files.newOutputStream(path)) {
+						try (InputStream in = JCRs.getContentAsStream(item)) {
+							IOs.copy(in, out);
+						}
+					}
+					fCachedFiles.put(path, itemPath);
+					fHasChanges = true;
+					CmsService.getLogger(getClass()).info("Deployed: " + itemPath);
+				}
+				return;
+			}
+
+			if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FOLDER_NAME)) {
+				NodeIterator i = item.getNodes();
+				while (i.hasNext()) {
+					deploy(i.nextNode());
+				}
+				return;
+			}
+		}
+
+		private void undeploy(String itemPath, Event event) throws IOException, RepositoryException {
+			String nodeType = event.getProperty("type").toString();
+
+			if (nodeType.equals(NodeType.NT_FILE_NAME)) {
+				synchronized (fCachedFiles) {
+					Path path = fCachePath.resolve(itemPath.substring(1));
+					fCachedFiles.remove(path);
+					Files.deleteIfExists(path);
+					fHasChanges = true;
+					CmsService.getLogger(getClass()).info("Undeployed: " + itemPath);
+				}
+				return;
+			}
+
+			if (nodeType.equals(NodeType.NT_FOLDER_NAME)) {
+				synchronized (fCachedFiles) {
+					Path parentPath = fCachePath.resolve(itemPath.substring(1));
+					for (Path path : fCachedFiles.keySet().toArray(Path[]::new)) {
+						if (path.startsWith(parentPath)) {
+							String removedItemPath = fCachedFiles.remove(path);
+							if (removedItemPath != null) {
+								fHasChanges = true;
+								CmsService.getLogger(getClass()).info("Undeployed: " + removedItemPath);
+							}
+						}
+					}
+					IOs.deleteIfExists(parentPath);
+				}
+				return;
+			}
+		}
+
 		private class Task implements Runnable {
 			@Override
 			public void run() {
@@ -415,7 +428,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					Event event;
 					synchronized (fEvents) {
 						if (fEvents.isEmpty()) {
-							resetClassLoader();
+							fWorkspaceClassLoader.reload();
 							try {
 								fEvents.wait();
 							} catch (InterruptedException ignore) {}
@@ -473,97 +486,6 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					}
 				}
 				return false;
-			}
-		}
-	}
-
-	private class ClassLoaderCloser implements Closeable {
-		private Thread fThread;
-		private boolean fCloseRequested;
-		private final List<ClassLoaderEntry> fEntries = new ArrayList<>();
-
-		private ClassLoaderCloser open() {
-			if (fThread != null) {
-				return this;
-			}
-
-			fThread = new Thread(new Task());
-			fThread.setDaemon(true);
-			fThread.start();
-
-			return this;
-		}
-
-		public void addClassLoader(WorkspaceClassLoader classLoader) {
-			synchronized (fEntries) {
-				fEntries.add(new ClassLoaderEntry(classLoader));
-				fEntries.notifyAll();
-			}
-		}
-
-		@Override
-		public void close() throws IOException {
-			if (fCloseRequested) {
-				return;
-			}
-
-			fCloseRequested = true;
-			try {
-				fThread.interrupt();
-				fThread.join(10000);
-			} catch (InterruptedException ignore) {}
-			fThread = null;
-			fCloseRequested = false;
-		}
-
-		private class Task implements Runnable {
-			@Override
-			public void run() {
-				while (!fCloseRequested) {
-					ClassLoaderEntry entry;
-					synchronized (fEntries) {
-						if (fEntries.isEmpty()) {
-							try {
-								fEntries.wait();
-							} catch (InterruptedException ignore) {}
-							continue;
-						}
-
-						if (!fEntries.get(0).isExpired()) {
-							try {
-								Thread.sleep(3000);
-							} catch (InterruptedException ignore) {}
-							continue;
-						}
-						entry = fEntries.remove(0);
-					}
-
-					IOs.closeQuietly(entry.getClassLoader());
-				}
-
-				synchronized (fEntries) {
-					while (!fEntries.isEmpty()) {
-						IOs.closeQuietly(fEntries.remove(0).getClassLoader());
-					}
-				}
-			}
-		}
-
-		private class ClassLoaderEntry {
-			private final WorkspaceClassLoader fWorkspaceClassLoader;
-			private final long fTime;
-
-			private ClassLoaderEntry(WorkspaceClassLoader classLoader) {
-				fWorkspaceClassLoader = classLoader;
-				fTime = System.currentTimeMillis();
-			}
-
-			public WorkspaceClassLoader getClassLoader() {
-				return fWorkspaceClassLoader;
-			}
-
-			public boolean isExpired() {
-				return (System.currentTimeMillis() - fTime > 10000);
 			}
 		}
 	}

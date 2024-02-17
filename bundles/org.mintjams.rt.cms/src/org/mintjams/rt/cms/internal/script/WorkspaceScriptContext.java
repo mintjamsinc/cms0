@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -115,6 +115,27 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 			fCloser.add(new Closeable() {
 				@Override
 				public void close() throws IOException {
+					for (int scope : new int[] { ENGINE_SCOPE, GLOBAL_SCOPE }) {
+						Bindings bindings = getBindings(scope);
+						if (bindings == null) {
+							continue;
+						}
+
+						for (Object e : bindings.values()) {
+							if (e instanceof Closeable && !this.equals(e)) {
+								try {
+									((Closeable) e).close();
+								} catch (Throwable ignore) {}
+							}
+						}
+
+						bindings.clear();
+					}
+				}
+			});
+			fCloser.add(new Closeable() {
+				@Override
+				public void close() throws IOException {
 					if (_jcrSession.isLive()) {
 						_jcrSession.logout();
 					}
@@ -134,21 +155,6 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 
 	@Override
 	public void close() throws IOException {
-		for (int scope : new int[] { ENGINE_SCOPE, GLOBAL_SCOPE }) {
-			Bindings bindings = getBindings(scope);
-			if (bindings == null) {
-				continue;
-			}
-
-			for (Object e : bindings.values()) {
-				if (e instanceof Closeable && !this.equals(e)) {
-					try {
-						((Closeable) e).close();
-					} catch (Throwable ignore) {}
-				}
-			}
-		}
-
 		fCloser.close();
 	}
 
