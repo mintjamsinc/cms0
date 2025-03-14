@@ -42,7 +42,6 @@ import javax.jcr.NodeIterator;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
-import javax.script.CompiledScript;
 
 import org.mintjams.jcr.nodetype.NodeType;
 import org.mintjams.jcr.util.JCRs;
@@ -52,7 +51,6 @@ import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.io.IOs;
 import org.mintjams.tools.lang.Cause;
-import org.mintjams.tools.lang.Strings;
 import org.mintjams.tools.osgi.Registration;
 import org.osgi.service.event.Event;
 import org.osgi.service.event.EventConstants;
@@ -105,7 +103,6 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	}
 
 	public class WorkspaceClassLoader extends URLClassLoader implements Adaptable {
-		private final ScriptCacheImpl fScriptCache = new ScriptCacheImpl();
 		private URLClassLoader fInnerLoader;
 
 		private WorkspaceClassLoader() {
@@ -119,7 +116,6 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					IOs.closeQuietly(fInnerLoader);
 					fInnerLoader = null;
 				}
-				fScriptCache.clear();
 			}
 			super.close();
 		}
@@ -150,7 +146,6 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					IOs.closeQuietly(fInnerLoader);
 					fInnerLoader = null;
 				}
-				fScriptCache.clear();
 			}
 		}
 
@@ -213,73 +208,11 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 		@SuppressWarnings("unchecked")
 		@Override
 		public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
-			if (adapterType.equals(ScriptCache.class)) {
-				return (AdapterType) fScriptCache;
-			}
-
 			if (adapterType.equals(GroovyClassLoader.class)) {
 				return (AdapterType) fGroovyClassLoader;
 			}
 
 			return null;
-		}
-	}
-
-	private static class ScriptCacheImpl implements ScriptCache {
-		private final Map<String, Entry> fScripts = new HashMap<>();
-
-		@Override
-		public Entry setScriptCacheEntry(String scriptName, CompiledScript script, java.util.Date lastModified) {
-			if (Strings.isEmpty(scriptName)) {
-				throw new IllegalArgumentException("Script name must not be null or empty.");
-			}
-			if (script == null) {
-				throw new IllegalArgumentException("Script must not be null.");
-			}
-			if (lastModified == null) {
-				throw new IllegalArgumentException("Last modification date must not be null.");
-			}
-
-			ScriptCacheEntryImpl sce = new ScriptCacheEntryImpl(scriptName, script, lastModified);
-			fScripts.put(sce.getScriptName(), sce);
-			return sce;
-		}
-
-		@Override
-		public Entry getScriptCacheEntry(String scriptName) {
-			return fScripts.get(scriptName);
-		}
-
-		@Override
-		public void clear() {
-			fScripts.clear();
-		}
-
-		private class ScriptCacheEntryImpl implements ScriptCache.Entry {
-			private final String fScriptName;
-			private final CompiledScript fScript;
-			private final java.util.Date fLastModified;
-
-			private ScriptCacheEntryImpl(String scriptName, CompiledScript script, java.util.Date lastModified) {
-				fScriptName = scriptName;
-				fScript = script;
-				fLastModified = lastModified;
-			}
-
-			@Override
-			public String getScriptName() {
-				return fScriptName;
-			}
-
-			@Override
-			public CompiledScript getScript() {
-				return fScript;
-			}
-
-			@Override
-			public java.util.Date getLastModified() {
-				return fLastModified;
-			}
 		}
 	}
 

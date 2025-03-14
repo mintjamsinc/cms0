@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,7 +40,6 @@ import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
 import javax.jcr.nodetype.NodeType;
 
-import org.h2.jdbcx.JdbcConnectionPool;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.security.LoginTimedOutException;
 import org.mintjams.jcr.security.UserPrincipal;
@@ -334,7 +334,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		private Thread fThread;
 		private boolean fCloseRequested;
 		private final Object fLock = new Object();
-		private JdbcConnectionPool fConnectionPool;
+		private final List<Connection> fConnections = new ArrayList<>();
 		private int fMinConnections;
 		private int fCacheSize;
 
@@ -353,10 +353,6 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 			fCacheSize = fRepository.getConfiguration().getCacheSize();
 
-			fConnectionPool = JdbcConnectionPool.create("jdbc:h2:file:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";CACHE_SIZE=" + fCacheSize, "sa", "");
-			fConnectionPool.setMaxConnections(fMinConnections);
-			fConnectionPool.setLoginTimeout(3);
-
 			fThread = new Thread(new Task());
 			fThread.setDaemon(true);
 			fThread.start();
@@ -365,9 +361,23 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		}
 
 		public Connection getConnection() throws SQLException {
-			Connection conn = fConnectionPool.getConnection();
-			conn.setAutoCommit(false);
-			return conn;
+			synchronized (fLock) {
+				if (fConnections.isEmpty()) {
+					try {
+						fLock.wait(3000);
+					} catch (InterruptedException ignore) {}
+				}
+
+				if (fConnections.isEmpty()) {
+					throw new SQLException("Connection timed out.");
+				}
+
+				try {
+					return fConnections.remove(0);
+				} finally {
+					fLock.notifyAll();
+				}
+			}
 		}
 
 		@Override
@@ -375,10 +385,6 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			if (fCloseRequested) {
 				return;
 			}
-
-			try {
-				fConnectionPool.dispose();
-			} catch (Throwable ignore) {}
 
 			fCloseRequested = true;
 			synchronized (fLock) {
@@ -396,6 +402,21 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			@Override
 			public void run() {
 				while (!fCloseRequested) {
+					while (fConnections.size() < fMinConnections) {
+						synchronized (fLock) {
+							try {
+								fConnections.add(createConnection());
+								fLock.notifyAll();
+							} catch (Throwable ex) {
+								Activator.getDefault().getLogger(getClass()).error(ex.getMessage(), ex);
+							}
+						}
+					}
+
+					if (fCloseRequested) {
+						continue;
+					}
+
 					synchronized (fLock) {
 						try {
 							fLock.wait();
@@ -403,13 +424,21 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 					}
 				}
 
-				while (fConnectionPool.getActiveConnections() > 0) {
-					synchronized (fLock) {
+				synchronized (fLock) {
+					while (!fConnections.isEmpty()) {
 						try {
-							fLock.wait(500);
-						} catch (InterruptedException ignore) {}
+							fConnections.remove(0).close();
+						} catch (Throwable ex) {
+							Activator.getDefault().getLogger(getClass()).error(ex.getMessage(), ex);
+						}
 					}
 				}
+			}
+
+			private Connection createConnection() throws SQLException {
+				Connection conn = DriverManager.getConnection("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";CACHE_SIZE=" + fCacheSize, "sa", "");
+				conn.setAutoCommit(false);
+				return conn;
 			}
 		}
 	}

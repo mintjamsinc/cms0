@@ -27,14 +27,11 @@ import java.io.FilterReader;
 import java.io.IOException;
 import java.io.Reader;
 
-import javax.script.Compilable;
-import javax.script.CompiledScript;
 import javax.script.ScriptContext;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
 
-import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.ClassLoaders;
 
 public class ScriptReader extends FilterReader {
@@ -126,15 +123,7 @@ public class ScriptReader extends FilterReader {
 
 	public Object eval() throws ScriptException, IOException {
 		try (Reader _this = this) {
-			ScriptCache scriptCache = Adaptables.getAdapter(fClassLoader, ScriptCache.class);
-			if (scriptCache != null) {
-				ScriptCache.Entry cached = scriptCache.getScriptCacheEntry(fScriptName);
-				if (cached != null && cached.getLastModified().compareTo(fLastModified) == 0) {
-					try (Closeable c = ClassLoaders.withClassLoader(fClassLoader)) {
-						return cached.getScript().eval(fScriptContext);
-					}
-				}
-			}
+			fScriptContext.setAttribute(ScriptEngine.FILENAME, fScriptName, ScriptContext.GLOBAL_SCOPE);
 
 			ScriptEngine engine = null;
 			if (fMimeType != null) {
@@ -177,14 +166,6 @@ public class ScriptReader extends FilterReader {
 			}
 
 			try (Closeable c = ClassLoaders.withClassLoader(fClassLoader)) {
-				if (engine instanceof Compilable) {
-					CompiledScript script = ((Compilable) engine).compile(this);
-					if (scriptCache != null) {
-						scriptCache.setScriptCacheEntry(fScriptName, script, fLastModified);
-					}
-					return script.eval(fScriptContext);
-				}
-
 				return engine.eval(this, fScriptContext);
 			}
 		}

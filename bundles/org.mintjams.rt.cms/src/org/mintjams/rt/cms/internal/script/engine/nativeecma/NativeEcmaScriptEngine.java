@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -28,7 +28,9 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.WeakHashMap;
 
 import javax.script.Bindings;
 import javax.script.CompiledScript;
@@ -49,17 +51,44 @@ public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 
 	private static final String NO_SCRIPT_NAME = "NO_SCRIPT_NAME";
 
+	private Map<String, ScriptCacheEntry> fCache;
+
 	public NativeEcmaScriptEngine(ScriptEngineFactory scriptEngineFactory) {
 		super(scriptEngineFactory);
+		fCache = new WeakHashMap<>();
 	}
 
 	@Override
-	public Object eval(Reader script, ScriptContext ctx) throws ScriptException {
-		try {
-			return new CompiledScriptImpl(getPreparedReader(script)).eval(ctx);
-		} catch (IOException ex) {
-			throw Cause.create(ex).wrap(ScriptException.class);
+	public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
+		CompiledScript compiledScript = null;
+
+		if (reader instanceof ScriptReader) {
+			try {
+				ScriptReader scriptReader = (ScriptReader) reader;
+				ScriptCacheEntry e = fCache.get(scriptReader.getScriptName());
+				if (e != null) {
+					if (e.getLastModified() == scriptReader.getLastModified().getTime()) {
+						compiledScript = e.getCompiledScript();
+					}
+				}
+			} catch (Throwable ignore) {}
 		}
+
+		if (compiledScript == null) {
+			try {
+				compiledScript = new CompiledScriptImpl(getPreparedReader(reader));
+
+				if (reader instanceof ScriptReader) {
+					ScriptReader scriptReader = (ScriptReader) reader;
+					ScriptCacheEntry e = new ScriptCacheEntry(compiledScript, scriptReader.getScriptName(), scriptReader.getLastModified().getTime());
+					fCache.put(e.getFilename(), e);
+				}
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile ECMA script: " + ex.getMessage());
+			}
+		}
+
+		return compiledScript.eval(ctx);
 	}
 
 	protected Reader getPreparedReader(Reader scriptReader) throws ScriptException {
@@ -153,6 +182,30 @@ public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 		@Override
 		public ScriptEngine getEngine() {
 			return NativeEcmaScriptEngine.this;
+		}
+	}
+
+	private static class ScriptCacheEntry {
+		private final CompiledScript fCompiledScript;
+		private final String fFilename;
+		private final long fLastModified;
+
+		private ScriptCacheEntry(CompiledScript compiledScript, String filename, long lastModified) {
+			fCompiledScript = compiledScript;
+			fFilename = filename;
+			fLastModified = lastModified;
+		}
+
+		public CompiledScript getCompiledScript() {
+			return fCompiledScript;
+		}
+
+		public String getFilename() {
+			return fFilename;
+		}
+
+		public long getLastModified() {
+			return fLastModified;
 		}
 	}
 

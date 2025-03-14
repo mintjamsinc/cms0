@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -27,46 +27,16 @@ import javax.script.ScriptEngine;
 import org.codehaus.groovy.jsr223.GroovyScriptEngineImpl;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
-import org.mintjams.rt.cms.internal.script.engine.AbstractScriptEngineFactory;
 import org.mintjams.tools.adapter.Adaptables;
 
 import groovy.lang.GroovyClassLoader;
 
-public class GroovyScriptEngineFactory extends AbstractScriptEngineFactory {
+public class GroovyScriptEngineFactory extends org.codehaus.groovy.jsr223.GroovyScriptEngineFactory {
 
 	private final String fWorkspaceName;
-	private final String fLanguageName;
-	private final String fLanguageVersion;
 
 	public GroovyScriptEngineFactory(String workspaceName) {
 		fWorkspaceName = workspaceName;
-		org.codehaus.groovy.jsr223.GroovyScriptEngineFactory gf = new org.codehaus.groovy.jsr223.GroovyScriptEngineFactory();
-		setNames(gf.getNames().toArray(String[]::new));
-		setExtensions(gf.getExtensions().toArray(String[]::new));
-		setMimeTypes(gf.getMimeTypes().toArray(String[]::new));
-		setEngineName(gf.getEngineName());
-		setEngineVersion(gf.getEngineVersion());
-		fLanguageName = gf.getLanguageName();
-		fLanguageVersion = gf.getLanguageVersion();
-	}
-
-	@Override
-	public String getLanguageName() {
-		return fLanguageName;
-	}
-
-	@Override
-	public String getLanguageVersion() {
-		return fLanguageVersion;
-	}
-
-	@Override
-	public Object getParameter(String name) {
-		if ("THREADING".equals(name)) {
-			return "MULTITHREADED";
-		}
-
-		return super.getParameter(name);
 	}
 
 	@Override
