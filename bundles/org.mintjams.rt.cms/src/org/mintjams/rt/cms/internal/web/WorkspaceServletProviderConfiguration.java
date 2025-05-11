@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -58,7 +58,7 @@ public class WorkspaceServletProviderConfiguration {
 		if (!Files.exists(webPath)) {
 			try (Writer out = Files.newBufferedWriter(webPath)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
-						.put("contextPath", "/bin/cms.cgi/" + getWorkspaceName())
+						.put("contextPath", RepositoryServletsProviderConfiguration.CMS_CGI_PATH + "/" + getWorkspaceName())
 						.build());
 				out.append(yamlString);
 			}
@@ -68,7 +68,7 @@ public class WorkspaceServletProviderConfiguration {
 			fConfig = (Map<String, Object>) new Load(LoadSettings.builder().build()).loadFromInputStream(in);
 		}
 
-		return new WebServlet(this);
+		return new WorkspaceServlet(this);
 	}
 
 	public String getWorkspaceName() {
@@ -86,7 +86,7 @@ public class WorkspaceServletProviderConfiguration {
 	public String getContextPath() {
 		return ExpressionContext.create()
 				.setVariable("config", fConfig)
-				.defaultIfEmpty("config.contextPath", "/bin/cms.cgi/" + getWorkspaceName());
+				.defaultIfEmpty("config.contextPath", RepositoryServletsProviderConfiguration.CMS_CGI_PATH + "/" + getWorkspaceName());
 	}
 
 }

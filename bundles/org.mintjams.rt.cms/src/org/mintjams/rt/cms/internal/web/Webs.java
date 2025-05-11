@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -29,11 +29,13 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 
+import javax.servlet.DispatcherType;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.codec.net.URLCodec;
+import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.Scripts;
@@ -99,6 +101,21 @@ public class Webs {
 		return (Collection<Map<String, Object>>) getWebConfig(context).get("filters");
 	}
 
+	public static String getEffectivePathInfo(HttpServletRequest request) {
+		DispatcherType type = request.getDispatcherType();
+		if (type == DispatcherType.INCLUDE) {
+			return (String) request.getAttribute(RequestDispatcher.INCLUDE_PATH_INFO);
+		} else if (type == DispatcherType.FORWARD) {
+			return (String) request.getAttribute(RequestDispatcher.FORWARD_PATH_INFO);
+		} else {
+			return request.getPathInfo();
+		}
+	}
+
+	public static String getWorkspacePath(ActionContext context) {
+		return RepositoryServletsProviderConfiguration.CMS_CGI_PATH + "/" + Scripts.getWorkspaceScriptContext(context).getWorkspaceName();
+	}
+
 	public static String getResourcePath(ActionContext context) {
 		String resourcePath = Scripts.getWorkspaceScriptContext(context).getResourcePath();
 		if (resourcePath != null) {
@@ -106,14 +123,17 @@ public class Webs {
 		}
 
 		try {
-			if (isIncludeRequest(context)) {
-				return JCRs.normalizePath((String) getRequest(context).getAttribute(RequestDispatcher.INCLUDE_PATH_INFO));
-			}
-
-			return JCRs.normalizePath(getRequest(context).getPathInfo());
+			return getRelativePathWithinWorkspace(JCRs.normalizePath(getEffectivePathInfo(getRequest(context))));
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IllegalStateException.class);
 		}
+	}
+
+	private static String getRelativePathWithinWorkspace(String path) {
+		if (path.length() > 1) {
+			path = StringUtils.substring(path, StringUtils.indexOf(path, '/', 1));
+		}
+		return path;
 	}
 
 	public static String getCollectionPath(ActionContext context) {
@@ -137,11 +157,11 @@ public class Webs {
 	}
 
 	public static boolean isNormalRequest(HttpServletRequest request) {
-		return !Webs.isForwardRequest(request) && !Webs.isIncludeRequest(request) && !Webs.isErrorRequest(request);
+		return !isForwardRequest(request) && !isIncludeRequest(request) && !isErrorRequest(request);
 	}
 
 	public static boolean isNormalRequest(ActionContext context) {
-		return Webs.isNormalRequest(getRequest(context));
+		return isNormalRequest(getRequest(context));
 	}
 
 	public static boolean isForwardRequest(HttpServletRequest request) {

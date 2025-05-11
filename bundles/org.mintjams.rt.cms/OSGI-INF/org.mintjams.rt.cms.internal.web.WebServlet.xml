@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0" name="org.mintjams.rt.cms.internal.web.WebServlet">
+   <property name="osgi.http.whiteboard.servlet.pattern" value="/bin/cms.cgi/*"/>
+   <property name="osgi.http.whiteboard.context.select" value="(osgi.http.whiteboard.context.name=org.osgi.service.http)"/>
+   <property name="osgi.http.whiteboard.servlet.asyncSupported" value="true"/>
+   <service>
+      <provide interface="javax.servlet.Servlet"/>
+   </service>
+   <implementation class="org.mintjams.rt.cms.internal.web.WebServlet"/>
+</scr:component>
