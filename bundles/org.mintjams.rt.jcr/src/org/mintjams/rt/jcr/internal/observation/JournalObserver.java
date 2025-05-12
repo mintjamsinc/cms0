@@ -177,8 +177,10 @@ public class JournalObserver implements Adaptable, Closeable {
 				.put("type", event.getString("primary_type"))
 				.put("workspace", fWorkspaceProvider.getWorkspaceName())
 				.build();
-		if (event.containsKey("property_name")) {
-			p.put("property_name", event.getString("property_name"));
+		if (event.containsKey("properties")) {
+			@SuppressWarnings("unchecked")
+			List<String> properties = (List<String>) event.get("properties");
+			p.put("properties", properties.toArray(String[]::new));
 		}
 		if (event.containsKey("source_path")) {
 			p.put("source_path", event.getString("source_path"));
@@ -835,6 +837,7 @@ public class JournalObserver implements Adaptable, Closeable {
 											.put("properties", properties)
 											.build());
 								} else {
+									@SuppressWarnings("unchecked")
 									List<String> properties = (List<String>) event.get("properties");
 									if (properties == null) {
 										properties = new ArrayList<>();
