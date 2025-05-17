@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -22,11 +22,15 @@
 
 package org.mintjams.script;
 
+import javax.jcr.GuestCredentials;
 import javax.script.ScriptException;
 
+import org.apache.commons.io.IOUtils;
+import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
-import org.mintjams.script.resource.ResourceException;
+import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.script.resource.Resource;
+import org.mintjams.script.resource.ResourceException;
 import org.mintjams.script.resource.ResourceNotFoundException;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
@@ -38,6 +42,10 @@ public class ScriptAPI implements Adaptable {
 
 	public ScriptAPI(WorkspaceScriptContext context) {
 		fContext = context;
+	}
+
+	public static ScriptAPI get(ScriptingContext context) {
+		return (ScriptAPI) context.getAttribute(ScriptAPI.class.getSimpleName());
 	}
 
 	public Script createScript(String path) throws ScriptException {
@@ -59,6 +67,32 @@ public class ScriptAPI implements Adaptable {
 			return new Script(resource, this);
 		} catch (ResourceException ex) {
 			throw Cause.create(ex).wrap(ScriptException.class);
+		}
+	}
+
+	public static ScriptingContext createInternalContext(String workspaceName) {
+		WorkspaceScriptContext context = null;
+		try {
+			context = new WorkspaceScriptContext(workspaceName);
+			context.setCredentials(new CmsServiceCredentials());
+			Scripts.prepareAPIs(context);
+			return context;
+		} catch (Throwable ex) {
+			IOUtils.closeQuietly(context);
+			throw new IllegalStateException(ex.getMessage(), ex);
+		}
+	}
+
+	public static ScriptingContext createAnonymousContext(String workspaceName) {
+		WorkspaceScriptContext context = null;
+		try {
+			context = new WorkspaceScriptContext(workspaceName);
+			context.setCredentials(new GuestCredentials());
+			Scripts.prepareAPIs(context);
+			return context;
+		} catch (Throwable ex) {
+			IOUtils.closeQuietly(context);
+			throw new IllegalStateException(ex.getMessage(), ex);
 		}
 	}
 

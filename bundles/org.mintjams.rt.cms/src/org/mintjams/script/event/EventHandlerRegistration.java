@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 MintJams Inc.
+ * Copyright (c) 2025 MintJams Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -20,30 +20,9 @@
  * SOFTWARE.
  */
 
-package org.mintjams.script;
+package org.mintjams.script.event;
 
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.spi.FileTypeDetector;
+import java.io.Closeable;
 
-import org.mintjams.rt.cms.internal.CmsService;
-import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
-import org.mintjams.tools.adapter.Adaptables;
-
-public class MimeTypeAPI {
-
-	private WorkspaceScriptContext fContext;
-
-	public MimeTypeAPI(WorkspaceScriptContext context) {
-		fContext = context;
-	}
-
-	public static MimeTypeAPI get(ScriptingContext context) {
-		return (MimeTypeAPI) context.getAttribute(MimeTypeAPI.class.getSimpleName());
-	}
-
-	public String getMimeType(String name) throws IOException {
-		return Adaptables.getAdapter(CmsService.getRepository(), FileTypeDetector.class).probeContentType(Path.of(name));
-	}
-
+public interface EventHandlerRegistration extends Closeable {
 }

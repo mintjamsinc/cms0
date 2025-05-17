@@ -35,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
+import javax.servlet.ServletRequest;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -50,6 +51,7 @@ import org.apache.hc.core5.http.HttpEntity;
 import org.apache.hc.core5.http.HttpStatus;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.web.Webs;
+import org.mintjams.script.ScriptingContext;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.io.IOs;
@@ -85,6 +87,14 @@ public class WebAPI implements Closeable {
 				}
 			}
 		}
+	}
+
+	public static WebAPI get(ScriptingContext context) {
+		return (WebAPI) context.getAttribute(WebAPI.class.getSimpleName());
+	}
+
+	public static ScriptingContext getScriptingContext(ServletRequest request) {
+		return (ScriptingContext) request.getAttribute(WorkspaceScriptContext.class.getName());
 	}
 
 	private Reader getContentAsReader(String src, String encoding) throws IOException {
