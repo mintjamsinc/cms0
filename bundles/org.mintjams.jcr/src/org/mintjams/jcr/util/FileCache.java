@@ -43,16 +43,16 @@ public class FileCache implements Cache, Adaptable {
 
 	private static final Cleaner CLEANER = Cleaner.create();
 
-	private static class State implements Runnable {
-		private final Path path;
-		State(Path path) { this.path = path; }
-		@Override
-		public void run() {
-			try {
-				Files.deleteIfExists(path);
-			} catch (IOException ignore) {}
-		}
-	}
+       private static class State implements Runnable {
+               private final Path fPath;
+               State(Path path) { this.fPath = path; }
+               @Override
+               public void run() {
+                       try {
+                               Files.deleteIfExists(fPath);
+                       } catch (IOException ignore) {}
+               }
+       }
 
 	private final Path fPath;
 	private final Closer fCloser = Closer.create();
@@ -137,20 +137,20 @@ public class FileCache implements Cache, Adaptable {
 			fTempDir = tempDir;
 		}
 
-		private static class BuilderState implements Runnable {
-			private final Path path;
-			private volatile boolean built;
-			BuilderState(Path path) { this.path = path; }
-			@Override
-			public void run() {
-				if (built) {
-					return;
-				}
-				try {
-					Files.deleteIfExists(path);
-				} catch (IOException ignore) {}
-			}
-		}
+               private static class BuilderState implements Runnable {
+                       private final Path fPath;
+                       private volatile boolean fBuilt;
+                       BuilderState(Path path) { this.fPath = path; }
+                       @Override
+                       public void run() {
+                               if (fBuilt) {
+                                       return;
+                               }
+                               try {
+                                       Files.deleteIfExists(fPath);
+                               } catch (IOException ignore) {}
+                       }
+               }
 
 		private Path getPath() throws IOException {
                        if (fPath == null) {
@@ -191,13 +191,13 @@ public class FileCache implements Cache, Adaptable {
 		}
 
 		public FileCache build() throws IOException {
-			Path path = getPath();
-			if (fState != null) {
-				fState.built = true;
-			}
-			fCleanable = null;
-			return new FileCache(path);
-		}
+                       Path path = getPath();
+                       if (fState != null) {
+                               fState.fBuilt = true;
+                       }
+                       fCleanable = null;
+                       return new FileCache(path);
+               }
 	}
 
 }
