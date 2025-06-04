@@ -293,14 +293,19 @@ public class JcrXPathQuery extends SearchIndexQuery {
 		return fCompiled;
 	}
 
-	private Map<String, PointsConfig> getPointsConfigMap() {
-		for (Clause e : fClauses) {
-			if (e instanceof ConstraintClause) {
-				return ((ConstraintClause) e).getPointsConfigMap();
-			}
-		}
-		return new HashMap<>();
-	}
+        private Map<String, PointsConfig> getPointsConfigMap() {
+                Map<String, PointsConfig> map = new HashMap<>();
+                for (Clause e : fClauses) {
+                        if (e instanceof PathClause) {
+                                map.putAll(((PathClause) e).getPointsConfigMap());
+                                continue;
+                        }
+                        if (e instanceof ConstraintClause) {
+                                map.putAll(((ConstraintClause) e).getPointsConfigMap());
+                        }
+                }
+                return map;
+        }
 
 	private Sort getSort() {
 		if (fOrderByClause != null) {
@@ -789,10 +794,12 @@ public class JcrXPathQuery extends SearchIndexQuery {
 		}
 	}
 
-	private static class PathClause extends Clause {
-		protected PathClause(String statement, Adaptable adaptable) {
-			super(statement, adaptable);
-		}
+        private static class PathClause extends Clause {
+                private final Map<String, PointsConfig> fPointsConfigMap = new HashMap<>();
+
+                protected PathClause(String statement, Adaptable adaptable) {
+                        super(statement, adaptable);
+                }
 
 		@Override
 		protected String compile() {
@@ -894,16 +901,17 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				}
 				buf.append(escape("jcr:primaryType")).append(":").append(escape(primaryType));
 			}
-			if (depth != -1) {
-				if (buf.length() > 0) {
-					buf.append(" AND ");
-				}
-				buf.append("_depth").append(":").append("" + depth);
-			}
-			if (buf.length() > 0) {
-				buf.insert(0, "(");
-				buf.append(")");
-			}
+                        if (depth != -1) {
+                                if (buf.length() > 0) {
+                                        buf.append(" AND ");
+                                }
+                                buf.append("_depth").append(":").append("" + depth);
+                                fPointsConfigMap.put("_depth", new PointsConfig(new DecimalFormat(), Long.class));
+                        }
+                        if (buf.length() > 0) {
+                                buf.insert(0, "(");
+                                buf.append(")");
+                        }
 
 			String stmt = buf.toString();
 			if (Strings.isEmpty(stmt)) {
@@ -912,9 +920,9 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			return stmt;
 		}
 
-		private String toLucenePath(String path) {
-			StringBuilder buf = new StringBuilder();
-			String[] pathNames = path.split("\\/");
+                private String toLucenePath(String path) {
+                        StringBuilder buf = new StringBuilder();
+                        String[] pathNames = path.split("\\/");
 			for (int i = 0; i < pathNames.length; i++) {
 				String e = pathNames[i];
 				if (Strings.isEmpty(e)) {
@@ -929,11 +937,15 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					continue;
 				}
 
-				buf.append("\\/").append(escape(e));
-			}
-			return buf.toString();
-		}
-	}
+                                buf.append("\\/").append(escape(e));
+                        }
+                        return buf.toString();
+                }
+
+                protected Map<String, PointsConfig> getPointsConfigMap() {
+                        return fPointsConfigMap;
+                }
+        }
 
 	private static class ConstraintClause extends Clause {
 		private Map<String, PointsConfig> fPointsConfigMap = new HashMap<>();
