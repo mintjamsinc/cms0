@@ -129,7 +129,7 @@ public class FileCache implements Cache, Adaptable {
 
 	public static class Builder implements AutoCloseable {
 		private Path fTempDir;
-		private Path _path;
+               private Path fPath;
 		private Cleaner.Cleanable fCleanable;
 		private BuilderState fState;
 
@@ -153,12 +153,12 @@ public class FileCache implements Cache, Adaptable {
 		}
 
 		private Path getPath() throws IOException {
-			if (_path == null) {
-				_path = Files.createTempFile(fTempDir, "cache-", null);
-				fState = new BuilderState(_path);
-				fCleanable = CLEANER.register(this, fState);
-			}
-			return _path;
+                       if (fPath == null) {
+                               fPath = Files.createTempFile(fTempDir, "cache-", null);
+                               fState = new BuilderState(fPath);
+                               fCleanable = CLEANER.register(this, fState);
+                       }
+                       return fPath;
 		}
 
 		@Override

@@ -148,7 +148,7 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return JcrRepository.create(this);
 	}
 
-	private List<String> _serviceCredentials = null;
+       private List<String> fServiceCredentials = null;
 	@SuppressWarnings("unchecked")
 	public boolean isServiceCredentials(Credentials credentials) throws RepositoryException {
 		if (!(credentials instanceof ServiceCredentials)) {
@@ -156,12 +156,12 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		}
 
 		try {
-			if (_serviceCredentials == null) {
-				ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
-				_serviceCredentials = (List<String>) el.evaluate("config.security.serviceCredentials");
-			}
+                       if (fServiceCredentials == null) {
+                               ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
+                               fServiceCredentials = (List<String>) el.evaluate("config.security.serviceCredentials");
+                       }
 
-			for (String name : _serviceCredentials) {
+                       for (String name : fServiceCredentials) {
 				if (Strings.isEmpty(name)) {
 					continue;
 				}
@@ -182,18 +182,18 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return false;
 	}
 
-	private List<String> _principalProviderServices = null;
+       private List<String> fPrincipalProviderServices = null;
 	@SuppressWarnings("unchecked")
 	public List<String> getPrincipalProviderServices() throws RepositoryException {
 		try {
-			if (_principalProviderServices == null) {
-				ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
-				_principalProviderServices = (List<String>) el.evaluate("config.security.principalProviders");
-			}
+                       if (fPrincipalProviderServices == null) {
+                               ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
+                               fPrincipalProviderServices = (List<String>) el.evaluate("config.security.principalProviders");
+                       }
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
-		return Collections.unmodifiableList(_principalProviderServices);
+               return Collections.unmodifiableList(fPrincipalProviderServices);
 	}
 
 	@Override

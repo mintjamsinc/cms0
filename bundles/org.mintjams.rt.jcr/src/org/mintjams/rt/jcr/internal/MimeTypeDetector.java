@@ -138,13 +138,13 @@ public class MimeTypeDetector extends FileTypeDetector implements Closeable, Ada
 		return open();
 	}
 
-	private Path _indexPath;
-	public Path getIndexPath() throws IOException {
-		if (_indexPath == null) {
-			_indexPath = Files.createTempDirectory(fRepository.getConfiguration().getTmpPath(), "mime-").toAbsolutePath();
-		}
-		return _indexPath;
-	}
+       private Path fIndexPath;
+       public Path getIndexPath() throws IOException {
+               if (fIndexPath == null) {
+                       fIndexPath = Files.createTempDirectory(fRepository.getConfiguration().getTmpPath(), "mime-").toAbsolutePath();
+               }
+               return fIndexPath;
+       }
 
 	public Path getMimeTypesPath() {
 		return fRepository.getConfiguration().getEtcPath().resolve("mime.types").normalize();

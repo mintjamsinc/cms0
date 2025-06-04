@@ -50,14 +50,14 @@ public class NativeEcma implements Closeable {
 		return getBundleContext().getBundle();
 	}
 
-	private Path _libPath;
-	public Path getLibPath() throws IOException {
-		if (_libPath == null) {
-			Path tmp = CmsService.getRepositoryPath().resolve("tmp");
-			_libPath = Files.createTempDirectory(tmp, "native-").toAbsolutePath();
-		}
-		return _libPath;
-	}
+       private Path fLibPath;
+       public Path getLibPath() throws IOException {
+               if (fLibPath == null) {
+                       Path tmp = CmsService.getRepositoryPath().resolve("tmp");
+                       fLibPath = Files.createTempDirectory(tmp, "native-").toAbsolutePath();
+               }
+               return fLibPath;
+       }
 
 	public void load() throws IOException {
 		for (Enumeration<URL> e = getBundle().findEntries("/native/" + Systems.getOSName() + "/" + Systems.getOSArch(), "*", true); e.hasMoreElements();) {

@@ -43,11 +43,11 @@ import org.mintjams.tools.lang.Strings;
 
 public class ScriptingDelegate implements JavaDelegate, ExecutionListener, TaskListener {
 
-	private Expression resourcePath;
+       private Expression fResourcePath;
 
 	@Override
 	public void execute(DelegateExecution execution) throws Exception {
-		String resourcePath = getResourcePath(execution);
+               String resourcePath = getResourcePath(execution);
 		if (Strings.isEmpty(resourcePath)) {
 			throw new IllegalStateException("The resource path is empty.");
 		}
@@ -130,11 +130,11 @@ public class ScriptingDelegate implements JavaDelegate, ExecutionListener, TaskL
 	}
 
 	private String getResourcePath(VariableScope variableScope) {
-		if (resourcePath == null) {
-			return null;
-		}
+               if (fResourcePath == null) {
+                       return null;
+               }
 
-		return (String) resourcePath.getValue(variableScope);
-	}
+               return (String) fResourcePath.getValue(variableScope);
+       }
 
 }
