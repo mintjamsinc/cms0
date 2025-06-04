@@ -45,9 +45,9 @@ private boolean fIsActive;
 
 This naming convention makes it easier to distinguish between:
 
-- Local variables within methods
-- Constructor or setter parameters
-- Class-level fields
+* Local variables within methods
+* Constructor or setter parameters
+* Class-level fields
 
 ### Exception: `serialVersionUID`
 
@@ -66,6 +66,7 @@ Do **not** rename it to follow the `f` prefix rule (e.g., `fSerialVersionUID`), 
 
 * **Language**:
   All commit messages must be written in **English**.
+  The **title and description** of all Pull Requests must also be written in **English**.
 
 * **Format**:
   Follow this structure whenever possible:
