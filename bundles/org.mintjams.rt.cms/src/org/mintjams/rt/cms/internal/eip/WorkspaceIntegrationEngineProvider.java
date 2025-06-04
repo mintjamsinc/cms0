@@ -271,6 +271,10 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 			@Override
 			public void run() {
 				while (!fCloseRequested) {
+					if (Thread.interrupted()) {
+						fCloseRequested = true;
+						break;
+					}
 					Event event;
 					synchronized (fEvents) {
 						if (fEvents.isEmpty()) {
@@ -281,6 +285,10 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 						}
 
 						event = fEvents.remove(0);
+						if (Thread.interrupted()) {
+							fCloseRequested = true;
+							break;
+						}
 					}
 
 					try {

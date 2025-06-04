@@ -32,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.lang.ref.Cleaner;
 
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.io.Closer;
@@ -40,17 +41,31 @@ import org.mintjams.tools.lang.Strings;
 
 public class FileCache implements Cache, Adaptable {
 
+	private static final Cleaner CLEANER = Cleaner.create();
+
+	private static class State implements Runnable {
+		private final Path path;
+		State(Path path) { this.path = path; }
+		@Override
+		public void run() {
+			try {
+				Files.deleteIfExists(path);
+			} catch (IOException ignore) {}
+		}
+	}
+
 	private final Path fPath;
 	private final Closer fCloser = Closer.create();
+	private final Cleaner.Cleanable fCleanable;
 
 	private FileCache(Path path) {
 		fPath = path;
+		fCleanable = CLEANER.register(this, new State(path));
 	}
 
 	public static FileCache create(InputStream in, Path tempDir) throws IOException {
 		try (in) {
 			Path path = Files.createTempFile(tempDir, "cache-", null);
-			path.toFile().deleteOnExit();
 
 			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
 				IOs.copy(in, out);
@@ -67,10 +82,7 @@ public class FileCache implements Cache, Adaptable {
 	@Override
 	public void close() throws IOException {
 		fCloser.close();
-
-		try {
-			Files.deleteIfExists(fPath);
-		} catch (Throwable ignore) {}
+		fCleanable.clean();
 	}
 
 	public static Builder newBuilder(Path tempDir) throws IOException {
@@ -126,7 +138,6 @@ public class FileCache implements Cache, Adaptable {
 		private Path getPath() throws IOException {
 			if (_path == null) {
 				_path = Files.createTempFile(fTempDir, "cache-", null);
-				_path.toFile().deleteOnExit();
 			}
 			return _path;
 		}
