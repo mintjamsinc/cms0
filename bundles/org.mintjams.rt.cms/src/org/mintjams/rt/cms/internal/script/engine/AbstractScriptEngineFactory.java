@@ -1,24 +1,24 @@
 /*
- * Copyright (c) 2022 MintJams Inc.
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- * 
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+	* Copyright (c) 2022 MintJams Inc.
+	* 
+	* Permission is hereby granted, free of charge, to any person obtaining a copy
+	* of this software and associated documentation files (the "Software"), to deal
+	* in the Software without restriction, including without limitation the rights
+	* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	* copies of the Software, and to permit persons to whom the Software is
+	* furnished to do so, subject to the following conditions:
+	* 
+	* The above copyright notice and this permission notice shall be included in all
+	* copies or substantial portions of the Software.
+	* 
+	* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	* SOFTWARE.
+	*/
 
 package org.mintjams.rt.cms.internal.script.engine;
 
@@ -31,11 +31,11 @@ import javax.script.ScriptEngineFactory;
 
 public abstract class AbstractScriptEngineFactory implements ScriptEngineFactory {
 
-       private String fEngineName;
-       private String fEngineVersion;
-       private List<String> fExtensions;
-       private List<String> fMimeTypes;
-       private List<String> fNames;
+	private String fEngineName;
+	private String fEngineVersion;
+	private List<String> fExtensions;
+	private List<String> fMimeTypes;
+	private List<String> fNames;
 
 	protected AbstractScriptEngineFactory() {
 		setEngineName(getEngineName());
@@ -46,61 +46,61 @@ public abstract class AbstractScriptEngineFactory implements ScriptEngineFactory
 		setNames((String[]) null);
 	}
 
-       public String getEngineName() {
-               return fEngineName;
-       }
+	public String getEngineName() {
+		return fEngineName;
+	}
 
-       protected void setEngineName(String engineName) {
-               fEngineName = engineName;
-       }
+	protected void setEngineName(String engineName) {
+		fEngineName = engineName;
+	}
 
 	@Override
 	public String getEngineVersion() {
-               return fEngineVersion;
-       }
+		return fEngineVersion;
+	}
 
-       protected void setEngineVersion(String engineVersion) {
-               fEngineVersion = engineVersion;
-       }
-
-	@Override
-       public List<String> getExtensions() {
-               return fExtensions;
-       }
-
-       protected void setExtensions(String... extensions) {
-               if (extensions == null) {
-                       fExtensions = Collections.emptyList();
-               } else {
-                       fExtensions = Arrays.asList(extensions);
-               }
-       }
+	protected void setEngineVersion(String engineVersion) {
+		fEngineVersion = engineVersion;
+	}
 
 	@Override
-       public List<String> getMimeTypes() {
-               return fMimeTypes;
-       }
+	public List<String> getExtensions() {
+		return fExtensions;
+	}
 
-       protected void setMimeTypes(String... mimeTypes) {
-               if (mimeTypes == null) {
-                       fMimeTypes = Collections.emptyList();
-               } else {
-                       fMimeTypes = Arrays.asList(mimeTypes);
-               }
-       }
+	protected void setExtensions(String... extensions) {
+		if (extensions == null) {
+			fExtensions = Collections.emptyList();
+		} else {
+			fExtensions = Arrays.asList(extensions);
+		}
+	}
 
 	@Override
-       public List<String> getNames() {
-               return fNames;
-       }
+	public List<String> getMimeTypes() {
+		return fMimeTypes;
+	}
 
-       protected void setNames(String... names) {
-               if (names == null) {
-                       fNames = Collections.emptyList();
-               } else {
-                       fNames = Arrays.asList(names);
-               }
-       }
+	protected void setMimeTypes(String... mimeTypes) {
+		if (mimeTypes == null) {
+			fMimeTypes = Collections.emptyList();
+		} else {
+			fMimeTypes = Arrays.asList(mimeTypes);
+		}
+	}
+
+	@Override
+	public List<String> getNames() {
+		return fNames;
+	}
+
+	protected void setNames(String... names) {
+		if (names == null) {
+			fNames = Collections.emptyList();
+		} else {
+			fNames = Arrays.asList(names);
+		}
+	}
 
 	@Override
 	public String getMethodCallSyntax(String obj, String methodName, String... args) {

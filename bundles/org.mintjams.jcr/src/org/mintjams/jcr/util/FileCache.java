@@ -43,16 +43,16 @@ public class FileCache implements Cache, Adaptable {
 
 	private static final Cleaner CLEANER = Cleaner.create();
 
-       private static class State implements Runnable {
-               private final Path fPath;
-               State(Path path) { this.fPath = path; }
-               @Override
-               public void run() {
-                       try {
-                               Files.deleteIfExists(fPath);
-                       } catch (IOException ignore) {}
-               }
-       }
+	private static class State implements Runnable {
+		private final Path fPath;
+		State(Path path) { this.fPath = path; }
+		@Override
+		public void run() {
+			try {
+				Files.deleteIfExists(fPath);
+			} catch (IOException ignore) {}
+		}
+	}
 
 	private final Path fPath;
 	private final Closer fCloser = Closer.create();
@@ -129,7 +129,7 @@ public class FileCache implements Cache, Adaptable {
 
 	public static class Builder implements AutoCloseable {
 		private Path fTempDir;
-               private Path fPath;
+		private Path fPath;
 		private Cleaner.Cleanable fCleanable;
 		private BuilderState fState;
 
@@ -137,28 +137,28 @@ public class FileCache implements Cache, Adaptable {
 			fTempDir = tempDir;
 		}
 
-               private static class BuilderState implements Runnable {
-                       private final Path fPath;
-                       private volatile boolean fBuilt;
-                       BuilderState(Path path) { this.fPath = path; }
-                       @Override
-                       public void run() {
-                               if (fBuilt) {
-                                       return;
-                               }
-                               try {
-                                       Files.deleteIfExists(fPath);
-                               } catch (IOException ignore) {}
-                       }
-               }
+		private static class BuilderState implements Runnable {
+			private final Path fPath;
+			private volatile boolean fBuilt;
+			BuilderState(Path path) { this.fPath = path; }
+			@Override
+			public void run() {
+				if (fBuilt) {
+					return;
+				}
+				try {
+					Files.deleteIfExists(fPath);
+				} catch (IOException ignore) {}
+			}
+		}
 
 		private Path getPath() throws IOException {
-                       if (fPath == null) {
-                               fPath = Files.createTempFile(fTempDir, "cache-", null);
-                               fState = new BuilderState(fPath);
-                               fCleanable = CLEANER.register(this, fState);
-                       }
-                       return fPath;
+			if (fPath == null) {
+				fPath = Files.createTempFile(fTempDir, "cache-", null);
+				fState = new BuilderState(fPath);
+				fCleanable = CLEANER.register(this, fState);
+			}
+			return fPath;
 		}
 
 		@Override
@@ -191,13 +191,13 @@ public class FileCache implements Cache, Adaptable {
 		}
 
 		public FileCache build() throws IOException {
-                       Path path = getPath();
-                       if (fState != null) {
-                               fState.fBuilt = true;
-                       }
-                       fCleanable = null;
-                       return new FileCache(path);
-               }
+			Path path = getPath();
+			if (fState != null) {
+				fState.fBuilt = true;
+			}
+			fCleanable = null;
+			return new FileCache(path);
+		}
 	}
 
 }
