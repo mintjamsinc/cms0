@@ -708,21 +708,29 @@ public class JournalObserver implements Adaptable, Closeable {
 		return Adaptables.getAdapter(fWorkspaceProvider, adapterType);
 	}
 
-	private class Task implements Runnable {
-		@Override
-		public void run() {
-			while (!fCloseRequested) {
-				String transactionId;
-				synchronized (fTransactionIdentifiers) {
-					if (fTransactionIdentifiers.isEmpty()) {
-						try {
-							fTransactionIdentifiers.wait();
-						} catch (InterruptedException ignore) {}
-						continue;
-					}
+        private class Task implements Runnable {
+                @Override
+                public void run() {
+                        while (!fCloseRequested) {
+                                if (Thread.interrupted()) {
+                                        fCloseRequested = true;
+                                        break;
+                                }
+                                String transactionId;
+                                synchronized (fTransactionIdentifiers) {
+                                        if (fTransactionIdentifiers.isEmpty()) {
+                                                try {
+                                                        fTransactionIdentifiers.wait();
+                                                } catch (InterruptedException ignore) {}
+                                                continue;
+                                        }
 
-					transactionId = fTransactionIdentifiers.remove(0);
-				}
+                                        transactionId = fTransactionIdentifiers.remove(0);
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                }
 
 				try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
 					WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
