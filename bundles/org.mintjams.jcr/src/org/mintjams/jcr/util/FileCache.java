@@ -127,24 +127,44 @@ public class FileCache implements Cache, Adaptable {
 		return null;
 	}
 
-	public static class Builder {
-		private Path fTempDir;
+        public static class Builder implements AutoCloseable {
+                private Path fTempDir;
 
 		private Builder(Path tempDir) {
 			fTempDir = tempDir;
 		}
 
-		private Path _path;
-		private Path getPath() throws IOException {
-			if (_path == null) {
-				_path = Files.createTempFile(fTempDir, "cache-", null);
-			}
-			return _path;
-		}
+                private static class BuilderState implements Runnable {
+                        private final Path path;
+                        private volatile boolean built;
+                        BuilderState(Path path) { this.path = path; }
+                        void built() { built = true; }
+                        @Override
+                        public void run() {
+                                if (!built) {
+                                        try {
+                                                Files.deleteIfExists(path);
+                                        } catch (IOException ignore) {}
+                                }
+                        }
+                }
 
-		private OutputStream getAppendStream() throws IOException {
-			return Files.newOutputStream(getPath(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-		}
+                private Path _path;
+                private Cleaner.Cleanable _cleanable;
+                private BuilderState _state;
+
+                private Path getPath() throws IOException {
+                        if (_path == null) {
+                                _path = Files.createTempFile(fTempDir, "cache-", null);
+                                _state = new BuilderState(_path);
+                                _cleanable = CLEANER.register(this, _state);
+                        }
+                        return _path;
+                }
+
+                private OutputStream getAppendStream() throws IOException {
+                        return Files.newOutputStream(getPath(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                }
 
 		public Builder write(String value) throws IOException {
 			return write(value.getBytes(StandardCharsets.UTF_8));
@@ -163,9 +183,25 @@ public class FileCache implements Cache, Adaptable {
 			return this;
 		}
 
-		public FileCache build() throws IOException {
-			return new FileCache(getPath());
-		}
-	}
+                public FileCache build() throws IOException {
+                        Path path = getPath();
+                        if (_cleanable != null) {
+                                _state.built();
+                                _cleanable.clean();
+                                _cleanable = null;
+                        }
+                        return new FileCache(path);
+                }
+
+                @Override
+                public void close() throws IOException {
+                        if (_cleanable != null) {
+                                _cleanable.clean();
+                                _cleanable = null;
+                        }
+                        _state = null;
+                        _path = null;
+                }
+        }
 
 }
