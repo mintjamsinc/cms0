@@ -261,9 +261,9 @@ public class Saml2ServiceProviderConfiguration {
 						throw new ServletException("An unexpected error occurred while processing your request: " + String.join(", ", errors));
 					}
 
-                                        String redirectURI = getRedirectURI(request);
-                                        if (Strings.isNotEmpty(redirectURI)) {
-                                                response.sendRedirect(redirectURI);
+					String redirectURI = getRedirectURI(request);
+					if (Strings.isNotEmpty(redirectURI)) {
+						response.sendRedirect(redirectURI);
 						return;
 					}
 

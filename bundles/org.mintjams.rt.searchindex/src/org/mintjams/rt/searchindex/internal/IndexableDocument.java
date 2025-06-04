@@ -244,16 +244,16 @@ public class IndexableDocument implements SearchIndex.Document {
 			doc.add(new SortedDocValuesField("_path", new BytesRef(fPath)));
 			fulltext.append("\n").append(fPath);
 
-                       if (Strings.isNotEmpty(fPath) && !fPath.equals("/")) {
-                               String parentPath = fPath;
-                               int idx = parentPath.lastIndexOf("/");
-                               if (idx >= 0) {
-                                       parentPath = parentPath.substring(0, idx);
-                               } else {
-                                       parentPath = "";
-                               }
-                               doc.add(new StringField("_parentPath", parentPath, Field.Store.NO));
-                       }
+			if (Strings.isNotEmpty(fPath) && !fPath.equals("/")) {
+				String parentPath = fPath;
+				int idx = parentPath.lastIndexOf("/");
+				if (idx >= 0) {
+					parentPath = parentPath.substring(0, idx);
+				} else {
+					parentPath = "";
+				}
+				doc.add(new StringField("_parentPath", parentPath, Field.Store.NO));
+			}
 
 			if (Strings.isEmpty(fPath) || fPath.equals("/")) {
 				doc.add(new LongPoint("_depth", 0));
