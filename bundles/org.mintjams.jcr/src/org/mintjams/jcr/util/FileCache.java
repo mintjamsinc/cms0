@@ -127,7 +127,17 @@ public class FileCache implements Cache, Adaptable {
 		return null;
 	}
 
-        public static class Builder implements AutoCloseable {
+       /**
+        * Incrementally creates a {@link FileCache} backed by a temporary file.
+        * <p>
+        * The builder allocates a file in the given temporary directory. If
+        * {@link #build()} is not invoked, this file is deleted when the builder
+        * is {@link #close() closed} or garbage-collected. For this reason the
+        * builder implements {@link AutoCloseable} and should be used with a
+        * try-with-resources statement.
+        * </p>
+        */
+       public static class Builder implements AutoCloseable {
                 private Path fTempDir;
 
 		private Builder(Path tempDir) {
