@@ -25,11 +25,40 @@ This document describes conventions and policies used for development agents in 
 
 * **Constants**: Use **UPPER\_SNAKE\_CASE** (e.g., `DEFAULT_TIMEOUT_MS`).
 
-* **Java Fields**:
-  Prefix all class-level fields with **`f`** followed by **PascalCase**.
-  Example: `fCloseRequested`, `fAgentRegistry`.
-
 * **Directories and Files**: Use **lowercase** with hyphen separators (e.g., `remote-agents/`, `agent-config.json`).
+
+---
+
+## Field Naming Convention
+
+All class fields must be named using PascalCase and prefixed with `f`.
+
+### Examples
+
+```java
+private String fUserName;
+private int fAge;
+private boolean fIsActive;
+```
+
+### Purpose
+
+This naming convention makes it easier to distinguish between:
+
+- Local variables within methods
+- Constructor or setter parameters
+- Class-level fields
+
+### Exception: `serialVersionUID`
+
+The `serialVersionUID` field is a special field used by Java's `Serializable` interface.
+It **must be declared with the exact name `serialVersionUID`** as required by the Java language specification.
+
+```java
+private static final long serialVersionUID = 1L;
+```
+
+Do **not** rename it to follow the `f` prefix rule (e.g., `fSerialVersionUID`), as doing so will break Java's serialization mechanism.
 
 ---
 
