@@ -1,7 +1,3 @@
-追加ルールを反映した `AGENTS.md` 全文の最新版は以下のとおりです：
-
----
-
 # AGENTS.md
 
 This document describes conventions and policies used for development agents in this repository.
