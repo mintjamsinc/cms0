@@ -113,8 +113,10 @@ agents/
 
 Each bundle may include a `lib/` directory containing JAR files required for proper execution within the OSGi runtime environment.
 
-These JARs are not general-purpose dependencies but are **essential resources** specific to the corresponding bundle.
+These JARs are not general-purpose dependencies but are **essential resources** specific to the corresponding bundle and are kept in version control.
 For example, the `bundles/groovy/lib/` folder includes the full set of Apache Groovy runtime libraries needed by the Groovy bundle.
+
+JAR files located under `bundles/**/lib/` are therefore explicitly allowed.
 
 **Do not remove or alter these JAR files** unless you fully understand their role and have verified the impact on the OSGi runtime.
 Removing them may cause runtime errors or prevent the bundle from starting correctly.
@@ -125,5 +127,5 @@ Removing them may cause runtime errors or prevent the bundle from starting corre
 
 * Keep agent logic **modular** and **loosely coupled**.
 * Add comments for any **non-obvious logic** or side effects.
-* Do not commit build artifacts (e.g., `.class`, `.log`, `.jar`, etc.).
+* Do not commit build artifacts (e.g., `.class`, `.log`, `.jar`, etc.) outside of `bundles/**/lib/`.
 * Prefer **composition over inheritance** when extending agent functionality.
