@@ -119,25 +119,25 @@ public class WorkspaceQuery implements Adaptable {
 		getConnection().rollback();
 	}
 
-	private final JournalQuery _journalQuery = new JournalQuery();
-	public JournalQuery journal() {
-		return _journalQuery;
-	}
+       private final JournalQuery fJournalQuery = new JournalQuery();
+       public JournalQuery journal() {
+               return fJournalQuery;
+       }
 
-	private final FilesQuery _filesQuery = new FilesQuery();
-	public FilesQuery files() {
-		return _filesQuery;
-	}
+       private final FilesQuery fFilesQuery = new FilesQuery();
+       public FilesQuery files() {
+               return fFilesQuery;
+       }
 
-	private final ItemsQuery _itemsQuery = new ItemsQuery();
-	public ItemsQuery items() {
-		return _itemsQuery;
-	}
+       private final ItemsQuery fItemsQuery = new ItemsQuery();
+       public ItemsQuery items() {
+               return fItemsQuery;
+       }
 
-	private final NamespacesQuery _namespacesQuery = new NamespacesQuery();
-	public NamespacesQuery namespaces() {
-		return _namespacesQuery;
-	}
+       private final NamespacesQuery fNamespacesQuery = new NamespacesQuery();
+       public NamespacesQuery namespaces() {
+               return fNamespacesQuery;
+       }
 
 	public SessionIdentifier getSessionIdentifier() {
 		return adaptTo(SessionIdentifier.class);
@@ -224,13 +224,13 @@ public class WorkspaceQuery implements Adaptable {
 	public class JournalQuery {
 		private JournalQuery() {}
 
-		private Entity _journalEntity;
-		private Entity journalEntity() throws SQLException {
-			if (_journalEntity == null) {
-				_journalEntity = Entity.newBuilder(getConnection()).setName("jcr_journal").build();
-			}
-			return _journalEntity;
-		}
+               private Entity fJournalEntity;
+               private Entity journalEntity() throws SQLException {
+                       if (fJournalEntity == null) {
+                               fJournalEntity = Entity.newBuilder(getConnection()).setName("jcr_journal").build();
+                       }
+                       return fJournalEntity;
+               }
 
 		public void writeJournal(Map<String, Object> data) throws SQLException {
 			SessionIdentifier sessionIdentifier = getSessionIdentifier();
@@ -264,13 +264,13 @@ public class WorkspaceQuery implements Adaptable {
 	public class FilesQuery {
 		private FilesQuery() {}
 
-		private Entity _filesEntity;
-		private Entity filesEntity() throws SQLException {
-			if (_filesEntity == null) {
-				_filesEntity = Entity.newBuilder(getConnection()).setName("jcr_files").build();
-			}
-			return _filesEntity;
-		}
+               private Entity fFilesEntity;
+               private Entity filesEntity() throws SQLException {
+                       if (fFilesEntity == null) {
+                               fFilesEntity = Entity.newBuilder(getConnection()).setName("jcr_files").build();
+                       }
+                       return fFilesEntity;
+               }
 
 		public void createFile(String id, JcrBinary data) throws IOException, SQLException, RepositoryException {
 			Path path = getPath(id);
@@ -346,37 +346,37 @@ public class WorkspaceQuery implements Adaptable {
 	public class ItemsQuery {
 		private ItemsQuery() {}
 
-		private Entity _itemsEntity;
-		private Entity itemsEntity() throws SQLException {
-			if (_itemsEntity == null) {
-				_itemsEntity = Entity.newBuilder(getConnection()).setName("jcr_items").build();
-			}
-			return _itemsEntity;
-		}
+               private Entity fItemsEntity;
+               private Entity itemsEntity() throws SQLException {
+                       if (fItemsEntity == null) {
+                               fItemsEntity = Entity.newBuilder(getConnection()).setName("jcr_items").build();
+                       }
+                       return fItemsEntity;
+               }
 
-		private Entity _propertiesEntity;
-		private Entity propertiesEntity() throws SQLException {
-			if (_propertiesEntity == null) {
-				_propertiesEntity = Entity.newBuilder(getConnection()).setName("jcr_properties").build();
-			}
-			return _propertiesEntity;
-		}
+               private Entity fPropertiesEntity;
+               private Entity propertiesEntity() throws SQLException {
+                       if (fPropertiesEntity == null) {
+                               fPropertiesEntity = Entity.newBuilder(getConnection()).setName("jcr_properties").build();
+                       }
+                       return fPropertiesEntity;
+               }
 
-		private Entity _acesEntity;
-		private Entity acesEntity() throws SQLException {
-			if (_acesEntity == null) {
-				_acesEntity = Entity.newBuilder(getConnection()).setName("jcr_aces").build();
-			}
-			return _acesEntity;
-		}
+               private Entity fAcesEntity;
+               private Entity acesEntity() throws SQLException {
+                       if (fAcesEntity == null) {
+                               fAcesEntity = Entity.newBuilder(getConnection()).setName("jcr_aces").build();
+                       }
+                       return fAcesEntity;
+               }
 
-		private Entity _locksEntity;
-		public Entity locksEntity() throws SQLException {
-			if (_locksEntity == null) {
-				_locksEntity = Entity.newBuilder(getConnection()).setName("jcr_locks").build();
-			}
-			return _locksEntity;
-		}
+               private Entity fLocksEntity;
+               public Entity locksEntity() throws SQLException {
+                       if (fLocksEntity == null) {
+                               fLocksEntity = Entity.newBuilder(getConnection()).setName("jcr_locks").build();
+                       }
+                       return fLocksEntity;
+               }
 
 		public JcrPath getVersionHistoryPath(String id) {
 			return getResolved(JcrPath.valueOf("/")
@@ -1797,13 +1797,13 @@ public class WorkspaceQuery implements Adaptable {
 	public class NamespacesQuery {
 		private NamespacesQuery() {}
 
-		private Entity _namespacesEntity;
-		private Entity namespacesEntity() throws SQLException {
-			if (_namespacesEntity == null) {
-				_namespacesEntity = Entity.newBuilder(getConnection()).setName("jcr_namespaces").build();
-			}
-			return _namespacesEntity;
-		}
+               private Entity fNamespacesEntity;
+               private Entity namespacesEntity() throws SQLException {
+                       if (fNamespacesEntity == null) {
+                               fNamespacesEntity = Entity.newBuilder(getConnection()).setName("jcr_namespaces").build();
+                       }
+                       return fNamespacesEntity;
+               }
 
 		public String getPrefix(String uri) throws IOException, SQLException {
 			try (Query.Result result = newQueryBuilder("SELECT namespace_prefix FROM jcr_namespaces WHERE namespace_uri = {{uri}}")

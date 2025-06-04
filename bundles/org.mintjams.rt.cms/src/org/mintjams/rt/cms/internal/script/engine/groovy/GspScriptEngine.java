@@ -41,13 +41,13 @@ import groovy.text.TemplateEngine;
 
 public class GspScriptEngine extends AbstractScriptEngine {
 
-	private TemplateEngine templateEngine;
-	private Map<String, ScriptCacheEntry> cache;
+       private TemplateEngine fTemplateEngine;
+       private Map<String, ScriptCacheEntry> fCache;
 
 	public GspScriptEngine(ScriptEngineFactory scriptEngineFactory, ClassLoader classLoader) {
 		super(scriptEngineFactory);
-		this.templateEngine = new GStringTemplateEngine(classLoader);
-		this.cache = new WeakHashMap<>();
+               fTemplateEngine = new GStringTemplateEngine(classLoader);
+               fCache = new WeakHashMap<>();
 	}
 
 	@Override
@@ -57,7 +57,7 @@ public class GspScriptEngine extends AbstractScriptEngine {
 		if (reader instanceof ScriptReader) {
 			try {
 				ScriptReader scriptReader = (ScriptReader) reader;
-				ScriptCacheEntry e = cache.get(scriptReader.getScriptName());
+                               ScriptCacheEntry e = fCache.get(scriptReader.getScriptName());
 				if (e != null) {
 					if (e.getLastModified() == scriptReader.getLastModified().getTime()) {
 						template = e.getTemplate();
@@ -68,12 +68,12 @@ public class GspScriptEngine extends AbstractScriptEngine {
 
 		if (template == null) {
 			try {
-				template = templateEngine.createTemplate(reader);
+                               template = fTemplateEngine.createTemplate(reader);
 
 				if (reader instanceof ScriptReader) {
 					ScriptReader scriptReader = (ScriptReader) reader;
 					ScriptCacheEntry e = new ScriptCacheEntry(template, scriptReader.getScriptName(), scriptReader.getLastModified().getTime());
-					cache.put(e.getFilename(), e);
+                                       fCache.put(e.getFilename(), e);
 				}
 			} catch (Throwable ex) {
 				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile GSP script: " + ex.getMessage());
@@ -90,28 +90,28 @@ public class GspScriptEngine extends AbstractScriptEngine {
 		return null;
 	}
 
-	private static class ScriptCacheEntry {
-		private final Template template;
-		private final String filename;
-		private final long lastModified;
+       private static class ScriptCacheEntry {
+               private final Template fTemplate;
+               private final String fFilename;
+               private final long fLastModified;
 
-		private ScriptCacheEntry(Template template, String filename, long lastModified) {
-			this.template = template;
-			this.filename = filename;
-			this.lastModified = lastModified;
-		}
+               private ScriptCacheEntry(Template template, String filename, long lastModified) {
+                       fTemplate = template;
+                       fFilename = filename;
+                       fLastModified = lastModified;
+               }
 
-		public Template getTemplate() {
-			return template;
-		}
+               public Template getTemplate() {
+                       return fTemplate;
+               }
 
-		public String getFilename() {
-			return filename;
-		}
+               public String getFilename() {
+                       return fFilename;
+               }
 
-		public long getLastModified() {
-			return lastModified;
-		}
-	}
+               public long getLastModified() {
+                       return fLastModified;
+               }
+       }
 
 }

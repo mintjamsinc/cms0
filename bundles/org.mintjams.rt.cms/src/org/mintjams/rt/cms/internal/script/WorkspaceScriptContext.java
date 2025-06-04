@@ -88,16 +88,16 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 		return fCredentials;
 	}
 
-	private Session _session;
-	public Session getSession() throws ResourceException {
-		if (_session == null) {
-			try {
-				_session = fCloser.register(new Session(getJcrSession(), this));
+       private Session fSession;
+       public Session getSession() throws ResourceException {
+               if (fSession == null) {
+                       try {
+                               fSession = fCloser.register(new Session(getJcrSession(), this));
 			} catch (Throwable ex) {
 				throw ResourceException.wrap(ex);
 			}
 		}
-		return _session;
+               return fSession;
 	}
 
 	public Session getRepositorySession() throws ResourceException {
@@ -108,10 +108,10 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 		return getSession().getResourceResolver();
 	}
 
-	private javax.jcr.Session _jcrSession;
-	private javax.jcr.Session getJcrSession() throws RepositoryException {
-		if (_jcrSession == null) {
-			_jcrSession = CmsService.getRepository().login(getCredentials(), getWorkspaceName());
+       private javax.jcr.Session fJcrSession;
+       private javax.jcr.Session getJcrSession() throws RepositoryException {
+               if (fJcrSession == null) {
+                       fJcrSession = CmsService.getRepository().login(getCredentials(), getWorkspaceName());
 			fCloser.add(new Closeable() {
 				@Override
 				public void close() throws IOException {
@@ -136,13 +136,13 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 			fCloser.add(new Closeable() {
 				@Override
 				public void close() throws IOException {
-					if (_jcrSession.isLive()) {
-						_jcrSession.logout();
+                                       if (fJcrSession.isLive()) {
+                                               fJcrSession.logout();
 					}
 				}
 			});
 		}
-		return _jcrSession;
+               return fJcrSession;
 	}
 
 	public void setAttribute(String name, Object value) {

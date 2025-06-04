@@ -87,27 +87,27 @@ public class JcrWorkspaceProviderConfiguration {
 		return (List<Map<String, Object>>) fConfig.get("defaultNodes");
 	}
 
-	private List<String> _suggestionPropertyKeys = null;
-	public List<String> getSuggestionPropertyKeys() {
-		if (_suggestionPropertyKeys == null) {
-			ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
-			try {
-				_suggestionPropertyKeys = Arrays.asList(el.getStringArray("config.search.suggestion.propertyKeys"));
-			} catch (Throwable ignore) {
-				_suggestionPropertyKeys = new ArrayList<>();
-			}
-		}
-		return _suggestionPropertyKeys;
-	}
+       private List<String> fSuggestionPropertyKeys = null;
+       public List<String> getSuggestionPropertyKeys() {
+               if (fSuggestionPropertyKeys == null) {
+                       ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
+                       try {
+                               fSuggestionPropertyKeys = Arrays.asList(el.getStringArray("config.search.suggestion.propertyKeys"));
+                       } catch (Throwable ignore) {
+                               fSuggestionPropertyKeys = new ArrayList<>();
+                       }
+               }
+               return fSuggestionPropertyKeys;
+       }
 
-	private List<Map<String, Object>> _accessControlFilters = null;
+       private List<Map<String, Object>> fAccessControlFilters = null;
 	@SuppressWarnings("unchecked")
 	public List<Map<String, Object>> getAccessControlFilters() {
-		if (_accessControlFilters == null) {
-			ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
-			_accessControlFilters = (List<Map<String, Object>>) el.evaluate("config.security.filters");
-		}
-		return _accessControlFilters;
+               if (fAccessControlFilters == null) {
+                       ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
+                       fAccessControlFilters = (List<Map<String, Object>>) el.evaluate("config.security.filters");
+               }
+               return fAccessControlFilters;
 	}
 
 	public boolean isPublicAccess(JcrSession session, JcrPath absPath) {

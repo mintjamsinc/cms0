@@ -59,23 +59,23 @@ public class UserManager implements Closeable {
 		fSession = session;
 	}
 
-	private WorkspaceScriptContext _systemContext;
-	private WorkspaceScriptContext systemContext() throws RepositoryException, IOException {
-		if (_systemContext == null) {
-			_systemContext = new UserManagerScriptContext(SYSTEM_WORKSPACE_NAME);
-			_systemContext.setCredentials(new CmsServiceCredentials(fSession.getUserID()));
-		}
-		return _systemContext;
-	}
+       private WorkspaceScriptContext fSystemContext;
+       private WorkspaceScriptContext systemContext() throws RepositoryException, IOException {
+               if (fSystemContext == null) {
+                       fSystemContext = new UserManagerScriptContext(SYSTEM_WORKSPACE_NAME);
+                       fSystemContext.setCredentials(new CmsServiceCredentials(fSession.getUserID()));
+               }
+               return fSystemContext;
+       }
 
-	private WorkspaceScriptContext _userContext;
-	private WorkspaceScriptContext userContext() throws RepositoryException, IOException {
-		if (_userContext == null) {
-			_userContext = new UserManagerScriptContext(SYSTEM_WORKSPACE_NAME);
-			_userContext.setCredentials(new AuthenticatedCredentials(fSession.getUserPrincipal()));
-		}
-		return _userContext;
-	}
+       private WorkspaceScriptContext fUserContext;
+       private WorkspaceScriptContext userContext() throws RepositoryException, IOException {
+               if (fUserContext == null) {
+                       fUserContext = new UserManagerScriptContext(SYSTEM_WORKSPACE_NAME);
+                       fUserContext.setCredentials(new AuthenticatedCredentials(fSession.getUserPrincipal()));
+               }
+               return fUserContext;
+       }
 
 	public void registerIfNotExists() throws ResourceException {
 		registerIfNotExists(fSession.getUserPrincipal());
@@ -264,21 +264,21 @@ public class UserManager implements Closeable {
 	}
 
 	public void commit() throws ResourceException {
-		if (_systemContext != null) {
-			_systemContext.getResourceResolver().getSession().commit();
-		}
-		if (_userContext != null) {
-			_userContext.getResourceResolver().getSession().commit();
-		}
+               if (fSystemContext != null) {
+                       fSystemContext.getResourceResolver().getSession().commit();
+               }
+               if (fUserContext != null) {
+                       fUserContext.getResourceResolver().getSession().commit();
+               }
 	}
 
 	public void rollback() throws ResourceException {
-		if (_systemContext != null) {
-			_systemContext.getResourceResolver().getSession().rollback();
-		}
-		if (_userContext != null) {
-			_userContext.getResourceResolver().getSession().rollback();
-		}
+               if (fSystemContext != null) {
+                       fSystemContext.getResourceResolver().getSession().rollback();
+               }
+               if (fUserContext != null) {
+                       fUserContext.getResourceResolver().getSession().rollback();
+               }
 	}
 
 	public void logout() {
@@ -286,10 +286,10 @@ public class UserManager implements Closeable {
 			rollback();
 		} catch (Throwable ignore) {}
 		try {
-			_systemContext.close();
+                       fSystemContext.close();
 		} catch (Throwable ignore) {}
 		try {
-			_userContext.close();
+                       fUserContext.close();
 		} catch (Throwable ignore) {}
 	}
 

@@ -185,13 +185,13 @@ public class SearchIndexQueryResult implements SearchIndex.QueryResult, Adaptabl
 		return fSuggestionResult;
 	}
 
-	private IndexSearcher _indexSearcher;
-	private IndexSearcher getIndexSearcher() throws IOException {
-		if (_indexSearcher == null) {
-			_indexSearcher = adaptTo(SearchIndexImpl.class).getDocumentReader().getIndexSearcher();
-		}
-		return _indexSearcher;
-	}
+       private IndexSearcher fIndexSearcher;
+       private IndexSearcher getIndexSearcher() throws IOException {
+               if (fIndexSearcher == null) {
+                       fIndexSearcher = adaptTo(SearchIndexImpl.class).getDocumentReader().getIndexSearcher();
+               }
+               return fIndexSearcher;
+       }
 
 	@Override
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {

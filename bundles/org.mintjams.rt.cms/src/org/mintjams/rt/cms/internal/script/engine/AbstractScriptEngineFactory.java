@@ -31,11 +31,11 @@ import javax.script.ScriptEngineFactory;
 
 public abstract class AbstractScriptEngineFactory implements ScriptEngineFactory {
 
-	private String engineName;
-	private String engineVersion;
-	private List<String> extensions;
-	private List<String> mimeTypes;
-	private List<String> names;
+       private String fEngineName;
+       private String fEngineVersion;
+       private List<String> fExtensions;
+       private List<String> fMimeTypes;
+       private List<String> fNames;
 
 	protected AbstractScriptEngineFactory() {
 		setEngineName(getEngineName());
@@ -46,61 +46,61 @@ public abstract class AbstractScriptEngineFactory implements ScriptEngineFactory
 		setNames((String[]) null);
 	}
 
-	public String getEngineName() {
-		return engineName;
-	}
+       public String getEngineName() {
+               return fEngineName;
+       }
 
-	protected void setEngineName(String engineName) {
-		this.engineName = engineName;
-	}
+       protected void setEngineName(String engineName) {
+               fEngineName = engineName;
+       }
 
 	@Override
 	public String getEngineVersion() {
-		return engineVersion;
-	}
+               return fEngineVersion;
+       }
 
-	protected void setEngineVersion(String engineVersion) {
-		this.engineVersion = engineVersion;
-	}
-
-	@Override
-	public List<String> getExtensions() {
-		return extensions;
-	}
-
-	protected void setExtensions(String... extensions) {
-		if (extensions == null) {
-			this.extensions = Collections.emptyList();
-		} else {
-			this.extensions = Arrays.asList(extensions);
-		}
-	}
+       protected void setEngineVersion(String engineVersion) {
+               fEngineVersion = engineVersion;
+       }
 
 	@Override
-	public List<String> getMimeTypes() {
-		return mimeTypes;
-	}
+       public List<String> getExtensions() {
+               return fExtensions;
+       }
 
-	protected void setMimeTypes(String... mimeTypes) {
-		if (mimeTypes == null) {
-			this.mimeTypes = Collections.emptyList();
-		} else {
-			this.mimeTypes = Arrays.asList(mimeTypes);
-		}
-	}
+       protected void setExtensions(String... extensions) {
+               if (extensions == null) {
+                       fExtensions = Collections.emptyList();
+               } else {
+                       fExtensions = Arrays.asList(extensions);
+               }
+       }
 
 	@Override
-	public List<String> getNames() {
-		return names;
-	}
+       public List<String> getMimeTypes() {
+               return fMimeTypes;
+       }
 
-	protected void setNames(String... names) {
-		if (names == null) {
-			this.names = Collections.emptyList();
-		} else {
-			this.names = Arrays.asList(names);
-		}
-	}
+       protected void setMimeTypes(String... mimeTypes) {
+               if (mimeTypes == null) {
+                       fMimeTypes = Collections.emptyList();
+               } else {
+                       fMimeTypes = Arrays.asList(mimeTypes);
+               }
+       }
+
+	@Override
+       public List<String> getNames() {
+               return fNames;
+       }
+
+       protected void setNames(String... names) {
+               if (names == null) {
+                       fNames = Collections.emptyList();
+               } else {
+                       fNames = Arrays.asList(names);
+               }
+       }
 
 	@Override
 	public String getMethodCallSyntax(String obj, String methodName, String... args) {
