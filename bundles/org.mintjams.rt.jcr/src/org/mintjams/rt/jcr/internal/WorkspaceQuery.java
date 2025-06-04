@@ -1,24 +1,24 @@
 /*
- * Copyright (c) 2022 MintJams Inc.
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- * 
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+	* Copyright (c) 2022 MintJams Inc.
+	* 
+	* Permission is hereby granted, free of charge, to any person obtaining a copy
+	* of this software and associated documentation files (the "Software"), to deal
+	* in the Software without restriction, including without limitation the rights
+	* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	* copies of the Software, and to permit persons to whom the Software is
+	* furnished to do so, subject to the following conditions:
+	* 
+	* The above copyright notice and this permission notice shall be included in all
+	* copies or substantial portions of the Software.
+	* 
+	* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	* SOFTWARE.
+	*/
 
 package org.mintjams.rt.jcr.internal;
 
@@ -119,25 +119,25 @@ public class WorkspaceQuery implements Adaptable {
 		getConnection().rollback();
 	}
 
-       private final JournalQuery fJournalQuery = new JournalQuery();
-       public JournalQuery journal() {
-               return fJournalQuery;
-       }
+	private final JournalQuery fJournalQuery = new JournalQuery();
+	public JournalQuery journal() {
+		return fJournalQuery;
+	}
 
-       private final FilesQuery fFilesQuery = new FilesQuery();
-       public FilesQuery files() {
-               return fFilesQuery;
-       }
+	private final FilesQuery fFilesQuery = new FilesQuery();
+	public FilesQuery files() {
+		return fFilesQuery;
+	}
 
-       private final ItemsQuery fItemsQuery = new ItemsQuery();
-       public ItemsQuery items() {
-               return fItemsQuery;
-       }
+	private final ItemsQuery fItemsQuery = new ItemsQuery();
+	public ItemsQuery items() {
+		return fItemsQuery;
+	}
 
-       private final NamespacesQuery fNamespacesQuery = new NamespacesQuery();
-       public NamespacesQuery namespaces() {
-               return fNamespacesQuery;
-       }
+	private final NamespacesQuery fNamespacesQuery = new NamespacesQuery();
+	public NamespacesQuery namespaces() {
+		return fNamespacesQuery;
+	}
 
 	public SessionIdentifier getSessionIdentifier() {
 		return adaptTo(SessionIdentifier.class);
@@ -224,13 +224,13 @@ public class WorkspaceQuery implements Adaptable {
 	public class JournalQuery {
 		private JournalQuery() {}
 
-               private Entity fJournalEntity;
-               private Entity journalEntity() throws SQLException {
-                       if (fJournalEntity == null) {
-                               fJournalEntity = Entity.newBuilder(getConnection()).setName("jcr_journal").build();
-                       }
-                       return fJournalEntity;
-               }
+		private Entity fJournalEntity;
+		private Entity journalEntity() throws SQLException {
+			if (fJournalEntity == null) {
+				fJournalEntity = Entity.newBuilder(getConnection()).setName("jcr_journal").build();
+			}
+			return fJournalEntity;
+		}
 
 		public void writeJournal(Map<String, Object> data) throws SQLException {
 			SessionIdentifier sessionIdentifier = getSessionIdentifier();
@@ -264,13 +264,13 @@ public class WorkspaceQuery implements Adaptable {
 	public class FilesQuery {
 		private FilesQuery() {}
 
-               private Entity fFilesEntity;
-               private Entity filesEntity() throws SQLException {
-                       if (fFilesEntity == null) {
-                               fFilesEntity = Entity.newBuilder(getConnection()).setName("jcr_files").build();
-                       }
-                       return fFilesEntity;
-               }
+		private Entity fFilesEntity;
+		private Entity filesEntity() throws SQLException {
+			if (fFilesEntity == null) {
+				fFilesEntity = Entity.newBuilder(getConnection()).setName("jcr_files").build();
+			}
+			return fFilesEntity;
+		}
 
 		public void createFile(String id, JcrBinary data) throws IOException, SQLException, RepositoryException {
 			Path path = getPath(id);
@@ -346,37 +346,37 @@ public class WorkspaceQuery implements Adaptable {
 	public class ItemsQuery {
 		private ItemsQuery() {}
 
-               private Entity fItemsEntity;
-               private Entity itemsEntity() throws SQLException {
-                       if (fItemsEntity == null) {
-                               fItemsEntity = Entity.newBuilder(getConnection()).setName("jcr_items").build();
-                       }
-                       return fItemsEntity;
-               }
+		private Entity fItemsEntity;
+		private Entity itemsEntity() throws SQLException {
+			if (fItemsEntity == null) {
+				fItemsEntity = Entity.newBuilder(getConnection()).setName("jcr_items").build();
+			}
+			return fItemsEntity;
+		}
 
-               private Entity fPropertiesEntity;
-               private Entity propertiesEntity() throws SQLException {
-                       if (fPropertiesEntity == null) {
-                               fPropertiesEntity = Entity.newBuilder(getConnection()).setName("jcr_properties").build();
-                       }
-                       return fPropertiesEntity;
-               }
+		private Entity fPropertiesEntity;
+		private Entity propertiesEntity() throws SQLException {
+			if (fPropertiesEntity == null) {
+				fPropertiesEntity = Entity.newBuilder(getConnection()).setName("jcr_properties").build();
+			}
+			return fPropertiesEntity;
+		}
 
-               private Entity fAcesEntity;
-               private Entity acesEntity() throws SQLException {
-                       if (fAcesEntity == null) {
-                               fAcesEntity = Entity.newBuilder(getConnection()).setName("jcr_aces").build();
-                       }
-                       return fAcesEntity;
-               }
+		private Entity fAcesEntity;
+		private Entity acesEntity() throws SQLException {
+			if (fAcesEntity == null) {
+				fAcesEntity = Entity.newBuilder(getConnection()).setName("jcr_aces").build();
+			}
+			return fAcesEntity;
+		}
 
-               private Entity fLocksEntity;
-               public Entity locksEntity() throws SQLException {
-                       if (fLocksEntity == null) {
-                               fLocksEntity = Entity.newBuilder(getConnection()).setName("jcr_locks").build();
-                       }
-                       return fLocksEntity;
-               }
+		private Entity fLocksEntity;
+		public Entity locksEntity() throws SQLException {
+			if (fLocksEntity == null) {
+				fLocksEntity = Entity.newBuilder(getConnection()).setName("jcr_locks").build();
+			}
+			return fLocksEntity;
+		}
 
 		public JcrPath getVersionHistoryPath(String id) {
 			return getResolved(JcrPath.valueOf("/")
@@ -1797,13 +1797,13 @@ public class WorkspaceQuery implements Adaptable {
 	public class NamespacesQuery {
 		private NamespacesQuery() {}
 
-               private Entity fNamespacesEntity;
-               private Entity namespacesEntity() throws SQLException {
-                       if (fNamespacesEntity == null) {
-                               fNamespacesEntity = Entity.newBuilder(getConnection()).setName("jcr_namespaces").build();
-                       }
-                       return fNamespacesEntity;
-               }
+		private Entity fNamespacesEntity;
+		private Entity namespacesEntity() throws SQLException {
+			if (fNamespacesEntity == null) {
+				fNamespacesEntity = Entity.newBuilder(getConnection()).setName("jcr_namespaces").build();
+			}
+			return fNamespacesEntity;
+		}
 
 		public String getPrefix(String uri) throws IOException, SQLException {
 			try (Query.Result result = newQueryBuilder("SELECT namespace_prefix FROM jcr_namespaces WHERE namespace_uri = {{uri}}")

@@ -1,24 +1,24 @@
 /*
- * Copyright (c) 2022 MintJams Inc.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+	* Copyright (c) 2022 MintJams Inc.
+	*
+	* Permission is hereby granted, free of charge, to any person obtaining a copy
+	* of this software and associated documentation files (the "Software"), to deal
+	* in the Software without restriction, including without limitation the rights
+	* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	* copies of the Software, and to permit persons to whom the Software is
+	* furnished to do so, subject to the following conditions:
+	*
+	* The above copyright notice and this permission notice shall be included in all
+	* copies or substantial portions of the Software.
+	*
+	* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	* SOFTWARE.
+	*/
 
 package org.mintjams.rt.cms.internal.script.engine.groovy;
 
@@ -41,13 +41,13 @@ import groovy.text.TemplateEngine;
 
 public class GspScriptEngine extends AbstractScriptEngine {
 
-       private TemplateEngine fTemplateEngine;
-       private Map<String, ScriptCacheEntry> fCache;
+	private TemplateEngine fTemplateEngine;
+	private Map<String, ScriptCacheEntry> fCache;
 
 	public GspScriptEngine(ScriptEngineFactory scriptEngineFactory, ClassLoader classLoader) {
 		super(scriptEngineFactory);
-               fTemplateEngine = new GStringTemplateEngine(classLoader);
-               fCache = new WeakHashMap<>();
+		fTemplateEngine = new GStringTemplateEngine(classLoader);
+		fCache = new WeakHashMap<>();
 	}
 
 	@Override
@@ -57,7 +57,7 @@ public class GspScriptEngine extends AbstractScriptEngine {
 		if (reader instanceof ScriptReader) {
 			try {
 				ScriptReader scriptReader = (ScriptReader) reader;
-                               ScriptCacheEntry e = fCache.get(scriptReader.getScriptName());
+				ScriptCacheEntry e = fCache.get(scriptReader.getScriptName());
 				if (e != null) {
 					if (e.getLastModified() == scriptReader.getLastModified().getTime()) {
 						template = e.getTemplate();
@@ -68,12 +68,12 @@ public class GspScriptEngine extends AbstractScriptEngine {
 
 		if (template == null) {
 			try {
-                               template = fTemplateEngine.createTemplate(reader);
+				template = fTemplateEngine.createTemplate(reader);
 
 				if (reader instanceof ScriptReader) {
 					ScriptReader scriptReader = (ScriptReader) reader;
 					ScriptCacheEntry e = new ScriptCacheEntry(template, scriptReader.getScriptName(), scriptReader.getLastModified().getTime());
-                                       fCache.put(e.getFilename(), e);
+					fCache.put(e.getFilename(), e);
 				}
 			} catch (Throwable ex) {
 				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile GSP script: " + ex.getMessage());
@@ -90,28 +90,28 @@ public class GspScriptEngine extends AbstractScriptEngine {
 		return null;
 	}
 
-       private static class ScriptCacheEntry {
-               private final Template fTemplate;
-               private final String fFilename;
-               private final long fLastModified;
+	private static class ScriptCacheEntry {
+		private final Template fTemplate;
+		private final String fFilename;
+		private final long fLastModified;
 
-               private ScriptCacheEntry(Template template, String filename, long lastModified) {
-                       fTemplate = template;
-                       fFilename = filename;
-                       fLastModified = lastModified;
-               }
+		private ScriptCacheEntry(Template template, String filename, long lastModified) {
+			fTemplate = template;
+			fFilename = filename;
+			fLastModified = lastModified;
+		}
 
-               public Template getTemplate() {
-                       return fTemplate;
-               }
+		public Template getTemplate() {
+			return fTemplate;
+		}
 
-               public String getFilename() {
-                       return fFilename;
-               }
+		public String getFilename() {
+			return fFilename;
+		}
 
-               public long getLastModified() {
-                       return fLastModified;
-               }
-       }
+		public long getLastModified() {
+			return fLastModified;
+		}
+	}
 
 }

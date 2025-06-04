@@ -1,24 +1,24 @@
 /*
- * Copyright (c) 2022 MintJams Inc.
- * 
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- * 
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+	* Copyright (c) 2022 MintJams Inc.
+	* 
+	* Permission is hereby granted, free of charge, to any person obtaining a copy
+	* of this software and associated documentation files (the "Software"), to deal
+	* in the Software without restriction, including without limitation the rights
+	* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	* copies of the Software, and to permit persons to whom the Software is
+	* furnished to do so, subject to the following conditions:
+	* 
+	* The above copyright notice and this permission notice shall be included in all
+	* copies or substantial portions of the Software.
+	* 
+	* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	* SOFTWARE.
+	*/
 
 package org.mintjams.rt.jcr.internal;
 
@@ -148,7 +148,7 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return JcrRepository.create(this);
 	}
 
-       private List<String> fServiceCredentials = null;
+	private List<String> fServiceCredentials = null;
 	@SuppressWarnings("unchecked")
 	public boolean isServiceCredentials(Credentials credentials) throws RepositoryException {
 		if (!(credentials instanceof ServiceCredentials)) {
@@ -156,12 +156,12 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		}
 
 		try {
-                       if (fServiceCredentials == null) {
-                               ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
-                               fServiceCredentials = (List<String>) el.evaluate("config.security.serviceCredentials");
-                       }
+			if (fServiceCredentials == null) {
+				ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
+				fServiceCredentials = (List<String>) el.evaluate("config.security.serviceCredentials");
+			}
 
-                       for (String name : fServiceCredentials) {
+			for (String name : fServiceCredentials) {
 				if (Strings.isEmpty(name)) {
 					continue;
 				}
@@ -182,18 +182,18 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return false;
 	}
 
-       private List<String> fPrincipalProviderServices = null;
+	private List<String> fPrincipalProviderServices = null;
 	@SuppressWarnings("unchecked")
 	public List<String> getPrincipalProviderServices() throws RepositoryException {
 		try {
-                       if (fPrincipalProviderServices == null) {
-                               ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
-                               fPrincipalProviderServices = (List<String>) el.evaluate("config.security.principalProviders");
-                       }
+			if (fPrincipalProviderServices == null) {
+				ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
+				fPrincipalProviderServices = (List<String>) el.evaluate("config.security.principalProviders");
+			}
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
-               return Collections.unmodifiableList(fPrincipalProviderServices);
+		return Collections.unmodifiableList(fPrincipalProviderServices);
 	}
 
 	@Override
