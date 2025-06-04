@@ -91,16 +91,16 @@ public class WorkspaceGarbageCollection implements Closeable, Adaptable {
 
 		@Override
 		public void run() {
-                        while (!fCloseRequested) {
-                                if (Thread.interrupted()) {
-                                        fCloseRequested = true;
-                                        break;
-                                }
-                                synchronized (fLock) {
-                                        try {
-                                                fLock.wait(86400000);
-                                        } catch (InterruptedException ignore) {}
-                                }
+			while (!fCloseRequested) {
+				if (Thread.interrupted()) {
+					fCloseRequested = true;
+					break;
+				}
+				synchronized (fLock) {
+					try {
+						fLock.wait(86400000);
+					} catch (InterruptedException ignore) {}
+				}
 
 				if (fCloseRequested) {
 					continue;
@@ -130,17 +130,17 @@ public class WorkspaceGarbageCollection implements Closeable, Adaptable {
 				return;
 			}
 
-                        if (Thread.interrupted()) {
-                                fCloseRequested = true;
-                                return;
-                        }
+			if (Thread.interrupted()) {
+				fCloseRequested = true;
+				return;
+			}
 
-                        try (Stream<Path> stream = Files.list(parentPath)) {
-                                stream.forEach(path -> {
-                                        if (fCloseRequested || Thread.currentThread().isInterrupted()) {
-                                                fCloseRequested = true;
-                                                return;
-                                        }
+			try (Stream<Path> stream = Files.list(parentPath)) {
+				stream.forEach(path -> {
+					if (fCloseRequested || Thread.currentThread().isInterrupted()) {
+						fCloseRequested = true;
+						return;
+					}
 
 					try {
 						if (Files.isDirectory(path)) {

@@ -94,16 +94,16 @@ public class WorkspaceCleaner implements Closeable, Adaptable {
 	private class Task implements Runnable {
 		@Override
 		public void run() {
-                        while (!fCloseRequested) {
-                                if (Thread.interrupted()) {
-                                        fCloseRequested = true;
-                                        break;
-                                }
-                                synchronized (fLock) {
-                                        try {
-                                                fLock.wait();
-                                        } catch (InterruptedException ignore) {}
-                                }
+			while (!fCloseRequested) {
+				if (Thread.interrupted()) {
+					fCloseRequested = true;
+					break;
+				}
+				synchronized (fLock) {
+					try {
+						fLock.wait();
+					} catch (InterruptedException ignore) {}
+				}
 
 				if (fCloseRequested) {
 					continue;
