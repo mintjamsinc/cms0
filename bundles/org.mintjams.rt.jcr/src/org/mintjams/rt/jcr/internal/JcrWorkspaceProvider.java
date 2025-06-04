@@ -401,10 +401,14 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		private class Task implements Runnable {
 			@Override
 			public void run() {
-				while (!fCloseRequested) {
-					while (fConnections.size() < fMinConnections) {
-						synchronized (fLock) {
-							try {
+                                while (!fCloseRequested) {
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                        while (fConnections.size() < fMinConnections) {
+                                                synchronized (fLock) {
+                                                        try {
 								fConnections.add(createConnection());
 								fLock.notifyAll();
 							} catch (Throwable ex) {

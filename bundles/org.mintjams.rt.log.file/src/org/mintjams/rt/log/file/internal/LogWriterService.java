@@ -195,15 +195,19 @@ public class LogWriterService {
 			}
 
 			@Override
-			public void run() {
-				while (!fCloseRequested) {
-					try {
-						Thread.sleep(1000);
-					} catch (InterruptedException ignore) {}
+                        public void run() {
+                                while (!fCloseRequested) {
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                        try {
+                                                Thread.sleep(1000);
+                                        } catch (InterruptedException ignore) {}
 
-					if (fCloseRequested) {
-						continue;
-					}
+                                        if (fCloseRequested) {
+                                                continue;
+                                        }
 
 					try {
 						rotate();
@@ -214,19 +218,27 @@ public class LogWriterService {
 
 		private class WriterTask implements Runnable {
 			@Override
-			public void run() {
-				while (!fCloseRequested) {
-					LogEntry logEntry;
-					synchronized (fLogEntries) {
-						if (fLogEntries.isEmpty()) {
-							try {
-								fLogEntries.wait();
-							} catch (InterruptedException ignore) {}
-							continue;
-						}
+                        public void run() {
+                                while (!fCloseRequested) {
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                        LogEntry logEntry;
+                                        synchronized (fLogEntries) {
+                                                if (fLogEntries.isEmpty()) {
+                                                        try {
+                                                                fLogEntries.wait();
+                                                        } catch (InterruptedException ignore) {}
+                                                        continue;
+                                                }
 
-						logEntry = fLogEntries.remove(0);
-					}
+                                                logEntry = fLogEntries.remove(0);
+                                                if (Thread.interrupted()) {
+                                                        fCloseRequested = true;
+                                                        break;
+                                                }
+                                        }
 
 					synchronized (fWriteLock) {
 						try {
