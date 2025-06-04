@@ -86,18 +86,26 @@ public class LogQueue implements Closeable {
 		public void run() {
 			Activator.getDefault().waitForReady();
 
-			while (!fCloseRequested) {
-				LogEntryImpl logEntry;
-				synchronized (fLock) {
-					if (fLogEntries.isEmpty()) {
-						try {
-							fLock.wait();
-						} catch (InterruptedException ignore) {}
-						continue;
-					}
+                        while (!fCloseRequested) {
+                                if (Thread.interrupted()) {
+                                        fCloseRequested = true;
+                                        break;
+                                }
+                                LogEntryImpl logEntry;
+                                synchronized (fLock) {
+                                        if (fLogEntries.isEmpty()) {
+                                                try {
+                                                        fLock.wait();
+                                                } catch (InterruptedException ignore) {}
+                                                continue;
+                                        }
 
-					logEntry = fLogEntries.remove(0);
-				}
+                                        logEntry = fLogEntries.remove(0);
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                }
 
 				if (fCloseRequested) {
 					continue;
