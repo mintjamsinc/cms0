@@ -109,6 +109,18 @@ agents/
 
 ---
 
+## OSGi Bundle Libraries
+
+Each bundle may include a `lib/` directory containing JAR files required for proper execution within the OSGi runtime environment.
+
+These JARs are not general-purpose dependencies but are **essential resources** specific to the corresponding bundle.
+For example, the `bundles/groovy/lib/` folder includes the full set of Apache Groovy runtime libraries needed by the Groovy bundle.
+
+**Do not remove or alter these JAR files** unless you fully understand their role and have verified the impact on the OSGi runtime.
+Removing them may cause runtime errors or prevent the bundle from starting correctly.
+
+---
+
 ## Additional Guidelines
 
 * Keep agent logic **modular** and **loosely coupled**.
