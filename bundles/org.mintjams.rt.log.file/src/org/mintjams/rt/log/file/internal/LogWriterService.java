@@ -196,10 +196,14 @@ public class LogWriterService {
 
 			@Override
 			public void run() {
-				while (!fCloseRequested) {
-					try {
-						Thread.sleep(1000);
-					} catch (InterruptedException ignore) {}
+                                while (!fCloseRequested) {
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                        try {
+                                                Thread.sleep(1000);
+                                        } catch (InterruptedException ignore) {}
 
 					if (fCloseRequested) {
 						continue;
@@ -215,13 +219,17 @@ public class LogWriterService {
 		private class WriterTask implements Runnable {
 			@Override
 			public void run() {
-				while (!fCloseRequested) {
-					LogEntry logEntry;
-					synchronized (fLogEntries) {
-						if (fLogEntries.isEmpty()) {
-							try {
-								fLogEntries.wait();
-							} catch (InterruptedException ignore) {}
+                                while (!fCloseRequested) {
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                        LogEntry logEntry;
+                                        synchronized (fLogEntries) {
+                                                if (fLogEntries.isEmpty()) {
+                                                        try {
+                                                                fLogEntries.wait();
+                                                        } catch (InterruptedException ignore) {}
 							continue;
 						}
 

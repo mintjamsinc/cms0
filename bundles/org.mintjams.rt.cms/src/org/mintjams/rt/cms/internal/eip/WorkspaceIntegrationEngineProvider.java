@@ -270,18 +270,26 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		private class Task implements Runnable {
 			@Override
 			public void run() {
-				while (!fCloseRequested) {
-					Event event;
+                                while (!fCloseRequested) {
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                        Event event;
 					synchronized (fEvents) {
-						if (fEvents.isEmpty()) {
-							try {
-								fEvents.wait();
-							} catch (InterruptedException ignore) {}
-							continue;
-						}
+                                               if (fEvents.isEmpty()) {
+                                                       try {
+                                                               fEvents.wait();
+                                                       } catch (InterruptedException ignore) {}
+                                                       continue;
+                                               }
 
-						event = fEvents.remove(0);
-					}
+                                               event = fEvents.remove(0);
+                                               if (Thread.interrupted()) {
+                                                       fCloseRequested = true;
+                                                       break;
+                                               }
+                                       }
 
 					try {
 						String topic = event.getTopic();

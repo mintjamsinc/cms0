@@ -711,12 +711,16 @@ public class JournalObserver implements Adaptable, Closeable {
 	private class Task implements Runnable {
 		@Override
 		public void run() {
-			while (!fCloseRequested) {
-				String transactionId;
-				synchronized (fTransactionIdentifiers) {
-					if (fTransactionIdentifiers.isEmpty()) {
-						try {
-							fTransactionIdentifiers.wait();
+                        while (!fCloseRequested) {
+                                if (Thread.interrupted()) {
+                                        fCloseRequested = true;
+                                        break;
+                                }
+                                String transactionId;
+                                synchronized (fTransactionIdentifiers) {
+                                        if (fTransactionIdentifiers.isEmpty()) {
+                                                try {
+                                                        fTransactionIdentifiers.wait();
 						} catch (InterruptedException ignore) {}
 						continue;
 					}

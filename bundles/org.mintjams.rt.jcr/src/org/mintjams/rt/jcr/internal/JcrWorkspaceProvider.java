@@ -401,11 +401,15 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		private class Task implements Runnable {
 			@Override
 			public void run() {
-				while (!fCloseRequested) {
-					while (fConnections.size() < fMinConnections) {
-						synchronized (fLock) {
-							try {
-								fConnections.add(createConnection());
+                                while (!fCloseRequested) {
+                                        if (Thread.interrupted()) {
+                                                fCloseRequested = true;
+                                                break;
+                                        }
+                                        while (fConnections.size() < fMinConnections) {
+                                                synchronized (fLock) {
+                                                        try {
+                                                                fConnections.add(createConnection());
 								fLock.notifyAll();
 							} catch (Throwable ex) {
 								Activator.getDefault().getLogger(getClass()).error(ex.getMessage(), ex);
@@ -417,11 +421,11 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 						continue;
 					}
 
-					synchronized (fLock) {
-						try {
-							fLock.wait();
-						} catch (InterruptedException ignore) {}
-					}
+                                        synchronized (fLock) {
+                                                try {
+                                                        fLock.wait();
+                                                } catch (InterruptedException ignore) {}
+                                        }
 				}
 
 				synchronized (fLock) {
