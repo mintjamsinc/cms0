@@ -41,31 +41,31 @@ import org.mintjams.tools.lang.Strings;
 
 public class FileCache implements Cache, Adaptable {
 
-	private static final Cleaner CLEANER = Cleaner.create();
+        private static final Cleaner CLEANER = Cleaner.create();
 
-	private static class State implements Runnable {
-		private final Path path;
-		State(Path path) { this.path = path; }
-		@Override
-		public void run() {
-			try {
-				Files.deleteIfExists(path);
-			} catch (IOException ignore) {}
-		}
-	}
+        private static class State implements Runnable {
+                private final Path path;
+                State(Path path) { this.path = path; }
+                @Override
+                public void run() {
+                        try {
+                                Files.deleteIfExists(path);
+                        } catch (IOException ignore) {}
+                }
+        }
 
-	private final Path fPath;
-	private final Closer fCloser = Closer.create();
-	private final Cleaner.Cleanable fCleanable;
+        private final Path fPath;
+        private final Closer fCloser = Closer.create();
+        private final Cleaner.Cleanable fCleanable;
 
-	private FileCache(Path path) {
-		fPath = path;
-		fCleanable = CLEANER.register(this, new State(path));
-	}
+        private FileCache(Path path) {
+                fPath = path;
+                fCleanable = CLEANER.register(this, new State(path));
+        }
 
 	public static FileCache create(InputStream in, Path tempDir) throws IOException {
 		try (in) {
-			Path path = Files.createTempFile(tempDir, "cache-", null);
+                        Path path = Files.createTempFile(tempDir, "cache-", null);
 
 			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
 				IOs.copy(in, out);
@@ -79,11 +79,11 @@ public class FileCache implements Cache, Adaptable {
 		return create(new ByteArrayInputStream(value), tempDir);
 	}
 
-	@Override
-	public void close() throws IOException {
-		fCloser.close();
-		fCleanable.clean();
-	}
+        @Override
+        public void close() throws IOException {
+                fCloser.close();
+                fCleanable.clean();
+        }
 
 	public static Builder newBuilder(Path tempDir) throws IOException {
 		return new Builder(tempDir);
@@ -127,54 +127,51 @@ public class FileCache implements Cache, Adaptable {
 		return null;
 	}
 
-       /**
-        * Incrementally creates a {@link FileCache} backed by a temporary file.
-        * <p>
-        * The builder allocates a file in the given temporary directory. If
-        * {@link #build()} is not invoked, this file is deleted when the builder
-        * is {@link #close() closed} or garbage-collected. For this reason the
-        * builder implements {@link AutoCloseable} and should be used with a
-        * try-with-resources statement.
-        * </p>
-        */
-       public static class Builder implements AutoCloseable {
+        public static class Builder implements AutoCloseable {
                 private Path fTempDir;
+                private Path _path;
+                private Cleaner.Cleanable fCleanable;
+                private BuilderState fState;
 
-		private Builder(Path tempDir) {
-			fTempDir = tempDir;
-		}
+                private Builder(Path tempDir) {
+                        fTempDir = tempDir;
+                }
 
                 private static class BuilderState implements Runnable {
                         private final Path path;
                         private volatile boolean built;
                         BuilderState(Path path) { this.path = path; }
-                        void built() { built = true; }
                         @Override
                         public void run() {
-                                if (!built) {
-                                        try {
-                                                Files.deleteIfExists(path);
-                                        } catch (IOException ignore) {}
+                                if (built) {
+                                        return;
                                 }
+                                try {
+                                        Files.deleteIfExists(path);
+                                } catch (IOException ignore) {}
                         }
                 }
-
-                private Path _path;
-                private Cleaner.Cleanable _cleanable;
-                private BuilderState _state;
 
                 private Path getPath() throws IOException {
                         if (_path == null) {
                                 _path = Files.createTempFile(fTempDir, "cache-", null);
-                                _state = new BuilderState(_path);
-                                _cleanable = CLEANER.register(this, _state);
+                                fState = new BuilderState(_path);
+                                fCleanable = CLEANER.register(this, fState);
                         }
                         return _path;
                 }
 
-                private OutputStream getAppendStream() throws IOException {
-                        return Files.newOutputStream(getPath(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                @Override
+                public void close() throws IOException {
+                        if (fCleanable != null) {
+                                fCleanable.clean();
+                                fCleanable = null;
+                        }
                 }
+
+		private OutputStream getAppendStream() throws IOException {
+			return Files.newOutputStream(getPath(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+		}
 
 		public Builder write(String value) throws IOException {
 			return write(value.getBytes(StandardCharsets.UTF_8));
@@ -195,22 +192,11 @@ public class FileCache implements Cache, Adaptable {
 
                 public FileCache build() throws IOException {
                         Path path = getPath();
-                        if (_cleanable != null) {
-                                _state.built();
-                                _cleanable.clean();
-                                _cleanable = null;
+                        if (fState != null) {
+                                fState.built = true;
                         }
+                        fCleanable = null;
                         return new FileCache(path);
-                }
-
-                @Override
-                public void close() throws IOException {
-                        if (_cleanable != null) {
-                                _cleanable.clean();
-                                _cleanable = null;
-                        }
-                        _state = null;
-                        _path = null;
                 }
         }
 

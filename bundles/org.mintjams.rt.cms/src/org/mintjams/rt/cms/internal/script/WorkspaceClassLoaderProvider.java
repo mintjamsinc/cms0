@@ -355,8 +355,8 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 		}
 
 		private class Task implements Runnable {
-                        @Override
-                        public void run() {
+			@Override
+			public void run() {
                                 while (!fCloseRequested) {
                                         if (Thread.interrupted()) {
                                                 fCloseRequested = true;

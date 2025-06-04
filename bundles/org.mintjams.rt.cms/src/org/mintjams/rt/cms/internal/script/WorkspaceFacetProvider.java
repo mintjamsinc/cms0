@@ -260,9 +260,9 @@ public class WorkspaceFacetProvider implements Closeable, Adaptable {
 			fCloseRequested = false;
 		}
 
-                private class Task implements Runnable {
-                        @Override
-                        public void run() {
+		private class Task implements Runnable {
+			@Override
+			public void run() {
                                 while (!fCloseRequested) {
                                         if (Thread.interrupted()) {
                                                 fCloseRequested = true;

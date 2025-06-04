@@ -96,16 +96,12 @@ public class LogQueue implements Closeable {
                                         if (fLogEntries.isEmpty()) {
                                                 try {
                                                         fLock.wait();
-                                                } catch (InterruptedException ignore) {}
-                                                continue;
-                                        }
+						} catch (InterruptedException ignore) {}
+						continue;
+					}
 
-                                        logEntry = fLogEntries.remove(0);
-                                        if (Thread.interrupted()) {
-                                                fCloseRequested = true;
-                                                break;
-                                        }
-                                }
+					logEntry = fLogEntries.remove(0);
+				}
 
 				if (fCloseRequested) {
 					continue;

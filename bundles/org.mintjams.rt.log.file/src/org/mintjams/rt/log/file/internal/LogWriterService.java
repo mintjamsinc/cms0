@@ -195,7 +195,7 @@ public class LogWriterService {
 			}
 
 			@Override
-                        public void run() {
+			public void run() {
                                 while (!fCloseRequested) {
                                         if (Thread.interrupted()) {
                                                 fCloseRequested = true;
@@ -205,9 +205,9 @@ public class LogWriterService {
                                                 Thread.sleep(1000);
                                         } catch (InterruptedException ignore) {}
 
-                                        if (fCloseRequested) {
-                                                continue;
-                                        }
+					if (fCloseRequested) {
+						continue;
+					}
 
 					try {
 						rotate();
@@ -218,7 +218,7 @@ public class LogWriterService {
 
 		private class WriterTask implements Runnable {
 			@Override
-                        public void run() {
+			public void run() {
                                 while (!fCloseRequested) {
                                         if (Thread.interrupted()) {
                                                 fCloseRequested = true;
@@ -230,15 +230,11 @@ public class LogWriterService {
                                                         try {
                                                                 fLogEntries.wait();
                                                         } catch (InterruptedException ignore) {}
-                                                        continue;
-                                                }
+							continue;
+						}
 
-                                                logEntry = fLogEntries.remove(0);
-                                                if (Thread.interrupted()) {
-                                                        fCloseRequested = true;
-                                                        break;
-                                                }
-                                        }
+						logEntry = fLogEntries.remove(0);
+					}
 
 					synchronized (fWriteLock) {
 						try {

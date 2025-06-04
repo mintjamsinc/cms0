@@ -708,9 +708,9 @@ public class JournalObserver implements Adaptable, Closeable {
 		return Adaptables.getAdapter(fWorkspaceProvider, adapterType);
 	}
 
-        private class Task implements Runnable {
-                @Override
-                public void run() {
+	private class Task implements Runnable {
+		@Override
+		public void run() {
                         while (!fCloseRequested) {
                                 if (Thread.interrupted()) {
                                         fCloseRequested = true;
@@ -721,16 +721,12 @@ public class JournalObserver implements Adaptable, Closeable {
                                         if (fTransactionIdentifiers.isEmpty()) {
                                                 try {
                                                         fTransactionIdentifiers.wait();
-                                                } catch (InterruptedException ignore) {}
-                                                continue;
-                                        }
+						} catch (InterruptedException ignore) {}
+						continue;
+					}
 
-                                        transactionId = fTransactionIdentifiers.remove(0);
-                                        if (Thread.interrupted()) {
-                                                fCloseRequested = true;
-                                                break;
-                                        }
-                                }
+					transactionId = fTransactionIdentifiers.remove(0);
+				}
 
 				try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
 					WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);

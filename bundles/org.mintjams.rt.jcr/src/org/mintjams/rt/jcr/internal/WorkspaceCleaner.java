@@ -91,9 +91,9 @@ public class WorkspaceCleaner implements Closeable, Adaptable {
 		return Adaptables.getAdapter(fWorkspaceProvider, adapterType);
 	}
 
-        private class Task implements Runnable {
-                @Override
-                public void run() {
+	private class Task implements Runnable {
+		@Override
+		public void run() {
                         while (!fCloseRequested) {
                                 if (Thread.interrupted()) {
                                         fCloseRequested = true;
@@ -105,9 +105,9 @@ public class WorkspaceCleaner implements Closeable, Adaptable {
                                         } catch (InterruptedException ignore) {}
                                 }
 
-                                if (fCloseRequested) {
-                                        continue;
-                                }
+				if (fCloseRequested) {
+					continue;
+				}
 
 				try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
 					WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
