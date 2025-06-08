@@ -65,14 +65,12 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	private final Map<Path, String> fCachedFiles = new HashMap<>();
 	private final Closer fCloser = Closer.create();
 	private final WorkspaceClassLoader fWorkspaceClassLoader;
-	private final GroovyClassLoader fGroovyClassLoader;
 	private boolean fHasChanges;
 
 	public WorkspaceClassLoaderProvider(String workspaceName) throws IOException {
 		fWorkspaceName = workspaceName;
 		fCachePath = Files.createTempDirectory(CmsService.getRepositoryPath().resolve("tmp"), "cld-");
 		fWorkspaceClassLoader = new WorkspaceClassLoader();
-		fGroovyClassLoader = new GroovyClassLoader(fWorkspaceClassLoader, null, false);
 	}
 
 	public synchronized void open() throws IOException, RepositoryException {
@@ -104,14 +102,20 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 
 	public class WorkspaceClassLoader extends URLClassLoader implements Adaptable {
 		private URLClassLoader fInnerLoader;
+		private GroovyClassLoader fGroovyClassLoader;
 
 		private WorkspaceClassLoader() {
 			super(WorkspaceClassLoader.class.getSimpleName() + "/" + getWorkspaceName(), new URL[0], CmsService.getDefault().getBundleClassLoader());
+			fGroovyClassLoader = new GroovyClassLoader(this, null, false);
 		}
 
 		@Override
 		public void close() throws IOException {
 			synchronized (fCachedFiles) {
+				if (fGroovyClassLoader != null) {
+					fGroovyClassLoader.clearCache();
+					fGroovyClassLoader = null;
+				}
 				if (fInnerLoader != null) {
 					IOs.closeQuietly(fInnerLoader);
 					fInnerLoader = null;
@@ -142,6 +146,11 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 				}
 
 				fHasChanges = false;
+				if (fGroovyClassLoader != null) {
+					fGroovyClassLoader.clearCache();
+					fGroovyClassLoader = null;
+					fGroovyClassLoader = new GroovyClassLoader(this, null, false);
+				}
 				if (fInnerLoader != null) {
 					IOs.closeQuietly(fInnerLoader);
 					fInnerLoader = null;
