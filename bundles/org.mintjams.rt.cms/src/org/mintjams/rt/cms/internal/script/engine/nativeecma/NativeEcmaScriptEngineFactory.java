@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -27,18 +27,21 @@ import java.io.IOException;
 
 import javax.script.ScriptEngine;
 
+import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.engine.AbstractScriptEngineFactory;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.io.Closer;
 
 public class NativeEcmaScriptEngineFactory extends AbstractScriptEngineFactory implements Closeable, Adaptable {
 
+	private final String fWorkspaceName;
 	private String fLanguageName;
 	private String fLanguageVersion;
 	private NativeEcma fNativeEcma;
 	private final Closer fCloser = Closer.create();
 
-	public NativeEcmaScriptEngineFactory() throws IOException {
+	public NativeEcmaScriptEngineFactory(String workspaceName) throws IOException {
+		fWorkspaceName = workspaceName;
 		setNames("nativeecma", "NativeECMA");
 		setExtensions("nativeecma", "njs");
 		setMimeTypes("text/native-ecmascript", "application/native-ecmascript");
@@ -77,6 +80,10 @@ public class NativeEcmaScriptEngineFactory extends AbstractScriptEngineFactory i
 	@Override
 	public void close() throws IOException {
 		fCloser.close();
+	}
+
+	private ClassLoader getWorkspaceClassLoader() {
+		return CmsService.getWorkspaceClassLoaderProvider(fWorkspaceName).getClassLoader();
 	}
 
 	@SuppressWarnings("unchecked")

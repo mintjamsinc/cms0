@@ -25,13 +25,13 @@ package org.mintjams.rt.cms.internal.script.engine.groovy;
 import javax.script.ScriptEngine;
 
 import org.mintjams.rt.cms.internal.CmsService;
-import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
 import org.mintjams.rt.cms.internal.script.engine.AbstractScriptEngineFactory;
+import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 
 import groovy.lang.GroovyClassLoader;
 
-public class GspScriptEngineFactory extends AbstractScriptEngineFactory {
+public class GspScriptEngineFactory extends AbstractScriptEngineFactory implements Adaptable {
 
 	private final String fWorkspaceName;
 	private final String fLanguageName;
@@ -70,11 +70,21 @@ public class GspScriptEngineFactory extends AbstractScriptEngineFactory {
 
 	@Override
 	public ScriptEngine getScriptEngine() {
-		return new GspScriptEngine(this, Adaptables.getAdapter(getWorkspaceClassLoaderProvider().getClassLoader(), GroovyClassLoader.class));
+		return new GspScriptEngine(this);
 	}
 
-	private WorkspaceClassLoaderProvider getWorkspaceClassLoaderProvider() {
-		return CmsService.getWorkspaceClassLoaderProvider(fWorkspaceName);
+	private ClassLoader getWorkspaceClassLoader() {
+		return CmsService.getWorkspaceClassLoaderProvider(fWorkspaceName).getClassLoader();
+	}
+
+	@SuppressWarnings("unchecked")
+	@Override
+	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
+		if (adapterType.equals(GroovyClassLoader.class)) {
+			return (AdapterType) Adaptables.getAdapter(getWorkspaceClassLoader(), GroovyClassLoader.class);
+		}
+
+		return null;
 	}
 
 }

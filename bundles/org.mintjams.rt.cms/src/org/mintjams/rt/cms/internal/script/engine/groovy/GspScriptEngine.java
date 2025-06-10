@@ -23,61 +23,33 @@
 package org.mintjams.rt.cms.internal.script.engine.groovy;
 
 import java.io.Reader;
-import java.util.Map;
-import java.util.WeakHashMap;
 
 import javax.script.Bindings;
 import javax.script.ScriptContext;
-import javax.script.ScriptEngineFactory;
 import javax.script.ScriptException;
 
-import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.engine.AbstractScriptEngine;
+import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.Cause;
 
+import groovy.lang.GroovyClassLoader;
 import groovy.text.GStringTemplateEngine;
 import groovy.text.Template;
-import groovy.text.TemplateEngine;
 
 public class GspScriptEngine extends AbstractScriptEngine {
 
-	private TemplateEngine fTemplateEngine;
-	private Map<String, ScriptCacheEntry> fCache;
-
-	public GspScriptEngine(ScriptEngineFactory scriptEngineFactory, ClassLoader classLoader) {
+	public GspScriptEngine(GspScriptEngineFactory scriptEngineFactory) {
 		super(scriptEngineFactory);
-		fTemplateEngine = new GStringTemplateEngine(classLoader);
-		fCache = new WeakHashMap<>();
 	}
 
 	@Override
 	public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
 		Template template = null;
 
-		if (reader instanceof ScriptReader) {
-			try {
-				ScriptReader scriptReader = (ScriptReader) reader;
-				ScriptCacheEntry e = fCache.get(scriptReader.getScriptName());
-				if (e != null) {
-					if (e.getLastModified() == scriptReader.getLastModified().getTime()) {
-						template = e.getTemplate();
-					}
-				}
-			} catch (Throwable ignore) {}
-		}
-
-		if (template == null) {
-			try {
-				template = fTemplateEngine.createTemplate(reader);
-
-				if (reader instanceof ScriptReader) {
-					ScriptReader scriptReader = (ScriptReader) reader;
-					ScriptCacheEntry e = new ScriptCacheEntry(template, scriptReader.getScriptName(), scriptReader.getLastModified().getTime());
-					fCache.put(e.getFilename(), e);
-				}
-			} catch (Throwable ex) {
-				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile GSP script: " + ex.getMessage());
-			}
+		try {
+			template = new GStringTemplateEngine(Adaptables.getAdapter(getFactory(), GroovyClassLoader.class)).createTemplate(reader);
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile GSP script: " + ex.getMessage());
 		}
 
 		try {
@@ -88,30 +60,6 @@ public class GspScriptEngine extends AbstractScriptEngine {
 		}
 
 		return null;
-	}
-
-	private static class ScriptCacheEntry {
-		private final Template fTemplate;
-		private final String fFilename;
-		private final long fLastModified;
-
-		private ScriptCacheEntry(Template template, String filename, long lastModified) {
-			fTemplate = template;
-			fFilename = filename;
-			fLastModified = lastModified;
-		}
-
-		public Template getTemplate() {
-			return fTemplate;
-		}
-
-		public String getFilename() {
-			return fFilename;
-		}
-
-		public long getLastModified() {
-			return fLastModified;
-		}
 	}
 
 }

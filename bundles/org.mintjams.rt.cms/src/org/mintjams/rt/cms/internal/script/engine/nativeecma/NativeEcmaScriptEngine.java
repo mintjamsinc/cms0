@@ -28,9 +28,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
-import java.util.WeakHashMap;
 
 import javax.script.Bindings;
 import javax.script.CompiledScript;
@@ -51,41 +49,18 @@ public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 
 	private static final String NO_SCRIPT_NAME = "NO_SCRIPT_NAME";
 
-	private Map<String, ScriptCacheEntry> fCache;
-
 	public NativeEcmaScriptEngine(ScriptEngineFactory scriptEngineFactory) {
 		super(scriptEngineFactory);
-		fCache = new WeakHashMap<>();
 	}
 
 	@Override
 	public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
 		CompiledScript compiledScript = null;
 
-		if (reader instanceof ScriptReader) {
-			try {
-				ScriptReader scriptReader = (ScriptReader) reader;
-				ScriptCacheEntry e = fCache.get(scriptReader.getScriptName());
-				if (e != null) {
-					if (e.getLastModified() == scriptReader.getLastModified().getTime()) {
-						compiledScript = e.getCompiledScript();
-					}
-				}
-			} catch (Throwable ignore) {}
-		}
-
-		if (compiledScript == null) {
-			try {
-				compiledScript = new CompiledScriptImpl(getPreparedReader(reader));
-
-				if (reader instanceof ScriptReader) {
-					ScriptReader scriptReader = (ScriptReader) reader;
-					ScriptCacheEntry e = new ScriptCacheEntry(compiledScript, scriptReader.getScriptName(), scriptReader.getLastModified().getTime());
-					fCache.put(e.getFilename(), e);
-				}
-			} catch (Throwable ex) {
-				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile ECMA script: " + ex.getMessage());
-			}
+		try {
+			compiledScript = new CompiledScriptImpl(getPreparedReader(reader));
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile ECMA script: " + ex.getMessage());
 		}
 
 		return compiledScript.eval(ctx);
@@ -182,30 +157,6 @@ public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 		@Override
 		public ScriptEngine getEngine() {
 			return NativeEcmaScriptEngine.this;
-		}
-	}
-
-	private static class ScriptCacheEntry {
-		private final CompiledScript fCompiledScript;
-		private final String fFilename;
-		private final long fLastModified;
-
-		private ScriptCacheEntry(CompiledScript compiledScript, String filename, long lastModified) {
-			fCompiledScript = compiledScript;
-			fFilename = filename;
-			fLastModified = lastModified;
-		}
-
-		public CompiledScript getCompiledScript() {
-			return fCompiledScript;
-		}
-
-		public String getFilename() {
-			return fFilename;
-		}
-
-		public long getLastModified() {
-			return fLastModified;
 		}
 	}
 
