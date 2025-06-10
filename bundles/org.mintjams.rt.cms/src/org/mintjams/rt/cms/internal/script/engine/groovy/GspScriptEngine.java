@@ -48,27 +48,21 @@ public class GspScriptEngine extends AbstractScriptEngine {
 	}
 
 	@Override
-	public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
-		ResourceScript script = null;
-		ScriptCache cache = Adaptables.getAdapter(getFactory(), ScriptCache.class);
+public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
+ResourceScript script;
+ScriptCache cache = Adaptables.getAdapter(getFactory(), ScriptCache.class);
+String scriptName = ResourceScript.getScriptName(reader);
+long lastModified = ResourceScript.getLastModified(reader);
 
-		synchronized (cache) {
-			script = cache.getScript(ResourceScript.getScriptName(reader));
-			boolean existing = false;
-			if (script != null) {
-				if (script.getLastModified() == ResourceScript.getLastModified(reader)) {
-					existing = true;
-				}
-			}
-			if (!existing) {
-				try {
-					script = new GspScript(reader);
-				} catch (Throwable ex) {
-					throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
-				}
-				cache.registerScript(script);
-			}
-		}
+script = cache.getScript(scriptName);
+if (script == null || script.getLastModified() != lastModified) {
+try {
+script = new GspScript(reader);
+} catch (Throwable ex) {
+throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
+}
+cache.registerScript(script);
+}
 
 		return script.eval(ctx);
 	}
@@ -93,10 +87,7 @@ public class GspScriptEngine extends AbstractScriptEngine {
 		public Object eval(ScriptContext scriptContext) throws ScriptException {
 			try {
 				Bindings bindings = scriptContext.getBindings(ScriptContext.ENGINE_SCOPE);
-				Writable out;
-				synchronized (this) {
-					out = fTemplate.make(bindings);
-				}
+Writable out = fTemplate.make(bindings);
 				out.writeTo(scriptContext.getWriter());
 				return null;
 			} catch (Throwable ex) {
