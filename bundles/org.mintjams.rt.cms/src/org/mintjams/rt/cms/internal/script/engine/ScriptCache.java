@@ -31,61 +31,61 @@ import org.mintjams.rt.cms.internal.CmsService;
 
 public class ScriptCache {
 
-private final String fName;
-private final int fMaxEntries;
-private final ConcurrentMap<String, ResourceScript> fCache;
-private final ConcurrentLinkedDeque<String> fOrder;
+	private final String fName;
+	private final int fMaxEntries;
+	private final ConcurrentMap<String, ResourceScript> fCache;
+	private final ConcurrentLinkedDeque<String> fOrder;
 
-public ScriptCache(String name, int maxEntries) {
-fName = name;
-fMaxEntries = maxEntries;
-fCache = new ConcurrentHashMap<>();
-fOrder = new ConcurrentLinkedDeque<>();
-}
+	public ScriptCache(String name, int maxEntries) {
+		fName = name;
+		fMaxEntries = maxEntries;
+		fCache = new ConcurrentHashMap<>();
+		fOrder = new ConcurrentLinkedDeque<>();
+	}
 
-public String getName() {
-return fName;
-}
+	public String getName() {
+		return fName;
+	}
 
-public ResourceScript getScript(String scriptName) {
-if (StringUtils.equals(scriptName, ResourceScript.NO_SCRIPT_NAME)) {
-return null;
-}
-ResourceScript script = fCache.get(scriptName);
-if (script != null) {
-fOrder.remove(scriptName);
-fOrder.addLast(scriptName);
-}
-return script;
-}
+	public ResourceScript getScript(String scriptName) {
+		if (StringUtils.equals(scriptName, ResourceScript.NO_SCRIPT_NAME)) {
+			return null;
+		}
+		ResourceScript script = fCache.get(scriptName);
+		if (script != null) {
+			fOrder.remove(scriptName);
+			fOrder.addLast(scriptName);
+		}
+		return script;
+	}
 
-public boolean registerScript(ResourceScript script) {
-if (StringUtils.equals(script.getScriptName(), ResourceScript.NO_SCRIPT_NAME)) {
-return false;
-}
-fCache.put(script.getScriptName(), script);
-fOrder.remove(script.getScriptName());
-fOrder.addLast(script.getScriptName());
-while (fOrder.size() > fMaxEntries) {
-String eldest = fOrder.pollFirst();
-if (eldest != null) {
-fCache.remove(eldest);
-}
-}
-CmsService.getLogger(getClass()).info(fName + " script cached: " + script.getScriptName() + " (" + fCache.size() + ")");
-return true;
-}
+	public boolean registerScript(ResourceScript script) {
+		if (StringUtils.equals(script.getScriptName(), ResourceScript.NO_SCRIPT_NAME)) {
+			return false;
+		}
+		fCache.put(script.getScriptName(), script);
+		fOrder.remove(script.getScriptName());
+		fOrder.addLast(script.getScriptName());
+		while (fOrder.size() > fMaxEntries) {
+			String eldest = fOrder.pollFirst();
+			if (eldest != null) {
+				fCache.remove(eldest);
+			}
+		}
+		CmsService.getLogger(getClass()).info(fName + " script cached: " + script.getScriptName() + " (" + fCache.size() + ")");
+		return true;
+	}
 
-public boolean removeScript(String scriptName) {
-fOrder.remove(scriptName);
-return (fCache.remove(scriptName) != null);
-}
+	public boolean removeScript(String scriptName) {
+		fOrder.remove(scriptName);
+		return (fCache.remove(scriptName) != null);
+	}
 
-public void clear() {
-if (fCache != null) {
-fCache.clear();
-fOrder.clear();
-}
-}
+	public void clear() {
+		if (fCache != null) {
+			fCache.clear();
+			fOrder.clear();
+		}
+	}
 
 }

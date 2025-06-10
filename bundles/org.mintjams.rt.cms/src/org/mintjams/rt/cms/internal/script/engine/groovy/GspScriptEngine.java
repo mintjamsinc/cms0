@@ -37,7 +37,6 @@ import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.Cause;
 
 import groovy.lang.GroovyClassLoader;
-import groovy.lang.Writable;
 import groovy.text.GStringTemplateEngine;
 import groovy.text.Template;
 
@@ -48,21 +47,21 @@ public class GspScriptEngine extends AbstractScriptEngine {
 	}
 
 	@Override
-public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
-ResourceScript script;
-ScriptCache cache = Adaptables.getAdapter(getFactory(), ScriptCache.class);
-String scriptName = ResourceScript.getScriptName(reader);
-long lastModified = ResourceScript.getLastModified(reader);
+	public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
+		ResourceScript script;
+		ScriptCache cache = Adaptables.getAdapter(getFactory(), ScriptCache.class);
+		String scriptName = ResourceScript.getScriptName(reader);
+		long lastModified = ResourceScript.getLastModified(reader);
 
-script = cache.getScript(scriptName);
-if (script == null || script.getLastModified() != lastModified) {
-try {
-script = new GspScript(reader);
-} catch (Throwable ex) {
-throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
-}
-cache.registerScript(script);
-}
+		script = cache.getScript(scriptName);
+		if (script == null || script.getLastModified() != lastModified) {
+			try {
+				script = new GspScript(reader);
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
+			}
+			cache.registerScript(script);
+		}
 
 		return script.eval(ctx);
 	}
@@ -87,11 +86,11 @@ cache.registerScript(script);
 		public Object eval(ScriptContext scriptContext) throws ScriptException {
 			try {
 				Bindings bindings = scriptContext.getBindings(ScriptContext.ENGINE_SCOPE);
-Writable out = fTemplate.make(bindings);
-				out.writeTo(scriptContext.getWriter());
+				fTemplate.make(bindings).writeTo(scriptContext.getWriter());
 				return null;
 			} catch (Throwable ex) {
-				throw Cause.create(ex).wrap(ScriptException.class, "Unable to write result of script execution: " + ex.getMessage());
+				throw Cause.create(ex).wrap(ScriptException.class,
+						"Unable to write result of script execution: " + ex.getMessage());
 			}
 		}
 

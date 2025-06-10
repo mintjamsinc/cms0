@@ -53,25 +53,19 @@ public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 
 	@Override
 	public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
-		ResourceScript script = null;
+		ResourceScript script;
 		ScriptCache cache = Adaptables.getAdapter(getFactory(), ScriptCache.class);
+		String scriptName = ResourceScript.getScriptName(reader);
+		long lastModified = ResourceScript.getLastModified(reader);
 
-		synchronized (cache) {
-			script = cache.getScript(ResourceScript.getScriptName(reader));
-			boolean existing = false;
-			if (script != null) {
-				if (script.getLastModified() == ResourceScript.getLastModified(reader)) {
-					existing = true;
-				}
+		script = cache.getScript(scriptName);
+		if (script == null || script.getLastModified() != lastModified) {
+			try {
+				script = new EcmaScript(reader);
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
 			}
-			if (!existing) {
-				try {
-					script = new EcmaScript(reader);
-				} catch (Throwable ex) {
-					throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
-				}
-				cache.registerScript(script);
-			}
+			cache.registerScript(script);
 		}
 
 		return script.eval(ctx);
@@ -151,9 +145,7 @@ public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 				}
 				sources.add(fScript);
 				NativeEcma ecma = Adaptables.getAdapter(getFactory(), NativeEcma.class);
-				synchronized (this) {
-					return ecma.eval(sources);
-				}
+				return ecma.eval(sources);
 			} catch (Throwable ex) {
 				throw Cause.create(ex).wrap(ScriptException.class, "Failed to execute the script '" + fScriptName + "': " + ex.getMessage());
 			}
