@@ -46,6 +46,7 @@ import javax.jcr.Session;
 import org.mintjams.jcr.nodetype.NodeType;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.script.engine.ScriptCacheManager;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.io.Closer;
@@ -103,15 +104,18 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	public class WorkspaceClassLoader extends URLClassLoader implements Adaptable {
 		private URLClassLoader fInnerLoader;
 		private GroovyClassLoader fGroovyClassLoader;
+		private final ScriptCacheManager fScriptCacheManager;
 
 		private WorkspaceClassLoader() {
 			super(WorkspaceClassLoader.class.getSimpleName() + "/" + getWorkspaceName(), new URL[0], CmsService.getDefault().getBundleClassLoader());
 			fGroovyClassLoader = new GroovyClassLoader(this, null, false);
+			fScriptCacheManager = new ScriptCacheManager();
 		}
 
 		@Override
 		public void close() throws IOException {
 			synchronized (fCachedFiles) {
+				fScriptCacheManager.clearCache();
 				if (fGroovyClassLoader != null) {
 					fGroovyClassLoader.clearCache();
 					fGroovyClassLoader = null;
@@ -146,6 +150,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 				}
 
 				fHasChanges = false;
+				fScriptCacheManager.clearCache();
 				if (fGroovyClassLoader != null) {
 					fGroovyClassLoader.clearCache();
 					fGroovyClassLoader = null;
@@ -219,6 +224,10 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 		public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
 			if (adapterType.equals(GroovyClassLoader.class)) {
 				return (AdapterType) fGroovyClassLoader;
+			}
+
+			if (adapterType.equals(ScriptCacheManager.class)) {
+				return (AdapterType) fScriptCacheManager;
 			}
 
 			return null;

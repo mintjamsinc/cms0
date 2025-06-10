@@ -26,6 +26,8 @@ import javax.script.ScriptEngine;
 
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.engine.AbstractScriptEngineFactory;
+import org.mintjams.rt.cms.internal.script.engine.ScriptCache;
+import org.mintjams.rt.cms.internal.script.engine.ScriptCacheManager;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 
@@ -36,6 +38,7 @@ public class GspScriptEngineFactory extends AbstractScriptEngineFactory implemen
 	private final String fWorkspaceName;
 	private final String fLanguageName;
 	private final String fLanguageVersion;
+	private final ScriptCache fScriptCache;
 
 	public GspScriptEngineFactory(String workspaceName) {
 		fWorkspaceName = workspaceName;
@@ -47,6 +50,8 @@ public class GspScriptEngineFactory extends AbstractScriptEngineFactory implemen
 		setEngineVersion(gf.getEngineVersion());
 		fLanguageName = "Groovy Server Pages";
 		fLanguageVersion = gf.getLanguageVersion();
+		fScriptCache = new ScriptCache(GspScriptEngine.class.getSimpleName(), 50);
+		Adaptables.getAdapter(getWorkspaceClassLoader(), ScriptCacheManager.class).registerScriptCache(fScriptCache);
 	}
 
 	@Override
@@ -82,6 +87,10 @@ public class GspScriptEngineFactory extends AbstractScriptEngineFactory implemen
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
 		if (adapterType.equals(GroovyClassLoader.class)) {
 			return (AdapterType) Adaptables.getAdapter(getWorkspaceClassLoader(), GroovyClassLoader.class);
+		}
+
+		if (adapterType.equals(ScriptCache.class)) {
+			return (AdapterType) fScriptCache;
 		}
 
 		return null;

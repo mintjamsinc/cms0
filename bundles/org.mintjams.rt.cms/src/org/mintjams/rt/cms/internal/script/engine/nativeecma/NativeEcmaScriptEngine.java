@@ -31,14 +31,14 @@ import java.util.List;
 import java.util.Map.Entry;
 
 import javax.script.Bindings;
-import javax.script.CompiledScript;
 import javax.script.ScriptContext;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineFactory;
 import javax.script.ScriptException;
 
-import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.engine.AbstractScriptEngine;
+import org.mintjams.rt.cms.internal.script.engine.ResourceScript;
+import org.mintjams.rt.cms.internal.script.engine.ScriptCache;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
@@ -47,43 +47,45 @@ import com.google.gson.Gson;
 
 public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 
-	private static final String NO_SCRIPT_NAME = "NO_SCRIPT_NAME";
-
 	public NativeEcmaScriptEngine(ScriptEngineFactory scriptEngineFactory) {
 		super(scriptEngineFactory);
 	}
 
 	@Override
 	public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
-		CompiledScript compiledScript = null;
+		ResourceScript script = null;
+		ScriptCache cache = Adaptables.getAdapter(getFactory(), ScriptCache.class);
 
-		try {
-			compiledScript = new CompiledScriptImpl(getPreparedReader(reader));
-		} catch (Throwable ex) {
-			throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile ECMA script: " + ex.getMessage());
+		synchronized (cache) {
+			script = cache.getScript(ResourceScript.getScriptName(reader));
+			boolean existing = false;
+			if (script != null) {
+				if (script.getLastModified() == ResourceScript.getLastModified(reader)) {
+					existing = true;
+				}
+			}
+			if (!existing) {
+				try {
+					script = new EcmaScript(reader);
+				} catch (Throwable ex) {
+					throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
+				}
+				cache.registerScript(script);
+			}
 		}
 
-		return compiledScript.eval(ctx);
+		return script.eval(ctx);
 	}
 
-	protected Reader getPreparedReader(Reader scriptReader) throws ScriptException {
-		return scriptReader;
-	}
-
-	private String getScriptName(Reader scriptReader) {
-		if (scriptReader instanceof ScriptReader) {
-			return ((ScriptReader) scriptReader).getScriptName();
-		}
-		return NO_SCRIPT_NAME;
-	}
-
-	private class CompiledScriptImpl extends CompiledScript {
-		private final String fScript;
+	private class EcmaScript extends ResourceScript {
 		private final String fScriptName;
+		private final String fScript;
+		private final long fLastModified;
 
-		private CompiledScriptImpl(Reader scriptReader) throws ScriptException, IOException {
+		private EcmaScript(Reader scriptReader) throws ScriptException, IOException {
 			fScriptName = getScriptName(scriptReader);
 			fScript = Strings.readAll(scriptReader);
+			fLastModified = getLastModified(scriptReader);
 		}
 
 		private String getVariablesSource(ScriptContext scriptContext) {
@@ -148,7 +150,10 @@ public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 					sources.add(variablesSource);
 				}
 				sources.add(fScript);
-				return Adaptables.getAdapter(getFactory(), NativeEcma.class).eval(sources);
+				NativeEcma ecma = Adaptables.getAdapter(getFactory(), NativeEcma.class);
+				synchronized (this) {
+					return ecma.eval(sources);
+				}
 			} catch (Throwable ex) {
 				throw Cause.create(ex).wrap(ScriptException.class, "Failed to execute the script '" + fScriptName + "': " + ex.getMessage());
 			}
@@ -157,6 +162,16 @@ public class NativeEcmaScriptEngine extends AbstractScriptEngine {
 		@Override
 		public ScriptEngine getEngine() {
 			return NativeEcmaScriptEngine.this;
+		}
+
+		@Override
+		public String getScriptName() {
+			return fScriptName;
+		}
+
+		@Override
+		public long getLastModified() {
+			return fLastModified;
 		}
 	}
 

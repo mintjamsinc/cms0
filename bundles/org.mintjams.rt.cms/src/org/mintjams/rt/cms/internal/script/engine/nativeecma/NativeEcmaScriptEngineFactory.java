@@ -29,7 +29,10 @@ import javax.script.ScriptEngine;
 
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.engine.AbstractScriptEngineFactory;
+import org.mintjams.rt.cms.internal.script.engine.ScriptCache;
+import org.mintjams.rt.cms.internal.script.engine.ScriptCacheManager;
 import org.mintjams.tools.adapter.Adaptable;
+import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.io.Closer;
 
 public class NativeEcmaScriptEngineFactory extends AbstractScriptEngineFactory implements Closeable, Adaptable {
@@ -39,6 +42,7 @@ public class NativeEcmaScriptEngineFactory extends AbstractScriptEngineFactory i
 	private String fLanguageVersion;
 	private NativeEcma fNativeEcma;
 	private final Closer fCloser = Closer.create();
+	private final ScriptCache fScriptCache;
 
 	public NativeEcmaScriptEngineFactory(String workspaceName) throws IOException {
 		fWorkspaceName = workspaceName;
@@ -51,6 +55,8 @@ public class NativeEcmaScriptEngineFactory extends AbstractScriptEngineFactory i
 		fLanguageVersion = "6";
 		fNativeEcma = fCloser.register(new NativeEcma());
 		fNativeEcma.load();
+		fScriptCache = new ScriptCache(NativeEcmaScriptEngine.class.getSimpleName(), 50);
+		Adaptables.getAdapter(getWorkspaceClassLoader(), ScriptCacheManager.class).registerScriptCache(fScriptCache);
 	}
 
 	@Override
@@ -91,6 +97,10 @@ public class NativeEcmaScriptEngineFactory extends AbstractScriptEngineFactory i
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
 		if (adapterType.equals(NativeEcma.class)) {
 			return (AdapterType) fNativeEcma;
+		}
+
+		if (adapterType.equals(ScriptCache.class)) {
+			return (AdapterType) fScriptCache;
 		}
 
 		return null;

@@ -22,17 +22,22 @@
 
 package org.mintjams.rt.cms.internal.script.engine.groovy;
 
+import java.io.IOException;
 import java.io.Reader;
 
 import javax.script.Bindings;
 import javax.script.ScriptContext;
+import javax.script.ScriptEngine;
 import javax.script.ScriptException;
 
 import org.mintjams.rt.cms.internal.script.engine.AbstractScriptEngine;
+import org.mintjams.rt.cms.internal.script.engine.ResourceScript;
+import org.mintjams.rt.cms.internal.script.engine.ScriptCache;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.Cause;
 
 import groovy.lang.GroovyClassLoader;
+import groovy.lang.Writable;
 import groovy.text.GStringTemplateEngine;
 import groovy.text.Template;
 
@@ -44,22 +49,75 @@ public class GspScriptEngine extends AbstractScriptEngine {
 
 	@Override
 	public Object eval(Reader reader, ScriptContext ctx) throws ScriptException {
-		Template template = null;
+		ResourceScript script = null;
+		ScriptCache cache = Adaptables.getAdapter(getFactory(), ScriptCache.class);
 
-		try {
-			template = new GStringTemplateEngine(Adaptables.getAdapter(getFactory(), GroovyClassLoader.class)).createTemplate(reader);
-		} catch (Throwable ex) {
-			throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile GSP script: " + ex.getMessage());
+		synchronized (cache) {
+			script = cache.getScript(ResourceScript.getScriptName(reader));
+			boolean existing = false;
+			if (script != null) {
+				if (script.getLastModified() == ResourceScript.getLastModified(reader)) {
+					existing = true;
+				}
+			}
+			if (!existing) {
+				try {
+					script = new GspScript(reader);
+				} catch (Throwable ex) {
+					throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
+				}
+				cache.registerScript(script);
+			}
 		}
 
-		try {
-			Bindings bindings = ctx.getBindings(ScriptContext.ENGINE_SCOPE);
-			template.make(bindings).writeTo(ctx.getWriter());
-		} catch (Throwable ex) {
-			throw Cause.create(ex).wrap(ScriptException.class, "Unable to write result of script execution: " + ex.getMessage());
+		return script.eval(ctx);
+	}
+
+	private class GspScript extends ResourceScript {
+		private final String fScriptName;
+		private final Template fTemplate;
+		private final long fLastModified;
+
+		private GspScript(Reader scriptReader) throws ScriptException, IOException {
+			fScriptName = getScriptName(scriptReader);
+			try {
+				GroovyClassLoader classLoader = Adaptables.getAdapter(getFactory(), GroovyClassLoader.class);
+				fTemplate = new GStringTemplateEngine(classLoader).createTemplate(scriptReader);
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile GSP script: " + ex.getMessage());
+			}
+			fLastModified = getLastModified(scriptReader);
 		}
 
-		return null;
+		@Override
+		public Object eval(ScriptContext scriptContext) throws ScriptException {
+			try {
+				Bindings bindings = scriptContext.getBindings(ScriptContext.ENGINE_SCOPE);
+				Writable out;
+				synchronized (this) {
+					out = fTemplate.make(bindings);
+				}
+				out.writeTo(scriptContext.getWriter());
+				return null;
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(ScriptException.class, "Unable to write result of script execution: " + ex.getMessage());
+			}
+		}
+
+		@Override
+		public ScriptEngine getEngine() {
+			return GspScriptEngine.this;
+		}
+
+		@Override
+		public String getScriptName() {
+			return fScriptName;
+		}
+
+		@Override
+		public long getLastModified() {
+			return fLastModified;
+		}
 	}
 
 }
