@@ -65,13 +65,15 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	private final Path fCachePath;
 	private final Map<Path, String> fCachedFiles = new HashMap<>();
 	private final Closer fCloser = Closer.create();
-	private final WorkspaceClassLoader fWorkspaceClassLoader;
+	private WorkspaceClassLoader fWorkspaceClassLoader;
+	private ScriptCacheManager fScriptCacheManager;
+	private DelegateClassLoader fDelegateClassLoader;
+	private GroovyClassLoader fGroovyClassLoader;
 	private boolean fHasChanges;
 
 	public WorkspaceClassLoaderProvider(String workspaceName) throws IOException {
 		fWorkspaceName = workspaceName;
 		fCachePath = Files.createTempDirectory(CmsService.getRepositoryPath().resolve("tmp"), "cld-");
-		fWorkspaceClassLoader = new WorkspaceClassLoader();
 	}
 
 	public synchronized void open() throws IOException, RepositoryException {
@@ -81,6 +83,23 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 
 	@Override
 	public synchronized void close() throws IOException {
+		synchronized (fCachedFiles) {
+			if (fGroovyClassLoader != null) {
+				fGroovyClassLoader.clearCache();
+				fGroovyClassLoader = null;
+			}
+			if (fDelegateClassLoader != null) {
+				fDelegateClassLoader = null;
+			}
+			if (fWorkspaceClassLoader != null) {
+				IOs.closeQuietly(fWorkspaceClassLoader);
+				fWorkspaceClassLoader = null;
+			}
+			if (fScriptCacheManager != null) {
+				fScriptCacheManager.clearCache();
+				fScriptCacheManager = null;
+			}
+		}
 		fCloser.close();
 	}
 
@@ -98,125 +117,135 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	}
 
 	public ClassLoader getClassLoader() {
+		synchronized (fCachedFiles) {
+			if (fWorkspaceClassLoader == null) {
+				fScriptCacheManager = new ScriptCacheManager();
+				try {
+					List<URL> urls = new ArrayList<>();
+					collectFiles("lib", urls);
+					addIfExists("usr/local/classes", urls);
+					collectFiles("usr/local/lib", urls);
+					addIfExists("content/WEB-INF/classes", urls);
+					collectFiles("content/WEB-INF/lib", urls);
+					fWorkspaceClassLoader = new WorkspaceClassLoader(urls.toArray(URL[]::new));
+				} catch (Throwable ex) {
+					throw Cause.create(ex).wrap(IllegalStateException.class, "An error occurred while creating the class loader: " + fWorkspaceName);
+				}
+				fDelegateClassLoader = new DelegateClassLoader(fWorkspaceClassLoader);
+				fGroovyClassLoader = new GroovyClassLoader(fDelegateClassLoader);
+//				fGroovyClassLoader = new GroovyClassLoader(fWorkspaceClassLoader);
+			}
+		}
 		return fWorkspaceClassLoader;
 	}
 
-	public class WorkspaceClassLoader extends URLClassLoader implements Adaptable {
-		private URLClassLoader fInnerLoader;
-		private GroovyClassLoader fGroovyClassLoader;
-		private final ScriptCacheManager fScriptCacheManager;
+	private void reload() {
+		synchronized (fCachedFiles) {
+			if (!fHasChanges) {
+				return;
+			}
 
-		private WorkspaceClassLoader() {
-			super(WorkspaceClassLoader.class.getSimpleName() + "/" + getWorkspaceName(), new URL[0], CmsService.getDefault().getBundleClassLoader());
-			fGroovyClassLoader = new GroovyClassLoader(this, null, false);
-			fScriptCacheManager = new ScriptCacheManager();
+			fHasChanges = false;
+			if (fGroovyClassLoader != null) {
+				fGroovyClassLoader.clearCache();
+				fGroovyClassLoader = null;
+			}
+			if (fDelegateClassLoader != null) {
+				fDelegateClassLoader = null;
+			}
+			if (fWorkspaceClassLoader != null) {
+				IOs.closeQuietly(fWorkspaceClassLoader);
+				fWorkspaceClassLoader = null;
+			}
+			if (fScriptCacheManager != null) {
+				fScriptCacheManager.clearCache();
+				fScriptCacheManager = null;
+			}
+		}
+	}
+
+	private void addIfExists(String directoryPath, List<URL> urls) throws IOException {
+		addIfExists(fCachePath.resolve(directoryPath), urls);
+	}
+
+	private void addIfExists(Path directoryPath, List<URL> urls) throws IOException {
+		if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
+			return;
 		}
 
-		@Override
-		public void close() throws IOException {
-			synchronized (fCachedFiles) {
-				fScriptCacheManager.clearCache();
-				if (fGroovyClassLoader != null) {
-					fGroovyClassLoader.clearCache();
-					fGroovyClassLoader = null;
+		urls.add(directoryPath.toUri().toURL());
+	}
+
+	private void collectFiles(String directoryPath, List<URL> urls) throws IOException {
+		collectFiles(fCachePath.resolve(directoryPath), urls);
+	}
+
+	private void collectFiles(Path directoryPath, List<URL> urls) throws IOException {
+		if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
+			return;
+		}
+
+		try (Stream<Path> stream = Files.list(directoryPath)) {
+			stream.forEach(path -> {
+				try {
+					if (Files.isDirectory(path)) {
+						collectFiles(path, urls);
+						return;
+					}
+
+					urls.add(path.toUri().toURL());
+				} catch (IOException ex) {
+					throw (IllegalStateException) new IllegalStateException(ex.getMessage()).initCause(ex);
 				}
-				if (fInnerLoader != null) {
-					IOs.closeQuietly(fInnerLoader);
-					fInnerLoader = null;
-				}
-			}
-			super.close();
+			});
+		}
+	}
+
+	private class DelegateClassLoader extends ClassLoader {
+		private final ClassLoader fClassLoader;
+
+		private DelegateClassLoader(ClassLoader classLoader) {
+			fClassLoader = classLoader;
+		}
+
+		private ClassLoader getClassLoader() {
+			return fClassLoader;
 		}
 
 		@Override
 		protected Class<?> findClass(String name) throws ClassNotFoundException {
-			return getInnerClassLoader().loadClass(name);
+			return getClassLoader().loadClass(name);
 		}
 
 		@Override
-		public URL findResource(String name) {
-			return getInnerClassLoader().getResource(name);
+		public Class<?> loadClass(String name) throws ClassNotFoundException {
+			return getClassLoader().loadClass(name);
 		}
 
 		@Override
-		public Enumeration<URL> findResources(String name) throws IOException {
-			return getInnerClassLoader().getResources(name);
+		public URL getResource(String name) {
+			return getClassLoader().getResource(name);
 		}
 
-		private void reload() {
-			synchronized (fCachedFiles) {
-				if (!fHasChanges) {
-					return;
-				}
-
-				fHasChanges = false;
-				fScriptCacheManager.clearCache();
-				if (fGroovyClassLoader != null) {
-					fGroovyClassLoader.clearCache();
-					fGroovyClassLoader = null;
-					fGroovyClassLoader = new GroovyClassLoader(this, null, false);
-				}
-				if (fInnerLoader != null) {
-					IOs.closeQuietly(fInnerLoader);
-					fInnerLoader = null;
-				}
-			}
+		@Override
+		public Enumeration<URL> getResources(String name) throws IOException {
+			return getClassLoader().getResources(name);
 		}
 
-		private URLClassLoader getInnerClassLoader() {
-			synchronized (fCachedFiles) {
-				if (fInnerLoader == null) {
-					try {
-						List<URL> urls = new ArrayList<>();
-						collectFiles("lib", urls);
-						addIfExists("usr/local/classes", urls);
-						collectFiles("usr/local/lib", urls);
-						addIfExists("content/WEB-INF/classes", urls);
-						collectFiles("content/WEB-INF/lib", urls);
-						fInnerLoader = new URLClassLoader(urls.toArray(URL[]::new), null);
-					} catch (Throwable ex) {
-						throw Cause.create(ex).wrap(IllegalStateException.class, "An error occurred while creating the class loader: " + fWorkspaceName);
-					}
-				}
-				return fInnerLoader;
-			}
+		@Override
+		public InputStream getResourceAsStream(String name) {
+			return getClassLoader().getResourceAsStream(name);
 		}
 
-		private void addIfExists(String directoryPath, List<URL> urls) throws IOException {
-			addIfExists(fCachePath.resolve(directoryPath), urls);
+		@Override
+		public Stream<URL> resources(String name) {
+			return getClassLoader().resources(name);
 		}
+	}
 
-		private void addIfExists(Path directoryPath, List<URL> urls) throws IOException {
-			if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
-				return;
-			}
-
-			urls.add(directoryPath.toUri().toURL());
-		}
-
-		private void collectFiles(String directoryPath, List<URL> urls) throws IOException {
-			collectFiles(fCachePath.resolve(directoryPath), urls);
-		}
-
-		private void collectFiles(Path directoryPath, List<URL> urls) throws IOException {
-			if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
-				return;
-			}
-
-			try (Stream<Path> stream = Files.list(directoryPath)) {
-				stream.forEach(path -> {
-					try {
-						if (Files.isDirectory(path)) {
-							collectFiles(path, urls);
-							return;
-						}
-
-						urls.add(path.toUri().toURL());
-					} catch (IOException ex) {
-						throw (IllegalStateException) new IllegalStateException(ex.getMessage()).initCause(ex);
-					}
-				});
-			}
+	public class WorkspaceClassLoader extends URLClassLoader implements Adaptable {
+		private WorkspaceClassLoader(URL[] urls) {
+			super(WorkspaceClassLoader.class.getSimpleName() + "/" + getWorkspaceName(), urls, CmsService.getDefault().getBundleClassLoader());
 		}
 
 		@SuppressWarnings("unchecked")
@@ -383,7 +412,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					Event event;
 					synchronized (fEvents) {
 						if (fEvents.isEmpty()) {
-							fWorkspaceClassLoader.reload();
+							reload();
 							try {
 								fEvents.wait();
 							} catch (InterruptedException ignore) {}
