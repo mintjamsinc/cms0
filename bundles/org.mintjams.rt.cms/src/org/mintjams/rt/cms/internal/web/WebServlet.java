@@ -31,11 +31,12 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.http.whiteboard.HttpWhiteboardConstants;
 
 @Component(service = Servlet.class, property = {
-		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=" + RepositoryServletsProviderConfiguration.CMS_CGI_PATH + "/*",
+		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=" + CmsConfiguration.CMS_CGI_PATH + "/*",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=(" + HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true"
 })

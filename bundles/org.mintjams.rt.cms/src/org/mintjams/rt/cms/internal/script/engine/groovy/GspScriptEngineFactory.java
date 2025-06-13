@@ -50,7 +50,7 @@ public class GspScriptEngineFactory extends AbstractScriptEngineFactory implemen
 		setEngineVersion(gf.getEngineVersion());
 		fLanguageName = "Groovy Server Pages";
 		fLanguageVersion = gf.getLanguageVersion();
-		fScriptCache = new ScriptCache(GspScriptEngine.class.getSimpleName(), 50);
+		fScriptCache = new ScriptCache(GspScriptEngine.class.getSimpleName(), CmsService.getConfiguration().getMaxScriptCachePerScriptEngine());
 		Adaptables.getAdapter(getWorkspaceClassLoader(), ScriptCacheManager.class).registerScriptCache(fScriptCache);
 	}
 

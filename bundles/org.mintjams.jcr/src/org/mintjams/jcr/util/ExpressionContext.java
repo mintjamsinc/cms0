@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -101,6 +101,24 @@ public class ExpressionContext {
 			return Boolean.valueOf((String) value);
 		}
 		return Boolean.valueOf(value.toString());
+	}
+
+	public int getInt(String expression) {
+		return getInt(expression, 0);
+	}
+
+	public int getInt(String expression, int defaultValue) {
+		Object value = evaluate(expression);
+		if (value == null) {
+			return defaultValue;
+		}
+		if (value instanceof Number) {
+			return ((Number) value).intValue();
+		}
+		if (value instanceof String) {
+			return Integer.parseInt((String) value);
+		}
+		return Integer.parseInt(value.toString());
 	}
 
 }

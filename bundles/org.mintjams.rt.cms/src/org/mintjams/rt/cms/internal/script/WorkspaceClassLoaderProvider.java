@@ -31,7 +31,6 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +45,7 @@ import javax.jcr.Session;
 import org.mintjams.jcr.nodetype.NodeType;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
 import org.mintjams.rt.cms.internal.script.engine.ScriptCacheManager;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.tools.adapter.Adaptable;
@@ -67,7 +67,6 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	private final Closer fCloser = Closer.create();
 	private WorkspaceClassLoader fWorkspaceClassLoader;
 	private ScriptCacheManager fScriptCacheManager;
-	private DelegateClassLoader fDelegateClassLoader;
 	private GroovyClassLoader fGroovyClassLoader;
 	private boolean fHasChanges;
 
@@ -79,6 +78,8 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	public synchronized void open() throws IOException, RepositoryException {
 		Deployer deployer = fCloser.register(new Deployer());
 		deployer.open();
+		Reloader reloader = fCloser.register(new Reloader());
+		reloader.open();
 	}
 
 	@Override
@@ -87,9 +88,6 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			if (fGroovyClassLoader != null) {
 				fGroovyClassLoader.clearCache();
 				fGroovyClassLoader = null;
-			}
-			if (fDelegateClassLoader != null) {
-				fDelegateClassLoader = null;
 			}
 			if (fWorkspaceClassLoader != null) {
 				IOs.closeQuietly(fWorkspaceClassLoader);
@@ -132,27 +130,25 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					} catch (Throwable ex) {
 						throw Cause.create(ex).wrap(IllegalStateException.class, "An error occurred while creating the class loader: " + fWorkspaceName);
 					}
-					fDelegateClassLoader = new DelegateClassLoader(fWorkspaceClassLoader);
-					fGroovyClassLoader = new GroovyClassLoader(fDelegateClassLoader);
+					fGroovyClassLoader = new GroovyClassLoader(new WorkspaceDelegatingClassLoader(fWorkspaceName));
 				}
 			}
 		}
 		return fWorkspaceClassLoader;
 	}
 
-	private void reload() {
+	private void reload(boolean force) {
 		synchronized (fCachedFiles) {
-			if (!fHasChanges) {
-				return;
+			if (!force) {
+				if (!fHasChanges) {
+					return;
+				}
 			}
 
 			fHasChanges = false;
 			if (fGroovyClassLoader != null) {
 				fGroovyClassLoader.clearCache();
 				fGroovyClassLoader = null;
-			}
-			if (fDelegateClassLoader != null) {
-				fDelegateClassLoader = null;
 			}
 			if (fWorkspaceClassLoader != null) {
 				IOs.closeQuietly(fWorkspaceClassLoader);
@@ -163,6 +159,10 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 				fScriptCacheManager = null;
 			}
 		}
+	}
+
+	private void reload() {
+		reload(false);
 	}
 
 	private void addIfExists(String directoryPath, List<URL> urls) throws IOException {
@@ -199,48 +199,6 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					throw (IllegalStateException) new IllegalStateException(ex.getMessage()).initCause(ex);
 				}
 			});
-		}
-	}
-
-	private class DelegateClassLoader extends ClassLoader {
-		private final ClassLoader fClassLoader;
-
-		private DelegateClassLoader(ClassLoader classLoader) {
-			fClassLoader = classLoader;
-		}
-
-		private ClassLoader getClassLoader() {
-			return fClassLoader;
-		}
-
-		@Override
-		protected Class<?> findClass(String name) throws ClassNotFoundException {
-			return getClassLoader().loadClass(name);
-		}
-
-		@Override
-		public Class<?> loadClass(String name) throws ClassNotFoundException {
-			return getClassLoader().loadClass(name);
-		}
-
-		@Override
-		public URL getResource(String name) {
-			return getClassLoader().getResource(name);
-		}
-
-		@Override
-		public Enumeration<URL> getResources(String name) throws IOException {
-			return getClassLoader().getResources(name);
-		}
-
-		@Override
-		public InputStream getResourceAsStream(String name) {
-			return getClassLoader().getResourceAsStream(name);
-		}
-
-		@Override
-		public Stream<URL> resources(String name) {
-			return getClassLoader().resources(name);
 		}
 	}
 
@@ -475,6 +433,65 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 					}
 				}
 				return false;
+			}
+		}
+	}
+
+	private class Reloader implements Closeable {
+		private Thread fThread;
+		private boolean fCloseRequested;
+		private final Object fLock = new Object();
+
+		private Reloader open() {
+			if (fThread != null) {
+				return this;
+			}
+
+			fThread = new Thread(new Task());
+			fThread.setDaemon(true);
+			fThread.start();
+
+			return this;
+		}
+
+		@Override
+		public void close() throws IOException {
+			if (fCloseRequested) {
+				return;
+			}
+
+			fCloseRequested = true;
+			synchronized (fLock) {
+				fLock.notifyAll();
+			}
+			try {
+				fThread.interrupt();
+				fThread.join(10000);
+			} catch (InterruptedException ignore) {}
+			fThread = null;
+			fCloseRequested = false;
+		}
+
+		private class Task implements Runnable {
+			@Override
+			public void run() {
+				while (!fCloseRequested) {
+					if (Thread.interrupted()) {
+						fCloseRequested = true;
+						break;
+					}
+					synchronized (fLock) {
+						try {
+							fLock.wait(CmsService.getConfiguration().getClassLoaderRefreshInterval() * 3600000);
+						} catch (InterruptedException ignore) {}
+					}
+
+					if (fCloseRequested) {
+						continue;
+					}
+
+					reload(true);
+				}
 			}
 		}
 	}

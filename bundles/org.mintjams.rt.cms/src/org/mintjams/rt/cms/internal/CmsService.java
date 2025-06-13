@@ -50,10 +50,10 @@ import org.mintjams.jcr.spi.security.JcrPrincipalProvider;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.bpm.WorkspaceProcessEngineProvider;
 import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
-import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceFacetProvider;
+import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider;
@@ -63,7 +63,6 @@ import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2ServiceProvider;
 import org.mintjams.rt.cms.internal.web.RepositoryServletsProvider;
 import org.mintjams.rt.cms.internal.web.WorkspaceServletProvider;
-import org.mintjams.script.event.EventHandler;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.io.Closer;
@@ -106,6 +105,7 @@ public class CmsService {
 	private BundleContext fBundleContext;
 	private String fBootIdentifier;
 	private Properties fProperties;
+	private CmsConfiguration fConfig;
 	private final Map<String, WorkspaceClassLoaderProvider> fWorkspaceClassLoaderProviders = new HashMap<>();
 	private final Map<String, WorkspaceScriptEngineManager> fWorkspaceScriptEngineManagers = new HashMap<>();
 	private final Map<String, WorkspaceFacetProvider> fWorkspaceFacetProviders = new HashMap<>();
@@ -154,7 +154,8 @@ public class CmsService {
 	}
 
 	private synchronized void open() throws IOException, RepositoryException {
-		fCloser.register(new RepositoryServletsProvider()).open();
+		fConfig = new CmsConfiguration();
+		fCloser.register(new RepositoryServletsProvider(fConfig)).open();
 
 		prepareStandardFolders();
 
@@ -344,6 +345,10 @@ public class CmsService {
 
 	public static void postEvent(Event event) {
 		getDefault().fEventAdmin.postEvent(event);
+	}
+
+	public static CmsConfiguration getConfiguration() {
+		return getDefault().fConfig;
 	}
 
 	public static Repository getRepository() {

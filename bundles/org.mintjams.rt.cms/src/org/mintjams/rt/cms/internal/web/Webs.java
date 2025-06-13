@@ -38,6 +38,7 @@ import org.apache.commons.codec.net.URLCodec;
 import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
+import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.script.YAML;
 import org.mintjams.script.resource.ResourceException;
@@ -113,7 +114,7 @@ public class Webs {
 	}
 
 	public static String getWorkspacePath(ActionContext context) {
-		return RepositoryServletsProviderConfiguration.CMS_CGI_PATH + "/" + Scripts.getWorkspaceScriptContext(context).getWorkspaceName();
+		return CmsConfiguration.CMS_CGI_PATH + "/" + Scripts.getWorkspaceScriptContext(context).getWorkspaceName();
 	}
 
 	public static String getResourcePath(ActionContext context) {

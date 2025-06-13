@@ -34,6 +34,7 @@ import javax.servlet.http.HttpServlet;
 
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
@@ -58,7 +59,7 @@ public class WorkspaceServletProviderConfiguration {
 		if (!Files.exists(webPath)) {
 			try (Writer out = Files.newBufferedWriter(webPath)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
-						.put("contextPath", RepositoryServletsProviderConfiguration.CMS_CGI_PATH + "/" + getWorkspaceName())
+						.put("contextPath", CmsConfiguration.CMS_CGI_PATH + "/" + getWorkspaceName())
 						.build());
 				out.append(yamlString);
 			}
@@ -86,7 +87,7 @@ public class WorkspaceServletProviderConfiguration {
 	public String getContextPath() {
 		return ExpressionContext.create()
 				.setVariable("config", fConfig)
-				.defaultIfEmpty("config.contextPath", RepositoryServletsProviderConfiguration.CMS_CGI_PATH + "/" + getWorkspaceName());
+				.defaultIfEmpty("config.contextPath", CmsConfiguration.CMS_CGI_PATH + "/" + getWorkspaceName());
 	}
 
 }
