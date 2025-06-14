@@ -76,6 +76,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	}
 
 	public synchronized void open() throws IOException, RepositoryException {
+		reload(true);
 		Deployer deployer = fCloser.register(new Deployer());
 		deployer.open();
 		Reloader reloader = fCloser.register(new Reloader());
@@ -85,18 +86,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	@Override
 	public synchronized void close() throws IOException {
 		synchronized (fCachedFiles) {
-			if (fGroovyClassLoader != null) {
-				fGroovyClassLoader.clearCache();
-				fGroovyClassLoader = null;
-			}
-			if (fWorkspaceClassLoader != null) {
-				IOs.closeQuietly(fWorkspaceClassLoader);
-				fWorkspaceClassLoader = null;
-			}
-			if (fScriptCacheManager != null) {
-				fScriptCacheManager.clearCache();
-				fScriptCacheManager = null;
-			}
+			closeClassLoader();
 		}
 		fCloser.close();
 	}
@@ -115,26 +105,38 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	}
 
 	public ClassLoader getClassLoader() {
-		if (fWorkspaceClassLoader == null) {
-			synchronized (fCachedFiles) {
-				if (fWorkspaceClassLoader == null) {
-					fScriptCacheManager = new ScriptCacheManager();
-					try {
-						List<URL> urls = new ArrayList<>();
-						collectFiles("lib", urls);
-						addIfExists("usr/local/classes", urls);
-						collectFiles("usr/local/lib", urls);
-						addIfExists("content/WEB-INF/classes", urls);
-						collectFiles("content/WEB-INF/lib", urls);
-						fWorkspaceClassLoader = new WorkspaceClassLoader(urls.toArray(URL[]::new));
-					} catch (Throwable ex) {
-						throw Cause.create(ex).wrap(IllegalStateException.class, "An error occurred while creating the class loader: " + fWorkspaceName);
-					}
-					fGroovyClassLoader = new GroovyClassLoader(new WorkspaceDelegatingClassLoader(fWorkspaceName));
-				}
-			}
-		}
 		return fWorkspaceClassLoader;
+	}
+
+	private void closeClassLoader() {
+		if (fGroovyClassLoader != null) {
+			fGroovyClassLoader.clearCache();
+			fGroovyClassLoader = null;
+		}
+		if (fWorkspaceClassLoader != null) {
+			IOs.closeQuietly(fWorkspaceClassLoader);
+			fWorkspaceClassLoader = null;
+		}
+		if (fScriptCacheManager != null) {
+			fScriptCacheManager.clearCache();
+			fScriptCacheManager = null;
+		}
+	}
+
+	private void openClassLoader() {
+		fScriptCacheManager = new ScriptCacheManager();
+		try {
+			List<URL> urls = new ArrayList<>();
+			collectFiles("lib", urls);
+			addIfExists("usr/local/classes", urls);
+			collectFiles("usr/local/lib", urls);
+			addIfExists("content/WEB-INF/classes", urls);
+			collectFiles("content/WEB-INF/lib", urls);
+			fWorkspaceClassLoader = new WorkspaceClassLoader(urls.toArray(URL[]::new));
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(IllegalStateException.class, "An error occurred while creating the class loader: " + fWorkspaceName);
+		}
+		fGroovyClassLoader = new GroovyClassLoader(new WorkspaceDelegatingClassLoader(fWorkspaceName));
 	}
 
 	private void reload(boolean force) {
@@ -146,18 +148,9 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			}
 
 			fHasChanges = false;
-			if (fGroovyClassLoader != null) {
-				fGroovyClassLoader.clearCache();
-				fGroovyClassLoader = null;
-			}
-			if (fWorkspaceClassLoader != null) {
-				IOs.closeQuietly(fWorkspaceClassLoader);
-				fWorkspaceClassLoader = null;
-			}
-			if (fScriptCacheManager != null) {
-				fScriptCacheManager.clearCache();
-				fScriptCacheManager = null;
-			}
+			closeClassLoader();
+			openClassLoader();
+			CmsService.getLogger(getClass()).info("The class loader has been reloaded successfully.");
 		}
 	}
 
