@@ -106,8 +106,6 @@ public class Webs {
 		DispatcherType type = request.getDispatcherType();
 		if (type == DispatcherType.INCLUDE) {
 			return (String) request.getAttribute(RequestDispatcher.INCLUDE_PATH_INFO);
-		} else if (type == DispatcherType.FORWARD) {
-			return (String) request.getAttribute(RequestDispatcher.FORWARD_PATH_INFO);
 		} else {
 			return request.getPathInfo();
 		}
