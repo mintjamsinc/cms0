@@ -344,8 +344,8 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			}
 
 			fMinConnections = fRepository.getConfiguration().getMaxSessions() / 4;
-			if (fMinConnections < 8) {
-				fMinConnections = 8;
+			if (fMinConnections < 2) {
+				fMinConnections = 2;
 			}
 			if (fMinConnections > fRepository.getConfiguration().getMaxSessions()) {
 				fMinConnections = fRepository.getConfiguration().getMaxSessions();
