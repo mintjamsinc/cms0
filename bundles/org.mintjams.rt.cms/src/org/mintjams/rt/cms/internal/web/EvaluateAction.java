@@ -153,7 +153,7 @@ public class EvaluateAction implements Action {
 				scriptReader
 						.setScriptName("jcr://" + result.getTemplate().getPath())
 						.setExtension(result.getTemplate().getScriptExtension())
-						.setLastModified(result.getLastModified())
+						.setLastModified(result.getTemplate().getLastModified())
 						.setScriptEngineManager(Scripts.getScriptEngineManager(context))
 						.setClassLoader(Scripts.getClassLoader(context))
 						.setScriptContext(ctx)
