@@ -59,7 +59,7 @@ namespace
 			}
 
 			th_ = std::thread([this]
-												{ run(); });
+							  { run(); });
 		}
 		~Worker() { stop(); }
 
@@ -107,7 +107,7 @@ namespace
 				{
 					std::unique_lock<std::mutex> lk(mu_);
 					cv_.wait(lk, [&]
-									 { return stopping_ || !q_.empty(); });
+							 { return stopping_ || !q_.empty(); });
 					if (stopping_)
 						break;
 					job = std::move(q_.front());
@@ -115,7 +115,7 @@ namespace
 				}
 
 				auto jobStart = std::chrono::steady_clock::now();
-				std::fprintf(stderr, "[Worker] Job start\n");
+				// std::fprintf(stderr, "[Worker] Job start\n");
 
 				EvalResult er;
 				{
@@ -137,56 +137,55 @@ namespace
 						v8::HandleScope hs2(isolate_);
 						// Source
 						v8::Local<v8::String> src =
-								v8::String::NewFromTwoByte(isolate_,
-																					 reinterpret_cast<const uint16_t *>(s16.data()),
-																					 v8::NewStringType::kNormal,
-																					 static_cast<int>(s16.size()))
-										.ToLocalChecked();
+							v8::String::NewFromTwoByte(isolate_,
+													   reinterpret_cast<const uint16_t *>(s16.data()),
+													   v8::NewStringType::kNormal,
+													   static_cast<int>(s16.size()))
+								.ToLocalChecked();
 
 						// Resource name
 						std::string name = std::string("<eval:") + std::to_string(idx) + ">";
 						v8::Local<v8::String> resName =
-								v8::String::NewFromUtf8(isolate_, name.c_str()).ToLocalChecked();
+							v8::String::NewFromUtf8(isolate_, name.c_str()).ToLocalChecked();
 						v8::ScriptOrigin origin(resName);
 
 						// ★ キャッシュ検索
-					uint64_t key = fnv1a64_utf8(s16);
-					std::unique_ptr<v8::ScriptCompiler::CachedData> cached;
-					auto it = code_cache_.find(key);
-					std::fprintf(stderr, "[Worker] Cache %s\n", (it != code_cache_.end()) ? "hit" : "miss");
-					if (it != code_cache_.end())
-					{
-						// V8に所有権を渡すので、newでコピーを作る
-						const auto &blob = it->second;
-						auto *cd = new v8::ScriptCompiler::CachedData(
+						uint64_t key = fnv1a64_utf8(s16);
+						std::unique_ptr<v8::ScriptCompiler::CachedData> cached;
+						auto it = code_cache_.find(key);
+						// std::fprintf(stderr, "[Worker] Cache %s\n", (it != code_cache_.end()) ? "hit" : "miss");
+						if (it != code_cache_.end())
+						{
+							// V8に所有権を渡すので、newでコピーを作る
+							const auto &blob = it->second;
+							auto *cd = new v8::ScriptCompiler::CachedData(
 								blob.data(),
 								static_cast<int>(blob.size()),
 								v8::ScriptCompiler::CachedData::BufferPolicy::BufferNotOwned);
-						cached.reset(cd);
-					}
+							cached.reset(cd);
+						}
 
 						// Source 作成（cached があればそれ付き）
 						v8::ScriptCompiler::Source source(src, origin, cached.release());
 
 						// Unbound でコンパイル（キャッシュ消費 or 通常）
-					v8::Local<v8::UnboundScript> unbound;
-					v8::ScriptCompiler::CompileOptions opt =
+						v8::Local<v8::UnboundScript> unbound;
+						v8::ScriptCompiler::CompileOptions opt =
 							(it != code_cache_.end())
-									? v8::ScriptCompiler::kConsumeCodeCache
-									: v8::ScriptCompiler::kEagerCompile;
+								? v8::ScriptCompiler::kConsumeCodeCache
+								: v8::ScriptCompiler::kEagerCompile;
 
-					auto compileStart = std::chrono::steady_clock::now();
-					std::fprintf(stderr, "[Worker] Compile start\n");
-					bool compiled = v8::ScriptCompiler::CompileUnboundScript(isolate_, &source, opt)
-															 .ToLocal(&unbound);
-					auto compileEnd = std::chrono::steady_clock::now();
-					std::fprintf(stderr, "[Worker] Compile end (%lld ms)\n",
-											 (long long)std::chrono::duration_cast<std::chrono::milliseconds>(compileEnd - compileStart).count());
-					if (!compiled)
-					{
-						ok = false;
-						break;
-					}
+						auto compileStart = std::chrono::steady_clock::now();
+						// std::fprintf(stderr, "[Worker] Compile start\n");
+						bool compiled = v8::ScriptCompiler::CompileUnboundScript(isolate_, &source, opt)
+											.ToLocal(&unbound);
+						auto compileEnd = std::chrono::steady_clock::now();
+						// std::fprintf(stderr, "[Worker] Compile end (%lld ms)\n", (long long)std::chrono::duration_cast<std::chrono::milliseconds>(compileEnd - compileStart).count());
+						if (!compiled)
+						{
+							ok = false;
+							break;
+						}
 
 						// ★ キャッシュが無かったときは作って保存
 						if (it == code_cache_.end())
@@ -203,19 +202,18 @@ namespace
 							// その場合は拒否時に新規作成して差し替える処理を入れてOK。
 						}
 
-					// 実行
-					v8::Local<v8::Script> script = unbound->BindToCurrentContext();
-					auto execStart = std::chrono::steady_clock::now();
-					std::fprintf(stderr, "[Worker] Execute start\n");
-					bool ran = script->Run(ctx).ToLocal(&last);
-					auto execEnd = std::chrono::steady_clock::now();
-					std::fprintf(stderr, "[Worker] Execute end (%lld ms)\n",
-											 (long long)std::chrono::duration_cast<std::chrono::milliseconds>(execEnd - execStart).count());
-					if (!ran)
-					{
-						ok = false;
-						break;
-					}
+						// 実行
+						v8::Local<v8::Script> script = unbound->BindToCurrentContext();
+						auto execStart = std::chrono::steady_clock::now();
+						// std::fprintf(stderr, "[Worker] Execute start\n");
+						bool ran = script->Run(ctx).ToLocal(&last);
+						auto execEnd = std::chrono::steady_clock::now();
+						// std::fprintf(stderr, "[Worker] Execute end (%lld ms)\n", (long long)std::chrono::duration_cast<std::chrono::milliseconds>(execEnd - execStart).count());
+						if (!ran)
+						{
+							ok = false;
+							break;
+						}
 						++idx;
 					}
 
@@ -273,8 +271,7 @@ namespace
 
 				job->result.set_value(std::move(er));
 				auto jobEnd = std::chrono::steady_clock::now();
-				std::fprintf(stderr, "[Worker] Job end (%lld ms)\n",
-										 (long long)std::chrono::duration_cast<std::chrono::milliseconds>(jobEnd - jobStart).count());
+				// std::fprintf(stderr, "[Worker] Job end (%lld ms)\n", (long long)std::chrono::duration_cast<std::chrono::milliseconds>(jobEnd - jobStart).count());
 			}
 		}
 
@@ -360,8 +357,8 @@ namespace
 				const jchar *chars = env->GetStringChars(js, nullptr);
 				jsize len = env->GetStringLength(js);
 				job->sources.emplace_back(
-						reinterpret_cast<const char16_t *>(chars),
-						reinterpret_cast<const char16_t *>(chars) + len);
+					reinterpret_cast<const char16_t *>(chars),
+					reinterpret_cast<const char16_t *>(chars) + len);
 				env->ReleaseStringChars(js, chars);
 				env->DeleteLocalRef(js);
 			}
