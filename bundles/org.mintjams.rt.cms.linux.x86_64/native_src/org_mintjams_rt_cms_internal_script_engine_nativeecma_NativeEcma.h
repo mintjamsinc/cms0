@@ -10,10 +10,10 @@ extern "C" {
 /*
  * Class:     org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
  * Method:    nativeLoad
- * Signature: (Ljava/lang/String;)V
+ * Signature: (Ljava/lang/String;I)V
  */
 JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeLoad
-  (JNIEnv *, jobject, jstring);
+  (JNIEnv *, jobject, jstring, jint);
 
 /*
  * Class:     org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma

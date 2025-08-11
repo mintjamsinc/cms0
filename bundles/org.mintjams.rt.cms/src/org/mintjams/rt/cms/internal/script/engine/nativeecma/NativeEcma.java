@@ -1,16 +1,16 @@
 /*
 	* Copyright (c) 2022 MintJams Inc.
-	* 
+	*
 	* Permission is hereby granted, free of charge, to any person obtaining a copy
 	* of this software and associated documentation files (the "Software"), to deal
 	* in the Software without restriction, including without limitation the rights
 	* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 	* copies of the Software, and to permit persons to whom the Software is
 	* furnished to do so, subject to the following conditions:
-	* 
+	*
 	* The above copyright notice and this permission notice shall be included in all
 	* copies or substantial portions of the Software.
-	* 
+	*
 	* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 	* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 	* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -86,7 +86,7 @@ public class NativeEcma implements Closeable {
 			throw new IllegalStateException(System.getProperty("os.name"));
 		}
 
-		nativeLoad(getLibPath().toAbsolutePath().toString());
+		nativeLoad(getLibPath().toAbsolutePath().toString(), 2); // FIXME
 	}
 
 	@Override
@@ -99,14 +99,14 @@ public class NativeEcma implements Closeable {
 	}
 
 	public String eval(List<String> sources) throws IOException {
-		return nativeEval(sources.toArray(new String[sources.size()]));
+		return nativeEval(sources.toArray(String[]::new));
 	}
 
 	public String eval(String... sources) throws IOException {
 		return nativeEval(sources);
 	}
 
-	protected native void nativeLoad(String directoryPath);
+	protected native void nativeLoad(String directoryPath, int poolSize);
 
 	protected native void nativeUnload();
 
