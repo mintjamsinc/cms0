@@ -82,7 +82,8 @@ private:
               v8::NewStringType::kNormal,
               static_cast<int>(s16.size())).ToLocalChecked();
 
-          v8::ScriptOrigin origin(v8::String::NewFromUtf8Literal(isolate_, "<eval>"));
+          v8::ScriptOrigin origin(
+            v8::String::NewFromUtf8(isolate, ("<eval:" + std::to_string(i) + ">").c_str()).ToLocalChecked());
           v8::Local<v8::Script> script;
           if (!v8::Script::Compile(ctx, source, &origin).ToLocal(&script)) { ok = false; break; }
           if (!script->Run(ctx).ToLocal(&last)) { ok = false; break; }
@@ -91,17 +92,29 @@ private:
         isolate_->PerformMicrotaskCheckpoint();
 
         if (!ok || tc.HasCaught()) {
-          v8::String::Utf8Value exception(isolate_, tc.Exception());
-          v8::Local<v8::Message> message = tc.Message();
-          std::string msg = *exception ? *exception : "JavaScript exception";
-          if (!message.IsEmpty()) {
-            v8::String::Utf8Value filename(isolate_, message->GetScriptOrigin().ResourceName());
-            int line = message->GetLineNumber(ctx).FromMaybe(0);
-            std::string file = *filename ? *filename : "<undefined>";
-            er.error = file + ":" + std::to_string(line) + ":" + msg;
-          } else {
-            er.error = msg;
+          v8::String::Utf8Value exc(isolate, tc.Exception());
+          v8::Local<v8::Message> msg = tc.Message();
+          std::string out = *exc ? *exc : "JavaScript exception";
+
+          if (!msg.IsEmpty()) {
+            v8::String::Utf8Value fname(isolate, msg->GetScriptOrigin().ResourceName());
+            int line = msg->GetLineNumber(ctx).FromMaybe(0);
+            int col  = msg->GetStartColumn(ctx).FromMaybe(0) + 1;
+            out = (std::string(*fname ? *fname : "<unknown>") + ":" +
+                   std::to_string(line) + ":" + std::to_string(col) + ": " + out);
+
+            // スタックトレース（あれば）
+            v8::Local<v8::Value> st;
+            if (tc.StackTrace(ctx).ToLocal(&st) && st->IsString()) {
+              v8::String::Utf8Value st_utf8(isolate, st.As<v8::String>());
+              out += "\n" + std::string(*st_utf8 ? *st_utf8 : "");
+            }
           }
+          // ここで Java 例外へ
+          jclass exClass = env->FindClass("javax/script/ScriptException");
+          if (!exClass) exClass = env->FindClass("java/lang/RuntimeException");
+          env->ThrowNew(exClass, out.c_str());
+          // 結果は使わないので return/null
         } else {
           if (!last.IsEmpty() && last->IsString()) {
             v8::String::Utf8Value utf8(isolate_, last);
