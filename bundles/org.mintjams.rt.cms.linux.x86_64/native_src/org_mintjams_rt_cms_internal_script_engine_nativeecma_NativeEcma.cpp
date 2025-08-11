@@ -75,18 +75,14 @@ private:
         v8::Local<v8::Value> last;
         bool ok = true;
 
-        for (auto& s16 : job->sources) {
-          v8::HandleScope hs2(isolate_);
+int idx = 0;
+for (auto& s16 : job->sources) {
+  v8::HandleScope hs2(isolate_);
           v8::Local<v8::String> source =
             v8::String::NewFromTwoByte(isolate_,
               reinterpret_cast<const uint16_t*>(s16.data()),
               v8::NewStringType::kNormal,
               static_cast<int>(s16.size())).ToLocalChecked();
-
-int idx = 0;
-for (auto& s16 : job->sources) {
-  v8::HandleScope hs2(isolate_);
-  v8::Local<v8::String> source = /* ここは現状のまま */;
   std::string name = std::string("<eval:") + std::to_string(idx) + ">";
   v8::Local<v8::String> resName =
       v8::String::NewFromUtf8(isolate_, name.c_str()).ToLocalChecked();
@@ -96,10 +92,6 @@ for (auto& s16 : job->sources) {
   if (!script->Run(ctx).ToLocal(&last)) { ok = false; break; }
   ++idx;
 }
-          v8::Local<v8::Script> script;
-          if (!v8::Script::Compile(ctx, source, &origin).ToLocal(&script)) { ok = false; break; }
-          if (!script->Run(ctx).ToLocal(&last)) { ok = false; break; }
-        }
 
         isolate_->PerformMicrotaskCheckpoint();
 
