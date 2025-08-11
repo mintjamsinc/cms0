@@ -83,7 +83,7 @@ private:
               static_cast<int>(s16.size())).ToLocalChecked();
 
           v8::ScriptOrigin origin(
-            v8::String::NewFromUtf8(isolate, ("<eval:" + std::to_string(i) + ">").c_str()).ToLocalChecked());
+            v8::String::NewFromUtf8(isolate_, ("<eval:" + std::to_string(s16) + ">").c_str()).ToLocalChecked());
           v8::Local<v8::Script> script;
           if (!v8::Script::Compile(ctx, source, &origin).ToLocal(&script)) { ok = false; break; }
           if (!script->Run(ctx).ToLocal(&last)) { ok = false; break; }
@@ -92,12 +92,12 @@ private:
         isolate_->PerformMicrotaskCheckpoint();
 
         if (!ok || tc.HasCaught()) {
-          v8::String::Utf8Value exc(isolate, tc.Exception());
+          v8::String::Utf8Value exc(isolate_, tc.Exception());
           v8::Local<v8::Message> msg = tc.Message();
           std::string out = *exc ? *exc : "JavaScript exception";
 
           if (!msg.IsEmpty()) {
-            v8::String::Utf8Value fname(isolate, msg->GetScriptOrigin().ResourceName());
+            v8::String::Utf8Value fname(isolate_, msg->GetScriptOrigin().ResourceName());
             int line = msg->GetLineNumber(ctx).FromMaybe(0);
             int col  = msg->GetStartColumn(ctx).FromMaybe(0) + 1;
             out = (std::string(*fname ? *fname : "<unknown>") + ":" +
@@ -106,7 +106,7 @@ private:
             // スタックトレース（あれば）
             v8::Local<v8::Value> st;
             if (tc.StackTrace(ctx).ToLocal(&st) && st->IsString()) {
-              v8::String::Utf8Value st_utf8(isolate, st.As<v8::String>());
+              v8::String::Utf8Value st_utf8(isolate_, st.As<v8::String>());
               out += "\n" + std::string(*st_utf8 ? *st_utf8 : "");
             }
           }
