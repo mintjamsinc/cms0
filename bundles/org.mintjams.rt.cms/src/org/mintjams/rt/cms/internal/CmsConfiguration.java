@@ -66,6 +66,7 @@ public class CmsConfiguration {
 					String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 							.put("startWebURI", DEFAULT_START_WEB_URI)
 							.put("maxScriptCachePerScriptEngine", DEFAULT_MAX_SCRIPT_CACHE_PER_SCRIPT_ENGINE)
+							.put("nativeEcmaPoolSizePerScriptEngine", DEFAULT_NATIVE_ECMA_POOL_SIZE_PER_SCRIPT_ENGINE)
 							.put("classLoaderRefreshInterval", DEFAULT_CLASS_LOADER_REFRESH_INTERVAL)
 							.build());
 					out.append(yamlString);
