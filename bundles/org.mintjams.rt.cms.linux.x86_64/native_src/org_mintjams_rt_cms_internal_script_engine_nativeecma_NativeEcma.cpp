@@ -40,6 +40,21 @@ namespace
       v8::Isolate::CreateParams p;
       p.array_buffer_allocator = alloc_.get();
       isolate_ = v8::Isolate::New(p);
+
+      {
+        v8::Locker locker(isolate_);
+        v8::Isolate::Scope iso_scope(isolate_);
+        v8::HandleScope hs(isolate_);
+
+        v8::Local<v8::ObjectTemplate> g = v8::ObjectTemplate::New(isolate_);
+
+        // 例）ホスト関数を生やしたい場合（任意）
+        // g->Set(v8::String::NewFromUtf8(isolate_, "print").ToLocalChecked(),
+        //        v8::FunctionTemplate::New(isolate_, &Worker::Print));
+
+        global_tpl_.Reset(isolate_, g);
+      }
+
       th_ = std::thread([this]
                         { run(); });
     }
@@ -61,6 +76,10 @@ namespace
       cv_.notify_all();
       if (th_.joinable())
         th_.join();
+
+      if (!global_tpl_.IsEmpty())
+        global_tpl_.Reset();
+
       if (isolate_)
       {
         isolate_->Dispose();
@@ -91,8 +110,11 @@ namespace
         EvalResult er;
         {
           v8::HandleScope hs(isolate_);
-          v8::Local<v8::Context> ctx = v8::Context::New(isolate_);
+
+          v8::Local<v8::ObjectTemplate> g = global_tpl_.Get(isolate_);
+          v8::Local<v8::Context> ctx = v8::Context::New(isolate_, nullptr, g);
           v8::Context::Scope cs(ctx);
+
           v8::TryCatch tc(isolate_);
           tc.SetCaptureMessage(true);
 
@@ -190,6 +212,7 @@ namespace
     std::condition_variable cv_;
     std::deque<std::shared_ptr<Job>> q_;
     std::atomic<bool> stopping_{false};
+    v8::Global<v8::ObjectTemplate> global_tpl_;
   };
 
   class Engine
