@@ -194,8 +194,7 @@ static std::unique_ptr<Engine> g_engine;
 jint JNI_OnLoad(JavaVM* vm, void* reserved) { return JNI_VERSION_1_6; }
 void JNI_OnUnload(JavaVM* vm, void* reserved) {}
 
-JNIEXPORT void JNICALL
-Java_org_mintjams_rt_1cms_1internal_1script_1engine_1nativeecma_NativeEcma_nativeLoad
+JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeLoad
   (JNIEnv *env, jobject _this, jstring _executablePath, jint _poolSize) {
   const char* exe = env->GetStringUTFChars(_executablePath, nullptr);
   if (!g_engine) g_engine = std::make_unique<Engine>();
@@ -203,14 +202,12 @@ Java_org_mintjams_rt_1cms_1internal_1script_1engine_1nativeecma_NativeEcma_nativ
   env->ReleaseStringUTFChars(_executablePath, exe);
 }
 
-JNIEXPORT void JNICALL
-Java_org_mintjams_rt_1cms_1internal_1script_1engine_1nativeecma_NativeEcma_nativeUnload
+JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeUnload
   (JNIEnv *env, jobject _this) {
   if (g_engine) { g_engine->shutdown(); g_engine.reset(); }
 }
 
-JNIEXPORT jstring JNICALL
-Java_org_mintjams_rt_1cms_1internal_1script_1engine_1nativeecma_NativeEcma_nativeEval
+JNIEXPORT jstring JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeEval
   (JNIEnv *env, jobject _this, jobjectArray _sources) {
   if (!g_engine) return nullptr;
   EvalResult er = g_engine->evalUTF8(env, _sources);

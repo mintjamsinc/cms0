@@ -48,6 +48,7 @@ public class CmsConfiguration {
 	public static final String CMS_CGI_PATH = "/bin/cms.cgi";
 	public static final String DEFAULT_START_WEB_URI = CMS_CGI_PATH + "/system/webtop/index.html";
 	public static final int DEFAULT_MAX_SCRIPT_CACHE_PER_SCRIPT_ENGINE = 32;
+	public static final int DEFAULT_NATIVE_ECMA_POOL_SIZE_PER_SCRIPT_ENGINE = 2;
 	public static final int DEFAULT_CLASS_LOADER_REFRESH_INTERVAL = 8;
 
 	private Map<String, Object> fConfig;
@@ -104,6 +105,17 @@ public class CmsConfiguration {
 					.getInt("config.maxScriptCachePerScriptEngine", DEFAULT_MAX_SCRIPT_CACHE_PER_SCRIPT_ENGINE);
 		} catch (Throwable ex) {
 			CmsService.getLogger(getClass()).warn("The maxScriptCachePerScriptEngine parameter is invalid. Default values will be used instead.");
+		}
+		return DEFAULT_MAX_SCRIPT_CACHE_PER_SCRIPT_ENGINE;
+	}
+
+	public int getNativeEcmaPoolSizePerScriptEngine() {
+		try {
+			return ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.getInt("config.nativeEcmaPoolSizePerScriptEngine", DEFAULT_NATIVE_ECMA_POOL_SIZE_PER_SCRIPT_ENGINE);
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn("The nativeEcmaPoolSizePerScriptEngine parameter is invalid. Default values will be used instead.");
 		}
 		return DEFAULT_MAX_SCRIPT_CACHE_PER_SCRIPT_ENGINE;
 	}

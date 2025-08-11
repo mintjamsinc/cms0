@@ -59,7 +59,7 @@ public class NativeEcma implements Closeable {
 		return fLibPath;
 	}
 
-	public void load() throws IOException {
+	public void load(int poolSize) throws IOException {
 		for (Enumeration<URL> e = getBundle().findEntries("/native/" + Systems.getOSName() + "/" + Systems.getOSArch(), "*", true); e.hasMoreElements();) {
 			URL entry = e.nextElement();
 			if (entry.getPath().endsWith("/")) {
@@ -86,7 +86,10 @@ public class NativeEcma implements Closeable {
 			throw new IllegalStateException(System.getProperty("os.name"));
 		}
 
-		nativeLoad(getLibPath().toAbsolutePath().toString(), 2); // FIXME
+		if (poolSize <= 0) {
+			poolSize = Runtime.getRuntime().availableProcessors();
+		}
+		nativeLoad(getLibPath().toAbsolutePath().toString(), poolSize);
 	}
 
 	@Override

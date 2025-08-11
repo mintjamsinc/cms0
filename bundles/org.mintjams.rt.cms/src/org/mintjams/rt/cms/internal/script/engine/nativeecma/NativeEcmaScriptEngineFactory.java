@@ -54,7 +54,7 @@ public class NativeEcmaScriptEngineFactory extends AbstractScriptEngineFactory i
 		fLanguageName = "ECMAScript";
 		fLanguageVersion = "6";
 		fNativeEcma = fCloser.register(new NativeEcma());
-		fNativeEcma.load();
+		fNativeEcma.load(CmsService.getConfiguration().getNativeEcmaPoolSizePerScriptEngine());
 		fScriptCache = new ScriptCache(NativeEcmaScriptEngine.class.getSimpleName(), CmsService.getConfiguration().getMaxScriptCachePerScriptEngine());
 		Adaptables.getAdapter(getWorkspaceClassLoader(), ScriptCacheManager.class).registerScriptCache(fScriptCache);
 	}
