@@ -124,41 +124,12 @@ namespace
           tc.SetCaptureMessage(true);
 
           v8::Local<v8::Value> last;
-          // ジョブ全体のタイマー開始
-          auto t_job_start = std::chrono::steady_clock::now();
           bool ok = true;
 
           int idx = 0;
           for (auto &s16 : job->sources)
           {
             v8::HandleScope hs2(isolate_);
-            // Source
-            v8::Local<v8::String> src =
-                v8::String::NewFromTwoByte(isolate_,
-                                           reinterpret_cast<const uint16_t *>(s16.data()),
-                                           v8::NewStringType::kNormal,
-                                           static_cast<int>(s16.size()))
-        // ジョブ全体のタイマー開始
-        auto t_job_start = std::chrono::steady_clock::now();
-        EvalResult er;
-        {
-            // Resource name
-            std::string name = std::string("<eval:") + std::to_string(idx) + ">";
-            v8::Local<v8::String> resName =
-                v8::String::NewFromUtf8(isolate_, name.c_str()).ToLocalChecked();
-            // 各ソースごとのタイマー開始
-            auto t_src_start = std::chrono::steady_clock::now();
-            v8::ScriptOrigin origin(resName);
-
-            // ★ キャッシュ検索
-            uint64_t key = fnv1a64_utf8(s16);
-            std::unique_ptr<v8::ScriptCompiler::CachedData> cached;
-            auto it = code_cache_.find(key);
-            if (it != code_cache_.end())
-            {
-              // V8に所有権を渡すので、newでコピーを作る
-            v8::HandleScope hs2(isolate_);
-            auto t_src_start = std::chrono::steady_clock::now();
             // Source
             v8::Local<v8::String> src =
                 v8::String::NewFromTwoByte(isolate_,
@@ -177,13 +148,20 @@ namespace
             uint64_t key = fnv1a64_utf8(s16);
             std::unique_ptr<v8::ScriptCompiler::CachedData> cached;
             auto it = code_cache_.find(key);
-            if (it != code_cache_.end()) {
-              printf("[nativeEval] cache HIT: key=%lu\n", (unsigned long)key);
-            } else {
-              printf("[nativeEval] cache MISS: key=%lu\n", (unsigned long)key);
+            if (it != code_cache_.end())
+            {
+              // V8に所有権を渡すので、newでコピーを作る
+              const auto &blob = it->second;
+              auto *cd = new v8::ScriptCompiler::CachedData(
+                  blob.data(),
+                  static_cast<int>(blob.size()),
+                  v8::ScriptCompiler::CachedData::BufferPolicy::BufferNotOwned);
+              cached.reset(cd);
             }
 
-            auto t_compile_start = std::chrono::steady_clock::now();
+            // Source 作成（cached があればそれ付き）
+            v8::ScriptCompiler::Source source(src, origin, cached.release());
+
             // Unbound でコンパイル（キャッシュ消費 or 通常）
             v8::Local<v8::UnboundScript> unbound;
             v8::ScriptCompiler::CompileOptions opt =
@@ -192,20 +170,22 @@ namespace
                     : v8::ScriptCompiler::kEagerCompile;
 
             if (!v8::ScriptCompiler::CompileUnboundScript(isolate_, &source, opt)
-                     .ToLocal(&unbound)) {
+                     .ToLocal(&unbound))
+            {
               ok = false;
               break;
             }
-            auto t_compile_end = std::chrono::steady_clock::now();
-            printf("[nativeEval] compile(ms): %ld\n",
-              (long)std::chrono::duration_cast<std::chrono::milliseconds>(t_compile_end-t_compile_start).count());
 
             // ★ キャッシュが無かったときは作って保存
-            if (it == code_cache_.end()) {
-              if (const v8::ScriptCompiler::CachedData *cd = v8::ScriptCompiler::CreateCodeCache(unbound)) {
+            if (it == code_cache_.end())
+            {
+              if (const v8::ScriptCompiler::CachedData *cd = v8::ScriptCompiler::CreateCodeCache(unbound))
+              {
                 code_cache_[key].assign(cd->data, cd->data + cd->length);
               }
-            } else {
+            }
+            else
+            {
               // もし食わせたキャッシュが古くて拒否されたら（V8バージョン違い等）
               // source.GetCachedData()->rejected を見るAPIがある版もあります。
               // その場合は拒否時に新規作成して差し替える処理を入れてOK。
@@ -213,15 +193,34 @@ namespace
 
             // 実行
             v8::Local<v8::Script> script = unbound->BindToCurrentContext();
-            if (!script->Run(ctx).ToLocal(&last)) {
+            if (!script->Run(ctx).ToLocal(&last))
+            {
               ok = false;
               break;
             }
-            auto t_src_end = std::chrono::steady_clock::now();
-            printf("[nativeEval] source total(ms): %ld\n",
-              (long)std::chrono::duration_cast<std::chrono::milliseconds>(t_src_end-t_src_start).count());
             ++idx;
           }
+
+          isolate_->PerformMicrotaskCheckpoint();
+
+          if (tc.HasCaught())
+          {
+            std::string out = "JavaScript exception";
+            // 例外メッセージ本体
+            if (!tc.Exception().IsEmpty())
+            {
+              v8::String::Utf8Value exc(isolate_, tc.Exception());
+              if (*exc)
+                out = *exc;
+            }
+            // 位置情報（あれば）
+            v8::Local<v8::Message> msg = tc.Message();
+            if (!msg.IsEmpty())
+            {
+              v8::String::Utf8Value fname(isolate_, msg->GetScriptOrigin().ResourceName());
+              int line = msg->GetLineNumber(ctx).FromMaybe(0);
+              int col = msg->GetStartColumn(ctx).FromMaybe(0) + 1;
+              std::string fn = (*fname && std::string(*fname).size()) ? *fname : "<unknown>";
               out = fn + ":" + std::to_string(line) + ":" + std::to_string(col) + ": " + out;
             }
             // ★スタックトレースは「本当に例外がある時だけ」& おとなしく
@@ -233,8 +232,8 @@ namespace
               {
                 std::string s = *st_utf8;
                 if (s.size() > 8192)
-                  auto t_job_end = std::chrono::steady_clock::now();
-                printf("[nativeEval] job total(ms): %lld\n",
+                  s.resize(8192); // 無限再帰対策で上限
+                out += "\n" + s;
               }
             }
             er.error = out;
@@ -275,10 +274,7 @@ namespace
       return h;
     }
 
-        auto t_job_end = std::chrono::steady_clock::now();
-        printf("[nativeEval] job total(ms): %ld\n",
-          (long)std::chrono::duration_cast<std::chrono::milliseconds>(t_job_end-t_job_start).count());
-        job->result.set_value(std::move(er));
+    // key=FNV64, value=CachedDataの生バイト
     std::unordered_map<uint64_t, std::vector<uint8_t>> code_cache_;
 
     std::unique_ptr<v8::ArrayBuffer::Allocator> alloc_;
