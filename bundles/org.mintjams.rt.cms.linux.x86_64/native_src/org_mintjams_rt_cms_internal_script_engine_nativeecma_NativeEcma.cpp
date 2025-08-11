@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <optional>
 
 #include <libplatform/libplatform.h>
 #include <v8.h>
@@ -82,8 +83,19 @@ private:
               v8::NewStringType::kNormal,
               static_cast<int>(s16.size())).ToLocalChecked();
 
-          v8::ScriptOrigin origin(
-            v8::String::NewFromUtf8(isolate_, ("<eval:" + std::to_string(s16) + ">").c_str()).ToLocalChecked());
+int idx = 0;
+for (auto& s16 : job->sources) {
+  v8::HandleScope hs2(isolate_);
+  v8::Local<v8::String> source = /* ここは現状のまま */;
+  std::string name = std::string("<eval:") + std::to_string(idx) + ">";
+  v8::Local<v8::String> resName =
+      v8::String::NewFromUtf8(isolate_, name.c_str()).ToLocalChecked();
+  v8::ScriptOrigin origin(resName);
+  v8::Local<v8::Script> script;
+  if (!v8::Script::Compile(ctx, source, &origin).ToLocal(&script)) { ok = false; break; }
+  if (!script->Run(ctx).ToLocal(&last)) { ok = false; break; }
+  ++idx;
+}
           v8::Local<v8::Script> script;
           if (!v8::Script::Compile(ctx, source, &origin).ToLocal(&script)) { ok = false; break; }
           if (!script->Run(ctx).ToLocal(&last)) { ok = false; break; }
@@ -111,9 +123,7 @@ private:
             }
           }
           // ここで Java 例外へ
-          jclass exClass = env->FindClass("javax/script/ScriptException");
-          if (!exClass) exClass = env->FindClass("java/lang/RuntimeException");
-          env->ThrowNew(exClass, out.c_str());
+          er.error = out;
           // 結果は使わないので return/null
         } else {
           if (!last.IsEmpty() && last->IsString()) {
