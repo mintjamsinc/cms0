@@ -155,7 +155,7 @@ namespace
               auto *cd = new v8::ScriptCompiler::CachedData(
                   blob.data(),
                   static_cast<int>(blob.size()),
-                  v8::ScriptCompiler::CachedData::BufferPolicy::kBufferNotOwned);
+                  v8::ScriptCompiler::CachedData::BufferPolicy::BufferNotOwned);
               cached.reset(cd);
             }
 
