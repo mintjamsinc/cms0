@@ -85,6 +85,7 @@ namespace
         isolate_->Dispose();
         isolate_ = nullptr;
       }
+      alloc_.reset();
     }
 
   private:
