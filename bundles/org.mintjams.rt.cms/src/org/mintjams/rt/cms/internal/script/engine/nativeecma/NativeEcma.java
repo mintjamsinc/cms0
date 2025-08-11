@@ -90,18 +90,6 @@ public class NativeEcma implements Closeable {
 			poolSize = Runtime.getRuntime().availableProcessors();
 		}
 		nativeLoad(getLibPath().toAbsolutePath().toString(), poolSize);
-
-		// FIXME TEST
-		try {
-			nativeEval(new String[]{"'ok'"});
-		} catch (Throwable ex) {
-			System.out.println("error 'ok': " + ex.getMessage());
-		}
-		try {
-			nativeEval(new String[]{"throw new Error('boom')"});
-		} catch (Throwable ex) {
-			System.out.println("error throw new Error('boom'): " + ex.getMessage());
-		}
 	}
 
 	@Override
