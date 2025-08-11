@@ -8,6 +8,7 @@
 #include <thread>
 #include <vector>
 #include <optional>
+#include <unordered_map>
 
 #include <libplatform/libplatform.h>
 #include <v8.h>
@@ -73,12 +74,15 @@ namespace
     {
       if (stopping_.exchange(true))
         return;
+
       cv_.notify_all();
       if (th_.joinable())
         th_.join();
 
       if (!global_tpl_.IsEmpty())
         global_tpl_.Reset();
+
+      code_cache_.clear();
 
       if (isolate_)
       {
@@ -126,22 +130,69 @@ namespace
           for (auto &s16 : job->sources)
           {
             v8::HandleScope hs2(isolate_);
-            v8::Local<v8::String> source =
+            // Source
+            v8::Local<v8::String> src =
                 v8::String::NewFromTwoByte(isolate_,
                                            reinterpret_cast<const uint16_t *>(s16.data()),
                                            v8::NewStringType::kNormal,
                                            static_cast<int>(s16.size()))
                     .ToLocalChecked();
+
+            // Resource name
             std::string name = std::string("<eval:") + std::to_string(idx) + ">";
             v8::Local<v8::String> resName =
                 v8::String::NewFromUtf8(isolate_, name.c_str()).ToLocalChecked();
             v8::ScriptOrigin origin(resName);
-            v8::Local<v8::Script> script;
-            if (!v8::Script::Compile(ctx, source, &origin).ToLocal(&script))
+
+            // ★ キャッシュ検索
+            uint64_t key = fnv1a64_utf8(s16);
+            std::unique_ptr<v8::ScriptCompiler::CachedData> cached;
+            auto it = code_cache_.find(key);
+            if (it != code_cache_.end())
+            {
+              // V8に所有権を渡すので、newでコピーを作る
+              const auto &blob = it->second;
+              auto *cd = new v8::ScriptCompiler::CachedData(
+                  blob.data(),
+                  static_cast<int>(blob.size()),
+                  v8::ScriptCompiler::CachedData::BufferPolicy::kBorrowed);
+              cached.reset(cd);
+            }
+
+            // Source 作成（cached があればそれ付き）
+            v8::ScriptCompiler::Source source(src, origin, cached.release());
+
+            // Unbound でコンパイル（キャッシュ消費 or 通常）
+            v8::Local<v8::UnboundScript> unbound;
+            v8::ScriptCompiler::CompileOptions opt =
+                (it != code_cache_.end())
+                    ? v8::ScriptCompiler::kConsumeCodeCache
+                    : v8::ScriptCompiler::kEagerCompile;
+
+            if (!v8::ScriptCompiler::CompileUnboundScript(isolate_, &source, opt)
+                     .ToLocal(&unbound))
             {
               ok = false;
               break;
             }
+
+            // ★ キャッシュが無かったときは作って保存
+            if (it == code_cache_.end())
+            {
+              if (const v8::ScriptCompiler::CachedData *cd = v8::ScriptCompiler::CreateCodeCache(unbound))
+              {
+                code_cache_[key].assign(cd->data, cd->data + cd->length);
+              }
+            }
+            else
+            {
+              // もし食わせたキャッシュが古くて拒否されたら（V8バージョン違い等）
+              // source.GetCachedData()->rejected を見るAPIがある版もあります。
+              // その場合は拒否時に新規作成して差し替える処理を入れてOK。
+            }
+
+            // 実行
+            v8::Local<v8::Script> script = unbound->BindToCurrentContext();
             if (!script->Run(ctx).ToLocal(&last))
             {
               ok = false;
@@ -205,6 +256,26 @@ namespace
         job->result.set_value(std::move(er));
       }
     }
+
+    // 簡易FNV-1a 64bit
+    static uint64_t fnv1a64_utf8(const std::u16string &s)
+    {
+      uint64_t h = 1469598103934665603ull;
+      for (char16_t c : s)
+      {
+        // UTF-8化せず、16bit値をそのまま2バイトとして混ぜる（速い＆衝突少）
+        uint8_t b0 = static_cast<uint8_t>(c & 0xFF);
+        uint8_t b1 = static_cast<uint8_t>((c >> 8) & 0xFF);
+        h ^= b0;
+        h *= 1099511628211ull;
+        h ^= b1;
+        h *= 1099511628211ull;
+      }
+      return h;
+    }
+
+    // key=FNV64, value=CachedDataの生バイト
+    std::unordered_map<uint64_t, std::vector<uint8_t>> code_cache_;
 
     std::unique_ptr<v8::ArrayBuffer::Allocator> alloc_;
     v8::Isolate *isolate_{nullptr};
