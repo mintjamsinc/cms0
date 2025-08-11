@@ -124,6 +124,8 @@ namespace
           tc.SetCaptureMessage(true);
 
           v8::Local<v8::Value> last;
+          // ジョブ全体のタイマー開始
+          auto t_job_start = std::chrono::steady_clock::now();
           bool ok = true;
 
           int idx = 0;
@@ -142,6 +144,8 @@ namespace
             std::string name = std::string("<eval:") + std::to_string(idx) + ">";
             v8::Local<v8::String> resName =
                 v8::String::NewFromUtf8(isolate_, name.c_str()).ToLocalChecked();
+            // 各ソースごとのタイマー開始
+            auto t_src_start = std::chrono::steady_clock::now();
             v8::ScriptOrigin origin(resName);
 
             // ★ キャッシュ検索
@@ -161,7 +165,16 @@ namespace
 
             // Source 作成（cached があればそれ付き）
             v8::ScriptCompiler::Source source(src, origin, cached.release());
+            if (it != code_cache_.end())
+            {
+              printf("[nativeEval] cache HIT: key=%llu\n", key);
+            }
+            else
+            {
+              printf("[nativeEval] cache MISS: key=%llu\n", key);
+            }
 
+            auto t_compile_start = std::chrono::steady_clock::now();
             // Unbound でコンパイル（キャッシュ消費 or 通常）
             v8::Local<v8::UnboundScript> unbound;
             v8::ScriptCompiler::CompileOptions opt =
@@ -189,6 +202,9 @@ namespace
               // もし食わせたキャッシュが古くて拒否されたら（V8バージョン違い等）
               // source.GetCachedData()->rejected を見るAPIがある版もあります。
               // その場合は拒否時に新規作成して差し替える処理を入れてOK。
+              auto t_compile_end = std::chrono::steady_clock::now();
+              printf("[nativeEval] compile(ms): %lld\n",
+                     std::chrono::duration_cast<std::chrono::milliseconds>(t_compile_end - t_compile_start).count());
             }
 
             // 実行
@@ -213,6 +229,9 @@ namespace
               if (*exc)
                 out = *exc;
             }
+            auto t_src_end = std::chrono::steady_clock::now();
+            printf("[nativeEval] source total(ms): %lld\n",
+                   std::chrono::duration_cast<std::chrono::milliseconds>(t_src_end - t_src_start).count());
             // 位置情報（あれば）
             v8::Local<v8::Message> msg = tc.Message();
             if (!msg.IsEmpty())
@@ -232,7 +251,10 @@ namespace
               {
                 std::string s = *st_utf8;
                 if (s.size() > 8192)
-                  s.resize(8192); // 無限再帰対策で上限
+                  auto t_job_end = std::chrono::steady_clock::now();
+                printf("[nativeEval] job total(ms): %lld\n",
+                       std::chrono::duration_cast<std::chrono::milliseconds>(t_job_end - t_job_start).count());
+                s.resize(8192); // 無限再帰対策で上限
                 out += "\n" + s;
               }
             }
