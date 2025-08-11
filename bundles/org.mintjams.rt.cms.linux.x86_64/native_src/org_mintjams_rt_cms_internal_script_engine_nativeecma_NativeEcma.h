@@ -5,31 +5,29 @@
 #ifndef _Included_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
 #define _Included_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
-/*
- * Class:     org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
- * Method:    nativeLoad
- * Signature: (Ljava/lang/String;I)V
- */
-JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeLoad
-  (JNIEnv *, jobject, jstring, jint);
+  /*
+   * Class:     org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
+   * Method:    nativeLoad
+   * Signature: (Ljava/lang/String;I)V
+   */
+  JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeLoad(JNIEnv *, jobject, jstring, jint);
 
-/*
- * Class:     org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
- * Method:    nativeUnload
- * Signature: ()V
- */
-JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeUnload
-  (JNIEnv *, jobject);
+  /*
+   * Class:     org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
+   * Method:    nativeUnload
+   * Signature: ()V
+   */
+  JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeUnload(JNIEnv *, jobject);
 
-/*
- * Class:     org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
- * Method:    nativeEval
- * Signature: ([Ljava/lang/String;)Ljava/lang/String;
- */
-JNIEXPORT jstring JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeEval
-  (JNIEnv *, jobject, jobjectArray);
+  /*
+   * Class:     org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma
+   * Method:    nativeEval
+   * Signature: ([Ljava/lang/String;)Ljava/lang/String;
+   */
+  JNIEXPORT jstring JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeEval(JNIEnv *, jobject, jobjectArray);
 
 #ifdef __cplusplus
 }
