@@ -235,8 +235,9 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 			principals.addAll(session.getGroups());
 			principals.add(session.getUserPrincipal());
 			AccessControlPolicy[] policies = _effectivePolicies(path);
-			Collections.reverse(Arrays.asList(policies));
-			for (AccessControlPolicy acp : policies) {
+			List<AccessControlPolicy> policyList = Arrays.asList(policies);
+			Collections.reverse(policyList);
+			for (AccessControlPolicy acp : policyList) {
 				for (AccessControlEntry ace : ((JcrAccessControlList) acp).getAccessControlEntries()) {
 					if (!principals.contains(ace.getPrincipal())) {
 						continue;
