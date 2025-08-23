@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -85,6 +85,20 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			.put("jcr:createdBy", "_createdBy")
 			.put("jcr:lastModified", "_lastModified")
 			.put("jcr:lastModifiedBy", "_lastModifiedBy")
+			.build();
+	private static final Map<String, SortField.Type> SORT_TYPES = AdaptableMap.<String, SortField.Type>newBuilder()
+			.put("_identifier", SortField.Type.STRING)
+			.put("_path", SortField.Type.STRING)
+			.put("_name", SortField.Type.STRING)
+			.put("_depth", SortField.Type.LONG)
+			.put("_mimeType", SortField.Type.STRING)
+			.put("_encoding", SortField.Type.STRING)
+			.put("jcr:primaryType", SortField.Type.STRING)
+			.put("_contentLength", SortField.Type.LONG)
+			.put("_created", SortField.Type.LONG)
+			.put("_createdBy", SortField.Type.STRING)
+			.put("_lastModified", SortField.Type.LONG)
+			.put("_lastModifiedBy", SortField.Type.STRING)
 			.build();
 
 	private final String fStatement;
@@ -1571,6 +1585,10 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			}
 			if (field.startsWith("xs:boolean(")) {
 				return SortField.Type.INT;
+			}
+
+			if (SORT_TYPES.containsKey(name)) {
+				return SORT_TYPES.get(name);
 			}
 
 			Class<?> fieldType = null;
