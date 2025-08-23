@@ -281,14 +281,10 @@ public class JournalObserver implements Adaptable, Closeable {
 								JcrValue.create(name, PropertyType.STRING));
 					}
 
-					addProperty(document, JcrProperty.JCR_CREATED_NAME,
-							item.getProperty(JcrProperty.JCR_CREATED_NAME).getValue());
-					addProperty(document, JcrProperty.JCR_CREATED_BY_NAME,
-							item.getProperty(JcrProperty.JCR_CREATED_BY_NAME).getValue());
-					addProperty(document, JcrProperty.JCR_LAST_MODIFIED_NAME,
-							contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_NAME).getValue());
-					addProperty(document, JcrProperty.JCR_LAST_MODIFIED_BY_NAME,
-							contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_BY_NAME).getValue());
+					document.setCreated(item.getProperty(JcrProperty.JCR_CREATED_NAME).getDate().getTime());
+					document.setCreatedBy(item.getProperty(JcrProperty.JCR_CREATED_BY_NAME).getString());
+					document.setLastModified(contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_NAME).getDate().getTime());
+					document.setLastModifiedBy(contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_BY_NAME).getString());
 
 					for (Node node : new Node[] { item, contentNode }) {
 						for (PropertyIterator i = node.getProperties(); i.hasNext();) {
@@ -436,14 +432,10 @@ public class JournalObserver implements Adaptable, Closeable {
 										JcrValue.create(name, PropertyType.STRING));
 							}
 
-							addProperty(suggestion, JcrProperty.JCR_CREATED_NAME,
-									item.getProperty(JcrProperty.JCR_CREATED_NAME).getValue());
-							addProperty(suggestion, JcrProperty.JCR_CREATED_BY_NAME,
-									item.getProperty(JcrProperty.JCR_CREATED_BY_NAME).getValue());
-							addProperty(suggestion, JcrProperty.JCR_LAST_MODIFIED_NAME,
-									contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_NAME).getValue());
-							addProperty(suggestion, JcrProperty.JCR_LAST_MODIFIED_BY_NAME,
-									contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_BY_NAME).getValue());
+							suggestion.setCreated(item.getProperty(JcrProperty.JCR_CREATED_NAME).getDate().getTime());
+							suggestion.setCreatedBy(item.getProperty(JcrProperty.JCR_CREATED_BY_NAME).getString());
+							suggestion.setLastModified(contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_NAME).getDate().getTime());
+							suggestion.setLastModifiedBy(contentNode.getProperty(JcrProperty.JCR_LAST_MODIFIED_BY_NAME).getString());
 
 							for (Node node : new Node[] { item, contentNode }) {
 								for (PropertyIterator i = node.getProperties(); i.hasNext();) {
