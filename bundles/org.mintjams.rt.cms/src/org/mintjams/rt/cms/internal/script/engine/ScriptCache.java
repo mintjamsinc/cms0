@@ -72,7 +72,7 @@ public class ScriptCache {
 				fCache.remove(eldest);
 			}
 		}
-		CmsService.getLogger(getClass()).info(fName + " script cached: " + script.getScriptName() + " (" + fCache.size() + ")");
+		CmsService.getLogger(getClass()).debug(fName + " script cached: " + script.getScriptName() + " (" + fCache.size() + ")");
 		return true;
 	}
 
