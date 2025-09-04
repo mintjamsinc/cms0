@@ -31,11 +31,13 @@ import java.util.Map;
 
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
+import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 
 import org.apache.camel.CamelContext;
 import org.apache.camel.dsl.groovy.GroovyRoutesBuilderLoader;
+import org.apache.camel.dsl.java.joor.JavaRoutesBuilderLoader;
 import org.apache.camel.dsl.xml.io.XmlRoutesBuilderLoader;
 import org.apache.camel.dsl.yaml.YamlRoutesBuilderLoader;
 import org.apache.camel.spi.RoutesBuilderLoader;
@@ -85,6 +87,13 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 
 	private RoutesBuilderLoader getRoutesBuilderLoader(Node item) throws RepositoryException {
 		String mimeType = JCRs.getMimeType(item);
+
+		if (AdaptableList.<String>newBuilder()
+				.add("text/x-java")
+				.add("text/x-java-source")
+				.build().contains(mimeType)) {
+			return new JavaRoutesBuilderLoader();
+		}
 
 		if (AdaptableList.<String>newBuilder()
 				.add("text/xml")
@@ -232,6 +241,20 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		private Deployer open() throws IOException, RepositoryException {
 			if (fThread != null) {
 				return this;
+			}
+
+			Session session = null;
+			try {
+				session = CmsService.getRepository().login(new CmsServiceCredentials(), getWorkspaceName());
+				for (String e : fPaths) {
+					try {
+						deploy(session.getNode(e));
+					} catch (PathNotFoundException ignore) {}
+				}
+			} finally {
+				try {
+					session.logout();
+				} catch (Throwable ignore) {}
 			}
 
 			fThread = new Thread(new Task());

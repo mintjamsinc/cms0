@@ -31,6 +31,7 @@ import java.util.List;
 
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
+import javax.jcr.PathNotFoundException;
 import javax.jcr.Property;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
@@ -169,6 +170,20 @@ public class WorkspaceProcessEngineProvider implements Closeable {
 		private Deployer open() throws IOException, RepositoryException {
 			if (fThread != null) {
 				return this;
+			}
+
+			Session session = null;
+			try {
+				session = CmsService.getRepository().login(new CmsServiceCredentials(), getWorkspaceName());
+				for (String e : fPaths) {
+					try {
+						deploy(session.getNode(e));
+					} catch (PathNotFoundException ignore) {}
+				}
+			} finally {
+				try {
+					session.logout();
+				} catch (Throwable ignore) {}
 			}
 
 			fThread = new Thread(new Task());
