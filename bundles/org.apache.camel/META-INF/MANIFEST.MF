@@ -316,6 +316,9 @@ Export-Package: org.apache.camel;version="3.17.0",
  org.apache.camel.xml.io;version="3.17.0",
  org.apache.camel.xml.io.util;version="3.17.0",
  org.apache.camel.xml.jaxb;version="3.17.0"
+Import-Package: jdk.jfr;resolution:=optional,
+ jdk.jfr.consumer;resolution:=optional,
+ jdk.jfr.events;resolution:=optional
 Bundle-Vendor: MintJams Inc.
 Require-Bundle: slf4j.api;bundle-version="1.7.0",
  org.apache.commons.commons-io;bundle-version="2.11.0",
