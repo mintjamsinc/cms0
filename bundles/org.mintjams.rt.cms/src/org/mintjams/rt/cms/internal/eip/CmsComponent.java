@@ -85,12 +85,8 @@ public class CmsComponent extends DefaultComponent {
 
 			@Override
 			public void process(Exchange exchange) throws Exception {
-				if (fPath.startsWith("content/")) {
-					evaluate(exchange);
-					return;
-				}
-
-				throw new IllegalStateException("Could not evaluate CMS content");
+				evaluate(exchange);
+				return;
 			}
 
 			private Object evaluate(Exchange exchange) throws Exception {
@@ -98,7 +94,7 @@ public class CmsComponent extends DefaultComponent {
 					context.setAttribute("exchange", exchange);
 					Scripts.prepareAPIs(context);
 
-					String resourcePath = "/" + fPath;
+					String resourcePath = fPath.startsWith("/") ? fPath : "/" + fPath;
 					WebResourceResolver.ResolveResult result = new WebResourceResolver(context).resolve(resourcePath);
 					if (result.isNotFound()) {
 						throw new PathNotFoundException(resourcePath);
