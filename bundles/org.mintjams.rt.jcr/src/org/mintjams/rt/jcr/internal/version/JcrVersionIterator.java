@@ -56,7 +56,7 @@ public class JcrVersionIterator implements VersionIterator {
 
 	@Override
 	public void skip(long skipNum) {
-		if (skipNum < 1 || Integer.MAX_VALUE < skipNum) {
+		if (skipNum < 0 || Integer.MAX_VALUE < skipNum) {
 			throw new NoSuchElementException("Invalid skip number: " + skipNum);
 		}
 		if (fPosition + skipNum >= fVersions.size()) {

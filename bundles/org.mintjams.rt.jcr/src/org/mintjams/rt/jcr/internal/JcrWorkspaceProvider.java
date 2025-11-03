@@ -367,6 +367,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			config.setConnectionTimeout(30000);
 			config.setIdleTimeout(600000);
 			config.setMaxLifetime(1800000);
+			config.setAutoCommit(false);
 			fDataSource = new HikariDataSource(config);
 
 			return this;

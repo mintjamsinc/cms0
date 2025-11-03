@@ -132,7 +132,7 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 
 		@Override
 		public void skip(long skipNum) {
-			if (skipNum < 1 || Integer.MAX_VALUE < skipNum) {
+			if (skipNum < 0 || Integer.MAX_VALUE < skipNum) {
 				throw new IllegalArgumentException("Invalid skip number: " + skipNum);
 			}
 

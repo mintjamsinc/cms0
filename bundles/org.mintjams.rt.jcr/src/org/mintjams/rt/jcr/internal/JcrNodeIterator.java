@@ -48,6 +48,7 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 	private final String[] fNameGlobs;
 	private int fOffset;
 	private long fPosition;
+	private long fTotalHits = -1;
 	private final List<AdaptableMap<String, Object>> fFetchList = new ArrayList<>();
 	private Map<String, AdaptableMap<String, Object>> fFetchItems;
 	private Node fNextNode;
@@ -77,12 +78,12 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 
 	@Override
 	public long getSize() {
-		return -1;
+		return fTotalHits;
 	}
 
 	@Override
 	public void skip(long skipNum) {
-		if (skipNum < 1 || Integer.MAX_VALUE < skipNum) {
+		if (skipNum < 0 || Integer.MAX_VALUE < skipNum) {
 			throw new NoSuchElementException("Invalid skip number: " + skipNum);
 		}
 
@@ -145,6 +146,13 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 	private void fetch() {
 		fFetchMore = false;
 		List<String> identifiers = new ArrayList<>();
+		if (fTotalHits == -1) {
+			try {
+				fTotalHits = adaptTo(WorkspaceQuery.class).items().countNodes(fNode.getIdentifier(), fNameGlobs);
+			} catch (IOException | SQLException | RepositoryException ex) {
+				throw Cause.create(ex).wrap(IllegalStateException.class);
+			}
+		}
 		try (Query.Result result = adaptTo(WorkspaceQuery.class).items().listNodes(fNode.getIdentifier(), fNameGlobs, fOffset)) {
 			for (AdaptableMap<String, Object> itemData : result) {
 				if (!itemData.getBoolean("is_deleted")) {
