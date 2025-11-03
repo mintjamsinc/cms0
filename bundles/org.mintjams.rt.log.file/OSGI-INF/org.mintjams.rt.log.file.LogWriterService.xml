@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.3.0" activate="activate" configuration-policy="optional" deactivate="deactivate" enabled="true" immediate="true" name="org.mintjams.rt.log.file.LogWriterService">
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.3.0" configuration-policy="optional" deactivate="deactivate" enabled="true" immediate="true" name="org.mintjams.rt.log.file.LogWriterService">
    <reference cardinality="1..1" field="fBootstrap" interface="org.mintjams.jcr.service.Bootstrap" name="fBootstrap" policy="static"/>
    <reference cardinality="1..1" field="fLogReaderService" interface="org.osgi.service.log.LogReaderService" name="fLogReaderService" policy="static"/>
    <implementation class="org.mintjams.rt.log.file.internal.LogWriterService"/>
