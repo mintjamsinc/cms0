@@ -25,3 +25,6 @@ hs_err_pid*
 
 # VS Code settings
 .vscode/
+
+# IntelliJ IDEA settings
+.idea/
