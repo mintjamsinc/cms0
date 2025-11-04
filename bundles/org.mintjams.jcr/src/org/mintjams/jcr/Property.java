@@ -38,5 +38,6 @@ public interface Property extends javax.jcr.Property {
 	String JCR_LAST_MODIFIED_BY_NAME = "jcr:lastModifiedBy";
 	String JCR_FROZEN_PRIMARY_TYPE_NAME = "jcr:frozenPrimaryType";
 	String JCR_FROZEN_MIXIN_TYPES_NAME = "jcr:frozenMixinTypes";
+	String JCR_UUID_NAME = "jcr:uuid";
 
 }
