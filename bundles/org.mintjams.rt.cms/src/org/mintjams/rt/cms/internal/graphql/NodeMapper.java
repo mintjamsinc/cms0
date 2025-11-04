@@ -29,6 +29,8 @@ import java.util.TimeZone;
 
 import javax.jcr.Node;
 import javax.jcr.RepositoryException;
+import javax.jcr.lock.Lock;
+import javax.jcr.lock.LockManager;
 
 /**
  * Mapper to convert JCR nodes to GraphQL format
@@ -66,6 +68,9 @@ public class NodeMapper {
 		if (node.hasProperty("jcr:createdBy")) {
 			result.put("createdBy", node.getProperty("jcr:createdBy").getString());
 		}
+
+		// Lock information
+		addLockInfo(node, result);
 
 		// Processing based on node type
 		if ("nt:file".equals(nodeType)) {
@@ -165,6 +170,39 @@ public class NodeMapper {
 			}
 		} else if (node.hasProperty("jcr:createdBy")) {
 			result.put("modifiedBy", node.getProperty("jcr:createdBy").getString());
+		}
+	}
+
+	/**
+	 * Add lock information to result
+	 */
+	private static void addLockInfo(Node node, Map<String, Object> result) throws RepositoryException {
+		try {
+			LockManager lockManager = node.getSession().getWorkspace().getLockManager();
+
+			// Check if node is locked
+			boolean isLocked = lockManager.isLocked(node.getPath());
+			result.put("isLocked", isLocked);
+
+			if (isLocked) {
+				Lock lock = lockManager.getLock(node.getPath());
+				result.put("lockOwner", lock.getLockOwner());
+				result.put("isDeep", lock.isDeep());
+				result.put("isSessionScoped", lock.isSessionScoped());
+				result.put("isLockOwningSession", lock.isLockOwningSession());
+			} else {
+				result.put("lockOwner", null);
+				result.put("isDeep", false);
+				result.put("isSessionScoped", false);
+				result.put("isLockOwningSession", false);
+			}
+		} catch (Exception e) {
+			// If lock info retrieval fails, set default values
+			result.put("isLocked", false);
+			result.put("lockOwner", null);
+			result.put("isDeep", false);
+			result.put("isSessionScoped", false);
+			result.put("isLockOwningSession", false);
 		}
 	}
 

@@ -30,6 +30,8 @@ import java.util.Map;
 
 import javax.jcr.Node;
 import javax.jcr.Session;
+import javax.jcr.lock.Lock;
+import javax.jcr.lock.LockManager;
 
 /**
  * Class for executing GraphQL Mutation operations
@@ -160,6 +162,79 @@ public class MutationExecutor {
 	}
 
 	/**
+	 * Execute lockNode mutation
+	 * Example: mutation { lockNode(input: { path: "/content/page1", isDeep: false, isSessionScoped: true }) { path isLocked lockOwner } }
+	 */
+	public Map<String, Object> executeLockNode(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+		if (path == null || path.isEmpty()) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		// Default values
+		boolean isDeep = false;
+		if (input.containsKey("isDeep") && input.get("isDeep") instanceof Boolean) {
+			isDeep = ((Boolean) input.get("isDeep")).booleanValue();
+		}
+		// Default to false for GraphQL API to persist locks across requests
+		boolean isSessionScoped = false;
+		if (input.containsKey("isSessionScoped") && input.get("isSessionScoped") instanceof Boolean) {
+			isSessionScoped = ((Boolean) input.get("isSessionScoped")).booleanValue();
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Add mix:lockable mixin if not already present
+		if (!node.isNodeType("mix:lockable")) {
+			node.addMixin("mix:lockable");
+			this.session.save();
+		}
+
+		// Lock the node
+		LockManager lockManager = this.session.getWorkspace().getLockManager();
+		Lock lock = lockManager.lock(path, isDeep, isSessionScoped, Long.MAX_VALUE, this.session.getUserID());
+
+		// Refresh node to get latest state
+		Node lockedNode = this.session.getNode(path);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("lockNode", NodeMapper.toGraphQL(lockedNode));
+
+		return result;
+	}
+
+	/**
+	 * Execute unlockNode mutation
+	 * Example: mutation { unlockNode(path: "/content/page1") }
+	 */
+	public Map<String, Object> executeUnlockNode(GraphQLRequest request) throws Exception {
+		String path = extractPathFromMutation(request.getQuery());
+
+		if (path == null) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		// Unlock the node
+		LockManager lockManager = this.session.getWorkspace().getLockManager();
+		lockManager.unlock(path);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("unlockNode", true);
+
+		return result;
+	}
+
+	/**
 	 * Extract input parameter (simple implementation)
 	 */
 	@SuppressWarnings("unchecked")
@@ -220,13 +295,32 @@ public class MutationExecutor {
 	}
 
 	/**
-	 * Simple JSON parser (supports only key: "value" format)
+	 * Parse GraphQL input object to Map
+	 * Converts GraphQL syntax (no quotes on keys, no commas) to JSON format
 	 */
 	@SuppressWarnings("unchecked")
-	private Map<String, Object> parseSimpleJson(String json) {
+	private Map<String, Object> parseSimpleJson(String graphqlInput) {
+		// Convert GraphQL input syntax to JSON by adding quotes to keys and commas
+		// GraphQL: { path: "/content" isDeep: false isSessionScoped: false }
+		// JSON:    { "path": "/content", "isDeep": false, "isSessionScoped": false }
+
+		String normalized = graphqlInput.trim();
+
+		// Add quotes to unquoted keys: word: -> "word":
+		normalized = normalized.replaceAll("(\\w+)\\s*:", "\"$1\":");
+
+		// Add commas between key-value pairs
+		// Look for patterns like: value word: and insert comma between them
+		// String value followed by key
+		normalized = normalized.replaceAll("\"\\s+(\"\\w+\":)", "\", $1");
+		// Boolean value followed by key
+		normalized = normalized.replaceAll("(false|true)\\s+(\"\\w+\":)", "$1, $2");
+		// Number value followed by key
+		normalized = normalized.replaceAll("(\\d+)\\s+(\"\\w+\":)", "$1, $2");
+
 		// Parse using Gson
 		com.google.gson.Gson gson = new com.google.gson.Gson();
-		return gson.fromJson(json, Map.class);
+		return gson.fromJson(normalized, Map.class);
 	}
 
 	/**

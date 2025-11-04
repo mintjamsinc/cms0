@@ -101,6 +101,10 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeCreateFile(request));
 			} else if (query.contains("deleteNode(")) {
 				response.setData(mutationExecutor.executeDeleteNode(request));
+			} else if (query.contains("unlockNode(")) {
+				response.setData(mutationExecutor.executeUnlockNode(request));
+			} else if (query.contains("lockNode(")) {
+				response.setData(mutationExecutor.executeLockNode(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}

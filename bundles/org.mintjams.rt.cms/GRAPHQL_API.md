@@ -213,7 +213,79 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 }
 ```
 
+#### ノードのロック
+
+```graphql
+mutation {
+  lockNode(input: {
+    path: "/content/page1"
+    isDeep: false
+    isSessionScoped: false
+  }) {
+    path
+    name
+    isLocked
+    lockOwner
+    isDeep
+    isSessionScoped
+    isLockOwningSession
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { lockNode(input: { path: \"/content/page1\", isDeep: false, isSessionScoped: false }) { path isLocked lockOwner } }"
+  }'
+```
+
+パラメータ：
+- `path`: ロックするノードのパス（必須）
+- `isDeep`: 子ノードも含めてロックするか（デフォルト: false）
+- `isSessionScoped`: セッションスコープのロックか（デフォルト: false）
+  - `false`: リクエスト間でロックを保持（推奨）
+  - `true`: 現在のJCRセッション内でのみ有効（リクエスト終了時に自動解除）
+
+**注意**: GraphQL APIでは各リクエスト終了時にJCRセッションが閉じられるため、`isSessionScoped=true`を設定すると次のリクエストでロックが解除されます。リクエスト間でロックを保持する場合は`isSessionScoped=false`（デフォルト）を使用してください。
+
+#### ノードのロック解除
+
+```graphql
+mutation {
+  unlockNode(path: "/content/page1")
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { unlockNode(path: \"/content/page1\") }"
+  }'
+```
+
 ## ノードタイプ別のフィールド
+
+### 共通フィールド（全ノードタイプ）
+
+```
+- path: String!
+- name: String!
+- nodeType: String!
+- created: DateTime!
+- createdBy: String!
+- isLocked: Boolean!
+- lockOwner: String
+- isDeep: Boolean!
+- isSessionScoped: Boolean!
+- isLockOwningSession: Boolean!
+```
 
 ### nt:file（ファイル）
 
@@ -229,6 +301,11 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 - size: Long!
 - encoding: String
 - downloadUrl: String!
+- isLocked: Boolean!
+- lockOwner: String
+- isDeep: Boolean!
+- isSessionScoped: Boolean!
+- isLockOwningSession: Boolean!
 ```
 
 ### nt:folder（フォルダ）
@@ -242,6 +319,11 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 - modified: DateTime!
 - modifiedBy: String!
 - hasChildren: Boolean!
+- isLocked: Boolean!
+- lockOwner: String
+- isDeep: Boolean!
+- isSessionScoped: Boolean!
+- isLockOwningSession: Boolean!
 ```
 
 ## 実装クラス
