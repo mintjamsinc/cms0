@@ -632,7 +632,7 @@ public class WorkspaceQuery implements Adaptable {
 			}
 
 			if (propertyDefinition.getName().equals(JcrProperty.JCR_UUID_NAME)) {
-				return createValues(PropertyType.STRING, UUID.randomUUID().toString());
+				return createValues(PropertyType.STRING, node.getIdentifier());
 			}
 
 			return null;
