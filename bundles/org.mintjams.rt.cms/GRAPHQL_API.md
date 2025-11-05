@@ -62,20 +62,27 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 
 #### 子ノード一覧取得
 
+GraphQL Relay Connection仕様に準拠したカーソルベースページネーションを使用します。
+
 ```graphql
 {
-  children(path: "/content", limit: 10, offset: 0) {
-    nodes {
-      path
-      name
-      nodeType
-      created
+  children(path: "/content", first: 10, after: "cursor") {
+    edges {
+      node {
+        path
+        name
+        nodeType
+        created
+      }
+      cursor
     }
-    totalCount
     pageInfo {
       hasNextPage
       hasPreviousPage
+      startCursor
+      endCursor
     }
+    totalCount
   }
 }
 ```
@@ -83,12 +90,64 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 POSTリクエスト例：
 
 ```bash
+# 最初のページ（first: 10件）
 curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "{ children(path: \"/content\", limit: 10) { nodes { path name } totalCount } }"
+    "query": "{ children(path: \"/content\", first: 10) { edges { node { path name } cursor } pageInfo { hasNextPage endCursor } totalCount } }"
+  }'
+
+# 次のページ（afterにendCursorを指定）
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ children(path: \"/content\", first: 10, after: \"YXJyYXljb25uZWN0aW9uOjk=\") { edges { node { path name } cursor } pageInfo { hasNextPage endCursor } } }"
   }'
 ```
+
+パラメータ：
+- `path`: 親ノードのパス（必須）
+- `first`: 取得する件数（デフォルト: 20）
+- `after`: カーソル（前回のendCursorを指定）
+
+レスポンス例：
+
+```json
+{
+  "data": {
+    "children": {
+      "edges": [
+        {
+          "node": {
+            "path": "/content/page1",
+            "name": "page1"
+          },
+          "cursor": "YXJyYXljb25uZWN0aW9uOjA="
+        },
+        {
+          "node": {
+            "path": "/content/page2",
+            "name": "page2"
+          },
+          "cursor": "YXJyYXljb25uZWN0aW9uOjE="
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": true,
+        "hasPreviousPage": false,
+        "startCursor": "YXJyYXljb25uZWN0aW9uOjA=",
+        "endCursor": "YXJyYXljb25uZWN0aW9uOjE="
+      },
+      "totalCount": 50
+    }
+  }
+}
+```
+
+**注意**:
+- `cursor`はBase64エンコードされた位置情報です
+- 次のページを取得するには、`pageInfo.endCursor`を`after`パラメータに指定します
+- `pageInfo.hasNextPage`が`false`になるまでページングを続けます
 
 ### Mutation操作
 
@@ -302,7 +361,7 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 
 ```graphql
 mutation {
-  removeMixin(input: {
+  deleteMixin(input: {
     path: "/content/target"
     mixinType: "mix:referenceable"
   }) {
@@ -318,7 +377,7 @@ POSTリクエスト例：
 curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "mutation { removeMixin(input: { path: \"/content/target\", mixinType: \"mix:referenceable\" }) { path } }"
+    "query": "mutation { deleteMixin(input: { path: \"/content/target\", mixinType: \"mix:referenceable\" }) { path } }"
   }'
 ```
 
@@ -507,11 +566,138 @@ org.mintjams.rt.cms.internal.web/
 └── GraphQLServlet.java           # Servletエンドポイント
 ```
 
+## アクセス権限管理 (ACL)
+
+### ACL取得
+
+指定したノードのアクセス制御エントリ一覧を取得します。
+
+```graphql
+{
+  accessControl(path: "/content/page1") {
+    entries {
+      principal
+      privileges
+      allow
+    }
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ accessControl(path: \"/content/page1\") { entries { principal privileges allow } } }"
+  }'
+```
+
+レスポンス例：
+
+```json
+{
+  "data": {
+    "accessControl": {
+      "entries": [
+        {
+          "principal": "admin",
+          "privileges": ["jcr:all"],
+          "allow": true
+        },
+        {
+          "principal": "user1",
+          "privileges": ["jcr:read", "jcr:write"],
+          "allow": true
+        }
+      ]
+    }
+  }
+}
+```
+
+### ACLエントリ設定
+
+指定したプリンシパル（ユーザーまたはグループ）のACLエントリを設定・更新します。
+
+```graphql
+mutation {
+  setAccessControl(input: {
+    path: "/content/page1"
+    principal: "user1"
+    privileges: ["jcr:read", "jcr:write"]
+    allow: true
+  }) {
+    entries {
+      principal
+      privileges
+      allow
+    }
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { setAccessControl(input: { path: \"/content/page1\", principal: \"user1\", privileges: [\"jcr:read\", \"jcr:write\"], allow: true }) { entries { principal privileges } } }"
+  }'
+```
+
+パラメータ：
+- `path`: ACLを設定するノードのパス（必須）
+- `principal`: プリンシパル名（ユーザーIDまたはグループ名）（必須）
+- `privileges`: 権限の配列（必須）
+  - `jcr:read` - 読み取り権限
+  - `jcr:write` - 書き込み権限
+  - `jcr:modifyProperties` - プロパティ変更権限
+  - `jcr:addChildNodes` - 子ノード追加権限
+  - `jcr:removeNode` - ノード削除権限
+  - `jcr:removeChildNodes` - 子ノード削除権限
+  - `jcr:readAccessControl` - ACL読み取り権限
+  - `jcr:modifyAccessControl` - ACL変更権限
+  - `jcr:lockManagement` - ロック管理権限
+  - `jcr:versionManagement` - バージョン管理権限
+  - `jcr:all` - すべての権限
+- `allow`: 許可(true)または拒否(false)（デフォルト: true）
+
+**注意**: 同じプリンシパルの既存エントリは削除され、新しいエントリで置き換えられます。
+
+### ACLエントリ削除
+
+指定したプリンシパルのACLエントリを削除します。
+
+```graphql
+mutation {
+  deleteAccessControl(input: {
+    path: "/content/page1"
+    principal: "user1"
+  })
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { deleteAccessControl(input: { path: \"/content/page1\", principal: \"user1\" }) }"
+  }'
+```
+
+パラメータ：
+- `path`: ACLを削除するノードのパス（必須）
+- `principal`: 削除するプリンシパル名（必須）
+
 ## Phase 2以降の予定機能
 
 - XPath検索
 - プロパティ管理（カスタムプロパティの高度な取得）
-- アクセス権限管理
 - フルテキスト検索
 - バージョニング
 - より高度なGraphQLクエリパース（フィールド選択など）
@@ -524,12 +710,17 @@ org.mintjams.rt.cms.internal.web/
 - フォルダ作成 (createFolder mutation)
 - ファイル作成 (createFile mutation)
 - ノード削除 (deleteNode mutation)
+- プロパティ削除 (deleteProperty mutation)
 - ノードロック/ロック解除 (lockNode/unlockNode mutation)
 - 参照管理 (mix:referenceable サポート)
-  - Mixin追加・削除 (addMixin/removeMixin mutation)
+  - Mixin追加・削除 (addMixin/deleteMixin mutation)
   - プロパティ設定 (setProperty mutation with Reference/WeakReference)
   - 参照元ノード取得 (references query)
   - UUID取得 (uuid field)
+- アクセス権限管理 (ACL操作)
+  - ACL取得 (accessControl query)
+  - ACLエントリ設定 (setAccessControl mutation)
+  - ACLエントリ削除 (deleteAccessControl mutation)
 
 ## 開発メモ
 

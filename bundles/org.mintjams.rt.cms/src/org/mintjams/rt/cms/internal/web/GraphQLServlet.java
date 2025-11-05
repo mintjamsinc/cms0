@@ -45,14 +45,13 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 /**
- * Servlet for GraphQL API
- * Endpoint: /bin/graphql.cgi/{workspace}
+ * Servlet for GraphQL API Endpoint: /bin/graphql.cgi/{workspace}
  */
 @Component(service = Servlet.class, property = {
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=/bin/graphql.cgi/*",
-		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=(" + HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)",
-		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true"
-})
+		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=("
+				+ HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)",
+		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true" })
 public class GraphQLServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -124,8 +123,7 @@ public class GraphQLServlet extends HttpServlet {
 	}
 
 	/**
-	 * Extract workspace name from URL
-	 * Example: /bin/graphql.cgi/system → "system"
+	 * Extract workspace name from URL Example: /bin/graphql.cgi/system → "system"
 	 */
 	private String getWorkspaceName(HttpServletRequest request) {
 		String pathInfo = Webs.getEffectivePathInfo(request);

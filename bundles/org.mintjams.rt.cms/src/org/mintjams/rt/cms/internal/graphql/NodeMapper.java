@@ -139,7 +139,8 @@ public class NodeMapper {
 	 * Mapping for nt:folder node
 	 */
 	private static void mapFolderNode(Node node, Map<String, Object> result) throws RepositoryException {
-		// Folder last modified date/time (node's own property, or fallback to creation date/time)
+		// Folder last modified date/time (node's own property, or fallback to creation
+		// date/time)
 		if (node.hasProperty("jcr:lastModified")) {
 			result.put("modified", formatDate(node.getProperty("jcr:lastModified").getDate()));
 		} else if (node.hasProperty("jcr:created")) {
@@ -238,16 +239,16 @@ public class NodeMapper {
 		try {
 			int type = value.getType();
 			switch (type) {
-				case PropertyType.REFERENCE:
-				case PropertyType.WEAKREFERENCE:
-					// Return UUID for reference types
-					return value.getString();
-				case PropertyType.BINARY:
-					return "[Binary]";
-				case PropertyType.DATE:
-					return formatDate(value.getDate());
-				default:
-					return value.getString();
+			case PropertyType.REFERENCE:
+			case PropertyType.WEAKREFERENCE:
+				// Return UUID for reference types
+				return value.getString();
+			case PropertyType.BINARY:
+				return "[Binary]";
+			case PropertyType.DATE:
+				return formatDate(value.getDate());
+			default:
+				return value.getString();
 			}
 		} catch (Exception e) {
 			return "[Error]";

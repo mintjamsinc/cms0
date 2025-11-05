@@ -23,6 +23,7 @@
 package org.mintjams.rt.cms.internal.graphql;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +34,12 @@ import javax.jcr.Node;
 import javax.jcr.NodeIterator;
 import javax.jcr.Property;
 import javax.jcr.PropertyIterator;
-import javax.jcr.PropertyType;
 import javax.jcr.Session;
+import javax.jcr.security.AccessControlEntry;
+import javax.jcr.security.AccessControlList;
+import javax.jcr.security.AccessControlManager;
+import javax.jcr.security.AccessControlPolicy;
+import javax.jcr.security.Privilege;
 
 /**
  * Class for executing GraphQL Query operations
@@ -44,17 +49,17 @@ public class QueryExecutor {
 	private final Session session;
 
 	// Query patterns (simple implementation)
-	private static final Pattern NODE_QUERY_PATTERN = Pattern.compile("node\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"\\s*\\)");
-	private static final Pattern CHILDREN_QUERY_PATTERN = Pattern
-			.compile("children\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"(?:\\s*,\\s*limit\\s*:\\s*(\\d+))?(?:\\s*,\\s*offset\\s*:\\s*(\\d+))?\\s*\\)");
+	private static final Pattern NODE_QUERY_PATTERN = Pattern
+			.compile("node\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"\\s*\\)");
+	private static final Pattern CHILDREN_QUERY_PATTERN = Pattern.compile(
+			"children\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"(?:\\s*,\\s*first\\s*:\\s*(\\d+))?(?:\\s*,\\s*after\\s*:\\s*\"([^\"]+)\")?\\s*\\)");
 
 	public QueryExecutor(Session session) {
 		this.session = session;
 	}
 
 	/**
-	 * Execute node query
-	 * Example: { node(path: "/content/page1") { name path } }
+	 * Execute node query Example: { node(path: "/content/page1") { name path } }
 	 */
 	public Map<String, Object> executeNodeQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
@@ -78,8 +83,8 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Execute children query
-	 * Example: { children(path: "/content", limit: 10, offset: 0) { nodes { name } } }
+	 * Execute children query (Relay Connection specification)
+	 * Example: { children(path: "/content", first: 10, after: "cursor") { edges { node { name } cursor } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } totalCount } }
 	 */
 	public Map<String, Object> executeChildrenQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
@@ -92,8 +97,8 @@ public class QueryExecutor {
 		}
 
 		String path = resolveVariable(matcher.group(1), variables);
-		int limit = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 20;
-		int offset = matcher.group(3) != null ? Integer.parseInt(matcher.group(3)) : 0;
+		int first = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 20;
+		String afterCursor = matcher.group(3) != null ? resolveVariable(matcher.group(3), variables) : null;
 
 		if (!session.nodeExists(path)) {
 			throw new IllegalArgumentException("Node not found: " + path);
@@ -103,7 +108,6 @@ public class QueryExecutor {
 		NodeIterator iterator = parentNode.getNodes();
 
 		long totalCount = iterator.getSize();
-		List<Map<String, Object>> nodes = new ArrayList<>();
 
 		// If totalCount is unknown, count manually
 		if (totalCount == -1) {
@@ -116,28 +120,52 @@ public class QueryExecutor {
 			iterator = parentNode.getNodes();
 		}
 
-		// Skip to offset (only if offset > 0)
-		if (offset > 0) {
-			iterator.skip(offset);
+		// Decode cursor to get starting position
+		int startPosition = 0;
+		if (afterCursor != null && !afterCursor.isEmpty()) {
+			startPosition = decodeCursor(afterCursor) + 1;
 		}
 
-		// Retrieve up to limit items
+		// Skip to start position
+		if (startPosition > 0) {
+			iterator.skip(startPosition);
+		}
+
+		// Build edges with cursors
+		List<Map<String, Object>> edges = new ArrayList<>();
+		int currentPosition = startPosition;
 		int count = 0;
-		while (iterator.hasNext() && count < limit) {
+
+		while (iterator.hasNext() && count < first) {
 			Node child = iterator.nextNode();
-			nodes.add(NodeMapper.toGraphQL(child));
+
+			Map<String, Object> edge = new HashMap<>();
+			edge.put("node", NodeMapper.toGraphQL(child));
+			edge.put("cursor", encodeCursor(currentPosition));
+
+			edges.add(edge);
+			currentPosition++;
 			count++;
 		}
 
-		// Build response
-		Map<String, Object> connection = new HashMap<>();
-		connection.put("nodes", nodes);
-		connection.put("totalCount", totalCount);
-
+		// Build pageInfo
 		Map<String, Object> pageInfo = new HashMap<>();
-		pageInfo.put("hasNextPage", offset + limit < totalCount);
-		pageInfo.put("hasPreviousPage", offset > 0);
+		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasPreviousPage", startPosition > 0);
+
+		if (!edges.isEmpty()) {
+			pageInfo.put("startCursor", edges.get(0).get("cursor"));
+			pageInfo.put("endCursor", edges.get(edges.size() - 1).get("cursor"));
+		} else {
+			pageInfo.put("startCursor", null);
+			pageInfo.put("endCursor", null);
+		}
+
+		// Build connection
+		Map<String, Object> connection = new HashMap<>();
+		connection.put("edges", edges);
 		connection.put("pageInfo", pageInfo);
+		connection.put("totalCount", totalCount);
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("children", connection);
@@ -146,8 +174,30 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Execute references query
-	 * Returns nodes that reference the specified node
+	 * Encode position to Base64 cursor
+	 */
+	private String encodeCursor(int position) {
+		String cursorString = "arrayconnection:" + position;
+		return Base64.getEncoder().encodeToString(cursorString.getBytes());
+	}
+
+	/**
+	 * Decode Base64 cursor to position
+	 */
+	private int decodeCursor(String cursor) {
+		try {
+			String decoded = new String(Base64.getDecoder().decode(cursor));
+			if (decoded.startsWith("arrayconnection:")) {
+				return Integer.parseInt(decoded.substring("arrayconnection:".length()));
+			}
+			return 0;
+		} catch (Exception e) {
+			return 0;
+		}
+	}
+
+	/**
+	 * Execute references query Returns nodes that reference the specified node
 	 * Example: { references(path: "/content/target") { nodes { path name } } }
 	 */
 	public Map<String, Object> executeReferencesQuery(GraphQLRequest request) throws Exception {
@@ -183,7 +233,8 @@ public class QueryExecutor {
 		String uuid = targetNode.getIdentifier();
 		List<Map<String, Object>> referencingNodes = new ArrayList<>();
 
-		// Search all nodes that have Reference or WeakReference properties pointing to this UUID
+		// Search all nodes that have Reference or WeakReference properties pointing to
+		// this UUID
 		// Using property iterator approach (more efficient than full tree traversal)
 		PropertyIterator refProps = targetNode.getReferences();
 		while (refProps.hasNext()) {
@@ -212,6 +263,69 @@ public class QueryExecutor {
 	}
 
 	/**
+	 * Execute accessControl query Returns access control entries for the specified
+	 * node Example: { accessControl(path: "/content/page1") { entries { principal
+	 * privileges allow } } }
+	 */
+	public Map<String, Object> executeAccessControlQuery(GraphQLRequest request) throws Exception {
+		String query = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Extract path using simple regex
+		Pattern pattern = Pattern.compile("accessControl\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"");
+		String path = extractPath(query, pattern, variables);
+
+		if (path == null) {
+			throw new IllegalArgumentException("Invalid accessControl query: path not found");
+		}
+
+		if (!session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		// Get access control manager
+		AccessControlManager acm = session.getAccessControlManager();
+		List<Map<String, Object>> entries = new ArrayList<>();
+
+		// Get access control policies
+		AccessControlPolicy[] policies = acm.getPolicies(path);
+		for (AccessControlPolicy policy : policies) {
+			if (policy instanceof AccessControlList) {
+				AccessControlList acl = (AccessControlList) policy;
+				AccessControlEntry[] aclEntries = acl.getAccessControlEntries();
+
+				for (AccessControlEntry entry : aclEntries) {
+					Map<String, Object> entryMap = new HashMap<>();
+					entryMap.put("principal", entry.getPrincipal().getName());
+
+					// Get privileges
+					List<String> privileges = new ArrayList<>();
+					for (Privilege privilege : entry.getPrivileges()) {
+						privileges.add(privilege.getName());
+					}
+					entryMap.put("privileges", privileges);
+
+					// Check if this is allow or deny (JCR 2.0 doesn't have direct API, assume
+					// allow)
+					// Extended implementations may have isAllow() method
+					entryMap.put("allow", true);
+
+					entries.add(entryMap);
+				}
+			}
+		}
+
+		// Build response
+		Map<String, Object> aclData = new HashMap<>();
+		aclData.put("entries", entries);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("accessControl", aclData);
+
+		return result;
+	}
+
+	/**
 	 * Extract path (with variable support)
 	 */
 	private String extractPath(String query, Pattern pattern, Map<String, Object> variables) {
@@ -224,8 +338,7 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Resolve variable
-	 * Example: $path -> variables["path"]
+	 * Resolve variable Example: $path -> variables["path"]
 	 */
 	private String resolveVariable(String value, Map<String, Object> variables) {
 		if (value == null) {
