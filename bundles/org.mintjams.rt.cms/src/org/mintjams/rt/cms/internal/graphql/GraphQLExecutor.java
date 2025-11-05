@@ -82,6 +82,8 @@ public class GraphQLExecutor {
 				response.setData(queryExecutor.executeReferencesQuery(request));
 			} else if (query.contains("accessControl(")) {
 				response.setData(queryExecutor.executeAccessControlQuery(request));
+			} else if (query.contains("versionHistory(")) {
+				response.setData(queryExecutor.executeVersionHistoryQuery(request));
 			} else {
 				response.addError("Unknown query operation");
 			}
@@ -121,6 +123,12 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeDeleteMixin(request));
 			} else if (query.contains("addMixin(")) {
 				response.setData(mutationExecutor.executeAddMixin(request));
+			} else if (query.contains("restoreVersion(")) {
+				response.setData(mutationExecutor.executeRestoreVersion(request));
+			} else if (query.contains("checkout(")) {
+				response.setData(mutationExecutor.executeCheckout(request));
+			} else if (query.contains("checkin(")) {
+				response.setData(mutationExecutor.executeCheckin(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}

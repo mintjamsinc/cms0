@@ -10,8 +10,8 @@ GET  /bin/graphql.cgi/{workspace}
 ```
 
 例：
-- `https://d701p.mintjams.jp/bin/graphql.cgi/system`
-- `https://d701p.mintjams.jp/bin/graphql.cgi/web`
+- `http://localhost:8080/bin/graphql.cgi/system`
+- `http://localhost:8080/bin/graphql.cgi/web`
 
 ## 認証
 
@@ -40,7 +40,7 @@ cms0の既存認証機構を使用します。ログイン済みのユーザー�
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "{ node(path: \"/content/page1\") { path name nodeType } }"
@@ -50,7 +50,7 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 変数を使用する場合：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "query GetNode($path: String!) { node(path: $path) { path name } }",
@@ -91,14 +91,14 @@ POSTリクエスト例：
 
 ```bash
 # 最初のページ（first: 10件）
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "{ children(path: \"/content\", first: 10) { edges { node { path name } cursor } pageInfo { hasNextPage endCursor } totalCount } }"
   }'
 
 # 次のページ（afterにendCursorを指定）
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "{ children(path: \"/content\", first: 10, after: \"YXJyYXljb25uZWN0aW9uOjk=\") { edges { node { path name } cursor } pageInfo { hasNextPage endCursor } } }"
@@ -171,7 +171,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation CreateFolder($input: CreateFolderInput!) { createFolder(input: $input) { path name } }",
@@ -208,7 +208,7 @@ POSTリクエスト例：
 # contentはBase64エンコード
 echo -n "Hello World!" | base64  # SGVsbG8gV29ybGQh
 
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation CreateFile($input: CreateFileInput!) { createFile(input: $input) { path name size } }",
@@ -234,7 +234,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation { deleteNode(path: \"/content/page1\") }"
@@ -295,7 +295,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation { lockNode(input: { path: \"/content/page1\", isDeep: false, isSessionScoped: false }) { path isLocked lockOwner } }"
@@ -322,7 +322,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation { unlockNode(path: \"/content/page1\") }"
@@ -350,7 +350,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation { addMixin(input: { path: \"/content/target\", mixinType: \"mix:referenceable\" }) { path uuid } }"
@@ -374,7 +374,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation { deleteMixin(input: { path: \"/content/target\", mixinType: \"mix:referenceable\" }) { path } }"
@@ -406,7 +406,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation { setProperty(input: { path: \"/content/source\", name: \"myRef\", value: \"123e4567-e89b-12d3-a456-426614174000\", type: \"Reference\" }) { path } }"
@@ -468,7 +468,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "{ references(path: \"/content/target\") { nodes { path name } totalCount } }"
@@ -566,6 +566,225 @@ org.mintjams.rt.cms.internal.web/
 └── GraphQLServlet.java           # Servletエンドポイント
 ```
 
+## バージョン管理 (Versioning)
+
+JCRのバージョン管理機能を使用して、ノードの変更履歴を管理します。
+
+### 前提条件
+
+バージョン管理を使用するには、ノードに`mix:versionable` mixinを追加する必要があります。
+
+```graphql
+mutation {
+  addMixin(input: {
+    path: "/content/page1"
+    mixinType: "mix:versionable"
+  }) {
+    path
+  }
+}
+```
+
+### バージョン履歴取得
+
+指定したノードのバージョン履歴を取得します。
+
+```graphql
+{
+  versionHistory(path: "/content/page1") {
+    versions {
+      name
+      created
+      predecessors
+      successors
+    }
+    baseVersion
+    versionableUuid
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ versionHistory(path: \"/content/page1\") { versions { name created } baseVersion } }"
+  }'
+```
+
+レスポンス例：
+
+```json
+{
+  "data": {
+    "versionHistory": {
+      "versions": [
+        {
+          "name": "1.0",
+          "created": "2024-01-15T10:30:00.000Z"
+        },
+        {
+          "name": "1.1",
+          "created": "2024-01-16T14:20:00.000Z",
+          "predecessors": ["1.0"]
+        }
+      ],
+      "baseVersion": "1.1",
+      "versionableUuid": "123e4567-e89b-12d3-a456-426614174000"
+    }
+  }
+}
+```
+
+### チェックイン (新しいバージョンの作成)
+
+ノードをチェックインして新しいバージョンを作成します。チェックイン後、ノードは読み取り専用になります。
+
+```graphql
+mutation {
+  checkin(path: "/content/page1")
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { checkin(path: \"/content/page1\") }"
+  }'
+```
+
+レスポンス例：
+
+```json
+{
+  "data": {
+    "checkin": {
+      "name": "1.2",
+      "created": "2024-01-17T09:15:00.000Z"
+    }
+  }
+}
+```
+
+**注意**: チェックインすると、ノードは読み取り専用になります。編集するにはチェックアウトが必要です。
+
+### チェックアウト (編集のためのロック解除)
+
+ノードをチェックアウトして編集可能な状態にします。
+
+```graphql
+mutation {
+  checkout(path: "/content/page1")
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { checkout(path: \"/content/page1\") }"
+  }'
+```
+
+**ワークフロー例**:
+1. ノードをチェックアウト (`checkout`)
+2. プロパティを編集 (`setProperty`)
+3. ノードをチェックイン (`checkin`) - 新しいバージョンが作成される
+
+### バージョン復元
+
+ノードを特定のバージョンに復元します。
+
+```graphql
+mutation {
+  restoreVersion(input: {
+    path: "/content/page1"
+    versionName: "1.0"
+  }) {
+    path
+    name
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { restoreVersion(input: { path: \"/content/page1\", versionName: \"1.0\" }) { path } }"
+  }'
+```
+
+パラメータ：
+- `path`: 復元するノードのパス（必須）
+- `versionName`: 復元するバージョン名（例: "1.0", "1.1"）（必須）
+
+**注意**:
+- 復元すると、現在の内容が指定したバージョンの内容で置き換えられます
+- ノードがチェックインされている場合は、自動的にチェックアウトされます
+
+### バージョン管理の使用例
+
+```bash
+# 1. mix:versionableを追加
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { addMixin(input: { path: \"/content/doc\", mixinType: \"mix:versionable\" }) { path } }"
+  }'
+
+# 2. 初回チェックイン（バージョン1.0を作成）
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { checkin(path: \"/content/doc\") }"
+  }'
+
+# 3. 編集のためにチェックアウト
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { checkout(path: \"/content/doc\") }"
+  }'
+
+# 4. プロパティを変更
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { setProperty(input: { path: \"/content/doc\", name: \"title\", value: \"Updated Title\" }) { path } }"
+  }'
+
+# 5. 変更を保存（バージョン1.1を作成）
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { checkin(path: \"/content/doc\") }"
+  }'
+
+# 6. バージョン履歴を確認
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ versionHistory(path: \"/content/doc\") { versions { name created } baseVersion } }"
+  }'
+
+# 7. 以前のバージョンに戻す
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { restoreVersion(input: { path: \"/content/doc\", versionName: \"1.0\" }) { path } }"
+  }'
+```
+
 ## アクセス権限管理 (ACL)
 
 ### ACL取得
@@ -587,7 +806,7 @@ org.mintjams.rt.cms.internal.web/
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "{ accessControl(path: \"/content/page1\") { entries { principal privileges allow } } }"
@@ -641,7 +860,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation { setAccessControl(input: { path: \"/content/page1\", principal: \"user1\", privileges: [\"jcr:read\", \"jcr:write\"], allow: true }) { entries { principal privileges } } }"
@@ -683,7 +902,7 @@ mutation {
 POSTリクエスト例：
 
 ```bash
-curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "mutation { deleteAccessControl(input: { path: \"/content/page1\", principal: \"user1\" }) }"
@@ -699,14 +918,13 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 - XPath検索
 - プロパティ管理（カスタムプロパティの高度な取得）
 - フルテキスト検索
-- バージョニング
 - より高度なGraphQLクエリパース（フィールド選択など）
 
 ## 実装済み機能
 
 ### Phase 1
 - ノード取得 (node query)
-- 子ノード一覧取得 (children query)
+- 子ノード一覧取得 (children query with Relay Connection pagination)
 - フォルダ作成 (createFolder mutation)
 - ファイル作成 (createFile mutation)
 - ノード削除 (deleteNode mutation)
@@ -721,6 +939,11 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
   - ACL取得 (accessControl query)
   - ACLエントリ設定 (setAccessControl mutation)
   - ACLエントリ削除 (deleteAccessControl mutation)
+- バージョン管理 (Versioning)
+  - バージョン履歴取得 (versionHistory query)
+  - チェックイン (checkin mutation)
+  - チェックアウト (checkout mutation)
+  - バージョン復元 (restoreVersion mutation)
 
 ## 開発メモ
 

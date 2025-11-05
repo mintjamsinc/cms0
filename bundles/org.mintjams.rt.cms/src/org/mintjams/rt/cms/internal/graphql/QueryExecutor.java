@@ -40,6 +40,10 @@ import javax.jcr.security.AccessControlList;
 import javax.jcr.security.AccessControlManager;
 import javax.jcr.security.AccessControlPolicy;
 import javax.jcr.security.Privilege;
+import javax.jcr.version.Version;
+import javax.jcr.version.VersionHistory;
+import javax.jcr.version.VersionIterator;
+import javax.jcr.version.VersionManager;
 
 /**
  * Class for executing GraphQL Query operations
@@ -321,6 +325,118 @@ public class QueryExecutor {
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("accessControl", aclData);
+
+		return result;
+	}
+
+	/**
+	 * Execute versionHistory query
+	 * Retrieves version history for a versionable node
+	 * Example: { versionHistory(path: "/content/page1") { versions { name created createdBy } } }
+	 */
+	public Map<String, Object> executeVersionHistoryQuery(GraphQLRequest request) throws Exception {
+		// Extract path from query
+		String query = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Pattern: versionHistory(path: "...") or versionHistory(path: $path)
+		Pattern pattern = Pattern.compile("versionHistory\\(\\s*path\\s*:\\s*\"([^\"]+)\"");
+		String path = extractPath(query, pattern, variables);
+
+		if (path == null) {
+			// Try variable pattern
+			pattern = Pattern.compile("versionHistory\\(\\s*path\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher matcher = pattern.matcher(query);
+			if (matcher.find()) {
+				String varName = matcher.group(1);
+				path = variables != null ? (String) variables.get(varName) : null;
+			}
+		}
+
+		if (path == null) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Check if node is versionable
+		if (!node.isNodeType("mix:versionable")) {
+			throw new IllegalArgumentException("Node is not versionable: " + path);
+		}
+
+		// Get VersionManager
+		VersionManager versionManager = this.session.getWorkspace().getVersionManager();
+
+		// Get version history
+		VersionHistory versionHistory = versionManager.getVersionHistory(path);
+
+		// Build versions list
+		List<Map<String, Object>> versions = new ArrayList<>();
+		VersionIterator versionIterator = versionHistory.getAllVersions();
+
+		while (versionIterator.hasNext()) {
+			Version version = versionIterator.nextVersion();
+
+			// Skip root version (jcr:rootVersion)
+			if (version.getName().equals("jcr:rootVersion")) {
+				continue;
+			}
+
+			Map<String, Object> versionData = new HashMap<>();
+			versionData.put("name", version.getName());
+
+			// Get created date
+			if (version.hasProperty("jcr:created")) {
+				versionData.put("created", version.getProperty("jcr:created").getDate().getTime().toString());
+			}
+
+			// Get predecessor versions
+			Version[] predecessors = version.getPredecessors();
+			List<String> predecessorNames = new ArrayList<>();
+			for (Version pred : predecessors) {
+				if (!pred.getName().equals("jcr:rootVersion")) {
+					predecessorNames.add(pred.getName());
+				}
+			}
+			if (!predecessorNames.isEmpty()) {
+				versionData.put("predecessors", predecessorNames);
+			}
+
+			// Get successor versions
+			Version[] successors = version.getSuccessors();
+			List<String> successorNames = new ArrayList<>();
+			for (Version succ : successors) {
+				successorNames.add(succ.getName());
+			}
+			if (!successorNames.isEmpty()) {
+				versionData.put("successors", successorNames);
+			}
+
+			// Get frozen node (snapshot of the node at this version)
+			Node frozenNode = version.getFrozenNode();
+			if (frozenNode != null) {
+				versionData.put("frozenNodePath", frozenNode.getPath());
+			}
+
+			versions.add(versionData);
+		}
+
+		// Get base version (current version)
+		Version baseVersion = versionManager.getBaseVersion(path);
+		String baseVersionName = baseVersion != null ? baseVersion.getName() : null;
+
+		// Build response
+		Map<String, Object> historyData = new HashMap<>();
+		historyData.put("versions", versions);
+		historyData.put("baseVersion", baseVersionName);
+		historyData.put("versionableUuid", versionHistory.getVersionableIdentifier());
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("versionHistory", historyData);
 
 		return result;
 	}

@@ -40,6 +40,8 @@ import javax.jcr.security.AccessControlManager;
 import javax.jcr.security.AccessControlPolicy;
 import javax.jcr.security.AccessControlPolicyIterator;
 import javax.jcr.security.Privilege;
+import javax.jcr.version.Version;
+import javax.jcr.version.VersionManager;
 
 /**
  * Class for executing GraphQL Mutation operations
@@ -587,6 +589,142 @@ public class MutationExecutor {
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("deleteAccessControl", true);
+
+		return result;
+	}
+
+	/**
+	 * Execute checkin mutation
+	 * Creates a new version by checking in a versionable node
+	 * Example: mutation { checkin(path: "/content/page1") }
+	 */
+	public Map<String, Object> executeCheckin(GraphQLRequest request) throws Exception {
+		String path = extractPathFromMutation(request.getQuery());
+
+		if (path == null) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Check if node is versionable
+		if (!node.isNodeType("mix:versionable")) {
+			throw new IllegalArgumentException("Node is not versionable: " + path);
+		}
+
+		// Get VersionManager
+		VersionManager versionManager = this.session.getWorkspace().getVersionManager();
+
+		// Check if already checked in
+		if (!versionManager.isCheckedOut(path)) {
+			throw new IllegalStateException("Node is already checked in: " + path);
+		}
+
+		// Checkin (creates a new version and locks the node)
+		Version version = versionManager.checkin(path);
+
+		// Build response with version info
+		Map<String, Object> versionData = new HashMap<>();
+		versionData.put("name", version.getName());
+		if (version.hasProperty("jcr:created")) {
+			versionData.put("created", version.getProperty("jcr:created").getDate().getTime().toString());
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("checkin", versionData);
+
+		return result;
+	}
+
+	/**
+	 * Execute checkout mutation
+	 * Checks out a versionable node for editing
+	 * Example: mutation { checkout(path: "/content/page1") }
+	 */
+	public Map<String, Object> executeCheckout(GraphQLRequest request) throws Exception {
+		String path = extractPathFromMutation(request.getQuery());
+
+		if (path == null) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Check if node is versionable
+		if (!node.isNodeType("mix:versionable")) {
+			throw new IllegalArgumentException("Node is not versionable: " + path);
+		}
+
+		// Get VersionManager
+		VersionManager versionManager = this.session.getWorkspace().getVersionManager();
+
+		// Check if already checked out
+		if (versionManager.isCheckedOut(path)) {
+			throw new IllegalStateException("Node is already checked out: " + path);
+		}
+
+		// Checkout (unlocks the node for editing)
+		versionManager.checkout(path);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("checkout", true);
+
+		return result;
+	}
+
+	/**
+	 * Execute restoreVersion mutation
+	 * Restores a node to a specific version
+	 * Example: mutation { restoreVersion(input: { path: "/content/page1", versionName: "1.0" }) }
+	 */
+	public Map<String, Object> executeRestoreVersion(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+		String versionName = (String) input.get("versionName");
+
+		if (path == null || versionName == null) {
+			throw new IllegalArgumentException("path and versionName are required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Check if node is versionable
+		if (!node.isNodeType("mix:versionable")) {
+			throw new IllegalArgumentException("Node is not versionable: " + path);
+		}
+
+		// Get VersionManager
+		VersionManager versionManager = this.session.getWorkspace().getVersionManager();
+
+		// Must be checked out to restore
+		if (!versionManager.isCheckedOut(path)) {
+			versionManager.checkout(path);
+		}
+
+		// Restore to specified version
+		// removeExisting=true allows restore even if there are local changes
+		versionManager.restore(path, versionName, true);
+
+		this.session.save();
+
+		// Get restored node
+		Node restoredNode = this.session.getNode(path);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("restoreVersion", NodeMapper.toGraphQL(restoredNode));
 
 		return result;
 	}
