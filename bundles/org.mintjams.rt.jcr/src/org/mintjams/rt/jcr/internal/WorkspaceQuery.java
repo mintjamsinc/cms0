@@ -120,21 +120,25 @@ public class WorkspaceQuery implements Adaptable {
 	}
 
 	private final JournalQuery fJournalQuery = new JournalQuery();
+
 	public JournalQuery journal() {
 		return fJournalQuery;
 	}
 
 	private final FilesQuery fFilesQuery = new FilesQuery();
+
 	public FilesQuery files() {
 		return fFilesQuery;
 	}
 
 	private final ItemsQuery fItemsQuery = new ItemsQuery();
+
 	public ItemsQuery items() {
 		return fItemsQuery;
 	}
 
 	private final NamespacesQuery fNamespacesQuery = new NamespacesQuery();
+
 	public NamespacesQuery namespaces() {
 		return fNamespacesQuery;
 	}
@@ -222,9 +226,11 @@ public class WorkspaceQuery implements Adaptable {
 	}
 
 	public class JournalQuery {
-		private JournalQuery() {}
+		private JournalQuery() {
+		}
 
 		private Entity fJournalEntity;
+
 		private Entity journalEntity() throws SQLException {
 			if (fJournalEntity == null) {
 				fJournalEntity = Entity.newBuilder(getConnection()).setName("jcr_journal").build();
@@ -234,15 +240,14 @@ public class WorkspaceQuery implements Adaptable {
 
 		public void writeJournal(Map<String, Object> data) throws SQLException {
 			SessionIdentifier sessionIdentifier = getSessionIdentifier();
-			String journalId = MessageFormat.format("{0,number,00000000000000000000}-{1,number,00000000000000000000}", sessionIdentifier.getCreated(), System.nanoTime());
+			String journalId = MessageFormat.format("{0,number,00000000000000000000}-{1,number,00000000000000000000}",
+					sessionIdentifier.getCreated(), System.nanoTime());
 			for (int i = 0;; i++) {
 				try {
-					journalEntity().create(AdaptableMap.<String, Object>newBuilder()
-							.putAll(data)
+					journalEntity().create(AdaptableMap.<String, Object>newBuilder().putAll(data)
 							.put("session_id", sessionIdentifier.toString())
 							.put("transaction_id", sessionIdentifier.getTransactionIdentifier())
-							.put("journal_id", journalId)
-							.build()).execute();
+							.put("journal_id", journalId).build()).execute();
 					return;
 				} catch (SQLException ex) {
 					if (i == 0) {
@@ -256,15 +261,16 @@ public class WorkspaceQuery implements Adaptable {
 
 		public Query.Result listJournal(String id) throws SQLException {
 			return newQueryBuilder("SELECT * FROM jcr_journal WHERE transaction_id = {{id}} ORDER BY event_occurred")
-					.setVariable("id", id)
-					.build().setOffset(0).execute();
+					.setVariable("id", id).build().setOffset(0).execute();
 		}
 	}
 
 	public class FilesQuery {
-		private FilesQuery() {}
+		private FilesQuery() {
+		}
 
 		private Entity fFilesEntity;
+
 		private Entity filesEntity() throws SQLException {
 			if (fFilesEntity == null) {
 				fFilesEntity = Entity.newBuilder(getConnection()).setName("jcr_files").build();
@@ -281,42 +287,34 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			filesEntity().create(AdaptableMap.<String, Object>newBuilder()
-					.put("file_id", id)
-					.put("file_size", Files.size(path))
-					.build()).execute();
+			filesEntity().create(AdaptableMap.<String, Object>newBuilder().put("file_id", id)
+					.put("file_size", Files.size(path)).build()).execute();
 		}
 
 		public void deleteFile(String id) throws SQLException {
-			filesEntity().updateByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-					.put("file_id", id)
-					.put("is_deleted", Boolean.TRUE)
-					.build()).execute();
+			filesEntity().updateByPrimaryKey(AdaptableMap.<String, Object>newBuilder().put("file_id", id)
+					.put("is_deleted", Boolean.TRUE).build()).execute();
 		}
 
 		public boolean exists(String id) throws IOException, SQLException {
-			try (Query.Result result = filesEntity().findByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-					.put("file_id", id)
-					.build()).setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = filesEntity()
+					.findByPrimaryKey(AdaptableMap.<String, Object>newBuilder().put("file_id", id).build()).setOffset(0)
+					.setLimit(1).execute()) {
 				return result.iterator().hasNext();
 			}
 		}
 
 		public long getSize(String id) throws IOException, SQLException {
-			try (Query.Result result = filesEntity().findByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-					.put("file_id", id)
-					.build()).setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = filesEntity()
+					.findByPrimaryKey(AdaptableMap.<String, Object>newBuilder().put("file_id", id).build()).setOffset(0)
+					.setLimit(1).execute()) {
 				return result.iterator().next().getLong("file_size");
 			}
 		}
 
 		public Path getPath(String id) {
-			return adaptTo(JcrWorkspaceProvider.class).getJcrBinPath()
-					.resolve(id.substring(0, 2))
-					.resolve(id.substring(2, 4))
-					.resolve(id.substring(4, 6))
-					.resolve(id.substring(6, 8))
-					.resolve(id)
+			return adaptTo(JcrWorkspaceProvider.class).getJcrBinPath().resolve(id.substring(0, 2))
+					.resolve(id.substring(2, 4)).resolve(id.substring(4, 6)).resolve(id.substring(6, 8)).resolve(id)
 					.toAbsolutePath();
 		}
 
@@ -329,8 +327,8 @@ public class WorkspaceQuery implements Adaptable {
 				return;
 			}
 
-			try (Query.Result result = newQueryBuilder("SELECT file_id FROM jcr_files WHERE is_deleted = TRUE")
-					.build().setOffset(0).execute()) {
+			try (Query.Result result = newQueryBuilder("SELECT file_id FROM jcr_files WHERE is_deleted = TRUE").build()
+					.setOffset(0).execute()) {
 				for (AdaptableMap<String, Object> r : result) {
 					if (monitor.isCancelled()) {
 						break;
@@ -344,9 +342,11 @@ public class WorkspaceQuery implements Adaptable {
 	}
 
 	public class ItemsQuery {
-		private ItemsQuery() {}
+		private ItemsQuery() {
+		}
 
 		private Entity fItemsEntity;
+
 		private Entity itemsEntity() throws SQLException {
 			if (fItemsEntity == null) {
 				fItemsEntity = Entity.newBuilder(getConnection()).setName("jcr_items").build();
@@ -355,6 +355,7 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		private Entity fPropertiesEntity;
+
 		private Entity propertiesEntity() throws SQLException {
 			if (fPropertiesEntity == null) {
 				fPropertiesEntity = Entity.newBuilder(getConnection()).setName("jcr_properties").build();
@@ -363,6 +364,7 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		private Entity fAcesEntity;
+
 		private Entity acesEntity() throws SQLException {
 			if (fAcesEntity == null) {
 				fAcesEntity = Entity.newBuilder(getConnection()).setName("jcr_aces").build();
@@ -371,6 +373,7 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		private Entity fLocksEntity;
+
 		public Entity locksEntity() throws SQLException {
 			if (fLocksEntity == null) {
 				fLocksEntity = Entity.newBuilder(getConnection()).setName("jcr_locks").build();
@@ -379,14 +382,9 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public JcrPath getVersionHistoryPath(String id) {
-			return getResolved(JcrPath.valueOf("/")
-					.resolve(JcrNode.JCR_SYSTEM_NAME)
-					.resolve(JcrNode.JCR_VERSION_STORAGE_NAME)
-					.resolve(id.substring(0, 2))
-					.resolve(id.substring(2, 4))
-					.resolve(id.substring(4, 6))
-					.resolve(id.substring(6, 8))
-					.resolve(id));
+			return getResolved(JcrPath.valueOf("/").resolve(JcrNode.JCR_SYSTEM_NAME)
+					.resolve(JcrNode.JCR_VERSION_STORAGE_NAME).resolve(id.substring(0, 2)).resolve(id.substring(2, 4))
+					.resolve(id.substring(4, 6)).resolve(id.substring(6, 8)).resolve(id));
 		}
 
 		public AdaptableMap<String, Object> createRootNode() throws IOException, SQLException, RepositoryException {
@@ -394,15 +392,13 @@ public class WorkspaceQuery implements Adaptable {
 			definition.put("path", "/");
 			definition.put("primaryType", "mi:root");
 			definition.put("mixinTypes", NodeType.MIX_CREATED);
-			definition.put("acl", AdaptableMap.<String, Object>newBuilder()
-					.put("principal", EveryonePrincipal.NAME)
-					.put("privileges", Arrays.asList("jcr:read"))
-					.put("effect", "allow")
-					.build());
+			definition.put("acl", AdaptableMap.<String, Object>newBuilder().put("principal", EveryonePrincipal.NAME)
+					.put("privileges", Arrays.asList("jcr:read")).put("effect", "allow").build());
 			return createNode(definition);
 		}
 
-		public AdaptableMap<String, Object> createNode(String absPath, String primaryTypeName) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> createNode(String absPath, String primaryTypeName)
+				throws IOException, SQLException, RepositoryException {
 			Map<String, Object> definition = new HashMap<>();
 			definition.put("path", absPath);
 			definition.put("primaryType", primaryTypeName);
@@ -410,7 +406,8 @@ public class WorkspaceQuery implements Adaptable {
 			return createNode(definition);
 		}
 
-		public AdaptableMap<String, Object> createNode(String absPath, String primaryTypeName, String[] mixinTypeNames) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> createNode(String absPath, String primaryTypeName, String[] mixinTypeNames)
+				throws IOException, SQLException, RepositoryException {
 			Map<String, Object> definition = new HashMap<>();
 			definition.put("path", absPath);
 			definition.put("primaryType", primaryTypeName);
@@ -418,7 +415,8 @@ public class WorkspaceQuery implements Adaptable {
 			return createNode(definition);
 		}
 
-		public AdaptableMap<String, Object> createNode(Map<String, Object> definition) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> createNode(Map<String, Object> definition)
+				throws IOException, SQLException, RepositoryException {
 			ExpressionContext el = ExpressionContext.create().setVariable("definition", definition);
 			JcrPath itemPath = getResolved(JcrPath.valueOf(el.getString("definition.path")));
 
@@ -427,7 +425,7 @@ public class WorkspaceQuery implements Adaptable {
 				itemName = itemPath.getName().toString();
 			}
 
-			AdaptableMap<String,Object> parentItemData = null;
+			AdaptableMap<String, Object> parentItemData = null;
 			if (!itemPath.isRoot()) {
 				parentItemData = getNode(itemPath.getParent().toString());
 			}
@@ -435,7 +433,8 @@ public class WorkspaceQuery implements Adaptable {
 			try {
 				getNode(itemPath.toString());
 				throw new ItemExistsException("Node already exists: " + itemPath.toString());
-			} catch (PathNotFoundException ignore) {}
+			} catch (PathNotFoundException ignore) {
+			}
 
 			String primaryTypeName = el.getString("definition.primaryType");
 			if (Strings.isEmpty(primaryTypeName)) {
@@ -446,7 +445,8 @@ public class WorkspaceQuery implements Adaptable {
 				throw new NoSuchNodeTypeException(primaryTypeName);
 			}
 			if (getNodeTypeManager().getNodeType(primaryType).isAbstract()) {
-				throw new ConstraintViolationException("The primary type of a node cannot be abstract: " + primaryTypeName);
+				throw new ConstraintViolationException(
+						"The primary type of a node cannot be abstract: " + primaryTypeName);
 			}
 
 			List<String> mixinTypes = new ArrayList<>();
@@ -456,7 +456,8 @@ public class WorkspaceQuery implements Adaptable {
 					throw new NoSuchNodeTypeException(mixinTypeName);
 				}
 				if (getNodeTypeManager().getNodeType(mixinType).isAbstract()) {
-					throw new ConstraintViolationException("The mixin type of a node cannot be abstract: " + mixinTypeName);
+					throw new ConstraintViolationException(
+							"The mixin type of a node cannot be abstract: " + mixinTypeName);
 				}
 				mixinTypes.add(mixinType);
 			}
@@ -467,7 +468,8 @@ public class WorkspaceQuery implements Adaptable {
 			}
 
 			newUpdateBuilder("DELETE FROM jcr_items WHERE item_id = {{id}}").setVariable("id", id).build().execute();
-			newUpdateBuilder("DELETE FROM jcr_properties WHERE parent_item_id = {{id}}").setVariable("id", id).build().execute();
+			newUpdateBuilder("DELETE FROM jcr_properties WHERE parent_item_id = {{id}}").setVariable("id", id).build()
+					.execute();
 
 			String path = "/" + getResolved(Strings.defaultString(itemName));
 			if (parentItemData != null) {
@@ -476,25 +478,23 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			itemsEntity().create(AdaptableMap.<String, Object>newBuilder()
-					.put("item_id", id)
-					.put("item_name", JcrPath.valueOf(path).getName().toString())
-					.put("item_path", path)
-					.put("parent_item_id", (parentItemData == null) ? null : parentItemData.getString("item_id"))
-					.build()).execute();
-			setProperty(id, JcrProperty.JCR_PRIMARY_TYPE, PropertyType.NAME, createValue(PropertyType.NAME, primaryType));
+			itemsEntity()
+					.create(AdaptableMap.<String, Object>newBuilder().put("item_id", id)
+							.put("item_name", JcrPath.valueOf(path).getName().toString()).put("item_path", path)
+							.put("parent_item_id",
+									(parentItemData == null) ? null : parentItemData.getString("item_id"))
+							.build())
+					.execute();
+			setProperty(id, JcrProperty.JCR_PRIMARY_TYPE, PropertyType.NAME,
+					createValue(PropertyType.NAME, primaryType));
 			if (!mixinTypes.isEmpty()) {
-				setProperty(id, JcrProperty.JCR_MIXIN_TYPES, PropertyType.NAME, createValues(PropertyType.NAME, mixinTypes.toArray()));
+				setProperty(id, JcrProperty.JCR_MIXIN_TYPES, PropertyType.NAME,
+						createValues(PropertyType.NAME, mixinTypes.toArray()));
 			}
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
-					.put("event_type", Event.NODE_ADDED)
-					.put("item_id", id)
-					.put("item_path", path)
-					.put("primary_type", primaryType)
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.build());
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+					.put("event_type", Event.NODE_ADDED).put("item_id", id).put("item_path", path)
+					.put("primary_type", primaryType).put("user_id", fWorkspace.getSession().getUserID()).build());
 
 			AdaptableMap<String, Object> itemData = getNodeByIdentifier(id);
 			if (!el.getBoolean("definition.disablePostProcess")) {
@@ -503,7 +503,8 @@ public class WorkspaceQuery implements Adaptable {
 			return itemData;
 		}
 
-		private void postCreateNode(AdaptableMap<String, Object> itemData, Map<String, Object> definition) throws IOException, SQLException, RepositoryException {
+		private void postCreateNode(AdaptableMap<String, Object> itemData, Map<String, Object> definition)
+				throws IOException, SQLException, RepositoryException {
 			JcrNode node = JcrNode.create(itemData, adaptTo(JcrSession.class));
 
 			Map<String, NodeType> nodeTypes = new HashMap<>();
@@ -565,14 +566,16 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 			for (NodeDefinition e : nodeDefinitions.values()) {
-				createNode(JcrPath.valueOf(node.getPath()).resolve(e.getName()).toString(), e.getDefaultPrimaryTypeName());
+				createNode(JcrPath.valueOf(node.getPath()).resolve(e.getName()).toString(),
+						e.getDefaultPrimaryTypeName());
 			}
 
 			Collection<Map<String, Object>> l = (Collection<Map<String, Object>>) definition.get("acl");
 			if (l != null) {
 				for (Map<String, Object> ace : l) {
 					ExpressionContext el = ExpressionContext.create().setVariable("ace", ace);
-					JcrAccessControlList acl = (JcrAccessControlList) getAccessControlManager().getPolicies(node.getPath())[0];
+					JcrAccessControlList acl = (JcrAccessControlList) getAccessControlManager()
+							.getPolicies(node.getPath())[0];
 					String group = el.getString("ace.group");
 					String user = el.getString("ace.user");
 					Principal principal;
@@ -608,7 +611,8 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		private JcrValue[] createDefaultValues(PropertyDefinition propertyDefinition, Node node) throws IOException, RepositoryException {
+		private JcrValue[] createDefaultValues(PropertyDefinition propertyDefinition, Node node)
+				throws IOException, RepositoryException {
 			Value[] defaults = propertyDefinition.getDefaultValues();
 			if (defaults != null) {
 				return Stream.of(defaults).toArray(JcrValue[]::new);
@@ -628,7 +632,8 @@ public class WorkspaceQuery implements Adaptable {
 				if (fileNode.getName().equals(JcrNode.JCR_CONTENT_NAME)) {
 					fileNode = fileNode.getParent();
 				}
-				return createValues(PropertyType.STRING, getMimeTypeDetector().probeContentType(Paths.get(fileNode.getName())));
+				return createValues(PropertyType.STRING,
+						getMimeTypeDetector().probeContentType(Paths.get(fileNode.getName())));
 			}
 
 			if (propertyDefinition.getName().equals(JcrProperty.JCR_UUID_NAME)) {
@@ -638,7 +643,8 @@ public class WorkspaceQuery implements Adaptable {
 			return null;
 		}
 
-		public AdaptableMap<String, Object> addMixin(String id, String mixinName) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> addMixin(String id, String mixinName)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
@@ -654,24 +660,27 @@ public class WorkspaceQuery implements Adaptable {
 				throw new ConstraintViolationException("The mixin type of a node cannot be abstract: " + mixinName);
 			}
 
-			AdaptableMap<String,Object> itemData = getNodeByIdentifier(id);
+			AdaptableMap<String, Object> itemData = getNodeByIdentifier(id);
 
 			List<String> mixinTypeNames = getMixinTypes(id);
 			if (mixinTypeNames.contains(mixinType)) {
-				throw new ConstraintViolationException("The specified node type '" + mixinName + "' is in node '" + itemData.getString("item_path") + "'.");
+				throw new ConstraintViolationException("The specified node type '" + mixinName + "' is in node '"
+						+ itemData.getString("item_path") + "'.");
 			}
 			mixinTypeNames.add(mixinType);
 
 			if (!(mixinType.equals(getResolved(NodeType.MIX_SIMPLE_VERSIONABLE))
 					|| mixinType.equals(getResolved(NodeType.MIX_VERSIONABLE)))) {
-				setProperty(id, JcrProperty.JCR_MIXIN_TYPES, PropertyType.NAME, createValues(PropertyType.NAME, mixinTypeNames.toArray()));
+				setProperty(id, JcrProperty.JCR_MIXIN_TYPES, PropertyType.NAME,
+						createValues(PropertyType.NAME, mixinTypeNames.toArray()));
 			}
 
 			postAddMixin(itemData, mixinType);
 			return itemData;
 		}
 
-		private void postAddMixin(AdaptableMap<String, Object> itemData, String mixinName) throws IOException, SQLException, RepositoryException {
+		private void postAddMixin(AdaptableMap<String, Object> itemData, String mixinName)
+				throws IOException, SQLException, RepositoryException {
 			if (mixinName.equals(getResolved(NodeType.MIX_VERSIONABLE))) {
 				adaptTo(JcrVersionManager.class).addVersionControl(itemData.getString("item_id"));
 			}
@@ -702,7 +711,8 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		public AdaptableMap<String, Object> removeMixin(String id, String mixinName) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> removeMixin(String id, String mixinName)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
@@ -715,34 +725,37 @@ public class WorkspaceQuery implements Adaptable {
 				throw new NoSuchNodeTypeException("Invalid mixin name: " + mixinName);
 			}
 
-			AdaptableMap<String,Object> itemData = getNodeByIdentifier(id);
+			AdaptableMap<String, Object> itemData = getNodeByIdentifier(id);
 
 			List<String> mixinTypeNames = getMixinTypes(id);
 			if (!mixinTypeNames.contains(mixinType)) {
-				throw new ConstraintViolationException("The specified node type '" + mixinName + "' is not in node '" + itemData.getString("item_path") + "'.");
+				throw new ConstraintViolationException("The specified node type '" + mixinName + "' is not in node '"
+						+ itemData.getString("item_path") + "'.");
 			}
 			if (mixinType.equals(getResolved(NodeType.MIX_LOCKABLE))
 					|| mixinType.equals(getResolved(NodeType.MIX_SIMPLE_VERSIONABLE))
 					|| mixinType.equals(getResolved(NodeType.MIX_VERSIONABLE))) {
-				throw new ConstraintViolationException("The specified node type '" + mixinName + "' cannot be removed.");
+				throw new ConstraintViolationException(
+						"The specified node type '" + mixinName + "' cannot be removed.");
 			}
 			mixinTypeNames.remove(mixinType);
 
-			setProperty(id, JcrProperty.JCR_MIXIN_TYPES, PropertyType.NAME, createValues(PropertyType.NAME, mixinTypeNames.toArray()));
+			setProperty(id, JcrProperty.JCR_MIXIN_TYPES, PropertyType.NAME,
+					createValues(PropertyType.NAME, mixinTypeNames.toArray()));
 
 			return itemData;
 		}
 
-		public AdaptableMap<String, Object> getNode(String absPath) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> getNode(String absPath)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(absPath) || !absPath.startsWith("/")) {
 				throw new PathNotFoundException("Invalid path: " + absPath);
 			}
 
 			String path = getResolved(JcrPath.valueOf(absPath)).toString();
 			try (Query.Result result = itemsEntity().find(AdaptableMap.<String, Object>newBuilder()
-					.put("item_path", path)
-					.put("is_deleted", Boolean.FALSE)
-					.build()).setOffset(0).setLimit(1).execute()) {
+					.put("item_path", path).put("is_deleted", Boolean.FALSE).build()).setOffset(0).setLimit(1)
+					.execute()) {
 				Iterator<AdaptableMap<String, Object>> i = result.iterator();
 				if (!i.hasNext()) {
 					throw new PathNotFoundException(absPath);
@@ -752,15 +765,14 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		public AdaptableMap<String, Object> getNodeByIdentifier(String id) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> getNodeByIdentifier(String id)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
 
-			try (Query.Result result = itemsEntity().find(AdaptableMap.<String, Object>newBuilder()
-					.put("item_id", id)
-					.put("is_deleted", Boolean.FALSE)
-					.build()).setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = itemsEntity().find(AdaptableMap.<String, Object>newBuilder().put("item_id", id)
+					.put("is_deleted", Boolean.FALSE).build()).setOffset(0).setLimit(1).execute()) {
 				Iterator<AdaptableMap<String, Object>> i = result.iterator();
 				if (!i.hasNext()) {
 					throw new ItemNotFoundException(id);
@@ -787,13 +799,10 @@ public class WorkspaceQuery implements Adaptable {
 			StringBuilder statement = new StringBuilder().append("SELECT * FROM jcr_items");
 			statement.append(" WHERE item_path IN ({{paths;list}})");
 			statement.append(" ORDER BY item_path");
-			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("paths", paths)
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("paths", paths)
 					.build();
 
-			return newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(0).execute();
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
 
 		public Query.Result collectNodesByIdentifier(String... ids) throws SQLException {
@@ -805,14 +814,10 @@ public class WorkspaceQuery implements Adaptable {
 			statement.append(" WHERE item_id IN ({{ids;list}})");
 			statement.append(" OR (parent_item_id IN ({{ids;list}}) AND item_name = {{name}})");
 			statement.append(" ORDER BY item_path");
-			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("ids", ids)
-					.put("name", JcrNode.JCR_CONTENT_NAME)
-					.build();
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("ids", ids)
+					.put("name", JcrNode.JCR_CONTENT_NAME).build();
 
-			return newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(0).execute();
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
 
 		public String getPath(String id) throws IOException, SQLException, RepositoryException {
@@ -844,10 +849,9 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			StringBuilder statement = new StringBuilder().append("SELECT * FROM jcr_items WHERE parent_item_id = {{id}}");
-			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("id", id)
-					.build();
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT * FROM jcr_items WHERE parent_item_id = {{id}}");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("id", id).build();
 			for (int i = 0; i < globs.size(); i++) {
 				String glob = globs.get(i);
 				String varName = "glob" + i;
@@ -869,9 +873,7 @@ public class WorkspaceQuery implements Adaptable {
 			}
 			statement.append(" ORDER BY item_name");
 
-			return newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(offset).execute();
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(offset).execute();
 		}
 
 		public Query.Result listContentNodes(String... ids) throws SQLException {
@@ -883,14 +885,10 @@ public class WorkspaceQuery implements Adaptable {
 			statement.append(" WHERE parent_item_id IN ({{ids;list}})");
 			statement.append(" AND item_name = {{name}}");
 			statement.append(" ORDER BY item_path");
-			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("ids", ids)
-					.put("name", JcrNode.JCR_CONTENT_NAME)
-					.build();
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("ids", ids)
+					.put("name", JcrNode.JCR_CONTENT_NAME).build();
 
-			return newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(0).execute();
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
 
 		public Query.Result listProperties(String id, String[] nameGlobs, int offset) throws SQLException {
@@ -914,10 +912,9 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			StringBuilder statement = new StringBuilder().append("SELECT * FROM jcr_properties WHERE parent_item_id = {{id}}");
-			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("id", id)
-					.build();
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT * FROM jcr_properties WHERE parent_item_id = {{id}}");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("id", id).build();
 			for (int i = 0; i < globs.size(); i++) {
 				String glob = globs.get(i);
 				String varName = "glob" + i;
@@ -939,9 +936,26 @@ public class WorkspaceQuery implements Adaptable {
 			}
 			statement.append(" ORDER BY item_name");
 
-			return newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(offset).execute();
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(offset).execute();
+		}
+
+		public Query.Result listReferences(String id, String name, boolean weak) throws SQLException {
+			if (Strings.isEmpty(id)) {
+				throw new IllegalArgumentException("Identifier must not be null or empty.");
+			}
+
+			StringBuilder statement = new StringBuilder().append(
+					"SELECT * FROM jcr_properties WHERE property_type = {{type}} AND ARRAY_CONTAINS(property_value, {{value}})");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
+					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
+					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();
+			if (Strings.isNotEmpty(name)) {
+				statement.append(" AND item_name = {{name}}");
+				variables.put("name", name);
+			}
+			statement.append(" ORDER BY item_name");
+
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
 
 		public Query.Result listAccessControlEntries(String absPath) throws SQLException {
@@ -954,12 +968,9 @@ public class WorkspaceQuery implements Adaptable {
 			statement.append(" WHERE i.item_path = {{path}}");
 			statement.append(" ORDER BY a.row_no");
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("path", getResolved(JcrPath.valueOf(absPath)).toString())
-					.build();
+					.put("path", getResolved(JcrPath.valueOf(absPath)).toString()).build();
 
-			return newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(0).execute();
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
 
 		public Query.Result collectAccessControlEntries(String absPath) throws SQLException {
@@ -976,24 +987,19 @@ public class WorkspaceQuery implements Adaptable {
 			statement.append(" JOIN jcr_items i ON (a.item_id = i.item_id)");
 			statement.append(" WHERE i.item_path IN ({{paths;list}})");
 			statement.append(" ORDER BY i.item_path DESC, a.row_no");
-			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("paths", paths)
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("paths", paths)
 					.build();
 
-			return newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(0).execute();
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
 
 		public Query.Result listLockTokens() throws SQLException {
-			StringBuilder statement = new StringBuilder().append("SELECT * FROM jcr_locks WHERE principal_name = {{principal_name}}");
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT * FROM jcr_locks WHERE principal_name = {{principal_name}}");
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("principal_name", fWorkspace.getSession().getUserID())
-					.build();
+					.put("principal_name", fWorkspace.getSession().getUserID()).build();
 
-			return newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(0).execute();
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
 
 		public long countNodes(String id, String[] nameGlobs) throws IOException, SQLException {
@@ -1017,10 +1023,9 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			StringBuilder statement = new StringBuilder().append("SELECT COUNT(*) AS item_count FROM jcr_items WHERE parent_item_id = {{id}}");
-			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("id", id)
-					.build();
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT COUNT(*) AS item_count FROM jcr_items WHERE parent_item_id = {{id}}");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("id", id).build();
 			for (int i = 0; i < globs.size(); i++) {
 				String glob = globs.get(i);
 				String varName = "glob" + i;
@@ -1036,82 +1041,79 @@ public class WorkspaceQuery implements Adaptable {
 			}
 			statement.append(" AND is_deleted = FALSE");
 
-			try (Query.Result result = newQueryBuilder(statement.toString())
-					.setVariables(variables)
-					.build().setOffset(0).execute()) {
+			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build()
+					.setOffset(0).execute()) {
 				return result.iterator().next().getLong("item_count");
 			}
 		}
 
 		public long countReferenced(String id) throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT COUNT(*) AS reference_count FROM jcr_properties WHERE property_type = {{type}} AND ARRAY_CONTAINS(property_value, {{value}}) AND is_deleted = FALSE")
+			try (Query.Result result = newQueryBuilder(
+					"SELECT COUNT(*) AS reference_count FROM jcr_properties WHERE property_type = {{type}} AND ARRAY_CONTAINS(property_value, {{value}}) AND is_deleted = FALSE")
 					.setVariable("type", PropertyType.REFERENCE)
-					.setVariable("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX))
-					.build().setOffset(0).setLimit(1).execute()) {
+					.setVariable("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build()
+					.setOffset(0).setLimit(1).execute()) {
 				return result.iterator().next().getLong("reference_count");
 			}
 		}
 
 		public boolean hasPendingChanges() throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}}")
-					.setVariable("id", getSessionIdentifier().getTransactionIdentifier())
-					.build().setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = newQueryBuilder(
+					"SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}}")
+					.setVariable("id", getSessionIdentifier().getTransactionIdentifier()).build().setOffset(0)
+					.setLimit(1).execute()) {
 				return result.iterator().hasNext();
 			}
 		}
 
 		public boolean nodeIsNew(String id) throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}} AND item_id = {{itemId}} AND event_type = {{eventType}}")
-					.setVariable("id", getSessionIdentifier().getTransactionIdentifier())
-					.setVariable("itemId", id)
-					.setVariable("eventType", Event.NODE_ADDED)
-					.build().setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = newQueryBuilder(
+					"SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}} AND item_id = {{itemId}} AND event_type = {{eventType}}")
+					.setVariable("id", getSessionIdentifier().getTransactionIdentifier()).setVariable("itemId", id)
+					.setVariable("eventType", Event.NODE_ADDED).build().setOffset(0).setLimit(1).execute()) {
 				return result.iterator().hasNext();
 			}
 		}
 
 		public boolean nodeIsModified(String id) throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}} AND item_id = {{itemId}}")
-					.setVariable("id", getSessionIdentifier().getTransactionIdentifier())
-					.setVariable("itemId", id)
+			try (Query.Result result = newQueryBuilder(
+					"SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}} AND item_id = {{itemId}}")
+					.setVariable("id", getSessionIdentifier().getTransactionIdentifier()).setVariable("itemId", id)
 					.build().setOffset(0).setLimit(1).execute()) {
 				return result.iterator().hasNext();
 			}
 		}
 
 		public boolean propertyIsNew(String id, String relName) throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}} AND item_id = {{itemId}} AND property_name = {{propertyName}} AND event_type = {{eventType}}")
-					.setVariable("id", getSessionIdentifier().getTransactionIdentifier())
-					.setVariable("itemId", id)
-					.setVariable("propertyName", relName)
-					.setVariable("eventType", Event.PROPERTY_ADDED)
-					.build().setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = newQueryBuilder(
+					"SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}} AND item_id = {{itemId}} AND property_name = {{propertyName}} AND event_type = {{eventType}}")
+					.setVariable("id", getSessionIdentifier().getTransactionIdentifier()).setVariable("itemId", id)
+					.setVariable("propertyName", relName).setVariable("eventType", Event.PROPERTY_ADDED).build()
+					.setOffset(0).setLimit(1).execute()) {
 				return result.iterator().hasNext();
 			}
 		}
 
 		public boolean propertyIsModified(String id, String relName) throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}} AND item_id = {{itemId}} AND property_name = {{propertyName}}")
-					.setVariable("id", getSessionIdentifier().getTransactionIdentifier())
-					.setVariable("itemId", id)
-					.setVariable("propertyName", relName)
-					.build().setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = newQueryBuilder(
+					"SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}} AND item_id = {{itemId}} AND property_name = {{propertyName}}")
+					.setVariable("id", getSessionIdentifier().getTransactionIdentifier()).setVariable("itemId", id)
+					.setVariable("propertyName", relName).build().setOffset(0).setLimit(1).execute()) {
 				return result.iterator().hasNext();
 			}
 		}
 
-		public void removeNode(String id, Map<String, Object> options) throws IOException, SQLException, RepositoryException {
+		public void removeNode(String id, Map<String, Object> options)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
 
 			ExpressionContext el = ExpressionContext.create().setVariable("options", options);
 
-			AdaptableMap<String, Object> pk = AdaptableMap.<String, Object>newBuilder()
-					.put("item_id", id)
-					.build();
+			AdaptableMap<String, Object> pk = AdaptableMap.<String, Object>newBuilder().put("item_id", id).build();
 
-			AdaptableMap<String,Object> existing = null;
+			AdaptableMap<String, Object> existing = null;
 			try (Query.Result result = itemsEntity().findByPrimaryKey(pk).setOffset(0).setLimit(1).execute()) {
 				Iterator<AdaptableMap<String, Object>> i = result.iterator();
 				if (i.hasNext()) {
@@ -1134,9 +1136,8 @@ public class WorkspaceQuery implements Adaptable {
 				removeAccessControlPolicy(id);
 			}
 
-			try (Query.Result result = propertiesEntity().find(AdaptableMap.<String, Object>newBuilder()
-					.put("parent_item_id", id)
-					.build()).execute()) {
+			try (Query.Result result = propertiesEntity()
+					.find(AdaptableMap.<String, Object>newBuilder().put("parent_item_id", id).build()).execute()) {
 				for (Iterator<AdaptableMap<String, Object>> i = result.iterator(); i.hasNext();) {
 					AdaptableMap<String, Object> r = i.next();
 
@@ -1151,26 +1152,20 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			itemsEntity().deleteByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-					.putAll(pk)
-					.put("is_deleted", Boolean.TRUE)
-					.build()).execute();
+			itemsEntity().deleteByPrimaryKey(
+					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
+					.execute();
 
 			adaptTo(JcrCache.class).remove(id);
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
-					.put("event_type", Event.NODE_REMOVED)
-					.put("item_id", id)
-					.put("item_path", path)
-					.put("primary_type", primaryType)
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
-					.build());
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+					.put("event_type", Event.NODE_REMOVED).put("item_id", id).put("item_path", path)
+					.put("primary_type", primaryType).put("user_id", fWorkspace.getSession().getUserID())
+					.put("user_data", null).put("event_info", null).build());
 		}
 
-		public void moveNode(String srcAbsPath, String destAbsPath) throws IOException, SQLException, RepositoryException {
+		public void moveNode(String srcAbsPath, String destAbsPath)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(srcAbsPath)) {
 				throw new PathNotFoundException("Source path must not be null or empty.");
 			}
@@ -1181,7 +1176,8 @@ public class WorkspaceQuery implements Adaptable {
 			try {
 				getNode(destAbsPath);
 				throw new ItemExistsException("An item '" + destAbsPath + "' already exists.");
-			} catch (PathNotFoundException ignore) {}
+			} catch (PathNotFoundException ignore) {
+			}
 
 			JcrPath srcPath = getResolved(JcrPath.valueOf(srcAbsPath));
 			JcrPath destPath = getResolved(JcrPath.valueOf(destAbsPath));
@@ -1189,37 +1185,28 @@ public class WorkspaceQuery implements Adaptable {
 			AdaptableMap<String, Object> destParentItem = getNode(destPath.getParent().toString());
 
 			if (!srcPath.getParent().toString().equals(destPath.getParent().toString())) {
-				itemsEntity().updateByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-						.put("item_id", srcItem.getString("item_id"))
-						.put("item_name", destPath.getName().toString())
-						.put("item_path", destPath.toString())
-						.put("parent_item_id", destParentItem.getString("item_id"))
-						.build()).execute();
+				itemsEntity().updateByPrimaryKey(
+						AdaptableMap.<String, Object>newBuilder().put("item_id", srcItem.getString("item_id"))
+								.put("item_name", destPath.getName().toString()).put("item_path", destPath.toString())
+								.put("parent_item_id", destParentItem.getString("item_id")).build())
+						.execute();
 			}
 
 			if (!srcPath.getName().toString().equals(destPath.getName().toString())) {
 				itemsEntity().updateByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-						.put("item_id", srcItem.getString("item_id"))
-						.put("item_name", destPath.getName().toString())
-						.put("item_path", destPath.toString())
-						.build()).execute();
+						.put("item_id", srcItem.getString("item_id")).put("item_name", destPath.getName().toString())
+						.put("item_path", destPath.toString()).build()).execute();
 			}
 
 			adaptTo(JcrCache.class).remove(srcItem.getString("item_id"));
 			moveChildNodes(srcItem.getString("item_id"));
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
-					.put("event_type", Event.NODE_MOVED)
-					.put("item_id", srcItem.getString("item_id"))
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+					.put("event_type", Event.NODE_MOVED).put("item_id", srcItem.getString("item_id"))
 					.put("item_path", destPath.toString())
 					.put("primary_type", getPrimaryType(srcItem.getString("item_id")))
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
-					.put("source_path", srcPath.toString())
-					.put("destination_path", destPath.toString())
-					.build());
+					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
+					.put("source_path", srcPath.toString()).put("destination_path", destPath.toString()).build());
 		}
 
 		private void moveChildNodes(String parentId) throws IOException, SQLException, RepositoryException {
@@ -1228,11 +1215,10 @@ public class WorkspaceQuery implements Adaptable {
 				for (AdaptableMap<String, Object> itemData : result) {
 					String name = JcrPath.valueOf(itemData.getString("item_path")).getName().toString();
 					String path = JcrPath.valueOf(parentItemData.getString("item_path")).resolve(name).toString();
-					itemsEntity().updateByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-							.put("item_id", itemData.getString("item_id"))
-							.put("item_name", name)
-							.put("item_path", path)
-							.build()).execute();
+					itemsEntity().updateByPrimaryKey(
+							AdaptableMap.<String, Object>newBuilder().put("item_id", itemData.getString("item_id"))
+									.put("item_name", name).put("item_path", path).build())
+							.execute();
 
 					adaptTo(JcrCache.class).remove(itemData.getString("item_id"));
 					moveChildNodes(itemData.getString("item_id"));
@@ -1240,7 +1226,8 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		public AdaptableMap<String, Object> getProperty(String id, String relPath) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> getProperty(String id, String relPath)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
@@ -1254,11 +1241,10 @@ public class WorkspaceQuery implements Adaptable {
 
 			JcrName itemName = getResolved(JcrName.valueOf(relPath));
 
-			try (Query.Result result = propertiesEntity().find(AdaptableMap.<String, Object>newBuilder()
-					.put("parent_item_id", id)
-					.put("item_name", itemName.toString())
-					.put("is_deleted", Boolean.FALSE)
-					.build()).setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = propertiesEntity()
+					.find(AdaptableMap.<String, Object>newBuilder().put("parent_item_id", id)
+							.put("item_name", itemName.toString()).put("is_deleted", Boolean.FALSE).build())
+					.setOffset(0).setLimit(1).execute()) {
 				Iterator<AdaptableMap<String, Object>> i = result.iterator();
 				if (!i.hasNext()) {
 					throw new PathNotFoundException(id + "/" + relPath);
@@ -1268,7 +1254,8 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		public String getPropertyIdentifier(String id, String relPath) throws IOException, SQLException, RepositoryException {
+		public String getPropertyIdentifier(String id, String relPath)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
@@ -1278,11 +1265,10 @@ public class WorkspaceQuery implements Adaptable {
 
 			JcrName itemName = getResolved(JcrName.valueOf(relPath));
 
-			try (Query.Result result = propertiesEntity().find(AdaptableMap.<String, Object>newBuilder()
-					.put("parent_item_id", id)
-					.put("item_name", itemName.toString())
-					.put("is_deleted", Boolean.FALSE)
-					.build()).setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = propertiesEntity()
+					.find(AdaptableMap.<String, Object>newBuilder().put("parent_item_id", id)
+							.put("item_name", itemName.toString()).put("is_deleted", Boolean.FALSE).build())
+					.setOffset(0).setLimit(1).execute()) {
 				Iterator<AdaptableMap<String, Object>> i = result.iterator();
 				if (!i.hasNext()) {
 					return null;
@@ -1292,15 +1278,18 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		public AdaptableMap<String, Object> setProperty(String id, String name, int type, Value value) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> setProperty(String id, String name, int type, Value value)
+				throws IOException, SQLException, RepositoryException {
 			return setProperty(id, name, type, false, value);
 		}
 
-		public AdaptableMap<String, Object> setProperty(String id, String name, int type, Value[] values) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> setProperty(String id, String name, int type, Value[] values)
+				throws IOException, SQLException, RepositoryException {
 			return setProperty(id, name, type, true, values);
 		}
 
-		public AdaptableMap<String, Object> setProperty(String id, String relPath, int type, boolean multiple, Value... values) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> setProperty(String id, String relPath, int type, boolean multiple,
+				Value... values) throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
@@ -1314,19 +1303,15 @@ public class WorkspaceQuery implements Adaptable {
 
 			try (PropertyParameters params = new PropertyParameters(id, relPath, type, multiple, values)) {
 				AdaptableMap<String, Object> r = AdaptableMap.<String, Object>newBuilder()
-						.put("item_id", params.getItemId())
-						.put("item_name", params.getItemName())
-						.put("parent_item_id", params.getParentItemId())
-						.put("property_type", params.getPropertyType())
-						.put("property_value", params.getPropertyValues())
-						.put("is_multiple", params.isMultiple())
+						.put("item_id", params.getItemId()).put("item_name", params.getItemName())
+						.put("parent_item_id", params.getParentItemId()).put("property_type", params.getPropertyType())
+						.put("property_value", params.getPropertyValues()).put("is_multiple", params.isMultiple())
 						.build();
 
-				AdaptableMap<String,Object> existing = null;
+				AdaptableMap<String, Object> existing = null;
 				try (Query.Result result = propertiesEntity().find(AdaptableMap.<String, Object>newBuilder()
-						.put("item_id", params.getItemId())
-						.put("is_deleted", false)
-						.build()).setOffset(0).setLimit(1).execute()) {
+						.put("item_id", params.getItemId()).put("is_deleted", false).build()).setOffset(0).setLimit(1)
+						.execute()) {
 					Iterator<AdaptableMap<String, Object>> i = result.iterator();
 					if (i.hasNext()) {
 						existing = i.next();
@@ -1344,16 +1329,11 @@ public class WorkspaceQuery implements Adaptable {
 					adaptTo(JcrCache.class).remove(id);
 
 					journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-							.put("event_occurred", System.nanoTime())
-							.put("event_type", Event.PROPERTY_ADDED)
-							.put("item_id", id)
-							.put("item_path", getPath(id))
-							.put("primary_type", getPrimaryType(id))
+							.put("event_occurred", System.nanoTime()).put("event_type", Event.PROPERTY_ADDED)
+							.put("item_id", id).put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
 							.put("property_name", params.getItemName())
-							.put("user_id", fWorkspace.getSession().getUserID())
-							.put("user_data", null)
-							.put("event_info", null)
-							.build());
+							.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null)
+							.put("event_info", null).build());
 				} else {
 					for (QName propertyValue : Arrays.stream(existing.getObjectArray("property_value"))
 							.map(e -> QName.valueOf((String) e)).toArray(QName[]::new)) {
@@ -1371,23 +1351,19 @@ public class WorkspaceQuery implements Adaptable {
 					adaptTo(JcrCache.class).remove(id);
 
 					journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-							.put("event_occurred", System.nanoTime())
-							.put("event_type", Event.PROPERTY_CHANGED)
-							.put("item_id", id)
-							.put("item_path", getPath(id))
-							.put("primary_type", getPrimaryType(id))
+							.put("event_occurred", System.nanoTime()).put("event_type", Event.PROPERTY_CHANGED)
+							.put("item_id", id).put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
 							.put("property_name", params.getItemName())
-							.put("user_id", fWorkspace.getSession().getUserID())
-							.put("user_data", null)
-							.put("event_info", null)
-							.build());
+							.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null)
+							.put("event_info", null).build());
 				}
 			}
 
 			return getProperty(id, relPath);
 		}
 
-		public JcrValue[] getPropertyValues(String id, String relPath) throws IOException, SQLException, RepositoryException {
+		public JcrValue[] getPropertyValues(String id, String relPath)
+				throws IOException, SQLException, RepositoryException {
 			AdaptableMap<String, Object> itemData = getProperty(id, relPath);
 			int type = itemData.getInteger("property_type");
 			return Arrays.stream(itemData.getObjectArray("property_value"))
@@ -1415,7 +1391,8 @@ public class WorkspaceQuery implements Adaptable {
 			return l;
 		}
 
-		public AdaptableMap<String, Object> removeProperty(String id, String relPath) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> removeProperty(String id, String relPath)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
@@ -1424,10 +1401,9 @@ public class WorkspaceQuery implements Adaptable {
 			}
 
 			AdaptableMap<String, Object> pk = AdaptableMap.<String, Object>newBuilder()
-					.put("item_id", new PropertyIdentifier(id, relPath).toString())
-					.build();
+					.put("item_id", new PropertyIdentifier(id, relPath).toString()).build();
 
-			AdaptableMap<String,Object> existing = null;
+			AdaptableMap<String, Object> existing = null;
 			try (Query.Result result = propertiesEntity().findByPrimaryKey(pk).setOffset(0).setLimit(1).execute()) {
 				Iterator<AdaptableMap<String, Object>> i = result.iterator();
 				if (i.hasNext()) {
@@ -1446,29 +1422,23 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			propertiesEntity().deleteByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-					.putAll(pk)
-					.put("is_deleted", Boolean.TRUE)
-					.build()).execute();
+			propertiesEntity().deleteByPrimaryKey(
+					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
+					.execute();
 
 			adaptTo(JcrCache.class).remove(id);
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
-					.put("event_type", Event.PROPERTY_REMOVED)
-					.put("item_id", id)
-					.put("item_path", getPath(id))
-					.put("primary_type", getPrimaryType(id))
-					.put("property_name", getResolved(relPath))
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+					.put("event_type", Event.PROPERTY_REMOVED).put("item_id", id).put("item_path", getPath(id))
+					.put("primary_type", getPrimaryType(id)).put("property_name", getResolved(relPath))
+					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
 					.build());
 
 			return null;
 		}
 
-		public AdaptableMap<String, Object> getLock(String absPath) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> getLock(String absPath)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(absPath) || !absPath.startsWith("/")) {
 				throw new PathNotFoundException("Invalid path: " + absPath);
 			}
@@ -1476,8 +1446,8 @@ public class WorkspaceQuery implements Adaptable {
 			int d = -1;
 			for (JcrPath path = getResolved(JcrPath.valueOf(absPath)); path != null; path = path.getParent()) {
 				d++;
-				try (Query.Result result = locksEntity().findByPrimaryKey(getNode(path.toString()))
-						.setOffset(0).setLimit(1).execute()) {
+				try (Query.Result result = locksEntity().findByPrimaryKey(getNode(path.toString())).setOffset(0)
+						.setLimit(1).execute()) {
 					Iterator<AdaptableMap<String, Object>> i = result.iterator();
 					if (!i.hasNext()) {
 						continue;
@@ -1500,21 +1470,23 @@ public class WorkspaceQuery implements Adaptable {
 				throw new PathNotFoundException("Invalid path: " + absPath);
 			}
 
-			AdaptableMap<String,Object> lockData;
+			AdaptableMap<String, Object> lockData;
 			try {
 				lockData = getLock(absPath);
 			} catch (LockException ignore) {
 				throw new LockException("Node '" + absPath + "' is not locked.");
 			}
 
-			AdaptableMap<String,Object> itemData = getNode(absPath);
+			AdaptableMap<String, Object> itemData = getNode(absPath);
 			String id = itemData.getString("item_id");
 
 			if (!lockData.getString("item_id").equals(id)) {
-				throw new LockException("Node '" + absPath + "' is locked on node '" + itemData.getString("item_path") + "'.");
+				throw new LockException(
+						"Node '" + absPath + "' is locked on node '" + itemData.getString("item_path") + "'.");
 			}
 
-			if (!Arrays.asList(fWorkspace.getLockManager().getLockTokens()).contains(lockData.getString("lock_token"))) {
+			if (!Arrays.asList(fWorkspace.getLockManager().getLockTokens())
+					.contains(lockData.getString("lock_token"))) {
 				throw new LockException("Could not unlock node '" + absPath + "'.");
 			}
 
@@ -1523,16 +1495,10 @@ public class WorkspaceQuery implements Adaptable {
 				throw new LockException("Could not unlock node '" + absPath + "'.");
 			}
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
-					.put("event_type", Event.UNLOCKED)
-					.put("item_id", id)
-					.put("item_path", getPath(id))
-					.put("primary_type", getPrimaryType(id))
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
-					.build());
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+					.put("event_type", Event.UNLOCKED).put("item_id", id).put("item_path", getPath(id))
+					.put("primary_type", getPrimaryType(id)).put("user_id", fWorkspace.getSession().getUserID())
+					.put("user_data", null).put("event_info", null).build());
 
 			removeProperty(id, Property.JCR_LOCK_OWNER);
 			removeProperty(id, Property.JCR_LOCK_IS_DEEP);
@@ -1541,9 +1507,9 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public void unlockSessionScopedLocks() throws IOException, SQLException, RepositoryException {
-			try (Query.Result result = newQueryBuilder("SELECT item_id FROM jcr_locks WHERE session_id = {{session_id}}")
-					.setVariable("session_id", getSessionIdentifier().toString())
-					.build().execute()) {
+			try (Query.Result result = newQueryBuilder(
+					"SELECT item_id FROM jcr_locks WHERE session_id = {{session_id}}")
+					.setVariable("session_id", getSessionIdentifier().toString()).build().execute()) {
 				for (AdaptableMap<String, Object> r : result) {
 					String absPath = getPath(r.getString("item_id"));
 					unlock(absPath);
@@ -1551,34 +1517,34 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		public AdaptableMap<String, Object> refreshLock(String absPath) throws IOException, SQLException, RepositoryException {
+		public AdaptableMap<String, Object> refreshLock(String absPath)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(absPath) || !absPath.startsWith("/")) {
 				throw new PathNotFoundException("Invalid path: " + absPath);
 			}
 
-			AdaptableMap<String,Object> lockData;
+			AdaptableMap<String, Object> lockData;
 			try {
 				lockData = getLock(absPath);
 			} catch (LockException ignore) {
 				throw new LockException("Node '" + absPath + "' is not locked.");
 			}
 
-			AdaptableMap<String,Object> itemData = getNode(absPath);
+			AdaptableMap<String, Object> itemData = getNode(absPath);
 			String id = itemData.getString("item_id");
 
 			if (!lockData.getString("item_id").equals(id)) {
-				throw new LockException("Node '" + absPath + "' is locked on node '" + itemData.getString("item_path") + "'.");
+				throw new LockException(
+						"Node '" + absPath + "' is locked on node '" + itemData.getString("item_path") + "'.");
 			}
 
 			lockData.put("lock_created", System.currentTimeMillis());
 			try {
 				int count = locksEntity().update(
-						AdaptableMap.<String, Object>newBuilder()
-								.put("lock_created", lockData.getLong("lock_created"))
+						AdaptableMap.<String, Object>newBuilder().put("lock_created", lockData.getLong("lock_created"))
 								.build(),
-						AdaptableMap.<String, Object>newBuilder()
-								.put("item_id", lockData.getString("item_id"))
-								.build()).execute();
+						AdaptableMap.<String, Object>newBuilder().put("item_id", lockData.getString("item_id")).build())
+						.execute();
 				if (count == 0) {
 					throw new LockException("Could not refresh lock on node '" + absPath + "'.");
 				}
@@ -1586,15 +1552,10 @@ public class WorkspaceQuery implements Adaptable {
 				throw new LockException("Node '" + absPath + "' is already locked.");
 			}
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
-					.put("event_type", Event.LOCK_REFRESHED)
-					.put("item_id", id)
-					.put("item_path", itemData.getString("item_path"))
-					.put("primary_type", getPrimaryType(id))
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+					.put("event_type", Event.LOCK_REFRESHED).put("item_id", id)
+					.put("item_path", itemData.getString("item_path")).put("primary_type", getPrimaryType(id))
+					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
 					.build());
 
 			return lockData;
@@ -1605,12 +1566,11 @@ public class WorkspaceQuery implements Adaptable {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
 
-			newUpdateBuilder("DELETE FROM jcr_locks WHERE item_id = {{id}}")
-					.setVariable("id", id)
-					.build().execute();
+			newUpdateBuilder("DELETE FROM jcr_locks WHERE item_id = {{id}}").setVariable("id", id).build().execute();
 		}
 
-		public void setAccessControlPolicy(String id, JcrAccessControlEntry... aces) throws IOException, SQLException, RepositoryException {
+		public void setAccessControlPolicy(String id, JcrAccessControlEntry... aces)
+				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(id)) {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
@@ -1618,33 +1578,23 @@ public class WorkspaceQuery implements Adaptable {
 				throw new AccessControlException("Access control entries must not be null.");
 			}
 
-			newUpdateBuilder("DELETE FROM jcr_aces WHERE item_id = {{id}}")
-					.setVariable("id", id)
-					.build().execute();
+			newUpdateBuilder("DELETE FROM jcr_aces WHERE item_id = {{id}}").setVariable("id", id).build().execute();
 
 			int rowNo = 0;
 			for (JcrAccessControlEntry ace : aces) {
-				acesEntity().create(AdaptableMap.<String, Object>newBuilder()
-						.put("item_id", id)
-						.put("row_no", ++rowNo)
+				acesEntity().create(AdaptableMap.<String, Object>newBuilder().put("item_id", id).put("row_no", ++rowNo)
 						.put("principal_name", ace.getPrincipal().getName())
 						.put("is_group", (ace.getPrincipal() instanceof GroupPrincipal))
 						.put("privilege_names", Arrays.stream(ace.getPrivileges()).map(e -> e.getName()).toArray())
-						.put("is_allow", ace.isAllow())
-						.build()).execute();
+						.put("is_allow", ace.isAllow()).build()).execute();
 			}
 
 			adaptTo(JcrCache.class).remove(id);
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
-					.put("event_type", Event.ACCESS_CONTROL_POLICY_CHANGED)
-					.put("item_id", id)
-					.put("item_path", getPath(id))
-					.put("primary_type", getPrimaryType(id))
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+					.put("event_type", Event.ACCESS_CONTROL_POLICY_CHANGED).put("item_id", id)
+					.put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
+					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
 					.build());
 		}
 
@@ -1653,21 +1603,14 @@ public class WorkspaceQuery implements Adaptable {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
 
-			newUpdateBuilder("DELETE FROM jcr_aces WHERE item_id = {{id}}")
-					.setVariable("id", id)
-					.build().execute();
+			newUpdateBuilder("DELETE FROM jcr_aces WHERE item_id = {{id}}").setVariable("id", id).build().execute();
 
 			adaptTo(JcrCache.class).remove(id);
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
-					.put("event_type", Event.ACCESS_CONTROL_POLICY_REMOVED)
-					.put("item_id", id)
-					.put("item_path", getPath(id))
-					.put("primary_type", getPrimaryType(id))
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+					.put("event_type", Event.ACCESS_CONTROL_POLICY_REMOVED).put("item_id", id)
+					.put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
+					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
 					.build());
 		}
 	}
@@ -1697,7 +1640,8 @@ public class WorkspaceQuery implements Adaptable {
 		private final Map<String, JcrBinary> fBinaries = new HashMap<>();
 		private final Closer fCloser = Closer.create();
 
-		private PropertyParameters(String itemId, String relPath, int type, boolean multiple, Value... values) throws IOException, RepositoryException {
+		private PropertyParameters(String itemId, String relPath, int type, boolean multiple, Value... values)
+				throws IOException, RepositoryException {
 			fItemId = new PropertyIdentifier(itemId, relPath).toString();
 			fItemName = getResolved(relPath);
 			fParentItemId = itemId;
@@ -1713,7 +1657,8 @@ public class WorkspaceQuery implements Adaptable {
 				JcrBinary binary = null;
 				try {
 					if (type == PropertyType.BINARY || relPath.equals(JcrProperty.JCR_DATA_NAME)) {
-						propertyValue = new QName(JcrValue.BINARY_NS_URI, UUID.randomUUID().toString(), XMLConstants.DEFAULT_NS_PREFIX);
+						propertyValue = new QName(JcrValue.BINARY_NS_URI, UUID.randomUUID().toString(),
+								XMLConstants.DEFAULT_NS_PREFIX);
 						binary = fCloser.register((JcrBinary) ((JcrValue) value).adapt(Binary.class));
 					} else if (type == PropertyType.BOOLEAN || type == PropertyType.DATE || type == PropertyType.DECIMAL
 							|| type == PropertyType.DOUBLE || type == PropertyType.LONG || type == PropertyType.STRING
@@ -1723,52 +1668,60 @@ public class WorkspaceQuery implements Adaptable {
 							propertyValue = null;
 						} else {
 							if (v.length() > 3072) {
-								propertyValue = new QName(JcrValue.BINARY_NS_URI, UUID.randomUUID().toString(), XMLConstants.DEFAULT_NS_PREFIX);
-								binary = fCloser.register(JcrBinary.create(v.getBytes(StandardCharsets.UTF_8.toString())));
+								propertyValue = new QName(JcrValue.BINARY_NS_URI, UUID.randomUUID().toString(),
+										XMLConstants.DEFAULT_NS_PREFIX);
+								binary = fCloser
+										.register(JcrBinary.create(v.getBytes(StandardCharsets.UTF_8.toString())));
 							} else {
 								propertyValue = new QName(JcrValue.STRING_NS_URI, v, XMLConstants.DEFAULT_NS_PREFIX);
 							}
 						}
-					} else if (type == PropertyType.REFERENCE) {
+					} else if (type == PropertyType.REFERENCE || type == PropertyType.WEAKREFERENCE) {
 						try {
 							String v = ((JcrValue) value).adapt(Node.class).getIdentifier();
 							propertyValue = new QName(JcrValue.STRING_NS_URI, v, XMLConstants.DEFAULT_NS_PREFIX);
 						} catch (ValueFormatException ignore) {
 							String idOrPath = ((JcrValue) value).adapt(String.class);
-							AdaptableMap<String,Object> itemData = null;
+							AdaptableMap<String, Object> itemData = null;
 							try {
 								itemData = items().getNodeByIdentifier(UUID.fromString(idOrPath).toString());
 							} catch (ItemNotFoundException ex) {
 								throw ex;
-							} catch (Throwable ex) {}
+							} catch (Throwable ex) {
+							}
 							try {
 								itemData = items().getNode(idOrPath);
-							} catch (Throwable ex) {}
+							} catch (Throwable ex) {
+							}
 							if (itemData == null) {
 								propertyValue = null;
 							} else {
-								propertyValue = new QName(JcrValue.STRING_NS_URI, itemData.getString("item_id"), XMLConstants.DEFAULT_NS_PREFIX);
+								propertyValue = new QName(JcrValue.STRING_NS_URI, itemData.getString("item_id"),
+										XMLConstants.DEFAULT_NS_PREFIX);
 							}
 						}
-					} else if (type == PropertyType.PATH || type == PropertyType.WEAKREFERENCE) {
+					} else if (type == PropertyType.PATH) {
 						try {
 							String v = ((JcrValue) value).adapt(Node.class).getPath();
 							propertyValue = new QName(JcrValue.STRING_NS_URI, v, XMLConstants.DEFAULT_NS_PREFIX);
 						} catch (ValueFormatException ignore) {
 							String idOrPath = ((JcrValue) value).adapt(String.class);
-							AdaptableMap<String,Object> itemData = null;
+							AdaptableMap<String, Object> itemData = null;
 							try {
 								itemData = items().getNodeByIdentifier(UUID.fromString(idOrPath).toString());
 							} catch (ItemNotFoundException ex) {
 								throw ex;
-							} catch (Throwable ex) {}
+							} catch (Throwable ex) {
+							}
 							try {
 								itemData = items().getNode(idOrPath);
-							} catch (Throwable ex) {}
+							} catch (Throwable ex) {
+							}
 							if (itemData == null) {
 								propertyValue = null;
 							} else {
-								propertyValue = new QName(JcrValue.STRING_NS_URI, itemData.getString("item_path"), XMLConstants.DEFAULT_NS_PREFIX);
+								propertyValue = new QName(JcrValue.STRING_NS_URI, itemData.getString("item_path"),
+										XMLConstants.DEFAULT_NS_PREFIX);
 							}
 						}
 					} else {
@@ -1779,7 +1732,8 @@ public class WorkspaceQuery implements Adaptable {
 				}
 
 				if (propertyValue == null) {
-					throw new ValueFormatException("The value of property '" + relPath + "' cannot be converted to a " + PropertyType.nameFromValue(type) + ".");
+					throw new ValueFormatException("The value of property '" + relPath + "' cannot be converted to a "
+							+ PropertyType.nameFromValue(type) + ".");
 				}
 
 				fPropertyValues.add(propertyValue.toString());
@@ -1824,9 +1778,11 @@ public class WorkspaceQuery implements Adaptable {
 	}
 
 	public class NamespacesQuery {
-		private NamespacesQuery() {}
+		private NamespacesQuery() {
+		}
 
 		private Entity fNamespacesEntity;
+
 		private Entity namespacesEntity() throws SQLException {
 			if (fNamespacesEntity == null) {
 				fNamespacesEntity = Entity.newBuilder(getConnection()).setName("jcr_namespaces").build();
@@ -1835,8 +1791,8 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public String getPrefix(String uri) throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT namespace_prefix FROM jcr_namespaces WHERE namespace_uri = {{uri}}")
-					.setVariable("uri", uri)
+			try (Query.Result result = newQueryBuilder(
+					"SELECT namespace_prefix FROM jcr_namespaces WHERE namespace_uri = {{uri}}").setVariable("uri", uri)
 					.build().setOffset(0).setLimit(1).execute()) {
 				Iterator<AdaptableMap<String, Object>> i = result.iterator();
 				if (!i.hasNext()) {
@@ -1848,8 +1804,9 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public String[] getPrefixes() throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT namespace_prefix FROM jcr_namespaces ORDER BY namespace_prefix")
-					.build().setOffset(0).execute()) {
+			try (Query.Result result = newQueryBuilder(
+					"SELECT namespace_prefix FROM jcr_namespaces ORDER BY namespace_prefix").build().setOffset(0)
+					.execute()) {
 				List<String> l = new ArrayList<>();
 				for (AdaptableMap<String, Object> r : result) {
 					l.add(r.getString("namespace_prefix"));
@@ -1859,9 +1816,9 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public String getURI(String prefix) throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT namespace_uri FROM jcr_namespaces WHERE namespace_prefix = {{prefix}}")
-					.setVariable("prefix", prefix)
-					.build().setOffset(0).setLimit(1).execute()) {
+			try (Query.Result result = newQueryBuilder(
+					"SELECT namespace_uri FROM jcr_namespaces WHERE namespace_prefix = {{prefix}}")
+					.setVariable("prefix", prefix).build().setOffset(0).setLimit(1).execute()) {
 				Iterator<AdaptableMap<String, Object>> i = result.iterator();
 				if (!i.hasNext()) {
 					return null;
@@ -1872,8 +1829,8 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public String[] getURIs() throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder("SELECT namespace_uri FROM jcr_namespaces ORDER BY namespace_uri")
-					.build().setOffset(0).execute()) {
+			try (Query.Result result = newQueryBuilder(
+					"SELECT namespace_uri FROM jcr_namespaces ORDER BY namespace_uri").build().setOffset(0).execute()) {
 				List<String> l = new ArrayList<>();
 				for (AdaptableMap<String, Object> r : result) {
 					l.add(r.getString("namespace_uri"));
@@ -1883,16 +1840,15 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public void registerNamespace(String prefix, String uri) throws IOException, SQLException {
-			namespacesEntity().create(AdaptableMap.<String, Object>newBuilder()
-					.put("namespace_prefix", prefix)
-					.put("namespace_uri", uri)
-					.build()).execute();
+			namespacesEntity().create(AdaptableMap.<String, Object>newBuilder().put("namespace_prefix", prefix)
+					.put("namespace_uri", uri).build()).execute();
 		}
 
 		public void unregisterNamespace(String prefix) throws IOException, SQLException {
-			namespacesEntity().deleteByPrimaryKey(AdaptableMap.<String, Object>newBuilder()
-					.put("namespace_prefix", prefix)
-					.build()).execute();
+			namespacesEntity()
+					.deleteByPrimaryKey(
+							AdaptableMap.<String, Object>newBuilder().put("namespace_prefix", prefix).build())
+					.execute();
 		}
 	}
 

@@ -196,8 +196,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		});
 	}
 
-	public void remove(UnaryOperator<Map<String, Object>> op) throws VersionException, LockException, ConstraintViolationException, AccessDeniedException,
-			RepositoryException {
+	public void remove(UnaryOperator<Map<String, Object>> op) throws VersionException, LockException,
+			ConstraintViolationException, AccessDeniedException, RepositoryException {
 		Map<String, Object> options = new HashMap<>();
 		options.put("identifier", getIdentifier());
 		options.put("path", getPath());
@@ -205,8 +205,10 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		ExpressionContext el = ExpressionContext.create().setVariable("options", options);
 
 		if (!el.getBoolean("options.force")) {
-			if (isNodeType(NodeType.NT_VERSION_HISTORY) || isNodeType(NodeType.NT_VERSION) || isNodeType(NodeType.NT_FROZEN_NODE)) {
-				JcrPath path = JcrPath.valueOf(JCRs.getVersionHistoryNode(this).getProperty(JcrProperty.JCR_VERSIONABLE_UUID).getNode().getPath());
+			if (isNodeType(NodeType.NT_VERSION_HISTORY) || isNodeType(NodeType.NT_VERSION)
+					|| isNodeType(NodeType.NT_FROZEN_NODE)) {
+				JcrPath path = JcrPath.valueOf(JCRs.getVersionHistoryNode(this)
+						.getProperty(JcrProperty.JCR_VERSIONABLE_UUID).getNode().getPath());
 				fSession.checkPrivileges(path.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
 				fSession.checkPrivileges(path.toString(), Privilege.JCR_REMOVE_NODE);
 			} else {
@@ -249,8 +251,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	@Override
-	public void addMixin(String mixinName) throws NoSuchNodeTypeException, VersionException, ConstraintViolationException,
-			LockException, RepositoryException {
+	public void addMixin(String mixinName) throws NoSuchNodeTypeException, VersionException,
+			ConstraintViolationException, LockException, RepositoryException {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_NODE_TYPE_MANAGEMENT);
 		checkWritable();
 		NodeType type = adaptTo(JcrNodeTypeManager.class).getNodeType(mixinName);
@@ -281,7 +283,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			throw new ConstraintViolationException("The node '" + path.getName().toString() + "' is protected.");
 		}
 		try {
-			Node node = JcrNode.create(getWorkspaceQuery().items().createNode(path.toString(), primaryNodeTypeName), fSession);
+			Node node = JcrNode.create(getWorkspaceQuery().items().createNode(path.toString(), primaryNodeTypeName),
+					fSession);
 			if (primaryNodeTypeName != null) {
 				fSession.checkPrivileges(node.getPath(), Privilege.JCR_NODE_TYPE_MANAGEMENT);
 			}
@@ -395,14 +398,13 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		}
 
 		try {
-			return Arrays.stream(getProperty(Property.JCR_MIXIN_TYPES).getValues())
-					.map(e -> {
-						try {
-							return adaptTo(NodeTypeManager.class).getNodeType(e.getString());
-						} catch (RepositoryException ex) {
-							throw new UncheckedRepositoryException(ex);
-						}
-					}).toArray(NodeType[]::new);
+			return Arrays.stream(getProperty(Property.JCR_MIXIN_TYPES).getValues()).map(e -> {
+				try {
+					return adaptTo(NodeTypeManager.class).getNodeType(e.getString());
+				} catch (RepositoryException ex) {
+					throw new UncheckedRepositoryException(ex);
+				}
+			}).toArray(NodeType[]::new);
 		} catch (UncheckedRepositoryException ex) {
 			throw ex.getCause();
 		}
@@ -482,14 +484,12 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 	@Override
 	public PropertyIterator getReferences() throws RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		return getReferences((String) null);
 	}
 
 	@Override
 	public PropertyIterator getReferences(String name) throws RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		return createReferenceIterator(name, false);
 	}
 
 	@Override
@@ -510,23 +510,22 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 	@Override
 	public PropertyIterator getWeakReferences() throws RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		return getWeakReferences((String) null);
 	}
 
 	@Override
 	public PropertyIterator getWeakReferences(String name) throws RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		return createReferenceIterator(name, true);
 	}
 
 	@Override
 	public boolean hasNode(String relPath) throws RepositoryException {
 		try {
-			return (getWorkspaceQuery().items().countNodes(getIdentifier(), new String[] { getWorkspaceQuery().getResolved(relPath) }) > 0);
+			return (getWorkspaceQuery().items().countNodes(getIdentifier(),
+					new String[] { getWorkspaceQuery().getResolved(relPath) }) > 0);
 		} catch (PathNotFoundException ignore) {
 			return false;
-		} catch (IOException | SQLException  ex) {
+		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
 	}
@@ -535,7 +534,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	public boolean hasNodes() throws RepositoryException {
 		try {
 			return (getWorkspaceQuery().items().countNodes(getIdentifier(), null) > 0);
-		} catch (IOException | SQLException  ex) {
+		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
 	}
@@ -584,20 +583,21 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	@Override
-	public Lock lock(boolean isDeep, boolean isSessionScoped) throws UnsupportedRepositoryOperationException, LockException,
-			AccessDeniedException, InvalidItemStateException, RepositoryException {
+	public Lock lock(boolean isDeep, boolean isSessionScoped) throws UnsupportedRepositoryOperationException,
+			LockException, AccessDeniedException, InvalidItemStateException, RepositoryException {
 		return fSession.getWorkspace().getLockManager().lock(getPath(), isDeep, isSessionScoped, -1, null);
 	}
 
 	@Override
-	public NodeIterator merge(String srcWorkspace, boolean bestEffort) throws NoSuchWorkspaceException, AccessDeniedException,
-			MergeException, LockException, InvalidItemStateException, RepositoryException {
+	public NodeIterator merge(String srcWorkspace, boolean bestEffort) throws NoSuchWorkspaceException,
+			AccessDeniedException, MergeException, LockException, InvalidItemStateException, RepositoryException {
 		return adaptTo(JcrVersionManager.class).merge(getPath(), srcWorkspace, bestEffort);
 	}
 
 	@Override
-	public void orderBefore(String srcChildRelPath, String destChildRelPath) throws UnsupportedRepositoryOperationException, VersionException,
-			ConstraintViolationException, ItemNotFoundException, LockException, RepositoryException {
+	public void orderBefore(String srcChildRelPath, String destChildRelPath)
+			throws UnsupportedRepositoryOperationException, VersionException, ConstraintViolationException,
+			ItemNotFoundException, LockException, RepositoryException {
 		// TODO Auto-generated method stub
 		JcrPath path = JcrPath.valueOf(getPath());
 		fSession.checkPrivileges(path.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
@@ -605,8 +605,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	@Override
-	public void removeMixin(String mixinName) throws NoSuchNodeTypeException, VersionException, ConstraintViolationException,
-			LockException, RepositoryException {
+	public void removeMixin(String mixinName) throws NoSuchNodeTypeException, VersionException,
+			ConstraintViolationException, LockException, RepositoryException {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_NODE_TYPE_MANAGEMENT);
 		checkWritable();
 		if (isNodeType(NodeType.MIX_REFERENCEABLE)) {
@@ -655,12 +655,14 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	public void restore(Version version, String relPath, boolean removeExisting)
 			throws PathNotFoundException, ItemExistsException, VersionException, ConstraintViolationException,
 			UnsupportedRepositoryOperationException, LockException, InvalidItemStateException, RepositoryException {
-		adaptTo(JcrVersionManager.class).restore(JcrPath.valueOf(getPath()).resolve(relPath).toString(), version, removeExisting);
+		adaptTo(JcrVersionManager.class).restore(JcrPath.valueOf(getPath()).resolve(relPath).toString(), version,
+				removeExisting);
 	}
 
 	@Override
-	public void restoreByLabel(String versionLabel, boolean removeExisting) throws VersionException, ItemExistsException,
-			UnsupportedRepositoryOperationException, LockException, InvalidItemStateException, RepositoryException {
+	public void restoreByLabel(String versionLabel, boolean removeExisting)
+			throws VersionException, ItemExistsException, UnsupportedRepositoryOperationException, LockException,
+			InvalidItemStateException, RepositoryException {
 		adaptTo(JcrVersionManager.class).restoreByLabel(getPath(), versionLabel, removeExisting);
 	}
 
@@ -687,8 +689,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	@Override
-	public Property setProperty(String name, Value[] value) throws ValueFormatException, VersionException, LockException,
-			ConstraintViolationException, RepositoryException {
+	public Property setProperty(String name, Value[] value) throws ValueFormatException, VersionException,
+			LockException, ConstraintViolationException, RepositoryException {
 		int type = PropertyType.STRING;
 		if (value != null && value[0] != null) {
 			type = value[0].getType();
@@ -721,8 +723,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	@Override
-	public Property setProperty(String name, boolean value) throws ValueFormatException, VersionException, LockException,
-			ConstraintViolationException, RepositoryException {
+	public Property setProperty(String name, boolean value) throws ValueFormatException, VersionException,
+			LockException, ConstraintViolationException, RepositoryException {
 		return setProperty(name, getValueFactory().createValue(value), PropertyType.BOOLEAN);
 	}
 
@@ -765,7 +767,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
 		}
 		try {
-			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(getIdentifier(), name, type, value);
+			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(getIdentifier(), name, type,
+					value);
 			if (updated == null) {
 				return null;
 			}
@@ -784,7 +787,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
 		}
 		try {
-			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(getIdentifier(), name, type, Arrays.stream(values).toArray(JcrValue[]::new));
+			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(getIdentifier(), name, type,
+					Arrays.stream(values).toArray(JcrValue[]::new));
 			if (updated == null) {
 				return null;
 			}
@@ -836,7 +840,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		Lock lock = null;
 		try {
 			lock = adaptTo(JcrLockManager.class).getLock(getPath());
-		} catch (LockException ex) {}
+		} catch (LockException ex) {
+		}
 		if (lock != null && lock.isDeep()) {
 			if (!Arrays.asList(adaptTo(JcrLockManager.class).getLockTokens()).contains(lock.getLockToken())) {
 				throw new LockException("Node '" + getPath() + "' is locked.");
@@ -852,7 +857,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		Lock lock = null;
 		try {
 			lock = adaptTo(JcrLockManager.class).getLock(getPath());
-		} catch (LockException ex) {}
+		} catch (LockException ex) {
+		}
 		if (lock != null) {
 			if (!Arrays.asList(adaptTo(JcrLockManager.class).getLockTokens()).contains(lock.getLockToken())) {
 				throw new LockException("Node '" + getPath() + "' is locked.");
@@ -882,7 +888,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		Lock lock = null;
 		try {
 			lock = adaptTo(JcrLockManager.class).getLock(getPath());
-		} catch (LockException ex) {}
+		} catch (LockException ex) {
+		}
 		if (lock != null) {
 			if (!Arrays.asList(adaptTo(JcrLockManager.class).getLockTokens()).contains(lock.getLockToken())) {
 				throw new LockException("Node '" + getPath() + "' is locked.");
@@ -932,14 +939,15 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 			try {
 				Node versionControlledNode = JCRs.getVersionControlledNode(this);
-				if (versionControlledNode != null && versionControlledNode.isCheckedOut() &&
-						versionControlledNode.hasProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)) {
-					String checkedOutBy = versionControlledNode.getProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY).getString();
+				if (versionControlledNode != null && versionControlledNode.isCheckedOut()
+						&& versionControlledNode.hasProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)) {
+					String checkedOutBy = versionControlledNode.getProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)
+							.getString();
 					if (!getSession().getUserID().equals(checkedOutBy)) {
 						Map<String, AdaptableMap<String, Object>> replaced = new HashMap<>();
 						for (Map.Entry<String, AdaptableMap<String, Object>> e : properties.entrySet()) {
-							if (e.getKey().startsWith(NamespaceRegistry.PREFIX_JCR + ":") ||
-									e.getKey().equals(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY_NAME)) {
+							if (e.getKey().startsWith(NamespaceRegistry.PREFIX_JCR + ":")
+									|| e.getKey().equals(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY_NAME)) {
 								replaced.put(e.getKey(), e.getValue());
 							}
 						}
@@ -949,9 +957,11 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 							frozenNode = getBaseVersion().getFrozenNode();
 						} else {
 							String relPath = getPath().substring(versionControlledNode.getPath().length());
-							frozenNode = versionControlledNode.getBaseVersion().getFrozenNode().getNode(relPath.substring(1));
+							frozenNode = versionControlledNode.getBaseVersion().getFrozenNode()
+									.getNode(relPath.substring(1));
 						}
-						try (Query.Result result = getWorkspaceQuery().items().listProperties(frozenNode.getIdentifier(), null, 0)) {
+						try (Query.Result result = getWorkspaceQuery().items()
+								.listProperties(frozenNode.getIdentifier(), null, 0)) {
 							for (AdaptableMap<String, Object> itemData : result) {
 								String k = itemData.getString("item_name");
 								if (k.startsWith(NamespaceRegistry.PREFIX_JCR + ":")) {
@@ -961,11 +971,11 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 									} else if (k.equals(org.mintjams.jcr.Property.JCR_FROZEN_MIXIN_TYPES_NAME)) {
 										k = org.mintjams.jcr.Property.JCR_MIXIN_TYPES_NAME;
 										itemData.put("item_name", k);
-									} else if (k.equals(org.mintjams.jcr.Property.JCR_MIMETYPE_NAME) ||
-											k.equals(org.mintjams.jcr.Property.JCR_ENCODING_NAME) ||
-											k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_NAME) ||
-											k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_BY_NAME) ||
-											k.equals(org.mintjams.jcr.Property.JCR_DATA_NAME)) {
+									} else if (k.equals(org.mintjams.jcr.Property.JCR_MIMETYPE_NAME)
+											|| k.equals(org.mintjams.jcr.Property.JCR_ENCODING_NAME)
+											|| k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_NAME)
+											|| k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_BY_NAME)
+											|| k.equals(org.mintjams.jcr.Property.JCR_DATA_NAME)) {
 										// do nothing
 									} else {
 										continue;
@@ -985,6 +995,96 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			}
 		}
 		return properties;
+	}
+
+	private void collectReferencesForId(String id, String name, boolean weak, List<JcrProperty> items,
+			java.util.Set<String> seen) throws IOException, SQLException, RepositoryException {
+		if (id == null) {
+			return;
+		}
+
+		try (Query.Result result = getWorkspaceQuery().items().listReferences(id, name, weak)) {
+			for (AdaptableMap<String, Object> itemData : result) {
+				if (itemData.getBoolean("is_deleted")) {
+					continue;
+				}
+				String propId = itemData.getString("item_id");
+				if (seen.add(propId)) {
+					items.add(JcrProperty.create(itemData, (JcrNode) fSession.getNodeByIdentifier(itemData.getString("parent_item_id"))));
+				}
+			}
+		}
+	}
+
+	private PropertyIterator createReferenceIterator(String name, boolean weak) throws RepositoryException {
+		List<JcrProperty> items = new ArrayList<>();
+		try {
+			java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+
+			// collect for live node
+			collectReferencesForId(getIdentifier(), name, weak, items, seen);
+
+			// versioning adjustment: consider frozen node when appropriate
+			Node versionControlledNode = JCRs.getVersionControlledNode(this);
+			if (versionControlledNode != null && versionControlledNode.isCheckedOut()
+					&& versionControlledNode.hasProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)) {
+				String checkedOutBy = versionControlledNode.getProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)
+						.getString();
+				if (!getSession().getUserID().equals(checkedOutBy)) {
+					Node frozenNode;
+					if (getIdentifier().equals(versionControlledNode.getIdentifier())) {
+						frozenNode = getBaseVersion().getFrozenNode();
+					} else {
+						String relPath = getPath().substring(versionControlledNode.getPath().length());
+						frozenNode = versionControlledNode.getBaseVersion().getFrozenNode()
+								.getNode(relPath.substring(1));
+					}
+					collectReferencesForId(frozenNode.getIdentifier(), name, weak, items, seen);
+				}
+			}
+		} catch (IOException | SQLException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+
+		return new PropertyIterator() {
+			private final List<JcrProperty> fItems = items;
+			private int pos = 0;
+
+			@Override
+			public long getPosition() {
+				return pos;
+			}
+
+			@Override
+			public long getSize() {
+				return fItems.size();
+			}
+
+			@Override
+			public void skip(long skipNum) {
+				if (skipNum < 0 || Integer.MAX_VALUE < skipNum)
+					throw new NoSuchElementException("Invalid skip number: " + skipNum);
+				for (long i = 0; i < skipNum && hasNext(); i++)
+					nextProperty();
+			}
+
+			@Override
+			public boolean hasNext() {
+				return pos < fItems.size();
+			}
+
+			@Override
+			public Object next() {
+				return nextProperty();
+			}
+
+			@Override
+			public Property nextProperty() {
+				if (!hasNext())
+					throw new IllegalStateException("No more items.");
+				return fItems.get(pos++);
+			}
+		};
 	}
 
 	@SuppressWarnings("unchecked")
@@ -1050,7 +1150,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		private int fPosition = 0;
 
 		private CachedPropertyIterator(String[] nameGlobs) throws RepositoryException {
-			for (Map.Entry<String, AdaptableMap<String, Object>> e : new TreeMap<String, AdaptableMap<String, Object>>(getCachedProperties()).entrySet()) {
+			for (Map.Entry<String, AdaptableMap<String, Object>> e : new TreeMap<String, AdaptableMap<String, Object>>(
+					getCachedProperties()).entrySet()) {
 				boolean matches = false;
 				if (nameGlobs != null) {
 					for (String glob : nameGlobs) {
