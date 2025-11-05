@@ -78,6 +78,8 @@ public class GraphQLExecutor {
 				response.setData(queryExecutor.executeNodeQuery(request));
 			} else if (query.contains("children(")) {
 				response.setData(queryExecutor.executeChildrenQuery(request));
+			} else if (query.contains("references(")) {
+				response.setData(queryExecutor.executeReferencesQuery(request));
 			} else {
 				response.addError("Unknown query operation");
 			}
@@ -101,10 +103,18 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeCreateFile(request));
 			} else if (query.contains("deleteNode(")) {
 				response.setData(mutationExecutor.executeDeleteNode(request));
+			} else if (query.contains("deleteProperty(")) {
+				response.setData(mutationExecutor.executeDeleteProperty(request));
 			} else if (query.contains("unlockNode(")) {
 				response.setData(mutationExecutor.executeUnlockNode(request));
 			} else if (query.contains("lockNode(")) {
 				response.setData(mutationExecutor.executeLockNode(request));
+			} else if (query.contains("setProperty(")) {
+				response.setData(mutationExecutor.executeSetProperty(request));
+			} else if (query.contains("removeMixin(")) {
+				response.setData(mutationExecutor.executeRemoveMixin(request));
+			} else if (query.contains("addMixin(")) {
+				response.setData(mutationExecutor.executeAddMixin(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}

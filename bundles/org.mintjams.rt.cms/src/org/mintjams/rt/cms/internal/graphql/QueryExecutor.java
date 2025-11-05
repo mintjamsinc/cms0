@@ -31,6 +31,9 @@ import java.util.regex.Pattern;
 
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
+import javax.jcr.Property;
+import javax.jcr.PropertyIterator;
+import javax.jcr.PropertyType;
 import javax.jcr.Session;
 
 /**
@@ -138,6 +141,72 @@ public class QueryExecutor {
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("children", connection);
+
+		return result;
+	}
+
+	/**
+	 * Execute references query
+	 * Returns nodes that reference the specified node
+	 * Example: { references(path: "/content/target") { nodes { path name } } }
+	 */
+	public Map<String, Object> executeReferencesQuery(GraphQLRequest request) throws Exception {
+		String query = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Extract path using simple regex
+		Pattern pattern = Pattern.compile("references\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"");
+		String path = extractPath(query, pattern, variables);
+
+		if (path == null) {
+			throw new IllegalArgumentException("Invalid references query: path not found");
+		}
+
+		if (!session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node targetNode = session.getNode(path);
+
+		// Get UUID if node is referenceable
+		if (!targetNode.isNodeType("mix:referenceable")) {
+			// If not referenceable, return empty list
+			Map<String, Object> connection = new HashMap<>();
+			connection.put("nodes", new ArrayList<>());
+			connection.put("totalCount", 0);
+
+			Map<String, Object> result = new HashMap<>();
+			result.put("references", connection);
+			return result;
+		}
+
+		String uuid = targetNode.getIdentifier();
+		List<Map<String, Object>> referencingNodes = new ArrayList<>();
+
+		// Search all nodes that have Reference or WeakReference properties pointing to this UUID
+		// Using property iterator approach (more efficient than full tree traversal)
+		PropertyIterator refProps = targetNode.getReferences();
+		while (refProps.hasNext()) {
+			Property prop = refProps.nextProperty();
+			Node referencingNode = prop.getParent();
+			referencingNodes.add(NodeMapper.toGraphQL(referencingNode));
+		}
+
+		// Also check for weak references
+		PropertyIterator weakRefProps = targetNode.getWeakReferences();
+		while (weakRefProps.hasNext()) {
+			Property prop = weakRefProps.nextProperty();
+			Node referencingNode = prop.getParent();
+			referencingNodes.add(NodeMapper.toGraphQL(referencingNode));
+		}
+
+		// Build response
+		Map<String, Object> connection = new HashMap<>();
+		connection.put("nodes", referencingNodes);
+		connection.put("totalCount", referencingNodes.size());
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("references", connection);
 
 		return result;
 	}

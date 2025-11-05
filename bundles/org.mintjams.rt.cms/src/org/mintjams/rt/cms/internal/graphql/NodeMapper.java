@@ -23,11 +23,16 @@
 package org.mintjams.rt.cms.internal.graphql;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 
 import javax.jcr.Node;
+import javax.jcr.Property;
+import javax.jcr.PropertyIterator;
+import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
 import javax.jcr.lock.Lock;
 import javax.jcr.lock.LockManager;
@@ -69,8 +74,18 @@ public class NodeMapper {
 			result.put("createdBy", node.getProperty("jcr:createdBy").getString());
 		}
 
+		// UUID for referenceable nodes
+		if (node.isNodeType("mix:referenceable")) {
+			result.put("uuid", node.getIdentifier());
+		} else {
+			result.put("uuid", null);
+		}
+
 		// Lock information
 		addLockInfo(node, result);
+
+		// Properties list
+		addProperties(node, result);
 
 		// Processing based on node type
 		if ("nt:file".equals(nodeType)) {
@@ -170,6 +185,72 @@ public class NodeMapper {
 			}
 		} else if (node.hasProperty("jcr:createdBy")) {
 			result.put("modifiedBy", node.getProperty("jcr:createdBy").getString());
+		}
+	}
+
+	/**
+	 * Add properties list to result
+	 */
+	private static void addProperties(Node node, Map<String, Object> result) throws RepositoryException {
+		try {
+			List<Map<String, Object>> properties = new ArrayList<>();
+			PropertyIterator propIterator = node.getProperties();
+
+			while (propIterator.hasNext()) {
+				Property prop = propIterator.nextProperty();
+
+				// Skip system properties (starting with jcr:)
+				String propName = prop.getName();
+				if (propName.startsWith("jcr:")) {
+					continue;
+				}
+
+				Map<String, Object> propMap = new HashMap<>();
+				propMap.put("name", propName);
+				propMap.put("type", PropertyType.nameFromValue(prop.getType()));
+
+				// Get property value
+				if (prop.isMultiple()) {
+					// Multiple values
+					List<String> values = new ArrayList<>();
+					for (javax.jcr.Value value : prop.getValues()) {
+						values.add(getPropertyValueAsString(value));
+					}
+					propMap.put("value", values);
+				} else {
+					// Single value
+					propMap.put("value", getPropertyValueAsString(prop.getValue()));
+				}
+
+				properties.add(propMap);
+			}
+
+			result.put("properties", properties);
+		} catch (Exception e) {
+			result.put("properties", new ArrayList<>());
+		}
+	}
+
+	/**
+	 * Convert property value to string
+	 */
+	private static String getPropertyValueAsString(javax.jcr.Value value) {
+		try {
+			int type = value.getType();
+			switch (type) {
+				case PropertyType.REFERENCE:
+				case PropertyType.WEAKREFERENCE:
+					// Return UUID for reference types
+					return value.getString();
+				case PropertyType.BINARY:
+					return "[Binary]";
+				case PropertyType.DATE:
+					return formatDate(value.getDate());
+				default:
+					return value.getString();
+			}
+		} catch (Exception e) {
+			return "[Error]";
 		}
 	}
 

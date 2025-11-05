@@ -29,7 +29,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 import javax.jcr.Node;
+import javax.jcr.PropertyType;
 import javax.jcr.Session;
+import javax.jcr.Value;
 import javax.jcr.lock.Lock;
 import javax.jcr.lock.LockManager;
 
@@ -235,6 +237,200 @@ public class MutationExecutor {
 	}
 
 	/**
+	 * Execute setProperty mutation
+	 * Example: mutation { setProperty(input: { path: "/content/page1", name: "myRef", value: "uuid", type: "Reference" }) }
+	 */
+	public Map<String, Object> executeSetProperty(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+		String name = (String) input.get("name");
+		Object value = input.get("value");
+		String type = (String) input.get("type");
+
+		if (path == null || name == null || value == null) {
+			throw new IllegalArgumentException("path, name, and value are required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Set property based on type
+		if (type != null) {
+			int propertyType = getPropertyType(type);
+
+			if (propertyType == PropertyType.REFERENCE || propertyType == PropertyType.WEAKREFERENCE) {
+				// For Reference/WeakReference, value should be a UUID
+				Node targetNode = this.session.getNodeByIdentifier(value.toString());
+				Value refValue = this.session.getValueFactory().createValue(targetNode, propertyType == PropertyType.WEAKREFERENCE);
+				node.setProperty(name, refValue);
+			} else {
+				// For other types, use standard property setting
+				switch (propertyType) {
+					case PropertyType.BOOLEAN:
+						node.setProperty(name, Boolean.parseBoolean(value.toString()));
+						break;
+					case PropertyType.LONG:
+						node.setProperty(name, Long.parseLong(value.toString()));
+						break;
+					case PropertyType.DOUBLE:
+						node.setProperty(name, Double.parseDouble(value.toString()));
+						break;
+					default:
+						node.setProperty(name, value.toString());
+						break;
+				}
+			}
+		} else {
+			// Auto-detect type
+			node.setProperty(name, value.toString());
+		}
+
+		this.session.save();
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("setProperty", NodeMapper.toGraphQL(node));
+
+		return result;
+	}
+
+	/**
+	 * Execute addMixin mutation
+	 * Example: mutation { addMixin(input: { path: "/content/page1", mixinType: "mix:referenceable" }) }
+	 */
+	public Map<String, Object> executeAddMixin(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+		String mixinType = (String) input.get("mixinType");
+
+		if (path == null || mixinType == null) {
+			throw new IllegalArgumentException("path and mixinType are required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Add mixin if not already present
+		if (!node.isNodeType(mixinType)) {
+			node.addMixin(mixinType);
+			this.session.save();
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("addMixin", NodeMapper.toGraphQL(node));
+
+		return result;
+	}
+
+	/**
+	 * Execute removeMixin mutation
+	 * Example: mutation { removeMixin(input: { path: "/content/page1", mixinType: "mix:referenceable" }) }
+	 */
+	public Map<String, Object> executeRemoveMixin(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+		String mixinType = (String) input.get("mixinType");
+
+		if (path == null || mixinType == null) {
+			throw new IllegalArgumentException("path and mixinType are required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Remove mixin if present
+		if (node.isNodeType(mixinType)) {
+			node.removeMixin(mixinType);
+			this.session.save();
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("removeMixin", NodeMapper.toGraphQL(node));
+
+		return result;
+	}
+
+	/**
+	 * Execute deleteProperty mutation
+	 * Example: mutation { deleteProperty(input: { path: "/content/page1", name: "myProperty" }) }
+	 */
+	public Map<String, Object> executeDeleteProperty(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+		String name = (String) input.get("name");
+
+		if (path == null || name == null) {
+			throw new IllegalArgumentException("path and name are required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Check if property exists
+		if (!node.hasProperty(name)) {
+			throw new IllegalArgumentException("Property not found: " + name);
+		}
+
+		// Remove property
+		node.getProperty(name).remove();
+		this.session.save();
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("deleteProperty", NodeMapper.toGraphQL(node));
+
+		return result;
+	}
+
+	/**
+	 * Convert type string to JCR PropertyType constant
+	 */
+	private int getPropertyType(String type) {
+		switch (type.toUpperCase()) {
+			case "STRING":
+				return PropertyType.STRING;
+			case "BINARY":
+				return PropertyType.BINARY;
+			case "LONG":
+				return PropertyType.LONG;
+			case "DOUBLE":
+				return PropertyType.DOUBLE;
+			case "DECIMAL":
+				return PropertyType.DECIMAL;
+			case "DATE":
+				return PropertyType.DATE;
+			case "BOOLEAN":
+				return PropertyType.BOOLEAN;
+			case "NAME":
+				return PropertyType.NAME;
+			case "PATH":
+				return PropertyType.PATH;
+			case "REFERENCE":
+				return PropertyType.REFERENCE;
+			case "WEAKREFERENCE":
+				return PropertyType.WEAKREFERENCE;
+			case "URI":
+				return PropertyType.URI;
+			default:
+				return PropertyType.STRING;
+		}
+	}
+
+	/**
 	 * Extract input parameter (simple implementation)
 	 */
 	@SuppressWarnings("unchecked")
@@ -296,31 +492,96 @@ public class MutationExecutor {
 
 	/**
 	 * Parse GraphQL input object to Map
-	 * Converts GraphQL syntax (no quotes on keys, no commas) to JSON format
+	 * Manual parser for GraphQL input syntax
 	 */
-	@SuppressWarnings("unchecked")
 	private Map<String, Object> parseSimpleJson(String graphqlInput) {
-		// Convert GraphQL input syntax to JSON by adding quotes to keys and commas
-		// GraphQL: { path: "/content" isDeep: false isSessionScoped: false }
-		// JSON:    { "path": "/content", "isDeep": false, "isSessionScoped": false }
+		// Manual parsing for GraphQL input: { path: "/content" mixinType: "mix:referenceable" }
+		Map<String, Object> result = new HashMap<>();
 
-		String normalized = graphqlInput.trim();
+		// Remove outer braces and normalize whitespace
+		String content = graphqlInput.trim()
+			.replaceAll("\\r\\n", " ")
+			.replaceAll("\\n", " ")
+			.replaceAll("\\r", " ")
+			.replaceAll("\\s+", " ");
 
-		// Add quotes to unquoted keys: word: -> "word":
-		normalized = normalized.replaceAll("(\\w+)\\s*:", "\"$1\":");
+		if (content.startsWith("{")) {
+			content = content.substring(1);
+		}
+		if (content.endsWith("}")) {
+			content = content.substring(0, content.length() - 1);
+		}
+		content = content.trim();
 
-		// Add commas between key-value pairs
-		// Look for patterns like: value word: and insert comma between them
-		// String value followed by key
-		normalized = normalized.replaceAll("\"\\s+(\"\\w+\":)", "\", $1");
-		// Boolean value followed by key
-		normalized = normalized.replaceAll("(false|true)\\s+(\"\\w+\":)", "$1, $2");
-		// Number value followed by key
-		normalized = normalized.replaceAll("(\\d+)\\s+(\"\\w+\":)", "$1, $2");
+		// Parse key-value pairs
+		int i = 0;
+		while (i < content.length()) {
+			// Skip whitespace
+			while (i < content.length() && Character.isWhitespace(content.charAt(i))) {
+				i++;
+			}
+			if (i >= content.length()) break;
 
-		// Parse using Gson
-		com.google.gson.Gson gson = new com.google.gson.Gson();
-		return gson.fromJson(normalized, Map.class);
+			// Extract key (identifier before ':')
+			int keyStart = i;
+			while (i < content.length() && content.charAt(i) != ':') {
+				i++;
+			}
+			if (i >= content.length()) break;
+
+			String key = content.substring(keyStart, i).trim();
+			i++; // skip ':'
+
+			// Skip whitespace after colon
+			while (i < content.length() && Character.isWhitespace(content.charAt(i))) {
+				i++;
+			}
+			if (i >= content.length()) break;
+
+			// Extract value
+			Object value = null;
+			if (content.charAt(i) == '"') {
+				// String value
+				i++; // skip opening quote
+				int valueStart = i;
+				while (i < content.length() && content.charAt(i) != '"') {
+					i++;
+				}
+				value = content.substring(valueStart, i);
+				i++; // skip closing quote
+			} else if (content.startsWith("true", i)) {
+				value = Boolean.TRUE;
+				i += 4;
+			} else if (content.startsWith("false", i)) {
+				value = Boolean.FALSE;
+				i += 5;
+			} else {
+				// Number or other
+				int valueStart = i;
+				while (i < content.length() && !Character.isWhitespace(content.charAt(i)) && content.charAt(i) != '}') {
+					i++;
+				}
+				String valueStr = content.substring(valueStart, i).trim();
+				try {
+					value = Long.parseLong(valueStr);
+				} catch (NumberFormatException e) {
+					try {
+						value = Double.parseDouble(valueStr);
+					} catch (NumberFormatException e2) {
+						value = valueStr;
+					}
+				}
+			}
+
+			// Skip optional comma and whitespace after value
+			while (i < content.length() && (Character.isWhitespace(content.charAt(i)) || content.charAt(i) == ',')) {
+				i++;
+			}
+
+			result.put(key, value);
+		}
+
+		return result;
 	}
 
 	/**

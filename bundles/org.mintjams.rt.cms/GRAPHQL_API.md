@@ -270,6 +270,168 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
   }'
 ```
 
+## 参照管理 (mix:referenceable)
+
+### Mixin追加・削除
+
+#### Mixinタイプ追加
+
+```graphql
+mutation {
+  addMixin(input: {
+    path: "/content/target"
+    mixinType: "mix:referenceable"
+  }) {
+    path
+    uuid
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { addMixin(input: { path: \"/content/target\", mixinType: \"mix:referenceable\" }) { path uuid } }"
+  }'
+```
+
+#### Mixinタイプ削除
+
+```graphql
+mutation {
+  removeMixin(input: {
+    path: "/content/target"
+    mixinType: "mix:referenceable"
+  }) {
+    path
+    uuid
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { removeMixin(input: { path: \"/content/target\", mixinType: \"mix:referenceable\" }) { path } }"
+  }'
+```
+
+### プロパティ設定
+
+#### 参照プロパティの設定
+
+```graphql
+mutation {
+  setProperty(input: {
+    path: "/content/source"
+    name: "myReference"
+    value: "uuid-of-target-node"
+    type: "Reference"
+  }) {
+    path
+    properties {
+      name
+      type
+      value
+    }
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { setProperty(input: { path: \"/content/source\", name: \"myRef\", value: \"123e4567-e89b-12d3-a456-426614174000\", type: \"Reference\" }) { path } }"
+  }'
+```
+
+#### 弱参照プロパティの設定
+
+```graphql
+mutation {
+  setProperty(input: {
+    path: "/content/source"
+    name: "myWeakRef"
+    value: "uuid-of-target-node"
+    type: "WeakReference"
+  }) {
+    path
+  }
+}
+```
+
+サポートされているプロパティタイプ：
+- `String` (デフォルト)
+- `Boolean`
+- `Long`
+- `Double`
+- `Reference` - 強参照（参照先ノードの削除を防ぐ）
+- `WeakReference` - 弱参照（参照先ノードの削除を許可）
+- `Date`
+- `Binary`
+- `Path`
+- `Name`
+- `URI`
+- `Decimal`
+
+**注意**: `Reference`と`WeakReference`では、`value`にはターゲットノードのUUID（`mix:referenceable`ノードの識別子）を指定します。
+
+### 参照元ノード取得
+
+指定したノードを参照しているノード一覧を取得します。
+
+```graphql
+{
+  references(path: "/content/target") {
+    nodes {
+      path
+      name
+      properties {
+        name
+        type
+        value
+      }
+    }
+    totalCount
+  }
+}
+```
+
+POSTリクエスト例：
+
+```bash
+curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ references(path: \"/content/target\") { nodes { path name } totalCount } }"
+  }'
+```
+
+**注意**: `references`クエリは、ターゲットノードに`mix:referenceable` mixinが追加されている場合のみ機能します。mixinがない場合は空のリストが返されます。
+
+### UUIDの取得
+
+`mix:referenceable`が追加されたノードは、`uuid`フィールドでUUIDを取得できます。
+
+```graphql
+{
+  node(path: "/content/target") {
+    path
+    name
+    uuid
+  }
+}
+```
+
 ## ノードタイプ別のフィールド
 
 ### 共通フィールド（全ノードタイプ）
@@ -280,6 +442,7 @@ curl -X POST https://d701p.mintjams.jp/bin/graphql.cgi/web \
 - nodeType: String!
 - created: DateTime!
 - createdBy: String!
+- uuid: String                    # mix:referenceable の UUID（nullの場合もあり）
 - isLocked: Boolean!
 - lockOwner: String
 - isDeep: Boolean!
@@ -347,13 +510,26 @@ org.mintjams.rt.cms.internal.web/
 ## Phase 2以降の予定機能
 
 - XPath検索
-- プロパティ管理（カスタムプロパティの取得・設定）
+- プロパティ管理（カスタムプロパティの高度な取得）
 - アクセス権限管理
-- ロック管理
-- 参照可能（mix:referenceable）管理
 - フルテキスト検索
 - バージョニング
 - より高度なGraphQLクエリパース（フィールド選択など）
+
+## 実装済み機能
+
+### Phase 1
+- ノード取得 (node query)
+- 子ノード一覧取得 (children query)
+- フォルダ作成 (createFolder mutation)
+- ファイル作成 (createFile mutation)
+- ノード削除 (deleteNode mutation)
+- ノードロック/ロック解除 (lockNode/unlockNode mutation)
+- 参照管理 (mix:referenceable サポート)
+  - Mixin追加・削除 (addMixin/removeMixin mutation)
+  - プロパティ設定 (setProperty mutation with Reference/WeakReference)
+  - 参照元ノード取得 (references query)
+  - UUID取得 (uuid field)
 
 ## 開発メモ
 
