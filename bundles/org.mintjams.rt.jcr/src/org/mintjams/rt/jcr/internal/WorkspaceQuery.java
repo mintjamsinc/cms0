@@ -683,29 +683,29 @@ public class WorkspaceQuery implements Adaptable {
 				throws IOException, SQLException, RepositoryException {
 			if (mixinName.equals(getResolved(NodeType.MIX_VERSIONABLE))) {
 				adaptTo(JcrVersionManager.class).addVersionControl(itemData.getString("item_id"));
-			}
-
-			Node node = fWorkspace.getSession().getNodeByIdentifier(itemData.getString("item_id"));
-			NodeType mixinType = getNodeTypeManager().getNodeType(mixinName);
-			Map<String, PropertyDefinition> propertyDefinitions = new HashMap<>();
-			for (PropertyDefinition e : mixinType.getPropertyDefinitions()) {
-				if (e.isAutoCreated()) {
-					if (!propertyDefinitions.containsKey(e.getName())) {
-						propertyDefinitions.put(e.getName(), e);
+			} else {
+				Node node = fWorkspace.getSession().getNodeByIdentifier(itemData.getString("item_id"));
+				NodeType mixinType = getNodeTypeManager().getNodeType(mixinName);
+				Map<String, PropertyDefinition> propertyDefinitions = new HashMap<>();
+				for (PropertyDefinition e : mixinType.getPropertyDefinitions()) {
+					if (e.isAutoCreated()) {
+						if (!propertyDefinitions.containsKey(e.getName())) {
+							propertyDefinitions.put(e.getName(), e);
+						}
 					}
 				}
-			}
-			for (PropertyDefinition e : propertyDefinitions.values()) {
-				if (node.hasProperty(e.getName())) {
-					continue;
-				}
+				for (PropertyDefinition e : propertyDefinitions.values()) {
+					if (node.hasProperty(e.getName())) {
+						continue;
+					}
 
-				JcrValue[] defaultValues = createDefaultValues(e, node);
-				if (defaultValues != null) {
-					if (e.isMultiple()) {
-						setProperty(node.getIdentifier(), e.getName(), e.getRequiredType(), defaultValues);
-					} else {
-						setProperty(node.getIdentifier(), e.getName(), e.getRequiredType(), defaultValues[0]);
+					JcrValue[] defaultValues = createDefaultValues(e, node);
+					if (defaultValues != null) {
+						if (e.isMultiple()) {
+							setProperty(node.getIdentifier(), e.getName(), e.getRequiredType(), defaultValues);
+						} else {
+							setProperty(node.getIdentifier(), e.getName(), e.getRequiredType(), defaultValues[0]);
+						}
 					}
 				}
 			}

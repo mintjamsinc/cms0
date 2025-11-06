@@ -405,6 +405,7 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, true));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.MI_CHECKED_OUT_BY, PropertyType.STRING, workspaceQuery.createValue(PropertyType.STRING, workspace.getSession().getUserID()));
+			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_VERSION_HISTORY, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, version.getParent().getIdentifier()));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_BASE_VERSION, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, version.getIdentifier()));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, version.getIdentifier()));
 
@@ -529,6 +530,10 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 				workspace.getLockManager().addLockToken(lockToken);
 			}
 
+			if (!item.hasProperty(JcrProperty.JCR_UUID_NAME)) {
+				workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_UUID, PropertyType.STRING, workspaceQuery.createValue(PropertyType.STRING, item.getIdentifier()));
+			}
+
 			JcrPath versionHistoryPath = workspaceQuery.items().getVersionHistoryPath(item.getIdentifier());
 			JCRs.mkdirs(versionHistoryPath.getParent(), workspace.getSession());
 			AdaptableMap<String, Object> versionHistoryData = workspaceQuery.items().createNode(versionHistoryPath.toString(), NodeType.NT_VERSION_HISTORY);
@@ -591,7 +596,8 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.MI_CHECKED_OUT_BY))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_VERSION_HISTORY))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_BASE_VERSION))
-					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_PREDECESSORS))) {
+					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_PREDECESSORS))
+					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_UUID))) {
 				continue;
 			}
 
