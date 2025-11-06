@@ -597,7 +597,10 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_VERSION_HISTORY))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_BASE_VERSION))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_PREDECESSORS))
-					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_UUID))) {
+					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_UUID))
+					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_MERGE_FAILED))
+					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_ACTIVITY))
+					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_CONFIGURATION))) {
 				continue;
 			}
 
