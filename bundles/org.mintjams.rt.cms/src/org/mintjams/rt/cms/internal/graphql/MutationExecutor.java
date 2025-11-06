@@ -411,49 +411,87 @@ public class MutationExecutor {
 
 	/**
 	 * Execute setAccessControl mutation Sets or modifies ACL entry for a principal
-	 * Example: mutation { setAccessControl(input: { path: "/content/page1",
+	 * Supports both single entry and batch entry modes:
+	 *
+	 * Single entry mode:
+	 * mutation { setAccessControl(input: { path: "/content/page1",
 	 * principal: "user1", privileges: ["jcr:read", "jcr:write"], allow: true }) }
+	 *
+	 * Batch entry mode (array):
+	 * mutation { setAccessControl(input: { path: "/content/page1",
+	 * entries: [
+	 *   { principal: "user1", privileges: ["jcr:read", "jcr:write"], allow: true },
+	 *   { principal: "user2", privileges: ["jcr:read"], allow: true }
+	 * ]}) }
 	 */
 	public Map<String, Object> executeSetAccessControl(GraphQLRequest request) throws Exception {
 		Map<String, Object> input = extractInput(request);
 
 		String path = (String) input.get("path");
-		String principalName = (String) input.get("principal");
-		Object privilegesObj = input.get("privileges");
 
-		// Default to allow if not specified
-		boolean allow = true;
-		if (input.containsKey("allow") && input.get("allow") instanceof Boolean) {
-			allow = ((Boolean) input.get("allow")).booleanValue();
-		}
-
-		if (path == null || principalName == null || privilegesObj == null) {
-			throw new IllegalArgumentException("path, principal, and privileges are required");
+		if (path == null) {
+			throw new IllegalArgumentException("path is required");
 		}
 
 		if (!this.session.nodeExists(path)) {
 			throw new IllegalArgumentException("Node not found: " + path);
 		}
 
-		// Parse privileges array
-		java.util.List<String> privilegeNames = new java.util.ArrayList<>();
-		if (privilegesObj instanceof java.util.List) {
-			@SuppressWarnings("unchecked")
-			java.util.List<Object> list = (java.util.List<Object>) privilegesObj;
-			for (Object item : list) {
-				privilegeNames.add(item.toString());
-			}
-		} else if (privilegesObj instanceof String) {
-			privilegeNames.add(privilegesObj.toString());
-		} else {
-			throw new IllegalArgumentException("privileges must be an array or string");
-		}
-
 		// Get AccessControlManager
 		AccessControlManager acm = this.session.getAccessControlManager();
 
 		// Get or create AccessControlList
+		AccessControlList acl = getOrCreateAccessControlList(acm, path);
+
+		// Check if this is batch mode (entries array) or single entry mode
+		if (input.containsKey("entries")) {
+			// Batch mode: process multiple entries
+			Object entriesObj = input.get("entries");
+			if (!(entriesObj instanceof java.util.List)) {
+				throw new IllegalArgumentException("entries must be an array");
+			}
+
+			@SuppressWarnings("unchecked")
+			java.util.List<Object> entriesList = (java.util.List<Object>) entriesObj;
+
+			for (Object entryObj : entriesList) {
+				if (!(entryObj instanceof Map)) {
+					throw new IllegalArgumentException("Each entry must be an object with principal, privileges, and optional allow fields");
+				}
+
+				@SuppressWarnings("unchecked")
+				Map<String, Object> entry = (Map<String, Object>) entryObj;
+				processAccessControlEntry(acm, acl, entry);
+			}
+		} else {
+			// Single entry mode: backward compatibility
+			processAccessControlEntry(acm, acl, input);
+		}
+
+		// Save policy
+		acm.setPolicy(path, acl);
+		this.session.save();
+
+		// Return updated ACL entries
+		java.util.List<Map<String, Object>> entries = buildAccessControlEntriesResponse(acl);
+
+		Map<String, Object> aclData = new HashMap<>();
+		aclData.put("entries", entries);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("setAccessControl", aclData);
+
+		return result;
+	}
+
+	/**
+	 * Get or create AccessControlList for the specified path
+	 */
+	private AccessControlList getOrCreateAccessControlList(
+			AccessControlManager acm, String path) throws Exception {
 		AccessControlList acl = null;
+
+		// Try to get existing ACL
 		AccessControlPolicy[] policies = acm.getPolicies(path);
 		for (AccessControlPolicy policy : policies) {
 			if (policy instanceof AccessControlList) {
@@ -476,6 +514,41 @@ public class MutationExecutor {
 
 		if (acl == null) {
 			throw new IllegalStateException("No AccessControlList available for path: " + path);
+		}
+
+		return acl;
+	}
+
+	/**
+	 * Process a single access control entry (add or update)
+	 */
+	private void processAccessControlEntry(AccessControlManager acm,
+			AccessControlList acl, Map<String, Object> entryData) throws Exception {
+		String principalName = (String) entryData.get("principal");
+		Object privilegesObj = entryData.get("privileges");
+
+		// Default to allow if not specified
+		boolean allow = true;
+		if (entryData.containsKey("allow") && entryData.get("allow") instanceof Boolean) {
+			allow = ((Boolean) entryData.get("allow")).booleanValue();
+		}
+
+		if (principalName == null || privilegesObj == null) {
+			throw new IllegalArgumentException("principal and privileges are required for each entry");
+		}
+
+		// Parse privileges array
+		java.util.List<String> privilegeNames = new java.util.ArrayList<>();
+		if (privilegesObj instanceof java.util.List) {
+			@SuppressWarnings("unchecked")
+			java.util.List<Object> list = (java.util.List<Object>) privilegesObj;
+			for (Object item : list) {
+				privilegeNames.add(item.toString());
+			}
+		} else if (privilegesObj instanceof String) {
+			privilegeNames.add(privilegesObj.toString());
+		} else {
+			throw new IllegalArgumentException("privileges must be an array or string");
 		}
 
 		// Get Principal
@@ -502,15 +575,16 @@ public class MutationExecutor {
 
 		// Add new entry
 		acl.addAccessControlEntry(principal, privileges);
+	}
 
-		// Save policy
-		acm.setPolicy(path, acl);
-		this.session.save();
-
-		// Return updated ACL entries
+	/**
+	 * Build response with all ACL entries
+	 */
+	private java.util.List<Map<String, Object>> buildAccessControlEntriesResponse(AccessControlList acl) throws Exception {
 		java.util.List<Map<String, Object>> entries = new java.util.ArrayList<>();
-		AccessControlEntry[] updatedEntries = acl.getAccessControlEntries();
-		for (AccessControlEntry entry : updatedEntries) {
+		AccessControlEntry[] aclEntries = acl.getAccessControlEntries();
+
+		for (AccessControlEntry entry : aclEntries) {
 			Map<String, Object> entryMap = new HashMap<>();
 			entryMap.put("principal", entry.getPrincipal().getName());
 
@@ -524,13 +598,7 @@ public class MutationExecutor {
 			entries.add(entryMap);
 		}
 
-		Map<String, Object> aclData = new HashMap<>();
-		aclData.put("entries", entries);
-
-		Map<String, Object> result = new HashMap<>();
-		result.put("setAccessControl", aclData);
-
-		return result;
+		return entries;
 	}
 
 	/**
@@ -809,18 +877,153 @@ public class MutationExecutor {
 	 */
 	private int findMatchingBrace(String str, int openBrace) {
 		int depth = 1;
+		boolean inString = false;
 		for (int i = openBrace + 1; i < str.length(); i++) {
 			char c = str.charAt(i);
-			if (c == '{') {
-				depth++;
-			} else if (c == '}') {
-				depth--;
-				if (depth == 0) {
-					return i;
+			if (c == '"' && (i == 0 || str.charAt(i - 1) != '\\')) {
+				inString = !inString;
+			}
+			if (!inString) {
+				if (c == '{') {
+					depth++;
+				} else if (c == '}') {
+					depth--;
+					if (depth == 0) {
+						return i;
+					}
 				}
 			}
 		}
 		return -1;
+	}
+
+	/**
+	 * Find matching closing bracket
+	 */
+	private int findMatchingBracket(String str, int openBracket) {
+		int depth = 1;
+		boolean inString = false;
+		for (int i = openBracket + 1; i < str.length(); i++) {
+			char c = str.charAt(i);
+			if (c == '"' && (i == 0 || str.charAt(i - 1) != '\\')) {
+				inString = !inString;
+			}
+			if (!inString) {
+				if (c == '[') {
+					depth++;
+				} else if (c == ']') {
+					depth--;
+					if (depth == 0) {
+						return i;
+					}
+				}
+			}
+		}
+		return -1;
+	}
+
+	/**
+	 * Parse array from GraphQL syntax
+	 */
+	private java.util.List<Object> parseArray(String arrayInput) {
+		java.util.List<Object> result = new java.util.ArrayList<>();
+
+		// Remove outer brackets and normalize whitespace
+		String content = arrayInput.trim();
+		if (content.startsWith("[")) {
+			content = content.substring(1);
+		}
+		if (content.endsWith("]")) {
+			content = content.substring(0, content.length() - 1);
+		}
+		content = content.trim();
+
+		if (content.isEmpty()) {
+			return result;
+		}
+
+		// Parse array elements
+		int i = 0;
+		while (i < content.length()) {
+			// Skip whitespace
+			while (i < content.length() && Character.isWhitespace(content.charAt(i))) {
+				i++;
+			}
+			if (i >= content.length())
+				break;
+
+			// Extract element value
+			Object value = null;
+			if (content.charAt(i) == '"') {
+				// String value
+				i++; // skip opening quote
+				int valueStart = i;
+				while (i < content.length() && content.charAt(i) != '"') {
+					i++;
+				}
+				value = content.substring(valueStart, i);
+				i++; // skip closing quote
+			} else if (content.charAt(i) == '{') {
+				// Object value
+				int objStart = i;
+				int objEnd = findMatchingBrace(content, objStart);
+				if (objEnd == -1) {
+					throw new IllegalArgumentException("Invalid object in array: unmatched braces");
+				}
+				String objContent = content.substring(objStart, objEnd + 1);
+				value = parseSimpleJson(objContent);
+				i = objEnd + 1;
+			} else if (content.charAt(i) == '[') {
+				// Nested array value
+				int arrayStart = i;
+				int arrayEnd = findMatchingBracket(content, arrayStart);
+				if (arrayEnd == -1) {
+					throw new IllegalArgumentException("Invalid nested array: unmatched brackets");
+				}
+				String nestedArrayContent = content.substring(arrayStart, arrayEnd + 1);
+				value = parseArray(nestedArrayContent);
+				i = arrayEnd + 1;
+			} else if (content.startsWith("true", i)) {
+				value = Boolean.TRUE;
+				i += 4;
+			} else if (content.startsWith("false", i)) {
+				value = Boolean.FALSE;
+				i += 5;
+			} else if (content.startsWith("null", i)) {
+				value = null;
+				i += 4;
+			} else {
+				// Number or other
+				int valueStart = i;
+				while (i < content.length() && !Character.isWhitespace(content.charAt(i))
+						&& content.charAt(i) != ',' && content.charAt(i) != ']') {
+					i++;
+				}
+				String valueStr = content.substring(valueStart, i).trim();
+				if (!valueStr.isEmpty()) {
+					try {
+						value = Long.parseLong(valueStr);
+					} catch (NumberFormatException e) {
+						try {
+							value = Double.parseDouble(valueStr);
+						} catch (NumberFormatException e2) {
+							value = valueStr;
+						}
+					}
+				}
+			}
+
+			if (value != null || content.startsWith("null", i - 4)) {
+				result.add(value);
+			}
+
+			// Skip optional comma and whitespace after value
+			while (i < content.length() && (Character.isWhitespace(content.charAt(i)) || content.charAt(i) == ',')) {
+				i++;
+			}
+		}
+
+		return result;
 	}
 
 	/**
@@ -882,6 +1085,26 @@ public class MutationExecutor {
 				}
 				value = content.substring(valueStart, i);
 				i++; // skip closing quote
+			} else if (content.charAt(i) == '[') {
+				// Array value
+				int arrayStart = i;
+				int arrayEnd = findMatchingBracket(content, arrayStart);
+				if (arrayEnd == -1) {
+					throw new IllegalArgumentException("Invalid array format: unmatched brackets");
+				}
+				String arrayContent = content.substring(arrayStart, arrayEnd + 1);
+				value = parseArray(arrayContent);
+				i = arrayEnd + 1;
+			} else if (content.charAt(i) == '{') {
+				// Nested object value
+				int objStart = i;
+				int objEnd = findMatchingBrace(content, objStart);
+				if (objEnd == -1) {
+					throw new IllegalArgumentException("Invalid object format: unmatched braces");
+				}
+				String objContent = content.substring(objStart, objEnd + 1);
+				value = parseSimpleJson(objContent);
+				i = objEnd + 1;
 			} else if (content.startsWith("true", i)) {
 				value = Boolean.TRUE;
 				i += 4;
@@ -891,7 +1114,7 @@ public class MutationExecutor {
 			} else {
 				// Number or other
 				int valueStart = i;
-				while (i < content.length() && !Character.isWhitespace(content.charAt(i)) && content.charAt(i) != '}') {
+				while (i < content.length() && !Character.isWhitespace(content.charAt(i)) && content.charAt(i) != '}' && content.charAt(i) != ',') {
 					i++;
 				}
 				String valueStr = content.substring(valueStart, i).trim();
