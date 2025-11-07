@@ -122,8 +122,6 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeCreateFile(request));
 			} else if (query.contains("deleteNode(")) {
 				response.setData(mutationExecutor.executeDeleteNode(request));
-			} else if (query.contains("deleteProperty(")) {
-				response.setData(mutationExecutor.executeDeleteProperty(request));
 			} else if (query.contains("unlockNode(")) {
 				response.setData(mutationExecutor.executeUnlockNode(request));
 			} else if (query.contains("lockNode(")) {
@@ -132,8 +130,8 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeDeleteAccessControl(request));
 			} else if (query.contains("setAccessControl(")) {
 				response.setData(mutationExecutor.executeSetAccessControl(request));
-			} else if (query.contains("setProperty(")) {
-				response.setData(mutationExecutor.executeSetProperty(request));
+			} else if (query.contains("setProperties(")) {
+				response.setData(mutationExecutor.executeSetProperties(request));
 			} else if (query.contains("deleteMixin(")) {
 				response.setData(mutationExecutor.executeDeleteMixin(request));
 			} else if (query.contains("addMixin(")) {

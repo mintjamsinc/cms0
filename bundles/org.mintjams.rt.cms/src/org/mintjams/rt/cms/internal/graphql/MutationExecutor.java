@@ -23,10 +23,12 @@
 package org.mintjams.rt.cms.internal.graphql;
 
 import java.io.ByteArrayInputStream;
+import java.text.SimpleDateFormat;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TimeZone;
 
 import javax.jcr.Node;
 import javax.jcr.PropertyType;
@@ -48,6 +50,13 @@ import javax.jcr.version.VersionManager;
 public class MutationExecutor {
 
 	private final Session session;
+	private static final SimpleDateFormat ISO8601_FORMAT = createISO8601Format();
+
+	private static SimpleDateFormat createISO8601Format() {
+		SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+		format.setTimeZone(TimeZone.getTimeZone("UTC"));
+		return format;
+	}
 
 	public MutationExecutor(Session session) {
 		this.session = session;
@@ -248,19 +257,25 @@ public class MutationExecutor {
 	}
 
 	/**
-	 * Execute setProperty mutation Example: mutation { setProperty(input: { path:
-	 * "/content/page1", name: "myRef", value: "uuid", type: "Reference" }) }
+	 * Execute setProperties mutation
+	 * Sets multiple properties atomically with type-safe Union type values
+	 * Example: mutation { setProperties(input: { path: "/content/page1", properties: [
+	 *   { name: "title", value: { stringValue: "Hello" } },
+	 *   { name: "count", value: { longValue: 100 } }
+	 * ]}) { node { path } errors { message } } }
 	 */
-	public Map<String, Object> executeSetProperty(GraphQLRequest request) throws Exception {
+	public Map<String, Object> executeSetProperties(GraphQLRequest request) throws Exception {
 		Map<String, Object> input = extractInput(request);
 
 		String path = (String) input.get("path");
-		String name = (String) input.get("name");
-		Object value = input.get("value");
-		String type = (String) input.get("type");
+		Object propertiesObj = input.get("properties");
 
-		if (path == null || name == null || value == null) {
-			throw new IllegalArgumentException("path, name, and value are required");
+		if (path == null || propertiesObj == null) {
+			throw new IllegalArgumentException("path and properties are required");
+		}
+
+		if (!(propertiesObj instanceof java.util.List)) {
+			throw new IllegalArgumentException("properties must be an array");
 		}
 
 		if (!this.session.nodeExists(path)) {
@@ -268,46 +283,216 @@ public class MutationExecutor {
 		}
 
 		Node node = this.session.getNode(path);
+		java.util.List<Map<String, Object>> errors = new java.util.ArrayList<>();
 
-		// Set property based on type
-		if (type != null) {
-			int propertyType = getPropertyType(type);
+		@SuppressWarnings("unchecked")
+		java.util.List<Object> propertiesList = (java.util.List<Object>) propertiesObj;
 
-			if (propertyType == PropertyType.REFERENCE || propertyType == PropertyType.WEAKREFERENCE) {
+		// Process each property
+		for (Object propObj : propertiesList) {
+			if (!(propObj instanceof Map)) {
+				errors.add(createError("Each property must be an object with name and value fields"));
+				continue;
+			}
+
+			@SuppressWarnings("unchecked")
+			Map<String, Object> propertyInput = (Map<String, Object>) propObj;
+
+			String name = (String) propertyInput.get("name");
+			Object valueObj = propertyInput.get("value");
+
+			if (name == null) {
+				errors.add(createError("Property name is required"));
+				continue;
+			}
+
+			try {
+				Node targetNode = node.getNode("jcr:content");
+
+				// If value is null or the string "null", delete the property
+				if (valueObj == null || "null".equals(valueObj)) {
+					if (targetNode.hasProperty(name)) {
+						targetNode.getProperty(name).remove();
+					}
+					// If property doesn't exist, silently succeed (idempotent)
+					continue;
+				}
+
+				if (!(valueObj instanceof Map)) {
+					errors.add(createError("Property value must be a PropertyValueInput object or null"));
+					continue;
+				}
+
+				@SuppressWarnings("unchecked")
+				Map<String, Object> valueInput = (Map<String, Object>) valueObj;
+
+				// Validate and extract property value using PropertyValue
+				PropertyValue propValue = PropertyValue.fromInput(valueInput);
+
+				// Set the property based on type
+				setPropertyValue(targetNode, name, propValue);
+			} catch (Throwable ex) {
+				errors.add(createError("Failed to set property '" + name + "': " + ex.getMessage()));
+			}
+		}
+
+		if (errors.isEmpty()) {
+			// No errors, save changes
+			this.session.save();
+		} else {
+			// There were errors, do not save partial changes
+			this.session.refresh(false);
+		}
+
+		// Build response
+		Map<String, Object> payload = new HashMap<>();
+		payload.put("node", NodeMapper.toGraphQL(node));
+
+		if (!errors.isEmpty()) {
+			payload.put("errors", errors);
+		} else {
+			payload.put("errors", null);
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("setProperties", payload);
+
+		return result;
+	}
+
+	/**
+	 * Set a property value on a node using PropertyValue
+	 */
+	private void setPropertyValue(Node node, String name, PropertyValue propValue) throws Exception {
+		int propertyType = propValue.getPropertyType();
+		Object value = propValue.getValue();
+
+		if (propValue.isMultiple()) {
+			// Handle array values
+			if (!(value instanceof java.util.List)) {
+				throw new IllegalArgumentException("Array value must be a List");
+			}
+
+			@SuppressWarnings("unchecked")
+			java.util.List<Object> valueList = (java.util.List<Object>) value;
+
+			if (propertyType == javax.jcr.PropertyType.REFERENCE || propertyType == javax.jcr.PropertyType.WEAKREFERENCE) {
+				// Handle reference arrays
+				Value[] values = new Value[valueList.size()];
+				for (int i = 0; i < valueList.size(); i++) {
+					String uuid = valueList.get(i).toString();
+					Node targetNode = this.session.getNodeByIdentifier(uuid);
+					values[i] = this.session.getValueFactory().createValue(targetNode,
+							propertyType == javax.jcr.PropertyType.WEAKREFERENCE);
+				}
+				node.setProperty(name, values);
+			} else {
+				// Handle other array types
+				switch (propertyType) {
+				case javax.jcr.PropertyType.STRING:
+				case javax.jcr.PropertyType.NAME:
+				case javax.jcr.PropertyType.PATH:
+				case javax.jcr.PropertyType.URI:
+					String[] strValues = valueList.stream().map(Object::toString).toArray(String[]::new);
+					node.setProperty(name, strValues);
+					break;
+				case javax.jcr.PropertyType.BOOLEAN:
+					Value[] boolValues = new Value[valueList.size()];
+					for (int i = 0; i < valueList.size(); i++) {
+						boolValues[i] = this.session.getValueFactory().createValue(Boolean.parseBoolean(valueList.get(i).toString()));
+					}
+					node.setProperty(name, boolValues);
+					break;
+				case javax.jcr.PropertyType.LONG:
+					Value[] longValues = new Value[valueList.size()];
+					for (int i = 0; i < valueList.size(); i++) {
+						Object item = valueList.get(i);
+						long longVal = (item instanceof Number) ? ((Number) item).longValue() : Long.parseLong(item.toString());
+						longValues[i] = this.session.getValueFactory().createValue(longVal);
+					}
+					node.setProperty(name, longValues);
+					break;
+				case javax.jcr.PropertyType.DOUBLE:
+				case javax.jcr.PropertyType.DECIMAL:
+					Value[] doubleValues = new Value[valueList.size()];
+					for (int i = 0; i < valueList.size(); i++) {
+						Object item = valueList.get(i);
+						double doubleVal = (item instanceof Number) ? ((Number) item).doubleValue() : Double.parseDouble(item.toString());
+						doubleValues[i] = this.session.getValueFactory().createValue(doubleVal);
+					}
+					node.setProperty(name, doubleValues);
+					break;
+				case javax.jcr.PropertyType.DATE:
+					Value[] dateValues = new Value[valueList.size()];
+					for (int i = 0; i < valueList.size(); i++) {
+						Calendar cal = parseISO8601Date(valueList.get(i).toString());
+						dateValues[i] = this.session.getValueFactory().createValue(cal);
+					}
+					node.setProperty(name, dateValues);
+					break;
+				default:
+					throw new IllegalArgumentException("Unsupported array property type: " + propValue.getType());
+				}
+			}
+		} else {
+			// Handle single values
+			if (propertyType == javax.jcr.PropertyType.REFERENCE || propertyType == javax.jcr.PropertyType.WEAKREFERENCE) {
 				// For Reference/WeakReference, value should be a UUID
 				Node targetNode = this.session.getNodeByIdentifier(value.toString());
 				Value refValue = this.session.getValueFactory().createValue(targetNode,
-						propertyType == PropertyType.WEAKREFERENCE);
+						propertyType == javax.jcr.PropertyType.WEAKREFERENCE);
 				node.setProperty(name, refValue);
+			} else if (propertyType == javax.jcr.PropertyType.BINARY) {
+				// For Binary, value should be Base64 encoded
+				byte[] data = Base64.getDecoder().decode(value.toString());
+				node.setProperty(name, this.session.getValueFactory().createBinary(new ByteArrayInputStream(data)));
+			} else if (propertyType == javax.jcr.PropertyType.DATE) {
+				// For Date, value should be ISO 8601 string
+				Calendar cal = parseISO8601Date(value.toString());
+				node.setProperty(name, cal);
 			} else {
 				// For other types, use standard property setting
 				switch (propertyType) {
-				case PropertyType.BOOLEAN:
+				case javax.jcr.PropertyType.BOOLEAN:
 					node.setProperty(name, Boolean.parseBoolean(value.toString()));
 					break;
-				case PropertyType.LONG:
-					node.setProperty(name, Long.parseLong(value.toString()));
+				case javax.jcr.PropertyType.LONG:
+					long longVal = (value instanceof Number) ? ((Number) value).longValue() : Long.parseLong(value.toString());
+					node.setProperty(name, longVal);
 					break;
-				case PropertyType.DOUBLE:
-					node.setProperty(name, Double.parseDouble(value.toString()));
+				case javax.jcr.PropertyType.DOUBLE:
+				case javax.jcr.PropertyType.DECIMAL:
+					double doubleVal = (value instanceof Number) ? ((Number) value).doubleValue() : Double.parseDouble(value.toString());
+					node.setProperty(name, doubleVal);
 					break;
 				default:
 					node.setProperty(name, value.toString());
 					break;
 				}
 			}
-		} else {
-			// Auto-detect type
-			node.setProperty(name, value.toString());
 		}
-
-		this.session.save();
-
-		Map<String, Object> result = new HashMap<>();
-		result.put("setProperty", NodeMapper.toGraphQL(node));
-
-		return result;
 	}
+
+	/**
+	 * Create an error object for GraphQL response
+	 */
+	private Map<String, Object> createError(String message) {
+		Map<String, Object> error = new HashMap<>();
+		error.put("message", message);
+		return error;
+	}
+
+	/**
+	 * Parse ISO 8601 date string to Calendar
+	 */
+	private Calendar parseISO8601Date(String dateString) throws Exception {
+		synchronized (ISO8601_FORMAT) {
+			Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+			cal.setTime(ISO8601_FORMAT.parse(dateString));
+			return cal;
+		}
+	}
+
 
 	/**
 	 * Execute addMixin mutation Example: mutation { addMixin(input: { path:
@@ -373,40 +558,6 @@ public class MutationExecutor {
 		return result;
 	}
 
-	/**
-	 * Execute deleteProperty mutation Example: mutation { deleteProperty(input: {
-	 * path: "/content/page1", name: "myProperty" }) }
-	 */
-	public Map<String, Object> executeDeleteProperty(GraphQLRequest request) throws Exception {
-		Map<String, Object> input = extractInput(request);
-
-		String path = (String) input.get("path");
-		String name = (String) input.get("name");
-
-		if (path == null || name == null) {
-			throw new IllegalArgumentException("path and name are required");
-		}
-
-		if (!this.session.nodeExists(path)) {
-			throw new IllegalArgumentException("Node not found: " + path);
-		}
-
-		Node node = this.session.getNode(path);
-
-		// Check if property exists
-		if (!node.hasProperty(name)) {
-			throw new IllegalArgumentException("Property not found: " + name);
-		}
-
-		// Remove property
-		node.getProperty(name).remove();
-		this.session.save();
-
-		Map<String, Object> result = new HashMap<>();
-		result.put("deleteProperty", NodeMapper.toGraphQL(node));
-
-		return result;
-	}
 
 	/**
 	 * Execute setAccessControl mutation Sets or modifies ACL entry for a principal

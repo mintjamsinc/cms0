@@ -69,6 +69,8 @@ public class QueryExecutor {
 			.compile("node\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"\\s*\\)");
 	private static final Pattern CHILDREN_QUERY_PATTERN = Pattern.compile(
 			"children\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"(?:\\s*,\\s*first\\s*:\\s*(\\d+))?(?:\\s*,\\s*after\\s*:\\s*\"([^\"]+)\")?\\s*\\)");
+	private static final Pattern REFERENCES_QUERY_PATTERN = Pattern.compile(
+			"references\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"(?:\\s*,\\s*first\\s*:\\s*(\\d+))?(?:\\s*,\\s*after\\s*:\\s*\"([^\"]+)\")?\\s*\\)");
 
 	public QueryExecutor(Session session) {
 		this.session = session;
@@ -236,9 +238,9 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Execute references query with field selection optimization
-	 * Returns nodes that reference the specified node
-	 * Example: { references(path: "/content/target") { nodes { path name } } }
+	 * Execute references query with Relay Connection format and pagination
+	 * Returns nodes that reference the specified node in Connection format
+	 * Example: { references(path: "/content/target", first: 10, after: "cursor") { edges { node { path name } cursor } pageInfo { hasNextPage } totalCount } }
 	 */
 	public Map<String, Object> executeReferencesQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
@@ -249,19 +251,24 @@ public class QueryExecutor {
 		Field rootField = operation.getRootField();
 		SelectionSet referencesSelection = rootField != null ? rootField.getSelectionSet() : null;
 
-		// Extract node selection from nodes
+		// Extract node selection from edges.node
 		SelectionSet nodeSelection = null;
-		if (referencesSelection != null && referencesSelection.hasField("nodes")) {
-			nodeSelection = referencesSelection.getNestedSelectionSet("nodes");
+		if (referencesSelection != null && referencesSelection.hasField("edges")) {
+			SelectionSet edgesSelection = referencesSelection.getNestedSelectionSet("edges");
+			if (edgesSelection != null && edgesSelection.hasField("node")) {
+				nodeSelection = edgesSelection.getNestedSelectionSet("node");
+			}
 		}
 
-		// Extract path using simple regex
-		Pattern pattern = Pattern.compile("references\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"");
-		String path = extractPath(query, pattern, variables);
-
-		if (path == null) {
-			throw new IllegalArgumentException("Invalid references query: path not found");
+		// Extract parameters using REFERENCES_QUERY_PATTERN
+		Matcher matcher = REFERENCES_QUERY_PATTERN.matcher(query);
+		if (!matcher.find()) {
+			throw new IllegalArgumentException("Invalid references query");
 		}
+
+		String path = resolveVariable(matcher.group(1), variables);
+		int first = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 20;
+		String afterCursor = matcher.group(3) != null ? resolveVariable(matcher.group(3), variables) : null;
 
 		if (!session.nodeExists(path)) {
 			throw new IllegalArgumentException("Node not found: " + path);
@@ -271,9 +278,16 @@ public class QueryExecutor {
 
 		// Get UUID if node is referenceable
 		if (!targetNode.isNodeType("mix:referenceable")) {
-			// If not referenceable, return empty list
+			// If not referenceable, return empty connection
+			Map<String, Object> pageInfo = new HashMap<>();
+			pageInfo.put("hasNextPage", false);
+			pageInfo.put("hasPreviousPage", false);
+			pageInfo.put("startCursor", null);
+			pageInfo.put("endCursor", null);
+
 			Map<String, Object> connection = new HashMap<>();
-			connection.put("nodes", new ArrayList<>());
+			connection.put("edges", new ArrayList<>());
+			connection.put("pageInfo", pageInfo);
 			connection.put("totalCount", 0);
 
 			Map<String, Object> result = new HashMap<>();
@@ -281,31 +295,95 @@ public class QueryExecutor {
 			return result;
 		}
 
-		List<Map<String, Object>> referencingNodes = new ArrayList<>();
-
-		// Search all nodes that have Reference or WeakReference properties pointing to this UUID
-		// Using property iterator approach (more efficient than full tree traversal)
+		// Get property iterators for both reference types
+		// Memory efficient approach using iterator.skip()
 		PropertyIterator refProps = targetNode.getReferences();
-		while (refProps.hasNext()) {
-			Property prop = refProps.nextProperty();
-			Node referencingNode = prop.getParent();
-			// Use optimized mapper with field selection
-			referencingNodes.add(NodeMapper.toGraphQL(referencingNode, nodeSelection));
-		}
-
-		// Also check for weak references
 		PropertyIterator weakRefProps = targetNode.getWeakReferences();
-		while (weakRefProps.hasNext()) {
-			Property prop = weakRefProps.nextProperty();
-			Node referencingNode = prop.getParent();
-			// Use optimized mapper with field selection
-			referencingNodes.add(NodeMapper.toGraphQL(referencingNode, nodeSelection));
+
+		// Calculate total count from both iterators
+		long refCount = refProps.getSize();
+		long weakRefCount = weakRefProps.getSize();
+		long totalCount = refCount + weakRefCount;
+
+		// Decode cursor to get starting position
+		int startPosition = 0;
+		if (afterCursor != null && !afterCursor.isEmpty()) {
+			startPosition = decodeCursor(afterCursor) + 1;
 		}
 
-		// Build response
+		// Build edges with cursors (using optimized field selection)
+		List<Map<String, Object>> edges = new ArrayList<>();
+		int currentPosition = startPosition;
+		int count = 0;
+
+		// Skip to start position and build edges
+		// First process regular references
+		if (startPosition < refCount) {
+			// Skip to start position in regular references
+			if (startPosition > 0) {
+				refProps.skip(startPosition);
+			}
+
+			// Add edges from regular references
+			while (refProps.hasNext() && count < first) {
+				Property prop = refProps.nextProperty();
+				Node referencingNode = prop.getParent();
+				if (referencingNode.getName().equals("jcr:content")) {
+					referencingNode = referencingNode.getParent();
+				}
+
+				Map<String, Object> edge = new HashMap<>();
+				edge.put("node", NodeMapper.toGraphQL(referencingNode, nodeSelection));
+				edge.put("cursor", encodeCursor(currentPosition));
+
+				edges.add(edge);
+				currentPosition++;
+				count++;
+			}
+		}
+
+		// Then process weak references if needed
+		if (count < first && startPosition < totalCount) {
+			// Calculate position in weak references iterator
+			long weakRefStartPos = Math.max(0, startPosition - refCount);
+
+			if (weakRefStartPos > 0) {
+				weakRefProps.skip(weakRefStartPos);
+			}
+
+			// Add edges from weak references
+			while (weakRefProps.hasNext() && count < first) {
+				Property prop = weakRefProps.nextProperty();
+				Node referencingNode = prop.getParent();
+
+				Map<String, Object> edge = new HashMap<>();
+				edge.put("node", NodeMapper.toGraphQL(referencingNode, nodeSelection));
+				edge.put("cursor", encodeCursor(currentPosition));
+
+				edges.add(edge);
+				currentPosition++;
+				count++;
+			}
+		}
+
+		// Build pageInfo
+		Map<String, Object> pageInfo = new HashMap<>();
+		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasPreviousPage", startPosition > 0);
+
+		if (!edges.isEmpty()) {
+			pageInfo.put("startCursor", edges.get(0).get("cursor"));
+			pageInfo.put("endCursor", edges.get(edges.size() - 1).get("cursor"));
+		} else {
+			pageInfo.put("startCursor", null);
+			pageInfo.put("endCursor", null);
+		}
+
+		// Build connection
 		Map<String, Object> connection = new HashMap<>();
-		connection.put("nodes", referencingNodes);
-		connection.put("totalCount", referencingNodes.size());
+		connection.put("edges", edges);
+		connection.put("pageInfo", pageInfo);
+		connection.put("totalCount", totalCount);
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("references", connection);
@@ -557,14 +635,9 @@ public class QueryExecutor {
 		Query query = queryManager.createQuery(jcrQuery, Query.XPATH);
 		QueryResult queryResult = query.execute();
 
-		// Get all results into a list for pagination
-		List<Node> allNodes = new ArrayList<>();
+		// Get node iterator and total count
 		NodeIterator nodeIterator = queryResult.getNodes();
-		while (nodeIterator.hasNext()) {
-			allNodes.add(nodeIterator.nextNode());
-		}
-
-		long totalCount = allNodes.size();
+		long totalCount = nodeIterator.getSize();
 
 		// Calculate pagination
 		int startPosition = 0;
@@ -572,13 +645,18 @@ public class QueryExecutor {
 			startPosition = decodeCursor(afterCursor) + 1;
 		}
 
-		// Build edges with optimized field selection
+		// Skip to start position (memory efficient)
+		if (startPosition > 0) {
+			nodeIterator.skip(startPosition);
+		}
+
+		// Build edges with optimized field selection (only fetch 'first' items)
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int currentPosition = startPosition;
 		int count = 0;
 
-		for (int i = startPosition; i < allNodes.size() && count < first; i++) {
-			Node node = allNodes.get(i);
+		while (nodeIterator.hasNext() && count < first) {
+			Node node = nodeIterator.nextNode();
 
 			Map<String, Object> edge = new HashMap<>();
 			edge.put("node", NodeMapper.toGraphQL(node, nodeSelection));
@@ -672,26 +750,14 @@ public class QueryExecutor {
 		}
 		String xpathQuery = searchPath + "//element(*, nt:file)[jcr:contains(., '" + searchText.replaceAll("'", "\\'") + "')]";
 
-		// Execute SQL2 query
+		// Execute XPath query
 		QueryManager queryManager = session.getWorkspace().getQueryManager();
 		Query query = queryManager.createQuery(xpathQuery, Query.XPATH);
 		QueryResult queryResult = query.execute();
 
-		// Get all results with scores
-		List<Map<String, Object>> allResults = new ArrayList<>();
+		// Get row iterator - memory efficient approach using iterator.skip()
 		RowIterator rowIterator = queryResult.getRows();
-		while (rowIterator.hasNext()) {
-			Row row = rowIterator.nextRow();
-			Node node = row.getNode();
-			double score = row.getScore();
-
-			Map<String, Object> resultItem = new HashMap<>();
-			resultItem.put("node", node);
-			resultItem.put("score", score);
-			allResults.add(resultItem);
-		}
-
-		long totalCount = allResults.size();
+		long totalCount = rowIterator.getSize();
 
 		// Calculate pagination
 		int startPosition = 0;
@@ -699,15 +765,20 @@ public class QueryExecutor {
 			startPosition = decodeCursor(afterCursor) + 1;
 		}
 
-		// Build edges
+		// Skip to start position (memory efficient)
+		if (startPosition > 0) {
+			rowIterator.skip(startPosition);
+		}
+
+		// Build edges with optimized field selection (only fetch 'first' items)
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int currentPosition = startPosition;
 		int count = 0;
 
-		for (int i = startPosition; i < allResults.size() && count < first; i++) {
-			Map<String, Object> resultItem = allResults.get(i);
-			Node node = (Node) resultItem.get("node");
-			double score = (Double) resultItem.get("score");
+		while (rowIterator.hasNext() && count < first) {
+			Row row = rowIterator.nextRow();
+			Node node = row.getNode();
+			double score = row.getScore();
 
 			Map<String, Object> nodeData = NodeMapper.toGraphQL(node, nodeSelection);
 			nodeData.put("score", score);
@@ -804,14 +875,9 @@ public class QueryExecutor {
 		Query query = queryManager.createQuery(statement, language);
 		QueryResult queryResult = query.execute();
 
-		// Get all results into a list for pagination
-		List<Node> allNodes = new ArrayList<>();
+		// Get node iterator and total count
 		NodeIterator nodeIterator = queryResult.getNodes();
-		while (nodeIterator.hasNext()) {
-			allNodes.add(nodeIterator.nextNode());
-		}
-
-		long totalCount = allNodes.size();
+		long totalCount = nodeIterator.getSize();
 
 		// Calculate pagination
 		int startPosition = 0;
@@ -819,13 +885,18 @@ public class QueryExecutor {
 			startPosition = decodeCursor(afterCursor) + 1;
 		}
 
-		// Build edges with optimized field selection
+		// Skip to start position (memory efficient)
+		if (startPosition > 0) {
+			nodeIterator.skip(startPosition);
+		}
+
+		// Build edges with optimized field selection (only fetch 'first' items)
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int currentPosition = startPosition;
 		int count = 0;
 
-		for (int i = startPosition; i < allNodes.size() && count < first; i++) {
-			Node node = allNodes.get(i);
+		while (nodeIterator.hasNext() && count < first) {
+			Node node = nodeIterator.nextNode();
 
 			Map<String, Object> edge = new HashMap<>();
 			edge.put("node", NodeMapper.toGraphQL(node, nodeSelection));

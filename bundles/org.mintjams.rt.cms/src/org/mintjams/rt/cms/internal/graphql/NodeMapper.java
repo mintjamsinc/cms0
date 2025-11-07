@@ -244,49 +244,53 @@ public class NodeMapper {
 
 	/**
 	 * Add properties list to result with field selection optimization
+	 * Returns properties in Union type format (PropertyValue)
 	 */
 	private static void addProperties(Node node, Map<String, Object> result, SelectionSet propertiesSelection, boolean includeAll) throws RepositoryException {
 		try {
 			List<Map<String, Object>> properties = new ArrayList<>();
-			PropertyIterator propIterator = node.getProperties();
+			if (node.hasNode("jcr:content")) {
+				PropertyIterator propIterator = node.getNode("jcr:content").getProperties();
 
-			while (propIterator.hasNext()) {
-				Property prop = propIterator.nextProperty();
+				while (propIterator.hasNext()) {
+					Property prop = propIterator.nextProperty();
 
-				// Skip system properties (starting with jcr:)
-				String propName = prop.getName();
-				if (propName.startsWith("jcr:")) {
-					continue;
-				}
-
-				Map<String, Object> propMap = new HashMap<>();
-
-				// Only include requested sub-fields
-				if (includeAll || propertiesSelection == null || propertiesSelection.hasField("name")) {
-					propMap.put("name", propName);
-				}
-				if (includeAll || propertiesSelection == null || propertiesSelection.hasField("type")) {
-					propMap.put("type", PropertyType.nameFromValue(prop.getType()));
-				}
-
-				// Get property value
-				if (includeAll || propertiesSelection == null || propertiesSelection.hasField("value")) {
-					if (prop.isMultiple()) {
-						// Multiple values
-						List<String> values = new ArrayList<>();
-						for (javax.jcr.Value value : prop.getValues()) {
-							values.add(getPropertyValueAsString(value));
-						}
-						propMap.put("value", values);
-					} else {
-						// Single value
-						propMap.put("value", getPropertyValueAsString(prop.getValue()));
+					// Skip system properties (starting with jcr:)
+					String propName = prop.getName();
+					if (propName.startsWith("jcr:")) {
+						continue;
 					}
+
+					Map<String, Object> nodeProperty = new HashMap<>();
+
+					// Always include name
+					if (includeAll || propertiesSelection == null || propertiesSelection.hasField("name")) {
+						nodeProperty.put("name", propName);
+					}
+
+					// Get propertyValue as Union type
+					if (includeAll || propertiesSelection == null || propertiesSelection.hasField("propertyValue")) {
+						String typeName = PropertyType.nameFromValue(prop.getType());
+						Object value;
+
+						if (prop.isMultiple()) {
+							// Multiple values
+							List<Object> values = new ArrayList<>();
+							for (javax.jcr.Value jcrValue : prop.getValues()) {
+								values.add(getPropertyValue(jcrValue));
+							}
+							value = values;
+							nodeProperty.put("propertyValue", PropertyValue.toGraphQL(typeName, value, true));
+						} else {
+							// Single value
+							value = getPropertyValue(prop.getValue());
+							nodeProperty.put("propertyValue", PropertyValue.toGraphQL(typeName, value, false));
+						}
+					}
+
+					properties.add(nodeProperty);
 				}
-
-				properties.add(propMap);
 			}
-
 			result.put("properties", properties);
 		} catch (Throwable ex) {
 			result.put("properties", new ArrayList<>());
@@ -294,7 +298,41 @@ public class NodeMapper {
 	}
 
 	/**
-	 * Convert property value to string
+	 * Get property value as typed Object for Union type representation
+	 */
+	private static Object getPropertyValue(javax.jcr.Value value) {
+		try {
+			int type = value.getType();
+			switch (type) {
+			case PropertyType.STRING:
+			case PropertyType.NAME:
+			case PropertyType.PATH:
+			case PropertyType.URI:
+			case PropertyType.REFERENCE:
+			case PropertyType.WEAKREFERENCE:
+				return value.getString();
+			case PropertyType.BOOLEAN:
+				return value.getBoolean();
+			case PropertyType.LONG:
+				return value.getLong();
+			case PropertyType.DOUBLE:
+			case PropertyType.DECIMAL:
+				return value.getDouble();
+			case PropertyType.DATE:
+				return formatDate(value.getDate());
+			case PropertyType.BINARY:
+				// For Binary, return Base64 encoded string
+				return java.util.Base64.getEncoder().encodeToString(value.getBinary().getStream().readAllBytes());
+			default:
+				return value.getString();
+			}
+		} catch (Throwable ex) {
+			return "[Error]";
+		}
+	}
+
+	/**
+	 * Convert property value to string (legacy method, kept for compatibility)
 	 */
 	private static String getPropertyValueAsString(javax.jcr.Value value) {
 		try {

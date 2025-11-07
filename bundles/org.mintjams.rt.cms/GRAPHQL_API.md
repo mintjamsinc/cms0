@@ -1,27 +1,23 @@
 # GraphQL API for cms0
 
-cms0のコンテンツ管理機能をGraphQLで公開するための公式ドキュメントです。org.mintjams.rt.cms.internal.graphqlパッケージに実装されているASTベースのGraphQLエンジンに合わせ、現在利用できるクエリ/ミューテーション、レスポンス構造、パフォーマンスに関するベストプラクティスを整理しています。
+cms0のコンテンツ管理機能はGraphQLで公開されています。実装は `bundles/org.mintjams.rt.cms/src/org/mintjams/rt/cms/internal/graphql` にあり、`GraphQLExecutor` が `QueryExecutor` / `MutationExecutor` を通じて JCR セッションを操作します。`GraphQLParser` で簡易 AST を構築し、`NodeMapper` で必要なフィールドだけをシリアライズします。本書は 2025-11 時点の実装に合わせた仕様です。
 
 ## エンドポイント
 
 ```
 POST /bin/graphql.cgi/{workspace}
-GET  /bin/graphql.cgi/{workspace}
+GET  /bin/graphql.cgi/{workspace}?query=...
 ```
 
-例:
-- `http://localhost:8080/bin/graphql.cgi/system`
-- `http://localhost:8080/bin/graphql.cgi/web`
-
-`{workspace}` には cms0 上の JCR ワークスペース名を指定します。
+`{workspace}` には `system` / `web` など JCR ワークスペース名を指定します。例: `http://localhost:8080/bin/graphql.cgi/web`.
 
 ## 認証
 
-cms0 標準の認証・権限モデル (セッション or HTTP Basic) を利用します。`GraphQLExecutor` はゲストセッションを拒否するため、ログイン済みユーザーのみリクエストを送れます。アクセス権は実際の JCR セッションが持つ権限に委ねられます。
+`GraphQLExecutor` はゲストセッション (`org.mintjams.jcr.Session#isGuest()`) を拒否します。Basic 認証または通常のログインで JCR セッションを取得した状態で呼び出してください。
 
 ## リクエストフォーマット
 
-### JSON ボディでの POST
+標準的な GraphQL リクエスト本文を受け付けます。
 
 ```bash
 curl -X POST http://localhost:8080/bin/graphql.cgi/web \
@@ -31,135 +27,202 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   }'
 ```
 
-### 変数の利用
+GraphQL 変数も利用できます。
 
 ```bash
 curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
     "query": "query GetNode($path: String!) { node(path: $path) { path name } }",
-    "variables": {
-      "path": "/content/page1"
-    }
+    "variables": { "path": "/content/page1" }
   }'
 ```
 
-### GET リクエスト
+クエリ文字列が短い場合は `GET /bin/graphql.cgi/{workspace}?query=...` も利用できます (URL エンコードは利用者側で実施)。
 
-シンプルなクエリであれば `GET /bin/graphql.cgi/{workspace}?query=...` もサポートされています (URL エンコード必須)。
+## レスポンス構造
 
-## 実装の特長
+レスポンスは GraphQL 仕様に沿い、`GraphQLResponse` が `{"data": {...}, "errors": [...]}` を返します。
 
-### AST ベースの GraphQL パーサ
+- `data` … Executor が返した Map。成功時のみ含まれます。
+- `errors[]` … 失敗時は `message` に加え `extensions.exception` / `extensions.exceptionMessage` が設定されます (例: 権限エラー、バリデーションエラー)。
 
-`GraphQLParser` がクエリ文字列と変数を解析して AST (Operation / Field / SelectionSet) を構築します。`GraphQLExecutor` は AST からルートフィールドを取得し、対応する Query/Muation Executor に処理を委譲します。これにより、フィールド単位での最適化や追加の静的検証が可能になっています。
+## ノード表現 (NodeMapper)
 
-### フィールド選択と NodeMapper
+`NodeMapper.toGraphQL()` が JCR ノードを以下のフィールド構造に変換します。フィールドは GraphQL のフィールド選択に応じて lazy に計算されます。
 
-`NodeMapper.toGraphQL(node, selectionSet)` は SelectionSet に含まれるフィールドだけを JCR ノードから取り出します。SelectionSet が無い場合は後方互換のために全フィールドを返します (ただしパフォーマンスコストが上がります)。
-
-### 主なノードフィールド
+### 共通フィールド
 
 - `path`, `name`, `nodeType`
-- 監査情報: `created`, `createdBy`, `modified`, `modifiedBy`
-- `uuid` (mix:referenceable の場合のみ)
-- nt:file 向け: `mimeType`, `size`, `encoding`, `downloadUrl`
-- nt:folder 向け: `hasChildren`
-- ロック情報: `isLocked`, `lockOwner`, `isDeep`, `isSessionScoped`, `isLockOwningSession`
-- `properties { name type value }` (jcr:* は除外)
-- フルテキスト検索用に `score` が付与されるケースがあります (`search` クエリ)
+- `created`, `createdBy`
+- `modified`, `modifiedBy` (nt:file の場合は `jcr:content`, それ以外は `jcr:lastModified` / fallback)
+- `uuid` ( `mix:referenceable` のみ)
+- `properties[]` (後述)
+- `isLocked`, `lockOwner`, `isDeep`, `isSessionScoped`, `isLockOwningSession` (要求時のみ計算)
 
-### コストの高いフィールド
+### nt:file 固有
 
-以下のフィールドは内部で追加の JCR アクセスやイテレーションが発生するため、必要なときだけ選択してください。
+- `mimeType`, `size`, `encoding`
+- `downloadUrl` (ノードパス)
+- `jcr:content` からの `modified`, `modifiedBy`
 
-1. **properties** - `PropertyIterator` を全走査します。
-2. **lock 情報** - `LockManager` へのアクセスが必要です。
-3. **nt:file 専用フィールド** - `jcr:content` ノードを参照します。
-4. **フォルダ専用フィールド** - `hasNodes()` の呼び出しは巨大フォルダでコストがかかります。
+### nt:folder 固有
 
-### Relay 風ページング
+- `hasChildren` ( `Node#hasNodes` )
 
-`children`, `xpath`, `search`, `query` は GraphQL Relay Connection を模した構造を返します。
-- `first` (デフォルト 20)
-- `after` (Base64 `arrayconnection:{offset}` 形式)
-- `edges[] { node { ... } cursor }`
-- `pageInfo { hasNextPage hasPreviousPage startCursor endCursor }`
-- `totalCount`
+### properties フィールド
 
-### ベストプラクティス
+- `properties` は `jcr:*` を除いた全プロパティを列挙します。
+- 各要素は `{ name, propertyValue }`。`propertyValue` は Union で、`__typename`, `type`, `value` (単一) または `values` (配列) を返します。
+- バイナリ値は Base64、日時は ISO-8601 (UTC) 文字列で返します。
 
-1. 必要なフィールドだけを指定して I/O を最小化する。
-2. 大きなリストは必ず `first` / `after` でページングする。
-3. プロパティ一覧が欲しい場合は `properties { name value }` のように必要なサブフィールドのみを要求する。
+`search` クエリのみ `node.score` を追加で埋め込みます。
 
-## 共通レスポンス構造
+## PropertyValue / PropertyValueInput
 
-GraphQL のレスポンスは常に `{"data": { ... }, "errors": [...]}` を返します。`data` 直下のキーはクエリ/ミューテーション名と一致し、各ノードは NodeMapper が提供するフィールドのみを持ちます。Connection を返すクエリでは `edges`/`pageInfo`/`totalCount` を含む標準構造になります。
+`PropertyValue` は JCR プロパティを GraphQL Union として表現します。
 
-```json
-{
-  "data": {
-    "children": {
-      "edges": [
-        {
-          "node": {
-            "path": "/content/page1",
-            "name": "page1"
-          },
-          "cursor": "YXJyYXljb25uZWN0aW9uOjA="
-        }
-      ],
-      "pageInfo": {
-        "hasNextPage": true,
-        "endCursor": "YXJyYXljb25uZWN0aW9uOjk="
-      },
-      "totalCount": 42
-    }
-  }
-}
+| GraphQL `__typename` | `type` | `value(s)` 内容 |
+| --- | --- | --- |
+| `StringPropertyValue` | `STRING` | 文字列 |
+| `LongPropertyValue` | `LONG` | 64bit 整数 |
+| `DoublePropertyValue` / `DecimalPropertyValue` | `DOUBLE` / `DECIMAL` | 数値 |
+| `BooleanPropertyValue` | `BOOLEAN` | 真偽値 |
+| `DatePropertyValue` | `DATE` | ISO-8601 文字列 |
+| `BinaryPropertyValue` | `BINARY` | Base64 |
+| `NamePropertyValue`, `PathPropertyValue`, `UriPropertyValue` | `NAME` / `PATH` / `URI` | 文字列 |
+| `ReferencePropertyValue`, `WeakreferencePropertyValue` | `REFERENCE` / `WEAKREFERENCE` | 参照先 UUID |
+
+配列プロパティの場合は `...PropertyValueArray` となり `values` に List が入ります。
+
+`setProperties` ミューテーションでは `PropertyValueInput` を使用します。以下のうち **1 フィールドのみ** を指定してください (配列は `*ArrayValue` フィールドを利用)。2つ以上指定された場合は、バリデーションエラーとなります。
+
+```
+stringValue / stringArrayValue
+longValue / longArrayValue
+doubleValue / doubleArrayValue
+decimalValue / decimalArrayValue
+booleanValue / booleanArrayValue
+dateValue / dateArrayValue
+binaryValue
+nameValue / nameArrayValue
+pathValue / pathArrayValue
+referenceValue / referenceArrayValue
+weakReferenceValue / weakReferenceArrayValue
+uriValue / uriArrayValue
 ```
 
----
+日時は ISO-8601、Binary/ファイルデータは Base64 で渡します。Reference 系は UUID を指定してください。
+
+## Relay Connection 共通仕様
+
+`children`, `references`, `xpath`, `search`, `query` は Relay Connection 形式で返ります。
+
+- ページング: `first` (デフォルト 20), `after` (Base64 `arrayconnection:{offset}`)
+- 構造:
+  ```
+  {
+    edges: [{ node: {...}, cursor: "..." }],
+    pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor },
+    totalCount
+  }
+  ```
+- `node` には `NodeMapper` の結果が入ります。
+- `children` はもともと `NodeIterator` を直接ページングしていましたが、`references`/`xpath`/`search`/`query` も `PropertyIterator` / `NodeIterator` / `RowIterator` の `skip()` を使って `first` 件だけを逐次処理する実装に変わり、全件をリスト化せずにメモリフットプリントを抑えています。各 Iterator の `getSize()` は JCR 実装側でヒット件数を返すことを確認済みのため、`totalCount` は正確な値になります。
 
 ## Query オペレーション
 
-### node(path: String!)
+GraphQL リクエストは 1 つのルートフィールドのみを想定しています (`GraphQLExecutor` がクエリ文字列のパターンにマッチした最初のオペレーションを実行するため)。
 
-指定パスの単一ノードを返します (存在しない場合は `null`)。
+### node
+
+| 引数 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `path` | String | ○ | - | 絶対パス。GraphQL 変数 (`$path`) も利用可能。 |
+
+返り値: `node` (存在しない場合は `null`)
+
+例:
+
+```graphql
+{ node(path: "/content/page1") { path name nodeType created } }
+```
+
+### children
+
+| 引数 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `path` | String | ○ | - | 親ノードのパス |
+| `first` | Int |   | 20 | 取得件数 |
+| `after` | String |   | - | Base64 カーソル (`arrayconnection:{offset}`) |
+
+返り値: `children` Connection。`edges.node` は子ノード、`totalCount` は子ノード数。`NodeMapper` のフィールド選択が尊重されます。
+
+### references
+
+指定ノードを参照しているノードを Connection 形式で返します (対象が `mix:referenceable` でない場合は空配列)。
+
+| 引数 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `path` | String | ○ | - | 参照されるノード |
+| `first`, `after` | Int / String |   | 20 / - | ページング |
+
+### accessControl
+
+ACL を取得します。MintJams 拡張 ACL を使用している場合は `allow` が実際の許可/拒否を指します (JCR 標準 ACL の場合は常に `true`)。
+
+| 引数 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | 対象ノード |
+
+返り値:
 
 ```graphql
 {
-  node(path: "/content/page1") {
-    path
-    name
-    nodeType
-    created
-    createdBy
-    properties { name value }
+  accessControl {
+    entries { principal privileges allow }
   }
 }
 ```
 
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{"query": "{ node(path: \"/content/page1\") { path name nodeType } }"}'
-```
+### versionHistory
 
-### children(path: String!, first: Int = 20, after: String)
+`mix:versionable` ノードのバージョン履歴。
 
-指定ノード直下の子ノードを Relay Connection 形式で返します。
+| 引数 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | 対象ノード |
 
-- `path` (必須)
-- `first` (省略時 20)
-- `after` (前ページの `endCursor`)
+返り値には `versions[] { name created predecessors[] successors[] frozenNodePath }`、`baseVersion`, `versionableUuid` が含まれます。
+
+### xpath
+
+JCR XPath を実行します。
+
+| 引数 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `query` | String | ○ | - | XPath (例: `"//element(*, nt:file)"`) |
+| `first`, `after` | Int / String |   | 20 / - | ページング |
+
+返り値: `xpath` Connection。
+
+### search
+
+`jcr:contains` を使った全文検索。内部的には `jcr:contains` 付き XPath を発行し、`nt:file` のヒットのみを返します。各ノードに `score` が追加されます。
+
+| 引数 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `text` | String | ○ | - | 検索語 (`'` は自動エスケープ) |
+| `path` | String |   | `/` | 検索ルート。`/content` など |
+| `first`, `after` | Int / String |   | 20 / - | ページング |
+
+レスポンス例:
 
 ```graphql
 {
-  children(path: "/content", first: 10, after: "YXJyYXljb25uZWN0aW9uOjk=") {
+  search(text: "asset", path: "/content/assets", first: 5) {
     edges {
-      node { path name nodeType modified }
+      node { path name score mimeType }
       cursor
     }
     pageInfo { hasNextPage endCursor }
@@ -168,266 +231,153 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
 }
 ```
 
-### references(path: String!)
+### query (generic)
 
-`mix:referenceable` ノードを参照しているノード一覧を返します。対象ノードが referenceable でない場合は空配列になります。
+任意の JCR クエリ (JCR-SQL2 / XPath / SQL) を実行します。戻り値のキーは `query` です。
 
-```graphql
-{
-  references(path: "/content/asset") {
-    nodes { path name uuid }
-    totalCount
-  }
-}
-```
+| 引数 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `statement` | String | ○ | - | 実行するクエリ文 |
+| `language` | String |   | `JCR-SQL2` | `JCR-SQL2`, `XPath`, `SQL` (大小文字は自動正規化) |
+| `first`, `after` | Int / String |   | 20 / - | ページング |
 
-### accessControl(path: String!)
-
-指定ノードに設定されている ACL エントリを返します。
+例:
 
 ```graphql
 {
-  accessControl(path: "/content/page1") {
-    entries {
-      principal
-      privileges
-      allow
-    }
-  }
-}
-```
-
-`allow` はアクセス許可エントリが「許可」か「拒否」かを示します。
-
-### versionHistory(path: String!)
-
-`mix:versionable` ノードのバージョン履歴を取得します。`versions` の各要素には `name`, `created`, `predecessors`, `successors`, `frozenNodePath` が含まれます。レスポンスには `baseVersion` と `versionableUuid` も含まれます。
-
-```graphql
-{
-  versionHistory(path: "/content/page1") {
-    versions {
-      name
-      created
-      predecessors
-      successors
-      frozenNodePath
-    }
-    baseVersion
-    versionableUuid
-  }
-}
-```
-
-### xpath(query: String!, first: Int = 20, after: String)
-
-任意の JCR XPath を実行し、結果ノードを Connection 形式で返します。
-
-```graphql
-{
-  xpath(query: "//element(*, nt:file)", first: 5) {
-    edges { node { path name mimeType size } cursor }
+  query(statement: "SELECT * FROM [nt:file] WHERE ISDESCENDANTNODE('/content')", language: "JCR-SQL2", first: 10) {
+    edges { node { path name mimeType } cursor }
     pageInfo { hasNextPage }
     totalCount
   }
 }
 ```
 
-### search(text: String!, path: String = "/", first: Int = 20, after: String)
-
-`jcr:contains` を用いた全文検索です。`nt:file` を対象に `text` を検索し、`node.score` フィールドでスコアを返します。
-
-```graphql
-{
-  search(text: "hello world", path: "/content", first: 10) {
-    edges {
-      node { path name nodeType score }
-      cursor
-    }
-    totalCount
-  }
-}
-```
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{"query": "{ search(text: \"hello\", path: \"/content\", first: 5) { edges { node { path name score } } } }"}'
-```
-
-### query(statement: String!, language: String = "JCR-SQL2", first: Int = 20, after: String)
-
-XPath / JCR-SQL2 / JCR-SQL (非推奨) など任意のクエリステートメントを実行します。`language` は `xpath`, `SQL2`, `JCR-SQL2`, `SQL`, `JCR-SQL` などを指定できます (大文字小文字は正規化されます)。
-
-```graphql
-{
-  query(statement: "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/content')", language: "JCR-SQL2", first: 20) {
-    edges {
-      node { path name nodeType }
-      cursor
-    }
-    totalCount
-  }
-}
-```
-
----
-
 ## Mutation オペレーション
 
-### createFolder(input: { path: String!, name: String!, nodeType: String = "nt:folder" })
+ミューテーションは `mutation { ... }` で 1 フィールドずつ呼び出してください。`MutationExecutor` は `variables.input` もしくはクエリ文字列内の `input: { ... }` を解析します。
 
-親パス直下にフォルダ (任意ノードタイプ) を作成します。レスポンスは作成されたノードです。
+### createFolder
+
+| 入力 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `path` | String | ○ | - | 親ノード |
+| `name` | String | ○ | - | 作成するノード名 |
+| `nodeType` | String |   | `nt:folder` | 必要に応じて上書き |
+
+返り値: `createFolder` (作成済みノード)。
+
+### createFile
+
+| 入力 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `path` | String | ○ | - | 親ノード |
+| `name` | String | ○ | - | ファイル名 |
+| `mimeType` | String | ○ | - | `jcr:content/jcr:mimeType` |
+| `content` | String | ○ | - | Base64 データ |
+| `nodeType` | String |   | `nt:file` | カスタムタイプを使う場合に指定 |
+
+`jcr:content (nt:resource)` を自動生成し、`jcr:lastModified`/`jcr:lastModifiedBy` を現在のセッションで設定します。返り値: `createFile`.
+
+### deleteNode
+
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | 削除対象 |
+
+返り値: `deleteNode: Boolean` (存在しない場合は `false`)
+
+### lockNode
+
+| 入力 | 型 | 必須 | デフォルト | 説明 |
+| --- | --- | --- | --- | --- |
+| `path` | String | ○ | - | 対象ノード |
+| `isDeep` | Boolean |   | `false` | 下位ノードもロックするか |
+| `isSessionScoped` | Boolean |   | `false` | セッション限定ロック |
+
+`mix:lockable` を自動付与します。返り値: `lockNode` (最新ノード情報)。
+
+### unlockNode
+
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | ロック解除対象 |
+
+返り値: `unlockNode: true`.
+
+### setProperties
+
+複数プロパティを一括更新します (すべて成功した場合のみ `session.save()`、失敗時は `session.refresh(false)` でロールバック)。
+
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | 対象ノード |
+| `properties` | [PropertyInput] | ○ | `{ name, value: PropertyValueInput }` の配列 |
+
+返り値:
 
 ```graphql
-mutation {
-  createFolder(input: { path: "/content", name: "docs" }) {
-    path
-    name
-    nodeType
-    created
+{
+  setProperties {
+    node { ... }      # 更新後ノード
+    errors [{ message }]
   }
 }
 ```
 
-### createFile(input: { path: String!, name: String!, mimeType: String!, content: String!, nodeType: String = "nt:file" })
+### addMixin / deleteMixin
 
-Base64 で渡された内容から `nt:file` + `jcr:content` を作成します。`content` は Base64 エンコード済みバイナリです。
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | 対象ノード |
+| `mixinType` | String | ○ | 追加/除去する mixin 名 |
 
-```graphql
-mutation {
-  createFile(input: {
-    path: "/content/docs"
-    name: "hello.txt"
-    mimeType: "text/plain"
-    content: "aGVsbG8gd29ybGQ="
-  }) {
-    path
-    mimeType
-    size
-  }
-}
-```
+返り値: `addMixin` / `deleteMixin` (ノード情報)。
 
-### deleteNode(path: String!)
+### setAccessControl
 
-ノードを削除し、`true/false` を返します。
+1 つのエントリ、または `entries` 配列で複数エントリをまとめて設定できます。既存エントリは principal 単位で置き換えられます。
 
-### lockNode(input: { path: String!, isDeep: Boolean = false, isSessionScoped: Boolean = false })
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | ACL を設定するノード |
+| `principal` | String | △ | 単一モードで使用 |
+| `privileges` | [String] | △ | 〃 (`["jcr:read", ...]`) |
+| `allow` | Boolean |   | 省略時は `true`。MintJams 拡張 ACL のみ有効 |
+| `entries` | [AccessControlEntryInput] | △ | 複数エントリを一括設定 (`principal`, `privileges`, `allow`) |
 
-ノードをロックします。必要に応じて自動的に `mix:lockable` を付与します。レスポンスはロック後のノード。
+返り値: `setAccessControl { entries[] }`.
 
-### unlockNode(path: String!)
+### deleteAccessControl
 
-指定ノードのロックを解除し、`true` を返します。
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | 対象ノード |
+| `principal` | String | ○ | 削除する principal |
 
-### setProperty(input: { path: String!, name: String!, value: Any!, type: String })
+返り値: `deleteAccessControl: true`.
 
-単一プロパティを作成 / 更新します。`type` を指定すると JCR PropertyType に変換されます。`Reference`/`WeakReference` を指定した場合は値に UUID を渡してください。
+### checkin / checkout
 
-### deleteProperty(input: { path: String!, name: String! })
+バージョン管理を行います (対象ノードは `mix:versionable` 必須)。
 
-指定プロパティを削除します (存在しない場合はエラー)。
+- `checkin(path: "/content/page1")` → `checkin { name created }`
+- `checkout(path: "/content/page1")` → `checkout: true`
 
-### addMixin(input: { path: String!, mixinType: String! }) / deleteMixin(...)
+### restoreVersion
 
-ノードに mixin を追加/削除します。結果として最新ノードが返ります。
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | 対象ノード |
+| `versionName` | String | ○ | `1.0` など Version 名 |
 
-### setAccessControl(input: { path: String!, principal: String, privileges: [String!], allow: Boolean = true, entries: [EntryInput] })
+未チェックアウトの場合は自動で `checkout` してからリストアします。返り値: `restoreVersion` (最新ノード)。
 
-単一エントリ、または `entries` 配列で複数エントリをまとめて設定できます。
+## 制限事項・メモ
 
-```graphql
-mutation {
-  setAccessControl(input: {
-    path: "/content/page1"
-    entries: [
-      { principal: "user1", privileges: ["jcr:read", "jcr:write"], allow: true },
-      { principal: "user2", privileges: ["jcr:read"], allow: true }
-    ]
-  }) {
-    entries { principal privileges allow }
-  }
-}
-```
-
-### deleteAccessControl(input: { path: String!, principal: String! })
-
-指定プリンシパルの ACL エントリを削除し、`true` を返します。
-
-### checkin(path: String!) / checkout(path: String!)
-
-`mix:versionable` ノードに対してチェックイン/チェックアウトを実行します。`checkin` は新しいバージョン情報を返し、`checkout` は boolean を返します。
-
-### restoreVersion(input: { path: String!, versionName: String! })
-
-指定バージョンにロールバックします。必要に応じて自動で checkout した上で `versionManager.restore()` を呼び出し、復元後のノードを返します。
-
----
-
-## ACL で利用できる代表的な権限
-
-- `jcr:read`
-- `jcr:write`
-- `jcr:modifyProperties`
-- `jcr:addChildNodes`
-- `jcr:removeNode`
-- `jcr:removeChildNodes`
-- `jcr:readAccessControl`
-- `jcr:modifyAccessControl`
-- `jcr:lockManagement`
-- `jcr:versionManagement`
-- `jcr:all`
-
-## 内部アーキテクチャ
-
-```
-GraphQLRequest
-    ↓
-GraphQLParser (AST を生成)
-    ↓
-Operation / Field / SelectionSet
-    ↓
-QueryExecutor / MutationExecutor
-    ↓
-NodeMapper (必要なフィールドのみマッピング)
-    ↓
-GraphQLResponse
-```
-
-主要クラス:
-- `GraphQLParser` … クエリ/変数を AST に変換
-- `SelectionSet` … フィールド選択、ネスト選択を提供
-- `QueryExecutor` / `MutationExecutor` … クエリ種別ごとの実処理を実装
-- `NodeMapper` … SelectionSet に基づいて JCR ノードをシリアライズ
-
-## 今後の改善
-
-1. フラグメントのサポート
-2. ディレクティブ (@include / @skip)
-3. より詳細なクエリ検証とキューイング
-4. バッチ実行時のさらなる最適化
-
-## テスト
-
-```bash
-# ノード取得
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{"query": "{ node(path: \"/content\") { path name } }"}'
-
-# フォルダ作成
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { createFolder(input: { path: \\"/content\\", name: \\"test\\" }) { path name } }"
-  }'
-```
-
-## ビルド
-
-Eclipse PDE からビルドする場合:
-
-1. プロジェクトを右クリック
-2. "Export" → "Plug-in Development" → "Deployable plug-ins and fragments"
-3. 出力先を指定してエクスポート
+- 現状は **1 リクエスト 1 ルートフィールド** を前提にしています。複数フィールドを並べても、最初にマッチしたものしか実行されません。
+- AST パーサーは Operation 名や Fragments には対応していません。SelectionSet は 1 階層のみ解析してフィールド最適化に利用します。
+- Connection 系クエリ (`children`/`references`/`xpath`/`search`/`query`) は JCR の Iterator/RowIterator を `skip()` しながらストリーミングします。ページング対象以外を保持しないためメモリ使用は `first` 件分に限定されます。対象の JCR 実装では `NodeIterator#getSize()` / `RowIterator#getSize()` / `PropertyIterator#getSize()` がヒット件数を返すことを確認済みのため、`totalCount` は常に実際の件数になります。
+- `search` は全文検索専用で `nt:file` に固定されています。レリバンススコア順で結果が返されます。
+  複合条件や任意の並べ替えが必要な場合は `query` クエリまたは `xpath` クエリを使用してください。
+- `createFile` / `PropertyValueInput` のバイナリは Base64、日付は ISO-8601 (UTC) で渡してください。

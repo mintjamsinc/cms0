@@ -87,7 +87,7 @@ public class GraphQLServlet extends HttpServlet {
 			// Get JCR session
 			try {
 				jcrSession = CmsService.getRepository().login(credentials, workspaceName);
-			} catch (Exception e) {
+			} catch (Throwable e) {
 				CmsService.getLogger(getClass()).error("Failed to create JCR session", e);
 				sendError(response, "Authentication failed: " + e.getMessage());
 				return;
@@ -111,12 +111,14 @@ public class GraphQLServlet extends HttpServlet {
 
 			// Send response
 			sendResponse(response, graphQLResponse);
-
-		} catch (Exception e) {
+		} catch (Throwable e) {
 			CmsService.getLogger(getClass()).error("GraphQL execution failed", e);
 			sendError(response, "Internal server error: " + e.getMessage());
 		} finally {
 			if (jcrSession != null && jcrSession.isLive()) {
+				try {
+					jcrSession.refresh(false);
+				} catch (Throwable ignore) {}
 				jcrSession.logout();
 			}
 		}
