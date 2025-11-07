@@ -489,7 +489,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 	@Override
 	public PropertyIterator getReferences(String name) throws RepositoryException {
-		return createReferenceIterator(name, false);
+//		return createReferenceIterator(name, false);
+		return JcrReferencePropertyIterator.create(this, name, false);
 	}
 
 	@Override
@@ -515,7 +516,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 	@Override
 	public PropertyIterator getWeakReferences(String name) throws RepositoryException {
-		return createReferenceIterator(name, true);
+//		return createReferenceIterator(name, true);
+		return JcrReferencePropertyIterator.create(this, name, true);
 	}
 
 	@Override
@@ -997,95 +999,95 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		return properties;
 	}
 
-	private void collectReferencesForId(String id, String name, boolean weak, List<JcrProperty> items,
-			java.util.Set<String> seen) throws IOException, SQLException, RepositoryException {
-		if (id == null) {
-			return;
-		}
+//	private void collectReferencesForId(String id, String name, boolean weak, List<JcrProperty> items,
+//			java.util.Set<String> seen) throws IOException, SQLException, RepositoryException {
+//		if (id == null) {
+//			return;
+//		}
+//
+//		try (Query.Result result = getWorkspaceQuery().items().listReferences(id, name, weak)) {
+//			for (AdaptableMap<String, Object> itemData : result) {
+//				if (itemData.getBoolean("is_deleted")) {
+//					continue;
+//				}
+//				String propId = itemData.getString("item_id");
+//				if (seen.add(propId)) {
+//					items.add(JcrProperty.create(itemData, (JcrNode) fSession.getNodeByIdentifier(itemData.getString("parent_item_id"))));
+//				}
+//			}
+//		}
+//	}
 
-		try (Query.Result result = getWorkspaceQuery().items().listReferences(id, name, weak)) {
-			for (AdaptableMap<String, Object> itemData : result) {
-				if (itemData.getBoolean("is_deleted")) {
-					continue;
-				}
-				String propId = itemData.getString("item_id");
-				if (seen.add(propId)) {
-					items.add(JcrProperty.create(itemData, (JcrNode) fSession.getNodeByIdentifier(itemData.getString("parent_item_id"))));
-				}
-			}
-		}
-	}
-
-	private PropertyIterator createReferenceIterator(String name, boolean weak) throws RepositoryException {
-		List<JcrProperty> items = new ArrayList<>();
-		try {
-			java.util.Set<String> seen = new java.util.LinkedHashSet<>();
-
-			// collect for live node
-			collectReferencesForId(getIdentifier(), name, weak, items, seen);
-
-			// versioning adjustment: consider frozen node when appropriate
-			Node versionControlledNode = JCRs.getVersionControlledNode(this);
-			if (versionControlledNode != null && versionControlledNode.isCheckedOut()
-					&& versionControlledNode.hasProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)) {
-				String checkedOutBy = versionControlledNode.getProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)
-						.getString();
-				if (!getSession().getUserID().equals(checkedOutBy)) {
-					Node frozenNode;
-					if (getIdentifier().equals(versionControlledNode.getIdentifier())) {
-						frozenNode = getBaseVersion().getFrozenNode();
-					} else {
-						String relPath = getPath().substring(versionControlledNode.getPath().length());
-						frozenNode = versionControlledNode.getBaseVersion().getFrozenNode()
-								.getNode(relPath.substring(1));
-					}
-					collectReferencesForId(frozenNode.getIdentifier(), name, weak, items, seen);
-				}
-			}
-		} catch (IOException | SQLException ex) {
-			throw Cause.create(ex).wrap(RepositoryException.class);
-		}
-
-		return new PropertyIterator() {
-			private final List<JcrProperty> fItems = items;
-			private int pos = 0;
-
-			@Override
-			public long getPosition() {
-				return pos;
-			}
-
-			@Override
-			public long getSize() {
-				return fItems.size();
-			}
-
-			@Override
-			public void skip(long skipNum) {
-				if (skipNum < 0 || Integer.MAX_VALUE < skipNum)
-					throw new NoSuchElementException("Invalid skip number: " + skipNum);
-				for (long i = 0; i < skipNum && hasNext(); i++)
-					nextProperty();
-			}
-
-			@Override
-			public boolean hasNext() {
-				return pos < fItems.size();
-			}
-
-			@Override
-			public Object next() {
-				return nextProperty();
-			}
-
-			@Override
-			public Property nextProperty() {
-				if (!hasNext())
-					throw new IllegalStateException("No more items.");
-				return fItems.get(pos++);
-			}
-		};
-	}
+//	private PropertyIterator createReferenceIterator(String name, boolean weak) throws RepositoryException {
+//		List<JcrProperty> items = new ArrayList<>();
+//		try {
+//			java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+//
+//			// collect for live node
+//			collectReferencesForId(getIdentifier(), name, weak, items, seen);
+//
+//			// versioning adjustment: consider frozen node when appropriate
+//			Node versionControlledNode = JCRs.getVersionControlledNode(this);
+//			if (versionControlledNode != null && versionControlledNode.isCheckedOut()
+//					&& versionControlledNode.hasProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)) {
+//				String checkedOutBy = versionControlledNode.getProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)
+//						.getString();
+//				if (!getSession().getUserID().equals(checkedOutBy)) {
+//					Node frozenNode;
+//					if (getIdentifier().equals(versionControlledNode.getIdentifier())) {
+//						frozenNode = getBaseVersion().getFrozenNode();
+//					} else {
+//						String relPath = getPath().substring(versionControlledNode.getPath().length());
+//						frozenNode = versionControlledNode.getBaseVersion().getFrozenNode()
+//								.getNode(relPath.substring(1));
+//					}
+//					collectReferencesForId(frozenNode.getIdentifier(), name, weak, items, seen);
+//				}
+//			}
+//		} catch (IOException | SQLException ex) {
+//			throw Cause.create(ex).wrap(RepositoryException.class);
+//		}
+//
+//		return new PropertyIterator() {
+//			private final List<JcrProperty> fItems = items;
+//			private int pos = 0;
+//
+//			@Override
+//			public long getPosition() {
+//				return pos;
+//			}
+//
+//			@Override
+//			public long getSize() {
+//				return fItems.size();
+//			}
+//
+//			@Override
+//			public void skip(long skipNum) {
+//				if (skipNum < 0 || Integer.MAX_VALUE < skipNum)
+//					throw new NoSuchElementException("Invalid skip number: " + skipNum);
+//				for (long i = 0; i < skipNum && hasNext(); i++)
+//					nextProperty();
+//			}
+//
+//			@Override
+//			public boolean hasNext() {
+//				return pos < fItems.size();
+//			}
+//
+//			@Override
+//			public Object next() {
+//				return nextProperty();
+//			}
+//
+//			@Override
+//			public Property nextProperty() {
+//				if (!hasNext())
+//					throw new IllegalStateException("No more items.");
+//				return fItems.get(pos++);
+//			}
+//		};
+//	}
 
 	@SuppressWarnings("unchecked")
 	@Override

@@ -944,8 +944,12 @@ public class WorkspaceQuery implements Adaptable {
 				throw new IllegalArgumentException("Identifier must not be null or empty.");
 			}
 
-			StringBuilder statement = new StringBuilder().append(
-					"SELECT * FROM jcr_properties WHERE property_type = {{type}} AND ARRAY_CONTAINS(property_value, {{value}})");
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT * FROM jcr_properties")
+					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
+					.append(" AND jcr_items.item_path NOT LIKE '/jcr:system/%')")
+					.append(" WHERE property_type = {{type}}")
+					.append(" AND ARRAY_CONTAINS(property_value, {{value}})");
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
 					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
 					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();
@@ -953,7 +957,8 @@ public class WorkspaceQuery implements Adaptable {
 				statement.append(" AND item_name = {{name}}");
 				variables.put("name", name);
 			}
-			statement.append(" ORDER BY item_name");
+			statement.append(" AND jcr_properties.is_deleted = FALSE")
+					.append(" ORDER BY item_name");
 
 			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
@@ -1041,18 +1046,32 @@ public class WorkspaceQuery implements Adaptable {
 			}
 			statement.append(" AND is_deleted = FALSE");
 
-			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build()
-					.setOffset(0).execute()) {
+			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build().execute()) {
 				return result.iterator().next().getLong("item_count");
 			}
 		}
 
 		public long countReferenced(String id) throws IOException, SQLException {
-			try (Query.Result result = newQueryBuilder(
-					"SELECT COUNT(*) AS reference_count FROM jcr_properties WHERE property_type = {{type}} AND ARRAY_CONTAINS(property_value, {{value}}) AND is_deleted = FALSE")
-					.setVariable("type", PropertyType.REFERENCE)
-					.setVariable("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build()
-					.setOffset(0).setLimit(1).execute()) {
+			return countReferenced(id, null, false);
+		}
+
+		public long countReferenced(String id, String name, boolean weak) throws IOException, SQLException {
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT COUNT(*) AS reference_count FROM jcr_properties")
+					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
+					.append(" AND jcr_items.item_path NOT LIKE '/jcr:system/%')")
+					.append(" WHERE property_type = {{type}}")
+					.append(" AND ARRAY_CONTAINS(property_value, {{value}})");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
+					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
+					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();
+			if (Strings.isNotEmpty(name)) {
+				statement.append(" AND item_name = {{name}}");
+				variables.put("name", name);
+			}
+			statement.append(" AND jcr_properties.is_deleted = FALSE");
+
+			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build().execute()) {
 				return result.iterator().next().getLong("reference_count");
 			}
 		}
