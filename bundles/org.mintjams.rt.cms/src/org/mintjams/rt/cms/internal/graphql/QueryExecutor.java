@@ -229,7 +229,7 @@ public class QueryExecutor {
 				return Integer.parseInt(decoded.substring("arrayconnection:".length()));
 			}
 			return 0;
-		} catch (Exception e) {
+		} catch (Throwable ex) {
 			return 0;
 		}
 	}
@@ -907,7 +907,7 @@ public class QueryExecutor {
 			}
 
 			return edgesSelection.getNestedSelectionSet("node");
-		} catch (Exception e) {
+		} catch (Throwable ex) {
 			// If parsing fails, return null (fallback to include all fields)
 			return null;
 		}

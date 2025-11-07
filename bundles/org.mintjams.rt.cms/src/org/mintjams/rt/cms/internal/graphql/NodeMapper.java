@@ -288,7 +288,7 @@ public class NodeMapper {
 			}
 
 			result.put("properties", properties);
-		} catch (Exception e) {
+		} catch (Throwable ex) {
 			result.put("properties", new ArrayList<>());
 		}
 	}
@@ -311,7 +311,7 @@ public class NodeMapper {
 			default:
 				return value.getString();
 			}
-		} catch (Exception e) {
+		} catch (Throwable ex) {
 			return "[Error]";
 		}
 	}
@@ -358,7 +358,7 @@ public class NodeMapper {
 					result.put("isLockOwningSession", false);
 				}
 			}
-		} catch (Exception e) {
+		} catch (Throwable ex) {
 			// If lock info retrieval fails, set default values only for requested fields
 			if (includeAll || selectionSet.hasField("isLocked")) {
 				result.put("isLocked", false);

@@ -24,6 +24,8 @@ package org.mintjams.rt.cms.internal.graphql;
 
 import javax.jcr.Session;
 
+import org.mintjams.tools.adapter.Adaptables;
+
 /**
  * Main class for executing GraphQL requests
  */
@@ -46,11 +48,19 @@ public class GraphQLExecutor {
 		GraphQLResponse response = new GraphQLResponse();
 
 		try {
+			// Authentication check
+			if (Adaptables.getAdapter(session, org.mintjams.jcr.Session.class).isGuest()) {
+				response.addError("Authentication required");
+				return response;
+			}
+
+			// Validate request
 			if (request.getQuery() == null || request.getQuery().trim().isEmpty()) {
 				response.addError("Query must not be empty");
 				return response;
 			}
 
+			// Execute request
 			if (request.isQuery()) {
 				executeQuery(request, response);
 			} else if (request.isMutation()) {
@@ -58,9 +68,8 @@ public class GraphQLExecutor {
 			} else {
 				response.addError("Unsupported operation type");
 			}
-
-		} catch (Exception e) {
-			response.addError("Execution failed: " + e.getMessage(), e);
+		} catch (Throwable ex) {
+			response.addError("Execution failed: " + ex.getMessage(), ex);
 		}
 
 		return response;
@@ -94,8 +103,8 @@ public class GraphQLExecutor {
 				response.addError("Unknown query operation");
 			}
 
-		} catch (Exception e) {
-			response.addError("Query execution failed: " + e.getMessage(), e);
+		} catch (Throwable ex) {
+			response.addError("Query execution failed: " + ex.getMessage(), ex);
 		}
 	}
 
@@ -139,8 +148,8 @@ public class GraphQLExecutor {
 				response.addError("Unknown mutation operation");
 			}
 
-		} catch (Exception e) {
-			response.addError("Mutation execution failed: " + e.getMessage(), e);
+		} catch (Throwable ex) {
+			response.addError("Mutation execution failed: " + ex.getMessage(), ex);
 		}
 	}
 

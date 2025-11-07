@@ -65,8 +65,8 @@ public class GraphQLRequestParser {
 					: null;
 
 			return new GraphQLRequest(query, operationName, variables);
-		} catch (Exception e) {
-			throw new IOException("Failed to parse GraphQL request", e);
+		} catch (Throwable ex) {
+			throw new IOException("Failed to parse GraphQL request", ex);
 		}
 	}
 
