@@ -1,6 +1,6 @@
 # GraphQL API for cms0
 
-cms0のコンテンツ管理用GraphQL APIの実装ドキュメント
+cms0のコンテンツ管理機能をGraphQLで公開するための公式ドキュメントです。org.mintjams.rt.cms.internal.graphqlパッケージに実装されているASTベースのGraphQLエンジンに合わせ、現在利用できるクエリ/ミューテーション、レスポンス構造、パフォーマンスに関するベストプラクティスを整理しています。
 
 ## エンドポイント
 
@@ -9,35 +9,19 @@ POST /bin/graphql.cgi/{workspace}
 GET  /bin/graphql.cgi/{workspace}
 ```
 
-例：
+例:
 - `http://localhost:8080/bin/graphql.cgi/system`
 - `http://localhost:8080/bin/graphql.cgi/web`
 
+`{workspace}` には cms0 上の JCR ワークスペース名を指定します。
+
 ## 認証
 
-cms0の既存認証機構を使用します。ログイン済みのユーザーのみアクセス可能です。
+cms0 標準の認証・権限モデル (セッション or HTTP Basic) を利用します。`GraphQLExecutor` はゲストセッションを拒否するため、ログイン済みユーザーのみリクエストを送れます。アクセス権は実際の JCR セッションが持つ権限に委ねられます。
 
-## Phase 1: 基本機能
+## リクエストフォーマット
 
-### Query操作
-
-#### ノード取得
-
-```graphql
-{
-  node(path: "/content/page1") {
-    path
-    name
-    nodeType
-    created
-    createdBy
-    modified
-    modifiedBy
-  }
-}
-```
-
-POSTリクエスト例：
+### JSON ボディでの POST
 
 ```bash
 curl -X POST http://localhost:8080/bin/graphql.cgi/web \
@@ -47,7 +31,7 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   }'
 ```
 
-変数を使用する場合：
+### 変数の利用
 
 ```bash
 curl -X POST http://localhost:8080/bin/graphql.cgi/web \
@@ -60,57 +44,58 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   }'
 ```
 
-#### 子ノード一覧取得
+### GET リクエスト
 
-GraphQL Relay Connection仕様に準拠したカーソルベースページネーションを使用します。
+シンプルなクエリであれば `GET /bin/graphql.cgi/{workspace}?query=...` もサポートされています (URL エンコード必須)。
 
-```graphql
-{
-  children(path: "/content", first: 10, after: "cursor") {
-    edges {
-      node {
-        path
-        name
-        nodeType
-        created
-      }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-    totalCount
-  }
-}
-```
+## 実装の特長
 
-POSTリクエスト例：
+### AST ベースの GraphQL パーサ
 
-```bash
-# 最初のページ（first: 10件）
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "{ children(path: \"/content\", first: 10) { edges { node { path name } cursor } pageInfo { hasNextPage endCursor } totalCount } }"
-  }'
+`GraphQLParser` がクエリ文字列と変数を解析して AST (Operation / Field / SelectionSet) を構築します。`GraphQLExecutor` は AST からルートフィールドを取得し、対応する Query/Muation Executor に処理を委譲します。これにより、フィールド単位での最適化や追加の静的検証が可能になっています。
 
-# 次のページ（afterにendCursorを指定）
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "{ children(path: \"/content\", first: 10, after: \"YXJyYXljb25uZWN0aW9uOjk=\") { edges { node { path name } cursor } pageInfo { hasNextPage endCursor } } }"
-  }'
-```
+### フィールド選択と NodeMapper
 
-パラメータ：
-- `path`: 親ノードのパス（必須）
-- `first`: 取得する件数（デフォルト: 20）
-- `after`: カーソル（前回のendCursorを指定）
+`NodeMapper.toGraphQL(node, selectionSet)` は SelectionSet に含まれるフィールドだけを JCR ノードから取り出します。SelectionSet が無い場合は後方互換のために全フィールドを返します (ただしパフォーマンスコストが上がります)。
 
-レスポンス例：
+### 主なノードフィールド
+
+- `path`, `name`, `nodeType`
+- 監査情報: `created`, `createdBy`, `modified`, `modifiedBy`
+- `uuid` (mix:referenceable の場合のみ)
+- nt:file 向け: `mimeType`, `size`, `encoding`, `downloadUrl`
+- nt:folder 向け: `hasChildren`
+- ロック情報: `isLocked`, `lockOwner`, `isDeep`, `isSessionScoped`, `isLockOwningSession`
+- `properties { name type value }` (jcr:* は除外)
+- フルテキスト検索用に `score` が付与されるケースがあります (`search` クエリ)
+
+### コストの高いフィールド
+
+以下のフィールドは内部で追加の JCR アクセスやイテレーションが発生するため、必要なときだけ選択してください。
+
+1. **properties** - `PropertyIterator` を全走査します。
+2. **lock 情報** - `LockManager` へのアクセスが必要です。
+3. **nt:file 専用フィールド** - `jcr:content` ノードを参照します。
+4. **フォルダ専用フィールド** - `hasNodes()` の呼び出しは巨大フォルダでコストがかかります。
+
+### Relay 風ページング
+
+`children`, `xpath`, `search`, `query` は GraphQL Relay Connection を模した構造を返します。
+- `first` (デフォルト 20)
+- `after` (Base64 `arrayconnection:{offset}` 形式)
+- `edges[] { node { ... } cursor }`
+- `pageInfo { hasNextPage hasPreviousPage startCursor endCursor }`
+- `totalCount`
+
+### ベストプラクティス
+
+1. 必要なフィールドだけを指定して I/O を最小化する。
+2. 大きなリストは必ず `first` / `after` でページングする。
+3. プロパティ一覧が欲しい場合は `properties { name value }` のように必要なサブフィールドのみを要求する。
+
+## 共通レスポンス構造
+
+GraphQL のレスポンスは常に `{"data": { ... }, "errors": [...]}` を返します。`data` 直下のキーはクエリ/ミューテーション名と一致し、各ノードは NodeMapper が提供するフィールドのみを持ちます。Connection を返すクエリでは `edges`/`pageInfo`/`totalCount` を含む標準構造になります。
 
 ```json
 {
@@ -123,673 +108,82 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
             "name": "page1"
           },
           "cursor": "YXJyYXljb25uZWN0aW9uOjA="
-        },
-        {
-          "node": {
-            "path": "/content/page2",
-            "name": "page2"
-          },
-          "cursor": "YXJyYXljb25uZWN0aW9uOjE="
         }
       ],
       "pageInfo": {
         "hasNextPage": true,
-        "hasPreviousPage": false,
-        "startCursor": "YXJyYXljb25uZWN0aW9uOjA=",
-        "endCursor": "YXJyYXljb25uZWN0aW9uOjE="
+        "endCursor": "YXJyYXljb25uZWN0aW9uOjk="
       },
-      "totalCount": 50
+      "totalCount": 42
     }
   }
 }
 ```
 
-**注意**:
-- `cursor`はBase64エンコードされた位置情報です
-- 次のページを取得するには、`pageInfo.endCursor`を`after`パラメータに指定します
-- `pageInfo.hasNextPage`が`false`になるまでページングを続けます
+---
 
-### Mutation操作
+## Query オペレーション
 
-#### フォルダ作成
+### node(path: String!)
+
+指定パスの単一ノードを返します (存在しない場合は `null`)。
 
 ```graphql
-mutation {
-  createFolder(input: {
-    path: "/content"
-    name: "newfolder"
-    nodeType: "nt:folder"
-  }) {
+{
+  node(path: "/content/page1") {
     path
     name
+    nodeType
     created
     createdBy
+    properties { name value }
   }
 }
 ```
 
-POSTリクエスト例：
-
 ```bash
 curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation CreateFolder($input: CreateFolderInput!) { createFolder(input: $input) { path name } }",
-    "variables": {
-      "input": {
-        "path": "/content",
-        "name": "newfolder"
-      }
-    }
-  }'
+  -d '{"query": "{ node(path: \"/content/page1\") { path name nodeType } }"}'
 ```
 
-#### ファイル作成
+### children(path: String!, first: Int = 20, after: String)
 
-```graphql
-mutation {
-  createFile(input: {
-    path: "/content"
-    name: "test.txt"
-    mimeType: "text/plain"
-    content: "SGVsbG8gV29ybGQh"  # Base64エンコード
-  }) {
-    path
-    name
-    mimeType
-    size
-  }
-}
-```
+指定ノード直下の子ノードを Relay Connection 形式で返します。
 
-POSTリクエスト例：
-
-```bash
-# contentはBase64エンコード
-echo -n "Hello World!" | base64  # SGVsbG8gV29ybGQh
-
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation CreateFile($input: CreateFileInput!) { createFile(input: $input) { path name size } }",
-    "variables": {
-      "input": {
-        "path": "/content",
-        "name": "test.txt",
-        "mimeType": "text/plain",
-        "content": "SGVsbG8gV29ybGQh"
-      }
-    }
-  }'
-```
-
-#### ノード削除
-
-```graphql
-mutation {
-  deleteNode(path: "/content/page1")
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { deleteNode(path: \"/content/page1\") }"
-  }'
-```
-
-## レスポンス形式
-
-### 成功時
-
-```json
-{
-  "data": {
-    "node": {
-      "path": "/content/page1",
-      "name": "page1",
-      "nodeType": "nt:file"
-    }
-  }
-}
-```
-
-### エラー時
-
-```json
-{
-  "errors": [
-    {
-      "message": "Node not found: /content/invalid",
-      "extensions": {
-        "exception": "javax.jcr.PathNotFoundException"
-      }
-    }
-  ]
-}
-```
-
-#### ノードのロック
-
-```graphql
-mutation {
-  lockNode(input: {
-    path: "/content/page1"
-    isDeep: false
-    isSessionScoped: false
-  }) {
-    path
-    name
-    isLocked
-    lockOwner
-    isDeep
-    isSessionScoped
-    isLockOwningSession
-  }
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { lockNode(input: { path: \"/content/page1\", isDeep: false, isSessionScoped: false }) { path isLocked lockOwner } }"
-  }'
-```
-
-パラメータ：
-- `path`: ロックするノードのパス（必須）
-- `isDeep`: 子ノードも含めてロックするか（デフォルト: false）
-- `isSessionScoped`: セッションスコープのロックか（デフォルト: false）
-  - `false`: リクエスト間でロックを保持（推奨）
-  - `true`: 現在のJCRセッション内でのみ有効（リクエスト終了時に自動解除）
-
-**注意**: GraphQL APIでは各リクエスト終了時にJCRセッションが閉じられるため、`isSessionScoped=true`を設定すると次のリクエストでロックが解除されます。リクエスト間でロックを保持する場合は`isSessionScoped=false`（デフォルト）を使用してください。
-
-#### ノードのロック解除
-
-```graphql
-mutation {
-  unlockNode(path: "/content/page1")
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { unlockNode(path: \"/content/page1\") }"
-  }'
-```
-
-## 参照管理 (mix:referenceable)
-
-### Mixin追加・削除
-
-#### Mixinタイプ追加
-
-```graphql
-mutation {
-  addMixin(input: {
-    path: "/content/target"
-    mixinType: "mix:referenceable"
-  }) {
-    path
-    uuid
-  }
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { addMixin(input: { path: \"/content/target\", mixinType: \"mix:referenceable\" }) { path uuid } }"
-  }'
-```
-
-#### Mixinタイプ削除
-
-```graphql
-mutation {
-  deleteMixin(input: {
-    path: "/content/target"
-    mixinType: "mix:referenceable"
-  }) {
-    path
-    uuid
-  }
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { deleteMixin(input: { path: \"/content/target\", mixinType: \"mix:referenceable\" }) { path } }"
-  }'
-```
-
-### プロパティ設定
-
-#### 参照プロパティの設定
-
-```graphql
-mutation {
-  setProperty(input: {
-    path: "/content/source"
-    name: "myReference"
-    value: "uuid-of-target-node"
-    type: "Reference"
-  }) {
-    path
-    properties {
-      name
-      type
-      value
-    }
-  }
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { setProperty(input: { path: \"/content/source\", name: \"myRef\", value: \"123e4567-e89b-12d3-a456-426614174000\", type: \"Reference\" }) { path } }"
-  }'
-```
-
-#### 弱参照プロパティの設定
-
-```graphql
-mutation {
-  setProperty(input: {
-    path: "/content/source"
-    name: "myWeakRef"
-    value: "uuid-of-target-node"
-    type: "WeakReference"
-  }) {
-    path
-  }
-}
-```
-
-サポートされているプロパティタイプ：
-- `String` (デフォルト)
-- `Boolean`
-- `Long`
-- `Double`
-- `Reference` - 強参照（参照先ノードの削除を防ぐ）
-- `WeakReference` - 弱参照（参照先ノードの削除を許可）
-- `Date`
-- `Binary`
-- `Path`
-- `Name`
-- `URI`
-- `Decimal`
-
-**注意**: `Reference`と`WeakReference`では、`value`にはターゲットノードのUUID（`mix:referenceable`ノードの識別子）を指定します。
-
-### 参照元ノード取得
-
-指定したノードを参照しているノード一覧を取得します。
+- `path` (必須)
+- `first` (省略時 20)
+- `after` (前ページの `endCursor`)
 
 ```graphql
 {
-  references(path: "/content/target") {
-    nodes {
-      path
-      name
-      properties {
-        name
-        type
-        value
-      }
+  children(path: "/content", first: 10, after: "YXJyYXljb25uZWN0aW9uOjk=") {
+    edges {
+      node { path name nodeType modified }
+      cursor
     }
+    pageInfo { hasNextPage endCursor }
     totalCount
   }
 }
 ```
 
-POSTリクエスト例：
+### references(path: String!)
 
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "{ references(path: \"/content/target\") { nodes { path name } totalCount } }"
-  }'
-```
-
-**注意**: `references`クエリは、ターゲットノードに`mix:referenceable` mixinが追加されている場合のみ機能します。mixinがない場合は空のリストが返されます。
-
-### UUIDの取得
-
-`mix:referenceable`が追加されたノードは、`uuid`フィールドでUUIDを取得できます。
+`mix:referenceable` ノードを参照しているノード一覧を返します。対象ノードが referenceable でない場合は空配列になります。
 
 ```graphql
 {
-  node(path: "/content/target") {
-    path
-    name
-    uuid
+  references(path: "/content/asset") {
+    nodes { path name uuid }
+    totalCount
   }
 }
 ```
 
-## ノードタイプ別のフィールド
+### accessControl(path: String!)
 
-### 共通フィールド（全ノードタイプ）
-
-```
-- path: String!
-- name: String!
-- nodeType: String!
-- created: DateTime!
-- createdBy: String!
-- uuid: String                    # mix:referenceable の UUID（nullの場合もあり）
-- isLocked: Boolean!
-- lockOwner: String
-- isDeep: Boolean!
-- isSessionScoped: Boolean!
-- isLockOwningSession: Boolean!
-```
-
-### nt:file（ファイル）
-
-```
-- path: String!
-- name: String!
-- nodeType: String!
-- created: DateTime!
-- createdBy: String!
-- modified: DateTime!          # jcr:contentのjcr:lastModified
-- modifiedBy: String!          # jcr:contentのjcr:lastModifiedBy
-- mimeType: String!
-- size: Long!
-- encoding: String
-- downloadUrl: String!
-- isLocked: Boolean!
-- lockOwner: String
-- isDeep: Boolean!
-- isSessionScoped: Boolean!
-- isLockOwningSession: Boolean!
-```
-
-### nt:folder（フォルダ）
-
-```
-- path: String!
-- name: String!
-- nodeType: String!
-- created: DateTime!
-- createdBy: String!
-- modified: DateTime!
-- modifiedBy: String!
-- hasChildren: Boolean!
-- isLocked: Boolean!
-- lockOwner: String
-- isDeep: Boolean!
-- isSessionScoped: Boolean!
-- isLockOwningSession: Boolean!
-```
-
-## 実装クラス
-
-### パッケージ構造
-
-```
-org.mintjams.rt.cms.internal.graphql/
-├── GraphQLRequest.java           # リクエスト表現
-├── GraphQLResponse.java          # レスポンス表現
-├── GraphQLRequestParser.java    # リクエストパーサー
-├── GraphQLExecutor.java          # メイン実行クラス
-├── QueryExecutor.java            # Query操作
-├── MutationExecutor.java         # Mutation操作
-└── NodeMapper.java               # JCR→GraphQL変換
-
-org.mintjams.rt.cms.internal.web/
-└── GraphQLServlet.java           # Servletエンドポイント
-```
-
-## バージョン管理 (Versioning)
-
-JCRのバージョン管理機能を使用して、ノードの変更履歴を管理します。
-
-### 前提条件
-
-バージョン管理を使用するには、ノードに`mix:versionable` mixinを追加する必要があります。
-
-```graphql
-mutation {
-  addMixin(input: {
-    path: "/content/page1"
-    mixinType: "mix:versionable"
-  }) {
-    path
-  }
-}
-```
-
-### バージョン履歴取得
-
-指定したノードのバージョン履歴を取得します。
-
-```graphql
-{
-  versionHistory(path: "/content/page1") {
-    versions {
-      name
-      created
-      predecessors
-      successors
-    }
-    baseVersion
-    versionableUuid
-  }
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "{ versionHistory(path: \"/content/page1\") { versions { name created } baseVersion } }"
-  }'
-```
-
-レスポンス例：
-
-```json
-{
-  "data": {
-    "versionHistory": {
-      "versions": [
-        {
-          "name": "1.0",
-          "created": "2024-01-15T10:30:00.000Z"
-        },
-        {
-          "name": "1.1",
-          "created": "2024-01-16T14:20:00.000Z",
-          "predecessors": ["1.0"]
-        }
-      ],
-      "baseVersion": "1.1",
-      "versionableUuid": "123e4567-e89b-12d3-a456-426614174000"
-    }
-  }
-}
-```
-
-### チェックイン (新しいバージョンの作成)
-
-ノードをチェックインして新しいバージョンを作成します。チェックイン後、ノードは読み取り専用になります。
-
-```graphql
-mutation {
-  checkin(path: "/content/page1")
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { checkin(path: \"/content/page1\") }"
-  }'
-```
-
-レスポンス例：
-
-```json
-{
-  "data": {
-    "checkin": {
-      "name": "1.2",
-      "created": "2024-01-17T09:15:00.000Z"
-    }
-  }
-}
-```
-
-**注意**: チェックインすると、ノードは読み取り専用になります。編集するにはチェックアウトが必要です。
-
-### チェックアウト (編集のためのロック解除)
-
-ノードをチェックアウトして編集可能な状態にします。
-
-```graphql
-mutation {
-  checkout(path: "/content/page1")
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { checkout(path: \"/content/page1\") }"
-  }'
-```
-
-**ワークフロー例**:
-1. ノードをチェックアウト (`checkout`)
-2. プロパティを編集 (`setProperty`)
-3. ノードをチェックイン (`checkin`) - 新しいバージョンが作成される
-
-### バージョン復元
-
-ノードを特定のバージョンに復元します。
-
-```graphql
-mutation {
-  restoreVersion(input: {
-    path: "/content/page1"
-    versionName: "1.0"
-  }) {
-    path
-    name
-  }
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { restoreVersion(input: { path: \"/content/page1\", versionName: \"1.0\" }) { path } }"
-  }'
-```
-
-パラメータ：
-- `path`: 復元するノードのパス（必須）
-- `versionName`: 復元するバージョン名（例: "1.0", "1.1"）（必須）
-
-**注意**:
-- 復元すると、現在の内容が指定したバージョンの内容で置き換えられます
-- ノードがチェックインされている場合は、自動的にチェックアウトされます
-
-### バージョン管理の使用例
-
-```bash
-# 1. mix:versionableを追加
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { addMixin(input: { path: \"/content/doc\", mixinType: \"mix:versionable\" }) { path } }"
-  }'
-
-# 2. 初回チェックイン（バージョン1.0を作成）
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { checkin(path: \"/content/doc\") }"
-  }'
-
-# 3. 編集のためにチェックアウト
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { checkout(path: \"/content/doc\") }"
-  }'
-
-# 4. プロパティを変更
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { setProperty(input: { path: \"/content/doc\", name: \"title\", value: \"Updated Title\" }) { path } }"
-  }'
-
-# 5. 変更を保存（バージョン1.1を作成）
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { checkin(path: \"/content/doc\") }"
-  }'
-
-# 6. バージョン履歴を確認
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "{ versionHistory(path: \"/content/doc\") { versions { name created } baseVersion } }"
-  }'
-
-# 7. 以前のバージョンに戻す
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { restoreVersion(input: { path: \"/content/doc\", versionName: \"1.0\" }) { path } }"
-  }'
-```
-
-## アクセス権限管理 (ACL)
-
-### ACL取得
-
-指定したノードのアクセス制御エントリ一覧を取得します。
+指定ノードに設定されている ACL エントリを返します。
 
 ```graphql
 {
@@ -803,197 +197,237 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
 }
 ```
 
-POSTリクエスト例：
+`allow` は現在常に `true` (JCR API の制約) です。
 
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "{ accessControl(path: \"/content/page1\") { entries { principal privileges allow } } }"
-  }'
-```
+### versionHistory(path: String!)
 
-レスポンス例：
+`mix:versionable` ノードのバージョン履歴を取得します。`versions` の各要素には `name`, `created`, `predecessors`, `successors`, `frozenNodePath` が含まれます。レスポンスには `baseVersion` と `versionableUuid` も含まれます。
 
-```json
+```graphql
 {
-  "data": {
-    "accessControl": {
-      "entries": [
-        {
-          "principal": "admin",
-          "privileges": ["jcr:all"],
-          "allow": true
-        },
-        {
-          "principal": "user1",
-          "privileges": ["jcr:read", "jcr:write"],
-          "allow": true
-        }
-      ]
+  versionHistory(path: "/content/page1") {
+    versions {
+      name
+      created
+      predecessors
+      successors
+      frozenNodePath
     }
+    baseVersion
+    versionableUuid
   }
 }
 ```
 
-### ACLエントリ設定
+### xpath(query: String!, first: Int = 20, after: String)
 
-指定したプリンシパル（ユーザーまたはグループ）のACLエントリを設定・更新します。
+任意の JCR XPath を実行し、結果ノードを Connection 形式で返します。
+
+```graphql
+{
+  xpath(query: "//element(*, nt:file)", first: 5) {
+    edges { node { path name mimeType size } cursor }
+    pageInfo { hasNextPage }
+    totalCount
+  }
+}
+```
+
+### search(text: String!, path: String = "/", first: Int = 20, after: String)
+
+`jcr:contains` を用いた全文検索です。`nt:file` を対象に `text` を検索し、`node.score` フィールドでスコアを返します。
+
+```graphql
+{
+  search(text: "hello world", path: "/content", first: 10) {
+    edges {
+      node { path name nodeType score }
+      cursor
+    }
+    totalCount
+  }
+}
+```
+
+```bash
+curl -X POST http://localhost:8080/bin/graphql.cgi/web \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ search(text: \"hello\", path: \"/content\", first: 5) { edges { node { path name score } } } }"}'
+```
+
+### query(statement: String!, language: String = "JCR-SQL2", first: Int = 20, after: String)
+
+XPath / JCR-SQL2 / JCR-SQL (非推奨) など任意のクエリステートメントを実行します。`language` は `xpath`, `SQL2`, `JCR-SQL2`, `SQL`, `JCR-SQL` などを指定できます (大文字小文字は正規化されます)。
+
+```graphql
+{
+  query(statement: "SELECT * FROM [nt:unstructured] WHERE ISDESCENDANTNODE('/content')", language: "JCR-SQL2", first: 20) {
+    edges {
+      node { path name nodeType }
+      cursor
+    }
+    totalCount
+  }
+}
+```
+
+---
+
+## Mutation オペレーション
+
+### createFolder(input: { path: String!, name: String!, nodeType: String = "nt:folder" })
+
+親パス直下にフォルダ (任意ノードタイプ) を作成します。レスポンスは作成されたノードです。
+
+```graphql
+mutation {
+  createFolder(input: { path: "/content", name: "docs" }) {
+    path
+    name
+    nodeType
+    created
+  }
+}
+```
+
+### createFile(input: { path: String!, name: String!, mimeType: String!, content: String!, nodeType: String = "nt:file" })
+
+Base64 で渡された内容から `nt:file` + `jcr:content` を作成します。`content` は Base64 エンコード済みバイナリです。
+
+```graphql
+mutation {
+  createFile(input: {
+    path: "/content/docs"
+    name: "hello.txt"
+    mimeType: "text/plain"
+    content: "aGVsbG8gd29ybGQ="
+  }) {
+    path
+    mimeType
+    size
+  }
+}
+```
+
+### deleteNode(path: String!)
+
+ノードを削除し、`true/false` を返します。
+
+### lockNode(input: { path: String!, isDeep: Boolean = false, isSessionScoped: Boolean = false })
+
+ノードをロックします。必要に応じて自動的に `mix:lockable` を付与します。レスポンスはロック後のノード。
+
+### unlockNode(path: String!)
+
+指定ノードのロックを解除し、`true` を返します。
+
+### setProperty(input: { path: String!, name: String!, value: Any!, type: String })
+
+単一プロパティを作成 / 更新します。`type` を指定すると JCR PropertyType に変換されます。`Reference`/`WeakReference` を指定した場合は値に UUID を渡してください。
+
+### deleteProperty(input: { path: String!, name: String! })
+
+指定プロパティを削除します (存在しない場合はエラー)。
+
+### addMixin(input: { path: String!, mixinType: String! }) / deleteMixin(...)
+
+ノードに mixin を追加/削除します。結果として最新ノードが返ります。
+
+### setAccessControl(input: { path: String!, principal: String, privileges: [String!], allow: Boolean = true, entries: [EntryInput] })
+
+単一エントリ、または `entries` 配列で複数エントリをまとめて設定できます。
 
 ```graphql
 mutation {
   setAccessControl(input: {
     path: "/content/page1"
-    principal: "user1"
-    privileges: ["jcr:read", "jcr:write"]
-    allow: true
+    entries: [
+      { principal: "user1", privileges: ["jcr:read", "jcr:write"], allow: true },
+      { principal: "user2", privileges: ["jcr:read"], allow: true }
+    ]
   }) {
-    entries {
-      principal
-      privileges
-      allow
-    }
+    entries { principal privileges allow }
   }
 }
 ```
 
-POSTリクエスト例：
+### deleteAccessControl(input: { path: String!, principal: String! })
 
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { setAccessControl(input: { path: \"/content/page1\", principal: \"user1\", privileges: [\"jcr:read\", \"jcr:write\"], allow: true }) { entries { principal privileges } } }"
-  }'
+指定プリンシパルの ACL エントリを削除し、`true` を返します。
+
+### checkin(path: String!) / checkout(path: String!)
+
+`mix:versionable` ノードに対してチェックイン/チェックアウトを実行します。`checkin` は新しいバージョン情報を返し、`checkout` は boolean を返します。
+
+### restoreVersion(input: { path: String!, versionName: String! })
+
+指定バージョンにロールバックします。必要に応じて自動で checkout した上で `versionManager.restore()` を呼び出し、復元後のノードを返します。
+
+---
+
+## ACL で利用できる代表的な権限
+
+- `jcr:read`
+- `jcr:write`
+- `jcr:modifyProperties`
+- `jcr:addChildNodes`
+- `jcr:removeNode`
+- `jcr:removeChildNodes`
+- `jcr:readAccessControl`
+- `jcr:modifyAccessControl`
+- `jcr:lockManagement`
+- `jcr:versionManagement`
+- `jcr:all`
+
+## 内部アーキテクチャ
+
+```
+GraphQLRequest
+    ↓
+GraphQLParser (AST を生成)
+    ↓
+Operation / Field / SelectionSet
+    ↓
+QueryExecutor / MutationExecutor
+    ↓
+NodeMapper (必要なフィールドのみマッピング)
+    ↓
+GraphQLResponse
 ```
 
-パラメータ：
-- `path`: ACLを設定するノードのパス（必須）
-- `principal`: プリンシパル名（ユーザーIDまたはグループ名）（必須）
-- `privileges`: 権限の配列（必須）
-  - `jcr:read` - 読み取り権限
-  - `jcr:write` - 書き込み権限
-  - `jcr:modifyProperties` - プロパティ変更権限
-  - `jcr:addChildNodes` - 子ノード追加権限
-  - `jcr:removeNode` - ノード削除権限
-  - `jcr:removeChildNodes` - 子ノード削除権限
-  - `jcr:readAccessControl` - ACL読み取り権限
-  - `jcr:modifyAccessControl` - ACL変更権限
-  - `jcr:lockManagement` - ロック管理権限
-  - `jcr:versionManagement` - バージョン管理権限
-  - `jcr:all` - すべての権限
-- `allow`: 許可(true)または拒否(false)（デフォルト: true）
+主要クラス:
+- `GraphQLParser` … クエリ/変数を AST に変換
+- `SelectionSet` … フィールド選択、ネスト選択を提供
+- `QueryExecutor` / `MutationExecutor` … クエリ種別ごとの実処理を実装
+- `NodeMapper` … SelectionSet に基づいて JCR ノードをシリアライズ
 
-**注意**: 同じプリンシパルの既存エントリは削除され、新しいエントリで置き換えられます。
+## 今後の改善
 
-### ACLエントリ削除
-
-指定したプリンシパルのACLエントリを削除します。
-
-```graphql
-mutation {
-  deleteAccessControl(input: {
-    path: "/content/page1"
-    principal: "user1"
-  })
-}
-```
-
-POSTリクエスト例：
-
-```bash
-curl -X POST http://localhost:8080/bin/graphql.cgi/web \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "mutation { deleteAccessControl(input: { path: \"/content/page1\", principal: \"user1\" }) }"
-  }'
-```
-
-パラメータ：
-- `path`: ACLを削除するノードのパス（必須）
-- `principal`: 削除するプリンシパル名（必須）
-
-## Phase 2以降の予定機能
-
-- XPath検索
-- プロパティ管理（カスタムプロパティの高度な取得）
-- フルテキスト検索
-- より高度なGraphQLクエリパース（フィールド選択など）
-
-## 実装済み機能
-
-### Phase 1
-- ノード取得 (node query)
-- 子ノード一覧取得 (children query with Relay Connection pagination)
-- フォルダ作成 (createFolder mutation)
-- ファイル作成 (createFile mutation)
-- ノード削除 (deleteNode mutation)
-- プロパティ削除 (deleteProperty mutation)
-- ノードロック/ロック解除 (lockNode/unlockNode mutation)
-- 参照管理 (mix:referenceable サポート)
-  - Mixin追加・削除 (addMixin/deleteMixin mutation)
-  - プロパティ設定 (setProperty mutation with Reference/WeakReference)
-  - 参照元ノード取得 (references query)
-  - UUID取得 (uuid field)
-- アクセス権限管理 (ACL操作)
-  - ACL取得 (accessControl query)
-  - ACLエントリ設定 (setAccessControl mutation)
-  - ACLエントリ削除 (deleteAccessControl mutation)
-- バージョン管理 (Versioning)
-  - バージョン履歴取得 (versionHistory query)
-  - チェックイン (checkin mutation)
-  - チェックアウト (checkout mutation)
-  - バージョン復元 (restoreVersion mutation)
-
-## 開発メモ
-
-### アーキテクチャ
-
-- GraphQL Javaライブラリは使用せず、手動実装
-- OSGiクラスローダー問題を回避
-- 外部依存を最小限に
-- Phase 1では基本的なCRUD操作のみ実装
-- シンプルな正規表現ベースのクエリパース
-
-### JCRプロパティの配置
-
-JCR 2.0標準に準拠：
-
-- `jcr:created`, `jcr:createdBy` → nt:fileノード自体
-- `jcr:lastModified`, `jcr:lastModifiedBy` → jcr:contentノード
-
-### 認証
-
-- HttpServletRequestの属性から認証情報を取得
-- セッションから認証情報を取得
-- デフォルトはGuestCredentials
+1. フラグメントのサポート
+2. ディレクティブ (@include / @skip)
+3. より詳細なクエリ検証とキューイング
+4. バッチ実行時のさらなる最適化
 
 ## テスト
 
 ```bash
-# ノード取得テスト
+# ノード取得
 curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{"query": "{ node(path: \"/content\") { path name } }"}'
 
-# フォルダ作成テスト
+# フォルダ作成
 curl -X POST http://localhost:8080/bin/graphql.cgi/web \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "mutation { createFolder(input: { path: \"/content\", name: \"test\" }) { path } }",
-    "variables": {
-      "input": {
-        "path": "/content",
-        "name": "test"
-      }
-    }
+    "query": "mutation { createFolder(input: { path: \\"/content\\", name: \\"test\\" }) { path name } }"
   }'
 ```
 
 ## ビルド
 
-Eclipse PDEでビルド：
+Eclipse PDE からビルドする場合:
 
 1. プロジェクトを右クリック
 2. "Export" → "Plug-in Development" → "Deployable plug-ins and fragments"
-3. バンドルをエクスポート
+3. 出力先を指定してエクスポート
