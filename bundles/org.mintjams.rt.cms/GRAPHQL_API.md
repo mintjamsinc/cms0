@@ -197,7 +197,7 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
 }
 ```
 
-`allow` は現在常に `true` (JCR API の制約) です。
+`allow` はアクセス許可エントリが「許可」か「拒否」かを示します。
 
 ### versionHistory(path: String!)
 

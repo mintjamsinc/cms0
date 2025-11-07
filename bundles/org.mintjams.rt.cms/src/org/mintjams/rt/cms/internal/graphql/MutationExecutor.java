@@ -32,7 +32,6 @@ import javax.jcr.Node;
 import javax.jcr.PropertyType;
 import javax.jcr.Session;
 import javax.jcr.Value;
-import javax.jcr.lock.Lock;
 import javax.jcr.lock.LockManager;
 import javax.jcr.security.AccessControlEntry;
 import javax.jcr.security.AccessControlList;
@@ -212,7 +211,7 @@ public class MutationExecutor {
 
 		// Lock the node
 		LockManager lockManager = this.session.getWorkspace().getLockManager();
-		Lock lock = lockManager.lock(path, isDeep, isSessionScoped, Long.MAX_VALUE, this.session.getUserID());
+		lockManager.lock(path, isDeep, isSessionScoped, Long.MAX_VALUE, this.session.getUserID());
 
 		// Refresh node to get latest state
 		Node lockedNode = this.session.getNode(path);
@@ -574,7 +573,12 @@ public class MutationExecutor {
 		}
 
 		// Add new entry
-		acl.addAccessControlEntry(principal, privileges);
+		if (acl instanceof org.mintjams.jcr.security.AccessControlList) {
+			((org.mintjams.jcr.security.AccessControlList) acl).addAccessControlEntry(principal, allow, privileges);
+		} else {
+			// Standard JCR ACL does not support allow/deny, so we just add the entry
+			acl.addAccessControlEntry(principal, privileges);
+		}
 	}
 
 	/**
@@ -593,7 +597,11 @@ public class MutationExecutor {
 				privList.add(priv.getName());
 			}
 			entryMap.put("privileges", privList);
-			entryMap.put("allow", true);
+			if (entry instanceof org.mintjams.jcr.security.AccessControlEntry) {
+				entryMap.put("allow", ((org.mintjams.jcr.security.AccessControlEntry) entry).isAllow());
+			} else {
+				entryMap.put("allow", true);
+			}
 
 			entries.add(entryMap);
 		}
