@@ -519,8 +519,7 @@ public class QueryExecutor {
 
 	/**
 	 * Execute XPath search query with field selection optimization
-	 * Now supports optional language parameter
-	 * Example: { xpath(query: "//element(*, nt:file)", language: "xpath", first: 20, after: "cursor") { edges { node { path name } cursor } pageInfo { hasNextPage } totalCount } }
+	 * Example: { xpath(query: "//element(*, nt:file)", first: 20, after: "cursor") { edges { node { path name } cursor } pageInfo { hasNextPage } totalCount } }
 	 */
 	public Map<String, Object> executeXPathQuery(GraphQLRequest request) throws Exception {
 		String queryStr = request.getQuery();
@@ -536,15 +535,6 @@ public class QueryExecutor {
 			throw new IllegalArgumentException("Invalid xpath query: query parameter not found");
 		}
 		String jcrQuery = resolveVariable(queryMatcher.group(1), variables);
-
-		// Extract optional language parameter
-		String language = Query.XPATH; // default
-		Pattern languagePattern = Pattern.compile("language\\s*:\\s*\"([^\"]+)\"");
-		Matcher languageMatcher = languagePattern.matcher(queryStr);
-		if (languageMatcher.find()) {
-			String langParam = resolveVariable(languageMatcher.group(1), variables);
-			language = normalizeLanguage(langParam);
-		}
 
 		// Extract pagination parameters
 		int first = 20; // default
@@ -562,9 +552,9 @@ public class QueryExecutor {
 			afterCursor = resolveVariable(afterMatcher.group(1), variables);
 		}
 
-		// Execute query with specified language
+		// Execute query
 		QueryManager queryManager = session.getWorkspace().getQueryManager();
-		Query query = queryManager.createQuery(jcrQuery, language);
+		Query query = queryManager.createQuery(jcrQuery, Query.XPATH);
 		QueryResult queryResult = query.execute();
 
 		// Get all results into a list for pagination
