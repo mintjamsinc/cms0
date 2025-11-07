@@ -54,6 +54,7 @@ import org.mintjams.rt.cms.internal.graphql.ast.Field;
 import org.mintjams.rt.cms.internal.graphql.ast.GraphQLParser;
 import org.mintjams.rt.cms.internal.graphql.ast.Operation;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
+import org.mintjams.tools.lang.Strings;
 
 /**
  * Class for executing GraphQL Query operations with advanced parsing and field selection optimization
@@ -656,13 +657,24 @@ public class QueryExecutor {
 			afterCursor = resolveVariable(afterMatcher.group(1), variables);
 		}
 
-		// Build JCR-SQL2 query for fulltext search
-		String sql2Query = "SELECT * FROM [nt:base] WHERE ISDESCENDANTNODE([" + searchPath + "]) " +
-				"AND CONTAINS(*, '" + escapeSql(searchText) + "')";
+		// Build XPath query for fulltext search
+		if (Strings.isEmpty(searchPath)) {
+			// Use root path
+			searchPath = "";
+		} else if (!searchPath.startsWith("/")) {
+			throw new IllegalArgumentException("Invalid search path: " + searchPath);
+		} else if (searchPath.endsWith("/")) {
+			// Remove trailing slash
+			searchPath = searchPath.substring(0, searchPath.length() - 1);
+		}
+		if (!Strings.isEmpty(searchPath)) {
+			searchPath = "/jcr:root" + searchPath;
+		}
+		String xpathQuery = searchPath + "//element(*, nt:file)[jcr:contains(., '" + searchText.replaceAll("'", "\\'") + "')]";
 
 		// Execute SQL2 query
 		QueryManager queryManager = session.getWorkspace().getQueryManager();
-		Query query = queryManager.createQuery(sql2Query, Query.JCR_SQL2);
+		Query query = queryManager.createQuery(xpathQuery, Query.XPATH);
 		QueryResult queryResult = query.execute();
 
 		// Get all results with scores
