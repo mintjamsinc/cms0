@@ -280,7 +280,6 @@ public class QueryExecutor {
 			return result;
 		}
 
-		String uuid = targetNode.getIdentifier();
 		List<Map<String, Object>> referencingNodes = new ArrayList<>();
 
 		// Search all nodes that have Reference or WeakReference properties pointing to this UUID
