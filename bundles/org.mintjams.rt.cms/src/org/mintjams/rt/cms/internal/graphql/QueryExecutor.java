@@ -50,12 +50,18 @@ import javax.jcr.version.VersionHistory;
 import javax.jcr.version.VersionIterator;
 import javax.jcr.version.VersionManager;
 
+import org.mintjams.rt.cms.internal.graphql.ast.Field;
+import org.mintjams.rt.cms.internal.graphql.ast.GraphQLParser;
+import org.mintjams.rt.cms.internal.graphql.ast.Operation;
+import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
+
 /**
- * Class for executing GraphQL Query operations
+ * Class for executing GraphQL Query operations with advanced parsing and field selection optimization
  */
 public class QueryExecutor {
 
 	private final Session session;
+	private final GraphQLParser parser;
 
 	// Query patterns (simple implementation)
 	private static final Pattern NODE_QUERY_PATTERN = Pattern
@@ -65,14 +71,21 @@ public class QueryExecutor {
 
 	public QueryExecutor(Session session) {
 		this.session = session;
+		this.parser = new GraphQLParser();
 	}
 
 	/**
-	 * Execute node query Example: { node(path: "/content/page1") { name path } }
+	 * Execute node query with field selection optimization
+	 * Example: { node(path: "/content/page1") { name path } }
 	 */
 	public Map<String, Object> executeNodeQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
 		Map<String, Object> variables = request.getVariables();
+
+		// Parse query to get field selection
+		Operation operation = parser.parse(query, variables);
+		Field rootField = operation.getRootField();
+		SelectionSet nodeSelection = rootField != null ? rootField.getSelectionSet() : null;
 
 		// Extract path
 		String path = extractPath(query, NODE_QUERY_PATTERN, variables);
@@ -83,7 +96,8 @@ public class QueryExecutor {
 		Map<String, Object> result = new HashMap<>();
 		if (session.nodeExists(path)) {
 			Node node = session.getNode(path);
-			result.put("node", NodeMapper.toGraphQL(node));
+			// Use optimized mapper with field selection
+			result.put("node", NodeMapper.toGraphQL(node, nodeSelection));
 		} else {
 			result.put("node", null);
 		}
@@ -92,12 +106,26 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Execute children query (Relay Connection specification)
+	 * Execute children query (Relay Connection specification) with field selection optimization
 	 * Example: { children(path: "/content", first: 10, after: "cursor") { edges { node { name } cursor } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } totalCount } }
 	 */
 	public Map<String, Object> executeChildrenQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
 		Map<String, Object> variables = request.getVariables();
+
+		// Parse query to get field selection
+		Operation operation = parser.parse(query, variables);
+		Field rootField = operation.getRootField();
+		SelectionSet childrenSelection = rootField != null ? rootField.getSelectionSet() : null;
+
+		// Extract node selection from edges.node
+		SelectionSet nodeSelection = null;
+		if (childrenSelection != null && childrenSelection.hasField("edges")) {
+			SelectionSet edgesSelection = childrenSelection.getNestedSelectionSet("edges");
+			if (edgesSelection != null && edgesSelection.hasField("node")) {
+				nodeSelection = edgesSelection.getNestedSelectionSet("node");
+			}
+		}
 
 		// Extract parameters
 		Matcher matcher = CHILDREN_QUERY_PATTERN.matcher(query);
@@ -140,7 +168,7 @@ public class QueryExecutor {
 			iterator.skip(startPosition);
 		}
 
-		// Build edges with cursors
+		// Build edges with cursors (using optimized field selection)
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int currentPosition = startPosition;
 		int count = 0;
@@ -149,7 +177,8 @@ public class QueryExecutor {
 			Node child = iterator.nextNode();
 
 			Map<String, Object> edge = new HashMap<>();
-			edge.put("node", NodeMapper.toGraphQL(child));
+			// Use optimized mapper with field selection
+			edge.put("node", NodeMapper.toGraphQL(child, nodeSelection));
 			edge.put("cursor", encodeCursor(currentPosition));
 
 			edges.add(edge);
@@ -206,12 +235,24 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Execute references query Returns nodes that reference the specified node
+	 * Execute references query with field selection optimization
+	 * Returns nodes that reference the specified node
 	 * Example: { references(path: "/content/target") { nodes { path name } } }
 	 */
 	public Map<String, Object> executeReferencesQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
 		Map<String, Object> variables = request.getVariables();
+
+		// Parse query to get field selection
+		Operation operation = parser.parse(query, variables);
+		Field rootField = operation.getRootField();
+		SelectionSet referencesSelection = rootField != null ? rootField.getSelectionSet() : null;
+
+		// Extract node selection from nodes
+		SelectionSet nodeSelection = null;
+		if (referencesSelection != null && referencesSelection.hasField("nodes")) {
+			nodeSelection = referencesSelection.getNestedSelectionSet("nodes");
+		}
 
 		// Extract path using simple regex
 		Pattern pattern = Pattern.compile("references\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"");
@@ -242,14 +283,14 @@ public class QueryExecutor {
 		String uuid = targetNode.getIdentifier();
 		List<Map<String, Object>> referencingNodes = new ArrayList<>();
 
-		// Search all nodes that have Reference or WeakReference properties pointing to
-		// this UUID
+		// Search all nodes that have Reference or WeakReference properties pointing to this UUID
 		// Using property iterator approach (more efficient than full tree traversal)
 		PropertyIterator refProps = targetNode.getReferences();
 		while (refProps.hasNext()) {
 			Property prop = refProps.nextProperty();
 			Node referencingNode = prop.getParent();
-			referencingNodes.add(NodeMapper.toGraphQL(referencingNode));
+			// Use optimized mapper with field selection
+			referencingNodes.add(NodeMapper.toGraphQL(referencingNode, nodeSelection));
 		}
 
 		// Also check for weak references
@@ -257,7 +298,8 @@ public class QueryExecutor {
 		while (weakRefProps.hasNext()) {
 			Property prop = weakRefProps.nextProperty();
 			Node referencingNode = prop.getParent();
-			referencingNodes.add(NodeMapper.toGraphQL(referencingNode));
+			// Use optimized mapper with field selection
+			referencingNodes.add(NodeMapper.toGraphQL(referencingNode, nodeSelection));
 		}
 
 		// Build response
@@ -476,13 +518,16 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Execute XPath search query (backward compatibility)
+	 * Execute XPath search query with field selection optimization
 	 * Now supports optional language parameter
 	 * Example: { xpath(query: "//element(*, nt:file)", language: "xpath", first: 20, after: "cursor") { edges { node { path name } cursor } pageInfo { hasNextPage } totalCount } }
 	 */
 	public Map<String, Object> executeXPathQuery(GraphQLRequest request) throws Exception {
 		String queryStr = request.getQuery();
 		Map<String, Object> variables = request.getVariables();
+
+		// Parse query to extract node selection
+		SelectionSet nodeSelection = extractNodeSelection(request);
 
 		// Extract query string
 		Pattern queryPattern = Pattern.compile("xpath\\s*\\(\\s*query\\s*:\\s*\"([^\"]+)\"");
@@ -537,7 +582,7 @@ public class QueryExecutor {
 			startPosition = decodeCursor(afterCursor) + 1;
 		}
 
-		// Build edges
+		// Build edges with optimized field selection
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int currentPosition = startPosition;
 		int count = 0;
@@ -546,7 +591,7 @@ public class QueryExecutor {
 			Node node = allNodes.get(i);
 
 			Map<String, Object> edge = new HashMap<>();
-			edge.put("node", NodeMapper.toGraphQL(node));
+			edge.put("node", NodeMapper.toGraphQL(node, nodeSelection));
 			edge.put("cursor", encodeCursor(currentPosition));
 
 			edges.add(edge);
@@ -580,11 +625,14 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Execute fulltext search query
+	 * Execute fulltext search query with field selection optimization
 	 * Example: { search(text: "hello world", path: "/content", first: 20, after: "cursor") { edges { node { path name score } cursor } pageInfo { hasNextPage } totalCount } }
 	 */
 	public Map<String, Object> executeSearchQuery(GraphQLRequest request) throws Exception {
 		String queryStr = request.getQuery();
+
+		// Parse query to extract node selection
+		SelectionSet nodeSelection = extractNodeSelection(request);
 		Map<String, Object> variables = request.getVariables();
 
 		// Extract search text
@@ -660,7 +708,7 @@ public class QueryExecutor {
 			Node node = (Node) resultItem.get("node");
 			double score = (Double) resultItem.get("score");
 
-			Map<String, Object> nodeData = NodeMapper.toGraphQL(node);
+			Map<String, Object> nodeData = NodeMapper.toGraphQL(node, nodeSelection);
 			nodeData.put("score", score);
 
 			Map<String, Object> edge = new HashMap<>();
@@ -706,13 +754,16 @@ public class QueryExecutor {
 	}
 
 	/**
-	 * Execute generic query with specified language
+	 * Execute generic query with specified language and field selection optimization
 	 * Supports: XPath, JCR-SQL2, SQL (deprecated)
 	 * Example: { query(statement: "SELECT * FROM [nt:base]", language: "JCR-SQL2", first: 20) { edges { node { path name } cursor } pageInfo { hasNextPage } totalCount } }
 	 */
 	public Map<String, Object> executeGenericQuery(GraphQLRequest request) throws Exception {
 		String queryStr = request.getQuery();
 		Map<String, Object> variables = request.getVariables();
+
+		// Parse query to extract node selection
+		SelectionSet nodeSelection = extractNodeSelection(request);
 
 		// Extract query statement
 		Pattern statementPattern = Pattern.compile("query\\s*\\([^)]*statement\\s*:\\s*\"([^\"]+)\"");
@@ -767,7 +818,7 @@ public class QueryExecutor {
 			startPosition = decodeCursor(afterCursor) + 1;
 		}
 
-		// Build edges
+		// Build edges with optimized field selection
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int currentPosition = startPosition;
 		int count = 0;
@@ -776,7 +827,7 @@ public class QueryExecutor {
 			Node node = allNodes.get(i);
 
 			Map<String, Object> edge = new HashMap<>();
-			edge.put("node", NodeMapper.toGraphQL(node));
+			edge.put("node", NodeMapper.toGraphQL(node, nodeSelection));
 			edge.put("cursor", encodeCursor(currentPosition));
 
 			edges.add(edge);
@@ -840,6 +891,35 @@ public class QueryExecutor {
 			default:
 				// Try to use as-is (for future language support)
 				return language;
+		}
+	}
+
+	/**
+	 * Helper method to extract node selection from edges.node
+	 * Common pattern for connection queries (children, search, xpath, etc.)
+	 */
+	private SelectionSet extractNodeSelection(GraphQLRequest request) {
+		try {
+			Operation operation = parser.parse(request.getQuery(), request.getVariables());
+			Field rootField = operation.getRootField();
+			if (rootField == null) {
+				return null;
+			}
+
+			SelectionSet rootSelection = rootField.getSelectionSet();
+			if (rootSelection == null || !rootSelection.hasField("edges")) {
+				return null;
+			}
+
+			SelectionSet edgesSelection = rootSelection.getNestedSelectionSet("edges");
+			if (edgesSelection == null || !edgesSelection.hasField("node")) {
+				return null;
+			}
+
+			return edgesSelection.getNestedSelectionSet("node");
+		} catch (Exception e) {
+			// If parsing fails, return null (fallback to include all fields)
+			return null;
 		}
 	}
 }
