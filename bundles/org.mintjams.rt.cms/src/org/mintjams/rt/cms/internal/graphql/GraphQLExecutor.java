@@ -84,6 +84,12 @@ public class GraphQLExecutor {
 				response.setData(queryExecutor.executeAccessControlQuery(request));
 			} else if (query.contains("versionHistory(")) {
 				response.setData(queryExecutor.executeVersionHistoryQuery(request));
+			} else if (query.contains("xpath(")) {
+				response.setData(queryExecutor.executeXPathQuery(request));
+			} else if (query.contains("search(")) {
+				response.setData(queryExecutor.executeSearchQuery(request));
+			} else if (query.contains("query(") && query.contains("statement:")) {
+				response.setData(queryExecutor.executeGenericQuery(request));
 			} else {
 				response.addError("Unknown query operation");
 			}

@@ -35,6 +35,11 @@ import javax.jcr.NodeIterator;
 import javax.jcr.Property;
 import javax.jcr.PropertyIterator;
 import javax.jcr.Session;
+import javax.jcr.query.Query;
+import javax.jcr.query.QueryManager;
+import javax.jcr.query.QueryResult;
+import javax.jcr.query.Row;
+import javax.jcr.query.RowIterator;
 import javax.jcr.security.AccessControlEntry;
 import javax.jcr.security.AccessControlList;
 import javax.jcr.security.AccessControlManager;
@@ -468,5 +473,373 @@ public class QueryExecutor {
 		}
 
 		return value;
+	}
+
+	/**
+	 * Execute XPath search query (backward compatibility)
+	 * Now supports optional language parameter
+	 * Example: { xpath(query: "//element(*, nt:file)", language: "xpath", first: 20, after: "cursor") { edges { node { path name } cursor } pageInfo { hasNextPage } totalCount } }
+	 */
+	public Map<String, Object> executeXPathQuery(GraphQLRequest request) throws Exception {
+		String queryStr = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Extract query string
+		Pattern queryPattern = Pattern.compile("xpath\\s*\\(\\s*query\\s*:\\s*\"([^\"]+)\"");
+		Matcher queryMatcher = queryPattern.matcher(queryStr);
+		if (!queryMatcher.find()) {
+			throw new IllegalArgumentException("Invalid xpath query: query parameter not found");
+		}
+		String jcrQuery = resolveVariable(queryMatcher.group(1), variables);
+
+		// Extract optional language parameter
+		String language = Query.XPATH; // default
+		Pattern languagePattern = Pattern.compile("language\\s*:\\s*\"([^\"]+)\"");
+		Matcher languageMatcher = languagePattern.matcher(queryStr);
+		if (languageMatcher.find()) {
+			String langParam = resolveVariable(languageMatcher.group(1), variables);
+			language = normalizeLanguage(langParam);
+		}
+
+		// Extract pagination parameters
+		int first = 20; // default
+		String afterCursor = null;
+
+		Pattern firstPattern = Pattern.compile("first\\s*:\\s*(\\d+)");
+		Matcher firstMatcher = firstPattern.matcher(queryStr);
+		if (firstMatcher.find()) {
+			first = Integer.parseInt(firstMatcher.group(1));
+		}
+
+		Pattern afterPattern = Pattern.compile("after\\s*:\\s*\"([^\"]+)\"");
+		Matcher afterMatcher = afterPattern.matcher(queryStr);
+		if (afterMatcher.find()) {
+			afterCursor = resolveVariable(afterMatcher.group(1), variables);
+		}
+
+		// Execute query with specified language
+		QueryManager queryManager = session.getWorkspace().getQueryManager();
+		Query query = queryManager.createQuery(jcrQuery, language);
+		QueryResult queryResult = query.execute();
+
+		// Get all results into a list for pagination
+		List<Node> allNodes = new ArrayList<>();
+		NodeIterator nodeIterator = queryResult.getNodes();
+		while (nodeIterator.hasNext()) {
+			allNodes.add(nodeIterator.nextNode());
+		}
+
+		long totalCount = allNodes.size();
+
+		// Calculate pagination
+		int startPosition = 0;
+		if (afterCursor != null && !afterCursor.isEmpty()) {
+			startPosition = decodeCursor(afterCursor) + 1;
+		}
+
+		// Build edges
+		List<Map<String, Object>> edges = new ArrayList<>();
+		int currentPosition = startPosition;
+		int count = 0;
+
+		for (int i = startPosition; i < allNodes.size() && count < first; i++) {
+			Node node = allNodes.get(i);
+
+			Map<String, Object> edge = new HashMap<>();
+			edge.put("node", NodeMapper.toGraphQL(node));
+			edge.put("cursor", encodeCursor(currentPosition));
+
+			edges.add(edge);
+			currentPosition++;
+			count++;
+		}
+
+		// Build pageInfo
+		Map<String, Object> pageInfo = new HashMap<>();
+		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasPreviousPage", startPosition > 0);
+
+		if (!edges.isEmpty()) {
+			pageInfo.put("startCursor", edges.get(0).get("cursor"));
+			pageInfo.put("endCursor", edges.get(edges.size() - 1).get("cursor"));
+		} else {
+			pageInfo.put("startCursor", null);
+			pageInfo.put("endCursor", null);
+		}
+
+		// Build connection
+		Map<String, Object> connection = new HashMap<>();
+		connection.put("edges", edges);
+		connection.put("pageInfo", pageInfo);
+		connection.put("totalCount", totalCount);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("xpath", connection);
+
+		return result;
+	}
+
+	/**
+	 * Execute fulltext search query
+	 * Example: { search(text: "hello world", path: "/content", first: 20, after: "cursor") { edges { node { path name score } cursor } pageInfo { hasNextPage } totalCount } }
+	 */
+	public Map<String, Object> executeSearchQuery(GraphQLRequest request) throws Exception {
+		String queryStr = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Extract search text
+		Pattern textPattern = Pattern.compile("search\\s*\\([^)]*text\\s*:\\s*\"([^\"]+)\"");
+		Matcher textMatcher = textPattern.matcher(queryStr);
+		if (!textMatcher.find()) {
+			throw new IllegalArgumentException("Invalid search query: text parameter not found");
+		}
+		String searchText = resolveVariable(textMatcher.group(1), variables);
+
+		// Extract optional path parameter (search root)
+		String searchPath = "/";
+		Pattern pathPattern = Pattern.compile("path\\s*:\\s*\"([^\"]+)\"");
+		Matcher pathMatcher = pathPattern.matcher(queryStr);
+		if (pathMatcher.find()) {
+			searchPath = resolveVariable(pathMatcher.group(1), variables);
+		}
+
+		// Extract pagination parameters
+		int first = 20; // default
+		String afterCursor = null;
+
+		Pattern firstPattern = Pattern.compile("first\\s*:\\s*(\\d+)");
+		Matcher firstMatcher = firstPattern.matcher(queryStr);
+		if (firstMatcher.find()) {
+			first = Integer.parseInt(firstMatcher.group(1));
+		}
+
+		Pattern afterPattern = Pattern.compile("after\\s*:\\s*\"([^\"]+)\"");
+		Matcher afterMatcher = afterPattern.matcher(queryStr);
+		if (afterMatcher.find()) {
+			afterCursor = resolveVariable(afterMatcher.group(1), variables);
+		}
+
+		// Build JCR-SQL2 query for fulltext search
+		String sql2Query = "SELECT * FROM [nt:base] WHERE ISDESCENDANTNODE([" + searchPath + "]) " +
+				"AND CONTAINS(*, '" + escapeSql(searchText) + "')";
+
+		// Execute SQL2 query
+		QueryManager queryManager = session.getWorkspace().getQueryManager();
+		Query query = queryManager.createQuery(sql2Query, Query.JCR_SQL2);
+		QueryResult queryResult = query.execute();
+
+		// Get all results with scores
+		List<Map<String, Object>> allResults = new ArrayList<>();
+		RowIterator rowIterator = queryResult.getRows();
+		while (rowIterator.hasNext()) {
+			Row row = rowIterator.nextRow();
+			Node node = row.getNode();
+			double score = row.getScore();
+
+			Map<String, Object> resultItem = new HashMap<>();
+			resultItem.put("node", node);
+			resultItem.put("score", score);
+			allResults.add(resultItem);
+		}
+
+		long totalCount = allResults.size();
+
+		// Calculate pagination
+		int startPosition = 0;
+		if (afterCursor != null && !afterCursor.isEmpty()) {
+			startPosition = decodeCursor(afterCursor) + 1;
+		}
+
+		// Build edges
+		List<Map<String, Object>> edges = new ArrayList<>();
+		int currentPosition = startPosition;
+		int count = 0;
+
+		for (int i = startPosition; i < allResults.size() && count < first; i++) {
+			Map<String, Object> resultItem = allResults.get(i);
+			Node node = (Node) resultItem.get("node");
+			double score = (Double) resultItem.get("score");
+
+			Map<String, Object> nodeData = NodeMapper.toGraphQL(node);
+			nodeData.put("score", score);
+
+			Map<String, Object> edge = new HashMap<>();
+			edge.put("node", nodeData);
+			edge.put("cursor", encodeCursor(currentPosition));
+
+			edges.add(edge);
+			currentPosition++;
+			count++;
+		}
+
+		// Build pageInfo
+		Map<String, Object> pageInfo = new HashMap<>();
+		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasPreviousPage", startPosition > 0);
+
+		if (!edges.isEmpty()) {
+			pageInfo.put("startCursor", edges.get(0).get("cursor"));
+			pageInfo.put("endCursor", edges.get(edges.size() - 1).get("cursor"));
+		} else {
+			pageInfo.put("startCursor", null);
+			pageInfo.put("endCursor", null);
+		}
+
+		// Build connection
+		Map<String, Object> connection = new HashMap<>();
+		connection.put("edges", edges);
+		connection.put("pageInfo", pageInfo);
+		connection.put("totalCount", totalCount);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("search", connection);
+
+		return result;
+	}
+
+	/**
+	 * Escape SQL special characters for CONTAINS clause
+	 */
+	private String escapeSql(String text) {
+		// Escape single quotes for JCR-SQL2
+		return text.replace("'", "''");
+	}
+
+	/**
+	 * Execute generic query with specified language
+	 * Supports: XPath, JCR-SQL2, SQL (deprecated)
+	 * Example: { query(statement: "SELECT * FROM [nt:base]", language: "JCR-SQL2", first: 20) { edges { node { path name } cursor } pageInfo { hasNextPage } totalCount } }
+	 */
+	public Map<String, Object> executeGenericQuery(GraphQLRequest request) throws Exception {
+		String queryStr = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Extract query statement
+		Pattern statementPattern = Pattern.compile("query\\s*\\([^)]*statement\\s*:\\s*\"([^\"]+)\"");
+		Matcher statementMatcher = statementPattern.matcher(queryStr);
+		if (!statementMatcher.find()) {
+			throw new IllegalArgumentException("Invalid query: statement parameter not found");
+		}
+		String statement = resolveVariable(statementMatcher.group(1), variables);
+
+		// Extract language parameter (required for generic query)
+		String language = Query.JCR_SQL2; // default
+		Pattern languagePattern = Pattern.compile("language\\s*:\\s*\"([^\"]+)\"");
+		Matcher languageMatcher = languagePattern.matcher(queryStr);
+		if (languageMatcher.find()) {
+			String langParam = resolveVariable(languageMatcher.group(1), variables);
+			language = normalizeLanguage(langParam);
+		}
+
+		// Extract pagination parameters
+		int first = 20; // default
+		String afterCursor = null;
+
+		Pattern firstPattern = Pattern.compile("first\\s*:\\s*(\\d+)");
+		Matcher firstMatcher = firstPattern.matcher(queryStr);
+		if (firstMatcher.find()) {
+			first = Integer.parseInt(firstMatcher.group(1));
+		}
+
+		Pattern afterPattern = Pattern.compile("after\\s*:\\s*\"([^\"]+)\"");
+		Matcher afterMatcher = afterPattern.matcher(queryStr);
+		if (afterMatcher.find()) {
+			afterCursor = resolveVariable(afterMatcher.group(1), variables);
+		}
+
+		// Execute query
+		QueryManager queryManager = session.getWorkspace().getQueryManager();
+		Query query = queryManager.createQuery(statement, language);
+		QueryResult queryResult = query.execute();
+
+		// Get all results into a list for pagination
+		List<Node> allNodes = new ArrayList<>();
+		NodeIterator nodeIterator = queryResult.getNodes();
+		while (nodeIterator.hasNext()) {
+			allNodes.add(nodeIterator.nextNode());
+		}
+
+		long totalCount = allNodes.size();
+
+		// Calculate pagination
+		int startPosition = 0;
+		if (afterCursor != null && !afterCursor.isEmpty()) {
+			startPosition = decodeCursor(afterCursor) + 1;
+		}
+
+		// Build edges
+		List<Map<String, Object>> edges = new ArrayList<>();
+		int currentPosition = startPosition;
+		int count = 0;
+
+		for (int i = startPosition; i < allNodes.size() && count < first; i++) {
+			Node node = allNodes.get(i);
+
+			Map<String, Object> edge = new HashMap<>();
+			edge.put("node", NodeMapper.toGraphQL(node));
+			edge.put("cursor", encodeCursor(currentPosition));
+
+			edges.add(edge);
+			currentPosition++;
+			count++;
+		}
+
+		// Build pageInfo
+		Map<String, Object> pageInfo = new HashMap<>();
+		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasPreviousPage", startPosition > 0);
+
+		if (!edges.isEmpty()) {
+			pageInfo.put("startCursor", edges.get(0).get("cursor"));
+			pageInfo.put("endCursor", edges.get(edges.size() - 1).get("cursor"));
+		} else {
+			pageInfo.put("startCursor", null);
+			pageInfo.put("endCursor", null);
+		}
+
+		// Build connection
+		Map<String, Object> connection = new HashMap<>();
+		connection.put("edges", edges);
+		connection.put("pageInfo", pageInfo);
+		connection.put("totalCount", totalCount);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("query", connection);
+
+		return result;
+	}
+
+	/**
+	 * Normalize query language parameter
+	 * Supports user-friendly aliases
+	 */
+	private String normalizeLanguage(String language) {
+		if (language == null || language.isEmpty()) {
+			return Query.JCR_SQL2; // default
+		}
+
+		// Normalize to uppercase for comparison
+		String normalized = language.toUpperCase().trim();
+
+		// Support various formats
+		switch (normalized) {
+			case "XPATH":
+			case "JCR-XPATH":
+				return Query.XPATH;
+
+			case "SQL2":
+			case "JCR-SQL2":
+			case "JCRSQL2":
+				return Query.JCR_SQL2;
+
+			case "SQL":
+			case "JCR-SQL":
+			case "JCRSQL":
+				return Query.SQL; // deprecated but still supported
+
+			default:
+				// Try to use as-is (for future language support)
+				return language;
+		}
 	}
 }
