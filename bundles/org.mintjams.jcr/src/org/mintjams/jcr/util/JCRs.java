@@ -337,6 +337,11 @@ public class JCRs {
 		return node.isNodeType(NodeType.NT_FROZEN_NODE);
 	}
 
+	public static boolean isSystemPath(String path) {
+		String systemPath = "/" + org.mintjams.jcr.Node.JCR_SYSTEM_NAME;
+		return (path.equals(systemPath) || path.startsWith(systemPath + "/"));
+	}
+
 	public static Node getContentNode(Node node) throws RepositoryException {
 		return node.getNode(Node.JCR_CONTENT);
 	}

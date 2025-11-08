@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS jcr_items (
 	item_path VARCHAR,
 	parent_item_id VARCHAR,
 	is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+	is_system BOOLEAN NOT NULL DEFAULT FALSE,
 	PRIMARY KEY (item_id)
 );
 CREATE INDEX IF NOT EXISTS jcr_items_index1 ON jcr_items (parent_item_id, item_name);

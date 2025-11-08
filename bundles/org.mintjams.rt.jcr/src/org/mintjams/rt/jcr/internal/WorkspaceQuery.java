@@ -80,6 +80,7 @@ import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UnknownGroupPrincipal;
 import org.mintjams.jcr.security.UnknownUserPrincipal;
 import org.mintjams.jcr.util.ExpressionContext;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlEntry;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlList;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
@@ -479,10 +480,12 @@ public class WorkspaceQuery implements Adaptable {
 			}
 
 			itemsEntity()
-					.create(AdaptableMap.<String, Object>newBuilder().put("item_id", id)
-							.put("item_name", JcrPath.valueOf(path).getName().toString()).put("item_path", path)
-							.put("parent_item_id",
-									(parentItemData == null) ? null : parentItemData.getString("item_id"))
+					.create(AdaptableMap.<String, Object>newBuilder()
+							.put("item_id", id)
+							.put("item_name", JcrPath.valueOf(path).getName().toString())
+							.put("item_path", path)
+							.put("parent_item_id", (parentItemData == null) ? null : parentItemData.getString("item_id"))
+							.put("is_system", JCRs.isSystemPath(path))
 							.build())
 					.execute();
 			setProperty(id, JcrProperty.JCR_PRIMARY_TYPE, PropertyType.NAME,
@@ -570,6 +573,7 @@ public class WorkspaceQuery implements Adaptable {
 						e.getDefaultPrimaryTypeName());
 			}
 
+			@SuppressWarnings("unchecked")
 			Collection<Map<String, Object>> l = (Collection<Map<String, Object>>) definition.get("acl");
 			if (l != null) {
 				for (Map<String, Object> ace : l) {
@@ -947,7 +951,7 @@ public class WorkspaceQuery implements Adaptable {
 			StringBuilder statement = new StringBuilder()
 					.append("SELECT * FROM jcr_properties")
 					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
-					.append(" AND jcr_items.item_path NOT LIKE '/jcr:system/%')")
+					.append(" AND jcr_items.is_system IS FALSE)")
 					.append(" WHERE property_type = {{type}}")
 					.append(" AND ARRAY_CONTAINS(property_value, {{value}})");
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
@@ -1059,7 +1063,7 @@ public class WorkspaceQuery implements Adaptable {
 			StringBuilder statement = new StringBuilder()
 					.append("SELECT COUNT(*) AS reference_count FROM jcr_properties")
 					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
-					.append(" AND jcr_items.item_path NOT LIKE '/jcr:system/%')")
+					.append(" AND jcr_items.is_system IS FALSE)")
 					.append(" WHERE property_type = {{type}}")
 					.append(" AND ARRAY_CONTAINS(property_value, {{value}})");
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()

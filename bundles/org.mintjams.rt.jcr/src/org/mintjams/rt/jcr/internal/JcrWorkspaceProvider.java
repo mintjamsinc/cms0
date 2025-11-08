@@ -48,10 +48,12 @@ import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
 import org.mintjams.searchindex.SearchIndex;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
+import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.io.LockFile;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
+import org.mintjams.tools.sql.Query;
 import org.mintjams.tools.sql.Update;
 
 import com.zaxxer.hikari.HikariConfig;
@@ -181,6 +183,66 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				}
 				throw ex;
 			}
+
+			// Migrate existing data
+			do {
+				// Check whether the 'is_system' column exists
+				AdaptableMap<String, Object> checkRow;
+				try (Query.Result result = Query.newBuilder(connection)
+						.setStatement("SELECT * FROM jcr_items ORDER BY item_path")
+						.build().setOffset(0).setLimit(1).execute()) {
+					if (!result.iterator().hasNext()) {
+						break;
+					}
+
+					checkRow = result.iterator().next();
+					if (checkRow.containsKey("is_system") && checkRow.get("is_system") != null) {
+						break;
+					}
+				}
+
+				Activator.getDefault().getLogger(getClass())
+						.info("Old JCR workspace data format detected. Starting migration process...");
+
+				// Add the 'is_system' column and set its value
+				try {
+					if (!checkRow.containsKey("is_system")) {
+						Update.newBuilder(connection)
+						.setStatement("ALTER TABLE jcr_items ADD COLUMN is_system BOOLEAN")
+						.build().execute();
+					}
+
+					try (Query.Result result = Query.newBuilder(connection)
+							.setStatement("SELECT * FROM jcr_items ORDER BY item_path")
+							.build().execute()) {
+						for (AdaptableMap<String, Object> r : result) {
+							Update.newBuilder(connection)
+									.setStatement("UPDATE jcr_items SET is_system = {{isSystem}} WHERE item_id = {{itemId}}")
+									.setVariable("isSystem", JCRs.isSystemPath(r.getString("item_path")))
+									.setVariable("itemId", r.getString("item_id"))
+									.build().execute();
+						}
+					}
+
+					connection.commit();
+
+					Update.newBuilder(connection)
+							.setStatement("ALTER TABLE jcr_items ALTER COLUMN is_system SET DEFAULT FALSE")
+							.build().execute();
+					Update.newBuilder(connection)
+							.setStatement("ALTER TABLE jcr_items ALTER COLUMN is_system SET NOT NULL")
+							.build().execute();
+				} catch (Throwable ex) {
+					try {
+						connection.rollback();
+					} catch (Throwable ignore) {
+					}
+					throw ex;
+				}
+
+				Activator.getDefault().getLogger(getClass())
+						.info("JCR workspace data migration process has been completed.");
+			} while (false);
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}

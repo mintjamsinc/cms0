@@ -135,7 +135,7 @@ public class JournalObserver implements Adaptable, Closeable {
 
 	public void buildSearchIndex(Node item) throws RepositoryException, IOException {
 		String path = item.getPath();
-		if (path.equals("/" + JcrNode.JCR_SYSTEM_NAME) || path.startsWith("/" + JcrNode.JCR_SYSTEM_NAME + "/")) {
+		if (JCRs.isSystemPath(path)) {
 			return;
 		}
 
