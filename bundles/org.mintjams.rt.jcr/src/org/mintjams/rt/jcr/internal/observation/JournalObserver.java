@@ -139,11 +139,6 @@ public class JournalObserver implements Adaptable, Closeable {
 			return;
 		}
 
-		Node versionControlledNode = JCRs.getVersionControlledNode(item);
-		if (versionControlledNode != null && versionControlledNode.isCheckedOut()) {
-			return;
-		}
-
 		NodeType type = item.getPrimaryNodeType();
 		if (type.isNodeType(NodeType.NT_FOLDER)) {
 			for (NodeIterator i = item.getNodes(); i.hasNext();) {
