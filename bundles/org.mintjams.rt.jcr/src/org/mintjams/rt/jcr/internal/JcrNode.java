@@ -75,7 +75,6 @@ import javax.jcr.version.VersionHistory;
 import org.mintjams.jcr.JcrName;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.NamespaceProvider;
-import org.mintjams.jcr.NamespaceRegistry;
 import org.mintjams.jcr.UncheckedRepositoryException;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.jcr.util.JCRs;
@@ -938,156 +937,9 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 				throw Cause.create(ex).wrap(RepositoryException.class);
 			}
 			jcrCache.setProperties(getIdentifier(), properties);
-
-			try {
-				Node versionControlledNode = JCRs.getVersionControlledNode(this);
-				if (versionControlledNode != null && versionControlledNode.isCheckedOut()
-						&& versionControlledNode.hasProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)) {
-					String checkedOutBy = versionControlledNode.getProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)
-							.getString();
-					if (!getSession().getUserID().equals(checkedOutBy)) {
-						Map<String, AdaptableMap<String, Object>> replaced = new HashMap<>();
-						for (Map.Entry<String, AdaptableMap<String, Object>> e : properties.entrySet()) {
-							if (e.getKey().startsWith(NamespaceRegistry.PREFIX_JCR + ":")
-									|| e.getKey().equals(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY_NAME)) {
-								replaced.put(e.getKey(), e.getValue());
-							}
-						}
-
-						Node frozenNode;
-						if (getIdentifier().equals(versionControlledNode.getIdentifier())) {
-							frozenNode = getBaseVersion().getFrozenNode();
-						} else {
-							String relPath = getPath().substring(versionControlledNode.getPath().length());
-							frozenNode = versionControlledNode.getBaseVersion().getFrozenNode()
-									.getNode(relPath.substring(1));
-						}
-						try (Query.Result result = getWorkspaceQuery().items()
-								.listProperties(frozenNode.getIdentifier(), null, 0)) {
-							for (AdaptableMap<String, Object> itemData : result) {
-								String k = itemData.getString("item_name");
-								if (k.startsWith(NamespaceRegistry.PREFIX_JCR + ":")) {
-									if (k.equals(org.mintjams.jcr.Property.JCR_FROZEN_PRIMARY_TYPE_NAME)) {
-										k = org.mintjams.jcr.Property.JCR_PRIMARY_TYPE_NAME;
-										itemData.put("item_name", k);
-									} else if (k.equals(org.mintjams.jcr.Property.JCR_FROZEN_MIXIN_TYPES_NAME)) {
-										k = org.mintjams.jcr.Property.JCR_MIXIN_TYPES_NAME;
-										itemData.put("item_name", k);
-									} else if (k.equals(org.mintjams.jcr.Property.JCR_MIMETYPE_NAME)
-											|| k.equals(org.mintjams.jcr.Property.JCR_ENCODING_NAME)
-											|| k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_NAME)
-											|| k.equals(org.mintjams.jcr.Property.JCR_LAST_MODIFIED_BY_NAME)
-											|| k.equals(org.mintjams.jcr.Property.JCR_DATA_NAME)) {
-										// do nothing
-									} else {
-										continue;
-									}
-								}
-								replaced.put(k, itemData);
-							}
-						}
-
-						properties = replaced;
-						jcrCache.setProperties(getIdentifier(), properties);
-					}
-				}
-			} catch (Throwable ex) {
-				jcrCache.setProperties(getIdentifier(), null);
-				throw Cause.create(ex).wrap(RepositoryException.class);
-			}
 		}
 		return properties;
 	}
-
-//	private void collectReferencesForId(String id, String name, boolean weak, List<JcrProperty> items,
-//			java.util.Set<String> seen) throws IOException, SQLException, RepositoryException {
-//		if (id == null) {
-//			return;
-//		}
-//
-//		try (Query.Result result = getWorkspaceQuery().items().listReferences(id, name, weak)) {
-//			for (AdaptableMap<String, Object> itemData : result) {
-//				if (itemData.getBoolean("is_deleted")) {
-//					continue;
-//				}
-//				String propId = itemData.getString("item_id");
-//				if (seen.add(propId)) {
-//					items.add(JcrProperty.create(itemData, (JcrNode) fSession.getNodeByIdentifier(itemData.getString("parent_item_id"))));
-//				}
-//			}
-//		}
-//	}
-
-//	private PropertyIterator createReferenceIterator(String name, boolean weak) throws RepositoryException {
-//		List<JcrProperty> items = new ArrayList<>();
-//		try {
-//			java.util.Set<String> seen = new java.util.LinkedHashSet<>();
-//
-//			// collect for live node
-//			collectReferencesForId(getIdentifier(), name, weak, items, seen);
-//
-//			// versioning adjustment: consider frozen node when appropriate
-//			Node versionControlledNode = JCRs.getVersionControlledNode(this);
-//			if (versionControlledNode != null && versionControlledNode.isCheckedOut()
-//					&& versionControlledNode.hasProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)) {
-//				String checkedOutBy = versionControlledNode.getProperty(org.mintjams.jcr.Property.MI_CHECKED_OUT_BY)
-//						.getString();
-//				if (!getSession().getUserID().equals(checkedOutBy)) {
-//					Node frozenNode;
-//					if (getIdentifier().equals(versionControlledNode.getIdentifier())) {
-//						frozenNode = getBaseVersion().getFrozenNode();
-//					} else {
-//						String relPath = getPath().substring(versionControlledNode.getPath().length());
-//						frozenNode = versionControlledNode.getBaseVersion().getFrozenNode()
-//								.getNode(relPath.substring(1));
-//					}
-//					collectReferencesForId(frozenNode.getIdentifier(), name, weak, items, seen);
-//				}
-//			}
-//		} catch (IOException | SQLException ex) {
-//			throw Cause.create(ex).wrap(RepositoryException.class);
-//		}
-//
-//		return new PropertyIterator() {
-//			private final List<JcrProperty> fItems = items;
-//			private int pos = 0;
-//
-//			@Override
-//			public long getPosition() {
-//				return pos;
-//			}
-//
-//			@Override
-//			public long getSize() {
-//				return fItems.size();
-//			}
-//
-//			@Override
-//			public void skip(long skipNum) {
-//				if (skipNum < 0 || Integer.MAX_VALUE < skipNum)
-//					throw new NoSuchElementException("Invalid skip number: " + skipNum);
-//				for (long i = 0; i < skipNum && hasNext(); i++)
-//					nextProperty();
-//			}
-//
-//			@Override
-//			public boolean hasNext() {
-//				return pos < fItems.size();
-//			}
-//
-//			@Override
-//			public Object next() {
-//				return nextProperty();
-//			}
-//
-//			@Override
-//			public Property nextProperty() {
-//				if (!hasNext())
-//					throw new IllegalStateException("No more items.");
-//				return fItems.get(pos++);
-//			}
-//		};
-//	}
 
 	@SuppressWarnings("unchecked")
 	@Override
