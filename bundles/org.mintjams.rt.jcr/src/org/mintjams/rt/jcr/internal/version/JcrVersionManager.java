@@ -183,7 +183,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			freeze(item, frozenNodeData, workspaceQuery);
 
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, false));
-			workspaceQuery.items().removeProperty(item.getIdentifier(), JcrProperty.MI_CHECKED_OUT_BY);
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_BASE_VERSION, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, versionId));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, new Value[0]);
 
@@ -223,7 +222,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			}
 
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, true));
-			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.MI_CHECKED_OUT_BY, PropertyType.STRING, workspaceQuery.createValue(PropertyType.STRING, workspace.getSession().getUserID()));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, item.getProperty(JcrProperty.JCR_BASE_VERSION).getValue()));
 
 			workspace.getSession().save();
@@ -404,7 +402,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			}
 
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, true));
-			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.MI_CHECKED_OUT_BY, PropertyType.STRING, workspaceQuery.createValue(PropertyType.STRING, workspace.getSession().getUserID()));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_VERSION_HISTORY, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, version.getParent().getIdentifier()));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_BASE_VERSION, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, version.getIdentifier()));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, version.getIdentifier()));
@@ -508,7 +505,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			}
 
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, false));
-			workspaceQuery.items().removeProperty(item.getIdentifier(), JcrProperty.MI_CHECKED_OUT_BY);
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, new Value[0]);
 
 			workspace.getSession().save();
@@ -562,7 +558,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_MIXIN_TYPES, PropertyType.NAME, workspaceQuery.createValues(PropertyType.NAME, mixinTypeNames.toArray()));
 
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, true));
-			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.MI_CHECKED_OUT_BY, PropertyType.STRING, workspaceQuery.createValue(PropertyType.STRING, workspace.getSession().getUserID()));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_VERSION_HISTORY, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, versionHistoryData.getString("item_id")));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_BASE_VERSION, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, versionId));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, versionId));
@@ -593,7 +588,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			if (p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_LOCK_IS_DEEP))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_LOCK_OWNER))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_IS_CHECKED_OUT))
-					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.MI_CHECKED_OUT_BY))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_VERSION_HISTORY))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_BASE_VERSION))
 					|| p.getName().equals(workspaceQuery.getResolved(JcrProperty.JCR_PREDECESSORS))

@@ -865,20 +865,6 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 				throw new LockException("Node '" + getPath() + "' is locked.");
 			}
 		}
-
-		Node versionControlledNode = JCRs.getVersionControlledNode(this);
-		if (versionControlledNode != null) {
-			if (!versionControlledNode.isCheckedOut()) {
-				throw new VersionException("Node '" + getPath() + "' is checked-in.");
-			}
-
-			if (versionControlledNode.hasProperty(JcrProperty.MI_CHECKED_OUT_BY)) {
-				String checkedOutBy = versionControlledNode.getProperty(JcrProperty.MI_CHECKED_OUT_BY).getString();
-				if (!getSession().getUserID().equals(checkedOutBy)) {
-					throw new VersionException("Node '" + getPath() + "' is checked-out.");
-				}
-			}
-		}
 	}
 
 	private void checkRemovable() throws LockException, RepositoryException {
