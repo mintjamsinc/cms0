@@ -111,29 +111,25 @@ public class JcrSession implements Session, Adaptable {
 	@Override
 	public void exportDocumentView(String absPath, ContentHandler contentHandler, boolean skipBinary, boolean noRecurse)
 			throws PathNotFoundException, SAXException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("exportDocumentView is not supported");
 	}
 
 	@Override
 	public void exportDocumentView(String absPath, OutputStream out, boolean skipBinary, boolean noRecurse)
 			throws IOException, PathNotFoundException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("exportDocumentView is not supported");
 	}
 
 	@Override
 	public void exportSystemView(String absPath, ContentHandler contentHandler, boolean skipBinary, boolean noRecurse)
 			throws PathNotFoundException, SAXException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("exportSystemView is not supported");
 	}
 
 	@Override
 	public void exportSystemView(String absPath, OutputStream out, boolean skipBinary, boolean noRecurse)
 			throws IOException, PathNotFoundException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("exportSystemView is not supported");
 	}
 
 	@Override
@@ -150,15 +146,13 @@ public class JcrSession implements Session, Adaptable {
 
 	@Override
 	public String[] getAttributeNames() {
-		// TODO Auto-generated method stub
-		return null;
+		return new String[0];
 	}
 
 	@Override
 	public ContentHandler getImportContentHandler(String parentAbsPath, int uuidBehavior) throws PathNotFoundException,
 			ConstraintViolationException, VersionException, LockException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("getImportContentHandler is not supported");
 	}
 
 	@Override
@@ -298,7 +292,7 @@ public class JcrSession implements Session, Adaptable {
 		for (String action : actions.split("\\s*,\\s*")) {
 			switch (action) {
 			case ACTION_ADD_NODE:
-				if (!acm.hasPrivileges(path.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES)) {
+				if (path.getParent() != null && !acm.hasPrivileges(path.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES)) {
 					allow = false;
 				}
 				break;
@@ -308,7 +302,7 @@ public class JcrSession implements Session, Adaptable {
 				}
 				break;
 			case ACTION_REMOVE:
-				if (!acm.hasPrivileges(path.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES)) {
+				if (path.getParent() != null && !acm.hasPrivileges(path.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES)) {
 					allow = false;
 				}
 				if (!acm.hasPrivileges(path.toString(), Privilege.JCR_REMOVE_NODE)) {
@@ -331,16 +325,14 @@ public class JcrSession implements Session, Adaptable {
 
 	@Override
 	public Session impersonate(Credentials credentials) throws LoginException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("impersonate is not supported");
 	}
 
 	@Override
 	public void importXML(String parentAbsPath, InputStream in, int uuidBehavior)
 			throws IOException, PathNotFoundException, ItemExistsException, ConstraintViolationException,
 			VersionException, InvalidSerializedDataException, LockException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("importXML is not supported");
 	}
 
 	@Override
@@ -350,7 +342,15 @@ public class JcrSession implements Session, Adaptable {
 
 	@Override
 	public boolean itemExists(String absPath) throws RepositoryException {
-		return (getNode(absPath) != null);
+		try {
+			getNode(absPath);
+			return true;
+		} catch (PathNotFoundException ignore) {}
+		try {
+			getProperty(absPath);
+			return true;
+		} catch (PathNotFoundException ignore) {}
+		return false;
 	}
 
 	@Override
@@ -365,8 +365,7 @@ public class JcrSession implements Session, Adaptable {
 	@Override
 	public void move(String srcAbsPath, String destAbsPath) throws ItemExistsException, PathNotFoundException,
 			VersionException, ConstraintViolationException, LockException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("move is not supported");
 	}
 
 	@Override
@@ -454,7 +453,7 @@ public class JcrSession implements Session, Adaptable {
 		if (JcrNamespaceRegistry.PREDEFINEDS.containsKey(prefix)) {
 			throw new NamespaceException("Pre-defined prefix: " + prefix);
 		}
-		if (JcrNamespaceRegistry.PREDEFINEDS.containsKey(prefix)) {
+		if (JcrNamespaceRegistry.PREDEFINEDS.containsValue(uri)) {
 			throw new NamespaceException("Pre-defined URI: " + uri);
 		}
 

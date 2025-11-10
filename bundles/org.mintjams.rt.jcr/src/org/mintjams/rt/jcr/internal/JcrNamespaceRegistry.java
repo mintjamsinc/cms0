@@ -106,7 +106,7 @@ public class JcrNamespaceRegistry implements org.mintjams.jcr.NamespaceRegistry,
 			}
 			fCacheURIs.put(prefix, uri);
 			fCachePrefixes.put(uri, prefix);
-			return prefix;
+			return uri;
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}

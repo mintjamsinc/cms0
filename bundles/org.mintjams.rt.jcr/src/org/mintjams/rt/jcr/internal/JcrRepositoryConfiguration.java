@@ -201,23 +201,4 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return null;
 	}
 
-//	private class VariableProviderImpl implements VariableProvider {
-//		private final java.util.Properties fSystemProperties = System.getProperties();
-//
-//		@Override
-//		public Object getVariable(String name) {
-//			String value = Activator.getDefault().getBundleContext().getProperty(name);
-//			if (value != null) {
-//				return value;
-//			}
-//
-//			value = fSystemProperties.getProperty(name);
-//			if (value != null) {
-//				return value;
-//			}
-//
-//			return null;
-//		}
-//	}
-
 }

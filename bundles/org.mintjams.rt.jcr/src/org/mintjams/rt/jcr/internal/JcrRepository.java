@@ -148,7 +148,7 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 		BundleLocalization localization = BundleLocalization.create(Activator.getDefault().getBundleContext().getBundle());
 
 		// Repository Information
-		fDescriptors.put(Repository.SPEC_VERSION_DESC, fValueFactory.createValue(localization.getString(Repository.SPEC_NAME_DESC)));
+		fDescriptors.put(Repository.SPEC_VERSION_DESC, fValueFactory.createValue(localization.getString(Repository.SPEC_VERSION_DESC)));
 		fDescriptors.put(Repository.SPEC_NAME_DESC, fValueFactory.createValue(localization.getString(Repository.SPEC_NAME_DESC)));
 		fDescriptors.put(Repository.REP_VENDOR_DESC, fValueFactory.createValue(localization.getVendor()));
 		fDescriptors.put(Repository.REP_VENDOR_URL_DESC, fValueFactory.createValue(localization.getString(Repository.REP_VENDOR_URL_DESC)));
@@ -366,8 +366,8 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 					throw Cause.create(ex).wrap(LoginException.class);
 				}
 			}
-			if (principal instanceof SystemPrincipal || principal instanceof ServicePrincipal
-					|| principal instanceof GuestPrincipal || INTERNAL_PRINCIPAL_NAMES.contains(principal.getName())) {
+			if (principal != null && (principal instanceof SystemPrincipal || principal instanceof ServicePrincipal
+					|| principal instanceof GuestPrincipal || INTERNAL_PRINCIPAL_NAMES.contains(principal.getName()))) {
 				throw new LoginException("Invalid credentials.");
 			}
 		}
