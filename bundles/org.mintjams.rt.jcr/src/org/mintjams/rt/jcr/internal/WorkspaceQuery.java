@@ -1445,7 +1445,7 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			propertiesEntity().deleteByPrimaryKey(
+			propertiesEntity().updateByPrimaryKey(
 					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
 					.execute();
 
