@@ -1277,30 +1277,6 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		public String getPropertyIdentifier(String id, String relPath)
-				throws IOException, SQLException, RepositoryException {
-			if (Strings.isEmpty(id)) {
-				throw new ItemNotFoundException("Identifier must not be null or empty.");
-			}
-			if (Strings.isEmpty(relPath) || relPath.indexOf("/") != -1) {
-				throw new PathNotFoundException("Invalid relative path: " + relPath);
-			}
-
-			JcrName itemName = getResolved(JcrName.valueOf(relPath));
-
-			try (Query.Result result = propertiesEntity()
-					.find(AdaptableMap.<String, Object>newBuilder().put("parent_item_id", id)
-							.put("item_name", itemName.toString()).put("is_deleted", Boolean.FALSE).build())
-					.setOffset(0).setLimit(1).execute()) {
-				Iterator<AdaptableMap<String, Object>> i = result.iterator();
-				if (!i.hasNext()) {
-					return null;
-				}
-
-				return i.next().getString("item_id");
-			}
-		}
-
 		public AdaptableMap<String, Object> setProperty(String id, String name, int type, Value value)
 				throws IOException, SQLException, RepositoryException {
 			return setProperty(id, name, type, false, value);
