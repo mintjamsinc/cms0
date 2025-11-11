@@ -25,13 +25,18 @@ package org.mintjams.script.web;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
@@ -42,13 +47,6 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
 import org.apache.commons.fileupload.servlet.ServletFileUpload;
-import org.apache.hc.client5.http.classic.methods.HttpGet;
-import org.apache.hc.client5.http.config.RequestConfig;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.core5.http.HttpEntity;
-import org.apache.hc.core5.http.HttpStatus;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.web.Webs;
 import org.mintjams.script.ScriptingContext;
@@ -168,28 +166,42 @@ public class WebAPI implements Closeable {
 	}
 
 	public WebResource fetch(String uri) throws IOException {
-		try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
-			RequestConfig config = RequestConfig.custom()
-					.setConnectTimeout(3, TimeUnit.SECONDS)
-					.setConnectionRequestTimeout(10, TimeUnit.SECONDS)
-					.setResponseTimeout(10, TimeUnit.SECONDS)
+		try {
+			// Create HttpClient with timeouts
+			HttpClient httpClient = HttpClient.newBuilder()
+					.connectTimeout(Duration.ofSeconds(3))
 					.build();
-			HttpGet httpGet = new HttpGet(uri);
-			httpGet.setConfig(config);
-			try (CloseableHttpResponse httpResponse = httpClient.execute(httpGet)) {
-				if (httpResponse.getCode() == HttpStatus.SC_OK) {
-					HttpEntity httpEntity = httpResponse.getEntity();
-					try {
-						return fCloser.register(new WebResource(httpEntity.getContent()))
-								.setURI(uri)
-								.setContentType(httpEntity.getContentType())
-								.setContentEncoding(httpEntity.getContentEncoding());
-					} catch (URISyntaxException ex) {
-						throw Cause.create(ex).wrap(IOException.class);
-					}
+
+			// Create HttpRequest
+			HttpRequest request = HttpRequest.newBuilder()
+					.uri(URI.create(uri))
+					.timeout(Duration.ofSeconds(10))
+					.GET()
+					.build();
+
+			// Send request and get response
+			HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+			// Check status code
+			if (response.statusCode() == 200) {
+				// Get content type from headers
+				String contentType = response.headers().firstValue("Content-Type").orElse(null);
+				String contentEncoding = response.headers().firstValue("Content-Encoding").orElse(null);
+
+				try {
+					return fCloser.register(new WebResource(response.body()))
+							.setURI(uri)
+							.setContentType(contentType)
+							.setContentEncoding(contentEncoding);
+				} catch (URISyntaxException ex) {
+					throw Cause.create(ex).wrap(IOException.class);
 				}
-				throw new IOException(uri + ": " + httpResponse.getReasonPhrase() + " (" + httpResponse.getCode() + ")");
 			}
+
+			throw new IOException(uri + ": HTTP " + response.statusCode());
+		} catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+			throw new IOException("Request interrupted: " + uri, ex);
 		}
 	}
 
