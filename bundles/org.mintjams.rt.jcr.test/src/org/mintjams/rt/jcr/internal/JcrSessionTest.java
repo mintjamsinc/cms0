@@ -1,12 +1,14 @@
 package org.mintjams.rt.jcr.internal;
 
 import static org.junit.Assert.*;
+import static org.junit.Assume.assumeTrue;
 
 import javax.jcr.NamespaceException;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.UnsupportedRepositoryOperationException;
 
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -15,14 +17,17 @@ import org.junit.Test;
  */
 public class JcrSessionTest extends AbstractOSGiTest {
 
+	@Before
+	public void ensureSessionAvailable() {
+		assumeTrue("Repository service is not available for session tests.", isInitialized());
+	}
+
 	/**
 	 * Test that getAttributeNames() returns an empty array instead of null
 	 * Issue: review-notes.md #7
 	 */
 	@Test
 	public void testGetAttributeNames_ReturnsEmptyArray() {
-		if (!isInitialized()) return; // Skip if test environment not initialized
-
 		String[] attributeNames = session.getAttributeNames();
 		assertNotNull("getAttributeNames() should not return null", attributeNames);
 		assertEquals("getAttributeNames() should return empty array", 0, attributeNames.length);
@@ -34,16 +39,14 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testItemExists_ChecksNodesAndProperties() throws RepositoryException {
-		if (!isInitialized()) return; // Skip if test environment not initialized
-
 		// Test with non-existent path
 		assertFalse("Non-existent path should return false", session.itemExists("/non/existent/path"));
 
-		// Test with node path (if available)
-		// assertTrue("Existing node should return true", session.itemExists("/"));
+		// Root node must exist
+		assertTrue("Root node should return true", session.itemExists("/"));
 
-		// Test with property path (if available)
-		// assertTrue("Existing property should return true", session.itemExists("/jcr:primaryType"));
+		// Root node primary type property should exist
+		assertTrue("Root node primary type property should return true", session.itemExists("/jcr:primaryType"));
 	}
 
 	/**
@@ -52,8 +55,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testHasPermission_HandlesRootPath() throws RepositoryException {
-		if (!isInitialized()) return; // Skip if test environment not initialized
-
 		// Should not throw NullPointerException for root path
 		try {
 			boolean hasPermission = session.hasPermission("/", Session.ACTION_READ);
@@ -70,8 +71,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testHasPermission_AddNodeAction() throws RepositoryException {
-		if (!isInitialized()) return; // Skip if test environment not initialized
-
 		// Should not throw NullPointerException for root path with ADD_NODE action
 		try {
 			session.hasPermission("/", Session.ACTION_ADD_NODE);
@@ -86,8 +85,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testHasPermission_RemoveAction() throws RepositoryException {
-		if (!isInitialized()) return; // Skip if test environment not initialized
-
 		// Should not throw NullPointerException for root path with REMOVE action
 		try {
 			session.hasPermission("/", Session.ACTION_REMOVE);
@@ -102,8 +99,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testSetNamespacePrefix_RejectsPredefinedURI() {
-		if (!isInitialized()) return; // Skip if test environment not initialized
-
 		try {
 			// Try to set a predefined URI with a different prefix
 			session.setNamespacePrefix("custom", "http://www.jcp.org/jcr/1.0");
@@ -123,8 +118,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test(expected = UnsupportedRepositoryOperationException.class)
 	public void testExportDocumentView_ThrowsUnsupportedException() throws Exception {
-		if (!isInitialized()) throw new UnsupportedRepositoryOperationException("Test environment not initialized");
-
 		session.exportDocumentView("/", System.out, false, false);
 	}
 
@@ -134,8 +127,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test(expected = UnsupportedRepositoryOperationException.class)
 	public void testExportSystemView_ThrowsUnsupportedException() throws Exception {
-		if (!isInitialized()) throw new UnsupportedRepositoryOperationException("Test environment not initialized");
-
 		session.exportSystemView("/", System.out, false, false);
 	}
 
@@ -145,8 +136,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test(expected = UnsupportedRepositoryOperationException.class)
 	public void testGetImportContentHandler_ThrowsUnsupportedException() throws Exception {
-		if (!isInitialized()) throw new UnsupportedRepositoryOperationException("Test environment not initialized");
-
 		session.getImportContentHandler("/", 0);
 	}
 
@@ -156,8 +145,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test(expected = UnsupportedRepositoryOperationException.class)
 	public void testImportXML_ThrowsUnsupportedException() throws Exception {
-		if (!isInitialized()) throw new UnsupportedRepositoryOperationException("Test environment not initialized");
-
 		session.importXML("/", null, 0);
 	}
 
@@ -167,8 +154,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test(expected = UnsupportedRepositoryOperationException.class)
 	public void testMove_ThrowsUnsupportedException() throws Exception {
-		if (!isInitialized()) throw new UnsupportedRepositoryOperationException("Test environment not initialized");
-
 		session.move("/source", "/destination");
 	}
 
@@ -178,8 +163,6 @@ public class JcrSessionTest extends AbstractOSGiTest {
 	 */
 	@Test(expected = UnsupportedRepositoryOperationException.class)
 	public void testImpersonate_ThrowsUnsupportedException() throws Exception {
-		if (!isInitialized()) throw new UnsupportedRepositoryOperationException("Test environment not initialized");
-
 		session.impersonate(null);
 	}
 }

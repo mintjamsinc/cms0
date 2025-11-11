@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import javax.jcr.NamespaceException;
 import javax.jcr.NamespaceRegistry;
@@ -22,11 +23,8 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 
 	@Before
 	public void setUp() throws Exception {
-		super.setUp();
-		// Get the namespace registry from the session
-		if (isInitialized()) {
-			registry = session.getWorkspace().getNamespaceRegistry();
-		}
+		assumeTrue("Repository service is not available for namespace tests.", isInitialized());
+		registry = session.getWorkspace().getNamespaceRegistry();
 	}
 
 	/**
@@ -35,8 +33,6 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetURI_ReturnsURI() throws RepositoryException {
-		if (!isInitialized() || registry == null) return; // Skip if test environment not initialized
-
 		// Test with a predefined namespace prefix
 		// The standard JCR namespace prefix "jcr" should map to the JCR URI
 		String jcrPrefix = "jcr";
@@ -62,8 +58,6 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetURI_Consistency() throws RepositoryException {
-		if (!isInitialized() || registry == null) return; // Skip if test environment not initialized
-
 		// Test with standard namespace prefixes
 		String[] standardPrefixes = {"jcr", "nt", "mix"};
 
@@ -88,8 +82,6 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetPrefix_ReturnsPrefix() throws RepositoryException {
-		if (!isInitialized() || registry == null) return; // Skip if test environment not initialized
-
 		// Get a known URI first
 		try {
 			String jcrURI = registry.getURI("jcr");
@@ -108,8 +100,6 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testURIPrefixSymmetry() throws RepositoryException {
-		if (!isInitialized() || registry == null) return; // Skip if test environment not initialized
-
 		String[] prefixes = registry.getPrefixes();
 		assertTrue("Registry should have at least one namespace", prefixes.length > 0);
 
@@ -131,8 +121,6 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetURIs() throws RepositoryException {
-		if (!isInitialized() || registry == null) return; // Skip if test environment not initialized
-
 		String[] uris = registry.getURIs();
 		assertNotNull("getURIs() should not return null", uris);
 		assertTrue("Registry should have at least one namespace URI", uris.length > 0);
@@ -152,8 +140,6 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetPrefixes() throws RepositoryException {
-		if (!isInitialized() || registry == null) return; // Skip if test environment not initialized
-
 		String[] prefixes = registry.getPrefixes();
 		assertNotNull("getPrefixes() should not return null", prefixes);
 		assertTrue("Registry should have at least one namespace prefix", prefixes.length > 0);
@@ -174,8 +160,6 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 	 */
 	@Test(expected = NamespaceException.class)
 	public void testGetURI_ThrowsExceptionForUnknownPrefix() throws RepositoryException {
-		if (!isInitialized() || registry == null) throw new NamespaceException("Test environment not initialized");
-
 		registry.getURI("nonexistent_prefix_12345");
 	}
 
@@ -184,8 +168,6 @@ public class JcrNamespaceRegistryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testPrefixURICount() throws RepositoryException {
-		if (!isInitialized() || registry == null) return; // Skip if test environment not initialized
-
 		String[] prefixes = registry.getPrefixes();
 		String[] uris = registry.getURIs();
 

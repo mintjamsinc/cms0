@@ -1,6 +1,7 @@
 package org.mintjams.rt.jcr.internal;
 
 import static org.junit.Assert.*;
+import static org.junit.Assume.assumeTrue;
 
 import javax.jcr.LoginException;
 import javax.jcr.Repository;
@@ -22,7 +23,7 @@ public class JcrRepositoryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetDescriptor_SpecVersionDesc() {
-		if (!isInitialized()) return; // Skip if test environment not initialized
+		assumeTrue("Repository service is not available for repository descriptor tests.", isInitialized());
 
 		String specVersion = repository.getDescriptor(Repository.SPEC_VERSION_DESC);
 		assertNotNull("SPEC_VERSION_DESC should not be null", specVersion);
@@ -44,13 +45,15 @@ public class JcrRepositoryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetDescriptor_SpecNameDesc() {
-		if (!isInitialized()) return; // Skip if test environment not initialized
+		assumeTrue("Repository service is not available for repository descriptor tests.", isInitialized());
 
 		String specName = repository.getDescriptor(Repository.SPEC_NAME_DESC);
 		assertNotNull("SPEC_NAME_DESC should not be null", specName);
 
-		// The spec name should contain something like "Content Repository"
-		// This verifies that SPEC_NAME_DESC and SPEC_VERSION_DESC are different
+		assertTrue("SPEC_NAME_DESC should describe the Content Repository specification",
+				specName.contains("Content Repository"));
+		assertFalse("SPEC_NAME_DESC should differ from SPEC_VERSION_DESC values",
+				specName.matches("\\d+\\.\\d+.*"));
 	}
 
 	/**
@@ -59,7 +62,7 @@ public class JcrRepositoryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testLogin_WithNullPrincipal() {
-		if (!isInitialized()) return; // Skip if test environment not initialized
+		assumeTrue("Repository service is not available for login tests.", isInitialized());
 
 		try {
 			// Attempt to login with credentials that might result in null principal
@@ -88,16 +91,16 @@ public class JcrRepositoryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testLogin_RejectsInternalPrincipalNames() {
-		if (!isInitialized()) return; // Skip if test environment not initialized
+		assumeTrue("Repository service is not available for login tests.", isInitialized());
 
 		try {
-			// This test would require a mock authenticator that returns a principal
-			// with an internal name. The implementation depends on your test infrastructure.
-
-			// The important verification is that the null check happens before
-			// calling principal.getName()
-		} catch (NullPointerException e) {
-			fail("login() should check for null principal before calling getName()");
+			SimpleCredentials credentials = new SimpleCredentials("system", "system".toCharArray());
+			repository.login(credentials);
+			fail("login() should reject internal principal names.");
+		} catch (LoginException expected) {
+			// Expected path: internal names must not be accepted
+		} catch (RepositoryException ex) {
+			fail("login() should throw LoginException for internal principal names, but got: " + ex.getClass().getSimpleName());
 		}
 	}
 
@@ -106,7 +109,7 @@ public class JcrRepositoryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetDescriptor_RequiredDescriptors() {
-		if (!isInitialized()) return; // Skip if test environment not initialized
+		assumeTrue("Repository service is not available for repository descriptor tests.", isInitialized());
 
 		// Verify that all required descriptors are present
 		String[] requiredDescriptors = {
@@ -131,7 +134,7 @@ public class JcrRepositoryTest extends AbstractOSGiTest {
 	 */
 	@Test
 	public void testGetDescriptorKeys() {
-		if (!isInitialized()) return; // Skip if test environment not initialized
+		assumeTrue("Repository service is not available for repository descriptor tests.", isInitialized());
 
 		String[] descriptorKeys = repository.getDescriptorKeys();
 		assertNotNull("getDescriptorKeys() should not return null", descriptorKeys);

@@ -1,5 +1,7 @@
 package org.mintjams.rt.jcr.internal;
 
+import javax.jcr.Credentials;
+import javax.jcr.GuestCredentials;
 import javax.jcr.Repository;
 import javax.jcr.Session;
 import javax.jcr.SimpleCredentials;
@@ -20,6 +22,7 @@ public abstract class AbstractOSGiTest {
 	protected BundleContext bundleContext;
 	protected Repository repository;
 	protected Session session;
+	private ServiceReference<Repository> repositoryServiceRef;
 
 	@Before
 	public void setUp() throws Exception {
@@ -27,16 +30,20 @@ public abstract class AbstractOSGiTest {
 		bundleContext = FrameworkUtil.getBundle(getClass()).getBundleContext();
 
 		// Get the repository service
-		ServiceReference<Repository> serviceRef = bundleContext.getServiceReference(Repository.class);
-		if (serviceRef != null) {
-			repository = bundleContext.getService(serviceRef);
+		repositoryServiceRef = bundleContext.getServiceReference(Repository.class);
+		if (repositoryServiceRef != null) {
+			repository = bundleContext.getService(repositoryServiceRef);
+		} else {
+			repository = null;
 		}
 
 		// Create a session if repository is available
 		if (repository != null) {
 			try {
-				// Try to login with system credentials or guest
-				session = repository.login();
+				// Try to login with guest credentials
+				Credentials credentials = new GuestCredentials();
+				session = repository.login(credentials, "system");
+				System.out.println("Logged in with guest credentials.");
 			} catch (Exception e) {
 				// If default login fails, try with simple credentials
 				try {
@@ -56,14 +63,16 @@ public abstract class AbstractOSGiTest {
 		if (session != null && session.isLive()) {
 			session.logout();
 		}
+		session = null;
 
 		// Unget the service reference
-		if (repository != null) {
-			ServiceReference<Repository> serviceRef = bundleContext.getServiceReference(Repository.class);
-			if (serviceRef != null) {
-				bundleContext.ungetService(serviceRef);
-			}
+		if (bundleContext != null && repositoryServiceRef != null) {
+			bundleContext.ungetService(repositoryServiceRef);
+			repositoryServiceRef = null;
 		}
+
+		repository = null;
+		bundleContext = null;
 	}
 
 	/**
