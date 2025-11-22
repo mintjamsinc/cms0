@@ -89,8 +89,7 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 	@Override
 	public void cancelMerge(String absPath, Version version) throws VersionException, InvalidItemStateException,
 			UnsupportedRepositoryOperationException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("cancelMerge is not supported");
 	}
 
 	@Override
@@ -241,27 +240,23 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 
 	@Override
 	public Node createActivity(String title) throws UnsupportedRepositoryOperationException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("createActivity is not supported");
 	}
 
 	@Override
 	public Node createConfiguration(String absPath) throws UnsupportedRepositoryOperationException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("createConfiguration is not supported");
 	}
 
 	@Override
 	public void doneMerge(String absPath, Version version) throws VersionException, InvalidItemStateException,
 			UnsupportedRepositoryOperationException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("doneMerge is not supported");
 	}
 
 	@Override
 	public Node getActivity() throws UnsupportedRepositoryOperationException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("getActivity is not supported");
 	}
 
 	@Override
@@ -299,29 +294,25 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 	@Override
 	public NodeIterator merge(Node activityNode) throws VersionException, AccessDeniedException, MergeException, LockException,
 			InvalidItemStateException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("merge is not supported");
 	}
 
 	@Override
 	public NodeIterator merge(String absPath, String srcWorkspace, boolean bestEffort, boolean isShallow) throws NoSuchWorkspaceException,
 			AccessDeniedException, MergeException, LockException, InvalidItemStateException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("merge is not supported");
 	}
 
 	@Override
 	public NodeIterator merge(String absPath, String srcWorkspace, boolean bestEffort) throws NoSuchWorkspaceException,
 			AccessDeniedException, MergeException, LockException, InvalidItemStateException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("merge is not supported");
 	}
 
 	@Override
 	public void removeActivity(Node activityNode)
 			throws UnsupportedRepositoryOperationException, VersionException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("removeActivity is not supported");
 	}
 
 	@Override
@@ -432,14 +423,12 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 	@Override
 	public void restoreByLabel(String absPath, String versionLabel, boolean removeExisting) throws VersionException, ItemExistsException,
 			UnsupportedRepositoryOperationException, LockException, InvalidItemStateException, RepositoryException {
-		// TODO Auto-generated method stub
-		
+		throw new UnsupportedRepositoryOperationException("restoreByLabel is not supported");
 	}
 
 	@Override
 	public Node setActivity(Node activity) throws UnsupportedRepositoryOperationException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("setActivity is not supported");
 	}
 
 	@Override
