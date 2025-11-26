@@ -134,7 +134,17 @@ public class DownloadServlet extends HttpServlet {
 				response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 				response.setHeader("Expires", "0");
 				response.setHeader("Pragma", "no-cache");
-				response.setHeader("Content-Disposition", createContentDisposition(node.getName(), request.getHeader("User-Agent")));
+				boolean isAttachment;
+				if (request.getParameterMap().containsKey("attachment")) {
+					isAttachment = Boolean.parseBoolean(StringUtils.defaultIfEmpty(
+							request.getParameter("attachment"), Boolean.TRUE.toString()));
+				} else {
+					isAttachment = false;
+				}
+				response.setHeader("Content-Disposition", createContentDisposition(
+						node.getName(),
+						request.getHeader("User-Agent"),
+						isAttachment));
 
 				if (RangeHeader.isRangeRequest(request)) {
 					try {
@@ -312,14 +322,14 @@ public class DownloadServlet extends HttpServlet {
 	/**
 	 * Create Content-Disposition header value
 	 */
-	private String createContentDisposition(String fileName, String userAgent) throws IOException {
+	private String createContentDisposition(String fileName, String userAgent, boolean isAttachment) throws IOException {
 		String encodedName = Webs.encode(fileName);
 		if (userAgent != null && (userAgent.contains("MSIE") || userAgent.contains("Trident"))) {
 			// IE
-			return "inline; filename=\"" + encodedName + "\"";
+			return (isAttachment ? "attachment": "inline") + "; filename=\"" + encodedName + "\"";
 		}
 		// Modern Browsers (RFC 5987)
-		return "inline; filename*=UTF-8''" + encodedName;
+		return (isAttachment ? "attachment": "inline") + "; filename*=UTF-8''" + encodedName;
 	}
 
 }
