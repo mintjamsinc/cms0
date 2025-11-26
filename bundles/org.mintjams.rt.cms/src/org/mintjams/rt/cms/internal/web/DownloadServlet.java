@@ -91,6 +91,16 @@ public class DownloadServlet extends HttpServlet {
 
 			// Get path
 			String path = getPath(request);
+			if (path == null || path.isEmpty()) {
+				response.sendError(HttpServletResponse.SC_NOT_FOUND, "Path must be specified");
+				return;
+			}
+
+			// Prevent directory traversal attack
+			if (path.contains("..")) {
+				response.sendError(HttpServletResponse.SC_FORBIDDEN);
+				return;
+			}
 
 			// Get node
 			Node node;
@@ -115,15 +125,16 @@ public class DownloadServlet extends HttpServlet {
 				response.setHeader("ETag", eTag);
 				String contentType = JCRs.getMimeType(node);
 				if (StringUtils.isNotEmpty(contentType)) {
+					response.setContentType(contentType);
 					if (contentType.startsWith("text/")) {
 						String encoding = StringUtils.defaultIfEmpty(JCRs.getEncoding(node), StandardCharsets.UTF_8.name());
-						contentType += "; charset=" + encoding;
+						response.setCharacterEncoding(encoding);
 					}
-					response.setContentType(contentType);
 				}
 				response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 				response.setHeader("Expires", "0");
 				response.setHeader("Pragma", "no-cache");
+				response.setHeader("Content-Disposition", createContentDisposition(node.getName(), request.getHeader("User-Agent")));
 
 				if (RangeHeader.isRangeRequest(request)) {
 					try {
@@ -296,6 +307,19 @@ public class DownloadServlet extends HttpServlet {
 		}
 
 		return new long[] { contentLength, start, end, length };
+	}
+
+	/**
+	 * Create Content-Disposition header value
+	 */
+	private String createContentDisposition(String fileName, String userAgent) throws IOException {
+		String encodedName = Webs.encode(fileName);
+		if (userAgent != null && (userAgent.contains("MSIE") || userAgent.contains("Trident"))) {
+			// IE
+			return "inline; filename=\"" + encodedName + "\"";
+		}
+		// Modern Browsers (RFC 5987)
+		return "inline; filename*=UTF-8''" + encodedName;
 	}
 
 }
