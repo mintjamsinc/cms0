@@ -123,6 +123,7 @@ public class QueryExecutor {
 	/**
 	 * Execute children query (Relay Connection specification) with field selection optimization
 	 * Example: { children(path: "/content", first: 10, after: "cursor") { edges { node { name } cursor } pageInfo { hasNextPage hasPreviousPage startCursor endCursor } totalCount } }
+	 * Also supports variable syntax: query ListChildren($path: String!, $first: Int, $after: String) { children(path: $path, first: $first, after: $after) { ... } }
 	 */
 	public Map<String, Object> executeChildrenQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
@@ -142,15 +143,50 @@ public class QueryExecutor {
 			}
 		}
 
-		// Extract parameters
+		// Extract parameters - try literal pattern first, then variable pattern
+		String path = null;
+		int first = 20; // default
+		String afterCursor = null;
+
 		Matcher matcher = CHILDREN_QUERY_PATTERN.matcher(query);
-		if (!matcher.find()) {
-			throw new IllegalArgumentException("Invalid children query");
+		if (matcher.find()) {
+			// Literal pattern matched
+			path = resolveVariable(matcher.group(1), variables);
+			first = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 20;
+			afterCursor = matcher.group(3) != null ? resolveVariable(matcher.group(3), variables) : null;
+		} else {
+			// Try variable pattern: children(path: $path, first: $first, after: $after)
+			// Extract path variable
+			Pattern pathVarPattern = Pattern.compile("children\\s*\\([^)]*path\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher pathVarMatcher = pathVarPattern.matcher(query);
+			if (pathVarMatcher.find()) {
+				String varName = pathVarMatcher.group(1);
+				path = variables != null ? (String) variables.get(varName) : null;
+			}
+
+			// Extract first variable
+			Pattern firstVarPattern = Pattern.compile("children\\s*\\([^)]*first\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher firstVarMatcher = firstVarPattern.matcher(query);
+			if (firstVarMatcher.find()) {
+				String varName = firstVarMatcher.group(1);
+				Object varValue = variables != null ? variables.get(varName) : null;
+				if (varValue != null) {
+					first = varValue instanceof Number ? ((Number) varValue).intValue() : Integer.parseInt(varValue.toString());
+				}
+			}
+
+			// Extract after variable
+			Pattern afterVarPattern = Pattern.compile("children\\s*\\([^)]*after\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher afterVarMatcher = afterVarPattern.matcher(query);
+			if (afterVarMatcher.find()) {
+				String varName = afterVarMatcher.group(1);
+				afterCursor = variables != null ? (String) variables.get(varName) : null;
+			}
 		}
 
-		String path = resolveVariable(matcher.group(1), variables);
-		int first = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 20;
-		String afterCursor = matcher.group(3) != null ? resolveVariable(matcher.group(3), variables) : null;
+		if (path == null) {
+			throw new IllegalArgumentException("Invalid children query: path not found " + query);
+		}
 
 		if (!session.nodeExists(path)) {
 			throw new IllegalArgumentException("Node not found: " + path);
@@ -253,6 +289,7 @@ public class QueryExecutor {
 	 * Execute references query with Relay Connection format and pagination
 	 * Returns nodes that reference the specified node in Connection format
 	 * Example: { references(path: "/content/target", first: 10, after: "cursor") { edges { node { path name } cursor } pageInfo { hasNextPage } totalCount } }
+	 * Also supports variable syntax: query ListReferences($path: String!, $first: Int, $after: String) { references(path: $path, first: $first, after: $after) { ... } }
 	 */
 	public Map<String, Object> executeReferencesQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
@@ -272,15 +309,50 @@ public class QueryExecutor {
 			}
 		}
 
-		// Extract parameters using REFERENCES_QUERY_PATTERN
+		// Extract parameters - try literal pattern first, then variable pattern
+		String path = null;
+		int first = 20; // default
+		String afterCursor = null;
+
 		Matcher matcher = REFERENCES_QUERY_PATTERN.matcher(query);
-		if (!matcher.find()) {
-			throw new IllegalArgumentException("Invalid references query");
+		if (matcher.find()) {
+			// Literal pattern matched
+			path = resolveVariable(matcher.group(1), variables);
+			first = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 20;
+			afterCursor = matcher.group(3) != null ? resolveVariable(matcher.group(3), variables) : null;
+		} else {
+			// Try variable pattern: references(path: $path, first: $first, after: $after)
+			// Extract path variable
+			Pattern pathVarPattern = Pattern.compile("references\\s*\\([^)]*path\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher pathVarMatcher = pathVarPattern.matcher(query);
+			if (pathVarMatcher.find()) {
+				String varName = pathVarMatcher.group(1);
+				path = variables != null ? (String) variables.get(varName) : null;
+			}
+
+			// Extract first variable
+			Pattern firstVarPattern = Pattern.compile("references\\s*\\([^)]*first\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher firstVarMatcher = firstVarPattern.matcher(query);
+			if (firstVarMatcher.find()) {
+				String varName = firstVarMatcher.group(1);
+				Object varValue = variables != null ? variables.get(varName) : null;
+				if (varValue != null) {
+					first = varValue instanceof Number ? ((Number) varValue).intValue() : Integer.parseInt(varValue.toString());
+				}
+			}
+
+			// Extract after variable
+			Pattern afterVarPattern = Pattern.compile("references\\s*\\([^)]*after\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher afterVarMatcher = afterVarPattern.matcher(query);
+			if (afterVarMatcher.find()) {
+				String varName = afterVarMatcher.group(1);
+				afterCursor = variables != null ? (String) variables.get(varName) : null;
+			}
 		}
 
-		String path = resolveVariable(matcher.group(1), variables);
-		int first = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 20;
-		String afterCursor = matcher.group(3) != null ? resolveVariable(matcher.group(3), variables) : null;
+		if (path == null) {
+			throw new IllegalArgumentException("Invalid references query: path not found " + query);
+		}
 
 		if (!session.nodeExists(path)) {
 			throw new IllegalArgumentException("Node not found: " + path);
