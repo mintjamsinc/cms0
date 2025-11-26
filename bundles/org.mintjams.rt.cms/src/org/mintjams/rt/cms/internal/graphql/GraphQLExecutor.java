@@ -142,6 +142,8 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeCheckout(request));
 			} else if (query.contains("checkin(")) {
 				response.setData(mutationExecutor.executeCheckin(request));
+			} else if (query.contains("renameNode(")) {
+				response.setData(mutationExecutor.executeRenameNode(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}

@@ -908,6 +908,54 @@ public class MutationExecutor {
 	}
 
 	/**
+	 * Execute renameNode mutation
+	 * Renames a node by moving it to a new name within the same parent
+	 * Example: mutation { renameNode(input: { path: "/content/oldname", name: "newname" }) { path name } }
+	 */
+	public Map<String, Object> executeRenameNode(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+		String newName = (String) input.get("name");
+
+		if (path == null || newName == null) {
+			throw new IllegalArgumentException("path and name are required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+		String parentPath = node.getParent().getPath();
+
+		// Build new path
+		String newPath;
+		if ("/".equals(parentPath)) {
+			newPath = "/" + newName;
+		} else {
+			newPath = parentPath + "/" + newName;
+		}
+
+		// Check if target path already exists
+		if (this.session.nodeExists(newPath)) {
+			throw new IllegalArgumentException("Node already exists at path: " + newPath);
+		}
+
+		// Rename by moving to new path
+		this.session.move(path, newPath);
+		this.session.save();
+
+		// Get renamed node
+		Node renamedNode = this.session.getNode(newPath);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("renameNode", NodeMapper.toGraphQL(renamedNode));
+
+		return result;
+	}
+
+	/**
 	 * Execute restoreVersion mutation
 	 * Restores a node to a specific version
 	 * Example: mutation { restoreVersion(input: { path: "/content/page1", versionName: "1.0" }) }

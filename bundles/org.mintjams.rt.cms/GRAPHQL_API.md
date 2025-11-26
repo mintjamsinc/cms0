@@ -287,6 +287,28 @@ JCR XPath を実行します。
 
 返り値: `deleteNode: Boolean` (存在しない場合は `false`)
 
+### renameNode
+
+ノードの名前を変更します。同一親内で新しい名前に移動することで名前変更を実現しています。
+
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `path` | String | ○ | 名前変更対象のノードパス |
+| `name` | String | ○ | 新しい名前 |
+
+返り値: `renameNode` (名前変更後のノード情報)。新しいパスでノードを取得できます。
+
+例:
+
+```graphql
+mutation {
+  renameNode(input: { path: "/content/oldname", name: "newname" }) {
+    path
+    name
+  }
+}
+```
+
 ### lockNode
 
 | 入力 | 型 | 必須 | デフォルト | 説明 |
