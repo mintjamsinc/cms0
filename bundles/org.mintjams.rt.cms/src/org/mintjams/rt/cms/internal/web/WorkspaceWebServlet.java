@@ -43,12 +43,12 @@ import org.mintjams.tools.util.Action;
 import org.mintjams.tools.util.ActionException;
 import org.mintjams.tools.util.SimpleActionChain;
 
-public class WorkspaceServlet extends HttpServlet {
+public class WorkspaceWebServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
 
-	private final WorkspaceServletProviderConfiguration fConfig;
+	private final WorkspaceWebServletProviderConfiguration fConfig;
 
-	protected WorkspaceServlet(WorkspaceServletProviderConfiguration config) {
+	protected WorkspaceWebServlet(WorkspaceWebServletProviderConfiguration config) {
 		fConfig = config;
 	}
 

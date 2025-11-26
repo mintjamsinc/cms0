@@ -30,14 +30,14 @@ import javax.servlet.http.HttpServlet;
 
 import org.mintjams.tools.io.Closer;
 
-public class WorkspaceServletProvider implements Closeable {
+public class WorkspaceWebServletProvider implements Closeable {
 
-	private final WorkspaceServletProviderConfiguration fConfig;
+	private final WorkspaceWebServletProviderConfiguration fConfig;
 	private final Closer fCloser = Closer.create();
 	private HttpServlet fServlet;
 
-	public WorkspaceServletProvider(String workspaceName) {
-		fConfig = new WorkspaceServletProviderConfiguration(workspaceName);
+	public WorkspaceWebServletProvider(String workspaceName) {
+		fConfig = new WorkspaceWebServletProviderConfiguration(workspaceName);
 	}
 
 	public synchronized void open() throws IOException, RepositoryException {
@@ -57,7 +57,7 @@ public class WorkspaceServletProvider implements Closeable {
 		return fServlet;
 	}
 
-	public WorkspaceServletProviderConfiguration getConfiguration() {
+	public WorkspaceWebServletProviderConfiguration getConfiguration() {
 		return fConfig;
 	}
 

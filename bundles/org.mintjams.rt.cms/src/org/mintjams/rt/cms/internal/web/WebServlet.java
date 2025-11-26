@@ -50,7 +50,7 @@ public class WebServlet extends HttpServlet {
 			throw new ServletException("The workspace name must not be unspecified.");
 		}
 
-		WorkspaceServletProvider provider = CmsService.getWorkspaceServletProvider(workspaceName);
+		WorkspaceWebServletProvider provider = CmsService.getWorkspaceServletProvider(workspaceName);
 		if (provider == null) {
 			throw new ServletException("Unknown workspace: " + workspaceName);
 		}

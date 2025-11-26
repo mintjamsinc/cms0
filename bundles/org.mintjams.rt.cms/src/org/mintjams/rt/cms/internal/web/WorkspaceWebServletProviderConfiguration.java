@@ -41,12 +41,12 @@ import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
 
-public class WorkspaceServletProviderConfiguration {
+public class WorkspaceWebServletProviderConfiguration {
 
 	private final String fWorkspaceName;
 	private Map<String, Object> fConfig;
 
-	public WorkspaceServletProviderConfiguration(String workspaceName) {
+	public WorkspaceWebServletProviderConfiguration(String workspaceName) {
 		fWorkspaceName = workspaceName;
 	}
 
@@ -69,7 +69,7 @@ public class WorkspaceServletProviderConfiguration {
 			fConfig = (Map<String, Object>) new Load(LoadSettings.builder().build()).loadFromInputStream(in);
 		}
 
-		return new WorkspaceServlet(this);
+		return new WorkspaceWebServlet(this);
 	}
 
 	public String getWorkspaceName() {

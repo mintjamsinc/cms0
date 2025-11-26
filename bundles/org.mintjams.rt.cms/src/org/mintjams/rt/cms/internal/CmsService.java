@@ -62,7 +62,7 @@ import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Authenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2ServiceProvider;
 import org.mintjams.rt.cms.internal.web.RepositoryServletsProvider;
-import org.mintjams.rt.cms.internal.web.WorkspaceServletProvider;
+import org.mintjams.rt.cms.internal.web.WorkspaceWebServletProvider;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.io.Closer;
@@ -111,7 +111,7 @@ public class CmsService {
 	private final Map<String, WorkspaceFacetProvider> fWorkspaceFacetProviders = new HashMap<>();
 	private final Map<String, WorkspaceProcessEngineProvider> fWorkspaceProcessEngineProviders = new HashMap<>();
 	private final Map<String, WorkspaceIntegrationEngineProvider> fWorkspaceIntegrationEngineProviders = new HashMap<>();
-	private final Map<String, WorkspaceServletProvider> fWorkspaceServletProviders = new HashMap<>();
+	private final Map<String, WorkspaceWebServletProvider> fWorkspaceServletProviders = new HashMap<>();
 	private final Closer fCloser = Closer.create();
 
 	@Activate
@@ -295,7 +295,7 @@ public class CmsService {
 		fWorkspaceIntegrationEngineProviders.put(workspaceName, integrationEngineProvider);
 		integrationEngineProvider.open();
 
-		WorkspaceServletProvider servletProvider = fCloser.register(new WorkspaceServletProvider(workspaceName));
+		WorkspaceWebServletProvider servletProvider = fCloser.register(new WorkspaceWebServletProvider(workspaceName));
 		fWorkspaceServletProviders.put(workspaceName, servletProvider);
 		servletProvider.open();
 	}
@@ -383,7 +383,7 @@ public class CmsService {
 		return getDefault().fWorkspaceIntegrationEngineProviders.get(workspaceName);
 	}
 
-	public static WorkspaceServletProvider getWorkspaceServletProvider(String workspaceName) {
+	public static WorkspaceWebServletProvider getWorkspaceServletProvider(String workspaceName) {
 		return getDefault().fWorkspaceServletProviders.get(workspaceName);
 	}
 

@@ -33,6 +33,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
@@ -48,7 +49,7 @@ import com.google.gson.GsonBuilder;
  * Servlet for GraphQL API Endpoint: /bin/graphql.cgi/{workspace}
  */
 @Component(service = Servlet.class, property = {
-		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=/bin/graphql.cgi/*",
+		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=" + CmsConfiguration.GRAPHQL_CGI_PATH + "/*",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=("
 				+ HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true" })
@@ -147,14 +148,14 @@ public class GraphQLServlet extends HttpServlet {
 	private Credentials getCredentials(HttpServletRequest request) {
 		// Get credentials from HttpServletRequest
 		// Use cms0's existing authentication mechanism
-		Object credentials = request.getAttribute("javax.jcr.Credentials");
+		Object credentials = request.getAttribute(Credentials.class.getName());
 		if (credentials instanceof Credentials) {
 			return (Credentials) credentials;
 		}
 
 		// Get credentials from session
 		if (request.getSession(false) != null) {
-			credentials = request.getSession().getAttribute("javax.jcr.Credentials");
+			credentials = request.getSession().getAttribute(Credentials.class.getName());
 			if (credentials instanceof Credentials) {
 				return (Credentials) credentials;
 			}

@@ -80,6 +80,7 @@ public class QueryExecutor {
 	/**
 	 * Execute node query with field selection optimization
 	 * Example: { node(path: "/content/page1") { name path } }
+	 * Also supports variable syntax: query Node($path: String!) { node(path: $path) { name path } }
 	 */
 	public Map<String, Object> executeNodeQuery(GraphQLRequest request) throws Exception {
 		String query = request.getQuery();
@@ -90,10 +91,21 @@ public class QueryExecutor {
 		Field rootField = operation.getRootField();
 		SelectionSet nodeSelection = rootField != null ? rootField.getSelectionSet() : null;
 
-		// Extract path
+		// Extract path - try literal pattern first, then variable pattern
 		String path = extractPath(query, NODE_QUERY_PATTERN, variables);
+
 		if (path == null) {
-			throw new IllegalArgumentException("Invalid node query: path not found");
+			// Try variable pattern: node(path: $path)
+			Pattern varPattern = Pattern.compile("node\\s*\\(\\s*path\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher varMatcher = varPattern.matcher(query);
+			if (varMatcher.find()) {
+				String varName = varMatcher.group(1);
+				path = variables != null ? (String) variables.get(varName) : null;
+			}
+		}
+
+		if (path == null) {
+			throw new IllegalArgumentException("Invalid node query: path not found " + query);
 		}
 
 		Map<String, Object> result = new HashMap<>();
@@ -606,28 +618,63 @@ public class QueryExecutor {
 		// Parse query to extract node selection
 		SelectionSet nodeSelection = extractNodeSelection(request);
 
-		// Extract query string
-		Pattern queryPattern = Pattern.compile("xpath\\s*\\(\\s*query\\s*:\\s*\"([^\"]+)\"");
-		Matcher queryMatcher = queryPattern.matcher(queryStr);
-		if (!queryMatcher.find()) {
-			throw new IllegalArgumentException("Invalid xpath query: query parameter not found");
+		// Extract query string - try literal pattern first, then variable pattern
+		String jcrQuery = null;
+		Pattern literalPattern = Pattern.compile("xpath\\s*\\(\\s*query\\s*:\\s*\"([^\"]+)\"");
+		Matcher literalMatcher = literalPattern.matcher(queryStr);
+		if (literalMatcher.find()) {
+			jcrQuery = resolveVariable(literalMatcher.group(1), variables);
 		}
-		String jcrQuery = resolveVariable(queryMatcher.group(1), variables);
+
+		if (jcrQuery == null) {
+			// Try variable pattern: xpath(query: $query, ...)
+			Pattern varPattern = Pattern.compile("xpath\\s*\\(\\s*query\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher varMatcher = varPattern.matcher(queryStr);
+			if (varMatcher.find()) {
+				String varName = varMatcher.group(1);
+				jcrQuery = variables != null ? (String) variables.get(varName) : null;
+			}
+		}
+
+		if (jcrQuery == null) {
+			throw new IllegalArgumentException("Invalid xpath query: query parameter not found " + queryStr);
+		}
 
 		// Extract pagination parameters
 		int first = 20; // default
 		String afterCursor = null;
 
+		// Try literal first, then variable pattern for 'first'
 		Pattern firstPattern = Pattern.compile("first\\s*:\\s*(\\d+)");
 		Matcher firstMatcher = firstPattern.matcher(queryStr);
 		if (firstMatcher.find()) {
 			first = Integer.parseInt(firstMatcher.group(1));
+		} else {
+			// Try variable pattern: first: $first
+			Pattern firstVarPattern = Pattern.compile("first\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher firstVarMatcher = firstVarPattern.matcher(queryStr);
+			if (firstVarMatcher.find()) {
+				String varName = firstVarMatcher.group(1);
+				Object varValue = variables != null ? variables.get(varName) : null;
+				if (varValue != null) {
+					first = varValue instanceof Number ? ((Number) varValue).intValue() : Integer.parseInt(varValue.toString());
+				}
+			}
 		}
 
+		// Try literal first, then variable pattern for 'after'
 		Pattern afterPattern = Pattern.compile("after\\s*:\\s*\"([^\"]+)\"");
 		Matcher afterMatcher = afterPattern.matcher(queryStr);
 		if (afterMatcher.find()) {
 			afterCursor = resolveVariable(afterMatcher.group(1), variables);
+		} else {
+			// Try variable pattern: after: $after
+			Pattern afterVarPattern = Pattern.compile("after\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher afterVarMatcher = afterVarPattern.matcher(queryStr);
+			if (afterVarMatcher.find()) {
+				String varName = afterVarMatcher.group(1);
+				afterCursor = variables != null ? (String) variables.get(varName) : null;
+			}
 		}
 
 		// Execute query
@@ -703,36 +750,82 @@ public class QueryExecutor {
 		SelectionSet nodeSelection = extractNodeSelection(request);
 		Map<String, Object> variables = request.getVariables();
 
-		// Extract search text
-		Pattern textPattern = Pattern.compile("search\\s*\\([^)]*text\\s*:\\s*\"([^\"]+)\"");
-		Matcher textMatcher = textPattern.matcher(queryStr);
-		if (!textMatcher.find()) {
-			throw new IllegalArgumentException("Invalid search query: text parameter not found");
+		// Extract search text - try literal pattern first, then variable pattern
+		String searchText = null;
+		Pattern textLiteralPattern = Pattern.compile("search\\s*\\([^)]*text\\s*:\\s*\"([^\"]+)\"");
+		Matcher textLiteralMatcher = textLiteralPattern.matcher(queryStr);
+		if (textLiteralMatcher.find()) {
+			searchText = resolveVariable(textLiteralMatcher.group(1), variables);
 		}
-		String searchText = resolveVariable(textMatcher.group(1), variables);
 
-		// Extract optional path parameter (search root)
+		if (searchText == null) {
+			// Try variable pattern: text: $text
+			Pattern textVarPattern = Pattern.compile("search\\s*\\([^)]*text\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher textVarMatcher = textVarPattern.matcher(queryStr);
+			if (textVarMatcher.find()) {
+				String varName = textVarMatcher.group(1);
+				searchText = variables != null ? (String) variables.get(varName) : null;
+			}
+		}
+
+		if (searchText == null) {
+			throw new IllegalArgumentException("Invalid search query: text parameter not found " + queryStr);
+		}
+
+		// Extract optional path parameter (search root) - try literal first, then variable
 		String searchPath = "/";
-		Pattern pathPattern = Pattern.compile("path\\s*:\\s*\"([^\"]+)\"");
-		Matcher pathMatcher = pathPattern.matcher(queryStr);
-		if (pathMatcher.find()) {
-			searchPath = resolveVariable(pathMatcher.group(1), variables);
+		Pattern pathLiteralPattern = Pattern.compile("path\\s*:\\s*\"([^\"]+)\"");
+		Matcher pathLiteralMatcher = pathLiteralPattern.matcher(queryStr);
+		if (pathLiteralMatcher.find()) {
+			searchPath = resolveVariable(pathLiteralMatcher.group(1), variables);
+		} else {
+			// Try variable pattern: path: $path
+			Pattern pathVarPattern = Pattern.compile("[^a-z]path\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher pathVarMatcher = pathVarPattern.matcher(queryStr);
+			if (pathVarMatcher.find()) {
+				String varName = pathVarMatcher.group(1);
+				String varValue = variables != null ? (String) variables.get(varName) : null;
+				if (varValue != null) {
+					searchPath = varValue;
+				}
+			}
 		}
 
 		// Extract pagination parameters
 		int first = 20; // default
 		String afterCursor = null;
 
+		// Try literal first, then variable pattern for 'first'
 		Pattern firstPattern = Pattern.compile("first\\s*:\\s*(\\d+)");
 		Matcher firstMatcher = firstPattern.matcher(queryStr);
 		if (firstMatcher.find()) {
 			first = Integer.parseInt(firstMatcher.group(1));
+		} else {
+			// Try variable pattern: first: $first
+			Pattern firstVarPattern = Pattern.compile("first\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher firstVarMatcher = firstVarPattern.matcher(queryStr);
+			if (firstVarMatcher.find()) {
+				String varName = firstVarMatcher.group(1);
+				Object varValue = variables != null ? variables.get(varName) : null;
+				if (varValue != null) {
+					first = varValue instanceof Number ? ((Number) varValue).intValue() : Integer.parseInt(varValue.toString());
+				}
+			}
 		}
 
+		// Try literal first, then variable pattern for 'after'
 		Pattern afterPattern = Pattern.compile("after\\s*:\\s*\"([^\"]+)\"");
 		Matcher afterMatcher = afterPattern.matcher(queryStr);
 		if (afterMatcher.find()) {
 			afterCursor = resolveVariable(afterMatcher.group(1), variables);
+		} else {
+			// Try variable pattern: after: $after
+			Pattern afterVarPattern = Pattern.compile("after\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher afterVarMatcher = afterVarPattern.matcher(queryStr);
+			if (afterVarMatcher.find()) {
+				String varName = afterVarMatcher.group(1);
+				afterCursor = variables != null ? (String) variables.get(varName) : null;
+			}
 		}
 
 		// Build XPath query for fulltext search

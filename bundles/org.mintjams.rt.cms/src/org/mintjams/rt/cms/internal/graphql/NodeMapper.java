@@ -22,6 +22,7 @@
 
 package org.mintjams.rt.cms.internal.graphql;
 
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -37,7 +38,9 @@ import javax.jcr.RepositoryException;
 import javax.jcr.lock.Lock;
 import javax.jcr.lock.LockManager;
 
+import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
+import org.mintjams.rt.cms.internal.web.Webs;
 
 /**
  * Mapper to convert JCR nodes to GraphQL format with field selection optimization
@@ -175,7 +178,13 @@ public class NodeMapper {
 
 		// Download URL (relative path)
 		if (includeAll || selectionSet.hasField("downloadUrl")) {
-			result.put("downloadUrl", node.getPath());
+			String url;
+			try {
+				url = CmsConfiguration.DOWNLOAD_CGI_PATH + Webs.encodePath("/" + node.getSession().getWorkspace().getName() + node.getPath());
+			} catch (IOException ex) {
+				throw new RepositoryException("Failed to encode download URL", ex);
+			}
+			result.put("downloadUrl", url);
 		}
 	}
 
