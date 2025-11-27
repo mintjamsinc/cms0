@@ -1385,9 +1385,12 @@ public class MutationExecutor {
 	/**
 	 * Execute initiateMultipartUpload mutation
 	 * Creates a new multipart upload session
-	 * Example: mutation { initiateMultipartUpload { uploadId totalSize } }
+	 * Example: mutation { initiateMultipartUpload(input: {}) { uploadId totalSize } }
 	 */
 	public Map<String, Object> executeInitiateMultipartUpload(GraphQLRequest request) throws Exception {
+		// Input is optional and reserved for future use
+		// Map<String, Object> input = extractInput(request);
+
 		MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
 		Map<String, Object> uploadInfo = uploadManager.initiate();
 
