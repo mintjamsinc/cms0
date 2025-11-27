@@ -1377,4 +1377,118 @@ public class MutationExecutor {
 
 		return query.substring(start + 1, end);
 	}
+
+	// =============================================================================
+	// Multipart Upload Mutations
+	// =============================================================================
+
+	/**
+	 * Execute initiateMultipartUpload mutation
+	 * Creates a new multipart upload session
+	 * Example: mutation { initiateMultipartUpload { uploadId totalSize } }
+	 */
+	public Map<String, Object> executeInitiateMultipartUpload(GraphQLRequest request) throws Exception {
+		MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
+		Map<String, Object> uploadInfo = uploadManager.initiate();
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("initiateMultipartUpload", uploadInfo);
+
+		return result;
+	}
+
+	/**
+	 * Execute appendMultipartUploadChunk mutation
+	 * Appends a Base64 encoded chunk to an existing upload
+	 * Example: mutation { appendMultipartUploadChunk(input: { uploadId: "...", data: "..." }) { uploadId totalSize } }
+	 */
+	public Map<String, Object> executeAppendMultipartUploadChunk(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String uploadId = (String) input.get("uploadId");
+		String data = (String) input.get("data");
+
+		if (uploadId == null || uploadId.trim().isEmpty()) {
+			throw new IllegalArgumentException("uploadId is required");
+		}
+
+		if (data == null || data.trim().isEmpty()) {
+			throw new IllegalArgumentException("data is required");
+		}
+
+		MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
+		Map<String, Object> uploadInfo = uploadManager.append(uploadId, data);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("appendMultipartUploadChunk", uploadInfo);
+
+		return result;
+	}
+
+	/**
+	 * Execute completeMultipartUpload mutation
+	 * Completes the upload and creates the JCR node
+	 * Example: mutation { completeMultipartUpload(input: { uploadId: "...", path: "/content", name: "file.txt", mimeType: "text/plain" }) { path name } }
+	 */
+	public Map<String, Object> executeCompleteMultipartUpload(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String uploadId = (String) input.get("uploadId");
+		String path = (String) input.get("path");
+		String name = (String) input.get("name");
+		String mimeType = (String) input.get("mimeType");
+
+		// Default overwrite to false
+		boolean overwrite = false;
+		if (input.containsKey("overwrite") && input.get("overwrite") instanceof Boolean) {
+			overwrite = ((Boolean) input.get("overwrite")).booleanValue();
+		}
+
+		if (uploadId == null || uploadId.trim().isEmpty()) {
+			throw new IllegalArgumentException("uploadId is required");
+		}
+
+		if (path == null || path.trim().isEmpty()) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		if (name == null || name.trim().isEmpty()) {
+			throw new IllegalArgumentException("name is required");
+		}
+
+		if (mimeType == null || mimeType.trim().isEmpty()) {
+			throw new IllegalArgumentException("mimeType is required");
+		}
+
+		MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
+		Node createdNode = uploadManager.complete(uploadId, path, name, mimeType, overwrite);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("completeMultipartUpload", NodeMapper.toGraphQL(createdNode));
+
+		return result;
+	}
+
+	/**
+	 * Execute abortMultipartUpload mutation
+	 * Aborts the upload and cleans up temporary files
+	 * Example: mutation { abortMultipartUpload(input: { uploadId: "..." }) }
+	 */
+	public Map<String, Object> executeAbortMultipartUpload(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String uploadId = (String) input.get("uploadId");
+
+		if (uploadId == null || uploadId.trim().isEmpty()) {
+			throw new IllegalArgumentException("uploadId is required");
+		}
+
+		MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
+		boolean aborted = uploadManager.abort(uploadId);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("abortMultipartUpload", aborted);
+
+		return result;
+	}
 }

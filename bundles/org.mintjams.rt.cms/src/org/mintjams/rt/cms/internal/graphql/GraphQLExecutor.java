@@ -144,6 +144,15 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeCheckin(request));
 			} else if (query.contains("renameNode(")) {
 				response.setData(mutationExecutor.executeRenameNode(request));
+			// Multipart Upload mutations
+			} else if (query.contains("initiateMultipartUpload")) {
+				response.setData(mutationExecutor.executeInitiateMultipartUpload(request));
+			} else if (query.contains("appendMultipartUploadChunk(")) {
+				response.setData(mutationExecutor.executeAppendMultipartUploadChunk(request));
+			} else if (query.contains("completeMultipartUpload(")) {
+				response.setData(mutationExecutor.executeCompleteMultipartUpload(request));
+			} else if (query.contains("abortMultipartUpload(")) {
+				response.setData(mutationExecutor.executeAbortMultipartUpload(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}
