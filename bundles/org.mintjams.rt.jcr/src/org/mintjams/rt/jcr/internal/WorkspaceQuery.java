@@ -55,6 +55,7 @@ import javax.jcr.PathNotFoundException;
 import javax.jcr.Property;
 import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
+import javax.jcr.UnsupportedRepositoryOperationException;
 import javax.jcr.Value;
 import javax.jcr.ValueFactory;
 import javax.jcr.ValueFormatException;
@@ -1097,6 +1098,29 @@ public class WorkspaceQuery implements Adaptable {
 			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build()
 					.execute()) {
 				return result.iterator().next().getLong("item_count");
+			}
+		}
+
+		public long countNotOwnedLocksInDescendants(String absPath) throws IOException, SQLException, RepositoryException {
+			if (Strings.isEmpty(absPath)) {
+				throw new IllegalArgumentException("Path must not be null or empty.");
+			}
+
+			String path = getResolved(JcrPath.valueOf(absPath)).toString();
+
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT COUNT(*) AS lock_count FROM jcr_locks l")
+					.append(" JOIN jcr_items i ON (l.item_id = i.item_id)")
+					.append(" WHERE i.item_path LIKE {{likePath}}")
+					.append(" AND l.lock_token NOT IN ({{lockTokens;list}})")
+					.append(" AND i.is_deleted IS FALSE");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
+					.put("likePath", path + "/%")
+					.put("lockTokens", fWorkspace.getLockManager().getLockTokens()).build();
+
+			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build()
+					.execute()) {
+				return result.iterator().next().getLong("lock_count");
 			}
 		}
 

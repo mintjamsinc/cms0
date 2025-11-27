@@ -128,12 +128,25 @@ public class JcrLockManager implements LockManager, Adaptable {
 		}
 		adaptTo(Session.class).checkPrivileges(absPath, Privilege.JCR_LOCK_MANAGEMENT);
 		checkItemState(item);
+		// Check for existing lock on the item
 		JcrLock lock = null;
 		try {
 			lock = (JcrLock) adaptTo(JcrLockManager.class).getLock(absPath);
 		} catch (LockException ignore) {}
 		if (lock != null) {
 			throw new LockException("Node '" + absPath + "' is locked.");
+		}
+		// Check for locks on descendants if isDeep is true
+		if (isDeep) {
+			long count;
+			try {
+				count = getWorkspaceQuery().items().countNotOwnedLocksInDescendants(absPath);
+			} catch (IOException | SQLException ex) {
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
+			if (count > 0) {
+				throw new LockException("A descendant node of node '" + absPath + "' is locked.");
+			}
 		}
 
 		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
