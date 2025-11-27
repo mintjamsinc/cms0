@@ -1080,6 +1080,26 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
+		public long countDescendants(String absPath) throws IOException, SQLException {
+			if (Strings.isEmpty(absPath)) {
+				throw new IllegalArgumentException("Path must not be null or empty.");
+			}
+
+			String path = getResolved(JcrPath.valueOf(absPath)).toString();
+
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT COUNT(*) AS item_count FROM jcr_items")
+					.append(" WHERE item_path LIKE {{likePath}}")
+					.append(" AND is_deleted IS FALSE");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
+					.put("likePath", path + "/%").build();
+
+			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build()
+					.execute()) {
+				return result.iterator().next().getLong("item_count");
+			}
+		}
+
 		public boolean hasPendingChanges() throws IOException, SQLException {
 			try (Query.Result result = newQueryBuilder(
 					"SELECT transaction_id FROM jcr_journal WHERE transaction_id = {{id}}")

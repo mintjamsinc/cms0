@@ -57,10 +57,46 @@ public class JcrPath implements Serializable {
 		return toString().equals("/");
 	}
 
+	public boolean isParentOf(JcrPath other) {
+		if (other == null) {
+			throw new IllegalArgumentException("other is null.");
+		}
+
+		JcrPath parent = other.getParent();
+		return parent != null && this.equals(parent);
+	}
+
+	public boolean isAncestorOf(JcrPath other) {
+		if (other == null) {
+			throw new IllegalArgumentException("other is null.");
+		}
+
+		if (this.fNames.length >= other.fNames.length) {
+			return false;
+		}
+
+		for (int i = 0; i < this.fNames.length; i++) {
+			if (!this.fNames[i].equals(other.fNames[i])) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	public boolean isDescendantOf(JcrPath other) {
+		if (other == null) {
+			throw new IllegalArgumentException("other is null.");
+		}
+
+		return other.isAncestorOf(this);
+	}
+
 	public JcrPath resolve(String relPath) {
 		if (relPath.startsWith("/")) {
 			return valueOf(relPath);
 		}
+
 		String path = toString();
 		if (!path.endsWith("/")) {
 			path += "/";

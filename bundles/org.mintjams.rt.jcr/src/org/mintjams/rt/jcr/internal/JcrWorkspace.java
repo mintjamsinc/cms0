@@ -57,6 +57,7 @@ import javax.jcr.nodetype.PropertyDefinition;
 import javax.jcr.observation.ObservationManager;
 import javax.jcr.query.QueryManager;
 import javax.jcr.security.AccessControlManager;
+import javax.jcr.security.Privilege;
 import javax.jcr.version.Version;
 import javax.jcr.version.VersionException;
 import javax.jcr.version.VersionManager;
@@ -181,19 +182,62 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 			AccessDeniedException, PathNotFoundException, ItemExistsException, LockException, RepositoryException {
 		Node item = getSession().getNode(srcAbsPath);
 		checkItemState(item);
-		try {
-			getSession().getNode(destAbsPath);
-			throw new ItemExistsException("An item '" + destAbsPath + "' already exists.");
-		} catch (PathNotFoundException ignore) {}
-		Node destParentItem = getSession().getNode(JcrPath.valueOf(destAbsPath).getParent().toString());
-		JcrLock lock = null;
-		try {
-			lock = (JcrLock) adaptTo(JcrLockManager.class).getLock(destParentItem.getPath());
-		} catch (LockException ignore) {}
-		if (lock != null && !lock.isLockOwner()) {
-			throw new LockException("Node '" + destParentItem.getPath() + "' is locked.");
+
+		// Normalize paths
+		JcrPath srcPath = JcrPath.valueOf(srcAbsPath).with(adaptTo(NamespaceProvider.class));
+		JcrPath destPath = JcrPath.valueOf(destAbsPath).with(adaptTo(NamespaceProvider.class));
+
+		// Check root copy
+		if (srcPath.isRoot()) {
+			throw new RepositoryException("Cannot copy the root node.");
 		}
 
+		// Check cyclic copy
+		if (destPath.equals(srcPath) || destPath.isDescendantOf(srcPath)) {
+			throw new RepositoryException("Cannot copy a node to itself or its descendant: " + srcAbsPath + " -> " + destAbsPath);
+		}
+
+		// Check existence
+		if (!fSession.nodeExists(srcPath.toString())) {
+			throw new PathNotFoundException("Source node not found: " + srcAbsPath);
+		}
+		if (fSession.nodeExists(destPath.toString())) {
+			throw new ItemExistsException("Destination node already exists: " + destAbsPath);
+		}
+		if (!fSession.nodeExists(destPath.getParent().toString())) {
+			throw new PathNotFoundException("Destination parent node not found: " + destPath.getParent().toString());
+		}
+
+		// Check node types
+		Node srcNode = getNode(srcPath.toString());
+		Node destParentNode = getNode(destPath.getParent().toString());
+		if (!srcNode.isNodeType(NodeType.NT_FOLDER) && !srcNode.isNodeType(NodeType.NT_FILE)) {
+			throw new ConstraintViolationException("Source node must be of type nt:folder or nt:file: " + srcAbsPath);
+		}
+		if (!destParentNode.isNodeType(NodeType.NT_FOLDER)) {
+			throw new ConstraintViolationException("Destination parent node must be of type nt:folder: " + destPath.getParent().toString());
+		}
+
+		// Check permissions
+		fSession.checkPrivileges(destPath.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES);
+
+		// Check locks
+		JcrLock srcLock = null;
+		try {
+			srcLock = (JcrLock) adaptTo(JcrLockManager.class).getLock(srcAbsPath);
+		} catch (LockException ignore) {}
+		if (srcLock != null && !srcLock.isLockOwner()) {
+			throw new LockException("Source node is locked: " + srcAbsPath);
+		}
+		JcrLock destParentLock = null;
+		try {
+			destParentLock = (JcrLock) adaptTo(JcrLockManager.class).getLock(destPath.getParent().toString());
+		} catch (LockException ignore) {}
+		if (destParentLock != null && !destParentLock.isLockOwner() && destParentLock.isDeep()) {
+			throw new LockException("Destination parent node is locked: " + destPath.getParent().toString());
+		}
+
+		// Perform copy
 		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new ServicePrincipal(fUserPrincipal.getName()))) {
 			for (String lockToken : getLockManager().getLockTokens()) {
 				workspace.getLockManager().addLockToken(lockToken);
@@ -368,21 +412,66 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	@Override
 	public void move(String srcAbsPath, String destAbsPath) throws ConstraintViolationException, VersionException,
 			AccessDeniedException, PathNotFoundException, ItemExistsException, LockException, RepositoryException {
-		Node item = getSession().getNode(srcAbsPath);
+		Node item = fSession.getNode(srcAbsPath);
 		checkItemState(item);
-		try {
-			getSession().getNode(destAbsPath);
-			throw new ItemExistsException("An item '" + destAbsPath + "' already exists.");
-		} catch (PathNotFoundException ignore) {}
-		Node destParentItem = getSession().getNode(JcrPath.valueOf(destAbsPath).getParent().toString());
-		JcrLock lock = null;
-		try {
-			lock = (JcrLock) adaptTo(JcrLockManager.class).getLock(destParentItem.getPath());
-		} catch (LockException ignore) {}
-		if (lock != null && !lock.isLockOwner()) {
-			throw new LockException("Node '" + destParentItem.getPath() + "' is locked.");
+
+		// Normalize paths
+		JcrPath srcPath = JcrPath.valueOf(srcAbsPath).with(adaptTo(NamespaceProvider.class));
+		JcrPath destPath = JcrPath.valueOf(destAbsPath).with(adaptTo(NamespaceProvider.class));
+
+		// Check root move
+		if (srcPath.isRoot()) {
+			throw new RepositoryException("Cannot move the root node.");
 		}
 
+		// Check cyclic move
+		if (destPath.equals(srcPath) || destPath.isDescendantOf(srcPath)) {
+			throw new RepositoryException("Cannot move a node to itself or its descendant: " + srcAbsPath + " -> " + destAbsPath);
+		}
+
+		// Check existence
+		if (!fSession.nodeExists(srcPath.toString())) {
+			throw new PathNotFoundException("Source node not found: " + srcAbsPath);
+		}
+		if (fSession.nodeExists(destPath.toString())) {
+			throw new ItemExistsException("Destination node already exists: " + destAbsPath);
+		}
+		if (!fSession.nodeExists(destPath.getParent().toString())) {
+			throw new PathNotFoundException("Destination parent node not found: " + destPath.getParent().toString());
+		}
+
+		// Check node types
+		Node srcNode = getNode(srcPath.toString());
+		Node destParentNode = getNode(destPath.getParent().toString());
+		if (!srcNode.isNodeType(NodeType.NT_FOLDER) && !srcNode.isNodeType(NodeType.NT_FILE)) {
+			throw new ConstraintViolationException("Source node must be of type nt:folder or nt:file: " + srcAbsPath);
+		}
+		if (!destParentNode.isNodeType(NodeType.NT_FOLDER)) {
+			throw new ConstraintViolationException("Destination parent node must be of type nt:folder: " + destPath.getParent().toString());
+		}
+
+		// Check permissions
+		fSession.checkPrivileges(srcPath.toString(), Privilege.JCR_REMOVE_NODE);
+		fSession.checkPrivileges(srcPath.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
+		fSession.checkPrivileges(destPath.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES);
+
+		// Check locks
+		JcrLock srcLock = null;
+		try {
+			srcLock = (JcrLock) adaptTo(JcrLockManager.class).getLock(srcAbsPath);
+		} catch (LockException ignore) {}
+		if (srcLock != null && !srcLock.isLockOwner()) {
+			throw new LockException("Source node is locked: " + srcAbsPath);
+		}
+		JcrLock destParentLock = null;
+		try {
+			destParentLock = (JcrLock) adaptTo(JcrLockManager.class).getLock(destPath.getParent().toString());
+		} catch (LockException ignore) {}
+		if (destParentLock != null && !destParentLock.isLockOwner() && destParentLock.isDeep()) {
+			throw new LockException("Destination parent node is locked: " + destPath.getParent().toString());
+		}
+
+		// Perform move
 		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new ServicePrincipal(fUserPrincipal.getName()))) {
 			for (String lockToken : getLockManager().getLockTokens()) {
 				workspace.getLockManager().addLockToken(lockToken);

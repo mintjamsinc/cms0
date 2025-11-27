@@ -52,17 +52,20 @@ import javax.jcr.Workspace;
 import javax.jcr.lock.LockException;
 import javax.jcr.nodetype.ConstraintViolationException;
 import javax.jcr.nodetype.NoSuchNodeTypeException;
+import javax.jcr.nodetype.NodeType;
 import javax.jcr.retention.RetentionManager;
 import javax.jcr.security.AccessControlManager;
 import javax.jcr.security.Privilege;
 import javax.jcr.version.VersionException;
 
 import org.mintjams.jcr.JcrPath;
+import org.mintjams.jcr.NamespaceProvider;
 import org.mintjams.jcr.Session;
 import org.mintjams.jcr.security.AdminPrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
+import org.mintjams.rt.jcr.internal.lock.JcrLock;
 import org.mintjams.rt.jcr.internal.lock.JcrLockManager;
 import org.mintjams.rt.jcr.internal.observation.JournalObserver;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
@@ -365,7 +368,81 @@ public class JcrSession implements Session, Adaptable {
 	@Override
 	public void move(String srcAbsPath, String destAbsPath) throws ItemExistsException, PathNotFoundException,
 			VersionException, ConstraintViolationException, LockException, RepositoryException {
-		throw new UnsupportedRepositoryOperationException("move is not supported");
+		// Normalize paths
+		JcrPath srcPath = JcrPath.valueOf(srcAbsPath).with(adaptTo(NamespaceProvider.class));
+		JcrPath destPath = JcrPath.valueOf(destAbsPath).with(adaptTo(NamespaceProvider.class));
+
+		// Check root move
+		if (srcPath.isRoot()) {
+			throw new RepositoryException("Cannot move the root node.");
+		}
+
+		// Check cyclic move
+		if (destPath.equals(srcPath) || destPath.isDescendantOf(srcPath)) {
+			throw new RepositoryException("Cannot move a node to itself or its descendant: " + srcAbsPath + " -> " + destAbsPath);
+		}
+
+		// Check existence
+		if (!nodeExists(srcPath.toString())) {
+			throw new PathNotFoundException("Source node not found: " + srcAbsPath);
+		}
+		if (nodeExists(destPath.toString())) {
+			throw new ItemExistsException("Destination node already exists: " + destAbsPath);
+		}
+		if (!nodeExists(destPath.getParent().toString())) {
+			throw new PathNotFoundException("Destination parent node not found: " + destPath.getParent().toString());
+		}
+
+		// Check node types
+		Node srcNode = getNode(srcPath.toString());
+		Node destParentNode = getNode(destPath.getParent().toString());
+		if (!srcNode.isNodeType(NodeType.NT_FOLDER) && !srcNode.isNodeType(NodeType.NT_FILE)) {
+			throw new ConstraintViolationException("Source node must be of type nt:folder or nt:file: " + srcAbsPath);
+		}
+		if (!destParentNode.isNodeType(NodeType.NT_FOLDER)) {
+			throw new ConstraintViolationException("Destination parent node must be of type nt:folder: " + destPath.getParent().toString());
+		}
+
+		// Check permissions
+		checkPrivileges(srcPath.toString(), Privilege.JCR_REMOVE_NODE);
+		checkPrivileges(srcPath.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
+		checkPrivileges(destPath.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES);
+
+		// Check locks
+		JcrLock srcLock = null;
+		try {
+			srcLock = (JcrLock) adaptTo(JcrLockManager.class).getLock(srcAbsPath);
+		} catch (LockException ignore) {}
+		if (srcLock != null && !srcLock.isLockOwner()) {
+			throw new LockException("Source node is locked: " + srcAbsPath);
+		}
+		JcrLock destParentLock = null;
+		try {
+			destParentLock = (JcrLock) adaptTo(JcrLockManager.class).getLock(destPath.getParent().toString());
+		} catch (LockException ignore) {}
+		if (destParentLock != null && !destParentLock.isLockOwner() && destParentLock.isDeep()) {
+			throw new LockException("Destination parent node is locked: " + destPath.getParent().toString());
+		}
+
+		// Check number of child nodes
+		if (srcNode.isNodeType(NodeType.NT_FOLDER)) {
+			long count;
+			try {
+				count = getWorkspaceQuery().items().countDescendants(srcPath.toString());
+			} catch (SQLException | IOException ex) {
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
+			if (count > 1000) {
+				throw new ConstraintViolationException("Cannot move node. The number of descendant nodes exceeds the limit (1000): " + srcAbsPath);
+			}
+		}
+
+		// Perform move
+		try {
+			getWorkspaceQuery().items().moveNode(srcAbsPath, destAbsPath);
+		} catch (SQLException | IOException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
 	}
 
 	@Override
