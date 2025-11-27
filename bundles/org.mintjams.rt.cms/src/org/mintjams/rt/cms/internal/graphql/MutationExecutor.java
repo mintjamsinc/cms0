@@ -158,11 +158,13 @@ public class MutationExecutor {
 	}
 
 	/**
-	 * Execute deleteNode mutation Example: mutation { deleteNode(path:
-	 * "/content/page1") }
+	 * Execute deleteNode mutation
+	 * Example: mutation { deleteNode(input: { path: "/content/page1" }) }
 	 */
 	public Map<String, Object> executeDeleteNode(GraphQLRequest request) throws Exception {
-		String path = extractPathFromMutation(request.getQuery());
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
 
 		if (path == null) {
 			throw new IllegalArgumentException("path is required");
@@ -232,11 +234,13 @@ public class MutationExecutor {
 	}
 
 	/**
-	 * Execute unlockNode mutation Example: mutation { unlockNode(path:
-	 * "/content/page1") }
+	 * Execute unlockNode mutation
+	 * Example: mutation { unlockNode(input: { path: "/content/page1" }) }
 	 */
 	public Map<String, Object> executeUnlockNode(GraphQLRequest request) throws Exception {
-		String path = extractPathFromMutation(request.getQuery());
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
 
 		if (path == null) {
 			throw new IllegalArgumentException("path is required");
@@ -823,10 +827,12 @@ public class MutationExecutor {
 	/**
 	 * Execute checkin mutation
 	 * Creates a new version by checking in a versionable node
-	 * Example: mutation { checkin(path: "/content/page1") }
+	 * Example: mutation { checkin(input: { path: "/content/page1" }) }
 	 */
 	public Map<String, Object> executeCheckin(GraphQLRequest request) throws Exception {
-		String path = extractPathFromMutation(request.getQuery());
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
 
 		if (path == null) {
 			throw new IllegalArgumentException("path is required");
@@ -870,10 +876,12 @@ public class MutationExecutor {
 	/**
 	 * Execute checkout mutation
 	 * Checks out a versionable node for editing
-	 * Example: mutation { checkout(path: "/content/page1") }
+	 * Example: mutation { checkout(input: { path: "/content/page1" }) }
 	 */
 	public Map<String, Object> executeCheckout(GraphQLRequest request) throws Exception {
-		String path = extractPathFromMutation(request.getQuery());
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
 
 		if (path == null) {
 			throw new IllegalArgumentException("path is required");
