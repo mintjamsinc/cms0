@@ -110,9 +110,7 @@ public class NodeMapper {
 		}
 
 		// Lock information (expensive operation, only if requested)
-		if (includeAll || selectionSet.hasField("isLocked") || selectionSet.hasField("lockOwner")
-				|| selectionSet.hasField("isDeep") || selectionSet.hasField("isSessionScoped")
-				|| selectionSet.hasField("isLockOwningSession")) {
+		if (includeAll || selectionSet.hasField("isLocked") || selectionSet.hasField("lockInfo")) {
 			addLockInfo(node, result, selectionSet, includeAll);
 		}
 
@@ -365,44 +363,31 @@ public class NodeMapper {
 
 	/**
 	 * Add lock information to result with field selection optimization
+	 * Returns isLocked as boolean and lockInfo as object (only when locked)
 	 */
 	private static void addLockInfo(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll) throws RepositoryException {
 		try {
 			LockManager lockManager = node.getSession().getWorkspace().getLockManager();
 
-			// Check if node is locked (only if lock-related fields are requested)
+			// Check if node is locked
 			boolean isLocked = lockManager.isLocked(node.getPath());
 
 			if (includeAll || selectionSet.hasField("isLocked")) {
 				result.put("isLocked", isLocked);
 			}
 
-			if (isLocked) {
-				Lock lock = lockManager.getLock(node.getPath());
-				if (includeAll || selectionSet.hasField("lockOwner")) {
-					result.put("lockOwner", lock.getLockOwner());
-				}
-				if (includeAll || selectionSet.hasField("isDeep")) {
-					result.put("isDeep", lock.isDeep());
-				}
-				if (includeAll || selectionSet.hasField("isSessionScoped")) {
-					result.put("isSessionScoped", lock.isSessionScoped());
-				}
-				if (includeAll || selectionSet.hasField("isLockOwningSession")) {
-					result.put("isLockOwningSession", lock.isLockOwningSession());
-				}
-			} else {
-				if (includeAll || selectionSet.hasField("lockOwner")) {
-					result.put("lockOwner", null);
-				}
-				if (includeAll || selectionSet.hasField("isDeep")) {
-					result.put("isDeep", false);
-				}
-				if (includeAll || selectionSet.hasField("isSessionScoped")) {
-					result.put("isSessionScoped", false);
-				}
-				if (includeAll || selectionSet.hasField("isLockOwningSession")) {
-					result.put("isLockOwningSession", false);
+			// Build lockInfo object only when locked and requested
+			if (includeAll || selectionSet.hasField("lockInfo")) {
+				if (isLocked) {
+					Lock lock = lockManager.getLock(node.getPath());
+					Map<String, Object> lockInfo = new HashMap<>();
+					lockInfo.put("lockOwner", lock.getLockOwner());
+					lockInfo.put("isDeep", lock.isDeep());
+					lockInfo.put("isSessionScoped", lock.isSessionScoped());
+					lockInfo.put("isLockOwningSession", lock.isLockOwningSession());
+					result.put("lockInfo", lockInfo);
+				} else {
+					result.put("lockInfo", null);
 				}
 			}
 		} catch (Throwable ex) {
@@ -410,17 +395,8 @@ public class NodeMapper {
 			if (includeAll || selectionSet.hasField("isLocked")) {
 				result.put("isLocked", false);
 			}
-			if (includeAll || selectionSet.hasField("lockOwner")) {
-				result.put("lockOwner", null);
-			}
-			if (includeAll || selectionSet.hasField("isDeep")) {
-				result.put("isDeep", false);
-			}
-			if (includeAll || selectionSet.hasField("isSessionScoped")) {
-				result.put("isSessionScoped", false);
-			}
-			if (includeAll || selectionSet.hasField("isLockOwningSession")) {
-				result.put("isLockOwningSession", false);
+			if (includeAll || selectionSet.hasField("lockInfo")) {
+				result.put("lockInfo", null);
 			}
 		}
 	}
