@@ -708,6 +708,10 @@ public class JcrVersion implements Version, Adaptable {
 
 	@Override
 	public Version[] getPredecessors() throws RepositoryException {
+		if (!hasProperty(JcrProperty.JCR_PREDECESSORS)) {
+			return new Version[0];
+		}
+
 		List<Version> l = new ArrayList<>();
 		for (Value v : getProperty(JcrProperty.JCR_PREDECESSORS).getValues()) {
 			l.add(Adaptables.getAdapter(fItem.getSession().getNodeByIdentifier(v.getString()), Version.class));
@@ -739,6 +743,10 @@ public class JcrVersion implements Version, Adaptable {
 
 	@Override
 	public Version[] getSuccessors() throws RepositoryException {
+		if (!hasProperty(JcrProperty.JCR_SUCCESSORS)) {
+			return new Version[0];
+		}
+
 		List<Version> l = new ArrayList<>();
 		for (Value v : getProperty(JcrProperty.JCR_SUCCESSORS).getValues()) {
 			l.add(Adaptables.getAdapter(fItem.getSession().getNodeByIdentifier(v.getString()), Version.class));
