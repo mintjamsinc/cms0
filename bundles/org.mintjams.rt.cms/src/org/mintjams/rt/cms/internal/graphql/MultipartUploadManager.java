@@ -242,13 +242,13 @@ public class MultipartUploadManager {
 	 * Write the content of the upload file to the JCR node.
 	 */
 	private void writeFile(Node fileNode, Path uploadFile, String mimeType, Calendar modified) throws RepositoryException, IOException {
-		// Create jcr:content node
-		Node contentNode = JCRs.getContentNode(fileNode);
-
 		// Set content body
 		try (BufferedInputStream in = new BufferedInputStream(Files.newInputStream(uploadFile))) {
-			JCRs.write(contentNode, in);
+			JCRs.write(fileNode, in);
 		}
+
+		// Create jcr:content node
+		Node contentNode = JCRs.getContentNode(fileNode);
 
 		// Set content properties
 		contentNode.setProperty("jcr:mimeType", mimeType);
