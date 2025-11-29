@@ -916,6 +916,140 @@ public class MutationExecutor {
 	}
 
 	/**
+	 * Execute uncheckout mutation
+	 * Cancels a checkout, discarding any changes made since checkout
+	 * Example: mutation { uncheckout(input: { path: "/content/page1" }) }
+	 */
+	public Map<String, Object> executeUncheckout(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+
+		if (path == null) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Check if node is versionable
+		if (!node.isNodeType("mix:versionable")) {
+			throw new IllegalArgumentException("Node is not versionable: " + path);
+		}
+
+		// Get VersionManager
+		VersionManager versionManager = this.session.getWorkspace().getVersionManager();
+
+		// Check if already checked in
+		if (!versionManager.isCheckedOut(path)) {
+			throw new IllegalArgumentException("Node is not checked out: " + path);
+		}
+
+		// Uncheckout (cancel checkout, discard changes)
+		((org.mintjams.jcr.version.VersionManager) versionManager).uncheckout(path);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("uncheckout", true);
+
+		return result;
+	}
+
+	/**
+	 * Execute checkpoint mutation
+	 * Creates a new version and keeps the node checked out for continued editing
+	 * Example: mutation { checkpoint(input: { path: "/content/page1" }) }
+	 */
+	public Map<String, Object> executeCheckpoint(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+
+		if (path == null) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Check if node is versionable
+		if (!node.isNodeType("mix:versionable")) {
+			throw new IllegalArgumentException("Node is not versionable: " + path);
+		}
+
+		// Get VersionManager
+		VersionManager versionManager = this.session.getWorkspace().getVersionManager();
+
+		// Must be checked out to create checkpoint
+		if (!versionManager.isCheckedOut(path)) {
+			throw new IllegalArgumentException("Node is not checked out: " + path);
+		}
+
+		// Checkpoint (creates version and keeps checked out)
+		Version version = versionManager.checkpoint(path);
+
+		// Build response with version info
+		Map<String, Object> versionData = new HashMap<>();
+		versionData.put("name", version.getName());
+		if (version.hasProperty("jcr:created")) {
+			versionData.put("created", version.getProperty("jcr:created").getDate().getTime().toString());
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("checkpoint", versionData);
+
+		return result;
+	}
+
+	/**
+	 * Execute addVersionControl mutation
+	 * Adds version control (mix:versionable) to a node and creates the initial version
+	 * Example: mutation { addVersionControl(input: { path: "/content/page1" }) }
+	 */
+	public Map<String, Object> executeAddVersionControl(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String path = (String) input.get("path");
+
+		if (path == null) {
+			throw new IllegalArgumentException("path is required");
+		}
+
+		if (!this.session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		Node node = this.session.getNode(path);
+
+		// Check if already versionable
+		if (node.isNodeType("mix:versionable")) {
+			throw new IllegalArgumentException("Node is already versionable: " + path);
+		}
+
+		// Add mix:versionable mixin (which includes mix:referenceable)
+		node.addMixin("mix:versionable");
+		this.session.save();
+
+		// Checkin to create the initial version (v1.0)
+		// After adding mix:versionable, the node is automatically checked out at jcr:rootVersion
+		VersionManager versionManager = this.session.getWorkspace().getVersionManager();
+		versionManager.checkin(path);
+
+		// Refresh node to get latest state
+		Node updatedNode = this.session.getNode(path);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("addVersionControl", NodeMapper.toGraphQL(updatedNode));
+
+		return result;
+	}
+
+	/**
 	 * Execute renameNode mutation
 	 * Renames a node by moving it to a new name within the same parent
 	 * Example: mutation { renameNode(input: { path: "/content/oldname", name: "newname" }) { path name } }

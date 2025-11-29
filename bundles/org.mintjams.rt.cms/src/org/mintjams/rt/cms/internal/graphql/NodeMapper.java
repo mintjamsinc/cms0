@@ -37,6 +37,7 @@ import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
 import javax.jcr.lock.Lock;
 import javax.jcr.lock.LockManager;
+import javax.jcr.version.VersionManager;
 
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
@@ -112,6 +113,11 @@ public class NodeMapper {
 		// Lock information (expensive operation, only if requested)
 		if (includeAll || selectionSet.hasField("isLocked") || selectionSet.hasField("lockInfo")) {
 			addLockInfo(node, result, selectionSet, includeAll);
+		}
+
+		// Version information (only if requested)
+		if (includeAll || selectionSet.hasField("isVersionable") || selectionSet.hasField("isCheckedOut") || selectionSet.hasField("baseVersionName")) {
+			addVersionInfo(node, result, selectionSet, includeAll);
 		}
 
 		// Properties list (expensive operation, only if requested)
@@ -397,6 +403,55 @@ public class NodeMapper {
 			}
 			if (includeAll || selectionSet.hasField("lockInfo")) {
 				result.put("lockInfo", null);
+			}
+		}
+	}
+
+	/**
+	 * Add version information to result with field selection optimization
+	 * Returns isVersionable, isCheckedOut booleans, and baseVersionName string
+	 */
+	private static void addVersionInfo(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll) throws RepositoryException {
+		try {
+			// Check if node is versionable
+			boolean isVersionable = node.isNodeType("mix:versionable");
+
+			if (includeAll || selectionSet.hasField("isVersionable")) {
+				result.put("isVersionable", isVersionable);
+			}
+
+			VersionManager versionManager = null;
+			if (isVersionable) {
+				versionManager = node.getSession().getWorkspace().getVersionManager();
+			}
+
+			// Check if node is checked out (only meaningful for versionable nodes)
+			if (includeAll || selectionSet.hasField("isCheckedOut")) {
+				if (isVersionable && versionManager != null) {
+					result.put("isCheckedOut", versionManager.isCheckedOut(node.getPath()));
+				} else {
+					result.put("isCheckedOut", false);
+				}
+			}
+
+			// Get base version name (only meaningful for versionable nodes)
+			if (includeAll || selectionSet.hasField("baseVersionName")) {
+				if (isVersionable && versionManager != null) {
+					result.put("baseVersionName", versionManager.getBaseVersion(node.getPath()).getName());
+				} else {
+					result.put("baseVersionName", null);
+				}
+			}
+		} catch (Throwable ex) {
+			// If version info retrieval fails, set default values only for requested fields
+			if (includeAll || selectionSet.hasField("isVersionable")) {
+				result.put("isVersionable", false);
+			}
+			if (includeAll || selectionSet.hasField("isCheckedOut")) {
+				result.put("isCheckedOut", false);
+			}
+			if (includeAll || selectionSet.hasField("baseVersionName")) {
+				result.put("baseVersionName", null);
 			}
 		}
 	}

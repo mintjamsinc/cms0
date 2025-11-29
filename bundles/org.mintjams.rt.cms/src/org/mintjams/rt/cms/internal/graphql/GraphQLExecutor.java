@@ -138,6 +138,12 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeAddMixin(request));
 			} else if (query.contains("restoreVersion(")) {
 				response.setData(mutationExecutor.executeRestoreVersion(request));
+			} else if (query.contains("addVersionControl(")) {
+				response.setData(mutationExecutor.executeAddVersionControl(request));
+			} else if (query.contains("checkpoint(")) {
+				response.setData(mutationExecutor.executeCheckpoint(request));
+			} else if (query.contains("uncheckout(")) {
+				response.setData(mutationExecutor.executeUncheckout(request));
 			} else if (query.contains("checkout(")) {
 				response.setData(mutationExecutor.executeCheckout(request));
 			} else if (query.contains("checkin(")) {
