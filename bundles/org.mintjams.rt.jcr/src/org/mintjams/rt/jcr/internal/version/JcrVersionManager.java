@@ -376,14 +376,16 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 				definition.put("identifier", version.getFrozenNode().getProperty(JcrProperty.JCR_FROZEN_UUID).getString());
 				definition.put("path", absPath);
 				definition.put("primaryType", version.getFrozenNode().getProperty(JcrProperty.JCR_FROZEN_PRIMARY_TYPE).getString());
-				definition.put("mixinTypes", Arrays.stream(version.getFrozenNode().getProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES).getValues())
-						.map(e -> {
-							try {
-								return e.getString();
-							} catch (RepositoryException ex) {
-								throw new UncheckedRepositoryException(ex);
-							}
-						}).toArray(String[]::new));
+				if (version.getFrozenNode().hasProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES)) {
+					definition.put("mixinTypes", Arrays.stream(version.getFrozenNode().getProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES).getValues())
+							.map(e -> {
+								try {
+									return e.getString();
+								} catch (RepositoryException ex) {
+									throw new UncheckedRepositoryException(ex);
+								}
+							}).toArray(String[]::new));
+				}
 				definition.put("disablePostProcess", true);
 				AdaptableMap<String, Object> itemData = workspaceQuery.items().createNode(definition);
 				restore(itemData, version.getFrozenNode(), workspaceQuery);
@@ -477,14 +479,16 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 				definition.put("identifier", version.getFrozenNode().getProperty(JcrProperty.JCR_FROZEN_UUID).getString());
 				definition.put("path", absPath);
 				definition.put("primaryType", version.getFrozenNode().getProperty(JcrProperty.JCR_FROZEN_PRIMARY_TYPE).getString());
-				definition.put("mixinTypes", Arrays.stream(version.getFrozenNode().getProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES).getValues())
-						.map(e -> {
-							try {
-								return e.getString();
-							} catch (RepositoryException ex) {
-								throw new UncheckedRepositoryException(ex);
-							}
-						}).toArray(String[]::new));
+				if (version.getFrozenNode().hasProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES)) {
+					definition.put("mixinTypes", Arrays.stream(version.getFrozenNode().getProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES).getValues())
+							.map(e -> {
+								try {
+									return e.getString();
+								} catch (RepositoryException ex) {
+									throw new UncheckedRepositoryException(ex);
+								}
+							}).toArray(String[]::new));
+				}
 				definition.put("disablePostProcess", true);
 				AdaptableMap<String, Object> itemData = workspaceQuery.items().createNode(definition);
 				restore(itemData, version.getFrozenNode(), workspaceQuery);
@@ -494,6 +498,8 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			}
 
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, false));
+			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_VERSION_HISTORY, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, version.getParent().getIdentifier()));
+			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_BASE_VERSION, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, version.getIdentifier()));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, new Value[0]);
 
 			workspace.getSession().save();
@@ -639,14 +645,16 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 				definition.put("identifier", childFrozenNode.getProperty(JcrProperty.JCR_FROZEN_UUID).getString());
 				definition.put("path", childItemPath.toString());
 				definition.put("primaryType", childFrozenNode.getProperty(JcrProperty.JCR_FROZEN_PRIMARY_TYPE).getString());
-				definition.put("mixinTypes", Arrays.stream(childFrozenNode.getProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES).getValues())
-						.map(e -> {
-							try {
-								return e.getString();
-							} catch (RepositoryException ex) {
-								throw new UncheckedRepositoryException(ex);
-							}
-						}).toArray(String[]::new));
+				if (childFrozenNode.hasProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES)) {
+					definition.put("mixinTypes", Arrays.stream(childFrozenNode.getProperty(JcrProperty.JCR_FROZEN_MIXIN_TYPES).getValues())
+							.map(e -> {
+								try {
+									return e.getString();
+								} catch (RepositoryException ex) {
+									throw new UncheckedRepositoryException(ex);
+								}
+							}).toArray(String[]::new));
+				}
 				definition.put("disablePostProcess", true);
 				childItemData = workspaceQuery.items().createNode(definition);
 			} catch (UncheckedRepositoryException ex) {
