@@ -35,8 +35,10 @@ import java.util.Map;
 import java.util.UUID;
 
 import javax.jcr.Node;
+import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 
 /**
@@ -150,6 +152,8 @@ public class MultipartUploadManager {
 		}
 
 		try {
+			Calendar now = Calendar.getInstance();
+
 			// Check if parent exists
 			if (!session.nodeExists(parentPath)) {
 				throw new IllegalArgumentException("Parent node not found: " + parentPath);
@@ -166,28 +170,21 @@ public class MultipartUploadManager {
 			}
 
 			// Check for existing node
+			Node fileNode;
 			if (session.nodeExists(targetPath)) {
 				if (!overwrite) {
 					throw new IllegalArgumentException("Node already exists: " + targetPath);
 				}
-				// Remove existing node
-				session.getNode(targetPath).remove();
+
+				// Overwrite existing node
+				fileNode = session.getNode(targetPath);
+			} else {
+				// Create nt:file node
+				fileNode = JCRs.createFile(parentNode, name);
 			}
 
-			// Create nt:file node
-			Node fileNode = parentNode.addNode(name, "nt:file");
-
-			// Create jcr:content node
-			Node contentNode = fileNode.addNode("jcr:content", "nt:resource");
-
-			// Set content properties
-			Calendar now = Calendar.getInstance();
-			try (BufferedInputStream in = new BufferedInputStream(Files.newInputStream(uploadFile))) {
-				contentNode.setProperty("jcr:data", session.getValueFactory().createBinary(in));
-			}
-			contentNode.setProperty("jcr:mimeType", mimeType);
-			contentNode.setProperty("jcr:lastModified", now);
-			contentNode.setProperty("jcr:lastModifiedBy", session.getUserID());
+			// Write file
+			writeFile(fileNode, uploadFile, mimeType, now);
 
 			session.save();
 
@@ -239,5 +236,23 @@ public class MultipartUploadManager {
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Write the content of the upload file to the JCR node.
+	 */
+	private void writeFile(Node fileNode, Path uploadFile, String mimeType, Calendar modified) throws RepositoryException, IOException {
+		// Create jcr:content node
+		Node contentNode = JCRs.getContentNode(fileNode);
+
+		// Set content body
+		try (BufferedInputStream in = new BufferedInputStream(Files.newInputStream(uploadFile))) {
+			JCRs.write(contentNode, in);
+		}
+
+		// Set content properties
+		contentNode.setProperty("jcr:mimeType", mimeType);
+		contentNode.setProperty("jcr:lastModified", modified);
+		contentNode.setProperty("jcr:lastModifiedBy", session.getUserID());
 	}
 }
