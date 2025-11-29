@@ -22,6 +22,8 @@
 
 package org.mintjams.rt.cms.internal.graphql;
 
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -63,6 +65,12 @@ public class QueryExecutor {
 
 	private final Session session;
 	private final GraphQLParser parser;
+
+	// ISO8601 date format for version dates
+	private static final DateTimeFormatter ISO8601_FORMAT;
+	static {
+		ISO8601_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC);
+	}
 
 	// Query patterns (simple implementation)
 	private static final Pattern NODE_QUERY_PATTERN = Pattern
@@ -540,8 +548,8 @@ public class QueryExecutor {
 
 	/**
 	 * Execute versionHistory query
-	 * Retrieves version history for a versionable node
-	 * Example: { versionHistory(path: "/content/page1") { versions { name created createdBy } } }
+	 * Retrieves version history for a versionable node with edges/pageInfo format
+	 * Example: { versionHistory(path: "/content/page1") { edges { node { name created createdBy } cursor } pageInfo { hasNextPage } totalCount baseVersion { name created } } }
 	 */
 	public Map<String, Object> executeVersionHistoryQuery(GraphQLRequest request) throws Exception {
 		// Extract path from query
@@ -583,9 +591,10 @@ public class QueryExecutor {
 		// Get version history
 		VersionHistory versionHistory = versionManager.getVersionHistory(path);
 
-		// Build versions list
-		List<Map<String, Object>> versions = new ArrayList<>();
+		// Build versions list in edges format
+		List<Map<String, Object>> edges = new ArrayList<>();
 		VersionIterator versionIterator = versionHistory.getAllVersions();
+		int index = 0;
 
 		while (versionIterator.hasNext()) {
 			Version version = versionIterator.nextVersion();
@@ -598,9 +607,19 @@ public class QueryExecutor {
 			Map<String, Object> versionData = new HashMap<>();
 			versionData.put("name", version.getName());
 
-			// Get created date
+			// Get created date in ISO8601 format
 			if (version.hasProperty("jcr:created")) {
-				versionData.put("created", version.getProperty("jcr:created").getDate().getTime().toString());
+				java.util.Calendar createdCal = version.getProperty("jcr:created").getDate();
+				versionData.put("created", ISO8601_FORMAT.format(createdCal.toInstant()));
+			}
+
+			// Get createdBy from frozen node
+			Node frozenNode = version.getFrozenNode();
+			if (frozenNode != null) {
+				if (frozenNode.hasProperty("jcr:createdBy")) {
+					versionData.put("createdBy", frozenNode.getProperty("jcr:createdBy").getString());
+				}
+				versionData.put("frozenNodePath", frozenNode.getPath());
 			}
 
 			// Get predecessor versions
@@ -611,9 +630,7 @@ public class QueryExecutor {
 					predecessorNames.add(pred.getName());
 				}
 			}
-			if (!predecessorNames.isEmpty()) {
-				versionData.put("predecessors", predecessorNames);
-			}
+			versionData.put("predecessors", predecessorNames);
 
 			// Get successor versions
 			Version[] successors = version.getSuccessors();
@@ -621,27 +638,43 @@ public class QueryExecutor {
 			for (Version succ : successors) {
 				successorNames.add(succ.getName());
 			}
-			if (!successorNames.isEmpty()) {
-				versionData.put("successors", successorNames);
-			}
+			versionData.put("successors", successorNames);
 
-			// Get frozen node (snapshot of the node at this version)
-			Node frozenNode = version.getFrozenNode();
-			if (frozenNode != null) {
-				versionData.put("frozenNodePath", frozenNode.getPath());
-			}
-
-			versions.add(versionData);
+			// Build edge with cursor
+			Map<String, Object> edge = new HashMap<>();
+			edge.put("node", versionData);
+			edge.put("cursor", Base64.getEncoder().encodeToString(("version:" + index).getBytes()));
+			edges.add(edge);
+			index++;
 		}
 
 		// Get base version (current version)
 		Version baseVersion = versionManager.getBaseVersion(path);
-		String baseVersionName = baseVersion != null ? baseVersion.getName() : null;
+		Map<String, Object> baseVersionData = null;
+		if (baseVersion != null) {
+			baseVersionData = new HashMap<>();
+			baseVersionData.put("name", baseVersion.getName());
+			if (baseVersion.hasProperty("jcr:created")) {
+				java.util.Calendar createdCal = baseVersion.getProperty("jcr:created").getDate();
+				baseVersionData.put("created", ISO8601_FORMAT.format(createdCal.toInstant()));
+			}
+		}
+
+		// Build pageInfo
+		Map<String, Object> pageInfo = new HashMap<>();
+		pageInfo.put("hasNextPage", false);
+		pageInfo.put("hasPreviousPage", false);
+		if (!edges.isEmpty()) {
+			pageInfo.put("startCursor", edges.get(0).get("cursor"));
+			pageInfo.put("endCursor", edges.get(edges.size() - 1).get("cursor"));
+		}
 
 		// Build response
 		Map<String, Object> historyData = new HashMap<>();
-		historyData.put("versions", versions);
-		historyData.put("baseVersion", baseVersionName);
+		historyData.put("edges", edges);
+		historyData.put("pageInfo", pageInfo);
+		historyData.put("totalCount", edges.size());
+		historyData.put("baseVersion", baseVersionData);
 		historyData.put("versionableUuid", versionHistory.getVersionableIdentifier());
 
 		Map<String, Object> result = new HashMap<>();

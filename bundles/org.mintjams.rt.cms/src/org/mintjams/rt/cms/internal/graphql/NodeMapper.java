@@ -23,12 +23,12 @@
 package org.mintjams.rt.cms.internal.graphql;
 
 import java.io.IOException;
-import java.text.SimpleDateFormat;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TimeZone;
 
 import javax.jcr.Node;
 import javax.jcr.Property;
@@ -48,12 +48,9 @@ import org.mintjams.rt.cms.internal.web.Webs;
  */
 public class NodeMapper {
 
-	private static final SimpleDateFormat ISO8601_FORMAT = createISO8601Format();
-
-	private static SimpleDateFormat createISO8601Format() {
-		SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-		format.setTimeZone(TimeZone.getTimeZone("UTC"));
-		return format;
+	private static final DateTimeFormatter ISO8601_FORMAT;
+	static {
+		ISO8601_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC);
 	}
 
 	/**
@@ -463,8 +460,6 @@ public class NodeMapper {
 		if (calendar == null) {
 			return null;
 		}
-		synchronized (ISO8601_FORMAT) {
-			return ISO8601_FORMAT.format(calendar.getTime());
-		}
+		return ISO8601_FORMAT.format(calendar.toInstant());
 	}
 }
