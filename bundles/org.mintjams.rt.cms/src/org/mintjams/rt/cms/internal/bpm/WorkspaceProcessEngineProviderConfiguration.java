@@ -49,6 +49,7 @@ import org.camunda.bpm.engine.impl.scripting.engine.VariableScopeResolverFactory
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
 import org.mintjams.rt.cms.internal.util.ResourceLoader;
+import org.mintjams.rt.cms.internal.web.Webs;
 import org.mintjams.tools.collections.AdaptableList;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.lang.Cause;
@@ -167,7 +168,7 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		public ExecutableScript createScriptFromResource(String language, String resource) {
 			if (resource.startsWith("jcr:///")) {
 				try {
-					String scriptSource = ResourceLoader.load(getWorkspaceName(), new URL(resource).getPath());
+					String scriptSource = ResourceLoader.load(getWorkspaceName(), Webs.CONTENT_PATH + new URL(resource).getPath());
 					return createScriptFromSource(language, scriptSource);
 				} catch (Throwable ex) {
 					throw Cause.create(ex).wrap(ProcessEngineException.class);
