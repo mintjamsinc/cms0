@@ -26,6 +26,7 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Writer;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,7 +36,10 @@ import java.util.Map;
 
 import org.camunda.bpm.engine.ProcessEngine;
 import org.camunda.bpm.engine.ProcessEngineConfiguration;
+import org.camunda.bpm.engine.ProcessEngineException;
 import org.camunda.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
+import org.camunda.bpm.engine.impl.scripting.ExecutableScript;
+import org.camunda.bpm.engine.impl.scripting.ScriptFactory;
 import org.camunda.bpm.engine.impl.scripting.engine.BeansResolverFactory;
 import org.camunda.bpm.engine.impl.scripting.engine.DefaultScriptEngineResolver;
 import org.camunda.bpm.engine.impl.scripting.engine.ResolverFactory;
@@ -44,8 +48,10 @@ import org.camunda.bpm.engine.impl.scripting.engine.ScriptingEngines;
 import org.camunda.bpm.engine.impl.scripting.engine.VariableScopeResolverFactory;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
+import org.mintjams.rt.cms.internal.util.ResourceLoader;
 import org.mintjams.tools.collections.AdaptableList;
 import org.mintjams.tools.collections.AdaptableMap;
+import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.osgi.Configuration;
 import org.mintjams.tools.osgi.VariableProvider;
 import org.snakeyaml.engine.v2.api.Dump;
@@ -95,6 +101,8 @@ public class WorkspaceProcessEngineProviderConfiguration {
 				.setJdbcUrl(getJdbcURL())
 				.setScriptingEngines(scriptingEngines)
 				.setJobExecutorActivate(true);
+		config.setJobExecutorAcquireByPriority(true);
+		config.setScriptFactory(new WorkspaceScriptFactory());
 		return config.buildProcessEngine();
 	}
 
@@ -151,6 +159,22 @@ public class WorkspaceProcessEngineProviderConfiguration {
 			}
 
 			return null;
+		}
+	}
+
+	private class WorkspaceScriptFactory extends ScriptFactory {
+		@Override
+		public ExecutableScript createScriptFromResource(String language, String resource) {
+			if (resource.startsWith("jcr:///")) {
+				try {
+					String scriptSource = ResourceLoader.load(getWorkspaceName(), new URL(resource).getPath());
+					return createScriptFromSource(language, scriptSource);
+				} catch (Throwable ex) {
+					throw Cause.create(ex).wrap(ProcessEngineException.class);
+				}
+			}
+
+			return super.createScriptFromResource(language, resource);
 		}
 	}
 
