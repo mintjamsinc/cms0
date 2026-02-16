@@ -115,6 +115,21 @@ public class CmsComponent extends DefaultComponent {
 		}
 
 		/**
+		 * Get parameter value from endpoint parameters or exchange headers
+		 */
+		private String getParameter(Exchange exchange, String key) {
+			// First check endpoint parameters
+			if (fParameters.containsKey(key)) {
+				Object value = fParameters.get(key);
+				return value != null ? value.toString() : null;
+			}
+
+			// Then check exchange headers
+			Object headerValue = exchange.getIn().getHeader(key);
+			return headerValue != null ? headerValue.toString() : null;
+		}
+
+		/**
 		 * Producer for script execution (backward compatibility)
 		 */
 		private class ScriptProducer extends DefaultProducer {
@@ -190,7 +205,14 @@ public class CmsComponent extends DefaultComponent {
 
 		/**
 		 * Producer for storing files to JCR
+		 *
+		 * Sets the stored path in exchange header 'cmsStoredPath'.
+		 *
 		 * URI format: cms:store?path=/content/file.txt&mimeType=application/json&createParents=true
+		 * Parameters:
+		 *   - path: Target file path (required)
+		 *   - mimeType: MIME type (default: application/octet-stream)
+		 *   - createParents: Auto-create parent folders (default: true)
 		 */
 		private class StoreProducer extends DefaultProducer {
 			private StoreProducer() {
@@ -267,15 +289,30 @@ public class CmsComponent extends DefaultComponent {
 
 					session.save();
 
-					// Set result path in exchange header
-					exchange.getIn().setHeader("CmsStoredPath", fileNode.getPath());
+					// Set result path in exchange header (camelCase to match GraphQL conventions)
+					exchange.getIn().setHeader("cmsStoredPath", fileNode.getPath());
 				}
 			}
 		}
 
 		/**
 		 * Producer for setting properties on JCR nodes
+		 *
+		 * Exchange headers starting with the specified prefix are converted to JCR properties.
+		 * For nt:file nodes, properties are set on the jcr:content child node.
+		 *
+		 * Supported types:
+		 *   - Date/Time: Calendar, Date, ZonedDateTime, OffsetDateTime, LocalDateTime, Instant
+		 *   - Numeric: Long, Integer, Double, Float, BigDecimal
+		 *   - Boolean, String
+		 *   - Arrays and Collections (multi-value properties)
+		 *
+		 * Null header values remove the corresponding property.
+		 *
 		 * URI format: cms:setProperties?path=/content/file.txt&headerPrefix=commerce_
+		 * Parameters:
+		 *   - path: Target node path (required)
+		 *   - headerPrefix: Header prefix to filter (default: commerce_)
 		 */
 		private class SetPropertiesProducer extends DefaultProducer {
 			private SetPropertiesProducer() {
@@ -438,7 +475,17 @@ public class CmsComponent extends DefaultComponent {
 
 		/**
 		 * Producer for moving nodes in JCR
+		 *
+		 * Behavior aligns with JCR session.move() API:
+		 * - If destPath is an existing folder: file is moved inside (Unix mv style)
+		 * - If destPath does not exist: treated as full destination path (JCR style)
+		 * - Optional 'name' parameter overrides the destination filename
+		 *
 		 * URI format: cms:move?sourcePath=/content/old&destPath=/content/new
+		 * Examples:
+		 *   destPath=/content/folder (existing) → /content/folder/oldname
+		 *   destPath=/content/newfile → /content/newfile
+		 *   destPath=/content/folder&name=custom → /content/folder/custom
 		 */
 		private class MoveProducer extends DefaultProducer {
 			private MoveProducer() {
@@ -465,57 +512,45 @@ public class CmsComponent extends DefaultComponent {
 					if (!session.nodeExists(sourcePath)) {
 						throw new PathNotFoundException("Source node not found: " + sourcePath);
 					}
-					if (!session.nodeExists(destPath)) {
-						throw new PathNotFoundException("Destination node not found: " + destPath);
-					}
 
 					Node sourceNode = session.getNode(sourcePath);
-					Node destParentNode = session.getNode(destPath);
 
-					// Check if destination is a folder-like node
-					if (!destParentNode.isNodeType("nt:folder") && !destParentNode.isNodeType("nt:unstructured")) {
-						throw new IllegalArgumentException("Destination must be a folder node: " + destPath);
-					}
-
-					// Determine the name to use
-					String nodeName = (newName != null && !newName.trim().isEmpty()) ? newName : sourceNode.getName();
-
-					// Build target path
-					String targetPath;
-					if ("/".equals(destPath)) {
-						targetPath = "/" + nodeName;
+					// Determine final destination path (JCR-compliant with Unix mv convenience)
+					String finalDestPath = destPath;
+					if (session.nodeExists(destPath)) {
+						Node destNode = session.getNode(destPath);
+						// If destination is an existing folder, place the file inside it (Unix mv style)
+						if (destNode.isNodeType("nt:folder") || destNode.isNodeType("nt:unstructured")) {
+							String fileName = (newName != null && !newName.trim().isEmpty())
+							                   ? newName : sourceNode.getName();
+							finalDestPath = destPath.endsWith("/") ? destPath + fileName : destPath + "/" + fileName;
+						}
 					} else {
-						targetPath = destPath + "/" + nodeName;
+						// Destination doesn't exist - treat as full path (JCR standard style)
+						// If newName is specified, replace the last segment
+						if (newName != null && !newName.trim().isEmpty()) {
+							int lastSlash = destPath.lastIndexOf('/');
+							if (lastSlash >= 0) {
+								finalDestPath = destPath.substring(0, lastSlash + 1) + newName;
+							} else {
+								finalDestPath = newName;
+							}
+						}
 					}
 
 					// Check if target path already exists
-					if (session.nodeExists(targetPath)) {
-						throw new IllegalArgumentException("Node already exists at destination: " + targetPath);
+					if (session.nodeExists(finalDestPath)) {
+						throw new IllegalArgumentException("Node already exists at destination: " + finalDestPath);
 					}
 
-					// Move node
-					session.move(sourcePath, targetPath);
+					// Perform JCR standard move
+					session.move(sourcePath, finalDestPath);
 					session.save();
 
-					// Set result path in exchange header
-					exchange.getIn().setHeader("CmsMovedPath", targetPath);
+					// Set result path in exchange header (camelCase to match GraphQL conventions)
+					exchange.getIn().setHeader("cmsMovedPath", finalDestPath);
 				}
 			}
-		}
-
-		/**
-		 * Get parameter value from endpoint parameters or exchange headers
-		 */
-		private String getParameter(Exchange exchange, String key) {
-			// First check endpoint parameters
-			if (fParameters.containsKey(key)) {
-				Object value = fParameters.get(key);
-				return value != null ? value.toString() : null;
-			}
-
-			// Then check exchange headers
-			Object headerValue = exchange.getIn().getHeader(key);
-			return headerValue != null ? headerValue.toString() : null;
 		}
 	}
 }
