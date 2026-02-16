@@ -474,6 +474,20 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public Property getProperty(String relPath) throws PathNotFoundException, RepositoryException {
 		relPath = getWorkspaceQuery().getResolved(relPath);
+
+		// Check if relPath contains node path separator
+		int lastSlash = relPath.lastIndexOf('/');
+		if (lastSlash > 0) {
+			// relPath contains subnode path
+			String nodePath = relPath.substring(0, lastSlash);
+			String propertyName = relPath.substring(lastSlash + 1);
+
+			// Resolve the subnode and get property from it
+			Node targetNode = getNode(nodePath);
+			return targetNode.getProperty(propertyName);
+		}
+
+		// Direct property on current node
 		Map<String, AdaptableMap<String, Object>> properties = getCachedProperties();
 		if (!properties.containsKey(relPath)) {
 			throw new PathNotFoundException(getPath() + "/" + relPath);
