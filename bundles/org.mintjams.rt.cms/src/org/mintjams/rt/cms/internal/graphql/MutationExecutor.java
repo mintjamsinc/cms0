@@ -23,6 +23,7 @@
 package org.mintjams.rt.cms.internal.graphql;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.Base64;
 import java.util.Calendar;
@@ -31,7 +32,6 @@ import java.util.Map;
 import java.util.TimeZone;
 
 import javax.jcr.Node;
-import javax.jcr.PropertyType;
 import javax.jcr.Session;
 import javax.jcr.Value;
 import javax.jcr.lock.LockManager;
@@ -43,6 +43,9 @@ import javax.jcr.security.AccessControlPolicyIterator;
 import javax.jcr.security.Privilege;
 import javax.jcr.version.Version;
 import javax.jcr.version.VersionManager;
+
+import org.mintjams.jcr.JcrPath;
+import org.mintjams.jcr.util.JCRs;
 
 /**
  * Class for executing GraphQL Mutation operations
@@ -63,6 +66,33 @@ public class MutationExecutor {
 	}
 
 	/**
+	 * Ensure parent path exists, creating intermediate folders if necessary
+	 * @param parentPath The path to ensure exists
+	 * @param createParents If true, create missing parent folders
+	 * @throws Exception if createParents is false and parent doesn't exist
+	 */
+	private void ensureParentExists(String parentPath, boolean createParents) throws Exception {
+		JcrPath jcrParentPath = JcrPath.valueOf(parentPath);
+		if (jcrParentPath.isRoot()) {
+			return; // Root always exists
+		}
+
+		if (JCRs.isFolder(JcrPath.valueOf(parentPath), session)) {
+			return; // Already exists
+		}
+		if (JCRs.exists(JcrPath.valueOf(parentPath), session)) {
+			throw new IllegalArgumentException("Parent path exists but is not a folder: " + parentPath);
+		}
+
+		if (!createParents) {
+			throw new IllegalArgumentException("Parent node not found: " + parentPath);
+		}
+
+		// Create parent path recursively
+		JCRs.getOrCreateFolder(JcrPath.valueOf(parentPath), session);
+	}
+
+	/**
 	 * Execute createFolder mutation Example: mutation { createFolder(input: { path:
 	 * "/content", name: "newfolder" }) { path name } }
 	 */
@@ -73,13 +103,18 @@ public class MutationExecutor {
 		String name = (String) input.get("name");
 		String nodeType = input.containsKey("nodeType") ? (String) input.get("nodeType") : "nt:folder";
 
+		// Default createParents to true
+		boolean createParents = true;
+		if (input.containsKey("createParents") && input.get("createParents") instanceof Boolean) {
+			createParents = ((Boolean) input.get("createParents")).booleanValue();
+		}
+
 		if (parentPath == null || name == null) {
 			throw new IllegalArgumentException("path and name are required");
 		}
 
-		if (!session.nodeExists(parentPath)) {
-			throw new IllegalArgumentException("Parent node not found: " + parentPath);
-		}
+		// Ensure parent path exists (create if necessary)
+		ensureParentExists(parentPath, createParents);
 
 		Node parentNode = session.getNode(parentPath);
 		Node folder = parentNode.addNode(name, nodeType);
@@ -113,13 +148,21 @@ public class MutationExecutor {
 		String contentBase64 = (String) input.get("content");
 		String nodeType = input.containsKey("nodeType") ? (String) input.get("nodeType") : "nt:file";
 
-		if (parentPath == null || name == null || mimeType == null || contentBase64 == null) {
-			throw new IllegalArgumentException("path, name, mimeType, and content are required");
+		// Default createParents to true
+		boolean createParents = true;
+		if (input.containsKey("createParents") && input.get("createParents") instanceof Boolean) {
+			createParents = ((Boolean) input.get("createParents")).booleanValue();
 		}
 
-		if (!session.nodeExists(parentPath)) {
-			throw new IllegalArgumentException("Parent node not found: " + parentPath);
+		if (parentPath == null || name == null || contentBase64 == null) {
+			throw new IllegalArgumentException("path, name, mimeType, and content are required");
 		}
+		if (mimeType == null || mimeType.trim().isEmpty()) {
+			mimeType = "application/octet-stream"; // Default MIME type
+		}
+
+		// Ensure parent path exists (create if necessary)
+		ensureParentExists(parentPath, createParents);
 
 		Node parentNode = session.getNode(parentPath);
 
@@ -140,7 +183,9 @@ public class MutationExecutor {
 
 		// jcr:data, jcr:mimeType, jcr:lastModified, jcr:lastModifiedBy belong to
 		// jcr:content
-		contentNode.setProperty("jcr:data", session.getValueFactory().createBinary(new ByteArrayInputStream(data)));
+		try (InputStream in = new ByteArrayInputStream(data)) {
+			JCRs.write(fileNode, in);
+		}
 		contentNode.setProperty("jcr:mimeType", mimeType);
 		contentNode.setProperty("jcr:lastModified", now);
 		contentNode.setProperty("jcr:lastModifiedBy", session.getUserID());
@@ -1098,6 +1143,68 @@ public class MutationExecutor {
 	}
 
 	/**
+	 * Execute moveNode mutation
+	 * Moves a node to a different parent directory
+	 * Example: mutation { moveNode(input: { sourcePath: "/content/file.txt", destPath: "/content/archive" }) { path name } }
+	 * Example with rename: mutation { moveNode(input: { sourcePath: "/content/file.txt", destPath: "/content/archive", name: "newname.txt" }) { path name } }
+	 */
+	public Map<String, Object> executeMoveNode(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String sourcePath = (String) input.get("sourcePath");
+		String destPath = (String) input.get("destPath");
+		String newName = (String) input.get("name"); // Optional: rename during move
+
+		if (sourcePath == null || destPath == null) {
+			throw new IllegalArgumentException("sourcePath and destPath are required");
+		}
+
+		if (!this.session.nodeExists(sourcePath)) {
+			throw new IllegalArgumentException("Source node not found: " + sourcePath);
+		}
+
+		if (!this.session.nodeExists(destPath)) {
+			throw new IllegalArgumentException("Destination parent node not found: " + destPath);
+		}
+
+		Node sourceNode = this.session.getNode(sourcePath);
+		Node destParentNode = this.session.getNode(destPath);
+
+		// Check if destination is a folder-like node
+		if (!destParentNode.isNodeType("nt:folder") && !destParentNode.isNodeType("nt:unstructured")) {
+			throw new IllegalArgumentException("Destination must be a folder node: " + destPath);
+		}
+
+		// Determine the name to use
+		String nodeName = (newName != null && !newName.trim().isEmpty()) ? newName : sourceNode.getName();
+
+		// Build target path
+		String targetPath;
+		if ("/".equals(destPath)) {
+			targetPath = "/" + nodeName;
+		} else {
+			targetPath = destPath + "/" + nodeName;
+		}
+
+		// Check if target path already exists
+		if (this.session.nodeExists(targetPath)) {
+			throw new IllegalArgumentException("Node already exists at destination: " + targetPath);
+		}
+
+		// Move node
+		this.session.move(sourcePath, targetPath);
+		this.session.save();
+
+		// Get moved node
+		Node movedNode = this.session.getNode(targetPath);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("moveNode", NodeMapper.toGraphQL(movedNode));
+
+		return result;
+	}
+
+	/**
 	 * Execute restoreVersion mutation
 	 * Restores a node to a specific version
 	 * Example: mutation { restoreVersion(input: { path: "/content/page1", versionName: "1.0" }) }
@@ -1146,39 +1253,39 @@ public class MutationExecutor {
 		return result;
 	}
 
-	/**
-	 * Convert type string to JCR PropertyType constant
-	 */
-	private int getPropertyType(String type) {
-		switch (type.toUpperCase()) {
-		case "STRING":
-			return PropertyType.STRING;
-		case "BINARY":
-			return PropertyType.BINARY;
-		case "LONG":
-			return PropertyType.LONG;
-		case "DOUBLE":
-			return PropertyType.DOUBLE;
-		case "DECIMAL":
-			return PropertyType.DECIMAL;
-		case "DATE":
-			return PropertyType.DATE;
-		case "BOOLEAN":
-			return PropertyType.BOOLEAN;
-		case "NAME":
-			return PropertyType.NAME;
-		case "PATH":
-			return PropertyType.PATH;
-		case "REFERENCE":
-			return PropertyType.REFERENCE;
-		case "WEAKREFERENCE":
-			return PropertyType.WEAKREFERENCE;
-		case "URI":
-			return PropertyType.URI;
-		default:
-			return PropertyType.STRING;
-		}
-	}
+//	/**
+//	 * Convert type string to JCR PropertyType constant
+//	 */
+//	private int getPropertyType(String type) {
+//		switch (type.toUpperCase()) {
+//		case "STRING":
+//			return PropertyType.STRING;
+//		case "BINARY":
+//			return PropertyType.BINARY;
+//		case "LONG":
+//			return PropertyType.LONG;
+//		case "DOUBLE":
+//			return PropertyType.DOUBLE;
+//		case "DECIMAL":
+//			return PropertyType.DECIMAL;
+//		case "DATE":
+//			return PropertyType.DATE;
+//		case "BOOLEAN":
+//			return PropertyType.BOOLEAN;
+//		case "NAME":
+//			return PropertyType.NAME;
+//		case "PATH":
+//			return PropertyType.PATH;
+//		case "REFERENCE":
+//			return PropertyType.REFERENCE;
+//		case "WEAKREFERENCE":
+//			return PropertyType.WEAKREFERENCE;
+//		case "URI":
+//			return PropertyType.URI;
+//		default:
+//			return PropertyType.STRING;
+//		}
+//	}
 
 	/**
 	 * Extract input parameter (simple implementation)
@@ -1489,28 +1596,28 @@ public class MutationExecutor {
 		return result;
 	}
 
-	/**
-	 * Extract path (simple implementation)
-	 */
-	private String extractPathFromMutation(String query) {
-		// Extract path from pattern like deleteNode(path: "/content/page1")
-		int start = query.indexOf("path:");
-		if (start == -1) {
-			return null;
-		}
-
-		start = query.indexOf("\"", start);
-		if (start == -1) {
-			return null;
-		}
-
-		int end = query.indexOf("\"", start + 1);
-		if (end == -1) {
-			return null;
-		}
-
-		return query.substring(start + 1, end);
-	}
+//	/**
+//	 * Extract path (simple implementation)
+//	 */
+//	private String extractPathFromMutation(String query) {
+//		// Extract path from pattern like deleteNode(path: "/content/page1")
+//		int start = query.indexOf("path:");
+//		if (start == -1) {
+//			return null;
+//		}
+//
+//		start = query.indexOf("\"", start);
+//		if (start == -1) {
+//			return null;
+//		}
+//
+//		int end = query.indexOf("\"", start + 1);
+//		if (end == -1) {
+//			return null;
+//		}
+//
+//		return query.substring(start + 1, end);
+//	}
 
 	// =============================================================================
 	// Multipart Upload Mutations

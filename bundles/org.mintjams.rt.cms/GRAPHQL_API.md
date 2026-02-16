@@ -264,8 +264,9 @@ JCR XPath を実行します。
 | `path` | String | ○ | - | 親ノード |
 | `name` | String | ○ | - | 作成するノード名 |
 | `nodeType` | String |   | `nt:folder` | 必要に応じて上書き |
+| `createParents` | Boolean |   | `true` | 親パスが存在しない場合、自動的に作成するか |
 
-返り値: `createFolder` (作成済みノード)。
+返り値: `createFolder` (作成済みノード)。`createParents`が`true`（デフォルト）の場合、親パスが存在しなければ中間フォルダーも自動的に作成されます。
 
 ### createFile
 
@@ -273,11 +274,13 @@ JCR XPath を実行します。
 | --- | --- | --- | --- | --- |
 | `path` | String | ○ | - | 親ノード |
 | `name` | String | ○ | - | ファイル名 |
-| `mimeType` | String | ○ | - | `jcr:content/jcr:mimeType` |
+| `mimeType` | String |   | `application/octet-stream` | `jcr:content/jcr:mimeType` |
 | `content` | String | ○ | - | Base64 データ |
 | `nodeType` | String |   | `nt:file` | カスタムタイプを使う場合に指定 |
+| `createParents` | Boolean |   | `true` | 親パスが存在しない場合、自動的に作成するか |
 
 `jcr:content (nt:resource)` を自動生成し、`jcr:lastModified`/`jcr:lastModifiedBy` を現在のセッションで設定します。返り値: `createFile`.
+`mimeType` を指定した場合は `jcr:content/jcr:mimeType` にセットされます。省略時は `application/octet-stream` がデフォルト値として使用されます。カスタムノードタイプを指定した場合は、`jcr:content` の構造が異なる可能性があるため、`mimeType` は無視されます。`createParents`が`true`（デフォルト）の場合、親パスが存在しなければ中間フォルダーも自動的に作成されます。
 
 ### deleteNode
 
@@ -303,6 +306,40 @@ JCR XPath を実行します。
 ```graphql
 mutation {
   renameNode(input: { path: "/content/oldname", name: "newname" }) {
+    path
+    name
+  }
+}
+```
+
+### moveNode
+
+ノードを別の親ディレクトリに移動します。オプションで移動時に名前を変更することもできます。
+
+| 入力 | 型 | 必須 | 説明 |
+| --- | --- | --- | --- |
+| `sourcePath` | String | ○ | 移動元のノードパス |
+| `destPath` | String | ○ | 移動先の親ノードパス |
+| `name` | String |   | 移動先での新しい名前（省略時は元の名前を保持） |
+
+返り値: `moveNode` (移動後のノード情報)。新しいパスでノードを取得できます。
+
+例:
+
+```graphql
+mutation {
+  moveNode(input: { sourcePath: "/content/file.txt", destPath: "/content/archive" }) {
+    path
+    name
+  }
+}
+```
+
+移動と同時に名前変更:
+
+```graphql
+mutation {
+  moveNode(input: { sourcePath: "/content/file.txt", destPath: "/content/archive", name: "archived-file.txt" }) {
     path
     name
   }
