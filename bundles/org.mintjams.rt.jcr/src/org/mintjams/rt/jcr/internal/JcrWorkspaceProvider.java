@@ -259,7 +259,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				} catch (PathNotFoundException pathNotFound) {
 					try {
 						if (!path.isRoot()) {
-							JCRs.mkdirs(path.getParent(), workspace.getSession());
+							JCRs.getOrCreateFolder(path.getParent(), workspace.getSession());
 						}
 						workspaceQuery.items().createNode(definition);
 						workspaceQuery.commit();

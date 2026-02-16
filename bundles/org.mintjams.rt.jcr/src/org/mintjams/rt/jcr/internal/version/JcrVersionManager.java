@@ -526,7 +526,7 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			}
 
 			JcrPath versionHistoryPath = workspaceQuery.items().getVersionHistoryPath(item.getIdentifier());
-			JCRs.mkdirs(versionHistoryPath.getParent(), workspace.getSession());
+			JCRs.createNodes(versionHistoryPath.getParent(), workspace.getSession());
 			AdaptableMap<String, Object> versionHistoryData = workspaceQuery.items().createNode(versionHistoryPath.toString(), NodeType.NT_VERSION_HISTORY);
 			workspaceQuery.items().setProperty(versionHistoryData.getString("item_id"), JcrProperty.JCR_VERSIONABLE_UUID, PropertyType.STRING, workspaceQuery.createValue(PropertyType.STRING, item.getIdentifier()));
 

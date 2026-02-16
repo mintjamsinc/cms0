@@ -232,6 +232,10 @@ public class JCRs {
 	}
 
 	public static Node createFolder(Node parentNode, String childName) throws RepositoryException {
+		if (!isFolder(parentNode)) {
+			throw new IllegalArgumentException("The specified parent node is not a folder.");
+		}
+
 		return parentNode.addNode(childName, NodeType.NT_FOLDER);
 	}
 
@@ -255,10 +259,19 @@ public class JCRs {
 		}
 	}
 
+	public static boolean exists(JcrPath path, Session session) throws RepositoryException {
+		try {
+			session.getNode(path.toString());
+			return true;
+		} catch (PathNotFoundException ignore) {
+			return false;
+		}
+	}
+
 	public static Node getOrCreateFolder(Node parentNode, String childName) throws RepositoryException {
 		try {
 			Node childNode = parentNode.getNode(childName);
-			if (!childNode.isNodeType(NodeType.NT_FOLDER)) {
+			if (!isFolder(childNode)) {
 				throw new ItemExistsException("A node with the same name that is not a folder already exists: " + childNode.getPath());
 			}
 			return childNode;
@@ -267,8 +280,26 @@ public class JCRs {
 		}
 	}
 
+	public static Node getOrCreateFolder(JcrPath path, Session session) throws RepositoryException {
+		if (path.isRoot()) {
+			return session.getRootNode();
+		}
+
+		try {
+			Node node = session.getNode(path.toString());
+			if (!isFolder(node)) {
+				throw new ItemExistsException("A node with the same name that is not a folder already exists: " + node.getPath());
+			}
+			return node;
+		} catch (PathNotFoundException ignore) {}
+
+		Node parentNode = getOrCreateFolder(path.getParent(), session);
+
+		return createFolder(parentNode, path.getName().toString());
+	}
+
 	public static InputStream getContentAsStream(Node node) throws RepositoryException, IOException {
-		if (node.isNodeType(NodeType.NT_FILE)) {
+		if (isFile(node)) {
 			Node contentNode = getContentNode(node);
 			return new BufferedInputStream(((org.mintjams.jcr.Binary) contentNode.getProperty(Property.JCR_DATA).getBinary()).getStream());
 		}
@@ -286,7 +317,7 @@ public class JCRs {
 	}
 
 	public static Reader getContentAsReader(Node node) throws RepositoryException, IOException {
-		if (node.isNodeType(NodeType.NT_FILE)) {
+		if (isFile(node)) {
 			Node contentNode = getContentNode(node);
 			String encoding = Strings.defaultIfEmpty(getEncoding(node), StandardCharsets.UTF_8.name());
 			return new BufferedReader(new InputStreamReader(((org.mintjams.jcr.Binary) contentNode.getProperty(Property.JCR_DATA).getBinary()).getStream(), encoding));
@@ -321,8 +352,34 @@ public class JCRs {
 		return node.isNodeType(NodeType.NT_FOLDER) || node.getDepth() == 0;
 	}
 
+	public static boolean isFolder(JcrPath path, Session session) throws RepositoryException {
+		if (path.isRoot()) {
+			return true;
+		}
+
+		try {
+			Node node = session.getNode(path.toString());
+			return isFolder(node);
+		} catch (PathNotFoundException ignore) {
+			return false;
+		}
+	}
+
 	public static boolean isFile(Node node) throws RepositoryException {
 		return node.isNodeType(NodeType.NT_FILE);
+	}
+
+	public static boolean isFile(JcrPath path, Session session) throws RepositoryException {
+		if (path.isRoot()) {
+			return false;
+		}
+
+		try {
+			Node node = session.getNode(path.toString());
+			return isFile(node);
+		} catch (PathNotFoundException ignore) {
+			return false;
+		}
 	}
 
 	public static boolean isVersionHistory(Node node) throws RepositoryException {
@@ -723,7 +780,7 @@ public class JCRs {
 		}
 	}
 
-	public static Node mkdirs(JcrPath path, Session session) throws RepositoryException {
+	public static Node createNodes(JcrPath path, Session session) throws RepositoryException {
 		if (path.isRoot()) {
 			return session.getRootNode();
 		}
@@ -736,7 +793,7 @@ public class JCRs {
 		try {
 			parent = session.getNode(path.getParent().toString());
 		} catch (PathNotFoundException pathNotFound) {
-			parent = mkdirs(path.getParent(), session);
+			parent = createNodes(path.getParent(), session);
 		}
 
 		return parent.addNode(path.getName().toString());
