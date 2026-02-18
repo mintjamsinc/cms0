@@ -247,7 +247,7 @@ public class QueryExecutor {
 
 		// Build pageInfo
 		Map<String, Object> pageInfo = new HashMap<>();
-		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasNextPage", iterator.hasNext());
 		pageInfo.put("hasPreviousPage", startPosition > 0);
 
 		if (!edges.isEmpty()) {
@@ -459,8 +459,10 @@ public class QueryExecutor {
 		}
 
 		// Build pageInfo
+		// Check remaining items across both iterators (only for the range we iterated)
+		boolean hasNextPage = (startPosition < refCount && refProps.hasNext()) || weakRefProps.hasNext();
 		Map<String, Object> pageInfo = new HashMap<>();
-		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasNextPage", hasNextPage);
 		pageInfo.put("hasPreviousPage", startPosition > 0);
 
 		if (!edges.isEmpty()) {
@@ -821,7 +823,7 @@ public class QueryExecutor {
 
 		// Build pageInfo
 		Map<String, Object> pageInfo = new HashMap<>();
-		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasNextPage", nodeIterator.hasNext());
 		pageInfo.put("hasPreviousPage", startPosition > 0);
 
 		if (!edges.isEmpty()) {
@@ -992,7 +994,7 @@ public class QueryExecutor {
 
 		// Build pageInfo
 		Map<String, Object> pageInfo = new HashMap<>();
-		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasNextPage", rowIterator.hasNext());
 		pageInfo.put("hasPreviousPage", startPosition > 0);
 
 		if (!edges.isEmpty()) {
@@ -1107,7 +1109,7 @@ public class QueryExecutor {
 
 		// Build pageInfo
 		Map<String, Object> pageInfo = new HashMap<>();
-		pageInfo.put("hasNextPage", currentPosition < totalCount);
+		pageInfo.put("hasNextPage", nodeIterator.hasNext());
 		pageInfo.put("hasPreviousPage", startPosition > 0);
 
 		if (!edges.isEmpty()) {
