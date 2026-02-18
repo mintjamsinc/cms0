@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
+	<classpathentry exported="true" kind="lib" path="lib/accessors-smart-2.4.11.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/json-path-2.7.0.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/json-smart-2.4.11.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-jsonpath-3.17.0.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/annotations-13.0.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-api-3.17.0.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-attachments-3.17.0.jar"/>
