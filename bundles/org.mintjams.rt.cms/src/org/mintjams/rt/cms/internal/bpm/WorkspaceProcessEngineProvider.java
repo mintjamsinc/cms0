@@ -178,7 +178,11 @@ public class WorkspaceProcessEngineProvider implements Closeable {
 				for (String e : fPaths) {
 					try {
 						deploy(session.getNode(e));
-					} catch (PathNotFoundException ignore) {}
+					} catch (PathNotFoundException ignore) {
+						// Ignore if the path does not exist
+					} catch (Throwable ex) {
+						CmsService.getLogger(getClass()).error("Failed to deploy items under " + e, ex);
+					}
 				}
 			} finally {
 				try {
