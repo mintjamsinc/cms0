@@ -355,7 +355,9 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 
 							undeploy(path, event);
 						}
-					} catch (Throwable ex) {}
+					} catch (Throwable ex) {
+						CmsService.getLogger(getClass()).error("An error occurred while processing the event: " + event, ex);
+					}
 				}
 			}
 
