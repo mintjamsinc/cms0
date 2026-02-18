@@ -28,6 +28,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
@@ -59,7 +61,8 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 
 	private final WorkspaceIntegrationEngineProviderConfiguration fConfig;
 	private final Closer fCloser = Closer.create();
-	private final Map<String, CamelContext> fDeployments = new HashMap<>();
+	private final Map<String, List<String>> fDeployments = new HashMap<>();
+	private WorkspaceCamelContext fCamelContext;
 
 	public WorkspaceIntegrationEngineProvider(String workspaceName) {
 		fConfig = new WorkspaceIntegrationEngineProviderConfiguration(workspaceName);
@@ -67,6 +70,17 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 
 	public synchronized void open() throws IOException, RepositoryException {
 		fConfig.load();
+
+		fCamelContext = new WorkspaceCamelContext(fConfig);
+		fCloser.register(new Closeable() {
+			@Override
+			public void close() throws IOException {
+				try {
+					fCamelContext.close();
+				} catch (Throwable ignore) {}
+			}
+		});
+		fCamelContext.start();
 
 		Deployer deployer = fCloser.register(new Deployer());
 		deployer.open();
@@ -81,8 +95,14 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		return fConfig.getWorkspaceName();
 	}
 
-	public CamelContext createCamelContext() {
-		return new WorkspaceCamelContext(fConfig);
+	public CamelContext getCamelContext() {
+		return fCamelContext;
+	}
+
+	public Map<String, List<String>> getDeployments() {
+		synchronized (fDeployments) {
+			return new HashMap<>(fDeployments);
+		}
 	}
 
 	private RoutesBuilderLoader getRoutesBuilderLoader(Node item) throws RepositoryException {
@@ -128,28 +148,37 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 			synchronized (fDeployments) {
 				String itemPath = item.getPath();
 				try (RoutesBuilderLoader loader = getRoutesBuilderLoader(item)) {
-					CamelContext deployment = new WorkspaceCamelContext(fConfig);
-					try {
-						loader.setCamelContext(deployment);
-						loader.build();
-						loader.loadRoutesBuilder(new CamelResource(item)).addRoutesToCamelContext(deployment);
-						deployment.start();
-						CamelContext old = fDeployments.put(itemPath, deployment);
-						if (old != null) {
+					// Snapshot of current route IDs before loading
+					Set<String> routeIdsBefore = fCamelContext.getRoutes().stream()
+							.map(route -> route.getRouteId())
+							.collect(Collectors.toSet());
+
+					// Stop and remove previously deployed routes for this path
+					List<String> previousRouteIds = fDeployments.get(itemPath);
+					if (previousRouteIds != null) {
+						for (String routeId : previousRouteIds) {
 							try {
-								old.close();
+								fCamelContext.getRouteController().stopRoute(routeId);
+								fCamelContext.removeRoute(routeId);
 							} catch (Throwable ex) {
-								CmsService.getLogger(getClass()).error("An error occurred while closing the context: " + itemPath, ex);
+								CmsService.getLogger(getClass()).warn("Failed to remove route: " + routeId, ex);
 							}
 						}
-					} catch (Throwable cause) {
-						try {
-							deployment.close();
-						} catch (Throwable ex) {
-							CmsService.getLogger(getClass()).error("An error occurred while closing the context: " + itemPath, ex);
-						}
-						throw Cause.create(cause).wrap(IOException.class);
 					}
+
+					// Load and add new routes
+					loader.setCamelContext(fCamelContext);
+					loader.build();
+					loader.loadRoutesBuilder(new CamelResource(item)).addRoutesToCamelContext(fCamelContext);
+
+					// Track newly added route IDs (post-snapshot minus pre-snapshot)
+					List<String> newRouteIds = fCamelContext.getRoutes().stream()
+							.map(route -> route.getRouteId())
+							.filter(id -> !routeIdsBefore.contains(id))
+							.collect(Collectors.toList());
+					fDeployments.put(itemPath, newRouteIds);
+				} catch (Throwable cause) {
+					throw Cause.create(cause).wrap(IOException.class);
 				}
 
 				CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/DEPLOYED", AdaptableMap.<String, Object>newBuilder()
@@ -175,12 +204,15 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 
 		if (nodeType.equals(NodeType.NT_FILE_NAME)) {
 			synchronized (fDeployments) {
-				CamelContext old = fDeployments.remove(itemPath);
-				if (old != null) {
-					try {
-						old.close();
-					} catch (Throwable ex) {
-						CmsService.getLogger(getClass()).error("An error occurred while closing the context: " + itemPath, ex);
+				List<String> routeIds = fDeployments.remove(itemPath);
+				if (routeIds != null) {
+					for (String routeId : routeIds) {
+						try {
+							fCamelContext.stopRoute(routeId);
+							fCamelContext.removeRoute(routeId);
+						} catch (Throwable ex) {
+							CmsService.getLogger(getClass()).error("An error occurred while removing route: " + routeId, ex);
+						}
 					}
 
 					CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/UNDEPLOYED", AdaptableMap.<String, Object>newBuilder()
@@ -197,12 +229,15 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 			synchronized (fDeployments) {
 				for (String path : fDeployments.keySet().toArray(String[]::new)) {
 					if (path.startsWith(itemPath + "/")) {
-						CamelContext old = fDeployments.remove(path);
-						if (old != null) {
-							try {
-								old.close();
-							} catch (Throwable ex) {
-								CmsService.getLogger(getClass()).error("An error occurred while closing the context: " + path, ex);
+						List<String> routeIds = fDeployments.remove(path);
+						if (routeIds != null) {
+							for (String routeId : routeIds) {
+								try {
+									fCamelContext.getRouteController().stopRoute(routeId);
+									fCamelContext.removeRoute(routeId);
+								} catch (Throwable ex) {
+									CmsService.getLogger(getClass()).error("An error occurred while removing route: " + routeId, ex);
+								}
 							}
 
 							CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/UNDEPLOYED", AdaptableMap.<String, Object>newBuilder()

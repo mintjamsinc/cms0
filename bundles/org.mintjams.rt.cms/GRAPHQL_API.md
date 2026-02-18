@@ -253,6 +253,64 @@ JCR XPath を実行します。
 }
 ```
 
+### camelContext
+
+引数なし。現在のワークスペースにデプロイされているすべての Apache Camel コンテキストとルートの状態を返します。
+
+返り値: `camelContext` (オブジェクトの配列)
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `name` | String | CamelContext の名前 |
+| `state` | String | コンテキストの状態 (`Started`, `Stopped`, `Starting`, `Stopping`, `Suspended`) |
+| `sourceFile` | String | ルートが定義された JCR ノードのパス |
+| `routes[]` | Array | ルートの一覧 |
+| `routes[].id` | String | ルート ID |
+| `routes[].status` | String | ルートの状態 (`Started`, `Stopped` 等) |
+| `routes[].exchangesTotal` | Long | 処理済みの Exchange 総数 (JMX 無効時は `0`) |
+
+例:
+
+```graphql
+query CheckCamelStatus {
+  camelContext {
+    name
+    state
+    sourceFile
+    routes {
+      id
+      status
+      exchangesTotal
+    }
+  }
+}
+```
+
+レスポンス例:
+
+```json
+{
+  "data": {
+    "camelContext": [
+      {
+        "name": "camel-1",
+        "state": "Started",
+        "sourceFile": "/etc/eip/routes/my-route.yaml",
+        "routes": [
+          {
+            "id": "my-route",
+            "status": "Started",
+            "exchangesTotal": 42
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+ルートが一つもデプロイされていない場合は空配列 `[]` が返ります。
+
 ## Mutation オペレーション
 
 ミューテーションは `mutation { ... }` で 1 フィールドずつ呼び出してください。`MutationExecutor` は `variables.input` もしくはクエリ文字列内の `input: { ... }` を解析します。

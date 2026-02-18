@@ -43,27 +43,26 @@ public class Reply implements Adaptable {
 
 	protected Reply(MessageSender messageSender) throws Exception {
 		fMessageSender = messageSender;
-		try (CamelContext camelContext = CmsService
+		CamelContext camelContext = CmsService
 				.getWorkspaceIntegrationEngineProvider(adaptTo(WorkspaceScriptContext.class).getWorkspaceName())
-				.createCamelContext()) {
-			Exchange exchange = new DefaultExchange(camelContext);
-			exchange.getIn().setBody(fMessageSender.getBody());
-			if (fMessageSender.getHeaders() != null) {
-				for (Entry<String, Object> e : fMessageSender.getHeaders().entrySet()) {
-					exchange.getIn().setHeader(e.getKey(), e.getValue());
-				}
+				.getCamelContext();
+		Exchange exchange = new DefaultExchange(camelContext);
+		exchange.getIn().setBody(fMessageSender.getBody());
+		if (fMessageSender.getHeaders() != null) {
+			for (Entry<String, Object> e : fMessageSender.getHeaders().entrySet()) {
+				exchange.getIn().setHeader(e.getKey(), e.getValue());
 			}
-			if (fMessageSender.getProperties() != null) {
-				for (Entry<String, Object> e : fMessageSender.getProperties().entrySet()) {
-					exchange.setProperty(e.getKey(), e.getValue());
-				}
-			}
-			exchange.setPattern(ExchangePattern.InOut);
-			Exchange reply = camelContext.createProducerTemplate().send(fMessageSender.getEndpointURI(), exchange);
-			fBody = reply.getMessage().getBody();
-			fHeaders = reply.getMessage().getHeaders();
-			fProperties = reply.getProperties();
 		}
+		if (fMessageSender.getProperties() != null) {
+			for (Entry<String, Object> e : fMessageSender.getProperties().entrySet()) {
+				exchange.setProperty(e.getKey(), e.getValue());
+			}
+		}
+		exchange.setPattern(ExchangePattern.InOut);
+		Exchange reply = camelContext.createProducerTemplate().send(fMessageSender.getEndpointURI(), exchange);
+		fBody = reply.getMessage().getBody();
+		fHeaders = reply.getMessage().getHeaders();
+		fProperties = reply.getProperties();
 	}
 
 	public Object getBody() {

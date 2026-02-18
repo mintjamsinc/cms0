@@ -34,11 +34,13 @@ public class GraphQLExecutor {
 	private final Session session;
 	private final QueryExecutor queryExecutor;
 	private final MutationExecutor mutationExecutor;
+	private final CamelQueryExecutor camelQueryExecutor;
 
 	public GraphQLExecutor(Session session) {
 		this.session = session;
 		this.queryExecutor = new QueryExecutor(session);
 		this.mutationExecutor = new MutationExecutor(session);
+		this.camelQueryExecutor = new CamelQueryExecutor(session);
 	}
 
 	/**
@@ -99,6 +101,8 @@ public class GraphQLExecutor {
 				response.setData(queryExecutor.executeSearchQuery(request));
 			} else if (query.contains("query(") && query.contains("statement:")) {
 				response.setData(queryExecutor.executeGenericQuery(request));
+			} else if (query.contains("camelContext")) {
+				response.setData(camelQueryExecutor.executeCamelContextQuery(request));
 			} else {
 				response.addError("Unknown query operation");
 			}
