@@ -58,6 +58,7 @@ import org.apache.camel.support.DefaultEndpoint;
 import org.apache.camel.support.DefaultProducer;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
@@ -80,7 +81,7 @@ public class CmsComponent extends DefaultComponent {
 		String operation = remaining;
 
 		CmsEndpoint endpoint = new CmsEndpoint(uri, operation, parameters);
-		setProperties(endpoint, parameters);
+		parameters.clear(); // All parameters are consumed internally by CmsEndpoint
 		return endpoint;
 	}
 
@@ -294,6 +295,9 @@ public class CmsComponent extends DefaultComponent {
 
 					// Set result path in exchange header (camelCase to match GraphQL conventions)
 					exchange.getIn().setHeader("cmsStoredPath", fileNode.getPath());
+				} catch (Exception e) {
+					CmsService.getLogger(getClass()).error("Failed to store file to JCR: " + e.getMessage(), e);
+					throw e;
 				}
 			}
 		}
