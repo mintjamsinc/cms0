@@ -289,11 +289,19 @@ public class CmsService {
 
 		WorkspaceProcessEngineProvider processEngineProvider = fCloser.register(new WorkspaceProcessEngineProvider(workspaceName));
 		fWorkspaceProcessEngineProviders.put(workspaceName, processEngineProvider);
-		processEngineProvider.open();
+		try {
+			processEngineProvider.open();
+		} catch (Throwable ex) {
+			fLoggerFactory.getLogger(getClass()).error("An error occurred while starting the workspace process engine: " + workspaceName, ex);
+		}
 
 		WorkspaceIntegrationEngineProvider integrationEngineProvider = fCloser.register(new WorkspaceIntegrationEngineProvider(workspaceName));
 		fWorkspaceIntegrationEngineProviders.put(workspaceName, integrationEngineProvider);
-		integrationEngineProvider.open();
+		try {
+			integrationEngineProvider.open();
+		} catch (Throwable ex) {
+			fLoggerFactory.getLogger(getClass()).error("An error occurred while starting the workspace integration engine: " + workspaceName, ex);
+		}
 
 		WorkspaceWebServletProvider servletProvider = fCloser.register(new WorkspaceWebServletProvider(workspaceName));
 		fWorkspaceServletProviders.put(workspaceName, servletProvider);
