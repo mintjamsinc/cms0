@@ -63,6 +63,7 @@ import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.rt.cms.internal.security.UserServiceCredentials;
 import org.mintjams.rt.cms.internal.web.WebResourceResolver;
 
 public class CmsComponent extends DefaultComponent {
@@ -150,7 +151,10 @@ public class CmsComponent extends DefaultComponent {
 
 			private Object evaluate(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					context.setCredentials(new CmsServiceCredentials()); // TODO: Use actual credentials if needed
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
 					context.setAttribute("exchange", exchange);
 					Scripts.prepareAPIs(context);
 
@@ -225,7 +229,10 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					context.setCredentials(new CmsServiceCredentials()); // TODO: Use actual credentials if needed
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
 					Session session = Scripts.getJcrSession(context);
 
 					// Get parameters from endpoint parameters or exchange headers
@@ -329,7 +336,10 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					context.setCredentials(new CmsServiceCredentials()); // TODO: Use actual credentials if needed
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
 					Session session = Scripts.getJcrSession(context);
 					ValueFactory vf = session.getValueFactory();
 
@@ -503,7 +513,10 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					context.setCredentials(new CmsServiceCredentials()); // TODO: Use actual credentials if needed
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
 					Session session = Scripts.getJcrSession(context);
 
 					// Get parameters from endpoint parameters or exchange headers
