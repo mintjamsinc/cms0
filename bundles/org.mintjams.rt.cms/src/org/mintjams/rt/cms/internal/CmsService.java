@@ -59,6 +59,7 @@ import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider;
 import org.mintjams.rt.cms.internal.security.FelixWebConsoleSecurityProvider;
 import org.mintjams.rt.cms.internal.security.ServiceAccountPrincipalProvider;
+import org.mintjams.rt.cms.internal.security.UserServiceAuthenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Authenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2ServiceProvider;
@@ -198,16 +199,23 @@ public class CmsService {
 				.setBundleContext(CmsService.getDefault().getBundleContext())
 				.build());
 
+		// The default principal provider
 		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
 				.setService(new DefaultPrincipalProvider())
 				.setBundleContext(CmsService.getDefault().getBundleContext())
 				.build());
 
+		// The user service authenticator and principal provider
+		fCloser.register(Registration.newBuilder(JcrAuthenticator.class)
+				.setService(new UserServiceAuthenticator())
+				.setBundleContext(CmsService.getDefault().getBundleContext())
+				.build());
 		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
 				.setService(new ServiceAccountPrincipalProvider())
 				.setBundleContext(CmsService.getDefault().getBundleContext())
 				.build());
 
+		// The SAML2 authenticator and principal provider
 		Saml2ServiceProvider saml2ServiceProvider = new Saml2ServiceProvider();
 		fCloser.register(saml2ServiceProvider).open();
 		fCloser.register(Registration.newBuilder(JcrAuthenticator.class)

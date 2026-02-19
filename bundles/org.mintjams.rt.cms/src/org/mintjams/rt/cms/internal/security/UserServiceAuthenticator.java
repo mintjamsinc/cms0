@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -22,46 +22,39 @@
 
 package org.mintjams.rt.cms.internal.security;
 
-import org.mintjams.jcr.security.ServiceCredentials;
+import javax.jcr.Credentials;
+import javax.security.auth.login.LoginException;
 
-public class CmsServiceCredentials implements ServiceCredentials {
+import org.mintjams.jcr.security.UserPrincipal;
+import org.mintjams.jcr.spi.security.JcrAuthenticator;
 
-	private static final long serialVersionUID = 1L;
+public class UserServiceAuthenticator implements JcrAuthenticator {
 
-	private static final String INTERNAL_NAME = "internal";
-
-	private final String fName;
-
-	public CmsServiceCredentials() {
-		this(INTERNAL_NAME);
-	}
-
-	public CmsServiceCredentials(String name) {
-		fName = name;
+	@Override
+	public boolean canAuthenticate(Credentials credentials) {
+		return (credentials instanceof UserServiceCredentials);
 	}
 
 	@Override
-	public String getUserID() {
-		return fName;
+	public Result authenticate(Credentials credentials) throws LoginException {
+		if (!canAuthenticate(credentials)) {
+			throw new LoginException("The specified credential is not a user service credential.");
+		}
+
+		return new ResultImpl((UserServiceCredentials) credentials);
 	}
 
-	@Override
-	public int hashCode() {
-		return (CmsServiceCredentials.class.getSimpleName() + "|" + getUserID()).hashCode();
-	}
+	public class ResultImpl implements Result {
+		private final UserPrincipal fUserPrincipal;
 
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj) {
-			return true;
+		private ResultImpl(UserServiceCredentials credentials) {
+			fUserPrincipal = new DefaultUserPrincipal(credentials.getUserID());
 		}
-		if (obj == null) {
-			return false;
+
+		@Override
+		public UserPrincipal getUserPrincipal() {
+			return fUserPrincipal;
 		}
-		if (!(obj instanceof CmsServiceCredentials)) {
-			return false;
-		}
-		return (hashCode() == obj.hashCode());
 	}
 
 }

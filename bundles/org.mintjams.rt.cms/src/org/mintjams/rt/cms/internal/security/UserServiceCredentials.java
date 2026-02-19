@@ -24,30 +24,23 @@ package org.mintjams.rt.cms.internal.security;
 
 import org.mintjams.jcr.security.ServiceCredentials;
 
-public class CmsServiceCredentials implements ServiceCredentials {
+public class UserServiceCredentials implements ServiceCredentials {
 
 	private static final long serialVersionUID = 1L;
 
-	private static final String INTERNAL_NAME = "internal";
-
 	private final String fName;
 
-	public CmsServiceCredentials() {
-		this(INTERNAL_NAME);
-	}
-
-	public CmsServiceCredentials(String name) {
+	public UserServiceCredentials(String name) {
 		fName = name;
 	}
 
-	@Override
 	public String getUserID() {
 		return fName;
 	}
 
 	@Override
 	public int hashCode() {
-		return (CmsServiceCredentials.class.getSimpleName() + "|" + getUserID()).hashCode();
+		return (UserServiceCredentials.class.getSimpleName() + "|" + getUserID()).hashCode();
 	}
 
 	@Override
@@ -58,7 +51,7 @@ public class CmsServiceCredentials implements ServiceCredentials {
 		if (obj == null) {
 			return false;
 		}
-		if (!(obj instanceof CmsServiceCredentials)) {
+		if (!(obj instanceof UserServiceCredentials)) {
 			return false;
 		}
 		return (hashCode() == obj.hashCode());
