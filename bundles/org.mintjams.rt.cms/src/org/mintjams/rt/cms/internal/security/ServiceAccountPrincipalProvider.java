@@ -52,7 +52,11 @@ public class ServiceAccountPrincipalProvider implements JcrPrincipalProvider {
 	}
 
 	@Override
-	public Collection<GroupPrincipal> getMemberOf(Principal principal) {
+	public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
+		if (!CmsService.getConfiguration().getServiceUserAccounts().containsKey(principal.getName())) {
+			throw new PrincipalNotFoundException(principal.getName());
+		}
+
 		@SuppressWarnings("unchecked")
 		List<String> groups = (List<String>) CmsService.getConfiguration().getServiceUserAccounts().get(principal.getName()).get("groups");
 		if (groups == null) {

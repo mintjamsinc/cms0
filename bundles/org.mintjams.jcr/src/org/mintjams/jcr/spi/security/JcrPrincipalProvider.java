@@ -35,6 +35,6 @@ public interface JcrPrincipalProvider {
 
 	GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException;
 
-	Collection<GroupPrincipal> getMemberOf(Principal principal);
+	Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException;
 
 }

@@ -262,7 +262,7 @@ public class Activator implements BundleActivator {
 			for (JcrPrincipalProvider principalManager : getDefault().fPrincipalProviderTracker.getServices()) {
 				try {
 					memberOf.addAll(principalManager.getMemberOf(principal));
-				} catch (UnsupportedOperationException ignore) {
+				} catch (PrincipalNotFoundException | UnsupportedOperationException ignore) {
 					// ignore
 				} catch (Throwable ex) {
 					getLogger(Activator.class).warn("An error occurred while retrieving the memberOf: " + principal.getName(), ex);
