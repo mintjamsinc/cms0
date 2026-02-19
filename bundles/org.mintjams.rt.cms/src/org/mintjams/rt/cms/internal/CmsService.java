@@ -58,6 +58,7 @@ import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider;
 import org.mintjams.rt.cms.internal.security.FelixWebConsoleSecurityProvider;
+import org.mintjams.rt.cms.internal.security.ServiceAccountPrincipalProvider;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Authenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2ServiceProvider;
@@ -199,6 +200,11 @@ public class CmsService {
 
 		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
 				.setService(new DefaultPrincipalProvider())
+				.setBundleContext(CmsService.getDefault().getBundleContext())
+				.build());
+
+		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
+				.setService(new ServiceAccountPrincipalProvider())
 				.setBundleContext(CmsService.getDefault().getBundleContext())
 				.build());
 

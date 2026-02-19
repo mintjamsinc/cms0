@@ -28,6 +28,8 @@ import java.io.InputStream;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import javax.servlet.ServletException;
@@ -132,6 +134,60 @@ public class CmsConfiguration {
 			CmsService.getLogger(getClass()).warn("The classLoaderRefreshInterval parameter is invalid. Default values will be used instead.");
 		}
 		return DEFAULT_CLASS_LOADER_REFRESH_INTERVAL;
+	}
+
+	public Map<String, Map<String, Object>> getServiceUserAccounts() {
+		Map<String, Map<String, Object>> serviceUserAccounts = new HashMap<>();
+		try {
+			for (Object e : ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.getList("config.security.serviceAccounts")) {
+				if (e instanceof Map) {
+					@SuppressWarnings("unchecked")
+					Map<String, Object> account = (Map<String, Object>) e;
+					String name = (String) account.get("name");
+					if (!Strings.isEmpty(name)) {
+						serviceUserAccounts.put(name, account);
+					}
+				}
+			}
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn("The serviceAccounts parameter is invalid. Default values will be used instead.");
+		}
+		return serviceUserAccounts;
+	}
+
+	public Map<String, Map<String, Object>> getServiceGroupAccounts() {
+		Map<String, Map<String, Object>> serviceGroupAccounts = new HashMap<>();
+		try {
+			for (Object e : ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.getList("config.security.serviceAccounts")) {
+				if (e instanceof Map) {
+					@SuppressWarnings("unchecked")
+					Map<String, Object> account = (Map<String, Object>) e;
+					String name = (String) account.get("name");
+					if (!Strings.isEmpty(name)) {
+						@SuppressWarnings("unchecked")
+						List<String> groups = (List<String>) account.get("groups");
+						if (groups != null && !groups.isEmpty()) {
+							for (String group : groups) {
+								if (!Strings.isEmpty(group)) {
+									Map<String, Object> groupAccount = new HashMap<>();
+									groupAccount.put("name", group);
+									if (!serviceGroupAccounts.containsKey(group)) {
+										serviceGroupAccounts.put(group, groupAccount);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn("The serviceAccounts parameter is invalid. Default values will be used instead.");
+		}
+		return serviceGroupAccounts;
 	}
 
 	private static class StartServlet extends HttpServlet {
