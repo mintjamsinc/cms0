@@ -23,6 +23,7 @@
 package org.mintjams.jcr.util;
 
 import java.util.Collection;
+import java.util.List;
 
 import org.apache.commons.jexl3.JexlBuilder;
 import org.apache.commons.jexl3.JexlContext;
@@ -119,6 +120,14 @@ public class ExpressionContext {
 			return Integer.parseInt((String) value);
 		}
 		return Integer.parseInt(value.toString());
+	}
+
+	public List<?> getList(String expression) {
+		Object value = evaluate(expression);
+		if (value instanceof List) {
+			return (List<?>) value;
+		}
+		return null;
 	}
 
 }
