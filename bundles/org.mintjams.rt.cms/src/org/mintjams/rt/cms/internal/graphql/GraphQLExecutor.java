@@ -91,6 +91,10 @@ public class GraphQLExecutor {
 				response.setData(queryExecutor.executeChildrenQuery(request));
 			} else if (query.contains("references(")) {
 				response.setData(queryExecutor.executeReferencesQuery(request));
+			} else if (query.contains("effectiveAccessControl(")) {
+				response.setData(queryExecutor.executeEffectiveAccessControlQuery(request));
+			} else if (query.contains("searchPrincipals(")) {
+				response.setData(queryExecutor.executeSearchPrincipalsQuery(request));
 			} else if (query.contains("accessControl(")) {
 				response.setData(queryExecutor.executeAccessControlQuery(request));
 			} else if (query.contains("versionHistory(")) {

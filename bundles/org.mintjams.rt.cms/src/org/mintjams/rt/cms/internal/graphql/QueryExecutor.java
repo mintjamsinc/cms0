@@ -52,6 +52,7 @@ import javax.jcr.version.VersionHistory;
 import javax.jcr.version.VersionIterator;
 import javax.jcr.version.VersionManager;
 
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.graphql.ast.Field;
 import org.mintjams.rt.cms.internal.graphql.ast.GraphQLParser;
 import org.mintjams.rt.cms.internal.graphql.ast.Operation;
@@ -528,10 +529,12 @@ public class QueryExecutor {
 					}
 					entryMap.put("privileges", privileges);
 
-					// Check if this is allow or deny (JCR 2.0 doesn't have direct API, assume
-					// allow)
-					// Extended implementations may have isAllow() method
-					entryMap.put("allow", true);
+					// Check if this is allow or deny using MintJams extension
+					if (entry instanceof org.mintjams.jcr.security.AccessControlEntry) {
+						entryMap.put("allow", ((org.mintjams.jcr.security.AccessControlEntry) entry).isAllow());
+					} else {
+						entryMap.put("allow", true);
+					}
 
 					entries.add(entryMap);
 				}
@@ -546,6 +549,192 @@ public class QueryExecutor {
 		result.put("accessControl", aclData);
 
 		return result;
+	}
+
+	/**
+	 * Execute effectiveAccessControl query
+	 * Returns hierarchical access control entries (current path + all ancestor paths)
+	 * Example: { effectiveAccessControl(path: "/content/page1") { path entries { principal privileges allow } } }
+	 */
+	public Map<String, Object> executeEffectiveAccessControlQuery(GraphQLRequest request) throws Exception {
+		String query = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Extract path - try literal pattern first, then variable pattern
+		String path = null;
+		Pattern literalPattern = Pattern.compile("effectiveAccessControl\\s*\\(\\s*path\\s*:\\s*\"([^\"]+)\"");
+		Matcher literalMatcher = literalPattern.matcher(query);
+		if (literalMatcher.find()) {
+			path = resolveVariable(literalMatcher.group(1), variables);
+		}
+		if (path == null) {
+			Pattern varPattern = Pattern.compile("effectiveAccessControl\\s*\\(\\s*path\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher varMatcher = varPattern.matcher(query);
+			if (varMatcher.find()) {
+				String varName = varMatcher.group(1);
+				path = variables != null ? (String) variables.get(varName) : null;
+			}
+		}
+
+		if (path == null) {
+			throw new IllegalArgumentException("Invalid effectiveAccessControl query: path not found");
+		}
+
+		if (!session.nodeExists(path)) {
+			throw new IllegalArgumentException("Node not found: " + path);
+		}
+
+		// Get effective policies (includes current path + ancestor paths)
+		AccessControlManager acm = session.getAccessControlManager();
+		AccessControlPolicy[] policies = acm.getEffectivePolicies(path);
+
+		List<Map<String, Object>> policyList = new ArrayList<>();
+		for (AccessControlPolicy policy : policies) {
+			if (policy instanceof AccessControlList) {
+				AccessControlList acl = (AccessControlList) policy;
+
+				// Get path from MintJams extension
+				String policyPath = null;
+				if (policy instanceof org.mintjams.jcr.security.AccessControlPolicy) {
+					policyPath = ((org.mintjams.jcr.security.AccessControlPolicy) policy).getPath();
+				}
+
+				List<Map<String, Object>> entries = new ArrayList<>();
+				AccessControlEntry[] aclEntries = acl.getAccessControlEntries();
+				for (AccessControlEntry entry : aclEntries) {
+					Map<String, Object> entryMap = new HashMap<>();
+					entryMap.put("principal", entry.getPrincipal().getName());
+
+					List<String> privileges = new ArrayList<>();
+					for (Privilege privilege : entry.getPrivileges()) {
+						privileges.add(privilege.getName());
+					}
+					entryMap.put("privileges", privileges);
+
+					if (entry instanceof org.mintjams.jcr.security.AccessControlEntry) {
+						entryMap.put("allow", ((org.mintjams.jcr.security.AccessControlEntry) entry).isAllow());
+					} else {
+						entryMap.put("allow", true);
+					}
+
+					entries.add(entryMap);
+				}
+
+				Map<String, Object> policyData = new HashMap<>();
+				policyData.put("path", policyPath);
+				policyData.put("entries", entries);
+				policyList.add(policyData);
+			}
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("effectiveAccessControl", policyList);
+
+		return result;
+	}
+
+	/**
+	 * Execute searchPrincipals query
+	 * Searches for users and groups by keyword
+	 * Example: { searchPrincipals(keyword: "admin", offset: 0, limit: 20) { identifier isGroup } }
+	 */
+	public Map<String, Object> executeSearchPrincipalsQuery(GraphQLRequest request) throws Exception {
+		String query = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Extract keyword - try literal pattern first, then variable pattern
+		String keyword = null;
+		Pattern keywordLiteralPattern = Pattern.compile("searchPrincipals\\s*\\([^)]*keyword\\s*:\\s*\"([^\"]+)\"");
+		Matcher keywordLiteralMatcher = keywordLiteralPattern.matcher(query);
+		if (keywordLiteralMatcher.find()) {
+			keyword = keywordLiteralMatcher.group(1);
+		}
+		if (keyword == null) {
+			Pattern keywordVarPattern = Pattern.compile("searchPrincipals\\s*\\([^)]*keyword\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher keywordVarMatcher = keywordVarPattern.matcher(query);
+			if (keywordVarMatcher.find()) {
+				String varName = keywordVarMatcher.group(1);
+				keyword = variables != null ? (String) variables.get(varName) : null;
+			}
+		}
+
+		// Extract offset and limit - try literal first, then variables
+		long offset = 0;
+		long limit = 20;
+		Pattern offsetPattern = Pattern.compile("offset\\s*:\\s*(\\d+)");
+		Matcher offsetMatcher = offsetPattern.matcher(query);
+		if (offsetMatcher.find()) {
+			offset = Long.parseLong(offsetMatcher.group(1));
+		} else if (variables != null && variables.containsKey("offset") && variables.get("offset") != null) {
+			offset = ((Number) variables.get("offset")).longValue();
+		}
+		Pattern limitPattern = Pattern.compile("limit\\s*:\\s*(\\d+)");
+		Matcher limitMatcher = limitPattern.matcher(query);
+		if (limitMatcher.find()) {
+			limit = Long.parseLong(limitMatcher.group(1));
+		} else if (variables != null && variables.containsKey("limit") && variables.get("limit") != null) {
+			limit = ((Number) variables.get("limit")).longValue();
+		}
+
+		// Build XPath query for system workspace
+		String xpath;
+		if (keyword != null && !keyword.trim().isEmpty()) {
+			// Search by keyword - look for identifier property containing keyword
+			String escapedKeyword = keyword.replace("'", "\\'");
+			xpath = "/jcr:root/home//*[@identifier and jcr:contains(@identifier, '" + escapedKeyword + "')]";
+		} else {
+			// List all principals
+			xpath = "/jcr:root/home//*[@identifier]";
+		}
+
+		// Login to system workspace
+		javax.jcr.Session systemSession = org.mintjams.rt.cms.internal.CmsService.getRepository()
+				.login(new org.mintjams.rt.cms.internal.security.CmsServiceCredentials(session.getUserID()), "system");
+
+		try {
+			QueryManager qm = systemSession.getWorkspace().getQueryManager();
+			Query xpathQuery = qm.createQuery(xpath, Query.XPATH);
+			QueryResult qr = xpathQuery.execute();
+
+			List<Map<String, Object>> principals = new ArrayList<>();
+			NodeIterator nodes = qr.getNodes();
+			long skipped = 0;
+			long count = 0;
+			while (nodes.hasNext()) {
+				Node node = nodes.nextNode();
+				if (!JCRs.isContentNode(node)) {
+					node = JCRs.getContentNode(node);
+				}
+
+				if (!node.hasProperty("identifier")) {
+					continue;
+				}
+
+				// Apply offset
+				if (skipped < offset) {
+					skipped++;
+					continue;
+				}
+
+				// Apply limit
+				if (count >= limit) {
+					break;
+				}
+
+				Map<String, Object> principal = new HashMap<>();
+				principal.put("identifier", node.getProperty("identifier").getString());
+				principal.put("isGroup", node.getProperty("isGroup").getBoolean());
+				principals.add(principal);
+				count++;
+			}
+
+			Map<String, Object> result = new HashMap<>();
+			result.put("searchPrincipals", principals);
+
+			return result;
+		} finally {
+			systemSession.logout();
+		}
 	}
 
 	/**
