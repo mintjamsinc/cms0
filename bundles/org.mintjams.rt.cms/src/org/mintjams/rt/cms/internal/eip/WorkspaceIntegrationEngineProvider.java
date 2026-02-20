@@ -38,6 +38,10 @@ import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 
 import org.apache.camel.CamelContext;
+import org.apache.camel.RouteConfigurationsBuilder;
+import org.apache.camel.RoutesBuilder;
+import org.apache.camel.model.ModelCamelContext;
+import org.apache.camel.model.RouteConfigurationDefinition;
 import org.apache.camel.dsl.groovy.GroovyRoutesBuilderLoader;
 import org.apache.camel.dsl.java.joor.JavaRoutesBuilderLoader;
 import org.apache.camel.dsl.xml.io.XmlRoutesBuilderLoader;
@@ -62,6 +66,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 	private final WorkspaceIntegrationEngineProviderConfiguration fConfig;
 	private final Closer fCloser = Closer.create();
 	private final Map<String, List<String>> fDeployments = new HashMap<>();
+	private final Map<String, List<String>> fRouteConfigDeployments = new HashMap<>();
 	private WorkspaceCamelContext fCamelContext;
 
 	public WorkspaceIntegrationEngineProvider(String workspaceName) {
@@ -148,9 +153,15 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 			synchronized (fDeployments) {
 				String itemPath = item.getPath();
 				try (RoutesBuilderLoader loader = getRoutesBuilderLoader(item)) {
-					// Snapshot of current route IDs before loading
+					ModelCamelContext modelContext = (ModelCamelContext) fCamelContext;
+
+					// Snapshot of current route IDs and route configuration IDs before loading
 					Set<String> routeIdsBefore = fCamelContext.getRoutes().stream()
 							.map(route -> route.getRouteId())
+							.collect(Collectors.toSet());
+					Set<String> configIdsBefore = modelContext.getRouteConfigurationDefinitions().stream()
+							.map(RouteConfigurationDefinition::getId)
+							.filter(id -> id != null)
 							.collect(Collectors.toSet());
 
 					// Stop and remove previously deployed routes for this path
@@ -166,10 +177,21 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 						}
 					}
 
-					// Load and add new routes
+					// Remove previously deployed route configurations for this path
+					List<String> previousConfigIds = fRouteConfigDeployments.get(itemPath);
+					if (previousConfigIds != null) {
+						modelContext.getRouteConfigurationDefinitions()
+								.removeIf(def -> previousConfigIds.contains(def.getId()));
+					}
+
+					// Load and add new routes (and route configurations)
 					loader.setCamelContext(fCamelContext);
 					loader.build();
-					loader.loadRoutesBuilder(new CamelResource(item)).addRoutesToCamelContext(fCamelContext);
+					RoutesBuilder routesBuilder = loader.loadRoutesBuilder(new CamelResource(item));
+					if (routesBuilder instanceof RouteConfigurationsBuilder) {
+						((RouteConfigurationsBuilder) routesBuilder).addRouteConfigurationsToCamelContext(fCamelContext);
+					}
+					routesBuilder.addRoutesToCamelContext(fCamelContext);
 
 					// Track newly added route IDs (post-snapshot minus pre-snapshot)
 					List<String> newRouteIds = fCamelContext.getRoutes().stream()
@@ -177,6 +199,13 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 							.filter(id -> !routeIdsBefore.contains(id))
 							.collect(Collectors.toList());
 					fDeployments.put(itemPath, newRouteIds);
+
+					// Track newly added route configuration IDs
+					List<String> newConfigIds = modelContext.getRouteConfigurationDefinitions().stream()
+							.map(RouteConfigurationDefinition::getId)
+							.filter(id -> id != null && !configIdsBefore.contains(id))
+							.collect(Collectors.toList());
+					fRouteConfigDeployments.put(itemPath, newConfigIds);
 				} catch (Throwable cause) {
 					throw Cause.create(cause).wrap(IOException.class);
 				}
@@ -199,6 +228,19 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		}
 	}
 
+	private void removeRouteConfigurations(List<String> configIds) {
+		if (configIds == null || configIds.isEmpty()) {
+			return;
+		}
+		try {
+			ModelCamelContext modelContext = (ModelCamelContext) fCamelContext;
+			modelContext.getRouteConfigurationDefinitions()
+					.removeIf(def -> configIds.contains(def.getId()));
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn("Failed to remove route configurations: " + configIds, ex);
+		}
+	}
+
 	private void undeploy(String itemPath, Event event) throws IOException, RepositoryException {
 		String nodeType = event.getProperty("type").toString();
 
@@ -214,7 +256,12 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 							CmsService.getLogger(getClass()).error("An error occurred while removing route: " + routeId, ex);
 						}
 					}
+				}
 
+				// Remove route configurations deployed from this file
+				removeRouteConfigurations(fRouteConfigDeployments.remove(itemPath));
+
+				if (routeIds != null) {
 					CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/UNDEPLOYED", AdaptableMap.<String, Object>newBuilder()
 							.put("path", itemPath)
 							.put("type", nodeType)
@@ -239,7 +286,12 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 									CmsService.getLogger(getClass()).error("An error occurred while removing route: " + routeId, ex);
 								}
 							}
+						}
 
+						// Remove route configurations deployed from this file
+						removeRouteConfigurations(fRouteConfigDeployments.remove(path));
+
+						if (routeIds != null) {
 							CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/UNDEPLOYED", AdaptableMap.<String, Object>newBuilder()
 									.put("path", path)
 									.put("type", NodeType.NT_FILE_NAME)
