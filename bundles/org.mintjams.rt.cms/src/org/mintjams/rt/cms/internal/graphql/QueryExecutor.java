@@ -724,8 +724,42 @@ public class QueryExecutor {
 				Map<String, Object> principal = new HashMap<>();
 				principal.put("identifier", node.getProperty("identifier").getString());
 				principal.put("isGroup", node.getProperty("isGroup").getBoolean());
+				principal.put("isService", false);
 				principals.add(principal);
 				count++;
+			}
+
+			// Also search service accounts from cms.yml configuration
+			String keywordLower = keyword != null ? keyword.toLowerCase() : null;
+
+			// Service users
+			Map<String, Map<String, Object>> serviceUsers = org.mintjams.rt.cms.internal.CmsService.getConfiguration().getServiceUserAccounts();
+			for (Map.Entry<String, Map<String, Object>> entry : serviceUsers.entrySet()) {
+				if (count >= limit) break;
+				String name = entry.getKey();
+				if (keywordLower == null || name.toLowerCase().contains(keywordLower)) {
+					Map<String, Object> principal = new HashMap<>();
+					principal.put("identifier", name);
+					principal.put("isGroup", false);
+					principal.put("isService", true);
+					principals.add(principal);
+					count++;
+				}
+			}
+
+			// Service groups
+			Map<String, Map<String, Object>> serviceGroups = org.mintjams.rt.cms.internal.CmsService.getConfiguration().getServiceGroupAccounts();
+			for (Map.Entry<String, Map<String, Object>> entry : serviceGroups.entrySet()) {
+				if (count >= limit) break;
+				String name = entry.getKey();
+				if (keywordLower == null || name.toLowerCase().contains(keywordLower)) {
+					Map<String, Object> principal = new HashMap<>();
+					principal.put("identifier", name);
+					principal.put("isGroup", true);
+					principal.put("isService", true);
+					principals.add(principal);
+					count++;
+				}
 			}
 
 			Map<String, Object> result = new HashMap<>();
