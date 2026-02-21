@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.jcr.AccessDeniedException;
 import javax.jcr.Node;
@@ -230,16 +231,16 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 		Privilege[] privileges = adaptTo(JcrCache.class).getPrivileges(absPath);
 		if (privileges == null) {
 			List<Privilege> privilegeList = new ArrayList<>();
-			List<Principal> principals = new ArrayList<>();
-			principals.add(new EveryonePrincipal());
-			principals.addAll(session.getGroups());
-			principals.add(session.getUserPrincipal());
+			List<String> principals = new ArrayList<>();
+			principals.add(new EveryonePrincipal().getName());
+			principals.addAll(session.getGroups().stream().map(Principal::getName).collect(Collectors.toList()));
+			principals.add(session.getUserPrincipal().getName());
 			AccessControlPolicy[] policies = _effectivePolicies(path);
 			List<AccessControlPolicy> policyList = Arrays.asList(policies);
 			Collections.reverse(policyList);
 			for (AccessControlPolicy acp : policyList) {
 				for (AccessControlEntry ace : ((JcrAccessControlList) acp).getAccessControlEntries()) {
-					if (!principals.contains(ace.getPrincipal())) {
+					if (!principals.contains(ace.getPrincipal().getName())) {
 						continue;
 					}
 
