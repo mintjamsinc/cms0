@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.spi.FileTypeDetector;
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -418,13 +419,28 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 
 	private class PrincipalProviderImpl implements PrincipalProvider {
 		@Override
+		public Principal getPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+			return Activator.getDefault().getPrincipal(name);
+		}
+
+		@Override
 		public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
-			return Activator.getDefault().getUserPrincipal(name);
+			Principal p = getPrincipal(name);
+			if (p instanceof UserPrincipal) {
+				return (UserPrincipal) p;
+			}
+
+			throw new PrincipalNotFoundException(name);
 		}
 
 		@Override
 		public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
-			return Activator.getDefault().getGroupPrincipal(name);
+			Principal p = getPrincipal(name);
+			if (p instanceof GroupPrincipal) {
+				return (GroupPrincipal) p;
+			}
+
+			throw new PrincipalNotFoundException(name);
 		}
 	}
 

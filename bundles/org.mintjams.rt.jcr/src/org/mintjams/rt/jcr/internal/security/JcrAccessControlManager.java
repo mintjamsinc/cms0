@@ -52,8 +52,7 @@ import org.mintjams.jcr.NamespaceProvider;
 import org.mintjams.jcr.security.AccessControlManager;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
-import org.mintjams.jcr.security.UnknownGroupPrincipal;
-import org.mintjams.jcr.security.UnknownUserPrincipal;
+import org.mintjams.jcr.security.UnknownPrincipal;
 import org.mintjams.rt.jcr.internal.Activator;
 import org.mintjams.rt.jcr.internal.JcrCache;
 import org.mintjams.rt.jcr.internal.JcrNode;
@@ -152,19 +151,12 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 				}
 
 				Principal principal;
-				if (r.getBoolean("is_group")) {
-					try {
-						principal = Activator.getDefault().getGroupPrincipal(r.getString("principal_name"));
-					} catch (PrincipalNotFoundException ignore) {
-						principal = new UnknownGroupPrincipal(r.getString("principal_name"));
-					}
-				} else {
-					try {
-						principal = Activator.getDefault().getUserPrincipal(r.getString("principal_name"));
-					} catch (PrincipalNotFoundException ignore) {
-						principal = new UnknownUserPrincipal(r.getString("principal_name"));
-					}
+				try {
+					principal = Activator.getDefault().getPrincipal(r.getString("principal_name"));
+				} catch (PrincipalNotFoundException ignore) {
+					principal = new UnknownPrincipal(r.getString("principal_name"));
 				}
+
 				acl.addAccessControlEntry(principal, r.getBoolean("is_allow"), Arrays.stream(r.getObjectArray("privilege_names")).toArray(String[]::new));
 			}
 			return policies.values().toArray(AccessControlPolicy[]::new);
@@ -186,19 +178,12 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 			JcrAccessControlList acl = JcrAccessControlList.create(absPath, this);
 			for (AdaptableMap<String, Object> r : result) {
 				Principal principal;
-				if (r.getBoolean("is_group")) {
-					try {
-						principal = Activator.getDefault().getGroupPrincipal(r.getString("principal_name"));
-					} catch (PrincipalNotFoundException ignore) {
-						principal = new UnknownGroupPrincipal(r.getString("principal_name"));
-					}
-				} else {
-					try {
-						principal = Activator.getDefault().getUserPrincipal(r.getString("principal_name"));
-					} catch (PrincipalNotFoundException ignore) {
-						principal = new UnknownUserPrincipal(r.getString("principal_name"));
-					}
+				try {
+					principal = Activator.getDefault().getPrincipal(r.getString("principal_name"));
+				} catch (PrincipalNotFoundException ignore) {
+					principal = new UnknownPrincipal(r.getString("principal_name"));
 				}
+
 				acl.addAccessControlEntry(principal, r.getBoolean("is_allow"), Arrays.stream(r.getObjectArray("privilege_names")).toArray(String[]::new));
 			}
 

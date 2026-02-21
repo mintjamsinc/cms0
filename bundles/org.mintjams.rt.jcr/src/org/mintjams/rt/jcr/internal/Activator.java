@@ -38,7 +38,6 @@ import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
-import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.service.Bootstrap;
 import org.mintjams.jcr.spi.security.JcrAuthenticator;
 import org.mintjams.jcr.spi.security.JcrPrincipalProvider;
@@ -216,29 +215,9 @@ public class Activator implements BundleActivator {
 		return l;
 	}
 
-	public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+	public Principal getPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
 		if (name.equals(GuestPrincipal.NAME)) {
 			return new GuestPrincipal();
-		}
-		if (name.equals(EveryonePrincipal.NAME)) {
-			throw new PrincipalNotFoundException(name);
-		}
-
-		for (JcrPrincipalProvider principalProvider : getPrincipalProviders()) {
-			try {
-				return principalProvider.getUserPrincipal(name);
-			} catch (PrincipalNotFoundException | UnsupportedOperationException ignore) {
-				// ignore
-			} catch (Throwable ex) {
-				getLogger(Activator.class).warn("An error occurred while retrieving the user principal: " + name, ex);
-			}
-		}
-		throw new PrincipalNotFoundException(name);
-	}
-
-	public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
-		if (name.equals(GuestPrincipal.NAME)) {
-			throw new PrincipalNotFoundException(name);
 		}
 		if (name.equals(EveryonePrincipal.NAME)) {
 			return new EveryonePrincipal();
@@ -246,13 +225,14 @@ public class Activator implements BundleActivator {
 
 		for (JcrPrincipalProvider principalProvider : getPrincipalProviders()) {
 			try {
-				return principalProvider.getGroupPrincipal(name);
+				return principalProvider.getPrincipal(name);
 			} catch (PrincipalNotFoundException | UnsupportedOperationException ignore) {
 				// ignore
 			} catch (Throwable ex) {
-				getLogger(Activator.class).warn("An error occurred while retrieving the group principal: " + name, ex);
+				getLogger(Activator.class).warn("An error occurred while retrieving the user principal: " + name, ex);
 			}
 		}
+
 		throw new PrincipalNotFoundException(name);
 	}
 

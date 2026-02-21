@@ -55,7 +55,6 @@ import javax.jcr.PathNotFoundException;
 import javax.jcr.Property;
 import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
-import javax.jcr.UnsupportedRepositoryOperationException;
 import javax.jcr.Value;
 import javax.jcr.ValueFactory;
 import javax.jcr.ValueFormatException;
@@ -78,8 +77,7 @@ import org.mintjams.jcr.observation.Event;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
-import org.mintjams.jcr.security.UnknownGroupPrincipal;
-import org.mintjams.jcr.security.UnknownUserPrincipal;
+import org.mintjams.jcr.security.UnknownPrincipal;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlEntry;
@@ -581,26 +579,24 @@ public class WorkspaceQuery implements Adaptable {
 					ExpressionContext el = ExpressionContext.create().setVariable("ace", ace);
 					JcrAccessControlList acl = (JcrAccessControlList) getAccessControlManager()
 							.getPolicies(node.getPath())[0];
-					String group = el.getString("ace.group");
-					String user = el.getString("ace.user");
-					Principal principal;
-					if (Strings.isNotEmpty(group) && Strings.isNotEmpty(user)) {
-						throw new RepositoryException("You cannot specify both user and group.");
-					} else if (Strings.isNotEmpty(group)) {
-						try {
-							principal = Activator.getDefault().getGroupPrincipal(group);
-						} catch (PrincipalNotFoundException ignore) {
-							principal = new UnknownGroupPrincipal(group);
-						}
-					} else if (Strings.isNotEmpty(user)) {
-						try {
-							principal = Activator.getDefault().getUserPrincipal(user);
-						} catch (PrincipalNotFoundException ignore) {
-							principal = new UnknownUserPrincipal(user);
-						}
-					} else {
-						throw new RepositoryException("The grantee must be specified as either a user or a group.");
+					String principalName = el.getString("ace.principal");
+					if (Strings.isEmpty(principalName)) {
+						principalName = el.getString("ace.group");
 					}
+					if (Strings.isEmpty(principalName)) {
+						principalName = el.getString("ace.user");
+					}
+					if (Strings.isEmpty(principalName)) {
+						throw new RepositoryException("The principal must be specified as either a user or a group.");
+					}
+
+					Principal principal;
+					try {
+						principal = Activator.getDefault().getPrincipal(principalName);
+					} catch (PrincipalNotFoundException ignore) {
+						principal = new UnknownPrincipal(principalName);
+					}
+
 					String[] privileges = el.getStringArray("ace.privileges");
 					boolean effect;
 					if (el.getString("ace.effect").equalsIgnoreCase("allow")) {
@@ -610,6 +606,7 @@ public class WorkspaceQuery implements Adaptable {
 					} else {
 						throw new RepositoryException("The effect must be specified as either allow or deny.");
 					}
+
 					acl.addAccessControlEntry(principal, effect, privileges);
 					getAccessControlManager().setPolicy(node.getPath(), acl);
 				}
