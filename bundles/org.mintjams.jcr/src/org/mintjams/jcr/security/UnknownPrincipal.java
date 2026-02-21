@@ -22,11 +22,38 @@
 
 package org.mintjams.jcr.security;
 
-@Deprecated
-public class UnknownGroupPrincipal extends UnknownPrincipal implements GroupPrincipal {
+import java.security.Principal;
 
-	public UnknownGroupPrincipal(String name) {
-		super(name);
+public class UnknownPrincipal implements Principal {
+
+	private final String fName;
+
+	public UnknownPrincipal(String name) {
+		fName = name;
+	}
+
+	@Override
+	public String getName() {
+		return fName;
+	}
+
+	@Override
+	public int hashCode() {
+		return (Principal.class.getSimpleName() + "|" + getName()).hashCode();
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (!(obj instanceof Principal)) {
+			return false;
+		}
+		return (hashCode() == obj.hashCode());
 	}
 
 }

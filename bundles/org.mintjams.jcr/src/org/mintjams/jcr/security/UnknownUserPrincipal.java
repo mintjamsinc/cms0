@@ -22,36 +22,11 @@
 
 package org.mintjams.jcr.security;
 
-public class UnknownUserPrincipal implements UserPrincipal {
-
-	private final String fName;
+@Deprecated
+public class UnknownUserPrincipal extends UnknownPrincipal implements UserPrincipal {
 
 	public UnknownUserPrincipal(String name) {
-		fName = name;
-	}
-
-	@Override
-	public String getName() {
-		return fName;
-	}
-
-	@Override
-	public int hashCode() {
-		return (UserPrincipal.class.getSimpleName() + "|" + getName()).hashCode();
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-		if (this == obj) {
-			return true;
-		}
-		if (obj == null) {
-			return false;
-		}
-		if (!(obj instanceof UserPrincipal)) {
-			return false;
-		}
-		return (hashCode() == obj.hashCode());
+		super(name);
 	}
 
 }

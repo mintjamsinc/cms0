@@ -22,9 +22,13 @@
 
 package org.mintjams.jcr.security;
 
+import java.security.Principal;
+
 import javax.jcr.RepositoryException;
 
 public interface PrincipalProvider {
+
+	Principal getPrincipal(String name) throws PrincipalNotFoundException, RepositoryException;
 
 	UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException, RepositoryException;
 

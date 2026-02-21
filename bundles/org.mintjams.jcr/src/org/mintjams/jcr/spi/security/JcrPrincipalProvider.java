@@ -31,6 +31,8 @@ import org.mintjams.jcr.security.UserPrincipal;
 
 public interface JcrPrincipalProvider {
 
+	Principal getPrincipal(String name) throws PrincipalNotFoundException;
+
 	UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException;
 
 	GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException;
