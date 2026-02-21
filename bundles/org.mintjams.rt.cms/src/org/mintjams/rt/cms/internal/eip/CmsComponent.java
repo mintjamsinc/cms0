@@ -29,8 +29,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.time.ZonedDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -47,6 +47,9 @@ import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.Value;
 import javax.jcr.ValueFactory;
+import javax.jcr.query.Query;
+import javax.jcr.query.QueryManager;
+import javax.jcr.query.QueryResult;
 
 import org.apache.camel.Consumer;
 import org.apache.camel.Endpoint;
@@ -62,7 +65,6 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
-import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.UserServiceCredentials;
 import org.mintjams.rt.cms.internal.web.WebResourceResolver;
 
@@ -111,6 +113,8 @@ public class CmsComponent extends DefaultComponent {
 				return new SetPropertiesProducer();
 			} else if ("move".equals(fOperation)) {
 				return new MoveProducer();
+			} else if ("exists".equals(fOperation)) {
+				return new ExistsProducer();
 			} else {
 				// Default: script execution (backward compatibility)
 				return new ScriptProducer(fOperation);
@@ -488,6 +492,48 @@ public class CmsComponent extends DefaultComponent {
 					return node.getNode("jcr:content");
 				}
 				return node;
+			}
+		}
+
+		/**
+		 * Producer for checking node existence via XPath query
+		 *
+		 * Executes the given XPath query and returns whether any matching node exists.
+		 * The result is set as the exchange body (Boolean) and as a header 'cmsExists'.
+		 *
+		 * URI format: cms:exists?query=/jcr:root/content//element(*, nt:file)
+		 * Parameters:
+		 *   - query: XPath expression (required)
+		 *   - runAs: User to impersonate (optional)
+		 */
+		private class ExistsProducer extends DefaultProducer {
+			private ExistsProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					String query = getParameter(exchange, "query");
+					if (query == null || query.trim().isEmpty()) {
+						throw new IllegalArgumentException("query parameter is required");
+					}
+
+					QueryManager qm = session.getWorkspace().getQueryManager();
+					Query q = qm.createQuery(query, Query.XPATH);
+					q.setLimit(1); // We only need to check for existence
+					QueryResult result = q.execute();
+					boolean exists = result.getNodes().hasNext();
+
+					exchange.getIn().setHeader("cmsExists", exists);
+					exchange.getIn().setBody(exists);
+				}
 			}
 		}
 
