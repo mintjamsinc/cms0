@@ -178,6 +178,8 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 					}
 
 					// Remove previously deployed route configurations for this path
+					// In Camel 3.22+, getRouteConfigurationDefinitions() returns the actual
+					// internal list, so removeIf() properly removes from the registry.
 					List<String> previousConfigIds = fRouteConfigDeployments.get(itemPath);
 					if (previousConfigIds != null) {
 						modelContext.getRouteConfigurationDefinitions()
