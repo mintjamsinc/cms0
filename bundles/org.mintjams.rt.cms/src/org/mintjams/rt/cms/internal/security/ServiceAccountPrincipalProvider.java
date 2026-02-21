@@ -36,19 +36,36 @@ import org.mintjams.rt.cms.internal.CmsService;
 public class ServiceAccountPrincipalProvider implements JcrPrincipalProvider {
 
 	@Override
-	public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException {
-		if (!CmsService.getConfiguration().getServiceUserAccounts().containsKey(name)) {
-			throw new PrincipalNotFoundException(name);
+	public Principal getPrincipal(String name) throws PrincipalNotFoundException {
+		if (CmsService.getConfiguration().getServiceUserAccounts().containsKey(name)) {
+			return new DefaultUserPrincipal(name);
 		}
-		return new DefaultUserPrincipal(name);
+
+		if (CmsService.getConfiguration().getServiceGroupAccounts().containsKey(name)) {
+			return new DefaultGroupPrincipal(name);
+		}
+
+		throw new PrincipalNotFoundException(name);
+	}
+
+	@Override
+	public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException {
+		Principal p = getPrincipal(name);
+		if (p instanceof UserPrincipal) {
+			return (UserPrincipal) p;
+		}
+
+		throw new PrincipalNotFoundException(name);
 	}
 
 	@Override
 	public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException {
-		if (!CmsService.getConfiguration().getServiceGroupAccounts().containsKey(name)) {
-			throw new PrincipalNotFoundException(name);
+		Principal p = getPrincipal(name);
+		if (p instanceof GroupPrincipal) {
+			return (GroupPrincipal) p;
 		}
-		return new DefaultGroupPrincipal(name);
+
+		throw new PrincipalNotFoundException(name);
 	}
 
 	@Override

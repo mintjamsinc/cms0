@@ -46,6 +46,11 @@ public class Saml2PrincipalProvider implements JcrPrincipalProvider {
 	}
 
 	@Override
+	public Principal getPrincipal(String name) throws PrincipalNotFoundException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException {
 		throw new UnsupportedOperationException();
 	}
