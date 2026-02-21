@@ -56,29 +56,31 @@ public class Saml2PrincipalProvider implements JcrPrincipalProvider {
 	}
 
 	@Override
-	public Collection<GroupPrincipal> getMemberOf(Principal principal) {
-		List<GroupPrincipal> l = new ArrayList<>();
-		if (principal instanceof Saml2UserPrincipal) {
-			ExpressionContext el = fConfig.getExpressionContext();
-			String name = el.getString("config.user.attributes.memberOf.name");
-			Saml2Credentials creds = Adaptables.getAdapter(principal, Saml2Credentials.class);
-			List<String> groups = creds.getAttributes().get(name);
-			if (groups != null) {
-				for (String e : groups) {
-					for (String group : e.split("\\s*[,\\/]\\s*")) {
-						if (Strings.isEmpty(group)) {
-							continue;
-						}
+	public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
+		if (!(principal instanceof Saml2UserPrincipal)) {
+			throw new PrincipalNotFoundException("Principal '" + principal.getName() + "' is not found.");
+		}
 
-						GroupPrincipal p = new DefaultGroupPrincipal(group);
-						if (!l.contains(p)) {
-							l.add(p);
-						}
+		List<GroupPrincipal> l = new ArrayList<>();
+		ExpressionContext el = fConfig.getExpressionContext();
+		String name = el.getString("config.user.attributes.memberOf.name");
+		Saml2Credentials creds = Adaptables.getAdapter(principal, Saml2Credentials.class);
+		List<String> groups = creds.getAttributes().get(name);
+		if (groups != null) {
+			for (String e : groups) {
+				for (String group : e.split("\\s*[,\\/]\\s*")) {
+					if (Strings.isEmpty(group)) {
+						continue;
+					}
+
+					GroupPrincipal p = new DefaultGroupPrincipal(group);
+					if (!l.contains(p)) {
+						l.add(p);
 					}
 				}
-			} else {
-				CmsService.getLogger(getClass()).warn("SAML attribute '" + name + "' is not found.");
 			}
+		} else {
+			CmsService.getLogger(getClass()).warn("SAML attribute '" + name + "' is not found.");
 		}
 		return l;
 	}
