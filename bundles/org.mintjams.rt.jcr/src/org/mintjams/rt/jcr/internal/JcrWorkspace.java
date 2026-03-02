@@ -122,7 +122,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 			}
 		});
 
-		fConnection = fWorkspaceProvider.getConnection();
+		fConnection = fWorkspaceProvider.getConnection(fUserPrincipal);
 		fCloser.add(new Closeable() {
 			@Override
 			public void close() throws IOException {

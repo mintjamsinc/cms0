@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.Principal;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ import org.mintjams.jcr.security.LoginTimedOutException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.observation.JournalObserver;
+import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
 import org.mintjams.searchindex.SearchIndex;
 import org.mintjams.tools.adapter.Adaptable;
@@ -159,12 +161,12 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		return this;
 	}
 
-	protected Connection getConnection() throws SQLException {
-		return fConnectionPool.getConnection();
+	protected Connection getConnection(Principal principal) throws SQLException {
+		return fConnectionPool.getConnection(principal);
 	}
 
 	private void prepareInitialData() throws IOException {
-		try (Connection connection = getConnection()) {
+		try (Connection connection = getConnection(new SystemPrincipal())) {
 			try {
 				for (String statement : Strings.readAll(getClass().getResourceAsStream("workspace-prepare.sql"),
 						StandardCharsets.UTF_8.toString()).toString().split(";")) {
@@ -405,10 +407,12 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 	private class ConnectionPool implements Closeable {
 		private boolean fCloseRequested;
-		private HikariDataSource fDataSource;
+		private HikariDataSource fUserDataSource;
+		private HikariDataSource fSystemDataSource;
+		private HikariDataSource fServiceDataSource;
 
 		public ConnectionPool open() {
-			if (fDataSource != null) {
+			if (fUserDataSource != null) {
 				return this;
 			}
 
@@ -420,23 +424,67 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				minIdle = numProcessors;
 			}
 
-			HikariConfig config = new HikariConfig();
-			config.setJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
-			config.setUsername("sa");
-			config.setPassword("");
-			config.setMaximumPoolSize(maxPoolSize);
-			config.setMinimumIdle(maxPoolSize);
-			config.setConnectionTimeout(30000);
-			config.setIdleTimeout(600000);
-			config.setMaxLifetime(1800000);
-			config.setAutoCommit(false);
-			fDataSource = new HikariDataSource(config);
+			// User data source
+			{
+				HikariConfig config = new HikariConfig();
+				config.setJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
+				config.setUsername("sa");
+				config.setPassword("");
+				config.setMaximumPoolSize(maxPoolSize);
+				config.setMinimumIdle(minIdle);
+				config.setConnectionTimeout(30000);
+				config.setIdleTimeout(600000);
+				config.setMaxLifetime(1800000);
+				config.setAutoCommit(false);
+				fUserDataSource = new HikariDataSource(config);
+			}
+
+			// System data source
+			{
+				HikariConfig config = new HikariConfig();
+				config.setJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
+				config.setUsername("sa");
+				config.setPassword("");
+				config.setMaximumPoolSize(maxPoolSize);
+				config.setMinimumIdle(minIdle);
+				config.setConnectionTimeout(30000);
+				config.setIdleTimeout(600000);
+				config.setMaxLifetime(1800000);
+				config.setAutoCommit(false);
+				fSystemDataSource = new HikariDataSource(config);
+			}
+
+			// Service data source
+			{
+				HikariConfig config = new HikariConfig();
+				config.setJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
+				config.setUsername("sa");
+				config.setPassword("");
+				config.setMaximumPoolSize(maxPoolSize);
+				config.setMinimumIdle(minIdle);
+				config.setConnectionTimeout(30000);
+				config.setIdleTimeout(600000);
+				config.setMaxLifetime(1800000);
+				config.setAutoCommit(false);
+				fServiceDataSource = new HikariDataSource(config);
+			}
 
 			return this;
 		}
 
-		public Connection getConnection() throws SQLException {
-			return fDataSource.getConnection();
+		public Connection getConnection(Principal principal) throws SQLException {
+			// System sessions use the system data source
+			if (principal instanceof SystemPrincipal) {
+				return fSystemDataSource.getConnection();
+			}
+
+			// Service sessions use the service data source
+			if (principal instanceof ServicePrincipal) {
+				return fServiceDataSource.getConnection();
+			}
+
+			// User sessions use the user data source
+			return fUserDataSource.getConnection();
 		}
 
 		@Override
@@ -447,7 +495,13 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 			fCloseRequested = true;
 			try {
-				fDataSource.close();
+				fUserDataSource.close();
+			} catch (Throwable ignore) {}
+			try {
+				fSystemDataSource.close();
+			} catch (Throwable ignore) {}
+			try {
+				fServiceDataSource.close();
 			} catch (Throwable ignore) {}
 			fCloseRequested = false;
 		}
