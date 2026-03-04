@@ -24,6 +24,8 @@ package org.mintjams.rt.cms.internal.web;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collection;
@@ -37,9 +39,9 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.net.URLCodec;
 import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.util.JCRs;
-import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.script.Scripts;
+import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.script.YAML;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.tools.lang.Cause;
@@ -189,7 +191,7 @@ public class Webs {
 
 	public static String encode(String text) throws IOException {
 		try {
-			return new URLCodec(StandardCharsets.UTF_8.name()).encode(text);
+			return URLEncoder.encode(text, StandardCharsets.UTF_8.name()).replaceAll("\\+", "%20");
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
@@ -211,7 +213,7 @@ public class Webs {
 
 	public static String decode(String text) throws IOException {
 		try {
-			return new URLCodec(StandardCharsets.UTF_8.name()).decode(text);
+			return URLDecoder.decode(text, StandardCharsets.UTF_8.name());
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
