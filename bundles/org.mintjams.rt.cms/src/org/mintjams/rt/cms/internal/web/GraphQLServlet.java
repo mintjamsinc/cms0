@@ -39,6 +39,7 @@ import org.mintjams.rt.cms.internal.graphql.GraphQLExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequestParser;
 import org.mintjams.rt.cms.internal.graphql.GraphQLResponse;
+import org.mintjams.rt.cms.internal.graphql.GraphQLStreamHandler;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.http.whiteboard.HttpWhiteboardConstants;
 
@@ -72,6 +73,12 @@ public class GraphQLServlet extends HttpServlet {
 
 	private void handleRequest(HttpServletRequest request, HttpServletResponse response)
 			throws ServletException, IOException {
+		// Check for SSE stream request: /bin/graphql.cgi/{workspace}/stream
+		if (isStreamRequest(request)) {
+			handleStream(request, response);
+			return;
+		}
+
 		Session jcrSession = null;
 
 		try {
@@ -194,5 +201,50 @@ public class GraphQLServlet extends HttpServlet {
 		PrintWriter writer = response.getWriter();
 		writer.write(json);
 		writer.flush();
+	}
+
+	/**
+	 * Check if this is an SSE stream request (path ends with /stream)
+	 */
+	private boolean isStreamRequest(HttpServletRequest request) {
+		String pathInfo = Webs.getEffectivePathInfo(request);
+		if (pathInfo == null) {
+			return false;
+		}
+		// Path format: /{workspace}/stream
+		return pathInfo.endsWith("/stream");
+	}
+
+	/**
+	 * Handle SSE stream request for GraphQL subscriptions
+	 */
+	private void handleStream(HttpServletRequest request, HttpServletResponse response)
+			throws ServletException, IOException {
+		// Get workspace name
+		String workspaceName = getWorkspaceName(request);
+		if (workspaceName == null || workspaceName.isEmpty()) {
+			sendError(response, "Workspace name must be specified");
+			return;
+		}
+
+		// Get credentials and create session to verify authentication
+		Credentials credentials = getCredentials(request);
+		Session jcrSession = null;
+		try {
+			jcrSession = CmsService.getRepository().login(credentials, workspaceName);
+		} catch (Throwable e) {
+			CmsService.getLogger(getClass()).error("Failed to create JCR session for stream", e);
+			sendError(response, "Authentication failed: " + e.getMessage());
+			return;
+		} finally {
+			// Release JCR session — the stream handler doesn't need it
+			if (jcrSession != null && jcrSession.isLive()) {
+				jcrSession.logout();
+			}
+		}
+
+		// Delegate to stream handler
+		GraphQLStreamHandler streamHandler = new GraphQLStreamHandler(workspaceName);
+		streamHandler.handle(request, response);
 	}
 }
