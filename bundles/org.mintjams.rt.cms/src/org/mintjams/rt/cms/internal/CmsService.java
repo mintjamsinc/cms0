@@ -49,6 +49,7 @@ import org.mintjams.jcr.spi.security.JcrAuthenticator;
 import org.mintjams.jcr.spi.security.JcrPrincipalProvider;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.bpm.WorkspaceProcessEngineProvider;
+import org.mintjams.rt.cms.internal.cms.event.WorkspaceCmsEventManager;
 import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
@@ -114,6 +115,7 @@ public class CmsService {
 	private final Map<String, WorkspaceProcessEngineProvider> fWorkspaceProcessEngineProviders = new HashMap<>();
 	private final Map<String, WorkspaceIntegrationEngineProvider> fWorkspaceIntegrationEngineProviders = new HashMap<>();
 	private final Map<String, WorkspaceWebServletProvider> fWorkspaceServletProviders = new HashMap<>();
+	private final Map<String, WorkspaceCmsEventManager> fWorkspaceCmsEventManagers = new HashMap<>();
 	private final Closer fCloser = Closer.create();
 
 	@Activate
@@ -320,6 +322,10 @@ public class CmsService {
 		WorkspaceWebServletProvider servletProvider = fCloser.register(new WorkspaceWebServletProvider(workspaceName));
 		fWorkspaceServletProviders.put(workspaceName, servletProvider);
 		servletProvider.open();
+
+		WorkspaceCmsEventManager cmsEventManager = fCloser.register(new WorkspaceCmsEventManager(workspaceName));
+		fWorkspaceCmsEventManagers.put(workspaceName, cmsEventManager);
+		cmsEventManager.open();
 	}
 
 	private void loadContent(String workspaceName) throws ResourceException, IOException {
@@ -407,6 +413,10 @@ public class CmsService {
 
 	public static WorkspaceWebServletProvider getWorkspaceServletProvider(String workspaceName) {
 		return getDefault().fWorkspaceServletProviders.get(workspaceName);
+	}
+
+	public static WorkspaceCmsEventManager getWorkspaceCmsEventManager(String workspaceName) {
+		return getDefault().fWorkspaceCmsEventManagers.get(workspaceName);
 	}
 
 	public static Path getTemporaryDirectoryPath() {
