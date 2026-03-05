@@ -724,6 +724,7 @@ public class JournalObserver implements Adaptable, Closeable {
 							String path = r.getString("item_path");
 							int eventType = r.getInteger("event_type");
 							String primaryType = r.getString("primary_type");
+							String userId = r.getString("user_id");
 
 							if (path.equals("/" + JcrNode.JCR_SYSTEM_NAME) || path.startsWith("/" + JcrNode.JCR_SYSTEM_NAME + "/")) {
 								continue;
@@ -740,6 +741,7 @@ public class JournalObserver implements Adaptable, Closeable {
 											.put("item_path", path)
 											.put("primary_type", primaryType)
 											.put("event_type", eventType)
+											.put("user_id", userId)
 											.build());
 								} while (false);
 								continue;
@@ -760,6 +762,7 @@ public class JournalObserver implements Adaptable, Closeable {
 												.put("event_type", eventType)
 												.put("source_path", r.getString("source_path"))
 												.put("path", true)
+												.put("user_id", userId)
 												.build());
 									} else {
 										event.put("item_path", path);
@@ -788,6 +791,7 @@ public class JournalObserver implements Adaptable, Closeable {
 												.put("item_path", path)
 												.put("primary_type", primaryType)
 												.put("event_type", eventType)
+												.put("user_id", userId)
 												.build());
 									} else {
 										if (event.getInteger("event_type") == Event.NODE_ADDED) {
@@ -826,6 +830,7 @@ public class JournalObserver implements Adaptable, Closeable {
 											.put("primary_type", item.getPrimaryNodeType().getName())
 											.put("event_type", eventType)
 											.put("properties", properties)
+											.put("user_id", userId)
 											.build());
 								} else {
 									@SuppressWarnings("unchecked")
@@ -854,6 +859,7 @@ public class JournalObserver implements Adaptable, Closeable {
 												.put("primary_type", primaryType)
 												.put("event_type", eventType)
 												.put("acl", true)
+												.put("user_id", userId)
 												.build());
 									} else {
 										event.put("acl", true);
