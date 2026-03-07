@@ -26,13 +26,19 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
+import javax.jcr.Binary;
 import javax.jcr.Credentials;
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.Property;
+import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.nodetype.NodeType;
+
+import org.apache.tika.Tika;
+import org.apache.tika.mime.MimeTypeException;
+import org.apache.tika.mime.MimeTypes;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -58,6 +64,7 @@ import org.osgi.service.http.whiteboard.HttpWhiteboardConstants;
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true" })
 public class DownloadServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
+	private static final Tika TIKA = new Tika();
 
 	@Override
 	protected void doGet(HttpServletRequest request, HttpServletResponse response)
@@ -108,6 +115,13 @@ public class DownloadServlet extends HttpServlet {
 				node = jcrSession.getNode(path);
 			} catch (PathNotFoundException ex) {
 				response.sendError(HttpServletResponse.SC_NOT_FOUND, "Node not found: " + path);
+				return;
+			}
+
+			// Check for property download mode
+			String propertyName = request.getParameter("property");
+			if (propertyName != null && !propertyName.isEmpty()) {
+				handlePropertyDownload(node, propertyName, request, response);
 				return;
 			}
 
@@ -198,6 +212,92 @@ public class DownloadServlet extends HttpServlet {
 	}
 
 	/**
+	 * Handle download of a binary property value from a node's jcr:content child.
+	 * URL: /bin/download.cgi/{workspace}/{path}?property={propertyName}
+	 */
+	private void handlePropertyDownload(Node node, String propertyName, HttpServletRequest request, HttpServletResponse response)
+			throws IOException {
+		try {
+			// Validate property name to prevent access to system properties
+			if (propertyName.startsWith("jcr:") || propertyName.startsWith("rep:") || propertyName.startsWith("oak:")) {
+				response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access to system properties is not allowed");
+				return;
+			}
+
+			// Get the content node (properties are stored on jcr:content)
+			Node targetNode = node;
+			if (node.hasNode("jcr:content")) {
+				targetNode = node.getNode("jcr:content");
+			}
+
+			if (!targetNode.hasProperty(propertyName)) {
+				response.sendError(HttpServletResponse.SC_NOT_FOUND, "Property not found: " + propertyName);
+				return;
+			}
+
+			Property prop = targetNode.getProperty(propertyName);
+			if (prop.getType() != PropertyType.BINARY) {
+				response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Property is not a binary type: " + propertyName);
+				return;
+			}
+
+			Binary binary = prop.getBinary();
+			try {
+				long size = binary.getSize();
+
+				// Detect MIME type from content
+				String contentType = "application/octet-stream";
+				try (InputStream detectStream = binary.getStream()) {
+					byte[] header = new byte[2048];
+					int bytesRead = 0;
+					int read;
+					while (bytesRead < header.length && (read = detectStream.read(header, bytesRead, header.length - bytesRead)) != -1) {
+						bytesRead += read;
+					}
+					if (bytesRead > 0) {
+						byte[] buf = (bytesRead == header.length) ? header : java.util.Arrays.copyOf(header, bytesRead);
+						contentType = TIKA.detect(buf);
+					}
+				}
+
+				response.setContentType(contentType);
+				response.setContentLengthLong(size);
+				response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+				response.setHeader("Expires", "0");
+				response.setHeader("Pragma", "no-cache");
+
+				boolean isAttachment;
+				if (request.getParameterMap().containsKey("attachment")) {
+					isAttachment = Boolean.parseBoolean(StringUtils.defaultIfEmpty(
+							request.getParameter("attachment"), Boolean.TRUE.toString()));
+				} else {
+					isAttachment = false;
+				}
+				String fileName = propertyName + getExtensionForMimeType(contentType);
+				response.setHeader("Content-Disposition", createContentDisposition(
+						fileName,
+						request.getHeader("User-Agent"),
+						isAttachment));
+
+				// Re-acquire stream for actual download (previous stream was used for detection)
+				Binary downloadBinary = prop.getBinary();
+				try {
+					try (InputStream in = downloadBinary.getStream()) {
+						IOs.copy(in, response.getOutputStream());
+					}
+				} finally {
+					downloadBinary.dispose();
+				}
+			} finally {
+				binary.dispose();
+			}
+		} catch (RepositoryException ex) {
+			CmsService.getLogger(getClass()).error("Property download failed", ex);
+			response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Internal server error: " + ex.getMessage());
+		}
+	}
+
+	/**
 	 * Extract workspace name from URL Example: /bin/download.cgi/system → "system"
 	 */
 	private String getWorkspaceName(HttpServletRequest request) {
@@ -229,6 +329,21 @@ public class DownloadServlet extends HttpServlet {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Get file extension for a MIME type using Tika's registry.
+	 * Returns an empty string if no extension is found.
+	 */
+	private static String getExtensionForMimeType(String mimeType) {
+		if (mimeType == null || mimeType.isEmpty() || "application/octet-stream".equals(mimeType)) {
+			return "";
+		}
+		try {
+			return MimeTypes.getDefaultMimeTypes().forName(mimeType).getExtension();
+		} catch (MimeTypeException ex) {
+			return "";
+		}
 	}
 
 	/**

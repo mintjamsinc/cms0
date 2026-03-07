@@ -74,7 +74,8 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
 
 - `properties` は `jcr:*` を除いた全プロパティを列挙します。
 - 各要素は `{ name, propertyValue }`。`propertyValue` は Union で、`__typename`, `type`, `value` (単一) または `values` (配列) を返します。
-- バイナリ値は Base64、日時は ISO-8601 (UTC) 文字列で返します。
+- バイナリ値はレスポンスにデータを含みません。代わりに `mimeType` (先頭バイトから Tika で検出) と `size` (バイト数) を返します。バイナリデータのダウンロードは `/bin/download.cgi/{workspace}/{path}?property={propertyName}` を使用してください。
+- 日時は ISO-8601 (UTC) 文字列で返します。
 
 `search` クエリのみ `node.score` を追加で埋め込みます。
 
@@ -89,7 +90,7 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
 | `DoublePropertyValue` / `DecimalPropertyValue` | `DOUBLE` / `DECIMAL` | 数値 |
 | `BooleanPropertyValue` | `BOOLEAN` | 真偽値 |
 | `DatePropertyValue` | `DATE` | ISO-8601 文字列 |
-| `BinaryPropertyValue` | `BINARY` | Base64 |
+| `BinaryPropertyValue` | `BINARY` | `value` は `null` (データ非含有)。代わりに `mimeType` (Tika 検出) と `size` (バイト数) を返す |
 | `NamePropertyValue`, `PathPropertyValue`, `UriPropertyValue` | `NAME` / `PATH` / `URI` | 文字列 |
 | `ReferencePropertyValue`, `WeakreferencePropertyValue` | `REFERENCE` / `WEAKREFERENCE` | 参照先 UUID |
 
@@ -498,3 +499,20 @@ mutation {
 - `search` は全文検索専用で `nt:file` に固定されています。レリバンススコア順で結果が返されます。
   複合条件や任意の並べ替えが必要な場合は `query` クエリまたは `xpath` クエリを使用してください。
 - `createFile` / `PropertyValueInput` のバイナリは Base64、日付は ISO-8601 (UTC) で渡してください。
+
+## バイナリプロパティのダウンロード
+
+バイナリ型プロパティの値をダウンロードするには、以下のエンドポイントを使用します。
+
+```
+GET /bin/download.cgi/{workspace}/{path}?property={propertyName}
+```
+
+| パラメータ | 説明 |
+| --- | --- |
+| `property` | ダウンロード対象のプロパティ名 (必須) |
+| `attachment` | `true` の場合 `Content-Disposition: attachment` (省略時は `inline`) |
+
+- `jcr:content` 子ノードのプロパティを対象とします。
+- `jcr:`、`rep:`、`oak:` で始まるシステムプロパティへのアクセスは禁止されています。
+- MIME タイプは先頭バイトから Tika で自動検出し、`Content-Type` ヘッダーに設定されます。

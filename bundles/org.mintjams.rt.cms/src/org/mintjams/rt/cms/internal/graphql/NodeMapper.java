@@ -22,7 +22,9 @@
 
 package org.mintjams.rt.cms.internal.graphql;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -30,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.jcr.Binary;
 import javax.jcr.Node;
 import javax.jcr.Property;
 import javax.jcr.PropertyIterator;
@@ -39,6 +42,7 @@ import javax.jcr.lock.Lock;
 import javax.jcr.lock.LockManager;
 import javax.jcr.version.VersionManager;
 
+import org.apache.tika.Tika;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
 import org.mintjams.rt.cms.internal.web.Webs;
@@ -47,6 +51,9 @@ import org.mintjams.rt.cms.internal.web.Webs;
  * Mapper to convert JCR nodes to GraphQL format with field selection optimization
  */
 public class NodeMapper {
+
+	private static final Tika TIKA = new Tika();
+	private static final int MIME_DETECT_BUFFER_SIZE = 2048;
 
 	private static final DateTimeFormatter ISO8601_FORMAT;
 	static {
@@ -280,20 +287,22 @@ public class NodeMapper {
 
 					// Get propertyValue as Union type
 					if (includeAll || propertiesSelection == null || propertiesSelection.hasField("propertyValue")) {
-						String typeName = PropertyType.nameFromValue(prop.getType());
-						Object value;
-
-						if (prop.isMultiple()) {
+						if (prop.getType() == PropertyType.BINARY) {
+							// For Binary properties, omit the full value.
+							// Detect MIME type from content header and include size.
+							nodeProperty.put("propertyValue", getBinaryPropertyMetadata(prop));
+						} else if (prop.isMultiple()) {
 							// Multiple values
+							String typeName = PropertyType.nameFromValue(prop.getType());
 							List<Object> values = new ArrayList<>();
 							for (javax.jcr.Value jcrValue : prop.getValues()) {
 								values.add(getPropertyValue(jcrValue));
 							}
-							value = values;
-							nodeProperty.put("propertyValue", PropertyValue.toGraphQL(typeName, value, true));
+							nodeProperty.put("propertyValue", PropertyValue.toGraphQL(typeName, values, true));
 						} else {
 							// Single value
-							value = getPropertyValue(prop.getValue());
+							String typeName = PropertyType.nameFromValue(prop.getType());
+							Object value = getPropertyValue(prop.getValue());
 							nodeProperty.put("propertyValue", PropertyValue.toGraphQL(typeName, value, false));
 						}
 					}
@@ -331,14 +340,54 @@ public class NodeMapper {
 			case PropertyType.DATE:
 				return formatDate(value.getDate());
 			case PropertyType.BINARY:
-				// For Binary, return Base64 encoded string
-				return java.util.Base64.getEncoder().encodeToString(value.getBinary().getStream().readAllBytes());
+				// Binary values are handled separately by getBinaryPropertyMetadata
+				return null;
 			default:
 				return value.getString();
 			}
 		} catch (Throwable ex) {
 			return "[Error]";
 		}
+	}
+
+	/**
+	 * Build metadata map for a BINARY property.
+	 * Reads up to MIME_DETECT_BUFFER_SIZE bytes to detect the MIME type via Tika,
+	 * and includes the binary size. The full value is omitted.
+	 */
+	private static Map<String, Object> getBinaryPropertyMetadata(Property prop) {
+		Map<String, Object> result = new HashMap<>();
+		result.put("__typename", "BinaryPropertyValue");
+		result.put("type", "BINARY");
+		result.put("value", null);
+
+		try {
+			Binary binary = prop.getBinary();
+			try {
+				result.put("size", binary.getSize());
+
+				// Read a small header to detect MIME type
+				try (InputStream in = new BufferedInputStream(binary.getStream())) {
+					byte[] header = new byte[MIME_DETECT_BUFFER_SIZE];
+					int bytesRead = 0;
+					int read;
+					while (bytesRead < header.length && (read = in.read(header, bytesRead, header.length - bytesRead)) != -1) {
+						bytesRead += read;
+					}
+					if (bytesRead > 0) {
+						byte[] buf = (bytesRead == header.length) ? header : java.util.Arrays.copyOf(header, bytesRead);
+						String mimeType = TIKA.detect(buf);
+						result.put("mimeType", mimeType);
+					}
+				}
+			} finally {
+				binary.dispose();
+			}
+		} catch (Throwable ex) {
+			// If detection fails, return without mimeType/size
+		}
+
+		return result;
 	}
 
 	/**
