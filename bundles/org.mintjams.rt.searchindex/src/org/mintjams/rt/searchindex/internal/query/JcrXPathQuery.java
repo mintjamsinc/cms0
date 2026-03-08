@@ -820,7 +820,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 		protected String compile() {
 			String query = fStatement;
 			String filename = null;
-			String primaryType = null;
+			String nodeType = null;
 			int depth = -1;
 
 			if (query.startsWith(JCR_ROOT_PATH + "/")) {
@@ -864,7 +864,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					} else {
 						query = regex.replaceFirst("/" + args[0].trim());
 					}
-					primaryType = args[1].trim();
+					nodeType = args[1].trim();
 				}
 			}
 
@@ -910,11 +910,15 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				}
 				buf.append("_name:").append(escape(filename));
 			}
-			if (Strings.isNotEmpty(primaryType)) {
+			if (Strings.isNotEmpty(nodeType)) {
 				if (buf.length() > 0) {
 					buf.append(" AND ");
 				}
-				buf.append(escape("jcr:primaryType")).append(":").append(escape(primaryType));
+				buf.append("(");
+				buf.append(escape("jcr:primaryType")).append(":").append(escape(nodeType));
+				buf.append(" OR ");
+				buf.append(escape("jcr:mixinTypes")).append(":").append(escape(nodeType));
+				buf.append(")");
 			}
 			if (depth != -1) {
 				if (buf.length() > 0) {
