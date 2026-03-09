@@ -299,6 +299,10 @@ public class JcrNodeType implements org.mintjams.jcr.nodetype.NodeType, Adaptabl
 				return true;
 			}
 		}
+		// All primary node types implicitly extend nt:base
+		if (!isMixin() && getWorkspaceQuery().getResolved("nt:base").equals(nodeTypeName)) {
+			return true;
+		}
 		return false;
 	}
 

@@ -267,8 +267,7 @@ public class WorkspaceQuery implements Adaptable {
 		public Query.Result listNewNodes(String transactionID) throws SQLException {
 			return newQueryBuilder(
 					"SELECT DISTINCT item_id, item_path, primary_type FROM jcr_journal"
-					+ " WHERE transaction_id = {{id}} AND event_type = {{eventType}}"
-					+ " ORDER BY event_occurred")
+					+ " WHERE transaction_id = {{id}} AND event_type = {{eventType}}")
 					.setVariable("id", transactionID)
 					.setVariable("eventType", Event.NODE_ADDED)
 					.build().setOffset(0).execute();
@@ -277,8 +276,7 @@ public class WorkspaceQuery implements Adaptable {
 		public Query.Result listRemovedNodes(String transactionID) throws SQLException {
 			return newQueryBuilder(
 					"SELECT DISTINCT item_id, item_path FROM jcr_journal"
-					+ " WHERE transaction_id = {{id}} AND event_type = {{eventType}}"
-					+ " ORDER BY event_occurred")
+					+ " WHERE transaction_id = {{id}} AND event_type = {{eventType}}")
 					.setVariable("id", transactionID)
 					.setVariable("eventType", Event.NODE_REMOVED)
 					.build().setOffset(0).execute();
