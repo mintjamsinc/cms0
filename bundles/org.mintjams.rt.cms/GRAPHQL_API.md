@@ -92,9 +92,9 @@ curl -X POST http://localhost:8080/bin/graphql.cgi/web \
 | `DatePropertyValue` | `DATE` | ISO-8601 文字列 |
 | `BinaryPropertyValue` | `BINARY` | `value` は `null` (データ非含有)。代わりに `mimeType` (Tika 検出) と `size` (バイト数) を返す |
 | `NamePropertyValue`, `PathPropertyValue`, `UriPropertyValue` | `NAME` / `PATH` / `URI` | 文字列 |
-| `ReferencePropertyValue`, `WeakreferencePropertyValue` | `REFERENCE` / `WEAKREFERENCE` | 参照先 UUID |
+| `ReferencePropertyValue`, `WeakreferencePropertyValue` | `REFERENCE` / `WEAKREFERENCE` | `value` に参照先 UUID、`path` にリポジトリパスを返す (解決できない場合は `null`) |
 
-配列プロパティの場合は `...PropertyValueArray` となり `values` に List が入ります。
+配列プロパティの場合は `...PropertyValueArray` となり `values` に UUID リスト、`paths` にパスリストが入ります。
 
 `setProperties` ミューテーションでは `PropertyValueInput` を使用します。以下のうち **1 フィールドのみ** を指定してください (配列は `*ArrayValue` フィールドを利用)。2つ以上指定された場合は、バリデーションエラーとなります。
 

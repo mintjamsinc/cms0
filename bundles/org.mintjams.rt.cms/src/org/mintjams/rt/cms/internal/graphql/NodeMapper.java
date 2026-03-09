@@ -291,6 +291,9 @@ public class NodeMapper {
 							// For Binary properties, omit the full value.
 							// Detect MIME type from content header and include size.
 							nodeProperty.put("propertyValue", getBinaryPropertyMetadata(prop));
+						} else if (prop.getType() == PropertyType.REFERENCE || prop.getType() == PropertyType.WEAKREFERENCE) {
+							// For Reference properties, resolve UUID to path alongside the UUID value.
+							nodeProperty.put("propertyValue", getReferencePropertyMetadata(prop));
 						} else if (prop.isMultiple()) {
 							// Multiple values
 							String typeName = PropertyType.nameFromValue(prop.getType());
@@ -388,6 +391,47 @@ public class NodeMapper {
 		}
 
 		return result;
+	}
+
+	/**
+	 * Build metadata map for a REFERENCE or WEAKREFERENCE property.
+	 * Includes the UUID as value and resolves the path from the repository.
+	 */
+	private static Map<String, Object> getReferencePropertyMetadata(Property prop) throws RepositoryException {
+		String typeName = PropertyType.nameFromValue(prop.getType());
+		String baseName = typeName.substring(0, 1).toUpperCase() + typeName.substring(1).toLowerCase();
+		Map<String, Object> result = new HashMap<>();
+		result.put("type", typeName);
+		if (prop.isMultiple()) {
+			result.put("__typename", baseName + "PropertyValueArray");
+			List<String> uuids = new ArrayList<>();
+			List<String> paths = new ArrayList<>();
+			for (javax.jcr.Value v : prop.getValues()) {
+				String uuid = v.getString();
+				uuids.add(uuid);
+				paths.add(resolveUuidToPath(uuid, prop));
+			}
+			result.put("values", uuids);
+			result.put("paths", paths);
+		} else {
+			result.put("__typename", baseName + "PropertyValue");
+			String uuid = prop.getString();
+			result.put("value", uuid);
+			result.put("path", resolveUuidToPath(uuid, prop));
+		}
+		return result;
+	}
+
+	/**
+	 * Resolve a JCR node UUID to its repository path.
+	 * Returns null if the node cannot be found.
+	 */
+	private static String resolveUuidToPath(String uuid, Property prop) {
+		try {
+			return prop.getSession().getNodeByIdentifier(uuid).getPath();
+		} catch (Throwable ex) {
+			return null;
+		}
 	}
 
 	/**
