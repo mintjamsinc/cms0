@@ -624,15 +624,6 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			ConstraintViolationException, LockException, RepositoryException {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_NODE_TYPE_MANAGEMENT);
 		checkWritable();
-		if (isNodeType(NodeType.MIX_REFERENCEABLE)) {
-			try {
-				if (getWorkspaceQuery().items().countReferenced(getIdentifier()) > 0) {
-					throw new ConstraintViolationException("Node '" + getPath() + "' is referenced.");
-				}
-			} catch (IOException | SQLException ex) {
-				throw Cause.create(ex).wrap(RepositoryException.class);
-			}
-		}
 		try {
 			getWorkspaceQuery().items().removeMixin(getIdentifier(), mixinName);
 		} catch (IOException | SQLException ex) {
@@ -897,15 +888,6 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			}
 		}
 
-		if (isNodeType(NodeType.MIX_REFERENCEABLE)) {
-			try {
-				if (getWorkspaceQuery().items().countReferenced(getIdentifier()) > 0) {
-					throw new ConstraintViolationException("Node '" + getPath() + "' is referenced.");
-				}
-			} catch (IOException | SQLException ex) {
-				throw Cause.create(ex).wrap(RepositoryException.class);
-			}
-		}
 	}
 
 	private boolean isRootNode() {
