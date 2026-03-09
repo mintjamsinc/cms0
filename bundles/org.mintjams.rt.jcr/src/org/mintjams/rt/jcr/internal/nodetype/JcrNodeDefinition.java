@@ -26,12 +26,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import javax.jcr.RepositoryException;
 import javax.jcr.nodetype.NodeDefinition;
 import javax.jcr.nodetype.NodeType;
 
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.collections.AdaptableMap;
+import org.mintjams.tools.lang.Cause;
 
 public class JcrNodeDefinition implements NodeDefinition, Adaptable {
 
@@ -45,6 +47,15 @@ public class JcrNodeDefinition implements NodeDefinition, Adaptable {
 
 	public static JcrNodeDefinition create(Map<String, Object> metadata, JcrNodeType nodeType) {
 		return new JcrNodeDefinition(metadata, nodeType);
+	}
+
+	@SuppressWarnings("unchecked")
+	private List<String> requiredTypes() {
+		List<String> types = (List<String>) fMetadata.get("requiredTypes");
+		if (types == null) {
+			types = new ArrayList<>();
+		}
+		return types;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -94,8 +105,15 @@ public class JcrNodeDefinition implements NodeDefinition, Adaptable {
 
 	@Override
 	public NodeType getDefaultPrimaryType() {
-		// TODO Auto-generated method stub
-		return null;
+		String name = getDefaultPrimaryTypeName();
+		if (name == null) {
+			return null;
+		}
+		try {
+			return adaptTo(JcrNodeTypeManager.class).getNodeType(name);
+		} catch (RepositoryException ex) {
+			throw Cause.create(ex).wrap(IllegalStateException.class);
+		}
 	}
 
 	@Override
@@ -105,14 +123,29 @@ public class JcrNodeDefinition implements NodeDefinition, Adaptable {
 
 	@Override
 	public String[] getRequiredPrimaryTypeNames() {
-		// TODO Auto-generated method stub
-		return null;
+		List<String> types = requiredTypes();
+		if (types.isEmpty()) {
+			return new String[0];
+		}
+		return types.toArray(String[]::new);
 	}
 
 	@Override
 	public NodeType[] getRequiredPrimaryTypes() {
-		// TODO Auto-generated method stub
-		return null;
+		List<String> typeNames = requiredTypes();
+		if (typeNames.isEmpty()) {
+			return new NodeType[0];
+		}
+		List<NodeType> types = new ArrayList<>();
+		try {
+			JcrNodeTypeManager ntm = adaptTo(JcrNodeTypeManager.class);
+			for (String name : typeNames) {
+				types.add(ntm.getNodeType(name));
+			}
+		} catch (RepositoryException ex) {
+			throw Cause.create(ex).wrap(IllegalStateException.class);
+		}
+		return types.toArray(NodeType[]::new);
 	}
 
 	@Override

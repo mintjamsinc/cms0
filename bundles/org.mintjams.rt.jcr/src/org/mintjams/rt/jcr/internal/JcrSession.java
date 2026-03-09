@@ -512,6 +512,7 @@ public class JcrSession implements Session, Adaptable {
 		}
 
 		validateNodeTypeConstraints();
+		validateReferentialIntegrity();
 
 		try {
 			getWorkspaceQuery().commit();
@@ -580,6 +581,32 @@ public class JcrSession implements Session, Adaptable {
 				}
 			}
 		} catch (ConstraintViolationException ex) {
+			throw ex;
+		} catch (Exception ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+	}
+
+	private void validateReferentialIntegrity() throws ReferentialIntegrityException, RepositoryException {
+		try {
+			String transactionID = adaptTo(SessionIdentifier.class).getTransactionIdentifier();
+
+			try (Query.Result result = getWorkspaceQuery().journal().listRemovedNodes(transactionID)) {
+				for (Iterator<AdaptableMap<String, Object>> i = result.iterator(); i.hasNext();) {
+					AdaptableMap<String, Object> row = i.next();
+					String itemID = row.getString("item_id");
+					String itemPath = row.getString("item_path");
+
+					long refCount = getWorkspaceQuery().items().countReferenced(itemID);
+					if (refCount > 0) {
+						throw new ReferentialIntegrityException(
+								"Cannot remove node '" + itemPath
+								+ "': it is still referenced by " + refCount
+								+ " REFERENCE property(ies).");
+					}
+				}
+			}
+		} catch (ReferentialIntegrityException ex) {
 			throw ex;
 		} catch (Exception ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);

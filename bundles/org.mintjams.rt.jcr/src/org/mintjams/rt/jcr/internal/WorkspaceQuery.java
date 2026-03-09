@@ -273,6 +273,16 @@ public class WorkspaceQuery implements Adaptable {
 					.setVariable("eventType", Event.NODE_ADDED)
 					.build().setOffset(0).execute();
 		}
+
+		public Query.Result listRemovedNodes(String transactionID) throws SQLException {
+			return newQueryBuilder(
+					"SELECT DISTINCT item_id, item_path FROM jcr_journal"
+					+ " WHERE transaction_id = {{id}} AND event_type = {{eventType}}"
+					+ " ORDER BY event_occurred")
+					.setVariable("id", transactionID)
+					.setVariable("eventType", Event.NODE_REMOVED)
+					.build().setOffset(0).execute();
+		}
 	}
 
 	public class FilesQuery {
@@ -472,6 +482,13 @@ public class WorkspaceQuery implements Adaptable {
 				mixinTypes.add(mixinType);
 			}
 
+			// Check child node definition constraints against parent node type
+			if (parentItemData != null) {
+				JcrNode parentNode = JcrNode.create(parentItemData, adaptTo(JcrSession.class));
+				NodeType childType = getNodeTypeManager().getNodeType(primaryType);
+				validateChildNodeDefinition(parentNode, itemName, childType);
+			}
+
 			String id = el.getString("definition.identifier");
 			if (Strings.isEmpty(id)) {
 				id = UUID.randomUUID().toString();
@@ -513,6 +530,74 @@ public class WorkspaceQuery implements Adaptable {
 				postCreateNode(itemData, definition);
 			}
 			return itemData;
+		}
+
+		private void validateChildNodeDefinition(JcrNode parentNode, String childName, NodeType childType)
+				throws ConstraintViolationException, RepositoryException {
+			// Collect all child node definitions from primary type and mixins
+			List<NodeDefinition> allChildDefs = new ArrayList<>();
+			NodeType primaryType = parentNode.getPrimaryNodeType();
+			for (NodeDefinition def : primaryType.getChildNodeDefinitions()) {
+				allChildDefs.add(def);
+			}
+			for (NodeType mixin : parentNode.getMixinNodeTypes()) {
+				for (NodeDefinition def : mixin.getChildNodeDefinitions()) {
+					allChildDefs.add(def);
+				}
+			}
+
+			if (allChildDefs.isEmpty()) {
+				throw new ConstraintViolationException(
+						"Node type '" + primaryType.getName()
+						+ "' does not allow child nodes.");
+			}
+
+			// Search for a matching named definition first, then fall back to residual
+			NodeDefinition matchedDef = null;
+			NodeDefinition residualDef = null;
+			for (NodeDefinition def : allChildDefs) {
+				if ("*".equals(def.getName())) {
+					if (residualDef == null) {
+						residualDef = def;
+					}
+				} else if (def.getName().equals(childName)) {
+					matchedDef = def;
+					break;
+				}
+			}
+
+			NodeDefinition effectiveDef = (matchedDef != null) ? matchedDef : residualDef;
+			if (effectiveDef == null) {
+				throw new ConstraintViolationException(
+						"Node type '" + primaryType.getName()
+						+ "' does not allow child node '" + childName + "'.");
+			}
+
+			// Check requiredPrimaryTypes
+			String[] requiredTypeNames = effectiveDef.getRequiredPrimaryTypeNames();
+			if (requiredTypeNames != null && requiredTypeNames.length > 0) {
+				boolean typeAllowed = false;
+				for (String requiredTypeName : requiredTypeNames) {
+					if (childType.isNodeType(requiredTypeName)) {
+						typeAllowed = true;
+						break;
+					}
+				}
+				if (!typeAllowed) {
+					throw new ConstraintViolationException(
+							"Child node '" + childName + "' of type '" + childType.getName()
+							+ "' does not satisfy required type constraint "
+							+ Arrays.toString(requiredTypeNames)
+							+ " of parent node type '" + primaryType.getName() + "'.");
+				}
+			}
+
+			// Check sameNameSiblings
+			if (!effectiveDef.allowsSameNameSiblings() && parentNode.hasNode(childName)) {
+				throw new ConstraintViolationException(
+						"Child node '" + childName + "' already exists and same-name siblings"
+						+ " are not allowed by node type '" + primaryType.getName() + "'.");
+			}
 		}
 
 		private void postCreateNode(AdaptableMap<String, Object> itemData, Map<String, Object> definition)
