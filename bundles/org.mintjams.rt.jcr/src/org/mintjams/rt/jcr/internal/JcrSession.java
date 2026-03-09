@@ -28,6 +28,7 @@ import java.io.OutputStream;
 import java.security.AccessControlException;
 import java.sql.SQLException;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -52,7 +53,10 @@ import javax.jcr.Workspace;
 import javax.jcr.lock.LockException;
 import javax.jcr.nodetype.ConstraintViolationException;
 import javax.jcr.nodetype.NoSuchNodeTypeException;
+import javax.jcr.nodetype.NodeDefinition;
 import javax.jcr.nodetype.NodeType;
+import javax.jcr.nodetype.NodeTypeManager;
+import javax.jcr.nodetype.PropertyDefinition;
 import javax.jcr.retention.RetentionManager;
 import javax.jcr.security.AccessControlManager;
 import javax.jcr.security.Privilege;
@@ -73,8 +77,10 @@ import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
+import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
+import org.mintjams.tools.sql.Query;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.SAXException;
 
@@ -505,6 +511,8 @@ public class JcrSession implements Session, Adaptable {
 			return;
 		}
 
+		validateNodeTypeConstraints();
+
 		try {
 			getWorkspaceQuery().commit();
 		} catch (SQLException ex) {
@@ -516,6 +524,66 @@ public class JcrSession implements Session, Adaptable {
 		adaptTo(WorkspaceCleaner.class).comitted();
 		sessionIdentifier.nextTransaction();
 		adaptTo(JcrCache.class).clear();
+	}
+
+	private void validateNodeTypeConstraints() throws ConstraintViolationException, RepositoryException {
+		try {
+			NodeTypeManager ntManager = fWorkspace.getNodeTypeManager();
+			String transactionID = adaptTo(SessionIdentifier.class).getTransactionIdentifier();
+
+			try (Query.Result result = getWorkspaceQuery().journal().listNewNodes(transactionID)) {
+				for (Iterator<AdaptableMap<String, Object>> i = result.iterator(); i.hasNext();) {
+					AdaptableMap<String, Object> row = i.next();
+					String itemPath = row.getString("item_path");
+					String primaryType = row.getString("primary_type");
+
+					NodeType nodeType = ntManager.getNodeType(primaryType);
+
+					// Check mandatory child node definitions
+					for (NodeDefinition childDef : nodeType.getChildNodeDefinitions()) {
+						if (!childDef.isMandatory() || childDef.isAutoCreated()) {
+							continue;
+						}
+						String childName = childDef.getName();
+						if ("*".equals(childName)) {
+							continue;
+						}
+						String childPath = itemPath + "/" + childName;
+						if (!nodeExists(childPath)) {
+							throw new ConstraintViolationException(
+									"Mandatory child node '" + childName
+									+ "' is missing on node " + itemPath
+									+ " (type: " + primaryType + ")");
+						}
+					}
+
+					// Check mandatory property definitions
+					for (PropertyDefinition propDef : nodeType.getPropertyDefinitions()) {
+						if (!propDef.isMandatory()) {
+							continue;
+						}
+						if (propDef.isAutoCreated() && propDef.isProtected()) {
+							continue;
+						}
+						String propName = propDef.getName();
+						if ("*".equals(propName)) {
+							continue;
+						}
+						String propPath = itemPath + "/" + propName;
+						if (!propertyExists(propPath)) {
+							throw new ConstraintViolationException(
+									"Mandatory property '" + propName
+									+ "' is missing on node " + itemPath
+									+ " (type: " + primaryType + ")");
+						}
+					}
+				}
+			}
+		} catch (ConstraintViolationException ex) {
+			throw ex;
+		} catch (Exception ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
 	}
 
 	@Override

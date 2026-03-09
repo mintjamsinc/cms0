@@ -263,6 +263,16 @@ public class WorkspaceQuery implements Adaptable {
 			return newQueryBuilder("SELECT * FROM jcr_journal WHERE transaction_id = {{id}} ORDER BY event_occurred")
 					.setVariable("id", id).build().setOffset(0).execute();
 		}
+
+		public Query.Result listNewNodes(String transactionID) throws SQLException {
+			return newQueryBuilder(
+					"SELECT DISTINCT item_id, item_path, primary_type FROM jcr_journal"
+					+ " WHERE transaction_id = {{id}} AND event_type = {{eventType}}"
+					+ " ORDER BY event_occurred")
+					.setVariable("id", transactionID)
+					.setVariable("eventType", Event.NODE_ADDED)
+					.build().setOffset(0).execute();
+		}
 	}
 
 	public class FilesQuery {

@@ -88,7 +88,7 @@ public class JcrNodeType implements org.mintjams.jcr.nodetype.NodeType, Adaptabl
 	@Override
 	public NodeDefinition[] getDeclaredChildNodeDefinitions() {
 		List<NodeDefinition> l = new ArrayList<>();
-		for (Map<String, Object> e : propertyDefinitions()) {
+		for (Map<String, Object> e : childNodeDefinitions()) {
 			l.add(JcrNodeDefinition.create(e, this));
 		}
 		return l.toArray(NodeDefinition[]::new);
