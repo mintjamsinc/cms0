@@ -241,7 +241,22 @@ public class DownloadServlet extends HttpServlet {
 				return;
 			}
 
-			Binary binary = prop.getBinary();
+			Binary binary;
+			if (prop.isMultiple()) {
+				String indexParam = request.getParameter("index");
+				int index = 0;
+				if (indexParam != null && !indexParam.isEmpty()) {
+					try { index = Integer.parseInt(indexParam); } catch (NumberFormatException ignore) {}
+				}
+				javax.jcr.Value[] values = prop.getValues();
+				if (index < 0 || index >= values.length) {
+					response.sendError(HttpServletResponse.SC_NOT_FOUND, "Index out of range: " + index);
+					return;
+				}
+				binary = values[index].getBinary();
+			} else {
+				binary = prop.getBinary();
+			}
 			try {
 				long size = binary.getSize();
 
