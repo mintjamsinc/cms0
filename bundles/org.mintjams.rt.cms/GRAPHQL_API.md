@@ -106,6 +106,9 @@ decimalValue / decimalArrayValue
 booleanValue / booleanArrayValue
 dateValue / dateArrayValue
 binaryValue
+binaryUploadId
+binaryArrayUploadIds
+binaryArrayItems          ← [BinaryArrayItemInput!] 既存値の保持と新規アップロードを混在可能
 nameValue / nameArrayValue
 pathValue / pathArrayValue
 referenceValue / referenceArrayValue
@@ -114,6 +117,29 @@ uriValue / uriArrayValue
 ```
 
 日時は ISO-8601、Binary/ファイルデータは Base64 で渡します。Reference 系は UUID を指定してください。
+
+### BinaryArrayItemInput
+
+バイナリ配列プロパティの個別アイテム操作用の入力型です。既存サーバー値の保持・並べ替えと新規アップロードを混在させることができます。
+
+```
+input BinaryArrayItemInput {
+  keepIndex: Int     # 既存サーバー値のインデックスを保持
+  uploadId: String   # 新規アップロードの ID
+}
+```
+
+いずれか **1 フィールドのみ** を指定してください。例:
+```graphql
+setProperties(path: "/content/item", properties: [{
+  name: "mi:thumbnail",
+  value: { binaryArrayItems: [
+    { keepIndex: 1 },        # 元の 2 番目を先頭に
+    { uploadId: "abc-123" }, # 新規アップロードを 2 番目に
+    { keepIndex: 0 }         # 元の 1 番目を 3 番目に
+  ]}
+}])
+```
 
 ## Relay Connection 共通仕様
 

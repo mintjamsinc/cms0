@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
 
+import javax.jcr.Binary;
 import javax.jcr.Node;
 import javax.jcr.Session;
 import javax.jcr.Value;
@@ -435,6 +436,47 @@ public class MutationExecutor {
 							propertyType == javax.jcr.PropertyType.WEAKREFERENCE);
 				}
 				node.setProperty(name, values);
+			} else if (propertyType == javax.jcr.PropertyType.BINARY && propValue.isBinaryMixedArray()) {
+				// Handle mixed binary array: each item is either {keepIndex: N} or {uploadId: "..."}
+				Value[] binValues = new Value[valueList.size()];
+				MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
+				// Read existing values from the property (if it exists)
+				Value[] existingValues = null;
+				if (node.hasProperty(name)) {
+					javax.jcr.Property existingProp = node.getProperty(name);
+					if (existingProp.isMultiple()) {
+						existingValues = existingProp.getValues();
+					}
+				}
+				for (int i = 0; i < valueList.size(); i++) {
+					@SuppressWarnings("unchecked")
+					Map<String, Object> item = (Map<String, Object>) valueList.get(i);
+					if (item.containsKey("keepIndex") && item.get("keepIndex") != null) {
+						int keepIdx = ((Number) item.get("keepIndex")).intValue();
+						if (existingValues == null || keepIdx < 0 || keepIdx >= existingValues.length) {
+							throw new IllegalArgumentException("keepIndex " + keepIdx + " is out of range for property " + name);
+						}
+						// Copy binary from existing value
+						Binary existingBinary = existingValues[keepIdx].getBinary();
+						try (InputStream in = existingBinary.getStream()) {
+							binValues[i] = this.session.getValueFactory().createValue(
+									this.session.getValueFactory().createBinary(in));
+						} finally {
+							existingBinary.dispose();
+						}
+					} else if (item.containsKey("uploadId") && item.get("uploadId") != null) {
+						String uploadId = item.get("uploadId").toString();
+						try (InputStream in = uploadManager.openInputStream(uploadId)) {
+							binValues[i] = this.session.getValueFactory().createValue(
+									this.session.getValueFactory().createBinary(in));
+						} finally {
+							uploadManager.deleteUpload(uploadId);
+						}
+					} else {
+						throw new IllegalArgumentException("BinaryArrayItemInput must specify either keepIndex or uploadId");
+					}
+				}
+				node.setProperty(name, binValues);
 			} else if (propertyType == javax.jcr.PropertyType.BINARY && propValue.isBinaryUpload()) {
 				// Handle binary array via chunk upload IDs
 				Value[] binValues = new Value[valueList.size()];

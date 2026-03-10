@@ -38,12 +38,18 @@ public class PropertyValue {
 	private final Object value;
 	private final boolean isMultiple;
 	private final boolean isBinaryUpload;
+	private final boolean isBinaryMixedArray;
 
 	private PropertyValue(String type, Object value, boolean isMultiple, boolean isBinaryUpload) {
+		this(type, value, isMultiple, isBinaryUpload, false);
+	}
+
+	private PropertyValue(String type, Object value, boolean isMultiple, boolean isBinaryUpload, boolean isBinaryMixedArray) {
 		this.type = type;
 		this.value = value;
 		this.isMultiple = isMultiple;
 		this.isBinaryUpload = isBinaryUpload;
+		this.isBinaryMixedArray = isBinaryMixedArray;
 	}
 
 	/**
@@ -245,6 +251,16 @@ public class PropertyValue {
 			isMultiple = true;
 			isBinaryUpload = true;
 		}
+		if (input.containsKey("binaryArrayItems")) {
+			if (setField != null) {
+				throw new IllegalArgumentException("PropertyValueInput must contain exactly one value field. Found: " + setField + " and binaryArrayItems");
+			}
+			setField = "binaryArrayItems";
+			setValue = input.get("binaryArrayItems");
+			isMultiple = true;
+			isBinaryUpload = true;
+			return new PropertyValue(getJcrTypeFromFieldName(setField), setValue, true, true, true);
+		}
 
 		if (setField == null) {
 			throw new IllegalArgumentException("PropertyValueInput must contain exactly one value field");
@@ -297,7 +313,7 @@ public class PropertyValue {
 			return "WEAKREFERENCE";
 		} else if (fieldName.equals("uriValue") || fieldName.equals("uriArrayValue")) {
 			return "URI";
-		} else if (fieldName.equals("binaryUploadId") || fieldName.equals("binaryArrayUploadIds")) {
+		} else if (fieldName.equals("binaryUploadId") || fieldName.equals("binaryArrayUploadIds") || fieldName.equals("binaryArrayItems")) {
 			return "BINARY";
 		}
 		throw new IllegalArgumentException("Unknown field name: " + fieldName);
@@ -322,6 +338,10 @@ public class PropertyValue {
 
 	public boolean isBinaryUpload() {
 		return isBinaryUpload;
+	}
+
+	public boolean isBinaryMixedArray() {
+		return isBinaryMixedArray;
 	}
 
 	/**
