@@ -435,6 +435,20 @@ public class MutationExecutor {
 							propertyType == javax.jcr.PropertyType.WEAKREFERENCE);
 				}
 				node.setProperty(name, values);
+			} else if (propertyType == javax.jcr.PropertyType.BINARY && propValue.isBinaryUpload()) {
+				// Handle binary array via chunk upload IDs
+				Value[] binValues = new Value[valueList.size()];
+				MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
+				for (int i = 0; i < valueList.size(); i++) {
+					String uploadId = valueList.get(i).toString();
+					try (InputStream in = uploadManager.openInputStream(uploadId)) {
+						binValues[i] = this.session.getValueFactory().createValue(
+								this.session.getValueFactory().createBinary(in));
+					} finally {
+						uploadManager.deleteUpload(uploadId);
+					}
+				}
+				node.setProperty(name, binValues);
 			} else {
 				// Handle other array types
 				switch (propertyType) {
@@ -492,9 +506,20 @@ public class MutationExecutor {
 						propertyType == javax.jcr.PropertyType.WEAKREFERENCE);
 				node.setProperty(name, refValue);
 			} else if (propertyType == javax.jcr.PropertyType.BINARY) {
-				// For Binary, value should be Base64 encoded
-				byte[] data = Base64.getDecoder().decode(value.toString());
-				node.setProperty(name, this.session.getValueFactory().createBinary(new ByteArrayInputStream(data)));
+				if (propValue.isBinaryUpload()) {
+					// Binary via chunk upload: read temp file then delete it
+					String uploadId = value.toString();
+					MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
+					try (InputStream in = uploadManager.openInputStream(uploadId)) {
+						node.setProperty(name, this.session.getValueFactory().createBinary(in));
+					} finally {
+						uploadManager.deleteUpload(uploadId);
+					}
+				} else {
+					// For Binary, value should be Base64 encoded
+					byte[] data = Base64.getDecoder().decode(value.toString());
+					node.setProperty(name, this.session.getValueFactory().createBinary(new ByteArrayInputStream(data)));
+				}
 			} else if (propertyType == javax.jcr.PropertyType.DATE) {
 				// For Date, value should be ISO 8601 string
 				Calendar cal = parseISO8601Date(value.toString());

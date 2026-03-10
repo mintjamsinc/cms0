@@ -290,7 +290,9 @@ public class NodeMapper {
 						if (prop.getType() == PropertyType.BINARY) {
 							// For Binary properties, omit the full value.
 							// Detect MIME type from content header and include size.
-							nodeProperty.put("propertyValue", getBinaryPropertyMetadata(prop));
+							nodeProperty.put("propertyValue", prop.isMultiple()
+									? getBinaryArrayPropertyMetadata(prop)
+									: getBinaryPropertyMetadata(prop));
 						} else if (prop.getType() == PropertyType.REFERENCE || prop.getType() == PropertyType.WEAKREFERENCE) {
 							// For Reference properties, resolve UUID to path alongside the UUID value.
 							nodeProperty.put("propertyValue", getReferencePropertyMetadata(prop));
@@ -390,6 +392,49 @@ public class NodeMapper {
 			// If detection fails, return without mimeType/size
 		}
 
+		return result;
+	}
+
+	/**
+	 * Build metadata map for a multi-valued BINARY property.
+	 * Iterates each binary value to detect MIME type and collect size.
+	 */
+	private static Map<String, Object> getBinaryArrayPropertyMetadata(Property prop) {
+		List<Object> mimeTypes = new ArrayList<>();
+		List<Object> sizes = new ArrayList<>();
+
+		try {
+			for (javax.jcr.Value jcrValue : prop.getValues()) {
+				Binary binary = jcrValue.getBinary();
+				try {
+					sizes.add(binary.getSize());
+					try (InputStream in = new BufferedInputStream(binary.getStream())) {
+						byte[] header = new byte[MIME_DETECT_BUFFER_SIZE];
+						int bytesRead = 0;
+						int read;
+						while (bytesRead < header.length && (read = in.read(header, bytesRead, header.length - bytesRead)) != -1) {
+							bytesRead += read;
+						}
+						if (bytesRead > 0) {
+							byte[] buf = (bytesRead == header.length) ? header : java.util.Arrays.copyOf(header, bytesRead);
+							mimeTypes.add(TIKA.detect(buf));
+						} else {
+							mimeTypes.add(null);
+						}
+					}
+				} finally {
+					binary.dispose();
+				}
+			}
+		} catch (Throwable ex) {
+			// If detection fails, return what we have so far
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("__typename", "BinaryPropertyValueArray");
+		result.put("type", "BINARY");
+		result.put("mimeTypes", mimeTypes);
+		result.put("sizes", sizes);
 		return result;
 	}
 

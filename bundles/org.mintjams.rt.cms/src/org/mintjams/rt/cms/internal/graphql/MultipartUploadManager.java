@@ -24,6 +24,7 @@ package org.mintjams.rt.cms.internal.graphql;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -209,6 +210,32 @@ public class MultipartUploadManager {
 			throw new IllegalArgumentException("uploadId is required");
 		}
 
+		return deleteUploadFile(uploadId);
+	}
+
+	/**
+	 * Open an InputStream for reading a completed upload.
+	 * The caller is responsible for closing the stream and calling deleteUpload() afterward.
+	 *
+	 * @param uploadId The upload identifier
+	 * @return BufferedInputStream for reading the upload content
+	 */
+	public InputStream openInputStream(String uploadId) throws IOException {
+		Path uploadFile = getUploadFilePath(uploadId);
+		if (!Files.exists(uploadFile)) {
+			throw new IllegalArgumentException("Upload not found: " + uploadId);
+		}
+		return new BufferedInputStream(Files.newInputStream(uploadFile));
+	}
+
+	/**
+	 * Delete a temporary upload file without completing it.
+	 * Use after reading via openInputStream() or to cancel an upload.
+	 *
+	 * @param uploadId The upload identifier
+	 * @return true if the file was deleted
+	 */
+	public boolean deleteUpload(String uploadId) throws IOException {
 		return deleteUploadFile(uploadId);
 	}
 

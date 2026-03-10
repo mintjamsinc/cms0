@@ -37,11 +37,13 @@ public class PropertyValue {
 	private final String type;
 	private final Object value;
 	private final boolean isMultiple;
+	private final boolean isBinaryUpload;
 
-	private PropertyValue(String type, Object value, boolean isMultiple) {
+	private PropertyValue(String type, Object value, boolean isMultiple, boolean isBinaryUpload) {
 		this.type = type;
 		this.value = value;
 		this.isMultiple = isMultiple;
+		this.isBinaryUpload = isBinaryUpload;
 	}
 
 	/**
@@ -52,6 +54,7 @@ public class PropertyValue {
 		String setField = null;
 		Object setValue = null;
 		boolean isMultiple = false;
+		boolean isBinaryUpload = false;
 
 		// Check single value fields
 		if (input.containsKey("stringValue")) {
@@ -134,6 +137,14 @@ public class PropertyValue {
 			}
 			setField = "uriValue";
 			setValue = input.get("uriValue");
+		}
+		if (input.containsKey("binaryUploadId")) {
+			if (setField != null) {
+				throw new IllegalArgumentException("PropertyValueInput must contain exactly one value field. Found: " + setField + " and binaryUploadId");
+			}
+			setField = "binaryUploadId";
+			setValue = input.get("binaryUploadId");
+			isBinaryUpload = true;
 		}
 
 		// Check array value fields
@@ -225,6 +236,15 @@ public class PropertyValue {
 			setValue = input.get("uriArrayValue");
 			isMultiple = true;
 		}
+		if (input.containsKey("binaryArrayUploadIds")) {
+			if (setField != null) {
+				throw new IllegalArgumentException("PropertyValueInput must contain exactly one value field. Found: " + setField + " and binaryArrayUploadIds");
+			}
+			setField = "binaryArrayUploadIds";
+			setValue = input.get("binaryArrayUploadIds");
+			isMultiple = true;
+			isBinaryUpload = true;
+		}
 
 		if (setField == null) {
 			throw new IllegalArgumentException("PropertyValueInput must contain exactly one value field");
@@ -232,7 +252,7 @@ public class PropertyValue {
 
 		// Map field name to JCR property type
 		String jcrType = getJcrTypeFromFieldName(setField);
-		return new PropertyValue(jcrType, setValue, isMultiple);
+		return new PropertyValue(jcrType, setValue, isMultiple, isBinaryUpload);
 	}
 
 	/**
@@ -277,6 +297,8 @@ public class PropertyValue {
 			return "WEAKREFERENCE";
 		} else if (fieldName.equals("uriValue") || fieldName.equals("uriArrayValue")) {
 			return "URI";
+		} else if (fieldName.equals("binaryUploadId") || fieldName.equals("binaryArrayUploadIds")) {
+			return "BINARY";
 		}
 		throw new IllegalArgumentException("Unknown field name: " + fieldName);
 	}
@@ -296,6 +318,10 @@ public class PropertyValue {
 
 	public boolean isMultiple() {
 		return isMultiple;
+	}
+
+	public boolean isBinaryUpload() {
+		return isBinaryUpload;
 	}
 
 	/**
