@@ -295,7 +295,17 @@ public class DownloadServlet extends HttpServlet {
 						isAttachment));
 
 				// Re-acquire stream for actual download (previous stream was used for detection)
-				Binary downloadBinary = prop.getBinary();
+				Binary downloadBinary;
+				if (prop.isMultiple()) {
+					String indexParam = request.getParameter("index");
+					int index = 0;
+					if (indexParam != null && !indexParam.isEmpty()) {
+						try { index = Integer.parseInt(indexParam); } catch (NumberFormatException ignore) {}
+					}
+					downloadBinary = prop.getValues()[index].getBinary();
+				} else {
+					downloadBinary = prop.getBinary();
+				}
 				try {
 					try (InputStream in = downloadBinary.getStream()) {
 						IOs.copy(in, response.getOutputStream());
