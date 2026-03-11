@@ -29,7 +29,9 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.List;
 
 import javax.jcr.Binary;
 import javax.jcr.Node;
@@ -207,9 +209,29 @@ public class JcrValue implements Value, Adaptable {
 			return this;
 		}
 
+		if (fType == PropertyType.NAME) {
+			try {
+				String value = adapt(String.class);
+				validateNameFormat(value);
+			} catch (UnadaptableValueException ex) {
+				throw (ValueFormatException) new ValueFormatException("Property value cannot be converted to a " + PropertyType.nameFromValue(fType) + ": " + fValue).initCause(ex);
+			}
+			return this;
+		}
+
+		if (fType == PropertyType.PATH) {
+			try {
+				String value = adapt(String.class);
+				validatePathFormat(value);
+			} catch (UnadaptableValueException ex) {
+				throw (ValueFormatException) new ValueFormatException("Property value cannot be converted to a " + PropertyType.nameFromValue(fType) + ": " + fValue).initCause(ex);
+			}
+			return this;
+		}
+
 		if (fType == PropertyType.BOOLEAN || fType == PropertyType.DATE || fType == PropertyType.DECIMAL
 				|| fType == PropertyType.DOUBLE || fType == PropertyType.LONG || fType == PropertyType.STRING
-				|| fType == PropertyType.NAME || fType == PropertyType.PATH || fType == PropertyType.URI
+				|| fType == PropertyType.URI
 				|| fType == PropertyType.REFERENCE || fType == PropertyType.WEAKREFERENCE) {
 			try {
 				adapt(getAdapterType());
@@ -221,6 +243,100 @@ public class JcrValue implements Value, Adaptable {
 		}
 
 		throw new IllegalStateException("Invalid property type: " + fType);
+	}
+
+	private void validateNameFormat(String value) throws ValueFormatException {
+		if (value == null || value.isEmpty()) {
+			throw new ValueFormatException("Name value must not be empty.");
+		}
+
+		String nameToValidate = value;
+
+		// Handle expanded name format: {namespaceURI}localName
+		if (nameToValidate.startsWith("{")) {
+			int closeBrace = nameToValidate.indexOf('}');
+			if (closeBrace == -1) {
+				throw new ValueFormatException("Invalid expanded name format (missing closing '}'): " + value);
+			}
+			nameToValidate = nameToValidate.substring(closeBrace + 1);
+			if (nameToValidate.isEmpty()) {
+				throw new ValueFormatException("Name local part must not be empty: " + value);
+			}
+		}
+
+		// Name must not contain whitespace
+		for (int i = 0; i < nameToValidate.length(); i++) {
+			if (Character.isWhitespace(nameToValidate.charAt(i))) {
+				throw new ValueFormatException("Name value must not contain whitespace: " + value);
+			}
+		}
+
+		// Name must not contain '/'
+		if (nameToValidate.indexOf('/') != -1) {
+			throw new ValueFormatException("Name value must not contain '/': " + value);
+		}
+
+		// Name must have at most one ':'
+		int colonIndex = nameToValidate.indexOf(':');
+		if (colonIndex != -1) {
+			if (nameToValidate.indexOf(':', colonIndex + 1) != -1) {
+				throw new ValueFormatException("Name value must not contain multiple ':': " + value);
+			}
+			if (colonIndex == 0) {
+				throw new ValueFormatException("Name prefix must not be empty: " + value);
+			}
+			if (colonIndex == nameToValidate.length() - 1) {
+				throw new ValueFormatException("Name local part must not be empty: " + value);
+			}
+		}
+	}
+
+	private void validatePathFormat(String value) throws ValueFormatException {
+		if (value == null || value.isEmpty()) {
+			throw new ValueFormatException("Path value must not be empty.");
+		}
+
+		// Path must not contain empty segments
+		if (value.contains("//")) {
+			throw new ValueFormatException("Path value must not contain empty segments: " + value);
+		}
+
+		// Split path into segments, respecting {namespaceURI} syntax
+		List<String> segments = new ArrayList<>();
+		StringBuilder segment = new StringBuilder();
+		boolean inBraces = false;
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			if (c == '{') {
+				segment.append(c);
+				inBraces = true;
+			} else if (c == '}') {
+				segment.append(c);
+				inBraces = false;
+			} else if (c == '/' && !inBraces) {
+				segments.add(segment.toString());
+				segment = new StringBuilder();
+			} else {
+				segment.append(c);
+			}
+		}
+		if (segment.length() > 0) {
+			segments.add(segment.toString());
+		}
+
+		// Validate each segment as a valid JCR Name
+		for (String seg : segments) {
+			if (seg.isEmpty()) {
+				// Leading '/' produces an empty first segment
+				continue;
+			}
+			if (seg.equals(".") || seg.equals("..")) {
+				continue;
+			}
+			// Strip index notation [n]
+			String name = seg.replaceAll("\\[\\d+\\]$", "");
+			validateNameFormat(name);
+		}
 	}
 
 	public JcrValue with(Adaptable adaptable) {

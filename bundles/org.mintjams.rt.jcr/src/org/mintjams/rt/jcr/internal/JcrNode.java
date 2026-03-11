@@ -44,6 +44,7 @@ import javax.jcr.InvalidLifecycleTransitionException;
 import javax.jcr.Item;
 import javax.jcr.ItemExistsException;
 import javax.jcr.ItemNotFoundException;
+import javax.jcr.NamespaceException;
 import javax.jcr.ItemVisitor;
 import javax.jcr.MergeException;
 import javax.jcr.NoSuchWorkspaceException;
@@ -772,6 +773,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(name)) {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
 		}
+		validateNamespaceRegistration(value, type);
 		try {
 			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(getIdentifier(), name, type,
 					value);
@@ -791,6 +793,9 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		checkWritable();
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(name)) {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
+		}
+		for (Value v : values) {
+			validateNamespaceRegistration(v, type);
 		}
 		try {
 			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(getIdentifier(), name, type,
@@ -814,6 +819,61 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	public Property setProperty(String name, String value, int type) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
 		return setProperty(name, getValueFactory().createValue(value, type), type);
+	}
+
+	private void validateNamespaceRegistration(Value value, int type) throws RepositoryException {
+		if (value == null) {
+			return;
+		}
+		if (type != PropertyType.NAME && type != PropertyType.PATH) {
+			return;
+		}
+
+		String stringValue = value.getString();
+		if (type == PropertyType.NAME) {
+			validateNamePrefixRegistered(stringValue);
+		} else {
+			// Split path into segments, respecting {namespaceURI} syntax
+			boolean inBraces = false;
+			StringBuilder segment = new StringBuilder();
+			for (int i = 0; i < stringValue.length(); i++) {
+				char c = stringValue.charAt(i);
+				if (c == '{') {
+					segment.append(c);
+					inBraces = true;
+				} else if (c == '}') {
+					segment.append(c);
+					inBraces = false;
+				} else if (c == '/' && !inBraces) {
+					String seg = segment.toString();
+					if (!seg.isEmpty() && !seg.equals(".") && !seg.equals("..")) {
+						validateNamePrefixRegistered(seg.replaceAll("\\[\\d+\\]$", ""));
+					}
+					segment = new StringBuilder();
+				} else {
+					segment.append(c);
+				}
+			}
+			if (segment.length() > 0) {
+				String seg = segment.toString();
+				if (!seg.equals(".") && !seg.equals("..")) {
+					validateNamePrefixRegistered(seg.replaceAll("\\[\\d+\\]$", ""));
+				}
+			}
+		}
+	}
+
+	private void validateNamePrefixRegistered(String name) throws NamespaceException, RepositoryException {
+		if (name.startsWith("{")) {
+			// Expanded form with namespace URI - no prefix to validate
+			return;
+		}
+		int colonIndex = name.indexOf(':');
+		if (colonIndex > 0) {
+			String prefix = name.substring(0, colonIndex);
+			// Throws NamespaceException if the prefix is not registered
+			fSession.getWorkspace().getNamespaceRegistry().getURI(prefix);
+		}
 	}
 
 	@Override
