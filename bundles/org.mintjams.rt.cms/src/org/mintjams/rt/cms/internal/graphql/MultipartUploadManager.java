@@ -177,8 +177,12 @@ public class MultipartUploadManager {
 					throw new IllegalArgumentException("Node already exists: " + targetPath);
 				}
 
-				// Overwrite existing node
+				// Overwrite existing node — preserve existing MIME type
 				fileNode = session.getNode(targetPath);
+				Node existingContent = JCRs.getContentNode(fileNode);
+				if (existingContent.hasProperty("jcr:mimeType")) {
+					mimeType = existingContent.getProperty("jcr:mimeType").getString();
+				}
 			} else {
 				// Create nt:file node
 				fileNode = JCRs.createFile(parentNode, name);
