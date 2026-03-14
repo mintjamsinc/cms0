@@ -47,9 +47,14 @@ import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.Value;
 import javax.jcr.ValueFactory;
+import javax.jcr.lock.Lock;
+import javax.jcr.lock.LockException;
+import javax.jcr.lock.LockManager;
 import javax.jcr.query.Query;
 import javax.jcr.query.QueryManager;
 import javax.jcr.query.QueryResult;
+import javax.jcr.version.Version;
+import javax.jcr.version.VersionManager;
 
 import org.apache.camel.Consumer;
 import org.apache.camel.Endpoint;
@@ -115,6 +120,16 @@ public class CmsComponent extends DefaultComponent {
 				return new MoveProducer();
 			} else if ("exists".equals(fOperation)) {
 				return new ExistsProducer();
+			} else if ("addVersionControl".equals(fOperation)) {
+				return new AddVersionControlProducer();
+			} else if ("checkout".equals(fOperation)) {
+				return new CheckoutProducer();
+			} else if ("checkin".equals(fOperation)) {
+				return new CheckinProducer();
+			} else if ("uncheckout".equals(fOperation)) {
+				return new UncheckoutProducer();
+			} else if ("checkpoint".equals(fOperation)) {
+				return new CheckpointProducer();
 			} else if ("script".equals(fOperation)) {
 				return new ScriptProducer(fOperation);
 			} else {
@@ -535,6 +550,329 @@ public class CmsComponent extends DefaultComponent {
 
 					exchange.getIn().setHeader("cmsExists", exists);
 					exchange.getIn().setBody(exists);
+				}
+			}
+		}
+
+		/**
+		 * Resolve the VersionConflictBehavior parameter from endpoint or exchange headers.
+		 */
+		private VersionConflictBehavior getConflictBehavior(Exchange exchange, VersionConflictBehavior defaultValue) {
+			String value = getParameter(exchange, "versionConflictBehavior");
+			return VersionConflictBehavior.of(value, defaultValue);
+		}
+
+		/**
+		 * Handle a version conflict according to the given behavior.
+		 *
+		 * @return true if the caller should return immediately (IGNORE/WARN), false if it should proceed
+		 */
+		private boolean handleConflict(VersionConflictBehavior behavior, String message) {
+			switch (behavior) {
+				case IGNORE:
+					return true;
+				case WARN:
+					CmsService.getLogger(getClass()).warn(message);
+					return true;
+				case FAIL:
+				default:
+					throw new IllegalStateException(message);
+			}
+		}
+
+		/**
+		 * Producer for adding version control to a node
+		 *
+		 * Adds mix:versionable mixin and creates the initial version.
+		 * Default conflict behavior: IGNORE (idempotent — already versionable is fine)
+		 *
+		 * URI format: cms:addVersionControl?path=/content/file.txt&versionConflictBehavior=IGNORE
+		 * Parameters:
+		 *   - path: Target node path (required)
+		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: IGNORE)
+		 */
+		private class AddVersionControlProducer extends DefaultProducer {
+			private AddVersionControlProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					String path = getParameter(exchange, "path");
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+
+					// Already versionable — handle as conflict
+					if (node.isNodeType("mix:versionable")) {
+						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.IGNORE);
+						handleConflict(behavior, "Node is already versionable: " + path);
+						return;
+					}
+
+					// Add mixin and create initial version
+					node.addMixin("mix:versionable");
+					session.save();
+
+					VersionManager versionManager = session.getWorkspace().getVersionManager();
+					versionManager.checkin(path);
+				}
+			}
+		}
+
+		/**
+		 * Producer for checking out a versionable node
+		 *
+		 * If the node is already checked out, behavior depends on who checked it out:
+		 *   - Current user (or no lock): default IGNORE (idempotent)
+		 *   - Another user: default FAIL (real conflict)
+		 *
+		 * URI format: cms:checkout?path=/content/file.txt&versionConflictBehavior=FAIL
+		 * Parameters:
+		 *   - path: Target node path (required)
+		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: see above)
+		 */
+		private class CheckoutProducer extends DefaultProducer {
+			private CheckoutProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					String path = getParameter(exchange, "path");
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+					if (!node.isNodeType("mix:versionable")) {
+						throw new IllegalArgumentException("Node is not versionable: " + path);
+					}
+
+					VersionManager versionManager = session.getWorkspace().getVersionManager();
+
+					// Already checked out — determine conflict type
+					if (versionManager.isCheckedOut(path)) {
+						LockManager lockManager = session.getWorkspace().getLockManager();
+						boolean lockedByOther = false;
+						try {
+							Lock lock = lockManager.getLock(path);
+							String lockOwner = lock.getLockOwner();
+							String currentUser = session.getUserID();
+							if (lockOwner != null && !lockOwner.equals(currentUser)) {
+								lockedByOther = true;
+							}
+						} catch (LockException e) {
+							// Not locked — treat as checked out by self
+						}
+
+						if (lockedByOther) {
+							// Another user holds the lock — default FAIL
+							VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.FAIL);
+							handleConflict(behavior, "Node is checked out by another user: " + path);
+						} else {
+							// Self checkout — default IGNORE
+							VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.IGNORE);
+							handleConflict(behavior, "Node is already checked out: " + path);
+						}
+						return;
+					}
+
+					versionManager.checkout(path);
+				}
+			}
+		}
+
+		/**
+		 * Producer for checking in a versionable node
+		 *
+		 * Creates a new version. The node must be checked out.
+		 * Default conflict behavior: FAIL (silent skip is dangerous)
+		 *
+		 * Sets the created version name in exchange header 'cmsVersionName'.
+		 *
+		 * URI format: cms:checkin?path=/content/file.txt&versionConflictBehavior=FAIL
+		 * Parameters:
+		 *   - path: Target node path (required)
+		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
+		 */
+		private class CheckinProducer extends DefaultProducer {
+			private CheckinProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					String path = getParameter(exchange, "path");
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+					if (!node.isNodeType("mix:versionable")) {
+						throw new IllegalArgumentException("Node is not versionable: " + path);
+					}
+
+					VersionManager versionManager = session.getWorkspace().getVersionManager();
+
+					// Not checked out — handle as conflict
+					if (!versionManager.isCheckedOut(path)) {
+						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.FAIL);
+						handleConflict(behavior, "Node is not checked out: " + path);
+						return;
+					}
+
+					Version version = versionManager.checkin(path);
+					exchange.getIn().setHeader("cmsVersionName", version.getName());
+				}
+			}
+		}
+
+		/**
+		 * Producer for cancelling a checkout (uncheckout)
+		 *
+		 * Discards changes made since the last checkin and reverts to the base version.
+		 * Default conflict behavior: IGNORE (idempotent — not checked out is fine)
+		 *
+		 * URI format: cms:uncheckout?path=/content/file.txt&versionConflictBehavior=IGNORE
+		 * Parameters:
+		 *   - path: Target node path (required)
+		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: IGNORE)
+		 */
+		private class UncheckoutProducer extends DefaultProducer {
+			private UncheckoutProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					String path = getParameter(exchange, "path");
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+					if (!node.isNodeType("mix:versionable")) {
+						throw new IllegalArgumentException("Node is not versionable: " + path);
+					}
+
+					VersionManager versionManager = session.getWorkspace().getVersionManager();
+
+					// Not checked out — handle as conflict
+					if (!versionManager.isCheckedOut(path)) {
+						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.IGNORE);
+						handleConflict(behavior, "Node is not checked out: " + path);
+						return;
+					}
+
+					((org.mintjams.jcr.version.VersionManager) versionManager).uncheckout(path);
+				}
+			}
+		}
+
+		/**
+		 * Producer for creating a checkpoint (checkin + checkout)
+		 *
+		 * Creates a new version and keeps the node checked out for continued editing.
+		 * Requires that the node is versionable and currently checked out.
+		 * Default conflict behavior: FAIL (precondition not met is dangerous to skip)
+		 *
+		 * Sets the created version name in exchange header 'cmsVersionName'.
+		 *
+		 * URI format: cms:checkpoint?path=/content/file.txt&versionConflictBehavior=FAIL
+		 * Parameters:
+		 *   - path: Target node path (required)
+		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
+		 */
+		private class CheckpointProducer extends DefaultProducer {
+			private CheckpointProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					String path = getParameter(exchange, "path");
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+
+					// Not versionable — handle as conflict
+					if (!node.isNodeType("mix:versionable")) {
+						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.FAIL);
+						handleConflict(behavior, "Node is not versionable: " + path);
+						return;
+					}
+
+					VersionManager versionManager = session.getWorkspace().getVersionManager();
+
+					// Not checked out — handle as conflict
+					if (!versionManager.isCheckedOut(path)) {
+						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.FAIL);
+						handleConflict(behavior, "Node is not checked out: " + path);
+						return;
+					}
+
+					Version version = versionManager.checkpoint(path);
+					exchange.getIn().setHeader("cmsVersionName", version.getName());
 				}
 			}
 		}
