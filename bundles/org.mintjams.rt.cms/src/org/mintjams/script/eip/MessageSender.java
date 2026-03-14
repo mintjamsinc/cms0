@@ -121,6 +121,14 @@ public class MessageSender implements Adaptable {
 		return new Reply(this);
 	}
 
+	/**
+	 * Send a message asynchronously (fire-and-forget).
+	 * Returns immediately without waiting for the Camel route to complete.
+	 */
+	public void sendAsync() throws Exception {
+		Reply.sendAsync(this);
+	}
+
 	@Override
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
 		return Adaptables.getAdapter(fIntegrationAPI, adapterType);

@@ -43,26 +43,47 @@ public class Reply implements Adaptable {
 
 	protected Reply(MessageSender messageSender) throws Exception {
 		fMessageSender = messageSender;
-		CamelContext camelContext = CmsService
-				.getWorkspaceIntegrationEngineProvider(adaptTo(WorkspaceScriptContext.class).getWorkspaceName())
-				.getCamelContext();
-		Exchange exchange = new DefaultExchange(camelContext);
-		exchange.getIn().setBody(fMessageSender.getBody());
-		if (fMessageSender.getHeaders() != null) {
-			for (Entry<String, Object> e : fMessageSender.getHeaders().entrySet()) {
-				exchange.getIn().setHeader(e.getKey(), e.getValue());
-			}
-		}
-		if (fMessageSender.getProperties() != null) {
-			for (Entry<String, Object> e : fMessageSender.getProperties().entrySet()) {
-				exchange.setProperty(e.getKey(), e.getValue());
-			}
-		}
+		CamelContext camelContext = getCamelContext(fMessageSender);
+		Exchange exchange = createExchange(camelContext, fMessageSender);
 		exchange.setPattern(ExchangePattern.InOut);
 		Exchange reply = camelContext.createProducerTemplate().send(fMessageSender.getEndpointURI(), exchange);
 		fBody = reply.getMessage().getBody();
 		fHeaders = reply.getMessage().getHeaders();
 		fProperties = reply.getProperties();
+	}
+
+	/**
+	 * Send a message asynchronously (fire-and-forget).
+	 * The Camel route runs in a separate thread; this method returns immediately.
+	 */
+	static void sendAsync(MessageSender messageSender) throws Exception {
+		CamelContext camelContext = getCamelContext(messageSender);
+		Exchange exchange = createExchange(camelContext, messageSender);
+		exchange.setPattern(ExchangePattern.InOnly);
+		camelContext.createProducerTemplate().asyncSend(messageSender.getEndpointURI(), exchange);
+	}
+
+	private static CamelContext getCamelContext(MessageSender messageSender) throws Exception {
+		WorkspaceScriptContext context = Adaptables.getAdapter(messageSender, WorkspaceScriptContext.class);
+		return CmsService
+				.getWorkspaceIntegrationEngineProvider(context.getWorkspaceName())
+				.getCamelContext();
+	}
+
+	private static Exchange createExchange(CamelContext camelContext, MessageSender messageSender) {
+		Exchange exchange = new DefaultExchange(camelContext);
+		exchange.getIn().setBody(messageSender.getBody());
+		if (messageSender.getHeaders() != null) {
+			for (Entry<String, Object> e : messageSender.getHeaders().entrySet()) {
+				exchange.getIn().setHeader(e.getKey(), e.getValue());
+			}
+		}
+		if (messageSender.getProperties() != null) {
+			for (Entry<String, Object> e : messageSender.getProperties().entrySet()) {
+				exchange.setProperty(e.getKey(), e.getValue());
+			}
+		}
+		return exchange;
 	}
 
 	public Object getBody() {
