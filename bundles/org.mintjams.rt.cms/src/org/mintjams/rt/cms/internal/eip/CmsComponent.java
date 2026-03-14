@@ -115,6 +115,8 @@ public class CmsComponent extends DefaultComponent {
 				return new MoveProducer();
 			} else if ("exists".equals(fOperation)) {
 				return new ExistsProducer();
+			} else if ("script".equals(fOperation)) {
+				return new ScriptProducer(fOperation);
 			} else {
 				// Default: script execution (backward compatibility)
 				return new ScriptProducer(fOperation);
