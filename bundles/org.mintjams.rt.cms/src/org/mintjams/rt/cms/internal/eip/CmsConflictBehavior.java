@@ -23,12 +23,13 @@
 package org.mintjams.rt.cms.internal.eip;
 
 /**
- * Defines behavior when a version operation encounters a state conflict.
+ * Defines behavior when a CMS operation encounters a state conflict.
  *
  * <p>Used as an endpoint parameter or exchange header to control how
- * version-related operations handle idempotency and conflict scenarios.</p>
+ * CMS operations (version control, locking) handle idempotency and
+ * conflict scenarios.</p>
  */
-public enum VersionConflictBehavior {
+public enum CmsConflictBehavior {
 
 	/** Throw an exception on conflict. */
 	FAIL,
@@ -40,10 +41,10 @@ public enum VersionConflictBehavior {
 	WARN;
 
 	/**
-	 * Parse a string value to VersionConflictBehavior.
+	 * Parse a string value to CmsConflictBehavior.
 	 * Returns the given default if the value is null or empty.
 	 */
-	public static VersionConflictBehavior of(String value, VersionConflictBehavior defaultValue) {
+	public static CmsConflictBehavior of(String value, CmsConflictBehavior defaultValue) {
 		if (value == null || value.trim().isEmpty()) {
 			return defaultValue;
 		}

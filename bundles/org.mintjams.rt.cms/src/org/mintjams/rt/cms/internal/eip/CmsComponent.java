@@ -130,6 +130,10 @@ public class CmsComponent extends DefaultComponent {
 				return new UncheckoutProducer();
 			} else if ("checkpoint".equals(fOperation)) {
 				return new CheckpointProducer();
+			} else if ("lock".equals(fOperation)) {
+				return new LockProducer();
+			} else if ("unlock".equals(fOperation)) {
+				return new UnlockProducer();
 			} else if ("script".equals(fOperation)) {
 				return new ScriptProducer(fOperation);
 			} else {
@@ -555,19 +559,19 @@ public class CmsComponent extends DefaultComponent {
 		}
 
 		/**
-		 * Resolve the VersionConflictBehavior parameter from endpoint or exchange headers.
+		 * Resolve the CmsConflictBehavior parameter from endpoint or exchange headers.
 		 */
-		private VersionConflictBehavior getConflictBehavior(Exchange exchange, VersionConflictBehavior defaultValue) {
-			String value = getParameter(exchange, "versionConflictBehavior");
-			return VersionConflictBehavior.of(value, defaultValue);
+		private CmsConflictBehavior getConflictBehavior(Exchange exchange, CmsConflictBehavior defaultValue) {
+			String value = getParameter(exchange, "conflictBehavior");
+			return CmsConflictBehavior.of(value, defaultValue);
 		}
 
 		/**
-		 * Handle a version conflict according to the given behavior.
+		 * Handle a conflict according to the given behavior.
 		 *
 		 * @return true if the caller should return immediately (IGNORE/WARN), false if it should proceed
 		 */
-		private boolean handleConflict(VersionConflictBehavior behavior, String message) {
+		private boolean handleConflict(CmsConflictBehavior behavior, String message) {
 			switch (behavior) {
 				case IGNORE:
 					return true;
@@ -586,10 +590,10 @@ public class CmsComponent extends DefaultComponent {
 		 * Adds mix:versionable mixin and creates the initial version.
 		 * Default conflict behavior: IGNORE (idempotent — already versionable is fine)
 		 *
-		 * URI format: cms:addVersionControl?path=/content/file.txt&versionConflictBehavior=IGNORE
+		 * URI format: cms:addVersionControl?path=/content/file.txt&conflictBehavior=IGNORE
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: IGNORE)
+		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: IGNORE)
 		 */
 		private class AddVersionControlProducer extends DefaultProducer {
 			private AddVersionControlProducer() {
@@ -618,7 +622,7 @@ public class CmsComponent extends DefaultComponent {
 
 					// Already versionable — handle as conflict
 					if (node.isNodeType("mix:versionable")) {
-						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.IGNORE);
+						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
 						handleConflict(behavior, "Node is already versionable: " + path);
 						return;
 					}
@@ -640,10 +644,10 @@ public class CmsComponent extends DefaultComponent {
 		 *   - Current user (or no lock): default IGNORE (idempotent)
 		 *   - Another user: default FAIL (real conflict)
 		 *
-		 * URI format: cms:checkout?path=/content/file.txt&versionConflictBehavior=FAIL
+		 * URI format: cms:checkout?path=/content/file.txt&conflictBehavior=FAIL
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: see above)
+		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: see above)
 		 */
 		private class CheckoutProducer extends DefaultProducer {
 			private CheckoutProducer() {
@@ -692,11 +696,11 @@ public class CmsComponent extends DefaultComponent {
 
 						if (lockedByOther) {
 							// Another user holds the lock — default FAIL
-							VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.FAIL);
+							CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
 							handleConflict(behavior, "Node is checked out by another user: " + path);
 						} else {
 							// Self checkout — default IGNORE
-							VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.IGNORE);
+							CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
 							handleConflict(behavior, "Node is already checked out: " + path);
 						}
 						return;
@@ -715,10 +719,10 @@ public class CmsComponent extends DefaultComponent {
 		 *
 		 * Sets the created version name in exchange header 'cmsVersionName'.
 		 *
-		 * URI format: cms:checkin?path=/content/file.txt&versionConflictBehavior=FAIL
+		 * URI format: cms:checkin?path=/content/file.txt&conflictBehavior=FAIL
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
+		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
 		 */
 		private class CheckinProducer extends DefaultProducer {
 			private CheckinProducer() {
@@ -752,7 +756,7 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not checked out — handle as conflict
 					if (!versionManager.isCheckedOut(path)) {
-						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.FAIL);
+						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
 						handleConflict(behavior, "Node is not checked out: " + path);
 						return;
 					}
@@ -769,10 +773,10 @@ public class CmsComponent extends DefaultComponent {
 		 * Discards changes made since the last checkin and reverts to the base version.
 		 * Default conflict behavior: IGNORE (idempotent — not checked out is fine)
 		 *
-		 * URI format: cms:uncheckout?path=/content/file.txt&versionConflictBehavior=IGNORE
+		 * URI format: cms:uncheckout?path=/content/file.txt&conflictBehavior=IGNORE
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: IGNORE)
+		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: IGNORE)
 		 */
 		private class UncheckoutProducer extends DefaultProducer {
 			private UncheckoutProducer() {
@@ -806,7 +810,7 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not checked out — handle as conflict
 					if (!versionManager.isCheckedOut(path)) {
-						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.IGNORE);
+						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
 						handleConflict(behavior, "Node is not checked out: " + path);
 						return;
 					}
@@ -825,10 +829,10 @@ public class CmsComponent extends DefaultComponent {
 		 *
 		 * Sets the created version name in exchange header 'cmsVersionName'.
 		 *
-		 * URI format: cms:checkpoint?path=/content/file.txt&versionConflictBehavior=FAIL
+		 * URI format: cms:checkpoint?path=/content/file.txt&conflictBehavior=FAIL
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - versionConflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
+		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
 		 */
 		private class CheckpointProducer extends DefaultProducer {
 			private CheckpointProducer() {
@@ -857,7 +861,7 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not versionable — handle as conflict
 					if (!node.isNodeType("mix:versionable")) {
-						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.FAIL);
+						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
 						handleConflict(behavior, "Node is not versionable: " + path);
 						return;
 					}
@@ -866,13 +870,161 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not checked out — handle as conflict
 					if (!versionManager.isCheckedOut(path)) {
-						VersionConflictBehavior behavior = getConflictBehavior(exchange, VersionConflictBehavior.FAIL);
+						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
 						handleConflict(behavior, "Node is not checked out: " + path);
 						return;
 					}
 
 					Version version = versionManager.checkpoint(path);
 					exchange.getIn().setHeader("cmsVersionName", version.getName());
+				}
+			}
+		}
+
+		/**
+		 * Producer for locking a node
+		 *
+		 * Acquires a lock on the specified node. Adds mix:lockable mixin if not present.
+		 * If the node is already locked by the current user, default is IGNORE (idempotent).
+		 * If locked by another user, default is FAIL (real conflict).
+		 *
+		 * URI format: cms:lock?path=/content/file.txt&isDeep=false&isSessionScoped=true
+		 * Parameters:
+		 *   - path: Target node path (required)
+		 *   - isDeep: Lock descendants (default: false)
+		 *   - isSessionScoped: Session-scoped lock (default: false)
+		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: see above)
+		 */
+		private class LockProducer extends DefaultProducer {
+			private LockProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					String path = getParameter(exchange, "path");
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					String isDeepStr = getParameter(exchange, "isDeep");
+					boolean isDeep = (isDeepStr != null) && Boolean.parseBoolean(isDeepStr);
+
+					String isSessionScopedStr = getParameter(exchange, "isSessionScoped");
+					boolean isSessionScoped = (isSessionScopedStr != null) && Boolean.parseBoolean(isSessionScopedStr);
+
+					Node node = session.getNode(path);
+
+					// Add mix:lockable if not present
+					if (!node.isNodeType("mix:lockable")) {
+						node.addMixin("mix:lockable");
+						session.save();
+					}
+
+					LockManager lockManager = session.getWorkspace().getLockManager();
+
+					// Check if already locked
+					if (node.isLocked()) {
+						try {
+							Lock existingLock = lockManager.getLock(path);
+							String lockOwner = existingLock.getLockOwner();
+							String currentUser = session.getUserID();
+							if (lockOwner != null && !lockOwner.equals(currentUser)) {
+								// Locked by another user — default FAIL
+								CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
+								handleConflict(behavior, "Node is locked by another user: " + path);
+							} else {
+								// Locked by self — default IGNORE
+								CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+								handleConflict(behavior, "Node is already locked: " + path);
+							}
+						} catch (LockException e) {
+							// Should not happen since node.isLocked() was true
+							CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+							handleConflict(behavior, "Node is already locked: " + path);
+						}
+						return;
+					}
+
+					lockManager.lock(path, isDeep, isSessionScoped, Long.MAX_VALUE, session.getUserID());
+				}
+			}
+		}
+
+		/**
+		 * Producer for unlocking a node
+		 *
+		 * Releases the lock on the specified node.
+		 * If the node is not locked, default is IGNORE (idempotent).
+		 * If locked by another user, default is FAIL (unauthorized).
+		 *
+		 * URI format: cms:unlock?path=/content/file.txt
+		 * Parameters:
+		 *   - path: Target node path (required)
+		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: see above)
+		 */
+		private class UnlockProducer extends DefaultProducer {
+			private UnlockProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = getParameter(exchange, "runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					String path = getParameter(exchange, "path");
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+					LockManager lockManager = session.getWorkspace().getLockManager();
+
+					// Not locked — handle as conflict
+					if (!node.isLocked()) {
+						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+						handleConflict(behavior, "Node is not locked: " + path);
+						return;
+					}
+
+					// Check if locked by another user
+					try {
+						Lock existingLock = lockManager.getLock(path);
+						String lockOwner = existingLock.getLockOwner();
+						String currentUser = session.getUserID();
+						if (lockOwner != null && !lockOwner.equals(currentUser)) {
+							CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
+							handleConflict(behavior, "Node is locked by another user: " + path);
+							return;
+						}
+					} catch (LockException e) {
+						// Lock not found — treat as not locked
+						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+						handleConflict(behavior, "Node is not locked: " + path);
+						return;
+					}
+
+					lockManager.unlock(path);
 				}
 			}
 		}
