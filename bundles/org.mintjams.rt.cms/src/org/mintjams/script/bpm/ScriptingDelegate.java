@@ -24,6 +24,7 @@ package org.mintjams.script.bpm;
 
 import javax.jcr.AccessDeniedException;
 import javax.jcr.PathNotFoundException;
+import javax.script.ScriptEngine;
 
 import org.camunda.bpm.engine.delegate.DelegateExecution;
 import org.camunda.bpm.engine.delegate.DelegateTask;
@@ -33,11 +34,11 @@ import org.camunda.bpm.engine.delegate.JavaDelegate;
 import org.camunda.bpm.engine.delegate.TaskListener;
 import org.camunda.bpm.engine.delegate.VariableScope;
 import org.camunda.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
-import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.Scripts;
+import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
-import org.mintjams.rt.cms.internal.web.WebResourceResolver;
+import org.mintjams.script.resource.Resource;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
 
@@ -104,24 +105,30 @@ public class ScriptingDelegate implements JavaDelegate, ExecutionListener, TaskL
 
 	private Object evaluate(WorkspaceScriptContext context, VariableScope variableScope) throws Exception {
 		String resourcePath = getResourcePath(variableScope);
-		WebResourceResolver.ResolveResult result = new WebResourceResolver(context).resolve(resourcePath);
-		if (result.isNotFound()) {
-			throw new PathNotFoundException(resourcePath);
+		Resource resource = context.getRepositorySession().getResource(resourcePath);
+
+		// Check if resource exists and is readable
+		if (!resource.exists()) {
+			throw new PathNotFoundException("Resource not found: " + resourcePath);
 		}
-		if (!result.isScriptable()) {
-			return null;
-		}
-		if (result.isAccessDenied()) {
-			throw new AccessDeniedException(resourcePath);
+		if (!resource.canRead()) {
+			throw new AccessDeniedException("Cannot read resource: " + resourcePath);
 		}
 
-		context.setAttribute("resource", context.getResourceResolver().toResource(result.getNode()));
+		// Determine script engine by MIME type
+		String mimeType = resource.getContentType();
+		ScriptEngine scriptEngine = Scripts.getScriptEngineManager(context).getEngineByMimeType(mimeType);
+		if (scriptEngine == null) {
+			throw new IllegalStateException("No script engine found for MIME type: " + mimeType);
+		}
 
-		try (ScriptReader scriptReader = new ScriptReader(result.getContentAsReader())) {
+		context.setAttribute("resource", resource);
+
+		try (ScriptReader scriptReader = new ScriptReader(resource.getContentAsReader())) {
 			return scriptReader
-					.setScriptName("jcr://" + result.getPath())
-					.setExtension(result.getScriptExtension())
-					.setLastModified(result.getLastModified())
+					.setScriptName("jcr://" + resource.getPath())
+					.setMimeType(mimeType)
+					.setLastModified(resource.getLastModified())
 					.setScriptEngineManager(Scripts.getScriptEngineManager(context))
 					.setClassLoader(Scripts.getClassLoader(context))
 					.setScriptContext(Scripts.getWorkspaceScriptContext(context))
