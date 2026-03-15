@@ -28,6 +28,7 @@ import java.util.Map.Entry;
 import org.apache.camel.CamelContext;
 import org.apache.camel.Exchange;
 import org.apache.camel.ExchangePattern;
+import org.apache.camel.ProducerTemplate;
 import org.apache.camel.support.DefaultExchange;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
@@ -46,7 +47,7 @@ public class Reply implements Adaptable {
 		CamelContext camelContext = getCamelContext(fMessageSender);
 		Exchange exchange = createExchange(camelContext, fMessageSender);
 		exchange.setPattern(ExchangePattern.InOut);
-		Exchange reply = camelContext.createProducerTemplate().send(fMessageSender.getEndpointURI(), exchange);
+		Exchange reply = getProducerTemplate(fMessageSender).send(fMessageSender.getEndpointURI(), exchange);
 		fBody = reply.getMessage().getBody();
 		fHeaders = reply.getMessage().getHeaders();
 		fProperties = reply.getProperties();
@@ -60,7 +61,7 @@ public class Reply implements Adaptable {
 		CamelContext camelContext = getCamelContext(messageSender);
 		Exchange exchange = createExchange(camelContext, messageSender);
 		exchange.setPattern(ExchangePattern.InOnly);
-		camelContext.createProducerTemplate().asyncSend(messageSender.getEndpointURI(), exchange);
+		getProducerTemplate(messageSender).asyncSend(messageSender.getEndpointURI(), exchange);
 	}
 
 	private static CamelContext getCamelContext(MessageSender messageSender) throws Exception {
@@ -68,6 +69,13 @@ public class Reply implements Adaptable {
 		return CmsService
 				.getWorkspaceIntegrationEngineProvider(context.getWorkspaceName())
 				.getCamelContext();
+	}
+
+	private static ProducerTemplate getProducerTemplate(MessageSender messageSender) throws Exception {
+		WorkspaceScriptContext context = Adaptables.getAdapter(messageSender, WorkspaceScriptContext.class);
+		return CmsService
+				.getWorkspaceIntegrationEngineProvider(context.getWorkspaceName())
+				.getProducerTemplate();
 	}
 
 	private static Exchange createExchange(CamelContext camelContext, MessageSender messageSender) {
@@ -90,7 +98,7 @@ public class Reply implements Adaptable {
 		return fBody;
 	}
 
-	public Object setHeader(String name) {
+	public Object getHeader(String name) {
 		return fHeaders.get(name);
 	}
 

@@ -38,6 +38,7 @@ import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 
 import org.apache.camel.CamelContext;
+import org.apache.camel.ProducerTemplate;
 import org.apache.camel.RouteConfigurationsBuilder;
 import org.apache.camel.RoutesBuilder;
 import org.apache.camel.model.ModelCamelContext;
@@ -68,6 +69,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 	private final Map<String, List<String>> fDeployments = new HashMap<>();
 	private final Map<String, List<String>> fRouteConfigDeployments = new HashMap<>();
 	private WorkspaceCamelContext fCamelContext;
+	private ProducerTemplate fProducerTemplate;
 
 	public WorkspaceIntegrationEngineProvider(String workspaceName) {
 		fConfig = new WorkspaceIntegrationEngineProviderConfiguration(workspaceName);
@@ -83,9 +85,21 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 				try {
 					fCamelContext.close();
 				} catch (Throwable ignore) {}
+				fCamelContext = null;
 			}
 		});
 		fCamelContext.start();
+
+		fProducerTemplate = fCamelContext.createProducerTemplate();
+		fCloser.register(new Closeable() {
+			@Override
+			public void close() throws IOException {
+				try {
+					fProducerTemplate.close();
+				} catch (Throwable ignore) {}
+				fProducerTemplate = null;
+			}
+		});
 
 		Deployer deployer = fCloser.register(new Deployer());
 		deployer.open();
@@ -102,6 +116,10 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 
 	public CamelContext getCamelContext() {
 		return fCamelContext;
+	}
+
+	public ProducerTemplate getProducerTemplate() {
+		return fProducerTemplate;
 	}
 
 	public Map<String, List<String>> getDeployments() {
