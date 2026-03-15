@@ -355,10 +355,10 @@ public class CmsComponent extends DefaultComponent {
 		 *
 		 * Null header values remove the corresponding property.
 		 *
-		 * URI format: cms:setProperties?path=/content/file.txt&headerPrefix=commerce_
+		 * URI format: cms:setProperties?path=/content/file.txt&propertyPrefix=commerce_
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - headerPrefix: Header prefix to filter (default: commerce_)
+		 *   - propertyPrefix: Header prefix to filter (default: cms_)
 		 */
 		private class SetPropertiesProducer extends DefaultProducer {
 			private SetPropertiesProducer() {
