@@ -358,7 +358,10 @@ public class CmsComponent extends DefaultComponent {
 		 * URI format: cms:setProperties?path=/content/file.txt&propertyPrefix=commerce_
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - propertyPrefix: Header prefix to filter (default: cms_)
+		 *   - propertyPrefix: Header prefix to filter. Resolved in order:
+		 *       1. Endpoint parameter (URI query)
+		 *       2. Exchange header
+		 *       3. Default: "cms_"
 		 */
 		private class SetPropertiesProducer extends DefaultProducer {
 			private SetPropertiesProducer() {
@@ -377,8 +380,8 @@ public class CmsComponent extends DefaultComponent {
 
 					// Get path from endpoint parameters or exchange headers
 					String path = getParameter(exchange, "path");
-					// Get header prefix (default: cms_)
-					String prefix = getParameter(exchange, "headerPrefix");
+					// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
+					String prefix = getParameter(exchange, "propertyPrefix");
 					if (prefix == null || prefix.trim().isEmpty()) {
 						prefix = "cms_";
 					}
