@@ -115,7 +115,7 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		IntegrationAPI eip = (IntegrationAPI) context.getAttribute(IntegrationAPI.class.getSimpleName());
 		Reply reply = eip.createMessageSender()
 			.setEndpointURI(endpointURI)
-			.setHeaders(getHeaders(variableScope))
+			.setHeaders(createHeaders(variableScope))
 			.send();
 
 		// Set result headers as process variables
@@ -161,8 +161,7 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		return (String) endpointURI.getValue(variableScope);
 	}
 
-	@SuppressWarnings("unchecked")
-	private Map<String, Object> getHeaders(VariableScope variableScope) {
+	private Map<String, Object> createHeaders(VariableScope variableScope) {
 		if (headers == null) {
 			return Collections.emptyMap();
 		}
@@ -174,15 +173,19 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 
 		List<String> names;
 		if (value instanceof List) {
-			names = (List<String>) value;
+			names = ((List<?>) value).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
 		} else if (value instanceof String) {
 			names = List.of(((String) value).split("\\s*,\\s*"));
 		} else if (value instanceof Collection<?>) {
 			names = ((Collection<?>) value).stream()
 					.map(Object::toString)
+					.map(String::trim)
 					.collect(Collectors.toList());
 		} else {
-			names = List.of(value.toString());
+			names = List.of(value.toString().trim());
 		}
 
 		Map<String, Object> nvp = new HashMap<>();
@@ -216,7 +219,6 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		return nvp;
 	}
 
-	@SuppressWarnings("unchecked")
 	private List<String> getResultHeaders(VariableScope variableScope) {
 		if (resultHeaders == null) {
 			return Collections.emptyList();
@@ -228,7 +230,10 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		}
 
 		if (value instanceof List) {
-			return (List<String>) value;
+			return ((List<?>) value).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
 		}
 		if (value instanceof String) {
 			return List.of(((String) value).split("\\s*,\\s*"));
@@ -236,9 +241,10 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		if (value instanceof Collection<?>) {
 			return ((Collection<?>) value).stream()
 					.map(Object::toString)
+					.map(String::trim)
 					.collect(Collectors.toList());
 		}
-		return List.of(value.toString());
+		return List.of(value.toString().trim());
 	}
 
 	private String getResultBody(VariableScope variableScope) {
