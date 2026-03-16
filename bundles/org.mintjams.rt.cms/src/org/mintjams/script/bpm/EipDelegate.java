@@ -24,6 +24,7 @@ package org.mintjams.script.bpm;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -47,6 +48,7 @@ import org.mintjams.tools.lang.Strings;
 public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListener {
 
 	private Expression endpointURI;
+	private Expression headers;
 	private Expression resultHeaders;
 	private Expression resultBody;
 
@@ -113,7 +115,7 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		IntegrationAPI eip = (IntegrationAPI) context.getAttribute(IntegrationAPI.class.getSimpleName());
 		Reply reply = eip.createMessageSender()
 			.setEndpointURI(endpointURI)
-			.setHeader("context", context)
+			.setHeaders(getHeaders(variableScope))
 			.send();
 
 		// Set result headers as process variables
@@ -157,6 +159,61 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		}
 
 		return (String) endpointURI.getValue(variableScope);
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> getHeaders(VariableScope variableScope) {
+		if (headers == null) {
+			return Collections.emptyMap();
+		}
+
+		Object value = headers.getValue(variableScope);
+		if (value == null) {
+			return Collections.emptyMap();
+		}
+
+		List<String> names;
+		if (value instanceof List) {
+			names = (List<String>) value;
+		} else if (value instanceof String) {
+			names = List.of(((String) value).split("\\s*,\\s*"));
+		} else if (value instanceof Collection<?>) {
+			names = ((Collection<?>) value).stream()
+					.map(Object::toString)
+					.collect(Collectors.toList());
+		} else {
+			names = List.of(value.toString());
+		}
+
+		Map<String, Object> nvp = new HashMap<>();
+		for (String name : names) {
+			if (Strings.isEmpty(name)) {
+				continue;
+			}
+
+			if (name.indexOf("=") > 0) {
+				String[] parts = name.split("=", 2);
+				nvp.put(parts[0].trim(), variableScope.getVariable(parts[1].trim()));
+				continue;
+			}
+
+			if (name.endsWith("*")) {
+				String prefix = name.substring(0, name.length() - 1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().startsWith(prefix))
+						.forEach(entry -> nvp.put(entry.getKey(), entry.getValue()));
+			} else if (name.startsWith("*")) {
+				String suffix = name.substring(1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().endsWith(suffix))
+						.forEach(entry -> nvp.put(entry.getKey(), entry.getValue()));
+			} else {
+				if (variableScope.hasVariable(name)) {
+					nvp.put(name, variableScope.getVariable(name));
+				}
+			}
+		}
+		return nvp;
 	}
 
 	@SuppressWarnings("unchecked")
