@@ -48,8 +48,8 @@ import org.mintjams.tools.lang.Strings;
 public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListener {
 
 	private Expression endpointURI;
-	private Expression headers;
-	private Expression resultHeaders;
+	private Expression headerFilter;
+	private Expression resultHeaderFilter;
 	private Expression resultBody;
 
 	@Override
@@ -115,30 +115,49 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		IntegrationAPI eip = (IntegrationAPI) context.getAttribute(IntegrationAPI.class.getSimpleName());
 		Reply reply = eip.createMessageSender()
 			.setEndpointURI(endpointURI)
-			.setHeaders(createHeaders(variableScope))
+			.setHeaders(getHeaders(variableScope))
 			.send();
 
 		// Set result headers as process variables
 		Map<String, Object> headers = reply.getHeaders();
-		List<String> resultHeaders = getResultHeaders(variableScope);
-		for (String header : resultHeaders) {
-			if (Strings.isEmpty(header)) {
+		for (String filter : getResultHeaderFilters(variableScope)) {
+			if (Strings.isEmpty(filter)) {
 				continue;
 			}
 
-			if (header.endsWith("*")) {
-				String prefix = header.substring(0, header.length() - 1);
+			if (filter.indexOf("=") > 0) {
+				String[] parts = filter.split("=", 2);
+				String variableName = parts[0].trim();
+				String headerName = parts[1].trim();
+				if (headers.containsKey(headerName)) {
+					variableScope.setVariable(variableName, headers.get(headerName));
+				}
+				continue;
+			}
+
+			if (filter.endsWith("*")) {
+				String prefix = filter.substring(0, filter.length() - 1);
 				headers.entrySet().stream()
 						.filter(entry -> entry.getKey().startsWith(prefix))
 						.forEach(entry -> variableScope.setVariable(entry.getKey(), entry.getValue()));
-			} else if (header.startsWith("*")) {
-				String suffix = header.substring(1);
+			} else if (filter.startsWith("*")) {
+				String suffix = filter.substring(1);
 				headers.entrySet().stream()
 						.filter(entry -> entry.getKey().endsWith(suffix))
 						.forEach(entry -> variableScope.setVariable(entry.getKey(), entry.getValue()));
+			} else if (filter.endsWith("~")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				headers.entrySet().stream()
+						.filter(entry -> entry.getKey().startsWith(prefix))
+						.forEach(entry -> variableScope.setVariable(entry.getKey().substring(prefix.length()), entry.getValue()));
+			} else if (filter.startsWith("~")) {
+				String suffix = filter.substring(1);
+				headers.entrySet().stream()
+						.filter(entry -> entry.getKey().endsWith(suffix))
+						.forEach(entry -> variableScope.setVariable(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
 			} else {
-				if (headers.containsKey(header)) {
-					variableScope.setVariable(header, headers.get(header));
+				if (headers.containsKey(filter)) {
+					variableScope.setVariable(filter, headers.get(filter));
 				}
 			}
 		}
@@ -161,70 +180,86 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		return (String) endpointURI.getValue(variableScope);
 	}
 
-	private Map<String, Object> createHeaders(VariableScope variableScope) {
-		if (headers == null) {
-			return Collections.emptyMap();
-		}
-
-		Object value = headers.getValue(variableScope);
-		if (value == null) {
-			return Collections.emptyMap();
-		}
-
-		List<String> names;
-		if (value instanceof List) {
-			names = ((List<?>) value).stream()
-					.map(Object::toString)
-					.map(String::trim)
-					.collect(Collectors.toList());
-		} else if (value instanceof String) {
-			names = List.of(((String) value).split("\\s*,\\s*"));
-		} else if (value instanceof Collection<?>) {
-			names = ((Collection<?>) value).stream()
-					.map(Object::toString)
-					.map(String::trim)
-					.collect(Collectors.toList());
-		} else {
-			names = List.of(value.toString().trim());
-		}
-
-		Map<String, Object> nvp = new HashMap<>();
-		for (String name : names) {
-			if (Strings.isEmpty(name)) {
-				continue;
-			}
-
-			if (name.indexOf("=") > 0) {
-				String[] parts = name.split("=", 2);
-				nvp.put(parts[0].trim(), variableScope.getVariable(parts[1].trim()));
-				continue;
-			}
-
-			if (name.endsWith("*")) {
-				String prefix = name.substring(0, name.length() - 1);
-				variableScope.getVariables().entrySet().stream()
-						.filter(entry -> entry.getKey().startsWith(prefix))
-						.forEach(entry -> nvp.put(entry.getKey(), entry.getValue()));
-			} else if (name.startsWith("*")) {
-				String suffix = name.substring(1);
-				variableScope.getVariables().entrySet().stream()
-						.filter(entry -> entry.getKey().endsWith(suffix))
-						.forEach(entry -> nvp.put(entry.getKey(), entry.getValue()));
-			} else {
-				if (variableScope.hasVariable(name)) {
-					nvp.put(name, variableScope.getVariable(name));
-				}
-			}
-		}
-		return nvp;
-	}
-
-	private List<String> getResultHeaders(VariableScope variableScope) {
-		if (resultHeaders == null) {
+	private List<String> getHeaderFilters(VariableScope variableScope) {
+		if (headerFilter == null) {
 			return Collections.emptyList();
 		}
 
-		Object value = resultHeaders.getValue(variableScope);
+		Object value = headerFilter.getValue(variableScope);
+		if (value == null) {
+			return Collections.emptyList();
+		}
+
+		if (value instanceof List) {
+			return ((List<?>) value).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
+		}
+		if (value instanceof String) {
+			return List.of(((String) value).split("\\s*,\\s*"));
+		}
+		if (value instanceof Collection<?>) {
+			return ((Collection<?>) value).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
+		}
+		return List.of(value.toString().trim());
+	}
+
+	private Map<String, Object> getHeaders(VariableScope variableScope) {
+		Map<String, Object> headers = new HashMap<>();
+		for (String filter : getHeaderFilters(variableScope)) {
+			if (Strings.isEmpty(filter)) {
+				continue;
+			}
+
+			if (filter.indexOf("=") > 0) {
+				String[] parts = filter.split("=", 2);
+				String headerName = parts[0].trim();
+				String variableName = parts[1].trim();
+				if (variableScope.hasVariable(variableName)) {
+					headers.put(headerName, variableScope.getVariable(variableName));
+				}
+				continue;
+			}
+
+			if (filter.endsWith("*")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().startsWith(prefix))
+						.forEach(entry -> headers.put(entry.getKey(), entry.getValue()));
+			} else if (filter.startsWith("*")) {
+				String suffix = filter.substring(1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().endsWith(suffix))
+						.forEach(entry -> headers.put(entry.getKey(), entry.getValue()));
+			} else if (filter.endsWith("~")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().startsWith(prefix))
+						.forEach(entry -> headers.put(entry.getKey().substring(prefix.length()), entry.getValue()));
+			} else if (filter.startsWith("~")) {
+				String suffix = filter.substring(1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().endsWith(suffix))
+						.forEach(entry -> headers.put(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
+			} else {
+				if (variableScope.hasVariable(filter)) {
+					headers.put(filter, variableScope.getVariable(filter));
+				}
+			}
+		}
+		return headers;
+	}
+
+	private List<String> getResultHeaderFilters(VariableScope variableScope) {
+		if (resultHeaderFilter == null) {
+			return Collections.emptyList();
+		}
+
+		Object value = resultHeaderFilter.getValue(variableScope);
 		if (value == null) {
 			return Collections.emptyList();
 		}
