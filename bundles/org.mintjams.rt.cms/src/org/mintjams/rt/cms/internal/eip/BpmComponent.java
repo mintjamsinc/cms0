@@ -22,8 +22,12 @@
 
 package org.mintjams.rt.cms.internal.eip;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.apache.camel.Consumer;
 import org.apache.camel.Endpoint;
@@ -93,59 +97,171 @@ public class BpmComponent extends DefaultComponent {
 		/**
 		 * Get parameter value from endpoint parameters or exchange headers.
 		 */
-		private String getParameter(Exchange exchange, String key) {
+		private Object getParameter(Exchange exchange, String key) {
 			// First check endpoint parameters
 			if (fParameters.containsKey(key)) {
-				Object value = fParameters.get(key);
-				return value != null ? value.toString() : null;
+				return fParameters.get(key);
 			}
 
 			// Then check exchange headers
-			Object headerValue = exchange.getIn().getHeader(key);
-			return headerValue != null ? headerValue.toString() : null;
+			return exchange.getIn().getHeader(key);
+		}
+
+		/**
+		 * Get list of header filters from endpoint parameters or exchange headers.
+		 * Supports multiple formats: List, comma-separated String, or single String.
+		 */
+		private List<String> getHeaderFilters(Exchange exchange) {
+			// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
+			Object filter = getParameter(exchange, "headerFilter");
+			if (filter == null) {
+				filter = Collections.emptyList();
+			}
+
+			if (filter instanceof List) {
+				return ((List<?>) filter).stream()
+						.map(Object::toString)
+						.map(String::trim)
+						.collect(Collectors.toList());
+			}
+			if (filter instanceof String) {
+				return List.of(((String) filter).split("\\s*,\\s*"));
+			}
+			if (filter instanceof Collection<?>) {
+				return ((Collection<?>) filter).stream()
+						.map(Object::toString)
+						.map(String::trim)
+						.collect(Collectors.toList());
+			}
+			return List.of(filter.toString().trim());
 		}
 
 		/**
 		 * Extract variables from exchange headers based on a specified prefix.
 		 */
 		private Map<String, Object> getVariables(Exchange exchange) {
-			// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
-			String prefix = getParameter(exchange, "propertyPrefix");
-			if (prefix == null || prefix.trim().isEmpty()) {
-				prefix = "bpm_";
-			}
-
 			// Set variables from exchange headers
 			Map<String, Object> variables = new HashMap<>();
 			Map<String, Object> headers = exchange.getIn().getHeaders();
-			for (Map.Entry<String, Object> entry : headers.entrySet()) {
-				String key = entry.getKey();
-				if (key.startsWith(prefix)) {
-					String variableName = key.substring(prefix.length());
-					variables.put(variableName, entry.getValue());
+			for (String filter : getHeaderFilters(exchange)) {
+				if (Strings.isEmpty(filter)) {
+					continue;
+				}
+
+				if (filter.indexOf("=") > 0) {
+					String[] parts = filter.split("=", 2);
+					String variableName = parts[0].trim();
+					String headerName = parts[1].trim();
+					if (headers.containsKey(headerName)) {
+						variables.put(variableName, headers.get(headerName));
+					}
+					continue;
+				}
+
+				if (filter.endsWith("*")) {
+					String prefix = filter.substring(0, filter.length() - 1);
+					headers.entrySet().stream()
+							.filter(entry -> entry.getKey().startsWith(prefix))
+							.forEach(entry -> variables.put(entry.getKey(), entry.getValue()));
+				} else if (filter.startsWith("*")) {
+					String suffix = filter.substring(1);
+					headers.entrySet().stream()
+							.filter(entry -> entry.getKey().endsWith(suffix))
+							.forEach(entry -> variables.put(entry.getKey(), entry.getValue()));
+				} if (filter.endsWith("~")) {
+					String prefix = filter.substring(0, filter.length() - 1);
+					headers.entrySet().stream()
+							.filter(entry -> entry.getKey().startsWith(prefix))
+							.forEach(entry -> variables.put(entry.getKey().substring(prefix.length()), entry.getValue()));
+				} else if (filter.startsWith("~")) {
+					String suffix = filter.substring(1);
+					headers.entrySet().stream()
+							.filter(entry -> entry.getKey().endsWith(suffix))
+							.forEach(entry -> variables.put(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
+				} else {
+					if (headers.containsKey(filter)) {
+						variables.put(filter, headers.get(filter));
+					}
 				}
 			}
 			return variables;
 		}
 
 		/**
+		 * Get list of correlation key filters from endpoint parameters or exchange headers.
+		 * Supports multiple formats: List, comma-separated String, or single String.
+		 */
+		private List<String> getCorrelationKeyFilters(Exchange exchange) {
+			// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
+			Object filter = getParameter(exchange, "correlationKeyFilter");
+			if (filter == null) {
+				filter = Collections.emptyList();
+			}
+
+			if (filter instanceof List) {
+				return ((List<?>) filter).stream()
+						.map(Object::toString)
+						.map(String::trim)
+						.collect(Collectors.toList());
+			}
+			if (filter instanceof String) {
+				return List.of(((String) filter).split("\\s*,\\s*"));
+			}
+			if (filter instanceof Collection<?>) {
+				return ((Collection<?>) filter).stream()
+						.map(Object::toString)
+						.map(String::trim)
+						.collect(Collectors.toList());
+			}
+			return List.of(filter.toString().trim());
+		}
+
+		/**
 		 * Extract correlation keys from exchange headers based on a specified prefix.
 		 */
 		private Map<String, Object> getCorrelationKeys(Exchange exchange) {
-			// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
-			String prefix = getParameter(exchange, "correlationKeyPrefix");
-			if (prefix == null || prefix.trim().isEmpty()) {
-				prefix = "bpm_key_";
-			}
-
 			// Set variables from exchange headers
 			Map<String, Object> correlationKeys = new HashMap<>();
 			Map<String, Object> headers = exchange.getIn().getHeaders();
-			for (Map.Entry<String, Object> entry : headers.entrySet()) {
-				String key = entry.getKey();
-				if (key.startsWith(prefix)) {
-					String variableName = key.substring(prefix.length());
-					correlationKeys.put(variableName, entry.getValue());
+			for (String filter : getCorrelationKeyFilters(exchange)) {
+				if (Strings.isEmpty(filter)) {
+					continue;
+				}
+
+				if (filter.indexOf("=") > 0) {
+					String[] parts = filter.split("=", 2);
+					String correlationKey = parts[0].trim();
+					String headerName = parts[1].trim();
+					if (headers.containsKey(headerName)) {
+						correlationKeys.put(correlationKey, headers.get(headerName));
+					}
+					continue;
+				}
+
+				if (filter.endsWith("*")) {
+					String prefix = filter.substring(0, filter.length() - 1);
+					headers.entrySet().stream()
+							.filter(entry -> entry.getKey().startsWith(prefix))
+							.forEach(entry -> correlationKeys.put(entry.getKey(), entry.getValue()));
+				} else if (filter.startsWith("*")) {
+					String suffix = filter.substring(1);
+					headers.entrySet().stream()
+							.filter(entry -> entry.getKey().endsWith(suffix))
+							.forEach(entry -> correlationKeys.put(entry.getKey(), entry.getValue()));
+				} if (filter.endsWith("~")) {
+					String prefix = filter.substring(0, filter.length() - 1);
+					headers.entrySet().stream()
+							.filter(entry -> entry.getKey().startsWith(prefix))
+							.forEach(entry -> correlationKeys.put(entry.getKey().substring(prefix.length()), entry.getValue()));
+				} else if (filter.startsWith("~")) {
+					String suffix = filter.substring(1);
+					headers.entrySet().stream()
+							.filter(entry -> entry.getKey().endsWith(suffix))
+							.forEach(entry -> correlationKeys.put(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
+				} else {
+					if (headers.containsKey(filter)) {
+						correlationKeys.put(filter, headers.get(filter));
+					}
 				}
 			}
 			return correlationKeys;
@@ -161,7 +277,7 @@ public class BpmComponent extends DefaultComponent {
 		 * - processDefinitionKey: Key of the process definition to start
 		 * - messageName: Name of the message to start the process (can be used with processDefinitionId to specify the process definition to start)
 		 * - businessKey: Optional business key for the process instance
-		 * - propertyPrefix: Optional prefix for exchange headers to be included as process variables (default is "bpm_")
+		 * - headerFilter: Optional prefix for exchange headers to be included as process variables
 		 */
 		private class StartProcessProducer extends DefaultProducer {
 			private StartProcessProducer() {
@@ -191,12 +307,12 @@ public class BpmComponent extends DefaultComponent {
 				RuntimeService runtime = processEngine.getRuntimeService();
 
 				// Get required parameters for starting process instance
-				String processDefinitionId = getParameter(exchange, "processDefinitionId");
-				String processDefinitionKey = getParameter(exchange, "processDefinitionKey");
-				String messageName = getParameter(exchange, "messageName");
+				String processDefinitionId = (String) getParameter(exchange, "processDefinitionId");
+				String processDefinitionKey = (String) getParameter(exchange, "processDefinitionKey");
+				String messageName = (String) getParameter(exchange, "messageName");
 
 				// Get optional business key and variables
-				String businessKey = getParameter(exchange, "businessKey");
+				String businessKey = (String) getParameter(exchange, "businessKey");
 				Map<String, Object> variables = getVariables(exchange);
 
 				// Start process instance based on provided parameters
@@ -243,8 +359,8 @@ public class BpmComponent extends DefaultComponent {
 		 * - processInstanceId: Optional process instance id to correlate the message to a specific process
 		 * - processDefinitionKey: Optional process definition key to filter when correlating by process instance id
 		 * - processDefinitionId: Optional process definition id to filter when correlating by process instance
-		 * - propertyPrefix: Optional prefix for exchange headers to be included as process variables (default is "bpm_")
-		 * - correlationKeyPrefix: Optional prefix for exchange headers to be included as correlation keys (default is "bpm_key_")
+		 * - headerFilter: Optional prefix for exchange headers to be included as process variables
+		 * - correlationKeyPrefix: Optional prefix for exchange headers to be included as correlation keys
 		 */
 		private class CorrelateMessageProducer extends DefaultProducer {
 			private CorrelateMessageProducer() {
@@ -269,29 +385,29 @@ public class BpmComponent extends DefaultComponent {
 				RuntimeService runtime = processEngine.getRuntimeService();
 
 				// Get required message name
-				String messageName = getParameter(exchange, "messageName");
+				String messageName = (String) getParameter(exchange, "messageName");
 				if (Strings.isEmpty(messageName)) {
 					throw new IllegalStateException("The message name must not be empty");
 				}
 
 				// Get optional business key, variables, and correlation keys
-				String businessKey = getParameter(exchange, "businessKey");
+				String businessKey = (String) getParameter(exchange, "businessKey");
 				Map<String, Object> variables = getVariables(exchange);
 				Map<String, Object> correlationKeys = getCorrelationKeys(exchange);
 
 				// First try to correlate message to a specific process instance if processInstanceId is provided
-				String processInstanceId = getParameter(exchange, "processInstanceId");
+				String processInstanceId = (String) getParameter(exchange, "processInstanceId");
 				if (!Strings.isEmpty(processInstanceId)) {
 					ExecutionQuery query = runtime.createExecutionQuery()
 							.processInstanceId(processInstanceId)
 							.messageEventSubscriptionName(messageName);
 					// Optionally filter by process definition key if provided
-					String processDefinitionKey = getParameter(exchange, "processDefinitionKey");
+					String processDefinitionKey = (String) getParameter(exchange, "processDefinitionKey");
 					if (!Strings.isEmpty(processDefinitionKey)) {
 						query.processDefinitionKey(processDefinitionKey);
 					}
 					// Optionally filter by process definition id if provided
-					String processDefinitionId = getParameter(exchange, "processDefinitionId");
+					String processDefinitionId = (String) getParameter(exchange, "processDefinitionId");
 					if (!Strings.isEmpty(processDefinitionId)) {
 						query.processDefinitionId(processDefinitionId);
 					}
