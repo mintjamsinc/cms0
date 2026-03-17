@@ -186,7 +186,6 @@ public class CmsComponent extends DefaultComponent {
 			 */
 			protected class ProcessContext implements Closeable {
 				private final Exchange fExchange;
-				private final List<String> fConsumedHeaders = new ArrayList<>();
 
 				protected ProcessContext(Exchange exchange) {
 					fExchange = exchange;
@@ -204,11 +203,6 @@ public class CmsComponent extends DefaultComponent {
 						return fParameters.get(key);
 					}
 
-					if (fExchange.getIn().getHeaders().containsKey(key)) {
-						if (!fConsumedHeaders.contains(key)) {
-							fConsumedHeaders.add(key);
-						}
-					}
 					return fExchange.getIn().getHeader(key);
 				}
 
@@ -247,27 +241,16 @@ public class CmsComponent extends DefaultComponent {
 				}
 
 				/**
-				 * Set a header in the exchange and unmark track it as consumed if it was previously marked.
-				 * This allows producers to set result headers without them being removed in the finally block.
+				 * Set a header in the exchange for downstream processing.
+				 * This method can be used by producers to set headers based on their processing logic, which can then be consumed by other processors or components in the route.
 				 */
-				public void setOutputHeader(String key, Object value) {
+				public void setHeader(String key, Object value) {
 					fExchange.getIn().setHeader(key, value);
-					if (fConsumedHeaders.contains(key)) {
-						fConsumedHeaders.remove(key);
-					}
 				}
 
 				@Override
 				public void close() throws IOException {
-					try {
-						for (String header : fConsumedHeaders) {
-							if (Objects.equals(header, "runAs") || Objects.equals(header, "conflictBehavior")) {
-								continue; // Don't remove special parameters
-							}
-							fExchange.getIn().removeHeader(header);
-						}
-					} catch (Throwable ignore) {}
-					fConsumedHeaders.clear();
+					// No resources to close in this implementation, but this is where you would clean up any per-invocation state if needed.
 				}
 			}
 		}
@@ -380,7 +363,7 @@ public class CmsComponent extends DefaultComponent {
 							String headerName = parts[0].trim();
 							String attributeName = parts[1].trim();
 							if (context.hasAttribute(attributeName)) {
-								pc.setOutputHeader(headerName, context.getAttribute(attributeName));
+								pc.setHeader(headerName, context.getAttribute(attributeName));
 							}
 							continue;
 						}
@@ -389,26 +372,26 @@ public class CmsComponent extends DefaultComponent {
 							String prefix = filter.substring(0, filter.length() - 1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.startsWith(prefix))
-									.forEach(name -> pc.setOutputHeader(name, context.getAttribute(name)));
+									.forEach(name -> pc.setHeader(name, context.getAttribute(name)));
 						} else if (filter.startsWith("*")) {
 							String suffix = filter.substring(1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.endsWith(suffix))
-									.forEach(name -> pc.setOutputHeader(name, context.getAttribute(name)));
+									.forEach(name -> pc.setHeader(name, context.getAttribute(name)));
 						} else if (filter.endsWith("~")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.startsWith(prefix))
-									.forEach(name -> pc.setOutputHeader(name.substring(prefix.length()), context.getAttribute(name)));
+									.forEach(name -> pc.setHeader(name.substring(prefix.length()), context.getAttribute(name)));
 						} else if (filter.startsWith("~")) {
 							String suffix = filter.substring(1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.endsWith(suffix))
-									.forEach(name -> pc.setOutputHeader(name.substring(0, name.length() - suffix.length()), context.getAttribute(name)));
+									.forEach(name -> pc.setHeader(name.substring(0, name.length() - suffix.length()), context.getAttribute(name)));
 						} else {
 							Object value = context.getAttribute(filter);
 							if (value != null) {
-								pc.setOutputHeader(filter, value);
+								pc.setHeader(filter, value);
 							}
 						}
 					}
@@ -531,7 +514,7 @@ public class CmsComponent extends DefaultComponent {
 					session.save();
 
 					// Set result path in exchange header (camelCase to match GraphQL conventions)
-					pc.setOutputHeader("cmsStoredPath", fileNode.getPath());
+					pc.setHeader("cmsStoredPath", fileNode.getPath());
 				} catch (Exception e) {
 					CmsService.getLogger(getClass()).error("Failed to store file to JCR: " + e.getMessage(), e);
 					throw e;
@@ -876,7 +859,7 @@ public class CmsComponent extends DefaultComponent {
 					QueryResult result = q.execute();
 					boolean exists = result.getNodes().hasNext();
 
-					pc.setOutputHeader("cmsExists", exists);
+					pc.setHeader("cmsExists", exists);
 					pc.getExchange().getIn().setBody(exists);
 				}
 			}
@@ -1060,7 +1043,7 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					Version version = versionManager.checkin(path);
-					pc.setOutputHeader("cmsVersionName", version.getName());
+					pc.setHeader("cmsVersionName", version.getName());
 				}
 			}
 		}
@@ -1174,7 +1157,7 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					Version version = versionManager.checkpoint(path);
-					pc.setOutputHeader("cmsVersionName", version.getName());
+					pc.setHeader("cmsVersionName", version.getName());
 				}
 			}
 		}
@@ -1405,7 +1388,7 @@ public class CmsComponent extends DefaultComponent {
 					session.save();
 
 					// Set result path in exchange header (camelCase to match GraphQL conventions)
-					pc.setOutputHeader("cmsMovedPath", finalDestPath);
+					pc.setHeader("cmsMovedPath", finalDestPath);
 				}
 			}
 		}

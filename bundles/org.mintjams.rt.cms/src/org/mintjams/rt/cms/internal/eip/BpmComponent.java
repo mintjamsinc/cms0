@@ -24,7 +24,6 @@ package org.mintjams.rt.cms.internal.eip;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -120,7 +119,6 @@ public class BpmComponent extends DefaultComponent {
 			 */
 			protected class ProcessContext implements Closeable {
 				private final Exchange fExchange;
-				private final List<String> fConsumedHeaders = new ArrayList<>();
 
 				protected ProcessContext(Exchange exchange) {
 					fExchange = exchange;
@@ -134,11 +132,6 @@ public class BpmComponent extends DefaultComponent {
 						return fParameters.get(key);
 					}
 
-					if (fExchange.getIn().getHeaders().containsKey(key)) {
-						if (!fConsumedHeaders.contains(key)) {
-							fConsumedHeaders.add(key);
-						}
-					}
 					return fExchange.getIn().getHeader(key);
 				}
 
@@ -287,24 +280,17 @@ public class BpmComponent extends DefaultComponent {
 				}
 
 				/**
-				 * Set a header in the exchange and unmark track it as consumed if it was previously marked.
-				 * This allows producers to set result headers without them being removed in the finally block.
+				 * Set a header in the exchange for downstream processing.
+				 * This can be used to pass information such as process instance id to subsequent steps in the route.
+				 * Headers set here will be available in the exchange after the producer finishes processing.
 				 */
-				public void setResultHeader(String key, Object value) {
+				public void setHeader(String key, Object value) {
 					fExchange.getIn().setHeader(key, value);
-					if (fConsumedHeaders.contains(key)) {
-						fConsumedHeaders.remove(key);
-					}
 				}
 
 				@Override
 				public void close() throws IOException {
-					try {
-						for (String header : fConsumedHeaders) {
-							fExchange.getIn().removeHeader(header);
-						}
-					} catch (Throwable ignore) {}
-					fConsumedHeaders.clear();
+					// No resources to clean up in this implementation, but this is where you would release any resources if needed
 				}
 			}
 		}
@@ -332,7 +318,7 @@ public class BpmComponent extends DefaultComponent {
 				ProcessInstance instance = startProcessInstance(pc);
 
 				// Set process instance id in exchange headers for downstream processing
-				pc.setResultHeader("processInstanceId", instance.getProcessInstanceId());
+				pc.setHeader("processInstanceId", instance.getProcessInstanceId());
 			}
 
 			/**
