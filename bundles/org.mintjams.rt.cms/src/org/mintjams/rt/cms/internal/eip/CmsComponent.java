@@ -560,6 +560,7 @@ public class CmsComponent extends DefaultComponent {
 		 *       1. Endpoint parameter (URI query)
 		 *       2. Exchange header
 		 *    - excludes: Header prefix to exclude (same resolution order as includes)
+		 *    - delimiter: Delimiter for nested properties when header value is a map (default: dot)
 		 *   - runAs: User to impersonate (optional)
 		 *
 		 * Example:
@@ -588,6 +589,11 @@ public class CmsComponent extends DefaultComponent {
 					// Get include/exclude filters from endpoint parameters or exchange headers
 					List<String> includes = pc.parseFilterList(pc.getParameter("includes"));
 					List<String> excludes = pc.parseFilterList(pc.getParameter("excludes"));
+					// Optional delimiter for nested properties when header value is a map (default: dot)
+					String delimiter = (String) pc.getParameter("delimiter");
+					if (delimiter == null || delimiter.trim().isEmpty()) {
+						delimiter = ".";
+					}
 
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
@@ -647,8 +653,25 @@ public class CmsComponent extends DefaultComponent {
 								}
 							}
 						} else {
-							if (headers.containsKey(filter) && !matches(filter, excludes)) {
-								setProperty(targetNode, filter, headers.get(filter), vf);
+							if (matches(filter, excludes)) {
+								continue; // Skip if explicitly excluded
+							}
+
+							if (!headers.containsKey(filter)) {
+								continue; // Skip if header not present
+							}
+
+							Object value = headers.get(filter);
+							if (value instanceof Map) {
+								// Support nested properties for map values (e.g., "commerce_product" header with value {"name": "Product A", "price": 10} sets "commerce_product.name" and "commerce_product.price" properties)
+								// delimiter is dot (.) to match common conventions, but you can choose a different one if needed
+								Map<?, ?> mapValue = (Map<?, ?>) value;
+								for (Map.Entry<?, ?> entry : mapValue.entrySet()) {
+									String propertyName = filter + delimiter + entry.getKey().toString();
+									setProperty(targetNode, propertyName, entry.getValue(), vf);
+								}
+							} else {
+								setProperty(targetNode, filter, value, vf);
 							}
 						}
 					}
