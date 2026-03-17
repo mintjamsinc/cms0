@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.camunda.bpm.engine.delegate.DelegateExecution;
@@ -48,9 +49,8 @@ import org.mintjams.tools.lang.Strings;
 public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListener {
 
 	private Expression endpointURI;
-	private Expression headerFilter;
-	private Expression resultHeaderFilter;
-	private Expression resultBody;
+	private Expression inputs;
+	private Expression outputs;
 
 	@Override
 	public void execute(DelegateExecution execution) throws Exception {
@@ -120,7 +120,7 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 
 		// Set result headers as process variables
 		Map<String, Object> headers = reply.getHeaders();
-		for (String filter : getResultHeaderFilters(variableScope)) {
+		for (String filter : getOutputs(variableScope)) {
 			if (Strings.isEmpty(filter)) {
 				continue;
 			}
@@ -129,6 +129,10 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 				String[] parts = filter.split("=", 2);
 				String variableName = parts[0].trim();
 				String headerName = parts[1].trim();
+				if (Objects.equals(headerName.toLowerCase(), "@body")) {
+					variableScope.setVariable(variableName, reply.getBody());
+					continue;
+				}
 				if (headers.containsKey(headerName)) {
 					variableScope.setVariable(variableName, headers.get(headerName));
 				}
@@ -162,13 +166,6 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 			}
 		}
 
-		// Set result body as a process variable
-		String resultBody = getResultBody(variableScope);
-		if (!Strings.isEmpty(resultBody)) {
-			variableScope.setVariable(resultBody, reply.getBody());
-			return reply.getBody();
-		}
-
 		return null;
 	}
 
@@ -180,12 +177,12 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		return (String) endpointURI.getValue(variableScope);
 	}
 
-	private List<String> getHeaderFilters(VariableScope variableScope) {
-		if (headerFilter == null) {
+	private List<String> getInputs(VariableScope variableScope) {
+		if (inputs == null) {
 			return Collections.emptyList();
 		}
 
-		Object value = headerFilter.getValue(variableScope);
+		Object value = inputs.getValue(variableScope);
 		if (value == null) {
 			return Collections.emptyList();
 		}
@@ -210,7 +207,7 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 
 	private Map<String, Object> getHeaders(VariableScope variableScope) {
 		Map<String, Object> headers = new HashMap<>();
-		for (String filter : getHeaderFilters(variableScope)) {
+		for (String filter : getInputs(variableScope)) {
 			if (Strings.isEmpty(filter)) {
 				continue;
 			}
@@ -254,12 +251,12 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		return headers;
 	}
 
-	private List<String> getResultHeaderFilters(VariableScope variableScope) {
-		if (resultHeaderFilter == null) {
+	private List<String> getOutputs(VariableScope variableScope) {
+		if (outputs == null) {
 			return Collections.emptyList();
 		}
 
-		Object value = resultHeaderFilter.getValue(variableScope);
+		Object value = outputs.getValue(variableScope);
 		if (value == null) {
 			return Collections.emptyList();
 		}
@@ -280,15 +277,6 @@ public class EipDelegate implements JavaDelegate, ExecutionListener, TaskListene
 					.collect(Collectors.toList());
 		}
 		return List.of(value.toString().trim());
-	}
-
-	private String getResultBody(VariableScope variableScope) {
-		if (resultBody == null) {
-			return null;
-		}
-
-		Object value = resultBody.getValue(variableScope);
-		return value != null ? value.toString() : null;
 	}
 
 }

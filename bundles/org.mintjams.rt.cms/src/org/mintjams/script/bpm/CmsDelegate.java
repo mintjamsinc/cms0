@@ -51,8 +51,8 @@ import org.mintjams.tools.lang.Strings;
 public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListener {
 
 	private Expression path;
-	private Expression headerFilter;
-	private Expression resultHeaderFilter;
+	private Expression inputs;
+	private Expression outputs;
 	private Expression runAs;
 
 	@Override
@@ -143,8 +143,8 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 			throw new IllegalStateException("No script engine found for MIME type: " + mimeType);
 		}
 
-		// Set variables to script context based on header filters
-		for (String filter : getHeaderFilters(variableScope)) {
+		// Set variables to script context based on input filters
+		for (String filter : getInputs(variableScope)) {
 			if (filter.indexOf("=") > 0) {
 				String[] parts = filter.split("=", 2);
 				String attributeName = parts[0].trim();
@@ -197,8 +197,8 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 					.eval();
 		}
 
-		// Set variables from script context to variable scope based on result header filters
-		for (String filter : getResultHeaderFilters(variableScope)) {
+		// Set variables from script context to variable scope based on output filters
+		for (String filter : getOutputs(variableScope)) {
 			if (filter.indexOf("=") > 0) {
 				String[] parts = filter.split("=", 2);
 				String variableName = parts[0].trim();
@@ -245,12 +245,12 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		return (String) path.getValue(variableScope);
 	}
 
-	private List<String> getHeaderFilters(VariableScope variableScope) {
-		if (headerFilter == null) {
+	private List<String> getInputs(VariableScope variableScope) {
+		if (inputs == null) {
 			return Collections.emptyList();
 		}
 
-		Object value = headerFilter.getValue(variableScope);
+		Object value = inputs.getValue(variableScope);
 		if (value == null) {
 			return Collections.emptyList();
 		}
@@ -273,12 +273,12 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		return List.of(value.toString().trim());
 	}
 
-	private List<String> getResultHeaderFilters(VariableScope variableScope) {
-		if (resultHeaderFilter == null) {
+	private List<String> getOutputs(VariableScope variableScope) {
+		if (outputs == null) {
 			return Collections.emptyList();
 		}
 
-		Object value = resultHeaderFilter.getValue(variableScope);
+		Object value = outputs.getValue(variableScope);
 		if (value == null) {
 			return Collections.emptyList();
 		}
