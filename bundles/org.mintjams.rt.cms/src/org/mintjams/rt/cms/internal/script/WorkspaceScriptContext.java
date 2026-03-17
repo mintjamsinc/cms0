@@ -25,6 +25,9 @@ package org.mintjams.rt.cms.internal.script;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.Writer;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.jcr.Credentials;
 import javax.jcr.GuestCredentials;
@@ -143,6 +146,30 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 			});
 		}
 		return fJcrSession;
+	}
+
+	public List<String> getAttributeNames() {
+		Bindings bindings = super.getBindings(ENGINE_SCOPE);
+		if (bindings == null) {
+			return List.of();
+		}
+		return bindings.keySet().stream().map(Object::toString).collect(Collectors.toList());
+	}
+
+	public boolean hasAttribute(String name) {
+		Bindings bindings = super.getBindings(ENGINE_SCOPE);
+		if (bindings == null) {
+			return false;
+		}
+		return bindings.containsKey(name);
+	}
+
+	public Map<String, Object> getAttributes() {
+		Bindings bindings = super.getBindings(ENGINE_SCOPE);
+		if (bindings == null) {
+			return Map.of();
+		}
+		return bindings.entrySet().stream().collect(Collectors.toMap(e -> e.getKey().toString(), Map.Entry::getValue));
 	}
 
 	public void setAttribute(String name, Object value) {

@@ -22,9 +22,18 @@
 
 package org.mintjams.script;
 
+import java.util.List;
+import java.util.Map;
+
 import javax.script.ScriptContext;
 
 public interface ScriptingContext extends ScriptContext {
+
+	List<String> getAttributeNames();
+
+	boolean hasAttribute(String name);
+
+	Map<String, Object> getAttributes();
 
 	Object getAttribute(String name);
 
