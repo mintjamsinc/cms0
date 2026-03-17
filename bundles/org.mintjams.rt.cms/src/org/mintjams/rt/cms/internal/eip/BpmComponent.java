@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.apache.camel.Consumer;
@@ -142,20 +143,6 @@ public class BpmComponent extends DefaultComponent {
 				}
 
 				/**
-				 * Get list of header filters from endpoint parameters or exchange headers.
-				 */
-				public List<String> getHeaderFilters() {
-					return parseFilterList(getParameter("headerFilter"));
-				}
-
-				/**
-				 * Get list of correlation key filters from endpoint parameters or exchange headers.
-				 */
-				public List<String> getCorrelationKeyFilters() {
-					return parseFilterList(getParameter("correlationKeyFilter"));
-				}
-
-				/**
 				 * Parse a filter parameter into a list of strings.
 				 * Supports comma-separated strings, lists, and collections.
 				 */
@@ -185,14 +172,14 @@ public class BpmComponent extends DefaultComponent {
 				 * Extract variables from exchange headers based on a specified prefix.
 				 */
 				public Map<String, Object> getVariables() {
-					return extractHeadersByFilters(getHeaderFilters());
+					return extractHeadersByFilters(parseFilterList(getParameter("variables")), parseFilterList(getParameter("excludeVariables")));
 				}
 
 				/**
 				 * Extract correlation keys from exchange headers based on a specified prefix.
 				 */
 				public Map<String, Object> getCorrelationKeys() {
-					return extractHeadersByFilters(getCorrelationKeyFilters());
+					return extractHeadersByFilters(parseFilterList(getParameter("correlationKeys")), parseFilterList(getParameter("excludeCorrelationKeys")));
 				}
 
 				/**
@@ -206,7 +193,7 @@ public class BpmComponent extends DefaultComponent {
 				 *   "~suffix"            — suffix match, strip suffix from key
 				 *   "exactKey"           — exact match
 				 */
-				private Map<String, Object> extractHeadersByFilters(List<String> filters) {
+				private Map<String, Object> extractHeadersByFilters(List<String> filters, List<String> excludeFilters) {
 					Map<String, Object> result = new HashMap<>();
 					Map<String, Object> headers = fExchange.getIn().getHeaders();
 					for (String filter : filters) {
@@ -218,7 +205,11 @@ public class BpmComponent extends DefaultComponent {
 							String[] parts = filter.split("=", 2);
 							String resultKey = parts[0].trim();
 							String headerName = parts[1].trim();
-							if (headers.containsKey(headerName)) {
+							if (Objects.equals(headerName.toLowerCase(), "@body")) {
+								result.put(resultKey, fExchange.getIn().getBody());
+								continue;
+							}
+							if (headers.containsKey(headerName) && !matches(headerName, excludeFilters)) {
 								result.put(resultKey, headers.get(headerName));
 							}
 							continue;
@@ -228,29 +219,71 @@ public class BpmComponent extends DefaultComponent {
 							String prefix = filter.substring(0, filter.length() - 1);
 							headers.entrySet().stream()
 									.filter(entry -> entry.getKey().startsWith(prefix))
+									.filter(entry -> !matches(entry.getKey(), excludeFilters))
 									.forEach(entry -> result.put(entry.getKey().substring(prefix.length()), entry.getValue()));
 						} else if (filter.startsWith("~")) {
 							String suffix = filter.substring(1);
 							headers.entrySet().stream()
 									.filter(entry -> entry.getKey().endsWith(suffix))
+									.filter(entry -> !matches(entry.getKey(), excludeFilters))
 									.forEach(entry -> result.put(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
 						} else if (filter.endsWith("*")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							headers.entrySet().stream()
 									.filter(entry -> entry.getKey().startsWith(prefix))
+									.filter(entry -> !matches(entry.getKey(), excludeFilters))
 									.forEach(entry -> result.put(entry.getKey(), entry.getValue()));
 						} else if (filter.startsWith("*")) {
 							String suffix = filter.substring(1);
 							headers.entrySet().stream()
 									.filter(entry -> entry.getKey().endsWith(suffix))
+									.filter(entry -> !matches(entry.getKey(), excludeFilters))
 									.forEach(entry -> result.put(entry.getKey(), entry.getValue()));
 						} else {
-							if (headers.containsKey(filter)) {
+							if (headers.containsKey(filter) && !matches(filter, excludeFilters)) {
 								result.put(filter, headers.get(filter));
 							}
 						}
 					}
 					return result;
+				}
+
+				/**
+				 * Check if a key matches any of the provided filters.
+				 */
+				private boolean matches(String key, List<String> filters) {
+					for (String filter : filters) {
+						if (Strings.isEmpty(filter)) {
+							continue;
+						}
+
+						if (filter.endsWith("*")) {
+							String prefix = filter.substring(0, filter.length() - 1);
+							if (key.startsWith(prefix)) {
+								return true;
+							}
+						} else if (filter.startsWith("*")) {
+							String suffix = filter.substring(1);
+							if (key.endsWith(suffix)) {
+								return true;
+							}
+						} else if (filter.endsWith("~")) {
+							String prefix = filter.substring(0, filter.length() - 1);
+							if (key.startsWith(prefix)) {
+								return true;
+							}
+						} else if (filter.startsWith("~")) {
+							String suffix = filter.substring(1);
+							if (key.endsWith(suffix)) {
+								return true;
+							}
+						} else {
+							if (key.equals(filter)) {
+								return true;
+							}
+						}
+					}
+					return false;
 				}
 
 				/**

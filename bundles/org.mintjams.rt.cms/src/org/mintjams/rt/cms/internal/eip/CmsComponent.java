@@ -42,6 +42,7 @@ import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import javax.jcr.AccessDeniedException;
@@ -212,20 +213,6 @@ public class CmsComponent extends DefaultComponent {
 				}
 
 				/**
-				 * Get list of header filters from endpoint parameters or exchange headers.
-				 */
-				public List<String> getHeaderFilters() {
-					return parseFilterList(getParameter("headerFilter"));
-				}
-
-				/**
-				 * Get list of header filters for result processing.
-				 */
-				public List<String> getResultHeaderFilters() {
-					return parseFilterList(getParameter("resultHeaderFilter"));
-				}
-
-				/**
 				 * Resolve the CmsConflictBehavior parameter.
 				 */
 				public CmsConflictBehavior getConflictBehavior(CmsConflictBehavior defaultValue) {
@@ -237,7 +224,7 @@ public class CmsComponent extends DefaultComponent {
 				 * Parse a filter parameter into a list of strings.
 				 * Supports comma-separated strings, lists, and collections.
 				 */
-				private List<String> parseFilterList(Object filter) {
+				public List<String> parseFilterList(Object filter) {
 					if (filter == null) {
 						return Collections.emptyList();
 					}
@@ -263,7 +250,7 @@ public class CmsComponent extends DefaultComponent {
 				 * Set a header in the exchange and unmark track it as consumed if it was previously marked.
 				 * This allows producers to set result headers without them being removed in the finally block.
 				 */
-				public void setResultHeader(String key, Object value) {
+				public void setOutputHeader(String key, Object value) {
 					fExchange.getIn().setHeader(key, value);
 					if (fConsumedHeaders.contains(key)) {
 						fConsumedHeaders.remove(key);
@@ -274,6 +261,9 @@ public class CmsComponent extends DefaultComponent {
 				public void close() throws IOException {
 					try {
 						for (String header : fConsumedHeaders) {
+							if (Objects.equals(header, "runAs") || Objects.equals(header, "conflictBehavior")) {
+								continue; // Don't remove special parameters
+							}
 							fExchange.getIn().removeHeader(header);
 						}
 					} catch (Throwable ignore) {}
@@ -321,9 +311,24 @@ public class CmsComponent extends DefaultComponent {
 						throw new IllegalStateException("No script engine found for MIME type: " + mimeType);
 					}
 
-					// Set headers as script context attributes based on filters
+					// Set script context attributes based on input filters
 					Map<String, Object> headers = pc.getExchange().getIn().getHeaders();
-					for (String filter : pc.getHeaderFilters()) {
+					for (String filter : pc.parseFilterList(pc.getParameter("inputs"))) {
+						if (filter.indexOf("=") > 0) {
+							// Support inline key=value pairs in inputs parameter
+							String[] parts = filter.split("=", 2);
+							String attributeName = parts[0].trim();
+							String headerName = parts[1].trim();
+							if (Objects.equals(headerName.toLowerCase(), "@body")) {
+								context.setAttribute(attributeName, pc.getExchange().getIn().getBody());
+								continue;
+							}
+							if (headers.containsKey(headerName)) {
+								context.setAttribute(attributeName, headers.get(headerName));
+							}
+							continue;
+						}
+
 						if (filter.endsWith("*")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							headers.entrySet().stream()
@@ -367,32 +372,43 @@ public class CmsComponent extends DefaultComponent {
 								.eval();
 					}
 
-					// Set result headers based on filters
-					for (String filter : pc.getResultHeaderFilters()) {
+					// Set headers based on output filters
+					for (String filter : pc.parseFilterList(pc.getParameter("outputs"))) {
+						if (filter.indexOf("=") > 0) {
+							// Support inline key=value pairs in outputs parameter
+							String[] parts = filter.split("=", 2);
+							String headerName = parts[0].trim();
+							String attributeName = parts[1].trim();
+							if (context.hasAttribute(attributeName)) {
+								pc.setOutputHeader(headerName, context.getAttribute(attributeName));
+							}
+							continue;
+						}
+
 						if (filter.endsWith("*")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.startsWith(prefix))
-									.forEach(name -> pc.setResultHeader(name, context.getAttribute(name)));
+									.forEach(name -> pc.setOutputHeader(name, context.getAttribute(name)));
 						} else if (filter.startsWith("*")) {
 							String suffix = filter.substring(1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.endsWith(suffix))
-									.forEach(name -> pc.setResultHeader(name, context.getAttribute(name)));
+									.forEach(name -> pc.setOutputHeader(name, context.getAttribute(name)));
 						} else if (filter.endsWith("~")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.startsWith(prefix))
-									.forEach(name -> pc.setResultHeader(name.substring(prefix.length()), context.getAttribute(name)));
+									.forEach(name -> pc.setOutputHeader(name.substring(prefix.length()), context.getAttribute(name)));
 						} else if (filter.startsWith("~")) {
 							String suffix = filter.substring(1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.endsWith(suffix))
-									.forEach(name -> pc.setResultHeader(name.substring(0, name.length() - suffix.length()), context.getAttribute(name)));
+									.forEach(name -> pc.setOutputHeader(name.substring(0, name.length() - suffix.length()), context.getAttribute(name)));
 						} else {
 							Object value = context.getAttribute(filter);
 							if (value != null) {
-								pc.setResultHeader(filter, value);
+								pc.setOutputHeader(filter, value);
 							}
 						}
 					}
@@ -515,7 +531,7 @@ public class CmsComponent extends DefaultComponent {
 					session.save();
 
 					// Set result path in exchange header (camelCase to match GraphQL conventions)
-					pc.setResultHeader("cmsStoredPath", fileNode.getPath());
+					pc.setOutputHeader("cmsStoredPath", fileNode.getPath());
 				} catch (Exception e) {
 					CmsService.getLogger(getClass()).error("Failed to store file to JCR: " + e.getMessage(), e);
 					throw e;
@@ -537,13 +553,20 @@ public class CmsComponent extends DefaultComponent {
 		 *
 		 * Null header values remove the corresponding property.
 		 *
-		 * URI format: cms:setProperties?path=/content/file.txt&headerFilter=commerce_~
+		 * URI format: cms:setProperties?path=/content/file.txt&includes=commerce_~
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - headerFilter: Header prefix to filter. Resolved in order:
+		 *   - includes: Header prefix to filter. Resolved in order:
 		 *       1. Endpoint parameter (URI query)
 		 *       2. Exchange header
-		 *       3. Default: "cms_"
+		 *    - excludes: Header prefix to exclude (same resolution order as includes)
+		 *   - runAs: User to impersonate (optional)
+		 *
+		 * Example:
+		 *   - includes=commerce_~ will set all headers starting with "commerce_" as properties without the prefix
+		 *   - includes=customHeader will set the "customHeader" header as a property with the same name
+		 *   - includes=customProperty=customHeader will set the "customProperty" JCR property from the "customHeader" exchange header
+		 *   - excludes=commerce_secret* will exclude any headers starting with "commerce_secret" from being set as properties
 		 */
 		private class SetPropertiesProducer extends CmsProducer {
 			private SetPropertiesProducer() {
@@ -562,8 +585,9 @@ public class CmsComponent extends DefaultComponent {
 
 					// Get path from endpoint parameters or exchange headers
 					String path = (String) pc.getParameter("path");
-					// Get header filters (prefixes) from endpoint parameters or exchange headers
-					List<String> filters = pc.getHeaderFilters();
+					// Get include/exclude filters from endpoint parameters or exchange headers
+					List<String> includes = pc.parseFilterList(pc.getParameter("includes"));
+					List<String> excludes = pc.parseFilterList(pc.getParameter("excludes"));
 
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
@@ -578,37 +602,52 @@ public class CmsComponent extends DefaultComponent {
 
 					// Set properties from exchange headers
 					Map<String, Object> headers = pc.getExchange().getIn().getHeaders();
-					for (String filter : filters) {
+					for (String filter : includes) {
+						if (filter.indexOf("=") > 0) {
+							// Support inline key=value pairs in includes parameter
+							String[] parts = filter.split("=", 2);
+							String propertyName = parts[0].trim();
+							String headerName = parts[1].trim();
+							if (Objects.equals(headerName.toLowerCase(), "@body")) {
+								setProperty(targetNode, propertyName, pc.getExchange().getIn().getBody(), vf);
+								continue;
+							}
+							if (headers.containsKey(headerName) && !matches(headerName, excludes)) {
+								setProperty(targetNode, propertyName, headers.get(headerName), vf);
+							}
+							continue;
+						}
+
 						if (filter.endsWith("*")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							for (Map.Entry<String, Object> entry : headers.entrySet()) {
-								if (entry.getKey().startsWith(prefix)) {
+								if (entry.getKey().startsWith(prefix) && !matches(entry.getKey(), excludes)) {
 									setProperty(targetNode, entry.getKey(), entry.getValue(), vf);
 								}
 							}
 						} else if (filter.startsWith("*")) {
 							String suffix = filter.substring(1);
 							for (Map.Entry<String, Object> entry : headers.entrySet()) {
-								if (entry.getKey().endsWith(suffix)) {
+								if (entry.getKey().endsWith(suffix) && !matches(entry.getKey(), excludes)) {
 									setProperty(targetNode, entry.getKey(), entry.getValue(), vf);
 								}
 							}
 						} else if (filter.endsWith("~")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							for (Map.Entry<String, Object> entry : headers.entrySet()) {
-								if (entry.getKey().startsWith(prefix)) {
+								if (entry.getKey().startsWith(prefix) && !matches(entry.getKey(), excludes)) {
 									setProperty(targetNode, entry.getKey().substring(prefix.length()), entry.getValue(), vf);
 								}
 							}
 						} else if (filter.startsWith("~")) {
 							String suffix = filter.substring(1);
 							for (Map.Entry<String, Object> entry : headers.entrySet()) {
-								if (entry.getKey().endsWith(suffix)) {
+								if (entry.getKey().endsWith(suffix) && !matches(entry.getKey(), excludes)) {
 									setProperty(targetNode, entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue(), vf);
 								}
 							}
 						} else {
-							if (headers.containsKey(filter)) {
+							if (headers.containsKey(filter) && !matches(filter, excludes)) {
 								setProperty(targetNode, filter, headers.get(filter), vf);
 							}
 						}
@@ -616,6 +655,40 @@ public class CmsComponent extends DefaultComponent {
 
 					session.save();
 				}
+			}
+
+			/**
+			 * Check if a property name matches any of the provided filters.
+			 */
+			private boolean matches(String propertyName, List<String> filters) {
+				for (String filter : filters) {
+					if (filter.endsWith("*")) {
+						String prefix = filter.substring(0, filter.length() - 1);
+						if (propertyName.startsWith(prefix)) {
+							return true;
+						}
+					} else if (filter.startsWith("*")) {
+						String suffix = filter.substring(1);
+						if (propertyName.endsWith(suffix)) {
+							return true;
+						}
+					} else if (filter.endsWith("~")) {
+						String prefix = filter.substring(0, filter.length() - 1);
+						if (propertyName.startsWith(prefix)) {
+							return true;
+						}
+					} else if (filter.startsWith("~")) {
+						String suffix = filter.substring(1);
+						if (propertyName.endsWith(suffix)) {
+							return true;
+						}
+					} else {
+						if (propertyName.equals(filter)) {
+							return true;
+						}
+					}
+				}
+				return false;
 			}
 
 			/**
@@ -780,7 +853,7 @@ public class CmsComponent extends DefaultComponent {
 					QueryResult result = q.execute();
 					boolean exists = result.getNodes().hasNext();
 
-					pc.setResultHeader("cmsExists", exists);
+					pc.setOutputHeader("cmsExists", exists);
 					pc.getExchange().getIn().setBody(exists);
 				}
 			}
@@ -964,7 +1037,7 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					Version version = versionManager.checkin(path);
-					pc.setResultHeader("cmsVersionName", version.getName());
+					pc.setOutputHeader("cmsVersionName", version.getName());
 				}
 			}
 		}
@@ -1078,7 +1151,7 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					Version version = versionManager.checkpoint(path);
-					pc.setResultHeader("cmsVersionName", version.getName());
+					pc.setOutputHeader("cmsVersionName", version.getName());
 				}
 			}
 		}
@@ -1309,7 +1382,7 @@ public class CmsComponent extends DefaultComponent {
 					session.save();
 
 					// Set result path in exchange header (camelCase to match GraphQL conventions)
-					pc.setResultHeader("cmsMovedPath", finalDestPath);
+					pc.setOutputHeader("cmsMovedPath", finalDestPath);
 				}
 			}
 		}
