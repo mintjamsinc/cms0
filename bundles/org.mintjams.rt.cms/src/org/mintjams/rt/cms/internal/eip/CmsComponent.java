@@ -23,6 +23,8 @@
 package org.mintjams.rt.cms.internal.eip;
 
 import java.io.ByteArrayInputStream;
+import java.io.Closeable;
+import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
@@ -145,81 +147,137 @@ public class CmsComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * Get parameter value from endpoint parameters or exchange headers
-		 */
-		private Object getParameter(Exchange exchange, String key) {
-			// First check endpoint parameters
-			if (fParameters.containsKey(key)) {
-				return fParameters.get(key);
+		private abstract class CmsProducer extends DefaultProducer {
+			protected CmsProducer(Endpoint endpoint) {
+				super(endpoint);
 			}
 
-			// Then check exchange headers
-			return exchange.getIn().getHeader(key);
-		}
-
-		/**
-		 * Get list of header filters from endpoint parameters or exchange headers.
-		 * Supports multiple formats: List, comma-separated String, or single String.
-		 */
-		private List<String> getHeaderFilters(Exchange exchange) {
-			// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
-			Object filter = getParameter(exchange, "headerFilter");
-			if (filter == null) {
-				filter = Collections.emptyList();
+			@Override
+			public void process(Exchange exchange) throws Exception {
+				try (ProcessContext context = new ProcessContext(exchange)) {
+					doProcess(context);
+				}
 			}
 
-			if (filter instanceof List) {
-				return ((List<?>) filter).stream()
-						.map(Object::toString)
-						.map(String::trim)
-						.collect(Collectors.toList());
-			}
-			if (filter instanceof String) {
-				return List.of(((String) filter).split("\\s*,\\s*"));
-			}
-			if (filter instanceof Collection<?>) {
-				return ((Collection<?>) filter).stream()
-						.map(Object::toString)
-						.map(String::trim)
-						.collect(Collectors.toList());
-			}
-			return List.of(filter.toString().trim());
-		}
+			protected abstract void doProcess(ProcessContext context) throws Exception;
 
-		/**
-		 * Get list of header filters for result processing from endpoint parameters or exchange headers.
-		 * Supports multiple formats: List, comma-separated String, or single String.
-		 */
-		private List<String> getResultHeaderFilters(Exchange exchange) {
-			// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
-			Object filter = getParameter(exchange, "resultHeaderFilter");
-			if (filter == null) {
-				filter = Collections.emptyList();
+			/**
+			 * Handle a conflict according to the given behavior.
+			 */
+			protected boolean handleConflict(CmsConflictBehavior behavior, String message) {
+				switch (behavior) {
+					case IGNORE:
+						return true;
+					case WARN:
+						CmsService.getLogger(getClass()).warn(message);
+						return true;
+					case FAIL:
+					default:
+						throw new IllegalStateException(message);
+				}
 			}
 
-			if (filter instanceof List) {
-				return ((List<?>) filter).stream()
-						.map(Object::toString)
-						.map(String::trim)
-						.collect(Collectors.toList());
+			/**
+			 * Per-invocation context that tracks consumed headers and provides
+			 * parameter resolution. Created at the start of each process() call
+			 * and cleaned up in its finally block, ensuring thread safety and
+			 * no state leakage across invocations.
+			 */
+			protected class ProcessContext implements Closeable {
+				private final Exchange fExchange;
+				private final List<String> fConsumedHeaders = new ArrayList<>();
+
+				ProcessContext(Exchange exchange) {
+					fExchange = exchange;
+				}
+
+				public Exchange getExchange() {
+					return fExchange;
+				}
+
+				/**
+				 * Get parameter value from endpoint parameters or exchange headers.
+				 */
+				public Object getParameter(String key) {
+					if (fParameters.containsKey(key)) {
+						return fParameters.get(key);
+					}
+
+					if (fExchange.getIn().getHeaders().containsKey(key)) {
+						if (!fConsumedHeaders.contains(key)) {
+							fConsumedHeaders.add(key);
+						}
+					}
+					return fExchange.getIn().getHeader(key);
+				}
+
+				/**
+				 * Get list of header filters from endpoint parameters or exchange headers.
+				 */
+				public List<String> getHeaderFilters() {
+					return parseFilterList(getParameter("headerFilter"));
+				}
+
+				/**
+				 * Get list of header filters for result processing.
+				 */
+				public List<String> getResultHeaderFilters() {
+					return parseFilterList(getParameter("resultHeaderFilter"));
+				}
+
+				/**
+				 * Resolve the CmsConflictBehavior parameter.
+				 */
+				public CmsConflictBehavior getConflictBehavior(CmsConflictBehavior defaultValue) {
+					String value = (String) getParameter("conflictBehavior");
+					return CmsConflictBehavior.of(value, defaultValue);
+				}
+
+				private List<String> parseFilterList(Object filter) {
+					if (filter == null) {
+						return Collections.emptyList();
+					}
+					if (filter instanceof List) {
+						return ((List<?>) filter).stream()
+								.map(Object::toString)
+								.map(String::trim)
+								.collect(Collectors.toList());
+					}
+					if (filter instanceof String) {
+						return List.of(((String) filter).split("\\s*,\\s*"));
+					}
+					if (filter instanceof Collection<?>) {
+						return ((Collection<?>) filter).stream()
+								.map(Object::toString)
+								.map(String::trim)
+								.collect(Collectors.toList());
+					}
+					return List.of(filter.toString().trim());
+				}
+
+				public void setResultHeader(String key, Object value) {
+					fExchange.getIn().setHeader(key, value);
+					if (fConsumedHeaders.contains(key)) {
+						fConsumedHeaders.remove(key);
+					}
+				}
+
+				@Override
+				public void close() throws IOException {
+					try {
+						for (String header : fConsumedHeaders) {
+							fExchange.getIn().removeHeader(header);
+						}
+					} catch (Throwable ignore) {}
+					fConsumedHeaders.clear();
+				}
 			}
-			if (filter instanceof String) {
-				return List.of(((String) filter).split("\\s*,\\s*"));
-			}
-			if (filter instanceof Collection<?>) {
-				return ((Collection<?>) filter).stream()
-						.map(Object::toString)
-						.map(String::trim)
-						.collect(Collectors.toList());
-			}
-			return List.of(filter.toString().trim());
 		}
 
 		/**
 		 * Producer for script execution (backward compatibility)
 		 */
-		private class ScriptProducer extends DefaultProducer {
+		private class ScriptProducer extends CmsProducer {
 			private final String fPath;
 
 			private ScriptProducer(String path) {
@@ -228,13 +286,13 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
-					context.setAttribute("exchange", exchange);
+					context.setAttribute("exchange", pc.getExchange());
 					Scripts.prepareAPIs(context);
 
 					String resourcePath = fPath.startsWith("/") ? fPath : "/" + fPath;
@@ -256,8 +314,8 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					// Set headers as script context attributes based on filters
-					Map<String, Object> headers = exchange.getIn().getHeaders();
-					for (String filter : getHeaderFilters(exchange)) {
+					Map<String, Object> headers = pc.getExchange().getIn().getHeaders();
+					for (String filter : pc.getHeaderFilters()) {
 						if (filter.endsWith("*")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							headers.entrySet().stream()
@@ -279,7 +337,7 @@ public class CmsComponent extends DefaultComponent {
 									.filter(entry -> entry.getKey().endsWith(suffix))
 									.forEach(entry -> context.setAttribute(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
 						} else {
-							Object value = exchange.getIn().getHeader(filter);
+							Object value = headers.get(filter);
 							if (value != null) {
 								context.setAttribute(filter, value);
 							}
@@ -302,31 +360,31 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					// Set result headers based on filters
-					for (String filter : getResultHeaderFilters(exchange)) {
+					for (String filter : pc.getResultHeaderFilters()) {
 						if (filter.endsWith("*")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.startsWith(prefix))
-									.forEach(name -> exchange.getIn().setHeader(name, context.getAttribute(name)));
+									.forEach(name -> pc.setResultHeader(name, context.getAttribute(name)));
 						} else if (filter.startsWith("*")) {
 							String suffix = filter.substring(1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.endsWith(suffix))
-									.forEach(name -> exchange.getIn().setHeader(name, context.getAttribute(name)));
+									.forEach(name -> pc.setResultHeader(name, context.getAttribute(name)));
 						} else if (filter.endsWith("~")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.startsWith(prefix))
-									.forEach(name -> exchange.getIn().setHeader(name.substring(prefix.length()), context.getAttribute(name)));
+									.forEach(name -> pc.setResultHeader(name.substring(prefix.length()), context.getAttribute(name)));
 						} else if (filter.startsWith("~")) {
 							String suffix = filter.substring(1);
 							context.getAttributeNames().stream()
 									.filter(name -> name.endsWith(suffix))
-									.forEach(name -> exchange.getIn().setHeader(name.substring(0, name.length() - suffix.length()), context.getAttribute(name)));
+									.forEach(name -> pc.setResultHeader(name.substring(0, name.length() - suffix.length()), context.getAttribute(name)));
 						} else {
 							Object value = context.getAttribute(filter);
 							if (value != null) {
-								exchange.getIn().setHeader(filter, value);
+								pc.setResultHeader(filter, value);
 							}
 						}
 					}
@@ -369,24 +427,24 @@ public class CmsComponent extends DefaultComponent {
 		 *   - mimeType: MIME type (default: application/octet-stream)
 		 *   - createParents: Auto-create parent folders (default: true)
 		 */
-		private class StoreProducer extends DefaultProducer {
+		private class StoreProducer extends CmsProducer {
 			private StoreProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
 					// Get parameters from endpoint parameters or exchange headers
-					String path = (String) getParameter(exchange, "path");
-					String mimeType = (String) getParameter(exchange, "mimeType");
-					String createParentsStr = (String) getParameter(exchange, "createParents");
+					String path = (String) pc.getParameter("path");
+					String mimeType = (String) pc.getParameter("mimeType");
+					String createParentsStr = (String) pc.getParameter("createParents");
 
 					// Default createParents to true
 					boolean createParents = true;
@@ -402,7 +460,7 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					// Get content from exchange body
-					byte[] content = exchange.getIn().getBody(byte[].class);
+					byte[] content = pc.getExchange().getIn().getBody(byte[].class);
 					if (content == null) {
 						throw new IllegalArgumentException("Exchange body is empty");
 					}
@@ -449,7 +507,7 @@ public class CmsComponent extends DefaultComponent {
 					session.save();
 
 					// Set result path in exchange header (camelCase to match GraphQL conventions)
-					exchange.getIn().setHeader("cmsStoredPath", fileNode.getPath());
+					pc.setResultHeader("cmsStoredPath", fileNode.getPath());
 				} catch (Exception e) {
 					CmsService.getLogger(getClass()).error("Failed to store file to JCR: " + e.getMessage(), e);
 					throw e;
@@ -479,15 +537,15 @@ public class CmsComponent extends DefaultComponent {
 		 *       2. Exchange header
 		 *       3. Default: "cms_"
 		 */
-		private class SetPropertiesProducer extends DefaultProducer {
+		private class SetPropertiesProducer extends CmsProducer {
 			private SetPropertiesProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
@@ -495,9 +553,9 @@ public class CmsComponent extends DefaultComponent {
 					ValueFactory vf = session.getValueFactory();
 
 					// Get path from endpoint parameters or exchange headers
-					String path = (String) getParameter(exchange, "path");
+					String path = (String) pc.getParameter("path");
 					// Get header filters (prefixes) from endpoint parameters or exchange headers
-					List<String> filters = getHeaderFilters(exchange);
+					List<String> filters = pc.getHeaderFilters();
 
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
@@ -511,7 +569,7 @@ public class CmsComponent extends DefaultComponent {
 					Node targetNode = getTargetNode(node);
 
 					// Set properties from exchange headers
-					Map<String, Object> headers = exchange.getIn().getHeaders();
+					Map<String, Object> headers = pc.getExchange().getIn().getHeaders();
 					for (String filter : filters) {
 						if (filter.endsWith("*")) {
 							String prefix = filter.substring(0, filter.length() - 1);
@@ -688,21 +746,21 @@ public class CmsComponent extends DefaultComponent {
 		 *   - query: XPath expression (required)
 		 *   - runAs: User to impersonate (optional)
 		 */
-		private class ExistsProducer extends DefaultProducer {
+		private class ExistsProducer extends CmsProducer {
 			private ExistsProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String query = (String) getParameter(exchange, "query");
+					String query = (String) pc.getParameter("query");
 					if (query == null || query.trim().isEmpty()) {
 						throw new IllegalArgumentException("query parameter is required");
 					}
@@ -714,35 +772,9 @@ public class CmsComponent extends DefaultComponent {
 					QueryResult result = q.execute();
 					boolean exists = result.getNodes().hasNext();
 
-					exchange.getIn().setHeader("cmsExists", exists);
-					exchange.getIn().setBody(exists);
+					pc.setResultHeader("cmsExists", exists);
+					pc.getExchange().getIn().setBody(exists);
 				}
-			}
-		}
-
-		/**
-		 * Resolve the CmsConflictBehavior parameter from endpoint or exchange headers.
-		 */
-		private CmsConflictBehavior getConflictBehavior(Exchange exchange, CmsConflictBehavior defaultValue) {
-			String value = (String) getParameter(exchange, "conflictBehavior");
-			return CmsConflictBehavior.of(value, defaultValue);
-		}
-
-		/**
-		 * Handle a conflict according to the given behavior.
-		 *
-		 * @return true if the caller should return immediately (IGNORE/WARN), false if it should proceed
-		 */
-		private boolean handleConflict(CmsConflictBehavior behavior, String message) {
-			switch (behavior) {
-				case IGNORE:
-					return true;
-				case WARN:
-					CmsService.getLogger(getClass()).warn(message);
-					return true;
-				case FAIL:
-				default:
-					throw new IllegalStateException(message);
 			}
 		}
 
@@ -757,21 +789,21 @@ public class CmsComponent extends DefaultComponent {
 		 *   - path: Target node path (required)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: IGNORE)
 		 */
-		private class AddVersionControlProducer extends DefaultProducer {
+		private class AddVersionControlProducer extends CmsProducer {
 			private AddVersionControlProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = (String) getParameter(exchange, "path");
+					String path = (String) pc.getParameter("path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -784,7 +816,7 @@ public class CmsComponent extends DefaultComponent {
 
 					// Already versionable — handle as conflict
 					if (node.isNodeType("mix:versionable")) {
-						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+						CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.IGNORE);
 						handleConflict(behavior, "Node is already versionable: " + path);
 						return;
 					}
@@ -811,21 +843,21 @@ public class CmsComponent extends DefaultComponent {
 		 *   - path: Target node path (required)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: see above)
 		 */
-		private class CheckoutProducer extends DefaultProducer {
+		private class CheckoutProducer extends CmsProducer {
 			private CheckoutProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = (String) getParameter(exchange, "path");
+					String path = (String) pc.getParameter("path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -858,11 +890,11 @@ public class CmsComponent extends DefaultComponent {
 
 						if (lockedByOther) {
 							// Another user holds the lock — default FAIL
-							CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
+							CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.FAIL);
 							handleConflict(behavior, "Node is checked out by another user: " + path);
 						} else {
 							// Self checkout — default IGNORE
-							CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+							CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.IGNORE);
 							handleConflict(behavior, "Node is already checked out: " + path);
 						}
 						return;
@@ -886,21 +918,21 @@ public class CmsComponent extends DefaultComponent {
 		 *   - path: Target node path (required)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
 		 */
-		private class CheckinProducer extends DefaultProducer {
+		private class CheckinProducer extends CmsProducer {
 			private CheckinProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = (String) getParameter(exchange, "path");
+					String path = (String) pc.getParameter("path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -918,13 +950,13 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not checked out — handle as conflict
 					if (!versionManager.isCheckedOut(path)) {
-						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
+						CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.FAIL);
 						handleConflict(behavior, "Node is not checked out: " + path);
 						return;
 					}
 
 					Version version = versionManager.checkin(path);
-					exchange.getIn().setHeader("cmsVersionName", version.getName());
+					pc.setResultHeader("cmsVersionName", version.getName());
 				}
 			}
 		}
@@ -940,21 +972,21 @@ public class CmsComponent extends DefaultComponent {
 		 *   - path: Target node path (required)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: IGNORE)
 		 */
-		private class UncheckoutProducer extends DefaultProducer {
+		private class UncheckoutProducer extends CmsProducer {
 			private UncheckoutProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = (String) getParameter(exchange, "path");
+					String path = (String) pc.getParameter("path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -972,7 +1004,7 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not checked out — handle as conflict
 					if (!versionManager.isCheckedOut(path)) {
-						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+						CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.IGNORE);
 						handleConflict(behavior, "Node is not checked out: " + path);
 						return;
 					}
@@ -996,21 +1028,21 @@ public class CmsComponent extends DefaultComponent {
 		 *   - path: Target node path (required)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
 		 */
-		private class CheckpointProducer extends DefaultProducer {
+		private class CheckpointProducer extends CmsProducer {
 			private CheckpointProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = (String) getParameter(exchange, "path");
+					String path = (String) pc.getParameter("path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -1023,7 +1055,7 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not versionable — handle as conflict
 					if (!node.isNodeType("mix:versionable")) {
-						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
+						CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.FAIL);
 						handleConflict(behavior, "Node is not versionable: " + path);
 						return;
 					}
@@ -1032,13 +1064,13 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not checked out — handle as conflict
 					if (!versionManager.isCheckedOut(path)) {
-						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
+						CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.FAIL);
 						handleConflict(behavior, "Node is not checked out: " + path);
 						return;
 					}
 
 					Version version = versionManager.checkpoint(path);
-					exchange.getIn().setHeader("cmsVersionName", version.getName());
+					pc.setResultHeader("cmsVersionName", version.getName());
 				}
 			}
 		}
@@ -1057,21 +1089,21 @@ public class CmsComponent extends DefaultComponent {
 		 *   - isSessionScoped: Session-scoped lock (default: false)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: see above)
 		 */
-		private class LockProducer extends DefaultProducer {
+		private class LockProducer extends CmsProducer {
 			private LockProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = (String) getParameter(exchange, "path");
+					String path = (String) pc.getParameter("path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -1080,10 +1112,10 @@ public class CmsComponent extends DefaultComponent {
 						throw new PathNotFoundException("Node not found: " + path);
 					}
 
-					String isDeepStr = (String) getParameter(exchange, "isDeep");
+					String isDeepStr = (String) pc.getParameter("isDeep");
 					boolean isDeep = (isDeepStr != null) && Boolean.parseBoolean(isDeepStr);
 
-					String isSessionScopedStr = (String) getParameter(exchange, "isSessionScoped");
+					String isSessionScopedStr = (String) pc.getParameter("isSessionScoped");
 					boolean isSessionScoped = (isSessionScopedStr != null) && Boolean.parseBoolean(isSessionScopedStr);
 
 					Node node = session.getNode(path);
@@ -1104,16 +1136,16 @@ public class CmsComponent extends DefaultComponent {
 							String currentUser = session.getUserID();
 							if (lockOwner != null && !lockOwner.equals(currentUser)) {
 								// Locked by another user — default FAIL
-								CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
+								CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.FAIL);
 								handleConflict(behavior, "Node is locked by another user: " + path);
 							} else {
 								// Locked by self — default IGNORE
-								CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+								CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.IGNORE);
 								handleConflict(behavior, "Node is already locked: " + path);
 							}
 						} catch (LockException e) {
 							// Should not happen since node.isLocked() was true
-							CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+							CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.IGNORE);
 							handleConflict(behavior, "Node is already locked: " + path);
 						}
 						return;
@@ -1136,21 +1168,21 @@ public class CmsComponent extends DefaultComponent {
 		 *   - path: Target node path (required)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: see above)
 		 */
-		private class UnlockProducer extends DefaultProducer {
+		private class UnlockProducer extends CmsProducer {
 			private UnlockProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = (String) getParameter(exchange, "path");
+					String path = (String) pc.getParameter("path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -1164,7 +1196,7 @@ public class CmsComponent extends DefaultComponent {
 
 					// Not locked — handle as conflict
 					if (!node.isLocked()) {
-						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+						CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.IGNORE);
 						handleConflict(behavior, "Node is not locked: " + path);
 						return;
 					}
@@ -1175,13 +1207,13 @@ public class CmsComponent extends DefaultComponent {
 						String lockOwner = existingLock.getLockOwner();
 						String currentUser = session.getUserID();
 						if (lockOwner != null && !lockOwner.equals(currentUser)) {
-							CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.FAIL);
+							CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.FAIL);
 							handleConflict(behavior, "Node is locked by another user: " + path);
 							return;
 						}
 					} catch (LockException e) {
 						// Lock not found — treat as not locked
-						CmsConflictBehavior behavior = getConflictBehavior(exchange, CmsConflictBehavior.IGNORE);
+						CmsConflictBehavior behavior = pc.getConflictBehavior(CmsConflictBehavior.IGNORE);
 						handleConflict(behavior, "Node is not locked: " + path);
 						return;
 					}
@@ -1205,24 +1237,24 @@ public class CmsComponent extends DefaultComponent {
 		 *   destPath=/content/newfile → /content/newfile
 		 *   destPath=/content/folder&name=custom → /content/folder/custom
 		 */
-		private class MoveProducer extends DefaultProducer {
+		private class MoveProducer extends CmsProducer {
 			private MoveProducer() {
 				super(CmsEndpoint.this);
 			}
 
 			@Override
-			public void process(Exchange exchange) throws Exception {
+			public void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = (String) getParameter(exchange, "runAs");
+					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
 					// Get parameters from endpoint parameters or exchange headers
-					String sourcePath = (String) getParameter(exchange, "sourcePath");
-					String destPath = (String) getParameter(exchange, "destPath");
-					String newName = (String) getParameter(exchange, "name"); // Optional
+					String sourcePath = (String) pc.getParameter("sourcePath");
+					String destPath = (String) pc.getParameter("destPath");
+					String newName = (String) pc.getParameter("name"); // Optional
 
 					if (sourcePath == null || sourcePath.trim().isEmpty()) {
 						throw new IllegalArgumentException("sourcePath parameter is required");
@@ -1243,8 +1275,7 @@ public class CmsComponent extends DefaultComponent {
 						Node destNode = session.getNode(destPath);
 						// If destination is an existing folder, place the file inside it (Unix mv style)
 						if (destNode.isNodeType("nt:folder") || destNode.isNodeType("nt:unstructured")) {
-							String fileName = (newName != null && !newName.trim().isEmpty())
-							                   ? newName : sourceNode.getName();
+							String fileName = (newName != null && !newName.trim().isEmpty()) ? newName : sourceNode.getName();
 							finalDestPath = destPath.endsWith("/") ? destPath + fileName : destPath + "/" + fileName;
 						}
 					} else {
@@ -1270,7 +1301,7 @@ public class CmsComponent extends DefaultComponent {
 					session.save();
 
 					// Set result path in exchange header (camelCase to match GraphQL conventions)
-					exchange.getIn().setHeader("cmsMovedPath", finalDestPath);
+					pc.setResultHeader("cmsMovedPath", finalDestPath);
 				}
 			}
 		}
