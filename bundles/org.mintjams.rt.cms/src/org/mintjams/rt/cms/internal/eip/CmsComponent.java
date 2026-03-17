@@ -187,7 +187,7 @@ public class CmsComponent extends DefaultComponent {
 				private final Exchange fExchange;
 				private final List<String> fConsumedHeaders = new ArrayList<>();
 
-				ProcessContext(Exchange exchange) {
+				protected ProcessContext(Exchange exchange) {
 					fExchange = exchange;
 				}
 
@@ -233,6 +233,10 @@ public class CmsComponent extends DefaultComponent {
 					return CmsConflictBehavior.of(value, defaultValue);
 				}
 
+				/**
+				 * Parse a filter parameter into a list of strings.
+				 * Supports comma-separated strings, lists, and collections.
+				 */
 				private List<String> parseFilterList(Object filter) {
 					if (filter == null) {
 						return Collections.emptyList();
@@ -255,6 +259,10 @@ public class CmsComponent extends DefaultComponent {
 					return List.of(filter.toString().trim());
 				}
 
+				/**
+				 * Set a header in the exchange and unmark track it as consumed if it was previously marked.
+				 * This allows producers to set result headers without them being removed in the finally block.
+				 */
 				public void setResultHeader(String key, Object value) {
 					fExchange.getIn().setHeader(key, value);
 					if (fConsumedHeaders.contains(key)) {
