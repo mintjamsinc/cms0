@@ -390,24 +390,26 @@ public class BpmComponent extends DefaultComponent {
 					throw new IllegalStateException("The message name must not be empty");
 				}
 
+				// Get optional parameters for correlating message
+				String processInstanceId = (String) getParameter(exchange, "processInstanceId");
+				String processDefinitionKey = (String) getParameter(exchange, "processDefinitionKey");
+				String processDefinitionId = (String) getParameter(exchange, "processDefinitionId");
+
 				// Get optional business key, variables, and correlation keys
 				String businessKey = (String) getParameter(exchange, "businessKey");
 				Map<String, Object> variables = getVariables(exchange);
 				Map<String, Object> correlationKeys = getCorrelationKeys(exchange);
 
 				// First try to correlate message to a specific process instance if processInstanceId is provided
-				String processInstanceId = (String) getParameter(exchange, "processInstanceId");
 				if (!Strings.isEmpty(processInstanceId)) {
 					ExecutionQuery query = runtime.createExecutionQuery()
 							.processInstanceId(processInstanceId)
 							.messageEventSubscriptionName(messageName);
 					// Optionally filter by process definition key if provided
-					String processDefinitionKey = (String) getParameter(exchange, "processDefinitionKey");
 					if (!Strings.isEmpty(processDefinitionKey)) {
 						query.processDefinitionKey(processDefinitionKey);
 					}
 					// Optionally filter by process definition id if provided
-					String processDefinitionId = (String) getParameter(exchange, "processDefinitionId");
 					if (!Strings.isEmpty(processDefinitionId)) {
 						query.processDefinitionId(processDefinitionId);
 					}
