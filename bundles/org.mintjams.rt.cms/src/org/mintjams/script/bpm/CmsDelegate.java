@@ -22,6 +22,11 @@
 
 package org.mintjams.script.bpm;
 
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
+
 import javax.jcr.AccessDeniedException;
 import javax.jcr.PathNotFoundException;
 import javax.script.ScriptEngine;
@@ -38,22 +43,30 @@ import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
+import org.mintjams.rt.cms.internal.security.UserServiceCredentials;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
 
 public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListener {
 
-	private Expression resourcePath;
+	private Expression path;
+	private Expression headerFilter;
+	private Expression resultHeaderFilter;
+	private Expression runAs;
 
 	@Override
 	public void execute(DelegateExecution execution) throws Exception {
-		String resourcePath = getResourcePath(execution);
+		String resourcePath = getPath(execution);
 		if (Strings.isEmpty(resourcePath)) {
 			throw new IllegalStateException("The resource path is empty.");
 		}
 
 		try (WorkspaceScriptContext context = new WorkspaceScriptContext(getWorkspaceName(execution))) {
+			String runAs = getRunAs(execution);
+			if (runAs != null && !runAs.trim().isEmpty()) {
+				context.setCredentials(new UserServiceCredentials(runAs));
+			}
 			context.setAttribute("execution", execution);
 			Scripts.prepareAPIs(context);
 
@@ -63,12 +76,16 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 
 	@Override
 	public void notify(DelegateTask task) {
-		String resourcePath = getResourcePath(task);
+		String resourcePath = getPath(task);
 		if (Strings.isEmpty(resourcePath)) {
 			throw new IllegalStateException("The resource path is empty.");
 		}
 
 		try (WorkspaceScriptContext context = new WorkspaceScriptContext(getWorkspaceName(task))) {
+			String runAs = getRunAs(task);
+			if (runAs != null && !runAs.trim().isEmpty()) {
+				context.setCredentials(new UserServiceCredentials(runAs));
+			}
 			context.setAttribute("task", task);
 			Scripts.prepareAPIs(context);
 
@@ -80,12 +97,16 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 
 	@Override
 	public void notify(DelegateExecution execution) throws Exception {
-		String resourcePath = getResourcePath(execution);
+		String resourcePath = getPath(execution);
 		if (Strings.isEmpty(resourcePath)) {
 			throw new IllegalStateException("The resource path is empty.");
 		}
 
 		try (WorkspaceScriptContext context = new WorkspaceScriptContext(getWorkspaceName(execution))) {
+			String runAs = getRunAs(execution);
+			if (runAs != null && !runAs.trim().isEmpty()) {
+				context.setCredentials(new UserServiceCredentials(runAs));
+			}
 			context.setAttribute("execution", execution);
 			Scripts.prepareAPIs(context);
 
@@ -103,8 +124,8 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		return ((WorkspaceScriptEngineManager) config.getScriptingEngines().getScriptEngineManager()).getWorkspaceName();
 	}
 
-	private Object evaluate(WorkspaceScriptContext context, VariableScope variableScope) throws Exception {
-		String resourcePath = getResourcePath(variableScope);
+	private void evaluate(WorkspaceScriptContext context, VariableScope variableScope) throws Exception {
+		String resourcePath = getPath(variableScope);
 		Resource resource = context.getRepositorySession().getResource(resourcePath);
 
 		// Check if resource exists and is readable
@@ -122,10 +143,51 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 			throw new IllegalStateException("No script engine found for MIME type: " + mimeType);
 		}
 
+		// Set variables to script context based on header filters
+		for (String filter : getHeaderFilters(variableScope)) {
+			if (filter.indexOf("=") > 0) {
+				String[] parts = filter.split("=", 2);
+				String attributeName = parts[0].trim();
+				String variableName = parts[1].trim();
+				if (variableScope.hasVariable(variableName)) {
+					context.setAttribute(attributeName, variableScope.getVariable(variableName));
+				}
+				continue;
+			}
+
+			if (filter.endsWith("*")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().startsWith(prefix))
+						.forEach(entry -> context.setAttribute(entry.getKey(), entry.getValue()));
+			} else if (filter.startsWith("*")) {
+				String suffix = filter.substring(1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().endsWith(suffix))
+						.forEach(entry -> context.setAttribute(entry.getKey(), entry.getValue()));
+			} else if (filter.endsWith("~")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().startsWith(prefix))
+						.forEach(entry -> context.setAttribute(entry.getKey().substring(prefix.length()), entry.getValue()));
+			} else if (filter.startsWith("~")) {
+				String suffix = filter.substring(1);
+				variableScope.getVariables().entrySet().stream()
+						.filter(entry -> entry.getKey().endsWith(suffix))
+						.forEach(entry -> context.setAttribute(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
+			} else {
+				if (variableScope.hasVariable(filter)) {
+					context.setAttribute(filter, variableScope.getVariable(filter));
+				}
+			}
+		}
+
+		// Set resource to script context
 		context.setAttribute("resource", resource);
 
+		// Evaluate script
 		try (ScriptReader scriptReader = new ScriptReader(resource.getContentAsReader())) {
-			return scriptReader
+			scriptReader
 					.setScriptName("jcr://" + resource.getPath())
 					.setMimeType(mimeType)
 					.setLastModified(resource.getLastModified())
@@ -134,14 +196,117 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 					.setScriptContext(Scripts.getWorkspaceScriptContext(context))
 					.eval();
 		}
+
+		// Set variables from script context to variable scope based on result header filters
+		for (String filter : getResultHeaderFilters(variableScope)) {
+			if (filter.indexOf("=") > 0) {
+				String[] parts = filter.split("=", 2);
+				String variableName = parts[0].trim();
+				String attributeName = parts[1].trim();
+				if (context.hasAttribute(attributeName)) {
+					variableScope.setVariable(variableName, context.getAttribute(attributeName));
+				}
+				continue;
+			}
+
+			if (filter.endsWith("*")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				context.getAttributes().entrySet().stream()
+						.filter(entry -> entry.getKey().startsWith(prefix))
+						.forEach(entry -> variableScope.setVariable(entry.getKey(), entry.getValue()));
+			} else if (filter.startsWith("*")) {
+				String suffix = filter.substring(1);
+				context.getAttributes().entrySet().stream()
+						.filter(entry -> entry.getKey().endsWith(suffix))
+						.forEach(entry -> variableScope.setVariable(entry.getKey(), entry.getValue()));
+			} else if (filter.endsWith("~")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				context.getAttributes().entrySet().stream()
+						.filter(entry -> entry.getKey().startsWith(prefix))
+						.forEach(entry -> variableScope.setVariable(entry.getKey().substring(prefix.length()), entry.getValue()));
+			} else if (filter.startsWith("~")) {
+				String suffix = filter.substring(1);
+				context.getAttributes().entrySet().stream()
+						.filter(entry -> entry.getKey().endsWith(suffix))
+						.forEach(entry -> variableScope.setVariable(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
+			} else {
+				if (context.hasAttribute(filter)) {
+					variableScope.setVariable(filter, context.getAttribute(filter));
+				}
+			}
+		}
 	}
 
-	private String getResourcePath(VariableScope variableScope) {
-		if (resourcePath == null) {
+	private String getPath(VariableScope variableScope) {
+		if (path == null) {
 			return null;
 		}
 
-		return (String) resourcePath.getValue(variableScope);
+		return (String) path.getValue(variableScope);
+	}
+
+	private List<String> getHeaderFilters(VariableScope variableScope) {
+		if (headerFilter == null) {
+			return Collections.emptyList();
+		}
+
+		Object value = headerFilter.getValue(variableScope);
+		if (value == null) {
+			return Collections.emptyList();
+		}
+
+		if (value instanceof List) {
+			return ((List<?>) value).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
+		}
+		if (value instanceof String) {
+			return List.of(((String) value).split("\\s*,\\s*"));
+		}
+		if (value instanceof Collection<?>) {
+			return ((Collection<?>) value).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
+		}
+		return List.of(value.toString().trim());
+	}
+
+	private List<String> getResultHeaderFilters(VariableScope variableScope) {
+		if (resultHeaderFilter == null) {
+			return Collections.emptyList();
+		}
+
+		Object value = resultHeaderFilter.getValue(variableScope);
+		if (value == null) {
+			return Collections.emptyList();
+		}
+
+		if (value instanceof List) {
+			return ((List<?>) value).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
+		}
+		if (value instanceof String) {
+			return List.of(((String) value).split("\\s*,\\s*"));
+		}
+		if (value instanceof Collection<?>) {
+			return ((Collection<?>) value).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
+		}
+		return List.of(value.toString().trim());
+	}
+
+	private String getRunAs(VariableScope variableScope) {
+		if (runAs == null) {
+			return null;
+		}
+
+		return (String) runAs.getValue(variableScope);
 	}
 
 }
