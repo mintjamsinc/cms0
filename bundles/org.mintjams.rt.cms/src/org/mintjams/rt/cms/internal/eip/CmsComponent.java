@@ -34,11 +34,13 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.jcr.AccessDeniedException;
 import javax.jcr.Node;
@@ -146,16 +148,72 @@ public class CmsComponent extends DefaultComponent {
 		/**
 		 * Get parameter value from endpoint parameters or exchange headers
 		 */
-		private String getParameter(Exchange exchange, String key) {
+		private Object getParameter(Exchange exchange, String key) {
 			// First check endpoint parameters
 			if (fParameters.containsKey(key)) {
-				Object value = fParameters.get(key);
-				return value != null ? value.toString() : null;
+				return fParameters.get(key);
 			}
 
 			// Then check exchange headers
-			Object headerValue = exchange.getIn().getHeader(key);
-			return headerValue != null ? headerValue.toString() : null;
+			return exchange.getIn().getHeader(key);
+		}
+
+		/**
+		 * Get list of header filters from endpoint parameters or exchange headers.
+		 * Supports multiple formats: List, comma-separated String, or single String.
+		 */
+		private List<String> getHeaderFilters(Exchange exchange) {
+			// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
+			Object filter = getParameter(exchange, "headerFilter");
+			if (filter == null) {
+				filter = Collections.emptyList();
+			}
+
+			if (filter instanceof List) {
+				return ((List<?>) filter).stream()
+						.map(Object::toString)
+						.map(String::trim)
+						.collect(Collectors.toList());
+			}
+			if (filter instanceof String) {
+				return List.of(((String) filter).split("\\s*,\\s*"));
+			}
+			if (filter instanceof Collection<?>) {
+				return ((Collection<?>) filter).stream()
+						.map(Object::toString)
+						.map(String::trim)
+						.collect(Collectors.toList());
+			}
+			return List.of(filter.toString().trim());
+		}
+
+		/**
+		 * Get list of header filters for result processing from endpoint parameters or exchange headers.
+		 * Supports multiple formats: List, comma-separated String, or single String.
+		 */
+		private List<String> getResultHeaderFilters(Exchange exchange) {
+			// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
+			Object filter = getParameter(exchange, "resultHeaderFilter");
+			if (filter == null) {
+				filter = Collections.emptyList();
+			}
+
+			if (filter instanceof List) {
+				return ((List<?>) filter).stream()
+						.map(Object::toString)
+						.map(String::trim)
+						.collect(Collectors.toList());
+			}
+			if (filter instanceof String) {
+				return List.of(((String) filter).split("\\s*,\\s*"));
+			}
+			if (filter instanceof Collection<?>) {
+				return ((Collection<?>) filter).stream()
+						.map(Object::toString)
+						.map(String::trim)
+						.collect(Collectors.toList());
+			}
+			return List.of(filter.toString().trim());
 		}
 
 		/**
@@ -171,13 +229,8 @@ public class CmsComponent extends DefaultComponent {
 
 			@Override
 			public void process(Exchange exchange) throws Exception {
-				evaluate(exchange);
-				return;
-			}
-
-			private Object evaluate(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
@@ -202,10 +255,43 @@ public class CmsComponent extends DefaultComponent {
 						throw new IllegalStateException("No script engine found for MIME type: " + mimeType);
 					}
 
+					// Set headers as script context attributes based on filters
+					Map<String, Object> headers = exchange.getIn().getHeaders();
+					for (String filter : getHeaderFilters(exchange)) {
+						if (filter.endsWith("*")) {
+							String prefix = filter.substring(0, filter.length() - 1);
+							headers.entrySet().stream()
+									.filter(entry -> entry.getKey().startsWith(prefix))
+									.forEach(entry -> context.setAttribute(entry.getKey(), entry.getValue()));
+						} else if (filter.startsWith("*")) {
+							String suffix = filter.substring(1);
+							headers.entrySet().stream()
+									.filter(entry -> entry.getKey().endsWith(suffix))
+									.forEach(entry -> context.setAttribute(entry.getKey(), entry.getValue()));
+						} else if (filter.endsWith("~")) {
+							String prefix = filter.substring(0, filter.length() - 1);
+							headers.entrySet().stream()
+									.filter(entry -> entry.getKey().startsWith(prefix))
+									.forEach(entry -> context.setAttribute(entry.getKey().substring(prefix.length()), entry.getValue()));
+						} else if (filter.startsWith("~")) {
+							String suffix = filter.substring(1);
+							headers.entrySet().stream()
+									.filter(entry -> entry.getKey().endsWith(suffix))
+									.forEach(entry -> context.setAttribute(entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue()));
+						} else {
+							Object value = exchange.getIn().getHeader(filter);
+							if (value != null) {
+								context.setAttribute(filter, value);
+							}
+						}
+					}
+
+					// Also set the resource itself in the context for direct access
 					context.setAttribute("resource", resource);
 
+					// Evaluate the script
 					try (ScriptReader scriptReader = new ScriptReader(resource.getContentAsReader())) {
-						return scriptReader
+						scriptReader
 								.setScriptName("jcr://" + resource.getPath())
 								.setMimeType(mimeType)
 								.setLastModified(resource.getLastModified())
@@ -213,6 +299,36 @@ public class CmsComponent extends DefaultComponent {
 								.setClassLoader(Scripts.getClassLoader(context))
 								.setScriptContext(Scripts.getWorkspaceScriptContext(context))
 								.eval();
+					}
+
+					// Set result headers based on filters
+					for (String filter : getResultHeaderFilters(exchange)) {
+						if (filter.endsWith("*")) {
+							String prefix = filter.substring(0, filter.length() - 1);
+							context.getAttributeNames().stream()
+									.filter(name -> name.startsWith(prefix))
+									.forEach(name -> exchange.getIn().setHeader(name, context.getAttribute(name)));
+						} else if (filter.startsWith("*")) {
+							String suffix = filter.substring(1);
+							context.getAttributeNames().stream()
+									.filter(name -> name.endsWith(suffix))
+									.forEach(name -> exchange.getIn().setHeader(name, context.getAttribute(name)));
+						} else if (filter.endsWith("~")) {
+							String prefix = filter.substring(0, filter.length() - 1);
+							context.getAttributeNames().stream()
+									.filter(name -> name.startsWith(prefix))
+									.forEach(name -> exchange.getIn().setHeader(name.substring(prefix.length()), context.getAttribute(name)));
+						} else if (filter.startsWith("~")) {
+							String suffix = filter.substring(1);
+							context.getAttributeNames().stream()
+									.filter(name -> name.endsWith(suffix))
+									.forEach(name -> exchange.getIn().setHeader(name.substring(0, name.length() - suffix.length()), context.getAttribute(name)));
+						} else {
+							Object value = context.getAttribute(filter);
+							if (value != null) {
+								exchange.getIn().setHeader(filter, value);
+							}
+						}
 					}
 				}
 			}
@@ -261,16 +377,16 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
 					// Get parameters from endpoint parameters or exchange headers
-					String path = getParameter(exchange, "path");
-					String mimeType = getParameter(exchange, "mimeType");
-					String createParentsStr = getParameter(exchange, "createParents");
+					String path = (String) getParameter(exchange, "path");
+					String mimeType = (String) getParameter(exchange, "mimeType");
+					String createParentsStr = (String) getParameter(exchange, "createParents");
 
 					// Default createParents to true
 					boolean createParents = true;
@@ -355,10 +471,10 @@ public class CmsComponent extends DefaultComponent {
 		 *
 		 * Null header values remove the corresponding property.
 		 *
-		 * URI format: cms:setProperties?path=/content/file.txt&propertyPrefix=commerce_
+		 * URI format: cms:setProperties?path=/content/file.txt&headerFilter=commerce_~
 		 * Parameters:
 		 *   - path: Target node path (required)
-		 *   - propertyPrefix: Header prefix to filter. Resolved in order:
+		 *   - headerFilter: Header prefix to filter. Resolved in order:
 		 *       1. Endpoint parameter (URI query)
 		 *       2. Exchange header
 		 *       3. Default: "cms_"
@@ -371,7 +487,7 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
@@ -379,12 +495,9 @@ public class CmsComponent extends DefaultComponent {
 					ValueFactory vf = session.getValueFactory();
 
 					// Get path from endpoint parameters or exchange headers
-					String path = getParameter(exchange, "path");
-					// Get property prefix: 1. endpoint param, 2. exchange header, 3. default
-					String prefix = getParameter(exchange, "propertyPrefix");
-					if (prefix == null || prefix.trim().isEmpty()) {
-						prefix = "cms_";
-					}
+					String path = (String) getParameter(exchange, "path");
+					// Get header filters (prefixes) from endpoint parameters or exchange headers
+					List<String> filters = getHeaderFilters(exchange);
 
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
@@ -399,48 +512,86 @@ public class CmsComponent extends DefaultComponent {
 
 					// Set properties from exchange headers
 					Map<String, Object> headers = exchange.getIn().getHeaders();
-					for (Map.Entry<String, Object> entry : headers.entrySet()) {
-						String headerName = entry.getKey();
-						if (headerName.startsWith(prefix)) {
-							String propertyName = headerName.substring(prefix.length());
-							Object value = entry.getValue();
-
-							if (value == null) {
-								// Remove property if header value is null
-								if (targetNode.hasProperty(propertyName)) {
-									targetNode.getProperty(propertyName).remove();
+					for (String filter : filters) {
+						if (filter.endsWith("*")) {
+							String prefix = filter.substring(0, filter.length() - 1);
+							for (Map.Entry<String, Object> entry : headers.entrySet()) {
+								if (entry.getKey().startsWith(prefix)) {
+									setProperty(targetNode, entry.getKey(), entry.getValue(), vf);
 								}
-								continue;
 							}
-
-							// Handle single/multi-value conversion
-							try {
-								// Check if we need to remove existing property of different type
-								if (targetNode.hasProperty(propertyName)) {
-									boolean currentIsMultiple = targetNode.getProperty(propertyName).isMultiple();
-									boolean newIsMultiple = (value instanceof Collection) || value.getClass().isArray();
-
-									// If type changed (single ↔ multiple), remove old property first
-									if (currentIsMultiple != newIsMultiple) {
-										targetNode.getProperty(propertyName).remove();
-									}
+						} else if (filter.startsWith("*")) {
+							String suffix = filter.substring(1);
+							for (Map.Entry<String, Object> entry : headers.entrySet()) {
+								if (entry.getKey().endsWith(suffix)) {
+									setProperty(targetNode, entry.getKey(), entry.getValue(), vf);
 								}
-
-								// Set property based on type
-								if (value instanceof Collection || value.getClass().isArray()) {
-									targetNode.setProperty(propertyName, toJcrValues(value, vf));
-								} else {
-									targetNode.setProperty(propertyName, toJcrValue(value, vf));
+							}
+						} else if (filter.endsWith("~")) {
+							String prefix = filter.substring(0, filter.length() - 1);
+							for (Map.Entry<String, Object> entry : headers.entrySet()) {
+								if (entry.getKey().startsWith(prefix)) {
+									setProperty(targetNode, entry.getKey().substring(prefix.length()), entry.getValue(), vf);
 								}
-							} catch (Exception e) {
-								// If setting property fails, log and continue
-								// (or you can throw the exception to fail the entire operation)
-								throw new RepositoryException("Failed to set property '" + propertyName + "': " + e.getMessage(), e);
+							}
+						} else if (filter.startsWith("~")) {
+							String suffix = filter.substring(1);
+							for (Map.Entry<String, Object> entry : headers.entrySet()) {
+								if (entry.getKey().endsWith(suffix)) {
+									setProperty(targetNode, entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue(), vf);
+								}
+							}
+						} else {
+							if (headers.containsKey(filter)) {
+								setProperty(targetNode, filter, headers.get(filter), vf);
 							}
 						}
 					}
 
 					session.save();
+				}
+			}
+
+			/**
+			 * Set a single property on the target node, handling type conversion and multi-value properties.
+			 *
+			 * @param targetNode The node to set the property on (e.g., jcr:content for nt:file)
+			 * @param propertyName The name of the JCR property to set
+			 * @param value The value to set (can be single value or collection/array for multi-value properties)
+			 * @param vf The JCR ValueFactory for creating Value instances
+			 */
+			private void setProperty(Node targetNode, String propertyName, Object value, ValueFactory vf) throws RepositoryException {
+				if (value == null) {
+					// Remove property if header value is null
+					if (targetNode.hasProperty(propertyName)) {
+						targetNode.getProperty(propertyName).remove();
+					}
+					return;
+				}
+
+				// Handle single/multi-value conversion
+				try {
+					// Check if we need to remove existing property of different type
+					if (targetNode.hasProperty(propertyName)) {
+						boolean currentIsMultiple = targetNode.getProperty(propertyName).isMultiple();
+						boolean newIsMultiple = (value instanceof Collection) || value.getClass().isArray();
+
+						// If type changed (single ↔ multiple), remove old property first
+						if (currentIsMultiple != newIsMultiple) {
+							targetNode.getProperty(propertyName).remove();
+						}
+					}
+
+					// Set property based on type
+					if (value instanceof Collection || value.getClass().isArray()) {
+						targetNode.setProperty(propertyName, toJcrValues(value, vf));
+					} else {
+						targetNode.setProperty(propertyName, toJcrValue(value, vf));
+					}
+				} catch (Exception e) {
+					// If setting property fails, log and continue
+					// (or you can throw the exception to fail the entire operation)
+					throw new RepositoryException("Failed to set property '" + propertyName + "': " + e.getMessage(), e);
 				}
 			}
 
@@ -545,18 +696,19 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String query = getParameter(exchange, "query");
+					String query = (String) getParameter(exchange, "query");
 					if (query == null || query.trim().isEmpty()) {
 						throw new IllegalArgumentException("query parameter is required");
 					}
 
 					QueryManager qm = session.getWorkspace().getQueryManager();
+					@SuppressWarnings("deprecation")
 					Query q = qm.createQuery(query, Query.XPATH);
 					q.setLimit(1); // We only need to check for existence
 					QueryResult result = q.execute();
@@ -572,7 +724,7 @@ public class CmsComponent extends DefaultComponent {
 		 * Resolve the CmsConflictBehavior parameter from endpoint or exchange headers.
 		 */
 		private CmsConflictBehavior getConflictBehavior(Exchange exchange, CmsConflictBehavior defaultValue) {
-			String value = getParameter(exchange, "conflictBehavior");
+			String value = (String) getParameter(exchange, "conflictBehavior");
 			return CmsConflictBehavior.of(value, defaultValue);
 		}
 
@@ -613,13 +765,13 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = getParameter(exchange, "path");
+					String path = (String) getParameter(exchange, "path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -667,13 +819,13 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = getParameter(exchange, "path");
+					String path = (String) getParameter(exchange, "path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -742,13 +894,13 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = getParameter(exchange, "path");
+					String path = (String) getParameter(exchange, "path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -796,13 +948,13 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = getParameter(exchange, "path");
+					String path = (String) getParameter(exchange, "path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -852,13 +1004,13 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = getParameter(exchange, "path");
+					String path = (String) getParameter(exchange, "path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -913,13 +1065,13 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = getParameter(exchange, "path");
+					String path = (String) getParameter(exchange, "path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -928,10 +1080,10 @@ public class CmsComponent extends DefaultComponent {
 						throw new PathNotFoundException("Node not found: " + path);
 					}
 
-					String isDeepStr = getParameter(exchange, "isDeep");
+					String isDeepStr = (String) getParameter(exchange, "isDeep");
 					boolean isDeep = (isDeepStr != null) && Boolean.parseBoolean(isDeepStr);
 
-					String isSessionScopedStr = getParameter(exchange, "isSessionScoped");
+					String isSessionScopedStr = (String) getParameter(exchange, "isSessionScoped");
 					boolean isSessionScoped = (isSessionScopedStr != null) && Boolean.parseBoolean(isSessionScopedStr);
 
 					Node node = session.getNode(path);
@@ -992,13 +1144,13 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
-					String path = getParameter(exchange, "path");
+					String path = (String) getParameter(exchange, "path");
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
 					}
@@ -1061,16 +1213,16 @@ public class CmsComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
-					String runAs = getParameter(exchange, "runAs");
+					String runAs = (String) getParameter(exchange, "runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
 						context.setCredentials(new UserServiceCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
 					// Get parameters from endpoint parameters or exchange headers
-					String sourcePath = getParameter(exchange, "sourcePath");
-					String destPath = getParameter(exchange, "destPath");
-					String newName = getParameter(exchange, "name"); // Optional
+					String sourcePath = (String) getParameter(exchange, "sourcePath");
+					String destPath = (String) getParameter(exchange, "destPath");
+					String newName = (String) getParameter(exchange, "name"); // Optional
 
 					if (sourcePath == null || sourcePath.trim().isEmpty()) {
 						throw new IllegalArgumentException("sourcePath parameter is required");
