@@ -101,6 +101,8 @@ public class TransformComponent extends DefaultComponent {
 				return new ToBooleanProducer();
 			} else if ("toString".equals(fOperation)) {
 				return new ToStringProducer();
+			} else if ("remove".equals(fOperation)) {
+				return new RemoveProducer();
 			} else {
 				// Unsupported operation
 				throw new UnsupportedOperationException("Unsupported operation: " + fOperation);
@@ -120,9 +122,7 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			/**
-			 * Process the exchange by applying the transformation to the specified targets.
-			 * The targets are determined by the "targets" parameter, which supports wildcard patterns (e.g., "X-Header*", "*-Header", or specific header names).
-			 * For each target, the transform method is called to apply the transformation logic defined in the concrete producer implementation.
+			 * Process the exchange by applying the transformation logic to the headers specified in the "targets" parameter.
 			 */
 			protected void doProcess(ProcessContext pc) throws Exception {
 				Map<String, Object> headers = pc.getExchange().getIn().getHeaders();
@@ -131,40 +131,35 @@ public class TransformComponent extends DefaultComponent {
 						String prefix = filter.substring(0, filter.length() - 1);
 						headers.entrySet().stream()
 								.filter(entry -> entry.getKey().startsWith(prefix))
-								.forEach(entry -> pc.setHeader(entry.getKey(), transform(entry.getKey(), entry.getValue(), pc)));
+								.forEach(entry -> transform(entry.getKey(), entry.getValue(), pc));
 					} else if (filter.startsWith("*")) {
 						String suffix = filter.substring(1);
 						headers.entrySet().stream()
 								.filter(entry -> entry.getKey().endsWith(suffix))
-								.forEach(entry -> pc.setHeader(entry.getKey(), transform(entry.getKey(), entry.getValue(), pc)));
+								.forEach(entry -> transform(entry.getKey(), entry.getValue(), pc));
 					} else {
-						pc.setHeader(filter, transform(filter, headers.get(filter), pc));
+						transform(filter, headers.get(filter), pc);
 					}
 				}
 			}
 
 			/**
-			 * Transform the value of a header based on the concrete implementation of the producer.
-			 * The transformation is applied only if the header name does not match any of the exclude targets defined in the "excludeTargets" parameter.
-			 * If the header name matches an exclude target, the original value is returned without transformation.
+			 * Apply the transformation logic to a specific header name and value, while respecting any exclusion filters defined in the "excludeTargets" parameter.
 			 */
-			protected Object transform(String name, Object value, ProcessContext pc) {
-				if (value == null) {
-					return null;
-				}
-
+			protected void transform(String name, Object value, ProcessContext pc) {
 				if (matches(name, pc.getExcludeTargets())) {
-					return value; // Skip transformation for excluded targets
+					return; // Skip transformation for excluded targets
 				}
 
-				return doTransform(name, value, pc);
+				applyTransform(name, value, pc);
 			}
 
 			/**
-			 * Abstract method to perform the actual transformation logic for a given header name and value.
-			 * Concrete producer implementations must provide their own implementation of this method to define how the transformation should be applied.
+			 * Apply the specific transformation logic for the given header name and value.
+			 * This method is implemented by each concrete producer to perform the appropriate transformation based on the operation type.
+			 * The ProcessContext provides access to endpoint parameters and allows setting headers in the exchange for downstream processing.
 			 */
-			protected abstract Object doTransform(String name, Object value, ProcessContext pc);
+			protected abstract void applyTransform(String name, Object value, ProcessContext pc);
 
 			/**
 			 * Check if a name matches any of the provided filters.
@@ -303,21 +298,21 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
 				Integer offset = pc.getParameterAsInteger("offset");
 				Integer maxLength = pc.getParameterAsInteger("maxLength");
 				if (maxLength == null) {
-					return value;
+					throw new IllegalArgumentException("maxLength parameter is required for truncate operation");
 				}
 
 				if (offset != null) {
-					return StringUtils.truncate(value.toString(), offset, maxLength);
+					pc.setHeader(name, StringUtils.truncate(value.toString(), offset, maxLength));
 				}
-				return StringUtils.truncate(value.toString(), maxLength);
+				pc.setHeader(name, StringUtils.truncate(value.toString(), maxLength));
 			}
 		}
 
@@ -330,12 +325,12 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getDate(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getDate(0));
 			}
 		}
 
@@ -348,12 +343,12 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getOffsetDateTime(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getOffsetDateTime(0));
 			}
 		}
 
@@ -366,12 +361,12 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getOffsetTime(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getOffsetTime(0));
 			}
 		}
 
@@ -384,12 +379,12 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getInteger(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getInteger(0));
 			}
 		}
 
@@ -402,12 +397,12 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getLong(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getLong(0));
 			}
 		}
 
@@ -420,12 +415,12 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getDouble(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getDouble(0));
 			}
 		}
 
@@ -438,12 +433,12 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getBigDecimal(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getBigDecimal(0));
 			}
 		}
 
@@ -456,12 +451,12 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getBoolean(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getBoolean(0));
 			}
 		}
 
@@ -474,55 +469,26 @@ public class TransformComponent extends DefaultComponent {
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
 				if (value == null) {
-					return null;
+					return;
 				}
 
-				return AdaptableList.newBuilder().add(value).build().getString(0);
+				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getString(0));
 			}
 		}
 
 		/**
-		 * AdaptProducer implements the "adapt" operation.
+		 * RemoveProducer implements the "remove" operation.
 		 */
-		private class AdaptProducer extends TransformProducer {
-			private AdaptProducer() {
+		private class RemoveProducer extends TransformProducer {
+			private RemoveProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected Object doTransform(String name, Object value, ProcessContext pc) {
-				if (value == null) {
-					return null;
-				}
-
-				String type = pc.getParameterAsString("type");
-				if (type == null) {
-					return value;
-				}
-
-				AdaptableList<?> list = AdaptableList.newBuilder().add(value).build();
-				switch (type.trim().toLowerCase()) {
-					case "date":
-						return list.getDate(0);
-					case "datetime":
-						return list.getOffsetDateTime(0);
-					case "integer":
-						return list.getInteger(0);
-					case "long":
-						return list.getLong(0);
-					case "double":
-						return list.getDouble(0);
-					case "decimal":
-						return list.getBigDecimal(0);
-					case "boolean":
-						return list.getBoolean(0);
-					case "string":
-						return list.getString(0);
-					default:
-						throw new IllegalArgumentException("Unsupported type for adapt operation: " + type);
-				}
+			protected void applyTransform(String name, Object value, ProcessContext pc) {
+				pc.getExchange().getIn().removeHeader(name);
 			}
 		}
 	}
