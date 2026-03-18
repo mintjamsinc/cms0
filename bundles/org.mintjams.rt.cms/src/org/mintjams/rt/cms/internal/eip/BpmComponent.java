@@ -93,7 +93,7 @@ public class BpmComponent extends DefaultComponent {
 				return new CorrelateMessageProducer();
 			} else {
 				// Unsupported operation
-				throw new IllegalStateException("Could not process BPM endpoint");
+				throw new UnsupportedOperationException("Could not process BPM endpoint");
 			}
 		}
 
@@ -112,10 +112,7 @@ public class BpmComponent extends DefaultComponent {
 			protected abstract void doProcess(ProcessContext context) throws Exception;
 
 			/**
-			 * Per-invocation context that tracks consumed headers and provides
-			 * parameter resolution. Created at the start of each process() call
-			 * and cleaned up in its finally block, ensuring thread safety and
-			 * no state leakage across invocations.
+			 * ProcessContext provides convenient access to endpoint parameters and exchange data for producers.
 			 */
 			protected class ProcessContext implements Closeable {
 				private final Exchange fExchange;
@@ -313,7 +310,7 @@ public class BpmComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				// Start process instance and set process definition and instance ids in exchange headers
 				ProcessInstance instance = startProcessInstance(pc);
 
@@ -396,7 +393,7 @@ public class BpmComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				correlateMessage(pc);
 			}
 

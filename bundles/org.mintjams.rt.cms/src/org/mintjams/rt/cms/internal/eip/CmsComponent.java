@@ -179,10 +179,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			/**
-			 * Per-invocation context that tracks consumed headers and provides
-			 * parameter resolution. Created at the start of each process() call
-			 * and cleaned up in its finally block, ensuring thread safety and
-			 * no state leakage across invocations.
+			 * ProcessContext provides convenient access to endpoint parameters and exchange data for producers.
 			 */
 			protected class ProcessContext implements Closeable {
 				private final Exchange fExchange;
@@ -267,7 +264,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -440,7 +437,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -558,7 +555,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -839,7 +836,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -882,7 +879,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -936,7 +933,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -1011,7 +1008,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -1065,7 +1062,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -1121,7 +1118,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -1182,7 +1179,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -1261,7 +1258,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
@@ -1330,7 +1327,7 @@ public class CmsComponent extends DefaultComponent {
 			}
 
 			@Override
-			public void doProcess(ProcessContext pc) throws Exception {
+			protected void doProcess(ProcessContext pc) throws Exception {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
