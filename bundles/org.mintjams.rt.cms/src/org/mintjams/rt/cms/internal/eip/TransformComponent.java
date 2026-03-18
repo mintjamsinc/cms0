@@ -68,7 +68,7 @@ public class TransformComponent extends DefaultComponent {
 
 	@Override
 	protected Endpoint createEndpoint(String uri, String remaining, Map<String, Object> parameters) throws Exception {
-		// Parse operation type from remaining (e.g., "store", "truncate", "move")
+		// Parse operation type from remaining (e.g., "truncateString", "toDate", "parseDate", etc.)
 		String operation = remaining;
 
 		TransformEndpoint endpoint = new TransformEndpoint(uri, operation, parameters);
