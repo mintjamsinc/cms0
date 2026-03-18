@@ -28,7 +28,9 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -337,7 +339,23 @@ public class TransformComponent extends DefaultComponent {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getDate(0));
+				try {
+					pc.setHeader(name, Date.from(OffsetDateTime.parse(value.toString()).toInstant()));
+					return;
+				} catch (DateTimeParseException ignore) {}
+
+				try {
+					LocalDateTime ldt = LocalDateTime.parse(value.toString());
+					pc.setHeader(name, Date.from(ldt.toInstant(ZoneOffset.UTC)));
+					return;
+				} catch (DateTimeParseException ignore) {}
+
+				try {
+					pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getDate(0));
+					return;
+				} catch (DateTimeParseException ignore) {}
+
+				
 			}
 		}
 
@@ -394,12 +412,13 @@ public class TransformComponent extends DefaultComponent {
 
 				LocalDateTime ldt = LocalDateTime.parse(value.toString());
 
+				ZoneOffset zoneOffset = ZoneOffset.of(ZoneId.systemDefault().getId());
 				String offset = pc.getParameterAsString("offset");
-				if (offset == null) {
-					throw new IllegalArgumentException("offset parameter is required for parseLocalDate operation");
+				if (offset != null) {
+					zoneOffset = ZoneOffset.of(offset);
 				}
 
-				pc.setHeader(name, Date.from(ldt.toInstant(ZoneOffset.of(offset))));
+				pc.setHeader(name, Date.from(ldt.toInstant(zoneOffset)));
 			}
 		}
 
