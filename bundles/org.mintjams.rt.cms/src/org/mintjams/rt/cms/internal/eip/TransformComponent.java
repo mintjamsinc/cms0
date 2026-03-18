@@ -24,11 +24,18 @@ package org.mintjams.rt.cms.internal.eip;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 import org.apache.camel.Consumer;
@@ -81,14 +88,16 @@ public class TransformComponent extends DefaultComponent {
 		@Override
 		public Producer createProducer() throws Exception {
 			// Determine operation type
-			if ("truncate".equals(fOperation)) {
-				return new TruncateProducer();
+			if ("truncateString".equals(fOperation)) {
+				return new TruncateStringProducer();
 			} else if ("toDate".equals(fOperation)) {
 				return new ToDateProducer();
-			} else if ("toDatetime".equals(fOperation)) {
-				return new ToDatetimeProducer();
-			} else if ("toTime".equals(fOperation)) {
-				return new ToTimeProducer();
+			} else if ("parseDate".equals(fOperation)) {
+				return new ParseDateProducer();
+			} else if ("parseOffsetDate".equals(fOperation)) {
+				return new ParseOffsetDateProducer();
+			} else if ("parseLocalDate".equals(fOperation)) {
+				return new ParseLocalDateProducer();
 			} else if ("toInteger".equals(fOperation)) {
 				return new ToIntegerProducer();
 			} else if ("toLong".equals(fOperation)) {
@@ -101,8 +110,8 @@ public class TransformComponent extends DefaultComponent {
 				return new ToBooleanProducer();
 			} else if ("toString".equals(fOperation)) {
 				return new ToStringProducer();
-			} else if ("remove".equals(fOperation)) {
-				return new RemoveProducer();
+			} else if ("removeHeader".equals(fOperation)) {
+				return new RemoveHeaderProducer();
 			} else {
 				// Unsupported operation
 				throw new UnsupportedOperationException("Unsupported operation: " + fOperation);
@@ -129,14 +138,18 @@ public class TransformComponent extends DefaultComponent {
 				for (String filter : pc.parseFilterList(pc.getParameter("targets"))) {
 					if (filter.endsWith("*")) {
 						String prefix = filter.substring(0, filter.length() - 1);
-						headers.entrySet().stream()
-								.filter(entry -> entry.getKey().startsWith(prefix))
-								.forEach(entry -> transform(entry.getKey(), entry.getValue(), pc));
+						for (Map.Entry<String, Object> entry : headers.entrySet()) {
+							if (entry.getKey().startsWith(prefix)) {
+								transform(entry.getKey(), entry.getValue(), pc);
+							}
+						}
 					} else if (filter.startsWith("*")) {
 						String suffix = filter.substring(1);
-						headers.entrySet().stream()
-								.filter(entry -> entry.getKey().endsWith(suffix))
-								.forEach(entry -> transform(entry.getKey(), entry.getValue(), pc));
+						for (Map.Entry<String, Object> entry : headers.entrySet()) {
+							if (entry.getKey().endsWith(suffix)) {
+								transform(entry.getKey(), entry.getValue(), pc);
+							}
+						}
 					} else {
 						transform(filter, headers.get(filter), pc);
 					}
@@ -146,7 +159,7 @@ public class TransformComponent extends DefaultComponent {
 			/**
 			 * Apply the transformation logic to a specific header name and value, while respecting any exclusion filters defined in the "excludeTargets" parameter.
 			 */
-			protected void transform(String name, Object value, ProcessContext pc) {
+			protected void transform(String name, Object value, ProcessContext pc) throws Exception {
 				if (matches(name, pc.getExcludeTargets())) {
 					return; // Skip transformation for excluded targets
 				}
@@ -159,7 +172,7 @@ public class TransformComponent extends DefaultComponent {
 			 * This method is implemented by each concrete producer to perform the appropriate transformation based on the operation type.
 			 * The ProcessContext provides access to endpoint parameters and allows setting headers in the exchange for downstream processing.
 			 */
-			protected abstract void applyTransform(String name, Object value, ProcessContext pc);
+			protected abstract void applyTransform(String name, Object value, ProcessContext pc) throws Exception;
 
 			/**
 			 * Check if a name matches any of the provided filters.
@@ -289,16 +302,13 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * TruncateProducer implements the "truncate" operation.
-		 */
-		private class TruncateProducer extends TransformProducer {
-			private TruncateProducer() {
+		private class TruncateStringProducer extends TransformProducer {
+			private TruncateStringProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
@@ -316,16 +326,13 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * ToDateProducer implements the "toDate" operation.
-		 */
 		private class ToDateProducer extends TransformProducer {
 			private ToDateProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
@@ -334,52 +341,75 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * ToDatetimeProducer implements the "toDatetime" operation.
-		 */
-		private class ToDatetimeProducer extends TransformProducer {
-			private ToDatetimeProducer() {
+		private class ParseDateProducer extends TransformProducer {
+			private ParseDateProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getOffsetDateTime(0));
+				String pattern = pc.getParameterAsString("pattern");
+				if (pattern == null) {
+					throw new IllegalArgumentException("pattern parameter is required for toDate operation");
+				}
+
+				DateFormat df = new SimpleDateFormat(pattern);
+				String timeZone = pc.getParameterAsString("timeZone");
+				if (timeZone != null) {
+					df.setTimeZone(TimeZone.getTimeZone(timeZone));
+				}
+				pc.setHeader(name, df.parse(value.toString()));
 			}
 		}
 
-		/**
-		 * ToTimeProducer implements the "toTime" operation.
-		 */
-		private class ToTimeProducer extends TransformProducer {
-			private ToTimeProducer() {
+		private class ParseOffsetDateProducer extends TransformProducer {
+			private ParseOffsetDateProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getOffsetTime(0));
+				pc.setHeader(name, Date.from(OffsetDateTime.parse(value.toString()).toInstant()));
 			}
 		}
 
-		/**
-		 * ToIntegerProducer implements the "toTime" operation.
-		 */
+		private class ParseLocalDateProducer extends TransformProducer {
+			private ParseLocalDateProducer() {
+				super(TransformEndpoint.this);
+			}
+
+			@Override
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
+				if (value == null) {
+					return;
+				}
+
+				LocalDateTime ldt = LocalDateTime.parse(value.toString());
+
+				String offset = pc.getParameterAsString("offset");
+				if (offset == null) {
+					throw new IllegalArgumentException("offset parameter is required for parseLocalDate operation");
+				}
+
+				pc.setHeader(name, Date.from(ldt.toInstant(ZoneOffset.of(offset))));
+			}
+		}
+
 		private class ToIntegerProducer extends TransformProducer {
 			private ToIntegerProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
@@ -388,16 +418,13 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * ToLongProducer implements the "toTime" operation.
-		 */
 		private class ToLongProducer extends TransformProducer {
 			private ToLongProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
@@ -406,16 +433,13 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * ToDoubleProducer implements the "toTime" operation.
-		 */
 		private class ToDoubleProducer extends TransformProducer {
 			private ToDoubleProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
@@ -424,16 +448,13 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * ToDecimalProducer implements the "toTime" operation.
-		 */
 		private class ToDecimalProducer extends TransformProducer {
 			private ToDecimalProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
@@ -442,16 +463,13 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * ToBooleanProducer implements the "toTime" operation.
-		 */
 		private class ToBooleanProducer extends TransformProducer {
 			private ToBooleanProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
@@ -460,16 +478,13 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * ToStringProducer implements the "toTime" operation.
-		 */
 		private class ToStringProducer extends TransformProducer {
 			private ToStringProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				if (value == null) {
 					return;
 				}
@@ -478,16 +493,13 @@ public class TransformComponent extends DefaultComponent {
 			}
 		}
 
-		/**
-		 * RemoveProducer implements the "remove" operation.
-		 */
-		private class RemoveProducer extends TransformProducer {
-			private RemoveProducer() {
+		private class RemoveHeaderProducer extends TransformProducer {
+			private RemoveHeaderProducer() {
 				super(TransformEndpoint.this);
 			}
 
 			@Override
-			protected void applyTransform(String name, Object value, ProcessContext pc) {
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				pc.getExchange().getIn().removeHeader(name);
 			}
 		}
