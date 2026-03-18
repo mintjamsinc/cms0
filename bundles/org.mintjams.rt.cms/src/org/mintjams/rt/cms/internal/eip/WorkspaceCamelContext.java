@@ -32,6 +32,7 @@ public class WorkspaceCamelContext extends DefaultCamelContext {
 		addComponent(EventAdminComponent.COMPONENT_NAME, new EventAdminComponent());
 		addComponent(BpmComponent.COMPONENT_NAME, new BpmComponent(config.getWorkspaceName()));
 		addComponent(CmsComponent.COMPONENT_NAME, new CmsComponent(config.getWorkspaceName()));
+		addComponent(TransformComponent.COMPONENT_NAME, new TransformComponent(config.getWorkspaceName()));
 	}
 
 }
