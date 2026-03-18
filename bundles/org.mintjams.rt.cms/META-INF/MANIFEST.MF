@@ -4,7 +4,7 @@ Bundle-Name: %Plugin.name
 Bundle-SymbolicName: org.mintjams.rt.cms
 Bundle-Version: 1.0.0
 Automatic-Module-Name: org.mintjams.rt.cms
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Service-Component: OSGI-INF/org.mintjams.rt.cms.CmsService.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.DownloadServlet.xml,
