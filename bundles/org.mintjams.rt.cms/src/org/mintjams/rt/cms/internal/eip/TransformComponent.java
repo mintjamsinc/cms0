@@ -24,7 +24,11 @@ package org.mintjams.rt.cms.internal.eip;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.text.DateFormat;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -36,6 +40,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -177,6 +182,38 @@ public class TransformComponent extends DefaultComponent {
 			protected abstract void applyTransform(String name, Object value, ProcessContext pc) throws Exception;
 
 			/**
+			 * Parse a number from the given value using the locale specified in the "locale" parameter (if provided) or the default locale.
+			 */
+			protected BigDecimal parseDecimal(Object value, ProcessContext pc) throws NumberFormatException, ParseException {
+				if (value instanceof BigDecimal) {
+					return (BigDecimal) value;
+				}
+
+				Locale locale = Locale.getDefault();
+				String localeString = pc.getParameterAsString("locale");
+				if (localeString != null) {
+					locale = parseLocale(localeString);
+				}
+
+				DecimalFormat df = (DecimalFormat) NumberFormat.getInstance(locale);
+				df.setParseBigDecimal(true);
+				return (BigDecimal) df.parse(value.toString());
+			}
+
+			/**
+			 * Parse a locale string in the format "language", "language_country", or "language_country_variant".
+			 */
+			protected Locale parseLocale(String s) {
+				String[] parts = s.split("[_-]");
+				return switch (parts.length) {
+					case 1 -> new Locale(parts[0]); // language only
+					case 2 -> new Locale(parts[0], parts[1]); // language + country
+					case 3 -> new Locale(parts[0], parts[1], parts[2]); // language + country + variant
+					default -> throw new IllegalArgumentException("Invalid locale format: " + s);
+				};
+			}
+
+			/**
 			 * Check if a name matches any of the provided filters.
 			 */
 			protected boolean matches(String name, List<String> filters) {
@@ -260,7 +297,7 @@ public class TransformComponent extends DefaultComponent {
 				 */
 				public Integer getParameterAsInteger(String key) {
 					Object value = getParameter(key);
-					return AdaptableList.newBuilder().add(value).build().getInteger(0);
+					return new BigDecimal(value.toString()).intValue();
 				}
 
 				/**
@@ -433,7 +470,7 @@ public class TransformComponent extends DefaultComponent {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getInteger(0));
+				pc.setHeader(name, parseDecimal(value, pc).intValue());
 			}
 		}
 
@@ -448,7 +485,7 @@ public class TransformComponent extends DefaultComponent {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getLong(0));
+				pc.setHeader(name, parseDecimal(value, pc).longValue());
 			}
 		}
 
@@ -463,7 +500,7 @@ public class TransformComponent extends DefaultComponent {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getDouble(0));
+				pc.setHeader(name, parseDecimal(value, pc).doubleValue());
 			}
 		}
 
@@ -478,7 +515,7 @@ public class TransformComponent extends DefaultComponent {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getBigDecimal(0));
+				pc.setHeader(name, parseDecimal(value, pc));
 			}
 		}
 
@@ -493,7 +530,12 @@ public class TransformComponent extends DefaultComponent {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getBoolean(0));
+				Boolean b = switch (value.toString().trim().toLowerCase()) {
+					case "true", "yes", "on", "1" -> Boolean.TRUE;
+					case "false", "no", "off", "0" -> Boolean.FALSE;
+					default -> throw new IllegalArgumentException("Cannot convert value to boolean: " + value);
+				};
+				pc.setHeader(name, b);
 			}
 		}
 
@@ -508,7 +550,7 @@ public class TransformComponent extends DefaultComponent {
 					return;
 				}
 
-				pc.setHeader(name, AdaptableList.newBuilder().add(value).build().getString(0));
+				pc.setHeader(name, value.toString());
 			}
 		}
 
