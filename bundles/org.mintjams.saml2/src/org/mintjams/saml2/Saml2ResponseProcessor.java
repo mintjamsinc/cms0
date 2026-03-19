@@ -30,6 +30,7 @@ import org.mintjams.saml2.exception.Saml2Exception;
 import org.mintjams.saml2.exception.ValidationException;
 import org.mintjams.saml2.model.Saml2Response;
 import org.mintjams.saml2.model.Saml2Settings;
+import org.mintjams.saml2.util.SignatureValidator;
 import org.mintjams.saml2.util.XmlUtils;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -77,6 +78,9 @@ public class Saml2ResponseProcessor {
 				!XmlUtils.getProtocolNamespace().equals(root.getNamespaceURI())) {
 				throw new ValidationException("Invalid SAML Response: root element is not samlp:Response");
 			}
+
+			// Validate XML signature with IdP certificate
+			SignatureValidator.validate(document, settings.getIdpCertificate());
 
 			// Get Status
 			Element statusElement = XmlUtils.getFirstElement(root, XmlUtils.getProtocolNamespace(), "Status");
