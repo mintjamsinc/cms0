@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: %Plugin.name
+Bundle-SymbolicName: org.mintjams.cms
+Bundle-Vendor: %Plugin.provider
+Bundle-Version: 1.0.0
+Export-Package: org.mintjams.cms;version="1.0.0"
+Import-Package: javax.jcr;version="2.0.0"
+Automatic-Module-Name: org.mintjams.cms
+Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-ActivationPolicy: lazy
