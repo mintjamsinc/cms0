@@ -198,23 +198,23 @@ public class CmsService {
 		fCloser.register(Registration.newBuilder(WebConsoleSecurityProvider.class)
 				.setService(new FelixWebConsoleSecurityProvider())
 				.setProperty(Constants.SERVICE_PID, FelixWebConsoleSecurityProvider.SERVICE_PID)
-				.setBundleContext(CmsService.getDefault().getBundleContext())
+				.setBundleContext(getBundleContext())
 				.build());
 
 		// The default principal provider
 		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
 				.setService(new DefaultPrincipalProvider())
-				.setBundleContext(CmsService.getDefault().getBundleContext())
+				.setBundleContext(getBundleContext())
 				.build());
 
 		// The user service authenticator and principal provider
 		fCloser.register(Registration.newBuilder(JcrAuthenticator.class)
 				.setService(new UserServiceAuthenticator())
-				.setBundleContext(CmsService.getDefault().getBundleContext())
+				.setBundleContext(getBundleContext())
 				.build());
 		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
 				.setService(new ServiceAccountPrincipalProvider())
-				.setBundleContext(CmsService.getDefault().getBundleContext())
+				.setBundleContext(getBundleContext())
 				.build());
 
 		// The SAML2 authenticator and principal provider
@@ -222,11 +222,17 @@ public class CmsService {
 		fCloser.register(saml2ServiceProvider).open();
 		fCloser.register(Registration.newBuilder(JcrAuthenticator.class)
 				.setService(new Saml2Authenticator(saml2ServiceProvider.getConfiguration()))
-				.setBundleContext(CmsService.getDefault().getBundleContext())
+				.setBundleContext(getBundleContext())
 				.build());
 		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
 				.setService(new Saml2PrincipalProvider(saml2ServiceProvider.getConfiguration()))
-				.setBundleContext(CmsService.getDefault().getBundleContext())
+				.setBundleContext(getBundleContext())
+				.build());
+
+		// The CMS service
+		fCloser.register(Registration.newBuilder(org.mintjams.cms.CmsService.class)
+				.setService(new OSGiCmsService())
+				.setBundleContext(getBundleContext())
 				.build());
 	}
 
@@ -417,6 +423,10 @@ public class CmsService {
 
 	public static WorkspaceCmsEventManager getWorkspaceCmsEventManager(String workspaceName) {
 		return getDefault().fWorkspaceCmsEventManagers.get(workspaceName);
+	}
+
+	public static Path getEtcDirectoryPath() {
+		return getRepositoryPath().resolve("etc");
 	}
 
 	public static Path getTemporaryDirectoryPath() {
