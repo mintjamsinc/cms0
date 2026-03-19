@@ -196,13 +196,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 					}
 
 					// Remove previously deployed route configurations for this path
-					// In Camel 3.22+, getRouteConfigurationDefinitions() returns the actual
-					// internal list, so removeIf() properly removes from the registry.
-					List<String> previousConfigIds = fRouteConfigDeployments.get(itemPath);
-					if (previousConfigIds != null) {
-						modelContext.getRouteConfigurationDefinitions()
-								.removeIf(def -> previousConfigIds.contains(def.getId()));
-					}
+					removeRouteConfigurations(fRouteConfigDeployments.get(itemPath));
 
 					// Load and add new routes (and route configurations)
 					loader.setCamelContext(fCamelContext);
@@ -248,14 +242,73 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		}
 	}
 
+	private static java.lang.reflect.Field findDeclaredField(Class<?> clazz, String fieldName) {
+		while (clazz != null) {
+			try {
+				return clazz.getDeclaredField(fieldName);
+			} catch (NoSuchFieldException e) {
+				clazz = clazz.getSuperclass();
+			}
+		}
+		return null;
+	}
+
+	private static Object getInternalModel(Object context) {
+		java.lang.reflect.Field modelField = findDeclaredField(context.getClass(), "model");
+		if (modelField != null) {
+			try {
+				modelField.setAccessible(true);
+				return modelField.get(context);
+			} catch (IllegalAccessException e) {
+				return null;
+			}
+		}
+		return null;
+	}
+
 	private void removeRouteConfigurations(List<String> configIds) {
 		if (configIds == null || configIds.isEmpty()) {
 			return;
 		}
 		try {
+			// Obtain the DefaultModel instance via public API, fallback to reflection
 			ModelCamelContext modelContext = (ModelCamelContext) fCamelContext;
-			modelContext.getRouteConfigurationDefinitions()
-					.removeIf(def -> configIds.contains(def.getId()));
+			Object model = null;
+			try {
+				java.lang.reflect.Method getModel = modelContext.getClass().getMethod("getModel");
+				model = getModel.invoke(modelContext);
+			} catch (NoSuchMethodException e) {
+				model = getInternalModel(fCamelContext);
+			}
+			if (model == null) {
+				CmsService.getLogger(getClass())
+						.warn("Could not obtain Model for route configuration removal: " + configIds);
+				return;
+			}
+
+			// In Camel 3.22, DefaultModel.addRouteConfiguration checks the
+			// "routesConfigurations" list (List<RouteConfigurationDefinition>) for
+			// duplicate IDs. Remove matching entries from this list via reflection.
+			java.lang.reflect.Field listField = findDeclaredField(model.getClass(), "routesConfigurations");
+			if (listField != null) {
+				listField.setAccessible(true);
+				@SuppressWarnings("unchecked")
+				List<Object> internalList = (List<Object>) listField.get(model);
+				if (internalList != null) {
+					internalList.removeIf(def -> {
+						try {
+							java.lang.reflect.Method getId = def.getClass().getMethod("getId");
+							return configIds.contains((String) getId.invoke(def));
+						} catch (Exception e) {
+							return false;
+						}
+					});
+				}
+			} else {
+				CmsService.getLogger(getClass())
+						.warn("Could not find routesConfigurations field on " + model.getClass().getName()
+								+ " for route configuration removal: " + configIds);
+			}
 		} catch (Throwable ex) {
 			CmsService.getLogger(getClass()).warn("Failed to remove route configurations: " + configIds, ex);
 		}
