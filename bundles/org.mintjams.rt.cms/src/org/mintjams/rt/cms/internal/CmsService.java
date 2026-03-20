@@ -425,7 +425,7 @@ public class CmsService {
 		return getDefault().fWorkspaceCmsEventManagers.get(workspaceName);
 	}
 
-	public static Path getEtcDirectoryPath() {
+	public static Path getEtcPath() {
 		return getRepositoryPath().resolve("etc");
 	}
 

@@ -49,8 +49,8 @@ public class OSGiCmsService implements org.mintjams.cms.CmsService {
 	}
 
 	@Override
-	public Path getEtcDirectoryPath() {
-		return CmsService.getEtcDirectoryPath();
+	public Path getEtcPath() {
+		return CmsService.getEtcPath();
 	}
 
 	@Override

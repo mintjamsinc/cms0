@@ -65,7 +65,7 @@ public interface CmsService {
 	 *
 	 * @return the path to the configuration directory
 	 */
-	Path getEtcDirectoryPath();
+	Path getEtcPath();
 
 	/**
 	 * Returns the path to the temporary directory.
