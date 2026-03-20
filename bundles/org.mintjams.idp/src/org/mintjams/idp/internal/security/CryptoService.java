@@ -85,4 +85,8 @@ public class CryptoService {
 		return new String(decrypted, StandardCharsets.UTF_8);
 	}
 
+	public boolean isEncrypted(String input) {
+		return input != null && input.startsWith("ENC[") && input.endsWith("]");
+	}
+
 }

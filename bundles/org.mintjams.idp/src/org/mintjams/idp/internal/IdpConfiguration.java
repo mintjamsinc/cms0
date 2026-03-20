@@ -25,6 +25,7 @@ package org.mintjams.idp.internal;
 import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -65,7 +66,7 @@ public class IdpConfiguration {
 			Path configPath = getConfigPath();
 			Path idpPath = configPath.resolve("idp.yml");
 			if (!Files.exists(idpPath)) {
-				try (Writer out = Files.newBufferedWriter(idpPath)) {
+				try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
 					String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(Map.of(
 							"entityId", DEFAULT_BASE_URL + DEFAULT_CONTEXT_PATH, // Entity ID of the IdP (default: https://localhost:8443/idp)
 							"baseUrl", DEFAULT_BASE_URL, // Base URL of the IdP (default: https://localhost:8443)
@@ -92,6 +93,18 @@ public class IdpConfiguration {
 
 			try (InputStream in = new BufferedInputStream(Files.newInputStream(idpPath))) {
 				fConfig = (Map<String, Object>) new Load(LoadSettings.builder().build()).loadFromInputStream(in);
+
+				String password = ExpressionContext.create()
+						.setVariable("config", getConfig())
+						.defaultIfEmpty("config.keystorePassword", DEFAULT_KEYSTORE_PASSWORD);
+				if (!Activator.getDefault().getCryptoService().isEncrypted(password)) {
+					((Map<String, Object>) fConfig.get("keystore")).put("password", Activator.getDefault().getCryptoService().encrypt(password));
+					try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
+						String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(fConfig);
+						out.append(yamlString);
+					}
+					log.info("The keystorePassword parameter has been encrypted and the configuration file has been updated.");
+				}
 			}
 		}
 		return fConfig;
@@ -147,9 +160,10 @@ public class IdpConfiguration {
 
 	public String getKeystorePassword() {
 		try {
-			return ExpressionContext.create()
+			String password = ExpressionContext.create()
 					.setVariable("config", getConfig())
 					.defaultIfEmpty("config.keystorePassword", DEFAULT_KEYSTORE_PASSWORD);
+			return Activator.getDefault().getCryptoService().decrypt(password);
 		} catch (Throwable ex) {
 			log.warn("The keystorePassword parameter is invalid. Default values will be used instead.");
 		}

@@ -26,6 +26,7 @@ import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
@@ -60,7 +61,7 @@ public class FileSecretKeyProvider implements SecretKeyProvider {
 						)
 				));
 
-			try (Writer out = Files.newBufferedWriter(path)) {
+			try (Writer out = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
 				out.append(new Dump(DumpSettings.builder().build()).dumpToString(fKeyConfig));
 			}
 
