@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.saml;
+package org.mintjams.idp.internal.saml;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -31,7 +31,7 @@ import java.util.zip.InflaterInputStream;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
-import org.mintjams.idp.model.AuthnRequest;
+import org.mintjams.idp.internal.model.AuthnRequest;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;

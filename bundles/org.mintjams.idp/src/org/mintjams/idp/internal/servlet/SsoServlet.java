@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.servlet;
+package org.mintjams.idp.internal.servlet;
 
 import java.io.IOException;
 
@@ -29,11 +29,12 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
-import org.mintjams.idp.model.AuthnRequest;
-import org.mintjams.idp.model.IdpSettings;
-import org.mintjams.idp.model.IdpUser;
-import org.mintjams.idp.saml.AuthnRequestParser;
-import org.mintjams.idp.saml.SamlResponseBuilder;
+import org.mintjams.idp.internal.Activator;
+import org.mintjams.idp.internal.IdpConfiguration;
+import org.mintjams.idp.internal.model.AuthnRequest;
+import org.mintjams.idp.internal.model.IdpUser;
+import org.mintjams.idp.internal.saml.AuthnRequestParser;
+import org.mintjams.idp.internal.saml.SamlResponseBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,15 +51,7 @@ import org.slf4j.LoggerFactory;
 public class SsoServlet extends HttpServlet {
 
 	private static final long serialVersionUID = 1L;
-	private static final Logger LOG = LoggerFactory.getLogger(SsoServlet.class);
-
-	private final IdpSettings settings;
-	private final String roleAttributeName;
-
-	public SsoServlet(IdpSettings settings, String roleAttributeName) {
-		this.settings = settings;
-		this.roleAttributeName = roleAttributeName;
-	}
+	private static final Logger log = LoggerFactory.getLogger(SsoServlet.class);
 
 	/**
 	 * Handles HTTP-Redirect binding (SP sends AuthnRequest as query parameter).
@@ -101,6 +94,7 @@ public class SsoServlet extends HttpServlet {
 
 	private void processSsoRequest(HttpServletRequest request, HttpServletResponse response,
 			String samlRequest, String relayState, String binding) throws IOException {
+		IdpConfiguration config = Activator.getDefault().getConfiguration();
 
 		try {
 			// Parse the AuthnRequest
@@ -113,11 +107,11 @@ public class SsoServlet extends HttpServlet {
 				authnRequest = parser.parsePostBinding(samlRequest, relayState);
 			}
 
-			LOG.info("Received AuthnRequest from SP: {} (ID: {})", authnRequest.getIssuer(), authnRequest.getId());
+			log.info("Received AuthnRequest from SP: {} (ID: {})", authnRequest.getIssuer(), authnRequest.getId());
 
 			// Validate trusted SP
-			if (!settings.isTrustedSP(authnRequest.getIssuer())) {
-				LOG.warn("Untrusted SP: {}", authnRequest.getIssuer());
+			if (!config.isTrustedSP(authnRequest.getIssuer())) {
+				log.warn("Untrusted SP: {}", authnRequest.getIssuer());
 				response.sendError(HttpServletResponse.SC_FORBIDDEN, "Untrusted Service Provider");
 				return;
 			}
@@ -138,27 +132,27 @@ public class SsoServlet extends HttpServlet {
 				session.setAttribute(LoginServlet.SESSION_RELAY_STATE, relayState);
 				session.setAttribute(LoginServlet.SESSION_BINDING, binding);
 
-				response.sendRedirect(settings.getLoginUrl());
+				response.sendRedirect(config.getLoginUrl());
 				return;
 			}
 
 			// User is authenticated - build and send SAML Response
-			sendSamlResponse(response, authnRequest, user);
+			sendSamlResponse(response, authnRequest, user, config);
 
 		} catch (Exception e) {
-			LOG.error("SSO processing failed", e);
+			log.error("SSO processing failed", e);
 			response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "SSO processing failed");
 		}
 	}
 
-	private void sendSamlResponse(HttpServletResponse response, AuthnRequest authnRequest, IdpUser user)
+	private void sendSamlResponse(HttpServletResponse response, AuthnRequest authnRequest, IdpUser user, IdpConfiguration config)
 			throws Exception {
 
-		LOG.info("Sending SAMLResponse for user: {} to SP: {}",
+		log.info("Sending SAMLResponse for user: {} to SP: {}",
 				user.getUsername(), authnRequest.getIssuer());
 
-		SamlResponseBuilder builder = new SamlResponseBuilder(settings);
-		String base64Response = builder.buildBase64Response(authnRequest, user, roleAttributeName);
+		SamlResponseBuilder builder = new SamlResponseBuilder(config);
+		String base64Response = builder.buildBase64Response(authnRequest, user);
 
 		// Build and send auto-submit POST form
 		String html = builder.buildPostForm(

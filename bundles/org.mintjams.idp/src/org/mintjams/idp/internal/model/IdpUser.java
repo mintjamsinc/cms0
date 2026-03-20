@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.model;
+package org.mintjams.idp.internal.model;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,75 +28,95 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.mintjams.idp.internal.Activator;
+
 /**
  * Represents an authenticated user in the IdP.
  */
 public class IdpUser {
 
-	private String username;
-	private String displayName;
-	private String email;
-	private List<String> roles = new ArrayList<>();
-	private Map<String, List<String>> attributes = new HashMap<>();
+	private String fUsername;
+	private String fDisplayName;
+	private String fEmail;
+	private List<String> fGroups = new ArrayList<>();
+	private List<String> fRoles = new ArrayList<>();
+	private Map<String, List<String>> fAttributes = new HashMap<>();
 
 	public String getUsername() {
-		return username;
+		return fUsername;
 	}
 
 	public void setUsername(String username) {
-		this.username = username;
+		fUsername = username;
 	}
 
 	public String getDisplayName() {
-		return displayName;
+		return fDisplayName;
 	}
 
 	public void setDisplayName(String displayName) {
-		this.displayName = displayName;
+		fDisplayName = displayName;
 	}
 
 	public String getEmail() {
-		return email;
+		return fEmail;
 	}
 
 	public void setEmail(String email) {
-		this.email = email;
+		fEmail = email;
+	}
+
+	public List<String> getGroups() {
+		return Collections.unmodifiableList(fGroups);
+	}
+
+	public void setMemberOf(List<String> groups) {
+		fGroups = new ArrayList<>(groups);
+	}
+
+	public void addMemberOf(String group) {
+		fGroups.add(group);
 	}
 
 	public List<String> getRoles() {
-		return Collections.unmodifiableList(roles);
+		return Collections.unmodifiableList(fRoles);
 	}
 
 	public void setRoles(List<String> roles) {
-		this.roles = new ArrayList<>(roles);
+		fRoles = new ArrayList<>(roles);
 	}
 
 	public void addRole(String role) {
-		this.roles.add(role);
+		fRoles.add(role);
 	}
 
 	public Map<String, List<String>> getAttributes() {
-		return Collections.unmodifiableMap(attributes);
+		return Collections.unmodifiableMap(fAttributes);
 	}
 
 	public void addAttribute(String name, String value) {
-		attributes.computeIfAbsent(name, k -> new ArrayList<>()).add(value);
+		fAttributes.computeIfAbsent(name, k -> new ArrayList<>()).add(value);
 	}
 
 	/**
 	 * Gets all attributes including roles, suitable for SAML assertion.
 	 * Roles are mapped to the configured role attribute name.
 	 */
-	public Map<String, List<String>> getAllAttributes(String roleAttributeName) {
-		Map<String, List<String>> all = new HashMap<>(attributes);
-		if (roleAttributeName != null && !roles.isEmpty()) {
-			all.put(roleAttributeName, new ArrayList<>(roles));
+	public Map<String, List<String>> getAllAttributes() {
+		String roleAttributeName = Activator.getDefault().getConfiguration().getRoleAttribute();
+
+		Map<String, List<String>> all = new HashMap<>(fAttributes);
+		if (roleAttributeName != null && !fRoles.isEmpty()) {
+			all.put(roleAttributeName, new ArrayList<>(fRoles));
 		}
-		if (email != null) {
-			all.computeIfAbsent("email", k -> new ArrayList<>()).add(email);
+		if (!fGroups.isEmpty()) {
+			all.put("memberOf", new ArrayList<>(fGroups));
 		}
-		if (displayName != null) {
-			all.computeIfAbsent("displayName", k -> new ArrayList<>()).add(displayName);
+		if (fEmail != null) {
+			all.computeIfAbsent("email", k -> new ArrayList<>()).add(fEmail);
+		}
+		if (fDisplayName != null) {
+			all.computeIfAbsent("displayName", k -> new ArrayList<>()).add(fDisplayName);
 		}
 		return all;
 	}

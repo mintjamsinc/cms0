@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.saml;
+package org.mintjams.idp.internal.saml;
 
 import java.io.StringWriter;
 import java.security.cert.X509Certificate;
@@ -34,7 +34,8 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
-import org.mintjams.idp.model.IdpSettings;
+import org.mintjams.idp.internal.Activator;
+import org.mintjams.idp.internal.IdpConfiguration;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
@@ -60,10 +61,10 @@ public class MetadataBuilder {
 	private static final String NAMEID_FORMAT_UNSPECIFIED = "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified";
 	private static final String USE_SIGNING = "signing";
 
-	private final IdpSettings settings;
+	private final IdpConfiguration config;
 
-	public MetadataBuilder(IdpSettings settings) {
-		this.settings = settings;
+	public MetadataBuilder(IdpConfiguration config) {
+		this.config = config;
 	}
 
 	/**
@@ -81,7 +82,7 @@ public class MetadataBuilder {
 		// EntityDescriptor
 		Element entityDescriptor = document.createElementNS(MD_NS, "md:EntityDescriptor");
 		entityDescriptor.setAttribute("xmlns:ds", DS_NS);
-		entityDescriptor.setAttribute("entityID", settings.getEntityId());
+		entityDescriptor.setAttribute("entityID", config.getEntityId());
 		document.appendChild(entityDescriptor);
 
 		// IDPSSODescriptor
@@ -91,7 +92,7 @@ public class MetadataBuilder {
 		entityDescriptor.appendChild(idpSsoDescriptor);
 
 		// KeyDescriptor (signing)
-		X509Certificate cert = settings.getCertificate();
+		X509Certificate cert = Activator.getDefault().getKeyStoreManager().getCertificate();
 		if (cert != null) {
 			Element keyDescriptor = document.createElementNS(MD_NS, "md:KeyDescriptor");
 			keyDescriptor.setAttribute("use", USE_SIGNING);
@@ -116,19 +117,19 @@ public class MetadataBuilder {
 		// SingleSignOnService (HTTP-Redirect)
 		Element ssoRedirect = document.createElementNS(MD_NS, "md:SingleSignOnService");
 		ssoRedirect.setAttribute("Binding", BINDING_HTTP_REDIRECT);
-		ssoRedirect.setAttribute("Location", settings.getSsoUrl());
+		ssoRedirect.setAttribute("Location", config.getSsoUrl());
 		idpSsoDescriptor.appendChild(ssoRedirect);
 
 		// SingleSignOnService (HTTP-POST)
 		Element ssoPost = document.createElementNS(MD_NS, "md:SingleSignOnService");
 		ssoPost.setAttribute("Binding", BINDING_HTTP_POST);
-		ssoPost.setAttribute("Location", settings.getSsoUrl());
+		ssoPost.setAttribute("Location", config.getSsoUrl());
 		idpSsoDescriptor.appendChild(ssoPost);
 
 		// SingleLogoutService (for future use)
 		Element sloRedirect = document.createElementNS(MD_NS, "md:SingleLogoutService");
 		sloRedirect.setAttribute("Binding", BINDING_HTTP_REDIRECT);
-		sloRedirect.setAttribute("Location", settings.getSloUrl());
+		sloRedirect.setAttribute("Location", config.getSloUrl());
 		idpSsoDescriptor.appendChild(sloRedirect);
 
 		return documentToString(document);

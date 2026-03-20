@@ -20,30 +20,18 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.auth;
+package org.mintjams.idp.internal.security;
 
-import org.mintjams.idp.model.IdpUser;
+import java.security.KeyPair;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 
-/**
- * Abstraction for user authentication and lookup.
- */
-public interface UserStore {
+public interface KeyStoreManager {
 
-	/**
-	 * Authenticates a user by username and password.
-	 *
-	 * @param username the username
-	 * @param password the plain text password
-	 * @return the authenticated user, or null if authentication fails
-	 */
-	IdpUser authenticate(String username, String password);
+	X509Certificate getCertificate();
 
-	/**
-	 * Looks up a user by username without authentication.
-	 *
-	 * @param username the username
-	 * @return the user, or null if not found
-	 */
-	IdpUser findUser(String username);
+	PrivateKey getPrivateKey();
+
+	KeyPair getKeyPair();
 
 }

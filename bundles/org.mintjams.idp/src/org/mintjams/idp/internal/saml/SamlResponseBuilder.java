@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.saml;
+package org.mintjams.idp.internal.saml;
 
 import java.io.StringWriter;
 import java.security.PrivateKey;
@@ -55,9 +55,10 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
-import org.mintjams.idp.model.AuthnRequest;
-import org.mintjams.idp.model.IdpSettings;
-import org.mintjams.idp.model.IdpUser;
+import org.mintjams.idp.internal.Activator;
+import org.mintjams.idp.internal.IdpConfiguration;
+import org.mintjams.idp.internal.model.AuthnRequest;
+import org.mintjams.idp.internal.model.IdpUser;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
@@ -77,10 +78,10 @@ public class SamlResponseBuilder {
 	private static final String AUTHN_CONTEXT_PASSWORD = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport";
 	private static final String CM_BEARER = "urn:oasis:names:tc:SAML:2.0:cm:bearer";
 
-	private final IdpSettings settings;
+	private final IdpConfiguration config;
 
-	public SamlResponseBuilder(IdpSettings settings) {
-		this.settings = settings;
+	public SamlResponseBuilder(IdpConfiguration config) {
+		this.config = config;
 	}
 
 	/**
@@ -88,13 +89,12 @@ public class SamlResponseBuilder {
 	 *
 	 * @param authnRequest the original AuthnRequest from the SP
 	 * @param user the authenticated user
-	 * @param roleAttributeName the SAML attribute name for roles (e.g. "Role")
 	 * @return Base64 encoded SAML Response
 	 * @throws Exception if building or signing fails
 	 */
-	public String buildBase64Response(AuthnRequest authnRequest, IdpUser user, String roleAttributeName)
+	public String buildBase64Response(AuthnRequest authnRequest, IdpUser user)
 			throws Exception {
-		Document assertionDoc = buildAssertionDocument(authnRequest, user, roleAttributeName);
+		Document assertionDoc = buildAssertionDocument(authnRequest, user);
 		signAssertion(assertionDoc);
 		Document responseDoc = buildResponseEnvelope(authnRequest);
 		Element signedAssertion = assertionDoc.getDocumentElement();
@@ -113,7 +113,7 @@ public class SamlResponseBuilder {
 	 * @return Document containing the Response element
 	 * @throws Exception if building fails
 	 */
-	Document buildResponseEnvelope(AuthnRequest authnRequest) throws Exception {
+	private Document buildResponseEnvelope(AuthnRequest authnRequest) throws Exception {
 		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 		factory.setNamespaceAware(true);
 		DocumentBuilder builder = factory.newDocumentBuilder();
@@ -135,7 +135,7 @@ public class SamlResponseBuilder {
 
 		// Issuer
 		Element responseIssuer = document.createElementNS(SAML2_ASSERTION_NS, "saml:Issuer");
-		responseIssuer.setTextContent(settings.getEntityId());
+		responseIssuer.setTextContent(config.getEntityId());
 		response.appendChild(responseIssuer);
 
 		// Status
@@ -153,11 +153,10 @@ public class SamlResponseBuilder {
 	 *
 	 * @param authnRequest the original AuthnRequest (for Audience and InResponseTo)
 	 * @param user the authenticated user (for NameID and attributes)
-	 * @param roleAttributeName the SAML attribute name for roles (used to fetch user attributes)
 	 * @return Document containing the Assertion element
 	 * @throws Exception if building fails
 	 */
-	Document buildAssertionDocument(AuthnRequest authnRequest, IdpUser user, String roleAttributeName)
+	private Document buildAssertionDocument(AuthnRequest authnRequest, IdpUser user)
 			throws Exception {
 		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 		factory.setNamespaceAware(true);
@@ -165,7 +164,7 @@ public class SamlResponseBuilder {
 		Document document = builder.newDocument();
 
 		Instant now = Instant.now();
-		Instant notOnOrAfter = now.plusSeconds(settings.getAssertionValiditySeconds());
+		Instant notOnOrAfter = now.plusSeconds(config.getAssertionValiditySeconds());
 		String assertionId = "_" + UUID.randomUUID().toString();
 		String sessionIndex = "_" + UUID.randomUUID().toString();
 
@@ -179,7 +178,7 @@ public class SamlResponseBuilder {
 
 		// Issuer
 		Element assertionIssuer = document.createElementNS(SAML2_ASSERTION_NS, "saml:Issuer");
-		assertionIssuer.setTextContent(settings.getEntityId());
+		assertionIssuer.setTextContent(config.getEntityId());
 		assertion.appendChild(assertionIssuer);
 
 		// Subject
@@ -230,7 +229,7 @@ public class SamlResponseBuilder {
 		authnContext.appendChild(authnContextClassRef);
 
 		// AttributeStatement
-		Map<String, List<String>> attributes = user.getAllAttributes(roleAttributeName);
+		Map<String, List<String>> attributes = user.getAllAttributes();
 		if (!attributes.isEmpty()) {
 			Element attributeStatement = document.createElementNS(SAML2_ASSERTION_NS, "saml:AttributeStatement");
 			assertion.appendChild(attributeStatement);
@@ -257,9 +256,9 @@ public class SamlResponseBuilder {
 	 * The signature is inserted as the second child of the Assertion element
 	 * (after Issuer, before Subject), per the SAML specification.
 	 */
-	void signAssertion(Document document) throws Exception {
-		PrivateKey privateKey = settings.getPrivateKey();
-		X509Certificate certificate = settings.getCertificate();
+	private void signAssertion(Document document) throws Exception {
+		PrivateKey privateKey = Activator.getDefault().getKeyStoreManager().getPrivateKey();
+		X509Certificate certificate = Activator.getDefault().getKeyStoreManager().getCertificate();
 
 		// Find the Assertion element
 		Element assertion = (Element) document.getElementsByTagNameNS(SAML2_ASSERTION_NS, "Assertion").item(0);

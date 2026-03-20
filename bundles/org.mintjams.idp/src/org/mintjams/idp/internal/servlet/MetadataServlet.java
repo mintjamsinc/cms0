@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.servlet;
+package org.mintjams.idp.internal.servlet;
 
 import java.io.IOException;
 
@@ -28,8 +28,9 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.mintjams.idp.model.IdpSettings;
-import org.mintjams.idp.saml.MetadataBuilder;
+import org.mintjams.idp.internal.Activator;
+import org.mintjams.idp.internal.IdpConfiguration;
+import org.mintjams.idp.internal.saml.MetadataBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,16 +45,12 @@ public class MetadataServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
 	private static final Logger LOG = LoggerFactory.getLogger(MetadataServlet.class);
 
-	private final IdpSettings settings;
-
-	public MetadataServlet(IdpSettings settings) {
-		this.settings = settings;
-	}
-
 	@Override
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		IdpConfiguration config = Activator.getDefault().getConfiguration();
+
 		try {
-			MetadataBuilder builder = new MetadataBuilder(settings);
+			MetadataBuilder builder = new MetadataBuilder(config);
 			String metadata = builder.build();
 
 			response.setContentType("application/samlmetadata+xml");

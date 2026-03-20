@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.model;
+package org.mintjams.idp.internal.model;
 
 /**
  * Represents a parsed SAML 2.0 AuthnRequest from a Service Provider.

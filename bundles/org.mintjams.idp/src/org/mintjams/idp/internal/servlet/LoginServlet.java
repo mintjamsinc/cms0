@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.servlet;
+package org.mintjams.idp.internal.servlet;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -30,8 +30,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
-import org.mintjams.idp.auth.UserStore;
-import org.mintjams.idp.model.IdpUser;
+import org.mintjams.idp.internal.Activator;
+import org.mintjams.idp.internal.IdpConfiguration;
+import org.mintjams.idp.internal.model.IdpUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,14 +60,6 @@ public class LoginServlet extends HttpServlet {
 	static final String SESSION_RELAY_STATE = "idp.relayState";
 	static final String SESSION_BINDING = "idp.binding";
 
-	private final UserStore userStore;
-	private final String contextPath;
-
-	public LoginServlet(UserStore userStore, String contextPath) {
-		this.userStore = userStore;
-		this.contextPath = contextPath;
-	}
-
 	@Override
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
 		renderLoginForm(response, null);
@@ -74,6 +67,8 @@ public class LoginServlet extends HttpServlet {
 
 	@Override
 	protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		IdpConfiguration config = Activator.getDefault().getConfiguration();
+
 		String username = request.getParameter("username");
 		String password = request.getParameter("password");
 
@@ -82,7 +77,7 @@ public class LoginServlet extends HttpServlet {
 			return;
 		}
 
-		IdpUser user = userStore.authenticate(username, password);
+		IdpUser user = Activator.getDefault().getUserStore().authenticate(username, password);
 		if (user == null) {
 			LOG.warn("Authentication failed for user: {}", username);
 			renderLoginForm(response, "Invalid username or password.");
@@ -103,7 +98,7 @@ public class LoginServlet extends HttpServlet {
 			String binding = (String) session.getAttribute(SESSION_BINDING);
 			String relayState = (String) session.getAttribute(SESSION_RELAY_STATE);
 
-			StringBuilder redirectUrl = new StringBuilder(contextPath + "/sso");
+			StringBuilder redirectUrl = new StringBuilder(config.getSsoPath());
 			redirectUrl.append("?SAMLRequest=").append(java.net.URLEncoder.encode(samlRequest, "UTF-8"));
 			if (relayState != null) {
 				redirectUrl.append("&RelayState=").append(java.net.URLEncoder.encode(relayState, "UTF-8"));

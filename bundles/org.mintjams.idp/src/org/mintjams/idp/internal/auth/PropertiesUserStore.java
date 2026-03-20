@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.auth;
+package org.mintjams.idp.internal.auth;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -31,7 +31,7 @@ import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Properties;
 
-import org.mintjams.idp.model.IdpUser;
+import org.mintjams.idp.internal.model.IdpUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
