@@ -124,7 +124,7 @@ public class CmsService {
 		fCmsService = this;
 
 		try {
-			Path etcPath = CmsService.getRepositoryPath().resolve("etc");
+			Path etcPath = getRepositoryPath().resolve("etc");
 			if (!Files.exists(etcPath)) {
 				Files.createDirectories(etcPath);
 			}
