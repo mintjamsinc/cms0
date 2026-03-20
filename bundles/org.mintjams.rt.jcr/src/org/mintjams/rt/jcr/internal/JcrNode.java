@@ -503,7 +503,6 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 	@Override
 	public PropertyIterator getReferences(String name) throws RepositoryException {
-//		return createReferenceIterator(name, false);
 		return JcrReferencePropertyIterator.create(this, name, false);
 	}
 
@@ -530,20 +529,12 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 	@Override
 	public PropertyIterator getWeakReferences(String name) throws RepositoryException {
-//		return createReferenceIterator(name, true);
 		return JcrReferencePropertyIterator.create(this, name, true);
 	}
 
 	@Override
 	public boolean hasNode(String relPath) throws RepositoryException {
-		try {
-			return (getWorkspaceQuery().items().countNodes(getIdentifier(),
-					new String[] { getWorkspaceQuery().getResolved(relPath) }) > 0);
-		} catch (PathNotFoundException ignore) {
-			return false;
-		} catch (IOException | SQLException ex) {
-			throw Cause.create(ex).wrap(RepositoryException.class);
-		}
+		return fSession.nodeExists(JcrPath.valueOf(getPath()).resolve(relPath).toString());
 	}
 
 	@Override
