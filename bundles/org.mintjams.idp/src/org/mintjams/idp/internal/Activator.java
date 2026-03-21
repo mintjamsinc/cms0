@@ -212,6 +212,7 @@ public class Activator implements BundleActivator {
 
 		log.info("""
 				Created default admin user profile at %s
+				
 				**********************************************************************
 				*                                                                    *
 				* [MintJams CMS] Initial Setup Required                              *
