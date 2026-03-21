@@ -90,7 +90,7 @@ public class FileKeyStoreManager implements KeyStoreManager {
 		fKeyPair = keyPairGen.generateKeyPair();
 
 		Instant now = Instant.now();
-		X500Name issuer = new X500Name("CN=MintJams IdP, O=MintJams Inc.");
+		X500Name issuer = new X500Name(config.getSubjectDN());
 		BigInteger serial = BigInteger.valueOf(now.toEpochMilli());
 		X509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
 				issuer,
