@@ -55,7 +55,7 @@ public class IdpConfiguration {
 	public static final String DEFAULT_KEY_ALGORITHM = "RSA";
 	public static final int DEFAULT_KEY_SIZE = 2048;
 	public static final String DEFAULT_SIGNATURE_ALGORITHM = "SHA256withRSA";
-	public static final int DEFAULT_CERTIFICATE_VALIDITY = 3650;
+	public static final int DEFAULT_CERTIFICATE_VALIDITY = 7300;
 	public static final int DEFAULT_ASSERTION_VALIDITY_SECONDS = 300;
 
 	private Map<String, Object> fConfig;
@@ -82,7 +82,7 @@ public class IdpConfiguration {
 								"keyAlgorithm", DEFAULT_KEY_ALGORITHM, // Key algorithm for the signing key (default: RSA)
 								"keySize", DEFAULT_KEY_SIZE, // Key size for the signing key (default: 2048)
 								"signatureAlgorithm", DEFAULT_SIGNATURE_ALGORITHM, // Signature algorithm for certificate generation (default: SHA256withRSA)
-								"validity", DEFAULT_CERTIFICATE_VALIDITY // Validity period of the self-signed certificate in days (default: 3650, i.e., 10 years)
+								"validity", DEFAULT_CERTIFICATE_VALIDITY // Validity period of the self-signed certificate in days (default: 7300, i.e., 20 years)
 								),
 							"assertionValiditySeconds", DEFAULT_ASSERTION_VALIDITY_SECONDS, // Validity period of SAML assertions in seconds (default: 300)
 							"trustedSPs", Collections.emptyList() // List of trusted Service Providers (default: empty list)
