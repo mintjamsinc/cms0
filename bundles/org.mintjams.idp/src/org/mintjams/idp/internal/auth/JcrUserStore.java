@@ -31,7 +31,7 @@ import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.Value;
 
-import org.bouncycastle.crypto.generators.OpenBSDBCrypt;
+import org.mintjams.cms.security.BCrypt;
 import org.mintjams.idp.internal.Activator;
 import org.mintjams.idp.internal.model.IdpUser;
 import org.mintjams.idp.internal.security.IdpServiceCredentials;
@@ -137,7 +137,7 @@ public class JcrUserStore implements UserStore {
 	private boolean verifyPassword(String input, String stored) {
 		if (stored.startsWith("{bcrypt}")) {
 			String hash = stored.substring("{bcrypt}".length());
-			return OpenBSDBCrypt.checkPassword(hash, input.toCharArray());
+			return BCrypt.verify(input, hash);
 		}
 		if (stored.startsWith("{sha256}")) {
 			String hash = stored.substring("{sha256}".length());

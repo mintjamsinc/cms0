@@ -29,7 +29,9 @@ import javax.jcr.Repository;
 import javax.jcr.Session;
 
 import org.mintjams.cms.CmsService;
+import org.mintjams.cms.security.BCrypt;
 import org.mintjams.cms.security.Encryptor;
+import org.mintjams.cms.security.PasswordGenerator;
 import org.mintjams.idp.internal.auth.JcrUserStore;
 import org.mintjams.idp.internal.auth.UserStore;
 import org.mintjams.idp.internal.security.FileKeyStoreManager;
@@ -50,38 +52,14 @@ import org.slf4j.LoggerFactory;
 
 /**
  * OSGi Bundle Activator for the MintJams SAML 2.0 Identity Provider.
- *
- * <p>On activation, this class tracks the JCR Repository service. Once available,
- * it initializes the IdP by reading configuration, user data, and signing keys
- * from JCR nodes in the system workspace.</p>
- *
- * <p>JCR node structure:</p>
- * <pre>
- * /home/users/{username}/profile (nt:file)
- *   └─ jcr:content (nt:resource)
- *        ├─ password, displayName, mail, memberOf
- *
- * /home/idp/keystore.p12 (nt:file)
- *   └─ jcr:content (nt:resource) ← PKCS12 binary
- *
- * /home/idp/config (nt:file)
- *   └─ jcr:content (nt:resource)
- *        ├─ entityId, roleAttribute, assertionValiditySeconds
- * </pre>
- *
- * <p>Configuration is read from system properties with fallback defaults:</p>
- * <ul>
- *   <li>{@code idp.baseUrl} - Base URL of the IdP (default: https://localhost:8443)</li>
- *   <li>{@code idp.contextPath} - Servlet context path (default: /idp)</li>
- *   <li>{@code idp.keystorePassword} - Keystore password (default: changeit)</li>
- * </ul>
+ * 
+ * <p>This class manages the lifecycle of the IdP bundle, including initializing
+ * the JCR repository structure, loading configuration, and registering HTTP servlets
+ * for metadata, login, and SSO endpoints.</p>
  */
 public class Activator implements BundleActivator {
 
 	private static final Logger log = LoggerFactory.getLogger(Activator.class);
-
-	private static final String DEFAULT_ADMIN_PASSWORD_SHA256 =
-			"8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"; // "admin"
 
 	private static Activator fActivator;
 	private BundleContext fBundleContext;
@@ -220,16 +198,32 @@ public class Activator implements BundleActivator {
 
 		Node adminFolder = JCRs.getOrCreateFolder(usersFolder, "admin");
 
+		String password = PasswordGenerator.generate(16);
+		String passwordHash = "{bcrypt}" + BCrypt.hash(password);
+
 		Node profileFile = JCRs.createFile(adminFolder, "profile");
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/x-idp-profile");
 		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "mail", "admin@example.com");
-		JCRs.setProperty(profileFile, "password", "{sha256}" + DEFAULT_ADMIN_PASSWORD_SHA256);
+		JCRs.setProperty(profileFile, "password", passwordHash);
 		JCRs.setProperty(profileFile, "role", new String[] { "administration" });
 
 		JCRs.getOrCreateFolder(adminFolder, "preferences");
 
 		log.info("Created default admin user profile at {}", profileFile.getPath());
+		log.info("""
+				**********************************************************************
+				*                                                                    *
+				* [MintJams CMS] Initial Setup Required                              *
+				*                                                                    *
+				* An initial password has been generated for the 'admin' user.       *
+				* Initial Password: %s                                 *
+				*                                                                    *
+				* Please log in and update your password as soon as possible.        *
+				*                                                                    *
+				**********************************************************************
+				""".formatted(password));
+		password = null; // Clear password variable for security
 	}
 
 	private synchronized void close() throws IOException {

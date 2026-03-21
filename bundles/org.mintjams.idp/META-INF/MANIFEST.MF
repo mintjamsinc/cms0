@@ -4,15 +4,15 @@ Bundle-Name: %Plugin.name
 Bundle-SymbolicName: org.mintjams.idp
 Bundle-Vendor: %Plugin.provider
 Bundle-Version: 1.0.0
-Bundle-ClassPath: .,
- lib/bcpkix-jdk18on-1.83.jar,
- lib/bcprov-jdk18on-1.83.jar,
- lib/bcutil-jdk18on-1.83.jar
+Bundle-ClassPath: .
 Require-Bundle: slf4j.api;bundle-version="1.7.0",
  org.apache.commons.commons-codec;bundle-version="1.15.0",
  org.apache.commons.lang3;bundle-version="3.12.0",
  org.mintjams.tools;bundle-version="2.0.0",
- org.snakeyaml.engine;bundle-version="2.3.0"
+ org.snakeyaml.engine;bundle-version="2.3.0",
+ bcpkix;bundle-version="1.83.0",
+ bcprov;bundle-version="1.83.0",
+ bcutil;bundle-version="1.83.0"
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Automatic-Module-Name: org.mintjams.idp
 Bundle-Activator: org.mintjams.idp.internal.Activator
