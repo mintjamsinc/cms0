@@ -35,12 +35,16 @@ public class GraphQLExecutor {
 	private final QueryExecutor queryExecutor;
 	private final MutationExecutor mutationExecutor;
 	private final CamelQueryExecutor camelQueryExecutor;
+	private final IdpQueryExecutor idpQueryExecutor;
+	private final IdpMutationExecutor idpMutationExecutor;
 
 	public GraphQLExecutor(Session session) {
 		this.session = session;
 		this.queryExecutor = new QueryExecutor(session);
 		this.mutationExecutor = new MutationExecutor(session);
 		this.camelQueryExecutor = new CamelQueryExecutor(session);
+		this.idpQueryExecutor = new IdpQueryExecutor(session);
+		this.idpMutationExecutor = new IdpMutationExecutor(session);
 	}
 
 	/**
@@ -107,6 +111,23 @@ public class GraphQLExecutor {
 				response.setData(queryExecutor.executeGenericQuery(request));
 			} else if (query.contains("camelContext")) {
 				response.setData(camelQueryExecutor.executeCamelContextQuery(request));
+			// IdP queries — check multi-word names before single-word names
+			} else if (query.contains("groupTree(")) {
+				response.setData(idpQueryExecutor.executeGroupTreeQuery(request));
+			} else if (query.contains("groups(")) {
+				response.setData(idpQueryExecutor.executeGroupsQuery(request));
+			} else if (query.contains("group(")) {
+				response.setData(idpQueryExecutor.executeGroupQuery(request));
+			} else if (query.contains("roles(")) {
+				response.setData(idpQueryExecutor.executeRolesQuery(request));
+			} else if (query.contains("role(")) {
+				response.setData(idpQueryExecutor.executeRoleQuery(request));
+			} else if (query.contains("users(")) {
+				response.setData(idpQueryExecutor.executeUsersQuery(request));
+			} else if (query.contains("user(")) {
+				response.setData(idpQueryExecutor.executeUserQuery(request));
+			} else if (query.contains("me {") || query.contains("me{")) {
+				response.setData(idpQueryExecutor.executeMeQuery(request));
 			} else {
 				response.addError("Unknown query operation");
 			}
@@ -169,6 +190,41 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeCompleteMultipartUpload(request));
 			} else if (query.contains("abortMultipartUpload(")) {
 				response.setData(mutationExecutor.executeAbortMultipartUpload(request));
+			// IdP user mutations
+			} else if (query.contains("changePassword(")) {
+				response.setData(idpMutationExecutor.executeChangePassword(request));
+			} else if (query.contains("resetPassword(")) {
+				response.setData(idpMutationExecutor.executeResetPassword(request));
+			} else if (query.contains("assignRoles(")) {
+				response.setData(idpMutationExecutor.executeAssignRoles(request));
+			} else if (query.contains("revokeRoles(")) {
+				response.setData(idpMutationExecutor.executeRevokeRoles(request));
+			} else if (query.contains("createUser(")) {
+				response.setData(idpMutationExecutor.executeCreateUser(request));
+			} else if (query.contains("updateUser(")) {
+				response.setData(idpMutationExecutor.executeUpdateUser(request));
+			} else if (query.contains("deleteUser(")) {
+				response.setData(idpMutationExecutor.executeDeleteUser(request));
+			// IdP role mutations
+			} else if (query.contains("createRole(")) {
+				response.setData(idpMutationExecutor.executeCreateRole(request));
+			} else if (query.contains("updateRole(")) {
+				response.setData(idpMutationExecutor.executeUpdateRole(request));
+			} else if (query.contains("deleteRole(")) {
+				response.setData(idpMutationExecutor.executeDeleteRole(request));
+			// IdP group mutations
+			} else if (query.contains("addGroupMembers(")) {
+				response.setData(idpMutationExecutor.executeAddGroupMembers(request));
+			} else if (query.contains("removeGroupMembers(")) {
+				response.setData(idpMutationExecutor.executeRemoveGroupMembers(request));
+			} else if (query.contains("createGroup(")) {
+				response.setData(idpMutationExecutor.executeCreateGroup(request));
+			} else if (query.contains("updateGroup(")) {
+				response.setData(idpMutationExecutor.executeUpdateGroup(request));
+			} else if (query.contains("deleteGroup(")) {
+				response.setData(idpMutationExecutor.executeDeleteGroup(request));
+			} else if (query.contains("moveGroup(")) {
+				response.setData(idpMutationExecutor.executeMoveGroup(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}
