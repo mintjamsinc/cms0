@@ -78,7 +78,7 @@ public class IdpConfiguration {
 								"alias", DEFAULT_KEYSTORE_ALIAS // Alias of the signing key in the keystore (default: idp-signing)
 								),
 							"certificate", Map.of(
-								"subjectDN", DEFAULT_CERTIFICATE_SUBJECT_DN, // Distinguished name for the self-signed certificate (default: CN=Sample Identity Provider, OU=Quick Start, O=Open Components Project)
+								"subjectDN", DEFAULT_CERTIFICATE_SUBJECT_DN, // Subject DN for the self-signed certificate (default: CN=Sample Identity Provider, OU=Quick Start, O=Open Components Project)
 								"keyAlgorithm", DEFAULT_CERTIFICATE_KEY_ALGORITHM, // Key algorithm for the signing key (default: RSA)
 								"keySize", DEFAULT_CERTIFICATE_KEY_SIZE, // Key size for the signing key (default: 2048)
 								"signatureAlgorithm", DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM, // Signature algorithm for certificate generation (default: SHA256withRSA)
