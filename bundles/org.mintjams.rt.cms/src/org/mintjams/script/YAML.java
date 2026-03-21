@@ -34,6 +34,7 @@ import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
+import org.snakeyaml.engine.v2.common.FlowStyle;
 
 public class YAML {
 
@@ -84,7 +85,11 @@ public class YAML {
 			return null;
 		}
 
-		return new Dump(DumpSettings.builder().build()).dumpToString(value);
+		return new Dump(DumpSettings.builder()
+				.setIndent(2)
+				.setIndicatorIndent(2)
+				.setDefaultFlowStyle(FlowStyle.BLOCK)
+				.build()).dumpToString(value);
 	}
 
 }

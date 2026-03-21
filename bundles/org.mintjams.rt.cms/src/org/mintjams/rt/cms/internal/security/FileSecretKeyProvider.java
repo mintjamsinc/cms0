@@ -48,6 +48,7 @@ import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
+import org.snakeyaml.engine.v2.common.FlowStyle;
 
 public class FileSecretKeyProvider implements SecretKeyProvider {
 
@@ -69,7 +70,11 @@ public class FileSecretKeyProvider implements SecretKeyProvider {
 
 			Files.createDirectories(path.getParent());
 			try (Writer out = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-				out.append(new Dump(DumpSettings.builder().build()).dumpToString(fKeyConfig));
+				out.append(new Dump(DumpSettings.builder()
+						.setIndent(2)
+						.setIndicatorIndent(2)
+						.setDefaultFlowStyle(FlowStyle.BLOCK)
+						.build()).dumpToString(fKeyConfig));
 			}
 
 			try {

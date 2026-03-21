@@ -45,6 +45,7 @@ import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
+import org.snakeyaml.engine.v2.common.FlowStyle;
 
 public class CmsConfiguration {
 
@@ -68,7 +69,11 @@ public class CmsConfiguration {
 			Path cmsPath = configPath.resolve("cms.yml");
 			if (!Files.exists(cmsPath)) {
 				try (Writer out = Files.newBufferedWriter(cmsPath, StandardCharsets.UTF_8)) {
-					String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
+					String yamlString = new Dump(DumpSettings.builder()
+							.setIndent(2)
+							.setIndicatorIndent(2)
+							.setDefaultFlowStyle(FlowStyle.BLOCK)
+							.build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 							.put("startWebURI", DEFAULT_START_WEB_URI)
 							.put("maxScriptCachePerScriptEngine", DEFAULT_MAX_SCRIPT_CACHE_PER_SCRIPT_ENGINE)
 							.put("nativeEcmaPoolSizePerScriptEngine", DEFAULT_NATIVE_ECMA_POOL_SIZE_PER_SCRIPT_ENGINE)

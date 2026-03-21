@@ -37,6 +37,7 @@ import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
+import org.snakeyaml.engine.v2.common.FlowStyle;
 
 public class WorkspaceIntegrationEngineProviderConfiguration {
 
@@ -55,7 +56,11 @@ public class WorkspaceIntegrationEngineProviderConfiguration {
 		Path eipPath = configPath.resolve("eip.yml");
 		if (!Files.exists(eipPath)) {
 			try (Writer out = Files.newBufferedWriter(eipPath, StandardCharsets.UTF_8)) {
-				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
+				String yamlString = new Dump(DumpSettings.builder()
+						.setIndent(2)
+						.setIndicatorIndent(2)
+						.setDefaultFlowStyle(FlowStyle.BLOCK)
+						.build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 						.build());
 				out.append(yamlString);
 			}

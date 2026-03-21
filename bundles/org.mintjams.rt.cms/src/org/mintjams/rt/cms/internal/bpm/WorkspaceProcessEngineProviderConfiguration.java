@@ -59,6 +59,7 @@ import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
+import org.snakeyaml.engine.v2.common.FlowStyle;
 
 public class WorkspaceProcessEngineProviderConfiguration {
 
@@ -77,7 +78,11 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		Path bpmPath = configPath.resolve("bpm.yml");
 		if (!Files.exists(bpmPath)) {
 			try (Writer out = Files.newBufferedWriter(bpmPath, StandardCharsets.UTF_8)) {
-				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
+				String yamlString = new Dump(DumpSettings.builder()
+						.setIndent(2)
+						.setIndicatorIndent(2)
+						.setDefaultFlowStyle(FlowStyle.BLOCK)
+						.build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 						.put("jdbcURL", "jdbc:h2:" + getDataPath().resolve("data").toAbsolutePath())
 						.build());
 				out.append(yamlString);
