@@ -40,6 +40,7 @@ import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
+import org.snakeyaml.engine.v2.common.FlowStyle;
 
 public class IdpConfiguration {
 
@@ -67,7 +68,11 @@ public class IdpConfiguration {
 			Path idpPath = configPath.resolve("idp.yml");
 			if (!Files.exists(idpPath)) {
 				try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
-					String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(Map.of(
+					String yamlString = new Dump(DumpSettings.builder()
+							.setIndent(2)
+							.setIndicatorIndent(2)
+							.setDefaultFlowStyle(FlowStyle.BLOCK)
+							.build()).dumpToString(Map.of(
 							"entityId", DEFAULT_BASE_URL + DEFAULT_CONTEXT_PATH, // Entity ID of the IdP (default: https://localhost:8443/idp)
 							"baseUrl", DEFAULT_BASE_URL, // Base URL of the IdP (default: https://localhost:8443)
 							"contextPath", DEFAULT_CONTEXT_PATH, // Servlet context path (default: /idp)
@@ -100,7 +105,11 @@ public class IdpConfiguration {
 				if (!Activator.getDefault().getEncryptor().isEncrypted(password)) {
 					((Map<String, Object>) fConfig.get("keystore")).put("password", Activator.getDefault().getEncryptor().encrypt(password));
 					try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
-						String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(fConfig);
+						String yamlString = new Dump(DumpSettings.builder()
+								.setIndent(2)
+								.setIndicatorIndent(2)
+								.setDefaultFlowStyle(FlowStyle.BLOCK)
+								.build()).dumpToString(fConfig);
 						out.append(yamlString);
 					}
 					log.info("The keystorePassword parameter has been encrypted and the configuration file has been updated.");
