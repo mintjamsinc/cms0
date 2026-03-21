@@ -124,6 +124,12 @@ public class Activator implements BundleActivator {
 				.build());
 		fCmsServiceTracker.open();
 
+		fHttpServiceTracker = fCloser.register(Tracker.newBuilder(HttpService.class)
+				.setBundleContext(fBundleContext)
+				.setListener(fTrackerListener)
+				.build());
+		fHttpServiceTracker.open();
+
 		log.info("MintJams IdP bundle started. Waiting for CMS service...");
 	}
 
@@ -208,7 +214,6 @@ public class Activator implements BundleActivator {
 	}
 
 	private void initializeAdminUser(Node usersFolder) throws Exception {
-		String adminProfilePath = "/home/users/admin/profile";
 		if (usersFolder.hasNode("admin/profile")) {
 			return;
 		}
@@ -224,7 +229,7 @@ public class Activator implements BundleActivator {
 
 		JCRs.getOrCreateFolder(adminFolder, "preferences");
 
-		log.info("Created default admin user profile at {}", adminProfilePath);
+		log.info("Created default admin user profile at {}", profileFile.getPath());
 	}
 
 	private synchronized void close() throws IOException {

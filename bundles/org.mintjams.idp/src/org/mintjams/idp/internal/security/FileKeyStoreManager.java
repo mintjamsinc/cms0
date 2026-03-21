@@ -54,19 +54,19 @@ public class FileKeyStoreManager implements KeyStoreManager {
 
 	private static final Logger log = LoggerFactory.getLogger(FileKeyStoreManager.class);
 
-	private final Path fKeystorePath;
+	private final Path fKeyStorePath;
 	private KeyPair fKeyPair;
 	private X509Certificate fCertificate;
 
 	public FileKeyStoreManager() throws IOException {
 		IdpConfiguration config = Activator.getDefault().getConfiguration();
-		fKeystorePath = config.getConfigPath().resolve("idp.p12");
-		if (!Files.exists(fKeystorePath)) {
+		fKeyStorePath = config.getConfigPath().resolve("idp.p12");
+		if (Files.exists(fKeyStorePath)) {
 			loadKeyStore();
-			log.info("Loaded IdP signing certificate from: {}", fKeystorePath.toFile().getAbsolutePath());
+			log.info("Loaded IdP signing certificate from: {}", fKeyStorePath.toFile().getAbsolutePath());
 		} else {
 			generateAndSave();
-			log.info("Generated new IdP signing certificate: {}", fKeystorePath.toFile().getAbsolutePath());
+			log.info("Generated new IdP signing certificate: {}", fKeyStorePath.toFile().getAbsolutePath());
 		}
 	}
 
@@ -75,7 +75,7 @@ public class FileKeyStoreManager implements KeyStoreManager {
 
 		try {
 			KeyStore ks = KeyStore.getInstance(config.getKeystoreType());
-			try (InputStream in = Files.newInputStream(fKeystorePath)) {
+			try (InputStream in = Files.newInputStream(fKeyStorePath)) {
 				ks.load(in, config.getKeystorePassword().toCharArray());
 			}
 
@@ -85,7 +85,7 @@ public class FileKeyStoreManager implements KeyStoreManager {
 		} catch (IOException ex) {
 			throw ex;
 		} catch (Throwable ex) {
-			throw new IllegalStateException("Failed to load IdP signing certificate from: " + fKeystorePath.toFile().getAbsolutePath(), ex);
+			throw new IllegalStateException("Failed to load IdP signing certificate from: " + fKeyStorePath.toFile().getAbsolutePath(), ex);
 		}
 	}
 
@@ -118,7 +118,7 @@ public class FileKeyStoreManager implements KeyStoreManager {
 			ks.load(null, config.getKeystorePassword().toCharArray());
 			ks.setKeyEntry(config.getKeystoreAlias(), fKeyPair.getPrivate(), config.getKeystorePassword().toCharArray(), new X509Certificate[] { fCertificate });
 
-			try (OutputStream out = Files.newOutputStream(fKeystorePath)) {
+			try (OutputStream out = Files.newOutputStream(fKeyStorePath)) {
 				ks.store(out, config.getKeystorePassword().toCharArray());
 			}
 		} catch (IOException ex) {
