@@ -115,7 +115,7 @@ public class Saml2ServiceProviderConfiguration {
 									.build())
 							.build())
 					.build();
-			try (Writer out = Files.newBufferedWriter(saml2Path)) {
+			try (Writer out = Files.newBufferedWriter(saml2Path, StandardCharsets.UTF_8)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(yaml);
 				out.append(yamlString);
 			}

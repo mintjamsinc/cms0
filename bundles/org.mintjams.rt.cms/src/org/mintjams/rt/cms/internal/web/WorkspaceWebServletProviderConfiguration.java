@@ -26,6 +26,7 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -57,7 +58,7 @@ public class WorkspaceWebServletProviderConfiguration {
 		}
 		Path webPath = configPath.resolve("web.yml");
 		if (!Files.exists(webPath)) {
-			try (Writer out = Files.newBufferedWriter(webPath)) {
+			try (Writer out = Files.newBufferedWriter(webPath, StandardCharsets.UTF_8)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 						.put("contextPath", CmsConfiguration.CMS_CGI_PATH + "/" + getWorkspaceName())
 						.build());

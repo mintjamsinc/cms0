@@ -130,7 +130,7 @@ public class CmsService {
 			}
 			Path bootIdPath = etcPath.resolve("boot.id");
 			if (!Files.exists(bootIdPath)) {
-				try (Writer out = Files.newBufferedWriter(bootIdPath)) {
+				try (Writer out = Files.newBufferedWriter(bootIdPath, StandardCharsets.UTF_8)) {
 					out.write(UUID.randomUUID().toString());
 				}
 			}

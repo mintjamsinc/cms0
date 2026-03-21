@@ -26,6 +26,7 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -66,7 +67,7 @@ public class CmsConfiguration {
 			}
 			Path cmsPath = configPath.resolve("cms.yml");
 			if (!Files.exists(cmsPath)) {
-				try (Writer out = Files.newBufferedWriter(cmsPath)) {
+				try (Writer out = Files.newBufferedWriter(cmsPath, StandardCharsets.UTF_8)) {
 					String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 							.put("startWebURI", DEFAULT_START_WEB_URI)
 							.put("maxScriptCachePerScriptEngine", DEFAULT_MAX_SCRIPT_CACHE_PER_SCRIPT_ENGINE)

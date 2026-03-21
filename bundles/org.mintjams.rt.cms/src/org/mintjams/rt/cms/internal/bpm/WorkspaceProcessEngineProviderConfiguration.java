@@ -76,7 +76,7 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		}
 		Path bpmPath = configPath.resolve("bpm.yml");
 		if (!Files.exists(bpmPath)) {
-			try (Writer out = Files.newBufferedWriter(bpmPath)) {
+			try (Writer out = Files.newBufferedWriter(bpmPath, StandardCharsets.UTF_8)) {
 				String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 						.put("jdbcURL", "jdbc:h2:" + getDataPath().resolve("data").toAbsolutePath())
 						.build());
