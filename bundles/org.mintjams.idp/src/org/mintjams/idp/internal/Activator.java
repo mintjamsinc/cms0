@@ -210,8 +210,8 @@ public class Activator implements BundleActivator {
 
 		JCRs.getOrCreateFolder(adminFolder, "preferences");
 
-		log.info("Created default admin user profile at {}", profileFile.getPath());
 		log.info("""
+				Created default admin user profile at %s
 				**********************************************************************
 				*                                                                    *
 				* [MintJams CMS] Initial Setup Required                              *
@@ -222,7 +222,7 @@ public class Activator implements BundleActivator {
 				* Please log in and update your password as soon as possible.        *
 				*                                                                    *
 				**********************************************************************
-				""".formatted(password));
+				""".formatted(profileFile.getPath(), password));
 		password = null; // Clear password variable for security
 	}
 
