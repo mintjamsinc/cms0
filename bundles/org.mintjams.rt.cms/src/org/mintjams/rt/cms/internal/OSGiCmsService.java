@@ -26,6 +26,8 @@ import java.nio.file.Path;
 
 import javax.jcr.Repository;
 
+import org.mintjams.cms.security.Encryptor;
+
 public class OSGiCmsService implements org.mintjams.cms.CmsService {
 
 	@Override
@@ -56,6 +58,11 @@ public class OSGiCmsService implements org.mintjams.cms.CmsService {
 	@Override
 	public Path getTemporaryDirectoryPath() {
 		return CmsService.getTemporaryDirectoryPath();
+	}
+
+	@Override
+	public Encryptor getEncryptor() {
+		return CmsService.getEncryptor();
 	}
 
 }

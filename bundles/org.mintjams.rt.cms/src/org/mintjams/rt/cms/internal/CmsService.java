@@ -41,6 +41,8 @@ import javax.jcr.security.Privilege;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.felix.webconsole.WebConsoleSecurityProvider;
+import org.mintjams.cms.security.Encryptor;
+import org.mintjams.cms.security.SecretKeyProvider;
 import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.AccessControlManager;
 import org.mintjams.jcr.security.EveryonePrincipal;
@@ -56,9 +58,11 @@ import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceFacetProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
+import org.mintjams.rt.cms.internal.security.CmsEncryptor;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider;
 import org.mintjams.rt.cms.internal.security.FelixWebConsoleSecurityProvider;
+import org.mintjams.rt.cms.internal.security.FileSecretKeyProvider;
 import org.mintjams.rt.cms.internal.security.ServiceAccountPrincipalProvider;
 import org.mintjams.rt.cms.internal.security.UserServiceAuthenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Authenticator;
@@ -117,6 +121,8 @@ public class CmsService {
 	private final Map<String, WorkspaceWebServletProvider> fWorkspaceServletProviders = new HashMap<>();
 	private final Map<String, WorkspaceCmsEventManager> fWorkspaceCmsEventManagers = new HashMap<>();
 	private final Closer fCloser = Closer.create();
+	private SecretKeyProvider fSecretKeyProvider;
+	private Encryptor fEncryptor;
 
 	@Activate
 	void activate(ComponentContext cc, BundleContext bc, Map<String, Object> config) {
@@ -138,6 +144,9 @@ public class CmsService {
 				fBootIdentifier = IOUtils.toString(in, StandardCharsets.UTF_8.toString()).trim();
 				UUID.fromString(fBootIdentifier);
 			}
+
+			fSecretKeyProvider = new FileSecretKeyProvider();
+			fEncryptor = new CmsEncryptor();
 
 			fProperties = Properties.create(config);
 			open();
@@ -423,6 +432,14 @@ public class CmsService {
 
 	public static WorkspaceCmsEventManager getWorkspaceCmsEventManager(String workspaceName) {
 		return getDefault().fWorkspaceCmsEventManagers.get(workspaceName);
+	}
+
+	public static SecretKeyProvider getSecretKeyProvider() {
+		return getDefault().fSecretKeyProvider;
+	}
+
+	public static Encryptor getEncryptor() {
+		return getDefault().fEncryptor;
 	}
 
 	public static Path getEtcPath() {
