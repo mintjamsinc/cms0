@@ -26,6 +26,9 @@ import java.nio.file.Path;
 
 import javax.jcr.Repository;
 
+import org.mintjams.cms.security.Encryptor;
+import org.mintjams.cms.security.SecretKeyProvider;
+
 /**
  * The CmsService interface defines the contract for a CMS (Content Management System) service.
  */
@@ -73,5 +76,12 @@ public interface CmsService {
 	 * @return the path to the temporary directory
 	 */
 	Path getTemporaryDirectoryPath();
+
+	/**
+	 * Returns the Encryptor for this CMS service.
+	 *
+	 * @return the Encryptor for this CMS service
+	 */
+	Encryptor getEncryptor();
 
 }
