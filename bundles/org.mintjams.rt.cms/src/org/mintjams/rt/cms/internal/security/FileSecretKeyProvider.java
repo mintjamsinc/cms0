@@ -57,16 +57,17 @@ public class FileSecretKeyProvider implements SecretKeyProvider {
 
 	@SuppressWarnings("unchecked")
 	public FileSecretKeyProvider() throws IOException {
-		Path path = Path.of(System.getProperty("user.home"), ".mintjams/cms/secret.key");
+		Path path = Path.of(System.getProperty("user.home"), ".mintjams/cms/secret-key.yml");
 		if (!Files.exists(path)) {
 			fKeyConfig = Map.of(
 					"keys", List.of(
 						Map.of(
 							"tag", "v1",
-							"data", Base64.getEncoder().encode(generateKey().getEncoded())
+							"data", Base64.getEncoder().encodeToString(generateKey().getEncoded())
 						)
 				));
 
+			Files.createDirectories(path.getParent());
 			try (Writer out = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
 				out.append(new Dump(DumpSettings.builder().build()).dumpToString(fKeyConfig));
 			}
