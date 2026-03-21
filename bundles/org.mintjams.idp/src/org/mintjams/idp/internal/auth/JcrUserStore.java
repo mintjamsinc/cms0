@@ -25,8 +25,10 @@ package org.mintjams.idp.internal.auth;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
+import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
+import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.Value;
@@ -56,6 +58,8 @@ public class JcrUserStore implements UserStore {
 	private static final Logger LOG = LoggerFactory.getLogger(JcrUserStore.class);
 
 	private static final String USERS_ROOT = "/home/idp/users";
+	private static final String ROLES_ROOT = "/home/idp/roles";
+	private static final String GROUPS_ROOT = "/home/idp/groups";
 
 	@Override
 	public IdpUser authenticate(String username, String password) {
@@ -122,16 +126,49 @@ public class JcrUserStore implements UserStore {
 		}
 		if (contentNode.hasProperty("memberOf")) {
 			for (Value v : contentNode.getProperty("memberOf").getValues()) {
-				user.addMemberOf(v.getString());
+				String samlValue = resolveWeakReferenceToSamlPath(v, contentNode.getSession(), GROUPS_ROOT);
+				if (samlValue != null) {
+					user.addMemberOf(samlValue);
+				}
 			}
 		}
 		if (contentNode.hasProperty("roles")) {
+			int propType = contentNode.getProperty("roles").getType();
 			for (Value v : contentNode.getProperty("roles").getValues()) {
-				user.addRole(v.getString());
+				if (propType == PropertyType.WEAKREFERENCE || propType == PropertyType.REFERENCE) {
+					String samlValue = resolveWeakReferenceToSamlPath(v, contentNode.getSession(), ROLES_ROOT);
+					if (samlValue != null) {
+						user.addRole(samlValue);
+					}
+				} else {
+					// Legacy: String property — treat value as-is (prefix with "/" for SAML)
+					user.addRole("/" + v.getString());
+				}
 			}
 		}
 
 		return user;
+	}
+
+	/**
+	 * Resolves a WEAKREFERENCE value to a SAML path string.
+	 * e.g. UUID of /home/idp/roles/administration/profile → "/administration"
+	 *      UUID of /home/idp/groups/mintjams/sales/profile → "/mintjams/sales"
+	 */
+	private String resolveWeakReferenceToSamlPath(Value v, Session jcrSession, String rootPath) {
+		try {
+			Node profileNode = jcrSession.getNodeByIdentifier(v.getString());
+			String fullPath = profileNode.getPath(); // e.g. /home/idp/roles/administration/profile
+			// Strip rootPath prefix and /profile suffix
+			String relative = fullPath.substring(rootPath.length()); // /administration/profile
+			return relative.substring(0, relative.length() - "/profile".length()); // /administration
+		} catch (ItemNotFoundException e) {
+			LOG.warn("Dangling weak reference in user profile (rootPath={})", rootPath);
+			return null;
+		} catch (Exception e) {
+			LOG.error("Failed to resolve weak reference", e);
+			return null;
+		}
 	}
 
 	private boolean verifyPassword(String input, String stored) {

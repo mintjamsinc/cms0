@@ -23,10 +23,13 @@
 package org.mintjams.idp.internal;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.jcr.Node;
 import javax.jcr.Repository;
 import javax.jcr.Session;
+import javax.jcr.Value;
 
 import org.mintjams.cms.CmsService;
 import org.mintjams.cms.security.BCrypt;
@@ -183,16 +186,39 @@ public class Activator implements BundleActivator {
 			Node idpFolder = JCRs.getOrCreateFolder(homeFolder, "idp");
 			Node usersFolder = JCRs.getOrCreateFolder(idpFolder, "users");
 			JCRs.getOrCreateFolder(idpFolder, "groups");
+			Node rolesFolder = JCRs.getOrCreateFolder(idpFolder, "roles");
 
-			initializeAdminUser(usersFolder);
+			initializeAdminRole(rolesFolder);
+			initializeAdminUser(usersFolder, rolesFolder);
 		} catch (Throwable ex) {
 			log.error("Failed to initialize JCR node structure", ex);
 			throw ex;
 		}
 	}
 
-	private void initializeAdminUser(Node usersFolder) throws Exception {
+	private void initializeAdminRole(Node rolesFolder) throws Exception {
+		if (rolesFolder.hasNode("administration/profile")) {
+			// Ensure mix:referenceable is present (migration for existing installations)
+			Node roleProfile = rolesFolder.getNode("administration/profile");
+			if (!roleProfile.isNodeType("mix:referenceable")) {
+				roleProfile.addMixin("mix:referenceable");
+			}
+			return;
+		}
+
+		Node roleFolder = JCRs.getOrCreateFolder(rolesFolder, "administration");
+		Node profileFile = JCRs.createFile(roleFolder, "profile");
+		profileFile.addMixin("mix:referenceable");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/x-idp-role");
+		JCRs.setProperty(profileFile, "displayName", "Administration");
+		JCRs.setProperty(profileFile, "description", "Full administrative access");
+		log.info("Created default 'administration' role at {}", profileFile.getPath());
+	}
+
+	private void initializeAdminUser(Node usersFolder, Node rolesFolder) throws Exception {
 		if (usersFolder.hasNode("admin/profile")) {
+			// Migrate roles from String[] to WEAKREFERENCE[] if needed
+			migrateUserRolesToWeakReference(usersFolder, rolesFolder);
 			return;
 		}
 
@@ -205,8 +231,14 @@ public class Activator implements BundleActivator {
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/x-idp-profile");
 		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "mail", "admin@example.com");
+		JCRs.setProperty(profileFile, "enabled", true);
 		JCRs.setProperty(profileFile, "password", passwordHash);
-		JCRs.setProperty(profileFile, "roles", new String[] { "administration" });
+
+		// Assign administration role as WEAKREFERENCE
+		Node adminRoleProfile = rolesFolder.getNode("administration/profile");
+		Node adminContentNode = JCRs.getContentNode(profileFile);
+		Value weakRef = usersFolder.getSession().getValueFactory().createValue(adminRoleProfile, true);
+		adminContentNode.setProperty("roles", new Value[] { weakRef });
 
 		JCRs.getOrCreateFolder(adminFolder, "preferences");
 
@@ -225,6 +257,35 @@ public class Activator implements BundleActivator {
 				**********************************************************************
 				""".formatted(profileFile.getPath(), password));
 		password = null; // Clear password variable for security
+	}
+
+	private void migrateUserRolesToWeakReference(Node usersFolder, Node rolesFolder) throws Exception {
+		Session jcrSession = usersFolder.getSession();
+		javax.jcr.NodeIterator userIt = usersFolder.getNodes();
+		while (userIt.hasNext()) {
+			Node userFolder = userIt.nextNode();
+			if (!userFolder.hasNode("profile")) continue;
+			Node contentNode = JCRs.getContentNode(userFolder.getNode("profile"));
+			if (!contentNode.hasProperty("roles")) continue;
+			if (contentNode.getProperty("roles").getType() == javax.jcr.PropertyType.WEAKREFERENCE) continue;
+
+			// Migrate String[] to WEAKREFERENCE[]
+			List<Value> weakRefs = new ArrayList<>();
+			for (Value v : contentNode.getProperty("roles").getValues()) {
+				String roleId = v.getString();
+				String rolePath = rolesFolder.getPath() + "/" + roleId + "/profile";
+				if (!jcrSession.nodeExists(rolePath)) continue;
+				Node roleProfile = jcrSession.getNode(rolePath);
+				if (!roleProfile.isNodeType("mix:referenceable")) {
+					roleProfile.addMixin("mix:referenceable");
+				}
+				weakRefs.add(jcrSession.getValueFactory().createValue(roleProfile, true));
+			}
+			if (!weakRefs.isEmpty()) {
+				contentNode.setProperty("roles", weakRefs.toArray(new Value[0]));
+				log.info("Migrated roles to WeakReference for user: {}", userFolder.getName());
+			}
+		}
 	}
 
 	private synchronized void close() throws IOException {
