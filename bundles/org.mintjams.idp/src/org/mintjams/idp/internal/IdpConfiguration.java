@@ -51,10 +51,10 @@ public class IdpConfiguration {
 	public static final String DEFAULT_KEYSTORE_TYPE = "PKCS12";
 	public static final String DEFAULT_KEYSTORE_PASSWORD = "changeit";
 	public static final String DEFAULT_KEYSTORE_ALIAS = "idp-signing";
-	public static final String DEFAULT_DISTINGUISHED_NAME = "CN=Sample Identity Provider, OU=Quick Start, O=Open Components Project";
-	public static final String DEFAULT_KEY_ALGORITHM = "RSA";
-	public static final int DEFAULT_KEY_SIZE = 2048;
-	public static final String DEFAULT_SIGNATURE_ALGORITHM = "SHA256withRSA";
+	public static final String DEFAULT_CERTIFICATE_SUBJECT_DN = "CN=Sample Identity Provider, OU=Quick Start, O=Open Components Project";
+	public static final String DEFAULT_CERTIFICATE_KEY_ALGORITHM = "RSA";
+	public static final int DEFAULT_CERTIFICATE_KEY_SIZE = 2048;
+	public static final String DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM = "SHA256withRSA";
 	public static final int DEFAULT_CERTIFICATE_VALIDITY = 7300;
 	public static final int DEFAULT_ASSERTION_VALIDITY_SECONDS = 300;
 
@@ -78,10 +78,10 @@ public class IdpConfiguration {
 								"alias", DEFAULT_KEYSTORE_ALIAS // Alias of the signing key in the keystore (default: idp-signing)
 								),
 							"certificate", Map.of(
-								"distinguishedName", DEFAULT_DISTINGUISHED_NAME, // Distinguished name for the self-signed certificate (default: CN=Sample Identity Provider, OU=Quick Start, O=Open Components Project)
-								"keyAlgorithm", DEFAULT_KEY_ALGORITHM, // Key algorithm for the signing key (default: RSA)
-								"keySize", DEFAULT_KEY_SIZE, // Key size for the signing key (default: 2048)
-								"signatureAlgorithm", DEFAULT_SIGNATURE_ALGORITHM, // Signature algorithm for certificate generation (default: SHA256withRSA)
+								"subjectDN", DEFAULT_CERTIFICATE_SUBJECT_DN, // Distinguished name for the self-signed certificate (default: CN=Sample Identity Provider, OU=Quick Start, O=Open Components Project)
+								"keyAlgorithm", DEFAULT_CERTIFICATE_KEY_ALGORITHM, // Key algorithm for the signing key (default: RSA)
+								"keySize", DEFAULT_CERTIFICATE_KEY_SIZE, // Key size for the signing key (default: 2048)
+								"signatureAlgorithm", DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM, // Signature algorithm for certificate generation (default: SHA256withRSA)
 								"validity", DEFAULT_CERTIFICATE_VALIDITY // Validity period of the self-signed certificate in days (default: 7300, i.e., 20 years)
 								),
 							"assertionValiditySeconds", DEFAULT_ASSERTION_VALIDITY_SECONDS, // Validity period of SAML assertions in seconds (default: 300)
@@ -96,7 +96,7 @@ public class IdpConfiguration {
 
 				String password = ExpressionContext.create()
 						.setVariable("config", getConfig())
-						.defaultIfEmpty("config.keystorePassword", DEFAULT_KEYSTORE_PASSWORD);
+						.defaultIfEmpty("config.keystore.password", DEFAULT_KEYSTORE_PASSWORD);
 				if (!Activator.getDefault().getCryptoService().isEncrypted(password)) {
 					((Map<String, Object>) fConfig.get("keystore")).put("password", Activator.getDefault().getCryptoService().encrypt(password));
 					try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
@@ -151,9 +151,9 @@ public class IdpConfiguration {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.keystoreType", DEFAULT_KEYSTORE_TYPE);
+					.defaultIfEmpty("config.keystore.type", DEFAULT_KEYSTORE_TYPE);
 		} catch (Throwable ex) {
-			log.warn("The keystoreType parameter is invalid. Default values will be used instead.");
+			log.warn("The keystore.type parameter is invalid. Default values will be used instead.");
 		}
 		return DEFAULT_KEYSTORE_TYPE;
 	}
@@ -162,10 +162,10 @@ public class IdpConfiguration {
 		try {
 			String password = ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.keystorePassword", DEFAULT_KEYSTORE_PASSWORD);
+					.defaultIfEmpty("config.keystore.password", DEFAULT_KEYSTORE_PASSWORD);
 			return Activator.getDefault().getCryptoService().decrypt(password);
 		} catch (Throwable ex) {
-			log.warn("The keystorePassword parameter is invalid. Default values will be used instead.");
+			log.warn("The keystore.password parameter is invalid. Default values will be used instead.");
 		}
 		return DEFAULT_KEYSTORE_PASSWORD;
 	}
@@ -174,53 +174,53 @@ public class IdpConfiguration {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.keystoreKeyAlias", DEFAULT_KEYSTORE_ALIAS);
+					.defaultIfEmpty("config.keystore.alias", DEFAULT_KEYSTORE_ALIAS);
 		} catch (Throwable ex) {
-			log.warn("The keystoreKeyAlias parameter is invalid. Default values will be used instead.");
+			log.warn("The keystore.alias parameter is invalid. Default values will be used instead.");
 		}
 		return DEFAULT_KEYSTORE_ALIAS;
 	}
 
-	public String getDistinguishedName() {
+	public String getSubjectDN() {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.certificateDistinguishedName", DEFAULT_DISTINGUISHED_NAME);
+					.defaultIfEmpty("config.subjectDN", DEFAULT_CERTIFICATE_SUBJECT_DN);
 		} catch (Throwable ex) {
-			log.warn("The certificateDistinguishedName parameter is invalid. Default values will be used instead.");
+			log.warn("The certificate.subjectDN parameter is invalid. Default values will be used instead.");
 		}
-		return DEFAULT_DISTINGUISHED_NAME;
+		return DEFAULT_CERTIFICATE_SUBJECT_DN;
 	}
 
 	public String getKeyAlgorithm() {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.certificateKeyAlgorithm", DEFAULT_KEY_ALGORITHM);
+					.defaultIfEmpty("config.certificate.keyAlgorithm", DEFAULT_CERTIFICATE_KEY_ALGORITHM);
 		} catch (Throwable ex) {
-			log.warn("The certificateKeyAlgorithm parameter is invalid. Default values will be used instead.");
+			log.warn("The certificate.keyAlgorithm parameter is invalid. Default values will be used instead.");
 		}
-		return DEFAULT_KEY_ALGORITHM;
+		return DEFAULT_CERTIFICATE_KEY_ALGORITHM;
 	}
 
 	public int getKeySize() {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.getInt("config.certificateKeySize", DEFAULT_KEY_SIZE);
+					.getInt("config.certificate.keySize", DEFAULT_CERTIFICATE_KEY_SIZE);
 		} catch (Throwable ex) {
-			log.warn("The certificateKeySize parameter is invalid. Default values will be used instead.");
+			log.warn("The certificate.keySize parameter is invalid. Default values will be used instead.");
 		}
-		return DEFAULT_KEY_SIZE;
+		return DEFAULT_CERTIFICATE_KEY_SIZE;
 	}
 
 	public int getCertificateValidity() {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.getInt("config.certificateValidity", DEFAULT_CERTIFICATE_VALIDITY);
+					.getInt("config.certificate.validity", DEFAULT_CERTIFICATE_VALIDITY);
 		} catch (Throwable ex) {
-			log.warn("The certificateValidity parameter is invalid. Default values will be used instead.");
+			log.warn("The certificate.validity parameter is invalid. Default values will be used instead.");
 		}
 		return DEFAULT_CERTIFICATE_VALIDITY;
 	}
@@ -229,11 +229,11 @@ public class IdpConfiguration {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.certificateSignatureAlgorithm", DEFAULT_SIGNATURE_ALGORITHM);
+					.defaultIfEmpty("config.certificate.signatureAlgorithm", DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM);
 		} catch (Throwable ex) {
-			log.warn("The certificateSignatureAlgorithm parameter is invalid. Default values will be used instead.");
+			log.warn("The certificate.signatureAlgorithm parameter is invalid. Default values will be used instead.");
 		}
-		return DEFAULT_SIGNATURE_ALGORITHM;
+		return DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM;
 	}
 
 	public int getAssertionValiditySeconds() {
