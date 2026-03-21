@@ -206,7 +206,7 @@ public class Activator implements BundleActivator {
 		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "mail", "admin@example.com");
 		JCRs.setProperty(profileFile, "password", passwordHash);
-		JCRs.setProperty(profileFile, "role", new String[] { "administration" });
+		JCRs.setProperty(profileFile, "roles", new String[] { "administration" });
 
 		JCRs.getOrCreateFolder(adminFolder, "preferences");
 

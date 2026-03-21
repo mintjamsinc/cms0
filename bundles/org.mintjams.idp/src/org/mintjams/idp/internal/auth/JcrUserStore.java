@@ -125,8 +125,8 @@ public class JcrUserStore implements UserStore {
 				user.addMemberOf(v.getString());
 			}
 		}
-		if (contentNode.hasProperty("role")) {
-			for (Value v : contentNode.getProperty("role").getValues()) {
+		if (contentNode.hasProperty("roles")) {
+			for (Value v : contentNode.getProperty("roles").getValues()) {
 				user.addRole(v.getString());
 			}
 		}
