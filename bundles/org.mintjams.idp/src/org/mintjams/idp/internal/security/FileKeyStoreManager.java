@@ -22,6 +22,7 @@
 
 package org.mintjams.idp.internal.security;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigInteger;
@@ -57,7 +58,7 @@ public class FileKeyStoreManager implements KeyStoreManager {
 	private KeyPair fKeyPair;
 	private X509Certificate fCertificate;
 
-	public FileKeyStoreManager() throws Exception {
+	public FileKeyStoreManager() throws IOException {
 		IdpConfiguration config = Activator.getDefault().getConfiguration();
 		fKeystorePath = config.getConfigPath().resolve("idp.p12");
 		if (!Files.exists(fKeystorePath)) {
@@ -69,49 +70,62 @@ public class FileKeyStoreManager implements KeyStoreManager {
 		}
 	}
 
-	private void loadKeyStore() throws Exception {
+	private void loadKeyStore() throws IOException {
 		IdpConfiguration config = Activator.getDefault().getConfiguration();
 
-		KeyStore ks = KeyStore.getInstance(config.getKeystoreType());
-		try (InputStream in = Files.newInputStream(fKeystorePath)) {
-			ks.load(in, config.getKeystorePassword().toCharArray());
-		}
+		try {
+			KeyStore ks = KeyStore.getInstance(config.getKeystoreType());
+			try (InputStream in = Files.newInputStream(fKeystorePath)) {
+				ks.load(in, config.getKeystorePassword().toCharArray());
+			}
 
-		PrivateKey privateKey = (PrivateKey) ks.getKey(config.getKeystoreAlias(), config.getKeystorePassword().toCharArray());
-		fCertificate = (X509Certificate) ks.getCertificate(config.getKeystoreAlias());
-		fKeyPair = new KeyPair(fCertificate.getPublicKey(), privateKey);
+			PrivateKey privateKey = (PrivateKey) ks.getKey(config.getKeystoreAlias(), config.getKeystorePassword().toCharArray());
+			fCertificate = (X509Certificate) ks.getCertificate(config.getKeystoreAlias());
+			fKeyPair = new KeyPair(fCertificate.getPublicKey(), privateKey);
+		} catch (IOException ex) {
+			throw ex;
+		} catch (Throwable ex) {
+			throw new IllegalStateException("Failed to load IdP signing certificate from: " + fKeystorePath.toFile().getAbsolutePath(), ex);
+		}
 	}
 
-	private void generateAndSave() throws Exception {
+	private void generateAndSave() throws IOException {
 		IdpConfiguration config = Activator.getDefault().getConfiguration();
 
-		KeyPairGenerator keyPairGen = KeyPairGenerator.getInstance(config.getKeyAlgorithm());
-		keyPairGen.initialize(config.getKeySize(), new SecureRandom());
-		fKeyPair = keyPairGen.generateKeyPair();
+		try {
+			KeyPairGenerator keyPairGen = KeyPairGenerator.getInstance(config.getKeyAlgorithm());
+			keyPairGen.initialize(config.getKeySize(), new SecureRandom());
+			fKeyPair = keyPairGen.generateKeyPair();
 
-		Instant now = Instant.now();
-		X500Name issuer = new X500Name(config.getSubjectDN());
-		BigInteger serial = BigInteger.valueOf(now.toEpochMilli());
-		X509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
-				issuer,
-				serial,
-				Date.from(now),
-				Date.from(now.plus(Duration.ofDays(config.getCertificateValidity()))),
-				issuer,
-				fKeyPair.getPublic());
+			Instant now = Instant.now();
+			X500Name issuer = new X500Name(config.getSubjectDN());
+			BigInteger serial = BigInteger.valueOf(now.toEpochMilli());
+			X509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
+					issuer,
+					serial,
+					Date.from(now),
+					Date.from(now.plus(Duration.ofDays(config.getCertificateValidity()))),
+					issuer,
+					fKeyPair.getPublic());
 
-		ContentSigner signer = new JcaContentSignerBuilder(config.getSignatureAlgorithm()).build(fKeyPair.getPrivate());
+			ContentSigner signer = new JcaContentSignerBuilder(config.getSignatureAlgorithm()).build(fKeyPair.getPrivate());
 
-		X509CertificateHolder certHolder = certBuilder.build(signer);
-		fCertificate = new JcaX509CertificateConverter().getCertificate(certHolder);
+			X509CertificateHolder certHolder = certBuilder.build(signer);
+			fCertificate = new JcaX509CertificateConverter().getCertificate(certHolder);
 
-		// Save to KeyStore
-		KeyStore ks = KeyStore.getInstance(config.getKeystoreType());
-		ks.load(null, config.getKeystorePassword().toCharArray());
-		ks.setKeyEntry(config.getKeystoreAlias(), fKeyPair.getPrivate(), config.getKeystorePassword().toCharArray(), new X509Certificate[] { fCertificate });
+			// Save to KeyStore
+			KeyStore ks = KeyStore.getInstance(config.getKeystoreType());
+			ks.load(null, config.getKeystorePassword().toCharArray());
+			ks.setKeyEntry(config.getKeystoreAlias(), fKeyPair.getPrivate(), config.getKeystorePassword().toCharArray(), new X509Certificate[] { fCertificate });
 
-		try (OutputStream out = Files.newOutputStream(fKeystorePath)) {
-			ks.store(out, config.getKeystorePassword().toCharArray());
+			try (OutputStream out = Files.newOutputStream(fKeystorePath)) {
+				ks.store(out, config.getKeystorePassword().toCharArray());
+			}
+		} catch (IOException ex) {
+			throw ex;
+		} catch (Throwable ex) {
+			log.error("Failed to generate IdP signing certificate", ex);
+			throw new IllegalStateException("Failed to generate IdP signing certificate", ex);
 		}
 	}
 

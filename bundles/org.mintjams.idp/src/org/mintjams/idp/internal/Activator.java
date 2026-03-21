@@ -29,14 +29,12 @@ import javax.jcr.Repository;
 import javax.jcr.Session;
 
 import org.mintjams.cms.CmsService;
+import org.mintjams.cms.security.Encryptor;
 import org.mintjams.idp.internal.auth.JcrUserStore;
 import org.mintjams.idp.internal.auth.UserStore;
-import org.mintjams.idp.internal.security.CryptoService;
 import org.mintjams.idp.internal.security.FileKeyStoreManager;
-import org.mintjams.idp.internal.security.FileSecretKeyProvider;
 import org.mintjams.idp.internal.security.IdpServiceCredentials;
 import org.mintjams.idp.internal.security.KeyStoreManager;
-import org.mintjams.idp.internal.security.SecretKeyProvider;
 import org.mintjams.idp.internal.servlet.LoginServlet;
 import org.mintjams.idp.internal.servlet.MetadataServlet;
 import org.mintjams.idp.internal.servlet.SsoServlet;
@@ -91,9 +89,8 @@ public class Activator implements BundleActivator {
 	private final Closer fCloser = Closer.create();
 	private Tracker<CmsService> fCmsServiceTracker;
 	private Tracker<HttpService> fHttpServiceTracker;
-	private SecretKeyProvider fSecretKeyProvider;
 	private KeyStoreManager fKeyStoreManager;
-	private CryptoService fCryptoService;
+	private Encryptor fEncryptor;
 	private UserStore fUserStore;
 
 	private Tracker.Listener<Object> fTrackerListener = new Tracker.Listener<Object>() {
@@ -150,11 +147,8 @@ public class Activator implements BundleActivator {
 		try {
 			jcrSession = getRepository().login(new IdpServiceCredentials(), "system");
 
-			// Initialize SecretKeyProvider
-			fSecretKeyProvider = new FileSecretKeyProvider();
-
-			// Initialize CryptoService
-			fCryptoService = new CryptoService();
+			// Initialize Encryptor
+			fEncryptor = fCmsServiceTracker.getService().getEncryptor();
 
 			// Load IdP configuration
 			fConfig = new IdpConfiguration();
@@ -257,16 +251,12 @@ public class Activator implements BundleActivator {
 		return getCmsService().getRepository();
 	}
 
-	public SecretKeyProvider getSecretKeyProvider() {
-		return fSecretKeyProvider;
-	}
-
 	public KeyStoreManager getKeyStoreManager() {
 		return fKeyStoreManager;
 	}
 
-	public CryptoService getCryptoService() {
-		return fCryptoService;
+	public Encryptor getEncryptor() {
+		return fEncryptor;
 	}
 
 	public UserStore getUserStore() {

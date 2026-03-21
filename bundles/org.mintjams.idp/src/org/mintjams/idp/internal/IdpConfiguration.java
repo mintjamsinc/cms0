@@ -74,7 +74,7 @@ public class IdpConfiguration {
 							"roleAttribute", DEFAULT_ROLE_ATTRIBUTE, // SAML attribute name for roles (default: Role)
 							"keystore", Map.of(
 								"type", DEFAULT_KEYSTORE_TYPE, // Keystore type (default: PKCS12)
-								"password", Activator.getDefault().getCryptoService().encrypt(DEFAULT_KEYSTORE_PASSWORD), // Keystore password (default: changeit)
+								"password", Activator.getDefault().getEncryptor().encrypt(DEFAULT_KEYSTORE_PASSWORD), // Keystore password (default: changeit)
 								"alias", DEFAULT_KEYSTORE_ALIAS // Alias of the signing key in the keystore (default: idp-signing)
 								),
 							"certificate", Map.of(
@@ -97,8 +97,8 @@ public class IdpConfiguration {
 				String password = ExpressionContext.create()
 						.setVariable("config", getConfig())
 						.defaultIfEmpty("config.keystore.password", DEFAULT_KEYSTORE_PASSWORD);
-				if (!Activator.getDefault().getCryptoService().isEncrypted(password)) {
-					((Map<String, Object>) fConfig.get("keystore")).put("password", Activator.getDefault().getCryptoService().encrypt(password));
+				if (!Activator.getDefault().getEncryptor().isEncrypted(password)) {
+					((Map<String, Object>) fConfig.get("keystore")).put("password", Activator.getDefault().getEncryptor().encrypt(password));
 					try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
 						String yamlString = new Dump(DumpSettings.builder().build()).dumpToString(fConfig);
 						out.append(yamlString);
@@ -163,7 +163,7 @@ public class IdpConfiguration {
 			String password = ExpressionContext.create()
 					.setVariable("config", getConfig())
 					.defaultIfEmpty("config.keystore.password", DEFAULT_KEYSTORE_PASSWORD);
-			return Activator.getDefault().getCryptoService().decrypt(password);
+			return Activator.getDefault().getEncryptor().decrypt(password);
 		} catch (Throwable ex) {
 			log.warn("The keystore.password parameter is invalid. Default values will be used instead.");
 		}
