@@ -1272,6 +1272,66 @@ public class MutationExecutor {
 	}
 
 	/**
+	 * Execute copyNode mutation
+	 * Copies a node to a different parent directory (deep copy)
+	 * Example: mutation { copyNode(input: { sourcePath: "/content/file.txt", destPath: "/content/archive" }) { path name } }
+	 */
+	public Map<String, Object> executeCopyNode(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String sourcePath = (String) input.get("sourcePath");
+		String destPath = (String) input.get("destPath");
+		String newName = (String) input.get("name"); // Optional: rename during copy
+
+		if (sourcePath == null || destPath == null) {
+			throw new IllegalArgumentException("sourcePath and destPath are required");
+		}
+
+		if (!this.session.nodeExists(sourcePath)) {
+			throw new IllegalArgumentException("Source node not found: " + sourcePath);
+		}
+
+		if (!this.session.nodeExists(destPath)) {
+			throw new IllegalArgumentException("Destination parent node not found: " + destPath);
+		}
+
+		Node sourceNode = this.session.getNode(sourcePath);
+		Node destParentNode = this.session.getNode(destPath);
+
+		// Check if destination is a folder-like node
+		if (!destParentNode.isNodeType("nt:folder") && !destParentNode.isNodeType("nt:unstructured")) {
+			throw new IllegalArgumentException("Destination must be a folder node: " + destPath);
+		}
+
+		// Determine the name to use
+		String nodeName = (newName != null && !newName.trim().isEmpty()) ? newName : sourceNode.getName();
+
+		// Build target path
+		String targetPath;
+		if ("/".equals(destPath)) {
+			targetPath = "/" + nodeName;
+		} else {
+			targetPath = destPath + "/" + nodeName;
+		}
+
+		// Check if target path already exists
+		if (this.session.nodeExists(targetPath)) {
+			throw new IllegalArgumentException("Node already exists at destination: " + targetPath);
+		}
+
+		// Deep copy (strips version mixins)
+		this.session.getWorkspace().copy(sourcePath, targetPath);
+
+		// Get copied node
+		Node copiedNode = this.session.getNode(targetPath);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("copyNode", NodeMapper.toGraphQL(copiedNode));
+
+		return result;
+	}
+
+	/**
 	 * Execute restoreVersion mutation
 	 * Restores a node to a specific version
 	 * Example: mutation { restoreVersion(input: { path: "/content/page1", versionName: "1.0" }) }

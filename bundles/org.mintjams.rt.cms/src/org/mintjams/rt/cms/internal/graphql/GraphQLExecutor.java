@@ -179,6 +179,8 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeCheckin(request));
 			} else if (query.contains("renameNode(")) {
 				response.setData(mutationExecutor.executeRenameNode(request));
+			} else if (query.contains("copyNode(")) {
+				response.setData(mutationExecutor.executeCopyNode(request));
 			} else if (query.contains("moveNode(")) {
 				response.setData(mutationExecutor.executeMoveNode(request));
 			// Multipart Upload mutations
