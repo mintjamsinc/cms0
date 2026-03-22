@@ -290,7 +290,13 @@ public class IdpMutationExecutor {
 		current.removeIf(v -> {
 			try { return uuidsToRemove.contains(v.getString()); } catch (Exception e) { return false; }
 		});
-		contentNode.setProperty("roles", current.toArray(new Value[0]));
+		if (current.isEmpty()) {
+			if (contentNode.hasProperty("roles")) {
+				contentNode.getProperty("roles").remove();
+			}
+		} else {
+			contentNode.setProperty("roles", current.toArray(new Value[0]));
+		}
 		session.save();
 
 		Node savedProfile = session.getNode(profilePath);
@@ -592,7 +598,9 @@ public class IdpMutationExecutor {
 			return errorPayload("removeGroupMembers", "Group not found: " + groupId, "NOT_FOUND");
 		}
 
-		String groupUuid = session.getNode(groupProfilePath).getIdentifier();
+		Node groupProfileNode = session.getNode(groupProfilePath);
+		ensureMixReferenceable(groupProfileNode);
+		String groupUuid = groupProfileNode.getIdentifier();
 
 		for (String username : usernames) {
 			String userProfilePath = IdpQueryExecutor.USERS_ROOT + "/" + username + "/profile";
@@ -603,7 +611,11 @@ public class IdpMutationExecutor {
 			current.removeIf(v -> {
 				try { return groupUuid.equals(v.getString()); } catch (Exception e) { return false; }
 			});
-			userContent.setProperty("memberOf", current.toArray(new Value[0]));
+			if (current.isEmpty()) {
+				userContent.getProperty("memberOf").remove();
+			} else {
+				userContent.setProperty("memberOf", current.toArray(new Value[0]));
+			}
 		}
 		session.save();
 
@@ -716,7 +728,11 @@ public class IdpMutationExecutor {
 			current.removeIf(v -> {
 				try { return roleUuid.equals(v.getString()); } catch (Exception e) { return false; }
 			});
-			contentNode.setProperty("roles", current.toArray(new Value[0]));
+			if (current.isEmpty()) {
+				contentNode.getProperty("roles").remove();
+			} else {
+				contentNode.setProperty("roles", current.toArray(new Value[0]));
+			}
 		}
 	}
 
