@@ -173,8 +173,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	public void clone(String srcWorkspace, String srcAbsPath, String destAbsPath, boolean removeExisting)
 			throws NoSuchWorkspaceException, ConstraintViolationException, VersionException, AccessDeniedException,
 			PathNotFoundException, ItemExistsException, LockException, RepositoryException {
-		// TODO Auto-generated method stub
-
+		throw new UnsupportedRepositoryOperationException("Not implemented yet.");
 	}
 
 	@Override
@@ -324,8 +323,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	public void copy(String srcWorkspace, String srcAbsPath, String destAbsPath)
 			throws NoSuchWorkspaceException, ConstraintViolationException, VersionException, AccessDeniedException,
 			PathNotFoundException, ItemExistsException, LockException, RepositoryException {
-		// TODO Auto-generated method stub
-
+		throw new UnsupportedRepositoryOperationException("Cross-workspace copy is not supported.");
 	}
 
 	@Override
@@ -337,15 +335,13 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	@Override
 	public void createWorkspace(String name, String srcWorkspace) throws AccessDeniedException,
 			UnsupportedRepositoryOperationException, NoSuchWorkspaceException, RepositoryException {
-		// TODO Auto-generated method stub
-
+		throw new UnsupportedRepositoryOperationException("Creating a workspace is not supported.");
 	}
 
 	@Override
 	public void deleteWorkspace(String name) throws AccessDeniedException, UnsupportedRepositoryOperationException,
 			NoSuchWorkspaceException, RepositoryException {
-		// TODO Auto-generated method stub
-
+		throw new UnsupportedRepositoryOperationException("Deleting a workspace is not supported.");
 	}
 
 	@Override
@@ -356,8 +352,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	@Override
 	public ContentHandler getImportContentHandler(String parentAbsPath, int uuidBehavior) throws PathNotFoundException,
 			ConstraintViolationException, VersionException, LockException, AccessDeniedException, RepositoryException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedRepositoryOperationException("Importing XML is not supported.");
 	}
 
 	@Override
@@ -405,8 +400,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	public void importXML(String parentAbsPath, InputStream in, int uuidBehavior) throws IOException, VersionException,
 			PathNotFoundException, ItemExistsException, ConstraintViolationException, InvalidSerializedDataException,
 			LockException, AccessDeniedException, RepositoryException {
-		// TODO Auto-generated method stub
-
+		throw new UnsupportedRepositoryOperationException("Importing XML is not supported.");
 	}
 
 	@Override
