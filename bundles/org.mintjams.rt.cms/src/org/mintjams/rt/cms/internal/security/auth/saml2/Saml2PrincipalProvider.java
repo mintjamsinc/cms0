@@ -32,7 +32,6 @@ import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.JcrPrincipalProvider;
 import org.mintjams.jcr.util.ExpressionContext;
-import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.security.DefaultGroupPrincipal;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.Strings;
@@ -84,8 +83,6 @@ public class Saml2PrincipalProvider implements JcrPrincipalProvider {
 					}
 				}
 			}
-		} else {
-			CmsService.getLogger(getClass()).warn("SAML attribute '" + name + "' is not found.");
 		}
 		return l;
 	}
