@@ -37,6 +37,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class JSON {
 
 	private WorkspaceScriptContext fContext;
+	private final ObjectMapper fObjectMapper = new ObjectMapper();
 
 	public JSON(WorkspaceScriptContext context) {
 		fContext = context;
@@ -52,24 +53,24 @@ public class JSON {
 		}
 
 		if (value instanceof String) {
-			return new ObjectMapper().readValue((String) value, new TypeReference<>() {});
+			return fObjectMapper.readValue((String) value, new TypeReference<>() {});
 		}
 
 		if (value instanceof InputStream) {
 			try (InputStream in = (InputStream) value) {
-				return new ObjectMapper().readValue(in, new TypeReference<>() {});
+				return fObjectMapper.readValue(in, new TypeReference<>() {});
 			}
 		}
 
 		if (value instanceof Reader) {
 			try (Reader in = (Reader) value) {
-				return new ObjectMapper().readValue(in, new TypeReference<>() {});
+				return fObjectMapper.readValue(in, new TypeReference<>() {});
 			}
 		}
 
 		if (value instanceof Resource) {
 			try (Reader in = ((Resource) value).getContentAsReader()) {
-				return new ObjectMapper().readValue(in, new TypeReference<>() {});
+				return fObjectMapper.readValue(in, new TypeReference<>() {});
 			} catch (ResourceException ex) {
 				throw Cause.create(ex).wrap(IllegalArgumentException.class);
 			}
@@ -83,7 +84,7 @@ public class JSON {
 			return null;
 		}
 
-		return new ObjectMapper().writeValueAsString(value);
+		return fObjectMapper.writeValueAsString(value);
 	}
 
 }
