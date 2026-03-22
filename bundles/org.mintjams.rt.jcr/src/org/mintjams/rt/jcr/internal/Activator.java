@@ -52,6 +52,9 @@ import org.osgi.service.event.EventAdmin;
 import org.osgi.service.log.Logger;
 import org.osgi.service.log.LoggerFactory;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 public class Activator implements BundleActivator {
 
 	private static Activator fActivator;
@@ -64,6 +67,7 @@ public class Activator implements BundleActivator {
 	private Tracker<JcrPrincipalProvider> fPrincipalProviderTracker;
 	private JcrBootstrap fBootstrap;
 	private final Map<String, JcrPrincipalProvider> fPrincipalProviderServices = new HashMap<>();
+	private final ObjectMapper fObjectMapper = new ObjectMapper();
 
 	private Tracker.Listener<Object> fTrackerListener = new Tracker.Listener<Object>() {
 		@Override
@@ -261,6 +265,18 @@ public class Activator implements BundleActivator {
 			path = Paths.get(System.getProperty("java.io.tmpdir"));
 		}
 		return path;
+	}
+
+	public String toJSON(Object value) throws IOException {
+		return fObjectMapper.writeValueAsString(value);
+	}
+
+	@SuppressWarnings("unchecked")
+	public <T> T parseJSON(String value) throws IOException {
+		if (value == null) {
+			return null;
+		}
+		return (T) fObjectMapper.readValue(value, new TypeReference<>() {});
 	}
 
 }

@@ -6,7 +6,10 @@ Bundle-Version: 1.0.0
 Automatic-Module-Name: org.mintjams.rt.jcr
 Bundle-RequiredExecutionEnvironment: JavaSE-11
 Bundle-Vendor: %Plugin.provider
-Import-Package: com.zaxxer.hikari;version="7.0.1",
+Import-Package: com.fasterxml.jackson.core;version="[2.13.0,3.0.0)",
+ com.fasterxml.jackson.core.type;version="[2.13.0,3.0.0)",
+ com.fasterxml.jackson.databind;version="[2.13.0,3.0.0)",
+ com.zaxxer.hikari;version="7.0.1",
  com.zaxxer.hikari.pool;version="7.0.1",
  org.h2;version="2.1.214",
  org.osgi.framework;version="1.10.0",

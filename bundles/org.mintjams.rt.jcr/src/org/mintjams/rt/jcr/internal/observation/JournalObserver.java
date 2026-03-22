@@ -754,13 +754,14 @@ public class JournalObserver implements Adaptable, Closeable {
 									}
 
 									AdaptableMap<String, Object> event = events.get(id);
+									Map<String, Object> eventInfo = Activator.getDefault().parseJSON(r.getString("event_info"));
 									if (event == null) {
 										events.put(id, AdaptableMap.<String, Object>newBuilder()
 												.put("item_id", id)
 												.put("item_path", path)
 												.put("primary_type", primaryType)
 												.put("event_type", eventType)
-												.put("source_path", r.getString("source_path"))
+												.put("source_path", eventInfo.get("source_path"))
 												.put("path", true)
 												.put("user_id", userId)
 												.build());
@@ -770,7 +771,7 @@ public class JournalObserver implements Adaptable, Closeable {
 											event.put("event_type", Event.NODE_MOVED);
 										}
 										if (!event.containsKey("source_path")) {
-											event.put("source_path", r.getString("source_path"));
+											event.put("source_path", eventInfo.get("source_path"));
 										}
 										event.put("path", true);
 									}

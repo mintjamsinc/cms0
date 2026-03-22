@@ -1359,11 +1359,16 @@ public class WorkspaceQuery implements Adaptable {
 			moveChildNodes(srcItem.getString("item_id"));
 
 			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
-					.put("event_type", Event.NODE_MOVED).put("item_id", srcItem.getString("item_id"))
+					.put("event_type", Event.NODE_MOVED)
+					.put("item_id", srcItem.getString("item_id"))
 					.put("item_path", destPath.toString())
 					.put("primary_type", getPrimaryType(srcItem.getString("item_id")))
-					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
-					.put("source_path", srcPath.toString()).put("destination_path", destPath.toString()).build());
+					.put("user_id", fWorkspace.getSession().getUserID())
+					.put("user_data", null)
+					.put("event_info", Activator.getDefault().toJSON(Map.of(
+							"source_path", srcPath.toString(),
+							"destination_path", destPath.toString())))
+					.build());
 		}
 
 		private void moveChildNodes(String parentId) throws IOException, SQLException, RepositoryException {
