@@ -326,14 +326,14 @@ public class IdpQueryExecutor {
 		}
 		user.put("roles", roles);
 
-		// Groups via WeakReference
+		// Groups via WeakReference (use mapGroupBasic to avoid deep recursion)
 		List<Map<String, Object>> memberOf = new ArrayList<>();
 		if (contentNode.hasProperty("memberOf")) {
 			for (Value v : contentNode.getProperty("memberOf").getValues()) {
 				try {
 					Node groupProfileNode = session.getNodeByIdentifier(v.getString());
 					String gId = getGroupId(groupProfileNode);
-					memberOf.add(mapGroup(gId, groupProfileNode, JCRs.getContentNode(groupProfileNode)));
+					memberOf.add(mapGroupBasic(gId, groupProfileNode, JCRs.getContentNode(groupProfileNode)));
 				} catch (ItemNotFoundException ignore) {}
 			}
 		}
@@ -374,6 +374,36 @@ public class IdpQueryExecutor {
 		return role;
 	}
 
+	/**
+	 * Map group with basic fields only (no parent/ancestors/children resolution).
+	 * Used by parent, ancestors, and memberOf references to avoid infinite recursion.
+	 */
+	Map<String, Object> mapGroupBasic(String groupId, Node profileNode, Node contentNode) throws Exception {
+		Map<String, Object> group = new HashMap<>();
+		group.put("groupId", groupId);
+
+		String name = groupId.contains("/") ? groupId.substring(groupId.lastIndexOf('/') + 1) : groupId;
+		group.put("name", name);
+		group.put("displayName", contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null);
+		group.put("description", contentNode.hasProperty("description") ? contentNode.getProperty("description").getString() : null);
+
+		int depth = 0;
+		for (char c : groupId.toCharArray()) {
+			if (c == '/') depth++;
+		}
+		group.put("depth", depth);
+
+		Node groupFolder = profileNode.getParent();
+		group.put("hasChildren", hasChildGroups(groupFolder));
+		group.put("descendantCount", countDescendants(groupFolder));
+
+		group.put("created", formatDate(profileNode.getProperty("jcr:created").getDate()));
+		group.put("lastModified", contentNode.hasProperty("jcr:lastModified")
+				? formatDate(contentNode.getProperty("jcr:lastModified").getDate()) : null);
+
+		return group;
+	}
+
 	Map<String, Object> mapGroup(String groupId, Node profileNode, Node contentNode) throws Exception {
 		Map<String, Object> group = new HashMap<>();
 		group.put("groupId", groupId);
@@ -390,13 +420,13 @@ public class IdpQueryExecutor {
 		}
 		group.put("depth", depth);
 
-		// Parent group
+		// Parent group (use mapGroupBasic to avoid recursion)
 		if (groupId.contains("/")) {
 			String parentGroupId = groupId.substring(0, groupId.lastIndexOf('/'));
 			String parentProfilePath = GROUPS_ROOT + "/" + parentGroupId + "/profile";
 			if (session.nodeExists(parentProfilePath)) {
 				Node p = session.getNode(parentProfilePath);
-				group.put("parent", mapGroup(parentGroupId, p, JCRs.getContentNode(p)));
+				group.put("parent", mapGroupBasic(parentGroupId, p, JCRs.getContentNode(p)));
 			} else {
 				group.put("parent", null);
 			}
@@ -404,7 +434,7 @@ public class IdpQueryExecutor {
 			group.put("parent", null);
 		}
 
-		// Ancestors
+		// Ancestors (use mapGroupBasic to avoid recursion)
 		List<Map<String, Object>> ancestors = new ArrayList<>();
 		buildAncestors(groupId, ancestors);
 		group.put("ancestors", ancestors);
@@ -493,7 +523,8 @@ public class IdpQueryExecutor {
 
 	private void buildAncestors(String groupId, List<Map<String, Object>> ancestors) throws Exception {
 		String[] segments = groupId.split("/");
-		for (int i = 0; i < segments.length; i++) {
+		// Exclude the group itself (last segment) from ancestors
+		for (int i = 0; i < segments.length - 1; i++) {
 			StringBuilder sb = new StringBuilder();
 			for (int j = 0; j <= i; j++) {
 				if (j > 0) sb.append("/");
@@ -503,7 +534,7 @@ public class IdpQueryExecutor {
 			String profilePath = GROUPS_ROOT + "/" + ancestorId + "/profile";
 			if (session.nodeExists(profilePath)) {
 				Node p = session.getNode(profilePath);
-				ancestors.add(mapGroup(ancestorId, p, JCRs.getContentNode(p)));
+				ancestors.add(mapGroupBasic(ancestorId, p, JCRs.getContentNode(p)));
 			}
 		}
 	}
@@ -523,7 +554,7 @@ public class IdpQueryExecutor {
 				String profilePath = GROUPS_ROOT + "/" + ancestorId + "/profile";
 				if (session.nodeExists(profilePath)) {
 					Node p = session.getNode(profilePath);
-					result.add(mapGroup(ancestorId, p, JCRs.getContentNode(p)));
+					result.add(mapGroupBasic(ancestorId, p, JCRs.getContentNode(p)));
 				}
 			}
 		}
