@@ -126,6 +126,26 @@ public class SubscriptionMatcher {
 		String watchPath = params.getOrDefault("path", "/");
 		boolean deep = "true".equalsIgnoreCase(params.getOrDefault("deep", "false"));
 
+		// Match against event path (destination for MOVED events)
+		if (matchesPath(eventPath, watchPath, deep)) {
+			return true;
+		}
+
+		// For MOVED events, also match against source path
+		String sourcePath = event.getSourcePath();
+		if (sourcePath != null) {
+			if (matchesPath(sourcePath, watchPath, deep)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check if the event path matches the watch path based on deep flag.
+	 */
+	private boolean matchesPath(String eventPath, String watchPath, boolean deep) {
 		if (deep) {
 			// Match if event path starts with watch path or equals it
 			return eventPath.equals(watchPath) || eventPath.startsWith(watchPath + "/");
