@@ -29,72 +29,72 @@ import org.osgi.service.event.Event;
 
 public class OSGiCmsEvent implements CmsEvent {
 
-	private final String topic;
-	private final String identifier;
-	private final String path;
-	private final String type;
-	private final String workspaceName;
-	private final List<String> propertyNames;
-	private final String sourcePath;
-	private final String userID;
+	private final String fTopic;
+	private final String fIdentifier;
+	private final String fPath;
+	private final String fType;
+	private final String fWorkspaceName;
+	private final List<String> fPropertyNames;
+	private final String fSourcePath;
+	private final String fUserID;
 
 	public OSGiCmsEvent(Event event) {
-		topic = event.getTopic();
-		identifier = (String) event.getProperty("identifier");
-		path = (String) event.getProperty("path");
-		type = (String) event.getProperty("type");
-		workspaceName = (String) event.getProperty("workspaceName");
-		if (event.getProperty("propertyNames") != null) {
-			propertyNames = List.copyOf(Arrays.asList((String[]) event.getProperty("propertyNames")));
+		fTopic = event.getTopic();
+		fIdentifier = (String) event.getProperty("identifier");
+		fPath = (String) event.getProperty("path");
+		fType = (String) event.getProperty("type");
+		fWorkspaceName = (String) event.getProperty("workspace");
+		if (event.getProperty("properties") != null) {
+			fPropertyNames = List.copyOf(Arrays.asList((String[]) event.getProperty("properties")));
 		} else {
-			propertyNames = List.of();
+			fPropertyNames = List.of();
 		}
-		if (event.getProperty("sourcePath") != null) {
-			sourcePath = (String) event.getProperty("sourcePath");
+		if (event.getProperty("source_path") != null) {
+			fSourcePath = (String) event.getProperty("source_path");
 		} else {
-			sourcePath = null;
+			fSourcePath = null;
 		}
-		userID = (String) event.getProperty("userID");
+		fUserID = (String) event.getProperty("user_id");
 	}
 
 	@Override
 	public String getTopic() {
-		return topic;
+		return fTopic;
 	}
 
 	@Override
 	public String getIdentifier() {
-		return identifier;
+		return fIdentifier;
 	}
 
 	@Override
 	public String getPath() {
-		return path;
+		return fPath;
 	}
 
 	@Override
 	public String getType() {
-		return type;
+		return fType;
 	}
 
 	@Override
 	public String getWorkspaceName() {
-		return workspaceName;
+		return fWorkspaceName;
 	}
 
 	@Override
 	public List<String> getPropertyNames() {
-		return propertyNames;
+		return fPropertyNames;
 	}
 
 	@Override
 	public String getSourcePath() {
-		return sourcePath;
+		return fSourcePath;
 	}
 
 	@Override
 	public String getUserID() {
-		return userID;
+		return fUserID;
 	}
 
 }
