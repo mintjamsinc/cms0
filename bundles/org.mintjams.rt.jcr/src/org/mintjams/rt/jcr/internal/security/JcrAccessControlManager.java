@@ -299,11 +299,20 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 				throw new AccessControlException("Access control policy is not applicable.");
 			}
 
+			List<AccessControlEntry> entries = Arrays.asList(acl.getAccessControlEntries());
+			for (AccessControlEntry ace : entries) {
+				try {
+					Activator.getDefault().getPrincipal(ace.getPrincipal().getName());
+				} catch (PrincipalNotFoundException ex) {
+					throw new AccessControlException("Unknown principal: " + ace.getPrincipal().getName(), ex);
+				}
+			}
+
 			removePolicy(absPath);
 			try {
 				getWorkspaceQuery().items().setAccessControlPolicy(
 						node.getIdentifier(),
-						Arrays.asList(acl.getAccessControlEntries()).toArray(JcrAccessControlEntry[]::new));
+						entries.toArray(JcrAccessControlEntry[]::new));
 			} catch (IOException | SQLException ex) {
 				throw Cause.create(ex).wrap(RepositoryException.class);
 			}
