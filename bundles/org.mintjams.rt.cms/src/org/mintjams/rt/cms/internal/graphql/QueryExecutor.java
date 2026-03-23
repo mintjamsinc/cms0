@@ -520,7 +520,13 @@ public class QueryExecutor {
 
 				for (AccessControlEntry entry : aclEntries) {
 					Map<String, Object> entryMap = new HashMap<>();
-					entryMap.put("principal", entry.getPrincipal().getName());
+
+					// Build principal object with id, displayName, isGroup
+					Map<String, Object> principalMap = new HashMap<>();
+					principalMap.put("id", entry.getPrincipal().getName());
+					principalMap.put("displayName", entry.getPrincipal().getName());
+					principalMap.put("isGroup", entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal);
+					entryMap.put("principal", principalMap);
 
 					// Get privileges
 					List<String> privileges = new ArrayList<>();
@@ -603,7 +609,13 @@ public class QueryExecutor {
 				AccessControlEntry[] aclEntries = acl.getAccessControlEntries();
 				for (AccessControlEntry entry : aclEntries) {
 					Map<String, Object> entryMap = new HashMap<>();
-					entryMap.put("principal", entry.getPrincipal().getName());
+
+					// Build principal object with id, displayName, isGroup
+					Map<String, Object> principalMap = new HashMap<>();
+					principalMap.put("id", entry.getPrincipal().getName());
+					principalMap.put("displayName", entry.getPrincipal().getName());
+					principalMap.put("isGroup", entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal);
+					entryMap.put("principal", principalMap);
 
 					List<String> privileges = new ArrayList<>();
 					for (Privilege privilege : entry.getPrivileges()) {
