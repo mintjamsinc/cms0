@@ -77,10 +77,10 @@ public class DefaultPrincipalProvider implements JcrPrincipalProvider {
 			CmsService.getLogger(getClass()).error("Failed to get principal: " + name, ex);
 			throw new PrincipalNotFoundException(name, ex);
 		} finally {
-			if (systemSession != null) {
+			try {
 				systemSession.logout();
-				systemSession = null;
-			}
+			} catch (Throwable ignore) {}
+			systemSession = null;
 		}
 	}
 
