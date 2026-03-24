@@ -35,6 +35,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
+import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -54,6 +55,7 @@ import org.apache.camel.support.DefaultComponent;
 import org.apache.camel.support.DefaultEndpoint;
 import org.apache.camel.support.DefaultProducer;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.DateUtils;
 import org.mintjams.tools.collections.AdaptableList;
 
 public class TransformComponent extends DefaultComponent {
@@ -97,6 +99,8 @@ public class TransformComponent extends DefaultComponent {
 			// Determine operation type
 			if ("truncateString".equals(fOperation)) {
 				return new TruncateStringProducer();
+			} else if ("truncateDate".equals(fOperation)) {
+				return new TruncateDateProducer();
 			} else if ("toDate".equals(fOperation)) {
 				return new ToDateProducer();
 			} else if ("parseDate".equals(fOperation)) {
@@ -378,6 +382,38 @@ public class TransformComponent extends DefaultComponent {
 					pc.setHeader(name, StringUtils.truncate(value.toString(), offset, maxLength));
 				}
 				pc.setHeader(name, StringUtils.truncate(value.toString(), maxLength));
+			}
+		}
+
+		private class TruncateDateProducer extends TransformProducer {
+			private TruncateDateProducer() {
+				super(TransformEndpoint.this);
+			}
+
+			@Override
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
+				if (value == null) {
+					return;
+				}
+
+				String field = pc.getParameterAsString("field");
+				if (field == null) {
+					throw new IllegalArgumentException("field parameter is required for truncateDate operation");
+				}
+
+				pc.setHeader(name, DateUtils.truncate((Date) value, toCalendarField(field)));
+			}
+
+			private int toCalendarField(String field) {
+				return switch (field.toLowerCase()) {
+					case "year" -> Calendar.YEAR;
+					case "month" -> Calendar.MONTH;
+					case "day" -> Calendar.DAY_OF_MONTH;
+					case "hour" -> Calendar.HOUR_OF_DAY;
+					case "minute" -> Calendar.MINUTE;
+					case "second" -> Calendar.SECOND;
+					default -> throw new IllegalArgumentException("Invalid field for truncateDate: " + field);
+				};
 			}
 		}
 
