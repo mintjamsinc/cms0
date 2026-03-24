@@ -41,13 +41,13 @@ import org.mintjams.jcr.util.JCRs;
 
 /**
  * GraphQL Query executor for IdP user/group/role management.
- * Operates against /home/idp/ in the JCR system workspace.
+ * Operates against /home/ in the JCR system workspace.
  */
 public class IdpQueryExecutor {
 
-	static final String USERS_ROOT = "/home/idp/users";
-	static final String ROLES_ROOT = "/home/idp/roles";
-	static final String GROUPS_ROOT = "/home/idp/groups";
+	static final String USERS_ROOT = "/home/users";
+	static final String ROLES_ROOT = "/home/roles";
+	static final String GROUPS_ROOT = "/home/groups";
 
 	private final Session session;
 
@@ -469,12 +469,12 @@ public class IdpQueryExecutor {
 	// =========================================================================
 
 	String getRoleId(Node roleProfileNode) throws Exception {
-		String path = roleProfileNode.getPath(); // /home/idp/roles/administration/profile
+		String path = roleProfileNode.getPath(); // /home/roles/administration/profile
 		return path.substring(ROLES_ROOT.length() + 1, path.length() - "/profile".length());
 	}
 
 	String getGroupId(Node groupProfileNode) throws Exception {
-		String path = groupProfileNode.getPath(); // /home/idp/groups/mintjams/sales/profile
+		String path = groupProfileNode.getPath(); // /home/groups/mintjams/sales/profile
 		return path.substring(GROUPS_ROOT.length() + 1, path.length() - "/profile".length());
 	}
 
