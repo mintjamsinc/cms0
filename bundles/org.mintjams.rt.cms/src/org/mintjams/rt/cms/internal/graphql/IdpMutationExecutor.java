@@ -72,7 +72,7 @@ public class IdpMutationExecutor {
 		Node usersFolder = ensureFolder(IdpQueryExecutor.USERS_ROOT);
 		Node userFolder = JCRs.getOrCreateFolder(usersFolder, username);
 		Node profileFile = JCRs.createFile(userFolder, "profile");
-		JCRs.setProperty(profileFile, "jcr:mimeType", "application/x-idp-profile");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
 		JCRs.setProperty(profileFile, "password", "{bcrypt}" + BCrypt.hash(password));
 
 		Node contentNode = JCRs.getContentNode(profileFile);
@@ -327,7 +327,7 @@ public class IdpMutationExecutor {
 		Node roleFolder = JCRs.getOrCreateFolder(rolesFolder, roleId);
 		Node profileFile = JCRs.createFile(roleFolder, "profile");
 		profileFile.addMixin("mix:referenceable");
-		JCRs.setProperty(profileFile, "jcr:mimeType", "application/x-idp-role");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.role");
 
 		Node contentNode = JCRs.getContentNode(profileFile);
 		setStringIfPresent(contentNode, "displayName", input);
@@ -432,7 +432,7 @@ public class IdpMutationExecutor {
 		Node groupFolder = JCRs.getOrCreateFolder(parentFolder, name);
 		Node profileFile = JCRs.createFile(groupFolder, "profile");
 		profileFile.addMixin("mix:referenceable");
-		JCRs.setProperty(profileFile, "jcr:mimeType", "application/x-idp-group");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.group");
 
 		Node contentNode = JCRs.getContentNode(profileFile);
 		setStringIfPresent(contentNode, "displayName", input);

@@ -208,7 +208,7 @@ public class Activator implements BundleActivator {
 		Node roleFolder = JCRs.getOrCreateFolder(rolesFolder, "administration");
 		Node profileFile = JCRs.createFile(roleFolder, "profile");
 		profileFile.addMixin("mix:referenceable");
-		JCRs.setProperty(profileFile, "jcr:mimeType", "application/x-idp-role");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.role");
 		JCRs.setProperty(profileFile, "displayName", "Administration");
 		JCRs.setProperty(profileFile, "description", "Full administrative access");
 		log.info("Created default 'administration' role at {}", profileFile.getPath());
@@ -227,7 +227,7 @@ public class Activator implements BundleActivator {
 		String passwordHash = "{bcrypt}" + BCrypt.hash(password);
 
 		Node profileFile = JCRs.createFile(adminFolder, "profile");
-		JCRs.setProperty(profileFile, "jcr:mimeType", "application/x-idp-profile");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
 		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "mail", "admin@example.com");
 		JCRs.setProperty(profileFile, "enabled", true);
