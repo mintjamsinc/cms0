@@ -717,6 +717,9 @@ public class MutationExecutor {
 				throw new IllegalArgumentException("entries must be an array");
 			}
 
+			// Clear existing ACL entries for the path before applying new ones
+			((org.mintjams.jcr.security.AccessControlList) acl).clear();
+
 			@SuppressWarnings("unchecked")
 			java.util.List<Object> entriesList = (java.util.List<Object>) entriesObj;
 
