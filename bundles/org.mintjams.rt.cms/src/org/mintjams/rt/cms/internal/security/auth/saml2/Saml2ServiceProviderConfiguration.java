@@ -226,9 +226,9 @@ public class Saml2ServiceProviderConfiguration {
 					// Check if this is a SAML Response (from IdP) or initial login request
 					if (!auth.hasSAMLResponse(request)) {
 						// No SAML response, initiate login by redirecting to IdP
-						String redirectURI = getRedirectURI(request);
-						if (Strings.isNotEmpty(redirectURI)) {
-							auth.login(redirectURI, true, false);
+						String relayState = getRelayState(request);
+						if (Strings.isNotEmpty(relayState)) {
+							auth.login(relayState, true, false);
 						} else {
 							auth.login(null, true, false);
 						}
@@ -251,14 +251,14 @@ public class Saml2ServiceProviderConfiguration {
 					}
 
 					// Log SAML attributes for verification
-					CmsService.getDefault().getLogger(getClass()).info("SAML Authentication successful for user: " + auth.getNameId());
-					CmsService.getDefault().getLogger(getClass()).info("SAML Attributes count: " + auth.getAttributes().size());
+					CmsService.getLogger(getClass()).info("SAML Authentication successful for user: " + auth.getNameId());
+					CmsService.getLogger(getClass()).info("SAML Attributes count: " + auth.getAttributes().size());
 					for (Map.Entry<String, List<String>> entry : auth.getAttributes().entrySet()) {
 						String attributeName = entry.getKey();
 						List<String> attributeValues = entry.getValue();
-						CmsService.getDefault().getLogger(getClass()).info("  Attribute '" + attributeName + "' has " + attributeValues.size() + " value(s):");
+						CmsService.getLogger(getClass()).info("  Attribute '" + attributeName + "' has " + attributeValues.size() + " value(s):");
 						for (int i = 0; i < attributeValues.size(); i++) {
-							CmsService.getDefault().getLogger(getClass()).info("    [" + i + "] = " + attributeValues.get(i));
+							CmsService.getLogger(getClass()).info("    [" + i + "] = " + attributeValues.get(i));
 						}
 					}
 
@@ -283,9 +283,9 @@ public class Saml2ServiceProviderConfiguration {
 						throw new ServletException("An unexpected error occurred while processing your request: " + String.join(", ", errors));
 					}
 
-					String redirectURI = getRedirectURI(request);
-					if (Strings.isNotEmpty(redirectURI)) {
-						response.sendRedirect(redirectURI);
+					String relayState = getRelayState(request);
+					if (Strings.isNotEmpty(relayState)) {
+						response.sendRedirect(relayState);
 						return;
 					}
 
@@ -308,14 +308,6 @@ public class Saml2ServiceProviderConfiguration {
 			}
 
 			response.sendError(HttpServletResponse.SC_NOT_FOUND);
-		}
-
-		private String getRedirectURI(HttpServletRequest request) {
-			String redirectURI = request.getParameter("redirect_uri");
-			if (Strings.isEmpty(redirectURI)) {
-				return null;
-			}
-			return redirectURI;
 		}
 
 		private String getRelayState(HttpServletRequest request) throws URISyntaxException {
