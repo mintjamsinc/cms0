@@ -380,8 +380,9 @@ public class TransformComponent extends DefaultComponent {
 
 				if (offset != null) {
 					pc.setHeader(name, StringUtils.truncate(value.toString(), offset, maxLength));
+				} else {
+					pc.setHeader(name, StringUtils.truncate(value.toString(), maxLength));
 				}
-				pc.setHeader(name, StringUtils.truncate(value.toString(), maxLength));
 			}
 		}
 
