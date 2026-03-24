@@ -183,10 +183,9 @@ public class Activator implements BundleActivator {
 	private void initializeJcrStructure(Session jcrSession) throws Exception {
 		try {
 			Node homeFolder = JCRs.getOrCreateFolder(jcrSession.getRootNode(), "home");
-			Node idpFolder = JCRs.getOrCreateFolder(homeFolder, "idp");
-			Node usersFolder = JCRs.getOrCreateFolder(idpFolder, "users");
-			JCRs.getOrCreateFolder(idpFolder, "groups");
-			Node rolesFolder = JCRs.getOrCreateFolder(idpFolder, "roles");
+			Node usersFolder = JCRs.getOrCreateFolder(homeFolder, "users");
+			JCRs.getOrCreateFolder(homeFolder, "groups");
+			Node rolesFolder = JCRs.getOrCreateFolder(homeFolder, "roles");
 
 			initializeAdminRole(rolesFolder);
 			initializeAdminUser(usersFolder, rolesFolder);

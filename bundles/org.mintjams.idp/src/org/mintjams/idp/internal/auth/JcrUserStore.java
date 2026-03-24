@@ -44,7 +44,7 @@ import org.slf4j.LoggerFactory;
 /**
  * JCR-based user store that reads user profiles from the repository.
  *
- * <p>User profiles are stored at {@code /home/idp/users/{username}/profile}
+ * <p>User profiles are stored at {@code /home/users/{username}/profile}
  * in the system workspace with the following properties:</p>
  * <ul>
  *   <li>{@code password} - hashed password with prefix ({bcrypt} or {sha256})</li>
@@ -57,9 +57,9 @@ public class JcrUserStore implements UserStore {
 
 	private static final Logger LOG = LoggerFactory.getLogger(JcrUserStore.class);
 
-	private static final String USERS_ROOT = "/home/idp/users";
-	private static final String ROLES_ROOT = "/home/idp/roles";
-	private static final String GROUPS_ROOT = "/home/idp/groups";
+	private static final String USERS_ROOT = "/home/users";
+	private static final String ROLES_ROOT = "/home/roles";
+	private static final String GROUPS_ROOT = "/home/groups";
 
 	@Override
 	public IdpUser authenticate(String username, String password) {
@@ -152,13 +152,13 @@ public class JcrUserStore implements UserStore {
 
 	/**
 	 * Resolves a WEAKREFERENCE value to a SAML path string.
-	 * e.g. UUID of /home/idp/roles/administration/profile → "/administration"
-	 *      UUID of /home/idp/groups/mintjams/sales/profile → "/mintjams/sales"
+	 * e.g. UUID of /home/roles/administration/profile → "/administration"
+	 *      UUID of /home/groups/mintjams/sales/profile → "/mintjams/sales"
 	 */
 	private String resolveWeakReferenceToSamlPath(Value v, Session jcrSession, String rootPath) {
 		try {
 			Node profileNode = jcrSession.getNodeByIdentifier(v.getString());
-			String fullPath = profileNode.getPath(); // e.g. /home/idp/roles/administration/profile
+			String fullPath = profileNode.getPath(); // e.g. /home/roles/administration/profile
 			// Strip rootPath prefix and /profile suffix
 			String relative = fullPath.substring(rootPath.length()); // /administration/profile
 			return relative.substring(0, relative.length() - "/profile".length()); // /administration
