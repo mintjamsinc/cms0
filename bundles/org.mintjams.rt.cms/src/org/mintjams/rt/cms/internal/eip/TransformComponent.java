@@ -119,6 +119,10 @@ public class TransformComponent extends DefaultComponent {
 				return new ToStringProducer();
 			} else if ("removeHeader".equals(fOperation)) {
 				return new RemoveHeaderProducer();
+			} else if ("toMap".equals(fOperation)) {
+				return new ToMapProducer();
+			} else if ("fromMap".equals(fOperation)) {
+				return new FromMapProducer();
 			} else {
 				// Unsupported operation
 				throw new UnsupportedOperationException("Unsupported operation: " + fOperation);
@@ -139,26 +143,38 @@ public class TransformComponent extends DefaultComponent {
 
 			/**
 			 * Process the exchange by applying the transformation logic to the headers specified in the "targets" parameter.
+			 * This method retrieves the headers from the exchange and delegates to the doProcess(Map<String, Object>, ProcessContext) method for actual processing.
 			 */
 			protected void doProcess(ProcessContext pc) throws Exception {
-				Map<String, Object> headers = pc.getExchange().getIn().getHeaders();
+				doProcess(pc.getExchange().getIn().getHeaders(), pc);
+			}
+
+			/**
+			 * Process the given map of headers by applying the transformation logic to the headers specified in the "targets" parameter.
+			 * This method iterates over the headers and applies the transformation to those that match the specified targets, while respecting any exclusion filters defined in the "excludeTargets" parameter.
+			 */
+			protected void doProcess(Map<String, Object> map, ProcessContext pc) throws Exception {
+				if (map == null) {
+					return; // No headers to process, so skip transformation
+				}
+
 				for (String filter : pc.parseFilterList(pc.getParameter("targets"))) {
 					if (filter.endsWith("*")) {
 						String prefix = filter.substring(0, filter.length() - 1);
-						for (Map.Entry<String, Object> entry : headers.entrySet()) {
+						for (Map.Entry<String, Object> entry : map.entrySet()) {
 							if (entry.getKey().startsWith(prefix)) {
 								transform(entry.getKey(), entry.getValue(), pc);
 							}
 						}
 					} else if (filter.startsWith("*")) {
 						String suffix = filter.substring(1);
-						for (Map.Entry<String, Object> entry : headers.entrySet()) {
+						for (Map.Entry<String, Object> entry : map.entrySet()) {
 							if (entry.getKey().endsWith(suffix)) {
 								transform(entry.getKey(), entry.getValue(), pc);
 							}
 						}
 					} else {
-						transform(filter, headers.get(filter), pc);
+						transform(filter, map.get(filter), pc);
 					}
 				}
 			}
@@ -289,7 +305,7 @@ public class TransformComponent extends DefaultComponent {
 				 */
 				public String getParameterAsString(String key) {
 					Object value = getParameter(key);
-					return value != null ? value.toString() : null;
+					return value != null ? value.toString().trim() : null;
 				}
 
 				/**
@@ -562,6 +578,50 @@ public class TransformComponent extends DefaultComponent {
 			@Override
 			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
 				pc.getExchange().getIn().removeHeader(name);
+			}
+		}
+
+		private class ToMapProducer extends TransformProducer {
+			private ToMapProducer() {
+				super(TransformEndpoint.this);
+			}
+
+			@Override
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
+				String to = pc.getParameterAsString("to");
+				@SuppressWarnings("unchecked")
+				Map<String, Object> map = (Map<String, Object>) pc.getExchange().getIn().getHeader(to);
+				if (map == null) {
+					map = new HashMap<>();
+					pc.getExchange().getIn().setHeader(to, map);
+				}
+				map.put(name, value);
+			}
+		}
+
+		private class FromMapProducer extends TransformProducer {
+			private FromMapProducer() {
+				super(TransformEndpoint.this);
+			}
+
+			protected void doProcess(ProcessContext pc) throws Exception {
+				String from = pc.getParameterAsString("from");
+				@SuppressWarnings("unchecked")
+				Map<String, Object> map = (Map<String, Object>) pc.getExchange().getIn().getHeader(from);
+				doProcess(map, pc);
+			}
+
+			@Override
+			protected void applyTransform(String name, Object value, ProcessContext pc) throws Exception {
+				String prefix = pc.getParameterAsString("prefix");
+				String suffix = pc.getParameterAsString("suffix");
+				if (prefix != null) {
+					name = prefix + name;
+				}
+				if (suffix != null) {
+					name = name + suffix;
+				}
+				pc.setHeader(name, value);
 			}
 		}
 	}
