@@ -227,6 +227,10 @@ public class Saml2ServiceProviderConfiguration {
 					if (!auth.hasSAMLResponse(request)) {
 						// No SAML response, initiate login by redirecting to IdP
 						String relayState = getRelayState(request);
+						if (relayState == null) {
+							// Legacy support for "redirect_uri" parameter as relay state
+							relayState = getRedirectURI(request);
+						}
 						if (Strings.isNotEmpty(relayState)) {
 							auth.login(relayState, true, false);
 						} else {
@@ -284,6 +288,10 @@ public class Saml2ServiceProviderConfiguration {
 					}
 
 					String relayState = getRelayState(request);
+					if (relayState == null) {
+						// Legacy support for "redirect_uri" parameter as relay state
+						relayState = getRedirectURI(request);
+					}
 					if (Strings.isNotEmpty(relayState)) {
 						response.sendRedirect(relayState);
 						return;
@@ -308,6 +316,14 @@ public class Saml2ServiceProviderConfiguration {
 			}
 
 			response.sendError(HttpServletResponse.SC_NOT_FOUND);
+		}
+
+		private String getRedirectURI(HttpServletRequest request) {
+			String redirectURI = request.getParameter("redirect_uri");
+			if (Strings.isEmpty(redirectURI)) {
+				return null;
+			}
+			return redirectURI;
 		}
 
 		private String getRelayState(HttpServletRequest request) throws URISyntaxException {
