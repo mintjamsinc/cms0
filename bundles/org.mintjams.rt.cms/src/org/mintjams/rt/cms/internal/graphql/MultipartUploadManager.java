@@ -39,6 +39,7 @@ import javax.jcr.Node;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 
+import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 
@@ -157,7 +158,7 @@ public class MultipartUploadManager {
 
 			// Check if parent exists
 			if (!session.nodeExists(parentPath)) {
-				throw new IllegalArgumentException("Parent node not found: " + parentPath);
+				JCRs.getOrCreateFolder(JcrPath.valueOf(parentPath), session);
 			}
 
 			Node parentNode = session.getNode(parentPath);
