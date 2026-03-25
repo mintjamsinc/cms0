@@ -109,6 +109,12 @@ public class SubscriptionMatcher {
 		if ("preferenceChanged".equals(type)) {
 			return matchesPreferenceChanged(event);
 		}
+		if ("wallpaperChanged".equals(type)) {
+			return matchesWallpaperChanged(event);
+		}
+		if ("avatarChanged".equals(type)) {
+			return matchesAvatarChanged(event);
+		}
 		// Other subscription types can be added here
 		return false;
 	}
@@ -176,6 +182,44 @@ public class SubscriptionMatcher {
 
 		String preferencesPrefix = "/home/users/" + userId + "/preferences/";
 		return eventPath.startsWith(preferencesPrefix);
+	}
+
+	/**
+	 * Match avatarChanged subscription against a CMS event.
+	 *
+	 * Parameters:
+	 * - userId: The user whose avatar to watch (required)
+	 *
+	 * Matches any node change on /home/users/{userId}/avatar or its children.
+	 */
+	private boolean matchesAvatarChanged(CmsEvent event) {
+		String eventPath = event.getPath();
+		if (eventPath == null) return false;
+
+		String userId = params.get("userId");
+		if (userId == null || userId.isEmpty()) return false;
+
+		String avatarPath = "/home/users/" + userId + "/avatar";
+		return eventPath.equals(avatarPath) || eventPath.startsWith(avatarPath + "/");
+	}
+
+	/**
+	 * Match wallpaperChanged subscription against a CMS event.
+	 *
+	 * Parameters:
+	 * - userId: The user whose wallpapers to watch (required)
+	 *
+	 * Matches any node change under /home/users/{userId}/wallpapers/.
+	 */
+	private boolean matchesWallpaperChanged(CmsEvent event) {
+		String eventPath = event.getPath();
+		if (eventPath == null) return false;
+
+		String userId = params.get("userId");
+		if (userId == null || userId.isEmpty()) return false;
+
+		String wallpapersPrefix = "/home/users/" + userId + "/wallpapers/";
+		return eventPath.startsWith(wallpapersPrefix);
 	}
 
 	/**

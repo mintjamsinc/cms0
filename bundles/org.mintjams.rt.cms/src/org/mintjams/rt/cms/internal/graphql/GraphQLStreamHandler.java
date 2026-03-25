@@ -207,6 +207,10 @@ public class GraphQLStreamHandler {
 				if (matcher.matches(event)) {
 					if ("preferenceChanged".equals(matcher.getType())) {
 						sendPreferenceChangedEvent(matcher, event);
+					} else if ("wallpaperChanged".equals(matcher.getType())) {
+						sendWallpaperChangedEvent(matcher, event);
+					} else if ("avatarChanged".equals(matcher.getType())) {
+						sendAvatarChangedEvent(matcher, event);
 					} else {
 						sendEvent(matcher.getSubscriptionString(), event);
 					}
@@ -283,6 +287,96 @@ public class GraphQLStreamHandler {
 				if (jcrSession != null) {
 					try { jcrSession.logout(); } catch (Exception ignore) {}
 				}
+			}
+		}
+
+		/**
+		 * Send an avatarChanged SSE event.
+		 * Notifies the client that the user's avatar has been updated.
+		 */
+		private void sendAvatarChangedEvent(SubscriptionMatcher matcher, CmsEvent event) {
+			if (closed) return;
+
+			String userId = matcher.getParams().get("userId");
+
+			try {
+				Map<String, Object> eventData = new LinkedHashMap<>();
+				eventData.put("userId", userId);
+				eventData.put("timestamp", Instant.now().toString());
+
+				Map<String, Object> message = new LinkedHashMap<>();
+				message.put("subscription", matcher.getSubscriptionString());
+				message.put("data", eventData);
+
+				String json = GSON.toJson(message);
+
+				PrintWriter writer = asyncContext.getResponse().getWriter();
+				synchronized (writer) {
+					writer.write("data: " + json + "\n\n");
+					writer.flush();
+				}
+			} catch (IOException e) {
+				CmsService.getLogger(getClass()).debug("SSE write failed, closing stream", e);
+				cleanup();
+				try {
+					asyncContext.complete();
+				} catch (Exception ignore) {}
+			}
+		}
+
+		/**
+		 * Send a wallpaperChanged SSE event.
+		 * Derives the action (added/updated/deleted) from the JCR event topic and
+		 * extracts the wallpaper filename from the event path.
+		 */
+		private void sendWallpaperChangedEvent(SubscriptionMatcher matcher, CmsEvent event) {
+			if (closed) return;
+
+			String userId = matcher.getParams().get("userId");
+			String eventPath = event.getPath();
+
+			// Extract filename: first segment after /home/users/{userId}/wallpapers/
+			String wallpapersPrefix = "/home/users/" + userId + "/wallpapers/";
+			String relative = eventPath.substring(wallpapersPrefix.length());
+			String filename = relative.split("/")[0];
+			if (filename.isEmpty()) return;
+
+			// Derive action from topic
+			String topic = event.getTopic();
+			String topicType = topic.substring(topic.lastIndexOf('/') + 1).toLowerCase();
+			String action;
+			if ("removed".equals(topicType)) {
+				action = "deleted";
+			} else if ("added".equals(topicType)) {
+				action = "added";
+			} else {
+				action = "updated";
+			}
+
+			try {
+				Map<String, Object> eventData = new LinkedHashMap<>();
+				eventData.put("userId", userId);
+				eventData.put("action", action);
+				eventData.put("filename", filename);
+				eventData.put("timestamp", Instant.now().toString());
+
+				Map<String, Object> message = new LinkedHashMap<>();
+				message.put("subscription", matcher.getSubscriptionString());
+				message.put("data", eventData);
+
+				String json = GSON.toJson(message);
+
+				PrintWriter writer = asyncContext.getResponse().getWriter();
+				synchronized (writer) {
+					writer.write("data: " + json + "\n\n");
+					writer.flush();
+				}
+			} catch (IOException e) {
+				CmsService.getLogger(getClass()).debug("SSE write failed, closing stream", e);
+				cleanup();
+				try {
+					asyncContext.complete();
+				} catch (Exception ignore) {}
 			}
 		}
 
