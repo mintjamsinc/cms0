@@ -47,8 +47,8 @@ import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.AccessControlManager;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
-import org.mintjams.jcr.spi.security.JcrAuthenticator;
-import org.mintjams.jcr.spi.security.JcrPrincipalProvider;
+import org.mintjams.jcr.spi.security.Authenticator;
+import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.bpm.WorkspaceProcessEngineProvider;
 import org.mintjams.rt.cms.internal.cms.event.WorkspaceCmsEventManager;
@@ -211,17 +211,17 @@ public class CmsService {
 				.build());
 
 		// The default principal provider
-		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
+		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
 				.setService(new DefaultPrincipalProvider())
 				.setBundleContext(getBundleContext())
 				.build());
 
 		// The user service authenticator and principal provider
-		fCloser.register(Registration.newBuilder(JcrAuthenticator.class)
+		fCloser.register(Registration.newBuilder(Authenticator.class)
 				.setService(new UserServiceAuthenticator())
 				.setBundleContext(getBundleContext())
 				.build());
-		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
+		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
 				.setService(new ServiceAccountPrincipalProvider())
 				.setBundleContext(getBundleContext())
 				.build());
@@ -229,11 +229,11 @@ public class CmsService {
 		// The SAML2 authenticator and principal provider
 		Saml2ServiceProvider saml2ServiceProvider = new Saml2ServiceProvider();
 		fCloser.register(saml2ServiceProvider).open();
-		fCloser.register(Registration.newBuilder(JcrAuthenticator.class)
+		fCloser.register(Registration.newBuilder(Authenticator.class)
 				.setService(new Saml2Authenticator(saml2ServiceProvider.getConfiguration()))
 				.setBundleContext(getBundleContext())
 				.build());
-		fCloser.register(Registration.newBuilder(JcrPrincipalProvider.class)
+		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
 				.setService(new Saml2PrincipalProvider(saml2ServiceProvider.getConfiguration()))
 				.setBundleContext(getBundleContext())
 				.build());

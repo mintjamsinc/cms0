@@ -31,6 +31,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -50,6 +51,12 @@ import javax.jcr.nodetype.ConstraintViolationException;
 import javax.jcr.nodetype.NodeDefinition;
 import javax.jcr.nodetype.NodeType;
 import javax.jcr.nodetype.PropertyDefinition;
+import javax.jcr.security.AccessControlException;
+import javax.jcr.security.AccessControlList;
+import javax.jcr.security.AccessControlManager;
+import javax.jcr.security.AccessControlPolicy;
+import javax.jcr.security.AccessControlPolicyIterator;
+import javax.jcr.security.Privilege;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.tools.lang.Cause;
@@ -797,6 +804,53 @@ public class JCRs {
 		}
 
 		return parent.addNode(path.getName().toString());
+	}
+
+	public static AccessControlList getAccessControlList(Node node) throws RepositoryException {
+		AccessControlManager acm = node.getSession().getAccessControlManager();
+
+		// Try to get existing ACL
+		AccessControlPolicy[] policies = acm.getPolicies(node.getPath());
+		for (AccessControlPolicy policy : policies) {
+			if (policy instanceof AccessControlList) {
+				return (AccessControlList) policy;
+			}
+		}
+
+		// If no ACL exists, get applicable policy
+		AccessControlPolicyIterator applicablePolicies = acm.getApplicablePolicies(node.getPath());
+		while (applicablePolicies.hasNext()) {
+			AccessControlPolicy applicablePolicy = applicablePolicies.nextAccessControlPolicy();
+			if (applicablePolicy instanceof AccessControlList) {
+				return (AccessControlList) applicablePolicy;
+			}
+		}
+
+		throw new AccessControlException("No AccessControlList available for path: " + node.getPath());
+	}
+
+	public static void clearAccessControlList(Node node) throws RepositoryException {
+		org.mintjams.jcr.security.AccessControlList acl = (org.mintjams.jcr.security.AccessControlList) getAccessControlList(node);
+		acl.clear();
+	}
+
+	public static void addAccessControlEntry(Node node, Principal grantee, boolean isAllow, String... privilegeNames) throws RepositoryException {
+		AccessControlManager acm = node.getSession().getAccessControlManager();
+		org.mintjams.jcr.security.AccessControlList acl = (org.mintjams.jcr.security.AccessControlList) getAccessControlList(node);
+		Privilege[] privileges = Arrays.stream(privilegeNames).map(name -> {
+			try {
+				return acm.privilegeFromName(name);
+			} catch (RepositoryException ex) {
+				throw Cause.create(ex).wrap(IllegalArgumentException.class);
+			}
+		}).toArray(Privilege[]::new);
+		acl.addAccessControlEntry(grantee, isAllow, privileges);
+		acm.setPolicy(node.getPath(), acl);
+	}
+
+	public static void setAccessControlEntry(Node node, Principal grantee, boolean isAllow, String... privilegeNames) throws RepositoryException {
+		clearAccessControlList(node);
+		addAccessControlEntry(node, grantee, isAllow, privilegeNames);
 	}
 
 }

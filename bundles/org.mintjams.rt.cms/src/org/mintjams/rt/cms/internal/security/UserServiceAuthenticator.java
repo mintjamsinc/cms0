@@ -26,9 +26,9 @@ import javax.jcr.Credentials;
 import javax.security.auth.login.LoginException;
 
 import org.mintjams.jcr.security.UserPrincipal;
-import org.mintjams.jcr.spi.security.JcrAuthenticator;
+import org.mintjams.jcr.spi.security.Authenticator;
 
-public class UserServiceAuthenticator implements JcrAuthenticator {
+public class UserServiceAuthenticator implements Authenticator {
 
 	@Override
 	public boolean canAuthenticate(Credentials credentials) {

@@ -23,6 +23,7 @@
 package org.mintjams.idp.internal;
 
 import java.io.IOException;
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,6 +31,7 @@ import javax.jcr.Node;
 import javax.jcr.Repository;
 import javax.jcr.Session;
 import javax.jcr.Value;
+import javax.jcr.security.Privilege;
 
 import org.mintjams.cms.CmsService;
 import org.mintjams.cms.security.BCrypt;
@@ -148,8 +150,6 @@ public class Activator implements BundleActivator {
 
 			// Initialize UserStore
 			fUserStore = new JcrUserStore();
-
-			jcrSession.save();
 		} catch (Throwable ex) {
 			try {
 				jcrSession.refresh(false);
@@ -186,6 +186,9 @@ public class Activator implements BundleActivator {
 			Node usersFolder = JCRs.getOrCreateFolder(homeFolder, "users");
 			JCRs.getOrCreateFolder(homeFolder, "groups");
 			Node rolesFolder = JCRs.getOrCreateFolder(homeFolder, "roles");
+			if (jcrSession.hasPendingChanges()) {
+				jcrSession.save();
+			}
 
 			initializeAdminRole(rolesFolder);
 			initializeAdminUser(usersFolder, rolesFolder);
@@ -196,11 +199,16 @@ public class Activator implements BundleActivator {
 	}
 
 	private void initializeAdminRole(Node rolesFolder) throws Exception {
+		Session jcrSession = rolesFolder.getSession();
+
 		if (rolesFolder.hasNode("administration/profile")) {
 			// Ensure mix:referenceable is present (migration for existing installations)
 			Node roleProfile = rolesFolder.getNode("administration/profile");
 			if (!roleProfile.isNodeType("mix:referenceable")) {
 				roleProfile.addMixin("mix:referenceable");
+			}
+			if (jcrSession.hasPendingChanges()) {
+				jcrSession.save();
 			}
 			return;
 		}
@@ -211,10 +219,15 @@ public class Activator implements BundleActivator {
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.role");
 		JCRs.setProperty(profileFile, "displayName", "Administration");
 		JCRs.setProperty(profileFile, "description", "Full administrative access");
+		if (jcrSession.hasPendingChanges()) {
+			jcrSession.save();
+		}
 		log.info("Created default 'administration' role at {}", profileFile.getPath());
 	}
 
 	private void initializeAdminUser(Node usersFolder, Node rolesFolder) throws Exception {
+		Session jcrSession = usersFolder.getSession();
+
 		if (usersFolder.hasNode("admin/profile")) {
 			// Migrate roles from String[] to WEAKREFERENCE[] if needed
 			migrateUserRolesToWeakReference(usersFolder, rolesFolder);
@@ -256,6 +269,17 @@ public class Activator implements BundleActivator {
 				**********************************************************************
 				""".formatted(profileFile.getPath(), password));
 		password = null; // Clear password variable for security
+
+		jcrSession.save();
+
+		// Grant full access to the admin user on their own profile
+		JCRs.setAccessControlEntry(adminFolder, new Principal() {
+			@Override
+			public String getName() {
+				return "admin";
+			}
+		}, true, Privilege.JCR_ALL);
+		jcrSession.save();
 	}
 
 	private void migrateUserRolesToWeakReference(Node usersFolder, Node rolesFolder) throws Exception {
@@ -284,6 +308,9 @@ public class Activator implements BundleActivator {
 				contentNode.setProperty("roles", weakRefs.toArray(new Value[0]));
 				log.info("Migrated roles to WeakReference for user: {}", userFolder.getName());
 			}
+		}
+		if (jcrSession.hasPendingChanges()) {
+			jcrSession.save();
 		}
 	}
 

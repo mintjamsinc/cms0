@@ -39,8 +39,8 @@ import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.service.Bootstrap;
-import org.mintjams.jcr.spi.security.JcrAuthenticator;
-import org.mintjams.jcr.spi.security.JcrPrincipalProvider;
+import org.mintjams.jcr.spi.security.Authenticator;
+import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.searchindex.SearchIndexFactory;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.osgi.Registration;
@@ -63,17 +63,17 @@ public class Activator implements BundleActivator {
 	private Tracker<LoggerFactory> fLoggerFactoryTracker;
 	private Tracker<EventAdmin> fEventAdminTracker;
 	private Tracker<SearchIndexFactory> fSearchIndexFactoryTracker;
-	private Tracker<JcrAuthenticator> fAuthenticatorTracker;
-	private Tracker<JcrPrincipalProvider> fPrincipalProviderTracker;
+	private Tracker<Authenticator> fAuthenticatorTracker;
+	private Tracker<PrincipalProvider> fPrincipalProviderTracker;
 	private JcrBootstrap fBootstrap;
-	private final Map<String, JcrPrincipalProvider> fPrincipalProviderServices = new HashMap<>();
+	private final Map<String, PrincipalProvider> fPrincipalProviderServices = new HashMap<>();
 	private final ObjectMapper fObjectMapper = new ObjectMapper();
 
 	private Tracker.Listener<Object> fTrackerListener = new Tracker.Listener<Object>() {
 		@Override
 		public void on(Tracker.Event<Object> event) {
 			if (event instanceof Tracker.ServiceAddingEvent) {
-				if (event.getService() instanceof JcrPrincipalProvider) {
+				if (event.getService() instanceof PrincipalProvider) {
 					synchronized (fPrincipalProviderServices) {
 						fPrincipalProviderServices.clear();
 					}
@@ -90,7 +90,7 @@ public class Activator implements BundleActivator {
 					close();
 				} catch (Throwable ignore) {}
 
-				if (event.getService() instanceof JcrPrincipalProvider) {
+				if (event.getService() instanceof PrincipalProvider) {
 					synchronized (fPrincipalProviderServices) {
 						fPrincipalProviderServices.clear();
 					}
@@ -123,12 +123,12 @@ public class Activator implements BundleActivator {
 				.build());
 		fSearchIndexFactoryTracker.open();
 
-		fAuthenticatorTracker = fCloser.register(Tracker.newBuilder(JcrAuthenticator.class)
+		fAuthenticatorTracker = fCloser.register(Tracker.newBuilder(Authenticator.class)
 				.setBundleContext(fBundleContext)
 				.build());
 		fAuthenticatorTracker.open();
 
-		fPrincipalProviderTracker = fCloser.register(Tracker.newBuilder(JcrPrincipalProvider.class)
+		fPrincipalProviderTracker = fCloser.register(Tracker.newBuilder(PrincipalProvider.class)
 				.setBundleContext(fBundleContext)
 				.build());
 		fPrincipalProviderTracker.open();
@@ -196,22 +196,22 @@ public class Activator implements BundleActivator {
 		return repository;
 	}
 
-	public Collection<JcrAuthenticator> getAuthenticators() {
+	public Collection<Authenticator> getAuthenticators() {
 		return fAuthenticatorTracker.getServices();
 	}
 
-	public List<JcrPrincipalProvider> getPrincipalProviders() throws RepositoryException {
+	public List<PrincipalProvider> getPrincipalProviders() throws RepositoryException {
 		synchronized (fPrincipalProviderServices) {
 			if (fPrincipalProviderServices.isEmpty()) {
-				for (JcrPrincipalProvider principalProvider : getDefault().fPrincipalProviderTracker.getServices()) {
+				for (PrincipalProvider principalProvider : getDefault().fPrincipalProviderTracker.getServices()) {
 					fPrincipalProviderServices.put(principalProvider.getClass().getName(), principalProvider);
 				}
 			}
 		}
 
-		List<JcrPrincipalProvider> l = new ArrayList<>();
+		List<PrincipalProvider> l = new ArrayList<>();
 		for (String className : getRepository().getConfiguration().getPrincipalProviderServices()) {
-			JcrPrincipalProvider provider = fPrincipalProviderServices.get(className);
+			PrincipalProvider provider = fPrincipalProviderServices.get(className);
 			if (provider != null) {
 				l.add(provider);
 			}
@@ -227,7 +227,7 @@ public class Activator implements BundleActivator {
 			return new EveryonePrincipal();
 		}
 
-		for (JcrPrincipalProvider principalProvider : getPrincipalProviders()) {
+		for (PrincipalProvider principalProvider : getPrincipalProviders()) {
 			try {
 				return principalProvider.getPrincipal(name);
 			} catch (PrincipalNotFoundException | UnsupportedOperationException ignore) {
@@ -243,7 +243,7 @@ public class Activator implements BundleActivator {
 	public Collection<GroupPrincipal> getMemberOf(Principal principal) {
 		List<GroupPrincipal> memberOf = new ArrayList<>();
 		if (!(principal instanceof GuestPrincipal)) {
-			for (JcrPrincipalProvider principalManager : getDefault().fPrincipalProviderTracker.getServices()) {
+			for (PrincipalProvider principalManager : getDefault().fPrincipalProviderTracker.getServices()) {
 				try {
 					memberOf.addAll(principalManager.getMemberOf(principal));
 				} catch (PrincipalNotFoundException | UnsupportedOperationException ignore) {

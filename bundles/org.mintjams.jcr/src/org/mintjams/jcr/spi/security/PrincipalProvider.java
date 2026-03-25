@@ -29,7 +29,7 @@ import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UserPrincipal;
 
-public interface JcrPrincipalProvider {
+public interface PrincipalProvider {
 
 	Principal getPrincipal(String name) throws PrincipalNotFoundException;
 

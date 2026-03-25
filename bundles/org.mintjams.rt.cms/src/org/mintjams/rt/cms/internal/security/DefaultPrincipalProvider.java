@@ -34,11 +34,11 @@ import javax.jcr.query.QueryResult;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UserPrincipal;
-import org.mintjams.jcr.spi.security.JcrPrincipalProvider;
+import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 
-public class DefaultPrincipalProvider implements JcrPrincipalProvider {
+public class DefaultPrincipalProvider implements PrincipalProvider {
 
 	@Override
 	public Principal getPrincipal(String name) throws PrincipalNotFoundException {

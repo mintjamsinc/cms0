@@ -27,7 +27,7 @@ import javax.security.auth.login.LoginException;
 
 import org.mintjams.jcr.security.UserPrincipal;
 
-public interface JcrAuthenticator {
+public interface Authenticator {
 
 	boolean canAuthenticate(Credentials credentials);
 

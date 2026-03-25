@@ -29,10 +29,10 @@ import javax.jcr.Credentials;
 import javax.security.auth.login.LoginException;
 
 import org.mintjams.jcr.security.UserPrincipal;
-import org.mintjams.jcr.spi.security.JcrAuthenticator;
+import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.jcr.util.ExpressionContext;
 
-public class Saml2Authenticator implements JcrAuthenticator {
+public class Saml2Authenticator implements Authenticator {
 
 	private final Saml2ServiceProviderConfiguration fConfig;
 

@@ -30,13 +30,13 @@ import java.util.List;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UserPrincipal;
-import org.mintjams.jcr.spi.security.JcrPrincipalProvider;
+import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.rt.cms.internal.security.DefaultGroupPrincipal;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.Strings;
 
-public class Saml2PrincipalProvider implements JcrPrincipalProvider {
+public class Saml2PrincipalProvider implements PrincipalProvider {
 
 	private final Saml2ServiceProviderConfiguration fConfig;
 

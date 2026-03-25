@@ -25,6 +25,7 @@ package org.mintjams.rt.cms.internal.graphql;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -38,6 +39,7 @@ import javax.jcr.PropertyIterator;
 import javax.jcr.PropertyType;
 import javax.jcr.Session;
 import javax.jcr.Value;
+import javax.jcr.security.Privilege;
 
 import org.mintjams.cms.security.BCrypt;
 import org.mintjams.jcr.util.JCRs;
@@ -104,6 +106,15 @@ public class IdpMutationExecutor {
 		}
 
 		JCRs.getOrCreateFolder(userFolder, "preferences");
+		session.save();
+
+		// Grant full permissions to the user on their own node
+		JCRs.setAccessControlEntry(userFolder, new Principal() {
+			@Override
+			public String getName() {
+				return username;
+			}
+		}, true, Privilege.JCR_ALL);
 		session.save();
 
 		Node savedProfile = session.getNode(IdpQueryExecutor.USERS_ROOT + "/" + username + "/profile");

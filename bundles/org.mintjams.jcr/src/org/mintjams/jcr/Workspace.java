@@ -22,4 +22,10 @@
 
 package org.mintjams.jcr;
 
-public interface Workspace extends javax.jcr.Workspace {}
+import org.mintjams.jcr.security.PrincipalProvider;
+
+public interface Workspace extends javax.jcr.Workspace {
+
+	PrincipalProvider getPrincipalProvider();
+
+}

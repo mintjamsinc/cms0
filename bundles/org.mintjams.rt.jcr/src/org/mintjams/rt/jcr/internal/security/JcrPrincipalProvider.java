@@ -20,66 +20,59 @@
  * SOFTWARE.
  */
 
-package org.mintjams.rt.cms.internal.security;
+package org.mintjams.rt.jcr.internal.security;
 
 import java.security.Principal;
-import java.util.Collection;
-import java.util.List;
-import java.util.stream.Collectors;
+
+import javax.jcr.RepositoryException;
 
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.jcr.security.PrincipalProvider;
 import org.mintjams.jcr.security.UserPrincipal;
-import org.mintjams.jcr.spi.security.PrincipalProvider;
-import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.jcr.internal.Activator;
+import org.mintjams.rt.jcr.internal.JcrWorkspace;
+import org.mintjams.tools.adapter.Adaptable;
+import org.mintjams.tools.adapter.Adaptables;
 
-public class ServiceAccountPrincipalProvider implements PrincipalProvider {
+public class JcrPrincipalProvider implements PrincipalProvider, Adaptable {
 
-	@Override
-	public Principal getPrincipal(String name) throws PrincipalNotFoundException {
-		if (CmsService.getConfiguration().getServiceUserAccounts().containsKey(name)) {
-			return new DefaultUserPrincipal(name);
-		}
+	private final JcrWorkspace fWorkspace;
 
-		if (CmsService.getConfiguration().getServiceGroupAccounts().containsKey(name)) {
-			return new DefaultGroupPrincipal(name);
-		}
+	private JcrPrincipalProvider(JcrWorkspace workspace) {
+		fWorkspace = workspace;
+	}
 
-		throw new PrincipalNotFoundException(name);
+	public static JcrPrincipalProvider create(JcrWorkspace workspace) {
+		return new JcrPrincipalProvider(workspace);
 	}
 
 	@Override
-	public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException {
+	public Principal getPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+		return Activator.getDefault().getPrincipal(name);
+	}
+
+	@Override
+	public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
 		Principal p = getPrincipal(name);
 		if (p instanceof UserPrincipal) {
 			return (UserPrincipal) p;
 		}
-
 		throw new PrincipalNotFoundException(name);
 	}
 
 	@Override
-	public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException {
+	public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
 		Principal p = getPrincipal(name);
 		if (p instanceof GroupPrincipal) {
 			return (GroupPrincipal) p;
 		}
-
 		throw new PrincipalNotFoundException(name);
 	}
 
 	@Override
-	public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
-		if (!CmsService.getConfiguration().getServiceUserAccounts().containsKey(principal.getName())) {
-			throw new PrincipalNotFoundException(principal.getName());
-		}
-
-		@SuppressWarnings("unchecked")
-		List<String> groups = (List<String>) CmsService.getConfiguration().getServiceUserAccounts().get(principal.getName()).get("groups");
-		if (groups == null) {
-			return List.of();
-		}
-		return groups.stream().map(g -> new DefaultGroupPrincipal(g)).collect(Collectors.toList());
+	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
+		return Adaptables.getAdapter(fWorkspace, adapterType);
 	}
 
 }

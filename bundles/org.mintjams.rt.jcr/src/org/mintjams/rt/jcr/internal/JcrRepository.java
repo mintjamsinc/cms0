@@ -55,7 +55,7 @@ import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.PrincipalProvider;
 import org.mintjams.jcr.security.ServiceCredentials;
 import org.mintjams.jcr.security.UserPrincipal;
-import org.mintjams.jcr.spi.security.JcrAuthenticator;
+import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
 import org.mintjams.rt.jcr.internal.security.SystemCredentials;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
@@ -355,7 +355,7 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 		} else if (credentials instanceof GuestCredentials) {
 			principal = new GuestPrincipal();
 		} else {
-			for (JcrAuthenticator authenticator : Activator.getDefault().getAuthenticators()) {
+			for (Authenticator authenticator : Activator.getDefault().getAuthenticators()) {
 				if (!authenticator.canAuthenticate(credentials)) {
 					continue;
 				}
