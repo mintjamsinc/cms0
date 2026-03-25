@@ -31,6 +31,11 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 
+import javax.jcr.Node;
+import javax.jcr.Property;
+import javax.jcr.PropertyIterator;
+import javax.jcr.PropertyType;
+import javax.jcr.Session;
 import javax.servlet.AsyncContext;
 import javax.servlet.AsyncEvent;
 import javax.servlet.AsyncListener;
@@ -41,6 +46,7 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
 import org.mintjams.rt.cms.internal.cms.event.CmsEventHandler;
 import org.mintjams.rt.cms.internal.cms.event.WorkspaceCmsEventManager;
+import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -199,7 +205,83 @@ public class GraphQLStreamHandler {
 
 			for (SubscriptionMatcher matcher : matchers) {
 				if (matcher.matches(event)) {
-					sendEvent(matcher.getSubscriptionString(), event);
+					if ("preferenceChanged".equals(matcher.getType())) {
+						sendPreferenceChangedEvent(matcher, event);
+					} else {
+						sendEvent(matcher.getSubscriptionString(), event);
+					}
+				}
+			}
+		}
+
+		/**
+		 * Send a preferenceChanged SSE event.
+		 * Opens a system JCR session to read the current property values from
+		 * /home/users/{userId}/preferences/{category}/jcr:content and includes
+		 * them directly in the payload so the client needs no follow-up query.
+		 */
+		private void sendPreferenceChangedEvent(SubscriptionMatcher matcher, CmsEvent event) {
+			if (closed) return;
+
+			String userId = matcher.getParams().get("userId");
+			String eventPath = event.getPath();
+
+			// Extract category: first path segment after /home/users/{userId}/preferences/
+			String preferencesPrefix = "/home/users/" + userId + "/preferences/";
+			String relative = eventPath.substring(preferencesPrefix.length());
+			String category = relative.split("/")[0];
+
+			Session jcrSession = null;
+			try {
+				jcrSession = CmsService.getRepository()
+						.login(new CmsServiceCredentials(), "system");
+
+				String contentNodePath = preferencesPrefix + category + "/jcr:content";
+				Map<String, Object> data = new LinkedHashMap<>();
+
+				if (jcrSession.nodeExists(contentNodePath)) {
+					Node contentNode = jcrSession.getNode(contentNodePath);
+					PropertyIterator props = contentNode.getProperties();
+					while (props.hasNext()) {
+						Property prop = props.nextProperty();
+						String propName = prop.getName();
+						// Skip internal JCR system properties
+						if (propName.startsWith("jcr:")) continue;
+						if (!prop.isMultiple() && prop.getType() == PropertyType.STRING) {
+							data.put(propName, prop.getString());
+						}
+					}
+				}
+
+				Map<String, Object> eventData = new LinkedHashMap<>();
+				eventData.put("category", category);
+				eventData.put("data", data);
+				eventData.put("timestamp", Instant.now().toString());
+				eventData.put("userId", userId);
+
+				Map<String, Object> message = new LinkedHashMap<>();
+				message.put("subscription", matcher.getSubscriptionString());
+				message.put("data", eventData);
+
+				String json = GSON.toJson(message);
+
+				PrintWriter writer = asyncContext.getResponse().getWriter();
+				synchronized (writer) {
+					writer.write("data: " + json + "\n\n");
+					writer.flush();
+				}
+			} catch (IOException e) {
+				CmsService.getLogger(getClass()).debug("SSE write failed, closing stream", e);
+				cleanup();
+				try {
+					asyncContext.complete();
+				} catch (Exception ignore) {}
+			} catch (Exception e) {
+				CmsService.getLogger(getClass()).warn(
+						"Failed to read preferences node for subscription", e);
+			} finally {
+				if (jcrSession != null) {
+					try { jcrSession.logout(); } catch (Exception ignore) {}
 				}
 			}
 		}

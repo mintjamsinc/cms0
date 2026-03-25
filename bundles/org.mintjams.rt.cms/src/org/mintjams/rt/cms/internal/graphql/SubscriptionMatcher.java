@@ -106,6 +106,9 @@ public class SubscriptionMatcher {
 		if ("nodeChanged".equals(type)) {
 			return matchesNodeChanged(event);
 		}
+		if ("preferenceChanged".equals(type)) {
+			return matchesPreferenceChanged(event);
+		}
 		// Other subscription types can be added here
 		return false;
 	}
@@ -154,6 +157,25 @@ public class SubscriptionMatcher {
 			String parentPath = getParentPath(eventPath);
 			return parentPath.equals(watchPath);
 		}
+	}
+
+	/**
+	 * Match preferenceChanged subscription against a CMS event.
+	 *
+	 * Parameters:
+	 * - userId: The user whose preferences to watch (required)
+	 *
+	 * Matches any node change under /home/users/{userId}/preferences/.
+	 */
+	private boolean matchesPreferenceChanged(CmsEvent event) {
+		String eventPath = event.getPath();
+		if (eventPath == null) return false;
+
+		String userId = params.get("userId");
+		if (userId == null || userId.isEmpty()) return false;
+
+		String preferencesPrefix = "/home/users/" + userId + "/preferences/";
+		return eventPath.startsWith(preferencesPrefix);
 	}
 
 	/**
