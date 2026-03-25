@@ -227,6 +227,9 @@ public class GraphQLExecutor {
 				response.setData(idpMutationExecutor.executeDeleteGroup(request));
 			} else if (query.contains("moveGroup(")) {
 				response.setData(idpMutationExecutor.executeMoveGroup(request));
+			// Preference mutations
+			} else if (query.contains("updatePreferences(")) {
+				response.setData(idpMutationExecutor.executeUpdatePreferences(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}

@@ -22,15 +22,20 @@
 
 package org.mintjams.rt.cms.internal.graphql;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
+import javax.jcr.Property;
+import javax.jcr.PropertyIterator;
+import javax.jcr.PropertyType;
 import javax.jcr.Session;
 import javax.jcr.Value;
 
@@ -539,6 +544,82 @@ public class IdpMutationExecutor {
 		result.put("previousGroupId", groupId);
 		result.put("errors", null);
 		return wrap("moveGroup", result);
+	}
+
+	// =========================================================================
+	// Preference mutations
+	// =========================================================================
+
+	public Map<String, Object> executeUpdatePreferences(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+		String username = (String) input.get("username");
+		String category = (String) input.get("category");
+		@SuppressWarnings("unchecked")
+		Map<String, Object> data = (Map<String, Object>) input.get("data");
+
+		if (username == null || category == null) {
+			return errorPayload("updatePreferences", "username and category are required", "INVALID_INPUT");
+		}
+		if (data == null) {
+			return errorPayload("updatePreferences", "data is required", "INVALID_INPUT");
+		}
+		// Prevent path traversal in category name
+		if (!category.matches("[a-z][a-z0-9-]*")) {
+			return errorPayload("updatePreferences", "Invalid category name: " + category, "INVALID_INPUT");
+		}
+
+		String userFolderPath = IdpQueryExecutor.USERS_ROOT + "/" + username;
+		if (!session.nodeExists(userFolderPath)) {
+			return errorPayload("updatePreferences", "User not found: " + username, "NOT_FOUND");
+		}
+
+		Node userFolder = session.getNode(userFolderPath);
+		Node preferencesFolder = JCRs.getOrCreateFolder(userFolder, "preferences");
+
+		// Get or create the category file
+		Node categoryFile;
+		if (preferencesFolder.hasNode(category)) {
+			categoryFile = preferencesFolder.getNode(category);
+		} else {
+			categoryFile = JCRs.createFile(preferencesFolder, category);
+		}
+		JCRs.setProperty(categoryFile, "jcr:mimeType", "application/vnd.webtop." + category);
+
+		Node contentNode = JCRs.getContentNode(categoryFile);
+		for (Map.Entry<String, Object> entry : data.entrySet()) {
+			String key = entry.getKey();
+			Object value = entry.getValue();
+			if (value instanceof Number) {
+				JCRs.setProperty(categoryFile, key, new BigDecimal(value.toString()));
+			} else {
+				JCRs.setProperty(categoryFile, key, value);
+			}
+		}
+		session.save();
+
+		// Read back saved properties
+		Map<String, Object> savedData = new LinkedHashMap<>();
+		PropertyIterator props = contentNode.getProperties();
+		while (props.hasNext()) {
+			Property prop = props.nextProperty();
+			String propName = prop.getName();
+			if (propName.startsWith("jcr:")) continue;
+			if (!prop.isMultiple()) {
+				if (prop.getType() == PropertyType.STRING) {
+					savedData.put(propName, prop.getString());
+				} else if (prop.getType() == PropertyType.BOOLEAN) {
+					savedData.put(propName, prop.getBoolean());
+				} else if (prop.getType() == PropertyType.DOUBLE || prop.getType() == PropertyType.LONG) {
+					savedData.put(propName, prop.getDouble());
+				}
+			}
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("category", category);
+		result.put("data", savedData);
+		result.put("errors", null);
+		return wrap("updatePreferences", result);
 	}
 
 	// =========================================================================
