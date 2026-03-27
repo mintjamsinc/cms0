@@ -184,29 +184,42 @@ public class IdpQueryExecutor {
 		}
 
 		List<Node[]> entries = new ArrayList<>();
-		NodeIterator it = session.getNode(ROLES_ROOT).getNodes();
-		while (it.hasNext()) {
-			Node roleFolder = it.nextNode();
-			if (!roleFolder.hasNode("profile")) continue;
-			Node profileNode = roleFolder.getNode("profile");
-			Node contentNode = JCRs.getContentNode(profileNode);
-			String rId = roleFolder.getName();
-
-			if (query != null && !query.isEmpty()) {
-				boolean matches = rId.contains(query);
-				if (!matches && contentNode.hasProperty("displayName")) {
-					matches = contentNode.getProperty("displayName").getString().contains(query);
-				}
-				if (!matches) continue;
-			}
-
-			entries.add(new Node[] { profileNode, contentNode });
-		}
+		collectAllRoles(session.getNode(ROLES_ROOT), entries, query);
 
 		return buildConnection("roles", entries, first, afterCursor, entry -> {
-			String rId = entry[0].getParent().getName();
+			String rId = entry[0].getPath().substring(ROLES_ROOT.length() + 1,
+					entry[0].getPath().length() - "/profile".length());
 			return mapRole(rId, entry[0], entry[1]);
 		});
+	}
+
+	public Map<String, Object> executeRoleTreeQuery(GraphQLRequest request) throws Exception {
+		Map<String, Object> variables = request.getVariables();
+		String rootRoleId = getStringVar(variables, "rootRoleId");
+		Integer maxDepth = getIntVarOrNull(variables, "maxDepth");
+
+		Node startNode;
+		if (rootRoleId != null && !rootRoleId.isEmpty()) {
+			String rootPath = ROLES_ROOT + "/" + rootRoleId;
+			if (!session.nodeExists(rootPath)) {
+				Map<String, Object> result = new HashMap<>();
+				result.put("roleTree", new ArrayList<>());
+				return result;
+			}
+			startNode = session.getNode(rootPath);
+		} else {
+			if (!session.nodeExists(ROLES_ROOT)) {
+				Map<String, Object> result = new HashMap<>();
+				result.put("roleTree", new ArrayList<>());
+				return result;
+			}
+			startNode = session.getNode(ROLES_ROOT);
+		}
+
+		List<Map<String, Object>> tree = buildRoleTree(startNode, maxDepth, 0);
+		Map<String, Object> result = new HashMap<>();
+		result.put("roleTree", tree);
+		return result;
 	}
 
 	// =========================================================================
@@ -362,11 +375,66 @@ public class IdpQueryExecutor {
 		return user;
 	}
 
+	Map<String, Object> mapRoleBasic(String roleId, Node profileNode, Node contentNode) throws Exception {
+		Map<String, Object> role = new HashMap<>();
+		role.put("roleId", roleId);
+		String name = roleId.contains("/") ? roleId.substring(roleId.lastIndexOf('/') + 1) : roleId;
+		role.put("name", name);
+		role.put("displayName", contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null);
+		role.put("description", contentNode.hasProperty("description") ? contentNode.getProperty("description").getString() : null);
+		int depth = 0;
+		for (char c : roleId.toCharArray()) {
+			if (c == '/') depth++;
+		}
+		role.put("depth", depth);
+		Node roleFolder = profileNode.getParent();
+		role.put("hasChildren", hasChildRoles(roleFolder));
+		role.put("descendantCount", countRoleDescendants(roleFolder));
+		role.put("created", formatDate(profileNode.getProperty("jcr:created").getDate()));
+		role.put("lastModified", contentNode.hasProperty("jcr:lastModified")
+				? formatDate(contentNode.getProperty("jcr:lastModified").getDate()) : null);
+		return role;
+	}
+
 	Map<String, Object> mapRole(String roleId, Node profileNode, Node contentNode) throws Exception {
 		Map<String, Object> role = new HashMap<>();
 		role.put("roleId", roleId);
+		String name = roleId.contains("/") ? roleId.substring(roleId.lastIndexOf('/') + 1) : roleId;
+		role.put("name", name);
 		role.put("displayName", contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null);
 		role.put("description", contentNode.hasProperty("description") ? contentNode.getProperty("description").getString() : null);
+
+		// Depth = number of '/' in roleId
+		int depth = 0;
+		for (char c : roleId.toCharArray()) {
+			if (c == '/') depth++;
+		}
+		role.put("depth", depth);
+
+		// Parent role (use mapRoleBasic to avoid recursion)
+		if (roleId.contains("/")) {
+			String parentRoleId = roleId.substring(0, roleId.lastIndexOf('/'));
+			String parentProfilePath = ROLES_ROOT + "/" + parentRoleId + "/profile";
+			if (session.nodeExists(parentProfilePath)) {
+				Node p = session.getNode(parentProfilePath);
+				role.put("parent", mapRoleBasic(parentRoleId, p, JCRs.getContentNode(p)));
+			} else {
+				role.put("parent", null);
+			}
+		} else {
+			role.put("parent", null);
+		}
+
+		// Ancestors
+		List<Map<String, Object>> ancestors = new ArrayList<>();
+		buildRoleAncestors(roleId, ancestors);
+		role.put("ancestors", ancestors);
+
+		// hasChildren / descendantCount
+		Node roleFolder = profileNode.getParent();
+		role.put("hasChildren", hasChildRoles(roleFolder));
+		role.put("descendantCount", countRoleDescendants(roleFolder));
+
 		role.put("members", buildEmptyUserConnection());
 		role.put("created", formatDate(profileNode.getProperty("jcr:created").getDate()));
 		role.put("lastModified", contentNode.hasProperty("jcr:lastModified")
@@ -519,6 +587,102 @@ public class IdpQueryExecutor {
 			}
 		}
 		return false;
+	}
+
+	private void collectAllRoles(Node folder, List<Node[]> entries, String query) throws Exception {
+		NodeIterator it = folder.getNodes();
+		while (it.hasNext()) {
+			Node child = it.nextNode();
+			if ("profile".equals(child.getName())) continue;
+			if (!child.hasNode("profile")) continue;
+			Node profileNode = child.getNode("profile");
+			Node contentNode = JCRs.getContentNode(profileNode);
+			String rId = profileNode.getPath().substring(ROLES_ROOT.length() + 1,
+					profileNode.getPath().length() - "/profile".length());
+			if (query != null && !query.isEmpty()) {
+				boolean matches = rId.contains(query);
+				if (!matches && contentNode.hasProperty("displayName")) {
+					matches = contentNode.getProperty("displayName").getString().contains(query);
+				}
+				if (matches) {
+					entries.add(new Node[] { profileNode, contentNode });
+				}
+			} else {
+				entries.add(new Node[] { profileNode, contentNode });
+			}
+			collectAllRoles(child, entries, query);
+		}
+	}
+
+	private List<Map<String, Object>> buildRoleTree(Node parentFolder, Integer maxDepth, int currentDepth) throws Exception {
+		List<Map<String, Object>> nodes = new ArrayList<>();
+		if (maxDepth != null && currentDepth >= maxDepth) return nodes;
+
+		NodeIterator it = parentFolder.getNodes();
+		while (it.hasNext()) {
+			Node child = it.nextNode();
+			if ("profile".equals(child.getName())) continue;
+			if (!child.hasNode("profile")) continue;
+
+			Node profileNode = child.getNode("profile");
+			Node contentNode = JCRs.getContentNode(profileNode);
+			String roleId = child.getPath().substring(ROLES_ROOT.length() + 1);
+
+			Map<String, Object> treeNode = new HashMap<>();
+			treeNode.put("roleId", roleId);
+			String tname = roleId.contains("/") ? roleId.substring(roleId.lastIndexOf('/') + 1) : roleId;
+			treeNode.put("name", tname);
+			treeNode.put("displayName", contentNode.hasProperty("displayName")
+					? contentNode.getProperty("displayName").getString() : null);
+			treeNode.put("depth", currentDepth);
+
+			List<Map<String, Object>> children = buildRoleTree(child, maxDepth, currentDepth + 1);
+			treeNode.put("hasChildren", !children.isEmpty() || hasChildRoles(child));
+			treeNode.put("children", children);
+
+			nodes.add(treeNode);
+		}
+		return nodes;
+	}
+
+	private void buildRoleAncestors(String roleId, List<Map<String, Object>> ancestors) throws Exception {
+		String[] segments = roleId.split("/");
+		for (int i = 0; i < segments.length - 1; i++) {
+			StringBuilder sb = new StringBuilder();
+			for (int j = 0; j <= i; j++) {
+				if (j > 0) sb.append("/");
+				sb.append(segments[j]);
+			}
+			String ancestorId = sb.toString();
+			String profilePath = ROLES_ROOT + "/" + ancestorId + "/profile";
+			if (session.nodeExists(profilePath)) {
+				Node p = session.getNode(profilePath);
+				ancestors.add(mapRoleBasic(ancestorId, p, JCRs.getContentNode(p)));
+			}
+		}
+	}
+
+	private boolean hasChildRoles(Node roleFolder) throws Exception {
+		NodeIterator it = roleFolder.getNodes();
+		while (it.hasNext()) {
+			Node child = it.nextNode();
+			if (!"profile".equals(child.getName()) && child.hasNode("profile")) return true;
+		}
+		return false;
+	}
+
+	private int countRoleDescendants(Node roleFolder) throws Exception {
+		int count = 0;
+		NodeIterator it = roleFolder.getNodes();
+		while (it.hasNext()) {
+			Node child = it.nextNode();
+			if ("profile".equals(child.getName())) continue;
+			if (child.hasNode("profile")) {
+				count++;
+				count += countRoleDescendants(child);
+			}
+		}
+		return count;
 	}
 
 	private void buildAncestors(String groupId, List<Map<String, Object>> ancestors) throws Exception {

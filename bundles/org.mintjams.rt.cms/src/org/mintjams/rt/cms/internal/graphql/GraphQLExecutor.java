@@ -118,6 +118,8 @@ public class GraphQLExecutor {
 				response.setData(idpQueryExecutor.executeGroupsQuery(request));
 			} else if (query.contains("group(")) {
 				response.setData(idpQueryExecutor.executeGroupQuery(request));
+			} else if (query.contains("roleTree(")) {
+				response.setData(idpQueryExecutor.executeRoleTreeQuery(request));
 			} else if (query.contains("roles(")) {
 				response.setData(idpQueryExecutor.executeRolesQuery(request));
 			} else if (query.contains("role(")) {

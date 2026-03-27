@@ -328,19 +328,33 @@ public class IdpMutationExecutor {
 
 	public Map<String, Object> executeCreateRole(GraphQLRequest request) throws Exception {
 		Map<String, Object> input = extractInput(request);
-		String roleId = (String) input.get("roleId");
+		String name = (String) input.get("name");
+		String parentRoleId = (String) input.get("parentRoleId");
 
-		if (roleId == null) {
-			return errorPayload("createRole", "roleId is required", "INVALID_INPUT");
+		if (name == null || name.isEmpty()) {
+			return errorPayload("createRole", "name is required", "INVALID_INPUT");
 		}
 
-		String roleFolderPath = IdpQueryExecutor.ROLES_ROOT + "/" + roleId;
+		String roleFolderPath = (parentRoleId != null && !parentRoleId.isEmpty())
+				? IdpQueryExecutor.ROLES_ROOT + "/" + parentRoleId + "/" + name
+				: IdpQueryExecutor.ROLES_ROOT + "/" + name;
+
 		if (session.nodeExists(roleFolderPath)) {
-			return errorPayload("createRole", "Role already exists: " + roleId, "ALREADY_EXISTS");
+			return errorPayload("createRole", "Role already exists", "ALREADY_EXISTS");
 		}
 
-		Node rolesFolder = ensureFolder(IdpQueryExecutor.ROLES_ROOT);
-		Node roleFolder = JCRs.getOrCreateFolder(rolesFolder, roleId);
+		Node parentFolder;
+		if (parentRoleId != null && !parentRoleId.isEmpty()) {
+			String parentPath = IdpQueryExecutor.ROLES_ROOT + "/" + parentRoleId;
+			if (!session.nodeExists(parentPath)) {
+				return errorPayload("createRole", "Parent role not found: " + parentRoleId, "NOT_FOUND");
+			}
+			parentFolder = session.getNode(parentPath);
+		} else {
+			parentFolder = ensureFolder(IdpQueryExecutor.ROLES_ROOT);
+		}
+
+		Node roleFolder = JCRs.getOrCreateFolder(parentFolder, name);
 		Node profileFile = JCRs.createFile(roleFolder, "profile");
 		profileFile.addMixin("mix:referenceable");
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.role");
@@ -350,6 +364,7 @@ public class IdpMutationExecutor {
 		setStringIfPresent(contentNode, "description", input);
 		session.save();
 
+		String roleId = roleFolderPath.substring(IdpQueryExecutor.ROLES_ROOT.length() + 1);
 		Node savedProfile = session.getNode(roleFolderPath + "/profile");
 		Map<String, Object> result = new HashMap<>();
 		result.put("role", queryExecutor.mapRole(roleId, savedProfile, JCRs.getContentNode(savedProfile)));
@@ -386,6 +401,7 @@ public class IdpMutationExecutor {
 		Map<String, Object> input = extractInput(request);
 		String roleId = (String) input.get("roleId");
 		boolean removeFromUsers = getBoolInput(input, "removeFromUsers", false);
+		boolean recursive = getBoolInput(input, "recursive", false);
 
 		if (roleId == null) {
 			return errorPayload("deleteRole", "roleId is required", "INVALID_INPUT");
@@ -396,21 +412,48 @@ public class IdpMutationExecutor {
 			return errorPayload("deleteRole", "Role not found: " + roleId, "NOT_FOUND");
 		}
 
-		if (removeFromUsers) {
-			String roleProfilePath = roleFolderPath + "/profile";
-			if (session.nodeExists(roleProfilePath)) {
-				String roleUuid = session.getNode(roleProfilePath).getIdentifier();
-				removeRoleFromAllUsers(roleUuid);
-			}
+		Node roleFolder = session.getNode(roleFolderPath);
+
+		if (!recursive && hasChildRoles(roleFolder)) {
+			return errorPayload("deleteRole", "Role has children. Use recursive=true to delete", "HAS_CHILDREN");
 		}
 
-		session.getNode(roleFolderPath).remove();
+		if (removeFromUsers) {
+			removeRoleSubtreeFromUsers(roleFolder);
+		}
+
+		roleFolder.remove();
 		session.save();
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("roleId", roleId);
 		result.put("errors", null);
 		return wrap("deleteRole", result);
+	}
+
+	private void removeRoleSubtreeFromUsers(Node roleFolder) throws Exception {
+		// Remove this role's profile from all users first
+		if (roleFolder.hasNode("profile")) {
+			String roleUuid = roleFolder.getNode("profile").getIdentifier();
+			removeRoleFromAllUsers(roleUuid);
+		}
+		// Recurse into child roles
+		NodeIterator it = roleFolder.getNodes();
+		while (it.hasNext()) {
+			Node child = it.nextNode();
+			if (!"profile".equals(child.getName()) && child.hasNode("profile")) {
+				removeRoleSubtreeFromUsers(child);
+			}
+		}
+	}
+
+	private boolean hasChildRoles(Node roleFolder) throws Exception {
+		NodeIterator it = roleFolder.getNodes();
+		while (it.hasNext()) {
+			Node child = it.nextNode();
+			if (!"profile".equals(child.getName()) && child.hasNode("profile")) return true;
+		}
+		return false;
 	}
 
 	// =========================================================================
