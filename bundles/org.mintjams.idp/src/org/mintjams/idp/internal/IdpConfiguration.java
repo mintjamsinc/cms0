@@ -288,6 +288,17 @@ public class IdpConfiguration {
 		return getBaseURL() + getLoginPath();
 	}
 
+	public String getCustomLoginPageURL() {
+		try {
+			return ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.defaultIfEmpty("config.customLoginPageUrl", null);
+		} catch (Throwable ex) {
+			log.warn("The customLoginPageUrl parameter is invalid. Default values will be used instead.");
+		}
+		return null;
+	}
+
 	public List<TrustedSP> getTrustedSPs() {
 		try {
 			List<?> entries = ExpressionContext.create()
