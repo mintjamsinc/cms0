@@ -37,6 +37,8 @@ public class GraphQLExecutor {
 	private final CamelQueryExecutor camelQueryExecutor;
 	private final IdpQueryExecutor idpQueryExecutor;
 	private final IdpMutationExecutor idpMutationExecutor;
+	private final BpmQueryExecutor bpmQueryExecutor;
+	private final BpmMutationExecutor bpmMutationExecutor;
 
 	public GraphQLExecutor(Session session) {
 		this.session = session;
@@ -45,6 +47,8 @@ public class GraphQLExecutor {
 		this.camelQueryExecutor = new CamelQueryExecutor(session);
 		this.idpQueryExecutor = new IdpQueryExecutor(session);
 		this.idpMutationExecutor = new IdpMutationExecutor(session);
+		this.bpmQueryExecutor = new BpmQueryExecutor(session);
+		this.bpmMutationExecutor = new BpmMutationExecutor(session);
 	}
 
 	/**
@@ -130,6 +134,23 @@ public class GraphQLExecutor {
 				response.setData(idpQueryExecutor.executeUserQuery(request));
 			} else if (query.contains("me {") || query.contains("me{")) {
 				response.setData(idpQueryExecutor.executeMeQuery(request));
+			// BPM queries — check multi-word names before single-word names
+			} else if (query.contains("processDefinitionXml(")) {
+				response.setData(bpmQueryExecutor.executeProcessDefinitionXmlQuery(request));
+			} else if (query.contains("processDefinitions(")) {
+				response.setData(bpmQueryExecutor.executeProcessDefinitionsQuery(request));
+			} else if (query.contains("processDefinition(")) {
+				response.setData(bpmQueryExecutor.executeProcessDefinitionQuery(request));
+			} else if (query.contains("processInstances(")) {
+				response.setData(bpmQueryExecutor.executeProcessInstancesQuery(request));
+			} else if (query.contains("processInstance(")) {
+				response.setData(bpmQueryExecutor.executeProcessInstanceQuery(request));
+			} else if (query.contains("taskCounts(")) {
+				response.setData(bpmQueryExecutor.executeTaskCountsQuery(request));
+			} else if (query.contains("tasks(")) {
+				response.setData(bpmQueryExecutor.executeTasksQuery(request));
+			} else if (query.contains("task(")) {
+				response.setData(bpmQueryExecutor.executeTaskQuery(request));
 			} else {
 				response.addError("Unknown query operation");
 			}
@@ -232,6 +253,39 @@ public class GraphQLExecutor {
 			// Preference mutations
 			} else if (query.contains("updatePreferences(")) {
 				response.setData(idpMutationExecutor.executeUpdatePreferences(request));
+			// BPM mutations — check multi-word names before single-word names
+			} else if (query.contains("startProcess(")) {
+				response.setData(bpmMutationExecutor.executeStartProcess(request));
+			} else if (query.contains("suspendProcessInstance(")) {
+				response.setData(bpmMutationExecutor.executeSuspendProcessInstance(request));
+			} else if (query.contains("activateProcessInstance(")) {
+				response.setData(bpmMutationExecutor.executeActivateProcessInstance(request));
+			} else if (query.contains("cancelProcessInstance(")) {
+				response.setData(bpmMutationExecutor.executeCancelProcessInstance(request));
+			} else if (query.contains("deleteProcessInstance(")) {
+				response.setData(bpmMutationExecutor.executeDeleteProcessInstance(request));
+			} else if (query.contains("setProcessVariables(")) {
+				response.setData(bpmMutationExecutor.executeSetProcessVariables(request));
+			} else if (query.contains("claimTask(")) {
+				response.setData(bpmMutationExecutor.executeClaimTask(request));
+			} else if (query.contains("unclaimTask(")) {
+				response.setData(bpmMutationExecutor.executeUnclaimTask(request));
+			} else if (query.contains("setTaskAssignee(")) {
+				response.setData(bpmMutationExecutor.executeSetTaskAssignee(request));
+			} else if (query.contains("assignTask(")) {
+				response.setData(bpmMutationExecutor.executeAssignTask(request));
+			} else if (query.contains("delegateTask(")) {
+				response.setData(bpmMutationExecutor.executeDelegateTask(request));
+			} else if (query.contains("completeTask(")) {
+				response.setData(bpmMutationExecutor.executeCompleteTask(request));
+			} else if (query.contains("setTaskVariables(")) {
+				response.setData(bpmMutationExecutor.executeSetTaskVariables(request));
+			} else if (query.contains("addTaskComment(")) {
+				response.setData(bpmMutationExecutor.executeAddTaskComment(request));
+			} else if (query.contains("deployProcess(")) {
+				response.setData(bpmMutationExecutor.executeDeployProcess(request));
+			} else if (query.contains("deleteDeployment(")) {
+				response.setData(bpmMutationExecutor.executeDeleteDeployment(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}
