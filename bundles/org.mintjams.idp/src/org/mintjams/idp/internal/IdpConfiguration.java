@@ -82,7 +82,7 @@ public class IdpConfiguration {
 								"password", Activator.getDefault().getEncryptor().encrypt(DEFAULT_KEYSTORE_PASSWORD), // Keystore password (default: changeit)
 								"alias", DEFAULT_KEYSTORE_ALIAS // Alias of the signing key in the keystore (default: idp-signing)
 								),
-							"certificate", Map.of(
+							"certificateTemplate", Map.of(
 								"subjectDN", DEFAULT_CERTIFICATE_SUBJECT_DN, // Subject DN for the self-signed certificate (default: CN=Sample Identity Provider, OU=Quick Start, O=Open Components Project)
 								"keyAlgorithm", DEFAULT_CERTIFICATE_KEY_ALGORITHM, // Key algorithm for the signing key (default: RSA)
 								"keySize", DEFAULT_CERTIFICATE_KEY_SIZE, // Key size for the signing key (default: 2048)
@@ -194,7 +194,7 @@ public class IdpConfiguration {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.subjectDN", DEFAULT_CERTIFICATE_SUBJECT_DN);
+					.defaultIfEmpty("config.certificateTemplate.subjectDN", DEFAULT_CERTIFICATE_SUBJECT_DN);
 		} catch (Throwable ex) {
 			log.warn("The certificate.subjectDN parameter is invalid. Default values will be used instead.");
 		}
@@ -205,7 +205,7 @@ public class IdpConfiguration {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.certificate.keyAlgorithm", DEFAULT_CERTIFICATE_KEY_ALGORITHM);
+					.defaultIfEmpty("config.certificateTemplate.keyAlgorithm", DEFAULT_CERTIFICATE_KEY_ALGORITHM);
 		} catch (Throwable ex) {
 			log.warn("The certificate.keyAlgorithm parameter is invalid. Default values will be used instead.");
 		}
@@ -216,7 +216,7 @@ public class IdpConfiguration {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.getInt("config.certificate.keySize", DEFAULT_CERTIFICATE_KEY_SIZE);
+					.getInt("config.certificateTemplate.keySize", DEFAULT_CERTIFICATE_KEY_SIZE);
 		} catch (Throwable ex) {
 			log.warn("The certificate.keySize parameter is invalid. Default values will be used instead.");
 		}
@@ -227,7 +227,7 @@ public class IdpConfiguration {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.getInt("config.certificate.validity", DEFAULT_CERTIFICATE_VALIDITY);
+					.getInt("config.certificateTemplate.validity", DEFAULT_CERTIFICATE_VALIDITY);
 		} catch (Throwable ex) {
 			log.warn("The certificate.validity parameter is invalid. Default values will be used instead.");
 		}
@@ -238,7 +238,7 @@ public class IdpConfiguration {
 		try {
 			return ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.certificate.signatureAlgorithm", DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM);
+					.defaultIfEmpty("config.certificateTemplate.signatureAlgorithm", DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM);
 		} catch (Throwable ex) {
 			log.warn("The certificate.signatureAlgorithm parameter is invalid. Default values will be used instead.");
 		}

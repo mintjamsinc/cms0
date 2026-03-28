@@ -285,7 +285,7 @@ public class SamlResponseBuilder {
 		// Create SignedInfo
 		SignedInfo signedInfo = sigFactory.newSignedInfo(
 				sigFactory.newCanonicalizationMethod(CanonicalizationMethod.EXCLUSIVE, (C14NMethodParameterSpec) null),
-				sigFactory.newSignatureMethod(SignatureMethod.RSA_SHA256, null),
+				sigFactory.newSignatureMethod(getSignatureMethodURI(privateKey), null),
 				Collections.singletonList(reference));
 
 		// Create KeyInfo with X509Data
@@ -352,6 +352,16 @@ public class SamlResponseBuilder {
 				.replace(">", "&gt;")
 				.replace("\"", "&quot;")
 				.replace("'", "&#39;");
+	}
+
+	private String getSignatureMethodURI(PrivateKey privateKey) {
+		if (privateKey.getAlgorithm().equalsIgnoreCase("RSA")) {
+			return SignatureMethod.RSA_SHA256;
+		} else if (privateKey.getAlgorithm().equalsIgnoreCase("EC")) {
+			return SignatureMethod.ECDSA_SHA256;
+		} else {
+			throw new IllegalArgumentException("Unsupported key algorithm: " + privateKey.getAlgorithm());
+		}
 	}
 
 }
