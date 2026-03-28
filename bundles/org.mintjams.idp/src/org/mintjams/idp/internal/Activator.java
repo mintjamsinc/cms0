@@ -43,6 +43,7 @@ import org.mintjams.idp.internal.security.FileKeyStoreManager;
 import org.mintjams.idp.internal.security.IdpServiceCredentials;
 import org.mintjams.idp.internal.security.KeyStoreManager;
 import org.mintjams.idp.internal.servlet.LoginApiServlet;
+import org.mintjams.idp.internal.servlet.SpApiServlet;
 import org.mintjams.idp.internal.servlet.LoginServlet;
 import org.mintjams.idp.internal.servlet.MetadataServlet;
 import org.mintjams.idp.internal.servlet.SsoServlet;
@@ -174,6 +175,7 @@ public class Activator implements BundleActivator {
 			httpService.registerServlet(fConfig.getMetadataPath(), new MetadataServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getLoginPath(), new LoginServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getLoginApiPath(), new LoginApiServlet(), null, sharedContext);
+			httpService.registerServlet(fConfig.getSpApiPath(), new SpApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSsoPath(), new SsoServlet(), null, sharedContext);
 
 			log.info("IdP servlets registered at: {}", fConfig.getConfigPath());

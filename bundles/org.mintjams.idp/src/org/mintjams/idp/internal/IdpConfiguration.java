@@ -296,6 +296,10 @@ public class IdpConfiguration {
 		return geContextPath() + "/api/login";
 	}
 
+	public String getSpApiPath() {
+		return geContextPath() + "/api/sp";
+	}
+
 	public String getCustomLoginPageURL() {
 		try {
 			return ExpressionContext.create()
@@ -325,7 +329,8 @@ public class IdpConfiguration {
 					String acsUrl = (String) spConfig.get("acsUrl");
 					if (entityId != null && acsUrl != null) {
 						String certificate = (String) spConfig.get("certificate");
-						trustedSPs.add(new TrustedSP(entityId, acsUrl, certificate));
+						String displayName = (String) spConfig.get("displayName");
+						trustedSPs.add(new TrustedSP(entityId, acsUrl, certificate, displayName));
 					} else {
 						log.warn("Invalid trusted SP configuration: {}", spConfig);
 					}
@@ -378,6 +383,7 @@ public class IdpConfiguration {
 		private String entityId;
 		private String acsUrl;
 		private String certificate;
+		private String displayName;
 
 		public TrustedSP() {
 		}
@@ -391,6 +397,13 @@ public class IdpConfiguration {
 			this.entityId = entityId;
 			this.acsUrl = acsUrl;
 			this.certificate = certificate;
+		}
+
+		public TrustedSP(String entityId, String acsUrl, String certificate, String displayName) {
+			this.entityId = entityId;
+			this.acsUrl = acsUrl;
+			this.certificate = certificate;
+			this.displayName = displayName;
 		}
 
 		public String getEntityId() {
@@ -415,6 +428,14 @@ public class IdpConfiguration {
 
 		public void setCertificate(String certificate) {
 			this.certificate = certificate;
+		}
+
+		public String getDisplayName() {
+			return displayName;
+		}
+
+		public void setDisplayName(String displayName) {
+			this.displayName = displayName;
 		}
 
 		/**
