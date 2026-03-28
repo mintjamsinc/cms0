@@ -81,35 +81,36 @@ public class SpKeyStoreManager {
 	}
 
 	private String getKeystoreType() {
-		return el().defaultIfEmpty("config.keystore.type", DEFAULT_KEYSTORE_TYPE);
+		return el().defaultIfEmpty("config.sp.keystore.type", DEFAULT_KEYSTORE_TYPE);
 	}
 
 	private String getKeystorePassword() {
-		return el().defaultIfEmpty("config.keystore.password", DEFAULT_KEYSTORE_PASSWORD);
+		String password = el().defaultIfEmpty("config.sp.keystore.password", DEFAULT_KEYSTORE_PASSWORD);
+		return CmsService.getEncryptor().decrypt(password);
 	}
 
 	private String getKeystoreAlias() {
-		return el().defaultIfEmpty("config.keystore.alias", DEFAULT_KEYSTORE_ALIAS);
+		return el().defaultIfEmpty("config.sp.keystore.alias", DEFAULT_KEYSTORE_ALIAS);
 	}
 
 	private String getSubjectDN() {
-		return el().defaultIfEmpty("config.certificateTemplate.subjectDN", DEFAULT_SUBJECT_DN);
+		return el().defaultIfEmpty("config.sp.certificateTemplate.subjectDN", DEFAULT_SUBJECT_DN);
 	}
 
 	private String getKeyAlgorithm() {
-		return el().defaultIfEmpty("config.certificateTemplate.keyAlgorithm", DEFAULT_KEY_ALGORITHM);
+		return el().defaultIfEmpty("config.sp.certificateTemplate.keyAlgorithm", DEFAULT_KEY_ALGORITHM);
 	}
 
 	private int getKeySize() {
-		return el().getInt("config.certificateTemplate.keySize", DEFAULT_KEY_SIZE);
+		return el().getInt("config.sp.certificateTemplate.keySize", DEFAULT_KEY_SIZE);
 	}
 
 	private String getSignatureAlgorithm() {
-		return el().defaultIfEmpty("config.certificateTemplate.signatureAlgorithm", DEFAULT_SIGNATURE_ALGORITHM);
+		return el().defaultIfEmpty("config.sp.certificateTemplate.signatureAlgorithm", DEFAULT_SIGNATURE_ALGORITHM);
 	}
 
 	private int getCertificateValidity() {
-		return el().getInt("config.certificateTemplate.validity", DEFAULT_VALIDITY);
+		return el().getInt("config.sp.certificateTemplate.validity", DEFAULT_VALIDITY);
 	}
 
 	private void loadKeyStore() throws IOException {

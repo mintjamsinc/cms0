@@ -67,6 +67,7 @@ public class Saml2ServiceProviderConfiguration {
 	private Saml2Settings fSaml2Settings;
 	private SpKeyStoreManager fKeyStoreManager;
 
+	@SuppressWarnings("unchecked")
 	public HttpServlet createServlet() throws IOException {
 		Path configPath = getConfigPath();
 		if (!Files.exists(configPath)) {
@@ -86,18 +87,18 @@ public class Saml2ServiceProviderConfiguration {
 					.put("sp", AdaptableMap.<String, Object>newBuilder()
 							.put("entityID", p.getProperty("saml2.sp.entityid"))
 							.put("rootURL", p.getProperty("saml2.sp.entityid"))
-							.build())
-					.put("keystore", AdaptableMap.<String, Object>newBuilder()
-							.put("type", "PKCS12")
-							.put("password", "changeit")
-							.put("alias", "sp-signing")
-							.build())
-					.put("certificateTemplate", AdaptableMap.<String, Object>newBuilder()
-							.put("subjectDN", "CN=Sample Service Provider, OU=Quick Start, O=Open Components Project")
-							.put("keyAlgorithm", "RSA")
-							.put("keySize", 2048)
-							.put("signatureAlgorithm", "SHA256withRSA")
-							.put("validity", 7300)
+							.put("keystore", AdaptableMap.<String, Object>newBuilder()
+									.put("type", "PKCS12")
+									.put("password", CmsService.getEncryptor().encrypt("changeit"))
+									.put("alias", "sp-signing")
+									.build())
+							.put("certificateTemplate", AdaptableMap.<String, Object>newBuilder()
+									.put("subjectDN", "CN=Sample Service Provider, OU=Quick Start, O=Open Components Project")
+									.put("keyAlgorithm", "RSA")
+									.put("keySize", 2048)
+									.put("signatureAlgorithm", "SHA256withRSA")
+									.put("validity", 7300)
+									.build())
 							.build())
 					.put("idp", AdaptableMap.<String, Object>newBuilder()
 							.put("entityID", p.getProperty("saml2.idp.entityid"))
@@ -141,6 +142,23 @@ public class Saml2ServiceProviderConfiguration {
 
 		try (InputStream in = new BufferedInputStream(Files.newInputStream(saml2Path))) {
 			fConfig = (Map<String, Object>) new Load(LoadSettings.builder().build()).loadFromInputStream(in);
+
+			String password = ExpressionContext.create()
+					.setVariable("config", fConfig)
+					.defaultIfEmpty("config.sp.keystore.password", "changeit");
+			if (!CmsService.getEncryptor().isEncrypted(password)) {
+				((Map<String, Object>) ((Map<String, Object>) fConfig.get("sp")).get("keystore"))
+						.put("password", CmsService.getEncryptor().encrypt(password));
+				try (Writer out = Files.newBufferedWriter(saml2Path, StandardCharsets.UTF_8)) {
+					String yamlString = new Dump(DumpSettings.builder()
+							.setIndent(2)
+							.setIndicatorIndent(2)
+							.setDefaultFlowStyle(FlowStyle.BLOCK)
+							.build()).dumpToString(fConfig);
+					out.append(yamlString);
+				}
+				CmsService.getLogger(Saml2ServiceProviderConfiguration.class).info("The sp.keystore.password parameter has been encrypted and the configuration file has been updated.");
+			}
 		}
 
 		fKeyStoreManager = new SpKeyStoreManager(configPath, fConfig);
