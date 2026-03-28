@@ -286,6 +286,10 @@ public class GraphQLExecutor {
 				response.setData(bpmMutationExecutor.executeDeployProcess(request));
 			} else if (query.contains("deleteDeployment(")) {
 				response.setData(bpmMutationExecutor.executeDeleteDeployment(request));
+			} else if (query.contains("suspendProcessDefinition(")) {
+				response.setData(bpmMutationExecutor.executeSuspendProcessDefinition(request));
+			} else if (query.contains("activateProcessDefinition(")) {
+				response.setData(bpmMutationExecutor.executeActivateProcessDefinition(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}

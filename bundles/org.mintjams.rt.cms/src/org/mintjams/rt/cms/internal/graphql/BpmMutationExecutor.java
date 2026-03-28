@@ -382,6 +382,46 @@ public class BpmMutationExecutor {
 	}
 
 	// =========================================================================
+	// Process Definition lifecycle mutations
+	// =========================================================================
+
+	public Map<String, Object> executeSuspendProcessDefinition(GraphQLRequest request) throws Exception {
+		Map<String, Object> variables = request.getVariables();
+		String id = getStringVar(variables, "id");
+		Boolean includeInstances = getBoolVarOrNull(variables, "includeInstances");
+		if (id == null || id.isEmpty()) throw new IllegalArgumentException("id is required");
+
+		ProcessEngine engine = getProcessEngine();
+		engine.getRepositoryService().suspendProcessDefinitionById(id,
+				Boolean.TRUE.equals(includeInstances), null);
+
+		org.camunda.bpm.engine.repository.ProcessDefinition def = engine.getRepositoryService()
+				.createProcessDefinitionQuery().processDefinitionId(id).singleResult();
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("suspendProcessDefinition", def != null ? queryExecutor.mapProcessDefinition(engine, def) : null);
+		return result;
+	}
+
+	public Map<String, Object> executeActivateProcessDefinition(GraphQLRequest request) throws Exception {
+		Map<String, Object> variables = request.getVariables();
+		String id = getStringVar(variables, "id");
+		Boolean includeInstances = getBoolVarOrNull(variables, "includeInstances");
+		if (id == null || id.isEmpty()) throw new IllegalArgumentException("id is required");
+
+		ProcessEngine engine = getProcessEngine();
+		engine.getRepositoryService().activateProcessDefinitionById(id,
+				Boolean.TRUE.equals(includeInstances), null);
+
+		org.camunda.bpm.engine.repository.ProcessDefinition def = engine.getRepositoryService()
+				.createProcessDefinitionQuery().processDefinitionId(id).singleResult();
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("activateProcessDefinition", def != null ? queryExecutor.mapProcessDefinition(engine, def) : null);
+		return result;
+	}
+
+	// =========================================================================
 	// Mapping helpers
 	// =========================================================================
 

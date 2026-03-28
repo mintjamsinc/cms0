@@ -492,7 +492,7 @@ public class BpmQueryExecutor {
 	// Mapping helpers
 	// =========================================================================
 
-	private Map<String, Object> mapProcessDefinition(ProcessEngine engine, ProcessDefinition def) {
+	Map<String, Object> mapProcessDefinition(ProcessEngine engine, ProcessDefinition def) {
 		Map<String, Object> m = new HashMap<>();
 		m.put("id", def.getId());
 		m.put("key", def.getKey());
@@ -500,6 +500,13 @@ public class BpmQueryExecutor {
 		m.put("description", def.getDescription());
 		m.put("version", def.getVersion());
 		m.put("deploymentId", def.getDeploymentId());
+		try {
+			org.camunda.bpm.engine.repository.Deployment deployment = engine.getRepositoryService()
+					.createDeploymentQuery().deploymentId(def.getDeploymentId()).singleResult();
+			m.put("deploymentName", deployment != null ? deployment.getName() : null);
+		} catch (Exception e) {
+			m.put("deploymentName", null);
+		}
 		m.put("resourceName", def.getResourceName());
 		m.put("diagramResourceName", def.getDiagramResourceName());
 		m.put("suspended", def.isSuspended());
