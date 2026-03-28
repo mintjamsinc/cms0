@@ -25,7 +25,9 @@ package org.mintjams.saml2;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.PrivateKey;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +85,9 @@ public class Saml2Auth {
 
 	/**
 	 * Initiates the SSO process with options.
+	 * If {@code settings.isSignAuthnRequest()} is true and a private key is
+	 * configured, the redirect URL is signed using HTTP-Redirect binding signing
+	 * (SigAlg + Signature query parameters per SAML 2.0 spec section 3.4.4.1).
 	 *
 	 * @param relayState optional relay state for return URL
 	 * @param forceAuthn whether to force re-authentication
@@ -91,22 +96,40 @@ public class Saml2Auth {
 	 */
 	public void login(String relayState, boolean forceAuthn, boolean isPassive) throws IOException {
 		try {
-			Saml2AuthnRequestBuilder builder = new Saml2AuthnRequestBuilder(settings).setForceAuthn(forceAuthn)
+			Saml2AuthnRequestBuilder builder = new Saml2AuthnRequestBuilder(settings)
+					.setForceAuthn(forceAuthn)
 					.setIsPassive(isPassive);
 
 			String samlRequest = builder.buildBase64Deflated();
 
-			StringBuilder redirectUrl = new StringBuilder(settings.getIdpSingleSignOnServiceUrl());
-			redirectUrl.append(settings.getIdpSingleSignOnServiceUrl().contains("?") ? "&" : "?");
-			redirectUrl.append("SAMLRequest=").append(URLEncoder.encode(samlRequest, StandardCharsets.UTF_8.name()));
+			// Build the query string, signing if configured
+			StringBuilder queryString = new StringBuilder();
+			queryString.append("SAMLRequest=").append(URLEncoder.encode(samlRequest, StandardCharsets.UTF_8.name()));
 
 			if (relayState != null && !relayState.isEmpty()) {
-				redirectUrl.append("&RelayState=").append(URLEncoder.encode(relayState, StandardCharsets.UTF_8.name()));
+				queryString.append("&RelayState=").append(URLEncoder.encode(relayState, StandardCharsets.UTF_8.name()));
 			}
+
+			if (settings.isSignAuthnRequest() && settings.getSpPrivateKey() != null) {
+				String sigAlgUri = getSignatureAlgorithmUri(settings.getSpPrivateKey());
+				queryString.append("&SigAlg=").append(URLEncoder.encode(sigAlgUri, StandardCharsets.UTF_8.name()));
+
+				// Sign the query string as-is (with URL-encoded values)
+				java.security.Signature sig = java.security.Signature.getInstance(
+						getJcaAlgorithm(settings.getSpPrivateKey()));
+				sig.initSign(settings.getSpPrivateKey());
+				sig.update(queryString.toString().getBytes(StandardCharsets.UTF_8));
+				String signature = Base64.getEncoder().encodeToString(sig.sign());
+				queryString.append("&Signature=").append(URLEncoder.encode(signature, StandardCharsets.UTF_8.name()));
+			}
+
+			StringBuilder redirectUrl = new StringBuilder(settings.getIdpSingleSignOnServiceUrl());
+			redirectUrl.append(settings.getIdpSingleSignOnServiceUrl().contains("?") ? "&" : "?");
+			redirectUrl.append(queryString);
 
 			response.sendRedirect(redirectUrl.toString());
 
-		} catch (Saml2Exception ex) {
+		} catch (Exception ex) {
 			errors.add("Failed to initiate login: " + ex.getMessage());
 			throw new IOException("Failed to initiate login", ex);
 		}
@@ -267,6 +290,28 @@ public class Saml2Auth {
 	 */
 	public Saml2Settings getSettings() {
 		return settings;
+	}
+
+	/**
+	 * Returns the SAML SigAlg URI for the given private key algorithm.
+	 */
+	private static String getSignatureAlgorithmUri(PrivateKey privateKey) {
+		switch (privateKey.getAlgorithm().toUpperCase()) {
+			case "RSA": return "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+			case "EC":  return "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256";
+			default: throw new IllegalArgumentException("Unsupported key algorithm: " + privateKey.getAlgorithm());
+		}
+	}
+
+	/**
+	 * Returns the JCA algorithm name for the given private key algorithm.
+	 */
+	private static String getJcaAlgorithm(PrivateKey privateKey) {
+		switch (privateKey.getAlgorithm().toUpperCase()) {
+			case "RSA": return "SHA256withRSA";
+			case "EC":  return "SHA256withECDSA";
+			default: throw new IllegalArgumentException("Unsupported key algorithm: " + privateKey.getAlgorithm());
+		}
 	}
 
 }
