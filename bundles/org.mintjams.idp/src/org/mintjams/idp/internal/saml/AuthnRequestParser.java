@@ -24,10 +24,16 @@ package org.mintjams.idp.internal.saml;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.zip.Inflater;
 import java.util.zip.InflaterInputStream;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.xml.crypto.dsig.XMLSignature;
+import javax.xml.crypto.dsig.XMLSignatureFactory;
+import javax.xml.crypto.dsig.dom.DOMValidateContext;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
@@ -82,6 +88,80 @@ public class AuthnRequestParser {
 		byte[] decoded = Base64.getDecoder().decode(samlRequest);
 		Document document = parseXml(decoded);
 		return parseDocument(document, relayState);
+	}
+
+	/**
+	 * Verifies the XML signature of a Redirect binding AuthnRequest.
+	 * The signature covers the URL query string parameters, not the XML itself.
+	 *
+	 * @param request the HTTP request containing SAMLRequest, SigAlg, and Signature parameters
+	 * @param spCertificate the SP signing certificate to verify against
+	 * @throws SecurityException if verification fails or signature is missing
+	 * @throws Exception if an error occurs during verification
+	 */
+	public void verifyRedirectSignature(HttpServletRequest request, X509Certificate spCertificate) throws Exception {
+		String sigAlg = request.getParameter("SigAlg");
+		String signatureParam = request.getParameter("Signature");
+
+		if (sigAlg == null || signatureParam == null) {
+			throw new SecurityException("Signed AuthnRequest required: SigAlg and Signature parameters are missing");
+		}
+
+		// Reconstruct the signed query string using raw (URL-encoded) parameter values
+		// to match what the SP signed. The order must be: SAMLRequest[&RelayState]&SigAlg
+		String queryString = request.getQueryString();
+		String samlRequestRaw = getRawQueryParam(queryString, "SAMLRequest");
+		String relayStateRaw = getRawQueryParam(queryString, "RelayState");
+		String sigAlgRaw = getRawQueryParam(queryString, "SigAlg");
+
+		StringBuilder signedString = new StringBuilder();
+		signedString.append("SAMLRequest=").append(samlRequestRaw);
+		if (relayStateRaw != null) {
+			signedString.append("&RelayState=").append(relayStateRaw);
+		}
+		signedString.append("&SigAlg=").append(sigAlgRaw);
+
+		byte[] signedBytes = signedString.toString().getBytes(StandardCharsets.UTF_8);
+		byte[] signatureBytes = Base64.getDecoder().decode(signatureParam);
+
+		String jcaAlgorithm = sigAlgUriToJca(sigAlg);
+		java.security.Signature sig = java.security.Signature.getInstance(jcaAlgorithm);
+		sig.initVerify(spCertificate.getPublicKey());
+		sig.update(signedBytes);
+		if (!sig.verify(signatureBytes)) {
+			throw new SecurityException("AuthnRequest redirect binding signature verification failed");
+		}
+	}
+
+	/**
+	 * Verifies the XML signature of a POST binding AuthnRequest.
+	 * The signature is embedded as a ds:Signature element within the AuthnRequest XML.
+	 *
+	 * @param base64SamlRequest the Base64-encoded SAMLRequest parameter value
+	 * @param spCertificate the SP signing certificate to verify against
+	 * @throws SecurityException if verification fails or signature is missing
+	 * @throws Exception if an error occurs during verification
+	 */
+	public void verifyPostSignature(String base64SamlRequest, X509Certificate spCertificate) throws Exception {
+		byte[] decoded = Base64.getDecoder().decode(base64SamlRequest);
+		Document document = parseXml(decoded);
+
+		NodeList signatureNodes = document.getElementsByTagNameNS(XMLSignature.XMLNS, "Signature");
+		if (signatureNodes.getLength() == 0) {
+			throw new SecurityException("Signed AuthnRequest required: no XML signature found in POST binding request");
+		}
+
+		// Mark the ID attribute so the signature reference can resolve it
+		document.getDocumentElement().setIdAttribute("ID", true);
+
+		XMLSignatureFactory sigFactory = XMLSignatureFactory.getInstance("DOM");
+		DOMValidateContext validateContext = new DOMValidateContext(
+				spCertificate.getPublicKey(), signatureNodes.item(0));
+		XMLSignature xmlSignature = sigFactory.unmarshalXMLSignature(validateContext);
+
+		if (!xmlSignature.validate(validateContext)) {
+			throw new SecurityException("AuthnRequest POST binding signature verification failed");
+		}
 	}
 
 	private Document parseXml(byte[] xml) throws Exception {
@@ -139,6 +219,41 @@ public class AuthnRequestParser {
 		request.setRelayState(relayState);
 
 		return request;
+	}
+
+	/**
+	 * Extracts the raw (URL-encoded) value of a query parameter from the query string.
+	 * Uses the raw query string to preserve the exact encoding used by the SP when signing.
+	 */
+	private static String getRawQueryParam(String queryString, String name) {
+		if (queryString == null) {
+			return null;
+		}
+		String prefix = name + "=";
+		for (String part : queryString.split("&")) {
+			if (part.startsWith(prefix)) {
+				return part.substring(prefix.length());
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Maps a SAML SigAlg URI to the corresponding JCA algorithm name.
+	 */
+	private static String sigAlgUriToJca(String sigAlgUri) {
+		switch (sigAlgUri) {
+			case "http://www.w3.org/2000/09/xmldsig#rsa-sha1":
+				return "SHA1withRSA";
+			case "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256":
+				return "SHA256withRSA";
+			case "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512":
+				return "SHA512withRSA";
+			case "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256":
+				return "SHA256withECDSA";
+			default:
+				throw new IllegalArgumentException("Unsupported SigAlg URI: " + sigAlgUri);
+		}
 	}
 
 }

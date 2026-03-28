@@ -23,12 +23,16 @@
 package org.mintjams.idp.internal;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -320,7 +324,8 @@ public class IdpConfiguration {
 					String entityId = (String) spConfig.get("entityId");
 					String acsUrl = (String) spConfig.get("acsUrl");
 					if (entityId != null && acsUrl != null) {
-						trustedSPs.add(new TrustedSP(entityId, acsUrl));
+						String certificate = (String) spConfig.get("certificate");
+						trustedSPs.add(new TrustedSP(entityId, acsUrl, certificate));
 					} else {
 						log.warn("Invalid trusted SP configuration: {}", spConfig);
 					}
@@ -354,11 +359,25 @@ public class IdpConfiguration {
 	}
 
 	/**
+	 * Returns the TrustedSP for the given entity ID, or null if not found.
+	 * Returns null (not an error) when in starter mode (trustedSPs is empty).
+	 */
+	public TrustedSP getTrustedSP(String spEntityId) {
+		for (TrustedSP sp : getTrustedSPs()) {
+			if (sp.getEntityId().equals(spEntityId)) {
+				return sp;
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Represents a trusted Service Provider.
 	 */
 	public static class TrustedSP {
 		private String entityId;
 		private String acsUrl;
+		private String certificate;
 
 		public TrustedSP() {
 		}
@@ -366,6 +385,12 @@ public class IdpConfiguration {
 		public TrustedSP(String entityId, String acsUrl) {
 			this.entityId = entityId;
 			this.acsUrl = acsUrl;
+		}
+
+		public TrustedSP(String entityId, String acsUrl, String certificate) {
+			this.entityId = entityId;
+			this.acsUrl = acsUrl;
+			this.certificate = certificate;
 		}
 
 		public String getEntityId() {
@@ -382,6 +407,26 @@ public class IdpConfiguration {
 
 		public void setAcsUrl(String acsUrl) {
 			this.acsUrl = acsUrl;
+		}
+
+		public String getCertificate() {
+			return certificate;
+		}
+
+		public void setCertificate(String certificate) {
+			this.certificate = certificate;
+		}
+
+		/**
+		 * Parses and returns the SP signing certificate, or null if not configured.
+		 */
+		public X509Certificate getX509Certificate() throws Exception {
+			if (certificate == null || certificate.isEmpty()) {
+				return null;
+			}
+			byte[] certBytes = Base64.getMimeDecoder().decode(certificate.replaceAll("\\s+", ""));
+			return (X509Certificate) CertificateFactory.getInstance("X.509")
+					.generateCertificate(new ByteArrayInputStream(certBytes));
 		}
 	}
 

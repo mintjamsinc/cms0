@@ -117,6 +117,23 @@ public class SsoServlet extends HttpServlet {
 				return;
 			}
 
+			// Verify SP signature if a certificate is configured for this SP
+			IdpConfiguration.TrustedSP trustedSP = config.getTrustedSP(authnRequest.getIssuer());
+			if (trustedSP != null && trustedSP.getCertificate() != null) {
+				try {
+					if ("REDIRECT".equals(binding)) {
+						parser.verifyRedirectSignature(request, trustedSP.getX509Certificate());
+					} else {
+						parser.verifyPostSignature(samlRequest, trustedSP.getX509Certificate());
+					}
+					log.info("SP signature verified for: {}", authnRequest.getIssuer());
+				} catch (SecurityException ex) {
+					log.warn("SP signature verification failed for {}: {}", authnRequest.getIssuer(), ex.getMessage());
+					response.sendError(HttpServletResponse.SC_FORBIDDEN, "SP signature verification failed");
+					return;
+				}
+			}
+
 			// Check if user is already authenticated
 			HttpSession session = request.getSession(true);
 			IdpUser user = (IdpUser) session.getAttribute(LoginServlet.SESSION_USER);
