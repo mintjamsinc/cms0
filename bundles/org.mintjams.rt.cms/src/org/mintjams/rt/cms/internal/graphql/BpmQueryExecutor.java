@@ -489,6 +489,45 @@ public class BpmQueryExecutor {
 	}
 
 	// =========================================================================
+	// Activity History
+	// =========================================================================
+
+	public Map<String, Object> executeActivityHistoryQuery(GraphQLRequest request) throws Exception {
+		Map<String, Object> variables = request.getVariables();
+		String processInstanceId = getStringVar(variables, "processInstanceId");
+		if (processInstanceId == null || processInstanceId.isEmpty()) {
+			throw new IllegalArgumentException("processInstanceId is required");
+		}
+
+		ProcessEngine engine = getProcessEngine();
+		List<org.camunda.bpm.engine.history.HistoricActivityInstance> activities = engine.getHistoryService()
+				.createHistoricActivityInstanceQuery()
+				.processInstanceId(processInstanceId)
+				.orderByHistoricActivityInstanceStartTime().asc()
+				.list();
+
+		List<Map<String, Object>> items = new ArrayList<>();
+		for (org.camunda.bpm.engine.history.HistoricActivityInstance act : activities) {
+			Map<String, Object> m = new HashMap<>();
+			m.put("id", act.getId());
+			m.put("activityId", act.getActivityId());
+			m.put("activityName", act.getActivityName());
+			m.put("activityType", act.getActivityType());
+			m.put("processInstanceId", act.getProcessInstanceId());
+			m.put("startTime", formatDate(act.getStartTime()));
+			m.put("endTime", act.getEndTime() != null ? formatDate(act.getEndTime()) : null);
+			m.put("durationInMillis", act.getDurationInMillis());
+			m.put("canceled", act.isCanceled());
+			m.put("completeScope", act.isCompleteScope());
+			items.add(m);
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("activityHistory", items);
+		return result;
+	}
+
+	// =========================================================================
 	// Mapping helpers
 	// =========================================================================
 

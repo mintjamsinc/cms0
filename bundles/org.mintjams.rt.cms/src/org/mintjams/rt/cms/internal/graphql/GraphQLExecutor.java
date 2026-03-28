@@ -145,6 +145,8 @@ public class GraphQLExecutor {
 				response.setData(bpmQueryExecutor.executeProcessInstancesQuery(request));
 			} else if (query.contains("processInstance(")) {
 				response.setData(bpmQueryExecutor.executeProcessInstanceQuery(request));
+			} else if (query.contains("activityHistory(")) {
+				response.setData(bpmQueryExecutor.executeActivityHistoryQuery(request));
 			} else if (query.contains("taskCounts(")) {
 				response.setData(bpmQueryExecutor.executeTaskCountsQuery(request));
 			} else if (query.contains("tasks(")) {
