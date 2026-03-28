@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2022 MintJams Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -30,7 +30,9 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.cert.CertificateEncodingException;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +65,7 @@ public class Saml2ServiceProviderConfiguration {
 
 	private Map<String, Object> fConfig = new HashMap<>();
 	private Saml2Settings fSaml2Settings;
+	private SpKeyStoreManager fKeyStoreManager;
 
 	public HttpServlet createServlet() throws IOException {
 		Path configPath = getConfigPath();
@@ -83,8 +86,18 @@ public class Saml2ServiceProviderConfiguration {
 					.put("sp", AdaptableMap.<String, Object>newBuilder()
 							.put("entityID", p.getProperty("saml2.sp.entityid"))
 							.put("rootURL", p.getProperty("saml2.sp.entityid"))
-							.put("certificate", p.getProperty("saml2.sp.x509cert"))
-							.put("privateKey", p.getProperty("saml2.sp.privatekey"))
+							.build())
+					.put("keystore", AdaptableMap.<String, Object>newBuilder()
+							.put("type", "PKCS12")
+							.put("password", "changeit")
+							.put("alias", "sp-signing")
+							.build())
+					.put("certificateTemplate", AdaptableMap.<String, Object>newBuilder()
+							.put("subjectDN", "CN=Sample Service Provider, OU=Quick Start, O=Open Components Project")
+							.put("keyAlgorithm", "RSA")
+							.put("keySize", 2048)
+							.put("signatureAlgorithm", "SHA256withRSA")
+							.put("validity", 7300)
 							.build())
 					.put("idp", AdaptableMap.<String, Object>newBuilder()
 							.put("entityID", p.getProperty("saml2.idp.entityid"))
@@ -130,6 +143,8 @@ public class Saml2ServiceProviderConfiguration {
 			fConfig = (Map<String, Object>) new Load(LoadSettings.builder().build()).loadFromInputStream(in);
 		}
 
+		fKeyStoreManager = new SpKeyStoreManager(configPath, fConfig);
+
 		prepareSettings();
 
 		return new Saml2Servlet(this);
@@ -153,8 +168,14 @@ public class Saml2ServiceProviderConfiguration {
 		p.setProperty("saml2.sp.entityid", el.defaultIfEmpty("config.sp.entityID", rootURL));
 		p.setProperty("saml2.sp.assertion_consumer_service.url", rootURL + Saml2Servlet.LOGIN_PATH);
 		p.setProperty("saml2.sp.single_logout_service.url", rootURL + Saml2Servlet.LOGOUT_PATH);
-		p.setProperty("saml2.sp.x509cert", el.getString("config.sp.certificate"));
-		p.setProperty("saml2.sp.privatekey", el.getString("config.sp.privateKey"));
+		try {
+			p.setProperty("saml2.sp.x509cert", Base64.getMimeEncoder(64, new byte[]{'\n'})
+					.encodeToString(fKeyStoreManager.getCertificate().getEncoded()));
+			p.setProperty("saml2.sp.privatekey", Base64.getEncoder()
+					.encodeToString(fKeyStoreManager.getPrivateKey().getEncoded()));
+		} catch (CertificateEncodingException ex) {
+			throw new IOException("Failed to encode SP certificate", ex);
+		}
 
 		p.setProperty("saml2.idp.entityid", el.getString("config.idp.entityID"));
 		p.setProperty("saml2.idp.single_sign_on_service.url", el.getString("config.idp.loginURL"));
