@@ -288,6 +288,10 @@ public class IdpConfiguration {
 		return getBaseURL() + getLoginPath();
 	}
 
+	public String getLoginApiPath() {
+		return geContextPath() + "/api/login";
+	}
+
 	public String getCustomLoginPageURL() {
 		try {
 			return ExpressionContext.create()

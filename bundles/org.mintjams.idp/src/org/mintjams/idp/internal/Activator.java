@@ -42,6 +42,7 @@ import org.mintjams.idp.internal.auth.UserStore;
 import org.mintjams.idp.internal.security.FileKeyStoreManager;
 import org.mintjams.idp.internal.security.IdpServiceCredentials;
 import org.mintjams.idp.internal.security.KeyStoreManager;
+import org.mintjams.idp.internal.servlet.LoginApiServlet;
 import org.mintjams.idp.internal.servlet.LoginServlet;
 import org.mintjams.idp.internal.servlet.MetadataServlet;
 import org.mintjams.idp.internal.servlet.SsoServlet;
@@ -54,6 +55,9 @@ import org.osgi.service.http.HttpContext;
 import org.osgi.service.http.HttpService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * OSGi Bundle Activator for the MintJams SAML 2.0 Identity Provider.
@@ -75,6 +79,7 @@ public class Activator implements BundleActivator {
 	private KeyStoreManager fKeyStoreManager;
 	private Encryptor fEncryptor;
 	private UserStore fUserStore;
+	private final ObjectMapper fObjectMapper = new ObjectMapper();
 
 	private Tracker.Listener<Object> fTrackerListener = new Tracker.Listener<Object>() {
 		@Override
@@ -168,6 +173,7 @@ public class Activator implements BundleActivator {
 
 			httpService.registerServlet(fConfig.getMetadataPath(), new MetadataServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getLoginPath(), new LoginServlet(), null, sharedContext);
+			httpService.registerServlet(fConfig.getLoginApiPath(), new LoginApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSsoPath(), new SsoServlet(), null, sharedContext);
 
 			log.info("IdP servlets registered at: {}", fConfig.getConfigPath());
@@ -175,6 +181,10 @@ public class Activator implements BundleActivator {
 			log.info("  SSO URL   : {}", fConfig.getSsoUrl());
 			log.info("  Metadata  : {}", fConfig.getMetadataUrl());
 			log.info("  Login     : {}", fConfig.getLoginUrl());
+			log.info("  Login API : {}", fConfig.getBaseURL() + fConfig.getLoginApiPath());
+			if (fConfig.getCustomLoginPageURL() != null) {
+				log.info("  Custom Login: {}", fConfig.getCustomLoginPageURL());
+			}
 		} catch (Throwable ex) {
 			log.error("Failed to register IdP servlets", ex);
 		}
@@ -348,6 +358,18 @@ public class Activator implements BundleActivator {
 
 	public UserStore getUserStore() {
 		return fUserStore;
+	}
+
+	public String toJSON(Object value) throws IOException {
+		return fObjectMapper.writeValueAsString(value);
+	}
+
+	@SuppressWarnings("unchecked")
+	public <T> T parseJSON(String value) throws IOException {
+		if (value == null) {
+			return null;
+		}
+		return (T) fObjectMapper.readValue(value, new TypeReference<>() {});
 	}
 
 }

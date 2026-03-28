@@ -33,6 +33,7 @@ import javax.servlet.http.HttpSession;
 import org.mintjams.idp.internal.Activator;
 import org.mintjams.idp.internal.IdpConfiguration;
 import org.mintjams.idp.internal.model.IdpUser;
+import org.mintjams.tools.lang.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +63,12 @@ public class LoginServlet extends HttpServlet {
 
 	@Override
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		// Redirect to custom login page if configured
+		String customLoginPageURL = Activator.getDefault().getConfiguration().getCustomLoginPageURL();
+		if (Strings.isNotBlank(customLoginPageURL)) {
+			response.sendRedirect(customLoginPageURL);
+			return;
+		}
 		renderLoginForm(response, null);
 	}
 

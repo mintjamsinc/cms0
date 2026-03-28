@@ -35,6 +35,7 @@ import org.mintjams.idp.internal.model.AuthnRequest;
 import org.mintjams.idp.internal.model.IdpUser;
 import org.mintjams.idp.internal.saml.AuthnRequestParser;
 import org.mintjams.idp.internal.saml.SamlResponseBuilder;
+import org.mintjams.tools.lang.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -132,7 +133,13 @@ public class SsoServlet extends HttpServlet {
 				session.setAttribute(LoginServlet.SESSION_RELAY_STATE, relayState);
 				session.setAttribute(LoginServlet.SESSION_BINDING, binding);
 
-				response.sendRedirect(config.getLoginUrl());
+				// Redirect to custom login page if configured, otherwise use built-in login
+				String customLoginPageURL = config.getCustomLoginPageURL();
+				if (Strings.isNotBlank(customLoginPageURL)) {
+					response.sendRedirect(customLoginPageURL);
+				} else {
+					response.sendRedirect(config.getLoginUrl());
+				}
 				return;
 			}
 
