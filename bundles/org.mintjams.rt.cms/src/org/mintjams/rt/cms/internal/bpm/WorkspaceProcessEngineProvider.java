@@ -94,6 +94,25 @@ public class WorkspaceProcessEngineProvider implements Closeable {
 		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FILE_NAME)) {
 			String itemPath = item.getPath();
 			RepositoryService repositoryService = getProcessEngine().getRepositoryService();
+
+			// Skip deployment if an existing deployment is already up to date
+			List<Deployment> existing = repositoryService.createDeploymentQuery()
+					.deploymentName(itemPath)
+					.orderByDeploymentTime().desc()
+					.listPage(0, 1);
+			if (!existing.isEmpty()) {
+				java.util.Date deploymentTime = existing.get(0).getDeploymentTime();
+				try {
+					java.util.Calendar lastModified = item.getNode(Node.JCR_CONTENT)
+							.getProperty(Property.JCR_LAST_MODIFIED).getDate();
+					if (!lastModified.getTime().after(deploymentTime)) {
+						return;
+					}
+				} catch (PathNotFoundException ignore) {
+					// jcr:lastModified not present — proceed with deployment
+				}
+			}
+
 			try (InputStream in = new BufferedInputStream(item.getNode(Node.JCR_CONTENT).getProperty(Property.JCR_DATA).getBinary().getStream())) {
 				repositoryService.createDeployment().name(itemPath).addInputStream(itemPath, in).deploy();
 			}
