@@ -60,7 +60,7 @@ public class FileKeyStoreManager implements KeyStoreManager {
 
 	public FileKeyStoreManager() throws IOException {
 		IdpConfiguration config = Activator.getDefault().getConfiguration();
-		fKeyStorePath = config.getConfigPath().resolve("idp.p12");
+		fKeyStorePath = config.getConfigPath().resolve("idp-keystore.p12");
 		if (Files.exists(fKeyStorePath)) {
 			loadKeyStore();
 			log.info("Loaded IdP signing certificate from: {}", fKeyStorePath.toFile().getAbsolutePath());
