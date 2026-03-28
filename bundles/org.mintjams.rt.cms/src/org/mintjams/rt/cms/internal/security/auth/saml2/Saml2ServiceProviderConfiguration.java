@@ -53,6 +53,7 @@ import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
 import org.snakeyaml.engine.v2.common.FlowStyle;
 import org.mintjams.saml2.Saml2Auth;
+import org.mintjams.saml2.Saml2MetadataBuilder;
 import org.mintjams.saml2.exception.Saml2Exception;
 import org.mintjams.saml2.exception.ValidationException;
 import org.mintjams.saml2.model.Saml2Settings;
@@ -71,7 +72,7 @@ public class Saml2ServiceProviderConfiguration {
 		Path saml2Path = configPath.resolve("saml2.yml");
 		if (!Files.exists(saml2Path)) {
 			Properties p = new Properties();
-			try (InputStream in = Saml2ServiceProviderConfiguration.class.getResourceAsStream("onelogin.saml.properties")) {
+			try (InputStream in = Saml2ServiceProviderConfiguration.class.getResourceAsStream("saml.properties")) {
 				p.load(in);
 			}
 
@@ -80,17 +81,17 @@ public class Saml2ServiceProviderConfiguration {
 					.put("strict", "true")
 					.put("debug", "false")
 					.put("sp", AdaptableMap.<String, Object>newBuilder()
-							.put("entityID", p.getProperty("onelogin.saml2.sp.entityid"))
-							.put("rootURL", p.getProperty("onelogin.saml2.sp.entityid"))
-							.put("certificate", p.getProperty("onelogin.saml2.sp.x509cert"))
-							.put("privateKey", p.getProperty("onelogin.saml2.sp.privatekey"))
+							.put("entityID", p.getProperty("saml2.sp.entityid"))
+							.put("rootURL", p.getProperty("saml2.sp.entityid"))
+							.put("certificate", p.getProperty("saml2.sp.x509cert"))
+							.put("privateKey", p.getProperty("saml2.sp.privatekey"))
 							.build())
 					.put("idp", AdaptableMap.<String, Object>newBuilder()
-							.put("entityID", p.getProperty("onelogin.saml2.idp.entityid"))
-							.put("loginURL", p.getProperty("onelogin.saml2.idp.single_sign_on_service.url"))
-							.put("logoutURL", p.getProperty("onelogin.saml2.idp.single_logout_service.url"))
-							.put("logoutResponseURL", p.getProperty("onelogin.saml2.idp.single_logout_service.response.url"))
-							.put("certificate", p.getProperty("onelogin.saml2.idp.x509cert"))
+							.put("entityID", p.getProperty("saml2.idp.entityid"))
+							.put("loginURL", p.getProperty("saml2.idp.single_sign_on_service.url"))
+							.put("logoutURL", p.getProperty("saml2.idp.single_logout_service.url"))
+							.put("logoutResponseURL", p.getProperty("saml2.idp.single_logout_service.response.url"))
+							.put("certificate", p.getProperty("saml2.idp.x509cert"))
 							.build())
 					.put("security", AdaptableMap.<String, Object>newBuilder()
 							.put("willBeSigned", "authnRequest, logoutRequest, logoutResponse")
@@ -99,19 +100,19 @@ public class Saml2ServiceProviderConfiguration {
 							.put("wantEncrypted", "nameID, assertions")
 							.build())
 					.put("organization", AdaptableMap.<String, Object>newBuilder()
-							.put("name", p.getProperty("onelogin.saml2.organization.name"))
-							.put("displayName", p.getProperty("onelogin.saml2.organization.displayname"))
-							.put("url", p.getProperty("onelogin.saml2.organization.url"))
-							.put("language", p.getProperty("onelogin.saml2.organization.lang"))
+							.put("name", p.getProperty("saml2.organization.name"))
+							.put("displayName", p.getProperty("saml2.organization.displayname"))
+							.put("url", p.getProperty("saml2.organization.url"))
+							.put("language", p.getProperty("saml2.organization.lang"))
 							.build())
 					.put("contacts", AdaptableMap.<String, Object>newBuilder()
 							.put("technical", AdaptableMap.<String, Object>newBuilder()
-									.put("name", p.getProperty("onelogin.saml2.contacts.technical.given_name"))
-									.put("email", p.getProperty("onelogin.saml2.contacts.technical.email_address"))
+									.put("name", p.getProperty("saml2.contacts.technical.given_name"))
+									.put("email", p.getProperty("saml2.contacts.technical.email_address"))
 									.build())
 							.put("support", AdaptableMap.<String, Object>newBuilder()
-									.put("name", p.getProperty("onelogin.saml2.contacts.support.given_name"))
-									.put("email", p.getProperty("onelogin.saml2.contacts.support.email_address"))
+									.put("name", p.getProperty("saml2.contacts.support.given_name"))
+									.put("email", p.getProperty("saml2.contacts.support.email_address"))
 									.build())
 							.build())
 					.build();
@@ -136,53 +137,53 @@ public class Saml2ServiceProviderConfiguration {
 
 	private void prepareSettings() throws IOException {
 		Properties p = new Properties();
-		try (InputStream in = Saml2ServiceProviderConfiguration.class.getResourceAsStream("onelogin.saml.properties")) {
+		try (InputStream in = Saml2ServiceProviderConfiguration.class.getResourceAsStream("saml.properties")) {
 			p.load(in);
 		}
 
 		ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
 
-		p.setProperty("onelogin.saml2.strict", el.defaultIfEmpty("config.strict", "true"));
-		p.setProperty("onelogin.saml2.debug", el.defaultIfEmpty("config.debug", "false"));
+		p.setProperty("saml2.strict", el.defaultIfEmpty("config.strict", "true"));
+		p.setProperty("saml2.debug", el.defaultIfEmpty("config.debug", "false"));
 
 		String rootURL = el.getString("config.sp.rootURL");
 		if (rootURL.endsWith("/")) {
 			rootURL = rootURL.substring(0, rootURL.length() - 1);
 		}
-		p.setProperty("onelogin.saml2.sp.entityid", el.defaultIfEmpty("config.sp.entityID", rootURL));
-		p.setProperty("onelogin.saml2.sp.assertion_consumer_service.url", rootURL + Saml2Servlet.LOGIN_PATH);
-		p.setProperty("onelogin.saml2.sp.single_logout_service.url", rootURL + Saml2Servlet.LOGOUT_PATH);
-		p.setProperty("onelogin.saml2.sp.x509cert", el.getString("config.sp.certificate"));
-		p.setProperty("onelogin.saml2.sp.privatekey", el.getString("config.sp.privateKey"));
+		p.setProperty("saml2.sp.entityid", el.defaultIfEmpty("config.sp.entityID", rootURL));
+		p.setProperty("saml2.sp.assertion_consumer_service.url", rootURL + Saml2Servlet.LOGIN_PATH);
+		p.setProperty("saml2.sp.single_logout_service.url", rootURL + Saml2Servlet.LOGOUT_PATH);
+		p.setProperty("saml2.sp.x509cert", el.getString("config.sp.certificate"));
+		p.setProperty("saml2.sp.privatekey", el.getString("config.sp.privateKey"));
 
-		p.setProperty("onelogin.saml2.idp.entityid", el.getString("config.idp.entityID"));
-		p.setProperty("onelogin.saml2.idp.single_sign_on_service.url", el.getString("config.idp.loginURL"));
-		p.setProperty("onelogin.saml2.idp.single_logout_service.url", el.getString("config.idp.logoutURL"));
-		p.setProperty("onelogin.saml2.idp.single_logout_service.response.url", el.getString("config.idp.logoutResponseURL"));
-		p.setProperty("onelogin.saml2.idp.x509cert", el.getString("config.idp.certificate"));
+		p.setProperty("saml2.idp.entityid", el.getString("config.idp.entityID"));
+		p.setProperty("saml2.idp.single_sign_on_service.url", el.getString("config.idp.loginURL"));
+		p.setProperty("saml2.idp.single_logout_service.url", el.getString("config.idp.logoutURL"));
+		p.setProperty("saml2.idp.single_logout_service.response.url", el.getString("config.idp.logoutResponseURL"));
+		p.setProperty("saml2.idp.x509cert", el.getString("config.idp.certificate"));
 
 		List<String> willBeSigned = Arrays.asList(el.getStringArray("config.security.willBeSigned"));
-		p.setProperty("onelogin.saml2.security.authnrequest_signed", "" + willBeSigned.contains("authnRequest"));
-		p.setProperty("onelogin.saml2.security.logoutrequest_signed", "" + willBeSigned.contains("logoutRequest"));
-		p.setProperty("onelogin.saml2.security.logoutresponse_signed", "" + willBeSigned.contains("logoutResponse"));
+		p.setProperty("saml2.security.authnrequest_signed", "" + willBeSigned.contains("authnRequest"));
+		p.setProperty("saml2.security.logoutrequest_signed", "" + willBeSigned.contains("logoutRequest"));
+		p.setProperty("saml2.security.logoutresponse_signed", "" + willBeSigned.contains("logoutResponse"));
 		List<String> wantSigned = Arrays.asList(el.getStringArray("config.security.wantSigned"));
-		p.setProperty("onelogin.saml2.security.want_messages_signed", "" + wantSigned.contains("messages"));
-		p.setProperty("onelogin.saml2.security.want_assertions_signed", "" + wantSigned.contains("assertions"));
+		p.setProperty("saml2.security.want_messages_signed", "" + wantSigned.contains("messages"));
+		p.setProperty("saml2.security.want_assertions_signed", "" + wantSigned.contains("assertions"));
 		List<String> willBeEncrypted = Arrays.asList(el.getStringArray("config.security.willBeEncrypted"));
-		p.setProperty("onelogin.saml2.security.nameid_encrypted", "" + willBeEncrypted.contains("nameID"));
+		p.setProperty("saml2.security.nameid_encrypted", "" + willBeEncrypted.contains("nameID"));
 		List<String> wantEncrypted = Arrays.asList(el.getStringArray("config.security.wantEncrypted"));
-		p.setProperty("onelogin.saml2.security.want_nameid_encrypted", "" + wantEncrypted.contains("nameID"));
-		p.setProperty("onelogin.saml2.security.want_assertions_encrypted", "" + wantEncrypted.contains("assertions"));
+		p.setProperty("saml2.security.want_nameid_encrypted", "" + wantEncrypted.contains("nameID"));
+		p.setProperty("saml2.security.want_assertions_encrypted", "" + wantEncrypted.contains("assertions"));
 
-		p.setProperty("onelogin.saml2.organization.name", el.getString("config.organization.name"));
-		p.setProperty("onelogin.saml2.organization.displayname", el.getString("config.organization.displayName"));
-		p.setProperty("onelogin.saml2.organization.url", el.getString("config.organization.url"));
-		p.setProperty("onelogin.saml2.organization.lang", el.getString("config.organization.language"));
+		p.setProperty("saml2.organization.name", el.getString("config.organization.name"));
+		p.setProperty("saml2.organization.displayname", el.getString("config.organization.displayName"));
+		p.setProperty("saml2.organization.url", el.getString("config.organization.url"));
+		p.setProperty("saml2.organization.lang", el.getString("config.organization.language"));
 
-		p.setProperty("onelogin.saml2.contacts.technical.given_name", el.getString("config.contacts.technical.name"));
-		p.setProperty("onelogin.saml2.contacts.technical.email_address", el.getString("config.contacts.technical.email"));
-		p.setProperty("onelogin.saml2.contacts.support.given_name", el.getString("config.contacts.support.name"));
-		p.setProperty("onelogin.saml2.contacts.support.email_address", el.getString("config.contacts.support.email"));
+		p.setProperty("saml2.contacts.technical.given_name", el.getString("config.contacts.technical.name"));
+		p.setProperty("saml2.contacts.technical.email_address", el.getString("config.contacts.technical.email"));
+		p.setProperty("saml2.contacts.support.given_name", el.getString("config.contacts.support.name"));
+		p.setProperty("saml2.contacts.support.email_address", el.getString("config.contacts.support.email"));
 
 		try {
 			fSaml2Settings = new Saml2SettingsBuilder().fromProperties(p).build();
@@ -302,11 +303,14 @@ public class Saml2ServiceProviderConfiguration {
 				}
 
 				if (DESCRIPTOR_PATH.equals(path)) {
-					response.setContentType("text/xml");
+					response.setContentType("application/samlmetadata+xml");
 					response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-					// SP Metadata generation is not yet implemented in the new library
-					// For now, return a simple message
-					response.getWriter().append("<!-- SP Metadata endpoint - implementation pending -->");
+					try {
+						String metadata = new Saml2MetadataBuilder(fConfig.fSaml2Settings).build();
+						response.getWriter().append(metadata);
+					} catch (java.security.cert.CertificateEncodingException ex) {
+						throw new IOException("Failed to encode SP certificate for metadata", ex);
+					}
 					return;
 				}
 			} catch (ServletException | IOException ex) {

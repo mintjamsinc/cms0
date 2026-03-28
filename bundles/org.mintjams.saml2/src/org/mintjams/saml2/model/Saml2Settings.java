@@ -216,4 +216,80 @@ public class Saml2Settings {
 		this.wantAssertionsEncrypted = wantAssertionsEncrypted;
 	}
 
+	// Organization
+	private String organizationName;
+	private String organizationDisplayName;
+	private String organizationUrl;
+	private String organizationLanguage;
+
+	public String getOrganizationName() {
+		return organizationName;
+	}
+
+	public void setOrganizationName(String organizationName) {
+		this.organizationName = organizationName;
+	}
+
+	public String getOrganizationDisplayName() {
+		return organizationDisplayName;
+	}
+
+	public void setOrganizationDisplayName(String organizationDisplayName) {
+		this.organizationDisplayName = organizationDisplayName;
+	}
+
+	public String getOrganizationUrl() {
+		return organizationUrl;
+	}
+
+	public void setOrganizationUrl(String organizationUrl) {
+		this.organizationUrl = organizationUrl;
+	}
+
+	public String getOrganizationLanguage() {
+		return organizationLanguage;
+	}
+
+	public void setOrganizationLanguage(String organizationLanguage) {
+		this.organizationLanguage = organizationLanguage;
+	}
+
+	// Contacts
+	private String technicalContactName;
+	private String technicalContactEmail;
+	private String supportContactName;
+	private String supportContactEmail;
+
+	public String getTechnicalContactName() {
+		return technicalContactName;
+	}
+
+	public void setTechnicalContactName(String technicalContactName) {
+		this.technicalContactName = technicalContactName;
+	}
+
+	public String getTechnicalContactEmail() {
+		return technicalContactEmail;
+	}
+
+	public void setTechnicalContactEmail(String technicalContactEmail) {
+		this.technicalContactEmail = technicalContactEmail;
+	}
+
+	public String getSupportContactName() {
+		return supportContactName;
+	}
+
+	public void setSupportContactName(String supportContactName) {
+		this.supportContactName = supportContactName;
+	}
+
+	public String getSupportContactEmail() {
+		return supportContactEmail;
+	}
+
+	public void setSupportContactEmail(String supportContactEmail) {
+		this.supportContactEmail = supportContactEmail;
+	}
+
 }
