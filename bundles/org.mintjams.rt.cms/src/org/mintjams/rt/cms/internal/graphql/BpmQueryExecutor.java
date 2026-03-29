@@ -24,8 +24,9 @@ package org.mintjams.rt.cms.internal.graphql;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
@@ -40,7 +41,6 @@ import org.camunda.bpm.engine.ProcessEngine;
 import org.camunda.bpm.engine.history.HistoricProcessInstance;
 import org.camunda.bpm.engine.history.HistoricProcessInstanceQuery;
 import org.camunda.bpm.engine.history.HistoricVariableInstance;
-import org.camunda.bpm.engine.history.HistoricVariableInstanceQuery;
 import org.camunda.bpm.engine.repository.ProcessDefinition;
 import org.camunda.bpm.engine.repository.ProcessDefinitionQuery;
 import org.camunda.bpm.engine.runtime.IncidentQuery;
@@ -611,7 +611,11 @@ public class BpmQueryExecutor {
 		m.put("name", v.getName());
 		m.put("type", v.getTypeName());
 		Object val = v.getValue();
-		m.put("value", val != null ? val.toString() : null);
+		if (val instanceof Date) {
+			m.put("value", formatDate((Date) val));
+		} else {
+			m.put("value", val != null ? val.toString() : null);
+		}
 		m.put("valueInfo", null);
 		return m;
 	}
@@ -701,25 +705,31 @@ public class BpmQueryExecutor {
 	private Map<String, Object> mapSimpleVariable(String name, Object value) {
 		Map<String, Object> m = new HashMap<>();
 		m.put("name", name);
-		m.put("value", value != null ? value.toString() : null);
 		m.put("valueInfo", null);
 		if (value == null) {
 			m.put("type", "Null");
-		} else if (value instanceof String) {
-			m.put("type", "String");
-		} else if (value instanceof Long) {
-			m.put("type", "Long");
-		} else if (value instanceof Integer) {
-			m.put("type", "Integer");
-		} else if (value instanceof Double || value instanceof Float) {
-			m.put("type", "Double");
-		} else if (value instanceof Boolean) {
-			m.put("type", "Boolean");
+			m.put("value", null);
 		} else if (value instanceof Date) {
 			m.put("type", "Date");
 			m.put("value", formatDate((Date) value));
+		} else if (value instanceof String) {
+			m.put("type", "String");
+			m.put("value", value.toString());
+		} else if (value instanceof Long) {
+			m.put("type", "Long");
+			m.put("value", value.toString());
+		} else if (value instanceof Integer) {
+			m.put("type", "Integer");
+			m.put("value", value.toString());
+		} else if (value instanceof Double || value instanceof Float) {
+			m.put("type", "Double");
+			m.put("value", value.toString());
+		} else if (value instanceof Boolean) {
+			m.put("type", "Boolean");
+			m.put("value", value.toString());
 		} else {
 			m.put("type", "Object");
+			m.put("value", value.toString());
 		}
 		return m;
 	}
@@ -772,7 +782,8 @@ public class BpmQueryExecutor {
 
 	private String formatDate(Date date) {
 		if (date == null) return null;
-		return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").format(date);
+		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSX").withZone(ZoneOffset.UTC);
+		return formatter.format(date.toInstant());
 	}
 
 	private Date parseDate(String isoString) {
