@@ -291,6 +291,7 @@ public class BpmQueryExecutor {
 		List<String> candidateGroups = (List<String>) getListVar(variables, "candidateGroups");
 		Boolean unassigned = getBoolVarOrNull(variables, "unassigned");
 		String processInstanceId = getStringVar(variables, "processInstanceId");
+		String processDefinitionId = getStringVar(variables, "processDefinitionId");
 		String processDefinitionKey = getStringVar(variables, "processDefinitionKey");
 		String taskDefinitionKey = getStringVar(variables, "taskDefinitionKey");
 		String dueBefore = getStringVar(variables, "dueBefore");
@@ -327,6 +328,9 @@ public class BpmQueryExecutor {
 		}
 		if (processInstanceId != null && !processInstanceId.isEmpty()) {
 			q.processInstanceId(processInstanceId);
+		}
+		if (processDefinitionId != null && !processDefinitionId.isEmpty()) {
+			q.processDefinitionId(processDefinitionId);
 		}
 		if (processDefinitionKey != null && !processDefinitionKey.isEmpty()) {
 			q.processDefinitionKey(processDefinitionKey);
