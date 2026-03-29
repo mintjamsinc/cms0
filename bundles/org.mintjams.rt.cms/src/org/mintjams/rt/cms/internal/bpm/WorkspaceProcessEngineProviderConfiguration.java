@@ -109,6 +109,7 @@ public class WorkspaceProcessEngineProviderConfiguration {
 				.setJobExecutorActivate(true);
 		config.setJobExecutorAcquireByPriority(true);
 		config.setScriptFactory(new WorkspaceScriptFactory());
+		config.setIdentityProviderSessionFactory(new CmsIdentityProviderFactory());
 		return config.buildProcessEngine();
 	}
 

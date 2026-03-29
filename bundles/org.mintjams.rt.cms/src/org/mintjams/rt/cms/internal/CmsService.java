@@ -450,4 +450,28 @@ public class CmsService {
 		return getRepositoryPath().resolve("tmp");
 	}
 
+	public static boolean groupExists(String groupId) throws RepositoryException {
+		Session jcrSession = null;
+		try {
+			jcrSession = getRepository().login();
+			return jcrSession.nodeExists("/home/groups/" + groupId + "/profile");
+		} finally {
+			try {
+				jcrSession.logout();
+			} catch (Throwable ignore) {}
+		}
+	}
+
+	public static boolean userExists(String userId) throws RepositoryException {
+		Session jcrSession = null;
+		try {
+			jcrSession = CmsService.getRepository().login();
+			return jcrSession.nodeExists("/home/users/" + userId + "/profile");
+		} finally {
+			try {
+				jcrSession.logout();
+			} catch (Throwable ignore) {}
+		}
+	}
+
 }
