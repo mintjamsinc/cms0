@@ -479,7 +479,7 @@ public class BpmMutationExecutor {
 	}
 
 	private Map<String, Object> getTaskMap(ProcessEngine engine, String taskId) {
-		Task task = engine.getTaskService().createTaskQuery().taskId(taskId).singleResult();
+		Task task = engine.getTaskService().createTaskQuery().taskId(taskId).initializeFormKeys().singleResult();
 		if (task == null) {
 			Map<String, Object> m = new HashMap<>();
 			m.put("id", taskId);
