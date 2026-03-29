@@ -266,6 +266,7 @@ public class BpmQueryExecutor {
 
 		Task task = engine.getTaskService().createTaskQuery()
 				.taskId(id)
+				.initializeFormKeys()
 				.singleResult();
 
 		if (task == null) {
@@ -303,7 +304,11 @@ public class BpmQueryExecutor {
 		String sortOrder = getStringVar(variables, "sortOrder");
 
 		ProcessEngine engine = getProcessEngine();
-		TaskQuery q = engine.getTaskService().createTaskQuery();
+		TaskQuery q = engine.getTaskService().createTaskQuery()
+				.includeAssignedTasks()
+				.withCandidateGroups()
+				.withCandidateUsers()
+				.initializeFormKeys();
 
 		if (assignee != null && !assignee.isEmpty()) {
 			q.taskAssignee(assignee);
