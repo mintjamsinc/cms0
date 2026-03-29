@@ -555,7 +555,17 @@ public class BpmMutationExecutor {
 			case "Boolean":
 				return Boolean.parseBoolean(str);
 			case "Date":
-				try { return Date.from(Instant.parse(str)); } catch (Exception e) { return str; }
+				try {
+					return Date.from(Instant.parse(str));
+				} catch (Exception e1) {
+					// datetime-local format: "2026-03-27T18:33" or "2026-03-27T18:33:00"
+					try {
+						java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(str);
+						return Date.from(ldt.atZone(java.time.ZoneId.systemDefault()).toInstant());
+					} catch (Exception e2) {
+						return str;
+					}
+				}
 			default:
 				return str;
 		}
