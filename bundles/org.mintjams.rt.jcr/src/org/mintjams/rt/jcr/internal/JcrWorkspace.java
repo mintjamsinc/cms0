@@ -638,6 +638,10 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 			return (AdapterType) fObservationManager;
 		}
 
+		if (adapterType.equals(PrincipalProvider.class) || adapterType.equals(JcrPrincipalProvider.class)) {
+			return (AdapterType) fPrincipalProvider;
+		}
+
 		return Adaptables.getAdapter(fWorkspaceProvider, adapterType);
 	}
 
