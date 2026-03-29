@@ -305,9 +305,9 @@ public class BpmQueryExecutor {
 
 		ProcessEngine engine = getProcessEngine();
 		TaskQuery q = engine.getTaskService().createTaskQuery()
-				.includeAssignedTasks()
 				.withCandidateGroups()
 				.withCandidateUsers()
+				.includeAssignedTasks()
 				.initializeFormKeys();
 
 		if (assignee != null && !assignee.isEmpty()) {
