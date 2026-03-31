@@ -39,17 +39,13 @@ import javax.jcr.Session;
 
 import org.apache.camel.CamelContext;
 import org.apache.camel.ProducerTemplate;
-import org.apache.camel.RouteConfigurationsBuilder;
-import org.apache.camel.RoutesBuilder;
 import org.apache.camel.model.ModelCamelContext;
 import org.apache.camel.model.RouteConfigurationDefinition;
-import org.apache.camel.dsl.xml.io.XmlRoutesBuilderLoader;
-import org.apache.camel.spi.RoutesBuilderLoader;
+import org.apache.camel.spi.RoutesLoader;
+import org.apache.camel.support.PluginHelper;
 import org.mintjams.jcr.nodetype.NodeType;
-import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
-import org.mintjams.tools.collections.AdaptableList;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.io.IOs;
@@ -125,24 +121,11 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		}
 	}
 
-	private RoutesBuilderLoader getRoutesBuilderLoader(Node item) throws RepositoryException {
-		String mimeType = JCRs.getMimeType(item);
-
-		if (AdaptableList.<String>newBuilder()
-				.add("text/xml")
-				.add("application/xml")
-				.build().contains(mimeType)) {
-			return new XmlRoutesBuilderLoader();
-		}
-
-		throw new IllegalArgumentException("Could not obtain RoutesBuilderLoader: " + mimeType);
-	}
-
 	private void deploy(Node item) throws IOException, RepositoryException {
 		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FILE_NAME)) {
 			synchronized (fDeployments) {
 				String itemPath = item.getPath();
-				try (RoutesBuilderLoader loader = getRoutesBuilderLoader(item)) {
+				try {
 					ModelCamelContext modelContext = (ModelCamelContext) fCamelContext;
 
 					// Snapshot of current route IDs and route configuration IDs before loading
@@ -170,14 +153,9 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 					// Remove previously deployed route configurations for this path
 					removeRouteConfigurations(fRouteConfigDeployments.get(itemPath));
 
-					// Load and add new routes (and route configurations)
-					loader.setCamelContext(fCamelContext);
-					loader.build();
-					RoutesBuilder routesBuilder = loader.loadRoutesBuilder(new CamelResource(item));
-					if (routesBuilder instanceof RouteConfigurationsBuilder) {
-						((RouteConfigurationsBuilder) routesBuilder).addRouteConfigurationsToCamelContext(fCamelContext);
-					}
-					routesBuilder.addRoutesToCamelContext(fCamelContext);
+					// Load and add new routes (and route configurations) via RoutesLoader
+					RoutesLoader loader = PluginHelper.getRoutesLoader(fCamelContext);
+					loader.loadRoutes(new CamelResource(item));
 
 					// Track newly added route IDs (post-snapshot minus pre-snapshot)
 					List<String> newRouteIds = fCamelContext.getRoutes().stream()
