@@ -1,16 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
+	<classpathentry exported="true" kind="lib" path="lib/accessors-smart-2.6.0.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/asm-9.7.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-api-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-base-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-base-engine-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-bean-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-cluster-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-engine-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-core-languages-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-model-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-processor-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-reifier-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-direct-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-dsl-support-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-file-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-jsonpath-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-management-api-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-seda-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-support-4.18.1.jar"/>
@@ -24,8 +29,13 @@
 	<classpathentry exported="true" kind="lib" path="lib/camel-xml-jaxp-util-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-xpath-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-xslt-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/jackson-annotations-2.19.4.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/jackson-core-2.19.4.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/jackson-databind-2.19.4.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/jakarta.activation-api-2.1.4.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/jakarta.xml.bind-api-4.0.5.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/json-path-2.10.0.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/json-smart-2.6.0.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/slf4j-api-2.0.17.jar"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-17"/>
 	<classpathentry kind="con" path="org.eclipse.pde.core.requiredPlugins"/>
