@@ -4,7 +4,7 @@ Bundle-Name: %Plugin.name
 Bundle-SymbolicName: org.mintjams.rt.jcr
 Bundle-Version: 1.0.0
 Automatic-Module-Name: org.mintjams.rt.jcr
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Import-Package: com.fasterxml.jackson.core;version="[2.13.0,3.0.0)",
  com.fasterxml.jackson.core.type;version="[2.13.0,3.0.0)",

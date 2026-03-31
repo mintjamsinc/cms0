@@ -249,7 +249,7 @@ Export-Package: groovy.ant;version="4.0.25",
  org.codehaus.groovy.vmplugin.v8;version="4.0.25",
  org.codehaus.groovy.vmplugin.v9;version="4.0.25"
 Automatic-Module-Name: org.apache.groovy
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-ClassPath: .,
  lib/ant-1.10.15.jar,
  lib/ant-antlr-1.10.15.jar,

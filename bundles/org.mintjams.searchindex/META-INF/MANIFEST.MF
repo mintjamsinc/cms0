@@ -4,7 +4,7 @@ Bundle-Name: %Plugin.name
 Bundle-SymbolicName: org.mintjams.searchindex
 Bundle-Version: 1.0.0
 Automatic-Module-Name: org.mintjams.searchindex
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Export-Package: org.mintjams.searchindex;version="1.0.0",
  org.mintjams.searchindex.query;version="1.0.0"

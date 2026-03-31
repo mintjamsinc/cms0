@@ -4,7 +4,7 @@ Bundle-Name: %Plugin.name
 Bundle-SymbolicName: org.mintjams.rt.searchindex
 Bundle-Version: 1.0.0
 Automatic-Module-Name: org.mintjams.rt.searchindex
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Import-Package: org.osgi.framework;version="1.10.0",
  org.osgi.framework.wiring;version="1.2.0",

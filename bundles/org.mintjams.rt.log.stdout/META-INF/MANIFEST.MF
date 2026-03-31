@@ -4,7 +4,7 @@ Bundle-Name: %Plugin.name
 Bundle-SymbolicName: org.mintjams.rt.log.stdout
 Bundle-Version: 1.0.0
 Automatic-Module-Name: org.mintjams.rt.log.stdout
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Import-Package: org.osgi.framework;version="1.10.0",
  org.osgi.service.component;version="1.4.0",

@@ -4,7 +4,7 @@ Bundle-Name: Camunda Platform
 Bundle-SymbolicName: org.camunda.bpm
 Bundle-Version: 7.17.0
 Automatic-Module-Name: org.camunda.bpm
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-ClassPath: lib/camunda-bpmn-model-7.17.0.jar,
  lib/camunda-cmmn-model-7.17.0.jar,
  lib/camunda-commons-logging-1.10.0.jar,

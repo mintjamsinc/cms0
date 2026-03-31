@@ -3,7 +3,7 @@ Bundle-ManifestVersion: 2
 Bundle-Name: JCR Repository Tests
 Bundle-SymbolicName: org.mintjams.rt.jcr.test
 Bundle-Version: 1.0.0
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: MintJams Inc.
 Bundle-Activator: org.mintjams.rt.jcr.internal.Activator
 Require-Bundle: org.junit;bundle-version="4.12.0",

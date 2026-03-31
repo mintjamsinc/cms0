@@ -150,7 +150,7 @@ Export-Package: org.apache.camel;version="3.22.3",
  org.apache.camel.xml.io.util;version="3.22.3",
  org.apache.camel.xml.jaxb;version="3.22.3"
 Automatic-Module-Name: org.apache.camel
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-ClassPath: .,
  lib/camel-api-3.22.3.jar,
  lib/camel-base-3.22.3.jar,

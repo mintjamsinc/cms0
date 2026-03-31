@@ -11,6 +11,6 @@ Require-Bundle: bcpkix;bundle-version="1.83.0",
  bcprov;bundle-version="1.83.0",
  bcutil;bundle-version="1.83.0"
 Automatic-Module-Name: org.mintjams.cms
-Bundle-RequiredExecutionEnvironment: JavaSE-11
+Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-ActivationPolicy: lazy
 Bundle-ClassPath: .
