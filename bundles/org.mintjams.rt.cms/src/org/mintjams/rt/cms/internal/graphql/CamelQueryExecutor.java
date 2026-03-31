@@ -103,7 +103,7 @@ public class CamelQueryExecutor {
 	private List<Map<String, Object>> buildRouteList(CamelContext context, List<String> routeIds) {
 		List<Map<String, Object>> routeList = new ArrayList<>();
 
-		ManagedCamelContext managedContext = context.getExtension(ManagedCamelContext.class);
+		ManagedCamelContext managedContext = context.getCamelContextExtension().getContextPlugin(ManagedCamelContext.class);
 
 		for (String routeId : routeIds) {
 			Map<String, Object> routeMap = new HashMap<>();

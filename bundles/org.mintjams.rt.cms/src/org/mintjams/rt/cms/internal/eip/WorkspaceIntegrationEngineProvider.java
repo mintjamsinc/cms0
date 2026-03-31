@@ -43,10 +43,7 @@ import org.apache.camel.RouteConfigurationsBuilder;
 import org.apache.camel.RoutesBuilder;
 import org.apache.camel.model.ModelCamelContext;
 import org.apache.camel.model.RouteConfigurationDefinition;
-import org.apache.camel.dsl.groovy.GroovyRoutesBuilderLoader;
-import org.apache.camel.dsl.java.joor.JavaRoutesBuilderLoader;
 import org.apache.camel.dsl.xml.io.XmlRoutesBuilderLoader;
-import org.apache.camel.dsl.yaml.YamlRoutesBuilderLoader;
 import org.apache.camel.spi.RoutesBuilderLoader;
 import org.mintjams.jcr.nodetype.NodeType;
 import org.mintjams.jcr.util.JCRs;
@@ -132,35 +129,10 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		String mimeType = JCRs.getMimeType(item);
 
 		if (AdaptableList.<String>newBuilder()
-				.add("text/x-java")
-				.add("text/x-java-source")
-				.build().contains(mimeType)) {
-			return new JavaRoutesBuilderLoader();
-		}
-
-		if (AdaptableList.<String>newBuilder()
 				.add("text/xml")
 				.add("application/xml")
 				.build().contains(mimeType)) {
 			return new XmlRoutesBuilderLoader();
-		}
-
-		if (AdaptableList.<String>newBuilder()
-				.add("text/x-yaml")
-				.add("text/yaml")
-				.add("application/x-yaml")
-				.add("application/yaml")
-				.build().contains(mimeType)) {
-			return new YamlRoutesBuilderLoader();
-		}
-
-		if (AdaptableList.<String>newBuilder()
-				.add("text/x-groovy")
-				.add("text/groovy")
-				.add("application/x-groovy")
-				.add("application/groovy")
-				.build().contains(mimeType)) {
-			return new GroovyRoutesBuilderLoader();
 		}
 
 		throw new IllegalArgumentException("Could not obtain RoutesBuilderLoader: " + mimeType);
@@ -242,74 +214,19 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		}
 	}
 
-	private static java.lang.reflect.Field findDeclaredField(Class<?> clazz, String fieldName) {
-		while (clazz != null) {
-			try {
-				return clazz.getDeclaredField(fieldName);
-			} catch (NoSuchFieldException e) {
-				clazz = clazz.getSuperclass();
-			}
-		}
-		return null;
-	}
-
-	private static Object getInternalModel(Object context) {
-		java.lang.reflect.Field modelField = findDeclaredField(context.getClass(), "model");
-		if (modelField != null) {
-			try {
-				modelField.setAccessible(true);
-				return modelField.get(context);
-			} catch (IllegalAccessException e) {
-				return null;
-			}
-		}
-		return null;
-	}
-
 	private void removeRouteConfigurations(List<String> configIds) {
 		if (configIds == null || configIds.isEmpty()) {
 			return;
 		}
 		try {
-			// Obtain the DefaultModel instance via public API, fallback to reflection
 			ModelCamelContext modelContext = (ModelCamelContext) fCamelContext;
-			Object model = null;
-			try {
-				java.lang.reflect.Method getModel = modelContext.getClass().getMethod("getModel");
-				model = getModel.invoke(modelContext);
-			} catch (NoSuchMethodException e) {
-				model = getInternalModel(fCamelContext);
-			}
-			if (model == null) {
-				CmsService.getLogger(getClass())
-						.warn("Could not obtain Model for route configuration removal: " + configIds);
-				return;
-			}
-
-			// In Camel 3.22, DefaultModel.addRouteConfiguration checks the
-			// "routesConfigurations" list (List<RouteConfigurationDefinition>) for
-			// duplicate IDs. Remove matching entries from this list via reflection.
-			java.lang.reflect.Field listField = findDeclaredField(model.getClass(), "routesConfigurations");
-			if (listField != null) {
-				listField.setAccessible(true);
-				@SuppressWarnings("unchecked")
-				List<Object> internalList = (List<Object>) listField.get(model);
-				if (internalList != null) {
-					internalList.removeIf(def -> {
-						try {
-							java.lang.reflect.Method getId = def.getClass().getMethod("getId");
-							return configIds.contains((String) getId.invoke(def));
-						} catch (Exception e) {
-							return false;
-						}
-					});
+			for (String configId : configIds) {
+				RouteConfigurationDefinition def = modelContext.getRouteConfigurationDefinition(configId);
+				if (def != null) {
+					modelContext.removeRouteConfiguration(def);
 				}
-			} else {
-				CmsService.getLogger(getClass())
-						.warn("Could not find routesConfigurations field on " + model.getClass().getName()
-								+ " for route configuration removal: " + configIds);
 			}
-		} catch (Throwable ex) {
+		} catch (Exception ex) {
 			CmsService.getLogger(getClass()).warn("Failed to remove route configurations: " + configIds, ex);
 		}
 	}
