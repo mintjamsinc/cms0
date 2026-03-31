@@ -343,6 +343,12 @@ public class JCRs {
 		throw new IllegalArgumentException("The specified node is not a file.");
 	}
 
+	public static String getContentAsString(Node node) throws RepositoryException, IOException {
+		try (Reader in = getContentAsReader(node)) {
+			return Strings.readAll(in);
+		}
+	}
+
 	public static java.util.Date getCreatedDate(Node node) throws RepositoryException, IOException {
 		return node.getProperty(Property.JCR_CREATED).getDate().getTime();
 	}
