@@ -183,11 +183,11 @@ Bundle-ClassPath: .,
  lib/joor-0.9.15.jar,
  lib/json-path-2.10.0.jar,
  lib/json-smart-2.6.0.jar,
- lib/slf4j-api-2.0.17.jar,
  lib/snakeyaml-engine-3.0.1.jar
 Import-Package: jdk.jfr;resolution:=optional,
  jdk.jfr.consumer;resolution:=optional,
- jdk.jfr.events;resolution:=optional
+ jdk.jfr.events;resolution:=optional,
+ org.slf4j;version="[2.0.0,3.0.0)"
 Bundle-Vendor: MintJams Inc.
 Require-Bundle: org.apache.commons.commons-io;bundle-version="2.11.0",
  org.apache.commons.lang3;bundle-version="3.12.0"
