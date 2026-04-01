@@ -417,7 +417,7 @@ public class IndexableDocument implements SearchIndex.Document {
 				continue;
 			}
 
-			if (value instanceof BigDecimal) {
+			if (value instanceof Number) {
 				doc.add(new DoublePoint(name, v.getDouble(0)));
 				if (i == 0) {
 					doc.add(new SortedNumericDocValuesField(name, NumericUtils.doubleToSortableLong(v.getDouble(0))));
