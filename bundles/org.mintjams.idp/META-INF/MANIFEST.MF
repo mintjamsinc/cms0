@@ -5,8 +5,7 @@ Bundle-SymbolicName: org.mintjams.idp
 Bundle-Vendor: %Plugin.provider
 Bundle-Version: 1.0.0
 Bundle-ClassPath: .
-Require-Bundle: slf4j.api;bundle-version="1.7.0",
- org.apache.commons.commons-codec;bundle-version="1.15.0",
+Require-Bundle: org.apache.commons.commons-codec;bundle-version="1.15.0",
  org.apache.commons.commons-io;bundle-version="2.11.0",
  org.apache.commons.lang3;bundle-version="3.12.0",
  org.mintjams.tools;bundle-version="2.0.0",
@@ -42,5 +41,6 @@ Import-Package: com.fasterxml.jackson.core;version="[2.13.0,3.0.0)",
  org.osgi.framework;version="1.9.0",
  org.osgi.service.http;version="1.2.0",
  org.osgi.util.tracker;version="1.5.0",
+ org.slf4j;version="[1.7.0,2.0.0)",
  org.w3c.dom,
  org.xml.sax

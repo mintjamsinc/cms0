@@ -11,6 +11,7 @@ Import-Package: com.fasterxml.jackson.core;version="[2.13.0,3.0.0)",
  com.fasterxml.jackson.databind;version="[2.13.0,3.0.0)",
  com.zaxxer.hikari;version="7.0.1",
  com.zaxxer.hikari.pool;version="7.0.1",
+ org.apache.commons.logging;version="[1.2.0,2.0.0)",
  org.h2;version="2.1.214",
  org.osgi.framework;version="1.10.0",
  org.osgi.service.component;version="1.4.0",
@@ -23,6 +24,5 @@ Bundle-Activator: org.mintjams.rt.jcr.internal.Activator
 Require-Bundle: org.mintjams.jcr;bundle-version="1.0.0",
  org.mintjams.tools;bundle-version="2.0.0",
  org.mintjams.searchindex;bundle-version="1.0.0",
- javax.jcr;bundle-version="2.0.0",
- jcl.over.slf4j;bundle-version="1.7.36"
+ javax.jcr;bundle-version="2.0.0"
 Bundle-ActivationPolicy: lazy

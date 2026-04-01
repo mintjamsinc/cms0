@@ -361,5 +361,5 @@ Export-Package: org.camunda.bpm;version="7.17.0",
  org.camunda.spin.spi;version="7.17.0",
  org.camunda.spin.xml;version="7.17.0",
  org.camunda.templateengines;version="7.17.0"
-Require-Bundle: com.h2database;bundle-version="2.1.0",
- slf4j.api;bundle-version="1.7.0"
+Import-Package: org.slf4j;version="[1.7.0,2.0.0)"
+Require-Bundle: com.h2database;bundle-version="2.1.0"

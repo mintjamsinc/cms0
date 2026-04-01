@@ -9,9 +9,9 @@ Bundle-Vendor: %Plugin.provider
 Import-Package: org.osgi.framework;version="1.10.0",
  org.osgi.service.log;version="1.5.0",
  org.osgi.service.log.admin;version="1.0.0",
- org.slf4j;version="1.7.36",
- org.slf4j.helpers;version="1.7.36",
- org.slf4j.spi;version="1.7.36"
+ org.slf4j;version="[1.7.0,2.0.0)",
+ org.slf4j.helpers;version="[1.7.0,2.0.0)",
+ org.slf4j.spi;version="[1.7.0,2.0.0)"
 Bundle-Activator: org.mintjams.rt.log.internal.Activator
 Require-Bundle: org.apache.tika;bundle-version="1.7.0",
  org.mintjams.jcr;bundle-version="1.0.0",
