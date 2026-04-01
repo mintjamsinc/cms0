@@ -118,23 +118,7 @@ public final class LoggerFactory {
         List<SLF4JServiceProvider> providerList = new ArrayList<>();
 
         providerList.add(new OSGiSLF4JServiceProvider());
-//        // retain behaviour similar to that of 1.7 series and earlier. More specifically, use the class loader that
-//        // loaded the present class to search for services
-//        final ClassLoader classLoaderOfLoggerFactory = LoggerFactory.class.getClassLoader();
-//
-//        SLF4JServiceProvider explicitProvider = loadExplicitlySpecified(classLoaderOfLoggerFactory);
-//        if(explicitProvider != null) {
-//            providerList.add(explicitProvider);
-//            return providerList;
-//        }
-//
-//
-//         ServiceLoader<SLF4JServiceProvider> serviceLoader = getServiceLoader(classLoaderOfLoggerFactory);
-//
-//        Iterator<SLF4JServiceProvider> iterator = serviceLoader.iterator();
-//        while (iterator.hasNext()) {
-//            safelyInstantiate(providerList, iterator);
-//        }
+
         return providerList;
     }
 
