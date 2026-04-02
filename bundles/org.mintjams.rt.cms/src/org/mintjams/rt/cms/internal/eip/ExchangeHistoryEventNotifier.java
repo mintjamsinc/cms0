@@ -426,10 +426,10 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 			info.put("value", value);
 		} else if (value instanceof BigDecimal) {
 			info.put("type", "decimal");
-			info.put("value", value.toString());
+			info.put("value", value);
 		} else if (value instanceof BigInteger) {
 			info.put("type", "bigint");
-			info.put("value", value.toString());
+			info.put("value", value);
 		} else if (value instanceof Boolean) {
 			info.put("type", "boolean");
 			info.put("value", value);
