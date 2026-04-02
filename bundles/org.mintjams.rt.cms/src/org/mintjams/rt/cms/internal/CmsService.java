@@ -126,7 +126,7 @@ public class CmsService {
 	private final Closer fCloser = Closer.create();
 	private SecretKeyProvider fSecretKeyProvider;
 	private Encryptor fEncryptor;
-	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
 	@Activate
 	void activate(ComponentContext cc, BundleContext bc, Map<String, Object> config) {

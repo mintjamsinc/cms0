@@ -407,7 +407,7 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 		Map<String, Object> info = new LinkedHashMap<>();
 
 		if (value == null) {
-			info.put("type", "string");
+			info.put("type", "unknown");
 			info.put("value", null);
 			return info;
 		}
