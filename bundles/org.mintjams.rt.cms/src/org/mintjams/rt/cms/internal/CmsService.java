@@ -94,6 +94,9 @@ import org.osgi.service.event.EventAdmin;
 import org.osgi.service.log.Logger;
 import org.osgi.service.log.LoggerFactory;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 @Component(name = CmsService.COMPONENT_NAME, configurationPolicy = ConfigurationPolicy.OPTIONAL, enabled = true, immediate = true)
 public class CmsService {
 
@@ -123,6 +126,7 @@ public class CmsService {
 	private final Closer fCloser = Closer.create();
 	private SecretKeyProvider fSecretKeyProvider;
 	private Encryptor fEncryptor;
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
 	@Activate
 	void activate(ComponentContext cc, BundleContext bc, Map<String, Object> config) {
@@ -472,6 +476,10 @@ public class CmsService {
 				jcrSession.logout();
 			} catch (Throwable ignore) {}
 		}
+	}
+
+	public static String toJSON(Object obj) {
+		return GSON.toJson(obj);
 	}
 
 }
