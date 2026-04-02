@@ -61,6 +61,9 @@ public class ExchangeHistoryRecord {
 	private final String bodyType;
 	private final long bodySize;         // -1 if unknown
 
+	// -- business key --
+	private final String businessKey;
+
 	// -- captured headers --
 	private final Map<String, Map<String, Object>> headers;
 
@@ -110,6 +113,7 @@ public class ExchangeHistoryRecord {
 		this.redeliveryMaxCounter = builder.redeliveryMaxCounter;
 		this.bodyType = builder.bodyType;
 		this.bodySize = builder.bodySize;
+		this.businessKey = builder.businessKey;
 		this.headers = builder.headers.isEmpty()
 				? null : new LinkedHashMap<>(builder.headers);
 		this.steps = builder.steps.isEmpty()
@@ -133,6 +137,7 @@ public class ExchangeHistoryRecord {
 	public int getRedeliveryMaxCounter() { return redeliveryMaxCounter; }
 	public String getBodyType() { return bodyType; }
 	public long getBodySize() { return bodySize; }
+	public String getBusinessKey() { return businessKey; }
 	public Map<String, Map<String, Object>> getHeaders() { return headers; }
 	public List<Step> getSteps() { return steps; }
 
@@ -158,6 +163,7 @@ public class ExchangeHistoryRecord {
 		private int redeliveryMaxCounter;
 		private String bodyType;
 		private long bodySize = -1;
+		private String businessKey;
 		private final Map<String, Map<String, Object>> headers = new LinkedHashMap<>();
 		private final List<Step> steps = new ArrayList<>();
 
@@ -178,6 +184,7 @@ public class ExchangeHistoryRecord {
 		public Builder setRedeliveryMaxCounter(int v) { redeliveryMaxCounter = v; return this; }
 		public Builder setBodyType(String v) { bodyType = v; return this; }
 		public Builder setBodySize(long v) { bodySize = v; return this; }
+		public Builder setBusinessKey(String v) { businessKey = v; return this; }
 		public Builder addHeader(String key, Map<String, Object> info) {
 			if (key != null && info != null) {
 				headers.put(key, info);

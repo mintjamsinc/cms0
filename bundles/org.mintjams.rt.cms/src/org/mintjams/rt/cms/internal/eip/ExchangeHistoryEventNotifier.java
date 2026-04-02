@@ -48,6 +48,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -110,13 +111,14 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	private static final String BASE_PATH = "/var/eip/history";
 
 	private static final DateTimeFormatter DIR_DATE_FMT =
-			DateTimeFormatter.ofPattern("yyyy/MM/dd").withZone(ZoneOffset.UTC);
+			DateTimeFormatter.ofPattern("yyyy/MM/dd/HH").withZone(ZoneOffset.UTC);
 
 	private final String fWorkspaceName;
 	private final ConcurrentMap<String, List<ExchangeHistoryRecord.Step>> fInflightSteps = new ConcurrentHashMap<>();
 
 	private static final String HEADER_INCLUDES = "mi:history.header.includes";
 	private static final String HEADER_EXCLUDES = "mi:history.header.excludes";
+	private static final String HEADER_BUSINESS_KEY = "mi:history.businessKey";
 
 	private static final int STRING_MAX_LENGTH = 1000;
 
@@ -255,6 +257,12 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 				} else if (body instanceof String) {
 					builder.setBodySize(((String) body).getBytes(StandardCharsets.UTF_8).length);
 				}
+			}
+
+			// Business key
+			String businessKey = exchange.getIn().getHeader(HEADER_BUSINESS_KEY, String.class);
+			if (businessKey != null) {
+				builder.setBusinessKey(businessKey);
 			}
 
 			// Capture headers specified by include/exclude filters
@@ -592,7 +600,8 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 
 	private void writeRecord(Session session, ExchangeHistoryRecord record) throws Exception {
 		Instant timestamp = Instant.parse(record.getTimestamp());
-		String dirPath = BASE_PATH + "/" + DIR_DATE_FMT.format(timestamp);
+		String routeId = record.getRouteId() != null ? record.getRouteId() : "_unknown";
+		String dirPath = BASE_PATH + "/" + DIR_DATE_FMT.format(timestamp) + "/" + routeId;
 		String fileName = record.getExchangeId() + ".json";
 
 		Node parentNode = JCRs.getOrCreateFolder(JcrPath.valueOf(dirPath), session);
@@ -609,6 +618,20 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 			JCRs.write(fileNode, in);
 			JCRs.setProperty(fileNode, "jcr:mimeType", "application/json");
 			JCRs.setProperty(fileNode, "jcr:lastModified", java.util.Calendar.getInstance());
+
+			// Searchable properties
+			JCRs.setProperty(fileNode, "mi:exchangeId", record.getExchangeId());
+			JCRs.setProperty(fileNode, "mi:routeId", record.getRouteId());
+			JCRs.setProperty(fileNode, "mi:status", record.getStatus());
+			JCRs.setProperty(fileNode, "mi:elapsed", record.getElapsed());
+
+			Calendar createdAtCal = Calendar.getInstance(TimeZone.getTimeZone(ZoneOffset.UTC));
+			createdAtCal.setTimeInMillis(Instant.parse(record.getCreatedAt()).toEpochMilli());
+			JCRs.setProperty(fileNode, "mi:createdAt", createdAtCal);
+
+			if (record.getBusinessKey() != null) {
+				JCRs.setProperty(fileNode, "mi:businessKey", record.getBusinessKey());
+			}
 
 			session.save();
 			LOG.debug("Wrote exchange history to {}/{}", dirPath, fileName);
