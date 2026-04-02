@@ -638,6 +638,11 @@ public class JCRs {
 			throw new IllegalArgumentException("The specified node is not a file.");
 		}
 
+		if (value == null) {
+			removePropertyIfExists(node, name);
+			return;
+		}
+
 		Node contentNode = getContentNode(node);
 
 		if (value instanceof String) {
