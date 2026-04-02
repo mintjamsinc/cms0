@@ -27,12 +27,18 @@ import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
 
 public class WorkspaceCamelContext extends DefaultCamelContext {
 
+	@SuppressWarnings("resource")
 	public WorkspaceCamelContext(WorkspaceIntegrationEngineProviderConfiguration config) {
 		setApplicationContextClassLoader(new WorkspaceDelegatingClassLoader(config.getWorkspaceName()));
+
 		addComponent(EventAdminComponent.COMPONENT_NAME, new EventAdminComponent());
 		addComponent(BpmComponent.COMPONENT_NAME, new BpmComponent(config.getWorkspaceName()));
 		addComponent(CmsComponent.COMPONENT_NAME, new CmsComponent(config.getWorkspaceName()));
 		addComponent(TransformComponent.COMPONENT_NAME, new TransformComponent(config.getWorkspaceName()));
+
+		getManagementStrategy().addEventNotifier(
+				new ExchangeHistoryEventNotifier(config.getWorkspaceName())
+				.setTraceSteps(true));
 	}
 
 }

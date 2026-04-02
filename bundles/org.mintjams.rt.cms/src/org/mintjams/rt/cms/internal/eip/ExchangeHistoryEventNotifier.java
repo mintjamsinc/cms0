@@ -1,0 +1,436 @@
+/*
+ * Copyright (c) 2022 MintJams Inc.
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+package org.mintjams.rt.cms.internal.eip;
+
+import java.io.ByteArrayInputStream;
+import java.io.Closeable;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+
+import javax.jcr.Node;
+import javax.jcr.Session;
+
+import org.apache.camel.Exchange;
+import org.apache.camel.spi.CamelEvent;
+import org.apache.camel.support.EventNotifierSupport;
+import org.apache.commons.lang3.StringUtils;
+import org.mintjams.jcr.JcrPath;
+import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * A Camel {@link org.apache.camel.spi.EventNotifier} that captures exchange
+ * execution history and writes each exchange to its own JSON file in JCR.
+ *
+ * <h3>Storage layout</h3>
+ * <pre>
+ * /var/eip/history/{yyyy}/{MM}/{dd}/{exchangeId}.json
+ * </pre>
+ *
+ * <p>Each file is a single JSON object representing one
+ * {@link ExchangeHistoryRecord}, including its execution path (steps).
+ *
+ * <h3>Write strategy</h3>
+ * Records are enqueued to an internal {@link LinkedBlockingQueue} and
+ * written asynchronously by a dedicated writer thread. This ensures
+ * that JCR I/O never blocks the Camel routes. If the queue fills up,
+ * the oldest records are dropped with a warning.
+ *
+ * <h3>Custom business keys</h3>
+ * Headers matching {@code propertyPrefixes} (default: {@code "commerce_"}) are
+ * captured into the record's {@code properties} map so that exchange history
+ * can be correlated with business entities (product ID, order ID, etc.).
+ *
+ * <h3>Usage</h3>
+ * <pre>
+ * ExchangeHistoryEventNotifier notifier = new ExchangeHistoryEventNotifier(workspaceName);
+ * notifier.start();
+ * camelContext.getManagementStrategy().addEventNotifier(notifier);
+ * // ... when shutting down:
+ * notifier.close();
+ * </pre>
+ */
+public class ExchangeHistoryEventNotifier extends EventNotifierSupport implements Closeable {
+
+	private static final Logger LOG = LoggerFactory.getLogger(ExchangeHistoryEventNotifier.class);
+
+	private static final String BASE_PATH = "/var/eip/history";
+
+	private static final DateTimeFormatter DIR_DATE_FMT =
+			DateTimeFormatter.ofPattern("yyyy/MM/dd").withZone(ZoneOffset.UTC);
+
+	private final String fWorkspaceName;
+	private final ConcurrentMap<String, List<ExchangeHistoryRecord.Step>> fInflightSteps = new ConcurrentHashMap<>();
+
+	// -- configuration --
+	private int fQueueCapacity = 1000;
+	private String[] fPropertyPrefixes = { "commerce_" };
+	private boolean fTraceSteps = true;
+
+	// -- async writer --
+	private LinkedBlockingQueue<ExchangeHistoryRecord> fQueue;
+	private Thread fWriterThread;
+	private volatile boolean fCloseRequested;
+
+	public ExchangeHistoryEventNotifier(String workspaceName) {
+		fWorkspaceName = workspaceName;
+
+		// We only care about exchange lifecycle events.
+		setIgnoreCamelContextEvents(true);
+		setIgnoreCamelContextInitEvents(true);
+		setIgnoreRouteEvents(true);
+		setIgnoreServiceEvents(true);
+		setIgnoreStepEvents(true);
+	}
+
+	// -- configuration setters --
+
+	/**
+	 * Maximum number of records waiting to be written.
+	 * When the queue is full, the oldest record is dropped.
+	 * Default: 1000.
+	 */
+	public ExchangeHistoryEventNotifier setQueueCapacity(int capacity) {
+		fQueueCapacity = capacity;
+		return this;
+	}
+
+	public ExchangeHistoryEventNotifier setPropertyPrefixes(String... prefixes) {
+		fPropertyPrefixes = prefixes;
+		return this;
+	}
+
+	/**
+	 * Whether to capture per-step execution path via {@code ExchangeSentEvent}.
+	 * Enabled by default. Disable to reduce memory/storage overhead when
+	 * only aggregate timing is needed.
+	 */
+	public ExchangeHistoryEventNotifier setTraceSteps(boolean enabled) {
+		fTraceSteps = enabled;
+		return this;
+	}
+
+	// ------------------------------------------------------------------
+	// EventNotifier SPI
+	// ------------------------------------------------------------------
+
+	@Override
+	public void notify(CamelEvent event) throws Exception {
+		if (fTraceSteps && event instanceof CamelEvent.ExchangeCreatedEvent) {
+			Exchange exchange = ((CamelEvent.ExchangeCreatedEvent) event).getExchange();
+			fInflightSteps.put(exchange.getExchangeId(), new ArrayList<>());
+		} else if (fTraceSteps && event instanceof CamelEvent.ExchangeSentEvent) {
+			onExchangeSent((CamelEvent.ExchangeSentEvent) event);
+		} else if (event instanceof CamelEvent.ExchangeCompletedEvent) {
+			onExchangeDone(((CamelEvent.ExchangeCompletedEvent) event).getExchange(), false);
+		} else if (event instanceof CamelEvent.ExchangeFailedEvent) {
+			onExchangeDone(((CamelEvent.ExchangeFailedEvent) event).getExchange(), true);
+		}
+	}
+
+	private void onExchangeSent(CamelEvent.ExchangeSentEvent event) {
+		try {
+			Exchange exchange = event.getExchange();
+			List<ExchangeHistoryRecord.Step> steps = fInflightSteps.get(exchange.getExchangeId());
+			if (steps == null) {
+				steps = new ArrayList<>();
+				fInflightSteps.put(exchange.getExchangeId(), steps);
+			}
+
+			long created = exchange.getCreated();
+			long now = System.currentTimeMillis();
+			long offsetFromStart = now - created;
+
+			synchronized (steps) {
+				steps.add(new ExchangeHistoryRecord.Step(
+						event.getEndpoint().getEndpointUri(),
+						event.getTimeTaken(),
+						offsetFromStart,
+						steps.size()));
+			}
+		} catch (Throwable ex) {
+			LOG.debug("Failed to record step for {}: {}",
+					event.getExchange().getExchangeId(), ex.getMessage());
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Record building
+	// ------------------------------------------------------------------
+
+	private void onExchangeDone(Exchange exchange, boolean failed) {
+		try {
+			Instant now = Instant.now();
+			long created = exchange.getCreated();
+			long elapsed = now.toEpochMilli() - created;
+
+			ExchangeHistoryRecord.Builder builder = ExchangeHistoryRecord.newBuilder()
+					.setExchangeId(exchange.getExchangeId())
+					.setRouteId(exchange.getFromRouteId())
+					.setFromEndpoint(exchange.getFromEndpoint() != null
+							? exchange.getFromEndpoint().getEndpointUri() : null)
+					.setWorkspace(fWorkspaceName)
+					.setTimestamp(now)
+					.setCreatedAt(Instant.ofEpochMilli(created))
+					.setCompletedAt(now)
+					.setElapsed(elapsed)
+					.setStatus(failed ? "failed" : "completed")
+					.setRedelivered(exchange.isExternalRedelivered() == Boolean.TRUE)
+					.setRedeliveryCounter(exchange.getIn().getHeader(
+							Exchange.REDELIVERY_COUNTER, 0, Integer.class))
+					.setRedeliveryMaxCounter(exchange.getIn().getHeader(
+							Exchange.REDELIVERY_MAX_COUNTER, 0, Integer.class));
+
+			// Exception details
+			Exception cause = exchange.getException();
+			if (cause == null) {
+				cause = exchange.getProperty(Exchange.EXCEPTION_CAUGHT, Exception.class);
+				if (cause != null) {
+					builder.setFailureHandled(true);
+				}
+			}
+			if (cause != null) {
+				builder.setExceptionType(cause.getClass().getName());
+				builder.setExceptionMessage(StringUtils.truncate(cause.getMessage(), 512));
+			}
+
+			// Body metadata
+			Object body = exchange.getMessage().getBody();
+			if (body != null) {
+				builder.setBodyType(body.getClass().getSimpleName());
+				if (body instanceof byte[]) {
+					builder.setBodySize(((byte[]) body).length);
+				} else if (body instanceof String) {
+					builder.setBodySize(((String) body).getBytes(StandardCharsets.UTF_8).length);
+				}
+			}
+
+			// Custom business keys from headers
+			captureProperties(exchange, builder);
+
+			// Attach execution path
+			List<ExchangeHistoryRecord.Step> steps =
+					fInflightSteps.remove(exchange.getExchangeId());
+			if (steps != null) {
+				synchronized (steps) {
+					for (ExchangeHistoryRecord.Step step : steps) {
+						builder.addStep(step);
+					}
+				}
+			}
+
+			enqueue(builder.build(), elapsed);
+		} catch (Throwable ex) {
+			LOG.warn("Failed to record exchange history for {}: {}",
+					exchange.getExchangeId(), ex.getMessage());
+		}
+	}
+
+	private void captureProperties(Exchange exchange, ExchangeHistoryRecord.Builder builder) {
+		if (fPropertyPrefixes == null || fPropertyPrefixes.length == 0) {
+			return;
+		}
+		Map<String, Object> headers = exchange.getMessage().getHeaders();
+		for (Map.Entry<String, Object> entry : headers.entrySet()) {
+			String key = entry.getKey();
+			for (String prefix : fPropertyPrefixes) {
+				if (key.startsWith(prefix) && entry.getValue() != null) {
+					builder.addProperty(key, String.valueOf(entry.getValue()));
+					break;
+				}
+			}
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Async queue
+	// ------------------------------------------------------------------
+
+	private void enqueue(ExchangeHistoryRecord record, long elapsed) {
+		LOG.debug("Exchange {} on route {} — {} in {}ms",
+				record.getExchangeId(), record.getRouteId(),
+				record.getStatus(), elapsed);
+
+		if (!fQueue.offer(record)) {
+			// Queue is full — drop the head (oldest) and retry
+			fQueue.poll();
+			if (!fQueue.offer(record)) {
+				LOG.warn("Dropped exchange history record for {} — queue full",
+						record.getExchangeId());
+			}
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Writer thread — one record = one file
+	// ------------------------------------------------------------------
+
+	private void writerLoop() {
+		Session session = null;
+		int consecutiveErrors = 0;
+
+		while (!fCloseRequested || !fQueue.isEmpty()) {
+			ExchangeHistoryRecord record = null;
+			try {
+				record = fQueue.poll(1, TimeUnit.SECONDS);
+				if (record == null) {
+					continue;
+				}
+
+				// Lazy open / reopen session
+				if (session == null || !session.isLive()) {
+					session = CmsService.getRepository().login(new CmsServiceCredentials(), fWorkspaceName);
+				}
+
+				writeRecord(session, record);
+				consecutiveErrors = 0;
+
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				break;
+			} catch (Throwable ex) {
+				consecutiveErrors++;
+				LOG.error("Failed to write exchange history for {}: {}",
+						record != null ? record.getExchangeId() : "unknown",
+						ex.getMessage(), ex);
+
+				// Close broken session so it gets reopened
+				if (session != null) {
+					try {
+						session.logout();
+					} catch (Throwable ignore) {}
+					session = null;
+				}
+
+				// Back off on consecutive errors
+				if (consecutiveErrors > 3) {
+					try {
+						Thread.sleep(Math.min(consecutiveErrors * 1000L, 10000L));
+					} catch (InterruptedException ie) {
+						Thread.currentThread().interrupt();
+						break;
+					}
+				}
+			}
+		}
+
+		// Drain remaining records before exit
+		if (session == null || !session.isLive()) {
+			try {
+				session = CmsService.getRepository().login(new CmsServiceCredentials(), fWorkspaceName);
+			} catch (Throwable ex) {
+				LOG.error("Cannot open session for final drain: {}", ex.getMessage());
+			}
+		}
+		if (session != null) {
+			ExchangeHistoryRecord remaining;
+			while ((remaining = fQueue.poll()) != null) {
+				try {
+					writeRecord(session, remaining);
+				} catch (Throwable ex) {
+					LOG.error("Failed to write remaining record {}: {}", remaining.getExchangeId(), ex.getMessage());
+				}
+			}
+			try {
+				session.logout();
+			} catch (Throwable ignore) {
+			}
+		}
+	}
+
+	private void writeRecord(Session session, ExchangeHistoryRecord record) throws Exception {
+		Instant timestamp = Instant.parse(record.getTimestamp());
+		String dirPath = BASE_PATH + "/" + DIR_DATE_FMT.format(timestamp);
+		String fileName = record.getExchangeId() + ".json";
+
+		Node parentNode = JCRs.getOrCreateFolder(JcrPath.valueOf(dirPath), session);
+
+		String json = CmsService.toJSON(record);
+
+		try (ByteArrayInputStream in = new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8))) {
+			Node fileNode;
+			if (parentNode.hasNode(fileName)) {
+				fileNode = parentNode.getNode(fileName);
+			} else {
+				fileNode = JCRs.createFile(parentNode, fileName);
+			}
+			JCRs.write(fileNode, in);
+			JCRs.setProperty(fileNode, "jcr:mimeType", "application/json");
+			JCRs.setProperty(fileNode, "jcr:lastModified", java.util.Calendar.getInstance());
+
+			session.save();
+			LOG.debug("Wrote exchange history to {}/{}", dirPath, fileName);
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Lifecycle
+	// ------------------------------------------------------------------
+
+	@Override
+	protected void doStart() throws Exception {
+		super.doStart();
+
+		fCloseRequested = false;
+		fQueue = new LinkedBlockingQueue<>(fQueueCapacity);
+		fWriterThread = new Thread(this::writerLoop,
+				"eip-history-writer-" + fWorkspaceName);
+		fWriterThread.setDaemon(true);
+		fWriterThread.start();
+	}
+
+	@Override
+	protected void doStop() throws Exception {
+		close();
+		super.doStop();
+	}
+
+	@Override
+	public void close() throws IOException {
+		fCloseRequested = true;
+		fInflightSteps.clear();
+		if (fWriterThread != null) {
+			fWriterThread.interrupt();
+			try {
+				fWriterThread.join(10000);
+			} catch (InterruptedException ignore) {
+				Thread.currentThread().interrupt();
+			}
+			fWriterThread = null;
+		}
+	}
+
+}
