@@ -32,10 +32,13 @@ import java.io.Reader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.List;
+import java.util.TimeZone;
 
 import javax.jcr.Binary;
 import javax.jcr.ItemExistsException;
@@ -667,9 +670,10 @@ public class JCRs {
 			return;
 		}
 
-		if (value instanceof java.util.Date) {
+		if (value instanceof java.util.Date date) {
 			Calendar c = Calendar.getInstance();
-			c.setTime((java.util.Date) value);
+			c.setTime(date);
+			c.setTimeZone(TimeZone.getTimeZone(ZoneOffset.UTC));
 			contentNode.setProperty(name, c);
 			return;
 		}
