@@ -25,17 +25,34 @@ package org.mintjams.rt.cms.internal.eip;
 import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.net.URI;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.OffsetTime;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import javax.jcr.Node;
 import javax.jcr.Session;
@@ -69,10 +86,13 @@ import org.slf4j.LoggerFactory;
  * that JCR I/O never blocks the Camel routes. If the queue fills up,
  * the oldest records are dropped with a warning.
  *
- * <h3>Custom business keys</h3>
- * Headers matching {@code propertyPrefixes} (default: {@code "commerce_"}) are
- * captured into the record's {@code properties} map so that exchange history
- * can be correlated with business entities (product ID, order ID, etc.).
+ * <h3>Header capture</h3>
+ * Headers to capture are controlled by two exchange headers:
+ * {@code mi:history.header.includes} (comma-separated patterns) and
+ * {@code mi:history.header.excludes} (comma-separated patterns).
+ * Patterns support exact match, prefix ({@code foo*} or {@code foo~}),
+ * and suffix ({@code *bar} or {@code ~bar}) matching.
+ * Captured headers include type information and values.
  *
  * <h3>Usage</h3>
  * <pre>
@@ -95,9 +115,13 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	private final String fWorkspaceName;
 	private final ConcurrentMap<String, List<ExchangeHistoryRecord.Step>> fInflightSteps = new ConcurrentHashMap<>();
 
+	private static final String HEADER_INCLUDES = "mi:history.header.includes";
+	private static final String HEADER_EXCLUDES = "mi:history.header.excludes";
+
+	private static final int STRING_MAX_LENGTH = 1000;
+
 	// -- configuration --
 	private int fQueueCapacity = 1000;
-	private String[] fPropertyPrefixes = { "commerce_" };
 	private boolean fTraceSteps = true;
 
 	// -- async writer --
@@ -125,11 +149,6 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	 */
 	public ExchangeHistoryEventNotifier setQueueCapacity(int capacity) {
 		fQueueCapacity = capacity;
-		return this;
-	}
-
-	public ExchangeHistoryEventNotifier setPropertyPrefixes(String... prefixes) {
-		fPropertyPrefixes = prefixes;
 		return this;
 	}
 
@@ -238,8 +257,8 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 				}
 			}
 
-			// Custom business keys from headers
-			captureProperties(exchange, builder);
+			// Capture headers specified by include/exclude filters
+			captureHeaders(exchange, builder);
 
 			// Attach execution path
 			List<ExchangeHistoryRecord.Step> steps =
@@ -259,20 +278,220 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 		}
 	}
 
-	private void captureProperties(Exchange exchange, ExchangeHistoryRecord.Builder builder) {
-		if (fPropertyPrefixes == null || fPropertyPrefixes.length == 0) {
+	private void captureHeaders(Exchange exchange, ExchangeHistoryRecord.Builder builder) {
+		Map<String, Object> headers = exchange.getMessage().getHeaders();
+
+		List<String> includes = parseFilterList(headers.get(HEADER_INCLUDES));
+		List<String> excludes = parseFilterList(headers.get(HEADER_EXCLUDES));
+		if (includes.isEmpty()) {
 			return;
 		}
-		Map<String, Object> headers = exchange.getMessage().getHeaders();
+
 		for (Map.Entry<String, Object> entry : headers.entrySet()) {
 			String key = entry.getKey();
-			for (String prefix : fPropertyPrefixes) {
-				if (key.startsWith(prefix) && entry.getValue() != null) {
-					builder.addProperty(key, String.valueOf(entry.getValue()));
-					break;
+			String resolvedKey = resolveKey(key, includes);
+			if (resolvedKey == null || matches(key, excludes)) {
+				continue;
+			}
+			builder.addHeader(resolvedKey, buildHeaderInfo(entry.getValue()));
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Filter matching (supports exact, prefix*, *suffix, prefix~, ~suffix)
+	// ------------------------------------------------------------------
+
+	/**
+	 * Resolve the recording key for a header name against include filters.
+	 * Returns {@code null} if no filter matches.
+	 * <ul>
+	 *   <li>{@code prefix*} / {@code *suffix} — match by prefix/suffix, key unchanged</li>
+	 *   <li>{@code prefix~} — match by prefix, strip the prefix from the key</li>
+	 *   <li>{@code ~suffix} — match by suffix, strip the suffix from the key</li>
+	 *   <li>exact — exact match, key unchanged</li>
+	 * </ul>
+	 */
+	private String resolveKey(String name, List<String> filters) {
+		for (String filter : filters) {
+			if (filter.endsWith("*")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				if (name.startsWith(prefix)) {
+					return name;
+				}
+			} else if (filter.startsWith("*")) {
+				String suffix = filter.substring(1);
+				if (name.endsWith(suffix)) {
+					return name;
+				}
+			} else if (filter.endsWith("~")) {
+				String prefix = filter.substring(0, filter.length() - 1);
+				if (name.startsWith(prefix)) {
+					return name.substring(prefix.length());
+				}
+			} else if (filter.startsWith("~")) {
+				String suffix = filter.substring(1);
+				if (name.endsWith(suffix)) {
+					return name.substring(0, name.length() - suffix.length());
+				}
+			} else {
+				if (name.equals(filter)) {
+					return name;
 				}
 			}
 		}
+		return null;
+	}
+
+	private boolean matches(String name, List<String> filters) {
+		for (String filter : filters) {
+			if (filter.endsWith("*")) {
+				if (name.startsWith(filter.substring(0, filter.length() - 1))) {
+					return true;
+				}
+			} else if (filter.startsWith("*")) {
+				if (name.endsWith(filter.substring(1))) {
+					return true;
+				}
+			} else if (filter.endsWith("~")) {
+				if (name.startsWith(filter.substring(0, filter.length() - 1))) {
+					return true;
+				}
+			} else if (filter.startsWith("~")) {
+				if (name.endsWith(filter.substring(1))) {
+					return true;
+				}
+			} else {
+				if (name.equals(filter)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private List<String> parseFilterList(Object filter) {
+		if (filter == null) {
+			return Collections.emptyList();
+		}
+		if (filter instanceof List) {
+			return ((List<?>) filter).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
+		}
+		if (filter instanceof String) {
+			return List.of(((String) filter).split("\\s*,\\s*"));
+		}
+		if (filter instanceof Collection<?>) {
+			return ((Collection<?>) filter).stream()
+					.map(Object::toString)
+					.map(String::trim)
+					.collect(Collectors.toList());
+		}
+		return List.of(filter.toString().trim());
+	}
+
+	// ------------------------------------------------------------------
+	// Typed header value capture
+	// ------------------------------------------------------------------
+
+	private Map<String, Object> buildHeaderInfo(Object value) {
+		Map<String, Object> info = new LinkedHashMap<>();
+
+		if (value == null) {
+			info.put("type", "string");
+			info.put("value", null);
+			return info;
+		}
+
+		if (value instanceof String s) {
+			info.put("type", "string");
+			if (s.length() >= STRING_MAX_LENGTH) {
+				info.put("value", s.substring(0, STRING_MAX_LENGTH));
+				info.put("length", s.length());
+			} else {
+				info.put("value", s);
+			}
+		} else if (value instanceof Integer) {
+			info.put("type", "int");
+			info.put("value", value);
+		} else if (value instanceof Long) {
+			info.put("type", "long");
+			info.put("value", value);
+		} else if (value instanceof Float) {
+			info.put("type", "float");
+			info.put("value", value);
+		} else if (value instanceof Double) {
+			info.put("type", "double");
+			info.put("value", value);
+		} else if (value instanceof BigDecimal) {
+			info.put("type", "decimal");
+			info.put("value", value.toString());
+		} else if (value instanceof BigInteger) {
+			info.put("type", "bigint");
+			info.put("value", value.toString());
+		} else if (value instanceof Boolean) {
+			info.put("type", "boolean");
+			info.put("value", value);
+		} else if (value instanceof Date date) {
+			info.put("type", "date");
+			info.put("value", date.toInstant().atOffset(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+		} else if (value instanceof Calendar cal) {
+			info.put("type", "date");
+			info.put("value", cal.toInstant().atOffset(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+		} else if (value instanceof Instant instant) {
+			info.put("type", "date");
+			info.put("value", instant.atOffset(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+		} else if (value instanceof OffsetDateTime odt) {
+			info.put("type", "date");
+			info.put("value", odt.withOffsetSameInstant(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+		} else if (value instanceof ZonedDateTime zdt) {
+			info.put("type", "date");
+			info.put("value", zdt.withZoneSameInstant(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+		} else if (value instanceof LocalDateTime ldt) {
+			info.put("type", "date");
+			info.put("value", ldt.atOffset(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+		} else if (value instanceof LocalDate ld) {
+			info.put("type", "date");
+			info.put("value", ld.atStartOfDay(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+		} else if (value instanceof OffsetTime ot) {
+			info.put("type", "time");
+			info.put("value", ot.withOffsetSameInstant(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_TIME));
+		} else if (value instanceof LocalTime lt) {
+			info.put("type", "time");
+			info.put("value", lt.atOffset(ZoneOffset.UTC)
+					.format(DateTimeFormatter.ISO_OFFSET_TIME));
+		} else if (value instanceof byte[] bytes) {
+			info.put("type", "binary");
+			info.put("size", bytes.length);
+		} else if (value instanceof InputStream) {
+			info.put("type", "binary");
+		} else if (value instanceof URI) {
+			info.put("type", "uri");
+			info.put("value", value.toString());
+		} else if (value instanceof URL) {
+			info.put("type", "url");
+			info.put("value", value.toString());
+		} else if (value instanceof Map) {
+			info.put("type", "map");
+		} else if (value instanceof List) {
+			info.put("type", "list");
+		} else if (value.getClass().isArray()) {
+			info.put("type", "array");
+		} else {
+			info.put("type", value.getClass().getName());
+			info.put("value", StringUtils.truncate(value.toString(), STRING_MAX_LENGTH));
+		}
+
+		return info;
 	}
 
 	// ------------------------------------------------------------------

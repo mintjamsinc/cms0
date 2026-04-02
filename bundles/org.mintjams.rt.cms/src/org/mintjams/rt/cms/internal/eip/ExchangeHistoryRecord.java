@@ -61,8 +61,8 @@ public class ExchangeHistoryRecord {
 	private final String bodyType;
 	private final long bodySize;         // -1 if unknown
 
-	// -- custom business keys --
-	private final Map<String, String> properties;
+	// -- captured headers --
+	private final Map<String, Map<String, Object>> headers;
 
 	// -- execution path --
 	private final List<Step> steps;
@@ -110,8 +110,8 @@ public class ExchangeHistoryRecord {
 		this.redeliveryMaxCounter = builder.redeliveryMaxCounter;
 		this.bodyType = builder.bodyType;
 		this.bodySize = builder.bodySize;
-		this.properties = builder.properties.isEmpty()
-				? null : new LinkedHashMap<>(builder.properties);
+		this.headers = builder.headers.isEmpty()
+				? null : new LinkedHashMap<>(builder.headers);
 		this.steps = builder.steps.isEmpty()
 				? null : Collections.unmodifiableList(new ArrayList<>(builder.steps));
 	}
@@ -133,7 +133,7 @@ public class ExchangeHistoryRecord {
 	public int getRedeliveryMaxCounter() { return redeliveryMaxCounter; }
 	public String getBodyType() { return bodyType; }
 	public long getBodySize() { return bodySize; }
-	public Map<String, String> getProperties() { return properties; }
+	public Map<String, Map<String, Object>> getHeaders() { return headers; }
 	public List<Step> getSteps() { return steps; }
 
 	public static Builder newBuilder() {
@@ -158,7 +158,7 @@ public class ExchangeHistoryRecord {
 		private int redeliveryMaxCounter;
 		private String bodyType;
 		private long bodySize = -1;
-		private final Map<String, String> properties = new LinkedHashMap<>();
+		private final Map<String, Map<String, Object>> headers = new LinkedHashMap<>();
 		private final List<Step> steps = new ArrayList<>();
 
 		public Builder setExchangeId(String v) { exchangeId = v; return this; }
@@ -178,9 +178,9 @@ public class ExchangeHistoryRecord {
 		public Builder setRedeliveryMaxCounter(int v) { redeliveryMaxCounter = v; return this; }
 		public Builder setBodyType(String v) { bodyType = v; return this; }
 		public Builder setBodySize(long v) { bodySize = v; return this; }
-		public Builder addProperty(String key, String value) {
-			if (key != null && value != null) {
-				properties.put(key, value);
+		public Builder addHeader(String key, Map<String, Object> info) {
+			if (key != null && info != null) {
+				headers.put(key, info);
 			}
 			return this;
 		}
