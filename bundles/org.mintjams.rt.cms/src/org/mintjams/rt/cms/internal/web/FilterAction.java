@@ -174,7 +174,7 @@ public class FilterAction implements Action {
 		@Override
 		public void doAction(ActionContext context, ActionChain chain) throws ActionException {
 			try {
-				Node node = Scripts.getJcrSession(context).getNode(Webs.CONTENT_PATH + (String) fConfig.get("filter"));
+				Node node = Scripts.getJcrSession(context).getNode((String) fConfig.get("filter"));
 
 				try (ScriptReader scriptReader = new ScriptReader(JCRs.getContentAsReader(node))) {
 					scriptReader

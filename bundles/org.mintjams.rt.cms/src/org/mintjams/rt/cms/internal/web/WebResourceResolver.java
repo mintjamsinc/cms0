@@ -49,7 +49,7 @@ public class WebResourceResolver {
 
 	public ResolveResult resolve(String absPath) throws RepositoryException {
 		try {
-			Node node = Scripts.getJcrSession(fContext).getNode(Webs.CONTENT_PATH + absPath);
+			Node node = Scripts.getJcrSession(fContext).getNode(absPath);
 			return new ResolveResult(node);
 		} catch (PathNotFoundException ignore) {
 		} catch (AccessDeniedException ex) {
@@ -63,7 +63,7 @@ public class WebResourceResolver {
 		String suffix = "";
 		for (;;) {
 			try {
-				Node baseNode = Scripts.getJcrSession(fContext).getNode(Webs.CONTENT_PATH + parentPath + basename);
+				Node baseNode = Scripts.getJcrSession(fContext).getNode(parentPath + basename);
 				if (!baseNode.isNodeType(NodeType.NT_FILE)) {
 					break;
 				}

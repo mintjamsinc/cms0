@@ -36,7 +36,6 @@ import javax.servlet.RequestDispatcher;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.commons.codec.net.URLCodec;
 import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
@@ -52,6 +51,7 @@ public class Webs {
 
 	public static final String CONTENT_PATH = "/content";
 	public static final String DEFAULT_WEB_TEMPLATE_PATH = "/content/WEB-INF/templates";
+	public static final String DEFAULT_WEB_YML_PATH = "/content/WEB-INF/web.yml";
 	public static final String WEB_TEMPLATE = "web.template";
 
 	private Webs() {}
@@ -72,7 +72,7 @@ public class Webs {
 		Map<String, Object> webConfig = (Map<String, Object>) ctx.getAttribute("webConfig");
 		if (webConfig == null) {
 			try {
-				webConfig = (Map<String, Object>) ctx.adaptTo(YAML.class).parse(ctx.getSession().getResource("/content/WEB-INF/web.yml"));
+				webConfig = (Map<String, Object>) ctx.adaptTo(YAML.class).parse(ctx.getSession().getResource(DEFAULT_WEB_YML_PATH));
 				ctx.setAttribute("webConfig", webConfig);
 			} catch (ResourceException | IOException ex) {
 				throw Cause.create(ex).wrap(IllegalStateException.class);

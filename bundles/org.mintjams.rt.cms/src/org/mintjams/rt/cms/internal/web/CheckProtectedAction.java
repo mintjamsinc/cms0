@@ -34,7 +34,14 @@ public class CheckProtectedAction implements Action {
 	public void doAction(ActionContext context, ActionChain chain) throws ActionException {
 		String resourcePath = Webs.getResourcePath(context);
 
-		if (resourcePath.startsWith("/WEB-INF/") || resourcePath.endsWith("/WEB-INF")) {
+		if (!(resourcePath.startsWith("/content/") ||
+				resourcePath.endsWith("/content"))) {
+			Webs.getResponse(context).setStatus(HttpServletResponse.SC_NOT_FOUND);
+			return;
+		}
+
+		if (resourcePath.startsWith("/content/WEB-INF/") ||
+				resourcePath.endsWith("/content/WEB-INF")) {
 			Webs.getResponse(context).setStatus(HttpServletResponse.SC_NOT_FOUND);
 			return;
 		}
