@@ -35,6 +35,8 @@ import java.security.Principal;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.text.MessageFormat;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -97,6 +99,8 @@ import org.mintjams.tools.sql.Query;
 import org.mintjams.tools.sql.Update;
 
 public class WorkspaceQuery implements Adaptable {
+
+	private static final DateTimeFormatter ISO8601 = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
 
 	private final JcrWorkspace fWorkspace;
 
@@ -1800,7 +1804,7 @@ public class WorkspaceQuery implements Adaptable {
 						binary = fCloser.register((JcrBinary) ((JcrValue) value).adapt(Binary.class));
 					} else if (type == PropertyType.BOOLEAN || type == PropertyType.DATE || type == PropertyType.DECIMAL
 							|| type == PropertyType.DOUBLE || type == PropertyType.LONG || type == PropertyType.STRING
-							|| type == PropertyType.NAME || type == PropertyType.URI) {
+							|| type == PropertyType.NAME || type == PropertyType.PATH || type == PropertyType.URI) {
 						String v = ((JcrValue) value).adapt(String.class);
 						if (v == null) {
 							propertyValue = null;
@@ -1815,52 +1819,12 @@ public class WorkspaceQuery implements Adaptable {
 							}
 						}
 					} else if (type == PropertyType.REFERENCE || type == PropertyType.WEAKREFERENCE) {
-						try {
-							String v = ((JcrValue) value).adapt(Node.class).getIdentifier();
+						Node node = ((JcrValue) value).adapt(Node.class);
+						if (node == null) {
+							propertyValue = null;
+						} else {
+							String v = node.getIdentifier();
 							propertyValue = new QName(JcrValue.STRING_NS_URI, v, XMLConstants.DEFAULT_NS_PREFIX);
-						} catch (ValueFormatException ignore) {
-							String idOrPath = ((JcrValue) value).adapt(String.class);
-							AdaptableMap<String, Object> itemData = null;
-							try {
-								itemData = items().getNodeByIdentifier(UUID.fromString(idOrPath).toString());
-							} catch (ItemNotFoundException ex) {
-								throw ex;
-							} catch (Throwable ex) {
-							}
-							try {
-								itemData = items().getNode(idOrPath);
-							} catch (Throwable ex) {
-							}
-							if (itemData == null) {
-								propertyValue = null;
-							} else {
-								propertyValue = new QName(JcrValue.STRING_NS_URI, itemData.getString("item_id"),
-										XMLConstants.DEFAULT_NS_PREFIX);
-							}
-						}
-					} else if (type == PropertyType.PATH) {
-						try {
-							String v = ((JcrValue) value).adapt(Node.class).getPath();
-							propertyValue = new QName(JcrValue.STRING_NS_URI, v, XMLConstants.DEFAULT_NS_PREFIX);
-						} catch (ValueFormatException ignore) {
-							String idOrPath = ((JcrValue) value).adapt(String.class);
-							AdaptableMap<String, Object> itemData = null;
-							try {
-								itemData = items().getNodeByIdentifier(UUID.fromString(idOrPath).toString());
-							} catch (ItemNotFoundException ex) {
-								throw ex;
-							} catch (Throwable ex) {
-							}
-							try {
-								itemData = items().getNode(idOrPath);
-							} catch (Throwable ex) {
-							}
-							if (itemData == null) {
-								propertyValue = null;
-							} else {
-								propertyValue = new QName(JcrValue.STRING_NS_URI, itemData.getString("item_path"),
-										XMLConstants.DEFAULT_NS_PREFIX);
-							}
 						}
 					} else {
 						throw new IllegalArgumentException("Invalid property type: " + type);

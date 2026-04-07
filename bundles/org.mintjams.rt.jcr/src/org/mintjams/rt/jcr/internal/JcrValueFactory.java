@@ -36,68 +36,79 @@ import javax.jcr.Value;
 import javax.jcr.ValueFactory;
 import javax.jcr.ValueFormatException;
 
-public class JcrValueFactory implements ValueFactory {
+import org.mintjams.tools.adapter.Adaptable;
+import org.mintjams.tools.adapter.Adaptables;
 
-	private JcrValueFactory() {}
+public class JcrValueFactory implements ValueFactory, Adaptable {
+
+	private final JcrWorkspace fWorkspace;
+
+	private JcrValueFactory(JcrWorkspace workspace) {
+		fWorkspace = workspace;
+	}
 
 	public static JcrValueFactory create() {
-		return new JcrValueFactory();
+		return new JcrValueFactory(null);
+	}
+
+	public static JcrValueFactory create(JcrWorkspace workspace) {
+		return new JcrValueFactory(workspace);
 	}
 
 	@Override
 	public Binary createBinary(InputStream value) throws RepositoryException {
-		return JcrValue.create(value, PropertyType.BINARY).validate().getBinary();
+		return JcrValue.create(value, PropertyType.BINARY).with(fWorkspace).validate().getBinary();
 	}
 
 	@Override
 	public Value createValue(String value) {
-		return JcrValue.create(value, PropertyType.STRING);
+		return JcrValue.create(value, PropertyType.STRING).with(fWorkspace);
 	}
 
 	@Override
 	public Value createValue(long value) {
-		return JcrValue.create(value, PropertyType.LONG);
+		return JcrValue.create(value, PropertyType.LONG).with(fWorkspace);
 	}
 
 	@Override
 	public Value createValue(double value) {
-		return JcrValue.create(value, PropertyType.DOUBLE);
+		return JcrValue.create(value, PropertyType.DOUBLE).with(fWorkspace);
 	}
 
 	@Override
 	public Value createValue(BigDecimal value) {
-		return JcrValue.create(value, PropertyType.DECIMAL);
+		return JcrValue.create(value, PropertyType.DECIMAL).with(fWorkspace);
 	}
 
 	@Override
 	public Value createValue(boolean value) {
-		return JcrValue.create(value, PropertyType.BOOLEAN);
+		return JcrValue.create(value, PropertyType.BOOLEAN).with(fWorkspace);
 	}
 
 	@Override
 	public Value createValue(Calendar value) {
-		return JcrValue.create(value, PropertyType.DATE);
+		return JcrValue.create(value, PropertyType.DATE).with(fWorkspace);
 	}
 
 	@Override
 	public Value createValue(InputStream value) {
-		return JcrValue.create(value, PropertyType.BINARY);
+		return JcrValue.create(value, PropertyType.BINARY).with(fWorkspace);
 	}
 
 	@Override
 	public Value createValue(Binary value) {
-		return JcrValue.create(value, PropertyType.BINARY);
+		return JcrValue.create(value, PropertyType.BINARY).with(fWorkspace);
 	}
 
 	@Override
 	public Value createValue(Node value) throws RepositoryException {
-		return JcrValue.create(value, PropertyType.REFERENCE).validate();
+		return JcrValue.create(value, PropertyType.REFERENCE).with(fWorkspace).validate();
 	}
 
 	@Override
 	public Value createValue(String value, int type) throws ValueFormatException {
 		try {
-			return JcrValue.create(value, type).validate();
+			return JcrValue.create(value, type).with(fWorkspace).validate();
 		} catch (ValueFormatException ex) {
 			throw ex;
 		} catch (RuntimeException ex) {
@@ -109,13 +120,13 @@ public class JcrValueFactory implements ValueFactory {
 
 	@Override
 	public Value createValue(Node value, boolean week) throws RepositoryException {
-		return JcrValue.create(value, week ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE).validate();
+		return JcrValue.create(value, week ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE).with(fWorkspace).validate();
 	}
 
 	public Value[] createValue(String[] value) {
 		List<Value> l = new ArrayList<>();
 		for (String v : value) {
-			l.add(JcrValue.create(v, PropertyType.STRING));
+			l.add(JcrValue.create(v, PropertyType.STRING).with(fWorkspace));
 		}
 		return l.toArray(Value[]::new);
 	}
@@ -123,9 +134,14 @@ public class JcrValueFactory implements ValueFactory {
 	public Value[] createValue(String[] value, int type) throws RepositoryException {
 		List<Value> l = new ArrayList<>();
 		for (String v : value) {
-			l.add(JcrValue.create(v, PropertyType.STRING).validate());
+			l.add(JcrValue.create(v, PropertyType.STRING).with(fWorkspace).validate());
 		}
 		return l.toArray(Value[]::new);
+	}
+
+	@Override
+	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
+		return Adaptables.getAdapter(fWorkspace, adapterType);
 	}
 
 }

@@ -48,6 +48,7 @@ import javax.jcr.PropertyIterator;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.UnsupportedRepositoryOperationException;
+import javax.jcr.ValueFactory;
 import javax.jcr.lock.LockException;
 import javax.jcr.lock.LockManager;
 import javax.jcr.nodetype.ConstraintViolationException;
@@ -95,6 +96,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	private JcrNamespaceRegistry fNamespaceRegistry;
 	private JcrNamespaceProvider fNamespaceProvider;
 	private JcrNodeTypeManager fNodeTypeManager;
+	private JcrValueFactory fValueFactory;
 	private JcrAccessControlManager fAccessControlManager;
 	private JcrLockManager fLockManager;
 	private JcrVersionManager fVersionManager;
@@ -163,6 +165,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 		fNamespaceRegistry = JcrNamespaceRegistry.create(this);
 		fNamespaceProvider = JcrNamespaceProvider.create(this);
 		fNodeTypeManager = JcrNodeTypeManager.create(this);
+		fValueFactory = JcrValueFactory.create(this);
 		fAccessControlManager = JcrAccessControlManager.create(this).load();
 		fVersionManager = JcrVersionManager.create(this);
 		fLockManager = JcrLockManager.create(this).load();
@@ -620,6 +623,10 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 
 		if (adapterType.equals(NodeTypeManager.class) || adapterType.equals(JcrNodeTypeManager.class)) {
 			return (AdapterType) fNodeTypeManager;
+		}
+
+		if (adapterType.equals(ValueFactory.class) || adapterType.equals(JcrValueFactory.class)) {
+			return (AdapterType) fValueFactory;
 		}
 
 		if (adapterType.equals(AccessControlManager.class) || adapterType.equals(JcrAccessControlManager.class)) {

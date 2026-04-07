@@ -679,21 +679,13 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public Property setProperty(String name, Value value) throws ValueFormatException, VersionException, LockException,
 			ConstraintViolationException, RepositoryException {
-		int type = PropertyType.STRING;
-		if (value != null) {
-			type = value.getType();
-		}
-		return setProperty(name, value, type);
+		return setProperty(name, value, PropertyType.UNDEFINED);
 	}
 
 	@Override
 	public Property setProperty(String name, Value[] value) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
-		int type = PropertyType.STRING;
-		if (value != null && value[0] != null) {
-			type = value[0].getType();
-		}
-		return setProperty(name, value, type);
+		return setProperty(name, value, PropertyType.UNDEFINED);
 	}
 
 	@Override
@@ -764,9 +756,15 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(name)) {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
 		}
+		if (type == PropertyType.UNDEFINED) {
+			type = value.getType();
+		}
 		validateNamespaceRegistration(value, type);
 		try {
-			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(getIdentifier(), name, type,
+			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(
+					getIdentifier(),
+					name,
+					type,
 					value);
 			if (updated == null) {
 				return null;
@@ -786,10 +784,17 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
 		}
 		for (Value v : values) {
-			validateNamespaceRegistration(v, type);
+			int t = type;
+			if (t == PropertyType.UNDEFINED) {
+				t = v.getType();
+			}
+			validateNamespaceRegistration(v, t);
 		}
 		try {
-			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(getIdentifier(), name, type,
+			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(
+					getIdentifier(),
+					name,
+					type,
 					Arrays.stream(values).toArray(JcrValue[]::new));
 			if (updated == null) {
 				return null;
@@ -801,15 +806,15 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	@Override
-	public Property setProperty(String name, String[] values, int type) throws ValueFormatException, VersionException,
-			LockException, ConstraintViolationException, RepositoryException {
-		return setProperty(name, getValueFactory().createValue(values, type), type);
-	}
-
-	@Override
 	public Property setProperty(String name, String value, int type) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
 		return setProperty(name, getValueFactory().createValue(value, type), type);
+	}
+
+	@Override
+	public Property setProperty(String name, String[] values, int type) throws ValueFormatException, VersionException,
+			LockException, ConstraintViolationException, RepositoryException {
+		return setProperty(name, getValueFactory().createValue(values, type), type);
 	}
 
 	private void validateNamespaceRegistration(Value value, int type) throws RepositoryException {
@@ -856,9 +861,16 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 	private void validateNamePrefixRegistered(String name) throws NamespaceException, RepositoryException {
 		if (name.startsWith("{")) {
-			// Expanded form with namespace URI - no prefix to validate
+			int closingBraceIndex = name.indexOf('}');
+			if (closingBraceIndex < 0) {
+				throw new NamespaceException("Invalid name: " + name);
+			}
+			String namespaceURI = name.substring(1, closingBraceIndex);
+			// Throws NamespaceException if the namespace URI is not registered
+			fSession.getWorkspace().getNamespaceRegistry().getPrefix(namespaceURI);
 			return;
 		}
+
 		int colonIndex = name.indexOf(':');
 		if (colonIndex > 0) {
 			String prefix = name.substring(0, colonIndex);
