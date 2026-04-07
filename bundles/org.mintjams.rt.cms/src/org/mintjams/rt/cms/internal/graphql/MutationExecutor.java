@@ -24,7 +24,8 @@ package org.mintjams.rt.cms.internal.graphql;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.text.SimpleDateFormat;
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.HashMap;
@@ -54,13 +55,6 @@ import org.mintjams.jcr.util.JCRs;
 public class MutationExecutor {
 
 	private final Session session;
-	private static final SimpleDateFormat ISO8601_FORMAT = createISO8601Format();
-
-	private static SimpleDateFormat createISO8601Format() {
-		SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-		format.setTimeZone(TimeZone.getTimeZone("UTC"));
-		return format;
-	}
 
 	public MutationExecutor(Session session) {
 		this.session = session;
@@ -518,7 +512,6 @@ public class MutationExecutor {
 					node.setProperty(name, longValues);
 					break;
 				case javax.jcr.PropertyType.DOUBLE:
-				case javax.jcr.PropertyType.DECIMAL:
 					Value[] doubleValues = new Value[valueList.size()];
 					for (int i = 0; i < valueList.size(); i++) {
 						Object item = valueList.get(i);
@@ -526,6 +519,13 @@ public class MutationExecutor {
 						doubleValues[i] = this.session.getValueFactory().createValue(doubleVal);
 					}
 					node.setProperty(name, doubleValues);
+					break;
+				case javax.jcr.PropertyType.DECIMAL:
+					Value[] decimalValues = new Value[valueList.size()];
+					for (int i = 0; i < valueList.size(); i++) {
+						decimalValues[i] = this.session.getValueFactory().createValue(new BigDecimal(valueList.get(i).toString()));
+					}
+					node.setProperty(name, decimalValues);
 					break;
 				case javax.jcr.PropertyType.DATE:
 					Value[] dateValues = new Value[valueList.size()];
@@ -577,9 +577,11 @@ public class MutationExecutor {
 					node.setProperty(name, longVal);
 					break;
 				case javax.jcr.PropertyType.DOUBLE:
-				case javax.jcr.PropertyType.DECIMAL:
 					double doubleVal = (value instanceof Number) ? ((Number) value).doubleValue() : Double.parseDouble(value.toString());
 					node.setProperty(name, doubleVal);
+					break;
+				case javax.jcr.PropertyType.DECIMAL:
+					node.setProperty(name, new BigDecimal(value.toString()));
 					break;
 				default:
 					node.setProperty(name, value.toString(), propertyType);
@@ -602,11 +604,9 @@ public class MutationExecutor {
 	 * Parse ISO 8601 date string to Calendar
 	 */
 	private Calendar parseISO8601Date(String dateString) throws Exception {
-		synchronized (ISO8601_FORMAT) {
-			Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
-			cal.setTime(ISO8601_FORMAT.parse(dateString));
-			return cal;
-		}
+		Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+		cal.setTimeInMillis(OffsetDateTime.parse(dateString).toInstant().toEpochMilli());
+		return cal;
 	}
 
 
