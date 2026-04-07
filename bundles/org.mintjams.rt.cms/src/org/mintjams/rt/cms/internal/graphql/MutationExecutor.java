@@ -499,7 +499,7 @@ public class MutationExecutor {
 				case javax.jcr.PropertyType.PATH:
 				case javax.jcr.PropertyType.URI:
 					String[] strValues = valueList.stream().map(Object::toString).toArray(String[]::new);
-					node.setProperty(name, strValues);
+					node.setProperty(name, strValues, propertyType);
 					break;
 				case javax.jcr.PropertyType.BOOLEAN:
 					Value[] boolValues = new Value[valueList.size()];
@@ -582,7 +582,7 @@ public class MutationExecutor {
 					node.setProperty(name, doubleVal);
 					break;
 				default:
-					node.setProperty(name, value.toString());
+					node.setProperty(name, value.toString(), propertyType);
 					break;
 				}
 			}
