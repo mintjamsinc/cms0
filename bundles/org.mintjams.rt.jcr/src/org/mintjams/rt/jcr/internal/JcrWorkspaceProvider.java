@@ -31,6 +31,7 @@ import java.security.Principal;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -38,7 +39,6 @@ import javax.jcr.LoginException;
 import javax.jcr.NodeIterator;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
-import javax.jcr.nodetype.NodeType;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.security.LoginTimedOutException;
@@ -245,6 +245,66 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				Activator.getDefault().getLogger(getClass())
 						.info("JCR workspace data migration process has been completed.");
 			} while (false);
+
+			// Migrate jcr:system and jcr:versionStorage node types from nt:folder to custom types
+			do {
+				String oldValue = "{http://www.mintjams.jp/jcr/1.0/value/string}nt:folder";
+
+				// Check if jcr:system still uses nt:folder
+				boolean needsMigration = false;
+				try (Query.Result result = Query.newBuilder(connection)
+						.setStatement("SELECT p.property_value FROM jcr_properties p"
+								+ " INNER JOIN jcr_items i ON i.item_id = p.parent_item_id"
+								+ " WHERE i.item_path = '/jcr:system'"
+								+ " AND p.item_name = 'jcr:primaryType'"
+								+ " AND p.is_deleted = FALSE")
+						.build().setOffset(0).setLimit(1).execute()) {
+					Iterator<AdaptableMap<String, Object>> iter = result.iterator();
+					if (iter.hasNext()) {
+						AdaptableMap<String, Object> row = iter.next();
+						Object[] values = row.getObjectArray("property_value");
+						if (values != null && values.length > 0 && oldValue.equals(values[0])) {
+							needsMigration = true;
+						}
+					}
+				}
+
+				if (!needsMigration) {
+					break;
+				}
+
+				Activator.getDefault().getLogger(getClass())
+						.info("Migrating version storage node types from nt:folder to mi:system/mi:versionStorage...");
+
+				try {
+					// Update jcr:system to mi:system
+					Update.newBuilder(connection)
+							.setStatement("UPDATE jcr_properties SET property_value = {{newValue}}"
+									+ " WHERE item_name = 'jcr:primaryType'"
+									+ " AND parent_item_id IN (SELECT item_id FROM jcr_items WHERE item_path = '/jcr:system')")
+							.setVariable("newValue", new String[]{"{http://www.mintjams.jp/jcr/1.0/value/string}mi:system"})
+							.build().execute();
+
+					// Update jcr:versionStorage to mi:versionStorage
+					Update.newBuilder(connection)
+							.setStatement("UPDATE jcr_properties SET property_value = {{newValue}}"
+									+ " WHERE item_name = 'jcr:primaryType'"
+									+ " AND parent_item_id IN (SELECT item_id FROM jcr_items WHERE item_path = '/jcr:system/jcr:versionStorage')")
+							.setVariable("newValue", new String[]{"{http://www.mintjams.jp/jcr/1.0/value/string}mi:versionStorage"})
+							.build().execute();
+
+					connection.commit();
+				} catch (Throwable ex) {
+					try {
+						connection.rollback();
+					} catch (Throwable ignore) {
+					}
+					throw ex;
+				}
+
+				Activator.getDefault().getLogger(getClass())
+						.info("Version storage node type migration has been completed.");
+			} while (false);
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
@@ -297,7 +357,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				workspace.getSession().getNode(systemPath.toString());
 			} catch (PathNotFoundException pathNotFound) {
 				try {
-					workspaceQuery.items().createNode(systemPath.toString(), NodeType.NT_FOLDER);
+					workspaceQuery.items().createNode(systemPath.toString(), "mi:system");
 					workspaceQuery.commit();
 				} catch (Throwable ex) {
 					try {
@@ -314,7 +374,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				workspace.getSession().getNode(versionStoragePath.toString());
 			} catch (PathNotFoundException pathNotFound) {
 				try {
-					workspaceQuery.items().createNode(versionStoragePath.toString(), NodeType.NT_FOLDER);
+					workspaceQuery.items().createNode(versionStoragePath.toString(), "mi:versionStorage");
 					workspaceQuery.commit();
 				} catch (Throwable ex) {
 					try {

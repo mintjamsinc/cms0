@@ -38,6 +38,7 @@ import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
+import javax.jcr.Session;
 import javax.jcr.Value;
 import javax.jcr.ValueFormatException;
 import javax.xml.namespace.QName;
@@ -386,8 +387,15 @@ public class JcrValue implements Value, Adaptable {
 		}
 
 		if (adapterType.equals(Node.class)) {
-			if (fValue instanceof Node) {
-				return (AdapterType) fValue;
+			if (v instanceof Node) {
+				return (AdapterType) v;
+			}
+			if (v instanceof String id) {
+				try {
+					return (AdapterType) fAdaptable.adaptTo(Session.class).getNodeByIdentifier(id);
+				} catch (Throwable ex) {
+					throw Cause.create(ex).wrap(ValueFormatException.class);
+				}
 			}
 			throw new ValueFormatException("Property value cannot be converted to a Node.");
 		}

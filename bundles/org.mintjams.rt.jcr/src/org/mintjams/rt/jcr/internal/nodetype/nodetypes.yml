@@ -825,6 +825,20 @@ nodeTypes:
         requiredTypes: ["nt:hierarchyNode"]
         attributes: [VERSION]
 
+  - name: "mi:system"
+    superTypes: ["nt:hierarchyNode"]
+    childNodeDefinitions:
+      - name: "*"
+        requiredTypes: ["nt:base"]
+        attributes: [VERSION]
+
+  - name: "mi:versionStorage"
+    superTypes: ["nt:hierarchyNode"]
+    childNodeDefinitions:
+      - name: "*"
+        requiredTypes: ["nt:base"]
+        attributes: [VERSION]
+
   - name: "mi:anyProperties"
     attributes: [mixin]
     propertyDefinitions:

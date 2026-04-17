@@ -803,6 +803,10 @@ public class JCRs {
 	}
 
 	public static Node createNodes(JcrPath path, Session session) throws RepositoryException {
+		return createNodes(path, session, null);
+	}
+
+	public static Node createNodes(JcrPath path, Session session, String primaryNodeTypeName) throws RepositoryException {
 		if (path.isRoot()) {
 			return session.getRootNode();
 		}
@@ -815,9 +819,12 @@ public class JCRs {
 		try {
 			parent = session.getNode(path.getParent().toString());
 		} catch (PathNotFoundException pathNotFound) {
-			parent = createNodes(path.getParent(), session);
+			parent = createNodes(path.getParent(), session, primaryNodeTypeName);
 		}
 
+		if (primaryNodeTypeName != null) {
+			return parent.addNode(path.getName().toString(), primaryNodeTypeName);
+		}
 		return parent.addNode(path.getName().toString());
 	}
 
