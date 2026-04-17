@@ -44,6 +44,7 @@ import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.security.LoginTimedOutException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.jcr.internal.nodetype.JcrNodeType;
 import org.mintjams.rt.jcr.internal.observation.JournalObserver;
 import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
@@ -357,7 +358,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				workspace.getSession().getNode(systemPath.toString());
 			} catch (PathNotFoundException pathNotFound) {
 				try {
-					workspaceQuery.items().createNode(systemPath.toString(), "mi:system");
+					workspaceQuery.items().createNode(systemPath.toString(), JcrNodeType.MI_SYSTEM_NAME);
 					workspaceQuery.commit();
 				} catch (Throwable ex) {
 					try {
@@ -374,7 +375,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				workspace.getSession().getNode(versionStoragePath.toString());
 			} catch (PathNotFoundException pathNotFound) {
 				try {
-					workspaceQuery.items().createNode(versionStoragePath.toString(), "mi:versionStorage");
+					workspaceQuery.items().createNode(versionStoragePath.toString(), JcrNodeType.MI_VERSION_STORAGE_NAME);
 					workspaceQuery.commit();
 				} catch (Throwable ex) {
 					try {
