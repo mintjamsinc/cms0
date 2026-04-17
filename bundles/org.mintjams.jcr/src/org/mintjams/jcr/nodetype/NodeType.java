@@ -24,6 +24,8 @@ package org.mintjams.jcr.nodetype;
 
 public interface NodeType extends javax.jcr.nodetype.NodeType {
 
+	String MI_SYSTEM_NAME = "mi:system";
+	String MI_VERSION_STORAGE_NAME = "mi:versionStorage";
 	String NT_UNSTRUCTURED_NAME = "nt:unstructured";
 	String NT_FOLDER_NAME = "nt:folder";
 	String NT_FILE_NAME = "nt:file";
