@@ -245,7 +245,7 @@ public class WorkspaceQuery implements Adaptable {
 		public void writeJournal(Map<String, Object> data) throws SQLException {
 			SessionIdentifier sessionIdentifier = getSessionIdentifier();
 			String journalId = MessageFormat.format("{0,number,00000000000000000000}-{1,number,00000000000000000000}",
-					sessionIdentifier.getCreated(), System.nanoTime());
+					sessionIdentifier.getCreated(), System.currentTimeMillis());
 			for (int i = 0;; i++) {
 				try {
 					journalEntity().create(AdaptableMap.<String, Object>newBuilder().putAll(data)
@@ -523,7 +523,7 @@ public class WorkspaceQuery implements Adaptable {
 						createValues(PropertyType.NAME, mixinTypes.toArray()));
 			}
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.NODE_ADDED).put("item_id", id).put("item_path", path)
 					.put("primary_type", primaryType).put("user_id", fWorkspace.getSession().getUserID()).build());
 
@@ -1319,7 +1319,7 @@ public class WorkspaceQuery implements Adaptable {
 
 			adaptTo(JcrCache.class).remove(id);
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.NODE_REMOVED).put("item_id", id).put("item_path", path)
 					.put("primary_type", primaryType).put("user_id", fWorkspace.getSession().getUserID())
 					.put("user_data", null).put("event_info", null).build());
@@ -1362,7 +1362,7 @@ public class WorkspaceQuery implements Adaptable {
 			adaptTo(JcrCache.class).remove(srcItem.getString("item_id"));
 			moveChildNodes(srcItem.getString("item_id"));
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.NODE_MOVED)
 					.put("item_id", srcItem.getString("item_id"))
 					.put("item_path", destPath.toString())
@@ -1471,7 +1471,7 @@ public class WorkspaceQuery implements Adaptable {
 					adaptTo(JcrCache.class).remove(id);
 
 					journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-							.put("event_occurred", System.nanoTime()).put("event_type", Event.PROPERTY_ADDED)
+							.put("event_occurred", System.currentTimeMillis()).put("event_type", Event.PROPERTY_ADDED)
 							.put("item_id", id).put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
 							.put("property_name", params.getItemName())
 							.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null)
@@ -1493,7 +1493,7 @@ public class WorkspaceQuery implements Adaptable {
 					adaptTo(JcrCache.class).remove(id);
 
 					journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-							.put("event_occurred", System.nanoTime()).put("event_type", Event.PROPERTY_CHANGED)
+							.put("event_occurred", System.currentTimeMillis()).put("event_type", Event.PROPERTY_CHANGED)
 							.put("item_id", id).put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
 							.put("property_name", params.getItemName())
 							.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null)
@@ -1570,7 +1570,7 @@ public class WorkspaceQuery implements Adaptable {
 
 			adaptTo(JcrCache.class).remove(id);
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.PROPERTY_REMOVED).put("item_id", id).put("item_path", getPath(id))
 					.put("primary_type", getPrimaryType(id)).put("property_name", getResolved(relPath))
 					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
@@ -1637,7 +1637,7 @@ public class WorkspaceQuery implements Adaptable {
 				throw new LockException("Could not unlock node '" + absPath + "'.");
 			}
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.UNLOCKED).put("item_id", id).put("item_path", getPath(id))
 					.put("primary_type", getPrimaryType(id)).put("user_id", fWorkspace.getSession().getUserID())
 					.put("user_data", null).put("event_info", null).build());
@@ -1694,7 +1694,7 @@ public class WorkspaceQuery implements Adaptable {
 				throw new LockException("Node '" + absPath + "' is already locked.");
 			}
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.LOCK_REFRESHED).put("item_id", id)
 					.put("item_path", itemData.getString("item_path")).put("primary_type", getPrimaryType(id))
 					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
@@ -1733,7 +1733,7 @@ public class WorkspaceQuery implements Adaptable {
 
 			adaptTo(JcrCache.class).remove(id);
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.ACCESS_CONTROL_POLICY_CHANGED).put("item_id", id)
 					.put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
 					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
@@ -1749,7 +1749,7 @@ public class WorkspaceQuery implements Adaptable {
 
 			adaptTo(JcrCache.class).remove(id);
 
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.nanoTime())
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.ACCESS_CONTROL_POLICY_REMOVED).put("item_id", id)
 					.put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
 					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)

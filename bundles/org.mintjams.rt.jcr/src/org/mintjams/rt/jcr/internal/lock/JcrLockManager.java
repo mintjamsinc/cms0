@@ -173,7 +173,7 @@ public class JcrLockManager implements LockManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), Property.JCR_LOCK_IS_DEEP, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, isDeep));
 
 			workspaceQuery.journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
+					.put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.LOCKED)
 					.put("item_id", item.getIdentifier())
 					.put("item_path", item.getPath())
@@ -245,7 +245,7 @@ public class JcrLockManager implements LockManager, Adaptable {
 			}
 
 			workspaceQuery.journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.nanoTime())
+					.put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.UNLOCKED)
 					.put("item_id", item.getIdentifier())
 					.put("item_path", item.getPath())

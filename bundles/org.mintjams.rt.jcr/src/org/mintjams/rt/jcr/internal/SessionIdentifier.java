@@ -56,7 +56,7 @@ public class SessionIdentifier extends QName {
 	}
 
 	public static SessionIdentifier create(Principal principal) {
-		String id = UUID.randomUUID().toString() + "/" + System.nanoTime();
+		String id = UUID.randomUUID().toString() + "/" + System.currentTimeMillis();
 
 		if (principal instanceof SystemPrincipal) {
 			return new SessionIdentifier(SYSTEM_NS_URI, id);
