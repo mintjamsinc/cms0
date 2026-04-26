@@ -34,6 +34,8 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import javax.jcr.LoginException;
 import javax.jcr.NodeIterator;
@@ -73,6 +75,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 	private SearchIndex fSearchIndex;
 	private JournalObserver fJournalObserver;
 	private WorkspaceCleaner fWorkspaceCleaner;
+	private WorkspaceOrphanMonitor fWorkspaceOrphanMonitor;
 	private boolean fLive;
 	private final List<JcrWorkspace> fActiveSessions = new ArrayList<>();
 
@@ -144,6 +147,11 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				.register(WorkspaceGarbageCollection.create(this));
 		workspaceGarbageCollection.open();
 
+		fWorkspaceOrphanMonitor = fCloser.register(WorkspaceOrphanMonitor.create(this));
+		fWorkspaceOrphanMonitor.open();
+
+		removeOrphanNodes();
+
 		if (needsBuildSearchIndex) {
 			Activator.getDefault().getLogger(getClass()).info("Creating the JCR search index.");
 			try (JcrWorkspace workspace = createSession(new SystemPrincipal())) {
@@ -187,6 +195,27 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				throw ex;
 			}
 
+			// Fix root node format
+			do {
+				try (Query.Result result = Query.newBuilder(connection)
+						.setStatement("SELECT * FROM jcr_items WHERE item_path = '/' AND parent_item_id IS NOT NULL")
+						.build().setOffset(0).setLimit(1).execute()) {
+					if (result.iterator().hasNext()) {
+						break;
+					}
+
+					Update.newBuilder(connection)
+							.setStatement("UPDATE jcr_items SET parent_item_id = NULL WHERE item_path = '/'")
+							.build().execute();
+					connection.commit();
+				} catch (Throwable ex) {
+					try {
+						connection.rollback();
+					} catch (Throwable ignore) {}
+					throw ex;
+				}
+			} while (false);
+
 			// Migrate existing data
 			do {
 				// Check whether the 'is_system' column exists
@@ -211,8 +240,8 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				try {
 					if (!checkRow.containsKey("is_system")) {
 						Update.newBuilder(connection)
-						.setStatement("ALTER TABLE jcr_items ADD COLUMN is_system BOOLEAN")
-						.build().execute();
+								.setStatement("ALTER TABLE jcr_items ADD COLUMN is_system BOOLEAN")
+								.build().execute();
 					}
 
 					try (Query.Result result = Query.newBuilder(connection)
@@ -386,6 +415,76 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				}
 			}
 		} catch (RepositoryException ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
+	private void removeOrphanNodes() throws IOException {
+		try (JcrWorkspace workspace = createSession(new SystemPrincipal())) {
+			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
+
+			Consumer<AdaptableMap<String, Object>> nodeConsumer = new Consumer<>() {
+				@Override
+				public void accept(AdaptableMap<String, Object> r) {
+					try {
+						JcrNode node = JcrNode.class.cast(workspace.getSession().getNodeByIdentifier(r.getString("item_id")));
+						if (JcrPath.valueOf(node.getPath()).isRoot()) {
+							return;
+						}
+
+						String log = """
+								Removing orphan node:
+								  * Workspace: %s
+								  * Identifier: %s
+								  * Path: %s
+								  * IsDeleted: %s
+								  * IsSystem: %s
+								""".formatted(
+										workspace.getName(),
+										r.getString("item_id"),
+										r.getString("item_path"),
+										r.getBoolean("is_deleted"),
+										r.getBoolean("is_system"));
+						Activator.getDefault().getLogger(JcrWorkspaceProvider.class).warn(log);
+
+						node.remove(options -> {
+							options.put("force", true);
+							return options;
+						});
+
+						Activator.getDefault().getLogger(JcrWorkspaceProvider.class).warn("Orphan node has been removed: " + r.getString("item_id"));
+					} catch (Throwable ex) {
+						throw Cause.create(ex).wrap(IllegalStateException.class);
+					}
+				}
+			};
+
+			try {
+				workspaceQuery.items().checkOrphanNodes(new WorkspaceQuery.OrphanMonitor() {
+					@Override
+					public boolean isCancelled() {
+						return false;
+					}
+
+					@Override
+					public Function<Query, Query> getQueryCustomizer() {
+						return null;
+					}
+
+					@Override
+					public Consumer<AdaptableMap<String, Object>> getNodeConsumer() {
+						return nodeConsumer;
+					}
+				});
+
+				workspace.getSession().save();
+			} catch (Throwable ex) {
+				try {
+					workspace.getSession().refresh(false);
+				} catch (Throwable ignore) {}
+				throw ex;
+			}
+		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
 	}

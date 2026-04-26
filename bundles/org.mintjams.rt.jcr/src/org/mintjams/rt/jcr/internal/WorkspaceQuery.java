@@ -35,8 +35,6 @@ import java.security.Principal;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.text.MessageFormat;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -45,8 +43,11 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import javax.jcr.Binary;
@@ -99,8 +100,6 @@ import org.mintjams.tools.sql.Query;
 import org.mintjams.tools.sql.Update;
 
 public class WorkspaceQuery implements Adaptable {
-
-	private static final DateTimeFormatter ISO8601 = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
 
 	private final JcrWorkspace fWorkspace;
 
@@ -229,6 +228,12 @@ public class WorkspaceQuery implements Adaptable {
 		boolean isCancelled();
 	}
 
+	interface OrphanMonitor extends QueryMonitor {
+		Function<Query, Query> getQueryCustomizer();
+
+		Consumer<AdaptableMap<String, Object>> getNodeConsumer();
+	}
+
 	public class JournalQuery {
 		private JournalQuery() {
 		}
@@ -245,7 +250,7 @@ public class WorkspaceQuery implements Adaptable {
 		public void writeJournal(Map<String, Object> data) throws SQLException {
 			SessionIdentifier sessionIdentifier = getSessionIdentifier();
 			String journalId = MessageFormat.format("{0,number,00000000000000000000}-{1,number,00000000000000000000}",
-					sessionIdentifier.getCreated(), System.currentTimeMillis());
+					sessionIdentifier.getCreated(), System.nanoTime());
 			for (int i = 0;; i++) {
 				try {
 					journalEntity().create(AdaptableMap.<String, Object>newBuilder().putAll(data)
@@ -1754,6 +1759,32 @@ public class WorkspaceQuery implements Adaptable {
 					.put("item_path", getPath(id)).put("primary_type", getPrimaryType(id))
 					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
 					.build());
+		}
+
+		public void checkOrphanNodes(OrphanMonitor monitor) throws IOException, SQLException {
+			if (monitor.isCancelled()) {
+				return;
+			}
+
+			String sql = """
+					SELECT i.*
+					FROM jcr_items i
+					WHERE i.parent_item_id IS NOT NULL
+					  AND NOT EXISTS (
+					      SELECT 1 FROM jcr_items p WHERE p.item_id = i.parent_item_id
+					  )
+					ORDER BY i.item_path
+					""";
+			try (Query.Result result = Optional.ofNullable(monitor.getQueryCustomizer()).orElse(q -> q)
+					.apply(newQueryBuilder(sql).build()).execute()) {
+				for (AdaptableMap<String, Object> r : result) {
+					if (monitor.isCancelled()) {
+						break;
+					}
+
+					Optional.ofNullable(monitor.getNodeConsumer()).orElse(record -> {}).accept(r);
+				}
+			}
 		}
 	}
 
