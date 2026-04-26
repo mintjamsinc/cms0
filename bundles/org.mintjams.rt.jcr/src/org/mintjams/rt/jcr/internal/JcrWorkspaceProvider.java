@@ -534,18 +534,21 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		}
 
 		public Connection getConnection(Principal principal) throws SQLException {
-			// System sessions use the system data source
+			Connection connection;
 			if (principal instanceof SystemPrincipal) {
-				return fSystemDataSource.getConnection();
+				// System sessions use the system data source
+				connection = fSystemDataSource.getConnection();
+			} else if (principal instanceof ServicePrincipal) {
+				// Service sessions use the service data source
+				connection = fServiceDataSource.getConnection();
+			} else {
+				// User sessions use the user data source
+				connection = fUserDataSource.getConnection();
 			}
-
-			// Service sessions use the service data source
-			if (principal instanceof ServicePrincipal) {
-				return fServiceDataSource.getConnection();
+			if (connection.getAutoCommit()) {
+				throw new SQLException("Auto-commit mode is not allowed for JCR workspace connections.");
 			}
-
-			// User sessions use the user data source
-			return fUserDataSource.getConnection();
+			return connection;
 		}
 
 		@Override
