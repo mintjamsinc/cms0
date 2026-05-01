@@ -200,7 +200,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				try (Query.Result result = Query.newBuilder(connection)
 						.setStatement("SELECT * FROM jcr_items WHERE item_path = '/' AND parent_item_id IS NOT NULL")
 						.build().setOffset(0).setLimit(1).execute()) {
-					if (result.iterator().hasNext()) {
+					if (!result.iterator().hasNext()) {
 						break;
 					}
 

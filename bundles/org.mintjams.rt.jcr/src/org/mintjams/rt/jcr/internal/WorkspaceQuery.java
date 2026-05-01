@@ -1312,13 +1312,16 @@ public class WorkspaceQuery implements Adaptable {
 						if (JcrValue.BINARY_NS_URI.equals(propertyValue.getNamespaceURI())) {
 							files().deleteFile(propertyValue.getLocalPart());
 						}
-
-						propertiesEntity().deleteByPrimaryKey(r).execute();
 					}
+
+					propertiesEntity().updateByPrimaryKey(
+							AdaptableMap.<String, Object>newBuilder().put("item_id", r.getString("item_id"))
+									.put("is_deleted", Boolean.TRUE).build())
+							.execute();
 				}
 			}
 
-			itemsEntity().deleteByPrimaryKey(
+			itemsEntity().updateByPrimaryKey(
 					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
 					.execute();
 
@@ -1770,6 +1773,7 @@ public class WorkspaceQuery implements Adaptable {
 					SELECT i.*
 					FROM jcr_items i
 					WHERE i.parent_item_id IS NOT NULL
+					  AND i.parent_item_id <> ''
 					  AND NOT EXISTS (
 					      SELECT 1 FROM jcr_items p WHERE p.item_id = i.parent_item_id
 					  )
