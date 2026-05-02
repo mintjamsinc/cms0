@@ -783,12 +783,16 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(name)) {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
 		}
-		for (Value v : values) {
-			int t = type;
-			if (t == PropertyType.UNDEFINED) {
-				t = v.getType();
+		if (type == PropertyType.UNDEFINED) {
+			for (Value v : values) {
+				if (v != null) {
+					type = v.getType();
+					break;
+				}
 			}
-			validateNamespaceRegistration(v, t);
+		}
+		for (Value v : values) {
+			validateNamespaceRegistration(v, type);
 		}
 		try {
 			AdaptableMap<String, Object> updated = getWorkspaceQuery().items().setProperty(

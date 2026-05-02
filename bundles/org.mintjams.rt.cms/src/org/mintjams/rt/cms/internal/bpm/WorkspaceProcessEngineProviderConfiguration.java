@@ -78,7 +78,7 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		if (!Files.exists(bpmPath)) {
 			try (Writer out = Files.newBufferedWriter(bpmPath, StandardCharsets.UTF_8)) {
 				String yamlString = new Dump(DumpSettings.builder()
-						.setIndent(2)
+						.setIndent(4)
 						.setIndicatorIndent(2)
 						.setDefaultFlowStyle(FlowStyle.BLOCK)
 						.build()).dumpToString(AdaptableMap.<String, Object>newBuilder()

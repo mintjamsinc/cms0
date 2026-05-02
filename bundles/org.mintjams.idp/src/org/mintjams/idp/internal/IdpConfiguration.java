@@ -73,7 +73,7 @@ public class IdpConfiguration {
 			if (!Files.exists(idpPath)) {
 				try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
 					String yamlString = new Dump(DumpSettings.builder()
-							.setIndent(2)
+							.setIndent(4)
 							.setIndicatorIndent(2)
 							.setDefaultFlowStyle(FlowStyle.BLOCK)
 							.build()).dumpToString(Map.of(
@@ -110,7 +110,7 @@ public class IdpConfiguration {
 					((Map<String, Object>) fConfig.get("keystore")).put("password", Activator.getDefault().getEncryptor().encrypt(password));
 					try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
 						String yamlString = new Dump(DumpSettings.builder()
-								.setIndent(2)
+								.setIndent(4)
 								.setIndicatorIndent(2)
 								.setDefaultFlowStyle(FlowStyle.BLOCK)
 								.build()).dumpToString(fConfig);

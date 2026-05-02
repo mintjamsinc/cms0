@@ -86,7 +86,7 @@ public class YAML {
 		}
 
 		return new Dump(DumpSettings.builder()
-				.setIndent(2)
+				.setIndent(4)
 				.setIndicatorIndent(2)
 				.setDefaultFlowStyle(FlowStyle.BLOCK)
 				.build()).dumpToString(value);

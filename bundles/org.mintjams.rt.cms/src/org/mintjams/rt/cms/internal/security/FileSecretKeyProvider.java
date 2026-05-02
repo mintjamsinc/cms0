@@ -71,7 +71,7 @@ public class FileSecretKeyProvider implements SecretKeyProvider {
 			Files.createDirectories(path.getParent());
 			try (Writer out = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
 				out.append(new Dump(DumpSettings.builder()
-						.setIndent(2)
+						.setIndent(4)
 						.setIndicatorIndent(2)
 						.setDefaultFlowStyle(FlowStyle.BLOCK)
 						.build()).dumpToString(fKeyConfig));

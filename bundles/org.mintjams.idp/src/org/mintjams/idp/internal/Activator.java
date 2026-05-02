@@ -178,7 +178,7 @@ public class Activator implements BundleActivator {
 			httpService.registerServlet(fConfig.getSpApiPath(), new SpApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSsoPath(), new SsoServlet(), null, sharedContext);
 
-			log.info("IdP servlets registered at: {}", fConfig.getConfigPath());
+			log.info("IdP servlets registered at: {}", fConfig.getBaseURL());
 			log.info("  Entity ID : {}", fConfig.getEntityId());
 			log.info("  SSO URL   : {}", fConfig.getSsoUrl());
 			log.info("  Metadata  : {}", fConfig.getMetadataUrl());

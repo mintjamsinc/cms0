@@ -132,7 +132,7 @@ public class Saml2ServiceProviderConfiguration {
 					.build();
 			try (Writer out = Files.newBufferedWriter(saml2Path, StandardCharsets.UTF_8)) {
 				String yamlString = new Dump(DumpSettings.builder()
-						.setIndent(2)
+						.setIndent(4)
 						.setIndicatorIndent(2)
 						.setDefaultFlowStyle(FlowStyle.BLOCK)
 						.build()).dumpToString(yaml);
@@ -151,7 +151,7 @@ public class Saml2ServiceProviderConfiguration {
 						.put("password", CmsService.getEncryptor().encrypt(password));
 				try (Writer out = Files.newBufferedWriter(saml2Path, StandardCharsets.UTF_8)) {
 					String yamlString = new Dump(DumpSettings.builder()
-							.setIndent(2)
+							.setIndent(4)
 							.setIndicatorIndent(2)
 							.setDefaultFlowStyle(FlowStyle.BLOCK)
 							.build()).dumpToString(fConfig);

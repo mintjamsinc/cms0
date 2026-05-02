@@ -57,7 +57,7 @@ public class WorkspaceIntegrationEngineProviderConfiguration {
 		if (!Files.exists(eipPath)) {
 			try (Writer out = Files.newBufferedWriter(eipPath, StandardCharsets.UTF_8)) {
 				String yamlString = new Dump(DumpSettings.builder()
-						.setIndent(2)
+						.setIndent(4)
 						.setIndicatorIndent(2)
 						.setDefaultFlowStyle(FlowStyle.BLOCK)
 						.build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
