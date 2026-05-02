@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Locale;
 
 import javax.servlet.DispatcherType;
 import javax.servlet.RequestDispatcher;
@@ -53,6 +54,7 @@ public class Webs {
 	public static final String DEFAULT_WEB_TEMPLATE_PATH = "/content/WEB-INF/templates";
 	public static final String DEFAULT_WEB_YML_PATH = "/content/WEB-INF/web.yml";
 	public static final String WEB_TEMPLATE = "web.template";
+	public static final String PREVIEW_CONTENT_TYPE = "application/vnd.cms.preview+json";
 
 	private Webs() {}
 
@@ -187,6 +189,25 @@ public class Webs {
 
 	public static boolean isErrorRequest(ActionContext context) {
 		return isErrorRequest(getRequest(context));
+	}
+
+	public static boolean isPreviewRequest(HttpServletRequest request) {
+		String mime = extractMimeType(request.getContentType());
+		return isNormalRequest(request) && PREVIEW_CONTENT_TYPE.equals(mime);
+	}
+
+	/**
+	 * Extracts the MIME type from a Content-Type header value.
+	 * For example, "text/html; charset=UTF-8" -> "text/html".
+	 * Returns null if contentType is null.
+	 */
+	public static String extractMimeType(String contentType) {
+		if (contentType == null) {
+			return null;
+		}
+		int idx = contentType.indexOf(';');
+		String mime = (idx == -1) ? contentType.trim() : contentType.substring(0, idx).trim();
+		return mime.toLowerCase(Locale.ROOT);
 	}
 
 	public static String encode(String text) throws IOException {

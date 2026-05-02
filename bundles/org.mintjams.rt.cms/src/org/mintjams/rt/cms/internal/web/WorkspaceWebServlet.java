@@ -81,6 +81,7 @@ public class WorkspaceWebServlet extends HttpServlet {
 					.add(new HandleErrorAction())
 					.add(new SetDefaultResponseHeaderAction())
 					.add(new CheckProtectedAction())
+					.add(new CheckPreviewAction())
 					.add(new FilterAction())
 					.add(new EvaluateAction())
 					.build()).doAction(context);

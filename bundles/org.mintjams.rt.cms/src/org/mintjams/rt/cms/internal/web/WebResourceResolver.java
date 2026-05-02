@@ -22,9 +22,12 @@
 
 package org.mintjams.rt.cms.internal.web;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 import javax.jcr.AccessDeniedException;
 import javax.jcr.Node;
@@ -32,10 +35,15 @@ import javax.jcr.PathNotFoundException;
 import javax.jcr.Property;
 import javax.jcr.RepositoryException;
 import javax.jcr.nodetype.NodeType;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.script.Scripts;
+import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
+import org.mintjams.script.JSON;
+import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
 import org.mintjams.tools.util.ActionContext;
 
@@ -138,18 +146,42 @@ public class WebResourceResolver {
 			fNode = node;
 			fTemplate = null;
 			fException = null;
+			init();
 		}
 
 		private ResolveResult(Node node, Template template) {
 			fNode = node;
 			fTemplate = template;
 			fException = null;
+			init();
 		}
 
 		private ResolveResult(Exception exception) {
 			fNode = null;
 			fTemplate = null;
 			fException = exception;
+			init();
+		}
+
+		private void init() {
+			try {
+				if (exists() && isFile()) {
+					WorkspaceScriptContext ctx = Scripts.getWorkspaceScriptContext(fContext);
+					HttpServletRequest request = Webs.getRequest(fContext);
+					if (Webs.isPreviewRequest(request)) {
+						@SuppressWarnings("unchecked")
+						Map<String, Object> payload = (Map<String, Object>) JSON.get(ctx).parse(Webs.getRequest(fContext).getReader());
+						ExpressionContext exp = ExpressionContext.create().setVariable("payload", payload);
+						String content = exp.defaultIfEmpty("payload.content", "").toString();
+						String encoding =  Strings.defaultIfEmpty(request.getCharacterEncoding(), StandardCharsets.UTF_8.name());
+						JCRs.write(fNode, new ByteArrayInputStream(content.getBytes(encoding)));
+						JCRs.setProperty(fNode, "jcr:lastModified", new java.util.Date());
+						// Don't save because it is transient change for preview.
+					}
+				}
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(IllegalStateException.class);
+			}
 		}
 
 		public Node getNode() {
