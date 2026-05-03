@@ -385,10 +385,11 @@ public class GraphQLStreamHandler {
 
 			try {
 				Map<String, Object> eventData = new LinkedHashMap<>();
-				// Extract event type from topic (last segment)
+				// Extract event type from topic (last segment) and map to the
+				// GraphQL NodeEventType enum exposed by the schema.
 				String topic = event.getTopic();
-				String eventType = topic.substring(topic.lastIndexOf('/') + 1);
-				eventData.put("eventType", eventType);
+				String topicSuffix = topic.substring(topic.lastIndexOf('/') + 1);
+				eventData.put("eventType", toNodeEventType(topicSuffix));
 				eventData.put("path", event.getPath());
 				eventData.put("timestamp", Instant.now().toString());
 				eventData.put("userId", event.getUserID());
@@ -439,6 +440,29 @@ public class GraphQLStreamHandler {
 				try {
 					asyncContext.complete();
 				} catch (Exception ignore) {}
+			}
+		}
+
+		/**
+		 * Map an internal CMS event topic suffix (the last path segment of
+		 * {@code javax/jcr/Node/*}) to the GraphQL {@code NodeEventType} enum
+		 * declared in the schema. The internal topic vocabulary diverges from
+		 * the schema names ({@code ADDED}/{@code REMOVED}/{@code CHANGED} vs
+		 * {@code CREATED}/{@code DELETED}/{@code MODIFIED}); other CMS event
+		 * consumers depend on the topic names, so the translation lives at
+		 * the GraphQL boundary rather than at the source.
+		 */
+		private static String toNodeEventType(String topicSuffix) {
+			if (topicSuffix == null) return null;
+			switch (topicSuffix) {
+			case "ADDED":
+				return "CREATED";
+			case "REMOVED":
+				return "DELETED";
+			case "CHANGED":
+				return "MODIFIED";
+			default:
+				return topicSuffix;
 			}
 		}
 
