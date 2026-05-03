@@ -252,6 +252,8 @@ public class Activator implements BundleActivator {
 		String passwordHash = "{bcrypt}" + BCrypt.hash(password);
 
 		Node profileFile = JCRs.createFile(adminFolder, "profile");
+		JCRs.setProperty(profileFile, "identifier", "admin");
+		JCRs.setProperty(profileFile, "isGroup", false);
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
 		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "mail", "admin@example.com");
