@@ -25,9 +25,16 @@ package org.mintjams.rt.cms.internal.security;
 import java.security.Principal;
 import java.util.Collection;
 
+import javax.jcr.Node;
+import javax.jcr.NodeIterator;
+import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
+import javax.jcr.query.Query;
+import javax.jcr.query.QueryResult;
 
+import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
+import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
@@ -41,14 +48,36 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 		try {
 			systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
 
-			if (systemSession.nodeExists("/home/users/" + name + "/profile")) {
-				return new DefaultUserPrincipal(name);
+			// Handle special principals
+			if (name.equals("anonymous")) {
+				return new GuestPrincipal();
+			}
+			if (name.equals("everyone")) {
+				return new EveryonePrincipal();
 			}
 
-			if (systemSession.nodeExists("/home/groups/" + name + "/profile")) {
-				return new DefaultGroupPrincipal(name);
+			// First, try to find a user with the given name
+			try {
+				Node contentNode = systemSession.getNode("/home/users/" + name + "/profile/jcr:content");
+				if (contentNode.getProperty("identifier").getString().equals(name) &&
+						!contentNode.getProperty("isGroup").getBoolean()) {
+					return new DefaultUserPrincipal(name);
+				}
+			} catch (PathNotFoundException ignore) {}
+
+			// If not found, try to find a group with the given name
+			{
+				String escapedName = name.replace("'", "\\'");
+				String stmt = "/jcr:root/home/groups//*[@identifier = '" + escapedName + "' and @isGroup = true]";
+				Query q = systemSession.getWorkspace().getQueryManager().createQuery(stmt, Query.XPATH);
+				q.setOffset(0);
+				q.setLimit(1);
+				if (q.execute().getNodes().hasNext()) {
+					return new DefaultGroupPrincipal(name);
+				}
 			}
 
+			// Not found
 			throw new PrincipalNotFoundException(name);
 		} catch (RepositoryException ex) {
 			CmsService.getLogger(getClass()).error("Failed to get principal: " + name, ex);

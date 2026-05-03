@@ -42,6 +42,8 @@ import javax.jcr.Value;
 import javax.jcr.security.Privilege;
 
 import org.mintjams.cms.security.BCrypt;
+import org.mintjams.jcr.Workspace;
+import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.util.JCRs;
 
 /**
@@ -71,9 +73,12 @@ public class IdpMutationExecutor {
 			return errorPayload("createUser", "username and password are required", "INVALID_INPUT");
 		}
 
-		String userFolderPath = IdpQueryExecutor.USERS_ROOT + "/" + username;
-		if (session.nodeExists(userFolderPath)) {
-			return errorPayload("createUser", "User already exists: " + username, "ALREADY_EXISTS");
+		// Check if user or group with the same name already exists
+		try {
+			Workspace.class.cast(session.getWorkspace()).getPrincipalProvider().getPrincipal(username);
+			return errorPayload("createUser", "User or group with the same name already exists: " + username, "ALREADY_EXISTS");
+		} catch (PrincipalNotFoundException ignore) {
+			// Expected if user/group does not exist, continue with creation
 		}
 
 		Node usersFolder = ensureFolder(IdpQueryExecutor.USERS_ROOT);
@@ -83,6 +88,8 @@ public class IdpMutationExecutor {
 		JCRs.setProperty(profileFile, "password", "{bcrypt}" + BCrypt.hash(password));
 
 		Node contentNode = JCRs.getContentNode(profileFile);
+		contentNode.setProperty("identifier", username);
+		contentNode.setProperty("isGroup", false);
 		setStringIfPresent(contentNode, "sn", input);
 		setStringIfPresent(contentNode, "givenName", input);
 		setStringIfPresent(contentNode, "displayName", input);
@@ -473,8 +480,12 @@ public class IdpMutationExecutor {
 				? IdpQueryExecutor.GROUPS_ROOT + "/" + parentGroupId + "/" + name
 				: IdpQueryExecutor.GROUPS_ROOT + "/" + name;
 
-		if (session.nodeExists(groupFolderPath)) {
-			return errorPayload("createGroup", "Group already exists", "ALREADY_EXISTS");
+		// Check if user or group with the same name already exists
+		try {
+			Workspace.class.cast(session.getWorkspace()).getPrincipalProvider().getPrincipal(name);
+			return errorPayload("createGroup", "User or group with the same name already exists: " + name, "ALREADY_EXISTS");
+		} catch (PrincipalNotFoundException ignore) {
+			// Expected if user/group does not exist, continue with creation
 		}
 
 		Node parentFolder;
@@ -494,6 +505,8 @@ public class IdpMutationExecutor {
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.group");
 
 		Node contentNode = JCRs.getContentNode(profileFile);
+		contentNode.setProperty("identifier", name);
+		contentNode.setProperty("isGroup", true);
 		setStringIfPresent(contentNode, "displayName", input);
 		setStringIfPresent(contentNode, "description", input);
 		session.save();

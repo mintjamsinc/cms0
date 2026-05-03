@@ -196,7 +196,7 @@ public class Activator implements BundleActivator {
 		try {
 			Node homeFolder = JCRs.getOrCreateFolder(jcrSession.getRootNode(), "home");
 			Node usersFolder = JCRs.getOrCreateFolder(homeFolder, "users");
-			JCRs.getOrCreateFolder(homeFolder, "groups");
+			Node groupsFolder = JCRs.getOrCreateFolder(homeFolder, "groups");
 			Node rolesFolder = JCRs.getOrCreateFolder(homeFolder, "roles");
 			if (jcrSession.hasPendingChanges()) {
 				jcrSession.save();
@@ -204,6 +204,8 @@ public class Activator implements BundleActivator {
 
 			initializeAdminRole(rolesFolder);
 			initializeAdminUser(usersFolder, rolesFolder);
+			initializeAnonymousUser(usersFolder);
+			initializeEveryoneGroup(groupsFolder);
 		} catch (Throwable ex) {
 			log.error("Failed to initialize JCR node structure", ex);
 			throw ex;
@@ -252,9 +254,9 @@ public class Activator implements BundleActivator {
 		String passwordHash = "{bcrypt}" + BCrypt.hash(password);
 
 		Node profileFile = JCRs.createFile(adminFolder, "profile");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
 		JCRs.setProperty(profileFile, "identifier", "admin");
 		JCRs.setProperty(profileFile, "isGroup", false);
-		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
 		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "mail", "admin@example.com");
 		JCRs.setProperty(profileFile, "enabled", true);
@@ -293,6 +295,46 @@ public class Activator implements BundleActivator {
 				return "admin";
 			}
 		}, true, Privilege.JCR_ALL);
+		jcrSession.save();
+	}
+
+	private void initializeAnonymousUser(Node usersFolder) throws Exception {
+		Session jcrSession = usersFolder.getSession();
+
+		if (usersFolder.hasNode("anonymous/profile")) {
+			return;
+		}
+
+		Node anonymousFolder = JCRs.getOrCreateFolder(usersFolder, "anonymous");
+
+		Node profileFile = JCRs.createFile(anonymousFolder, "profile");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
+		JCRs.setProperty(profileFile, "identifier", "anonymous");
+		JCRs.setProperty(profileFile, "isGroup", false);
+		JCRs.setProperty(profileFile, "displayName", "Anonymous");
+		JCRs.setProperty(profileFile, "mail", "anonymous@example.com");
+		JCRs.setProperty(profileFile, "enabled", true);
+
+		JCRs.getOrCreateFolder(anonymousFolder, "preferences");
+
+		jcrSession.save();
+	}
+
+	private void initializeEveryoneGroup(Node groupsFolder) throws Exception {
+		Session jcrSession = groupsFolder.getSession();
+
+		if (groupsFolder.hasNode("everyone/profile")) {
+			return;
+		}
+
+		Node everyoneFolder = JCRs.getOrCreateFolder(groupsFolder, "everyone");
+
+		Node profileFile = JCRs.createFile(everyoneFolder, "profile");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.group");
+		JCRs.setProperty(profileFile, "identifier", "everyone");
+		JCRs.setProperty(profileFile, "isGroup", true);
+		JCRs.setProperty(profileFile, "displayName", "Everyone");
+
 		jcrSession.save();
 	}
 
