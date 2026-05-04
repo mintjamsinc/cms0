@@ -53,6 +53,7 @@ import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.bpm.WorkspaceProcessEngineProvider;
 import org.mintjams.rt.cms.internal.cms.event.WorkspaceCmsEventManager;
 import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
+import org.mintjams.rt.cms.internal.job.JobManager;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceFacetProvider;
@@ -126,6 +127,7 @@ public class CmsService {
 	private final Closer fCloser = Closer.create();
 	private SecretKeyProvider fSecretKeyProvider;
 	private Encryptor fEncryptor;
+	private JobManager fJobManager;
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
 	@Activate
@@ -172,6 +174,7 @@ public class CmsService {
 
 	private synchronized void open() throws IOException, RepositoryException {
 		fConfig = new CmsConfiguration();
+		fJobManager = fCloser.register(new JobManager(fConfig.getJobManagerWorkers()));
 		fCloser.register(new RepositoryServletsProvider(fConfig)).open();
 
 		prepareStandardFolders();
@@ -444,6 +447,10 @@ public class CmsService {
 
 	public static Encryptor getEncryptor() {
 		return getDefault().fEncryptor;
+	}
+
+	public static JobManager getJobManager() {
+		return getDefault().fJobManager;
 	}
 
 	public static Path getEtcPath() {

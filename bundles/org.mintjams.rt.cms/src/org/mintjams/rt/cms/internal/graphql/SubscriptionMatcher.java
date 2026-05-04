@@ -31,6 +31,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
+import org.mintjams.rt.cms.internal.job.JobNodes;
 
 /**
  * Parses GraphQL subscription strings and matches CMS events.
@@ -39,6 +40,7 @@ import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
  * - nodeChanged(path: "/content", deep: true)
  * - nodeChanged(path: "/content")
  * - nodeChanged
+ * - jobProgress(jobId: "...")
  */
 public class SubscriptionMatcher {
 
@@ -115,8 +117,28 @@ public class SubscriptionMatcher {
 		if ("avatarChanged".equals(type)) {
 			return matchesAvatarChanged(event);
 		}
+		if ("jobProgress".equals(type)) {
+			return matchesJobProgress(event);
+		}
 		// Other subscription types can be added here
 		return false;
+	}
+
+	/**
+	 * Match jobProgress subscription against any node-change event whose path
+	 * identifies the persisted job record. The job record lives at
+	 * {@code /var/jobs/YYYY/MM/job-<jobId>}; both the {@code job-} file node
+	 * and its {@code jcr:content} child are considered relevant.
+	 *
+	 * Parameters:
+	 * - jobId: required
+	 */
+	private boolean matchesJobProgress(CmsEvent event) {
+		String jobId = params.get("jobId");
+		if (jobId == null || jobId.isEmpty()) {
+			return false;
+		}
+		return JobNodes.isJobPath(event.getPath(), jobId);
 	}
 
 	/**

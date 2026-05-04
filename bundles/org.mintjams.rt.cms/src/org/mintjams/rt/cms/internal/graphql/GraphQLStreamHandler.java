@@ -46,6 +46,7 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
 import org.mintjams.rt.cms.internal.cms.event.CmsEventHandler;
 import org.mintjams.rt.cms.internal.cms.event.WorkspaceCmsEventManager;
+import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 
 import com.google.gson.Gson;
@@ -211,6 +212,8 @@ public class GraphQLStreamHandler {
 						sendWallpaperChangedEvent(matcher, event);
 					} else if ("avatarChanged".equals(matcher.getType())) {
 						sendAvatarChangedEvent(matcher, event);
+					} else if ("jobProgress".equals(matcher.getType())) {
+						sendJobProgressEvent(matcher, event);
 					} else {
 						sendEvent(matcher.getSubscriptionString(), event);
 					}
@@ -283,6 +286,75 @@ public class GraphQLStreamHandler {
 			} catch (Exception e) {
 				CmsService.getLogger(getClass()).warn(
 						"Failed to read preferences node for subscription", e);
+			} finally {
+				if (jcrSession != null) {
+					try { jcrSession.logout(); } catch (Exception ignore) {}
+				}
+			}
+		}
+
+		/**
+		 * Send a jobProgress SSE event.
+		 *
+		 * Triggered by node-change events on the persisted job record. Opens a
+		 * system session in this stream's workspace, reads the current state
+		 * from the job's {@code jcr:content} child, and sends a structured
+		 * payload to the subscriber so the client doesn't need a follow-up
+		 * query. Coalesces nicely under high event rates because the job node
+		 * is updated by the worker on a throttle (every 100 nodes deleted or
+		 * 500ms — whichever comes first).
+		 */
+		private void sendJobProgressEvent(SubscriptionMatcher matcher, CmsEvent event) {
+			if (closed) return;
+
+			String jobId = matcher.getParams().get("jobId");
+			if (jobId == null || jobId.isEmpty()) return;
+
+			Session jcrSession = null;
+			try {
+				jcrSession = CmsService.getRepository()
+						.login(new CmsServiceCredentials(), workspaceName);
+
+				Node jobNode = JobNodes.getJobNode(jcrSession, jobId);
+				Map<String, Object> eventData = new LinkedHashMap<>();
+				eventData.put("jobId", jobId);
+				if (jobNode != null) {
+					Node content = JobNodes.getContent(jobNode);
+					eventData.put("status", JobNodes.getString(content, JobNodes.PROP_JOB_STATUS, null));
+					eventData.put("itemsTotal", JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L));
+					eventData.put("itemsProcessed", JobNodes.getLong(content, JobNodes.PROP_ITEMS_PROCESSED, 0L));
+					eventData.put("nodesDeleted", JobNodes.getLong(content, JobNodes.PROP_NODES_DELETED, 0L));
+					String currentPath = JobNodes.getString(content, JobNodes.PROP_CURRENT_PATH, null);
+					if (currentPath != null) {
+						eventData.put("currentPath", currentPath);
+					}
+					String errorMessage = JobNodes.getString(content, JobNodes.PROP_ERROR_MESSAGE, null);
+					if (errorMessage != null) {
+						eventData.put("errorMessage", errorMessage);
+					}
+				}
+				eventData.put("timestamp", Instant.now().toString());
+
+				Map<String, Object> message = new LinkedHashMap<>();
+				message.put("subscription", matcher.getSubscriptionString());
+				message.put("data", eventData);
+
+				String json = GSON.toJson(message);
+
+				PrintWriter writer = asyncContext.getResponse().getWriter();
+				synchronized (writer) {
+					writer.write("data: " + json + "\n\n");
+					writer.flush();
+				}
+			} catch (IOException e) {
+				CmsService.getLogger(getClass()).debug("SSE write failed, closing stream", e);
+				cleanup();
+				try {
+					asyncContext.complete();
+				} catch (Exception ignore) {}
+			} catch (Exception e) {
+				CmsService.getLogger(getClass()).warn(
+						"Failed to read job node for jobProgress subscription", e);
 			} finally {
 				if (jcrSession != null) {
 					try { jcrSession.logout(); } catch (Exception ignore) {}

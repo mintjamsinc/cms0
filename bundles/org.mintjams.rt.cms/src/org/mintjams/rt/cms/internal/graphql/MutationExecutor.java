@@ -26,9 +26,11 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 
@@ -48,6 +50,10 @@ import javax.jcr.version.VersionManager;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.job.JobNodes;
+import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 
 /**
  * Class for executing GraphQL Mutation operations
@@ -1863,6 +1869,215 @@ public class MutationExecutor {
 		Map<String, Object> result = new HashMap<>();
 		result.put("abortMultipartUpload", aborted);
 
+		return result;
+	}
+
+	// =========================================================================
+	// Async delete job mutations
+	//
+	// Lifecycle: initDeleteNodes -> appendDeleteNodes (1..N) -> startDeleteNodes
+	//            -> JobManager runs DeleteJob in background
+	//            -> client tracks via jobProgress(jobId) subscription
+	//            -> abortDeleteNodes can stop the worker between leaves
+	//
+	// State guards reject calls that don't make sense for the current status:
+	// e.g. you cannot append to a job that has already started.
+	// =========================================================================
+
+	/**
+	 * Execute initDeleteNodes mutation.
+	 * Creates the job node in INIT status and returns its jobId.
+	 * Example: mutation { initDeleteNodes(input: {}) { jobId status } }
+	 */
+	public Map<String, Object> executeInitDeleteNodes(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		int priority = 0;
+		if (input.containsKey("priority") && input.get("priority") instanceof Number) {
+			priority = ((Number) input.get("priority")).intValue();
+		}
+
+		String jobId = JobNodes.newJobId();
+		try {
+			JobNodes.createJobNode(session, jobId, DeleteJob.TYPE, session.getUserID(), priority);
+			session.save();
+		} catch (Exception ex) {
+			try { session.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		}
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", JobStatus.INIT.toExternalString());
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("initDeleteNodes", data);
+		return result;
+	}
+
+	/**
+	 * Execute appendDeleteNodes mutation.
+	 * Appends up to 100 absolute paths to the job's body. Job must still be in
+	 * INIT status — append after start is rejected.
+	 * Example: mutation { appendDeleteNodes(input: { jobId: "...", paths: ["/a","/b"] }) { jobId status itemsAccepted } }
+	 */
+	@SuppressWarnings("unchecked")
+	public Map<String, Object> executeAppendDeleteNodes(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String jobId = (String) input.get("jobId");
+		Object pathsObj = input.get("paths");
+
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+		if (!(pathsObj instanceof List)) {
+			throw new IllegalArgumentException("paths is required");
+		}
+
+		List<Object> rawPaths = (List<Object>) pathsObj;
+		if (rawPaths.size() > 100) {
+			throw new IllegalArgumentException("paths must contain at most 100 entries per call");
+		}
+
+		Node jobNode = JobNodes.getJobNode(session, jobId);
+		if (jobNode == null) {
+			throw new IllegalArgumentException("Unknown jobId: " + jobId);
+		}
+		Node content = JobNodes.getContent(jobNode);
+		JobStatus current = JobNodes.getStatus(content);
+		if (current != JobStatus.INIT) {
+			throw new IllegalStateException("Cannot append to job in status: " + current);
+		}
+
+		List<String> paths = new ArrayList<>();
+		for (Object o : rawPaths) {
+			if (o == null) continue;
+			String s = String.valueOf(o).trim();
+			if (s.isEmpty()) continue;
+			paths.add(s);
+		}
+
+		int accepted;
+		try {
+			accepted = JobNodes.appendPaths(jobNode, paths);
+			session.save();
+		} catch (Exception ex) {
+			try { session.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		}
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", current.toExternalString());
+		data.put("itemsAccepted", (long) accepted);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("appendDeleteNodes", data);
+		return result;
+	}
+
+	/**
+	 * Execute startDeleteNodes mutation.
+	 * Transitions the job to QUEUED and hands it to the JobManager. After
+	 * this, deletion runs on a background worker; progress flows to the
+	 * client via the jobProgress(jobId) subscription.
+	 * Example: mutation { startDeleteNodes(input: { jobId: "..." }) { jobId status itemsTotal } }
+	 */
+	public Map<String, Object> executeStartDeleteNodes(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String jobId = (String) input.get("jobId");
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+
+		Node jobNode = JobNodes.getJobNode(session, jobId);
+		if (jobNode == null) {
+			throw new IllegalArgumentException("Unknown jobId: " + jobId);
+		}
+		Node content = JobNodes.getContent(jobNode);
+		JobStatus current = JobNodes.getStatus(content);
+		if (current != JobStatus.INIT) {
+			throw new IllegalStateException("Cannot start job in status: " + current);
+		}
+		long itemsTotal = JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L);
+		if (itemsTotal <= 0) {
+			throw new IllegalStateException("Cannot start job with no paths registered");
+		}
+
+		String workspaceName = session.getWorkspace().getName();
+		String userId = session.getUserID();
+		long priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
+
+		try {
+			JobNodes.setStatus(content, JobStatus.QUEUED);
+			session.save();
+		} catch (Exception ex) {
+			try { session.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		}
+
+		CmsService.getJobManager().submit(new DeleteJob(jobId, workspaceName, userId, (int) priority));
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", JobStatus.QUEUED.toExternalString());
+		data.put("itemsTotal", itemsTotal);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("startDeleteNodes", data);
+		return result;
+	}
+
+	/**
+	 * Execute abortDeleteNodes mutation.
+	 * Signals the running worker to stop at its next safe point (between
+	 * leaves). For jobs still in INIT or QUEUED that haven't begun executing,
+	 * marks the JCR record directly as ABORTED.
+	 * Example: mutation { abortDeleteNodes(input: { jobId: "..." }) { jobId status } }
+	 */
+	public Map<String, Object> executeAbortDeleteNodes(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String jobId = (String) input.get("jobId");
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+
+		Node jobNode = JobNodes.getJobNode(session, jobId);
+		if (jobNode == null) {
+			throw new IllegalArgumentException("Unknown jobId: " + jobId);
+		}
+		Node content = JobNodes.getContent(jobNode);
+		JobStatus current = JobNodes.getStatus(content);
+
+		String resultStatus;
+		if (current == null || current.isTerminal()) {
+			resultStatus = current != null ? current.toExternalString() : "unknown";
+		} else {
+			boolean signalled = CmsService.getJobManager().abort(jobId);
+			if (signalled) {
+				// Worker is running — let it finalise. Mark as ABORTING so the
+				// client UI reflects the in-progress shutdown immediately.
+				JobNodes.setStatus(content, JobStatus.ABORTING);
+				session.save();
+				resultStatus = JobStatus.ABORTING.toExternalString();
+			} else {
+				// No active worker (init or queued before pickup). Finalise here.
+				JobNodes.setStatus(content, JobStatus.ABORTED);
+				content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
+				session.save();
+				resultStatus = JobStatus.ABORTED.toExternalString();
+			}
+		}
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", resultStatus);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("abortDeleteNodes", data);
 		return result;
 	}
 }
