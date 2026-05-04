@@ -25,8 +25,11 @@ package org.mintjams.rt.cms.internal.security;
 import javax.jcr.Credentials;
 import javax.security.auth.login.LoginException;
 
+import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.Authenticator;
+import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.tools.lang.Cause;
 
 public class UserServiceAuthenticator implements Authenticator {
 
@@ -41,14 +44,28 @@ public class UserServiceAuthenticator implements Authenticator {
 			throw new LoginException("The specified credential is not a user service credential.");
 		}
 
-		return new ResultImpl((UserServiceCredentials) credentials);
+		javax.jcr.Session systemSession = null;
+		try {
+			systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
+			UserPrincipal principal = Workspace.class.cast(systemSession.getWorkspace())
+					.getPrincipalProvider()
+					.getUserPrincipal(((UserServiceCredentials) credentials).getUserID());
+			return new ResultImpl(principal);
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(LoginException.class);
+		} finally {
+			try {
+				systemSession.logout();
+			} catch (Throwable ignore) {}
+			systemSession = null;
+		}
 	}
 
 	public class ResultImpl implements Result {
 		private final UserPrincipal fUserPrincipal;
 
-		private ResultImpl(UserServiceCredentials credentials) {
-			fUserPrincipal = new DefaultUserPrincipal(credentials.getUserID());
+		private ResultImpl(UserPrincipal principal) {
+			fUserPrincipal = principal;
 		}
 
 		@Override
