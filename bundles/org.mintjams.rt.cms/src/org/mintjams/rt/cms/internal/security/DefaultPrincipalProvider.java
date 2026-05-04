@@ -38,6 +38,7 @@ import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 
 public class DefaultPrincipalProvider implements PrincipalProvider {
@@ -99,13 +100,19 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 		boolean hasAdminRole = false;
 		if (rolesProperty.isMultiple()) {
 			for (Value val : rolesProperty.getValues()) {
-				if (targetId.equals(val.getString())) {
+				Node refNode = contentNode.getSession().getNodeByIdentifier(val.getString());
+				Node roleNode = JCRs.getContentNode(refNode);
+				if (roleNode.hasProperty("identifier") &&
+						roleNode.getProperty("identifier").getString().equals(targetId)) {
 					hasAdminRole = true;
 					break;
 				}
 			}
 		} else {
-			if (targetId.equals(rolesProperty.getValue().getString())) {
+			Node refNode = contentNode.getSession().getNodeByIdentifier(rolesProperty.getString());
+			Node roleNode = JCRs.getContentNode(refNode);
+			if (roleNode.hasProperty("identifier") &&
+					roleNode.getProperty("identifier").getString().equals(targetId)) {
 				hasAdminRole = true;
 			}
 		}
