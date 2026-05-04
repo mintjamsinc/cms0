@@ -359,6 +359,7 @@ public class JcrValue implements Value, Adaptable {
 
 	public <AdapterType> AdapterType adapt(Class<AdapterType> adapterType) throws ValueFormatException {
 		Object v;
+		boolean fromBinaryFile = false;
 		if (fValue instanceof QName) {
 			QName qName = (QName) fValue;
 			if (STRING_NS_URI.equals(qName.getNamespaceURI())) {
@@ -366,6 +367,7 @@ public class JcrValue implements Value, Adaptable {
 			} else {
 				try {
 					v = fAdaptable.adaptTo(WorkspaceQuery.class).files().getInputStream(qName.getLocalPart());
+					fromBinaryFile = true;
 				} catch (IOException ex) {
 					throw Cause.create(ex).wrap(ValueFormatException.class);
 				}
@@ -375,15 +377,20 @@ public class JcrValue implements Value, Adaptable {
 		}
 
 		String encoding = StandardCharsets.UTF_8.name();
-		try {
-			Node contentNode = getContentNode();
-			if (contentNode != null) {
-				encoding = Strings.defaultIfEmpty(contentNode.getProperty(JcrProperty.JCR_ENCODING_NAME).getString(), encoding);
+		// The encoding is only relevant when decoding a binary file content stream into text.
+		// Looking up jcr:encoding for non-binary values would cause infinite recursion when this
+		// adapt() is invoked for properties on a jcr:content node (including jcr:encoding itself).
+		if (fromBinaryFile) {
+			try {
+				Node contentNode = getContentNode();
+				if (contentNode != null) {
+					encoding = Strings.defaultIfEmpty(contentNode.getProperty(JcrProperty.JCR_ENCODING_NAME).getString(), encoding);
+				}
+			} catch (PathNotFoundException ignore) {
+				// ignore
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(ValueFormatException.class);
 			}
-		} catch (PathNotFoundException ignore) {
-			// ignore
-		} catch (Throwable ex) {
-			throw Cause.create(ex).wrap(ValueFormatException.class);
 		}
 
 		if (adapterType.equals(Node.class)) {
