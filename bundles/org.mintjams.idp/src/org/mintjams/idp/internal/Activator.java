@@ -231,6 +231,7 @@ public class Activator implements BundleActivator {
 		Node profileFile = JCRs.createFile(roleFolder, "profile");
 		profileFile.addMixin("mix:referenceable");
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.role");
+		JCRs.setProperty(profileFile, "identifier", "administration");
 		JCRs.setProperty(profileFile, "displayName", "Administration");
 		JCRs.setProperty(profileFile, "description", "Full administrative access");
 		if (jcrSession.hasPendingChanges()) {

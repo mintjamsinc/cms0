@@ -54,6 +54,7 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
 import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
+import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 
 /**
  * Class for executing GraphQL Mutation operations
@@ -1885,6 +1886,20 @@ public class MutationExecutor {
 	// =========================================================================
 
 	/**
+	 * Open a privileged session tagged with the requesting user's id, used
+	 * for operations against the {@code /var/jobs/...} management area.
+	 * The user lacks ACL rights there in general, but the operation is
+	 * being driven by an action they explicitly initiated — and JCR's
+	 * audit fields ({@code jcr:lastModifiedBy} etc.) still record the
+	 * actual requester.
+	 */
+	private Session openManagementSession() throws Exception {
+		return CmsService.getRepository().login(
+				new CmsServiceCredentials(session.getUserID()),
+				session.getWorkspace().getName());
+	}
+
+	/**
 	 * Execute initDeleteNodes mutation.
 	 * Creates the job node in INIT status and returns its jobId.
 	 * Example: mutation { initDeleteNodes(input: {}) { jobId status } }
@@ -1898,12 +1913,15 @@ public class MutationExecutor {
 		}
 
 		String jobId = JobNodes.newJobId();
+		Session mgmt = openManagementSession();
 		try {
-			JobNodes.createJobNode(session, jobId, DeleteJob.TYPE, session.getUserID(), priority);
-			session.save();
+			JobNodes.createJobNode(mgmt, jobId, DeleteJob.TYPE, mgmt.getUserID(), priority);
+			mgmt.save();
 		} catch (Exception ex) {
-			try { session.refresh(false); } catch (Throwable ignore) {}
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
 			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
 		}
 
 		Map<String, Object> data = new HashMap<>();
@@ -1940,16 +1958,6 @@ public class MutationExecutor {
 			throw new IllegalArgumentException("paths must contain at most 100 entries per call");
 		}
 
-		Node jobNode = JobNodes.getJobNode(session, jobId);
-		if (jobNode == null) {
-			throw new IllegalArgumentException("Unknown jobId: " + jobId);
-		}
-		Node content = JobNodes.getContent(jobNode);
-		JobStatus current = JobNodes.getStatus(content);
-		if (current != JobStatus.INIT) {
-			throw new IllegalStateException("Cannot append to job in status: " + current);
-		}
-
 		List<String> paths = new ArrayList<>();
 		for (Object o : rawPaths) {
 			if (o == null) continue;
@@ -1958,13 +1966,26 @@ public class MutationExecutor {
 			paths.add(s);
 		}
 
+		Session mgmt = openManagementSession();
+		JobStatus current;
 		int accepted;
 		try {
+			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
+			if (jobNode == null) {
+				throw new IllegalArgumentException("Unknown jobId: " + jobId);
+			}
+			Node content = JobNodes.getContent(jobNode);
+			current = JobNodes.getStatus(content);
+			if (current != JobStatus.INIT) {
+				throw new IllegalStateException("Cannot append to job in status: " + current);
+			}
 			accepted = JobNodes.appendPaths(jobNode, paths);
-			session.save();
+			mgmt.save();
 		} catch (Exception ex) {
-			try { session.refresh(false); } catch (Throwable ignore) {}
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
 			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
 		}
 
 		Map<String, Object> data = new HashMap<>();
@@ -1992,30 +2013,35 @@ public class MutationExecutor {
 			throw new IllegalArgumentException("jobId is required");
 		}
 
-		Node jobNode = JobNodes.getJobNode(session, jobId);
-		if (jobNode == null) {
-			throw new IllegalArgumentException("Unknown jobId: " + jobId);
-		}
-		Node content = JobNodes.getContent(jobNode);
-		JobStatus current = JobNodes.getStatus(content);
-		if (current != JobStatus.INIT) {
-			throw new IllegalStateException("Cannot start job in status: " + current);
-		}
-		long itemsTotal = JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L);
-		if (itemsTotal <= 0) {
-			throw new IllegalStateException("Cannot start job with no paths registered");
-		}
-
 		String workspaceName = session.getWorkspace().getName();
 		String userId = session.getUserID();
-		long priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
+		long itemsTotal;
+		long priority;
 
+		Session mgmt = openManagementSession();
 		try {
+			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
+			if (jobNode == null) {
+				throw new IllegalArgumentException("Unknown jobId: " + jobId);
+			}
+			Node content = JobNodes.getContent(jobNode);
+			JobStatus current = JobNodes.getStatus(content);
+			if (current != JobStatus.INIT) {
+				throw new IllegalStateException("Cannot start job in status: " + current);
+			}
+			itemsTotal = JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L);
+			if (itemsTotal <= 0) {
+				throw new IllegalStateException("Cannot start job with no paths registered");
+			}
+			priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
+
 			JobNodes.setStatus(content, JobStatus.QUEUED);
-			session.save();
+			mgmt.save();
 		} catch (Exception ex) {
-			try { session.refresh(false); } catch (Throwable ignore) {}
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
 			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
 		}
 
 		CmsService.getJobManager().submit(new DeleteJob(jobId, workspaceName, userId, (int) priority));
@@ -2045,31 +2071,39 @@ public class MutationExecutor {
 			throw new IllegalArgumentException("jobId is required");
 		}
 
-		Node jobNode = JobNodes.getJobNode(session, jobId);
-		if (jobNode == null) {
-			throw new IllegalArgumentException("Unknown jobId: " + jobId);
-		}
-		Node content = JobNodes.getContent(jobNode);
-		JobStatus current = JobNodes.getStatus(content);
-
 		String resultStatus;
-		if (current == null || current.isTerminal()) {
-			resultStatus = current != null ? current.toExternalString() : "unknown";
-		} else {
-			boolean signalled = CmsService.getJobManager().abort(jobId);
-			if (signalled) {
-				// Worker is running — let it finalise. Mark as ABORTING so the
-				// client UI reflects the in-progress shutdown immediately.
-				JobNodes.setStatus(content, JobStatus.ABORTING);
-				session.save();
-				resultStatus = JobStatus.ABORTING.toExternalString();
-			} else {
-				// No active worker (init or queued before pickup). Finalise here.
-				JobNodes.setStatus(content, JobStatus.ABORTED);
-				content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
-				session.save();
-				resultStatus = JobStatus.ABORTED.toExternalString();
+		Session mgmt = openManagementSession();
+		try {
+			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
+			if (jobNode == null) {
+				throw new IllegalArgumentException("Unknown jobId: " + jobId);
 			}
+			Node content = JobNodes.getContent(jobNode);
+			JobStatus current = JobNodes.getStatus(content);
+
+			if (current == null || current.isTerminal()) {
+				resultStatus = current != null ? current.toExternalString() : "unknown";
+			} else {
+				boolean signalled = CmsService.getJobManager().abort(jobId);
+				if (signalled) {
+					// Worker is running — let it finalise. Mark as ABORTING so
+					// the client UI reflects the in-progress shutdown immediately.
+					JobNodes.setStatus(content, JobStatus.ABORTING);
+					mgmt.save();
+					resultStatus = JobStatus.ABORTING.toExternalString();
+				} else {
+					// No active worker (init or queued before pickup). Finalise here.
+					JobNodes.setStatus(content, JobStatus.ABORTED);
+					content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
+					mgmt.save();
+					resultStatus = JobStatus.ABORTED.toExternalString();
+				}
+			}
+		} catch (Exception ex) {
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
 		}
 
 		Map<String, Object> data = new HashMap<>();

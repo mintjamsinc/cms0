@@ -56,12 +56,25 @@ public class JobManager implements Closeable {
 		}
 		PriorityBlockingQueue<Runnable> queue = new PriorityBlockingQueue<>();
 		AtomicLong counter = new AtomicLong();
+		// Pin the worker's context classloader to this bundle's loader.
+		// Without this, workers inherit the classloader of whichever thread
+		// happened to call submit() first (typically a servlet thread), which
+		// breaks ServiceLoader/ContextClassLoader-based lookups inside JCR
+		// authentication and OSGi service resolution.
+		ClassLoader bundleLoader = JobManager.class.getClassLoader();
 		ThreadFactory threadFactory = r -> {
 			Thread t = new Thread(r, "job-worker-" + counter.incrementAndGet());
 			t.setDaemon(true);
+			t.setContextClassLoader(bundleLoader);
 			return t;
 		};
 		fExecutor = new ThreadPoolExecutor(workers, workers, 0L, TimeUnit.MILLISECONDS, queue, threadFactory);
+		// Eagerly start one worker so the very first submit doesn't pay the
+		// cost of thread creation, and so any classloader/service-resolution
+		// issue surfaces at boot rather than at first use.
+		fExecutor.prestartCoreThread();
+		CmsService.getLogger(JobManager.class).info(
+				"JobManager initialised with " + workers + " worker(s).");
 	}
 
 	/**
@@ -74,6 +87,8 @@ public class JobManager implements Closeable {
 		}
 		AtomicBoolean abortFlag = new AtomicBoolean(false);
 		fAbortFlags.put(job.getJobId(), abortFlag);
+		CmsService.getLogger(JobManager.class).info(
+				"Submitting job " + job.getJobId() + " (" + job.getJobType() + ") priority=" + job.getPriority());
 		fExecutor.execute(new JobRunner(job, abortFlag));
 	}
 
@@ -127,9 +142,14 @@ public class JobManager implements Closeable {
 
 		@Override
 		public void run() {
+			CmsService.getLogger(JobManager.class).info(
+					"Job " + fJob.getJobId() + " (" + fJob.getJobType() + ") starting on "
+							+ Thread.currentThread().getName());
 			DefaultJobContext context = new DefaultJobContext(fJob, fAbortFlag);
 			try {
 				fJob.execute(context);
+				CmsService.getLogger(JobManager.class).info(
+						"Job " + fJob.getJobId() + " (" + fJob.getJobType() + ") finished");
 			} catch (Throwable ex) {
 				CmsService.getLogger(JobManager.class).error(
 						"Job " + fJob.getJobId() + " (" + fJob.getJobType() + ") failed", ex);

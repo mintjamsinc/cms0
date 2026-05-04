@@ -30,10 +30,12 @@ import javax.jcr.Node;
 import javax.jcr.NodeIterator;
 import javax.jcr.Session;
 
+import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.job.Job;
 import org.mintjams.rt.cms.internal.job.JobContext;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 
 /**
  * Deletes a list of JCR nodes (typically chosen in the Content Browser).
@@ -108,13 +110,18 @@ public class DeleteJob implements Job {
 
 	@Override
 	public void execute(JobContext context) throws Exception {
+		context.getLogger().info("DeleteJob " + fJobId + " execute() entered for workspace=" + fWorkspaceName
+				+ " user=" + fUserId);
 		Session jobSession;
 		Session progressSession;
 		try {
 			jobSession = context.getJobSession();
+			context.getLogger().info("DeleteJob " + fJobId + " jobSession opened");
 			progressSession = context.getProgressSession();
+			context.getLogger().info("DeleteJob " + fJobId + " progressSession opened");
 		} catch (Throwable ex) {
 			context.getLogger().error("DeleteJob " + fJobId + " could not open sessions", ex);
+			markFailedWithSystemSession(fJobId, fWorkspaceName, ex);
 			return;
 		}
 
@@ -246,6 +253,36 @@ public class DeleteJob implements Job {
 		content.setProperty("jcr:lastModified", Calendar.getInstance());
 		progressSession.save();
 		fLastWriteAt = now;
+	}
+
+	/**
+	 * Last-resort path to record a terminal status when even opening a
+	 * user-scoped progress session has failed. Uses the privileged service
+	 * credentials so the JCR record never gets stuck in {@code queued} —
+	 * the client is then guaranteed a final {@code jobProgress} event.
+	 */
+	private void markFailedWithSystemSession(String jobId, String workspace, Throwable cause) {
+		Session sysSession = null;
+		try {
+			sysSession = CmsService.getRepository().login(new CmsServiceCredentials(fUserId), workspace);
+			Node fileNode = JobNodes.getJobNode(sysSession, jobId);
+			if (fileNode == null) {
+				return;
+			}
+			Node content = JobNodes.getContent(fileNode);
+			content.setProperty(JobNodes.PROP_ERROR_MESSAGE,
+					cause != null && cause.getMessage() != null ? cause.getMessage() : String.valueOf(cause));
+			content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
+			JobNodes.setStatus(content, JobStatus.FAILED);
+			sysSession.save();
+		} catch (Throwable ex) {
+			CmsService.getLogger(DeleteJob.class).error(
+					"DeleteJob " + jobId + " — fallback finaliser failed", ex);
+		} finally {
+			if (sysSession != null) {
+				try { sysSession.logout(); } catch (Throwable ignore) {}
+			}
+		}
 	}
 
 	private static final class AbortedException extends RuntimeException {

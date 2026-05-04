@@ -26,11 +26,11 @@ import java.security.Principal;
 import java.util.Collection;
 
 import javax.jcr.Node;
-import javax.jcr.NodeIterator;
 import javax.jcr.PathNotFoundException;
+import javax.jcr.Property;
 import javax.jcr.RepositoryException;
+import javax.jcr.Value;
 import javax.jcr.query.Query;
-import javax.jcr.query.QueryResult;
 
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
@@ -61,6 +61,9 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 				Node contentNode = systemSession.getNode("/home/users/" + name + "/profile/jcr:content");
 				if (contentNode.getProperty("identifier").getString().equals(name) &&
 						!contentNode.getProperty("isGroup").getBoolean()) {
+					if (hasAdminRole(contentNode)) {
+						return new DefaultAdminPrincipal(name);
+					}
 					return new DefaultUserPrincipal(name);
 				}
 			} catch (PathNotFoundException ignore) {}
@@ -88,6 +91,25 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 			} catch (Throwable ignore) {}
 			systemSession = null;
 		}
+	}
+
+	private boolean hasAdminRole(Node contentNode) throws RepositoryException {
+		Property rolesProperty = contentNode.getProperty("roles");
+		String targetId = "administration";
+		boolean hasAdminRole = false;
+		if (rolesProperty.isMultiple()) {
+			for (Value val : rolesProperty.getValues()) {
+				if (targetId.equals(val.getString())) {
+					hasAdminRole = true;
+					break;
+				}
+			}
+		} else {
+			if (targetId.equals(rolesProperty.getValue().getString())) {
+				hasAdminRole = true;
+			}
+		}
+		return hasAdminRole;
 	}
 
 	@Override
