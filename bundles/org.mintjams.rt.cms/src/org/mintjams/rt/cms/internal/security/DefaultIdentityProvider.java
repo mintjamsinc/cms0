@@ -31,6 +31,7 @@ import org.mintjams.jcr.security.Group;
 import org.mintjams.jcr.security.Role;
 import org.mintjams.jcr.security.User;
 import org.mintjams.jcr.spi.security.IdentityProvider;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.tools.lang.Cause;
 
@@ -43,10 +44,11 @@ public class DefaultIdentityProvider implements IdentityProvider {
 			systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
 
 			try {
-				Node contentNode = systemSession.getNode("/home/users/" + identifier + "/profile/jcr:content");
+				Node node = systemSession.getNode("/home/users/" + identifier + "/profile");
+				Node contentNode = JCRs.getContentNode(node);
 				if (contentNode.getProperty("identifier").getString().equals(identifier) &&
 						!contentNode.getProperty("isGroup").getBoolean()) {
-					return new UserImpl(contentNode);
+					return new UserImpl(node);
 				}
 			} catch (PathNotFoundException ignore) {}
 
@@ -122,7 +124,8 @@ public class DefaultIdentityProvider implements IdentityProvider {
 		private final String fDisplayName;
 		private final String fEmail;
 
-		public UserImpl(Node contentNode) throws RepositoryException {
+		public UserImpl(Node node) throws RepositoryException {
+			Node contentNode = JCRs.getContentNode(node);
 			fIdentifier = contentNode.getProperty("identifier").getString();
 			fDisplayName = contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null;
 			fEmail = contentNode.hasProperty("mail") ? contentNode.getProperty("mail").getString() : null;
@@ -149,7 +152,8 @@ public class DefaultIdentityProvider implements IdentityProvider {
 		private final String fDisplayName;
 		private final String fDescription;
 
-		public GroupImpl(Node contentNode) throws RepositoryException {
+		public GroupImpl(Node node) throws RepositoryException {
+			Node contentNode = JCRs.getContentNode(node);
 			fIdentifier = contentNode.getProperty("identifier").getString();
 			fDisplayName = contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null;
 			fDescription = contentNode.hasProperty("description") ? contentNode.getProperty("description").getString() : null;
@@ -176,7 +180,8 @@ public class DefaultIdentityProvider implements IdentityProvider {
 		private final String fDisplayName;
 		private final String fDescription;
 
-		public RoleImpl(Node contentNode) throws RepositoryException {
+		public RoleImpl(Node node) throws RepositoryException {
+			Node contentNode = JCRs.getContentNode(node);
 			fIdentifier = contentNode.getProperty("identifier").getString();
 			fDisplayName = contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null;
 			fDescription = contentNode.hasProperty("description") ? contentNode.getProperty("description").getString() : null;

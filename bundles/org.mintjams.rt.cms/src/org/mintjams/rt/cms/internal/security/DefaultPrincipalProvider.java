@@ -95,6 +95,10 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 	}
 
 	private boolean hasAdminRole(Node contentNode) throws RepositoryException {
+		if (!contentNode.hasProperty("roles")) {
+			return false;
+		}
+
 		Property rolesProperty = contentNode.getProperty("roles");
 		String targetId = "administration";
 		boolean hasAdminRole = false;

@@ -48,6 +48,7 @@ import org.mintjams.jcr.security.AccessControlManager;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.spi.security.Authenticator;
+import org.mintjams.jcr.spi.security.IdentityProvider;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.bpm.WorkspaceProcessEngineProvider;
@@ -61,6 +62,7 @@ import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
 import org.mintjams.rt.cms.internal.security.CmsEncryptor;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.rt.cms.internal.security.DefaultIdentityProvider;
 import org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider;
 import org.mintjams.rt.cms.internal.security.FelixWebConsoleSecurityProvider;
 import org.mintjams.rt.cms.internal.security.FileSecretKeyProvider;
@@ -242,6 +244,12 @@ public class CmsService {
 				.build());
 		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
 				.setService(new Saml2PrincipalProvider(saml2ServiceProvider.getConfiguration()))
+				.setBundleContext(getBundleContext())
+				.build());
+
+		// The default identity provider
+		fCloser.register(Registration.newBuilder(IdentityProvider.class)
+				.setService(new DefaultIdentityProvider())
 				.setBundleContext(getBundleContext())
 				.build());
 

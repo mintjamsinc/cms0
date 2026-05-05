@@ -43,6 +43,8 @@ import javax.jcr.lock.LockManager;
 import javax.jcr.version.VersionManager;
 
 import org.apache.tika.Tika;
+import org.mintjams.jcr.Workspace;
+import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
 import org.mintjams.rt.cms.internal.web.Webs;
@@ -64,7 +66,7 @@ public class NodeMapper {
 	 * Convert JCR node to GraphQL format Map (backward compatibility)
 	 */
 	public static Map<String, Object> toGraphQL(Node node) throws RepositoryException {
-		return toGraphQL(node, null);
+		return toGraphQL(node, null, null);
 	}
 
 	/**
@@ -72,6 +74,17 @@ public class NodeMapper {
 	 * Only requested fields are included in the result
 	 */
 	public static Map<String, Object> toGraphQL(Node node, SelectionSet selectionSet) throws RepositoryException {
+		return toGraphQL(node, selectionSet, null);
+	}
+
+	/**
+	 * Convert JCR node to GraphQL format Map with field selection optimization.
+	 * When {@code resolver} is non-null, {@code createdByDisplayName} and
+	 * {@code modifiedByDisplayName} are populated when the corresponding
+	 * fields are selected; resolver lookups are cached across calls so the
+	 * same caller can reuse the resolver for many nodes.
+	 */
+	public static Map<String, Object> toGraphQL(Node node, SelectionSet selectionSet, PrincipalDisplayNameResolver resolver) throws RepositoryException {
 		if (node == null) {
 			return null;
 		}
@@ -99,10 +112,17 @@ public class NodeMapper {
 				result.put("created", formatDate(node.getProperty("jcr:created").getDate()));
 			}
 		}
-		if (includeAll || selectionSet.hasField("createdBy")) {
+		String createdBy = null;
+		if (includeAll || selectionSet.hasField("createdBy") || selectionSet.hasField("createdByDisplayName")) {
 			if (node.hasProperty("jcr:createdBy")) {
-				result.put("createdBy", node.getProperty("jcr:createdBy").getString());
+				createdBy = node.getProperty("jcr:createdBy").getString();
+				if (includeAll || selectionSet.hasField("createdBy")) {
+					result.put("createdBy", createdBy);
+				}
 			}
+		}
+		if (resolver != null && createdBy != null && (includeAll || selectionSet.hasField("createdByDisplayName"))) {
+			result.put("createdByDisplayName", resolver.resolve(createdBy, false));
 		}
 
 		// UUID for referenceable nodes
@@ -132,12 +152,12 @@ public class NodeMapper {
 
 		// Processing based on node type
 		if ("nt:file".equals(nodeType)) {
-			mapFileNode(node, result, selectionSet, includeAll);
+			mapFileNode(node, result, selectionSet, includeAll, resolver);
 		} else if ("nt:folder".equals(nodeType)) {
-			mapFolderNode(node, result, selectionSet, includeAll);
+			mapFolderNode(node, result, selectionSet, includeAll, resolver);
 		} else {
 			// Other node types: generic processing
-			mapGenericNode(node, result, selectionSet, includeAll);
+			mapGenericNode(node, result, selectionSet, includeAll, resolver);
 		}
 
 		return result;
@@ -146,7 +166,7 @@ public class NodeMapper {
 	/**
 	 * Mapping for nt:file node
 	 */
-	private static void mapFileNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll) throws RepositoryException {
+	private static void mapFileNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll, PrincipalDisplayNameResolver resolver) throws RepositoryException {
 		if (node.hasNode("jcr:content")) {
 			Node contentNode = node.getNode("jcr:content");
 
@@ -156,10 +176,17 @@ public class NodeMapper {
 					result.put("modified", formatDate(contentNode.getProperty("jcr:lastModified").getDate()));
 				}
 			}
-			if (includeAll || selectionSet.hasField("modifiedBy")) {
+			String modifiedBy = null;
+			if (includeAll || selectionSet.hasField("modifiedBy") || selectionSet.hasField("modifiedByDisplayName")) {
 				if (contentNode.hasProperty("jcr:lastModifiedBy")) {
-					result.put("modifiedBy", contentNode.getProperty("jcr:lastModifiedBy").getString());
+					modifiedBy = contentNode.getProperty("jcr:lastModifiedBy").getString();
+					if (includeAll || selectionSet.hasField("modifiedBy")) {
+						result.put("modifiedBy", modifiedBy);
+					}
 				}
+			}
+			if (resolver != null && modifiedBy != null && (includeAll || selectionSet.hasField("modifiedByDisplayName"))) {
+				result.put("modifiedByDisplayName", resolver.resolve(modifiedBy, false));
 			}
 
 			// MIME type
@@ -199,7 +226,7 @@ public class NodeMapper {
 	/**
 	 * Mapping for nt:folder node
 	 */
-	private static void mapFolderNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll) throws RepositoryException {
+	private static void mapFolderNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll, PrincipalDisplayNameResolver resolver) throws RepositoryException {
 		// Folder last modified date/time (node's own property, or fallback to creation date/time)
 		if (includeAll || selectionSet.hasField("modified")) {
 			if (node.hasProperty("jcr:lastModified")) {
@@ -210,12 +237,19 @@ public class NodeMapper {
 		}
 
 		// Modifier (or fallback to creator)
-		if (includeAll || selectionSet.hasField("modifiedBy")) {
+		String modifiedBy = null;
+		if (includeAll || selectionSet.hasField("modifiedBy") || selectionSet.hasField("modifiedByDisplayName")) {
 			if (node.hasProperty("jcr:lastModifiedBy")) {
-				result.put("modifiedBy", node.getProperty("jcr:lastModifiedBy").getString());
+				modifiedBy = node.getProperty("jcr:lastModifiedBy").getString();
 			} else if (node.hasProperty("jcr:createdBy")) {
-				result.put("modifiedBy", node.getProperty("jcr:createdBy").getString());
+				modifiedBy = node.getProperty("jcr:createdBy").getString();
 			}
+			if (modifiedBy != null && (includeAll || selectionSet.hasField("modifiedBy"))) {
+				result.put("modifiedBy", modifiedBy);
+			}
+		}
+		if (resolver != null && modifiedBy != null && (includeAll || selectionSet.hasField("modifiedByDisplayName"))) {
+			result.put("modifiedByDisplayName", resolver.resolve(modifiedBy, false));
 		}
 
 		// Check if has child nodes (potentially expensive for large folders)
@@ -227,7 +261,7 @@ public class NodeMapper {
 	/**
 	 * Generic mapping for other node types
 	 */
-	private static void mapGenericNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll) throws RepositoryException {
+	private static void mapGenericNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll, PrincipalDisplayNameResolver resolver) throws RepositoryException {
 		// First check the node itself
 		if (includeAll || selectionSet.hasField("modified")) {
 			if (node.hasProperty("jcr:lastModified")) {
@@ -245,17 +279,29 @@ public class NodeMapper {
 		}
 
 		// Same for modifier
-		if (includeAll || selectionSet.hasField("modifiedBy")) {
+		String modifiedBy = null;
+		if (includeAll || selectionSet.hasField("modifiedBy") || selectionSet.hasField("modifiedByDisplayName")) {
 			if (node.hasProperty("jcr:lastModifiedBy")) {
-				result.put("modifiedBy", node.getProperty("jcr:lastModifiedBy").getString());
+				modifiedBy = node.getProperty("jcr:lastModifiedBy").getString();
 			} else if (node.hasNode("jcr:content")) {
 				Node contentNode = node.getNode("jcr:content");
 				if (contentNode.hasProperty("jcr:lastModifiedBy")) {
-					result.put("modifiedBy", contentNode.getProperty("jcr:lastModifiedBy").getString());
+					modifiedBy = contentNode.getProperty("jcr:lastModifiedBy").getString();
 				}
 			} else if (node.hasProperty("jcr:createdBy")) {
-				result.put("modifiedBy", node.getProperty("jcr:createdBy").getString());
+				modifiedBy = node.getProperty("jcr:createdBy").getString();
 			}
+			if (modifiedBy != null && (includeAll || selectionSet.hasField("modifiedBy"))) {
+				result.put("modifiedBy", modifiedBy);
+			}
+		}
+		if (resolver != null && modifiedBy != null && (includeAll || selectionSet.hasField("modifiedByDisplayName"))) {
+			try {
+				boolean isGroup = (Workspace.class.cast(node.getSession().getWorkspace())
+						.getPrincipalProvider()
+						.getPrincipal(modifiedBy) instanceof org.mintjams.jcr.security.GroupPrincipal);
+				result.put("modifiedByDisplayName", resolver.resolve(modifiedBy, isGroup));
+			} catch (PrincipalNotFoundException ignore) {}
 		}
 	}
 

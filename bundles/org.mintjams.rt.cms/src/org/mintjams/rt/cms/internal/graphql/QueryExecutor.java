@@ -66,6 +66,7 @@ public class QueryExecutor {
 
 	private final Session session;
 	private final GraphQLParser parser;
+	private final PrincipalDisplayNameResolver principalResolver;
 
 	// ISO8601 date format for version dates
 	private static final DateTimeFormatter ISO8601_FORMAT;
@@ -84,6 +85,7 @@ public class QueryExecutor {
 	public QueryExecutor(Session session) {
 		this.session = session;
 		this.parser = new GraphQLParser();
+		this.principalResolver = new PrincipalDisplayNameResolver(session);
 	}
 
 	/**
@@ -121,7 +123,7 @@ public class QueryExecutor {
 		if (session.nodeExists(path)) {
 			Node node = session.getNode(path);
 			// Use optimized mapper with field selection
-			result.put("node", NodeMapper.toGraphQL(node, nodeSelection));
+			result.put("node", NodeMapper.toGraphQL(node, nodeSelection, principalResolver));
 		} else {
 			result.put("node", null);
 		}
@@ -238,7 +240,7 @@ public class QueryExecutor {
 
 			Map<String, Object> edge = new HashMap<>();
 			// Use optimized mapper with field selection
-			edge.put("node", NodeMapper.toGraphQL(child, nodeSelection));
+			edge.put("node", NodeMapper.toGraphQL(child, nodeSelection, principalResolver));
 			edge.put("cursor", encodeCursor(currentPosition));
 
 			edges.add(edge);
@@ -426,7 +428,7 @@ public class QueryExecutor {
 				}
 
 				Map<String, Object> edge = new HashMap<>();
-				edge.put("node", NodeMapper.toGraphQL(referencingNode, nodeSelection));
+				edge.put("node", NodeMapper.toGraphQL(referencingNode, nodeSelection, principalResolver));
 				edge.put("cursor", encodeCursor(currentPosition));
 
 				edges.add(edge);
@@ -450,7 +452,7 @@ public class QueryExecutor {
 				Node referencingNode = prop.getParent();
 
 				Map<String, Object> edge = new HashMap<>();
-				edge.put("node", NodeMapper.toGraphQL(referencingNode, nodeSelection));
+				edge.put("node", NodeMapper.toGraphQL(referencingNode, nodeSelection, principalResolver));
 				edge.put("cursor", encodeCursor(currentPosition));
 
 				edges.add(edge);
@@ -522,10 +524,12 @@ public class QueryExecutor {
 					Map<String, Object> entryMap = new HashMap<>();
 
 					// Build principal object with id, displayName, isGroup
+					String principalName = entry.getPrincipal().getName();
+					boolean isGroup = entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal;
 					Map<String, Object> principalMap = new HashMap<>();
-					principalMap.put("id", entry.getPrincipal().getName());
-					principalMap.put("displayName", entry.getPrincipal().getName());
-					principalMap.put("isGroup", entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal);
+					principalMap.put("id", principalName);
+					principalMap.put("displayName", principalResolver.resolve(principalName, isGroup));
+					principalMap.put("isGroup", isGroup);
 					entryMap.put("principal", principalMap);
 
 					// Get privileges
@@ -611,10 +615,12 @@ public class QueryExecutor {
 					Map<String, Object> entryMap = new HashMap<>();
 
 					// Build principal object with id, displayName, isGroup
+					String principalName = entry.getPrincipal().getName();
+					boolean isGroup = entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal;
 					Map<String, Object> principalMap = new HashMap<>();
-					principalMap.put("id", entry.getPrincipal().getName());
-					principalMap.put("displayName", entry.getPrincipal().getName());
-					principalMap.put("isGroup", entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal);
+					principalMap.put("id", principalName);
+					principalMap.put("displayName", principalResolver.resolve(principalName, isGroup));
+					principalMap.put("isGroup", isGroup);
 					entryMap.put("principal", principalMap);
 
 					List<String> privileges = new ArrayList<>();
@@ -693,10 +699,19 @@ public class QueryExecutor {
 		if (keyword != null && !keyword.trim().isEmpty()) {
 			// Search by keyword - look for identifier property containing keyword
 			String escapedKeyword = keyword.replace("'", "\\'");
-			xpath = "/jcr:root/home//*[@identifier and jcr:contains(@identifier, '" + escapedKeyword + "')]";
+			xpath = """
+					/jcr:root/home//*[
+						@identifier 
+						and (
+							jcr:contains(@identifier, '%s') 
+							or jcr:contains(@displayName, '%s')
+						) 
+						and @isGroup
+					]
+					""".formatted(escapedKeyword, escapedKeyword);
 		} else {
 			// List all principals
-			xpath = "/jcr:root/home//*[@identifier]";
+			xpath = "/jcr:root/home//*[@identifier and @isGroup]";
 		}
 
 		// Login to system workspace
@@ -734,9 +749,13 @@ public class QueryExecutor {
 				}
 
 				Map<String, Object> principal = new HashMap<>();
-				principal.put("identifier", node.getProperty("identifier").getString());
-				principal.put("isGroup", node.getProperty("isGroup").getBoolean());
+				String identifier = node.getProperty("identifier").getString();
+				boolean isGroup = node.getProperty("isGroup").getBoolean();
+				principal.put("identifier", identifier);
+				principal.put("isGroup", isGroup);
 				principal.put("isService", false);
+				principal.put("displayName", node.hasProperty("displayName")
+						? node.getProperty("displayName").getString() : null);
 				principals.add(principal);
 				count++;
 			}
@@ -754,6 +773,7 @@ public class QueryExecutor {
 					principal.put("identifier", name);
 					principal.put("isGroup", false);
 					principal.put("isService", true);
+					principal.put("displayName", null);
 					principals.add(principal);
 					count++;
 				}
@@ -769,6 +789,7 @@ public class QueryExecutor {
 					principal.put("identifier", name);
 					principal.put("isGroup", true);
 					principal.put("isService", true);
+					principal.put("displayName", null);
 					principals.add(principal);
 					count++;
 				}
@@ -1048,7 +1069,7 @@ public class QueryExecutor {
 			Node node = nodeIterator.nextNode();
 
 			Map<String, Object> edge = new HashMap<>();
-			edge.put("node", NodeMapper.toGraphQL(node, nodeSelection));
+			edge.put("node", NodeMapper.toGraphQL(node, nodeSelection, principalResolver));
 			edge.put("cursor", encodeCursor(currentPosition));
 
 			edges.add(edge);
@@ -1215,7 +1236,7 @@ public class QueryExecutor {
 			Node node = row.getNode();
 			double score = row.getScore();
 
-			Map<String, Object> nodeData = NodeMapper.toGraphQL(node, nodeSelection);
+			Map<String, Object> nodeData = NodeMapper.toGraphQL(node, nodeSelection, principalResolver);
 			nodeData.put("score", score);
 
 			Map<String, Object> edge = new HashMap<>();
@@ -1334,7 +1355,7 @@ public class QueryExecutor {
 			Node node = nodeIterator.nextNode();
 
 			Map<String, Object> edge = new HashMap<>();
-			edge.put("node", NodeMapper.toGraphQL(node, nodeSelection));
+			edge.put("node", NodeMapper.toGraphQL(node, nodeSelection, principalResolver));
 			edge.put("cursor", encodeCursor(currentPosition));
 
 			edges.add(edge);
