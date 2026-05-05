@@ -24,8 +24,6 @@ package org.mintjams.rt.jcr.internal.security;
 
 import java.security.Principal;
 
-import javax.jcr.RepositoryException;
-
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.PrincipalProvider;
@@ -48,12 +46,12 @@ public class JcrPrincipalProvider implements PrincipalProvider, Adaptable {
 	}
 
 	@Override
-	public Principal getPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+	public Principal getPrincipal(String name) throws PrincipalNotFoundException {
 		return Activator.getDefault().getPrincipal(name);
 	}
 
 	@Override
-	public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+	public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException {
 		Principal p = getPrincipal(name);
 		if (p instanceof UserPrincipal) {
 			return (UserPrincipal) p;
@@ -62,7 +60,7 @@ public class JcrPrincipalProvider implements PrincipalProvider, Adaptable {
 	}
 
 	@Override
-	public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+	public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException {
 		Principal p = getPrincipal(name);
 		if (p instanceof GroupPrincipal) {
 			return (GroupPrincipal) p;

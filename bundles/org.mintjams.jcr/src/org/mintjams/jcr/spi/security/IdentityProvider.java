@@ -20,15 +20,36 @@
  * SOFTWARE.
  */
 
-package org.mintjams.jcr;
+package org.mintjams.jcr.spi.security;
 
-import org.mintjams.jcr.security.IdentityProvider;
-import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.Group;
+import org.mintjams.jcr.security.Role;
+import org.mintjams.jcr.security.User;
 
-public interface Workspace extends javax.jcr.Workspace {
+public interface IdentityProvider {
 
-	PrincipalProvider getPrincipalProvider();
+	/**
+	 * Returns the user with the specified identifier.
+	 * 
+	 * @param identifier the user identifier
+	 * @return the user with the specified identifier; or {@code null} if no such user exists
+	 */
+	User getUser(String identifier);
 
-	IdentityProvider getIdentityProvider();
+	/**
+	 * Returns the group with the specified identifier.
+	 * 
+	 * @param identifier the group identifier
+	 * @return the group with the specified identifier; or {@code null} if no such group exists
+	 */
+	Group getGroup(String identifier);
+
+	/**
+	 * Returns the role with the specified identifier.
+	 * 
+	 * @param identifier the role identifier
+	 * @return the role with the specified identifier; or {@code null} if no such role exists
+	 */
+	Role getRole(String identifier);
 
 }

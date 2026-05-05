@@ -28,21 +28,25 @@ import java.nio.file.Paths;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import javax.jcr.RepositoryException;
 
 import org.mintjams.jcr.security.EveryonePrincipal;
+import org.mintjams.jcr.security.Group;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.jcr.security.Role;
+import org.mintjams.jcr.security.User;
 import org.mintjams.jcr.service.Bootstrap;
 import org.mintjams.jcr.spi.security.Authenticator;
+import org.mintjams.jcr.spi.security.IdentityProvider;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.searchindex.SearchIndexFactory;
 import org.mintjams.tools.io.Closer;
+import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.osgi.Registration;
 import org.mintjams.tools.osgi.Tracker;
 import org.osgi.framework.BundleActivator;
@@ -65,20 +69,14 @@ public class Activator implements BundleActivator {
 	private Tracker<SearchIndexFactory> fSearchIndexFactoryTracker;
 	private Tracker<Authenticator> fAuthenticatorTracker;
 	private Tracker<PrincipalProvider> fPrincipalProviderTracker;
+	private Tracker<IdentityProvider> fIdentityProviderTracker;
 	private JcrBootstrap fBootstrap;
-	private final Map<String, PrincipalProvider> fPrincipalProviderServices = new HashMap<>();
 	private final ObjectMapper fObjectMapper = new ObjectMapper();
 
 	private Tracker.Listener<Object> fTrackerListener = new Tracker.Listener<Object>() {
 		@Override
 		public void on(Tracker.Event<Object> event) {
 			if (event instanceof Tracker.ServiceAddingEvent) {
-				if (event.getService() instanceof PrincipalProvider) {
-					synchronized (fPrincipalProviderServices) {
-						fPrincipalProviderServices.clear();
-					}
-				}
-
 				try {
 					open();
 				} catch (Throwable ignore) {}
@@ -89,12 +87,6 @@ public class Activator implements BundleActivator {
 				try {
 					close();
 				} catch (Throwable ignore) {}
-
-				if (event.getService() instanceof PrincipalProvider) {
-					synchronized (fPrincipalProviderServices) {
-						fPrincipalProviderServices.clear();
-					}
-				}
 				return;
 			}
 		}
@@ -132,6 +124,11 @@ public class Activator implements BundleActivator {
 				.setBundleContext(fBundleContext)
 				.build());
 		fPrincipalProviderTracker.open();
+
+		fIdentityProviderTracker = fCloser.register(Tracker.newBuilder(IdentityProvider.class)
+				.setBundleContext(fBundleContext)
+				.build());
+		fIdentityProviderTracker.open();
 	}
 
 	@Override
@@ -142,8 +139,9 @@ public class Activator implements BundleActivator {
 	}
 
 	private synchronized void open() throws IOException {
-		if (fLoggerFactoryTracker.getTrackingCount() == 0 || fEventAdminTracker.getTrackingCount() == 0
-				|| fSearchIndexFactoryTracker.getTrackingCount() == 0) {
+		if (fLoggerFactoryTracker.getTrackingCount() == 0 ||
+				fEventAdminTracker.getTrackingCount() == 0 ||
+				fSearchIndexFactoryTracker.getTrackingCount() == 0) {
 			return;
 		}
 
@@ -200,26 +198,37 @@ public class Activator implements BundleActivator {
 		return fAuthenticatorTracker.getServices();
 	}
 
-	public List<PrincipalProvider> getPrincipalProviders() throws RepositoryException {
-		synchronized (fPrincipalProviderServices) {
-			if (fPrincipalProviderServices.isEmpty()) {
-				for (PrincipalProvider principalProvider : getDefault().fPrincipalProviderTracker.getServices()) {
-					fPrincipalProviderServices.put(principalProvider.getClass().getName(), principalProvider);
+	public List<PrincipalProvider> getPrincipalProviders() {
+		List<PrincipalProvider> l = new ArrayList<>();
+		try {
+			List<String> classNames = getRepository().getConfiguration().getPrincipalProviderServices();
+			for (PrincipalProvider provider : getDefault().fPrincipalProviderTracker.getServices()) {
+				if (classNames.contains(provider.getClass().getName())) {
+					l.add(provider);
 				}
 			}
-		}
-
-		List<PrincipalProvider> l = new ArrayList<>();
-		for (String className : getRepository().getConfiguration().getPrincipalProviderServices()) {
-			PrincipalProvider provider = fPrincipalProviderServices.get(className);
-			if (provider != null) {
-				l.add(provider);
-			}
+		} catch (RepositoryException ex) {
+			throw Cause.create(ex).wrap(IllegalStateException.class);
 		}
 		return l;
 	}
 
-	public Principal getPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+	public List<IdentityProvider> getIdentityProviders() {
+		List<IdentityProvider> l = new ArrayList<>();
+		try {
+			List<String> classNames = getRepository().getConfiguration().getIdentityProviderServices();
+			for (IdentityProvider provider : getDefault().fIdentityProviderTracker.getServices()) {
+				if (classNames.contains(provider.getClass().getName())) {
+					l.add(provider);
+				}
+			}
+		} catch (RepositoryException ex) {
+			throw Cause.create(ex).wrap(IllegalStateException.class);
+		}
+		return l;
+	}
+
+	public Principal getPrincipal(String name) throws PrincipalNotFoundException {
 		if (name.equals(GuestPrincipal.NAME)) {
 			return new GuestPrincipal();
 		}
@@ -254,6 +263,45 @@ public class Activator implements BundleActivator {
 			}
 		}
 		return memberOf;
+	}
+
+	public User getUser(String identifier) {
+		for (IdentityProvider provider : getIdentityProviders()) {
+			try {
+				return provider.getUser(identifier);
+			} catch (UnsupportedOperationException ignore) {
+				// ignore
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(IllegalStateException.class);
+			}
+		}
+		return null;
+	}
+
+	public Group getGroup(String identifier) {
+		for (IdentityProvider provider : getIdentityProviders()) {
+			try {
+				return provider.getGroup(identifier);
+			} catch (UnsupportedOperationException ignore) {
+				// ignore
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(IllegalStateException.class);
+			}
+		}
+		return null;
+	}
+
+	public Role getRole(String identifier) {
+		for (IdentityProvider provider : getIdentityProviders()) {
+			try {
+				return provider.getRole(identifier);
+			} catch (UnsupportedOperationException ignore) {
+				// ignore
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(IllegalStateException.class);
+			}
+		}
+		return null;
 	}
 
 	public Path getTemporaryDirectoryPath() {

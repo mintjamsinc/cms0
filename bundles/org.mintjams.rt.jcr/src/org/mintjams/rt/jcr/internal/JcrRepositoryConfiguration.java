@@ -196,6 +196,20 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return Collections.unmodifiableList(fPrincipalProviderServices);
 	}
 
+	private List<String> fIdentityProviderServices = null;
+	@SuppressWarnings("unchecked")
+	public List<String> getIdentityProviderServices() throws RepositoryException {
+		try {
+			if (fIdentityProviderServices == null) {
+				ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
+				fIdentityProviderServices = (List<String>) el.evaluate("config.security.identityProviders");
+			}
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+		return Collections.unmodifiableList(fIdentityProviderServices);
+	}
+
 	@Override
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
 		return null;

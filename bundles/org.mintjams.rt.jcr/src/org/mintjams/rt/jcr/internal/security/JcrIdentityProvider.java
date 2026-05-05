@@ -20,15 +20,47 @@
  * SOFTWARE.
  */
 
-package org.mintjams.jcr;
+package org.mintjams.rt.jcr.internal.security;
 
+import org.mintjams.jcr.security.Group;
 import org.mintjams.jcr.security.IdentityProvider;
-import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.Role;
+import org.mintjams.jcr.security.User;
+import org.mintjams.rt.jcr.internal.Activator;
+import org.mintjams.rt.jcr.internal.JcrWorkspace;
+import org.mintjams.tools.adapter.Adaptable;
+import org.mintjams.tools.adapter.Adaptables;
 
-public interface Workspace extends javax.jcr.Workspace {
+public class JcrIdentityProvider implements IdentityProvider, Adaptable {
 
-	PrincipalProvider getPrincipalProvider();
+	private final JcrWorkspace fWorkspace;
 
-	IdentityProvider getIdentityProvider();
+	private JcrIdentityProvider(JcrWorkspace workspace) {
+		fWorkspace = workspace;
+	}
+
+	public static JcrIdentityProvider create(JcrWorkspace workspace) {
+		return new JcrIdentityProvider(workspace);
+	}
+
+	@Override
+	public User getUser(String identifier) {
+		return Activator.getDefault().getUser(identifier);
+	}
+
+	@Override
+	public Group getGroup(String identifier) {
+		return Activator.getDefault().getGroup(identifier);
+	}
+
+	@Override
+	public Role getRole(String identifier) {
+		return Activator.getDefault().getRole(identifier);
+	}
+
+	@Override
+	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
+		return Adaptables.getAdapter(fWorkspace, adapterType);
+	}
 
 }

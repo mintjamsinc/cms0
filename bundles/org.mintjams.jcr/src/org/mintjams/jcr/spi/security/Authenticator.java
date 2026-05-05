@@ -29,11 +29,32 @@ import org.mintjams.jcr.security.UserPrincipal;
 
 public interface Authenticator {
 
+	/**
+	 * Returns {@code true} if this authenticator can authenticate the specified credentials; otherwise returns {@code false}.
+	 * 
+	 * @param credentials the credentials to be authenticated
+	 * @return {@code true} if this authenticator can authenticate the specified credentials; otherwise returns {@code false}
+	 */
 	boolean canAuthenticate(Credentials credentials);
 
+	/**
+	 * Authenticates the specified credentials.
+	 * 
+	 * @param credentials the credentials to be authenticated
+	 * @return the result of authentication
+	 * @throws LoginException if the authentication fails
+	 */
 	Result authenticate(Credentials credentials) throws LoginException;
 
+	/**
+	 * The result of authentication.
+	 */
 	interface Result {
+		/**
+		 * Returns the user principal of the authenticated user.
+		 * 
+		 * @return the user principal of the authenticated user
+		 */
 		UserPrincipal getUserPrincipal();
 	}
 

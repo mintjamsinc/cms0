@@ -31,12 +31,40 @@ import org.mintjams.jcr.security.UserPrincipal;
 
 public interface PrincipalProvider {
 
+	/**
+	 * Returns the principal with the specified name.
+	 * 
+	 * @param name the principal name
+	 * @return the principal with the specified name
+	 * @throws PrincipalNotFoundException if no such principal exists
+	 */
 	Principal getPrincipal(String name) throws PrincipalNotFoundException;
 
+	/**
+	 * Returns the user principal with the specified name.
+	 * 
+	 * @param name the user principal name
+	 * @return the user principal with the specified name
+	 * @throws PrincipalNotFoundException if no such user principal exists
+	 */
 	UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException;
 
+	/**
+	 * Returns the group principal with the specified name.
+	 * 
+	 * @param name the group principal name
+	 * @return the group principal with the specified name
+	 * @throws PrincipalNotFoundException if no such group principal exists
+	 */
 	GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException;
 
+	/**
+	 * Returns the collection of group principals that the specified principal is a member of.
+	 * 
+	 * @param principal the principal
+	 * @return the collection of group principals that the specified principal is a member of
+	 * @throws PrincipalNotFoundException if the specified principal does not exist
+	 */
 	Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException;
 
 }

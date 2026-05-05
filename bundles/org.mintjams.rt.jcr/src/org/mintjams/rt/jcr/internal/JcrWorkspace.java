@@ -66,6 +66,7 @@ import javax.jcr.version.VersionManager;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.NamespaceProvider;
 import org.mintjams.jcr.UncheckedRepositoryException;
+import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalProvider;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.jcr.internal.lock.JcrLock;
@@ -74,6 +75,7 @@ import org.mintjams.rt.jcr.internal.nodetype.JcrNodeTypeManager;
 import org.mintjams.rt.jcr.internal.observation.JcrObservationManager;
 import org.mintjams.rt.jcr.internal.query.JcrQueryManager;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
+import org.mintjams.rt.jcr.internal.security.JcrIdentityProvider;
 import org.mintjams.rt.jcr.internal.security.JcrPrincipalProvider;
 import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
 import org.mintjams.rt.jcr.internal.version.JcrVersionManager;
@@ -105,6 +107,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	private Connection fConnection;
 	private WorkspaceQuery fWorkspaceQuery;
 	private PrincipalProvider fPrincipalProvider;
+	private IdentityProvider fIdentityProvider;
 
 	private JcrWorkspace(UserPrincipal principal, JcrWorkspaceProvider workspaceProvider) {
 		fUserPrincipal = principal;
@@ -172,6 +175,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 		fQueryManager = JcrQueryManager.create(this);
 		fObservationManager = JcrObservationManager.create(this);
 		fPrincipalProvider = JcrPrincipalProvider.create(this);
+		fIdentityProvider = JcrIdentityProvider.create(this);
 
 		return this;
 	}
@@ -406,6 +410,11 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	@Override
 	public PrincipalProvider getPrincipalProvider() {
 		return fPrincipalProvider;
+	}
+
+	@Override
+	public IdentityProvider getIdentityProvider() {
+		return fIdentityProvider;
 	}
 
 	@Override

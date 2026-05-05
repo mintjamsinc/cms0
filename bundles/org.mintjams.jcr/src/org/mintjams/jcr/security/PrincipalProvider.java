@@ -24,14 +24,33 @@ package org.mintjams.jcr.security;
 
 import java.security.Principal;
 
-import javax.jcr.RepositoryException;
-
 public interface PrincipalProvider {
 
-	Principal getPrincipal(String name) throws PrincipalNotFoundException, RepositoryException;
+	/**
+	 * Returns the principal with the specified name.
+	 * 
+	 * @param name the principal name
+	 * @return the principal with the specified name
+	 * @throws PrincipalNotFoundException if no such principal exists
+	 */
+	Principal getPrincipal(String name) throws PrincipalNotFoundException;
 
-	UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException, RepositoryException;
+	/**
+	 * Returns the user principal with the specified name.
+	 * 
+	 * @param name the user principal name
+	 * @return the user principal with the specified name
+	 * @throws PrincipalNotFoundException if no such user principal exists
+	 */
+	UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException;
 
-	GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException, RepositoryException;
+	/**
+	 * Returns the group principal with the specified name.
+	 * 
+	 * @param name the group principal name
+	 * @return the group principal with the specified name
+	 * @throws PrincipalNotFoundException if no such group principal exists
+	 */
+	GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException;
 
 }

@@ -419,12 +419,12 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 
 	private class PrincipalProviderImpl implements PrincipalProvider {
 		@Override
-		public Principal getPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+		public Principal getPrincipal(String name) throws PrincipalNotFoundException {
 			return Activator.getDefault().getPrincipal(name);
 		}
 
 		@Override
-		public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+		public UserPrincipal getUserPrincipal(String name) throws PrincipalNotFoundException {
 			Principal p = getPrincipal(name);
 			if (p instanceof UserPrincipal) {
 				return (UserPrincipal) p;
@@ -434,7 +434,7 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 		}
 
 		@Override
-		public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException, RepositoryException {
+		public GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException {
 			Principal p = getPrincipal(name);
 			if (p instanceof GroupPrincipal) {
 				return (GroupPrincipal) p;

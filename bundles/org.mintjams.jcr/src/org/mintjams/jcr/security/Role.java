@@ -20,15 +20,14 @@
  * SOFTWARE.
  */
 
-package org.mintjams.jcr;
+package org.mintjams.jcr.security;
 
-import org.mintjams.jcr.security.IdentityProvider;
-import org.mintjams.jcr.security.PrincipalProvider;
+public interface Role {
 
-public interface Workspace extends javax.jcr.Workspace {
+	String getIdentifier();
 
-	PrincipalProvider getPrincipalProvider();
+	String getDisplayName();
 
-	IdentityProvider getIdentityProvider();
+	String getDescription();
 
 }
