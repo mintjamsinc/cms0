@@ -270,6 +270,7 @@ public class Activator implements BundleActivator {
 		adminContentNode.setProperty("roles", new Value[] { weakRef });
 
 		JCRs.getOrCreateFolder(adminFolder, "preferences");
+		JCRs.getOrCreateFolder(adminFolder, "Desktop");
 
 		log.info("""
 				Created default admin user profile at %s
@@ -317,6 +318,7 @@ public class Activator implements BundleActivator {
 		JCRs.setProperty(profileFile, "enabled", true);
 
 		JCRs.getOrCreateFolder(anonymousFolder, "preferences");
+		// Note: Anonymous user typically should not have a Desktop folder or any access permissions
 
 		jcrSession.save();
 	}

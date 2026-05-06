@@ -113,6 +113,7 @@ public class IdpMutationExecutor {
 		}
 
 		JCRs.getOrCreateFolder(userFolder, "preferences");
+		JCRs.getOrCreateFolder(userFolder, "Desktop");
 		session.save();
 
 		// Grant full permissions to the user on their own node
