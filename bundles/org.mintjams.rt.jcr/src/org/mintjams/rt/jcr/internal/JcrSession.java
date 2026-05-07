@@ -89,19 +89,12 @@ import org.xml.sax.SAXException;
 public class JcrSession implements Session, Adaptable {
 
 	private final UserPrincipal fPrincipal;
-	private final Collection<GroupPrincipal> fGroups;
+	private Collection<GroupPrincipal> fGroups = null;
 	private final JcrWorkspace fWorkspace;
 	private final Map<String, String> fNamespaces = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
 	private JcrSession(UserPrincipal principal, JcrWorkspace workspace) {
 		fPrincipal = principal;
-		Collection<GroupPrincipal> groups;
-		try {
-			groups = Activator.getDefault().getMemberOf(principal);
-		} catch (PrincipalNotFoundException ex) {
-			groups = Collections.emptyList();
-		}
-		fGroups = Collections.unmodifiableCollection(groups);
 		fWorkspace = workspace;
 	}
 
@@ -661,6 +654,15 @@ public class JcrSession implements Session, Adaptable {
 
 	@Override
 	public Collection<GroupPrincipal> getGroups() {
+		if (fGroups == null) {
+			Collection<GroupPrincipal> groups;
+			try {
+				groups = Activator.getDefault().getMemberOf(fPrincipal);
+			} catch (PrincipalNotFoundException ex) {
+				groups = Collections.emptyList();
+			}
+			fGroups = Collections.unmodifiableCollection(groups);
+		}
 		return fGroups;
 	}
 

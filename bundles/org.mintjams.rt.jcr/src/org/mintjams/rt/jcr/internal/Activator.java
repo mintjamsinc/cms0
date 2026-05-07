@@ -251,7 +251,6 @@ public class Activator implements BundleActivator {
 	}
 
 	public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
-		principal = getPrincipal(principal.getName());
 		if (!(principal instanceof UserPrincipal)) {
 			throw new IllegalArgumentException("Principal must be a user principal: " + principal.getName());
 		}

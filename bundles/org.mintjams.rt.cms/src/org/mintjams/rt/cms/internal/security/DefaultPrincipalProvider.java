@@ -160,7 +160,12 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 		try {
 			systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
 
-			Node contentNode = systemSession.getNode("/home/users/" + principal.getName() + "/profile/jcr:content");
+			Node contentNode;
+			try {
+				contentNode = systemSession.getNode("/home/users/" + principal.getName() + "/profile/jcr:content");
+			} catch (PathNotFoundException ignore) {
+				return Collections.emptyList();
+			}
 			if (!contentNode.hasProperty("memberOf")) {
 				return Collections.emptyList();
 			}
