@@ -29,7 +29,9 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -43,10 +45,14 @@ import org.apache.commons.io.IOUtils;
 import org.apache.felix.webconsole.WebConsoleSecurityProvider;
 import org.mintjams.cms.security.Encryptor;
 import org.mintjams.cms.security.SecretKeyProvider;
+import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.AccessControlManager;
 import org.mintjams.jcr.security.EveryonePrincipal;
+import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
+import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.jcr.spi.security.IdentityProvider;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
@@ -473,7 +479,10 @@ public class CmsService {
 		Session jcrSession = null;
 		try {
 			jcrSession = getRepository().login();
-			return jcrSession.nodeExists("/home/groups/" + groupId + "/profile");
+			Workspace.class.cast(jcrSession.getWorkspace()).getPrincipalProvider().getGroupPrincipal(groupId);
+			return true;
+		} catch (PrincipalNotFoundException ex) {
+			return false;
 		} finally {
 			try {
 				jcrSession.logout();
@@ -485,7 +494,25 @@ public class CmsService {
 		Session jcrSession = null;
 		try {
 			jcrSession = CmsService.getRepository().login();
-			return jcrSession.nodeExists("/home/users/" + userId + "/profile");
+			Workspace.class.cast(jcrSession.getWorkspace()).getPrincipalProvider().getUserPrincipal(userId);
+			return true;
+		} catch (PrincipalNotFoundException ex) {
+			return false;
+		} finally {
+			try {
+				jcrSession.logout();
+			} catch (Throwable ignore) {}
+		}
+	}
+
+	public static Collection<GroupPrincipal> getMemberOf(String userId) throws RepositoryException {
+		Session jcrSession = null;
+		try {
+			jcrSession = CmsService.getRepository().login();
+			org.mintjams.jcr.security.PrincipalProvider pp = Workspace.class.cast(jcrSession.getWorkspace()).getPrincipalProvider();
+			return pp.getMemberOf(pp.getUserPrincipal(userId));
+		} catch (PrincipalNotFoundException ex) {
+			return List.of();
 		} finally {
 			try {
 				jcrSession.logout();

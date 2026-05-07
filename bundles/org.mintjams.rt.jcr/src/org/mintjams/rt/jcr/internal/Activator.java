@@ -40,6 +40,7 @@ import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.Role;
 import org.mintjams.jcr.security.User;
+import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.service.Bootstrap;
 import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.jcr.spi.security.IdentityProvider;
@@ -249,17 +250,26 @@ public class Activator implements BundleActivator {
 		throw new PrincipalNotFoundException(name);
 	}
 
-	public Collection<GroupPrincipal> getMemberOf(Principal principal) {
+	public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
+		principal = getPrincipal(principal.getName());
+		if (!(principal instanceof UserPrincipal)) {
+			throw new IllegalArgumentException("Principal must be a user principal: " + principal.getName());
+		}
+		if (principal instanceof GuestPrincipal) {
+			return List.of();
+		}
+
 		List<GroupPrincipal> memberOf = new ArrayList<>();
-		if (!(principal instanceof GuestPrincipal)) {
-			for (PrincipalProvider principalManager : getDefault().fPrincipalProviderTracker.getServices()) {
-				try {
-					memberOf.addAll(principalManager.getMemberOf(principal));
-				} catch (PrincipalNotFoundException | UnsupportedOperationException ignore) {
-					// ignore
-				} catch (Throwable ex) {
-					getLogger(Activator.class).warn("An error occurred while retrieving the memberOf: " + principal.getName(), ex);
-				}
+		for (PrincipalProvider principalManager : getDefault().fPrincipalProviderTracker.getServices()) {
+			try {
+				principalManager.getMemberOf(principal)
+						.stream()
+						.filter(p -> !memberOf.contains(p))
+						.forEach(memberOf::add);
+			} catch (PrincipalNotFoundException | UnsupportedOperationException ignore) {
+				// ignore
+			} catch (Throwable ex) {
+				getLogger(Activator.class).warn("An error occurred while retrieving the memberOf: " + principal.getName(), ex);
 			}
 		}
 		return memberOf;

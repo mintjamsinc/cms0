@@ -28,6 +28,7 @@ import java.io.OutputStream;
 import java.security.AccessControlException;
 import java.sql.SQLException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.TreeMap;
@@ -68,6 +69,7 @@ import org.mintjams.jcr.Session;
 import org.mintjams.jcr.security.AdminPrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
+import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.jcr.internal.lock.JcrLock;
 import org.mintjams.rt.jcr.internal.lock.JcrLockManager;
@@ -93,7 +95,13 @@ public class JcrSession implements Session, Adaptable {
 
 	private JcrSession(UserPrincipal principal, JcrWorkspace workspace) {
 		fPrincipal = principal;
-		fGroups = Activator.getDefault().getMemberOf(principal);
+		Collection<GroupPrincipal> groups;
+		try {
+			groups = Activator.getDefault().getMemberOf(principal);
+		} catch (PrincipalNotFoundException ex) {
+			groups = Collections.emptyList();
+		}
+		fGroups = Collections.unmodifiableCollection(groups);
 		fWorkspace = workspace;
 	}
 

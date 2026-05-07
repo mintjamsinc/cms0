@@ -442,6 +442,11 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 
 			throw new PrincipalNotFoundException(name);
 		}
+
+		@Override
+		public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
+			return Activator.getDefault().getMemberOf(principal);
+		}
 	}
 
 }

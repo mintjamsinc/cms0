@@ -24,6 +24,7 @@ package org.mintjams.rt.cms.internal.bpm;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.camunda.bpm.engine.identity.Group;
 import org.camunda.bpm.engine.identity.GroupQuery;
@@ -239,6 +240,7 @@ public class CmsIdentityProvider implements ReadOnlyIdentityProvider {
 					throw new IllegalStateException("Failed to execute user query", ex);
 				}
 			}
+
 			return Collections.emptyList();
 		}
 	}
@@ -253,6 +255,18 @@ public class CmsIdentityProvider implements ReadOnlyIdentityProvider {
 
 		@Override
 		public List<Group> executeList(CommandContext commandContext, Page page) {
+			if (this.getUserId() != null) {
+				try {
+					return CmsService.getMemberOf(this.getUserId())
+							.stream()
+							.map(p -> p.getName())
+							.map(CmsGroup::new)
+							.collect(Collectors.toList());
+				} catch (Throwable ex) {
+					throw new IllegalStateException("Failed to execute group query", ex);
+				}
+			}
+
 			if (this.getId() != null) {
 				try {
 					if (CmsService.groupExists(this.getId())) {
@@ -262,6 +276,7 @@ public class CmsIdentityProvider implements ReadOnlyIdentityProvider {
 					throw new IllegalStateException("Failed to execute group query", ex);
 				}
 			}
+
 			return Collections.emptyList();
 		}
 	}

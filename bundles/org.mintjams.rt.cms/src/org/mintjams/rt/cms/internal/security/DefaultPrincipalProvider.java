@@ -23,7 +23,11 @@
 package org.mintjams.rt.cms.internal.security;
 
 import java.security.Principal;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
@@ -145,7 +149,51 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 
 	@Override
 	public Collection<GroupPrincipal> getMemberOf(Principal principal) {
-		throw new UnsupportedOperationException();
+		if (!(principal instanceof UserPrincipal)) {
+			throw new IllegalArgumentException("Principal must be a user principal: " + principal.getName());
+		}
+		if (principal.getName().equals("anonymous")) {
+			return Collections.emptyList();
+		}
+
+		javax.jcr.Session systemSession = null;
+		try {
+			systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
+
+			Node contentNode = systemSession.getNode("/home/users/" + principal.getName() + "/profile/jcr:content");
+			if (!contentNode.hasProperty("memberOf")) {
+				return Collections.emptyList();
+			}
+
+			Property memberOfProperty = contentNode.getProperty("memberOf");
+			List<String> groupIds = new ArrayList<>();
+			if (memberOfProperty.isMultiple()) {
+				for (Value val : memberOfProperty.getValues()) {
+					Node refNode = contentNode.getSession().getNodeByIdentifier(val.getString());
+					Node memberOfNode = JCRs.getContentNode(refNode);
+					String groupId = memberOfNode.getProperty("identifier").getString();
+					if (!groupIds.contains(groupId)) {
+						groupIds.add(groupId);
+					}
+				}
+			} else {
+				Node refNode = contentNode.getSession().getNodeByIdentifier(memberOfProperty.getString());
+				Node memberOfNode = JCRs.getContentNode(refNode);
+				String groupId = memberOfNode.getProperty("identifier").getString();
+				if (!groupIds.contains(groupId)) {
+					groupIds.add(groupId);
+				}
+			}
+			return groupIds.stream().map(DefaultGroupPrincipal::new).collect(Collectors.toList());
+		} catch (RepositoryException ex) {
+			CmsService.getLogger(getClass()).error("Failed to get member of groups for principal: " + principal.getName(), ex);
+			return Collections.emptyList();
+		} finally {
+			try {
+				systemSession.logout();
+			} catch (Throwable ignore) {}
+			systemSession = null;
+		}
 	}
 
 }

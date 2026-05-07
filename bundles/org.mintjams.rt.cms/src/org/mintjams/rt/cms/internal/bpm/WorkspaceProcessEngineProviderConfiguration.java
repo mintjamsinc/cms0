@@ -105,7 +105,8 @@ public class WorkspaceProcessEngineProviderConfiguration {
 				.setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE)
 				.setJdbcUrl(getJdbcURL())
 				.setScriptingEngines(scriptingEngines)
-				.setJobExecutorActivate(true);
+				.setJobExecutorActivate(true)
+				.setHistory(ProcessEngineConfiguration.HISTORY_FULL);
 		config.setJobExecutorAcquireByPriority(true);
 		config.setScriptFactory(new WorkspaceScriptFactory());
 		config.setIdentityProviderSessionFactory(new CmsIdentityProviderFactory());

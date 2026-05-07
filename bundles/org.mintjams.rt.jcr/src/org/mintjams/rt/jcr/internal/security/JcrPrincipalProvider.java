@@ -23,6 +23,7 @@
 package org.mintjams.rt.jcr.internal.security;
 
 import java.security.Principal;
+import java.util.Collection;
 
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
@@ -66,6 +67,11 @@ public class JcrPrincipalProvider implements PrincipalProvider, Adaptable {
 			return (GroupPrincipal) p;
 		}
 		throw new PrincipalNotFoundException(name);
+	}
+
+	@Override
+	public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
+		return Activator.getDefault().getMemberOf(principal);
 	}
 
 	@Override

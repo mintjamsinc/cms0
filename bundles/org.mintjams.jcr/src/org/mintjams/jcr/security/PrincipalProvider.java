@@ -23,6 +23,7 @@
 package org.mintjams.jcr.security;
 
 import java.security.Principal;
+import java.util.Collection;
 
 public interface PrincipalProvider {
 
@@ -52,5 +53,14 @@ public interface PrincipalProvider {
 	 * @throws PrincipalNotFoundException if no such group principal exists
 	 */
 	GroupPrincipal getGroupPrincipal(String name) throws PrincipalNotFoundException;
+
+	/**
+	 * Returns the collection of group principals that the specified principal is a member of.
+	 * 
+	 * @param principal the principal
+	 * @return the collection of group principals that the specified principal is a member of
+	 * @throws PrincipalNotFoundException if the specified principal does not exist
+	 */
+	Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException;
 
 }
