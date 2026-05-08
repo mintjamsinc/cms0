@@ -52,7 +52,6 @@ import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
-import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.jcr.spi.security.IdentityProvider;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
@@ -478,7 +477,7 @@ public class CmsService {
 	public static boolean groupExists(String groupId) throws RepositoryException {
 		Session jcrSession = null;
 		try {
-			jcrSession = getRepository().login();
+			jcrSession = getRepository().login(new CmsServiceCredentials(), "system");
 			Workspace.class.cast(jcrSession.getWorkspace()).getPrincipalProvider().getGroupPrincipal(groupId);
 			return true;
 		} catch (PrincipalNotFoundException ex) {
@@ -493,7 +492,7 @@ public class CmsService {
 	public static boolean userExists(String userId) throws RepositoryException {
 		Session jcrSession = null;
 		try {
-			jcrSession = CmsService.getRepository().login();
+			jcrSession = getRepository().login(new CmsServiceCredentials(), "system");
 			Workspace.class.cast(jcrSession.getWorkspace()).getPrincipalProvider().getUserPrincipal(userId);
 			return true;
 		} catch (PrincipalNotFoundException ex) {
@@ -508,7 +507,7 @@ public class CmsService {
 	public static Collection<GroupPrincipal> getMemberOf(String userId) throws RepositoryException {
 		Session jcrSession = null;
 		try {
-			jcrSession = CmsService.getRepository().login();
+			jcrSession = getRepository().login(new CmsServiceCredentials(), "system");
 			org.mintjams.jcr.security.PrincipalProvider pp = Workspace.class.cast(jcrSession.getWorkspace()).getPrincipalProvider();
 			return pp.getMemberOf(pp.getUserPrincipal(userId));
 		} catch (PrincipalNotFoundException ex) {
