@@ -277,10 +277,10 @@ public class GraphQLExecutor {
 				response.setData(bpmMutationExecutor.executeDeleteProcessInstance(request));
 			} else if (query.contains("setProcessVariables(")) {
 				response.setData(bpmMutationExecutor.executeSetProcessVariables(request));
-			} else if (query.contains("claimTask(")) {
-				response.setData(bpmMutationExecutor.executeClaimTask(request));
 			} else if (query.contains("unclaimTask(")) {
 				response.setData(bpmMutationExecutor.executeUnclaimTask(request));
+			} else if (query.contains("claimTask(")) {
+				response.setData(bpmMutationExecutor.executeClaimTask(request));
 			} else if (query.contains("setTaskAssignee(")) {
 				response.setData(bpmMutationExecutor.executeSetTaskAssignee(request));
 			} else if (query.contains("assignTask(")) {

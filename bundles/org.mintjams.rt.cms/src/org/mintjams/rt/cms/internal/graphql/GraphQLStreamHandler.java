@@ -61,7 +61,9 @@ import com.google.gson.reflect.TypeToken;
  */
 public class GraphQLStreamHandler {
 
-	private static final Gson GSON = new GsonBuilder().create();
+	// serializeNulls(): preserve explicit nulls so subscription payloads keep
+	// nullable fields visible to clients (matches GraphQLServlet behavior).
+	private static final Gson GSON = new GsonBuilder().serializeNulls().create();
 	private static final long HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
 	private static final long ASYNC_TIMEOUT_MS = 0; // No timeout (infinite)
 

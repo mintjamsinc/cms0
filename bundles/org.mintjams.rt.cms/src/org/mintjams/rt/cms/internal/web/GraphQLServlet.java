@@ -56,7 +56,11 @@ import com.google.gson.GsonBuilder;
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true" })
 public class GraphQLServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
-	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+	// serializeNulls(): preserve explicit nulls in the response so clients can
+	// reliably observe nullable fields transitioning to null (e.g. Task.assignee
+	// after unclaimTask). Without this, Gson silently drops null entries and the
+	// client merge `{...prev, ...updated}` can't overwrite the previous value.
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
 	@Override
 	protected void doPost(HttpServletRequest request, HttpServletResponse response)
