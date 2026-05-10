@@ -22,9 +22,13 @@
 
 package org.mintjams.rt.cms.internal.security;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
+import javax.jcr.Value;
 import javax.jcr.query.Query;
 
 import org.mintjams.jcr.security.Group;
@@ -123,12 +127,18 @@ public class DefaultIdentityProvider implements IdentityProvider {
 		private final String fIdentifier;
 		private final String fDisplayName;
 		private final String fEmail;
+		private final List<Role> fRoles = new ArrayList<>();
 
 		public UserImpl(Node node) throws RepositoryException {
 			Node contentNode = JCRs.getContentNode(node);
 			fIdentifier = contentNode.getProperty("identifier").getString();
 			fDisplayName = contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null;
 			fEmail = contentNode.hasProperty("mail") ? contentNode.getProperty("mail").getString() : null;
+			if (contentNode.hasProperty("roles")) {
+				for (Value value : contentNode.getProperty("roles").getValues()) {
+					fRoles.add(new RoleImpl(node.getSession().getNodeByIdentifier(value.getString())));
+				}
+			}
 		}
 
 		@Override
@@ -144,6 +154,11 @@ public class DefaultIdentityProvider implements IdentityProvider {
 		@Override
 		public String getEmail() {
 			return fEmail;
+		}
+
+		@Override
+		public boolean hasRole(String roleIdentifier) {
+			return fRoles.stream().anyMatch(r -> r.getIdentifier().equals(roleIdentifier));
 		}
 	}
 

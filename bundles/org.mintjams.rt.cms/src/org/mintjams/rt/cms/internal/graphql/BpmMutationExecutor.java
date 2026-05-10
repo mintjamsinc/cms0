@@ -22,7 +22,6 @@
 
 package org.mintjams.rt.cms.internal.graphql;
 
-import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -33,6 +32,7 @@ import java.util.Map;
 
 import javax.jcr.Session;
 
+import org.camunda.bpm.engine.AuthorizationException;
 import org.camunda.bpm.engine.ProcessEngine;
 import org.camunda.bpm.engine.history.HistoricProcessInstance;
 import org.camunda.bpm.engine.repository.Deployment;
@@ -235,6 +235,30 @@ public class BpmMutationExecutor {
 		if (taskId == null || taskId.isEmpty()) throw new IllegalArgumentException("taskId is required");
 
 		ProcessEngine engine = getProcessEngine();
+		do {
+			if (org.mintjams.jcr.Session.class.cast(session).isAdmin()) {
+				// Admin can assign to anyone
+				break;
+			}
+			if (org.mintjams.jcr.Workspace.class.cast(session.getWorkspace())
+					.getIdentityProvider()
+					.getUser(session.getUserID())
+					.hasRole("supervisor")) {
+				// Supervisor can assign to anyone
+				break;
+			}
+
+			Task task = engine.getTaskService().createTaskQuery()
+					.taskId(taskId)
+					.singleResult();
+			if (task != null && session.getUserID().equals(task.getAssignee())) {
+				// User can reassign their own tasks
+				break;
+			}
+
+			throw new AuthorizationException("User does not have permission to assign this task");
+		} while (false);
+
 		engine.getTaskService().setAssignee(taskId, assignee);
 
 		Map<String, Object> result = new HashMap<>();

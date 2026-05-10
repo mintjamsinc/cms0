@@ -203,6 +203,7 @@ public class Activator implements BundleActivator {
 			}
 
 			initializeAdminRole(rolesFolder);
+			initializeSupervisorRole(rolesFolder);
 			initializeAdminUser(usersFolder, rolesFolder);
 			initializeAnonymousUser(usersFolder);
 			initializeEveryoneGroup(groupsFolder);
@@ -238,6 +239,34 @@ public class Activator implements BundleActivator {
 			jcrSession.save();
 		}
 		log.info("Created default 'administrator' role at {}", profileFile.getPath());
+	}
+
+	private void initializeSupervisorRole(Node rolesFolder) throws Exception {
+		Session jcrSession = rolesFolder.getSession();
+
+		if (rolesFolder.hasNode("supervisor/profile")) {
+			// Ensure mix:referenceable is present (migration for existing installations)
+			Node roleProfile = rolesFolder.getNode("supervisor/profile");
+			if (!roleProfile.isNodeType("mix:referenceable")) {
+				roleProfile.addMixin("mix:referenceable");
+			}
+			if (jcrSession.hasPendingChanges()) {
+				jcrSession.save();
+			}
+			return;
+		}
+
+		Node roleFolder = JCRs.getOrCreateFolder(rolesFolder, "supervisor");
+		Node profileFile = JCRs.createFile(roleFolder, "profile");
+		profileFile.addMixin("mix:referenceable");
+		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.role");
+		JCRs.setProperty(profileFile, "identifier", "supervisor");
+		JCRs.setProperty(profileFile, "displayName", "Supervisor");
+		JCRs.setProperty(profileFile, "description", "Users responsible for supervising business processes and handling escalations.");
+		if (jcrSession.hasPendingChanges()) {
+			jcrSession.save();
+		}
+		log.info("Created default 'supervisor' role at {}", profileFile.getPath());
 	}
 
 	private void initializeAdminUser(Node usersFolder, Node rolesFolder) throws Exception {
