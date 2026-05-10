@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.Principal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -442,8 +443,7 @@ public class IdpMutationExecutor {
 	private void removeRoleSubtreeFromUsers(Node roleFolder) throws Exception {
 		// Remove this role's profile from all users first
 		if (roleFolder.hasNode("profile")) {
-			String roleUuid = roleFolder.getNode("profile").getIdentifier();
-			removeRoleFromAllUsers(roleUuid);
+			removeRoleFromAllUsers(roleFolder.getNode("profile"));
 		}
 		// Recurse into child roles
 		NodeIterator it = roleFolder.getNodes();
@@ -865,22 +865,20 @@ public class IdpMutationExecutor {
 		}
 	}
 
-	private void removeRoleFromAllUsers(String roleUuid) throws Exception {
-		if (!session.nodeExists(IdpQueryExecutor.USERS_ROOT)) return;
-		NodeIterator it = session.getNode(IdpQueryExecutor.USERS_ROOT).getNodes();
-		while (it.hasNext()) {
-			Node userFolder = it.nextNode();
-			if (!userFolder.hasNode("profile")) continue;
-			Node contentNode = JCRs.getContentNode(userFolder.getNode("profile"));
-			if (!contentNode.hasProperty("roles")) continue;
-			List<Value> current = getWeakRefs(contentNode, "roles");
+	private void removeRoleFromAllUsers(Node roleProfile) throws Exception {
+		if (!roleProfile.isNodeType("mix:referenceable")) return;
+		String roleUuid = roleProfile.getIdentifier();
+		PropertyIterator refs = roleProfile.getWeakReferences("roles");
+		while (refs.hasNext()) {
+			Property refProp = refs.nextProperty();
+			List<Value> current = new ArrayList<>(Arrays.asList(refProp.getValues()));
 			current.removeIf(v -> {
 				try { return roleUuid.equals(v.getString()); } catch (Exception e) { return false; }
 			});
 			if (current.isEmpty()) {
-				contentNode.getProperty("roles").remove();
+				refProp.remove();
 			} else {
-				contentNode.setProperty("roles", current.toArray(new Value[0]));
+				refProp.setValue(current.toArray(new Value[0]));
 			}
 		}
 	}

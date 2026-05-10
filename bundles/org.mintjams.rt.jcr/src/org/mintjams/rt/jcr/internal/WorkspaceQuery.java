@@ -1058,7 +1058,7 @@ public class WorkspaceQuery implements Adaptable {
 					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
 					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();
 			if (Strings.isNotEmpty(name)) {
-				statement.append(" AND item_name = {{name}}");
+				statement.append(" AND jcr_properties.item_name = {{name}}");
 				variables.put("name", name);
 			}
 			statement.append(" AND jcr_properties.is_deleted = FALSE")
@@ -1170,7 +1170,7 @@ public class WorkspaceQuery implements Adaptable {
 					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
 					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();
 			if (Strings.isNotEmpty(name)) {
-				statement.append(" AND item_name = {{name}}");
+				statement.append(" AND jcr_properties.item_name = {{name}}");
 				variables.put("name", name);
 			}
 			statement.append(" AND jcr_properties.is_deleted = FALSE");
