@@ -104,7 +104,7 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 		}
 
 		Property rolesProperty = contentNode.getProperty("roles");
-		String targetId = "administration";
+		String targetId = "administrator";
 		boolean hasAdminRole = false;
 		if (rolesProperty.isMultiple()) {
 			for (Value val : rolesProperty.getValues()) {

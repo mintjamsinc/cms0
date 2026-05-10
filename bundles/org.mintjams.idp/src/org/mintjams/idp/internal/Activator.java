@@ -215,9 +215,9 @@ public class Activator implements BundleActivator {
 	private void initializeAdminRole(Node rolesFolder) throws Exception {
 		Session jcrSession = rolesFolder.getSession();
 
-		if (rolesFolder.hasNode("administration/profile")) {
+		if (rolesFolder.hasNode("administrator/profile")) {
 			// Ensure mix:referenceable is present (migration for existing installations)
-			Node roleProfile = rolesFolder.getNode("administration/profile");
+			Node roleProfile = rolesFolder.getNode("administrator/profile");
 			if (!roleProfile.isNodeType("mix:referenceable")) {
 				roleProfile.addMixin("mix:referenceable");
 			}
@@ -227,17 +227,17 @@ public class Activator implements BundleActivator {
 			return;
 		}
 
-		Node roleFolder = JCRs.getOrCreateFolder(rolesFolder, "administration");
+		Node roleFolder = JCRs.getOrCreateFolder(rolesFolder, "administrator");
 		Node profileFile = JCRs.createFile(roleFolder, "profile");
 		profileFile.addMixin("mix:referenceable");
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.role");
-		JCRs.setProperty(profileFile, "identifier", "administration");
-		JCRs.setProperty(profileFile, "displayName", "Administration");
+		JCRs.setProperty(profileFile, "identifier", "administrator");
+		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "description", "Full administrative access");
 		if (jcrSession.hasPendingChanges()) {
 			jcrSession.save();
 		}
-		log.info("Created default 'administration' role at {}", profileFile.getPath());
+		log.info("Created default 'administrator' role at {}", profileFile.getPath());
 	}
 
 	private void initializeAdminUser(Node usersFolder, Node rolesFolder) throws Exception {
@@ -263,8 +263,8 @@ public class Activator implements BundleActivator {
 		JCRs.setProperty(profileFile, "enabled", true);
 		JCRs.setProperty(profileFile, "password", passwordHash);
 
-		// Assign administration role as WEAKREFERENCE
-		Node adminRoleProfile = rolesFolder.getNode("administration/profile");
+		// Assign administrator role as WEAKREFERENCE
+		Node adminRoleProfile = rolesFolder.getNode("administrator/profile");
 		Node adminContentNode = JCRs.getContentNode(profileFile);
 		Value weakRef = usersFolder.getSession().getValueFactory().createValue(adminRoleProfile, true);
 		adminContentNode.setProperty("roles", new Value[] { weakRef });

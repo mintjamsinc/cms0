@@ -537,7 +537,7 @@ public class IdpQueryExecutor {
 	// =========================================================================
 
 	String getRoleId(Node roleProfileNode) throws Exception {
-		String path = roleProfileNode.getPath(); // /home/roles/administration/profile
+		String path = roleProfileNode.getPath(); // /home/roles/administrator/profile
 		return path.substring(ROLES_ROOT.length() + 1, path.length() - "/profile".length());
 	}
 

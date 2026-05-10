@@ -152,16 +152,16 @@ public class JcrUserStore implements UserStore {
 
 	/**
 	 * Resolves a WEAKREFERENCE value to a SAML path string.
-	 * e.g. UUID of /home/roles/administration/profile → "/administration"
+	 * e.g. UUID of /home/roles/administrator/profile → "/administrator"
 	 *      UUID of /home/groups/mintjams/sales/profile → "/mintjams/sales"
 	 */
 	private String resolveWeakReferenceToSamlPath(Value v, Session jcrSession, String rootPath) {
 		try {
 			Node profileNode = jcrSession.getNodeByIdentifier(v.getString());
-			String fullPath = profileNode.getPath(); // e.g. /home/roles/administration/profile
+			String fullPath = profileNode.getPath(); // e.g. /home/roles/administrator/profile
 			// Strip rootPath prefix and /profile suffix
-			String relative = fullPath.substring(rootPath.length()); // /administration/profile
-			return relative.substring(0, relative.length() - "/profile".length()); // /administration
+			String relative = fullPath.substring(rootPath.length()); // /administrator/profile
+			return relative.substring(0, relative.length() - "/profile".length()); // /administrator
 		} catch (ItemNotFoundException e) {
 			LOG.warn("Dangling weak reference in user profile (rootPath={})", rootPath);
 			return null;
