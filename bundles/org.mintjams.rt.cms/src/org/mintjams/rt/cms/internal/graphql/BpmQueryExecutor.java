@@ -30,10 +30,13 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.jcr.Session;
 
@@ -274,7 +277,8 @@ public class BpmQueryExecutor {
 			return result;
 		}
 
-		result.put("task", mapTask(engine, task, true));
+		Map<String, Map<String, Object>> instanceMap = buildProcessInstanceMap(engine, Collections.singletonList(task));
+		result.put("task", mapTask(engine, task, true, instanceMap));
 		return result;
 	}
 
@@ -383,9 +387,11 @@ public class BpmQueryExecutor {
 
 		List<Task> tasks = q.list();
 
+		Map<String, Map<String, Object>> instanceMap = buildProcessInstanceMap(engine, tasks);
+
 		List<Map<String, Object>> items = new ArrayList<>();
 		for (Task task : tasks) {
-			items.add(mapTask(engine, task, false));
+			items.add(mapTask(engine, task, false, instanceMap));
 		}
 
 		return buildConnection("tasks", items, first, afterCursor);
@@ -621,7 +627,8 @@ public class BpmQueryExecutor {
 		return m;
 	}
 
-	private Map<String, Object> mapTask(ProcessEngine engine, Task task, boolean includeDetails) {
+	private Map<String, Object> mapTask(ProcessEngine engine, Task task, boolean includeDetails,
+			Map<String, Map<String, Object>> instanceMap) {
 		Map<String, Object> m = new HashMap<>();
 		m.put("id", task.getId());
 		m.put("name", task.getName());
@@ -639,8 +646,37 @@ public class BpmQueryExecutor {
 		m.put("taskDefinitionKey", task.getTaskDefinitionKey());
 		m.put("formKey", task.getFormKey());
 
-		// Derive processDefinitionKey from definition id
-		if (task.getProcessDefinitionId() != null) {
+		// Embed nested processInstance so queries like
+		// `task { processInstance { businessKey } }` resolve. Camunda's Task
+		// interface does not expose businessKey directly, so we look it up via
+		// HistoricProcessInstance (works for both running and ended).
+		Map<String, Object> piMap = (instanceMap != null && task.getProcessInstanceId() != null)
+				? instanceMap.get(task.getProcessInstanceId())
+				: null;
+		if (piMap == null) {
+			// Fallback for callers that didn't pre-fetch (also covers tasks whose
+			// instance was pruned). The shape mirrors mapHistoricProcessInstance
+			// for the fields a Task's parent ProcessInstance is expected to have.
+			piMap = new HashMap<>();
+			piMap.put("id", task.getProcessInstanceId());
+			piMap.put("definitionId", task.getProcessDefinitionId());
+			piMap.put("definitionKey", null);
+			piMap.put("businessKey", null);
+			piMap.put("suspended", task.isSuspended());
+			piMap.put("ended", false);
+			piMap.put("startTime", null);
+			piMap.put("endTime", null);
+			piMap.put("durationInMillis", null);
+		}
+		m.put("processInstance", piMap);
+
+		// Derive processDefinitionKey from the embedded processInstance (cheap)
+		// or fall back to a repository lookup for resilience when the instance
+		// could not be resolved.
+		Object piDefKey = piMap.get("definitionKey");
+		if (piDefKey instanceof String && !((String) piDefKey).isEmpty()) {
+			m.put("processDefinitionKey", piDefKey);
+		} else if (task.getProcessDefinitionId() != null) {
 			try {
 				ProcessDefinition def = engine.getRepositoryService()
 						.createProcessDefinitionQuery()
@@ -701,6 +737,55 @@ public class BpmQueryExecutor {
 		}
 
 		return m;
+	}
+
+	/**
+	 * Batch-fetch HistoricProcessInstance records for the given tasks and return
+	 * a `processInstanceId → ProcessInstance map` ready to be embedded as the
+	 * `processInstance` field of each task's GraphQL response.
+	 *
+	 * Using HistoricProcessInstance covers both running and ended instances in
+	 * one query, which is required because tasks can be queried slightly after
+	 * their parent instance ended (e.g. concurrent completion). One query for
+	 * the whole list avoids the N+1 lookup the caller would otherwise need.
+	 */
+	private Map<String, Map<String, Object>> buildProcessInstanceMap(ProcessEngine engine, List<Task> tasks) {
+		if (tasks == null || tasks.isEmpty()) {
+			return Collections.emptyMap();
+		}
+		Set<String> ids = new HashSet<>();
+		for (Task t : tasks) {
+			String pid = t.getProcessInstanceId();
+			if (pid != null && !pid.isEmpty()) {
+				ids.add(pid);
+			}
+		}
+		if (ids.isEmpty()) {
+			return Collections.emptyMap();
+		}
+		Map<String, Map<String, Object>> out = new HashMap<>();
+		try {
+			List<HistoricProcessInstance> instances = engine.getHistoryService()
+					.createHistoricProcessInstanceQuery()
+					.processInstanceIds(ids)
+					.list();
+			for (HistoricProcessInstance hpi : instances) {
+				Map<String, Object> m = new HashMap<>();
+				m.put("id", hpi.getId());
+				m.put("definitionId", hpi.getProcessDefinitionId());
+				m.put("definitionKey", hpi.getProcessDefinitionKey());
+				m.put("businessKey", hpi.getBusinessKey());
+				m.put("suspended", hpi.getState() != null && hpi.getState().contains("SUSPENDED"));
+				m.put("ended", hpi.getEndTime() != null);
+				m.put("startTime", formatDate(hpi.getStartTime()));
+				m.put("endTime", formatDate(hpi.getEndTime()));
+				m.put("durationInMillis", hpi.getDurationInMillis());
+				out.put(hpi.getId(), m);
+			}
+		} catch (Exception ignore) {
+			// Fallback: callers handle a missing entry gracefully.
+		}
+		return out;
 	}
 
 	private Map<String, Object> mapSimpleVariable(String name, Object value) {
