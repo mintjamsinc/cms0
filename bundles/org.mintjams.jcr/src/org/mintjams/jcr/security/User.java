@@ -30,6 +30,8 @@ public interface User {
 
 	String getEmail();
 
+	boolean isEnabled();
+
 	boolean hasRole(String roleIdentifier);
 
 }

@@ -127,6 +127,7 @@ public class DefaultIdentityProvider implements IdentityProvider {
 		private final String fIdentifier;
 		private final String fDisplayName;
 		private final String fEmail;
+		private final boolean fEnabled;
 		private final List<Role> fRoles = new ArrayList<>();
 
 		public UserImpl(Node node) throws RepositoryException {
@@ -134,6 +135,7 @@ public class DefaultIdentityProvider implements IdentityProvider {
 			fIdentifier = contentNode.getProperty("identifier").getString();
 			fDisplayName = contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null;
 			fEmail = contentNode.hasProperty("mail") ? contentNode.getProperty("mail").getString() : null;
+			fEnabled = contentNode.hasProperty("enabled") ? contentNode.getProperty("enabled").getBoolean() : true;
 			if (contentNode.hasProperty("roles")) {
 				for (Value value : contentNode.getProperty("roles").getValues()) {
 					fRoles.add(new RoleImpl(node.getSession().getNodeByIdentifier(value.getString())));
@@ -154,6 +156,11 @@ public class DefaultIdentityProvider implements IdentityProvider {
 		@Override
 		public String getEmail() {
 			return fEmail;
+		}
+
+		@Override
+		public boolean isEnabled() {
+			return fEnabled;
 		}
 
 		@Override

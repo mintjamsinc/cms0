@@ -22,15 +22,14 @@
 
 package org.mintjams.rt.cms.internal.security.auth.saml2;
 
-import java.util.Arrays;
-import java.util.List;
-
 import javax.jcr.Credentials;
 import javax.security.auth.login.LoginException;
 
+import org.mintjams.jcr.Repository;
+import org.mintjams.jcr.security.User;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.Authenticator;
-import org.mintjams.jcr.util.ExpressionContext;
+import org.mintjams.rt.cms.internal.CmsService;
 
 public class Saml2Authenticator implements Authenticator {
 
@@ -51,39 +50,26 @@ public class Saml2Authenticator implements Authenticator {
 			throw new LoginException("The specified credential is not a SAML2 credential.");
 		}
 
-		return new ResultImpl((Saml2Credentials) credentials);
+		Saml2Credentials creds = (Saml2Credentials) credentials;
+		User user = Repository.class.cast(CmsService.getRepository()).getIdentityProvider().getUser(creds.getName());
+		if (user == null) {
+			throw new LoginException("User not found: " + creds.getName());
+		}
+		if (!user.isEnabled()) {
+			throw new LoginException("User is disabled: " + creds.getName());
+		}
+		return new ResultImpl((Saml2Credentials) credentials, user.hasRole("administrator"));
 	}
 
 	public class ResultImpl implements Result {
-		private final Saml2Credentials fCredentials;
 		private final Saml2UserPrincipal fUserPrincipal;
 
-		private ResultImpl(Saml2Credentials credentials) {
-			fCredentials = credentials;
-			if (isAdmin()) {
+		private ResultImpl(Saml2Credentials credentials, boolean isAdmin) {
+			if (isAdmin) {
 				fUserPrincipal = new Saml2AdminPrincipal(credentials);
 			} else {
 				fUserPrincipal = new Saml2UserPrincipal(credentials);
 			}
-		}
-
-		private boolean isAdmin() {
-			ExpressionContext el = fConfig.getExpressionContext();
-			List<String> roleNames = Arrays.asList(el.getStringArray("config.user.attributes.role.name"));
-			List<String> adminRoles = Arrays.asList(el.getStringArray("config.user.attributes.role.adminRole"));
-			for (String roleName : roleNames) {
-				List<String> roles = fCredentials.getAttributes().get(roleName);
-				if (roles == null) {
-					continue;
-				}
-
-				for (String adminRole : adminRoles) {
-					if (roles.contains(adminRole)) {
-						return true;
-					}
-				}
-			}
-			return false;
 		}
 
 		@Override

@@ -49,11 +49,15 @@ import javax.jcr.query.Query;
 
 import org.mintjams.jcr.Repository;
 import org.mintjams.jcr.security.AuthenticatedCredentials;
+import org.mintjams.jcr.security.Group;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
+import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.Role;
 import org.mintjams.jcr.security.ServiceCredentials;
+import org.mintjams.jcr.security.User;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
@@ -112,6 +116,7 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 	private final Map<String, JcrWorkspaceProvider> fWorkspaceProviders = new HashMap<>();
 	private boolean fLive = false;
 	private PrincipalProviderImpl fPrincipalProvider = new PrincipalProviderImpl();
+	private IdentityProviderImpl fIdentityProvider = new IdentityProviderImpl();
 
 	private JcrRepository(JcrRepositoryConfiguration configuration) throws IOException {
 		fConfiguration = configuration;
@@ -395,6 +400,11 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 		return fPrincipalProvider;
 	}
 
+	@Override
+	public IdentityProvider getIdentityProvider() {
+		return fIdentityProvider;
+	}
+
 	public JcrRepositoryConfiguration getConfiguration() {
 		return fConfiguration;
 	}
@@ -446,6 +456,23 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 		@Override
 		public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
 			return Activator.getDefault().getMemberOf(principal);
+		}
+	}
+
+	private class IdentityProviderImpl implements IdentityProvider {
+		@Override
+		public User getUser(String identifier) {
+			return Activator.getDefault().getUser(identifier);
+		}
+
+		@Override
+		public Group getGroup(String identifier) {
+			return Activator.getDefault().getGroup(identifier);
+		}
+
+		@Override
+		public Role getRole(String identifier) {
+			return Activator.getDefault().getRole(identifier);
 		}
 	}
 

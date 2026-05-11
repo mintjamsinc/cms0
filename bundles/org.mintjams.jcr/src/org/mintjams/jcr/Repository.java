@@ -22,6 +22,7 @@
 
 package org.mintjams.jcr;
 
+import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalProvider;
 
 public interface Repository extends javax.jcr.Repository {
@@ -31,5 +32,7 @@ public interface Repository extends javax.jcr.Repository {
 	String[] getAvailableWorkspaceNames();
 
 	PrincipalProvider getPrincipalProvider();
+
+	IdentityProvider getIdentityProvider();
 
 }
