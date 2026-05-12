@@ -37,6 +37,7 @@ import org.camunda.bpm.engine.ProcessEngine;
 import org.camunda.bpm.engine.history.HistoricProcessInstance;
 import org.camunda.bpm.engine.repository.Deployment;
 import org.camunda.bpm.engine.repository.DeploymentBuilder;
+import org.camunda.bpm.engine.runtime.Incident;
 import org.camunda.bpm.engine.runtime.ProcessInstance;
 import org.camunda.bpm.engine.task.Comment;
 import org.camunda.bpm.engine.task.Task;
@@ -443,6 +444,107 @@ public class BpmMutationExecutor {
 		Map<String, Object> result = new HashMap<>();
 		result.put("activateProcessDefinition", def != null ? queryExecutor.mapProcessDefinition(engine, def) : null);
 		return result;
+	}
+
+	// =========================================================================
+	// Incident mutations
+	// =========================================================================
+
+	public Map<String, Object> executeSetJobRetries(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+		String incidentId = (String) input.get("incidentId");
+		Integer retries = getIntValue(input.get("retries"));
+		Boolean clearAnnotation = (Boolean) input.get("clearAnnotation");
+
+		if (incidentId == null || incidentId.isEmpty()) {
+			throw new IllegalArgumentException("incidentId is required");
+		}
+		if (retries == null || retries < 1) {
+			throw new IllegalArgumentException("retries must be >= 1");
+		}
+
+		ProcessEngine engine = getProcessEngine();
+
+		Incident inc = engine.getRuntimeService().createIncidentQuery()
+				.incidentId(incidentId)
+				.singleResult();
+		if (inc == null) {
+			throw new IllegalArgumentException("Incident not found: " + incidentId);
+		}
+		if (!"failedJob".equals(inc.getIncidentType()) || inc.getConfiguration() == null) {
+			throw new IllegalArgumentException(
+					"setJobRetries only applies to failedJob incidents (incident type: "
+							+ inc.getIncidentType() + ")");
+		}
+
+		String jobId = inc.getConfiguration();
+		engine.getManagementService().setJobRetries(jobId, retries.intValue());
+
+		if (Boolean.TRUE.equals(clearAnnotation)) {
+			try {
+				engine.getRuntimeService().clearAnnotationForIncidentById(incidentId);
+			} catch (Exception ignore) {}
+		}
+
+		// Re-fetch the incident — it may now be auto-resolved on the next
+		// job execution cycle, but the caller probably wants to see the
+		// updated retries count meanwhile.
+		Incident refreshed = engine.getRuntimeService().createIncidentQuery()
+				.incidentId(incidentId)
+				.singleResult();
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("setJobRetries", refreshed != null
+				? queryExecutor.mapIncident(engine, refreshed, false)
+				: null);
+		return result;
+	}
+
+	public Map<String, Object> executeResolveIncident(GraphQLRequest request) throws Exception {
+		Map<String, Object> variables = request.getVariables();
+		String id = getStringVar(variables, "id");
+		if (id == null || id.isEmpty()) throw new IllegalArgumentException("id is required");
+
+		ProcessEngine engine = getProcessEngine();
+		// runtimeService.resolveIncident only accepts custom incidents; the
+		// engine throws for failedJob/failedExternalTask. Let the engine's
+		// exception propagate as the operation error — the frontend warns
+		// users to use setJobRetries for failedJob.
+		engine.getRuntimeService().resolveIncident(id);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("resolveIncident", true);
+		return result;
+	}
+
+	public Map<String, Object> executeSetIncidentAnnotation(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+		String id = (String) input.get("id");
+		String annotation = (String) input.get("annotation");
+		if (id == null || id.isEmpty()) throw new IllegalArgumentException("id is required");
+
+		ProcessEngine engine = getProcessEngine();
+		if (annotation == null || annotation.isEmpty()) {
+			engine.getRuntimeService().clearAnnotationForIncidentById(id);
+		} else {
+			engine.getRuntimeService().setAnnotationForIncidentById(id, annotation);
+		}
+
+		Incident inc = engine.getRuntimeService().createIncidentQuery()
+				.incidentId(id)
+				.singleResult();
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("setIncidentAnnotation", inc != null
+				? queryExecutor.mapIncident(engine, inc, false)
+				: null);
+		return result;
+	}
+
+	private Integer getIntValue(Object v) {
+		if (v == null) return null;
+		if (v instanceof Number) return ((Number) v).intValue();
+		try { return Integer.parseInt(v.toString()); } catch (Exception e) { return null; }
 	}
 
 	// =========================================================================

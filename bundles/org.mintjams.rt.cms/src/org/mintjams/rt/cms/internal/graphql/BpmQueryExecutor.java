@@ -46,7 +46,9 @@ import org.camunda.bpm.engine.history.HistoricProcessInstanceQuery;
 import org.camunda.bpm.engine.history.HistoricVariableInstance;
 import org.camunda.bpm.engine.repository.ProcessDefinition;
 import org.camunda.bpm.engine.repository.ProcessDefinitionQuery;
+import org.camunda.bpm.engine.runtime.Incident;
 import org.camunda.bpm.engine.runtime.IncidentQuery;
+import org.camunda.bpm.engine.runtime.Job;
 import org.camunda.bpm.engine.task.IdentityLink;
 import org.camunda.bpm.engine.task.IdentityLinkType;
 import org.camunda.bpm.engine.task.Task;
@@ -250,6 +252,133 @@ public class BpmQueryExecutor {
 		}
 
 		return buildConnection("processInstances", items, first, afterCursor);
+	}
+
+	// =========================================================================
+	// Incident queries
+	// =========================================================================
+
+	public Map<String, Object> executeIncidentQuery(GraphQLRequest request) throws Exception {
+		Map<String, Object> variables = request.getVariables();
+		String id = getStringVar(variables, "id");
+		Boolean includeStackTrace = getBoolVarOrNull(variables, "includeStackTrace");
+		boolean withStack = !Boolean.FALSE.equals(includeStackTrace); // default true for single fetch
+
+		ProcessEngine engine = getProcessEngine();
+		Map<String, Object> result = new HashMap<>();
+		if (id == null || id.isEmpty()) {
+			result.put("incident", null);
+			return result;
+		}
+
+		Incident inc = engine.getRuntimeService().createIncidentQuery()
+				.incidentId(id)
+				.singleResult();
+		if (inc == null) {
+			result.put("incident", null);
+			return result;
+		}
+
+		result.put("incident", mapIncident(engine, inc, withStack));
+		return result;
+	}
+
+	public Map<String, Object> executeIncidentsQuery(GraphQLRequest request) throws Exception {
+		Map<String, Object> variables = request.getVariables();
+		int first = getIntVar(variables, "first", 50);
+		String afterCursor = getStringVar(variables, "after");
+		String processInstanceId = getStringVar(variables, "processInstanceId");
+		String processDefinitionId = getStringVar(variables, "processDefinitionId");
+		String processDefinitionKey = getStringVar(variables, "processDefinitionKey");
+		String incidentType = getStringVar(variables, "incidentType");
+		String activityId = getStringVar(variables, "activityId");
+		Boolean includeStackTrace = getBoolVarOrNull(variables, "includeStackTrace");
+		boolean withStack = Boolean.TRUE.equals(includeStackTrace);
+
+		ProcessEngine engine = getProcessEngine();
+		IncidentQuery q = engine.getRuntimeService().createIncidentQuery();
+
+		if (processInstanceId != null && !processInstanceId.isEmpty()) {
+			q.processInstanceId(processInstanceId);
+		}
+		if (processDefinitionId != null && !processDefinitionId.isEmpty()) {
+			q.processDefinitionId(processDefinitionId);
+		}
+		if (processDefinitionKey != null && !processDefinitionKey.isEmpty()) {
+			q.processDefinitionKeyIn(processDefinitionKey);
+		}
+		if (incidentType != null && !incidentType.isEmpty()) {
+			q.incidentType(incidentType);
+		}
+		if (activityId != null && !activityId.isEmpty()) {
+			q.activityId(activityId);
+		}
+
+		List<Incident> incidents = q.list();
+
+		List<Map<String, Object>> items = new ArrayList<>();
+		for (Incident inc : incidents) {
+			items.add(mapIncident(engine, inc, withStack));
+		}
+
+		return buildConnection("incidents", items, first, afterCursor);
+	}
+
+	Map<String, Object> mapIncident(ProcessEngine engine, Incident inc, boolean withStack) {
+		Map<String, Object> m = new HashMap<>();
+		m.put("id", inc.getId());
+		m.put("type", inc.getIncidentType());
+		m.put("message", inc.getIncidentMessage());
+		m.put("incidentTimestamp", formatDate(inc.getIncidentTimestamp()));
+		m.put("activityId", inc.getActivityId());
+		m.put("executionId", inc.getExecutionId());
+		m.put("processInstanceId", inc.getProcessInstanceId());
+		m.put("processDefinitionId", inc.getProcessDefinitionId());
+		m.put("causeIncidentId", inc.getCauseIncidentId());
+		m.put("rootCauseIncidentId", inc.getRootCauseIncidentId());
+		m.put("configuration", inc.getConfiguration());
+		m.put("annotation", inc.getAnnotation());
+		m.put("tenantId", inc.getTenantId());
+
+		// activityName — the frontend resolves display names from its parsed
+		// BPMN model. We expose activityId as a fallback so callers without
+		// the model still get something readable.
+		m.put("activityName", inc.getActivityId());
+
+		// processDefinitionKey — best effort from definition lookup
+		String defKey = null;
+		try {
+			ProcessDefinition def = engine.getRepositoryService()
+					.createProcessDefinitionQuery()
+					.processDefinitionId(inc.getProcessDefinitionId())
+					.singleResult();
+			if (def != null) defKey = def.getKey();
+		} catch (Exception ignore) {}
+		m.put("processDefinitionKey", defKey);
+
+		// jobId + jobRetries — for failedJob incidents, configuration holds the Job ID
+		String jobId = null;
+		int retries = 0;
+		String stackTrace = null;
+		if ("failedJob".equals(inc.getIncidentType()) && inc.getConfiguration() != null) {
+			jobId = inc.getConfiguration();
+			try {
+				Job job = engine.getManagementService().createJobQuery()
+						.jobId(jobId)
+						.singleResult();
+				if (job != null) retries = job.getRetries();
+			} catch (Exception ignore) {}
+			if (withStack) {
+				try {
+					stackTrace = engine.getManagementService().getJobExceptionStacktrace(jobId);
+				} catch (Exception ignore) {}
+			}
+		}
+		m.put("jobId", jobId);
+		m.put("jobRetries", retries);
+		m.put("stackTrace", stackTrace);
+
+		return m;
 	}
 
 	// =========================================================================

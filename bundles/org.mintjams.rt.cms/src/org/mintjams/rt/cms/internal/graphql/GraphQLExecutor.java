@@ -153,6 +153,10 @@ public class GraphQLExecutor {
 				response.setData(bpmQueryExecutor.executeTasksQuery(request));
 			} else if (query.contains("task(")) {
 				response.setData(bpmQueryExecutor.executeTaskQuery(request));
+			} else if (query.contains("incidents(")) {
+				response.setData(bpmQueryExecutor.executeIncidentsQuery(request));
+			} else if (query.contains("incident(")) {
+				response.setData(bpmQueryExecutor.executeIncidentQuery(request));
 			} else {
 				response.addError("Unknown query operation");
 			}
@@ -301,6 +305,12 @@ public class GraphQLExecutor {
 				response.setData(bpmMutationExecutor.executeSuspendProcessDefinition(request));
 			} else if (query.contains("activateProcessDefinition(")) {
 				response.setData(bpmMutationExecutor.executeActivateProcessDefinition(request));
+			} else if (query.contains("setJobRetries(")) {
+				response.setData(bpmMutationExecutor.executeSetJobRetries(request));
+			} else if (query.contains("resolveIncident(")) {
+				response.setData(bpmMutationExecutor.executeResolveIncident(request));
+			} else if (query.contains("setIncidentAnnotation(")) {
+				response.setData(bpmMutationExecutor.executeSetIncidentAnnotation(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}
