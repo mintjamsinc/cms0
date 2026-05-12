@@ -311,6 +311,10 @@ public class GraphQLExecutor {
 				response.setData(bpmMutationExecutor.executeResolveIncident(request));
 			} else if (query.contains("setIncidentAnnotation(")) {
 				response.setData(bpmMutationExecutor.executeSetIncidentAnnotation(request));
+			} else if (query.contains("createMigrationPlan(")) {
+				response.setData(bpmMutationExecutor.executeCreateMigrationPlan(request));
+			} else if (query.contains("migrateProcessInstance(")) {
+				response.setData(bpmMutationExecutor.executeMigrateProcessInstance(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}

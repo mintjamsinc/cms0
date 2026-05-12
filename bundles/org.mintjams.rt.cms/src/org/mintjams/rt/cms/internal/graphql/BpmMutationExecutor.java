@@ -34,11 +34,18 @@ import javax.jcr.Session;
 
 import org.camunda.bpm.engine.AuthorizationException;
 import org.camunda.bpm.engine.ProcessEngine;
+import org.camunda.bpm.engine.batch.Batch;
 import org.camunda.bpm.engine.history.HistoricProcessInstance;
+import org.camunda.bpm.engine.migration.MigrationInstruction;
+import org.camunda.bpm.engine.migration.MigrationInstructionsBuilder;
+import org.camunda.bpm.engine.migration.MigrationPlan;
+import org.camunda.bpm.engine.migration.MigrationPlanBuilder;
+import org.camunda.bpm.engine.migration.MigrationPlanExecutionBuilder;
 import org.camunda.bpm.engine.repository.Deployment;
 import org.camunda.bpm.engine.repository.DeploymentBuilder;
 import org.camunda.bpm.engine.runtime.Incident;
 import org.camunda.bpm.engine.runtime.ProcessInstance;
+import org.camunda.bpm.engine.runtime.ProcessInstanceQuery;
 import org.camunda.bpm.engine.task.Comment;
 import org.camunda.bpm.engine.task.Task;
 import org.mintjams.rt.cms.internal.CmsService;
@@ -545,6 +552,164 @@ public class BpmMutationExecutor {
 		if (v == null) return null;
 		if (v instanceof Number) return ((Number) v).intValue();
 		try { return Integer.parseInt(v.toString()); } catch (Exception e) { return null; }
+	}
+
+	// =========================================================================
+	// Process Instance Migration mutations
+	// =========================================================================
+
+	/**
+	 * Build a migration plan from a source to a target process definition.
+	 *
+	 * The plan returned here is built in-memory and discarded after the
+	 * response is serialised — Camunda's MigrationPlan is not persisted on
+	 * the engine until it is executed via migrateProcessInstance. The
+	 * frontend uses this as a "preview" step so the operator can confirm the
+	 * activity mappings before committing.
+	 */
+	public Map<String, Object> executeCreateMigrationPlan(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+		String sourceId = (String) input.get("sourceProcessDefinitionId");
+		String targetId = (String) input.get("targetProcessDefinitionId");
+		Boolean mapEqualActivities = (Boolean) input.get("mapEqualActivities");
+		Boolean updateEventTriggers = (Boolean) input.get("updateEventTriggers");
+
+		if (sourceId == null || sourceId.isEmpty()) {
+			throw new IllegalArgumentException("sourceProcessDefinitionId is required");
+		}
+		if (targetId == null || targetId.isEmpty()) {
+			throw new IllegalArgumentException("targetProcessDefinitionId is required");
+		}
+
+		ProcessEngine engine = getProcessEngine();
+		MigrationPlan plan = buildMigrationPlan(
+				engine, sourceId, targetId,
+				mapEqualActivities, updateEventTriggers);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("createMigrationPlan", mapMigrationPlan(plan));
+		return result;
+	}
+
+	/**
+	 * Migrate process instances of the source definition to the target
+	 * definition. Execution is always async (a Camunda Batch is created
+	 * and returned) — the engine's batch job executor performs the
+	 * migration work in the background.
+	 */
+	public Map<String, Object> executeMigrateProcessInstance(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+		String sourceId = (String) input.get("sourceProcessDefinitionId");
+		String targetId = (String) input.get("targetProcessDefinitionId");
+		Boolean mapEqualActivities = (Boolean) input.get("mapEqualActivities");
+		Boolean updateEventTriggers = (Boolean) input.get("updateEventTriggers");
+		Boolean skipCustomListeners = (Boolean) input.get("skipCustomListeners");
+		Boolean skipIoMappings = (Boolean) input.get("skipIoMappings");
+		Boolean allActiveInstances = (Boolean) input.get("allActiveInstances");
+
+		@SuppressWarnings("unchecked")
+		List<String> processInstanceIds = (List<String>) input.get("processInstanceIds");
+
+		if (sourceId == null || sourceId.isEmpty()) {
+			throw new IllegalArgumentException("sourceProcessDefinitionId is required");
+		}
+		if (targetId == null || targetId.isEmpty()) {
+			throw new IllegalArgumentException("targetProcessDefinitionId is required");
+		}
+		boolean useAll = Boolean.TRUE.equals(allActiveInstances);
+		boolean useIds = processInstanceIds != null && !processInstanceIds.isEmpty();
+		if (!useAll && !useIds) {
+			throw new IllegalArgumentException(
+					"Either allActiveInstances=true or a non-empty processInstanceIds must be supplied");
+		}
+
+		ProcessEngine engine = getProcessEngine();
+		MigrationPlan plan = buildMigrationPlan(
+				engine, sourceId, targetId,
+				mapEqualActivities, updateEventTriggers);
+
+		MigrationPlanExecutionBuilder exec = engine.getRuntimeService().newMigration(plan);
+		if (useIds) {
+			exec = exec.processInstanceIds(processInstanceIds);
+		}
+		if (useAll) {
+			ProcessInstanceQuery q = engine.getRuntimeService()
+					.createProcessInstanceQuery()
+					.processDefinitionId(sourceId)
+					.active();
+			exec = exec.processInstanceQuery(q);
+		}
+		if (Boolean.TRUE.equals(skipCustomListeners)) {
+			exec = exec.skipCustomListeners();
+		}
+		if (Boolean.TRUE.equals(skipIoMappings)) {
+			exec = exec.skipIoMappings();
+		}
+
+		Batch batch = exec.executeAsync();
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("migrateProcessInstance", mapBatch(batch));
+		return result;
+	}
+
+	private MigrationPlan buildMigrationPlan(
+			ProcessEngine engine,
+			String sourceId,
+			String targetId,
+			Boolean mapEqualActivities,
+			Boolean updateEventTriggers) {
+		MigrationPlanBuilder builder = engine.getRuntimeService()
+				.createMigrationPlan(sourceId, targetId);
+		// Default to mapEqualActivities() — the only "automatic" strategy
+		// the engine offers. A future iteration may accept explicit
+		// instructions for the detailed migration editor UX.
+		if (mapEqualActivities == null || Boolean.TRUE.equals(mapEqualActivities)) {
+			MigrationInstructionsBuilder instructions = builder.mapEqualActivities();
+			if (Boolean.TRUE.equals(updateEventTriggers)) {
+				instructions = instructions.updateEventTriggers();
+			}
+			builder = instructions;
+		}
+		return builder.build();
+	}
+
+	private Map<String, Object> mapMigrationPlan(MigrationPlan plan) {
+		Map<String, Object> m = new HashMap<>();
+		m.put("sourceProcessDefinitionId", plan.getSourceProcessDefinitionId());
+		m.put("targetProcessDefinitionId", plan.getTargetProcessDefinitionId());
+		List<Map<String, Object>> instructions = new ArrayList<>();
+		List<MigrationInstruction> list = plan.getInstructions();
+		if (list != null) {
+			for (MigrationInstruction inst : list) {
+				Map<String, Object> i = new HashMap<>();
+				String src = inst.getSourceActivityId();
+				String tgt = inst.getTargetActivityId();
+				i.put("sourceActivityIds", src != null ? List.of(src) : List.of());
+				i.put("targetActivityIds", tgt != null ? List.of(tgt) : List.of());
+				i.put("updateEventTrigger", inst.isUpdateEventTrigger());
+				instructions.add(i);
+			}
+		}
+		m.put("instructions", instructions);
+		return m;
+	}
+
+	private Map<String, Object> mapBatch(Batch batch) {
+		Map<String, Object> m = new HashMap<>();
+		m.put("id", batch.getId());
+		m.put("type", batch.getType());
+		m.put("totalJobs", batch.getTotalJobs());
+		m.put("jobsCreated", batch.getJobsCreated());
+		m.put("batchJobsPerSeed", batch.getBatchJobsPerSeed());
+		m.put("invocationsPerBatchJob", batch.getInvocationsPerBatchJob());
+		m.put("seedJobDefinitionId", batch.getSeedJobDefinitionId());
+		m.put("monitorJobDefinitionId", batch.getMonitorJobDefinitionId());
+		m.put("batchJobDefinitionId", batch.getBatchJobDefinitionId());
+		m.put("tenantId", batch.getTenantId());
+		m.put("createUserId", batch.getCreateUserId());
+		m.put("suspended", batch.isSuspended());
+		return m;
 	}
 
 	// =========================================================================
