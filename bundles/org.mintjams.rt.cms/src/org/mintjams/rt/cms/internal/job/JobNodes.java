@@ -89,7 +89,13 @@ public final class JobNodes {
 	}
 
 	/**
-	 * Resolve the absolute job-node path for an id produced by {@link #newJobId()}.
+	 * Resolve the absolute job-node path for a jobId.
+	 *
+	 * Job ids must be produced by {@link #newJobId()} — they encode an
+	 * epoch-millis prefix that's decoded back into a YYYY/MM folder pair so
+	 * lookup never requires a JCR scan.  Ids without a parseable millis prefix
+	 * are rejected; the caller is expected to mint a fresh id rather than
+	 * route the work into a fallback bucket.
 	 */
 	public static String jobNodePath(String jobId) {
 		long millis = parseMillis(jobId);
@@ -98,14 +104,17 @@ public final class JobNodes {
 	}
 
 	private static long parseMillis(String jobId) {
+		if (jobId == null) {
+			throw new IllegalArgumentException("jobId is required");
+		}
 		int dash = jobId.indexOf('-');
-		if (dash < 0) {
-			throw new IllegalArgumentException("Malformed jobId: " + jobId);
+		if (dash <= 0) {
+			throw new IllegalArgumentException("jobId is not in <millis>-<hex> form: " + jobId);
 		}
 		try {
 			return Long.parseLong(jobId.substring(0, dash));
 		} catch (NumberFormatException ex) {
-			throw new IllegalArgumentException("Malformed jobId: " + jobId, ex);
+			throw new IllegalArgumentException("jobId is not in <millis>-<hex> form: " + jobId, ex);
 		}
 	}
 

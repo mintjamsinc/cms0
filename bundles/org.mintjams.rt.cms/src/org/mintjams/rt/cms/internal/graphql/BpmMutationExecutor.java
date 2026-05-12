@@ -34,21 +34,22 @@ import javax.jcr.Session;
 
 import org.camunda.bpm.engine.AuthorizationException;
 import org.camunda.bpm.engine.ProcessEngine;
-import org.camunda.bpm.engine.batch.Batch;
 import org.camunda.bpm.engine.history.HistoricProcessInstance;
 import org.camunda.bpm.engine.migration.MigrationInstruction;
 import org.camunda.bpm.engine.migration.MigrationInstructionsBuilder;
 import org.camunda.bpm.engine.migration.MigrationPlan;
 import org.camunda.bpm.engine.migration.MigrationPlanBuilder;
-import org.camunda.bpm.engine.migration.MigrationPlanExecutionBuilder;
 import org.camunda.bpm.engine.repository.Deployment;
 import org.camunda.bpm.engine.repository.DeploymentBuilder;
 import org.camunda.bpm.engine.runtime.Incident;
 import org.camunda.bpm.engine.runtime.ProcessInstance;
-import org.camunda.bpm.engine.runtime.ProcessInstanceQuery;
 import org.camunda.bpm.engine.task.Comment;
 import org.camunda.bpm.engine.task.Task;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.job.JobNodes;
+import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.job.bpm.MigrateInstancesJob;
+import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 
 /**
  * GraphQL Mutation executor for Camunda 7 BPM operations.
@@ -592,10 +593,19 @@ public class BpmMutationExecutor {
 	}
 
 	/**
-	 * Migrate process instances of the source definition to the target
-	 * definition. Execution is always async (a Camunda Batch is created
-	 * and returned) — the engine's batch job executor performs the
-	 * migration work in the background.
+	 * Queue a process-instance migration as a CMS JobManager job. The job
+	 * itself drives Camunda's async batch executor and republishes its
+	 * progress through {@code jobProgress(jobId)} so the BPM Console can use
+	 * the same subscription plumbing the Content Browser uses for bulk
+	 * deletes.
+	 *
+	 * <p>The mutation returns immediately with the {@code jobId} the client
+	 * should subscribe to. The migration's underlying Camunda batch is
+	 * created later, inside the JobManager worker, so its id is not known at
+	 * mutation time — clients observe it via {@code jobProgress} updates if
+	 * needed. {@code abortable=false} because Camunda 7 batches cannot be
+	 * safely cancelled mid-flight; the client uses that flag to hide the
+	 * Abort button on the migration overlay.
 	 */
 	public Map<String, Object> executeMigrateProcessInstance(GraphQLRequest request) throws Exception {
 		Map<String, Object> input = extractInput(request);
@@ -623,34 +633,71 @@ public class BpmMutationExecutor {
 					"Either allActiveInstances=true or a non-empty processInstanceIds must be supplied");
 		}
 
+		// Build (and discard) the plan once up-front so any obvious mis-configuration
+		// — unknown definition ids, incompatible activities — is reported synchronously
+		// instead of disappearing into the worker thread's error log. The actual
+		// execution happens inside the JobManager worker, which rebuilds the plan
+		// on its own ProcessEngine handle.
 		ProcessEngine engine = getProcessEngine();
-		MigrationPlan plan = buildMigrationPlan(
-				engine, sourceId, targetId,
-				mapEqualActivities, updateEventTriggers);
+		buildMigrationPlan(engine, sourceId, targetId, mapEqualActivities, updateEventTriggers);
 
-		MigrationPlanExecutionBuilder exec = engine.getRuntimeService().newMigration(plan);
-		if (useIds) {
-			exec = exec.processInstanceIds(processInstanceIds);
-		}
-		if (useAll) {
-			ProcessInstanceQuery q = engine.getRuntimeService()
-					.createProcessInstanceQuery()
-					.processDefinitionId(sourceId)
-					.active();
-			exec = exec.processInstanceQuery(q);
-		}
-		if (Boolean.TRUE.equals(skipCustomListeners)) {
-			exec = exec.skipCustomListeners();
-		}
-		if (Boolean.TRUE.equals(skipIoMappings)) {
-			exec = exec.skipIoMappings();
-		}
+		MigrateInstancesJob.MigrationRequest req = new MigrateInstancesJob.MigrationRequest(
+				sourceId,
+				targetId,
+				useIds ? processInstanceIds : null,
+				useAll,
+				mapEqualActivities == null || Boolean.TRUE.equals(mapEqualActivities),
+				Boolean.TRUE.equals(updateEventTriggers),
+				Boolean.TRUE.equals(skipCustomListeners),
+				Boolean.TRUE.equals(skipIoMappings));
 
-		Batch batch = exec.executeAsync();
+		String jobId = enqueueMigrationJob(req);
+
+		Map<String, Object> handle = new HashMap<>();
+		handle.put("id", jobId);
+		handle.put("jobType", MigrateInstancesJob.TYPE);
+		handle.put("status", JobStatus.QUEUED.toExternalString());
+		handle.put("abortable", false);
 
 		Map<String, Object> result = new HashMap<>();
-		result.put("migrateProcessInstance", mapBatch(batch));
+		result.put("migrateProcessInstance", handle);
 		return result;
+	}
+
+	/**
+	 * Persist a fresh JCR job record under {@code /var/jobs/YYYY/MM/job-<id>}
+	 * and submit a {@link MigrateInstancesJob} that will perform the actual
+	 * migration on a worker thread. Returns the generated job id so the
+	 * client can subscribe to {@code jobProgress(jobId)} immediately.
+	 */
+	private String enqueueMigrationJob(MigrateInstancesJob.MigrationRequest req) throws Exception {
+		String workspaceName = session.getWorkspace().getName();
+		String userId = session.getUserID();
+		String jobId = JobNodes.newJobId();
+
+		Session mgmt = CmsService.getRepository().login(
+				new CmsServiceCredentials(userId), workspaceName);
+		try {
+			JobNodes.createJobNode(mgmt, jobId, MigrateInstancesJob.TYPE, userId, 0);
+			mgmt.save();
+		} catch (Throwable ex) {
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
+			throw new RuntimeException(
+					"Failed to create JCR job node for migration job " + jobId, ex);
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
+		}
+
+		try {
+			CmsService.getJobManager().submit(
+					new MigrateInstancesJob(jobId, workspaceName, userId, 0, req));
+		} catch (Throwable ex) {
+			// The JCR record already exists; surface the error so the client
+			// doesn't poll a job that will never start.
+			throw new RuntimeException(
+					"Failed to submit MigrateInstancesJob " + jobId, ex);
+		}
+		return jobId;
 	}
 
 	private MigrationPlan buildMigrationPlan(
@@ -692,23 +739,6 @@ public class BpmMutationExecutor {
 			}
 		}
 		m.put("instructions", instructions);
-		return m;
-	}
-
-	private Map<String, Object> mapBatch(Batch batch) {
-		Map<String, Object> m = new HashMap<>();
-		m.put("id", batch.getId());
-		m.put("type", batch.getType());
-		m.put("totalJobs", batch.getTotalJobs());
-		m.put("jobsCreated", batch.getJobsCreated());
-		m.put("batchJobsPerSeed", batch.getBatchJobsPerSeed());
-		m.put("invocationsPerBatchJob", batch.getInvocationsPerBatchJob());
-		m.put("seedJobDefinitionId", batch.getSeedJobDefinitionId());
-		m.put("monitorJobDefinitionId", batch.getMonitorJobDefinitionId());
-		m.put("batchJobDefinitionId", batch.getBatchJobDefinitionId());
-		m.put("tenantId", batch.getTenantId());
-		m.put("createUserId", batch.getCreateUserId());
-		m.put("suspended", batch.isSuspended());
 		return m;
 	}
 
