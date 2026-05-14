@@ -35,6 +35,8 @@ public class GraphQLExecutor {
 	private final QueryExecutor queryExecutor;
 	private final MutationExecutor mutationExecutor;
 	private final CamelQueryExecutor camelQueryExecutor;
+	private final EipRouteExecutor eipRouteExecutor;
+	private final EipStatsQueryExecutor eipStatsQueryExecutor;
 	private final IdpQueryExecutor idpQueryExecutor;
 	private final IdpMutationExecutor idpMutationExecutor;
 	private final BpmQueryExecutor bpmQueryExecutor;
@@ -45,6 +47,8 @@ public class GraphQLExecutor {
 		this.queryExecutor = new QueryExecutor(session);
 		this.mutationExecutor = new MutationExecutor(session);
 		this.camelQueryExecutor = new CamelQueryExecutor(session);
+		this.eipRouteExecutor = new EipRouteExecutor(session);
+		this.eipStatsQueryExecutor = new EipStatsQueryExecutor(session);
 		this.idpQueryExecutor = new IdpQueryExecutor(session);
 		this.idpMutationExecutor = new IdpMutationExecutor(session);
 		this.bpmQueryExecutor = new BpmQueryExecutor(session);
@@ -115,6 +119,18 @@ public class GraphQLExecutor {
 				response.setData(queryExecutor.executeGenericQuery(request));
 			} else if (query.contains("camelContext")) {
 				response.setData(camelQueryExecutor.executeCamelContextQuery(request));
+			// EIP stats / history queries — check multi-word names before single-word names
+			} else if (query.contains("routeStats(")) {
+				response.setData(eipStatsQueryExecutor.executeRouteStatsQuery(request));
+			} else if (query.contains("historyExchanges(")) {
+				response.setData(eipStatsQueryExecutor.executeHistoryExchangesQuery(request));
+			} else if (query.contains("historyExchange(")) {
+				response.setData(eipStatsQueryExecutor.executeHistoryExchangeQuery(request));
+			// EIP route queries — check multi-word names before single-word names
+			} else if (query.contains("routes(")) {
+				response.setData(eipRouteExecutor.executeRoutesQuery(request));
+			} else if (query.contains("route(")) {
+				response.setData(eipRouteExecutor.executeRouteQuery(request));
 			// IdP queries — check multi-word names before single-word names
 			} else if (query.contains("groupTree(")) {
 				response.setData(idpQueryExecutor.executeGroupTreeQuery(request));
@@ -315,6 +331,15 @@ public class GraphQLExecutor {
 				response.setData(bpmMutationExecutor.executeCreateMigrationPlan(request));
 			} else if (query.contains("migrateProcessInstance(")) {
 				response.setData(bpmMutationExecutor.executeMigrateProcessInstance(request));
+			// EIP route control mutations (Input Object Pattern)
+			} else if (query.contains("startRoute(")) {
+				response.setData(eipRouteExecutor.executeStartRoute(request));
+			} else if (query.contains("stopRoute(")) {
+				response.setData(eipRouteExecutor.executeStopRoute(request));
+			} else if (query.contains("suspendRoute(")) {
+				response.setData(eipRouteExecutor.executeSuspendRoute(request));
+			} else if (query.contains("resumeRoute(")) {
+				response.setData(eipRouteExecutor.executeResumeRoute(request));
 			} else {
 				response.addError("Unknown mutation operation");
 			}

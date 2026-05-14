@@ -65,6 +65,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.eip.aggregate.StatsConfig;
+import org.mintjams.rt.cms.internal.eip.aggregate.StatsConfigCache;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -125,6 +127,7 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	// -- configuration --
 	private int fQueueCapacity = 1000;
 	private boolean fTraceSteps = true;
+	private StatsConfigCache fStatsConfigCache;
 
 	// -- async writer --
 	private LinkedBlockingQueue<ExchangeHistoryRecord> fQueue;
@@ -161,6 +164,17 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	 */
 	public ExchangeHistoryEventNotifier setTraceSteps(boolean enabled) {
 		fTraceSteps = enabled;
+		return this;
+	}
+
+	/**
+	 * Stats-config cache used to drive per-route Lucene property promotion.
+	 * When provided, the {@code indexedHeaders} list of each route is consulted
+	 * at write time and the matching captured headers are set as JCR properties
+	 * named {@code mi:header_{name}} so they become searchable via JCR-SQL2.
+	 */
+	public ExchangeHistoryEventNotifier setStatsConfigCache(StatsConfigCache cache) {
+		fStatsConfigCache = cache;
 		return this;
 	}
 
@@ -633,8 +647,50 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 				JCRs.setProperty(fileNode, "mi:businessKey", record.getBusinessKey());
 			}
 
+			promoteIndexedHeaders(fileNode, record);
+
 			session.save();
 			LOG.debug("Wrote exchange history to {}/{}", dirPath, fileName);
+		}
+	}
+
+	/**
+	 * For each header listed in the route's {@code indexedHeaders} config, copy
+	 * the captured value to a JCR property so it becomes Lucene-searchable.
+	 *
+	 * <p>The property name pattern is {@code mi:header_{headerName}}. Only scalar
+	 * values are promoted; nested Map/List values are skipped to avoid index
+	 * bloat. Failures on individual headers are logged but never abort the
+	 * record write.
+	 */
+	private void promoteIndexedHeaders(Node fileNode, ExchangeHistoryRecord record) {
+		if (fStatsConfigCache == null) {
+			return;
+		}
+		StatsConfig config = fStatsConfigCache.get(record.getRouteId());
+		if (config == null || config.indexedHeaders().isEmpty()) {
+			return;
+		}
+		Map<String, Map<String, Object>> headers = record.getHeaders();
+		if (headers == null || headers.isEmpty()) {
+			return;
+		}
+
+		for (String name : config.indexedHeaders()) {
+			Map<String, Object> info = headers.get(name);
+			if (info == null) {
+				continue;
+			}
+			Object value = info.get("value");
+			if (value == null || value instanceof Map || value instanceof List) {
+				continue;
+			}
+			try {
+				JCRs.setProperty(fileNode, "mi:header_" + name, value);
+			} catch (Throwable ex) {
+				LOG.warn("Failed to promote header '{}' for {}: {}",
+						name, record.getExchangeId(), ex.getMessage());
+			}
 		}
 	}
 

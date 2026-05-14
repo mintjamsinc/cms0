@@ -146,7 +146,7 @@ public class BpmMutationExecutor {
 		if (id == null || id.isEmpty()) throw new IllegalArgumentException("id is required");
 
 		ProcessEngine engine = getProcessEngine();
-		engine.getRuntimeService().deleteProcessInstance(id, reason != null ? reason : "Cancelled via BPM Manager");
+		engine.getRuntimeService().deleteProcessInstance(id, reason != null ? reason : "Cancelled via BPM Console");
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("cancelProcessInstance", true);
@@ -161,7 +161,7 @@ public class BpmMutationExecutor {
 
 		ProcessEngine engine = getProcessEngine();
 		boolean skip = Boolean.TRUE.equals(skipCustomListeners);
-		engine.getRuntimeService().deleteProcessInstance(id, "Deleted via BPM Manager", skip);
+		engine.getRuntimeService().deleteProcessInstance(id, "Deleted via BPM Console", skip);
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("deleteProcessInstance", true);

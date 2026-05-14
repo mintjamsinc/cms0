@@ -23,11 +23,13 @@
 package org.mintjams.rt.cms.internal.eip;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -48,6 +50,9 @@ import java.util.stream.Collectors;
 import javax.jcr.AccessDeniedException;
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
+import javax.jcr.Property;
+import javax.jcr.PropertyIterator;
+import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.Value;
@@ -78,6 +83,8 @@ import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.security.UserServiceCredentials;
 import org.mintjams.script.resource.Resource;
+import org.mintjams.tools.io.IOs;
+import org.mintjams.tools.lang.Strings;
 
 public class CmsComponent extends DefaultComponent {
 
@@ -118,8 +125,14 @@ public class CmsComponent extends DefaultComponent {
 		@Override
 		public Producer createProducer() throws Exception {
 			// Determine operation type
-			if ("store".equals(fOperation)) {
+			if ("load".equals(fOperation)) {
+				return new LoadProducer();
+			} else if ("loadAsString".equals(fOperation)) {
+				return new LoadAsStringProducer();
+			} else if ("store".equals(fOperation)) {
 				return new StoreProducer();
+			} else if ("getProperties".equals(fOperation)) {
+				return new GetPropertiesProducer();
 			} else if ("setProperties".equals(fOperation)) {
 				return new SetPropertiesProducer();
 			} else if ("move".equals(fOperation)) {
@@ -195,12 +208,25 @@ public class CmsComponent extends DefaultComponent {
 				/**
 				 * Get parameter value from endpoint parameters or exchange headers.
 				 */
-				public Object getParameter(String key) {
-					if (fParameters.containsKey(key)) {
-						return fParameters.get(key);
+				public Object getParameter(String name) {
+					if (fParameters.containsKey(name)) {
+						return fParameters.get(name);
 					}
 
-					return fExchange.getIn().getHeader(key);
+					return fExchange.getIn().getHeader(name);
+				}
+
+				/**
+				 * Get all parameter names from endpoint parameters and exchange headers.
+				 */
+				public List<String> getParameterNames() {
+					List<String> names = new ArrayList<>(fParameters.keySet());
+					for (String headerName : fExchange.getIn().getHeaders().keySet()) {
+						if (!names.contains(headerName)) {
+							names.add(headerName);
+						}
+					}
+					return names;
 				}
 
 				/**
@@ -421,6 +447,105 @@ public class CmsComponent extends DefaultComponent {
 		}
 
 		/**
+		 * Producer for loading files from JCR as byte array
+		 *
+		 * URI format: cms:load?path=/content/file.txt&destination=headerName
+		 * Parameters:
+		 *   - path: Source file path (required)
+		 *   - destination: Header name to set content in (default: @body for exchange body)
+		 */
+		private class LoadProducer extends CmsProducer {
+			private LoadProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			protected void doProcess(ProcessContext pc) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = (String) pc.getParameter("runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					// Get parameters from endpoint parameters or exchange headers
+					String path = (String) pc.getParameter("path");
+					String destination = (String) pc.getParameter("destination");
+
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+					if (destination == null || destination.trim().isEmpty()) {
+						destination = "@body"; // Default to exchange body if destination parameter is not provided
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+					ByteArrayOutputStream out = new ByteArrayOutputStream();
+					try(InputStream in = JCRs.getContentAsStream(node)) {
+						IOs.copy(in, out);
+					}
+					if (destination.equalsIgnoreCase("@body")) {
+						pc.getExchange().getIn().setBody(out.toByteArray());
+					} else {
+						pc.setHeader(destination, out.toByteArray());
+					}
+				}
+			}
+		}
+
+		/**
+		 * Producer for loading files from JCR as string (with optional encoding)
+		 *
+		 * URI format: cms:loadAsString?path=/content/file.txt&destination=headerName
+		 * Parameters:
+		 *   - path: Source file path (required)
+		 *   - destination: Header name to set content in (default: @body for exchange body)
+		 */
+		private class LoadAsStringProducer extends CmsProducer {
+			private LoadAsStringProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			protected void doProcess(ProcessContext pc) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = (String) pc.getParameter("runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					// Get parameters from endpoint parameters or exchange headers
+					String path = (String) pc.getParameter("path");
+					String destination = (String) pc.getParameter("destination");
+
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+					if (destination == null || destination.trim().isEmpty()) {
+						destination = "@body"; // Default to exchange body if destination parameter is not provided
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+					String content = JCRs.getContentAsString(node);
+					if (destination.equalsIgnoreCase("@body")) {
+						pc.getExchange().getIn().setBody(content);
+					} else {
+						pc.setHeader(destination, content);
+					}
+				}
+			}
+		}
+
+		/**
 		 * Producer for storing files to JCR
 		 *
 		 * Sets the stored path in exchange header 'cmsStoredPath'.
@@ -429,7 +554,9 @@ public class CmsComponent extends DefaultComponent {
 		 * Parameters:
 		 *   - path: Target file path (required)
 		 *   - mimeType: MIME type (default: application/octet-stream)
+		 *   - encoding: Optional encoding for string content (e.g., "UTF-8")
 		 *   - createParents: Auto-create parent folders (default: true)
+		 *   - source: Header name to get content from (default: @body for exchange body)
 		 */
 		private class StoreProducer extends CmsProducer {
 			private StoreProducer() {
@@ -448,7 +575,9 @@ public class CmsComponent extends DefaultComponent {
 					// Get parameters from endpoint parameters or exchange headers
 					String path = (String) pc.getParameter("path");
 					String mimeType = (String) pc.getParameter("mimeType");
+					String encoding = (String) pc.getParameter("encoding");
 					String createParentsStr = (String) pc.getParameter("createParents");
+					String source = (String) pc.getParameter("source");
 
 					// Default createParents to true
 					boolean createParents = true;
@@ -462,11 +591,8 @@ public class CmsComponent extends DefaultComponent {
 					if (mimeType == null || mimeType.trim().isEmpty()) {
 						mimeType = "application/octet-stream"; // Default MIME type
 					}
-
-					// Get content from exchange body
-					byte[] content = pc.getExchange().getIn().getBody(byte[].class);
-					if (content == null) {
-						throw new IllegalArgumentException("Exchange body is empty");
+					if (source == null || source.trim().isEmpty()) {
+						source = "@body"; // Default to exchange body if source parameter is not provided
 					}
 
 					// Ensure parent path exists
@@ -488,33 +614,270 @@ public class CmsComponent extends DefaultComponent {
 						fileNode = session.getNode(path);
 					} else {
 						// Create new file
-						fileNode = parentNode.addNode(fileName, "nt:file");
+						fileNode = JCRs.createFile(parentNode, fileName);
 					}
 
-					// Create or update jcr:content node
-					Node contentNode;
-					if (fileNode.hasNode("jcr:content")) {
-						contentNode = fileNode.getNode("jcr:content");
+					// Write content to jcr:content node
+					if (source.equalsIgnoreCase("@body")) {
+						// Get content from exchange body
+						byte[] content = pc.getExchange().getIn().getBody(byte[].class);
+						if (content == null) {
+							throw new IllegalArgumentException("Exchange body is empty");
+						}
+
+						try (InputStream in = new ByteArrayInputStream(content)) {
+							JCRs.write(fileNode, in);
+						}
 					} else {
-						contentNode = fileNode.addNode("jcr:content", "nt:resource");
+						// Get content from specified header
+						Object headerValue = pc.getExchange().getIn().getHeader(source);
+						if (headerValue == null) {
+							throw new IllegalArgumentException("Source header '" + source + "' is empty");
+						}
+
+						byte[] content;
+						if (headerValue instanceof byte[]) {
+							content = (byte[]) headerValue;
+						} else if (headerValue instanceof String) {
+							content = ((String) headerValue).getBytes(encoding != null ? encoding : StandardCharsets.UTF_8.name());
+						} else {
+							throw new IllegalArgumentException("Unsupported source header type: " + headerValue.getClass().getName());
+						}
+
+						try (InputStream in = new ByteArrayInputStream(content)) {
+							JCRs.write(fileNode, in);
+						}
 					}
 
 					// Set content properties
 					Calendar now = Calendar.getInstance();
-					try (InputStream in = new ByteArrayInputStream(content)) {
-						JCRs.write(fileNode, in);
+					JCRs.setProperty(fileNode, "jcr:mimeType", mimeType);
+					if (encoding != null) {
+						JCRs.setProperty(fileNode, "jcr:encoding", encoding);
 					}
-					contentNode.setProperty("jcr:mimeType", mimeType);
-					contentNode.setProperty("jcr:lastModified", now);
-					contentNode.setProperty("jcr:lastModifiedBy", session.getUserID());
+					JCRs.setProperty(fileNode, "jcr:lastModified", now);
+					JCRs.setProperty(fileNode, "jcr:lastModifiedBy", session.getUserID());
 
 					session.save();
 
 					// Set result path in exchange header (camelCase to match GraphQL conventions)
 					pc.setHeader("cmsStoredPath", fileNode.getPath());
-				} catch (Exception e) {
-					CmsService.getLogger(getClass()).error("Failed to store file to JCR: " + e.getMessage(), e);
-					throw e;
+				}
+			}
+		}
+
+		private class GetPropertiesProducer extends CmsProducer {
+			private GetPropertiesProducer() {
+				super(CmsEndpoint.this);
+			}
+
+			@Override
+			protected void doProcess(ProcessContext pc) throws Exception {
+				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
+					String runAs = (String) pc.getParameter("runAs");
+					if (runAs != null && !runAs.trim().isEmpty()) {
+						context.setCredentials(new UserServiceCredentials(runAs));
+					}
+					Session session = Scripts.getJcrSession(context);
+
+					// Get parameters from endpoint parameters or exchange headers
+					String path = (String) pc.getParameter("path");
+					// Get include/exclude filters from endpoint parameters or exchange headers
+					List<String> includes = pc.parseFilterList(pc.getParameter("includes"));
+					List<String> excludes = pc.parseFilterList(pc.getParameter("excludes"));
+
+					if (path == null || path.trim().isEmpty()) {
+						throw new IllegalArgumentException("path parameter is required");
+					}
+
+					if (!session.nodeExists(path)) {
+						throw new PathNotFoundException("Node not found: " + path);
+					}
+
+					Node node = session.getNode(path);
+					Node contentNode = JCRs.getContentNode(node);
+
+					// Apply include filters first to determine which properties to set, then apply exclude filters to skip any excluded properties.
+					// This allows for flexible combinations of includes and excludes.
+					for (PropertyIterator i = contentNode.getProperties(); i.hasNext();) {
+						Property property = i.nextProperty();
+						String propertyName = property.getName();
+						if (!matches(propertyName, includes) || matches(propertyName, excludes)) {
+							continue; // Skip excluded properties
+						}
+						pc.setHeader(propertyName, getPropertyValue(contentNode, propertyName));
+					}
+
+					// Support "@header." prefix for mapping properties to headers, and "@body" for setting the exchange body from a property.
+					for (String name : pc.getParameterNames()) {
+						if (name.toLowerCase().startsWith("@header.")) {
+							String headerName = name.substring(8); // Remove "@header." prefix
+							if (headerName.equals("")) {
+								continue; // Skip if no header name is specified
+							} else if (headerName.equals("*")) {
+								// @header.*=propertyName1,propertyName2 syntax for mapping multiple properties with same name
+								// @header.*=* syntax for mapping all properties with same name
+								// @header.* syntax for mapping all properties with same name (fallback if parameter value is empty)
+								String filter = Strings.defaultIfEmpty((String) pc.getParameter(name), "*").trim();
+								if (filter.equals("*")) {
+									for (PropertyIterator i = contentNode.getProperties(); i.hasNext();) {
+										Property property = i.nextProperty();
+										String propertyName = property.getName();
+										if (matches(propertyName, excludes)) {
+											continue; // Skip excluded properties
+										}
+										pc.setHeader(propertyName, getPropertyValue(contentNode, propertyName));
+									}
+								} else {
+									for (String propertyName : pc.parseFilterList(filter)) {
+										if (matches(propertyName, excludes)) {
+											continue; // Skip excluded properties
+										}
+										pc.setHeader(propertyName, getPropertyValue(contentNode, propertyName));
+									}
+								}
+							} else if (headerName.endsWith("*")) {
+								// @header.headerName*=propertyName1,propertyName2 syntax for mapping multiple properties with common prefix
+								// @header.headerName*=* syntax for mapping all properties with common prefix
+								// @header.headerName* syntax for mapping all properties with common prefix (fallback if parameter value is empty)
+								String filter = Strings.defaultIfEmpty((String) pc.getParameter(name), "*").trim();
+								String prefix = headerName.substring(0, headerName.length() - 1);
+								if (filter.equals("*")) {
+									for (PropertyIterator i = contentNode.getProperties(); i.hasNext();) {
+										Property property = i.nextProperty();
+										String propertyName = property.getName();
+										if (matches(propertyName, excludes)) {
+											continue; // Skip excluded properties
+										}
+										pc.setHeader(prefix + propertyName, getPropertyValue(contentNode, propertyName));
+									}
+								} else {
+									for (String propertyName : pc.parseFilterList(filter)) {
+										if (matches(propertyName, excludes)) {
+											continue; // Skip excluded properties
+										}
+										pc.setHeader(prefix + propertyName, getPropertyValue(contentNode, propertyName));
+									}
+								}
+							} else if (headerName.startsWith("*")) {
+								// @header.*headerName=propertyName1,propertyName2 syntax for mapping multiple properties with common suffix
+								// @header.*headerName=* syntax for mapping all properties with common suffix
+								// @header.*headerName syntax for mapping all properties with common suffix (fallback if parameter value is empty)
+								String filter = Strings.defaultIfEmpty((String) pc.getParameter(name), "*").trim();
+								String suffix = headerName.substring(1);
+								if (filter.equals("*")) {
+									for (PropertyIterator i = contentNode.getProperties(); i.hasNext();) {
+										Property property = i.nextProperty();
+										String propertyName = property.getName();
+										if (matches(propertyName, excludes)) {
+											continue; // Skip excluded properties
+										}
+										pc.setHeader(propertyName + suffix, getPropertyValue(contentNode, propertyName));
+									}
+								} else {
+									for (String propertyName : pc.parseFilterList(pc.getParameter(name))) {
+										if (matches(propertyName, excludes)) {
+											continue; // Skip excluded properties
+										}
+										pc.setHeader(propertyName + suffix, getPropertyValue(contentNode, propertyName));
+									}
+								}
+							} else {
+								// @header.headerName=propertyName syntax for direct mapping
+								// @header.headerName syntax for same name mapping
+								String propertyName = (String) pc.getParameter(name);
+								if (propertyName == null || propertyName.trim().isEmpty()) {
+									propertyName = headerName; // Fallback to header name if parameter value is empty
+								}
+								if (matches(propertyName, excludes)) {
+									continue; // Skip excluded properties
+								}
+								pc.setHeader(headerName, getPropertyValue(contentNode, propertyName));
+							}
+						} else if (name.equalsIgnoreCase("@body")) {
+							String propertyName = (String) pc.getParameter(name);
+							Object value = getPropertyValue(contentNode, propertyName);
+							pc.getExchange().getIn().setBody(value);
+						}
+					}
+				}
+			}
+
+			/**
+			 * Check if a property name matches any of the provided filters.
+			 */
+			private boolean matches(String propertyName, List<String> filters) {
+				for (String filter : filters) {
+					if (filter.endsWith("*")) {
+						String prefix = filter.substring(0, filter.length() - 1);
+						if (propertyName.startsWith(prefix)) {
+							return true;
+						}
+					} else if (filter.startsWith("*")) {
+						String suffix = filter.substring(1);
+						if (propertyName.endsWith(suffix)) {
+							return true;
+						}
+					} else if (filter.endsWith("~")) {
+						String prefix = filter.substring(0, filter.length() - 1);
+						if (propertyName.startsWith(prefix)) {
+							return true;
+						}
+					} else if (filter.startsWith("~")) {
+						String suffix = filter.substring(1);
+						if (propertyName.endsWith(suffix)) {
+							return true;
+						}
+					} else {
+						if (propertyName.equals(filter)) {
+							return true;
+						}
+					}
+				}
+				return false;
+			}
+
+			/**
+			 * Get property value from a JCR node with proper type handling.
+			 * Returns null if the property does not exist.
+			 */
+			private Object getPropertyValue(Node node, String propertyName) throws RepositoryException {
+				if (!node.hasProperty(propertyName)) {
+					return null;
+				}
+
+				Property property = node.getProperty(propertyName);
+				if (property.isMultiple()) {
+					// Handle multi-value properties as lists
+					List<Object> values = new ArrayList<>();
+					for (Value v : property.getValues()) {
+						values.add(getSingleValue(v));
+					}
+					return values;
+				} else {
+					return getSingleValue(property.getValue());
+				}
+			}
+
+			/**
+			 * Convert a single JCR Value to an appropriate Java type.
+			 */
+			private Object getSingleValue(Value value) throws RepositoryException {
+				switch (value.getType()) {
+					case PropertyType.STRING:
+						return value.getString();
+					case PropertyType.BOOLEAN:
+						return value.getBoolean();
+					case PropertyType.DATE:
+						return value.getDate();
+					case PropertyType.DOUBLE:
+						return value.getDouble();
+					case PropertyType.LONG:
+						return value.getLong();
+					case PropertyType.DECIMAL:
+						return value.getDecimal();
+					default:
+						return value.getString(); // Fallback to string representation for unsupported types
 				}
 			}
 		}
@@ -584,7 +947,7 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					Node node = session.getNode(path);
-					Node targetNode = getTargetNode(node);
+					Node contentNode = JCRs.getContentNode(node);
 
 					// Set properties from exchange headers
 					Map<String, Object> headers = pc.getExchange().getIn().getHeaders();
@@ -595,11 +958,11 @@ public class CmsComponent extends DefaultComponent {
 							String propertyName = parts[0].trim();
 							String headerName = parts[1].trim();
 							if (Objects.equals(headerName.toLowerCase(), "@body")) {
-								setProperty(targetNode, propertyName, pc.getExchange().getIn().getBody(), vf);
+								setProperty(contentNode, propertyName, pc.getExchange().getIn().getBody(), vf);
 								continue;
 							}
 							if (headers.containsKey(headerName) && !matches(headerName, excludes)) {
-								setProperty(targetNode, propertyName, headers.get(headerName), vf);
+								setProperty(contentNode, propertyName, headers.get(headerName), vf);
 							}
 							continue;
 						}
@@ -608,28 +971,28 @@ public class CmsComponent extends DefaultComponent {
 							String prefix = filter.substring(0, filter.length() - 1);
 							for (Map.Entry<String, Object> entry : headers.entrySet()) {
 								if (entry.getKey().startsWith(prefix) && !matches(entry.getKey(), excludes)) {
-									setProperty(targetNode, entry.getKey(), entry.getValue(), vf);
+									setProperty(contentNode, entry.getKey(), entry.getValue(), vf);
 								}
 							}
 						} else if (filter.startsWith("*")) {
 							String suffix = filter.substring(1);
 							for (Map.Entry<String, Object> entry : headers.entrySet()) {
 								if (entry.getKey().endsWith(suffix) && !matches(entry.getKey(), excludes)) {
-									setProperty(targetNode, entry.getKey(), entry.getValue(), vf);
+									setProperty(contentNode, entry.getKey(), entry.getValue(), vf);
 								}
 							}
 						} else if (filter.endsWith("~")) {
 							String prefix = filter.substring(0, filter.length() - 1);
 							for (Map.Entry<String, Object> entry : headers.entrySet()) {
 								if (entry.getKey().startsWith(prefix) && !matches(entry.getKey(), excludes)) {
-									setProperty(targetNode, entry.getKey().substring(prefix.length()), entry.getValue(), vf);
+									setProperty(contentNode, entry.getKey().substring(prefix.length()), entry.getValue(), vf);
 								}
 							}
 						} else if (filter.startsWith("~")) {
 							String suffix = filter.substring(1);
 							for (Map.Entry<String, Object> entry : headers.entrySet()) {
 								if (entry.getKey().endsWith(suffix) && !matches(entry.getKey(), excludes)) {
-									setProperty(targetNode, entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue(), vf);
+									setProperty(contentNode, entry.getKey().substring(0, entry.getKey().length() - suffix.length()), entry.getValue(), vf);
 								}
 							}
 						} else {
@@ -648,10 +1011,10 @@ public class CmsComponent extends DefaultComponent {
 								Map<?, ?> mapValue = (Map<?, ?>) value;
 								for (Map.Entry<?, ?> entry : mapValue.entrySet()) {
 									String propertyName = filter + delimiter + entry.getKey().toString();
-									setProperty(targetNode, propertyName, entry.getValue(), vf);
+									setProperty(contentNode, propertyName, entry.getValue(), vf);
 								}
 							} else {
-								setProperty(targetNode, filter, value, vf);
+								setProperty(contentNode, filter, value, vf);
 							}
 						}
 					}
@@ -806,16 +1169,6 @@ public class CmsComponent extends DefaultComponent {
 				}
 
 				return values.toArray(new Value[0]);
-			}
-
-			/**
-			 * Get target node for property setting
-			 */
-			private Node getTargetNode(Node node) throws RepositoryException {
-				if (node.isNodeType("nt:file") && node.hasNode("jcr:content")) {
-					return node.getNode("jcr:content");
-				}
-				return node;
 			}
 		}
 
