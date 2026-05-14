@@ -31,7 +31,7 @@ import java.util.List;
  * <p>Loaded from {@code /etc/eip/stats-config/{routeId}.json} in JCR. Shape:
  * <pre>{@code
  * {
- *   "route": "shopify-product-update",
+ *   "route": "commerce-product-update",
  *   "dimensions": ["header.vendor", "header.product_type"],
  *   "indexedHeaders": ["product_id", "title", "vendor", "product_type"]
  * }
