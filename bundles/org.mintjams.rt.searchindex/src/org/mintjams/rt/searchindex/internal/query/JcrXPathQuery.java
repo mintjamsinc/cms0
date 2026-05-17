@@ -1349,8 +1349,8 @@ public class JcrXPathQuery extends SearchIndexQuery {
 								}
 							}
 							if (fieldType == null) {
-								if (javaValue instanceof BigDecimal) {
-									fieldType = Double.class;
+								if (javaValue instanceof Number) {
+									fieldType = Number.class;
 								} else if (javaValue instanceof java.util.Date) {
 									fieldType = java.util.Date.class;
 								} else if (javaValue instanceof Boolean) {
@@ -1359,7 +1359,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 									fieldType = String.class;
 								}
 							}
-							if (fieldType.equals(BigDecimal.class)) {
+							if (fieldType.equals(Number.class)) {
 								fPointsConfigMap.put(name, new PointsConfig(new DecimalFormat(), Double.class));
 							} else if (fieldType.equals(java.util.Date.class)) {
 								fPointsConfigMap.put(name, new PointsConfig(new DecimalFormat(), Long.class));
@@ -1715,7 +1715,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					if (args.size() != 2) {
 						throw new InvalidQuerySyntaxException(fStatement);
 					}
-					Object arg1 = args.get(1);
+					Object arg1 = toJavaValue(args.get(1));
 					if (!(arg1 instanceof BigDecimal)) {
 						throw new InvalidQuerySyntaxException(fStatement);
 					}
@@ -1749,12 +1749,12 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					if (args.size() != 2) {
 						throw new InvalidQuerySyntaxException(fStatement);
 					}
-					Object arg0 = args.get(0);
+					Object arg0 = toJavaValue(args.get(0));
 					if (!(arg0 instanceof String)) {
 						throw new InvalidQuerySyntaxException(fStatement);
 					}
 
-					String label = arg0.toString();
+					String label = (String) arg0;
 					String expression = args.get(1);
 					List<String> exps = new ArrayList<>();
 					for (;;) {

@@ -154,14 +154,15 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 		if (needsBuildSearchIndex) {
 			Activator.getDefault().getLogger(getClass()).info("Creating the JCR search index.");
+			SearchIndexUpdateMonitor updateMonitor = new SearchIndexUpdateMonitor();
 			try (JcrWorkspace workspace = createSession(new SystemPrincipal())) {
 				for (NodeIterator i = workspace.getSession().getRootNode().getNodes(); i.hasNext();) {
-					fJournalObserver.buildSearchIndex(i.nextNode());
+					fJournalObserver.buildSearchIndex(i.nextNode(), updateMonitor);
 				}
 			} catch (RepositoryException ex) {
 				throw Cause.create(ex).wrap(IOException.class);
 			}
-			Activator.getDefault().getLogger(getClass()).info("JCR search index has been created.");
+			Activator.getDefault().getLogger(getClass()).info("JCR search index has been created. Total indexed " + updateMonitor.getCount() + " nodes.");
 		}
 
 		fLive = true;
@@ -564,6 +565,34 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 		return Adaptables.getAdapter(fRepository, adapterType);
 	}
+
+	private class SearchIndexUpdateMonitor implements SearchIndex.UpdateMonitor {
+		private long fCount = 0;
+
+		private final Consumer<String> fPathConsumer = new Consumer<>() {
+			@Override
+			public void accept(String path) {
+				fCount++;
+				if (fCount % 100 == 0) {
+					Activator.getDefault().getLogger(JcrWorkspaceProvider.class).info("Indexed " + fCount + " nodes.");
+				}
+			}
+		};
+
+		@Override
+		public boolean isCancelled() {
+			return false;
+		}
+
+		@Override
+		public Consumer<String> getPathConsumer() {
+			return fPathConsumer;
+		}
+
+		public long getCount() {
+			return fCount;
+		}
+	};
 
 	private class ConnectionPool implements Closeable {
 		private boolean fCloseRequested;

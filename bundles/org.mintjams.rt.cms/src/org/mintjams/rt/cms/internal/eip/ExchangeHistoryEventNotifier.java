@@ -49,8 +49,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -58,15 +56,16 @@ import java.util.stream.Collectors;
 import javax.jcr.Node;
 import javax.jcr.Session;
 
+import org.apache.camel.Endpoint;
 import org.apache.camel.Exchange;
+import org.apache.camel.MessageHistory;
+import org.apache.camel.NamedNode;
 import org.apache.camel.spi.CamelEvent;
 import org.apache.camel.support.EventNotifierSupport;
 import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
-import org.mintjams.rt.cms.internal.eip.aggregate.StatsConfig;
-import org.mintjams.rt.cms.internal.eip.aggregate.StatsConfigCache;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -116,7 +115,6 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 			DateTimeFormatter.ofPattern("yyyy/MM/dd/HH").withZone(ZoneOffset.UTC);
 
 	private final String fWorkspaceName;
-	private final ConcurrentMap<String, List<ExchangeHistoryRecord.Step>> fInflightSteps = new ConcurrentHashMap<>();
 
 	private static final String HEADER_INCLUDES = "mi:history.header.includes";
 	private static final String HEADER_EXCLUDES = "mi:history.header.excludes";
@@ -126,8 +124,6 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 
 	// -- configuration --
 	private int fQueueCapacity = 1000;
-	private boolean fTraceSteps = true;
-	private StatsConfigCache fStatsConfigCache;
 
 	// -- async writer --
 	private LinkedBlockingQueue<ExchangeHistoryRecord> fQueue;
@@ -137,7 +133,9 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	public ExchangeHistoryEventNotifier(String workspaceName) {
 		fWorkspaceName = workspaceName;
 
-		// We only care about exchange lifecycle events.
+		// We only care about exchange completion / failure events. Step-level
+		// information is read from the Exchange's CamelMessageHistory property
+		// at completion time — there is no need to subscribe to per-step events.
 		setIgnoreCamelContextEvents(true);
 		setIgnoreCamelContextInitEvents(true);
 		setIgnoreRouteEvents(true);
@@ -157,68 +155,76 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 		return this;
 	}
 
-	/**
-	 * Whether to capture per-step execution path via {@code ExchangeSentEvent}.
-	 * Enabled by default. Disable to reduce memory/storage overhead when
-	 * only aggregate timing is needed.
-	 */
-	public ExchangeHistoryEventNotifier setTraceSteps(boolean enabled) {
-		fTraceSteps = enabled;
-		return this;
-	}
-
-	/**
-	 * Stats-config cache used to drive per-route Lucene property promotion.
-	 * When provided, the {@code indexedHeaders} list of each route is consulted
-	 * at write time and the matching captured headers are set as JCR properties
-	 * named {@code mi:header_{name}} so they become searchable via JCR-SQL2.
-	 */
-	public ExchangeHistoryEventNotifier setStatsConfigCache(StatsConfigCache cache) {
-		fStatsConfigCache = cache;
-		return this;
-	}
-
 	// ------------------------------------------------------------------
 	// EventNotifier SPI
 	// ------------------------------------------------------------------
 
 	@Override
 	public void notify(CamelEvent event) throws Exception {
-		if (fTraceSteps && event instanceof CamelEvent.ExchangeCreatedEvent) {
-			Exchange exchange = ((CamelEvent.ExchangeCreatedEvent) event).getExchange();
-			fInflightSteps.put(exchange.getExchangeId(), new ArrayList<>());
-		} else if (fTraceSteps && event instanceof CamelEvent.ExchangeSentEvent) {
-			onExchangeSent((CamelEvent.ExchangeSentEvent) event);
-		} else if (event instanceof CamelEvent.ExchangeCompletedEvent) {
+		if (event instanceof CamelEvent.ExchangeCompletedEvent) {
 			onExchangeDone(((CamelEvent.ExchangeCompletedEvent) event).getExchange(), false);
 		} else if (event instanceof CamelEvent.ExchangeFailedEvent) {
 			onExchangeDone(((CamelEvent.ExchangeFailedEvent) event).getExchange(), true);
 		}
 	}
 
-	private void onExchangeSent(CamelEvent.ExchangeSentEvent event) {
+	/**
+	 * Materialise the execution path of {@code exchange} from Camel's
+	 * {@link MessageHistory} list (property {@link Exchange#MESSAGE_HISTORY}).
+	 *
+	 * <p>The list is populated by Camel's MessageHistoryFactory when the
+	 * context has {@code messageHistory} enabled. Each entry corresponds to
+	 * one processor node in the route — its {@link NamedNode#getId() id} is the
+	 * DSL-assigned step id, and we attempt to pull the URI off the message
+	 * header for {@code to/from/wireTap} processors (best-effort, falls back to
+	 * the node label).
+	 */
+	@SuppressWarnings("unchecked")
+	private List<ExchangeHistoryRecord.Step> extractSteps(Exchange exchange) {
+		Object raw = exchange.getProperty(Exchange.MESSAGE_HISTORY);
+		if (!(raw instanceof List)) {
+			return Collections.emptyList();
+		}
+		List<?> history = (List<?>) raw;
+		long created = exchange.getCreated();
+		List<ExchangeHistoryRecord.Step> steps = new ArrayList<>(history.size());
+		int order = 0;
+		for (Object o : history) {
+			if (!(o instanceof MessageHistory)) {
+				continue;
+			}
+			MessageHistory mh = (MessageHistory) o;
+			NamedNode node = mh.getNode();
+			String id = node != null ? node.getId() : null;
+			String uri = resolveStepUri(mh, node);
+			long startMs = mh.getTime();
+			long elapsed = mh.getElapsed();
+			long offsetFromStart = (created > 0) ? (startMs + elapsed - created) : elapsed;
+			steps.add(new ExchangeHistoryRecord.Step(id, uri, elapsed, offsetFromStart, ++order));
+		}
+		return steps;
+	}
+
+	private String resolveStepUri(MessageHistory mh, NamedNode node) {
+		// Best-effort URI capture: many step types (to / toD / from / wireTap)
+		// expose their endpoint via the node's description; otherwise fall back
+		// to the node label (which is typically the DSL fragment that produced
+		// the node).
+		if (node != null) {
+			String label = node.getLabel();
+			if (label != null && !label.isBlank()) {
+				return label;
+			}
+			String desc = node.getDescriptionText();
+			if (desc != null && !desc.isBlank()) {
+				return desc;
+			}
+		}
 		try {
-			Exchange exchange = event.getExchange();
-			List<ExchangeHistoryRecord.Step> steps = fInflightSteps.get(exchange.getExchangeId());
-			if (steps == null) {
-				steps = new ArrayList<>();
-				fInflightSteps.put(exchange.getExchangeId(), steps);
-			}
-
-			long created = exchange.getCreated();
-			long now = System.currentTimeMillis();
-			long offsetFromStart = now - created;
-
-			synchronized (steps) {
-				steps.add(new ExchangeHistoryRecord.Step(
-						event.getEndpoint().getEndpointUri(),
-						event.getTimeTaken(),
-						offsetFromStart,
-						steps.size()));
-			}
-		} catch (Throwable ex) {
-			LOG.debug("Failed to record step for {}: {}",
-					event.getExchange().getExchangeId(), ex.getMessage());
+			Endpoint endpoint = mh.getMessage() != null ? mh.getMessage().getExchange().getFromEndpoint() : null;
+			return endpoint != null ? endpoint.getEndpointUri() : null;
+		} catch (Throwable ignore) {
+			return null;
 		}
 	}
 
@@ -282,15 +288,9 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 			// Capture headers specified by include/exclude filters
 			captureHeaders(exchange, builder);
 
-			// Attach execution path
-			List<ExchangeHistoryRecord.Step> steps =
-					fInflightSteps.remove(exchange.getExchangeId());
-			if (steps != null) {
-				synchronized (steps) {
-					for (ExchangeHistoryRecord.Step step : steps) {
-						builder.addStep(step);
-					}
-				}
+			// Attach execution path — read off CamelMessageHistory.
+			for (ExchangeHistoryRecord.Step step : extractSteps(exchange)) {
+				builder.addStep(step);
 			}
 
 			enqueue(builder.build(), elapsed);
@@ -647,50 +647,8 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 				JCRs.setProperty(fileNode, "mi:businessKey", record.getBusinessKey());
 			}
 
-			promoteIndexedHeaders(fileNode, record);
-
 			session.save();
 			LOG.debug("Wrote exchange history to {}/{}", dirPath, fileName);
-		}
-	}
-
-	/**
-	 * For each header listed in the route's {@code indexedHeaders} config, copy
-	 * the captured value to a JCR property so it becomes Lucene-searchable.
-	 *
-	 * <p>The property name pattern is {@code mi:header_{headerName}}. Only scalar
-	 * values are promoted; nested Map/List values are skipped to avoid index
-	 * bloat. Failures on individual headers are logged but never abort the
-	 * record write.
-	 */
-	private void promoteIndexedHeaders(Node fileNode, ExchangeHistoryRecord record) {
-		if (fStatsConfigCache == null) {
-			return;
-		}
-		StatsConfig config = fStatsConfigCache.get(record.getRouteId());
-		if (config == null || config.indexedHeaders().isEmpty()) {
-			return;
-		}
-		Map<String, Map<String, Object>> headers = record.getHeaders();
-		if (headers == null || headers.isEmpty()) {
-			return;
-		}
-
-		for (String name : config.indexedHeaders()) {
-			Map<String, Object> info = headers.get(name);
-			if (info == null) {
-				continue;
-			}
-			Object value = info.get("value");
-			if (value == null || value instanceof Map || value instanceof List) {
-				continue;
-			}
-			try {
-				JCRs.setProperty(fileNode, "mi:header_" + name, value);
-			} catch (Throwable ex) {
-				LOG.warn("Failed to promote header '{}' for {}: {}",
-						name, record.getExchangeId(), ex.getMessage());
-			}
 		}
 	}
 
@@ -719,7 +677,6 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	@Override
 	public void close() throws IOException {
 		fCloseRequested = true;
-		fInflightSteps.clear();
 		if (fWriterThread != null) {
 			fWriterThread.interrupt();
 			try {

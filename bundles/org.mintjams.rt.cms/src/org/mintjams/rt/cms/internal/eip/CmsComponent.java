@@ -666,6 +666,17 @@ public class CmsComponent extends DefaultComponent {
 			}
 		}
 
+		/**
+		 * Producer for retrieving properties from a JCR node and setting them as exchange headers.
+		 *
+		 * URI format: cms:getProperties?path=/content/file.txt&includes=prop*&excludes=prop3
+		 * Parameters:
+		 *   - path: Source node path (required)
+		 *   - includes: Comma-separated list of property names to include (supports wildcard patterns, default: include all)
+		 *   - excludes: Comma-separated list of property names to exclude (supports wildcard patterns, default: exclude none)
+		 *   - runAs: User to impersonate (optional)
+		 *   - Header mapping: Use @header.propertyName=propertyName to map a property to a specific header, or @header.*=prop1,prop2 for multiple properties with same name, or @header.prefix*=prop1,prop2 for common prefix, or @header.*suffix=prop1,prop2 for common suffix. Use @body=propertyName to set the exchange body from a property.
+		 */
 		private class GetPropertiesProducer extends CmsProducer {
 			private GetPropertiesProducer() {
 				super(CmsEndpoint.this);

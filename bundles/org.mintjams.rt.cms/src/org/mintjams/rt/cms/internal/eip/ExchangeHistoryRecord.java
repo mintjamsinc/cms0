@@ -77,18 +77,21 @@ public class ExchangeHistoryRecord {
 	 * within the route, captured via {@code ExchangeSentEvent}.
 	 */
 	public static class Step {
-		private final String endpointUri;
+		private final String id;            // node id from MessageHistory (Camel DSL id)
+		private final String endpointUri;   // endpoint URI when the node is a to/from
 		private final long timeTaken;       // millis
 		private final long offsetFromStart; // millis since exchange creation
 		private final int order;            // 0-based sequence
 
-		public Step(String endpointUri, long timeTaken, long offsetFromStart, int order) {
+		public Step(String id, String endpointUri, long timeTaken, long offsetFromStart, int order) {
+			this.id = id;
 			this.endpointUri = endpointUri;
 			this.timeTaken = timeTaken;
 			this.offsetFromStart = offsetFromStart;
 			this.order = order;
 		}
 
+		public String getId() { return id; }
 		public String getEndpointUri() { return endpointUri; }
 		public long getTimeTaken() { return timeTaken; }
 		public long getOffsetFromStart() { return offsetFromStart; }

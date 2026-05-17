@@ -22,18 +22,18 @@
 
 package org.mintjams.rt.cms.internal.graphql;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.TreeMap;
 
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
@@ -42,14 +42,9 @@ import javax.jcr.query.Query;
 import javax.jcr.query.QueryManager;
 import javax.jcr.query.QueryResult;
 
-import org.HdrHistogram.Histogram;
 import org.mintjams.jcr.util.JCRs;
-import org.mintjams.rt.cms.internal.CmsService;
-import org.mintjams.rt.cms.internal.eip.stats.Bucket;
-import org.mintjams.rt.cms.internal.eip.stats.BucketPathResolver;
-import org.mintjams.rt.cms.internal.eip.stats.BucketStore;
-import org.mintjams.rt.cms.internal.eip.stats.HistogramCodec;
-import org.mintjams.rt.cms.internal.eip.stats.Interval;
+import org.mintjams.searchindex.SearchIndex;
+import org.mintjams.tools.adapter.Adaptables;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -59,11 +54,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *
  * <p>Three top-level queries:
  * <ul>
- *   <li>{@code routeStats} — time-series for one (or all) routes, served from
- *       the rollup buckets under {@code /var/eip/stats}.</li>
- *   <li>{@code historyExchanges} — Lucene-backed search over raw exchange
- *       records under {@code /var/eip/history}, using the {@code mi:*} JCR
- *       properties that {@code ExchangeHistoryEventNotifier} promotes.</li>
+ *   <li>{@code routeStats} — time-series counts banded by elapsed (under1s,
+ *       under5s, over5s) for the EIP Console graph. Implemented as three
+ *       JCR XPath {@code facet accumulate} queries against
+ *       {@code /var/eip/history}, executed with {@code limit=0} so document
+ *       fetch is skipped and only facet counts are returned.</li>
+ *   <li>{@code historyExchanges} — Lucene-backed list query against the same
+ *       history records, returned as a Relay-style cursor connection.</li>
  *   <li>{@code historyExchange} — full detail for a single exchange (JSON
  *       parsed and returned).</li>
  * </ul>
@@ -74,8 +71,10 @@ public class EipStatsQueryExecutor {
 	private static final TypeReference<LinkedHashMap<String, Object>> MAP_TYPE =
 			new TypeReference<LinkedHashMap<String, Object>>() {};
 
+	private static final long BAND_1S_MS = 1_000L;
+	private static final long BAND_5S_MS = 5_000L;
+
 	private final Session session;
-	private final BucketStore bucketStore = new BucketStore();
 	private final ObjectMapper mapper = new ObjectMapper();
 
 	public EipStatsQueryExecutor(Session session) {
@@ -83,70 +82,54 @@ public class EipStatsQueryExecutor {
 	}
 
 	// =========================================================================
-	// routeStats
+	// routeStats — three-band time series for the chart panel
+	//
+	// Returned series has, for every time bucket between [from, to):
+	//   - under1s : count of exchanges where elapsed <  1000ms
+	//   - under5s : count of exchanges where 1000 <= elapsed < 5000ms
+	//   - over5s  : count of exchanges where elapsed >= 5000ms
+	//
+	// Each band is computed by a single facet-accumulate query that buckets
+	// @mi:createdAt into N ranges, scoped by the elapsed predicate. The
+	// resulting Lucene facet counts are mapped back onto the time series.
 	// =========================================================================
 
 	public Map<String, Object> executeRouteStatsQuery(GraphQLRequest request) throws Exception {
 		Map<String, Object> vars = request.getVariables();
-		String route = optString(vars, "route");
 		Instant from = Instant.parse(requireString(vars, "from"));
 		Instant to = Instant.parse(requireString(vars, "to"));
-		String metric = optString(vars, "metric");
-		if (metric == null || metric.isEmpty()) {
-			metric = "count";
-		}
-		String step = optString(vars, "step");
+		List<String> routes = optStringList(vars, "routes");
+		String status = optString(vars, "status");
 		Interval interval = resolveInterval(optString(vars, "interval"), from, to);
 
-		List<String> routes = (route == null || route.isEmpty())
-				? listRoutesUnderStats() : List.of(route);
+		// Build the list of time buckets (label = index, [start, end)).
+		List<Bucket> buckets = buildBuckets(from, to, interval);
 
-		TreeMap<Instant, Aggregate> series = new TreeMap<>();
-		Instant cursor = interval.truncate(from);
-		while (cursor.isBefore(to)) {
-			series.put(cursor, new Aggregate());
-			cursor = interval.endOf(cursor);
-		}
+		// Base predicate: filters every band shares.
+		StringBuilder basePred = new StringBuilder("@mi:exchangeId");
+		appendRangeFilter(basePred, from, to);
+		appendRouteFilter(basePred, routes);
+		appendStatusFilter(basePred, status);
 
-		for (String r : routes) {
-			for (Instant t : series.keySet()) {
-				String path = BucketPathResolver.bucketPath(r, interval, t);
-				Bucket b;
-				try {
-					b = bucketStore.read(session, path);
-				} catch (Exception ex) {
-					CmsService.getLogger(getClass()).debug(
-							"Skipping bucket {} for {}: {}", path, r, ex.getMessage());
-					continue;
-				}
-				if (b == null) {
-					continue;
-				}
-				Aggregate agg = series.get(t);
-				if (step != null && !step.isEmpty()) {
-					agg.absorbStep(b, step);
-				} else {
-					agg.absorb(b);
-				}
-			}
-		}
+		long[] under1s = runBandFacet(basePred, "@mi:elapsed < " + BAND_1S_MS, buckets);
+		long[] under5s = runBandFacet(basePred,
+				"@mi:elapsed >= " + BAND_1S_MS + " and @mi:elapsed < " + BAND_5S_MS, buckets);
+		long[] over5s = runBandFacet(basePred, "@mi:elapsed >= " + BAND_5S_MS, buckets);
 
-		List<Map<String, Object>> points = new ArrayList<>(series.size());
-		for (Map.Entry<Instant, Aggregate> e : series.entrySet()) {
+		List<Map<String, Object>> points = new ArrayList<>(buckets.size());
+		for (int i = 0; i < buckets.size(); i++) {
 			Map<String, Object> point = new LinkedHashMap<>();
-			point.put("bucket", e.getKey().toString());
-			point.put("value", e.getValue().metricValue(metric));
-			point.put("count", e.getValue().count);
-			point.put("errors", e.getValue().errors);
+			point.put("bucket", buckets.get(i).start.toString());
+			point.put("under1s", under1s[i]);
+			point.put("under5s", under5s[i]);
+			point.put("over5s", over5s[i]);
 			points.add(point);
 		}
 
 		Map<String, Object> stats = new LinkedHashMap<>();
-		stats.put("route", route);
-		stats.put("interval", interval.label());
-		stats.put("metric", metric);
 		stats.put("from", from.toString());
 		stats.put("to", to.toString());
+		stats.put("interval", interval.label);
 		stats.put("points", points);
 
 		Map<String, Object> data = new HashMap<>();
@@ -154,81 +137,111 @@ public class EipStatsQueryExecutor {
 		return data;
 	}
 
+	/**
+	 * Run one facet-accumulate query over {@code @mi:createdAt} with the given
+	 * elapsed-band predicate, and return a parallel array of bucket counts.
+	 */
+	private long[] runBandFacet(StringBuilder basePred, String elapsedPred, List<Bucket> buckets) throws Exception {
+		long[] counts = new long[buckets.size()];
+		if (buckets.isEmpty()) {
+			return counts;
+		}
+
+		StringBuilder xpath = new StringBuilder("/jcr:root").append(HISTORY_BASE)
+				.append("//element(*, nt:file)[")
+				.append(basePred);
+		if (elapsedPred != null && !elapsedPred.isEmpty()) {
+			xpath.append(" and ").append(elapsedPred);
+		}
+		xpath.append("] facet accumulate ");
+		for (int i = 0; i < buckets.size(); i++) {
+			if (i > 0) {
+				xpath.append(", ");
+			}
+			Bucket b = buckets.get(i);
+			xpath.append("range('").append(i).append("', ")
+					.append("xs:dateTime('").append(b.start.toString()).append("') <= @mi:createdAt < ")
+					.append("xs:dateTime('").append(b.end.toString()).append("'))");
+		}
+
+		// The JCR Query is Adaptable. Adapting to SearchIndex lets us bypass the
+		// nodes fetch and ask only for the facet counts.
+		SearchIndex searchIndex = Adaptables.getAdapter(session, SearchIndex.class);
+		if (searchIndex == null) {
+			// Fall back to plain JCR query — facet results will be unavailable.
+			return counts;
+		}
+
+		SearchIndex.QueryResult.FacetResult result = searchIndex
+				.createQuery(xpath.toString(), "jcr:xpath")
+				.setOffset(0)
+				.setLimit(0)
+				.execute()
+				.getFacetResult();
+		SearchIndex.QueryResult.FacetResult.Facet facet = result.getFacet("mi:createdAt");
+		if (facet == null) {
+			return counts;
+		}
+		for (String label : facet.getLabels()) {
+			int idx;
+			try {
+				idx = Integer.parseInt(label);
+			} catch (NumberFormatException ex) {
+				continue;
+			}
+			if (idx < 0 || idx >= counts.length) {
+				continue;
+			}
+			counts[idx] = facet.getValue(label);
+		}
+		return counts;
+	}
+
 	// =========================================================================
-	// historyExchanges (Lucene-backed search, Relay-style cursor pagination)
+	// historyExchanges — Relay-style cursor connection over filtered records
 	// =========================================================================
 
 	private static final int DEFAULT_PAGE_SIZE = 50;
 	private static final int MAX_PAGE_SIZE = 500;
 
-	@SuppressWarnings("unchecked")
 	public Map<String, Object> executeHistoryExchangesQuery(GraphQLRequest request) throws Exception {
 		Map<String, Object> vars = request.getVariables();
-		String route = optString(vars, "route");
+		List<String> routes = optStringList(vars, "routes");
 		String status = optString(vars, "status");
 		String from = optString(vars, "from");
 		String to = optString(vars, "to");
-		String businessKey = optString(vars, "businessKey");
-		Object headers = vars == null ? null : vars.get("headers");
+		String filterText = optString(vars, "filter");
 
 		Integer first = optBoxedInt(vars, "first");
 		Integer last = optBoxedInt(vars, "last");
 		String after = optString(vars, "after");
 		String before = optString(vars, "before");
 
-		// Determine direction and effective page size.
 		boolean backward = (last != null) || (before != null && first == null);
-		int pageSize;
-		if (backward) {
-			pageSize = clampPageSize(last);
-		} else {
-			pageSize = clampPageSize(first);
-		}
+		int pageSize = clampPageSize(backward ? last : first);
 
-		// Base predicate: filters that apply to both the page query and the total
-		// count query. Anchored on @mi:exchangeId so we only match actual
-		// exchange history records (and so the predicate is never empty).
+		// Base predicate: filters that apply to both the page query and the
+		// total count query. Anchored on @mi:exchangeId so we only match actual
+		// history records (and so the predicate is never empty).
 		StringBuilder basePred = new StringBuilder("@mi:exchangeId");
-		if (route != null && !route.isEmpty()) {
-			basePred.append(" and @mi:routeId = '").append(escapeLiteral(route)).append("'");
-		}
-		if (status != null && !status.isEmpty()) {
-			basePred.append(" and @mi:status = '").append(escapeLiteral(status)).append("'");
-		}
-		if (businessKey != null && !businessKey.isEmpty()) {
-			basePred.append(" and @mi:businessKey = '").append(escapeLiteral(businessKey)).append("'");
-		}
+		appendRouteFilter(basePred, routes);
+		appendStatusFilter(basePred, status);
 		if (from != null && !from.isEmpty()) {
 			basePred.append(" and @mi:createdAt >= xs:dateTime('").append(escapeLiteral(from)).append("')");
 		}
 		if (to != null && !to.isEmpty()) {
 			basePred.append(" and @mi:createdAt < xs:dateTime('").append(escapeLiteral(to)).append("')");
 		}
-		if (headers instanceof List) {
-			for (Object o : (List<Object>) headers) {
-				if (!(o instanceof Map)) {
-					continue;
-				}
-				Map<String, Object> hf = (Map<String, Object>) o;
-				String name = optString(hf, "name");
-				String value = optString(hf, "value");
-				if (name == null || name.isEmpty() || value == null) {
-					continue;
-				}
-				basePred.append(" and @mi:header_").append(sanitizePropertyName(name))
-						.append(" = '").append(escapeLiteral(value)).append("'");
-			}
-		}
+		appendFilterText(basePred, filterText);
 
-		// Cursor predicate: separate from basePred so totalCount is stable across
-		// pages. Cursor encodes ISO createdAt + exchangeId so we can resume
-		// after/before deterministically even when two records share the same
-		// millisecond timestamp.
+		// Cursor predicate: separate from basePred so totalCount stays stable
+		// across pages. Cursor encodes (createdAt, exchangeId) so we can resume
+		// deterministically even when two records share the same millisecond.
 		Cursor afterCursor = decodeCursor(after);
 		Cursor beforeCursor = decodeCursor(before);
 		StringBuilder cursorPred = new StringBuilder();
 		if (afterCursor != null) {
-			// Newer-first ordering: "after" means rows strictly older than the cursor.
+			// Newer-first ordering: "after" means strictly older than the cursor.
 			cursorPred.append(" and (@mi:createdAt < xs:dateTime('")
 					.append(escapeLiteral(afterCursor.createdAt))
 					.append("') or (@mi:createdAt = xs:dateTime('")
@@ -247,8 +260,6 @@ public class EipStatsQueryExecutor {
 					.append("'))");
 		}
 
-		// For backward pagination we flip the sort and reverse afterwards so the
-		// caller still sees newest-first.
 		String order = backward ? "ascending" : "descending";
 		String xpath = "/jcr:root" + HISTORY_BASE + "//element(*, nt:file)["
 				+ basePred + cursorPred + "]"
@@ -287,7 +298,6 @@ public class EipStatsQueryExecutor {
 		}
 
 		Map<String, Object> pageInfo = new LinkedHashMap<>();
-		// hasMore semantics depend on direction.
 		boolean hasNextPage = backward ? (beforeCursor != null) : hasMore;
 		boolean hasPreviousPage = backward ? hasMore : (afterCursor != null);
 		pageInfo.put("hasNextPage", hasNextPage);
@@ -295,9 +305,6 @@ public class EipStatsQueryExecutor {
 		pageInfo.put("startCursor", edges.isEmpty() ? null : edges.get(0).get("cursor"));
 		pageInfo.put("endCursor", edges.isEmpty() ? null : edges.get(edges.size() - 1).get("cursor"));
 
-		// Total count via a separate cheap count query (cap for sanity).
-		// Cursor predicate is intentionally omitted so totalCount stays stable
-		// across pages.
 		String countXpath = "/jcr:root" + HISTORY_BASE + "//element(*, nt:file)[" + basePred + "]";
 		long total = countQuery(countXpath);
 
@@ -310,6 +317,179 @@ public class EipStatsQueryExecutor {
 		data.put("historyExchanges", connection);
 		return data;
 	}
+
+	// =========================================================================
+	// historyExchange — full detail for the right-pane inspector
+	// =========================================================================
+
+	public Map<String, Object> executeHistoryExchangeQuery(GraphQLRequest request) throws Exception {
+		Map<String, Object> vars = request.getVariables();
+		String exchangeId = requireString(vars, "exchangeId");
+
+		String xpath = "/jcr:root" + HISTORY_BASE + "//element(*, nt:file)["
+				+ "@mi:exchangeId = '" + escapeLiteral(exchangeId) + "']";
+
+		QueryManager qm = session.getWorkspace().getQueryManager();
+		Query q = qm.createQuery(xpath, Query.XPATH);
+		q.setLimit(1);
+		QueryResult result = q.execute();
+		NodeIterator it = result.getNodes();
+		if (!it.hasNext()) {
+			Map<String, Object> data = new HashMap<>();
+			data.put("historyExchange", null);
+			return data;
+		}
+
+		Node fileNode = it.nextNode();
+		Map<String, Object> detail = buildExchangeDetail(fileNode);
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("historyExchange", detail);
+		return data;
+	}
+
+	// =========================================================================
+	// Helpers — predicates & XPath fragments
+	// =========================================================================
+
+	private static void appendRouteFilter(StringBuilder pred, List<String> routes) {
+		if (routes == null || routes.isEmpty()) {
+			return;
+		}
+		if (routes.size() == 1) {
+			pred.append(" and @mi:routeId = '").append(escapeLiteral(routes.get(0))).append("'");
+			return;
+		}
+		pred.append(" and (");
+		for (int i = 0; i < routes.size(); i++) {
+			if (i > 0) pred.append(" or ");
+			pred.append("@mi:routeId = '").append(escapeLiteral(routes.get(i))).append("'");
+		}
+		pred.append(")");
+	}
+
+	private static void appendStatusFilter(StringBuilder pred, String status) {
+		if (status == null || status.isEmpty() || "all".equalsIgnoreCase(status)) {
+			return;
+		}
+		pred.append(" and @mi:status = '").append(escapeLiteral(status)).append("'");
+	}
+
+	private static void appendRangeFilter(StringBuilder pred, Instant from, Instant to) {
+		pred.append(" and @mi:createdAt >= xs:dateTime('").append(from.toString()).append("')");
+		pred.append(" and @mi:createdAt < xs:dateTime('").append(to.toString()).append("')");
+	}
+
+	/**
+	 * Match the supplied free-text filter against any of {@code mi:businessKey},
+	 * {@code mi:exchangeId} or {@code mi:routeId} (substring, OR'd).
+	 */
+	private static void appendFilterText(StringBuilder pred, String filter) {
+		if (filter == null || filter.isBlank()) {
+			return;
+		}
+		String escaped = escapeLiteral(filter.trim());
+		pred.append(" and (")
+				.append("jcr:contains(@mi:businessKey, '").append(escaped).append("')")
+				.append(" or jcr:contains(@mi:exchangeId, '").append(escaped).append("')")
+				.append(" or jcr:contains(@mi:routeId, '").append(escaped).append("')")
+				.append(")");
+	}
+
+	private long countQuery(String xpath) {
+		try {
+			QueryManager qm = session.getWorkspace().getQueryManager();
+			Query q = qm.createQuery(xpath, Query.XPATH);
+			q.setLimit(10_000);
+			QueryResult r = q.execute();
+			long n = 0;
+			for (NodeIterator it = r.getNodes(); it.hasNext(); it.nextNode()) {
+				n++;
+			}
+			return n;
+		} catch (Exception ex) {
+			return -1L;
+		}
+	}
+
+	// =========================================================================
+	// Helpers — time buckets
+	// =========================================================================
+
+	private enum Interval {
+		FIVE_MINUTES("5min", ChronoUnit.MINUTES, 5),
+		ONE_HOUR("1h", ChronoUnit.HOURS, 1),
+		ONE_DAY("1d", ChronoUnit.DAYS, 1);
+
+		final String label;
+		final ChronoUnit unit;
+		final int amount;
+
+		Interval(String label, ChronoUnit unit, int amount) {
+			this.label = label;
+			this.unit = unit;
+			this.amount = amount;
+		}
+
+		Instant truncate(Instant t) {
+			if (unit == ChronoUnit.DAYS) {
+				return t.truncatedTo(ChronoUnit.DAYS);
+			}
+			Instant truncated = t.truncatedTo(unit);
+			if (unit == ChronoUnit.MINUTES && amount > 1) {
+				long m = truncated.atZone(java.time.ZoneOffset.UTC).getMinute();
+				long aligned = (m / amount) * amount;
+				return truncated.minus(m - aligned, ChronoUnit.MINUTES);
+			}
+			return truncated;
+		}
+
+		Instant endOf(Instant start) {
+			return start.plus(amount, unit);
+		}
+
+		static Interval forLabel(String label) {
+			if (label == null) return null;
+			for (Interval i : values()) {
+				if (i.label.equalsIgnoreCase(label)) return i;
+			}
+			return null;
+		}
+	}
+
+	private static final class Bucket {
+		final Instant start;
+		final Instant end;
+
+		Bucket(Instant start, Instant end) {
+			this.start = start;
+			this.end = end;
+		}
+	}
+
+	private Interval resolveInterval(String label, Instant from, Instant to) {
+		Interval explicit = Interval.forLabel(label);
+		if (explicit != null) return explicit;
+		Duration span = Duration.between(from, to);
+		if (span.compareTo(Duration.ofHours(2)) <= 0) return Interval.FIVE_MINUTES;
+		if (span.compareTo(Duration.ofDays(2)) <= 0) return Interval.ONE_HOUR;
+		return Interval.ONE_DAY;
+	}
+
+	private List<Bucket> buildBuckets(Instant from, Instant to, Interval interval) {
+		List<Bucket> buckets = new ArrayList<>();
+		Instant cursor = interval.truncate(from);
+		while (cursor.isBefore(to)) {
+			Instant next = interval.endOf(cursor);
+			buckets.add(new Bucket(cursor, next));
+			cursor = next;
+		}
+		return buckets;
+	}
+
+	// =========================================================================
+	// Helpers — cursor
+	// =========================================================================
 
 	private static int clampPageSize(Integer requested) {
 		if (requested == null || requested <= 0) {
@@ -346,6 +526,7 @@ public class EipStatsQueryExecutor {
 	private static final class Cursor {
 		final String createdAt;
 		final String exchangeId;
+
 		Cursor(String createdAt, String exchangeId) {
 			this.createdAt = createdAt;
 			this.exchangeId = exchangeId;
@@ -356,6 +537,7 @@ public class EipStatsQueryExecutor {
 		final Map<String, Object> node;
 		final String createdAt;
 		final String exchangeId;
+
 		EdgeRow(Map<String, Object> node, String createdAt, String exchangeId) {
 			this.node = node;
 			this.createdAt = createdAt;
@@ -363,84 +545,9 @@ public class EipStatsQueryExecutor {
 		}
 	}
 
-	private long countQuery(String xpath) {
-		try {
-			QueryManager qm = session.getWorkspace().getQueryManager();
-			Query q = qm.createQuery(xpath, Query.XPATH);
-			q.setLimit(10_000);
-			QueryResult r = q.execute();
-			long n = 0;
-			for (NodeIterator it = r.getNodes(); it.hasNext(); it.nextNode()) {
-				n++;
-			}
-			return n;
-		} catch (Exception ex) {
-			return -1L;
-		}
-	}
-
 	// =========================================================================
-	// historyExchange
+	// Helpers — node projection
 	// =========================================================================
-
-	public Map<String, Object> executeHistoryExchangeQuery(GraphQLRequest request) throws Exception {
-		Map<String, Object> vars = request.getVariables();
-		String exchangeId = requireString(vars, "exchangeId");
-
-		String xpath = "/jcr:root" + HISTORY_BASE + "//element(*, nt:file)["
-				+ "@mi:exchangeId = '" + escapeLiteral(exchangeId) + "']";
-
-		QueryManager qm = session.getWorkspace().getQueryManager();
-		Query q = qm.createQuery(xpath, Query.XPATH);
-		q.setLimit(1);
-		QueryResult result = q.execute();
-		NodeIterator it = result.getNodes();
-		if (!it.hasNext()) {
-			Map<String, Object> data = new HashMap<>();
-			data.put("historyExchange", null);
-			return data;
-		}
-
-		Node fileNode = it.nextNode();
-		Map<String, Object> detail = buildExchangeDetail(fileNode);
-
-		Map<String, Object> data = new HashMap<>();
-		data.put("historyExchange", detail);
-		return data;
-	}
-
-	// =========================================================================
-	// Helpers
-	// =========================================================================
-
-	private Interval resolveInterval(String label, Instant from, Instant to) {
-		if (label != null && !label.isEmpty() && !"auto".equalsIgnoreCase(label)) {
-			return Interval.of(label);
-		}
-		Duration span = Duration.between(from, to);
-		if (span.compareTo(Duration.ofHours(2)) <= 0) {
-			return Interval.ONE_MINUTE;
-		}
-		if (span.compareTo(Duration.ofDays(2)) <= 0) {
-			return Interval.FIVE_MINUTES;
-		}
-		if (span.compareTo(Duration.ofDays(30)) <= 0) {
-			return Interval.ONE_HOUR;
-		}
-		return Interval.ONE_DAY;
-	}
-
-	private List<String> listRoutesUnderStats() throws Exception {
-		List<String> routes = new ArrayList<>();
-		if (!session.nodeExists(BucketPathResolver.BASE_PATH)) {
-			return routes;
-		}
-		Node base = session.getNode(BucketPathResolver.BASE_PATH);
-		for (NodeIterator it = base.getNodes(); it.hasNext();) {
-			routes.add(it.nextNode().getName());
-		}
-		return routes;
-	}
 
 	private Map<String, Object> buildExchangeSummary(Node fileNode) throws Exception {
 		Map<String, Object> m = new LinkedHashMap<>();
@@ -450,16 +557,6 @@ public class EipStatsQueryExecutor {
 		m.put("elapsed", propLong(fileNode, "mi:elapsed"));
 		m.put("createdAt", propIsoDate(fileNode, "mi:createdAt"));
 		m.put("businessKey", propString(fileNode, "mi:businessKey"));
-
-		// Promoted headers (mi:header_*) inlined as a flat object.
-		Map<String, Object> headers = new LinkedHashMap<>();
-		Node content = JCRs.getContentNode(fileNode);
-		for (javax.jcr.PropertyIterator pi = content.getProperties("mi:header_*"); pi.hasNext();) {
-			javax.jcr.Property p = pi.nextProperty();
-			String key = p.getName().substring("mi:header_".length());
-			headers.put(key, propValue(p));
-		}
-		m.put("headers", headers);
 		return m;
 	}
 
@@ -490,6 +587,7 @@ public class EipStatsQueryExecutor {
 				if (o instanceof Map) {
 					Map<String, Object> s = (Map<String, Object>) o;
 					Map<String, Object> step = new LinkedHashMap<>();
+					step.put("id", s.get("id"));
 					step.put("endpointUri", s.get("endpointUri"));
 					step.put("timeTaken", s.get("timeTaken"));
 					step.put("offsetFromStart", s.get("offsetFromStart"));
@@ -526,15 +624,9 @@ public class EipStatsQueryExecutor {
 		return Instant.ofEpochMilli(content.getProperty(name).getDate().getTimeInMillis()).toString();
 	}
 
-	private static Object propValue(javax.jcr.Property p) throws Exception {
-		switch (p.getType()) {
-			case javax.jcr.PropertyType.LONG: return p.getLong();
-			case javax.jcr.PropertyType.DOUBLE: return p.getDouble();
-			case javax.jcr.PropertyType.BOOLEAN: return p.getBoolean();
-			case javax.jcr.PropertyType.DATE: return Instant.ofEpochMilli(p.getDate().getTimeInMillis()).toString();
-			default: return p.getString();
-		}
-	}
+	// =========================================================================
+	// Helpers — request variables
+	// =========================================================================
 
 	private static String optString(Map<String, Object> vars, String key) {
 		if (vars == null) {
@@ -544,17 +636,37 @@ public class EipStatsQueryExecutor {
 		return v == null ? null : v.toString();
 	}
 
+	@SuppressWarnings("unchecked")
+	private static List<String> optStringList(Map<String, Object> vars, String key) {
+		if (vars == null) {
+			return Collections.emptyList();
+		}
+		Object v = vars.get(key);
+		if (v == null) {
+			return Collections.emptyList();
+		}
+		if (v instanceof List) {
+			List<String> out = new ArrayList<>();
+			for (Object o : (List<Object>) v) {
+				if (o != null) {
+					String s = o.toString();
+					if (!s.isEmpty()) {
+						out.add(s);
+					}
+				}
+			}
+			return out;
+		}
+		String s = v.toString();
+		return s.isEmpty() ? Collections.emptyList() : List.of(s);
+	}
+
 	private static String requireString(Map<String, Object> vars, String key) {
 		String v = optString(vars, key);
 		if (v == null || v.isEmpty()) {
 			throw new IllegalArgumentException("Missing required variable: " + key);
 		}
 		return v;
-	}
-
-	private static int optInt(Map<String, Object> vars, String key, int defaultValue) {
-		Integer v = optBoxedInt(vars, key);
-		return v == null ? defaultValue : v.intValue();
 	}
 
 	private static Integer optBoxedInt(Map<String, Object> vars, String key) {
@@ -576,73 +688,11 @@ public class EipStatsQueryExecutor {
 	}
 
 	private static String escapeLiteral(String v) {
-		return v.replace("'", "''");
+		return v.replace("'", "\\'");
 	}
 
-	private static String sanitizePropertyName(String v) {
-		// Defensive: drop characters that would never be valid in a JCR property name.
-		StringBuilder sb = new StringBuilder(v.length());
-		for (int i = 0; i < v.length(); i++) {
-			char c = v.charAt(i);
-			if (Character.isLetterOrDigit(c) || c == '_' || c == '-' || c == '.') {
-				sb.append(c);
-			}
-		}
-		return sb.toString();
-	}
-
-	// -------------------------------------------------------------------------
-	// Internal aggregate over (route × bucket) buckets for one time slot.
-	// -------------------------------------------------------------------------
-
-	private static final class Aggregate {
-		long count;
-		long errors;
-		long sum;
-		long min = Long.MAX_VALUE;
-		long max = Long.MIN_VALUE;
-		Histogram histogram = HistogramCodec.newHistogram();
-
-		void absorb(Bucket b) {
-			absorbStats(b.elapsed().getCount(), b.elapsed().getErrors(),
-					b.elapsed().getMin(), b.elapsed().getMax(), b.elapsed().getSum(),
-					b.elapsed().getHistogram());
-		}
-
-		void absorbStep(Bucket b, String stepKey) {
-			var stats = b.steps().get(stepKey);
-			if (stats == null) {
-				return;
-			}
-			absorbStats(stats.getCount(), 0L, stats.getMin(), stats.getMax(), stats.getSum(),
-					stats.getHistogram());
-		}
-
-		private void absorbStats(long c, long e, long mn, long mx, long s, Histogram h) {
-			count += c;
-			errors += e;
-			sum += s;
-			if (c > 0) {
-				min = Math.min(min, mn);
-				max = Math.max(max, mx);
-			}
-			if (h != null) {
-				histogram.add(h);
-			}
-		}
-
-		double metricValue(String metric) {
-			switch (metric.toLowerCase(Locale.ROOT)) {
-				case "count": return count;
-				case "errors": return errors;
-				case "mean": return count == 0 ? 0.0 : (double) sum / count;
-				case "min": return count == 0 ? 0.0 : min;
-				case "max": return count == 0 ? 0.0 : max;
-				case "p50": return histogram.getTotalCount() == 0 ? 0.0 : histogram.getValueAtPercentile(50.0);
-				case "p95": return histogram.getTotalCount() == 0 ? 0.0 : histogram.getValueAtPercentile(95.0);
-				case "p99": return histogram.getTotalCount() == 0 ? 0.0 : histogram.getValueAtPercentile(99.0);
-				default: return count;
-			}
-		}
+	@SuppressWarnings("unused")
+	private static void ioGuard(IOException ex) {
+		throw new IllegalStateException(ex);
 	}
 }

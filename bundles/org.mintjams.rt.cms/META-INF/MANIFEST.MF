@@ -57,6 +57,5 @@ Require-Bundle: org.apache.camel;bundle-version="4.0.0",
  org.mintjams.saml2;bundle-version="1.0.0",
  org.mintjams.searchindex;bundle-version="1.0.0",
  org.apache.tika;bundle-version="2.6.0"
-Bundle-ClassPath: .,
- lib/HdrHistogram-2.2.2.jar
+Bundle-ClassPath: .
 Bundle-ActivationPolicy: lazy

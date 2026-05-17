@@ -31,6 +31,7 @@ import java.security.Principal;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
 public interface SearchIndex extends Closeable {
@@ -211,4 +212,9 @@ public interface SearchIndex extends Closeable {
 		Class<?> getFieldType(String fieldName);
 	}
 
+	interface UpdateMonitor {
+		boolean isCancelled();
+
+		Consumer<String> getPathConsumer();
+	}
 }

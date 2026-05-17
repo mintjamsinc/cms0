@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
@@ -133,7 +134,13 @@ public class JournalObserver implements Adaptable, Closeable {
 		fCloseRequested = false;
 	}
 
-	public void buildSearchIndex(Node item) throws RepositoryException, IOException {
+	public void buildSearchIndex(Node item, SearchIndex.UpdateMonitor monitor) throws RepositoryException, IOException {
+		if (monitor != null) {
+			if (monitor.isCancelled()) {
+				return;
+			}
+		}
+
 		String path = item.getPath();
 		if (JCRs.isSystemPath(path)) {
 			return;
@@ -142,12 +149,17 @@ public class JournalObserver implements Adaptable, Closeable {
 		NodeType type = item.getPrimaryNodeType();
 		if (type.isNodeType(NodeType.NT_FOLDER)) {
 			for (NodeIterator i = item.getNodes(); i.hasNext();) {
-				buildSearchIndex(i.nextNode());
+				buildSearchIndex(i.nextNode(), monitor);
 			}
 			return;
 		}
 
-		updateSearchIndex(item);
+		try {
+			updateSearchIndex(item);
+			Optional.ofNullable(monitor.getPathConsumer()).ifPresent(consumer -> consumer.accept(path));
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(getClass()).error("An error occurred while building the index: " + path, ex);
+		}
 	}
 
 	private void postEvent(AdaptableMap<String, Object> event) throws RepositoryException {
@@ -311,7 +323,7 @@ public class JournalObserver implements Adaptable, Closeable {
 
 					return document;
 				} catch (Throwable ex) {
-					Activator.getDefault().getLogger(JournalObserver.class).error("An error occurred while creating the index: " + itemId, ex);
+					Activator.getDefault().getLogger(getClass()).error("An error occurred while creating the index: " + itemId, ex);
 					throw Cause.create(ex).wrap(IllegalStateException.class);
 				}
 			});
@@ -464,7 +476,7 @@ public class JournalObserver implements Adaptable, Closeable {
 
 							return suggestion;
 						} catch (Throwable ex) {
-							Activator.getDefault().getLogger(JournalObserver.class).error("An error occurred while creating the index: " + itemId, ex);
+							Activator.getDefault().getLogger(getClass()).error("An error occurred while creating the index: " + itemId, ex);
 							throw Cause.create(ex).wrap(IllegalStateException.class);
 						}
 					});
