@@ -211,6 +211,7 @@ public class EipStatsQueryExecutor {
 		String from = optString(vars, "from");
 		String to = optString(vars, "to");
 		String filterText = optString(vars, "filter");
+		List<String> elapsedBands = optStringList(vars, "elapsedBands");
 
 		Integer first = optBoxedInt(vars, "first");
 		Integer last = optBoxedInt(vars, "last");
@@ -233,6 +234,7 @@ public class EipStatsQueryExecutor {
 			basePred.append(" and @mi:createdAt < xs:dateTime('").append(escapeLiteral(to)).append("')");
 		}
 		appendFilterText(basePred, filterText);
+		appendElapsedBandsFilter(basePred, elapsedBands);
 
 		// Cursor predicate: separate from basePred so totalCount stays stable
 		// across pages. Cursor encodes (createdAt, exchangeId) so we can resume
@@ -378,6 +380,62 @@ public class EipStatsQueryExecutor {
 	private static void appendRangeFilter(StringBuilder pred, Instant from, Instant to) {
 		pred.append(" and @mi:createdAt >= xs:dateTime('").append(from.toString()).append("')");
 		pred.append(" and @mi:createdAt < xs:dateTime('").append(to.toString()).append("')");
+	}
+
+	/**
+	 * Restrict history results to one or more elapsed bands, mirroring the
+	 * three bands that {@code routeStats} produces:
+	 *
+	 * <pre>
+	 *   under1s — @mi:elapsed &lt; 1000
+	 *   under5s — 1000 &lt;= @mi:elapsed &lt; 5000
+	 *   over5s  — @mi:elapsed &gt;= 5000
+	 * </pre>
+	 *
+	 * Unknown band names are ignored. When every known band is selected (or
+	 * the list is empty / null) the filter is a no-op so {@code totalCount}
+	 * stays comparable to the unfiltered query.
+	 */
+	private static void appendElapsedBandsFilter(StringBuilder pred, List<String> bands) {
+		if (bands == null || bands.isEmpty()) {
+			return;
+		}
+		boolean under1s = false, under5s = false, over5s = false;
+		for (String b : bands) {
+			if (b == null) continue;
+			switch (b) {
+				case "under1s": under1s = true; break;
+				case "under5s": under5s = true; break;
+				case "over5s":  over5s  = true; break;
+				default: /* unknown — ignore */ break;
+			}
+		}
+		// No recognised bands → caller is filtering with garbage. Be strict:
+		// match nothing rather than silently fall through.
+		if (!under1s && !under5s && !over5s) {
+			pred.append(" and @mi:elapsed < 0");
+			return;
+		}
+		// All three bands selected covers the full domain — skip the predicate.
+		if (under1s && under5s && over5s) {
+			return;
+		}
+		List<String> clauses = new ArrayList<>(3);
+		if (under1s) {
+			clauses.add("@mi:elapsed < " + BAND_1S_MS);
+		}
+		if (under5s) {
+			clauses.add("(@mi:elapsed >= " + BAND_1S_MS + " and @mi:elapsed < " + BAND_5S_MS + ")");
+		}
+		if (over5s) {
+			clauses.add("@mi:elapsed >= " + BAND_5S_MS);
+		}
+		pred.append(" and (");
+		for (int i = 0; i < clauses.size(); i++) {
+			if (i > 0) pred.append(" or ");
+			pred.append(clauses.get(i));
+		}
+		pred.append(")");
 	}
 
 	/**
