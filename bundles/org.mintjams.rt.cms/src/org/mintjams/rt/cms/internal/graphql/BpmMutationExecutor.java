@@ -179,7 +179,25 @@ public class BpmMutationExecutor {
 
 		ProcessEngine engine = getProcessEngine();
 		Map<String, Object> vars = toVariableMap(variableInputs);
-		engine.getRuntimeService().setVariables(processInstanceId, vars);
+
+		// Replace semantics: remove variables that exist on the instance but are
+		// not present in the incoming list. Together with the typed values produced
+		// by toVariableMap, this lets the Edit Variables dialog both delete entries
+		// and change their declared types (e.g. String -> Long even when the value
+		// is empty / unparseable).
+		Map<String, Object> existing = engine.getRuntimeService().getVariables(processInstanceId);
+		List<String> toRemove = new ArrayList<>();
+		for (String existingName : existing.keySet()) {
+			if (!vars.containsKey(existingName)) {
+				toRemove.add(existingName);
+			}
+		}
+		if (!toRemove.isEmpty()) {
+			engine.getRuntimeService().removeVariables(processInstanceId, toRemove);
+		}
+		if (!vars.isEmpty()) {
+			engine.getRuntimeService().setVariables(processInstanceId, vars);
+		}
 
 		HistoricProcessInstance historic = engine.getHistoryService()
 				.createHistoricProcessInstanceQuery()
@@ -864,31 +882,55 @@ public class BpmMutationExecutor {
 	}
 
 	private Object convertVariableValue(Object value, String type) {
-		if (value == null) return null;
-		String str = value.toString();
-		if (type == null) return str;
+		String str = value != null ? value.toString() : null;
+		// When no explicit type is supplied we fall back to a String value (typed,
+		// so that null is preserved as a typed-null String rather than a raw null
+		// which the engine cannot type-resolve).
+		if (type == null) {
+			return org.camunda.bpm.engine.variable.Variables.stringValue(str);
+		}
 		switch (type) {
 			case "Long":
-			case "Integer":
-				try { return Long.parseLong(str); } catch (Exception e) { return str; }
-			case "Double":
-				try { return Double.parseDouble(str); } catch (Exception e) { return str; }
-			case "Boolean":
-				return Boolean.parseBoolean(str);
-			case "Date":
-				try {
-					return Date.from(Instant.parse(str));
-				} catch (Exception e1) {
-					// datetime-local format: "2026-03-27T18:33" or "2026-03-27T18:33:00"
+			case "Integer": {
+				Long parsed = null;
+				if (str != null && !str.isEmpty()) {
+					try { parsed = Long.parseLong(str); } catch (Exception e) { /* keep null */ }
+				}
+				return org.camunda.bpm.engine.variable.Variables.longValue(parsed);
+			}
+			case "Double": {
+				Double parsed = null;
+				if (str != null && !str.isEmpty()) {
+					try { parsed = Double.parseDouble(str); } catch (Exception e) { /* keep null */ }
+				}
+				return org.camunda.bpm.engine.variable.Variables.doubleValue(parsed);
+			}
+			case "Boolean": {
+				Boolean parsed = null;
+				if (str != null && !str.isEmpty()) {
+					parsed = Boolean.parseBoolean(str);
+				}
+				return org.camunda.bpm.engine.variable.Variables.booleanValue(parsed);
+			}
+			case "Date": {
+				Date parsed = null;
+				if (str != null && !str.isEmpty()) {
 					try {
-						java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(str);
-						return Date.from(ldt.atZone(java.time.ZoneId.systemDefault()).toInstant());
-					} catch (Exception e2) {
-						return str;
+						parsed = Date.from(Instant.parse(str));
+					} catch (Exception e1) {
+						// datetime-local format: "2026-03-27T18:33" or "2026-03-27T18:33:00"
+						try {
+							java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(str);
+							parsed = Date.from(ldt.atZone(java.time.ZoneId.systemDefault()).toInstant());
+						} catch (Exception e2) {
+							// keep null — caller asked for Date but the value can't be parsed
+						}
 					}
 				}
+				return org.camunda.bpm.engine.variable.Variables.dateValue(parsed);
+			}
 			default:
-				return str;
+				return org.camunda.bpm.engine.variable.Variables.stringValue(str);
 		}
 	}
 
