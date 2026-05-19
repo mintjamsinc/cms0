@@ -44,11 +44,14 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.mintjams.cms.security.saml2.LocalIdentityProvider;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
+import org.osgi.framework.BundleContext;
+import org.osgi.framework.ServiceReference;
 import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
@@ -63,9 +66,18 @@ import org.mintjams.saml2.Saml2SettingsBuilder;
 
 public class Saml2ServiceProviderConfiguration {
 
+	/**
+	 * Environment variable consulted when {@code sp.rootURL} (and indirectly
+	 * {@code sp.entityID}) is left blank in {@code saml2.yml}. This is the
+	 * single source of truth for the public-facing base URL in containerized
+	 * deployments.
+	 */
+	public static final String ENV_PUBLIC_BASE_URL = "CMS_PUBLIC_BASE_URL";
+
 	private Map<String, Object> fConfig = new HashMap<>();
 	private Saml2Settings fSaml2Settings;
 	private SpKeyStoreManager fKeyStoreManager;
+	private BundleContext fBundleContext;
 
 	@SuppressWarnings("unchecked")
 	public HttpServlet createServlet() throws IOException {
@@ -86,6 +98,7 @@ public class Saml2ServiceProviderConfiguration {
 					.put("debug", "false")
 					.put("sp", AdaptableMap.<String, Object>newBuilder()
 							.put("entityID", p.getProperty("saml2.sp.entityid"))
+							.put("displayName", p.getProperty("saml2.sp.displayName"))
 							.put("rootURL", p.getProperty("saml2.sp.entityid"))
 							.put("keystore", AdaptableMap.<String, Object>newBuilder()
 									.put("type", "PKCS12")
@@ -163,9 +176,35 @@ public class Saml2ServiceProviderConfiguration {
 
 		fKeyStoreManager = new SpKeyStoreManager(configPath, fConfig);
 
-		prepareSettings();
-
 		return new Saml2Servlet(this);
+	}
+
+	/**
+	 * Returns the SAML2 settings, building them lazily on first access.
+	 *
+	 * <p>The lazy build is essential to support the local IdP↔SP bridge:
+	 * the {@link LocalIdentityProvider} OSGi service is published by the IdP
+	 * bundle only after this configuration has been instantiated, so we must
+	 * defer reading IdP metadata until it is actually needed (i.e., when a
+	 * SAML request arrives).</p>
+	 */
+	public synchronized Saml2Settings getSaml2Settings() throws IOException {
+		if (fSaml2Settings == null) {
+			prepareSettings();
+		}
+		return fSaml2Settings;
+	}
+
+	/**
+	 * Invalidates the cached SAML2 settings so they are rebuilt on next access.
+	 * Called when the local IdP service appears or disappears.
+	 */
+	public synchronized void invalidateSaml2Settings() {
+		fSaml2Settings = null;
+	}
+
+	public void setBundleContext(BundleContext bundleContext) {
+		fBundleContext = bundleContext;
 	}
 
 	private void prepareSettings() throws IOException {
@@ -180,7 +219,10 @@ public class Saml2ServiceProviderConfiguration {
 		p.setProperty("saml2.debug", el.defaultIfEmpty("config.debug", "false"));
 
 		String rootURL = el.getString("config.sp.rootURL");
-		if (rootURL.endsWith("/")) {
+		if (Strings.isEmpty(rootURL)) {
+			rootURL = getDefaultRootURL();
+		}
+		if (rootURL != null && rootURL.endsWith("/")) {
 			rootURL = rootURL.substring(0, rootURL.length() - 1);
 		}
 		p.setProperty("saml2.sp.entityid", el.defaultIfEmpty("config.sp.entityID", rootURL));
@@ -195,11 +237,16 @@ public class Saml2ServiceProviderConfiguration {
 			throw new IOException("Failed to encode SP certificate", ex);
 		}
 
-		p.setProperty("saml2.idp.entityid", el.getString("config.idp.entityID"));
-		p.setProperty("saml2.idp.single_sign_on_service.url", el.getString("config.idp.loginURL"));
-		p.setProperty("saml2.idp.single_logout_service.url", el.getString("config.idp.logoutURL"));
-		p.setProperty("saml2.idp.single_logout_service.response.url", el.getString("config.idp.logoutResponseURL"));
-		p.setProperty("saml2.idp.x509cert", el.getString("config.idp.certificate"));
+		LocalIdentityProvider localIdp = lookupLocalIdentityProvider();
+		p.setProperty("saml2.idp.entityid",
+				resolveIdpField(el, "config.idp.entityID", localIdp, LocalIdentityProvider::getEntityId));
+		p.setProperty("saml2.idp.single_sign_on_service.url",
+				resolveIdpField(el, "config.idp.loginURL", localIdp, LocalIdentityProvider::getLoginUrl));
+		p.setProperty("saml2.idp.single_logout_service.url",
+				resolveIdpField(el, "config.idp.logoutURL", localIdp, LocalIdentityProvider::getLogoutUrl));
+		p.setProperty("saml2.idp.single_logout_service.response.url",
+				resolveIdpField(el, "config.idp.logoutResponseURL", localIdp, LocalIdentityProvider::getLogoutResponseUrl));
+		p.setProperty("saml2.idp.x509cert", resolveIdpCertificate(el, localIdp));
 
 		List<String> willBeSigned = Arrays.asList(el.getStringArray("config.security.willBeSigned"));
 		p.setProperty("saml2.security.authnrequest_signed", "" + willBeSigned.contains("authnRequest"));
@@ -243,11 +290,105 @@ public class Saml2ServiceProviderConfiguration {
 		return ExpressionContext.create().setVariable("config", fConfig);
 	}
 
+	public SpKeyStoreManager getKeyStoreManager() {
+		return fKeyStoreManager;
+	}
+
+	/**
+	 * Returns the resolved SP root URL (without trailing slash).
+	 * Cheap accessor — does not build the full SAML2 settings, so it can be
+	 * invoked even before the local IdP service appears.
+	 */
+	public String getSpRootURL() {
+		ExpressionContext el = getExpressionContext();
+		String rootURL = el.getString("config.sp.rootURL");
+		if (Strings.isEmpty(rootURL)) {
+			rootURL = getDefaultRootURL();
+		}
+		if (rootURL != null && rootURL.endsWith("/")) {
+			rootURL = rootURL.substring(0, rootURL.length() - 1);
+		}
+		return rootURL;
+	}
+
+	public String getSpEntityID() {
+		String rootURL = getSpRootURL();
+		return getExpressionContext().defaultIfEmpty("config.sp.entityID", rootURL);
+	}
+
+	public String getSpDisplayName() {
+		return getExpressionContext().defaultIfEmpty("config.sp.displayName", "Content Management System");
+	}
+
+	public String getSpAssertionConsumerServiceURL() {
+		String rootURL = getSpRootURL();
+		return rootURL == null ? null : rootURL + Saml2Servlet.LOGIN_PATH;
+	}
+
+	/**
+	 * Computes the default SP root URL when {@code sp.rootURL} is blank in
+	 * {@code saml2.yml}. Uses {@code $CMS_PUBLIC_BASE_URL + contextPath} so a
+	 * single environment variable controls the public-facing URL across the
+	 * whole product.
+	 */
+	private String getDefaultRootURL() {
+		String baseUrl = System.getenv(ENV_PUBLIC_BASE_URL);
+		if (Strings.isEmpty(baseUrl)) {
+			return null;
+		}
+		if (baseUrl.endsWith("/")) {
+			baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+		}
+		return baseUrl + getContextPath();
+	}
+
+	private LocalIdentityProvider lookupLocalIdentityProvider() {
+		if (fBundleContext == null) {
+			return null;
+		}
+		ServiceReference<LocalIdentityProvider> ref = fBundleContext.getServiceReference(LocalIdentityProvider.class);
+		if (ref == null) {
+			return null;
+		}
+		return fBundleContext.getService(ref);
+	}
+
+	private static String resolveIdpField(ExpressionContext el, String yamlPath, LocalIdentityProvider localIdp,
+			java.util.function.Function<LocalIdentityProvider, String> fallback) {
+		String value = el.getString(yamlPath);
+		if (Strings.isNotEmpty(value)) {
+			return value;
+		}
+		if (localIdp == null) {
+			return "";
+		}
+		String resolved = fallback.apply(localIdp);
+		return Strings.isEmpty(resolved) ? "" : resolved;
+	}
+
+	private static String resolveIdpCertificate(ExpressionContext el, LocalIdentityProvider localIdp) {
+		String value = el.getString("config.idp.certificate");
+		if (Strings.isNotEmpty(value)) {
+			return value;
+		}
+		if (localIdp == null || localIdp.getSigningCertificate() == null) {
+			return "";
+		}
+		try {
+			return Base64.getMimeEncoder(64, new byte[]{'\n'})
+					.encodeToString(localIdp.getSigningCertificate().getEncoded());
+		} catch (CertificateEncodingException ex) {
+			CmsService.getLogger(Saml2ServiceProviderConfiguration.class)
+					.warn("Failed to encode local IdP certificate; SP will operate without it.", ex);
+			return "";
+		}
+	}
+
 	private static class Saml2Servlet extends HttpServlet {
 		private static final long serialVersionUID = 1L;
 
-		private static final String LOGIN_PATH = "/login";
-		private static final String LOGOUT_PATH = "/logout";
+		static final String LOGIN_PATH = "/login";
+		static final String LOGOUT_PATH = "/logout";
 		private static final String DESCRIPTOR_PATH = "/descriptor";
 
 		private final Saml2ServiceProviderConfiguration fConfig;
@@ -261,7 +402,7 @@ public class Saml2ServiceProviderConfiguration {
 			String path = request.getPathInfo();
 			try {
 				if (LOGIN_PATH.equals(path)) {
-					Saml2Auth auth = new Saml2Auth(fConfig.fSaml2Settings, request, response);
+					Saml2Auth auth = new Saml2Auth(fConfig.getSaml2Settings(), request, response);
 
 					// Check if this is a SAML Response (from IdP) or initial login request
 					if (!auth.hasSAMLResponse(request)) {
@@ -320,7 +461,7 @@ public class Saml2ServiceProviderConfiguration {
 				}
 
 				if (LOGOUT_PATH.equals(path)) {
-					Saml2Auth auth = new Saml2Auth(fConfig.fSaml2Settings, request, response);
+					Saml2Auth auth = new Saml2Auth(fConfig.getSaml2Settings(), request, response);
 					auth.processSLO();
 					List<String> errors = auth.getErrors();
 					if (!errors.isEmpty()) {
@@ -345,7 +486,7 @@ public class Saml2ServiceProviderConfiguration {
 					response.setContentType("application/samlmetadata+xml");
 					response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 					try {
-						String metadata = new Saml2MetadataBuilder(fConfig.fSaml2Settings).build();
+						String metadata = new Saml2MetadataBuilder(fConfig.getSaml2Settings()).build();
 						response.getWriter().append(metadata);
 					} catch (java.security.cert.CertificateEncodingException ex) {
 						throw new IOException("Failed to encode SP certificate for metadata", ex);
@@ -369,12 +510,12 @@ public class Saml2ServiceProviderConfiguration {
 			return redirectURI;
 		}
 
-		private String getRelayState(HttpServletRequest request) throws URISyntaxException {
+		private String getRelayState(HttpServletRequest request) throws URISyntaxException, IOException {
 			String relayState = request.getParameter("RelayState");
 			if (Strings.isEmpty(relayState)) {
 				return null;
 			}
-			if (relayState.equals(fConfig.fSaml2Settings.getSpAssertionConsumerServiceUrl())) {
+			if (relayState.equals(fConfig.getSaml2Settings().getSpAssertionConsumerServiceUrl())) {
 				return null;
 			}
 			return relayState;

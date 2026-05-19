@@ -37,6 +37,7 @@ import org.mintjams.cms.CmsService;
 import org.mintjams.cms.security.BCrypt;
 import org.mintjams.cms.security.Encryptor;
 import org.mintjams.cms.security.PasswordGenerator;
+import org.mintjams.cms.security.saml2.LocalIdentityProvider;
 import org.mintjams.idp.internal.auth.JcrUserStore;
 import org.mintjams.idp.internal.auth.UserStore;
 import org.mintjams.idp.internal.security.FileKeyStoreManager;
@@ -49,6 +50,7 @@ import org.mintjams.idp.internal.servlet.MetadataServlet;
 import org.mintjams.idp.internal.servlet.SsoServlet;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.tools.io.Closer;
+import org.mintjams.tools.osgi.Registration;
 import org.mintjams.tools.osgi.Tracker;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
@@ -177,6 +179,13 @@ public class Activator implements BundleActivator {
 			httpService.registerServlet(fConfig.getLoginApiPath(), new LoginApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSpApiPath(), new SpApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSsoPath(), new SsoServlet(), null, sharedContext);
+
+			// Publish ourselves so the co-located SP (org.mintjams.rt.cms) can
+			// resolve idp.* metadata at runtime without any entry in saml2.yml.
+			fCloser.register(Registration.newBuilder(LocalIdentityProvider.class)
+					.setService(new LocalIdpServiceImpl())
+					.setBundleContext(fBundleContext)
+					.build());
 
 			log.info("IdP servlets registered at: {}", fConfig.getBaseURL());
 			log.info("  Entity ID : {}", fConfig.getEntityId());
@@ -404,6 +413,42 @@ public class Activator implements BundleActivator {
 
 	private synchronized void close() throws IOException {
 		fCloser.close();
+	}
+
+	/**
+	 * In-process {@link LocalIdentityProvider} implementation backed by the
+	 * IdP's keystore and configuration.
+	 */
+	private class LocalIdpServiceImpl implements LocalIdentityProvider {
+		@Override
+		public String getEntityId() {
+			return fConfig.getEntityId();
+		}
+
+		@Override
+		public String getBaseUrl() {
+			return fConfig.getBaseURL();
+		}
+
+		@Override
+		public String getLoginUrl() {
+			return fConfig.getSsoUrl();
+		}
+
+		@Override
+		public String getLogoutUrl() {
+			return fConfig.getSloUrl();
+		}
+
+		@Override
+		public String getLogoutResponseUrl() {
+			return fConfig.getSloUrl();
+		}
+
+		@Override
+		public java.security.cert.X509Certificate getSigningCertificate() {
+			return fKeyStoreManager.getCertificate();
+		}
 	}
 
 	public static Activator getDefault() {

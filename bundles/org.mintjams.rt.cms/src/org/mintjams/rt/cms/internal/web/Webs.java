@@ -91,7 +91,7 @@ public class Webs {
 	public static String[] getWelcomeFiles(ActionContext context) {
 		String[] a = Scripts.asStringArray(getWebConfig(context).get("welcomeFiles"));
 		if (a.length == 0) {
-			return new String[] { "index.html" };
+			return new String[] { "index.html", "index.gsp" };
 		}
 		return a;
 	}

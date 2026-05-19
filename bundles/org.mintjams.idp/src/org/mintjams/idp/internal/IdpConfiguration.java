@@ -37,7 +37,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import org.mintjams.cms.security.saml2.LocalServiceProvider;
 import org.mintjams.jcr.util.ExpressionContext;
+import org.mintjams.tools.lang.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.snakeyaml.engine.v2.api.Dump;
@@ -52,6 +54,13 @@ public class IdpConfiguration {
 
 	public static final String DEFAULT_BASE_URL = "https://localhost:8443";
 	public static final String DEFAULT_CONTEXT_PATH = "/idp";
+
+	/**
+	 * Environment variable consulted when {@code baseUrl} is left blank in
+	 * {@code idp.yml}. Sharing this with the SP side keeps the public host name
+	 * configured in a single place across the product.
+	 */
+	public static final String ENV_PUBLIC_BASE_URL = "CMS_PUBLIC_BASE_URL";
 	public static final String DEFAULT_ROLE_ATTRIBUTE = "Role";
 	public static final String DEFAULT_KEYSTORE_TYPE = "PKCS12";
 	public static final String DEFAULT_KEYSTORE_PASSWORD = "changeit";
@@ -129,13 +138,27 @@ public class IdpConfiguration {
 
 	public String getBaseURL() {
 		try {
-			return ExpressionContext.create()
+			String configured = ExpressionContext.create()
 					.setVariable("config", getConfig())
-					.defaultIfEmpty("config.baseUrl", DEFAULT_BASE_URL);
+					.getString("config.baseUrl");
+			if (Strings.isNotEmpty(configured)) {
+				return stripTrailingSlash(configured);
+			}
 		} catch (Throwable ex) {
 			log.warn("The baseUrl parameter is invalid. Default values will be used instead.");
 		}
+		String fromEnv = System.getenv(ENV_PUBLIC_BASE_URL);
+		if (Strings.isNotEmpty(fromEnv)) {
+			return stripTrailingSlash(fromEnv);
+		}
 		return DEFAULT_BASE_URL;
+	}
+
+	private static String stripTrailingSlash(String url) {
+		if (url.endsWith("/")) {
+			return url.substring(0, url.length() - 1);
+		}
+		return url;
 	}
 
 	public String geContextPath() {
@@ -348,8 +371,17 @@ public class IdpConfiguration {
 	/**
 	 * Checks if the given SP entity ID is trusted.
 	 * If no trusted SPs are configured, all SPs are trusted (starter mode).
+	 *
+	 * <p>The co-located CMS SP, published via the
+	 * {@link LocalServiceProvider} OSGi service, is always trusted regardless
+	 * of {@code trustedSPs} content — it shares the same JVM and is therefore
+	 * authoritative.</p>
 	 */
 	public boolean isTrustedSP(String spEntityId) {
+		if (matchesLocalServiceProvider(spEntityId)) {
+			return true;
+		}
+
 		List<TrustedSP> trustedSPs = getTrustedSPs();
 		if (trustedSPs.isEmpty()) {
 			return true;
@@ -366,14 +398,63 @@ public class IdpConfiguration {
 	/**
 	 * Returns the TrustedSP for the given entity ID, or null if not found.
 	 * Returns null (not an error) when in starter mode (trustedSPs is empty).
+	 *
+	 * <p>The local CMS SP takes precedence over the YAML list so its live
+	 * certificate is always used for signature verification, even after a key
+	 * rotation that hasn't been propagated to {@code idp.yml}.</p>
 	 */
 	public TrustedSP getTrustedSP(String spEntityId) {
+		TrustedSP local = getLocalTrustedSP(spEntityId);
+		if (local != null) {
+			return local;
+		}
 		for (TrustedSP sp : getTrustedSPs()) {
 			if (sp.getEntityId().equals(spEntityId)) {
 				return sp;
 			}
 		}
 		return null;
+	}
+
+	private boolean matchesLocalServiceProvider(String spEntityId) {
+		LocalServiceProvider local = lookupLocalServiceProvider();
+		return local != null && spEntityId != null && spEntityId.equals(local.getEntityId());
+	}
+
+	private TrustedSP getLocalTrustedSP(String spEntityId) {
+		LocalServiceProvider local = lookupLocalServiceProvider();
+		if (local == null || spEntityId == null || !spEntityId.equals(local.getEntityId())) {
+			return null;
+		}
+		String certificate = null;
+		try {
+			java.security.cert.X509Certificate cert = local.getSigningCertificate();
+			if (cert != null) {
+				certificate = java.util.Base64.getMimeEncoder(64, new byte[]{'\n'})
+						.encodeToString(cert.getEncoded());
+			}
+		} catch (Throwable ex) {
+			log.warn("Failed to encode local SP signing certificate; SP signatures will not be verified.", ex);
+		}
+		return new TrustedSP(local.getEntityId(), local.getAcsUrl(), certificate, local.getDisplayName());
+	}
+
+	private LocalServiceProvider lookupLocalServiceProvider() {
+		try {
+			org.osgi.framework.BundleContext bc = Activator.getDefault().getBundleContext();
+			if (bc == null) {
+				return null;
+			}
+			org.osgi.framework.ServiceReference<LocalServiceProvider> ref =
+					bc.getServiceReference(LocalServiceProvider.class);
+			if (ref == null) {
+				return null;
+			}
+			return bc.getService(ref);
+		} catch (Throwable ex) {
+			log.debug("LocalServiceProvider lookup failed: {}", ex.getMessage());
+			return null;
+		}
 	}
 
 	/**

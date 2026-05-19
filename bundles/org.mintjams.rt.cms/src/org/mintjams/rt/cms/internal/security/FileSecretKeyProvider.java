@@ -54,11 +54,14 @@ public class FileSecretKeyProvider implements SecretKeyProvider {
 
 	private static final Logger log = LoggerFactory.getLogger(FileSecretKeyProvider.class);
 
+	public static final String SYSTEM_PROPERTY = "mintjams.cms.secret-key.path";
+	public static final String ENV_VARIABLE = "MINTJAMS_CMS_SECRET_KEY_PATH";
+
 	private final Map<String, Object> fKeyConfig;
 
 	@SuppressWarnings("unchecked")
 	public FileSecretKeyProvider() throws IOException {
-		Path path = Path.of(System.getProperty("user.home"), ".mintjams/cms/secret-key.yml");
+		Path path = resolveKeyPath();
 		if (!Files.exists(path)) {
 			fKeyConfig = Map.of(
 					"keys", List.of(
@@ -112,6 +115,27 @@ public class FileSecretKeyProvider implements SecretKeyProvider {
 				.filter(entry -> tag.equals(entry.get("tag")))
 				.findFirst()
 				.orElseThrow(() -> new IllegalArgumentException("No key found for tag: " + tag));
+	}
+
+	/**
+	 * Resolves the location of the secret key file in priority order:
+	 * <ol>
+	 *   <li>System property {@code mintjams.cms.secret-key.path}</li>
+	 *   <li>Environment variable {@code MINTJAMS_CMS_SECRET_KEY_PATH}</li>
+	 *   <li>Default: {@code $HOME/.mintjams/cms/secret-key.yml}</li>
+	 * </ol>
+	 * The override is essential for containerized deployments where the file
+	 * must live on a volume that survives container recreation.
+	 */
+	private static Path resolveKeyPath() {
+		String override = System.getProperty(SYSTEM_PROPERTY);
+		if (override == null || override.isBlank()) {
+			override = System.getenv(ENV_VARIABLE);
+		}
+		if (override != null && !override.isBlank()) {
+			return Path.of(override);
+		}
+		return Path.of(System.getProperty("user.home"), ".mintjams/cms/secret-key.yml");
 	}
 
 	private SecretKey generateKey() {

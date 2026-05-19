@@ -49,7 +49,7 @@ import org.mintjams.jcr.util.JCRs;
 
 /**
  * GraphQL Mutation executor for IdP user/group/role management.
- * Operates against /home/idp/ in the JCR system workspace.
+ * Operates against /home/ in the JCR system workspace.
  */
 public class IdpMutationExecutor {
 
