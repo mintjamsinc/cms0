@@ -24,11 +24,14 @@ package org.mintjams.idp.internal;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -37,6 +40,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import org.mintjams.cms.security.PasswordGenerator;
 import org.mintjams.cms.security.saml2.LocalServiceProvider;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.tools.lang.Strings;
@@ -80,19 +84,34 @@ public class IdpConfiguration {
 			Path configPath = getConfigPath();
 			Path idpPath = configPath.resolve("idp.yml");
 			if (!Files.exists(idpPath)) {
+				// Resolve initial IdP keystore password: env var > -D > random generation.
+				// Avoiding the legacy "changeit" default closes the well-known weak-default hole
+				// when the image is distributed publicly.
+				String operatorIdpKeystorePassword = System.getenv("CMS_IDP_KEYSTORE_PASSWORD");
+				if (operatorIdpKeystorePassword == null || operatorIdpKeystorePassword.isEmpty()) {
+					operatorIdpKeystorePassword = System.getProperty("cms.idp.keystore.password");
+				}
+				boolean idpKeystorePasswordGenerated = (operatorIdpKeystorePassword == null || operatorIdpKeystorePassword.isEmpty());
+				String idpKeystorePassword = idpKeystorePasswordGenerated
+						? PasswordGenerator.generate(24)
+						: operatorIdpKeystorePassword;
+
 				try (Writer out = Files.newBufferedWriter(idpPath, StandardCharsets.UTF_8)) {
 					String yamlString = new Dump(DumpSettings.builder()
 							.setIndent(4)
 							.setIndicatorIndent(2)
 							.setDefaultFlowStyle(FlowStyle.BLOCK)
 							.build()).dumpToString(Map.of(
-							"entityId", DEFAULT_BASE_URL + DEFAULT_CONTEXT_PATH, // Entity ID of the IdP (default: https://localhost:8443/idp)
-							"baseUrl", DEFAULT_BASE_URL, // Base URL of the IdP (default: https://localhost:8443)
+							// Blank baseUrl/entityId on first boot so getBaseURL() falls
+							// through to the CMS_PUBLIC_BASE_URL env var. The container
+							// is the only source of truth for the external host name.
+							"entityId", "",
+							"baseUrl", "",
 							"contextPath", DEFAULT_CONTEXT_PATH, // Servlet context path (default: /idp)
 							"roleAttribute", DEFAULT_ROLE_ATTRIBUTE, // SAML attribute name for roles (default: Role)
 							"keystore", Map.of(
 								"type", DEFAULT_KEYSTORE_TYPE, // Keystore type (default: PKCS12)
-								"password", Activator.getDefault().getEncryptor().encrypt(DEFAULT_KEYSTORE_PASSWORD), // Keystore password (default: changeit)
+								"password", Activator.getDefault().getEncryptor().encrypt(idpKeystorePassword), // Keystore password (generated or supplied via CMS_IDP_KEYSTORE_PASSWORD)
 								"alias", DEFAULT_KEYSTORE_ALIAS // Alias of the signing key in the keystore (default: idp-signing)
 								),
 							"certificateTemplate", Map.of(
@@ -107,6 +126,14 @@ public class IdpConfiguration {
 						));
 					out.append(yamlString);
 				}
+
+				// Only persist the plaintext password to disk when we generated it
+				// ourselves — operator-supplied passwords (env var / -D) are assumed
+				// to already live in a secrets store on their side.
+				if (idpKeystorePasswordGenerated) {
+					writeInitialSecretFile(configPath.getParent(), "IDP_KEYSTORE_PASSWORD.txt", idpKeystorePassword);
+				}
+				idpKeystorePassword = null;
 			}
 
 			try (InputStream in = new BufferedInputStream(Files.newInputStream(idpPath))) {
@@ -455,6 +482,20 @@ public class IdpConfiguration {
 			log.debug("LocalServiceProvider lookup failed: {}", ex.getMessage());
 			return null;
 		}
+	}
+
+	private static void writeInitialSecretFile(Path directory, String fileName, String secret) throws IOException {
+		Files.createDirectories(directory);
+		Path file = directory.resolve(fileName).toAbsolutePath();
+		Files.writeString(file, secret + System.lineSeparator(),
+				StandardCharsets.UTF_8,
+				StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+		try {
+			Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+		} catch (UnsupportedOperationException ignored) {
+			// Non-POSIX filesystem; fall back to host ACLs.
+		}
+		log.info("Initial secret written to {}. Retrieve it, then delete the file.", file);
 	}
 
 	/**

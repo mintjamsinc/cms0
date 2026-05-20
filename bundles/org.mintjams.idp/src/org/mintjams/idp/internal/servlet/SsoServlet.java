@@ -56,7 +56,6 @@ public class SsoServlet extends HttpServlet {
 
 	/**
 	 * Handles HTTP-Redirect binding (SP sends AuthnRequest as query parameter).
-	 * Also handles re-entry after login (LoginServlet redirects back here via GET).
 	 */
 	@Override
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -138,14 +137,13 @@ public class SsoServlet extends HttpServlet {
 			HttpSession session = request.getSession(true);
 			IdpUser user = (IdpUser) session.getAttribute(LoginServlet.SESSION_USER);
 
-			// Check if the user just completed fresh authentication
-			Boolean freshLogin = (Boolean) session.getAttribute("idp.freshLogin");
-			if (freshLogin != null && freshLogin) {
-				session.removeAttribute("idp.freshLogin");
-			}
-
-			if (user == null || (authnRequest.isForceAuthn() && (freshLogin == null || !freshLogin))) {
-				// Store the SAML request in session and redirect to login
+			if (user == null || authnRequest.isForceAuthn()) {
+				// Store the SAML request in session and redirect to login. The
+				// SP-signature check above succeeded for THIS hit; LoginServlet
+				// will build the SAMLResponse directly after the user
+				// authenticates, so we never re-enter this servlet without
+				// signed parameters (which the post-login redirect could not
+				// carry along anyway).
 				session.setAttribute(LoginServlet.SESSION_SAML_REQUEST, samlRequest);
 				session.setAttribute(LoginServlet.SESSION_RELAY_STATE, relayState);
 				session.setAttribute(LoginServlet.SESSION_BINDING, binding);
@@ -161,7 +159,7 @@ public class SsoServlet extends HttpServlet {
 			}
 
 			// User is authenticated - build and send SAML Response
-			sendSamlResponse(response, authnRequest, user, config);
+			writeSamlResponse(response, authnRequest, user, config);
 
 		} catch (Exception e) {
 			log.error("SSO processing failed", e);
@@ -169,8 +167,18 @@ public class SsoServlet extends HttpServlet {
 		}
 	}
 
-	private void sendSamlResponse(HttpServletResponse response, AuthnRequest authnRequest, IdpUser user, IdpConfiguration config)
-			throws Exception {
+	/**
+	 * Builds a signed SAMLResponse for the given AuthnRequest and writes it
+	 * as an auto-submitting HTML POST form to the response.
+	 *
+	 * <p>Exposed package-private so {@link LoginServlet} can produce the
+	 * SAMLResponse immediately after authentication without redirecting back
+	 * through {@code /idp/sso}. Re-entering the SSO endpoint after login would
+	 * lose the SP's {@code SigAlg}/{@code Signature} query parameters and
+	 * trigger a 403 on the (otherwise valid) request.</p>
+	 */
+	static void writeSamlResponse(HttpServletResponse response, AuthnRequest authnRequest, IdpUser user,
+			IdpConfiguration config) throws Exception {
 
 		log.info("Sending SAMLResponse for user: {} to SP: {}",
 				user.getUsername(), authnRequest.getIssuer());

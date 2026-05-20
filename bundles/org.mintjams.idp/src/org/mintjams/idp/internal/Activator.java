@@ -23,6 +23,12 @@
 package org.mintjams.idp.internal;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
@@ -289,7 +295,9 @@ public class Activator implements BundleActivator {
 
 		Node adminFolder = JCRs.getOrCreateFolder(usersFolder, "admin");
 
-		String password = PasswordGenerator.generate(16);
+		String configuredPassword = resolveConfiguredAdminPassword();
+		boolean passwordFromConfig = (configuredPassword != null);
+		String password = passwordFromConfig ? configuredPassword : PasswordGenerator.generate(16);
 		String passwordHash = "{bcrypt}" + BCrypt.hash(password);
 
 		Node profileFile = JCRs.createFile(adminFolder, "profile");
@@ -310,20 +318,32 @@ public class Activator implements BundleActivator {
 		JCRs.getOrCreateFolder(adminFolder, "preferences");
 		JCRs.getOrCreateFolder(adminFolder, "Desktop");
 
-		log.info("""
-				Created default admin user profile at %s
-				
-				**********************************************************************
-				*                                                                    *
-				* [MintJams CMS] Initial Setup Required                              *
-				*                                                                    *
-				* An initial password has been generated for the 'admin' user.       *
-				* Initial Password: %s                                 *
-				*                                                                    *
-				* Please log in and update your password as soon as possible.        *
-				*                                                                    *
-				**********************************************************************
-				""".formatted(profileFile.getPath(), password));
+		// Surface the password without ever putting it in the log stream.
+		// If it was provided by the operator (env var or -D), just acknowledge.
+		// If we generated one, write it to a 0600 file inside the repository
+		// rootdir so the operator can `docker exec ... cat` it.
+		if (passwordFromConfig) {
+			log.info("Created default admin user profile at {} using the initial password supplied via CMS_INITIAL_ADMIN_PASSWORD.",
+					profileFile.getPath());
+		} else {
+			Path passwordFile = writeInitialAdminPasswordFile(password);
+			log.info("""
+					Created default admin user profile at %s
+
+					**********************************************************************
+					* [MintJams CMS] Initial Setup Required                              *
+					*                                                                    *
+					* The generated initial password for 'admin' has been written to:    *
+					*   %s
+					*                                                                    *
+					* Retrieve it (e.g. `docker exec <container> cat <file>`), log in,   *
+					* change the password, then delete the file.                         *
+					*                                                                    *
+					* To skip file generation, set CMS_INITIAL_ADMIN_PASSWORD before     *
+					* the first boot.                                                    *
+					**********************************************************************
+					""".formatted(profileFile.getPath(), passwordFile));
+		}
 		password = null; // Clear password variable for security
 
 		jcrSession.save();
@@ -336,6 +356,39 @@ public class Activator implements BundleActivator {
 			}
 		}, true, Privilege.JCR_ALL);
 		jcrSession.save();
+	}
+
+	private String resolveConfiguredAdminPassword() {
+		// Env var first — easiest to wire from docker-compose, ECS task defs,
+		// k8s manifests, and CI secret stores.
+		String fromEnv = System.getenv("CMS_INITIAL_ADMIN_PASSWORD");
+		if (fromEnv != null && !fromEnv.isEmpty()) {
+			return fromEnv;
+		}
+		// -D fallback for operators who prefer JAVA_TOOL_OPTIONS.
+		String fromSys = fBundleContext.getProperty("cms.initial.admin.password");
+		if (fromSys != null && !fromSys.isEmpty()) {
+			return fromSys;
+		}
+		return null;
+	}
+
+	private Path writeInitialAdminPasswordFile(String password) throws IOException {
+		String repoRootDir = fBundleContext.getProperty("org.mintjams.jcr.repository.rootdir");
+		if (repoRootDir == null || repoRootDir.isEmpty()) {
+			repoRootDir = "repository";
+		}
+		Path file = Paths.get(repoRootDir, "INITIAL_PASSWORD.txt").toAbsolutePath();
+		Files.createDirectories(file.getParent());
+		Files.writeString(file, password + System.lineSeparator(),
+				StandardCharsets.UTF_8,
+				StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+		try {
+			Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+		} catch (UnsupportedOperationException ignored) {
+			// Non-POSIX filesystem (e.g. Windows bind mount); fall back to host ACLs.
+		}
+		return file;
 	}
 
 	private void initializeAnonymousUser(Node usersFolder) throws Exception {

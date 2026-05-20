@@ -32,7 +32,9 @@ import javax.servlet.http.HttpSession;
 
 import org.mintjams.idp.internal.Activator;
 import org.mintjams.idp.internal.IdpConfiguration;
+import org.mintjams.idp.internal.model.AuthnRequest;
 import org.mintjams.idp.internal.model.IdpUser;
+import org.mintjams.idp.internal.saml.AuthnRequestParser;
 import org.mintjams.tools.lang.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,15 +42,20 @@ import org.slf4j.LoggerFactory;
 /**
  * Login form servlet at {@code /idp/login}.
  *
- * <p>GET displays the login form. POST authenticates the user.
- * On successful authentication, the user is stored in the HTTP session
- * and redirected back to the SSO endpoint to complete the SAML flow.</p>
+ * <p>GET displays the login form. POST authenticates the user. On successful
+ * authentication, when a pending SAMLRequest is in the session (placed there
+ * by {@link SsoServlet} after it verified the SP signature), the
+ * SAMLResponse is built and returned directly as an auto-submit POST form.
+ * We do not redirect back to {@code /idp/sso} because that would drop the
+ * original {@code SigAlg}/{@code Signature} query parameters and fail
+ * SP-signature verification on re-entry.</p>
  *
  * <p>Session attributes used:</p>
  * <ul>
  *   <li>{@code idp.user} - the authenticated {@link IdpUser}</li>
  *   <li>{@code idp.samlRequest} - the original SAMLRequest parameter</li>
  *   <li>{@code idp.relayState} - the original RelayState parameter</li>
+ *   <li>{@code idp.binding} - the original binding ("REDIRECT" or "POST")</li>
  * </ul>
  */
 public class LoginServlet extends HttpServlet {
@@ -96,30 +103,38 @@ public class LoginServlet extends HttpServlet {
 		// Store user in session
 		HttpSession session = request.getSession(true);
 		session.setAttribute(SESSION_USER, user);
-		session.setAttribute("idp.freshLogin", Boolean.TRUE);
 
 		// Check if there's a pending SAML request
 		String samlRequest = (String) session.getAttribute(SESSION_SAML_REQUEST);
 		if (samlRequest != null) {
-			// Redirect back to SSO endpoint to complete SAML flow
 			String binding = (String) session.getAttribute(SESSION_BINDING);
 			String relayState = (String) session.getAttribute(SESSION_RELAY_STATE);
-
-			StringBuilder redirectUrl = new StringBuilder(config.getSsoPath());
-			redirectUrl.append("?SAMLRequest=").append(java.net.URLEncoder.encode(samlRequest, "UTF-8"));
-			if (relayState != null) {
-				redirectUrl.append("&RelayState=").append(java.net.URLEncoder.encode(relayState, "UTF-8"));
-			}
-			if ("POST".equals(binding)) {
-				redirectUrl.append("&binding=POST");
-			}
 
 			// Clean up session
 			session.removeAttribute(SESSION_SAML_REQUEST);
 			session.removeAttribute(SESSION_RELAY_STATE);
 			session.removeAttribute(SESSION_BINDING);
 
-			response.sendRedirect(redirectUrl.toString());
+			// Build the SAMLResponse here instead of redirecting back to
+			// /idp/sso. Redirecting would drop the SP's SigAlg/Signature
+			// query parameters (we cannot reconstruct the signature) and the
+			// SsoServlet would reject the re-entry with a 403. The SP
+			// signature was already verified by SsoServlet on the initial hit
+			// before storing the SAMLRequest in this session.
+			try {
+				AuthnRequestParser parser = new AuthnRequestParser();
+				AuthnRequest authnRequest;
+				if ("POST".equals(binding)) {
+					authnRequest = parser.parsePostBinding(samlRequest, relayState);
+				} else {
+					authnRequest = parser.parseRedirectBinding(samlRequest, relayState);
+				}
+				SsoServlet.writeSamlResponse(response, authnRequest, user, config);
+			} catch (Exception ex) {
+				LOG.error("Failed to build SAMLResponse after login", ex);
+				response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+						"Failed to build SAMLResponse");
+			}
 		} else {
 			// No pending SAML request - just show success
 			response.setContentType("text/html; charset=UTF-8");

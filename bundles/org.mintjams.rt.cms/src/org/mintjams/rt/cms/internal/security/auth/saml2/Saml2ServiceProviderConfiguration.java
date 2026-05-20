@@ -30,6 +30,8 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.cert.CertificateEncodingException;
 import java.util.Arrays;
 import java.util.Base64;
@@ -44,6 +46,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.mintjams.cms.security.PasswordGenerator;
 import org.mintjams.cms.security.saml2.LocalIdentityProvider;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.rt.cms.internal.CmsService;
@@ -92,6 +95,18 @@ public class Saml2ServiceProviderConfiguration {
 				p.load(in);
 			}
 
+			// Resolve initial SP keystore password: env var > -D > random generation.
+			// Avoiding the legacy "changeit" default closes the well-known weak-default hole
+			// when the image is distributed publicly.
+			String operatorSpKeystorePassword = System.getenv("CMS_SP_KEYSTORE_PASSWORD");
+			if (operatorSpKeystorePassword == null || operatorSpKeystorePassword.isEmpty()) {
+				operatorSpKeystorePassword = System.getProperty("cms.sp.keystore.password");
+			}
+			boolean spKeystorePasswordGenerated = (operatorSpKeystorePassword == null || operatorSpKeystorePassword.isEmpty());
+			String spKeystorePassword = spKeystorePasswordGenerated
+					? PasswordGenerator.generate(24)
+					: operatorSpKeystorePassword;
+
 			AdaptableMap<String, Object> yaml = AdaptableMap.<String, Object>newBuilder()
 					.put("contextPath", "/bin/auth.cgi/saml2")
 					.put("strict", "true")
@@ -102,7 +117,7 @@ public class Saml2ServiceProviderConfiguration {
 							.put("rootURL", p.getProperty("saml2.sp.entityid"))
 							.put("keystore", AdaptableMap.<String, Object>newBuilder()
 									.put("type", "PKCS12")
-									.put("password", CmsService.getEncryptor().encrypt("changeit"))
+									.put("password", CmsService.getEncryptor().encrypt(spKeystorePassword))
 									.put("alias", "sp-signing")
 									.build())
 							.put("certificateTemplate", AdaptableMap.<String, Object>newBuilder()
@@ -121,10 +136,12 @@ public class Saml2ServiceProviderConfiguration {
 							.put("certificate", p.getProperty("saml2.idp.x509cert"))
 							.build())
 					.put("security", AdaptableMap.<String, Object>newBuilder()
-							.put("willBeSigned", "authnRequest, logoutRequest, logoutResponse")
-							.put("wantSigned", "messages, assertions")
-							.put("willBeEncrypted", "nameID")
-							.put("wantEncrypted", "nameID, assertions")
+							// These must be YAML lists, not comma-separated strings;
+							// prepareSettings() reads them via getStringArray().
+							.put("willBeSigned", List.of("authnRequest", "logoutRequest", "logoutResponse"))
+							.put("wantSigned", List.of("messages", "assertions"))
+							.put("willBeEncrypted", List.of("nameID"))
+							.put("wantEncrypted", List.of("nameID", "assertions"))
 							.build())
 					.put("organization", AdaptableMap.<String, Object>newBuilder()
 							.put("name", p.getProperty("saml2.organization.name"))
@@ -151,6 +168,14 @@ public class Saml2ServiceProviderConfiguration {
 						.build()).dumpToString(yaml);
 				out.append(yamlString);
 			}
+
+			// Only persist the plaintext password to disk when we generated it
+			// ourselves — operator-supplied passwords (env var / -D) are assumed
+			// to already live in a secrets store on their side.
+			if (spKeystorePasswordGenerated) {
+				writeInitialSecretFile(configPath.getParent(), "SP_KEYSTORE_PASSWORD.txt", spKeystorePassword);
+			}
+			spKeystorePassword = null;
 		}
 
 		try (InputStream in = new BufferedInputStream(Files.newInputStream(saml2Path))) {
@@ -229,10 +254,12 @@ public class Saml2ServiceProviderConfiguration {
 		p.setProperty("saml2.sp.assertion_consumer_service.url", rootURL + Saml2Servlet.LOGIN_PATH);
 		p.setProperty("saml2.sp.single_logout_service.url", rootURL + Saml2Servlet.LOGOUT_PATH);
 		try {
+			java.security.cert.X509Certificate cert = fKeyStoreManager.getCertificate();
+			java.security.PrivateKey pk = fKeyStoreManager.getPrivateKey();
 			p.setProperty("saml2.sp.x509cert", Base64.getMimeEncoder(64, new byte[]{'\n'})
-					.encodeToString(fKeyStoreManager.getCertificate().getEncoded()));
+					.encodeToString(cert.getEncoded()));
 			p.setProperty("saml2.sp.privatekey", Base64.getEncoder()
-					.encodeToString(fKeyStoreManager.getPrivateKey().getEncoded()));
+					.encodeToString(pk.getEncoded()));
 		} catch (CertificateEncodingException ex) {
 			throw new IOException("Failed to encode SP certificate", ex);
 		}
@@ -261,15 +288,18 @@ public class Saml2ServiceProviderConfiguration {
 		p.setProperty("saml2.security.want_nameid_encrypted", "" + wantEncrypted.contains("nameID"));
 		p.setProperty("saml2.security.want_assertions_encrypted", "" + wantEncrypted.contains("assertions"));
 
-		p.setProperty("saml2.organization.name", el.getString("config.organization.name"));
-		p.setProperty("saml2.organization.displayname", el.getString("config.organization.displayName"));
-		p.setProperty("saml2.organization.url", el.getString("config.organization.url"));
-		p.setProperty("saml2.organization.lang", el.getString("config.organization.language"));
+		// Properties (Hashtable-based) rejects null values, so fall back to "".
+		// The yaml is auto-generated and these fields are routinely blank in
+		// containerized setups; empty strings are accepted by the SAML2 library.
+		p.setProperty("saml2.organization.name", el.defaultIfEmpty("config.organization.name", ""));
+		p.setProperty("saml2.organization.displayname", el.defaultIfEmpty("config.organization.displayName", ""));
+		p.setProperty("saml2.organization.url", el.defaultIfEmpty("config.organization.url", ""));
+		p.setProperty("saml2.organization.lang", el.defaultIfEmpty("config.organization.language", ""));
 
-		p.setProperty("saml2.contacts.technical.given_name", el.getString("config.contacts.technical.name"));
-		p.setProperty("saml2.contacts.technical.email_address", el.getString("config.contacts.technical.email"));
-		p.setProperty("saml2.contacts.support.given_name", el.getString("config.contacts.support.name"));
-		p.setProperty("saml2.contacts.support.email_address", el.getString("config.contacts.support.email"));
+		p.setProperty("saml2.contacts.technical.given_name", el.defaultIfEmpty("config.contacts.technical.name", ""));
+		p.setProperty("saml2.contacts.technical.email_address", el.defaultIfEmpty("config.contacts.technical.email", ""));
+		p.setProperty("saml2.contacts.support.given_name", el.defaultIfEmpty("config.contacts.support.name", ""));
+		p.setProperty("saml2.contacts.support.email_address", el.defaultIfEmpty("config.contacts.support.email", ""));
 
 		try {
 			fSaml2Settings = new Saml2SettingsBuilder().fromProperties(p).build();
@@ -382,6 +412,21 @@ public class Saml2ServiceProviderConfiguration {
 					.warn("Failed to encode local IdP certificate; SP will operate without it.", ex);
 			return "";
 		}
+	}
+
+	private static void writeInitialSecretFile(Path directory, String fileName, String secret) throws IOException {
+		Files.createDirectories(directory);
+		Path file = directory.resolve(fileName).toAbsolutePath();
+		Files.writeString(file, secret + System.lineSeparator(),
+				StandardCharsets.UTF_8,
+				StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+		try {
+			Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+		} catch (UnsupportedOperationException ignored) {
+			// Non-POSIX filesystem; fall back to host ACLs.
+		}
+		CmsService.getLogger(Saml2ServiceProviderConfiguration.class)
+				.info("Initial secret written to {}. Retrieve it, then delete the file.", file);
 	}
 
 	private static class Saml2Servlet extends HttpServlet {
