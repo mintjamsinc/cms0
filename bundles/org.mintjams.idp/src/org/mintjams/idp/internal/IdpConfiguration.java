@@ -346,6 +346,10 @@ public class IdpConfiguration {
 		return geContextPath() + "/api/login";
 	}
 
+	public String getLogoutApiPath() {
+		return geContextPath() + "/api/logout";
+	}
+
 	public String getSpApiPath() {
 		return geContextPath() + "/api/sp";
 	}

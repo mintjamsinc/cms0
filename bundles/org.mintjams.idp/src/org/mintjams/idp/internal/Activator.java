@@ -50,6 +50,7 @@ import org.mintjams.idp.internal.security.FileKeyStoreManager;
 import org.mintjams.idp.internal.security.IdpServiceCredentials;
 import org.mintjams.idp.internal.security.KeyStoreManager;
 import org.mintjams.idp.internal.servlet.LoginApiServlet;
+import org.mintjams.idp.internal.servlet.LogoutApiServlet;
 import org.mintjams.idp.internal.servlet.SpApiServlet;
 import org.mintjams.idp.internal.servlet.LoginServlet;
 import org.mintjams.idp.internal.servlet.MetadataServlet;
@@ -183,6 +184,7 @@ public class Activator implements BundleActivator {
 			httpService.registerServlet(fConfig.getMetadataPath(), new MetadataServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getLoginPath(), new LoginServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getLoginApiPath(), new LoginApiServlet(), null, sharedContext);
+			httpService.registerServlet(fConfig.getLogoutApiPath(), new LogoutApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSpApiPath(), new SpApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSsoPath(), new SsoServlet(), null, sharedContext);
 
@@ -199,6 +201,7 @@ public class Activator implements BundleActivator {
 			log.info("  Metadata  : {}", fConfig.getMetadataUrl());
 			log.info("  Login     : {}", fConfig.getLoginUrl());
 			log.info("  Login API : {}", fConfig.getBaseURL() + fConfig.getLoginApiPath());
+			log.info("  Logout API: {}", fConfig.getBaseURL() + fConfig.getLogoutApiPath());
 			if (fConfig.getCustomLoginPageURL() != null) {
 				log.info("  Custom Login: {}", fConfig.getCustomLoginPageURL());
 			}
