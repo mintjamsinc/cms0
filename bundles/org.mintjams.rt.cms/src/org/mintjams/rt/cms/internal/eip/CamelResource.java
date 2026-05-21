@@ -22,6 +22,7 @@
 
 package org.mintjams.rt.cms.internal.eip;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -35,6 +36,7 @@ import org.mintjams.tools.lang.Cause;
 public class CamelResource implements Resource {
 
 	private final Node fNode;
+	private byte[] fContent;
 
 	public CamelResource(Node node) {
 		fNode = node;
@@ -45,13 +47,17 @@ public class CamelResource implements Resource {
 		return true;
 	}
 
+	// Camel's XML DSL loader opens the stream multiple times per resource; cache the bytes so every call returns identical content.
 	@Override
-	public InputStream getInputStream() throws IOException {
-		try {
-			return JCRs.getContentAsStream(fNode);
-		} catch (RepositoryException ex) {
-			throw Cause.create(ex).wrap(IOException.class);
+	public synchronized InputStream getInputStream() throws IOException {
+		if (fContent == null) {
+			try (InputStream in = JCRs.getContentAsStream(fNode)) {
+				fContent = in.readAllBytes();
+			} catch (RepositoryException ex) {
+				throw Cause.create(ex).wrap(IOException.class);
+			}
 		}
+		return new ByteArrayInputStream(fContent);
 	}
 
 	@Override

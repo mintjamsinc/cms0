@@ -128,16 +128,9 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 				try {
 					ModelCamelContext modelContext = (ModelCamelContext) fCamelContext;
 
-					// Snapshot of current route IDs and route configuration IDs before loading
-					Set<String> routeIdsBefore = fCamelContext.getRoutes().stream()
-							.map(route -> route.getRouteId())
-							.collect(Collectors.toSet());
-					Set<String> configIdsBefore = modelContext.getRouteConfigurationDefinitions().stream()
-							.map(RouteConfigurationDefinition::getId)
-							.filter(id -> id != null)
-							.collect(Collectors.toSet());
-
-					// Stop and remove previously deployed routes for this path
+					// Stop and remove previously deployed routes for this path.
+					// This must happen before snapshotting, otherwise re-added routes
+					// (XML DSL keeps the same route id) get filtered out of the diff.
 					List<String> previousRouteIds = fDeployments.get(itemPath);
 					if (previousRouteIds != null) {
 						for (String routeId : previousRouteIds) {
@@ -152,6 +145,16 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 
 					// Remove previously deployed route configurations for this path
 					removeRouteConfigurations(fRouteConfigDeployments.get(itemPath));
+
+					// Snapshot of current route IDs and route configuration IDs after
+					// removal of the previous deployment and before loading the new one
+					Set<String> routeIdsBefore = fCamelContext.getRoutes().stream()
+							.map(route -> route.getRouteId())
+							.collect(Collectors.toSet());
+					Set<String> configIdsBefore = modelContext.getRouteConfigurationDefinitions().stream()
+							.map(RouteConfigurationDefinition::getId)
+							.filter(id -> id != null)
+							.collect(Collectors.toSet());
 
 					// Load and add new routes (and route configurations) via RoutesLoader
 					RoutesLoader loader = PluginHelper.getRoutesLoader(fCamelContext);
