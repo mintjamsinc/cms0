@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Schema Editor</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: file actions -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="addSchema" title="Add Schema">
+					<i class="bi bi-plus-lg"></i>
+				</button>
+				<button class="btn-icon" @click="saveAll"
+					:disabled="isSaving || !hasChanges" title="Save (Ctrl+S)">
+					<i class="bi bi-floppy"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Pane Toggle -->
+			<div class="pane-toggles">
+				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
+					@click="toggleSidebarPanel" title="Toggle Sidebar">
+					<i class="bi bi-layout-sidebar-inset"></i>
+				</button>
+			</div>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Content body (2-pane) -->
+		<div class="content-body">
+
+			<!-- Left pane: schema + property tree -->
+			<div v-if="sidebarPanelVisible" class="sidebar-panel island p-0"
+				:style="{ width: sidebarPanelWidth + 'px' }">
+
+				<!-- Filter -->
+				<div class="schema-filter">
+					<div class="input-group">
+						<input type="text" class="wt" v-model="schemaFilter" placeholder="Filter schemas...">
+						<div v-if="schemaFilter" class="input-group-actions">
+							<button class="input-group-btn" @click="schemaFilter = ''" title="Clear">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<!-- Schema tree -->
+				<div class="schema-tree">
+					<div v-for="schema in filteredSchemas" :key="schema._id" class="schema-group">
+						<!-- Schema item -->
+						<div class="schema-item"
+							:class="{
+								selected: selection.schemaID === schema._id && !selection.propertyID && !isScanActive,
+								'is-new': schema._isNew,
+								'is-deleted': schema._isDeleted,
+								'is-changed': !schema._isNew && !schema._isDeleted && isSchemaChanged(schema)
+							}">
+							<span class="schema-toggle" @click.stop="toggleSchema(schema._id)">
+								<i :class="schema._expanded ? 'bi bi-chevron-down' : 'bi bi-chevron-right'"></i>
+							</span>
+							<i class="bi bi-collection schema-item-icon" @click="selectSchema(schema._id)"></i>
+							<span class="schema-item-key" @click="selectSchema(schema._id)">
+								{{ schema.key || '(unnamed)' }}
+							</span>
+							<span v-if="schema.label" class="schema-item-label" @click="selectSchema(schema._id)">
+								{{ schema.label }}
+							</span>
+							<span class="schema-item-actions">
+								<button v-if="!schema._isDeleted" class="btn-icon btn-item-delete"
+									@click.stop="markSchemaDeleted(schema._id)" title="Delete">
+									<i class="bi bi-trash"></i>
+								</button>
+								<button v-if="schema._isDeleted" class="btn-icon"
+									@click.stop="restoreSchema(schema._id)" title="Restore">
+									<i class="bi bi-arrow-counterclockwise"></i>
+								</button>
+							</span>
+						</div>
+
+						<!-- Property items (collapsible) -->
+						<div v-if="schema._expanded && !schema._isDeleted" class="schema-children">
+							<div v-for="prop in visibleProperties(schema)" :key="prop._id"
+								class="property-item"
+								:class="{
+									selected: selection.propertyID === prop._id && !isScanActive,
+									'is-new': prop._isNew,
+									'is-deleted': prop._isDeleted,
+									dragging: dragState.draggingID === prop._id,
+									'drag-over': dragState.overID === prop._id
+								}"
+								@click="selectProperty(schema._id, prop._id)"
+								draggable="true"
+								@dragstart="onPropertyDragStart(event, prop._id)"
+								@dragover.prevent="onPropertyDragOver(event, prop._id)"
+								@dragleave="onPropertyDragLeave"
+								@drop.prevent="onPropertyDrop(event, prop._id)"
+								@dragend="onPropertyDragEnd">
+								<span class="drag-handle"><i class="bi bi-grip-vertical"></i></span>
+								<i class="bi bi-file-code property-item-icon"></i>
+								<span class="property-item-info">
+									<span class="property-item-key">{{ prop.key || '(unnamed)' }}</span>
+									<span v-if="prop.label && prop.label.trim()" class="property-item-label">{{ prop.label }}</span>
+								</span>
+								<span class="prop-type-badge">{{ prop.type }}</span>
+								<span class="property-item-actions">
+									<button v-if="!prop._isDeleted" class="btn-icon btn-item-delete"
+										@click.stop="markPropertyDeleted(schema._id, prop._id)" title="Delete">
+										<i class="bi bi-trash"></i>
+									</button>
+									<button v-if="prop._isDeleted" class="btn-icon"
+										@click.stop="restoreProperty(schema._id, prop._id)" title="Restore">
+										<i class="bi bi-arrow-counterclockwise"></i>
+									</button>
+								</span>
+							</div>
+
+							<!-- Add property button (inline) -->
+							<div class="schema-action-link"
+								@click="addPropertyTo(schema._id)">
+								<i class="bi bi-plus"></i> Add Property
+							</div>
+						</div>
+					</div>
+
+					<!-- Empty state for tree -->
+					<div v-if="schemas.length === 0 && !isLoading" class="tree-empty">
+						<span>No schemas found.</span>
+						<button class="wt wt-primary wt-slim" @click="addSchema">
+							<i class="bi bi-plus-lg me-1"></i>Add Schema
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<!-- Sidebar resize handle -->
+			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
+				@mousedown="onSidebarResizeStart"></div>
+
+			<!-- Right pane -->
+			<div class="content-main island p-0">
+
+				<!-- ============================================================
+				     Scan Properties view (drop / review)
+				     ============================================================ -->
+				<template v-if="isScanActive">
+
+					<!-- Header: path -->
+					<div class="path-bar">
+						<div class="nav-breadcrumb">
+							<span class="nav-item is-static"><i class="bi bi-diagram-3"></i></span>
+							<span class="nav-divider"><i class="bi bi-chevron-right"></i></span>
+							<span class="nav-item is-static">
+								<i class="bi bi-collection me-1"></i><span>{{ scanSchemaLabel }}</span>
+							</span>
+							<span class="nav-divider"><i class="bi bi-chevron-right"></i></span>
+							<span class="nav-current">
+								<i class="bi bi-search me-1"></i><span>Scan Properties</span>
+							</span>
+							<span class="nav-spacer"></span>
+						</div>
+					</div>
+
+					<!-- Body: drop zone -->
+					<div v-if="scanState.phase === 'drop'" class="scan-drop-zone-container">
+						<div class="scan-drop-zone" :class="{ 'drop-highlight': scanState.isDropHighlighted }"
+							@dragover.prevent="onScanDragOver"
+							@dragleave="onScanDragLeave"
+							@drop.prevent="onScanDrop">
+							<i class="bi bi-file-earmark-arrow-down scan-drop-icon"></i>
+							<div class="scan-drop-text">Drop a file to scan properties</div>
+							<div class="scan-drop-hint">Drop a JSON file from Content Browser or your computer</div>
+						</div>
+						<button class="wt mt-3" @click="cancelScan">Cancel</button>
+					</div>
+
+					<!-- Body: review (file/count info + table + toolbar) -->
+					<div v-if="scanState.phase === 'review'" class="scan-review-container">
+
+						<!-- File / count info -->
+						<div class="scan-review-header">
+							<div class="scan-header-info">
+								<span class="scan-source">
+									<i class="bi bi-file-earmark-text me-1"></i>{{ scanState.sourceFileName }}
+								</span>
+								<span class="scan-count">{{ scanState.properties.length }} properties detected</span>
+								<span v-if="duplicateScanCount > 0" class="scan-warning">
+									<i class="bi bi-exclamation-triangle-fill me-1"></i>{{ duplicateScanCount }} duplicates
+								</span>
+							</div>
+						</div>
+
+						<!-- Table -->
+						<div class="scan-table-wrapper">
+							<table class="scan-table">
+								<thead>
+									<tr>
+										<th class="col-check">
+											<input type="checkbox" class="wt"
+												:checked="checkedScanCount === scanState.properties.length"
+												@change="toggleAllScanned(event.target.checked)">
+										</th>
+										<th class="col-key">Key</th>
+										<th class="col-label">Label</th>
+										<th class="col-type">Type</th>
+										<th class="col-semantic">Semantic</th>
+										<th class="col-multi">Multiple</th>
+										<th class="col-sample">Sample Value</th>
+									</tr>
+								</thead>
+								<tbody>
+									<tr v-for="(sp, idx) in scanState.properties" :key="idx"
+										:class="{
+											'row-selected': sp._selected,
+											'row-duplicate': sp.isDuplicate,
+											'row-unchecked': !sp.checked
+										}"
+										@click="selectScanRow(idx, event)">
+										<td class="col-check" @click.stop>
+											<input type="checkbox" class="wt" v-model="sp.checked">
+										</td>
+										<td class="col-key">
+											<input type="text" v-model="sp.key" class="scan-inline-input"
+												@input="onScanFieldChange(idx, 'key')" @click.stop>
+										</td>
+										<td class="col-label">
+											<input type="text" v-model="sp.label" class="scan-inline-input"
+												@click.stop>
+										</td>
+										<td class="col-type" @click.stop>
+											<div class="wt-select scan-inline-select-wrapper">
+												<button type="button" class="wt-select-trigger"
+													@click.stop="openScanRowTypeDropdown(event, idx)">
+													<span class="wt-select-value">{{ jcrTypeLabels[sp.type] || sp.type }}</span>
+													<i class="bi bi-chevron-down wt-select-chevron"></i>
+												</button>
+											</div>
+										</td>
+										<td class="col-semantic" @click.stop>
+											<input type="text" v-model="sp.semantic" class="scan-inline-input">
+										</td>
+										<td class="col-multi" @click.stop>
+											<input type="checkbox" class="wt" v-model="sp.multiple">
+										</td>
+										<td class="col-sample">
+											<span class="sample-value" :title="sp.sampleValue">{{ sp.sampleValue }}</span>
+										</td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
+
+						<!-- Bulk Operations Toolbar -->
+						<div class="scan-toolbar">
+							<div class="scan-toolbar-row" v-if="selectedScanCount > 0">
+								<!-- Naming convention -->
+								<div class="scan-tool-group">
+									<span class="scan-tool-label">{{ selectedScanCount }} selected:</span>
+									<div class="wt-select scan-tool-select">
+										<button type="button" class="wt-select-trigger"
+											@click.stop="openScanCaseDropdown(event)">
+											<span class="wt-select-value placeholder">Convert Case</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+								</div>
+								<!-- Prefix -->
+								<div class="scan-tool-group">
+									<div class="input-group">
+										<input type="text" v-model="scanState.bulkPrefix" class="scan-prefix-input"
+											placeholder="Prefix..." @keydown.enter="applyDeclaredPrefix">
+										<div class="input-group-actions">
+											<button class="input-group-btn" @click="applyDeclaredPrefix"
+												title="Set prefix for selected keys">
+												<i class="bi bi-check-lg"></i>
+											</button>
+										</div>
+									</div>
+								</div>
+								<!-- Bulk type change -->
+								<div class="scan-tool-group">
+									<div class="wt-select scan-tool-select">
+										<button type="button" class="wt-select-trigger"
+											@click.stop="openScanBulkTypeDropdown(event)">
+											<span class="wt-select-value placeholder">Set Type...</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+								</div>
+								<div class="scan-tool-group">
+									<label class="wt-checkbox-label">
+										<input type="checkbox" class="wt"
+											@change="bulkSetMultiple(event.target.checked)">
+										Multiple
+									</label>
+								</div>
+							</div>
+							<div class="scan-toolbar-row scan-toolbar-actions">
+								<label class="wt-checkbox-label">
+									<input type="checkbox" class="wt" v-model="scanState.overwriteExisting">
+									Overwrite existing keys
+								</label>
+								<span class="nav-spacer"></span>
+								<button class="wt" @click="cancelScan">Cancel</button>
+								<button class="wt wt-primary" @click="importScannedProperties"
+									:disabled="checkedScanCount === 0">
+									<i class="bi bi-download me-1"></i>Import {{ checkedScanCount }} Properties
+								</button>
+							</div>
+						</div>
+					</div>
+
+				</template>
+
+				<!-- ============================================================
+				     Schema / Property edit view
+				     ============================================================ -->
+				<template v-if="!isScanActive">
+
+					<!-- Header: path (only when something is selected) -->
+					<div v-if="editingMode" class="path-bar">
+						<div class="nav-breadcrumb">
+							<span class="nav-item is-static"><i class="bi bi-diagram-3"></i></span>
+							<span class="nav-divider"><i class="bi bi-chevron-right"></i></span>
+							<span :class="{ 'nav-current': editingMode === 'schema', 'nav-item': editingMode !== 'schema' }">
+								<i class="bi bi-collection me-1"></i>{{ schemaPathLabel }}
+							</span>
+							<template v-if="editingMode === 'property'">
+								<span class="nav-divider"><i class="bi bi-chevron-right"></i></span>
+								<span class="nav-current">
+									<i class="bi bi-file-code me-1"></i>{{ propertyPathLabel }}
+								</span>
+							</template>
+							<span class="nav-spacer"></span>
+						</div>
+					</div>
+
+					<!-- Empty state -->
+					<div v-if="!editingMode" class="content-empty">
+						<i class="bi bi-card-list"></i>
+						<span>Select a schema or property to edit</span>
+					</div>
+
+					<!-- Schema form -->
+					<div v-if="editingMode === 'schema'" class="content-form">
+						<div class="property-group">
+							<div class="property-group-title">Schema</div>
+							<div class="form-row">
+								<div class="property-row half">
+									<label class="property-label">Key</label>
+									<input type="text" class="wt w-100" v-model="selectedSchema.key"
+										:class="{'is-invalid': validationErrors['schema.' + selectedSchema._id + '.key']}"
+										placeholder="e.g. article"
+										@input="onSchemaFieldChange">
+									<div v-if="validationErrors['schema.' + selectedSchema._id + '.key']"
+										class="invalid-feedback">
+										{{ validationErrors['schema.' + selectedSchema._id + '.key'] }}
+									</div>
+								</div>
+								<div class="property-row half">
+									<label class="property-label">Label</label>
+									<input type="text" class="wt w-100" v-model="selectedSchema.label"
+										placeholder="e.g. Article"
+										@input="onSchemaFieldChange">
+								</div>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Description</label>
+								<textarea class="wt w-100" v-model="selectedSchema.description" rows="3"
+									placeholder="Schema description..."
+									@input="onSchemaFieldChange"></textarea>
+							</div>
+						</div>
+
+						<div class="property-group">
+							<div class="property-group-title">Summary</div>
+							<div class="property-row">
+								<span class="text-muted">{{ selectedSchema.properties.filter(p => !p._isDeleted).length }} properties</span>
+							</div>
+							<div>
+								<button class="wt wt-primary wt-outlined" @click="startScan(selectedSchema._id)">
+									<i class="bi bi-search me-1"></i><span>Scan Properties</span>
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<!-- Property form -->
+					<div v-if="editingMode === 'property'" :key="selection.propertyID" class="content-form">
+
+						<!-- Basic fields -->
+						<div class="property-group">
+							<div class="property-group-title">Basic</div>
+							<div class="form-row">
+								<div class="property-row half">
+									<label class="property-label">Key</label>
+									<input type="text" class="wt w-100" v-model="selectedProperty.key"
+										:class="{'is-invalid': validationErrors['prop.key']}"
+										placeholder="e.g. dc:title"
+										@input="onPropertyFieldChange">
+									<div v-if="validationErrors['prop.key']" class="invalid-feedback">
+										{{ validationErrors['prop.key'] }}
+									</div>
+								</div>
+								<div class="property-row half">
+									<label class="property-label">Label</label>
+									<input type="text" class="wt w-100" v-model="selectedProperty.label"
+										:class="{'is-invalid': validationErrors['prop.label']}"
+										placeholder="e.g. Title"
+										@input="onPropertyFieldChange">
+									<div v-if="validationErrors['prop.label']" class="invalid-feedback">
+										{{ validationErrors['prop.label'] }}
+									</div>
+								</div>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Description</label>
+								<textarea class="wt w-100" v-model="selectedProperty.description" rows="2"
+									placeholder="Property description (shown as tooltip in editors)"
+									@input="onPropertyFieldChange"></textarea>
+							</div>
+							<div class="form-row">
+								<div class="property-row half">
+									<label class="property-label">Type</label>
+									<div class="wt-select w-100" :class="{'is-invalid': validationErrors['prop.type']}">
+										<button type="button" class="wt-select-trigger"
+											@click.stop="openTypeDropdown(event)">
+											<span class="wt-select-value">{{ jcrTypeLabels[selectedProperty.type] || selectedProperty.type }}</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+									<div v-if="validationErrors['prop.type']" class="invalid-feedback">
+										{{ validationErrors['prop.type'] }}
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Behavior -->
+						<div class="property-group">
+							<div class="property-group-title">Behavior</div>
+							<div v-if="selectedProperty.type === 'REFERENCE' || selectedProperty.type === 'WEAKREFERENCE' || selectedProperty.type === 'BINARY'"
+								class="constraints-disabled-notice">
+								<i class="bi bi-info-circle me-1"></i>
+								Behavior is not applicable for {{ selectedProperty.type }} type.
+							</div>
+							<template v-else>
+								<div class="property-row">
+									<label class="wt-checkbox-label">
+										<input type="checkbox" class="wt" v-model="selectedProperty.behavior.calculated.enabled"
+											@change="onPropertyFieldChange">
+										Calculated
+									</label>
+								</div>
+								<div v-if="!selectedProperty.behavior.calculated.enabled" class="property-row">
+									<label class="property-label">Default Value</label>
+									<div class="wt-radio-row">
+										<label class="wt-radio-label">
+											<input type="radio" class="wt" v-model="selectedProperty.behavior.defaultValue.type"
+												value="STATIC" @change="onPropertyFieldChange">
+											Static
+										</label>
+										<label class="wt-radio-label">
+											<input type="radio" class="wt" v-model="selectedProperty.behavior.defaultValue.type"
+												value="CALCULATED" @change="onPropertyFieldChange">
+											Calculated
+										</label>
+									</div>
+									<input v-if="selectedProperty.behavior.defaultValue.type === 'STATIC'"
+										type="text" class="wt w-100" v-model="selectedProperty.behavior.defaultValue.value"
+										placeholder="Default value" @input="onPropertyFieldChange">
+									<textarea v-else
+										class="wt w-100" v-model="selectedProperty.behavior.defaultValue.value"
+										placeholder="return value;" rows="3"
+										@input="onPropertyFieldChange"></textarea>
+								</div>
+								<div v-if="selectedProperty.behavior.calculated.enabled" class="property-row">
+									<label class="property-label">Formula
+										<span v-if="validationErrors['prop.formula']" class="text-danger">
+											{{ validationErrors['prop.formula'] }}
+										</span>
+									</label>
+									<textarea class="wt w-100" v-model="selectedProperty.behavior.calculated.formula"
+										rows="2" placeholder="e.g. ${title} - ${date}"
+										@input="onPropertyFieldChange"></textarea>
+								</div>
+								<div class="property-row">
+									<label class="property-label">Validation</label>
+									<div class="field-help">
+										Return <code>{ valid: true }</code> or
+										<code>{ valid: false, errors: [{ messageId, severity?, params?, ruleId?, fallbackMessage? }, ...] }</code>.<br>
+										<strong>ctx</strong>: <code>propertyName</code>, <code>currentValue</code>, <code>currentValues</code>, <code>isArray</code>, <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>.
+									</div>
+									<textarea class="wt w-100" v-model="selectedProperty.uiHint.validation"
+										:placeholder="validationPlaceholder" rows="8"
+										@input="onPropertyFieldChange"></textarea>
+								</div>
+							</template>
+						</div>
+
+						<!-- Constraints -->
+						<div class="property-group">
+							<div class="property-group-title">Constraints</div>
+							<div v-if="selectedProperty.behavior.calculated.enabled" class="constraints-disabled-notice">
+								<i class="bi bi-info-circle me-1"></i>
+								Constraints are not applicable because this is a calculated property.
+							</div>
+							<template v-else>
+								<div class="property-row">
+									<div class="wt-checkbox-row">
+										<label class="wt-checkbox-label">
+											<input type="checkbox" class="wt" v-model="selectedProperty.constraints.required"
+												@change="onPropertyFieldChange">
+											Required
+										</label>
+										<label class="wt-checkbox-label">
+											<input type="checkbox" class="wt" v-model="selectedProperty.constraints.multiple"
+												@change="onPropertyFieldChange">
+											Multiple
+										</label>
+									</div>
+								</div>
+								<!-- String constraints -->
+								<div v-if="selectedProperty.type === 'STRING'" class="form-row">
+									<div class="property-row half">
+										<label class="property-label">Min Length</label>
+										<input type="number" class="wt w-100" v-model.number="selectedProperty.constraints.minLength"
+											min="0" @input="onPropertyFieldChange">
+									</div>
+									<div class="property-row half">
+										<label class="property-label">Max Length</label>
+										<input type="number" class="wt w-100" v-model.number="selectedProperty.constraints.maxLength"
+											min="0" @input="onPropertyFieldChange">
+									</div>
+								</div>
+								<div v-if="selectedProperty.type === 'STRING'" class="property-row">
+									<label class="property-label">Pattern (regex)
+										<span v-if="validationErrors['prop.pattern']" class="text-danger">
+											{{ validationErrors['prop.pattern'] }}
+										</span>
+									</label>
+									<input type="text" class="wt w-100" v-model="selectedProperty.constraints.pattern"
+										placeholder="e.g. ^[A-Za-z0-9_-]+$" @input="onPropertyFieldChange">
+								</div>
+								<!-- Numeric constraints -->
+								<div v-if="isNumericType(selectedProperty.type)" class="form-row">
+									<div class="property-row half">
+										<label class="property-label">Min Value</label>
+										<input type="text" class="wt w-100" v-model="selectedProperty.constraints.minValue"
+											@input="onPropertyFieldChange">
+									</div>
+									<div class="property-row half">
+										<label class="property-label">Max Value</label>
+										<input type="text" class="wt w-100" v-model="selectedProperty.constraints.maxValue"
+											@input="onPropertyFieldChange">
+									</div>
+								</div>
+								<div v-if="isNumericType(selectedProperty.type)" class="form-row">
+									<div class="property-row half">
+										<label class="property-label">Decimal Places (precision)</label>
+										<input type="number" class="wt w-100" v-model.number="selectedProperty.constraints.decimalPlaces"
+											min="0" max="20" @input="onPropertyFieldChange">
+									</div>
+								</div>
+								<!-- Choices -->
+								<div v-if="selectedProperty.type !== 'REFERENCE' && selectedProperty.type !== 'WEAKREFERENCE' && selectedProperty.type !== 'BINARY'"
+									class="property-row">
+									<label class="property-label">Choices
+										<span v-if="validationErrors['prop.choices']" class="text-danger">
+											{{ validationErrors['prop.choices'] }}
+										</span>
+									</label>
+									<div class="choices-list">
+										<div v-for="(choice, ci) in selectedProperty.constraints.choices" :key="ci"
+											class="choice-item">
+											<input type="text" class="wt" v-model="choice.value" placeholder="Value"
+												@input="onPropertyFieldChange">
+											<input type="text" class="wt" v-model="choice.label" placeholder="Label"
+												@input="onPropertyFieldChange">
+											<button class="btn-icon" @click="moveChoice(ci, -1)" :disabled="ci === 0" title="Move up">
+												<i class="bi bi-chevron-up"></i>
+											</button>
+											<button class="btn-icon" @click="moveChoice(ci, 1)" :disabled="ci === selectedProperty.constraints.choices.length - 1" title="Move down">
+												<i class="bi bi-chevron-down"></i>
+											</button>
+											<button class="btn-icon btn-item-delete" @click="removeChoice(ci)" title="Remove">
+												<i class="bi bi-x"></i>
+											</button>
+										</div>
+									</div>
+									<div>
+										<button class="wt wt-primary wt-slim wt-outlined mt-2" @click="addChoice">
+											<i class="bi bi-plus me-1"></i><span>Add choice</span>
+										</button>
+									</div>
+								</div>
+								<!-- Query-based choices -->
+								<div v-if="selectedProperty.type === 'REFERENCE' || selectedProperty.type === 'WEAKREFERENCE'"
+									class="property-row">
+									<label class="property-label">Query</label>
+									<div class="query-fields">
+										<div class="property-row">
+											<label class="property-label">XPath</label>
+											<input type="text" class="wt w-100" v-model="selectedProperty.constraints.query.xpath"
+												placeholder="/jcr:root/content//element(*, nt:file)"
+												@input="onPropertyFieldChange">
+										</div>
+										<div class="property-row">
+											<label class="property-label">Label Key</label>
+											<input type="text" class="wt w-100" v-model="selectedProperty.constraints.query.labelKey"
+												placeholder="jcr:name" @input="onPropertyFieldChange">
+										</div>
+									</div>
+								</div>
+							</template>
+						</div>
+
+						<!-- UI Hint -->
+						<div class="property-group">
+							<div class="property-group-title">UI Hint</div>
+							<div class="property-row">
+								<label class="wt-checkbox-label">
+									<input type="checkbox" class="wt" v-model="selectedProperty.uiHint.readOnly"
+										@change="onPropertyFieldChange">
+									Read Only
+								</label>
+							</div>
+							<div v-if="showEditorType" class="form-row">
+								<div class="property-row half">
+									<label class="property-label">Editor Type</label>
+									<div class="wt-select w-100">
+										<button type="button" class="wt-select-trigger"
+											@click.stop="openEditorTypeDropdown(event)">
+											<span class="wt-select-value" :class="{placeholder: !selectedProperty.uiHint.editorType}">
+												{{ selectedProperty.uiHint.editorType || '— Auto —' }}
+											</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+								</div>
+							</div>
+							<div v-if="['TextArea','Text Editor','JSON','XML','HTML','Markdown'].includes(selectedProperty.uiHint.editorType)"
+								class="form-row">
+								<div class="property-row half">
+									<label class="property-label">Rows</label>
+									<input type="number" class="wt w-100" v-model.number="selectedProperty.uiHint.rows"
+										min="1" max="50" @input="onPropertyFieldChange">
+								</div>
+							</div>
+							<div v-if="selectedProperty.uiHint.editorType === 'Password'" class="property-row">
+								<label class="property-label">Mask Character</label>
+								<input type="text" class="wt w-100" v-model="selectedProperty.uiHint.mask"
+									maxlength="1" placeholder="*" @input="onPropertyFieldChange">
+							</div>
+							<div v-if="selectedProperty.type !== 'REFERENCE' && selectedProperty.type !== 'WEAKREFERENCE' && selectedProperty.type !== 'BINARY'"
+								class="property-row">
+								<label class="property-label">Display Format</label>
+								<textarea class="wt w-100" v-model="selectedProperty.uiHint.displayFormat"
+									placeholder="return value;" rows="3"
+									@input="onPropertyFieldChange"></textarea>
+							</div>
+						</div>
+
+						<!-- Extensions -->
+						<div class="property-group">
+							<div class="property-group-title">Extensions</div>
+							<div class="property-row">
+								<label class="property-label">Semantic</label>
+								<input type="text" class="wt w-100" v-model="selectedProperty.extensions.semantic"
+									placeholder="e.g. currency, email, markdown"
+									@input="onPropertyFieldChange">
+							</div>
+						</div>
+					</div>
+
+				</template>
+
+			</div>
+
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ schemas.length }} schemas</span>
+				<span class="status-divider"></span>
+				<span class="status-item">{{ totalPropertyCount }} properties</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group">
+				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Saving...</span>
+				<span v-else-if="hasChanges" class="status-item">{{ changedSchemaCount }} unsaved</span>
+				<span v-else class="status-item">Saved</span>
+			</div>
+		</div>
+
+		<!-- Loading Overlay -->
+		<div v-if="isLoading" class="loading-overlay flex-column text-center">
+			<div class="spinner"></div>
+			<span class="mt-3">Loading schemas...</span>
+		</div>
+
+		<!-- Close Confirmation Dialog -->
+		<div v-if="closeConfirmDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Unsaved Changes</h3>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0">There {{ changedSchemaCount === 1 ? 'is' : 'are' }} <strong>{{ changedSchemaCount }}</strong> unsaved schema{{ changedSchemaCount === 1 ? '' : 's' }}.</p>
+						<p>Do you want to save your changes before closing?</p>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">Cancel</button>
+						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
+							<i class="bi bi-trash me-1"></i>Don't Save
+						</button>
+						<button class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
+							<i class="bi bi-floppy me-1"></i>Save
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Error Dialog -->
+		<div v-if="errorMessage" class="dialog-overlay dialog-overlay-message">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Notice</h3>
+							<button class="btn-icon" @click="errorMessage = ''" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0 mb-0">{{ errorMessage }}</p>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt wt-primary" @click="errorMessage = ''">OK</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

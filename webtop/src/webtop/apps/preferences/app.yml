@@ -1,0 +1,11 @@
+identifier: ddae3624-7926-436f-b474-931bed669328
+title: Preferences
+icon: assets/icons/icon.svg
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 600
+minimumHeight: 450
+customWindowControls: true
+singleton: true

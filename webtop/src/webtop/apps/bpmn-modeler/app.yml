@@ -1,0 +1,14 @@
+identifier: 8f3a2b1c-4d5e-6f7a-8b9c-0d1e2f3a4b5c
+title: BPMN Modeler
+icon: assets/icons/icon.svg
+editor: true
+contentTypes:
+  - application/x-bpmn
+  - application/bpmn+xml
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 960
+minimumHeight: 540
+customWindowControls: true

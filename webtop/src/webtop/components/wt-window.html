@@ -1,0 +1,34 @@
+<template id="wt-window">
+	<div class="window" :class="{ maximized: maximized }" :data-id="appInstance.id" :style="windowStyle" @mounted.stop="onMounted" @unmount.stop="onUnmount" @mousedown="activate">
+		<div class="resize-top" @mousedown.prevent.stop="startResize('top', event)"></div>
+		<div class="resize-bottom" @mousedown.prevent.stop="startResize('bottom', event)"></div>
+		<div class="resize-left" @mousedown.prevent.stop="startResize('left', event)"></div>
+		<div class="resize-right" @mousedown.prevent.stop="startResize('right', event)"></div>
+		<div class="resize-top-left" @mousedown.prevent.stop="startResize('top-left', event)"></div>
+		<div class="resize-top-right" @mousedown.prevent.stop="startResize('top-right', event)"></div>
+		<div class="resize-bottom-left" @mousedown.prevent.stop="startResize('bottom-left', event)"></div>
+		<div class="resize-bottom-right" @mousedown.prevent.stop="startResize('bottom-right', event)"></div>
+
+		<div class="window-inner" :data-theme="theme">
+			<div class="title-bar" @mousedown.prevent.stop="startDrag" @dblclick="toggleMaximize">
+				<!--
+				<div class="title-container">
+					<img class="app-icon" :src="iconURL" v-if="iconURL">
+				</div>
+				<div class="title-icons right" v-if="!app.customWindowControls">
+					<div class="window-icon maximize" @mousedown.stop @click.stop="toggleMaximize"></div>
+					<div class="window-icon minimize" @mousedown.stop @click.stop="minimize"></div>
+					<div class="window-icon close" @mousedown.stop @click.stop="close"></div>
+				</div>
+				-->
+			</div>
+			<div class="content">
+				<iframe class="content-frame" :src="contentURL" :style="contentFrameStyle" :data-app-id="appInstance.id"></iframe>
+				<div v-if="!isLaunched" class="launching"><span class="loader"></span></div>
+				<div v-if="!launchFailed" class="launch-failed">
+					<span>The application could not be started.</span>
+				</div>
+			</div>
+		</div>
+	</div>
+</template>

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Preferences</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount"
+		@dragover.prevent="onAppDragOver" @drop.prevent>
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: section icons -->
+			<div class="toolbar-group">
+				<button class="btn-icon section-btn" :class="{active: section === 'appearance'}"
+					@click="selectSection('appearance')" title="Appearance">
+					<i class="bi bi-palette"></i>
+				</button>
+				<button class="btn-icon section-btn" :class="{active: section === 'localization'}"
+					@click="selectSection('localization')" title="Localization">
+					<i class="bi bi-globe2"></i>
+				</button>
+				<button class="btn-icon section-btn" :class="{active: section === 'profile'}"
+					@click="selectSection('profile')" title="Profile">
+					<i class="bi bi-person-circle"></i>
+				</button>
+				<button class="btn-icon section-btn" :class="{active: section === 'security'}"
+					@click="selectSection('security')" title="Security">
+					<i class="bi bi-shield-lock"></i>
+				</button>
+				<button class="btn-icon section-btn" :class="{active: section === 'sessions'}"
+					@click="selectSection('sessions')" title="Sessions">
+					<i class="bi bi-layout-text-window-reverse"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Content body (single pane) -->
+		<div class="content-body">
+			<div class="content-main island"
+				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+
+				<!-- Remote update notice -->
+				<div v-if="remoteUpdateNotice" class="remote-notice">
+					<i class="bi bi-info-circle me-2"></i>
+					<span class="flex-grow-1">Settings were updated on another device. Reload to apply the latest changes.</span>
+					<button type="button" class="btn-icon" @click="remoteUpdateNotice = false" title="Dismiss">
+						<i class="bi bi-x-lg"></i>
+					</button>
+				</div>
+
+				<div class="pref-pane">
+
+					<!-- ========== Appearance ========== -->
+					<div v-if="section === 'appearance'">
+						<h2 class="pref-section-title">Appearance</h2>
+
+						<!-- Theme -->
+						<div class="property-group">
+							<div class="property-group-title">Theme</div>
+							<div class="d-flex gap-3 mt-2">
+								<label class="pref-theme-option" :class="{ selected: theme === 'light' }">
+									<input type="radio" name="theme" value="light" v-model="theme"
+										@change="onThemeChange" class="d-none">
+									<div class="pref-theme-preview pref-theme-preview-light">
+										<i class="bi bi-sun"></i>
+									</div>
+									<span class="pref-theme-label">Light</span>
+								</label>
+								<label class="pref-theme-option" :class="{ selected: theme === 'dark' }">
+									<input type="radio" name="theme" value="dark" v-model="theme"
+										@change="onThemeChange" class="d-none">
+									<div class="pref-theme-preview pref-theme-preview-dark">
+										<i class="bi bi-moon-stars"></i>
+									</div>
+									<span class="pref-theme-label">Dark</span>
+								</label>
+								<label class="pref-theme-option" :class="{ selected: theme === 'auto' }">
+									<input type="radio" name="theme" value="auto" v-model="theme"
+										@change="onThemeChange" class="d-none">
+									<div class="pref-theme-preview pref-theme-preview-auto">
+										<i class="bi bi-clock-history"></i>
+									</div>
+									<span class="pref-theme-label">Auto</span>
+								</label>
+							</div>
+							<div v-if="theme === 'auto'" class="text-muted fs-small mt-2">
+								<i class="bi bi-info-circle me-1"></i>
+								Switches to dark mode between 19:00 and 6:00.
+							</div>
+						</div>
+
+						<!-- Wallpaper -->
+						<div class="property-group">
+							<div class="property-group-title">Wallpaper</div>
+
+							<!-- Drop area: current preview + catalog -->
+							<div class="pref-drop-area"
+								:class="{ 'drag-over': wallpaperDragOver }"
+								@dragenter.prevent.stop="onWallpaperDragEnter"
+								@dragover.prevent.stop="onWallpaperDragOver"
+								@dragleave.prevent.stop="onWallpaperDragLeave"
+								@drop.prevent.stop="onWallpaperDrop">
+
+								<!-- Current wallpaper preview -->
+								<div v-if="currentWallpaperURL" class="pref-wallpaper-current">
+									<img :src="currentWallpaperURL" alt="Current wallpaper" class="pref-wallpaper-preview-img">
+								</div>
+
+								<!-- Wallpaper catalog -->
+								<div class="pref-wallpaper-catalog mt-3">
+									<div v-for="wp in wallpaperCatalog" :key="wp.id"
+										class="pref-wallpaper-thumb" :class="{ selected: wp.id === selectedWallpaperID }"
+										@click="selectWallpaper(wp.id)">
+										<img :src="wp.url + '?t=' + wp.timestamp" :alt="wp.id">
+										<div v-if="wp.id === selectedWallpaperID" class="pref-wallpaper-check">
+											<i class="bi bi-check-lg"></i>
+										</div>
+										<button v-if="wp.id !== 'default' && wp.id !== selectedWallpaperID"
+											class="pref-wallpaper-delete"
+											@click.stop="deleteWallpaper(wp.id)"
+											title="Delete">
+											<i class="bi bi-x"></i>
+										</button>
+									</div>
+
+									<!-- Upload button -->
+									<div class="pref-wallpaper-thumb pref-wallpaper-upload"
+										@click="triggerWallpaperUpload" title="Upload wallpaper">
+										<i class="bi bi-plus-lg"></i>
+									</div>
+									<input type="file" ref="wallpaperFileInput" accept="image/*"
+										@change="onWallpaperFileSelected" class="d-none">
+								</div>
+
+								<div class="pref-drop-hint">
+									<i class="bi bi-cloud-upload me-1"></i>
+									Drop an image here, or click + to choose a file.
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- ========== Localization ========== -->
+					<div v-if="section === 'localization'">
+						<h2 class="pref-section-title">Localization</h2>
+
+						<div class="property-group">
+							<div class="property-group-title">Language</div>
+							<div class="property-label">Display language for Webtop and applications.</div>
+							<div class="wt-select pref-select">
+								<button type="button" class="wt-select-trigger"
+									@click.stop="openLocaleDropdown(event)">
+									<span class="wt-select-value">{{ localeLabel(locale) }}</span>
+									<i class="bi bi-chevron-down wt-select-chevron"></i>
+								</button>
+							</div>
+						</div>
+
+						<div class="property-group">
+							<div class="property-group-title">Time zone</div>
+							<div class="property-label">Used for date and time display.</div>
+							<div class="wt-select pref-select">
+								<button type="button" class="wt-select-trigger"
+									@click.stop="openTimezoneDropdown(event)">
+									<span class="wt-select-value">{{ timezoneLabel(timezone) }}</span>
+									<i class="bi bi-chevron-down wt-select-chevron"></i>
+								</button>
+							</div>
+						</div>
+
+						<div class="property-group">
+							<div class="property-group-title">Number format</div>
+							<div class="property-label">Locale used to format numbers, dates and lists.</div>
+							<div class="wt-select pref-select">
+								<button type="button" class="wt-select-trigger"
+									@click.stop="openNumberFormatDropdown(event)">
+									<span class="wt-select-value">{{ numberFormatLabel(numberFormat) }}</span>
+									<i class="bi bi-chevron-down wt-select-chevron"></i>
+								</button>
+							</div>
+						</div>
+
+						<div class="property-group">
+							<div class="property-group-title">Currency</div>
+							<div class="property-label">Default currency for monetary values.</div>
+							<div class="wt-select pref-select">
+								<button type="button" class="wt-select-trigger"
+									@click.stop="openCurrencyDropdown(event)">
+									<span class="wt-select-value">{{ currencyLabel(currency) }}</span>
+									<i class="bi bi-chevron-down wt-select-chevron"></i>
+								</button>
+							</div>
+						</div>
+
+						<div v-if="localizationMessage" class="pref-inline-message"
+							:class="localizationMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
+							{{ localizationMessage }}
+						</div>
+					</div>
+
+					<!-- ========== Profile ========== -->
+					<div v-if="section === 'profile'">
+						<h2 class="pref-section-title">Profile</h2>
+
+						<!-- Avatar -->
+						<div class="property-group">
+							<div class="property-group-title">Profile Photo</div>
+							<div class="pref-drop-area pref-avatar-drop"
+								:class="{ 'drag-over': avatarDragOver }"
+								@dragenter.prevent.stop="onAvatarDragEnter"
+								@dragover.prevent.stop="onAvatarDragOver"
+								@dragleave.prevent.stop="onAvatarDragLeave"
+								@drop.prevent.stop="onAvatarDrop">
+								<div class="d-flex align-items-center gap-4">
+									<div class="pref-avatar-container">
+										<img v-if="avatarURL" :src="avatarURL" alt="Avatar" class="pref-avatar-img">
+										<div v-else class="pref-avatar-placeholder">
+											<i class="bi bi-person"></i>
+										</div>
+									</div>
+									<div class="flex-grow-1">
+										<button class="wt wt-outlined wt-slim" @click="triggerAvatarUpload">
+											<i class="bi bi-upload me-1"></i>Upload Photo
+										</button>
+										<input type="file" ref="avatarFileInput" accept="image/png,image/jpeg,image/gif"
+											@change="onAvatarFileSelected" class="d-none">
+										<div class="text-muted fs-small mt-2">JPG, PNG, or GIF. Max 2MB.</div>
+									</div>
+								</div>
+								<div class="pref-drop-hint">
+									<i class="bi bi-cloud-upload me-1"></i>
+									Drop an image here to set as profile photo.
+								</div>
+							</div>
+						</div>
+
+						<!-- Display Name -->
+						<div class="property-group">
+							<div class="property-label">Display Name</div>
+							<div class="d-flex gap-2 align-items-center">
+								<input type="text" class="wt pref-input" v-model="displayName"
+									placeholder="Enter display name">
+								<button class="wt wt-primary" @click="saveDisplayName"
+									:disabled="!displayNameChanged || profileSaving">
+									Save
+								</button>
+							</div>
+							<div v-if="profileMessage" class="pref-inline-message"
+								:class="profileMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
+								{{ profileMessage }}
+							</div>
+						</div>
+					</div>
+
+					<!-- ========== Security ========== -->
+					<div v-if="section === 'security'">
+						<h2 class="pref-section-title">Security</h2>
+
+						<div class="property-group">
+							<div class="property-group-title">Change Password</div>
+							<div class="pref-form">
+								<div class="property-row">
+									<label class="property-label">Current Password</label>
+									<input type="password" class="wt w-100"
+										v-model="passwordForm.current" autocomplete="current-password">
+								</div>
+								<div class="property-row">
+									<label class="property-label">New Password</label>
+									<input type="password" class="wt w-100"
+										v-model="passwordForm.newPassword" autocomplete="new-password">
+								</div>
+								<div class="property-row">
+									<label class="property-label">Confirm New Password</label>
+									<input type="password" class="wt w-100"
+										v-model="passwordForm.confirm" autocomplete="new-password">
+								</div>
+								<div class="d-flex gap-2 mt-3">
+									<button class="wt wt-primary" @click="changePassword"
+										:disabled="!canChangePassword || passwordSaving">
+										Change Password
+									</button>
+								</div>
+								<div v-if="passwordMessage" class="pref-inline-message"
+									:class="passwordMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
+									{{ passwordMessage }}
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- ========== Sessions ========== -->
+					<div v-if="section === 'sessions'">
+						<h2 class="pref-section-title">Sessions</h2>
+
+						<div class="property-group">
+							<div class="property-group-title">Saved Sessions</div>
+							<div v-if="sessionsLoading" class="text-muted fs-small mt-2">Loading&hellip;</div>
+							<div v-else-if="sessionList.length === 0" class="text-muted fs-small mt-2">No saved sessions.</div>
+							<div v-else class="pref-session-list mt-2">
+								<div v-for="s in sessionList" :key="s.id" class="pref-session-item">
+									<div class="pref-session-meta">
+										<div class="pref-session-name text-truncate">{{ s.displayName }}</div>
+										<div class="pref-session-date text-muted fs-small">{{ formatDate(s.savedAt) }}</div>
+									</div>
+									<button class="btn-icon pref-session-delete"
+										@click="confirmDeleteSession(s)" title="Delete">
+										<i class="bi bi-trash3"></i>
+									</button>
+								</div>
+							</div>
+							<div v-if="sessionMessage" class="pref-inline-message"
+								:class="sessionMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
+								{{ sessionMessage }}
+							</div>
+						</div>
+					</div>
+
+				</div>
+			</div>
+		</div>
+
+		<!-- Bottom Status Bar (translucent, empty — same shape as editor apps) -->
+		<div class="status-bar window-drag-region"></div>
+
+		<!-- Confirmation Dialog -->
+		<div v-if="confirmDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3>
+								<i :class="['bi', 'me-2', confirmDialog.iconClass || 'bi-question-circle']"></i>{{ confirmDialog.title }}
+							</h3>
+							<button class="btn-icon" @click="closeConfirmDialog" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0 mb-0">{{ confirmDialog.message }}</p>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt" @click="closeConfirmDialog">Cancel</button>
+						<button class="wt"
+							:class="confirmDialog.danger ? 'wt-danger' : 'wt-primary'"
+							@click="acceptConfirmDialog">
+							{{ confirmDialog.confirmLabel || 'OK' }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Notification Dialog -->
+		<div v-if="notificationDialog.visible" class="dialog-overlay dialog-overlay-message">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3>
+								<i :class="['bi', 'me-2', notificationIconClass()]"></i>{{ notificationDialog.title }}
+							</h3>
+							<button class="btn-icon" @click="closeNotificationDialog" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0 mb-0">{{ notificationDialog.message }}</p>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt wt-primary" @click="closeNotificationDialog">OK</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+</html>

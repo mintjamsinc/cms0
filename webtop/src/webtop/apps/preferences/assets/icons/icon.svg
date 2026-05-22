@@ -1,0 +1,31 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="prefs">
+  <defs>
+    <clipPath id="clip-prefs"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-prefs" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <defs><linearGradient id="bg-prefs" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#94a3b8"/>
+    <stop offset="100%" stop-color="#334155"/>
+  </linearGradient></defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-prefs)"/>
+  <g clip-path="url(#clip-prefs)" fill="white">
+    <rect x="133.00" y="83.00" width="14" height="14" rx="3" transform="rotate(0.00 140.00 90.00)"/>
+    <rect x="118.36" y="118.36" width="14" height="14" rx="3" transform="rotate(45.00 125.36 125.36)"/>
+    <rect x="83.00" y="133.00" width="14" height="14" rx="3" transform="rotate(90.00 90.00 140.00)"/>
+    <rect x="47.64" y="118.36" width="14" height="14" rx="3" transform="rotate(135.00 54.64 125.36)"/>
+    <rect x="33.00" y="83.00" width="14" height="14" rx="3" transform="rotate(180.00 40.00 90.00)"/>
+    <rect x="47.64" y="47.64" width="14" height="14" rx="3" transform="rotate(225.00 54.64 54.64)"/>
+    <rect x="83.00" y="33.00" width="14" height="14" rx="3" transform="rotate(270.00 90.00 40.00)"/>
+    <rect x="118.36" y="47.64" width="14" height="14" rx="3" transform="rotate(315.00 125.36 54.64)"/>
+    <circle cx="90" cy="90" r="38"/>
+    <circle cx="90" cy="90" r="14" fill="#334155"/>
+  </g>
+  <g clip-path="url(#clip-prefs)">
+    <rect x="0" y="0" width="180" height="180" fill="url(#hl-prefs)"/>
+    <rect x="0.5" y="0.5" width="179" height="179" rx="41.5" ry="41.5"
+          fill="none" stroke="white" stroke-opacity="0.18" stroke-width="1"/>
+  </g>
+</svg>

@@ -1,0 +1,24 @@
+identifier: 51d5e4ba-d4f4-4829-8f52-b89936cf1dab
+title: Text Editor
+icon: assets/icons/icon.svg
+editor: true
+contentTypes:
+  - text/*
+  - application/javascript
+  - application/x-javascript
+  - application/ecmascript
+  - application/json
+  - application/yaml
+  - application/x-yaml
+  - application/xml
+  - application/x-groovy
+  - application/x-gsp
+  - application/x-sh
+  - application/sql
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 960
+minimumHeight: 480
+customWindowControls: true

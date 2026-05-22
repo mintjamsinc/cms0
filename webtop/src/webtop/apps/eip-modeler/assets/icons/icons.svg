@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+	<!--
+		Camel Route editor canvas EIP icon sprite.
+		Each <symbol> contains only the static "icon mark" drawn on top of the
+		coloured node body. Body rects, dynamic text labels, and ports stay
+		inline in index.html because they depend on per-shape sizing/state.
+
+		Each symbol is referenced via <use :href="spriteUrl + '#canvas-...'"/>.
+		The viewBox of every symbol matches the original inline coordinate
+		system, so the corresponding <use> can be placed at x="0" y="0" with
+		width/height equal to viewBox dimensions to render identically to the
+		previous inline artwork.
+
+		Colours such as fill="white" / stroke="white" and opacity values are
+		preserved verbatim from the original inline SVG.
+	-->
+
+	<!-- From: capsule body has a translucent circle + right arrow -->
+	<symbol id="canvas-from" viewBox="0 0 56 50">
+		<circle cx="28" cy="25" r="12" fill="white" opacity="0.3"/>
+		<path d="M22,25 L34,25 M30,21 L34,25 L30,29" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+	</symbol>
+
+	<!-- To: capsule body with translucent circle + solid centre dot -->
+	<symbol id="canvas-to" viewBox="0 0 56 50">
+		<circle cx="28" cy="25" r="12" fill="white" opacity="0.3"/>
+		<circle cx="28" cy="25" r="5" fill="white"/>
+	</symbol>
+
+	<!-- ToD: like To, plus a small "D" superscript -->
+	<symbol id="canvas-toD" viewBox="0 0 56 50">
+		<circle cx="28" cy="25" r="12" fill="white" opacity="0.3"/>
+		<circle cx="28" cy="25" r="5" fill="white"/>
+		<text x="22" y="19" fill="white" font-size="7" font-weight="bold">D</text>
+	</symbol>
+
+	<!-- Log: three horizontal log lines -->
+	<symbol id="canvas-log" viewBox="0 0 50 50">
+		<g transform="translate(14, 18)">
+			<line x1="0" y1="6" x2="24" y2="6" stroke="white" stroke-width="2"/>
+			<line x1="0" y1="12" x2="24" y2="12" stroke="white" stroke-width="2"/>
+			<line x1="0" y1="18" x2="16" y2="18" stroke="white" stroke-width="2"/>
+		</g>
+	</symbol>
+
+	<!-- SetBody: bold "B" glyph -->
+	<symbol id="canvas-setBody" viewBox="0 0 50 50">
+		<text x="24" y="36" text-anchor="middle" fill="white" font-size="16" font-weight="bold">B</text>
+	</symbol>
+
+	<!-- SetHeader: bold "H" glyph -->
+	<symbol id="canvas-setHeader" viewBox="0 0 50 50">
+		<text x="24" y="36" text-anchor="middle" fill="white" font-size="16" font-weight="bold">H</text>
+	</symbol>
+
+	<!-- Choice: "?" glyph centred in the diamond (shape spans 100×60) -->
+	<symbol id="canvas-choice" viewBox="0 0 100 60">
+		<text x="50" y="38" text-anchor="middle" fill="#333" font-size="18" font-weight="bold">?</text>
+	</symbol>
+
+	<!-- Filter: funnel shape -->
+	<symbol id="canvas-filter" viewBox="0 0 60 60">
+		<path d="M14,18 L42,18 L34,30 L34,42 L22,42 L22,30 Z" fill="white" opacity="0.9"/>
+	</symbol>
+
+	<!-- Split: forking arrow -->
+	<symbol id="canvas-split" viewBox="0 0 60 60">
+		<path d="M18,30 L30,30 M30,30 L48,18 M30,30 L48,30 M30,30 L48,42" stroke="white" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+	</symbol>
+
+	<!-- Delay: clock face with hour/minute hands -->
+	<symbol id="canvas-delay" viewBox="0 0 60 60">
+		<circle cx="28" cy="30" r="14" fill="none" stroke="white" stroke-width="2"/>
+		<path d="M28,20 L28,30 L36,34" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+	</symbol>
+
+	<!-- Bean: stylised coffee bean (two stacked ellipses) -->
+	<symbol id="canvas-bean" viewBox="0 0 60 60">
+		<ellipse cx="28" cy="30" rx="14" ry="16" fill="white" opacity="0.2"/>
+		<ellipse cx="28" cy="30" rx="8" ry="12" fill="white"/>
+	</symbol>
+
+	<!-- Stop: solid square (stop icon) -->
+	<symbol id="canvas-stop" viewBox="0 0 60 60">
+		<rect x="22" y="22" width="16" height="16" fill="white"/>
+	</symbol>
+
+	<!-- Merge: converging arrows (diamond shape spans 50×50) -->
+	<symbol id="canvas-merge" viewBox="0 0 50 50">
+		<path d="M15,15 L25,25 M15,35 L25,25 M25,25 L35,25" stroke="white" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+	</symbol>
+
+	<!-- onException: translucent circle with "!" inside -->
+	<symbol id="canvas-onException" viewBox="0 0 50 50">
+		<g transform="translate(14, 13)">
+			<circle cx="12" cy="12" r="12" fill="white" opacity="0.3"/>
+			<text x="12" y="17" text-anchor="middle" fill="white" font-size="16" font-weight="bold">!</text>
+		</g>
+	</symbol>
+
+	<!-- doTry: translucent rounded rect labelled TRY / CATCH -->
+	<symbol id="canvas-doTry" viewBox="0 0 60 60">
+		<g transform="translate(14, 14)">
+			<rect x="0" y="0" width="32" height="32" rx="4" fill="white" opacity="0.2"/>
+			<text x="16" y="14" text-anchor="middle" fill="white" font-size="9" font-weight="bold">TRY</text>
+			<text x="16" y="26" text-anchor="middle" fill="white" font-size="7" opacity="0.9">CATCH</text>
+		</g>
+	</symbol>
+
+	<!-- Throttle: zig-zag wave -->
+	<symbol id="canvas-throttle" viewBox="0 0 60 60">
+		<path d="M20,18 L28,28 L36,22 L44,30" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+	</symbol>
+
+	<!-- Aggregate: lines converging into a centre point -->
+	<symbol id="canvas-aggregate" viewBox="0 0 60 60">
+		<path d="M16,16 L28,30 M16,44 L28,30 M40,16 L28,30 M40,44 L28,30" stroke="white" stroke-width="2" stroke-linecap="round" fill="none"/>
+	</symbol>
+
+	<!-- Marshal: "{}" glyph (no inner space) -->
+	<symbol id="canvas-marshal" viewBox="0 0 60 60">
+		<text x="28" y="38" text-anchor="middle" fill="white" font-size="14" font-weight="bold">{}</text>
+	</symbol>
+
+	<!-- Unmarshal: "{ }" glyph (with inner space) -->
+	<symbol id="canvas-unmarshal" viewBox="0 0 60 60">
+		<text x="28" y="38" text-anchor="middle" fill="white" font-size="12" font-weight="bold">{ }</text>
+	</symbol>
+
+	<!-- Transform: stylised right-facing arrow -->
+	<symbol id="canvas-transform" viewBox="0 0 60 60">
+		<path d="M18,30 L28,22 L28,26 L42,26 L42,34 L28,34 L28,38 Z" fill="white"/>
+	</symbol>
+
+	<!-- Multicast: forking arrow (same artwork as Split) -->
+	<symbol id="canvas-multicast" viewBox="0 0 60 60">
+		<path d="M18,30 L30,30 M30,30 L48,18 M30,30 L48,30 M30,30 L48,42" stroke="white" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+	</symbol>
+
+	<!-- RecipientList: forking arrow into three recipient dots -->
+	<symbol id="canvas-recipientList" viewBox="0 0 60 60">
+		<path d="M18,30 L26,30 M26,30 L38,18 M26,30 L38,30 M26,30 L38,42" stroke="white" stroke-width="2" stroke-linecap="round" fill="none"/>
+		<circle cx="44" cy="18" r="4" fill="white"/>
+		<circle cx="44" cy="30" r="4" fill="white"/>
+		<circle cx="44" cy="42" r="4" fill="white"/>
+	</symbol>
+
+	<!-- Loop: arc with arrowhead -->
+	<symbol id="canvas-loop" viewBox="0 0 60 60">
+		<path d="M20,30 A10,10 0 1,1 40,30" fill="none" stroke="white" stroke-width="2"/>
+		<path d="M36,24 L40,30 L34,34" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+	</symbol>
+
+	<!-- WireTap: through-line with a dashed branch ending in a small dot -->
+	<symbol id="canvas-wireTap" viewBox="0 0 60 60">
+		<path d="M18,30 L48,30" stroke="white" stroke-width="2" fill="none"/>
+		<path d="M30,30 L30,45" stroke="white" stroke-width="2" stroke-dasharray="3,2" fill="none"/>
+		<circle cx="30" cy="48" r="4" fill="white" opacity="0.7"/>
+	</symbol>
+
+	<!-- Enrich: through-line with a "+" overlay -->
+	<symbol id="canvas-enrich" viewBox="0 0 60 60">
+		<path d="M18,30 L36,30" stroke="white" stroke-width="2" fill="none"/>
+		<path d="M36,20 L36,40" stroke="white" stroke-width="2" fill="none"/>
+		<path d="M36,30 L48,30" stroke="white" stroke-width="2" fill="none"/>
+		<text x="36" y="28" text-anchor="middle" fill="white" font-size="14" font-weight="bold">+</text>
+	</symbol>
+
+	<!-- PollEnrich: short line into a clock face -->
+	<symbol id="canvas-pollEnrich" viewBox="0 0 60 60">
+		<path d="M18,30 L28,30" stroke="white" stroke-width="2" fill="none"/>
+		<circle cx="38" cy="30" r="10" fill="none" stroke="white" stroke-width="2"/>
+		<path d="M38,24 L38,30 L42,33" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+	</symbol>
+
+	<!-- Threads: three rails with green start dots -->
+	<symbol id="canvas-threads" viewBox="0 0 60 60">
+		<line x1="18" y1="20" x2="48" y2="20" stroke="white" stroke-width="2"/>
+		<line x1="18" y1="30" x2="48" y2="30" stroke="white" stroke-width="2"/>
+		<line x1="18" y1="40" x2="48" y2="40" stroke="white" stroke-width="2"/>
+		<circle cx="18" cy="20" r="3" fill="#2ECC71"/>
+		<circle cx="18" cy="30" r="3" fill="#2ECC71"/>
+		<circle cx="18" cy="40" r="3" fill="#2ECC71"/>
+	</symbol>
+
+	<!-- CircuitBreaker: clock-like circle with hour/minute hands -->
+	<symbol id="canvas-circuitBreaker" viewBox="0 0 60 60">
+		<circle cx="30" cy="30" r="12" fill="none" stroke="white" stroke-width="2"/>
+		<path d="M30,20 L30,30 L38,30" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+	</symbol>
+</svg>

@@ -1,0 +1,12 @@
+identifier: 7c5e4a8b-9f3d-4e2a-b1c6-8d7f3a9e5b40
+title: OSGi Console
+icon: assets/icons/icon.svg
+isAdminOnly: true
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 960
+minimumHeight: 480
+customWindowControls: true
+singleton: true

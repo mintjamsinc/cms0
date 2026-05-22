@@ -1,0 +1,1629 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * BPM Console — design tokens & layout
+ *
+ * Theme tokens / shared components live in webtop-app.css. This file only
+ * adds the BPM-specific layout (4-pane: sidebar / center-upper diagram /
+ * center-lower instance list / detail), the BPMN SVG diagram styling,
+ * and small auxiliary widgets (status badges, type chips).
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--statusbar-height: 1.75rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Layout — top toolbar, content body (4-pane), status bar
+ * -------------------------------------------------------------------------- */
+
+#app {
+	height: 100%;
+}
+
+/* Top toolbar (translucent, extends to window edges) */
+nav.nav-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 1rem 1.5rem 0.75rem;
+	color: var(--navbar-color) !important;
+	white-space: nowrap;
+	overflow: visible;
+	user-select: none;
+	position: relative;
+	z-index: 10;
+}
+
+.nav-spacer {
+	flex: 1;
+	min-width: 1rem;
+}
+
+/* Generic toolbar pill group (shares the look of .pane-toggles) */
+.toolbar-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.5rem;
+	background-color: var(--window-controls-bg);
+	border: 1px solid var(--window-controls-border-color);
+	border-radius: 9999px;
+}
+
+/* Pressed / active toolbar buttons (e.g. view-mode toggle) */
+.toolbar-group .btn-icon.active {
+	background-color: var(--pane-toggle-active-bg);
+	color: #fff;
+}
+
+/* Content body — 3 columns (sidebar / center / detail) */
+.content-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	position: relative;
+	gap: 0.25rem;
+}
+
+/* Sidebar (left pane) */
+.sidebar-panel {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	flex-shrink: 0;
+	min-width: 14rem;
+}
+
+.sidebar-resize-handle,
+.detail-resize-handle {
+	width: 4px;
+	cursor: col-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 2;
+	transition: background-color 0.15s;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active,
+.detail-resize-handle:hover,
+.detail-resize-handle:active {
+	background-color: var(--primary-color);
+}
+
+/* Center column — upper (diagram) + horizontal splitter + lower (lists) */
+.content-main {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	gap: 0.25rem;
+}
+
+.content-upper {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.bottom-resize-handle {
+	height: 4px;
+	cursor: row-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	transition: background-color 0.15s;
+}
+
+.bottom-resize-handle:hover,
+.bottom-resize-handle:active {
+	background-color: var(--primary-color);
+}
+
+.content-lower {
+	display: flex;
+	flex-direction: column;
+	flex-shrink: 0;
+	overflow: hidden;
+	min-height: 6rem;
+}
+
+/* Right pane (detail) */
+.detail-panel {
+	display: flex;
+	flex-direction: column;
+	user-select: text;
+	flex-shrink: 0;
+	min-width: 16rem;
+}
+
+/* Bottom status bar (translucent, extends to window edges) */
+.status-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: var(--statusbar-height);
+	margin-bottom: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 0 1rem;
+	color: var(--text-color);
+	font-size: 11px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.status-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.status-item {
+	padding: 0 0.5rem;
+}
+
+.status-divider {
+	width: 1px;
+	height: 0.875rem;
+	background-color: var(--text-muted-color);
+	opacity: 0.5;
+}
+
+/* ----------------------------------------------------------------------------
+ * Sidebar — process definition tree
+ * -------------------------------------------------------------------------- */
+
+.sidebar-filter {
+	flex-shrink: 0;
+	padding: 1rem;
+	padding-bottom: 0.5rem;
+}
+
+.list-body {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: 0 0.5rem 0.5rem;
+}
+
+.list-empty-message {
+	padding: 1rem 0.5rem;
+	text-align: center;
+	color: var(--text-muted-color);
+	font-size: 12px;
+}
+
+/* Tree group header (process key) */
+.tree-group-header {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.25rem 0.5rem;
+	cursor: pointer;
+	border-radius: 0.5rem;
+	user-select: none;
+	white-space: nowrap;
+	transition: background-color 0.15s;
+}
+
+.tree-group-header:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.tree-group-header.selected {
+	background-color: var(--item-selected-bg);
+}
+
+.tree-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 1rem;
+	font-size: 0.7em;
+	color: var(--text-muted-color);
+	flex-shrink: 0;
+}
+
+.tree-node-icon {
+	font-size: 1rem;
+	flex-shrink: 0;
+	margin-right: 0.25rem;
+}
+
+.tree-group-info {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.05rem;
+}
+
+.tree-group-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.tree-group-key {
+	color: var(--text-muted-color);
+	font-size: 11px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Tree leaf (process definition version) */
+.tree-leaf {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.25rem 0.5rem 0.25rem 1.75rem;
+	cursor: pointer;
+	border-radius: 0.5rem;
+	user-select: none;
+	white-space: nowrap;
+	transition: background-color 0.15s;
+}
+
+.tree-leaf:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.tree-leaf.selected {
+	background-color: var(--item-selected-bg);
+}
+
+.tree-leaf-info {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.05rem;
+}
+
+.tree-leaf-name {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	overflow: hidden;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.tree-leaf-sub {
+	color: var(--text-muted-color);
+	font-size: 11px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Pill badges (version count, "Latest", instance counts) */
+.bpm-badge {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	height: 1.125rem;
+	line-height: 1;
+	font-size: 10px;
+	padding: 0 0.6em;
+	border-radius: 9999px;
+	background-color: rgba(from var(--neutral-color) r g b / 0.05);
+	color: var(--neutral-color);
+	border: 1px solid rgba(from var(--neutral-color) r g b / 0.3);
+}
+
+.bpm-badge.bpm-badge-version {
+	display: flex;
+	justify-content: center;
+	min-width: 1.25rem;
+	background-color: rgba(from var(--neutral-color) r g b / 0.1);
+}
+
+.bpm-badge.bpm-badge-latest {
+	background-color: rgb(from var(--primary-color) r g b / 0.1);
+	color: var(--primary-color);
+	border-color: rgb(from var(--primary-color) r g b / 0.3);
+}
+
+.bpm-badge.bpm-badge-active {
+	background-color: rgb(from var(--primary-color) r g b / 0.1);
+	color: var(--primary-color);
+	border-color: rgb(from var(--primary-color) r g b / 0.3);
+}
+
+.bpm-badge.bpm-badge-ended {
+	background-color: rgba(from var(--neutral-color) r g b / 0.05);
+}
+
+.bpm-badge.bpm-badge-suspended {
+	background-color: rgb(from var(--warning-color) r g b / 0.1);
+	color: var(--warning-color);
+	border-color: rgb(from var(--warning-color) r g b / 0.3);
+}
+
+.bpm-badge.bpm-badge-incident {
+	display: flex;
+	justify-content: center;
+	min-width: 1.25rem;
+	background-color: rgb(from var(--danger-color) r g b / 0.1);
+	color: var(--danger-color);
+	border-color: rgb(from var(--danger-color) r g b / 0.3);
+}
+
+.bpm-badge i {
+	font-size: 10px;
+	margin-right: 0.25em;
+}
+
+/* Suspended / active marker icons in the tree */
+.bpm-state-icon {
+	flex-shrink: 0;
+	font-size: 0.9em;
+}
+
+.bpm-state-icon.suspended {
+	color: var(--warning-color);
+}
+
+.bpm-state-icon.active {
+	color: var(--primary-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Center — upper (BPMN diagram)
+ * -------------------------------------------------------------------------- */
+
+.upper-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-shrink: 0;
+	height: var(--navbar-height);
+	padding: 0 1rem;
+	background-color: var(--navbar-bg);
+	color: var(--navbar-color);
+	border-bottom: 1px solid var(--navbar-border-color);
+	white-space: nowrap;
+	user-select: none;
+	gap: 0.5rem;
+}
+
+.upper-title {
+	flex: 1;
+	min-width: 0;
+	font-weight: 700;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.diagram-area {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	position: relative;
+	background-color: var(--body-bg);
+}
+
+.bpm-empty-state {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 1.5rem;
+	color: var(--text-muted-color);
+	text-align: center;
+	gap: 0.5rem;
+}
+
+.bpm-empty-state i {
+	font-size: 2rem;
+	opacity: 0.4;
+}
+
+.bpm-xml-viewer {
+	flex: 1;
+	overflow: auto;
+	padding: 1rem;
+	margin: 0;
+	font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Monaco, 'Inconsolata', 'Roboto Mono', 'Source Code Pro', Menlo, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre;
+	background-color: var(--body-bg);
+	color: var(--text-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Center — lower (instances / tasks list)
+ * -------------------------------------------------------------------------- */
+
+/* Borrows the detail-tabs look from identity-manager */
+.detail-tabs-bar {
+	flex-shrink: 0;
+	height: var(--navbar-height);
+	background-color: var(--navbar-bg);
+	border-bottom: 1px solid var(--navbar-border-color);
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+}
+
+.detail-tabs {
+	display: flex;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	padding: 0 0.5rem;
+	gap: 0.25rem;
+}
+
+.detail-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+.detail-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.125rem 0.75rem;
+	border: 1px solid transparent;
+	border-radius: 9999px;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	white-space: nowrap;
+	user-select: none;
+	background-color: transparent;
+	transition: background-color 0.15s, color 0.15s;
+}
+
+.detail-tab:not(.active):hover {
+	background-color: var(--item-hover-bg);
+	color: var(--text-color);
+}
+
+.detail-tab.active {
+	color: var(--nav-current-color);
+	background-color: var(--nav-current-bg);
+	border-color: var(--nav-current-border-color);
+}
+
+.detail-tab .tab-count {
+	color: var(--text-muted-color);
+	font-weight: 400;
+	margin-left: 0.125rem;
+}
+
+.detail-tab.active .tab-count {
+	color: var(--nav-current-color);
+}
+
+/* Diagram element filter chip — matches schema-editor STRING/LONG/DATE pill */
+.diagram-filter-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	flex-shrink: 0;
+	line-height: 1;
+	padding: 0.5em 0.75em;
+	margin-right: 0.5rem;
+	border-radius: 9999px;
+	font-size: 11px;
+	background-color: rgba(from var(--neutral-color) r g b / 0.05);
+	color: var(--neutral-color);
+	border: 1px solid rgba(from var(--neutral-color) r g b / 0.3);
+	cursor: pointer;
+	user-select: none;
+	transition: background-color 0.15s;
+}
+
+.diagram-filter-chip:hover {
+	background-color: rgba(from var(--neutral-color) r g b / 0.12);
+}
+
+.diagram-filter-chip .chip-clear {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	margin-left: 0.125rem;
+	margin-right: -0.25rem;
+	opacity: 0.7;
+}
+
+.diagram-filter-chip:hover .chip-clear {
+	opacity: 1;
+}
+
+/* Content list (Content-Browser style) */
+.content-list {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+}
+
+.content-list table {
+	user-select: none;
+	border-collapse: collapse;
+	width: 100%;
+}
+
+.content-list table thead th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+.content-list .item {
+	cursor: pointer;
+	transition: background-color 0.15s;
+}
+
+.content-list .item:nth-child(even) {
+	background-color: var(--item-even-bg);
+}
+
+.content-list .item:hover {
+	background-color: var(--item-hover-bg) !important;
+}
+
+.content-list .item.item-selected {
+	background-color: var(--item-selected-bg) !important;
+	color: var(--item-selected-color) !important;
+}
+
+.content-list .item-empty td {
+	padding: 1rem 0.5rem;
+	text-align: center;
+	color: var(--text-muted-color);
+}
+
+.content-list .col-actions {
+	width: 1%;
+	white-space: nowrap;
+}
+
+.content-list .actions-cell {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+/* .bpm-monospace {
+	font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Monaco, Consolas, monospace;
+	font-size: 12px;
+} */
+
+.text-danger {
+	color: var(--danger-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Right pane — detail
+ * -------------------------------------------------------------------------- */
+
+.detail-panel-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-shrink: 0;
+	height: var(--navbar-height);
+	padding: 0 1rem;
+	background-color: var(--navbar-bg);
+	color: var(--navbar-color);
+	border-bottom: 1px solid var(--navbar-border-color);
+	white-space: nowrap;
+	user-select: none;
+}
+
+.detail-panel-title {
+	font-weight: 700;
+}
+
+.detail-panel-content {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+.detail-panel-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	flex: 1;
+	padding: 1.5rem;
+	color: var(--text-muted-color);
+	text-align: center;
+	gap: 0.5rem;
+}
+
+.detail-panel-empty i {
+	font-size: 2rem;
+	opacity: 0.5;
+}
+
+/* Section headers (Content-Browser style) */
+.detail-section-header {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 1rem;
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0;
+	background-color: var(--section-header-bg);
+	color: var(--section-header-color);
+	user-select: none;
+}
+
+.detail-section-header-action {
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	border: none;
+	background: transparent;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	font-size: 11px;
+}
+
+.detail-section-header-action:hover {
+	color: var(--primary-color);
+}
+
+.detail-section-body {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	padding: 0.75rem 1rem;
+}
+
+.detail-section-body.actions-body {
+	gap: 0.5rem;
+}
+
+.detail-prop {
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
+}
+
+.detail-prop-label {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	font-size: 12px;
+	color: var(--text-soft-color);
+}
+
+.detail-prop-value {
+	word-break: break-all;
+}
+
+.detail-prop-value.muted {
+	color: var(--text-muted-color);
+}
+
+/* Process variable rows in the detail pane */
+.bpm-var-list {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.bpm-var-item {
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
+}
+
+.bpm-var-header {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+}
+
+.bpm-var-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	padding-left: 0.125rem;
+}
+
+/* Type badge (matches schema-editor STRING/LONG/DATE chip) */
+.bpm-type-badge {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	height: 1.125rem;
+	line-height: 1;
+	font-size: 10px;
+	padding: 0 0.75em;
+	border-radius: 9999px;
+	background-color: rgba(from var(--neutral-color) r g b / 0.05);
+	color: var(--neutral-color);
+	border: 1px solid rgba(from var(--neutral-color) r g b / 0.3);
+}
+
+.bpm-tz-badge {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	height: 1.125rem;
+	line-height: 1;
+	font-size: 10px;
+	padding: 0 0.75em;
+	border-radius: 9999px;
+	background-color: rgba(from var(--neutral-color) r g b / 0.05);
+	color: var(--text-muted-color);
+	border: 1px solid rgba(from var(--neutral-color) r g b / 0.3);
+}
+
+.bpm-var-value {
+	word-break: break-all;
+	padding: 0.25rem 0.5rem 0.125rem;
+    border-radius: 0.5rem;
+    background-color: var(--input-bg);
+    border: 2px solid var(--section-header-bg);
+}
+
+.bpm-var-value.muted {
+	color: var(--text-muted-color);
+}
+
+/* Status badges (instance state) */
+.bpm-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	flex-shrink: 0;
+	height: 1.25rem;
+	padding: 0 0.625rem;
+	border-radius: 9999px;
+	font-size: 11px;
+	font-weight: 700;
+	border: 1px solid transparent;
+}
+
+.bpm-status.active {
+	background-color: rgb(from var(--primary-color) r g b / 0.1);
+	color: var(--primary-color);
+	border-color: rgb(from var(--primary-color) r g b / 0.3);
+}
+
+.bpm-status.suspended {
+	background-color: rgb(from var(--warning-color) r g b / 0.1);
+	color: var(--warning-color);
+	border-color: rgb(from var(--warning-color) r g b / 0.3);
+}
+
+.bpm-status.ended {
+	background-color: rgba(from var(--neutral-color) r g b / 0.1);
+	color: var(--neutral-color);
+	border-color: rgba(from var(--neutral-color) r g b / 0.3);
+}
+
+.bpm-status.incident {
+	background-color: rgb(from var(--danger-color) r g b / 0.1);
+	color: var(--danger-color);
+	border-color: rgb(from var(--danger-color) r g b / 0.3);
+}
+
+/* ----------------------------------------------------------------------------
+ * Form helpers (used in dialogs and detail editing)
+ * -------------------------------------------------------------------------- */
+
+.form-row {
+	display: flex;
+	gap: 0.75rem;
+}
+
+.form-row-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.form-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+}
+
+.dialog-help-text {
+	color: var(--text-soft-color);
+	font-size: 12px;
+	margin-bottom: 0.5rem;
+}
+
+/* Variable editing table inside dialogs */
+.var-edit-table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.var-edit-table thead th {
+	padding: 0.25rem 0.375rem;
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0;
+	color: var(--text-soft-color);
+	border-bottom: 1px solid var(--navbar-border-color);
+}
+
+.var-edit-table tbody td {
+	padding: 0.25rem 0.25rem;
+	vertical-align: middle;
+}
+
+.var-edit-table input.wt,
+.var-edit-table .wt-select {
+	width: 100%;
+}
+
+.var-edit-table .col-actions {
+	width: 2.5rem;
+	white-space: nowrap;
+}
+
+/* User picker (assign-task dialog) */
+.user-picker {
+	display: flex;
+	flex-direction: column;
+	max-height: 18rem;
+	overflow-y: auto;
+	border: 1px solid var(--input-border-color);
+	border-radius: 0.5rem;
+	padding: 0.25rem;
+	gap: 0.125rem;
+}
+
+.user-picker-item {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0.5rem;
+	cursor: pointer;
+	border-radius: 0.375rem;
+	user-select: none;
+	transition: background-color 0.15s;
+}
+
+.user-picker-item:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.user-picker-item.selected {
+	background-color: var(--item-selected-bg);
+}
+
+.user-picker-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.user-picker-username {
+	font-size: 11px;
+	color: var(--text-muted-color);
+}
+
+/* Deploy drop zone */
+.deploy-drop-zone {
+	border: 2px dashed var(--input-border-color);
+	border-radius: 0.75rem;
+	padding: 1.5rem 1rem;
+	text-align: center;
+	transition: border-color 0.15s, background-color 0.15s;
+}
+
+.deploy-drop-zone.drop-highlight {
+	border-color: var(--primary-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.05);
+}
+
+.deploy-drop-placeholder {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.5rem;
+	color: var(--text-muted-color);
+}
+
+.deploy-drop-placeholder i {
+	font-size: 2rem;
+	opacity: 0.4;
+}
+
+.deploy-drop-file {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	text-align: left;
+}
+
+.deploy-drop-file i {
+	font-size: 1.5rem;
+	opacity: 0.6;
+}
+
+.deploy-drop-file-info {
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
+}
+
+.deploy-drop-file-name {
+	font-weight: 600;
+}
+
+.deploy-drop-file-path {
+	font-size: 11px;
+	color: var(--text-muted-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Loading / error overlays
+ * -------------------------------------------------------------------------- */
+
+.loading-overlay,
+.error-overlay,
+.migration-overlay {
+	position: absolute;
+	inset: 1rem;
+	background-color: var(--body-bg);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	color: var(--text-color);
+	border-radius: 1rem;
+	box-shadow: var(--island-shadow);
+	z-index: 1000;
+	gap: 0.75rem;
+}
+
+.migration-overlay {
+	z-index: 1100;
+	padding: 2rem;
+	text-align: center;
+}
+
+.migration-title {
+	font-size: 1.1rem;
+	font-weight: 600;
+}
+
+.migration-icon-success {
+	font-size: 2.5rem;
+	color: var(--wt-success, #2a8);
+}
+
+.migration-icon-error {
+	font-size: 2.5rem;
+	color: var(--wt-danger, #c33);
+}
+
+.spinner {
+	width: 1.75rem;
+	height: 1.75rem;
+	border: 2px solid var(--navbar-border-color);
+	border-top-color: var(--primary-color);
+	border-radius: 50%;
+	animation: spin 0.8s linear infinite;
+}
+
+.spin {
+	animation: spin 1s linear infinite;
+	display: inline-block;
+}
+
+@keyframes spin {
+	to { transform: rotate(360deg); }
+}
+
+/* ----------------------------------------------------------------------------
+ * BPMN Diagram Viewer
+ *
+ * The viewer mirrors the BPMN Modeler's canvas: it shares the same SVG
+ * sprite (assets/icons/icons.svg) and uses the same class names
+ * (bpmn-element, task-shape, event-shape, *-task, etc.) so that any
+ * styling change in the modeler propagates here.
+ *
+ * On top of that, the viewer keeps a small set of bpm-manager-only
+ * decorations that highlight activity-history nodes / connections and
+ * the user-task currently selected in the bottom panel.
+ * -------------------------------------------------------------------------- */
+
+:root[data-theme="light"] {
+	--bpm-diagram-grid: rgba(0,0,0,0.04);
+	--bpm-diagram-highlight: #0078d4;
+	--bpm-diagram-active: #ffa500;
+	--bpm-diagram-incident: #ba1a1a;
+	--bpm-diagram-incident-soft: rgba(186, 26, 26, 0.5);
+}
+
+:root[data-theme="dark"] {
+	--bpm-diagram-grid: rgba(255,255,255,0.04);
+	--bpm-diagram-highlight: #4fa3e3;
+	--bpm-diagram-active: #ffb84d;
+	--bpm-diagram-incident: #ffb4ab;
+	--bpm-diagram-incident-soft: rgba(255, 180, 171, 0.5);
+}
+
+/* Diagram-scoped aliases for the modeler's CSS variables. The modeler
+   stylesheet is not loaded here, so we provide these directly. */
+.bpm-diagram-svg {
+	--element-fill: var(--surface-color, #ffffff);
+	--element-stroke: var(--text-color, #333333);
+	--element-hover-stroke: var(--accent-color, #0078d4);
+	--element-selected-stroke: var(--accent-color, #0078d4);
+	--text-color: var(--text-color, #333333);
+	--connection-stroke: var(--text-color, #333333);
+	--canvas-grid-color: var(--bpm-diagram-grid);
+	--palette-section-bg: rgba(0, 0, 0, 0.04);
+	--item-hover-bg: rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme="dark"] .bpm-diagram-svg {
+	--element-fill: var(--surface-color, #2d2d2d);
+	--element-stroke: var(--text-color, #cccccc);
+	--text-color: var(--text-color, #cccccc);
+	--connection-stroke: var(--text-color, #cccccc);
+	--palette-section-bg: rgba(255, 255, 255, 0.05);
+	--item-hover-bg: rgba(255, 255, 255, 0.08);
+}
+
+.bpm-diagram-container {
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	cursor: default;
+	position: relative;
+}
+
+.bpm-diagram-container.panning-mode {
+	cursor: grab;
+}
+
+.bpm-diagram-container.panning-mode:active {
+	cursor: grabbing;
+}
+
+.bpm-diagram-svg {
+	width: 100%;
+	height: 100%;
+	display: block;
+}
+
+.bpm-diagram-svg .canvas-grid {
+	pointer-events: none;
+}
+
+/* The modeler has `cursor: move` on .bpmn-element since it's draggable.
+   In the read-only viewer that is misleading, so we reset it and add
+   `cursor: pointer` for the elements that filter the bottom panel. */
+.bpm-diagram-svg .bpmn-element {
+	cursor: default;
+}
+
+.bpm-diagram-svg .bpm-d-clickable {
+	cursor: pointer;
+}
+
+/* ----- Pool / Lane (mirroring modeler) ----- */
+.bpm-diagram-svg .pool-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 2;
+}
+
+.bpm-diagram-svg .pool-header,
+.bpm-diagram-svg .lane-header {
+	fill: var(--palette-section-bg);
+	stroke: var(--element-stroke);
+	stroke-width: 1;
+}
+
+.bpm-diagram-svg .lane-area {
+	fill: transparent;
+	stroke: none;
+}
+
+.bpm-diagram-svg .pool-label {
+	font-size: 14px;
+	font-weight: bold;
+	fill: var(--text-color);
+}
+
+.bpm-diagram-svg .lane-label {
+	font-size: 11px;
+	fill: var(--text-color);
+}
+
+/* ----- Element shapes (mirroring modeler) ----- */
+.bpm-diagram-svg .element-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+.bpm-diagram-svg .element-icon,
+.bpm-diagram-svg .event-icon,
+.bpm-diagram-svg .task-icon,
+.bpm-diagram-svg .gateway-icon,
+.bpm-diagram-svg .collection-marker {
+	color: var(--element-stroke);
+	pointer-events: none;
+}
+
+.bpm-diagram-svg .event-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+}
+
+.bpm-diagram-svg .start-event .event-shape {
+	stroke-width: 1.5;
+	fill: #27AE60;
+	stroke: #1E8449;
+}
+.bpm-diagram-svg .start-event .event-icon { color: white; }
+
+.bpm-diagram-svg .end-event .event-shape {
+	stroke-width: 3;
+	fill: #E74C3C;
+	stroke: #C0392B;
+}
+.bpm-diagram-svg .end-event .event-icon { color: white; }
+
+.bpm-diagram-svg .intermediate-event .event-shape {
+	fill: #E67E22;
+	stroke: #D35400;
+}
+.bpm-diagram-svg .intermediate-event circle:not(.element-shape) {
+	stroke: white;
+}
+.bpm-diagram-svg .intermediate-event .event-icon {
+	color: white;
+	--icon-accent: var(--element-fill);
+}
+
+.bpm-diagram-svg .boundary-event .event-shape {
+	fill: #E67E22;
+	stroke: #D35400;
+}
+.bpm-diagram-svg .boundary-event circle:not(.element-shape) {
+	stroke: white;
+}
+.bpm-diagram-svg .boundary-event .event-icon { color: white; }
+
+/* ----- Tasks (mirroring modeler) ----- */
+.bpm-diagram-svg .task-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+	rx: 8;
+	ry: 8;
+}
+
+.bpm-diagram-svg .user-task .task-shape           { fill: #3498DB; stroke: #2980B9; }
+.bpm-diagram-svg .user-task .element-icon         { color: white; }
+.bpm-diagram-svg .user-task .task-label-text      { color: white; }
+
+.bpm-diagram-svg .service-task .task-shape        { fill: #8E44AD; stroke: #6C3483; }
+.bpm-diagram-svg .service-task .element-icon      { color: white; }
+.bpm-diagram-svg .service-task .task-label-text   { color: white; }
+
+.bpm-diagram-svg .script-task .task-shape         { fill: #2C3E6E; stroke: #1A2540; }
+.bpm-diagram-svg .script-task .element-icon       { color: white; }
+.bpm-diagram-svg .script-task .task-label-text    { color: white; }
+
+.bpm-diagram-svg .manual-task .task-shape         { fill: #16A085; stroke: #0E6655; }
+.bpm-diagram-svg .manual-task .element-icon       { color: white; }
+.bpm-diagram-svg .manual-task .task-label-text    { color: white; }
+
+.bpm-diagram-svg .send-task .task-shape           { fill: #FF6633; stroke: #CC4422; }
+.bpm-diagram-svg .send-task .element-icon {
+	color: white;
+	--icon-accent: #FF6633;
+}
+.bpm-diagram-svg .send-task .task-label-text      { color: white; }
+
+.bpm-diagram-svg .receive-task .task-shape        { fill: #C0602B; stroke: #8B4513; }
+.bpm-diagram-svg .receive-task .element-icon      { color: white; }
+.bpm-diagram-svg .receive-task .task-label-text   { color: white; }
+
+.bpm-diagram-svg .business-rule-task .task-shape  { fill: #F39C12; stroke: #D68910; }
+.bpm-diagram-svg .business-rule-task .element-icon { color: white; }
+.bpm-diagram-svg .business-rule-task .task-label-text { color: white; }
+
+.bpm-diagram-svg .call-activity .task-shape       { fill: #2C3E50; stroke: #1A252F; }
+.bpm-diagram-svg .call-activity .task-label-text  { color: white; }
+
+.bpm-diagram-svg .generic-task .task-shape        { fill: #6C7A89; stroke: #4B5562; }
+.bpm-diagram-svg .generic-task .task-label-text   { color: white; }
+
+/* Loop / Multi-instance markers — modeler renders these inside the
+   element shape and uses the element stroke colour. The viewer keeps
+   markers white so they remain legible on the coloured task body. */
+.bpm-diagram-svg .loop-marker line {
+	stroke: white;
+}
+
+/* ----- Gateways (mirroring modeler) ----- */
+.bpm-diagram-svg .gateway-shape {
+	fill: #FFCC00;
+	stroke: #CC9900;
+	stroke-width: 1.5;
+}
+
+.bpm-diagram-svg .exclusive-gateway .gateway-icon,
+.bpm-diagram-svg .parallel-gateway .gateway-icon,
+.bpm-diagram-svg .inclusive-gateway .gateway-icon,
+.bpm-diagram-svg .event-based-gateway .gateway-icon,
+.bpm-diagram-svg .complex-gateway .gateway-icon {
+	color: #664400;
+}
+
+/* ----- Sub-Process ----- */
+.bpm-diagram-svg .subprocess-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+.bpm-diagram-svg .subprocess-header-label {
+	font-size: 12px;
+	font-weight: bold;
+	fill: var(--text-color);
+}
+
+.bpm-diagram-svg .event-subprocess.task-shape,
+.bpm-diagram-svg .event-subprocess.subprocess-shape {
+	stroke-dasharray: 5, 3;
+}
+
+/* ----- Data Object / Data Store ----- */
+.bpm-diagram-svg .data-object-shape,
+.bpm-diagram-svg .data-store-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+.bpm-diagram-svg .data-label,
+.bpm-diagram-svg .element-label {
+	font-size: 11px;
+	text-anchor: middle;
+	fill: var(--text-color);
+	pointer-events: none;
+}
+
+/* ----- Text annotation ----- */
+.bpm-diagram-svg .annotation-shape {
+	fill: none;
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+.bpm-diagram-svg .annotation-text {
+	color: var(--text-color);
+	font-family: inherit;
+	font-size: 11px;
+	line-height: 1.3;
+	word-wrap: break-word;
+	white-space: pre-wrap;
+	overflow: hidden;
+	padding: 2px;
+	height: 100%;
+	box-sizing: border-box;
+}
+
+/* ----- Connections ----- */
+.bpm-diagram-svg .connection-line {
+	fill: none;
+	stroke: var(--connection-stroke);
+	stroke-width: 1.5;
+}
+
+/* ----- Labels (foreignObject + text inside) ----- */
+.bpm-diagram-svg .label-foreign-object {
+	overflow: visible;
+	pointer-events: none;
+}
+
+.bpm-diagram-svg .task-label-text {
+	font-size: 11px;
+	color: var(--text-color);
+	text-align: center;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	line-height: 1.3;
+}
+
+.bpm-diagram-svg .event-label-text {
+	font-size: 11px;
+	color: var(--text-color);
+	text-align: center;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	line-height: 1.3;
+}
+
+.bpm-diagram-svg .gateway-label-text {
+	font-size: 11px;
+	color: var(--text-color);
+	text-align: right;
+	word-wrap: break-word;
+	overflow-wrap: break-word;
+	line-height: 1.3;
+}
+
+.bpm-diagram-svg .connection-label-text {
+	font-size: 11px;
+	color: var(--text-color);
+	text-align: center;
+	word-wrap: break-word;
+	overflow-wrap: break-word;
+	line-height: 1.3;
+}
+
+/* ----------------------------------------------------------------------------
+ * Viewer-only decorations: filter selection, activity-history glow,
+ * active-node pulse. These layer on top of the modeler-aligned styling.
+ * -------------------------------------------------------------------------- */
+
+/* User-task currently filtered in the bottom panel */
+.bpm-diagram-svg .bpm-d-diagram-selected > :first-child {
+	filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.8))
+	        drop-shadow(0 0 10px rgba(0, 120, 212, 0.6));
+}
+
+/* Activity history highlight (visited nodes / traversed connections) */
+.bpm-diagram-svg .bpm-d-highlighted .task-shape,
+.bpm-diagram-svg .bpm-d-highlighted .subprocess-shape {
+	filter: drop-shadow(0 0 4px rgba(0, 120, 212, 0.6));
+	stroke: var(--bpm-diagram-highlight);
+}
+
+.bpm-diagram-svg .bpm-d-highlighted.start-event .event-shape {
+	filter: drop-shadow(0 0 4px rgba(76, 175, 80, 0.6));
+}
+
+.bpm-diagram-svg .bpm-d-highlighted.end-event .event-shape {
+	filter: drop-shadow(0 0 4px rgba(239, 83, 80, 0.6));
+}
+
+.bpm-diagram-svg .bpm-d-highlighted.intermediate-event .event-shape,
+.bpm-diagram-svg .bpm-d-highlighted.boundary-event .event-shape {
+	filter: drop-shadow(0 0 4px rgba(0, 120, 212, 0.6));
+	stroke: var(--bpm-diagram-highlight);
+}
+
+.bpm-diagram-svg .bpm-d-highlighted .gateway-shape {
+	filter: drop-shadow(0 0 4px rgba(0, 120, 212, 0.6));
+	stroke: var(--bpm-diagram-highlight);
+}
+
+.bpm-diagram-svg .bpm-d-highlighted .connection-line {
+	stroke: var(--bpm-diagram-highlight);
+	stroke-width: 2.5;
+}
+
+/* Active node — the activity that is currently waiting on the engine */
+.bpm-diagram-svg .bpm-d-active-node .task-shape,
+.bpm-diagram-svg .bpm-d-active-node .subprocess-shape {
+	filter: drop-shadow(0 0 6px rgba(255, 165, 0, 0.8))
+	        drop-shadow(0 0 12px rgba(255, 165, 0, 0.4));
+	stroke: var(--bpm-diagram-active);
+	stroke-width: 2.5;
+}
+
+.bpm-diagram-svg .bpm-d-active-node.intermediate-event .event-shape,
+.bpm-diagram-svg .bpm-d-active-node.boundary-event .event-shape {
+	filter: drop-shadow(0 0 6px rgba(255, 165, 0, 0.8))
+	        drop-shadow(0 0 12px rgba(255, 165, 0, 0.4));
+	stroke: var(--bpm-diagram-active);
+}
+
+.bpm-diagram-svg .bpm-d-active-node .gateway-shape {
+	filter: drop-shadow(0 0 6px rgba(255, 165, 0, 0.8))
+	        drop-shadow(0 0 12px rgba(255, 165, 0, 0.4));
+	stroke: var(--bpm-diagram-active);
+}
+
+/* Incident node — same frame/shadow treatment as a selected user task,
+   but in danger color. Mirrors .bpm-d-active-node. */
+.bpm-diagram-svg .bpm-d-incident .task-shape,
+.bpm-diagram-svg .bpm-d-incident .subprocess-shape {
+	filter: drop-shadow(0 0 6px var(--bpm-diagram-incident-soft))
+	        drop-shadow(0 0 12px var(--bpm-diagram-incident-soft));
+	stroke: var(--bpm-diagram-incident);
+	stroke-width: 2.5;
+}
+
+.bpm-diagram-svg .bpm-d-incident.intermediate-event .event-shape,
+.bpm-diagram-svg .bpm-d-incident.boundary-event .event-shape {
+	filter: drop-shadow(0 0 6px var(--bpm-diagram-incident-soft))
+	        drop-shadow(0 0 12px var(--bpm-diagram-incident-soft));
+	stroke: var(--bpm-diagram-incident);
+}
+
+.bpm-diagram-svg .bpm-d-incident .gateway-shape {
+	filter: drop-shadow(0 0 6px var(--bpm-diagram-incident-soft))
+	        drop-shadow(0 0 12px var(--bpm-diagram-incident-soft));
+	stroke: var(--bpm-diagram-incident);
+}
+
+/* ----------------------------------------------------------------------------
+ * Incidents (provisional — mock UI for Incident re-execution)
+ * -------------------------------------------------------------------------- */
+
+/* Incidents tab: danger color when active, muted danger when not */
+.detail-tab.has-incidents {
+	color: var(--danger-muted-color);
+}
+
+.detail-tab.has-incidents:hover {
+	color: var(--danger-color);
+	background-color: rgb(from var(--danger-color) r g b / 0.15);
+}
+
+.detail-tab.has-incidents.active {
+	color: var(--danger-color);
+	background-color: rgb(from var(--danger-color) r g b / 0.1);
+	border-color: rgb(from var(--danger-color) r g b / 0.3);
+}
+
+.detail-tab.has-incidents .tab-count {
+	color: inherit;
+}
+
+.bpm-status-clickable {
+	cursor: pointer;
+}
+
+.bpm-status-clickable:hover {
+	filter: brightness(1.1);
+}
+
+.bpm-incident-message {
+	max-width: 32rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bpm-incident-stack {
+	display: -webkit-box;
+    -webkit-line-clamp: 20;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.incidents-batch-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.75rem;
+	background-color: rgb(from var(--danger-color) r g b / 0.06);
+	border-bottom: 1px solid rgb(from var(--danger-color) r g b / 0.2);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+/* Inline mini-list for the instance-detail Incidents section */
+.bpm-incident-mini-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.bpm-incident-mini {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0.5rem;
+	border-radius: 0.25rem;
+	background-color: rgb(from var(--danger-color) r g b / 0.05);
+	border: 1px solid rgb(from var(--danger-color) r g b / 0.15);
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.bpm-incident-mini:hover {
+	background-color: rgb(from var(--danger-color) r g b / 0.1);
+}
+
+.bpm-incident-mini-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex: 1;
+	min-width: 0;
+}
+
+.bpm-incident-icon {
+	color: var(--danger-color);
+	flex-shrink: 0;
+}
+
+.bpm-incident-mini-act {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.bpm-incident-mini-time {
+	flex-shrink: 0;
+	color: var(--neutral-color);
+	font-size: 10px;
+}
+
+.bpm-incident-mini-actions {
+	display: flex;
+	gap: 0.125rem;
+	flex-shrink: 0;
+}
+
+/* Diagram count badge on failing activities */
+.bpm-incident-overlay {
+	cursor: pointer;
+	pointer-events: bounding-box;
+}
+
+.bpm-incident-overlay-badge {
+	fill: var(--danger-color);
+	stroke: #fff;
+	stroke-width: 1.5;
+}
+
+.bpm-incident-overlay-text {
+	fill: #fff;
+	font-size: 11px;
+	font-weight: 700;
+	pointer-events: none;
+	user-select: none;
+}
+
+/* ----------------------------------------------------------------------------
+ * Utilities
+ * -------------------------------------------------------------------------- */
+
+[v-cloak] {
+	display: none !important;
+}

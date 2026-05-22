@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Identity Manager</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: section toggle (Users / Groups / Roles) -->
+			<div class="toolbar-group">
+				<button class="btn-icon section-toggle" :class="{active: activeSection === 'users'}"
+					@click="switchSection('users')" title="Users">
+					<i class="bi bi-people"></i>
+				</button>
+				<button class="btn-icon section-toggle" :class="{active: activeSection === 'groups'}"
+					@click="switchSection('groups')" title="Groups">
+					<i class="bi bi-diagram-3"></i>
+				</button>
+				<button class="btn-icon section-toggle" :class="{active: activeSection === 'roles'}"
+					@click="switchSection('roles')" title="Roles">
+					<i class="bi bi-shield"></i>
+				</button>
+			</div>
+
+			<!-- Left: actions (New / Refresh) -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="showCreateDialog" :title="newActionTitle">
+					<i class="bi bi-plus-lg"></i>
+				</button>
+				<button class="btn-icon" @click="refresh" title="Refresh">
+					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Pane Toggle -->
+			<div class="pane-toggles">
+				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
+					@click="toggleSidebarPanel" title="Toggle Sidebar">
+					<i class="bi bi-layout-sidebar-inset"></i>
+				</button>
+			</div>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Content body (2-pane) -->
+		<div class="content-body">
+
+			<!-- Left pane: list (users / groups / roles) -->
+			<div v-if="sidebarPanelVisible" class="sidebar-panel island p-0"
+				:style="{ width: sidebarPanelWidth + 'px' }">
+
+				<!-- Filter -->
+				<div class="list-filter">
+					<div class="input-group">
+						<input type="text" class="wt"
+							v-model="currentSearchQuery"
+							@input="onSearchInput"
+							:placeholder="searchPlaceholder">
+						<div v-if="currentSearchQuery" class="input-group-actions">
+							<button class="input-group-btn" @click="clearSearch" title="Clear">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<!-- Users list -->
+				<div v-if="activeSection === 'users'" class="list-body">
+					<div v-for="u in displayedUsers" :key="u.username" class="list-item"
+						:class="{ selected: selectedUser && selectedUser.username === u.username }"
+						@click="selectUser(u)">
+						<i class="bi bi-person list-item-icon"></i>
+						<div class="list-item-info">
+							<div class="list-item-key">{{ u.displayName || u.username }}</div>
+							<div class="list-item-sub">{{ u.username }}</div>
+						</div>
+						<span v-if="!u.enabled" class="disabled-badge">Disabled</span>
+					</div>
+					<div v-if="displayedUsers.length === 0" class="list-empty-message">
+						No users found
+					</div>
+				</div>
+
+				<!-- Groups tree -->
+				<div v-if="activeSection === 'groups'" class="list-body">
+					<div v-for="node in filteredGroupTree" :key="node.groupId" class="tree-node"
+						:class="{
+							selected: selectedGroup && selectedGroup.groupId === node.groupId,
+							'search-muted': groupSearch && !node.matched
+						}"
+						:style="{ paddingLeft: (node.depth * 1.25 + 0.375) + 'rem' }"
+						@click="selectGroup(node)">
+						<span class="tree-toggle" @click.stop="toggleGroupExpand(node)">
+							<i v-if="node.hasChildren && !groupSearch" class="bi"
+								:class="expandedGroups[node.groupId] ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+						</span>
+						<i class="bi bi-diagram-2 tree-node-icon"></i>
+						<span class="tree-node-label">{{ node.displayName || node.name }}</span>
+					</div>
+					<div v-if="filteredGroupTree.length === 0" class="list-empty-message">
+						No groups found
+					</div>
+				</div>
+
+				<!-- Roles tree -->
+				<div v-if="activeSection === 'roles'" class="list-body">
+					<div v-for="node in filteredRoleTree" :key="node.roleId" class="tree-node"
+						:class="{
+							selected: selectedRole && selectedRole.roleId === node.roleId,
+							'search-muted': roleSearch && !node.matched
+						}"
+						:style="{ paddingLeft: (node.depth * 1.25 + 0.375) + 'rem' }"
+						@click="selectRole(node)">
+						<span class="tree-toggle" @click.stop="toggleRoleExpand(node)">
+							<i v-if="node.hasChildren && !roleSearch" class="bi"
+								:class="expandedRoles[node.roleId] ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+						</span>
+						<i class="bi bi-shield tree-node-icon"></i>
+						<span class="tree-node-label">{{ node.displayName || node.name }}</span>
+					</div>
+					<div v-if="filteredRoleTree.length === 0" class="list-empty-message">
+						No roles found
+					</div>
+				</div>
+			</div>
+
+			<!-- Sidebar resize handle -->
+			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
+				@mousedown="onSidebarResizeStart"></div>
+
+			<!-- Right pane -->
+			<div class="content-main island p-0">
+
+				<!-- ============================================================
+				     USERS — detail
+				     ============================================================ -->
+				<template v-if="activeSection === 'users'">
+					<template v-if="selectedUser">
+						<!-- Sub-tabs header -->
+						<div class="detail-tabs-bar">
+							<div class="detail-tabs">
+								<div class="detail-tab" :class="{ active: userSubTab === 'profile' }"
+									@click="userSubTab = 'profile'">
+									<i class="bi bi-person"></i>
+									<span>Profile</span>
+								</div>
+								<div class="detail-tab" :class="{ active: userSubTab === 'security' }"
+									@click="userSubTab = 'security'">
+									<i class="bi bi-shield-lock"></i>
+									<span>Security</span>
+								</div>
+								<div class="detail-tab" :class="{ active: userSubTab === 'membership' }"
+									@click="userSubTab = 'membership'">
+									<i class="bi bi-diagram-3"></i>
+									<span>Membership</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Body -->
+						<div class="content-form">
+
+							<!-- Profile sub-tab -->
+							<template v-if="userSubTab === 'profile'">
+								<div class="property-group">
+									<div class="property-group-title">User Information</div>
+									<div class="form-row">
+										<div class="property-row half">
+											<label class="property-label">Username</label>
+											<input type="text" class="wt w-100" :value="selectedUser.username" disabled>
+										</div>
+										<div class="property-row half">
+											<label class="property-label">Email</label>
+											<input type="email" class="wt w-100" v-model="editForm.mail">
+										</div>
+									</div>
+									<div class="form-row">
+										<div class="property-row half">
+											<label class="property-label">Family Name (sn)</label>
+											<input type="text" class="wt w-100" v-model="editForm.sn">
+										</div>
+										<div class="property-row half">
+											<label class="property-label">Given Name</label>
+											<input type="text" class="wt w-100" v-model="editForm.givenName">
+										</div>
+									</div>
+									<div class="form-row">
+										<div class="property-row half">
+											<label class="property-label">Display Name</label>
+											<input type="text" class="wt w-100" v-model="editForm.displayName">
+										</div>
+										<div class="property-row half">
+											<label class="property-label">Status</label>
+											<label class="wt-checkbox-label">
+												<input type="checkbox" class="wt" v-model="editForm.enabled">
+												<span>Enabled</span>
+											</label>
+										</div>
+									</div>
+								</div>
+
+								<div class="property-group">
+									<div class="property-group-title">Actions</div>
+									<div class="form-actions">
+										<button class="wt wt-primary" @click="saveUser">
+											<i class="bi bi-check-lg me-1"></i>Save
+										</button>
+										<button v-if="!isProtectedSelectedUser" class="wt wt-danger wt-outlined" @click="confirmDeleteUser">
+											<i class="bi bi-trash me-1"></i>Delete
+										</button>
+									</div>
+									<div class="timestamp-line" v-if="selectedUser.created">
+										Created: {{ formatDate(selectedUser.created) }}<span v-if="selectedUser.lastModified"> · Modified: {{ formatDate(selectedUser.lastModified) }}</span><span v-if="selectedUser.lastLogin"> · Last login: {{ formatDate(selectedUser.lastLogin) }}</span>
+									</div>
+								</div>
+							</template>
+
+							<!-- Security sub-tab -->
+							<template v-if="userSubTab === 'security'">
+								<div class="property-group">
+									<div class="property-group-title">Roles</div>
+									<div v-if="allRolesFlat.length > 0" class="role-check-list">
+										<label v-for="r in allRolesFlat" :key="r.roleId" class="role-check-row wt-checkbox-label"
+											:style="{ paddingLeft: (r.depth * 1.25) + 'rem' }">
+											<input type="checkbox" class="wt"
+												:checked="userHasRole(r.roleId)"
+												@change="toggleUserRole(r.roleId, event)">
+											<span>{{ r.displayName || r.name }}</span>
+											<span class="role-id-hint">{{ r.roleId }}</span>
+										</label>
+									</div>
+									<div v-if="allRolesFlat.length === 0" class="text-muted">No roles defined</div>
+									<div class="form-actions">
+										<button class="wt wt-primary" @click="saveUser">
+											<i class="bi bi-check-lg me-1"></i>Save Role Changes
+										</button>
+									</div>
+								</div>
+
+								<div class="property-group">
+									<div class="property-group-title">Password</div>
+									<div class="form-row">
+										<div class="property-row half">
+											<label class="property-label">New Password</label>
+											<input type="password" class="wt w-100" v-model="passwordForm.newPassword"
+												placeholder="New password">
+										</div>
+									</div>
+									<div class="form-actions">
+										<button class="wt wt-primary wt-outlined"
+											@click="resetUserPassword"
+											:disabled="!passwordForm.newPassword">
+											<i class="bi bi-key me-1"></i>Reset Password
+										</button>
+									</div>
+								</div>
+							</template>
+
+							<!-- Membership sub-tab -->
+							<template v-if="userSubTab === 'membership'">
+								<div class="property-group">
+									<div class="property-group-title">Direct Group Memberships</div>
+									<div v-if="selectedUser.memberOf && selectedUser.memberOf.length > 0" class="chip-list">
+										<span v-for="g in selectedUser.memberOf" :key="g.groupId" class="chip">
+											<i class="bi bi-diagram-2"></i>
+											<span>{{ g.displayName || g.groupId }}</span>
+											<button class="chip-remove"
+												@click="removeUserFromGroup(g.groupId)" title="Remove">×</button>
+										</span>
+									</div>
+									<div v-else class="text-muted">No group memberships</div>
+								</div>
+
+								<div class="property-group" v-if="selectedUser.effectiveGroups && selectedUser.effectiveGroups.length > 0">
+									<div class="property-group-title">Effective Groups (including ancestors)</div>
+									<div class="chip-list">
+										<span v-for="g in selectedUser.effectiveGroups" :key="g.groupId" class="chip muted">
+											<i class="bi bi-diagram-2"></i>
+											<span>{{ g.displayName || g.groupId }}</span>
+										</span>
+									</div>
+								</div>
+							</template>
+						</div>
+					</template>
+					<div v-else class="content-empty">
+						<i class="bi bi-person-circle"></i>
+						<span>Select a user to view details</span>
+					</div>
+				</template>
+
+				<!-- ============================================================
+				     GROUPS — detail
+				     ============================================================ -->
+				<template v-if="activeSection === 'groups'">
+					<template v-if="selectedGroup">
+						<!-- Sub-tabs header -->
+						<div class="detail-tabs-bar">
+							<div class="detail-tabs">
+								<div class="detail-tab" :class="{ active: groupSubTab === 'info' }"
+									@click="groupSubTab = 'info'">
+									<i class="bi bi-info-circle"></i>
+									<span>Information</span>
+								</div>
+								<div class="detail-tab" :class="{ active: groupSubTab === 'members' }"
+									@click="groupSubTab = 'members'">
+									<i class="bi bi-people"></i>
+									<span>Members</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Body -->
+						<div class="content-form">
+
+							<!-- Info sub-tab -->
+							<template v-if="groupSubTab === 'info'">
+								<div class="property-group">
+									<div class="property-group-title">Group Information</div>
+									<div class="property-row">
+										<label class="property-label">Group ID (path)</label>
+										<input type="text" class="wt w-100" :value="selectedGroup.groupId" disabled>
+									</div>
+									<div class="form-row">
+										<div class="property-row half">
+											<label class="property-label">Display Name</label>
+											<input type="text" class="wt w-100" v-model="groupEditForm.displayName">
+										</div>
+										<div class="property-row half">
+											<label class="property-label">Depth</label>
+											<input type="text" class="wt w-100" :value="selectedGroup.depth" disabled>
+										</div>
+									</div>
+									<div class="property-row">
+										<label class="property-label">Description</label>
+										<textarea class="wt w-100" rows="2" v-model="groupEditForm.description"></textarea>
+									</div>
+								</div>
+
+								<div class="property-group">
+									<div class="property-group-title">Ancestors</div>
+									<div v-if="selectedGroup.ancestors && selectedGroup.ancestors.length > 0" class="chip-list">
+										<span v-for="a in selectedGroup.ancestors" :key="a.groupId" class="chip muted">
+											<i class="bi bi-diagram-2"></i>
+											<span>{{ a.displayName || a.groupId }}</span>
+										</span>
+									</div>
+									<div v-else class="text-muted">This is a root-level group.</div>
+								</div>
+
+								<div class="property-group">
+									<div class="property-group-title">Actions</div>
+									<div class="form-actions">
+										<button class="wt wt-primary" @click="saveGroup">
+											<i class="bi bi-check-lg me-1"></i>Save
+										</button>
+										<button v-if="!isProtectedSelectedGroup" class="wt wt-danger wt-outlined" @click="confirmDeleteGroup">
+											<i class="bi bi-trash me-1"></i>Delete
+										</button>
+									</div>
+									<div class="timestamp-line" v-if="selectedGroup.created">
+										Created: {{ formatDate(selectedGroup.created) }}<span v-if="selectedGroup.lastModified"> · Modified: {{ formatDate(selectedGroup.lastModified) }}</span>
+									</div>
+								</div>
+							</template>
+
+							<!-- Members sub-tab -->
+							<template v-if="groupSubTab === 'members'">
+								<div class="property-group">
+									<div class="property-group-title">Direct Members ({{ groupMembers.length }})</div>
+									<div v-if="groupMembers.length > 0" class="member-list">
+										<div v-for="m in groupMembers" :key="m.username" class="member-row">
+											<i class="bi bi-person"></i>
+											<span class="member-name">{{ m.displayName || m.username }}</span>
+											<span class="member-username">{{ m.username }}</span>
+											<button class="btn-icon" @click="removeGroupMember(m.username)"
+												title="Remove member">
+												<i class="bi bi-x-lg"></i>
+											</button>
+										</div>
+									</div>
+									<div v-else class="text-muted">No direct members</div>
+								</div>
+
+								<div class="property-group">
+									<div class="property-group-title">Add Members</div>
+									<div class="member-search">
+										<div class="input-group">
+											<input type="text" class="wt"
+												v-model="memberSearchQuery"
+												@input="searchMemberCandidates"
+												@keydown="handleMemberSearchKeydown"
+												placeholder="Search by name, username, or email...">
+											<div v-if="memberSearchQuery" class="input-group-actions">
+												<button class="input-group-btn" @click="clearMemberSearch" title="Clear">
+													<i class="bi bi-x"></i>
+												</button>
+											</div>
+										</div>
+										<div v-if="memberCandidates.length > 0" class="member-suggestions">
+											<div v-for="(c, idx) in memberCandidates" :key="c.username"
+												class="member-suggestion"
+												:class="{
+													highlighted: idx === memberHighlightIndex,
+													disabled: c.alreadyMember || c.staged
+												}"
+												@mousedown.prevent="stageCandidate(c)">
+												<i class="bi bi-person"></i>
+												<div class="member-suggestion-info">
+													<div class="member-suggestion-name">{{ c.displayName || c.username }}</div>
+													<div class="member-suggestion-sub">
+														{{ c.username }}<span v-if="c.mail"> · {{ c.mail }}</span>
+													</div>
+												</div>
+												<span v-if="c.alreadyMember" class="member-suggestion-tag">Added</span>
+												<span v-else-if="c.staged" class="member-suggestion-tag">Selected</span>
+											</div>
+										</div>
+									</div>
+
+									<div v-if="stagedMembers.length > 0" class="chip-list">
+										<span v-for="s in stagedMembers" :key="s.username" class="chip">
+											<i class="bi bi-person"></i>
+											<span>{{ s.displayName || s.username }}</span>
+											<button class="chip-remove" @click="unstageCandidate(s)" title="Remove">×</button>
+										</span>
+									</div>
+
+									<div v-if="stagedMembers.length > 0" class="form-actions">
+										<button class="wt wt-primary" @click="addStagedMembers">
+											<i class="bi bi-person-plus me-1"></i>Add {{ stagedMembers.length }} Member(s)
+										</button>
+									</div>
+								</div>
+							</template>
+						</div>
+					</template>
+					<div v-else class="content-empty">
+						<i class="bi bi-diagram-2"></i>
+						<span>Select a group to view details</span>
+					</div>
+				</template>
+
+				<!-- ============================================================
+				     ROLES — detail
+				     ============================================================ -->
+				<template v-if="activeSection === 'roles'">
+					<template v-if="selectedRole">
+						<!-- Sub-tabs header (single tab, kept for consistency) -->
+						<div class="detail-tabs-bar">
+							<div class="detail-tabs">
+								<div class="detail-tab active">
+									<i class="bi bi-info-circle"></i>
+									<span>Information</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Body -->
+						<div class="content-form">
+							<div class="property-group">
+								<div class="property-group-title">Role Information</div>
+								<div class="property-row">
+									<label class="property-label">Role ID (path)</label>
+									<input type="text" class="wt w-100" :value="selectedRole.roleId" disabled>
+								</div>
+								<div class="form-row">
+									<div class="property-row half">
+										<label class="property-label">Display Name</label>
+										<input type="text" class="wt w-100" v-model="roleEditForm.displayName">
+									</div>
+									<div class="property-row half">
+										<label class="property-label">Depth</label>
+										<input type="text" class="wt w-100" :value="selectedRole.depth" disabled>
+									</div>
+								</div>
+								<div class="property-row">
+									<label class="property-label">Description</label>
+									<textarea class="wt w-100" rows="2" v-model="roleEditForm.description"></textarea>
+								</div>
+							</div>
+
+							<div class="property-group">
+								<div class="property-group-title">Ancestors</div>
+								<div v-if="selectedRole.ancestors && selectedRole.ancestors.length > 0" class="chip-list">
+									<span v-for="a in selectedRole.ancestors" :key="a.roleId" class="chip muted">
+										<i class="bi bi-shield"></i>
+										<span>{{ a.displayName || a.roleId }}</span>
+									</span>
+								</div>
+								<div v-else class="text-muted">This is a root-level role.</div>
+							</div>
+
+							<div class="property-group">
+								<div class="property-group-title">Actions</div>
+								<div class="form-actions">
+									<button class="wt wt-primary" @click="saveRole">
+										<i class="bi bi-check-lg me-1"></i>Save
+									</button>
+									<button class="wt wt-danger wt-outlined" @click="confirmDeleteRole">
+										<i class="bi bi-trash me-1"></i>Delete
+									</button>
+								</div>
+								<div class="timestamp-line" v-if="selectedRole.created">
+									Created: {{ formatDate(selectedRole.created) }}<span v-if="selectedRole.lastModified"> · Modified: {{ formatDate(selectedRole.lastModified) }}</span>
+								</div>
+							</div>
+						</div>
+					</template>
+					<div v-else class="content-empty">
+						<i class="bi bi-shield"></i>
+						<span>Select a role to view details</span>
+					</div>
+				</template>
+
+			</div>
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ listStatusText }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+		</div>
+
+		<!-- Loading Overlay -->
+		<div v-if="isLoading" class="loading-overlay">
+			<div class="spinner"></div>
+			<span>Loading...</span>
+		</div>
+
+		<!-- Error Dialog -->
+		<div v-if="errorMessage" class="dialog-overlay dialog-overlay-message">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Notice</h3>
+							<button class="btn-icon" @click="errorMessage = ''" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0 mb-0">{{ errorMessage }}</p>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt wt-primary" @click="errorMessage = ''">OK</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Create User Dialog -->
+		<div v-if="dialog.type === 'createUser'" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><i class="bi bi-person-plus me-2"></i>New User</h3>
+							<button class="btn-icon" @click="closeDialog" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<div class="form-row">
+							<div class="property-row half">
+								<label class="property-label">Username <span class="text-danger">*</span></label>
+								<input type="text" class="wt w-100" v-model="dialog.data.username">
+							</div>
+							<div class="property-row half">
+								<label class="property-label">Password <span class="text-danger">*</span></label>
+								<input type="password" class="wt w-100" v-model="dialog.data.password">
+							</div>
+						</div>
+						<div class="form-row mt-2">
+							<div class="property-row half">
+								<label class="property-label">Display Name</label>
+								<input type="text" class="wt w-100" v-model="dialog.data.displayName">
+							</div>
+							<div class="property-row half">
+								<label class="property-label">Email</label>
+								<input type="email" class="wt w-100" v-model="dialog.data.mail">
+							</div>
+						</div>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt" @click="closeDialog">Cancel</button>
+						<button class="wt wt-primary" @click="createUser"
+							:disabled="!dialog.data.username || !dialog.data.password">Create</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Create Group Dialog -->
+		<div v-if="dialog.type === 'createGroup'" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><i class="bi bi-folder-plus me-2"></i>New Group</h3>
+							<button class="btn-icon" @click="closeDialog" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<div class="property-row">
+							<label class="property-label">Name <span class="text-danger">*</span></label>
+							<input type="text" class="wt w-100" v-model="dialog.data.name" placeholder="e.g. tokyo">
+						</div>
+						<div class="property-row mt-2">
+							<label class="property-label">Parent Group</label>
+							<div class="wt-select w-100">
+								<button type="button" class="wt-select-trigger"
+									@click.stop="openParentGroupDropdown(event)">
+									<span class="wt-select-value" :class="{placeholder: !dialog.data.parentGroupId}">
+										{{ parentGroupLabel }}
+									</span>
+									<i class="bi bi-chevron-down wt-select-chevron"></i>
+								</button>
+							</div>
+						</div>
+						<div class="property-row mt-2">
+							<label class="property-label">Display Name</label>
+							<input type="text" class="wt w-100" v-model="dialog.data.displayName">
+						</div>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt" @click="closeDialog">Cancel</button>
+						<button class="wt wt-primary" @click="createGroup"
+							:disabled="!dialog.data.name">Create</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Create Role Dialog -->
+		<div v-if="dialog.type === 'createRole'" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><i class="bi bi-shield-plus me-2"></i>New Role</h3>
+							<button class="btn-icon" @click="closeDialog" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<div class="property-row">
+							<label class="property-label">Name <span class="text-danger">*</span></label>
+							<input type="text" class="wt w-100" v-model="dialog.data.name" placeholder="e.g. editor">
+						</div>
+						<div class="property-row mt-2">
+							<label class="property-label">Parent Role</label>
+							<div class="wt-select w-100">
+								<button type="button" class="wt-select-trigger"
+									@click.stop="openParentRoleDropdown(event)">
+									<span class="wt-select-value" :class="{placeholder: !dialog.data.parentRoleId}">
+										{{ parentRoleLabel }}
+									</span>
+									<i class="bi bi-chevron-down wt-select-chevron"></i>
+								</button>
+							</div>
+						</div>
+						<div class="property-row mt-2">
+							<label class="property-label">Display Name</label>
+							<input type="text" class="wt w-100" v-model="dialog.data.displayName">
+						</div>
+						<div class="property-row mt-2">
+							<label class="property-label">Description</label>
+							<textarea class="wt w-100" rows="2" v-model="dialog.data.description"></textarea>
+						</div>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt" @click="closeDialog">Cancel</button>
+						<button class="wt wt-primary" @click="createRole"
+							:disabled="!dialog.data.name">Create</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Confirm Delete Dialog -->
+		<div v-if="dialog.type === 'confirmDelete'" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Confirm Delete</h3>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0 mb-0">{{ dialog.data.message }}</p>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt" @click="closeDialog">Cancel</button>
+						<button class="wt wt-danger" @click="executeDelete">
+							<i class="bi bi-trash me-1"></i>Delete
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

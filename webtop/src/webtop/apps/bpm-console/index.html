@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>BPM Console</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+	<!-- Top Toolbar (translucent) -->
+	<nav class="nav-bar window-drag-region">
+		<!-- Left: refresh + deploy -->
+		<div class="toolbar-group">
+			<button class="btn-icon"
+				:class="{active: liveTailActive}"
+				@pointerdown="onRefreshPointerDown"
+				@pointerup="onRefreshPointerUp"
+				@pointerleave="cancelLiveTailPress"
+				@pointercancel="cancelLiveTailPress"
+				:title="liveTailActive ? 'Live tail ON — click to stop' : 'Refresh (hold 1.5s for live tail)'">
+				<i class="bi bi-arrow-clockwise" :class="{spin: liveTailActive}"></i>
+			</button>
+			<button class="btn-icon" @click="showDeployDialog" title="Deploy BPMN">
+				<i class="bi bi-cloud-upload"></i>
+			</button>
+		</div>
+
+		<!-- Left: view mode (diagram / XML) -->
+		<div class="toolbar-group">
+			<button class="btn-icon"
+				:class="{active: viewMode === 'diagram'}"
+				:disabled="!selectedDef"
+				@click="viewMode = 'diagram'" title="Diagram view">
+				<i class="bi bi-diagram-3"></i>
+			</button>
+			<button class="btn-icon"
+				:class="{active: viewMode === 'xml'}"
+				:disabled="!selectedDef"
+				@click="switchToXmlView" title="XML view">
+				<i class="bi bi-code-slash"></i>
+			</button>
+		</div>
+
+		<!-- Left: zoom controls -->
+		<div class="toolbar-group">
+			<button class="btn-icon"
+				:disabled="!selectedDef || viewMode !== 'diagram'"
+				@click="zoomIn" title="Zoom in">
+				<i class="bi bi-zoom-in"></i>
+			</button>
+			<button class="btn-icon"
+				:disabled="!selectedDef || viewMode !== 'diagram'"
+				@click="zoomOut" title="Zoom out">
+				<i class="bi bi-zoom-out"></i>
+			</button>
+			<button class="btn-icon"
+				:disabled="!selectedDef || viewMode !== 'diagram'"
+				@click="zoomFit" title="Fit to screen">
+				<i class="bi bi-arrows-fullscreen"></i>
+			</button>
+		</div>
+
+		<!-- Left: start new instance -->
+		<div class="toolbar-group">
+			<button class="btn-icon"
+				:disabled="!selectedDef || selectedDef.suspended"
+				@click="startProcessDialog"
+				:title="selectedDef && selectedDef.suspended ? 'Cannot start: definition is suspended' : 'Start new instance'">
+				<i class="bi bi-play-fill"></i>
+			</button>
+		</div>
+
+		<span class="nav-spacer"></span>
+
+		<!-- Right: Pane Toggles -->
+		<div class="pane-toggles">
+			<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
+				@click="toggleSidebarPanel" title="Toggle Sidebar">
+				<i class="bi bi-layout-sidebar-inset"></i>
+			</button>
+			<button class="btn-icon pane-toggle-btn" :class="{active: bottomPanelVisible}"
+				@click="toggleBottomPanel" title="Toggle Lists">
+				<i class="bi bi-layout-split"></i>
+			</button>
+			<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
+				@click="toggleDetailPanel" title="Toggle Details">
+				<i class="bi bi-layout-sidebar-inset-reverse"></i>
+			</button>
+		</div>
+
+		<!-- Right: Window Controls -->
+		<div class="window-controls">
+			<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<i class="bi bi-dash-lg"></i>
+			</button>
+			<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<i class="bi bi-square"></i>
+			</button>
+			<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<i class="bi bi-x-lg"></i>
+			</button>
+		</div>
+	</nav>
+
+	<!-- Content body — 3 columns: sidebar / center / detail -->
+	<div class="content-body">
+
+		<!-- ============================================================
+		     LEFT PANE — process definition tree
+		     ============================================================ -->
+		<div v-if="sidebarPanelVisible" class="sidebar-panel island p-0"
+			:style="{ width: sidebarPanelWidth + 'px' }">
+
+			<!-- Filter -->
+			<div class="sidebar-filter">
+				<div class="input-group">
+					<input type="text" class="wt"
+						v-model="defSearch"
+						@input="filterDefs"
+						placeholder="Filter processes...">
+					<div v-if="defSearch" class="input-group-actions">
+						<button class="input-group-btn" @click="clearDefSearch" title="Clear">
+							<i class="bi bi-x"></i>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<!-- Process tree -->
+			<div class="list-body">
+				<div v-if="filteredGroups.length === 0 && !isLoading" class="list-empty-message">
+					No process definitions found
+				</div>
+				<div v-for="group in filteredGroups" :key="group.key">
+					<!-- Group header -->
+					<div class="tree-group-header"
+						:class="{ selected: selectedGroup && selectedGroup.key === group.key && !selectedDef }"
+						@click="selectGroup(group)">
+						<span class="tree-toggle" @click.stop="toggleGroupExpand(group)">
+							<i class="bi"
+								:class="group.expanded ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+						</span>
+						<i class="bi bi-diagram-3 tree-node-icon"></i>
+						<div class="tree-group-info">
+							<div class="tree-group-name">{{ group.name }}</div>
+							<div class="tree-group-key">{{ group.key }}</div>
+						</div>
+						<span v-if="groupIncidentCounts[group.key]" class="bpm-badge bpm-badge-incident" title="Total incidents">
+							{{ groupIncidentCounts[group.key] }}
+						</span>
+						<span class="bpm-badge bpm-badge-version">{{ group.versions.length }}</span>
+					</div>
+					<!-- Version items -->
+					<div v-if="group.expanded">
+						<div v-for="def in group.versions" :key="def.id"
+							class="tree-leaf"
+							:class="{ selected: selectedDef && selectedDef.id === def.id }"
+							@click="selectDefinition(def)"
+							@contextmenu.prevent="showDefContextMenu(event, def)">
+							<div class="tree-leaf-info">
+								<div class="tree-leaf-name">
+									<span>v{{ def.version }}</span>
+									<span v-if="def.version === group.latestVersion" class="bpm-badge bpm-badge-latest">Latest</span>
+									<span v-if="defInstanceCounts[def.id] && defInstanceCounts[def.id].active > 0"
+										class="bpm-badge bpm-badge-active" title="Active instances">
+										<i class="bi bi-play-fill"></i>{{ defInstanceCounts[def.id].active }}
+									</span>
+									<span v-if="defIncidentCounts[def.id]"
+										class="bpm-badge bpm-badge-incident" title="Incidents">
+										<i class="bi bi-exclamation-triangle-fill"></i>{{ defIncidentCounts[def.id] }}
+									</span>
+									<span v-if="defInstanceCounts[def.id] && defInstanceCounts[def.id].ended > 0"
+										class="bpm-badge bpm-badge-ended" title="Ended instances">
+										<i class="bi bi-check2"></i>{{ defInstanceCounts[def.id].ended }}
+									</span>
+								</div>
+								<div v-if="def.deploymentName" class="tree-leaf-sub">{{ def.deploymentName }}</div>
+							</div>
+							<i v-if="def.suspended" class="bi bi-pause-circle bpm-state-icon suspended" title="Suspended"></i>
+							<i v-else class="bi bi-check-circle-fill bpm-state-icon active" title="Active"></i>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Sidebar resize handle -->
+		<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
+			@mousedown="onSidebarResizeStart"></div>
+
+		<!-- ============================================================
+		     CENTER — upper (BPMN diagram) + lower (instances / tasks)
+		     ============================================================ -->
+		<div class="content-main">
+
+			<!-- Upper: BPMN viewer -->
+			<div class="content-upper island p-0">
+				<div class="upper-header">
+					<span class="upper-title">
+						<i class="bi bi-diagram-3 me-2"></i>
+						<span v-if="selectedDef">{{ (selectedDef.name || selectedDef.key) + ' v' + selectedDef.version }}</span>
+						<span v-else>Select a process definition</span>
+					</span>
+				</div>
+
+				<!-- Empty state -->
+				<div v-if="!selectedDef" class="bpm-empty-state">
+					<i class="bi bi-diagram-3"></i>
+					<span>Select a process definition to view details</span>
+				</div>
+
+				<!-- Loading state -->
+				<div v-if="selectedDef && !bpmnXml && isLoading" class="bpm-empty-state">
+					<span class="spinner"></span>
+					<span>Loading BPMN...</span>
+				</div>
+
+				<!-- BPMN Diagram View -->
+				<div v-if="selectedDef && bpmnModel && viewMode === 'diagram'"
+					class="bpm-diagram-container"
+					:class="{ 'panning-mode': spacePressed || diagramPanning }"
+					@wheel="onDiagramWheel"
+					@mousedown="onDiagramPanStart"
+					@mousemove="onDiagramPanMove"
+					@mouseup="onDiagramPanEnd"
+					@mouseleave="onDiagramPanEnd">
+					<svg class="bpm-diagram-svg">
+						<defs>
+							<!-- Grid patterns -->
+							<pattern id="viewer-grid-small" width="10" height="10" patternUnits="userSpaceOnUse">
+								<path d="M 10 0 L 0 0 0 10" fill="none" stroke="var(--canvas-grid-color, var(--bpm-diagram-grid))" stroke-width="0.5" opacity="0.5"/>
+							</pattern>
+							<pattern id="viewer-grid-large" width="100" height="100" patternUnits="userSpaceOnUse">
+								<rect width="100" height="100" fill="url(#viewer-grid-small)"/>
+								<path d="M 100 0 L 0 0 0 100" fill="none" stroke="var(--canvas-grid-color, var(--bpm-diagram-grid))" stroke-width="1"/>
+							</pattern>
+							<!-- Arrow markers (sequence flow + highlighted variant for activity history) -->
+							<marker id="viewer-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse" markerUnits="strokeWidth">
+								<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--connection-stroke)"/>
+							</marker>
+							<marker id="viewer-arrow-highlight" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse" markerUnits="strokeWidth">
+								<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--bpm-diagram-highlight)"/>
+							</marker>
+						</defs>
+
+						<!-- Transform Group -->
+						<g :transform="'translate(' + diagramPanX + ',' + diagramPanY + ') scale(' + diagramZoom + ')'">
+
+						<!-- Grid -->
+						<rect class="canvas-grid" x="-5000" y="-5000" width="10000" height="10000" fill="url(#viewer-grid-large)"/>
+
+						<!-- Pools -->
+						<g v-for="el in viewerPools" :key="el.id"
+							class="bpmn-element pool"
+							:transform="'translate(' + el.x + ',' + el.y + ')'">
+							<rect class="element-shape pool-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+							<rect class="pool-header" x="0" y="0" width="30" :height="el.height"/>
+							<text class="pool-label"
+								:transform="'translate(15, ' + (el.height / 2) + ') rotate(-90)'"
+								text-anchor="middle" dominant-baseline="middle">{{ el.name || 'Pool' }}</text>
+						</g>
+
+						<!-- Lanes -->
+						<g v-for="el in viewerLanes" :key="el.id"
+							class="bpmn-element lane"
+							:transform="'translate(' + el.x + ',' + el.y + ')'">
+							<rect class="lane-area" x="30" y="0" :width="el.width - 30" :height="el.height"/>
+							<rect class="lane-header" x="0" y="0" width="30" :height="el.height"/>
+							<text class="lane-label"
+								:transform="'translate(15, ' + (el.height / 2) + ') rotate(-90)'"
+								text-anchor="middle" dominant-baseline="middle">{{ el.name || 'Lane' }}</text>
+						</g>
+
+						<!-- Connections -->
+						<g v-for="conn in bpmnModel.connections" :key="conn.id"
+							class="bpmn-connection"
+							:class="[conn.connectionType === 'dataAssociation' ? 'data-association' : '', conn.connectionType === 'association' ? 'association' : '', { 'bpm-d-highlighted': highlightedConnectionIds[conn.id] }]">
+							<path class="connection-line"
+								:d="getViewerConnectionPath(conn)"
+								:stroke-dasharray="conn.connectionType === 'dataAssociation' ? '5,3' : (conn.connectionType === 'association' ? '3,3' : 'none')"
+								:marker-end="conn.connectionType === 'association' ? '' : (highlightedConnectionIds[conn.id] ? 'url(#viewer-arrow-highlight)' : 'url(#viewer-arrow)')"/>
+							<g v-if="conn.name" class="connection-label-group"
+								:transform="'translate(' + getViewerConnectionLabelPos(conn).x + ',' + getViewerConnectionLabelPos(conn).y + ')'">
+								<foreignObject
+									:x="-(conn.labelWidth || 80) / 2"
+									y="-10"
+									:width="conn.labelWidth || 80"
+									height="100"
+									class="label-foreign-object">
+									<div class="connection-label-text">{{ conn.name }}</div>
+								</foreignObject>
+							</g>
+						</g>
+
+						<!-- Elements -->
+						<g v-for="el in viewerElements" :key="el.id"
+							class="bpmn-element"
+							:class="[el.type, { 'bpm-d-highlighted': highlightedNodeIds[el.id], 'bpm-d-active-node': activeNodeIds[el.id], 'bpm-d-clickable': isClickableElement(el.type), 'bpm-d-diagram-selected': diagramFilterElementId === el.id, 'bpm-d-incident': incidentsByActivityId[el.id] > 0 }]"
+							:transform="'translate(' + el.x + ',' + el.y + ')'"
+							@click.stop="onDiagramElementClick(el)">
+
+							<!-- Start Event -->
+							<g v-if="el.type === 'startEvent'" class="start-event">
+								<circle class="element-shape event-shape" cx="18" cy="18" r="18"/>
+								<use v-if="el.subType === 'message'" class="event-icon message-icon" :href="spriteUrl + '#canvas-start-message'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'timer'" class="event-icon timer-icon" :href="spriteUrl + '#canvas-start-timer'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'conditional'" class="event-icon conditional-icon" :href="spriteUrl + '#canvas-start-conditional'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'signal'" class="event-icon signal-icon" :href="spriteUrl + '#canvas-start-signal'" x="0" y="0" width="36" height="36"/>
+								<foreignObject v-if="el.name" x="-32" y="40" width="100" height="40" class="label-foreign-object">
+									<div class="event-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- End Event -->
+							<g v-if="el.type === 'endEvent'" class="end-event">
+								<circle class="element-shape event-shape" cx="18" cy="18" r="18" stroke-width="3"/>
+								<use v-if="el.subType === 'message'" class="event-icon message-icon" :href="spriteUrl + '#canvas-end-message'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'terminate'" class="event-icon terminate-icon" :href="spriteUrl + '#canvas-end-terminate'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'error'" class="event-icon error-icon" :href="spriteUrl + '#canvas-end-error'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'escalation'" class="event-icon escalation-icon" :href="spriteUrl + '#canvas-end-escalation'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'signal'" class="event-icon signal-icon" :href="spriteUrl + '#canvas-end-signal'" x="0" y="0" width="36" height="36"/>
+								<foreignObject v-if="el.name" x="-32" y="40" width="100" height="40" class="label-foreign-object">
+									<div class="event-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Intermediate Event -->
+							<g v-if="el.type === 'intermediateEvent'" class="intermediate-event">
+								<circle class="element-shape event-shape" cx="18" cy="18" r="18"/>
+								<circle cx="18" cy="18" r="14" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
+								<use v-if="el.subType === 'message' && el.catching !== false" class="event-icon message-icon" :href="spriteUrl + '#canvas-intermediate-message-catch'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'message' && el.catching === false" class="event-icon message-icon" :href="spriteUrl + '#canvas-intermediate-message-throw'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'timer'" class="event-icon timer-icon" :href="spriteUrl + '#canvas-intermediate-timer'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'conditional'" class="event-icon conditional-icon" :href="spriteUrl + '#canvas-intermediate-conditional'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'signal' && el.catching !== false" class="event-icon signal-icon" :href="spriteUrl + '#canvas-intermediate-signal-catch'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'signal' && el.catching === false" class="event-icon signal-icon" :href="spriteUrl + '#canvas-intermediate-signal-throw'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'link' && el.catching !== false" class="event-icon link-icon" :href="spriteUrl + '#canvas-intermediate-link-catch'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'link' && el.catching === false" class="event-icon link-icon" :href="spriteUrl + '#canvas-intermediate-link-throw'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'escalation' && el.catching !== false" class="event-icon escalation-icon" :href="spriteUrl + '#canvas-intermediate-escalation-catch'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'escalation' && el.catching === false" class="event-icon escalation-icon" :href="spriteUrl + '#canvas-intermediate-escalation-throw'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'compensation' && el.catching !== false" class="event-icon compensation-icon" :href="spriteUrl + '#canvas-intermediate-compensation-catch'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'compensation' && el.catching === false" class="event-icon compensation-icon" :href="spriteUrl + '#canvas-intermediate-compensation-throw'" x="0" y="0" width="36" height="36"/>
+								<foreignObject v-if="el.name" x="-32" y="40" width="100" height="40" class="label-foreign-object">
+									<div class="event-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Boundary Event -->
+							<g v-if="el.type === 'boundaryEvent'" class="boundary-event">
+								<circle class="element-shape event-shape" cx="18" cy="18" r="18"
+									:stroke-dasharray="el.cancelActivity === false ? '4,2' : 'none'"/>
+								<circle cx="18" cy="18" r="14" fill="none" stroke="var(--element-stroke)" stroke-width="1"
+									:stroke-dasharray="el.cancelActivity === false ? '4,2' : 'none'"/>
+								<use v-if="el.subType === 'message'" class="event-icon message-icon" :href="spriteUrl + '#canvas-boundary-message'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'timer'" class="event-icon timer-icon" :href="spriteUrl + '#canvas-intermediate-timer'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'conditional'" class="event-icon conditional-icon" :href="spriteUrl + '#canvas-intermediate-conditional'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'signal'" class="event-icon signal-icon" :href="spriteUrl + '#canvas-boundary-signal'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'error'" class="event-icon error-icon" :href="spriteUrl + '#canvas-boundary-error'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'escalation'" class="event-icon escalation-icon" :href="spriteUrl + '#canvas-boundary-escalation'" x="0" y="0" width="36" height="36"/>
+								<use v-if="el.subType === 'compensation'" class="event-icon compensation-icon" :href="spriteUrl + '#canvas-boundary-compensation'" x="0" y="0" width="36" height="36"/>
+								<foreignObject v-if="el.name" x="-32" y="40" width="100" height="40" class="label-foreign-object">
+									<div class="event-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- User Task -->
+							<g v-if="el.type === 'userTask'" class="user-task">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+								<use class="element-icon" :href="spriteUrl + '#canvas-task-user'" x="0" y="0" :width="el.width" :height="el.height"/>
+								<foreignObject x="5" y="28" :width="el.width - 10" :height="el.height - 36" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Service Task -->
+							<g v-if="el.type === 'serviceTask'" class="service-task">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+								<use class="element-icon" :href="spriteUrl + '#canvas-task-service'" x="0" y="0" :width="el.width" :height="el.height"/>
+								<foreignObject x="5" y="28" :width="el.width - 10" :height="el.height - 36" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Script Task -->
+							<g v-if="el.type === 'scriptTask'" class="script-task">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+								<use class="element-icon" :href="spriteUrl + '#canvas-task-script'" x="0" y="0" :width="el.width" :height="el.height"/>
+								<foreignObject x="5" y="28" :width="el.width - 10" :height="el.height - 36" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Manual Task -->
+							<g v-if="el.type === 'manualTask'" class="manual-task">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+								<use class="element-icon" :href="spriteUrl + '#canvas-task-manual'" x="0" y="0" :width="el.width" :height="el.height"/>
+								<foreignObject x="5" y="28" :width="el.width - 10" :height="el.height - 36" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Send Task -->
+							<g v-if="el.type === 'sendTask'" class="send-task">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+								<use class="element-icon" :href="spriteUrl + '#canvas-task-send'" x="0" y="0" :width="el.width" :height="el.height"/>
+								<foreignObject x="5" y="28" :width="el.width - 10" :height="el.height - 36" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Receive Task -->
+							<g v-if="el.type === 'receiveTask'" class="receive-task">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+								<use class="element-icon" :href="spriteUrl + '#canvas-task-receive'" x="0" y="0" :width="el.width" :height="el.height"/>
+								<foreignObject x="5" y="28" :width="el.width - 10" :height="el.height - 36" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Business Rule Task -->
+							<g v-if="el.type === 'businessRuleTask'" class="business-rule-task">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+								<use class="element-icon" :href="spriteUrl + '#canvas-task-businessRule'" x="0" y="0" :width="el.width" :height="el.height"/>
+								<foreignObject x="5" y="28" :width="el.width - 10" :height="el.height - 36" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Generic Task -->
+							<g v-if="el.type === 'task'" class="generic-task">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"/>
+								<foreignObject x="5" y="15" :width="el.width - 10" :height="el.height - 30" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Call Activity -->
+							<g v-if="el.type === 'callActivity'" class="call-activity">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height" stroke-width="3"/>
+								<foreignObject x="5" y="15" :width="el.width - 10" :height="el.height - 30" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Loop / Multi-instance markers (shared across all activity types) -->
+							<g v-if="isTaskType(el.type) || el.type === 'callActivity' || el.type === 'subProcess'">
+								<g v-if="el.loopType === 'multiInstanceParallel'" class="loop-marker">
+									<line :x1="el.width/2 - 5" :y1="el.height - 14" :x2="el.width/2 - 5" :y2="el.height - 4" stroke-width="1.5"/>
+									<line :x1="el.width/2"     :y1="el.height - 14" :x2="el.width/2"     :y2="el.height - 4" stroke-width="1.5"/>
+									<line :x1="el.width/2 + 5" :y1="el.height - 14" :x2="el.width/2 + 5" :y2="el.height - 4" stroke-width="1.5"/>
+								</g>
+								<g v-if="el.loopType === 'multiInstanceSequential'" class="loop-marker">
+									<line :x1="el.width/2 - 6" :y1="el.height - 13" :x2="el.width/2 + 6" :y2="el.height - 13" stroke-width="1.5"/>
+									<line :x1="el.width/2 - 6" :y1="el.height - 9"  :x2="el.width/2 + 6" :y2="el.height - 9"  stroke-width="1.5"/>
+									<line :x1="el.width/2 - 6" :y1="el.height - 5"  :x2="el.width/2 + 6" :y2="el.height - 5"  stroke-width="1.5"/>
+								</g>
+							</g>
+
+							<!-- Sub-Process (collapsed) -->
+							<g v-if="el.type === 'subProcess' && !el.isExpanded" class="subprocess collapsed-subprocess">
+								<rect class="element-shape task-shape" x="0" y="0" :width="el.width" :height="el.height"
+									:class="{ 'event-subprocess': el.triggeredByEvent }"
+									:stroke-dasharray="el.triggeredByEvent ? '5,3' : 'none'"/>
+								<g class="expand-marker" :transform="'translate(' + (el.width / 2) + ',' + (el.height - 15) + ')'">
+									<use :href="spriteUrl + '#canvas-subprocess-plus'" x="-8" y="-8" width="16" height="16"/>
+								</g>
+								<foreignObject x="5" y="5" :width="el.width - 10" :height="el.height - 25" class="label-foreign-object">
+									<div class="task-label-text">{{ el.name }}</div>
+								</foreignObject>
+							</g>
+
+							<!-- Sub-Process (expanded) -->
+							<g v-if="el.type === 'subProcess' && el.isExpanded" class="subprocess expanded-subprocess">
+								<rect class="element-shape subprocess-shape" x="0" y="0" :width="el.width" :height="el.height"
+									:class="{ 'event-subprocess': el.triggeredByEvent }"
+									:stroke-dasharray="el.triggeredByEvent ? '5,3' : 'none'"/>
+								<text class="subprocess-header-label" x="10" y="20">{{ el.name || 'Sub-Process' }}</text>
+							</g>
+
+							<!-- Exclusive Gateway -->
+							<g v-if="el.type === 'exclusiveGateway'" class="exclusive-gateway">
+								<path class="element-shape gateway-shape" d="M25 0 L50 25 L25 50 L0 25 Z"/>
+								<use class="gateway-icon" :href="spriteUrl + '#canvas-gateway-exclusive'" x="0" y="0" width="50" height="50"/>
+								<g v-if="el.name" class="gateway-label-group"
+									:transform="'translate(' + getGatewayLabelPosition(el).x + ',' + getGatewayLabelPosition(el).y + ')'">
+									<foreignObject :x="-(el.labelWidth || 80)" y="-10" :width="el.labelWidth || 80" height="100" class="label-foreign-object">
+										<div class="gateway-label-text">{{ el.name }}</div>
+									</foreignObject>
+								</g>
+							</g>
+
+							<!-- Parallel Gateway -->
+							<g v-if="el.type === 'parallelGateway'" class="parallel-gateway">
+								<path class="element-shape gateway-shape" d="M25 0 L50 25 L25 50 L0 25 Z"/>
+								<use class="gateway-icon" :href="spriteUrl + '#canvas-gateway-parallel'" x="0" y="0" width="50" height="50"/>
+								<g v-if="el.name" class="gateway-label-group"
+									:transform="'translate(' + getGatewayLabelPosition(el).x + ',' + getGatewayLabelPosition(el).y + ')'">
+									<foreignObject :x="-(el.labelWidth || 80)" y="-10" :width="el.labelWidth || 80" height="100" class="label-foreign-object">
+										<div class="gateway-label-text">{{ el.name }}</div>
+									</foreignObject>
+								</g>
+							</g>
+
+							<!-- Inclusive Gateway -->
+							<g v-if="el.type === 'inclusiveGateway'" class="inclusive-gateway">
+								<path class="element-shape gateway-shape" d="M25 0 L50 25 L25 50 L0 25 Z"/>
+								<use class="gateway-icon" :href="spriteUrl + '#canvas-gateway-inclusive'" x="0" y="0" width="50" height="50"/>
+								<g v-if="el.name" class="gateway-label-group"
+									:transform="'translate(' + getGatewayLabelPosition(el).x + ',' + getGatewayLabelPosition(el).y + ')'">
+									<foreignObject :x="-(el.labelWidth || 80)" y="-10" :width="el.labelWidth || 80" height="100" class="label-foreign-object">
+										<div class="gateway-label-text">{{ el.name }}</div>
+									</foreignObject>
+								</g>
+							</g>
+
+							<!-- Event-based Gateway -->
+							<g v-if="el.type === 'eventBasedGateway'" class="event-based-gateway">
+								<path class="element-shape gateway-shape" d="M25 0 L50 25 L25 50 L0 25 Z"/>
+								<use class="gateway-icon" :href="spriteUrl + '#canvas-gateway-eventBased'" x="0" y="0" width="50" height="50"/>
+								<g v-if="el.name" class="gateway-label-group"
+									:transform="'translate(' + getGatewayLabelPosition(el).x + ',' + getGatewayLabelPosition(el).y + ')'">
+									<foreignObject :x="-(el.labelWidth || 80)" y="-10" :width="el.labelWidth || 80" height="100" class="label-foreign-object">
+										<div class="gateway-label-text">{{ el.name }}</div>
+									</foreignObject>
+								</g>
+							</g>
+
+							<!-- Complex Gateway -->
+							<g v-if="el.type === 'complexGateway'" class="complex-gateway">
+								<path class="element-shape gateway-shape" d="M25 0 L50 25 L25 50 L0 25 Z"/>
+								<use class="gateway-icon" :href="spriteUrl + '#canvas-gateway-complex'" x="0" y="0" width="50" height="50"/>
+								<g v-if="el.name" class="gateway-label-group"
+									:transform="'translate(' + getGatewayLabelPosition(el).x + ',' + getGatewayLabelPosition(el).y + ')'">
+									<foreignObject :x="-(el.labelWidth || 80)" y="-10" :width="el.labelWidth || 80" height="100" class="label-foreign-object">
+										<div class="gateway-label-text">{{ el.name }}</div>
+									</foreignObject>
+								</g>
+							</g>
+
+							<!-- Data Object -->
+							<g v-if="el.type === 'dataObject'" class="data-object">
+								<path class="element-shape data-object-shape" d="M0 0 L26 0 L36 10 L36 50 L0 50 Z"/>
+								<path d="M26 0 L26 10 L36 10" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
+								<use v-if="el.isCollection" class="collection-marker" :href="spriteUrl + '#canvas-collection-marker'" x="10" y="40" width="16" height="8"/>
+								<text class="element-label data-label" x="18" y="65">{{ el.name || '' }}</text>
+							</g>
+
+							<!-- Data Store -->
+							<g v-if="el.type === 'dataStore'" class="data-store">
+								<path class="element-shape data-store-shape"
+									d="M0 8 C0 3, 12.5 0, 25 0 C37.5 0, 50 3, 50 8 L50 42 C50 47, 37.5 50, 25 50 C12.5 50, 0 47, 0 42 Z"/>
+								<ellipse cx="25" cy="8" rx="25" ry="8" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
+								<text class="element-label data-label" x="25" y="65">{{ el.name || '' }}</text>
+							</g>
+
+							<!-- Text Annotation -->
+							<g v-if="el.type === 'textAnnotation'" class="text-annotation">
+								<path class="element-shape annotation-shape"
+									:d="'M20 0 L0 0 L0 ' + el.height + ' L20 ' + el.height"/>
+								<foreignObject x="8" y="4" :width="el.width - 12" :height="el.height - 8" class="label-foreign-object">
+									<div class="annotation-text">{{ el.name || '' }}</div>
+								</foreignObject>
+							</g>
+						</g>
+
+						<!-- Incident count badge on failing activities (frame/shadow is provided by .bpm-d-incident) -->
+						<g v-for="el in viewerElements" :key="'inc-' + el.id">
+							<g v-if="incidentsByActivityId[el.id] > 0"
+								class="bpm-incident-overlay"
+								:transform="'translate(' + (el.x + (el.width || 36) - 6) + ',' + (el.y - 6) + ')'"
+								@click.stop="switchToIncidents(el.id)">
+								<circle class="bpm-incident-overlay-badge" r="10"/>
+								<text class="bpm-incident-overlay-text"
+									x="0" y="0"
+									text-anchor="middle" dominant-baseline="central">
+									{{ incidentsByActivityId[el.id] }}
+								</text>
+							</g>
+						</g>
+
+						</g><!-- /Transform Group -->
+					</svg>
+				</div>
+
+				<!-- XML View -->
+				<pre v-if="selectedDef && bpmnXml && viewMode === 'xml'" class="bpm-xml-viewer">{{ bpmnXml }}</pre>
+
+				<!-- No data state -->
+				<div v-if="selectedDef && !bpmnXml && !isLoading" class="bpm-empty-state">
+					<i class="bi bi-exclamation-circle"></i>
+					<span>No BPMN data available</span>
+				</div>
+			</div>
+
+			<!-- Bottom resize handle -->
+			<div v-if="bottomPanelVisible" class="bottom-resize-handle"
+				@mousedown="onBottomResizeStart"></div>
+
+			<!-- Lower: instances / tasks lists -->
+			<div v-if="bottomPanelVisible" class="content-lower island p-0"
+				:style="{ height: bottomPanelHeight + 'px' }">
+				<div class="detail-tabs-bar">
+					<div class="detail-tabs">
+						<div class="detail-tab" :class="{ active: bottomTab === 'instances' }"
+							@click="switchBottomTab('instances')">
+							<i class="bi bi-list-task"></i>
+							<span>Instances</span>
+							<span v-if="filteredInstances.length" class="tab-count">({{ filteredInstances.length }})</span>
+						</div>
+						<div class="detail-tab" :class="{ active: bottomTab === 'tasks' }"
+							@click="switchBottomTab('tasks')">
+							<i class="bi bi-person-check"></i>
+							<span>User Tasks</span>
+							<span v-if="filteredTasks.length" class="tab-count">({{ filteredTasks.length }})</span>
+						</div>
+						<div class="detail-tab" :class="{ active: bottomTab === 'incidents', 'has-incidents': filteredIncidents.length > 0 }"
+							@click="switchBottomTab('incidents')">
+							<i class="bi bi-exclamation-triangle-fill"></i>
+							<span>Incidents</span>
+							<span v-if="filteredIncidents.length" class="tab-count">({{ filteredIncidents.length }})</span>
+						</div>
+					</div>
+					<div v-if="diagramFilterElementId" class="diagram-filter-chip" @click="clearDiagramFilter">
+						<i class="bi bi-funnel-fill"></i>
+						<span>{{ diagramFilterElementId }}</span>
+						<span class="chip-clear"><i class="bi bi-x"></i></span>
+					</div>
+				</div>
+
+				<!-- Instances tab -->
+				<div v-if="bottomTab === 'instances'" class="content-list">
+					<table class="wt">
+						<thead>
+							<tr>
+								<th class="text-start">Instance ID</th>
+								<th class="text-start">Business Key</th>
+								<th class="text-start">Started</th>
+								<th class="text-start">Status</th>
+								<th class="text-start">Incidents</th>
+								<th class="col-actions">Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-if="filteredInstances.length === 0" class="item-empty">
+								<td colspan="6">
+									{{ diagramFilterElementId ? 'No instances at this element' : (selectedDef || selectedGroup ? 'No instances found' : 'Select a process definition to see instances') }}
+								</td>
+							</tr>
+							<tr v-for="inst in filteredInstances" :key="inst.id"
+								class="item"
+								:class="{ 'item-selected': selectedInstance && selectedInstance.id === inst.id }"
+								@click="selectInstance(inst)">
+								<td>{{ inst.id }}</td>
+								<td>{{ inst.businessKey || '—' }}</td>
+								<td>{{ formatDateShort(inst.startTime) }}</td>
+								<td>
+									<span v-if="inst.ended" class="bpm-status ended">Ended</span>
+									<span v-else-if="inst.suspended" class="bpm-status suspended">Suspended</span>
+									<span v-else class="bpm-status active">Active</span>
+								</td>
+								<td>
+									<span v-if="inst.incidentCount > 0" class="bpm-status incident bpm-status-clickable"
+										@click.stop="switchToIncidents(); diagramFilterInstanceIds = { [inst.id]: true }"
+										title="View incidents">
+										<i class="bi bi-exclamation-triangle-fill"></i>{{ inst.incidentCount }}
+									</span>
+									<span v-else class="text-muted">—</span>
+								</td>
+								<td class="col-actions">
+									<div class="actions-cell">
+										<button v-if="!inst.ended && !inst.suspended" class="btn-icon" @click.stop="suspendInstance(inst.id)" title="Suspend">
+											<i class="bi bi-pause"></i>
+										</button>
+										<button v-if="!inst.ended && inst.suspended" class="btn-icon" @click.stop="activateInstance(inst.id)" title="Activate">
+											<i class="bi bi-play"></i>
+										</button>
+										<button v-if="!inst.ended" class="btn-icon" @click.stop="confirmCancelInstance(inst)" title="Cancel">
+											<i class="bi bi-x-circle"></i>
+										</button>
+									</div>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+
+				<!-- Tasks tab -->
+				<div v-if="bottomTab === 'tasks'" class="content-list">
+					<table class="wt">
+						<thead>
+							<tr>
+								<th class="text-start">Task Name</th>
+								<th class="text-start">Assignee</th>
+								<th class="text-start">Process Instance</th>
+								<th class="text-start">Created</th>
+								<th class="text-start">Due</th>
+								<th class="col-actions">Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-if="filteredTasks.length === 0" class="item-empty">
+								<td colspan="6">
+									{{ diagramFilterElementId ? 'No tasks at this element' : (selectedDef || selectedGroup ? 'No open tasks found' : 'Select a process definition to see tasks') }}
+								</td>
+							</tr>
+							<tr v-for="task in filteredTasks" :key="task.id"
+								class="item"
+								:class="{ 'item-selected': selectedTask && selectedTask.id === task.id }"
+								@click="selectTask(task)">
+								<td>{{ task.name || task.taskDefinitionKey }}</td>
+								<td>
+									<span v-if="task.assignee">{{ task.assignee }}</span>
+									<span v-else class="text-muted">Unassigned</span>
+								</td>
+								<td>{{ task.processInstanceId || '—' }}</td>
+								<td>{{ formatDateShort(task.created) }}</td>
+								<td :class="{ 'text-danger': isOverdue(task.due), 'text-muted': !task.due }">{{ task.due ? formatDateShort(task.due) : '—' }}</td>
+								<td class="col-actions">
+									<div class="actions-cell">
+										<button class="btn-icon" @click.stop="showAssignTaskDialog(task.id)" title="Assign">
+											<i class="bi bi-person-check"></i>
+										</button>
+										<button v-if="task.assignee" class="btn-icon" @click.stop="unclaimTask(task.id)" title="Unassign">
+											<i class="bi bi-person-dash"></i>
+										</button>
+										<button class="btn-icon" @click.stop="showCompleteTaskDialog(task)" title="Complete">
+											<i class="bi bi-check-lg"></i>
+										</button>
+									</div>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+
+				<!-- Incidents tab -->
+				<div v-if="bottomTab === 'incidents'" class="content-list">
+					<div v-if="selectedIncidentCount > 0" class="incidents-batch-bar">
+						<span>{{ selectedIncidentCount }} selected</span>
+						<button class="wt wt-slim" @click="showRetrySelectedDialog">
+							<i class="bi bi-arrow-clockwise me-1"></i>Retry selected
+						</button>
+						<button class="wt wt-slim" @click="incidentSelection = {}">
+							<i class="bi bi-x me-1"></i>Clear
+						</button>
+					</div>
+					<table class="wt">
+						<thead>
+							<tr>
+								<th style="width:32px"></th>
+								<th class="text-start">Time <span class="bpm-tz-badge">{{ localTZ }}</span></th>
+								<th class="text-start">Type</th>
+								<th class="text-start">Activity</th>
+								<th class="text-start">Message</th>
+								<th class="text-start">Instance</th>
+								<th class="col-actions">Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-if="filteredIncidents.length === 0" class="item-empty">
+								<td colspan="7">
+									{{ diagramFilterElementId ? 'No incidents at this element' : (selectedDef || selectedGroup ? 'No incidents' : 'Select a process definition to see incidents') }}
+								</td>
+							</tr>
+							<tr v-for="inc in filteredIncidents" :key="inc.id"
+								class="item"
+								:class="{ 'item-selected': selectedIncident && selectedIncident.id === inc.id }"
+								@click="selectIncident(inc)">
+								<td @click.stop>
+									<input type="checkbox" class="wt"
+										:checked="incidentSelection[inc.id] === true"
+										@change="toggleIncidentSelection(inc.id)">
+								</td>
+								<td>{{ formatDateShort(inc.incidentTimestamp) }}</td>
+								<td>{{ incidentTypeLabel(inc.type) }}</td>
+								<td>{{ inc.activityName || inc.activityId }}</td>
+								<td class="bpm-incident-message" :title="inc.message">{{ inc.message }}</td>
+								<td class="text-muted">{{ inc.processInstanceId.slice(0, 8) }}…</td>
+								<td class="col-actions">
+									<div class="actions-cell">
+										<button class="btn-icon" @click.stop="showRetryIncidentDialog(inc)" title="Retry (set retries)">
+											<i class="bi bi-arrow-clockwise"></i>
+										</button>
+										<button class="btn-icon" @click.stop="showResolveIncidentDialog(inc)" title="Resolve incident">
+											<i class="bi bi-check2-circle"></i>
+										</button>
+										<button class="btn-icon" @click.stop="jumpToIncidentOnDiagram(inc)" title="Show on diagram">
+											<i class="bi bi-link-45deg"></i>
+										</button>
+									</div>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+
+		<!-- Detail resize handle -->
+		<div v-if="detailPanelVisible" class="detail-resize-handle"
+			@mousedown="onDetailResizeStart"></div>
+
+		<!-- ============================================================
+		     RIGHT PANE — detail
+		     ============================================================ -->
+		<div v-if="detailPanelVisible" class="detail-panel island p-0"
+			:style="{ width: detailPanelWidth + 'px' }">
+			<div class="detail-panel-header">
+				<span class="detail-panel-title">Details</span>
+			</div>
+
+			<div class="detail-panel-content">
+
+				<!-- ===== Instance selected ===== -->
+				<div v-if="activeDetailType === 'instance' && selectedInstance">
+
+					<!-- Section 1: Process Instance -->
+					<div class="detail-section-header">Process Instance</div>
+					<div class="detail-section-body">
+						<div class="detail-prop">
+							<div class="detail-prop-label">Instance ID</div>
+							<div class="detail-prop-value">{{ selectedInstance.id }}</div>
+						</div>
+						<div v-if="selectedInstance.businessKey" class="detail-prop">
+							<div class="detail-prop-label">Business Key</div>
+							<div class="detail-prop-value">{{ selectedInstance.businessKey }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Started <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+							<div class="detail-prop-value">{{ formatDate(selectedInstance.startTime) }}</div>
+						</div>
+						<div v-if="selectedInstance.endTime" class="detail-prop">
+							<div class="detail-prop-label">Ended <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+							<div class="detail-prop-value">{{ formatDate(selectedInstance.endTime) }}</div>
+						</div>
+						<div v-if="selectedInstance.durationInMillis" class="detail-prop">
+							<div class="detail-prop-label">Duration</div>
+							<div class="detail-prop-value">{{ formatDuration(selectedInstance.durationInMillis) }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Status</div>
+							<div class="detail-prop-value">
+								<span v-if="selectedInstance.ended" class="bpm-status ended">Ended</span>
+								<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">Suspended</span>
+								<span v-else class="bpm-status active">Active</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Section 2: Variables -->
+					<div class="detail-section-header">
+						Variables
+						<button v-if="!selectedInstance.ended" class="detail-section-header-action" @click="showSetVariablesDialog">
+							<i class="bi bi-pencil"></i>
+						</button>
+					</div>
+					<div class="detail-section-body">
+						<div v-if="!instanceVariables.length" class="detail-prop-value muted">No variables</div>
+						<div v-else class="bpm-var-list">
+							<div v-for="v in instanceVariables" :key="v.name" class="bpm-var-item">
+								<div class="bpm-var-header">
+									<span class="bpm-var-name">{{ v.name }}</span>
+									<span v-if="normalizeVarType(v.type) === 'Date'" class="bpm-tz-badge">{{ localTZ }}</span>
+									<span class="bpm-type-badge">{{ normalizeVarType(v.type) }}</span>
+								</div>
+								<div class="bpm-var-value" :class="{ muted: isEmptyVarValue(v.value) }">{{ formatVarDisplayValue(v) }}</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Section 2b: Incidents (inline summary) -->
+					<template v-if="incidentsForSelectedInstance.length > 0">
+						<div class="detail-section-header">
+							<span>Incidents <span class="bpm-badge bpm-badge-incident">{{ incidentsForSelectedInstance.length }}</span></span>
+							<button class="detail-section-header-action" @click="switchToIncidents()" title="View all incidents">
+								<i class="bi bi-arrow-right"></i>
+							</button>
+						</div>
+						<div class="detail-section-body">
+							<div class="bpm-incident-mini-list">
+								<div v-for="inc in incidentsForSelectedInstance" :key="inc.id"
+									class="bpm-incident-mini" @click="selectIncident(inc)">
+									<div class="bpm-incident-mini-row">
+										<i class="bi bi-exclamation-triangle-fill bpm-incident-icon"></i>
+										<span class="bpm-incident-mini-act">{{ inc.activityName || inc.activityId }}</span>
+										<span class="bpm-incident-mini-time">{{ formatDateShort(inc.incidentTimestamp) }}</span>
+									</div>
+									<div class="bpm-incident-mini-actions">
+										<button class="btn-icon" @click.stop="showRetryIncidentDialog(inc)" title="Retry"><i class="bi bi-arrow-clockwise"></i></button>
+										<button class="btn-icon" @click.stop="showResolveIncidentDialog(inc)" title="Resolve"><i class="bi bi-check2-circle"></i></button>
+									</div>
+								</div>
+							</div>
+						</div>
+					</template>
+
+					<!-- Section 3: Actions -->
+					<div class="detail-section-header">Actions</div>
+					<div class="detail-section-body actions-body">
+						<div v-if="selectedInstance.ended" class="detail-prop-value muted">
+							This process instance has ended.
+						</div>
+						<template v-else>
+							<button v-if="!selectedInstance.suspended" class="wt" @click="suspendInstance(selectedInstance.id)">
+								<i class="bi bi-pause-fill me-1"></i>Suspend Instance
+							</button>
+							<button v-if="selectedInstance.suspended" class="wt" @click="activateInstance(selectedInstance.id)">
+								<i class="bi bi-play me-1"></i>Activate Instance
+							</button>
+							<button class="wt wt-danger wt-outlined" @click="confirmCancelInstance(selectedInstance)">
+								<i class="bi bi-x-circle me-1"></i>Cancel Instance
+							</button>
+						</template>
+					</div>
+
+					<!-- Section 4: Process Definition -->
+					<template v-if="instanceDef">
+						<div class="detail-section-header">Process Definition</div>
+						<div class="detail-section-body">
+							<div class="detail-prop">
+								<div class="detail-prop-label">Key</div>
+								<div class="detail-prop-value">{{ instanceDef.key }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">Version</div>
+								<div class="detail-prop-value">{{ instanceDef.version }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">ID</div>
+								<div class="detail-prop-value">{{ instanceDef.id }}</div>
+							</div>
+							<div v-if="instanceDef.deploymentName" class="detail-prop">
+								<div class="detail-prop-label">Deployment Name</div>
+								<div class="detail-prop-value">{{ instanceDef.deploymentName }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">Status</div>
+								<div class="detail-prop-value">
+									<span v-if="instanceDef.suspended" class="bpm-status suspended">Suspended</span>
+									<span v-else class="bpm-status active">Active</span>
+								</div>
+							</div>
+						</div>
+					</template>
+				</div>
+
+				<!-- ===== Incident selected ===== -->
+				<div v-if="activeDetailType === 'incident' && selectedIncident">
+
+					<!-- Section 1: Incident -->
+					<div class="detail-section-header">Incident</div>
+					<div class="detail-section-body">
+						<div class="detail-prop">
+							<div class="detail-prop-label">ID</div>
+							<div class="detail-prop-value">{{ selectedIncident.id }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Type</div>
+							<div class="detail-prop-value">{{ incidentTypeLabel(selectedIncident.type) }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Activity</div>
+							<div class="detail-prop-value">
+								<a href="#" @click.prevent="jumpToIncidentOnDiagram(selectedIncident)">
+									{{ selectedIncident.activityName || selectedIncident.activityId }}
+								</a>
+							</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Created <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+							<div class="detail-prop-value">{{ formatDate(selectedIncident.incidentTimestamp) }}</div>
+						</div>
+						<div v-if="selectedIncident.jobId" class="detail-prop">
+							<div class="detail-prop-label">Job ID</div>
+							<div class="detail-prop-value">{{ selectedIncident.jobId }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Retries Left</div>
+							<div class="detail-prop-value">{{ selectedIncident.jobRetries }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">
+								Annotation
+								<button class="detail-section-header-action" @click="showEditAnnotationDialog(selectedIncident)">
+									<i class="bi bi-pencil"></i>
+								</button>
+							</div>
+							<div class="detail-prop-value">{{ selectedIncident.annotation || '—' }}</div>
+						</div>
+					</div>
+
+					<!-- Section 2: Error Message -->
+					<div class="detail-section-header">
+						<span>Error Message</span>
+						<button class="detail-section-header-action" @click="copyErrorMessage(event)" title="Copy to clipboard">
+							<i class="bi bi-clipboard"></i>
+						</button>
+					</div>
+					<div class="detail-section-body">
+						<div>{{ selectedIncident.message }}</div>
+					</div>
+
+					<!-- Section 3: Stack Trace -->
+					<template v-if="selectedIncident.stackTrace">
+						<div class="detail-section-header">
+							<span>Stack Trace</span>
+							<button class="detail-section-header-action" @click="copyStackTrace(event)" title="Copy to clipboard">
+								<i class="bi bi-clipboard"></i>
+							</button>
+						</div>
+						<div class="detail-section-body">
+							<div class="bpm-incident-stack">{{ selectedIncident.stackTrace }}</div>
+						</div>
+					</template>
+
+					<!-- Section 4: Process Instance -->
+					<template v-if="selectedInstance">
+						<div class="detail-section-header">Process Instance</div>
+						<div class="detail-section-body">
+							<div class="detail-prop">
+								<div class="detail-prop-label">Instance ID</div>
+								<div class="detail-prop-value">{{ selectedInstance.id }}</div>
+							</div>
+							<div v-if="selectedInstance.businessKey" class="detail-prop">
+								<div class="detail-prop-label">Business Key</div>
+								<div class="detail-prop-value">{{ selectedInstance.businessKey }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">Status</div>
+								<div class="detail-prop-value">
+									<span v-if="selectedInstance.ended" class="bpm-status ended">Ended</span>
+									<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">Suspended</span>
+									<span v-else class="bpm-status active">Active</span>
+								</div>
+							</div>
+						</div>
+					</template>
+
+					<!-- Section 5: Actions -->
+					<div class="detail-section-header">Actions</div>
+					<div class="detail-section-body actions-body">
+						<button class="wt wt-primary" @click="showRetryIncidentDialog(selectedIncident)">
+							<i class="bi bi-arrow-clockwise me-1"></i>Retry (+1)
+						</button>
+						<button class="wt" @click="showResolveIncidentDialog(selectedIncident)">
+							<i class="bi bi-check2-circle me-1"></i>Resolve Incident
+						</button>
+						<button class="wt" @click="showEditAnnotationDialog(selectedIncident)">
+							<i class="bi bi-pencil me-1"></i>Edit Annotation
+						</button>
+						<button class="wt" @click="jumpToIncidentOnDiagram(selectedIncident)">
+							<i class="bi bi-link-45deg me-1"></i>Show on Diagram
+						</button>
+					</div>
+				</div>
+
+				<!-- ===== Definition only ===== -->
+				<div v-if="activeDetailType === 'definition' && selectedDef && !selectedInstance">
+					<div class="detail-section-header">Process Definition</div>
+					<div class="detail-section-body">
+						<div class="detail-prop">
+							<div class="detail-prop-label">Key</div>
+							<div class="detail-prop-value">{{ selectedDef.key }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Version</div>
+							<div class="detail-prop-value">{{ selectedDef.version }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">ID</div>
+							<div class="detail-prop-value">{{ selectedDef.id }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Deployment ID</div>
+							<div class="detail-prop-value">{{ selectedDef.deploymentId }}</div>
+						</div>
+						<div v-if="selectedDef.deploymentName" class="detail-prop">
+							<div class="detail-prop-label">Deployment Name</div>
+							<div class="detail-prop-value">{{ selectedDef.deploymentName }}</div>
+						</div>
+						<div v-if="selectedDef.description" class="detail-prop">
+							<div class="detail-prop-label">Description</div>
+							<div class="detail-prop-value">{{ selectedDef.description }}</div>
+						</div>
+						<div v-if="selectedDef.category" class="detail-prop">
+							<div class="detail-prop-label">Category</div>
+							<div class="detail-prop-value">{{ selectedDef.category }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Status</div>
+							<div class="detail-prop-value">
+								<span v-if="selectedDef.suspended" class="bpm-status suspended">Suspended</span>
+								<span v-else class="bpm-status active">Active</span>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- ===== Task selected ===== -->
+				<div v-if="activeDetailType === 'task' && selectedTask">
+
+					<!-- Section 1: User Task -->
+					<div class="detail-section-header">User Task</div>
+					<div class="detail-section-body">
+						<div class="detail-prop">
+							<div class="detail-prop-label">Task ID</div>
+							<div class="detail-prop-value">{{ selectedTask.id }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Name</div>
+							<div class="detail-prop-value">{{ selectedTask.name || selectedTask.taskDefinitionKey }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Assignee</div>
+							<div class="detail-prop-value">{{ selectedTask.assignee || '—' }}</div>
+						</div>
+						<div v-if="selectedTask.owner" class="detail-prop">
+							<div class="detail-prop-label">Owner</div>
+							<div class="detail-prop-value">{{ selectedTask.owner }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Priority</div>
+							<div class="detail-prop-value">{{ selectedTask.priority }}</div>
+						</div>
+						<div v-if="selectedTask.due" class="detail-prop">
+							<div class="detail-prop-label">Due <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+							<div class="detail-prop-value" :class="{ 'text-danger': isOverdue(selectedTask.due) }">
+								{{ formatDate(selectedTask.due) }}
+							</div>
+						</div>
+						<div v-if="selectedTask.description" class="detail-prop">
+							<div class="detail-prop-label">Description</div>
+							<div class="detail-prop-value">{{ selectedTask.description }}</div>
+						</div>
+						<div v-if="selectedTask.candidateGroups && selectedTask.candidateGroups.length" class="detail-prop">
+							<div class="detail-prop-label">Candidate Groups</div>
+							<div class="detail-prop-value">{{ selectedTask.candidateGroups.join(', ') }}</div>
+						</div>
+					</div>
+
+					<!-- Section 2: Process Instance -->
+					<template v-if="selectedInstance">
+						<div class="detail-section-header">Process Instance</div>
+						<div class="detail-section-body">
+							<div class="detail-prop">
+								<div class="detail-prop-label">Instance ID</div>
+								<div class="detail-prop-value">{{ selectedInstance.id }}</div>
+							</div>
+							<div v-if="selectedInstance.businessKey" class="detail-prop">
+								<div class="detail-prop-label">Business Key</div>
+								<div class="detail-prop-value">{{ selectedInstance.businessKey }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">Started <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+								<div class="detail-prop-value">{{ formatDate(selectedInstance.startTime) }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">Status</div>
+								<div class="detail-prop-value">
+									<span v-if="selectedInstance.ended" class="bpm-status ended">Ended</span>
+									<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">Suspended</span>
+									<span v-else class="bpm-status active">Active</span>
+								</div>
+							</div>
+						</div>
+					</template>
+
+					<!-- Section 3: Variables -->
+					<template v-if="selectedInstance">
+						<div class="detail-section-header">
+							Variables
+							<button v-if="!selectedInstance.ended" class="detail-section-header-action" @click="showSetVariablesDialog">
+								<i class="bi bi-pencil"></i>
+							</button>
+						</div>
+						<div class="detail-section-body">
+							<div v-if="!instanceVariables.length" class="detail-prop-value muted">No variables</div>
+							<div v-else class="bpm-var-list">
+								<div v-for="v in instanceVariables" :key="v.name" class="bpm-var-item">
+									<div class="bpm-var-header">
+										<span class="bpm-var-name">{{ v.name }}</span>
+										<span v-if="normalizeVarType(v.type) === 'Date'" class="bpm-tz-badge">{{ localTZ }}</span>
+										<span class="bpm-type-badge">{{ normalizeVarType(v.type) }}</span>
+									</div>
+									<div class="bpm-var-value" :class="{ muted: isEmptyVarValue(v.value) }">{{ formatVarDisplayValue(v) }}</div>
+								</div>
+							</div>
+						</div>
+					</template>
+
+					<!-- Section 4: Actions -->
+					<div class="detail-section-header">Actions</div>
+					<div class="detail-section-body actions-body">
+						<button class="wt" @click="showAssignTaskDialog(selectedTask.id)">
+							<i class="bi bi-person-check me-1"></i>Assign Task
+						</button>
+						<button v-if="selectedTask.assignee" class="wt" @click="unclaimTask(selectedTask.id)">
+							<i class="bi bi-person-dash me-1"></i>Unassign Task
+						</button>
+						<button class="wt wt-primary" @click="showCompleteTaskDialog(selectedTask)">
+							<i class="bi bi-check-lg me-1"></i>Complete Task
+						</button>
+						<template v-if="selectedInstance && !selectedInstance.ended">
+							<button v-if="!selectedInstance.suspended" class="wt" @click="suspendInstance(selectedInstance.id)">
+								<i class="bi bi-pause-fill me-1"></i>Suspend Instance
+							</button>
+							<button v-if="selectedInstance.suspended" class="wt" @click="activateInstance(selectedInstance.id)">
+								<i class="bi bi-play me-1"></i>Activate Instance
+							</button>
+							<button class="wt wt-danger wt-outlined" @click="confirmCancelInstance(selectedInstance)">
+								<i class="bi bi-x-circle me-1"></i>Cancel Instance
+							</button>
+						</template>
+					</div>
+
+					<!-- Section 5: Process Definition -->
+					<template v-if="instanceDef">
+						<div class="detail-section-header">Process Definition</div>
+						<div class="detail-section-body">
+							<div class="detail-prop">
+								<div class="detail-prop-label">Key</div>
+								<div class="detail-prop-value">{{ instanceDef.key }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">Version</div>
+								<div class="detail-prop-value">{{ instanceDef.version }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">ID</div>
+								<div class="detail-prop-value">{{ instanceDef.id }}</div>
+							</div>
+							<div v-if="instanceDef.deploymentName" class="detail-prop">
+								<div class="detail-prop-label">Deployment Name</div>
+								<div class="detail-prop-value">{{ instanceDef.deploymentName }}</div>
+							</div>
+							<div class="detail-prop">
+								<div class="detail-prop-label">Status</div>
+								<div class="detail-prop-value">
+									<span v-if="instanceDef.suspended" class="bpm-status suspended">Suspended</span>
+									<span v-else class="bpm-status active">Active</span>
+								</div>
+							</div>
+						</div>
+					</template>
+				</div>
+
+				<!-- Empty state -->
+				<div v-if="activeDetailType === 'none'" class="detail-panel-empty">
+					<i class="bi bi-info-circle"></i>
+					<span>Select an item to see details</span>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Bottom Status Bar (translucent) -->
+	<div class="status-bar window-drag-region">
+		<div class="status-group">
+			<span class="status-item">{{ processGroups.length }} process(es)</span>
+			<span class="status-divider"></span>
+			<span v-if="selectedDef" class="status-item">
+				<i class="bi bi-diagram-2 me-1"></i>{{ selectedDef.key }} v{{ selectedDef.version }}
+			</span>
+			<span v-if="selectedDef" class="status-divider"></span>
+			<span v-if="instances.length" class="status-item">{{ instances.length }} instance(s)</span>
+			<span v-if="instances.length && tasks.length" class="status-divider"></span>
+			<span v-if="tasks.length" class="status-item">{{ tasks.length }} task(s)</span>
+		</div>
+		<span class="nav-spacer"></span>
+		<div class="status-group">
+			<span v-if="isLoading" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Loading</span>
+		</div>
+	</div>
+
+	<!-- Loading Overlay -->
+	<div v-if="isLoading && !processDefs.length" class="loading-overlay">
+		<span class="spinner"></span>
+		<span>Loading...</span>
+	</div>
+
+	<!-- ===== Error Dialog ===== -->
+	<div v-if="errorMessage" class="dialog-overlay dialog-overlay-message">
+		<div class="dialog-frame" style="max-width: 28rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Notice</h3>
+						<button class="btn-icon" @click="errorMessage = ''" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0 mb-0">{{ errorMessage }}</p>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt wt-primary" @click="errorMessage = ''">OK</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Cancel Instance Dialog ===== -->
+	<div v-if="dialog.type === 'cancelInstance'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 30rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-x-circle me-2"></i>Cancel Process Instance</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0">Cancel instance <strong>{{ dialog.data.id }}</strong>?</p>
+					<label class="dialog-label">Reason (optional)</label>
+					<input class="wt w-100" type="text" v-model="dialog.data.reason" placeholder="Cancellation reason...">
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-danger" @click="executeCancelInstance">Confirm Cancel</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Start Process Dialog ===== -->
+	<div v-if="dialog.type === 'startProcess'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 36rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-play-fill me-2"></i>Start Process</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<div v-if="selectedDef" class="form-row" style="align-items:center;gap:0.5rem;">
+						<strong>{{ selectedDef.name || selectedDef.key }}</strong>
+						<span class="bpm-badge bpm-badge-version">v{{ selectedDef.version }}</span>
+					</div>
+					<div v-if="selectedDef" class="dialog-help-text mt-1">{{ selectedDef.id }}</div>
+
+					<div class="mt-3">
+						<label class="dialog-label">Business Key (optional)</label>
+						<input class="wt w-100" type="text" v-model="dialog.data.businessKey" placeholder="e.g. ORDER-001">
+					</div>
+
+					<div class="mt-3">
+						<label class="dialog-label">Variables</label>
+						<table class="var-edit-table">
+							<thead>
+								<tr>
+									<th>Name</th>
+									<th style="min-width:6rem">Type</th>
+									<th>Value</th>
+									<th class="col-actions"></th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr v-for="(v, idx) in dialog.data.variables" :key="idx">
+									<td><input class="wt" type="text" v-model="v.name" placeholder="name"></td>
+									<td>
+										<div class="wt-select">
+											<button type="button" class="wt-select-trigger"
+												@click.stop="openVarTypePopup(event, v)">
+												<span class="wt-select-value">{{ v.type }}</span>
+												<i class="bi bi-chevron-down wt-select-chevron"></i>
+											</button>
+										</div>
+									</td>
+									<td>
+										<input v-if="v.type === 'Date'" class="wt" type="datetime-local" v-model="v.value">
+										<div v-else-if="v.type === 'Boolean'" class="wt-select">
+											<button type="button" class="wt-select-trigger"
+												@click.stop="openVarBoolPopup(event, v)">
+												<span class="wt-select-value">{{ v.value || 'true' }}</span>
+												<i class="bi bi-chevron-down wt-select-chevron"></i>
+											</button>
+										</div>
+										<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" placeholder="value">
+										<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" placeholder="value">
+										<input v-else class="wt" type="text" v-model="v.value" placeholder="value">
+									</td>
+									<td class="col-actions">
+										<button class="btn-icon" @click="dialog.data.variables.splice(idx, 1)" title="Remove">
+											<i class="bi bi-trash"></i>
+										</button>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+						<button class="wt wt-slim mt-2" @click="addDialogVariable">
+							<i class="bi bi-plus-lg me-1"></i>Add Variable
+						</button>
+					</div>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" @click="executeStartProcess">Start</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Complete Task Dialog ===== -->
+	<div v-if="dialog.type === 'completeTask'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 38rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-check-lg me-2"></i>Complete Task: {{ dialog.data.taskName }}</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0 dialog-help-text">Complete this task and update variables. Any pending work will be finalized.</p>
+					<label class="dialog-label">Variables</label>
+					<table class="var-edit-table">
+						<thead>
+							<tr>
+								<th>Name</th>
+								<th style="min-width:6rem">Type</th>
+								<th>Value</th>
+								<th class="col-actions"></th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="(v, idx) in dialog.data.variables" :key="idx">
+								<td><input class="wt" type="text" v-model="v.name" placeholder="name"></td>
+								<td>
+									<div class="wt-select">
+										<button type="button" class="wt-select-trigger"
+											@click.stop="openVarTypePopup(event, v)">
+											<span class="wt-select-value">{{ v.type }}</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+								</td>
+								<td>
+									<input v-if="v.type === 'Date'" class="wt" type="datetime-local" v-model="v.value">
+									<div v-else-if="v.type === 'Boolean'" class="wt-select">
+										<button type="button" class="wt-select-trigger"
+											@click.stop="openVarBoolPopup(event, v)">
+											<span class="wt-select-value">{{ v.value || 'true' }}</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+									<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" placeholder="value">
+									<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" placeholder="value">
+									<input v-else class="wt" type="text" v-model="v.value" placeholder="value">
+								</td>
+								<td class="col-actions">
+									<button class="btn-icon" @click="dialog.data.variables.splice(idx, 1)" title="Remove">
+										<i class="bi bi-trash"></i>
+									</button>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+					<button class="wt wt-slim mt-2" @click="addDialogVariable">
+						<i class="bi bi-plus-lg me-1"></i>Add Variable
+					</button>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" @click="executeCompleteTask">Complete</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Set Variables Dialog ===== -->
+	<div v-if="dialog.type === 'setVariables'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 36rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-pencil me-2"></i>Edit Variables</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<table class="var-edit-table">
+						<thead>
+							<tr>
+								<th>Name</th>
+								<th style="min-width:6rem">Type</th>
+								<th>Value</th>
+								<th class="col-actions"></th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="(v, idx) in dialog.data.variables" :key="idx">
+								<td><input class="wt" type="text" v-model="v.name" placeholder="name"></td>
+								<td>
+									<div class="wt-select">
+										<button type="button" class="wt-select-trigger"
+											@click.stop="openVarTypePopup(event, v)">
+											<span class="wt-select-value">{{ v.type }}</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+								</td>
+								<td>
+									<input v-if="v.type === 'Date'" class="wt" type="datetime-local" v-model="v.value">
+									<div v-else-if="v.type === 'Boolean'" class="wt-select">
+										<button type="button" class="wt-select-trigger"
+											@click.stop="openVarBoolPopup(event, v)">
+											<span class="wt-select-value">{{ v.value || 'true' }}</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+									<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" placeholder="value">
+									<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" placeholder="value">
+									<input v-else class="wt" type="text" v-model="v.value" placeholder="value">
+								</td>
+								<td class="col-actions">
+									<button class="btn-icon" @click="removeDialogVariable(idx)" title="Remove">
+										<i class="bi bi-trash"></i>
+									</button>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+					<button class="wt wt-slim mt-2" @click="addDialogVariable">
+						<i class="bi bi-plus-lg me-1"></i>Add Variable
+					</button>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" @click="executeSetVariables">Save</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Deploy Dialog ===== -->
+	<div v-if="dialog.type === 'deploy'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 32rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-cloud-upload me-2"></i>Deploy BPMN Process</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<div class="deploy-drop-zone"
+						:class="{ 'drop-highlight': dialog.data.dropHighlight }"
+						@dragover.prevent="dialog.data.dropHighlight = true"
+						@dragleave="dialog.data.dropHighlight = false"
+						@drop.prevent="onDeployDrop(event)">
+						<div v-if="!dialog.data.name" class="deploy-drop-placeholder">
+							<i class="bi bi-folder2-open"></i>
+							<span>Drag a BPMN file from Content Browser</span>
+						</div>
+						<div v-else class="deploy-drop-file">
+							<i class="bi bi-file-earmark-code"></i>
+							<div class="deploy-drop-file-info">
+								<div class="deploy-drop-file-name">{{ dialog.data.fileName }}</div>
+								<div class="deploy-drop-file-path">{{ dialog.data.name }}</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" :disabled="!dialog.data.name || !dialog.data.bpmnXml" @click="executeDeploy">Deploy</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Assign Task Dialog ===== -->
+	<div v-if="dialog.type === 'assignTask'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 28rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-person-check me-2"></i>Assign Task</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<div class="input-group">
+						<input type="text" class="wt" v-model="dialog.data.search" placeholder="Search users...">
+						<div v-if="dialog.data.search" class="input-group-actions">
+							<button class="input-group-btn" @click="dialog.data.search = ''" title="Clear">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+					</div>
+					<div class="user-picker mt-2">
+						<div v-for="u in dialog.data.users.filter(u => !dialog.data.search || u.username.toLowerCase().includes(dialog.data.search.toLowerCase()) || (u.displayName && u.displayName.toLowerCase().includes(dialog.data.search.toLowerCase())))" :key="u.username"
+							class="user-picker-item"
+							:class="{ selected: dialog.data.selectedUser === u.username }"
+							@click="dialog.data.selectedUser = u.username">
+							<i class="bi bi-person"></i>
+							<div style="flex:1;min-width:0;">
+								<div class="user-picker-name">{{ u.displayName || u.username }}</div>
+								<div v-if="u.displayName" class="user-picker-username">{{ u.username }}</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" :disabled="!dialog.data.selectedUser" @click="executeAssignTask">Assign</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Delete Deployment Dialog ===== -->
+	<div v-if="dialog.type === 'deleteDeployment'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 30rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-trash me-2"></i>Delete Deployment</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0">Delete deployment for <strong>{{ dialog.data.defName }}</strong> v{{ dialog.data.defVersion }}?</p>
+					<p class="dialog-help-text">Deployment ID: <span>{{ dialog.data.deploymentId }}</span></p>
+					<label class="d-inline-flex align-items-center gap-2" style="cursor:pointer">
+						<input type="checkbox" class="wt" v-model="dialog.data.cascade">
+						<span>Cascade — also delete all running instances for this version</span>
+					</label>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-danger" @click="executeDeleteDeployment">
+						<i class="bi bi-trash me-1"></i>Delete
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Retry Incident Dialog ===== -->
+	<div v-if="dialog.type === 'retryIncident'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 30rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3>
+							<i class="bi bi-arrow-clockwise me-2"></i>
+							<span v-if="dialog.data.ids.length === 1">Retry Failed Job</span>
+							<span v-else>Retry {{ dialog.data.ids.length }} Failed Jobs</span>
+						</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0 dialog-help-text">
+						<span v-if="dialog.data.ids.length === 1">
+							Activity: <strong>{{ dialog.data.summary }}</strong>
+						</span>
+						<span v-else>
+							Selected: <strong>{{ dialog.data.summary }}</strong>
+						</span>
+					</p>
+					<div class="mt-3">
+						<label class="dialog-label">Set retries to</label>
+						<input class="wt" type="number" min="1" max="10" step="1"
+							v-model="dialog.data.retries" style="width:6rem">
+					</div>
+					<div class="mt-3">
+						<label class="d-inline-flex align-items-center gap-2" style="cursor:pointer">
+							<input type="checkbox" class="wt" v-model="dialog.data.clearAnnotation">
+							<span>Also clear incident annotation</span>
+						</label>
+					</div>
+					<p class="dialog-help-text mt-3">
+						<i class="bi bi-info-circle me-1"></i>
+						The Job Executor will pick this job up on the next cycle.
+						The incident is auto-resolved on success.
+					</p>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" @click="executeRetryIncident">
+						<i class="bi bi-arrow-clockwise me-1"></i>
+						<span v-if="dialog.data.ids.length === 1">Retry Now</span>
+						<span v-else>Retry All ({{ dialog.data.ids.length }})</span>
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Resolve Incident Dialog ===== -->
+	<div v-if="dialog.type === 'resolveIncident'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 30rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-check2-circle me-2"></i>Resolve Incident</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0">Mark incident on <strong>{{ dialog.data.activity }}</strong> as resolved?</p>
+					<p v-if="dialog.data.type === 'failedJob'" class="dialog-help-text">
+						<i class="bi bi-exclamation-triangle me-1"></i>
+						This is a <strong>failed job</strong> incident. Resolving it without fixing
+						the underlying Job will cause the incident to reappear. Consider using
+						<strong>Retry</strong> instead.
+					</p>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" @click="executeResolveIncident">
+						<i class="bi bi-check2-circle me-1"></i>Resolve
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Edit Incident Annotation Dialog ===== -->
+	<div v-if="dialog.type === 'editIncidentAnnotation'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 30rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-pencil me-2"></i>Edit Incident Annotation</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<label class="dialog-label">Annotation</label>
+					<textarea class="wt w-100" rows="4"
+						v-model="dialog.data.annotation"
+						placeholder="e.g. Acknowledged by ops — will retry after upstream fix"></textarea>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" @click="executeSetAnnotation">Save</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Migrate Instances Dialog ===== -->
+	<div v-if="dialog.type === 'migrate'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 36rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-arrow-right-circle me-2"></i>Migrate Instances</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0 dialog-help-text">
+						Source: <strong>{{ dialog.data.source.name || dialog.data.source.key }}</strong>
+						v{{ dialog.data.source.version }}
+						<span v-if="dialog.data.activeCount > 0">
+							— <strong>{{ dialog.data.activeCount }}</strong> active instance(s)
+						</span>
+						<span v-else>— no active instances</span>
+					</p>
+
+					<div class="mt-3">
+						<label class="dialog-label">Target version</label>
+						<button class="wt wt-popup-trigger d-flex justify-content-between align-items-center"
+							style="width: 12rem"
+							@click="openTargetVersionPopup">
+							<span>v{{ selectedTargetDef()?.version }}<span v-if="selectedTargetDef()?.suspended"> (suspended)</span></span>
+							<i class="bi bi-chevron-down"></i>
+						</button>
+					</div>
+
+					<div class="mt-3">
+						<label class="d-inline-flex align-items-center gap-2" style="cursor:pointer">
+							<input type="checkbox" class="wt"
+								v-model="dialog.data.mapEqualActivities"
+								@change="loadMigrationPlan">
+							<span>Map activities by ID (mapEqualActivities)</span>
+						</label>
+						<br>
+						<label class="d-inline-flex align-items-center gap-2 mt-1" style="cursor:pointer">
+							<input type="checkbox" class="wt"
+								v-model="dialog.data.updateEventTriggers"
+								@change="loadMigrationPlan">
+							<span>Update event triggers (timers, message subscriptions)</span>
+						</label>
+						<br>
+						<label class="d-inline-flex align-items-center gap-2 mt-1" style="cursor:pointer">
+							<input type="checkbox" class="wt" v-model="dialog.data.skipCustomListeners">
+							<span>Skip custom execution listeners</span>
+						</label>
+						<br>
+						<label class="d-inline-flex align-items-center gap-2 mt-1" style="cursor:pointer">
+							<input type="checkbox" class="wt" v-model="dialog.data.skipIoMappings">
+							<span>Skip BPMN I/O mappings</span>
+						</label>
+					</div>
+
+					<!-- Plan preview -->
+					<div class="mt-3">
+						<label class="dialog-label">Migration plan preview</label>
+						<div v-if="dialog.data.planLoading" class="dialog-help-text">
+							<i class="bi bi-hourglass-split me-1"></i>Building plan…
+						</div>
+						<div v-else-if="dialog.data.planError" class="dialog-help-text" style="color: var(--wt-danger, #c33);">
+							<i class="bi bi-exclamation-triangle me-1"></i>{{ dialog.data.planError }}
+						</div>
+						<div v-else-if="dialog.data.plan">
+							<table class="wt-table" style="width:100%; font-size: 0.85em;">
+								<thead>
+									<tr>
+										<th>Source activity</th>
+										<th></th>
+										<th>Target activity</th>
+										<th title="updateEventTrigger"><i class="bi bi-stopwatch"></i></th>
+									</tr>
+								</thead>
+								<tbody>
+									<tr v-for="(inst, idx) in dialog.data.plan.instructions" :key="idx">
+										<td><code>{{ inst.sourceActivityIds.join(', ') }}</code></td>
+										<td><i class="bi bi-arrow-right"></i></td>
+										<td><code>{{ inst.targetActivityIds.join(', ') }}</code></td>
+										<td>
+											<i v-if="inst.updateEventTrigger" class="bi bi-check2"></i>
+										</td>
+									</tr>
+									<tr v-if="dialog.data.plan.instructions.length === 0">
+										<td colspan="4" class="dialog-help-text">
+											<i class="bi bi-info-circle me-1"></i>
+											No mappings produced. All currently-active activities of
+											the source are absent from the target — the migration will
+											fail validation.
+										</td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
+					</div>
+
+					<p class="dialog-help-text mt-3">
+						<i class="bi bi-info-circle me-1"></i>
+						The engine queues an async migration batch covering all <strong>active</strong>
+						instances of v{{ dialog.data.source.version }}. Progress is shown after submit.
+					</p>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button
+						class="wt wt-primary"
+						:disabled="dialog.data.submitting || dialog.data.planLoading || !dialog.data.plan || (dialog.data.plan && dialog.data.plan.instructions.length === 0)"
+						@click="executeMigrate">
+						<i class="bi bi-arrow-right-circle me-1"></i>
+						<span v-if="dialog.data.submitting">Submitting…</span>
+						<span v-else>Migrate</span>
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===== Migration Progress Overlay =====
+		 Shown after Migrate is submitted. Driven by the
+		 `jobProgress(jobId: <batchId>)` GraphQL subscription published by the
+		 server as the engine drains the Camunda batch. Stays visible until
+		 completion / failure; auto-closes 1.5s after success. -->
+	<div v-if="migrationMonitor" class="migration-overlay flex-column text-center">
+		<i v-if="migrationMonitor.status === 'failed'"
+			class="bi bi-exclamation-triangle migration-icon-error"></i>
+		<i v-else-if="migrationMonitor.isFinished"
+			class="bi bi-check2-circle migration-icon-success"></i>
+		<span v-else class="spinner"></span>
+
+		<div class="mt-3 migration-title">
+			<span v-if="migrationMonitor.status === 'failed'">Migration failed</span>
+			<span v-else-if="migrationMonitor.status === 'aborted'">Migration aborted</span>
+			<span v-else-if="migrationMonitor.isFinished">Migration completed</span>
+			<span v-else-if="migrationMonitor.isUnreachable">Migration running in background</span>
+			<span v-else>Migrating instances…</span>
+		</div>
+
+		<div class="dialog-help-text mt-1">
+			<span>{{ migrationMonitor.sourceLabel }}</span>
+			<i class="bi bi-arrow-right mx-2"></i>
+			<span>{{ migrationMonitor.targetLabel }}</span>
+		</div>
+
+		<div class="mt-3" v-if="migrationMonitor.jobsTotal > 0">
+			<strong>{{ migrationMonitor.jobsCompleted }}</strong>
+			/ {{ migrationMonitor.jobsTotal }} jobs
+			<span v-if="!migrationMonitor.isFinished && !migrationMonitor.isUnreachable" class="ms-2 text-muted">
+				({{ Math.round(migrationMonitor.jobsCompleted / migrationMonitor.jobsTotal * 100) }}%)
+			</span>
+		</div>
+
+		<div v-if="migrationMonitor.isUnreachable && !migrationMonitor.isFinished"
+			class="dialog-help-text mt-2" style="max-width: 28rem;">
+			<i class="bi bi-info-circle me-1"></i>
+			The Job Executor is processing the batch on the server. Live progress is
+			unavailable — refresh the definition list later to verify completion.
+		</div>
+
+		<div v-if="migrationMonitor.errorMessage" class="mt-3" style="color: var(--wt-danger, #c33); max-width: 32rem;">
+			<i class="bi bi-exclamation-circle me-1"></i>{{ migrationMonitor.errorMessage }}
+		</div>
+
+		<div class="dialog-help-text mt-2">
+			Job ID: <code>{{ migrationMonitor.jobId }}</code>
+		</div>
+
+		<!-- Abort button is gated on the server's `abortable` flag. Camunda 7
+		     migrations report `abortable: false` because the underlying batch
+		     cannot be safely cancelled mid-flight, so the button stays hidden
+		     for migrations; the rendering hook is here so other JobManager
+		     job types that opt in to abort can reuse this overlay. -->
+		<div class="mt-3"
+			v-if="migrationMonitor.abortable && !migrationMonitor.isFinished && !migrationMonitor.isUnreachable">
+			<button type="button" class="wt" @click="abortMigration">Abort</button>
+		</div>
+
+		<div class="mt-3" v-if="migrationMonitor.isFinished || migrationMonitor.isUnreachable">
+			<button type="button" class="wt" @click="closeMigrationMonitor">Close</button>
+		</div>
+	</div>
+
+</div>
+
+<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

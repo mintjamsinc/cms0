@@ -1,0 +1,913 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Schema Editor — design tokens & layout
+ *
+ * Theme tokens / shared components live in webtop-app.css. This file only
+ * adds the editor-specific layout (2-pane: tree / form-or-scan), the
+ * schema/property tree, and the scan-properties review table.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--statusbar-height: 1.75rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Layout — top toolbar, content body (2-pane), status bar
+ * -------------------------------------------------------------------------- */
+
+#app {
+	height: 100%;
+}
+
+/* Top toolbar (translucent, extends to window edges) */
+nav.nav-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 1rem 1.5rem 0.75rem;
+	color: var(--navbar-color) !important;
+	white-space: nowrap;
+	overflow: visible;
+	user-select: none;
+	position: relative;
+	z-index: 10;
+}
+
+.nav-spacer {
+	flex: 1;
+	min-width: 1rem;
+}
+
+.toolbar-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.5rem;
+	background-color: var(--window-controls-bg);
+	border: 1px solid var(--window-controls-border-color);
+	border-radius: 9999px;
+}
+
+/* Content body — 2 panes */
+.content-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	position: relative;
+	gap: 0.25rem;
+}
+
+/* Sidebar (left pane: schema tree) */
+.sidebar-panel {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	flex-shrink: 0;
+	min-width: 14rem;
+}
+
+.sidebar-resize-handle {
+	width: 4px;
+	cursor: col-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 2;
+	transition: background-color 0.15s;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+	background-color: var(--primary-color);
+}
+
+/* Center/right pane (forms or scan) */
+.content-main {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* Path bar (right-pane header) */
+.path-bar {
+	display: flex;
+	align-items: center;
+	flex-shrink: 0;
+	height: var(--navbar-height);
+	padding: 0 0.75rem;
+	background-color: var(--navbar-bg);
+	color: var(--navbar-color);
+	border-bottom: 1px solid var(--navbar-border-color);
+	white-space: nowrap;
+	overflow: hidden;
+	user-select: none;
+}
+
+.nav-breadcrumb {
+	display: flex;
+	align-items: center;
+	flex: 1;
+	height: 100%;
+	overflow: hidden;
+}
+
+.nav-divider {
+	padding: 0;
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.nav-item {
+	padding: 0.125rem 0.75rem;
+	border-radius: 9999px;
+	background-color: transparent;
+}
+
+.nav-item.is-static {
+	cursor: default;
+}
+
+.nav-current {
+	padding: 0.125rem 0.75rem;
+	border-radius: 9999px;
+	color: var(--nav-current-color);
+	background-color: var(--nav-current-bg);
+	border: 1px solid var(--nav-current-border-color);
+	display: inline-flex;
+	align-items: center;
+}
+
+/* Bottom status bar (translucent, extends to window edges) */
+.status-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: var(--statusbar-height);
+	margin-bottom: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 0 1rem;
+	color: var(--text-color);
+	font-size: 11px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.status-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.status-item {
+	padding: 0 0.5rem;
+}
+
+.status-divider {
+	width: 1px;
+	height: 0.875rem;
+	background-color: var(--text-muted-color);
+	opacity: 0.5;
+}
+
+/* ----------------------------------------------------------------------------
+ * Sidebar contents — filter + schema tree
+ * -------------------------------------------------------------------------- */
+
+.schema-filter {
+	flex-shrink: 0;
+	padding: 1rem;
+    padding-bottom: 0.5rem;
+}
+
+.schema-tree {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding-right: 0.5rem;
+	padding-left: 0.5rem;
+}
+
+/* Schema item (top-level row) */
+.schema-item {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.25rem 0.375rem;
+	cursor: pointer;
+	border-radius: 0.375rem;
+	user-select: none;
+	transition: background-color 0.15s;
+}
+
+.schema-item:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.schema-item.selected {
+	background-color: var(--item-selected-bg);
+}
+
+.schema-item.is-new .schema-item-key,
+.schema-item.is-new .schema-item-icon {
+	color: var(--primary-color);
+}
+
+.schema-item.is-deleted {
+	text-decoration: line-through;
+	opacity: 0.5;
+}
+
+.schema-item.is-changed::after {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background-color: var(--primary-color);
+	flex-shrink: 0;
+	margin-left: 0.125rem;
+}
+
+.schema-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 1rem;
+	font-size: 0.7em;
+	color: var(--text-muted-color);
+	flex-shrink: 0;
+}
+
+.schema-item-icon {
+	font-size: 1rem;
+	margin-inline-end: 0.25rem;
+	flex-shrink: 0;
+}
+
+.schema-item-key {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.schema-item-label {
+	color: var(--text-muted-color);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 8rem;
+}
+
+.schema-item-actions {
+	display: flex;
+	gap: 0.125rem;
+	opacity: 0;
+	transition: opacity 0.15s;
+	flex-shrink: 0;
+}
+
+.schema-item:hover .schema-item-actions {
+	opacity: 1;
+}
+
+/* Property item (child row) */
+.schema-children {
+	display: flex;
+	flex-direction: column;
+	padding-left: 0.5rem;
+}
+
+.property-item {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.25rem;
+	cursor: pointer;
+	border-radius: 0.375rem;
+	user-select: none;
+	transition: background-color 0.15s;
+}
+
+.property-item:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.property-item.selected {
+	background-color: var(--item-selected-bg);
+}
+
+.property-item.is-new .property-item-key,
+.property-item.is-new .property-item-icon {
+	color: var(--primary-color);
+}
+
+.property-item.is-deleted {
+	text-decoration: line-through;
+	opacity: 0.5;
+}
+
+.property-item.dragging {
+	opacity: 0.4;
+}
+
+.property-item.drag-over {
+	border-top: 2px solid var(--primary-color);
+}
+
+.property-item-icon {
+	font-size: 1rem;
+	margin-inline-end: 0.25rem;
+	flex-shrink: 0;
+}
+
+.property-item-info {
+	flex: 1;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	gap: 0.05rem;
+	min-width: 0;
+}
+
+.property-item-key {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.property-item-label {
+	color: var(--text-muted-color);
+	font-size: 11px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.property-item-actions {
+	display: flex;
+	gap: 0.125rem;
+	opacity: 0;
+	transition: opacity 0.15s;
+	flex-shrink: 0;
+}
+
+.property-item:hover .property-item-actions {
+	opacity: 1;
+}
+
+.drag-handle {
+	cursor: grab;
+	color: var(--text-muted-color);
+	flex-shrink: 0;
+}
+
+.drag-handle:hover {
+	opacity: 0.8;
+}
+
+/* Schema action links (Add Property / Scan Properties) */
+.schema-action-link {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.25rem;
+	padding-inline-start: 1.5rem;
+	cursor: pointer;
+	color: var(--text-muted-color);
+	user-select: none;
+	border-radius: 0.375rem;
+}
+
+.schema-action-link:hover {
+	color: var(--primary-color);
+	background-color: var(--item-hover-bg);
+}
+
+.schema-action-link.scan-link.selected {
+	color: var(--nav-current-color);
+	background-color: var(--item-selected-bg);
+}
+
+/* Item action button (delete / restore inside tree rows). */
+.btn-icon.btn-item-delete:hover {
+	color: var(--danger-color);
+}
+
+/* Empty tree state */
+.tree-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 2rem 1rem;
+	color: var(--text-muted-color);
+	gap: 0.75rem;
+	font-size: 12px;
+}
+
+/* Property type badge (shared style with Content Browser detail panel) */
+.prop-type-badge {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	height: 1.125rem;
+	line-height: 1;
+	font-size: 10px;
+	padding: 0 0.75em;
+	border-radius: 9999px;
+	background-color: rgba(from var(--neutral-color) r g b / 0.05);
+	color: var(--neutral-color);
+	border: 1px solid rgba(from var(--neutral-color) r g b / 0.3);
+}
+
+/* ----------------------------------------------------------------------------
+ * Right pane: empty state / form
+ * -------------------------------------------------------------------------- */
+
+.content-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	flex: 1;
+	color: var(--text-muted-color);
+	gap: 0.5rem;
+}
+
+.content-empty i {
+	font-size: 2rem;
+	opacity: 0.4;
+}
+
+.content-form {
+	display: flex;
+    flex-direction: column;
+    gap: 2rem;
+	overflow-y: auto;
+	padding: 1rem;
+}
+
+/* Property group (form section), modeled after BPMN editor's property panel */
+.property-group {
+	display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.property-group-title {
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0;
+	color: var(--text-soft-color);
+	padding-bottom: 0.25rem;
+	border-bottom: 1px solid var(--navbar-border-color);
+}
+
+.property-row {
+	display: flex;
+	flex-direction: column;
+	/* gap: 0.2rem; */
+	flex: 1;
+	min-width: 0;
+}
+
+.property-row.half {
+	flex: 0 0 calc(50% - 0.375rem);
+}
+
+.property-label {
+	display: block;
+	font-size: 12px;
+	color: var(--text-soft-color);
+	margin-bottom: 0.125rem;
+	padding-left: 0.125rem;
+}
+
+.form-row {
+	display: flex;
+	gap: 0.75rem;
+	/* margin-bottom: 0.75rem; */
+}
+
+/* Validation message */
+.invalid-feedback {
+	font-size: 11px;
+	color: var(--danger-color);
+}
+
+input.wt.is-invalid,
+.wt-select.is-invalid > .wt-select-trigger {
+	border-color: var(--danger-color) !important;
+}
+
+/* Field-help block (validation hint) */
+.field-help {
+	font-size: 11px;
+	color: var(--text-muted-color);
+	/* line-height: 1.45; */
+	margin-bottom: 0.25rem;
+    padding-left: 0.125rem;
+}
+
+.field-help code {
+	font-size: 10px;
+	padding: 0.05rem 0.25rem;
+	background-color: rgba(from var(--neutral-color) r g b / 0.1);
+	border-radius: 0.2rem;
+}
+
+/* Constraints disabled notice */
+.constraints-disabled-notice {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	font-size: 12px;
+	color: var(--text-muted-color);
+	background-color: var(--navbar-bg);
+	border: 1px dashed var(--navbar-border-color);
+	border-radius: 0.5rem;
+	padding: 0.5rem 0.75rem;
+}
+
+/* Checkbox / radio rows */
+.wt-checkbox-row {
+	display: flex;
+	gap: 1rem;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.wt-checkbox-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	cursor: pointer;
+	user-select: none;
+}
+
+.wt-radio-row {
+	display: flex;
+	gap: 1rem;
+	align-items: center;
+	flex-wrap: wrap;
+	margin-bottom: 0.4rem;
+}
+
+.wt-radio-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	cursor: pointer;
+	user-select: none;
+}
+
+/* Choices list */
+.choices-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+}
+
+.choice-item {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+}
+
+.choice-item input.wt {
+	flex: 1;
+	min-width: 0;
+}
+
+/* Query fields wrapper (for REFERENCE/WEAKREFERENCE) */
+.query-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 0.5rem;
+	background-color: var(--navbar-bg);
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.5rem;
+}
+
+.query-fields .property-row {
+	margin-bottom: 0;
+}
+
+/* ----------------------------------------------------------------------------
+ * Scan Properties view
+ * -------------------------------------------------------------------------- */
+
+.scan-drop-zone-container {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	flex: 1;
+	padding: 2rem;
+}
+
+.scan-drop-zone {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	max-width: 26rem;
+	padding: 3rem 2rem;
+	border: 2px dashed var(--input-border-color);
+	border-radius: 1rem;
+	transition: border-color 0.2s, background-color 0.2s;
+}
+
+.scan-drop-zone.drop-highlight {
+	border-color: var(--primary-color);
+	background-color: rgba(from var(--primary-color) r g b / 0.05);
+}
+
+.scan-drop-icon {
+	font-size: 3rem;
+	color: var(--text-muted-color);
+	opacity: 0.5;
+	margin-bottom: 1rem;
+}
+
+.scan-drop-text {
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--text-color);
+	margin-bottom: 0.5rem;
+}
+
+.scan-drop-hint {
+	font-size: 12px;
+	color: var(--text-muted-color);
+}
+
+/* Review (table + toolbar) */
+.scan-review-container {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	overflow: hidden;
+}
+
+.scan-review-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.5rem 1rem;
+	border-bottom: 1px solid var(--navbar-border-color);
+	flex-shrink: 0;
+}
+
+.scan-header-info {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	font-size: 12px;
+	flex-wrap: wrap;
+}
+
+.scan-source {
+	font-weight: 700;
+}
+
+.scan-count {
+	color: var(--text-muted-color);
+}
+
+.scan-warning {
+	color: var(--warning-color);
+	font-weight: 600;
+}
+
+.scan-table-wrapper {
+	flex: 1;
+	overflow: auto;
+}
+
+.scan-table {
+	width: 100%;
+	border-collapse: collapse;
+	/* font-size: 12px; */
+	user-select: none;
+}
+
+.scan-table th {
+	position: sticky;
+	top: 0;
+	background-color: var(--list-header-bg);
+	color: var(--list-header-color);
+	font-weight: 700;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0;
+	padding: 0.375rem 0.5rem;
+	text-align: center;
+	user-select: none;
+	z-index: 1;
+}
+
+.scan-table td {
+	padding: 0.25rem 0.25rem;
+	border-bottom: 1px solid var(--navbar-border-color);
+	vertical-align: middle;
+}
+
+.scan-table .col-check {
+	width: 2rem;
+	line-height: 1;
+	text-align: center;
+}
+
+.scan-table .col-key {
+	/* min-width: 8rem; */
+}
+
+.scan-table .col-label {
+	/* min-width: 6rem; */
+}
+
+.scan-table .col-type {
+	/* width: 8rem; */
+}
+
+.scan-table .col-semantic {
+	/* width: 7rem; */
+}
+
+.scan-table .col-multi {
+	/* width: 3rem; */
+	text-align: center;
+}
+
+.scan-table .col-sample {
+	max-width: 12rem;
+}
+
+.scan-table tbody tr {
+	cursor: pointer;
+	transition: background-color 0.15s;
+}
+
+.scan-table tbody tr:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.scan-table tbody tr.row-selected {
+	background-color: var(--item-selected-bg);
+}
+
+.scan-table tbody tr.row-duplicate td:first-child {
+	box-shadow: inset 3px 0 0 var(--danger-color);
+}
+
+.scan-table tbody tr.row-unchecked {
+	opacity: 0.4;
+}
+
+/* Inline edit input (no border by default, focus ring on edit) */
+.scan-inline-input {
+	/* width: 100%; */
+	max-width: 10rem;
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 0.375rem;
+	padding: 0.15rem 0.3rem;
+	color: inherit;
+	font-family: inherit;
+	/* font-size: 12px; */
+	font-weight: inherit;
+	outline: none;
+}
+
+.scan-inline-input:focus {
+	background-color: var(--input-bg);
+	border-color: var(--input-focus-border-color);
+	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
+}
+
+.scan-inline-select-wrapper > .wt-select-trigger {
+	padding: 0.15rem 0.4rem;
+	/* font-size: 12px; */
+	border-width: 1px;
+}
+
+.sample-value {
+	/* font-size: 11px; */
+	color: var(--text-muted-color);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	display: block;
+	max-width: 12rem;
+}
+
+/* Bulk operations toolbar */
+.scan-toolbar {
+	flex-shrink: 0;
+	border-top: 1px solid var(--navbar-border-color);
+	background-color: rgba(from var(--neutral-color) r g b / 0.03);
+	padding: 0.5rem 0.75rem;
+}
+
+.scan-toolbar-row {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.scan-toolbar-row + .scan-toolbar-row {
+	margin-top: 0.5rem;
+}
+
+.scan-toolbar-actions {
+	justify-content: flex-end;
+}
+
+.scan-tool-group {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.scan-tool-label {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-muted-color);
+	margin-right: 0.25rem;
+}
+
+.scan-tool-select {
+	width: auto;
+	min-width: 8rem;
+}
+
+.scan-tool-select > .wt-select-trigger {
+	padding: 0.2rem 0.5rem;
+	font-size: 12px;
+}
+
+.scan-prefix-input {
+	width: 6rem;
+	background: transparent;
+	border: none;
+	padding: 0.25rem 0.5rem;
+	color: inherit;
+	font-family: inherit;
+	font-size: 12px;
+	font-weight: inherit;
+	outline: none;
+}
+
+/* ----------------------------------------------------------------------------
+ * Loading overlay
+ * -------------------------------------------------------------------------- */
+
+.loading-overlay {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	position: absolute;
+	inset: 0;
+	background-color: rgba(0, 0, 0, 0.2);
+	z-index: 1000;
+	color: var(--text-color);
+}
+
+.spinner {
+	width: 1.75rem;
+	height: 1.75rem;
+	border: 2px solid var(--navbar-border-color);
+	border-top-color: var(--primary-color);
+	border-radius: 50%;
+	animation: spin 0.8s linear infinite;
+}
+
+.spin {
+	animation: spin 0.8s linear infinite;
+	display: inline-block;
+}
+
+@keyframes spin {
+	to { transform: rotate(360deg); }
+}
+
+/* ----------------------------------------------------------------------------
+ * Utilities
+ * -------------------------------------------------------------------------- */
+
+[v-cloak] {
+	display: none !important;
+}

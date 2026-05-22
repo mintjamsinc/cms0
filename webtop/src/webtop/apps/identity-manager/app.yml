@@ -1,0 +1,12 @@
+identifier: d4e8f1a2-7b3c-4d9e-a5f6-8c2d1e0b4a37
+title: Identity Manager
+icon: assets/icons/icon.svg
+isAdminOnly: true
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 960
+minimumHeight: 480
+customWindowControls: true
+singleton: true

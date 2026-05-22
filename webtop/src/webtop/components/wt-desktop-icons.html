@@ -1,0 +1,23 @@
+<template id="wt-desktop-icons">
+	<div class="desktop-icons" @mounted="onMounted" @unmount="onUnmount">
+		<div v-for="item in items" :key="item.id"
+			class="desktop-icon"
+			:class="{ selected: isSelected(item), 'drop-target': dragOverItemID === item.id }"
+			:data-item-id="item.id"
+			:draggable="true"
+			:title="item.name"
+			@mousedown="onItemMouseDown(item, event)"
+			@contextmenu="onItemContextMenu(item, event)"
+			@dragstart="onItemDragStart(item, event)"
+			@dragend="onItemDragEnd"
+			@dragover="onItemDragOver(item, event)"
+			@dragleave="onItemDragLeave(item)"
+			@drop="onItemDrop(item, event)"
+			@dblclick="onItemDoubleClick(item)">
+			<div class="desktop-icon-image">
+				<i :class="getFileIcon(item)"></i>
+			</div>
+			<div class="desktop-icon-label">{{ item.name }}</div>
+		</div>
+	</div>
+</template>

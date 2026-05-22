@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Tasks</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+<div id="app" v-cloak class="d-flex flex-column" :class="{ 'is-resizing': isResizing }" @mounted="onMounted" @unmount="onUnmount">
+
+	<!-- ============================================================
+	     Top Toolbar (translucent)
+	     ============================================================ -->
+	<nav class="nav-bar window-drag-region">
+
+		<!-- Left: mode group (Runtime / History / Start) -->
+		<div class="toolbar-group">
+			<button class="btn-icon"
+				:class="{active: mode === 'tasks-runtime'}"
+				@click="switchMode('tasks-runtime')"
+				title="My tasks (running)">
+				<i class="bi bi-inbox-fill"></i>
+			</button>
+			<button class="btn-icon"
+				:class="{active: mode === 'tasks-history'}"
+				@click="switchMode('tasks-history')"
+				title="My tasks (completed)">
+				<i class="bi bi-archive"></i>
+			</button>
+			<button class="btn-icon"
+				:class="{active: mode === 'start'}"
+				@click="switchMode('start')"
+				title="Start a process">
+				<i class="bi bi-play-fill"></i>
+			</button>
+		</div>
+
+		<!-- Left: refresh -->
+		<div class="toolbar-group">
+			<button class="btn-icon" @click="refresh" title="Refresh (F5)">
+				<i class="bi bi-arrow-clockwise"></i>
+			</button>
+		</div>
+
+		<span class="nav-spacer"></span>
+
+		<!-- Right: pane toggles -->
+		<div class="pane-toggles">
+			<button class="btn-icon pane-toggle-btn" :class="{active: searchPanelVisible}"
+				@click="toggleSearchPanel" title="Toggle filters">
+				<i class="bi bi-funnel"></i>
+			</button>
+			<button class="btn-icon pane-toggle-btn" :class="{active: listPanelVisible}"
+				@click="toggleListPanel" title="Toggle list">
+				<i class="bi bi-list-task"></i>
+			</button>
+		</div>
+
+		<!-- Right: window controls -->
+		<div class="window-controls">
+			<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<i class="bi bi-dash-lg"></i>
+			</button>
+			<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<i class="bi bi-square"></i>
+			</button>
+			<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<i class="bi bi-x-lg"></i>
+			</button>
+		</div>
+	</nav>
+
+	<!-- ============================================================
+	     Content body — 3 columns: search / list / form
+	     ============================================================ -->
+	<div class="content-body">
+
+		<!-- ============================================================
+		     LEFT PANE — search filters
+		     ============================================================ -->
+		<div v-if="searchPanelVisible" class="search-panel island p-0"
+			:style="{ width: searchPanelWidth + 'px' }">
+
+			<div class="pane-scroll">
+				<!-- Tasks (Runtime) filters -->
+				<div v-if="mode === 'tasks-runtime'">
+					<div class="filter-group">
+						<label class="filter-label">Keyword</label>
+						<div class="input-group">
+							<input type="text" class="wt"
+								v-model="filters.taskKeyword"
+								@input="filterList"
+								placeholder="Name, process, business key…">
+							<div v-if="filters.taskKeyword" class="input-group-actions">
+								<button class="input-group-btn" @click="clearTaskKeyword" title="Clear">
+									<i class="bi bi-x"></i>
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<div class="filter-group">
+						<label class="filter-label">Scope</label>
+						<label class="filter-check">
+							<input type="radio" class="wt" name="task-scope" value="assigned"
+								v-model="filters.scope" @change="loadTasks">
+							<span>Assigned to me</span>
+						</label>
+						<label class="filter-check">
+							<input type="radio" class="wt" name="task-scope" value="candidate"
+								v-model="filters.scope" @change="loadTasks">
+							<span>Candidate (my groups)</span>
+						</label>
+						<label class="filter-check">
+							<input type="radio" class="wt" name="task-scope" value="all"
+								v-model="filters.scope" @change="loadTasks">
+							<span>All</span>
+						</label>
+					</div>
+
+					<div class="filter-group">
+						<div class="filter-label-row">
+							<label class="filter-label">Process definition</label>
+							<button v-if="filters.processDefinitionKeys.length > 0"
+								type="button"
+								class="filter-clear-btn"
+								@click="clearDefKeySelection"
+								title="Clear selection">
+								Clear
+							</button>
+						</div>
+						<div v-if="definitions.length === 0" class="filter-hint mt-0">
+							No process definitions deployed.
+						</div>
+						<div v-else class="def-checkbox-list">
+							<label v-for="def in definitions" :key="def.id" class="filter-check def-checkbox-item">
+								<input type="checkbox" class="wt"
+									:checked="!!selectedDefKeyMap[def.key]"
+									@change="toggleDefKey(def.key)">
+								<span class="def-checkbox-label">{{ def.name || def.key }}</span>
+							</label>
+						</div>
+					</div>
+
+					<div class="filter-group">
+						<label class="filter-label">Due</label>
+						<button type="button" class="wt-select-trigger" @click="openDuePickerPopup">
+							<span class="wt-select-value" :class="{placeholder: !filters.dueLabel}">
+								{{ filters.dueLabel || 'Any time' }}
+							</span>
+							<i class="bi bi-chevron-down wt-select-chevron"></i>
+						</button>
+					</div>
+
+					<div class="filter-group">
+						<label class="filter-label">Priority (≥)</label>
+						<input type="number" class="wt w-100" min="0" max="100" step="1"
+							v-model.number="filters.priorityMin" @input="filterList"
+							placeholder="0">
+					</div>
+				</div>
+
+				<!-- Tasks (History) filters -->
+				<div v-if="mode === 'tasks-history'">
+					<div class="filter-group">
+						<label class="filter-label">Keyword</label>
+						<div class="input-group">
+							<input type="text" class="wt"
+								v-model="filters.taskKeyword"
+								@input="filterList"
+								placeholder="Name, process, business key…">
+							<div v-if="filters.taskKeyword" class="input-group-actions">
+								<button class="input-group-btn" @click="clearTaskKeyword" title="Clear">
+									<i class="bi bi-x"></i>
+								</button>
+							</div>
+						</div>
+					</div>
+					<div class="filter-group">
+						<p class="filter-hint mt-0">
+							Completed tasks are sourced from the Camunda history; this view is currently read-only.
+						</p>
+					</div>
+				</div>
+
+				<!-- Process Start filters -->
+				<div v-if="mode === 'start'">
+					<div class="filter-group">
+						<label class="filter-label">Keyword</label>
+						<div class="input-group">
+							<input type="text" class="wt"
+								v-model="filters.defKeyword"
+								@input="filterList"
+								placeholder="Name, key, description…">
+							<div v-if="filters.defKeyword" class="input-group-actions">
+								<button class="input-group-btn" @click="clearDefKeyword" title="Clear">
+									<i class="bi bi-x"></i>
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<div class="filter-group">
+						<label class="filter-label">Category</label>
+						<button type="button" class="wt-select-trigger" @click="openCategoryPickerPopup">
+							<span class="wt-select-value" :class="{placeholder: !filters.category}">
+								{{ filters.category || 'All categories' }}
+							</span>
+							<i class="bi bi-chevron-down wt-select-chevron"></i>
+						</button>
+					</div>
+
+					<div class="filter-group">
+						<label class="filter-check">
+							<input type="checkbox" class="wt" v-model="filters.favoritesOnly" @change="filterList">
+							<span>Favorites only</span>
+						</label>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Search resize handle -->
+		<div v-if="searchPanelVisible" class="search-resize-handle"
+			@mousedown="onSearchResizeStart"></div>
+
+		<!-- ============================================================
+		     MIDDLE PANE — task / process definition list
+		     ============================================================ -->
+		<div v-if="listPanelVisible" class="list-panel island p-0"
+			:style="{ width: listPanelWidth + 'px' }">
+
+			<div v-if="isLoading && filteredItems.length === 0" class="list-empty">
+				<span class="spinner"></span>
+				<span>Loading…</span>
+			</div>
+
+			<div v-else-if="filteredItems.length === 0" class="list-empty">
+				<i class="bi bi-inbox"></i>
+				<span>{{ emptyListMessage }}</span>
+			</div>
+
+			<!-- Tasks list (runtime/history) -->
+			<div v-if="mode !== 'start'" class="pane-scroll">
+				<div v-for="task in filteredItems" :key="task.id"
+					class="task-item"
+					:class="{selected: selectedTask && selectedTask.id === task.id}"
+					@click="selectTask(task)">
+					<div class="task-item-row1">
+						<span v-if="!task.assignee" class="task-badge task-badge-unassigned" title="Unassigned">
+							<i class="bi bi-person-dash"></i>
+						</span>
+						<span v-else-if="task.assignee === currentUserID" class="task-badge task-badge-mine" title="Assigned to me">
+							<i class="bi bi-person-check-fill"></i>
+						</span>
+						<span v-else class="task-badge task-badge-other" :title="'Assigned to ' + task.assignee">
+							<i class="bi bi-person-fill"></i>
+						</span>
+						<span class="task-item-name">{{ task.name || task.taskDefinitionKey }}</span>
+						<span v-if="task.priority >= 75" class="task-badge task-badge-priority" title="High priority">
+							<i class="bi bi-flag-fill"></i>
+						</span>
+					</div>
+					<div class="task-item-row2">
+						<span class="task-process-name">{{ resolveProcessName(task) }}</span>
+						<span v-if="task.businessKey" class="task-business-key" :title="'Business key: ' + task.businessKey">
+							#{{ task.businessKey }}
+						</span>
+					</div>
+					<div class="task-item-row3">
+						<span v-if="task.due" :class="['task-due', {overdue: isOverdue(task.due)}]">
+							<i class="bi bi-clock"></i>
+							{{ formatRelativeDate(task.due) }}
+						</span>
+						<span v-else class="task-meta">created {{ formatRelativeDate(task.created) }}</span>
+						<span v-if="task.assignee && task.assignee !== currentUserID" class="task-meta">
+							· {{ task.assignee }}
+						</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- Process definitions list (start) -->
+			<div v-else class="pane-scroll">
+				<div v-for="def in filteredItems" :key="def.id"
+					class="def-item"
+					:class="{selected: selectedDef && selectedDef.id === def.id}"
+					@click="selectDefinition(def)">
+					<div class="def-item-row1">
+						<button class="btn-icon def-fav-btn"
+							:class="{active: favorites[def.key]}"
+							@click.stop="toggleFavorite(def)"
+							:title="favorites[def.key] ? 'Remove from favorites' : 'Add to favorites'">
+							<i class="bi" :class="favorites[def.key] ? 'bi-star-fill' : 'bi-star'"></i>
+						</button>
+						<span class="def-item-name">{{ def.name || def.key }}</span>
+						<span class="def-item-version">v{{ def.version }}</span>
+					</div>
+					<div class="def-item-row2">
+						<span class="def-item-key">{{ def.key }}</span>
+						<span v-if="def.category" class="def-item-category">· {{ def.category }}</span>
+					</div>
+					<div v-if="def.description" class="def-item-row3">
+						{{ def.description }}
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- List resize handle -->
+		<div v-if="listPanelVisible" class="list-resize-handle"
+			@mousedown="onListResizeStart"></div>
+
+		<!-- ============================================================
+		     RIGHT PANE — form (iframe)
+		     ============================================================ -->
+		<div class="form-panel island p-0">
+
+			<!-- Form context bar (just inside the form panel) -->
+			<div class="form-context-bar">
+				<div class="form-context-info">
+					<span v-if="mode === 'start' && selectedDef" class="form-context-title">
+						<i class="bi bi-play-fill"></i>
+						<strong>{{ selectedDef.name || selectedDef.key }}</strong>
+						<span class="form-context-sub">v{{ selectedDef.version }}</span>
+					</span>
+					<span v-else-if="mode !== 'start' && selectedTask" class="form-context-title">
+						<i class="bi bi-card-checklist"></i>
+						<strong>{{ selectedTask.name || selectedTask.taskDefinitionKey }}</strong>
+						<span v-if="selectedTask.assignee" class="form-context-sub">
+							· {{ selectedTask.assignee === currentUserID ? 'me' : selectedTask.assignee }}
+						</span>
+						<span v-else class="form-context-sub form-context-warn">· unassigned</span>
+					</span>
+					<span v-else class="form-context-placeholder">
+						{{ contextPlaceholder }}
+					</span>
+				</div>
+				<div class="form-context-actions">
+					<!-- Task assignment actions -->
+					<template v-if="mode !== 'start' && selectedTask && !selectedTask.completed">
+						<button v-if="!selectedTask.assignee"
+							class="wt wt-slim wt-primary"
+							@click="claimSelectedTask"
+							title="Claim this task">
+							<i class="bi bi-person-check me-1"></i>Claim
+						</button>
+						<button v-else-if="selectedTask.assignee === currentUserID"
+							class="wt wt-slim"
+							@click="unclaimSelectedTask"
+							title="Release this task">
+							<i class="bi bi-person-dash me-1"></i>Unclaim
+						</button>
+						<button v-else
+							class="wt wt-slim"
+							@click="confirmTakeOverSelectedTask"
+							title="Take over this task">
+							<i class="bi bi-arrow-left-right me-1"></i>Take over
+						</button>
+						<button class="wt wt-slim"
+							@click="showAssignDialog"
+							title="Assign to another user">
+							<i class="bi bi-person-gear"></i>
+						</button>
+					</template>
+				</div>
+			</div>
+
+			<!-- Form body -->
+			<div class="form-body">
+				<!-- Empty state -->
+				<div v-if="!hasSelection" class="form-empty">
+					<i class="bi bi-card-text"></i>
+					<span>{{ emptyFormMessage }}</span>
+				</div>
+
+				<!-- No formKey state -->
+				<div v-else-if="!currentFormKey" class="form-empty">
+					<i class="bi bi-exclamation-circle"></i>
+					<span>{{ noFormKeyMessage }}</span>
+				</div>
+
+				<!-- Loading state -->
+				<div v-else-if="formLoading" class="form-empty">
+					<span class="spinner"></span>
+					<span>Loading form…</span>
+				</div>
+
+				<!-- Form load error -->
+				<div v-else-if="formError" class="form-empty form-error">
+					<i class="bi bi-exclamation-triangle-fill"></i>
+					<span>{{ formError }}</span>
+				</div>
+
+				<!-- Iframe -->
+				<iframe v-else-if="formSrc"
+					ref="formFrame"
+					class="form-frame"
+					:src="formSrc"
+					sandbox="allow-scripts allow-forms allow-popups allow-modals"
+					allow="clipboard-read; clipboard-write"
+					@load="onFormFrameLoad"></iframe>
+			</div>
+		</div>
+	</div>
+
+	<!-- ============================================================
+	     Status bar
+	     ============================================================ -->
+	<div class="status-bar window-drag-region">
+		<div class="status-group">
+			<span class="status-item"><i class="bi bi-person me-1"></i>{{ currentUserDisplay }}</span>
+			<span class="status-divider"></span>
+			<span class="status-item">{{ filteredItems.length }} {{ mode === 'start' ? 'process(es)' : 'task(s)' }}</span>
+		</div>
+		<span class="nav-spacer"></span>
+		<div class="status-group">
+			<span v-if="isLoading" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Loading</span>
+		</div>
+	</div>
+
+	<!-- ============================================================
+	     Error / Notice Dialog
+	     ============================================================ -->
+	<div v-if="errorMessage" class="dialog-overlay dialog-overlay-message">
+		<div class="dialog-frame" style="max-width: 28rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Notice</h3>
+						<button class="btn-icon" @click="errorMessage = ''" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0 mb-0">{{ errorMessage }}</p>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt wt-primary" @click="errorMessage = ''">OK</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ============================================================
+	     Take Over Confirmation Dialog
+	     ============================================================ -->
+	<div v-if="dialog.type === 'takeover'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 28rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-arrow-left-right me-2"></i>Take Over Task</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0">
+						Take over <strong>{{ dialog.data.taskName }}</strong> from
+						<strong>{{ dialog.data.currentAssignee }}</strong>?
+					</p>
+					<p class="mb-0 small text-muted">
+						You will become the new assignee. The previous assignee will lose
+						access to this task.
+					</p>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" @click="executeTakeOver">Take over</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ============================================================
+	     Assign Task Dialog
+	     ============================================================ -->
+	<div v-if="dialog.type === 'assign'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 30rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-person-gear me-2"></i>Assign Task</h3>
+						<button class="btn-icon" @click="closeDialog" title="Close">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p class="mt-0">Reassign <strong>{{ dialog.data.taskName }}</strong> to another user. Search by username, display name, or email — any user can be selected.</p>
+					<label class="dialog-label">User</label>
+					<div class="position-relative">
+						<input class="wt w-100 tasks-assignee-input" type="text"
+							v-model="dialog.data.assignee"
+							@input="onAssigneeSearchInput"
+							@focus="onAssigneeSearchFocus"
+							placeholder="Search user..."
+							autocomplete="off"
+							autofocus>
+						<div v-if="dialog.data.isSearching" class="input-group-actions">
+							<span class="spinner-border spinner-border-sm"></span>
+						</div>
+					</div>
+					<div v-if="dialog.data.assigneeDisplayName" class="mt-1 small text-muted">
+						Selected: <strong>{{ dialog.data.assigneeDisplayName }}</strong>
+						<span> ({{ dialog.data.assignee }})</span>
+					</div>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt wt-primary" :disabled="!dialog.data.assignee" @click="executeAssign">Assign</button>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+</html>

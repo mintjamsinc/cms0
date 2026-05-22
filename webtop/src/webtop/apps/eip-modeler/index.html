@@ -1,0 +1,1732 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Camel Route Editor</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount"
+		@dragover.prevent="onAppDragOver" @drop.prevent>
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: Save / Save As -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="saveFile"
+					:disabled="!currentFile?.path || !isModified || isSaving" title="Save (Ctrl+S)">
+					<i class="bi bi-floppy"></i>
+				</button>
+				<button class="btn-icon" @click="openSaveAsDialog"
+					:disabled="!activeStore || isSaving" title="Save As...">
+					<i class="bi bi-floppy2"></i>
+				</button>
+			</div>
+
+			<!-- Left: Undo / Redo / Delete -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="undo" :disabled="!canUndo" title="Undo (Ctrl+Z)">
+					<i class="bi bi-arrow-counterclockwise"></i>
+				</button>
+				<button class="btn-icon" @click="redo" :disabled="!canRedo" title="Redo (Ctrl+Y)">
+					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+				<button class="btn-icon" @click="deleteSelected" :disabled="!hasSelection" title="Delete (Del)">
+					<i class="bi bi-trash"></i>
+				</button>
+			</div>
+
+			<!-- Left: Zoom -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="zoomIn" title="Zoom In">
+					<i class="bi bi-zoom-in"></i>
+				</button>
+				<button class="btn-icon" @click="zoomOut" title="Zoom Out">
+					<i class="bi bi-zoom-out"></i>
+				</button>
+				<button class="btn-icon" @click="fitToScreen" title="Fit to Screen">
+					<i class="bi bi-fullscreen"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Pane Toggles -->
+			<div class="pane-toggles">
+				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
+					@click="toggleSidebarPanel" title="Toggle Palette">
+					<i class="bi bi-layout-sidebar-inset"></i>
+				</button>
+				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
+					@click="toggleDetailPanel" title="Toggle Properties">
+					<i class="bi bi-layout-sidebar-inset-reverse"></i>
+				</button>
+			</div>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Content body (3-pane) -->
+		<div class="content-body">
+
+			<!-- Left pane: palette -->
+			<div v-if="sidebarPanelVisible" class="sidebar-panel island"
+				:style="{ width: sidebarPanelWidth + 'px' }"
+				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+				<div class="sidebar-panel-content">
+					<div v-for="category in paletteCategories" :key="category.key" class="sidebar-section">
+						<div class="sidebar-section-header"
+							@click="paletteExpanded[category.key] = !paletteExpanded[category.key]">
+							<i class="bi" :class="paletteExpanded[category.key] ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ category.name }}</span>
+						</div>
+						<div v-show="paletteExpanded[category.key]" class="sidebar-section-body px-2">
+							<div class="palette-items">
+								<div v-for="item in category.items" :key="item.type"
+									class="palette-item"
+									draggable="true"
+									@dragstart="onPaletteDragStart(event, item.type)"
+									:title="item.label">
+									<svg viewBox="0 0 36 36">
+										<!-- From Icon -->
+										<g v-if="item.type === 'from'">
+											<circle cx="18" cy="18" r="14" fill="#FF6633" stroke="#CC4422" stroke-width="2"/>
+											<path d="M10,18 L26,18 M22,14 L26,18 L22,22" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+										</g>
+										<!-- To Icon -->
+										<g v-if="item.type === 'to'">
+											<circle cx="18" cy="18" r="14" fill="#FF6633" stroke="#CC4422" stroke-width="2"/>
+											<circle cx="18" cy="18" r="6" fill="white"/>
+										</g>
+										<!-- ToD Icon (Dynamic To) -->
+										<g v-if="item.type === 'toD'">
+											<circle cx="18" cy="18" r="14" fill="#E8913A" stroke="#C06B1A" stroke-width="2"/>
+											<circle cx="18" cy="18" r="6" fill="white"/>
+											<text x="18" y="10" text-anchor="middle" fill="white" font-size="7" font-weight="bold">D</text>
+										</g>
+										<!-- Log Icon -->
+										<g v-if="item.type === 'log'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#4A90D9" stroke="#2E5F8A" stroke-width="2"/>
+											<line x1="10" y1="13" x2="26" y2="13" stroke="white" stroke-width="2"/>
+											<line x1="10" y1="18" x2="26" y2="18" stroke="white" stroke-width="2"/>
+											<line x1="10" y1="23" x2="20" y2="23" stroke="white" stroke-width="2"/>
+										</g>
+										<!-- SetBody Icon -->
+										<g v-if="item.type === 'setBody'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#3498DB" stroke="#2980B9" stroke-width="2"/>
+											<text x="18" y="22" text-anchor="middle" fill="white" font-size="12" font-weight="bold">B</text>
+										</g>
+										<!-- SetHeader Icon -->
+										<g v-if="item.type === 'setHeader'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#3498DB" stroke="#2980B9" stroke-width="2"/>
+											<text x="18" y="22" text-anchor="middle" fill="white" font-size="12" font-weight="bold">H</text>
+										</g>
+										<!-- Choice Icon (Diamond) -->
+										<g v-if="item.type === 'choice'">
+											<path d="M18,4 L32,18 L18,32 L4,18 Z" fill="#FFCC00" stroke="#CC9900" stroke-width="2"/>
+											<text x="18" y="22" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">?</text>
+										</g>
+										<!-- Filter Icon (Funnel) -->
+										<g v-if="item.type === 'filter'">
+											<path d="M4,8 L32,8 L22,18 L22,28 L14,28 L14,18 Z" fill="#9B59B6" stroke="#7D3C98" stroke-width="2"/>
+										</g>
+										<!-- Split Icon -->
+										<g v-if="item.type === 'split'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#27AE60" stroke="#1E8449" stroke-width="2"/>
+											<path d="M8,18 L16,18 M16,18 L28,10 M16,18 L28,18 M16,18 L28,26" stroke="white" stroke-width="2" stroke-linecap="round"/>
+										</g>
+										<!-- Delay Icon -->
+										<g v-if="item.type === 'delay'">
+											<circle cx="18" cy="18" r="14" fill="#E67E22" stroke="#D35400" stroke-width="2"/>
+											<path d="M18,10 L18,18 L24,22" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+										</g>
+										<!-- Throttle Icon -->
+										<g v-if="item.type === 'throttle'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#E74C3C" stroke="#C0392B" stroke-width="2"/>
+											<path d="M10,24 L14,16 L18,20 L22,12 L26,18" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+										</g>
+										<!-- Bean Icon -->
+										<g v-if="item.type === 'bean'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#8E44AD" stroke="#6C3483" stroke-width="2"/>
+											<ellipse cx="18" cy="18" rx="8" ry="10" fill="white" opacity="0.3"/>
+											<ellipse cx="18" cy="18" rx="5" ry="7" fill="white"/>
+										</g>
+										<!-- Transform Icon -->
+										<g v-if="item.type === 'transform'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#3498DB" stroke="#2980B9" stroke-width="2"/>
+											<path d="M10,18 L16,12 L16,15 L26,15 L26,21 L16,21 L16,24 Z" fill="white"/>
+										</g>
+										<!-- Marshal Icon -->
+										<g v-if="item.type === 'marshal'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#E67E22" stroke="#D35400" stroke-width="2"/>
+											<text x="18" y="23" text-anchor="middle" fill="white" font-size="12" font-weight="bold">{}</text>
+										</g>
+										<!-- Unmarshal Icon -->
+										<g v-if="item.type === 'unmarshal'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#9B59B6" stroke="#8E44AD" stroke-width="2"/>
+											<text x="18" y="23" text-anchor="middle" fill="white" font-size="11" font-weight="bold">{ }</text>
+										</g>
+										<!-- OnException Icon -->
+										<g v-if="item.type === 'onException'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#E74C3C" stroke="#C0392B" stroke-width="2"/>
+											<text x="18" y="24" text-anchor="middle" fill="white" font-size="16" font-weight="bold">!</text>
+										</g>
+										<!-- DoTry Icon -->
+										<g v-if="item.type === 'doTry'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#E74C3C" stroke="#C0392B" stroke-width="2"/>
+											<text x="18" y="16" text-anchor="middle" fill="white" font-size="8" font-weight="bold">TRY</text>
+											<text x="18" y="28" text-anchor="middle" fill="white" font-size="7">CATCH</text>
+										</g>
+										<!-- CircuitBreaker Icon -->
+										<g v-if="item.type === 'circuitBreaker'">
+											<rect x="4" y="4" width="28" height="28" rx="4" fill="#F39C12" stroke="#D68910" stroke-width="2"/>
+											<circle cx="18" cy="18" r="8" fill="none" stroke="white" stroke-width="2"/>
+											<path d="M18,10 L18,18 L24,18" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+										</g>
+										<!-- Stop Icon -->
+										<g v-if="item.type === 'stop'">
+											<rect x="4" y="4" width="28" height="28" rx="4" fill="#95A5A6" stroke="#7F8C8D" stroke-width="2"/>
+											<rect x="12" y="12" width="12" height="12" fill="white"/>
+										</g>
+										<!-- Merge Icon (Diamond with converging arrows) -->
+										<g v-if="item.type === 'merge'">
+											<path d="M18,4 L32,18 L18,32 L4,18 Z" fill="#16A085" stroke="#0E6655" stroke-width="2"/>
+											<path d="M10,12 L18,18 M10,24 L18,18 M18,18 L26,18" stroke="white" stroke-width="2" stroke-linecap="round"/>
+										</g>
+										<!-- Aggregate Icon (Multiple arrows joining) -->
+										<g v-if="item.type === 'aggregate'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#27AE60" stroke="#1E8449" stroke-width="2"/>
+											<path d="M8,12 L18,18 M8,24 L18,18 M28,12 L18,18 M28,24 L18,18 M18,18 L18,28" stroke="white" stroke-width="2" stroke-linecap="round"/>
+										</g>
+										<!-- Multicast Icon (One to many) -->
+										<g v-if="item.type === 'multicast'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#8E44AD" stroke="#6C3483" stroke-width="2"/>
+											<path d="M8,18 L16,18 M16,18 L28,10 M16,18 L28,18 M16,18 L28,26" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+										</g>
+										<!-- RecipientList Icon -->
+										<g v-if="item.type === 'recipientList'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#9B59B6" stroke="#7D3C98" stroke-width="2"/>
+											<path d="M10,18 L14,18 M14,18 L22,10 M14,18 L22,18 M14,18 L22,26" stroke="white" stroke-width="2" stroke-linecap="round"/>
+											<circle cx="26" cy="10" r="3" fill="white"/>
+											<circle cx="26" cy="18" r="3" fill="white"/>
+											<circle cx="26" cy="26" r="3" fill="white"/>
+										</g>
+										<!-- Loop Icon -->
+										<g v-if="item.type === 'loop'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#3498DB" stroke="#2980B9" stroke-width="2"/>
+											<path d="M12,18 A6,6 0 1,1 24,18" fill="none" stroke="white" stroke-width="2"/>
+											<path d="M21,15 L24,18 L21,21" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/>
+											<text x="18" y="28" text-anchor="middle" fill="white" font-size="8" font-weight="bold">n</text>
+										</g>
+										<!-- Threads Icon -->
+										<g v-if="item.type === 'threads'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#34495E" stroke="#2C3E50" stroke-width="2"/>
+											<line x1="10" y1="12" x2="26" y2="12" stroke="white" stroke-width="2"/>
+											<line x1="10" y1="18" x2="26" y2="18" stroke="white" stroke-width="2"/>
+											<line x1="10" y1="24" x2="26" y2="24" stroke="white" stroke-width="2"/>
+											<circle cx="10" cy="12" r="2" fill="#2ECC71"/>
+											<circle cx="10" cy="18" r="2" fill="#2ECC71"/>
+											<circle cx="10" cy="24" r="2" fill="#2ECC71"/>
+										</g>
+										<!-- WireTap Icon -->
+										<g v-if="item.type === 'wireTap'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#E67E22" stroke="#D35400" stroke-width="2"/>
+											<path d="M8,18 L28,18" stroke="white" stroke-width="2"/>
+											<path d="M18,18 L18,28" stroke="white" stroke-width="2" stroke-dasharray="2,2"/>
+											<circle cx="18" cy="28" r="3" fill="white" opacity="0.7"/>
+										</g>
+										<!-- Enrich Icon -->
+										<g v-if="item.type === 'enrich'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#1ABC9C" stroke="#16A085" stroke-width="2"/>
+											<path d="M8,18 L20,18" stroke="white" stroke-width="2"/>
+											<path d="M20,10 L20,26" stroke="white" stroke-width="2"/>
+											<path d="M20,18 L28,18" stroke="white" stroke-width="2"/>
+											<text x="20" y="16" text-anchor="middle" fill="white" font-size="12" font-weight="bold">+</text>
+										</g>
+										<!-- PollEnrich Icon -->
+										<g v-if="item.type === 'pollEnrich'">
+											<rect x="4" y="4" width="28" height="28" rx="3" fill="#16A085" stroke="#0E6655" stroke-width="2"/>
+											<path d="M8,18 L16,18" stroke="white" stroke-width="2"/>
+											<circle cx="22" cy="18" r="6" fill="none" stroke="white" stroke-width="2"/>
+											<path d="M22,14 L22,18 L25,20" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+										</g>
+									</svg>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Sidebar resize handle -->
+			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
+				@mousedown="onSidebarResizeStart"></div>
+
+			<!-- Center pane: canvas -->
+			<div class="content-main island p-0"
+				@dragover.prevent.stop="onCenterPaneDragOver" @drop.prevent.stop="onCenterPaneDrop">
+
+				<!-- Header: file tabs -->
+				<div class="file-tabs-bar">
+					<div class="file-tabs">
+						<div v-for="(file, index) in files" :key="file.id"
+							class="file-tab"
+							:class="{active: currentFileIndex === index, modified: file.isModified}"
+							@click="selectTab(index)" :title="file.path || file.name">
+							<span class="file-tab-name">{{ file.name }}</span>
+							<span v-if="file.isModified" class="modified-dot">●</span>
+							<button class="file-tab-close" @click.stop="closeFile(index)" title="Close">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+						<button class="file-tab-add" @click="newDiagram" title="New file">
+							<i class="bi bi-plus-lg"></i>
+						</button>
+					</div>
+				</div>
+
+				<!-- Body: canvas -->
+				<div class="canvas-container"
+					 :class="{ 'pan-mode': isSpaceHeld, 'panning': isPanning }"
+					 @dragover.prevent="onCanvasDragOver"
+					 @drop="onCanvasDrop"
+					 @mousedown="onCanvasMouseDown"
+					 @mousemove="onCanvasMouseMove"
+					 @mouseup="onCanvasMouseUp"
+					 @wheel="onCanvasWheel">
+
+					<svg id="camel-canvas" class="canvas-svg">
+						<defs>
+							<!-- Grid Pattern (static, used within transform group) -->
+							<pattern id="grid-small" width="10" height="10" patternUnits="userSpaceOnUse">
+								<path d="M 10 0 L 0 0 0 10" fill="none" stroke="var(--canvas-grid-color)" stroke-width="0.5" opacity="0.5"/>
+							</pattern>
+							<pattern id="grid-large" width="100" height="100" patternUnits="userSpaceOnUse">
+								<rect width="100" height="100" fill="url(#grid-small)"/>
+								<path d="M 100 0 L 0 0 0 100" fill="none" stroke="var(--canvas-grid-color)" stroke-width="1"/>
+							</pattern>
+							<!-- Arrow Marker -->
+							<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+								<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--connection-stroke)"/>
+							</marker>
+							<marker id="arrow-selected" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+								<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--connection-selected-stroke)"/>
+							</marker>
+							<marker id="arrow-preview" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+								<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--element-selected-stroke)" opacity="0.5"/>
+							</marker>
+						</defs>
+
+						<!-- Transform Group (includes grid background) -->
+						<g :transform="viewportTransform">
+							<!-- Grid Background (moves with viewport) -->
+							<rect :x="-5000 - panOffset.x / scale" :y="-5000 - panOffset.y / scale"
+								  width="15000" height="15000"
+								  fill="url(#grid-large)" pointer-events="none"/>
+
+							<!-- Selection Rectangle -->
+							<rect v-if="selectionRect"
+								  :x="selectionRect.x"
+								  :y="selectionRect.y"
+								  :width="selectionRect.width"
+								  :height="selectionRect.height"
+								  class="selection-rect"/>
+
+							<!-- Connection Lines -->
+							<g class="connections-layer">
+								<g v-for="conn in connectionPaths" :key="conn.flowId">
+									<!-- Invisible wider path for easier clicking -->
+									<path class="connection-line-hitarea"
+										  :d="conn.path"
+										  @mousedown.stop="onConnectionMouseDown(event, conn.flowId)"/>
+									<!-- Visible connection line -->
+									<path class="connection-line"
+										  :class="{ selected: selectedElementId === conn.flowId }"
+										  :d="conn.path"
+										  :marker-end="selectedElementId === conn.flowId ? 'url(#arrow-selected)' : 'url(#arrow)'"
+										  @mousedown.stop="onConnectionMouseDown(event, conn.flowId)"/>
+									<!-- Condition label for When/Otherwise -->
+									<text v-if="activeStore?.getFlow(conn.flowId)?.conditionType === 'when'"
+										  class="connection-label when"
+										  :x="getConnectionLabelPosition(conn.path).x"
+										  :y="getConnectionLabelPosition(conn.path).y">
+										{{ activeStore.getFlow(conn.flowId).expression?.substring(0, 15) || 'when' }}
+									</text>
+									<text v-if="activeStore?.getFlow(conn.flowId)?.conditionType === 'otherwise'"
+										  class="connection-label otherwise"
+										  :x="getConnectionLabelPosition(conn.path).x"
+										  :y="getConnectionLabelPosition(conn.path).y">
+										otherwise
+									</text>
+									<!-- DoTry role labels (try/catch/finally) -->
+									<text v-if="activeStore?.getFlow(conn.flowId)?.role === 'try'"
+										  class="connection-label try"
+										  :x="getConnectionLabelPosition(conn.path).x"
+										  :y="getConnectionLabelPosition(conn.path).y">
+										try
+									</text>
+									<text v-if="activeStore?.getFlow(conn.flowId)?.role === 'catch'"
+										  class="connection-label catch"
+										  :x="getConnectionLabelPosition(conn.path).x"
+										  :y="getConnectionLabelPosition(conn.path).y">
+										{{ 'catch: ' + (activeStore.getFlow(conn.flowId).exceptions?.[0]?.split('.').pop() || 'Exception') }}
+									</text>
+									<text v-if="activeStore?.getFlow(conn.flowId)?.role === 'finally'"
+										  class="connection-label finally"
+										  :x="getConnectionLabelPosition(conn.path).x"
+										  :y="getConnectionLabelPosition(conn.path).y">
+										finally
+									</text>
+								</g>
+							</g>
+
+							<!-- Connection Preview (when drawing) -->
+							<path v-if="isDrawingConnection && connectionPreview"
+								  class="connection-preview"
+								  :d="getConnectionPreviewPath()"
+								  marker-end="url(#arrow-preview)"/>
+
+							<!-- Shapes (Nodes) -->
+							<g v-for="shape in shapes" :key="shape.id"
+							   class="camel-element"
+							   :class="{ selected: isSelected(shape.semanticId), 'connection-target': connectionTargetIds.includes(shape.semanticId) }"
+							   :transform="'translate(' + shape.bounds.x + ',' + shape.bounds.y + ')'"
+							   @mousedown.stop="onElementMouseDown(event, shape.id, shape.semanticId)">
+
+								<!-- Render based on semantic type -->
+								<g v-if="activeStore?.getProcessor(shape.semanticId)">
+									<!-- From Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'from'">
+										<rect class="node-body from" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="25"/>
+										<use :href="spriteUrl + '#canvas-from'" x="0" y="0" width="56" height="50"/>
+										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">From</text>
+										<text class="node-label-light" x="70" y="35" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<!-- Output Port -->
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- To Node (capsule shape like From) -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'to'">
+										<rect class="node-body to" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="25"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-to'" x="0" y="0" width="56" height="50"/>
+										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">To</text>
+										<text class="node-label-light" x="70" y="35" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- ToD Node (Dynamic To - capsule shape like To) -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'toD'">
+										<rect class="node-body toD" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="25"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-toD'" x="0" y="0" width="56" height="50"/>
+										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">To D</text>
+										<text class="node-label-light" x="70" y="35" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Log Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'log'">
+										<rect class="node-body log" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-log'" x="0" y="0" width="50" height="50"/>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Log</text>
+										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- SetBody Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'setBody'">
+										<rect class="node-body setBody" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-setBody'" x="0" y="0" width="50" height="50"/>
+										<text class="node-label-light" x="85" y="26" text-anchor="middle" font-weight="600">Set Body</text>
+										<text class="node-label-light" x="85" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- SetHeader Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'setHeader'">
+										<rect class="node-body setHeader" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-setHeader'" x="0" y="0" width="50" height="50"/>
+										<text class="node-label-light" x="85" y="26" text-anchor="middle" font-weight="600">Set Header</text>
+										<text class="node-label-light" x="85" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Choice Node (Diamond) -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'choice'">
+										<path class="node-body choice" d="M50,0 L100,30 L50,60 L0,30 Z"/>
+										<circle class="port input-port" cx="0" cy="30" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-choice'" x="0" y="0" width="100" height="60"/>
+										<text class="node-label" x="50" y="72" text-anchor="middle">Choice</text>
+										<circle class="port output-port" cx="100" cy="30" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Filter Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'filter'">
+										<rect class="node-body filter" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-filter'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Filter</text>
+										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Split Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'split'">
+										<rect class="node-body split" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-split'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Split</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Delay Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'delay'">
+										<rect class="node-body delay" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-delay'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Delay</text>
+										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Bean Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'bean'">
+										<rect class="node-body bean" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-bean'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Bean</text>
+										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Stop Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'stop'">
+										<rect class="node-body stop" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-stop'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="90" y="35" text-anchor="middle" font-weight="600">Stop</text>
+									</g>
+
+									<!-- Merge Node (Diamond shape like Choice, but inverted colors) -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'merge'">
+										<path class="node-body merge" d="M25,0 L50,25 L25,50 L0,25 Z"/>
+										<circle class="port input-port" cx="0" cy="25" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-merge'" x="0" y="0" width="50" height="50"/>
+										<circle class="port output-port" cx="50" cy="25" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- OnException Node (height: 50 to match From/To) -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'onException'">
+										<rect class="node-body onException" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<!-- No input port - onException is a flow origin like 'from' -->
+										<use :href="spriteUrl + '#canvas-onException'" x="0" y="0" width="50" height="50"/>
+										<text class="node-label-light" x="95" y="18" text-anchor="middle" font-weight="600">onException</text>
+										<text class="node-label-light" x="95" y="30" text-anchor="middle" font-size="8">
+											{{ activeStore.getProcessor(shape.semanticId).properties.exceptions?.[0]?.split('.').pop() || 'Exception' }}
+										</text>
+										<text v-if="activeStore.getProcessor(shape.semanticId).properties.routeConfigurationId"
+											  class="node-label-light" x="95" y="42" text-anchor="middle" font-size="7" opacity="0.7">
+											{{ activeStore.getProcessor(shape.semanticId).properties.routeConfigurationId }}
+										</text>
+										<text v-else class="node-label-light" x="95" y="42" text-anchor="middle" font-size="7" opacity="0.7">
+											{{ activeStore.getProcessor(shape.semanticId).properties.handled ? 'handled' : 'unhandled' }}
+										</text>
+										<!-- Output port for connecting to error handling steps -->
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- DoTry Node (Try-Catch-Finally container) -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'doTry'">
+										<rect class="node-body doTry" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-doTry'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">doTry</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											Try-Catch-Finally
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Throttle Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'throttle'">
+										<rect class="node-body throttle" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-throttle'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Throttle</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ activeStore.getProcessor(shape.semanticId).properties.constant || '10' }}/{{ activeStore.getProcessor(shape.semanticId).properties.timePeriodMillis || '1000' }}ms
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Aggregate Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'aggregate'">
+										<rect class="node-body aggregate" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-aggregate'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Aggregate</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Marshal Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'marshal'">
+										<rect class="node-body marshal" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-marshal'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Marshal</text>
+										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
+											{{ activeStore.getProcessor(shape.semanticId).properties.dataFormat || 'json' }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Unmarshal Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'unmarshal'">
+										<rect class="node-body unmarshal" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-unmarshal'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Unmarshal</text>
+										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
+											{{ activeStore.getProcessor(shape.semanticId).properties.dataFormat || 'json' }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Transform Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'transform'">
+										<rect class="node-body transform" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-transform'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Transform</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Multicast Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'multicast'">
+										<rect class="node-body multicast" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-multicast'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Multicast</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ activeStore.getProcessor(shape.semanticId).properties.parallelProcessing ? 'parallel' : 'sequential' }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- RecipientList Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'recipientList'">
+										<rect class="node-body recipientList" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-recipientList'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="35" text-anchor="middle" font-weight="600" font-size="10">Recipients</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Loop Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'loop'">
+										<rect class="node-body loop" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-loop'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Loop</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ activeStore.getProcessor(shape.semanticId).properties.simple || '3' }}x
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- WireTap Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'wireTap'">
+										<rect class="node-body wireTap" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-wireTap'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">WireTap</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Enrich Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'enrich'">
+										<rect class="node-body enrich" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-enrich'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Enrich</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- PollEnrich Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'pollEnrich'">
+										<rect class="node-body pollEnrich" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-pollEnrich'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600" font-size="10">PollEnrich</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Threads Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'threads'">
+										<rect class="node-body threads" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-threads'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Threads</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
+											pool: {{ activeStore.getProcessor(shape.semanticId).properties.poolSize || 10 }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- CircuitBreaker Node -->
+									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'circuitBreaker'">
+										<rect class="node-body circuitBreaker" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<use :href="spriteUrl + '#canvas-circuitBreaker'" x="0" y="0" width="60" height="60"/>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600" font-size="9">CircuitBreaker</text>
+										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="8">
+											{{ activeStore.getProcessor(shape.semanticId).properties.resilience4jConfiguration?.failureRateThreshold || 50 }}% threshold
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Default/Generic Node (for other types) -->
+									<g v-if="!['from','to','toD','log','setBody','setHeader','choice','filter','split','delay','bean','stop','merge','onException','doTry','throttle','aggregate','marshal','unmarshal','transform','multicast','recipientList','loop','wireTap','enrich','pollEnrich','threads','circuitBreaker'].includes(activeStore.getProcessor(shape.semanticId).type)">
+										<rect class="node-body generic" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
+												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
+										<text class="node-label-light" x="70" y="26" text-anchor="middle" font-weight="600">
+											{{ activeStore.getProcessor(shape.semanticId).type }}
+										</text>
+										<text class="node-label-light" x="70" y="40" text-anchor="middle" font-size="9">
+											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
+										</text>
+										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
+												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
+									</g>
+
+									<!-- Validation Warning Icon -->
+									<g v-if="hasValidationError(shape.semanticId)"
+									   class="validation-warning"
+									   :transform="'translate(' + (shape.bounds.width - 5) + ', -5)'">
+										<title>{{ getValidationError(shape.semanticId) }}</title>
+										<circle cx="0" cy="0" r="10" fill="#e74c3c" stroke="white" stroke-width="2"/>
+										<text x="0" y="5" text-anchor="middle" fill="white" font-size="14" font-weight="bold">!</text>
+									</g>
+								</g>
+							</g>
+						</g>
+					</svg>
+				</div>
+			</div>
+
+			<!-- Detail resize handle -->
+			<div v-if="detailPanelVisible" class="detail-resize-handle"
+				@mousedown="onPropertiesPanelResizeStart"></div>
+
+			<!-- Right pane: properties -->
+			<div v-if="detailPanelVisible" class="detail-panel island p-0"
+				:style="{ width: propertiesPanelWidth + 'px' }"
+				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+				<div class="detail-panel-header">
+					<span class="detail-panel-title">Properties</span>
+				</div>
+				<div class="properties-body">
+
+					<!-- No selection placeholder -->
+					<div v-if="!selectedElement" class="detail-panel-empty">
+						<i class="bi bi-cursor"></i>
+						<p class="mt-0 mb-0">Select an item to view details</p>
+					</div>
+
+					<!-- Connection (Flow) Properties -->
+					<div v-else-if="isFlowSelected">
+						<div class="property-group">
+							<div class="property-group-title">{{ getFlowLabel(selectedFlow) }}</div>
+							<span class="element-type-badge">Connection</span>
+						</div>
+
+						<!-- Choice flow: when/otherwise -->
+						<div v-if="activeStore?.getProcessor(selectedFlow.sourceRef)?.type === 'choice'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Route Type</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openFlowConditionTypeDropdown(event)">
+										<span class="wt-select-value">{{ flowConditionTypeLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row" v-if="(selectedFlow.conditionType || 'when') === 'when'">
+								<label class="property-label">Language</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openFlowLanguageDropdown(event)">
+										<span class="wt-select-value">{{ flowLanguageLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row" v-if="(selectedFlow.conditionType || 'when') === 'when'">
+								<label class="property-label">Expression</label>
+								<input type="text" class="wt w-100"
+									:value="selectedFlow.expression"
+									@input="updateFlowProperty('expression', event)"
+									placeholder="${body} contains 'foo'"/>
+							</div>
+						</div>
+
+						<!-- DoTry flow: try/catch/finally -->
+						<div v-else-if="activeStore?.getProcessor(selectedFlow.sourceRef)?.type === 'doTry'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Block Role</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openFlowRoleDropdown(event)">
+										<span class="wt-select-value">{{ flowRoleLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row" v-if="selectedFlow.role === 'catch'">
+								<label class="property-label">Exceptions (comma separated)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedFlow.exceptions?.join(', ')"
+									@input="updateFlowExceptions(event)"
+									placeholder="java.lang.Exception"/>
+							</div>
+							<div class="property-info">
+								<p class="mt-0">
+									<i class="bi bi-info-circle me-1"></i>
+									<span v-if="(selectedFlow.role || 'try') === 'try'">Main execution path - will run first</span>
+									<span v-else-if="selectedFlow.role === 'catch'">Runs when matching exception occurs</span>
+									<span v-else-if="selectedFlow.role === 'finally'">Always runs after try/catch completes</span>
+								</p>
+							</div>
+						</div>
+
+						<!-- Generic flow info -->
+						<div v-else class="property-info">
+							<p class="mt-0">This connection links two processors.</p>
+							<p>From: {{ activeStore?.getProcessor(selectedFlow.sourceRef)?.type || 'unknown' }}</p>
+							<p>To: {{ activeStore?.getProcessor(selectedFlow.targetRef)?.type || 'unknown' }}</p>
+						</div>
+
+						<div class="property-group">
+							<button class="wt wt-danger" @click="deleteSelected">
+								<i class="bi bi-trash me-1"></i>Delete Connection
+							</button>
+						</div>
+					</div>
+
+					<!-- Processor (Node) Properties -->
+					<div v-else>
+						<div class="property-group">
+							<div class="property-group-title">{{ getProcessorLabel(selectedProcessor) }}</div>
+							<span class="element-type-badge">{{ selectedProcessor?.type }}</span>
+						</div>
+
+						<!-- Common: Camel step ID (optional). Excluded for `from` (uses Route ID),
+							`merge` (visual-only), and `onException` (handled separately). -->
+						<div v-if="selectedProcessor && !['from', 'merge', 'onException'].includes(selectedProcessor.type)" class="property-group">
+							<div class="property-row">
+								<label class="property-label">ID</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.id || ''"
+									@input="updateProperty('id', event)"
+									placeholder="Optional — used by MessageHistory"/>
+								<div v-if="getStepIdError(selectedProcessor)" class="property-info text-danger mt-1">
+									<i class="bi bi-exclamation-triangle me-1"></i>{{ getStepIdError(selectedProcessor) }}
+								</div>
+							</div>
+						</div>
+
+						<!-- From Properties -->
+						<div v-if="selectedProcessor?.type === 'from'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Route ID</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.routeId || ''"
+									@input="updateProperty('routeId', event)"
+									placeholder="Auto-generated if empty"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Route Configuration ID</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.routeConfigurationId || ''"
+									@input="updateProperty('routeConfigurationId', event)"
+									placeholder="e.g., my-error-handler"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">URI</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.uri || ''"
+									@input="updateProperty('uri', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Parameters</label>
+								<div v-if="hasParameters()" class="parameter-list">
+									<div v-for="key in getParameterKeys()" :key="key" class="parameter-item">
+										<input type="text" class="wt" :value="key"
+											@change="renameParameter(key, event)" placeholder="Key"/>
+										<input type="text" class="wt" :value="getParameterValue(key)"
+											@input="updateParameterValue(key, event)" placeholder="Value"/>
+										<button class="wt wt-square wt-danger wt-outlined"
+											@click="removeParameter(key)" title="Remove">
+											<i class="bi bi-x"></i>
+										</button>
+									</div>
+								</div>
+								<div v-else class="property-info">
+									<p class="mt-0">No parameters defined.</p>
+								</div>
+								<div class="parameter-add-row">
+									<button class="wt wt-slim" @click="addParameter">
+										<i class="bi bi-plus me-1"></i>Add
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<!-- To Properties -->
+						<div v-if="selectedProcessor?.type === 'to'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">URI</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.uri || ''"
+									@input="updateProperty('uri', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Parameters</label>
+								<div v-if="hasParameters()" class="parameter-list">
+									<div v-for="key in getParameterKeys()" :key="key" class="parameter-item">
+										<input type="text" class="wt" :value="key"
+											@change="renameParameter(key, event)" placeholder="Key"/>
+										<input type="text" class="wt" :value="getParameterValue(key)"
+											@input="updateParameterValue(key, event)" placeholder="Value"/>
+										<button class="wt wt-square wt-danger wt-outlined"
+											@click="removeParameter(key)" title="Remove">
+											<i class="bi bi-x"></i>
+										</button>
+									</div>
+								</div>
+								<div v-else class="property-info">
+									<p class="mt-0">No parameters defined.</p>
+								</div>
+								<div class="parameter-add-row">
+									<button class="wt wt-slim" @click="addParameter">
+										<i class="bi bi-plus me-1"></i>Add
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<!-- ToD Properties -->
+						<div v-if="selectedProcessor?.type === 'toD'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">URI (Dynamic)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.uri || ''"
+									@input="updateProperty('uri', event)"
+									placeholder="${header.destinationUri}"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Parameters</label>
+								<div v-if="hasParameters()" class="parameter-list">
+									<div v-for="key in getParameterKeys()" :key="key" class="parameter-item">
+										<input type="text" class="wt" :value="key"
+											@change="renameParameter(key, event)" placeholder="Key"/>
+										<input type="text" class="wt" :value="getParameterValue(key)"
+											@input="updateParameterValue(key, event)" placeholder="Value"/>
+										<button class="wt wt-square wt-danger wt-outlined"
+											@click="removeParameter(key)" title="Remove">
+											<i class="bi bi-x"></i>
+										</button>
+									</div>
+								</div>
+								<div v-else class="property-info">
+									<p class="mt-0">No parameters defined.</p>
+								</div>
+								<div class="parameter-add-row">
+									<button class="wt wt-slim" @click="addParameter">
+										<i class="bi bi-plus me-1"></i>Add
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<!-- Log Properties -->
+						<div v-if="selectedProcessor?.type === 'log'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Message</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.message || ''"
+									@input="updateProperty('message', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Logging Level</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openLoggingLevelDropdown(event)">
+										<span class="wt-select-value">{{ loggingLevelLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Logger Name</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.loggerName || ''"
+									@input="updateProperty('loggerName', event)" placeholder="myAppLogger"/>
+							</div>
+						</div>
+
+						<!-- SetBody Properties -->
+						<div v-if="selectedProcessor?.type === 'setBody'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Simple Expression</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.simple || ''"
+									@input="updateProperty('simple', event)"/>
+							</div>
+						</div>
+
+						<!-- SetHeader Properties -->
+						<div v-if="selectedProcessor?.type === 'setHeader'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Header Name</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.name || ''"
+									@input="updateProperty('name', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Expression Type</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openSetHeaderExpressionTypeDropdown(event)">
+										<span class="wt-select-value">{{ setHeaderExpressionTypeLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Expression</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.expression || ''"
+									@input="updateProperty('expression', event)"/>
+							</div>
+						</div>
+
+						<!-- Choice Properties -->
+						<div v-if="selectedProcessor?.type === 'choice'" class="property-info">
+							<p class="mt-0">Draw connections from this Choice node to define branching paths.</p>
+							<p>Select a connection to set When/Otherwise conditions.</p>
+						</div>
+
+						<!-- Filter Properties -->
+						<div v-if="selectedProcessor?.type === 'filter'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Expression Type</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openFilterExpressionTypeDropdown(event)">
+										<span class="wt-select-value">{{ filterExpressionTypeLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Expression</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.expression || ''"
+									@input="updateProperty('expression', event)"/>
+							</div>
+						</div>
+
+						<!-- Split Properties -->
+						<div v-if="selectedProcessor?.type === 'split'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Expression Type</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openSplitExpressionTypeDropdown(event)">
+										<span class="wt-select-value">{{ splitExpressionTypeLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Expression</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.expression || ''"
+									@input="updateProperty('expression', event)"/>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.streaming"
+										@change="updatePropertyBoolean('streaming', event)"/>
+									Streaming
+								</label>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.parallelProcessing"
+										@change="updatePropertyBoolean('parallelProcessing', event)"/>
+									Parallel Processing
+								</label>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.stopOnException"
+										@change="updatePropertyBoolean('stopOnException', event)"/>
+									Stop On Exception
+								</label>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.shareUnitOfWork"
+										@change="updatePropertyBoolean('shareUnitOfWork', event)"/>
+									Share Unit of Work
+								</label>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.aggregationStrategy || ''"
+									@input="updateProperty('aggregationStrategy', event)"
+									placeholder="myAggregationStrategyBean"/>
+							</div>
+						</div>
+
+						<!-- Aggregate Properties -->
+						<div v-if="selectedProcessor?.type === 'aggregate'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Correlation Expression (Simple)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.correlationExpression || ''"
+									@input="updateProperty('correlationExpression', event)"
+									placeholder="${header.correlationId}"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Completion Size</label>
+								<input type="number" min="1" class="wt w-100"
+									:value="selectedProcessor.properties.completionSize || ''"
+									@input="updatePropertyNumber('completionSize', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Completion Timeout (ms)</label>
+								<input type="number" min="0" class="wt w-100"
+									:value="selectedProcessor.properties.completionTimeout || ''"
+									@input="updatePropertyNumber('completionTimeout', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.aggregationStrategy || ''"
+									@input="updateProperty('aggregationStrategy', event)"
+									placeholder="myAggregationStrategyBean"/>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.eagerCheckCompletion"
+										@change="updatePropertyBoolean('eagerCheckCompletion', event)"/>
+									Eager Check Completion
+								</label>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.completionFromBatchConsumer"
+										@change="updatePropertyBoolean('completionFromBatchConsumer', event)"/>
+									Completion from Batch Consumer
+								</label>
+							</div>
+						</div>
+
+						<!-- Delay Properties -->
+						<div v-if="selectedProcessor?.type === 'delay'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Delay (ms)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.constant || ''"
+									@input="updateProperty('constant', event)"/>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.asyncDelayed"
+										@change="updatePropertyBoolean('asyncDelayed', event)"/>
+									Async Delayed
+								</label>
+							</div>
+						</div>
+
+						<!-- Throttle Properties -->
+						<div v-if="selectedProcessor?.type === 'throttle'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Maximum Requests</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.constant || ''"
+									@input="updateProperty('constant', event)" placeholder="10"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Time Period (ms)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.timePeriodMillis || ''"
+									@input="updateProperty('timePeriodMillis', event)" placeholder="1000"/>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.asyncDelayed"
+										@change="updatePropertyBoolean('asyncDelayed', event)"/>
+									Async Delayed
+								</label>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.rejectExecution"
+										@change="updatePropertyBoolean('rejectExecution', event)"/>
+									Reject Execution (throw exception when throttled)
+								</label>
+							</div>
+						</div>
+
+						<!-- Bean Properties -->
+						<div v-if="selectedProcessor?.type === 'bean'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Bean Reference</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.ref || ''"
+									@input="updateProperty('ref', event)" placeholder="myBean"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Method</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.method || ''"
+									@input="updateProperty('method', event)" placeholder="processMessage"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Bean Type (fully qualified class name)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.beanType || ''"
+									@input="updateProperty('beanType', event)" placeholder="com.example.MyBean"/>
+							</div>
+						</div>
+
+						<!-- Marshal Properties -->
+						<div v-if="selectedProcessor?.type === 'marshal'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Data Format</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openMarshalDataFormatDropdown(event)">
+										<span class="wt-select-value">{{ dataFormatLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row" v-if="selectedProcessor.properties.dataFormat === 'json'">
+								<label class="property-label">JSON Library</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openMarshalLibraryDropdown(event)">
+										<span class="wt-select-value">{{ jsonLibraryLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.prettyPrint"
+										@change="updatePropertyBoolean('prettyPrint', event)"/>
+									Pretty Print
+								</label>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Unmarshal Type (Java Class)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.unmarshalType || ''"
+									@input="updateProperty('unmarshalType', event)" placeholder="com.example.MyPojo"/>
+							</div>
+						</div>
+
+						<!-- Unmarshal Properties -->
+						<div v-if="selectedProcessor?.type === 'unmarshal'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Data Format</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openUnmarshalDataFormatDropdown(event)">
+										<span class="wt-select-value">{{ dataFormatLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row" v-if="selectedProcessor.properties.dataFormat === 'json'">
+								<label class="property-label">JSON Library</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openUnmarshalLibraryDropdown(event)">
+										<span class="wt-select-value">{{ jsonLibraryLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Unmarshal Type (Java Class)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.unmarshalType || ''"
+									@input="updateProperty('unmarshalType', event)" placeholder="com.example.MyPojo"/>
+							</div>
+						</div>
+
+						<!-- Transform Properties -->
+						<div v-if="selectedProcessor?.type === 'transform'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Expression Type</label>
+								<div class="wt-select w-100">
+									<button type="button" class="wt-select-trigger"
+										@click.stop="openTransformExpressionTypeDropdown(event)">
+										<span class="wt-select-value">{{ transformExpressionTypeLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Expression</label>
+								<textarea rows="3" class="wt w-100"
+									:value="selectedProcessor.properties.expression || ''"
+									@input="updateProperty('expression', event)" placeholder="${body}"></textarea>
+							</div>
+						</div>
+
+						<!-- Multicast Properties -->
+						<div v-if="selectedProcessor?.type === 'multicast'" class="property-group">
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.parallelProcessing"
+										@change="updatePropertyBoolean('parallelProcessing', event)"/>
+									Parallel Processing
+								</label>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.stopOnException"
+										@change="updatePropertyBoolean('stopOnException', event)"/>
+									Stop On Exception
+								</label>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.aggregationStrategy || ''"
+									@input="updateProperty('aggregationStrategy', event)"
+									placeholder="myAggregationStrategyBean"/>
+							</div>
+						</div>
+
+						<!-- RecipientList Properties -->
+						<div v-if="selectedProcessor?.type === 'recipientList'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Expression (Simple)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.simple || ''"
+									@input="updateProperty('simple', event)" placeholder="${header.recipients}"/>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.parallelProcessing"
+										@change="updatePropertyBoolean('parallelProcessing', event)"/>
+									Parallel Processing
+								</label>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.stopOnException"
+										@change="updatePropertyBoolean('stopOnException', event)"/>
+									Stop On Exception
+								</label>
+							</div>
+						</div>
+
+						<!-- Loop Properties -->
+						<div v-if="selectedProcessor?.type === 'loop'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Loop Count (Simple Expression)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.simple || ''"
+									@input="updateProperty('simple', event)" placeholder="3"/>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.doWhile"
+										@change="updatePropertyBoolean('doWhile', event)"/>
+									Do While (evaluate condition per iteration)
+								</label>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.copy"
+										@change="updatePropertyBoolean('copy', event)"/>
+									Copy (copy original message for each iteration)
+								</label>
+							</div>
+						</div>
+
+						<!-- WireTap Properties -->
+						<div v-if="selectedProcessor?.type === 'wireTap'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">URI</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.uri || ''"
+									@input="updateProperty('uri', event)" placeholder="direct:tap"/>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox" :checked="selectedProcessor.properties.copy"
+										@change="updatePropertyBoolean('copy', event)"/>
+									Copy (send copy of message)
+								</label>
+							</div>
+						</div>
+
+						<!-- Enrich Properties -->
+						<div v-if="selectedProcessor?.type === 'enrich'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">URI</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.uri || ''"
+									@input="updateProperty('uri', event)" placeholder="direct:enrich"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.aggregationStrategy || ''"
+									@input="updateProperty('aggregationStrategy', event)"
+									placeholder="myAggregationStrategyBean"/>
+							</div>
+						</div>
+
+						<!-- PollEnrich Properties -->
+						<div v-if="selectedProcessor?.type === 'pollEnrich'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">URI</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.uri || ''"
+									@input="updateProperty('uri', event)" placeholder="file:inbox"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Timeout (ms)</label>
+								<input type="number" min="0" class="wt w-100"
+									:value="selectedProcessor.properties.timeout || ''"
+									@input="updatePropertyNumber('timeout', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.aggregationStrategy || ''"
+									@input="updateProperty('aggregationStrategy', event)"
+									placeholder="myAggregationStrategyBean"/>
+							</div>
+						</div>
+
+						<!-- Threads Properties -->
+						<div v-if="selectedProcessor?.type === 'threads'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Pool Size</label>
+								<input type="number" min="1" class="wt w-100"
+									:value="selectedProcessor.properties.poolSize || ''"
+									@input="updatePropertyNumber('poolSize', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Max Pool Size</label>
+								<input type="number" min="1" class="wt w-100"
+									:value="selectedProcessor.properties.maxPoolSize || ''"
+									@input="updatePropertyNumber('maxPoolSize', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Max Queue Size</label>
+								<input type="number" min="0" class="wt w-100"
+									:value="selectedProcessor.properties.maxQueueSize || ''"
+									@input="updatePropertyNumber('maxQueueSize', event)"/>
+							</div>
+						</div>
+
+						<!-- CircuitBreaker Properties -->
+						<div v-if="selectedProcessor?.type === 'circuitBreaker'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Minimum Number of Calls</label>
+								<input type="number" min="1" class="wt w-100"
+									:value="selectedProcessor.properties.resilience4jConfiguration?.minimumNumberOfCalls || ''"
+									@input="updateCircuitBreakerProperty('minimumNumberOfCalls', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Failure Rate Threshold (%)</label>
+								<input type="number" min="0" max="100" class="wt w-100"
+									:value="selectedProcessor.properties.resilience4jConfiguration?.failureRateThreshold || ''"
+									@input="updateCircuitBreakerProperty('failureRateThreshold', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Wait Duration in Open State (ms)</label>
+								<input type="number" min="0" class="wt w-100"
+									:value="selectedProcessor.properties.resilience4jConfiguration?.waitDurationInOpenState || ''"
+									@input="updateCircuitBreakerProperty('waitDurationInOpenState', event)"/>
+							</div>
+						</div>
+
+						<!-- OnException Properties -->
+						<div v-if="selectedProcessor?.type === 'onException'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">Route Configuration ID</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.routeConfigurationId || ''"
+									@input="updateProperty('routeConfigurationId', event)"
+									placeholder="e.g., my-error-handler"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Exceptions (comma separated)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.exceptions?.join(', ')"
+									@input="updateExceptionList('exceptions', event)"
+									placeholder="java.lang.Exception, java.io.IOException"/>
+							</div>
+							<div class="property-row">
+								<label>
+									<input type="checkbox"
+										:checked="selectedProcessor.properties.handled"
+										@change="updatePropertyBoolean('handled', event)"/>
+									Handled (mark exception as processed)
+								</label>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Max Redeliveries</label>
+								<input type="number" min="0" class="wt w-100"
+									:value="selectedProcessor.properties.maximumRedeliveries || 0"
+									@input="updatePropertyNumber('maximumRedeliveries', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">Redelivery Delay (ms)</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.redeliveryDelay || '1000'"
+									@input="updateProperty('redeliveryDelay', event)"
+									placeholder="1000"/>
+							</div>
+							<div class="property-info">
+								<p class="mt-0">
+									<i class="bi bi-info-circle me-1"></i>
+									Draw a line from this node to define error handling steps (e.g., Log, To).
+								</p>
+							</div>
+						</div>
+
+						<!-- DoTry Properties -->
+						<div v-if="selectedProcessor?.type === 'doTry'" class="property-info">
+							<p class="mt-0">Draw connections from this Try-Catch node to define:</p>
+							<ul>
+								<li><strong>Try:</strong> Main execution flow (default)</li>
+								<li><strong>Catch:</strong> Error handling for specific exceptions</li>
+								<li><strong>Finally:</strong> Always runs after try/catch</li>
+							</ul>
+							<p>
+								<i class="bi bi-info-circle me-1"></i>
+								Select a connection line to change its role (Try/Catch/Finally).
+							</p>
+						</div>
+					</div>
+
+				</div>
+			</div>
+
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ Math.round(scale * 100) }}%</span>
+				<span class="status-divider"></span>
+				<span class="status-item">{{ shapes.length }} elements</span>
+				<span class="status-divider"></span>
+				<span class="status-item">{{ connectionPaths.length }} connections</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group">
+				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Saving...</span>
+				<span v-else-if="isModified" class="status-item">Modified</span>
+				<span v-else class="status-item">Saved</span>
+			</div>
+		</div>
+
+		<!-- Save As Dialog -->
+		<div v-if="saveAsDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3>Save As</h3>
+							<button class="btn-icon" @click="closeSaveAsDialog" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<label class="dialog-label">File Name</label>
+						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
+							placeholder="filename.xml" @keydown.enter="closeSaveAsDialog" />
+						<div class="save-as-chip-area mt-3"
+							@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+							<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
+								<i class="bi bi-file-earmark-code me-1"></i>
+								<span>{{ saveAsDialog.fileName || 'untitled.xml' }}</span>
+							</div>
+							<p class="text-muted fs-small mt-2 mb-0">
+								Drag this file to Content Browser to save
+							</p>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Loading Overlay -->
+		<div v-if="isLoading" class="loading-overlay flex-column text-center">
+			<span class="loader"></span>
+			<span class="mt-3">Loading file...</span>
+		</div>
+
+		<!-- Close Confirmation Dialog -->
+		<div v-if="closeConfirmDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Unsaved Changes</h3>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0">The file has unsaved changes.</p>
+						<p>Do you want to save your changes before closing?</p>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">Cancel</button>
+						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
+							<i class="bi bi-trash me-1"></i>Don't Save
+						</button>
+						<button v-if="currentFile?.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
+							<i class="bi bi-floppy me-1"></i>Save
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

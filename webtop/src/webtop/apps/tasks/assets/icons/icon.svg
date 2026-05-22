@@ -1,0 +1,29 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="tasks">
+  <defs>
+    <clipPath id="clip-tasks"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-tasks" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <defs><linearGradient id="bg-tasks" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#22c55e"/>
+    <stop offset="100%" stop-color="#0f7a3a"/>
+  </linearGradient></defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-tasks)"/>
+  <g clip-path="url(#clip-tasks)">
+    <rect x="38" y="50" width="104" height="80" rx="12" fill="white" fill-opacity="0.95"/>
+    <g stroke="#0f7a3a" stroke-width="5" stroke-linecap="round" fill="none">
+      <polyline points="52,72 60,80 74,66"/>
+      <line x1="84" y1="74" x2="128" y2="74"/>
+      <polyline points="52,98 60,106 74,92"/>
+      <line x1="84" y1="100" x2="128" y2="100"/>
+    </g>
+    <line x1="52" y1="120" x2="120" y2="120" stroke="#0f7a3a" stroke-width="5" stroke-linecap="round" stroke-opacity="0.4"/>
+  </g>
+  <g clip-path="url(#clip-tasks)">
+    <rect x="0" y="0" width="180" height="180" fill="url(#hl-tasks)"/>
+    <rect x="0.5" y="0.5" width="179" height="179" rx="41.5" ry="41.5"
+          fill="none" stroke="white" stroke-opacity="0.18" stroke-width="1"/>
+  </g>
+</svg>

@@ -1,0 +1,14 @@
+identifier: 18c1c623-fc2d-4492-ba29-ae019c6c5264
+title: EIP Modeler
+icon: assets/icons/icon.svg
+editor: true
+contentTypes:
+  - application/x-camel-route
+  - application/x-xml+camel
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 960
+minimumHeight: 540
+customWindowControls: true

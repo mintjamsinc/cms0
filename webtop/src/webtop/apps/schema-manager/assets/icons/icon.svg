@@ -1,0 +1,36 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="schema">
+  <defs>
+    <clipPath id="clip-schema"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-schema" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <defs><linearGradient id="bg-schema" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#ec4899"/>
+    <stop offset="100%" stop-color="#9d174d"/>
+  </linearGradient></defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-schema)"/>
+  <g clip-path="url(#clip-schema)">
+    <rect x="68" y="42" width="44" height="22" rx="5" fill="white"/>
+    <g stroke="white" stroke-width="4" fill="none" stroke-linecap="round">
+      <path d="M 90 64 V 78 H 56 V 92"/>
+      <path d="M 90 78 V 92"/>
+      <path d="M 90 64 V 78 H 124 V 92"/>
+    </g>
+    <g fill="white">
+      <rect x="36" y="92" width="40" height="20" rx="4" fill-opacity="0.85"/>
+      <rect x="70" y="92" width="40" height="20" rx="4" fill-opacity="0.85"/>
+      <rect x="104" y="92" width="40" height="20" rx="4" fill-opacity="0.85"/>
+    </g>
+    <g stroke="white" stroke-width="4" fill="none" stroke-linecap="round" stroke-opacity="0.85">
+      <path d="M 56 112 V 124 H 90 V 134"/>
+    </g>
+    <rect x="70" y="134" width="40" height="14" rx="4" fill="white" fill-opacity="0.7"/>
+  </g>
+  <g clip-path="url(#clip-schema)">
+    <rect x="0" y="0" width="180" height="180" fill="url(#hl-schema)"/>
+    <rect x="0.5" y="0.5" width="179" height="179" rx="41.5" ry="41.5"
+          fill="none" stroke="white" stroke-opacity="0.18" stroke-width="1"/>
+  </g>
+</svg>

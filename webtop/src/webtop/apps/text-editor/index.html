@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Text Editor</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" class="d-flex flex-column"
+		:class="{ 'is-resizing': sidebarResizing || previewResizing }"
+		@mounted="onMounted" @unmount="onUnmount"
+		@dragover.prevent="onAppDragOver" @drop.prevent>
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: file actions -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="saveFile"
+					:disabled="!currentFile.path || !currentFile.isModified || isSaving" title="Save (Ctrl+S)">
+					<i class="bi bi-floppy"></i>
+				</button>
+				<button class="btn-icon" @click="openSaveAsDialog" :disabled="isSaving" title="Save As...">
+					<i class="bi bi-floppy2"></i>
+				</button>
+			</div>
+
+			<!-- Left: undo/redo -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="undo" :disabled="!canUndo" title="Undo (Ctrl+Z)">
+					<i class="bi bi-arrow-counterclockwise"></i>
+				</button>
+				<button class="btn-icon" @click="redo" :disabled="!canRedo" title="Redo (Ctrl+Y)">
+					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Pane Toggles -->
+			<div class="pane-toggles">
+				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
+					@click="toggleSidebarPanel" title="Toggle Sidebar">
+					<i class="bi bi-layout-sidebar-inset"></i>
+				</button>
+				<button class="btn-icon pane-toggle-btn" :class="{active: previewPanelVisible}"
+					@click="togglePreviewPanel" title="Toggle Preview">
+					<i class="bi bi-layout-sidebar-inset-reverse"></i>
+				</button>
+			</div>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Content body (3-pane) -->
+		<div class="content-body">
+
+			<!-- Left pane: search / replace -->
+			<div v-if="sidebarPanelVisible" class="sidebar-panel island"
+				:style="{ width: sidebarPanelWidth + 'px' }"
+				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+				<div class="sidebar-panel-content">
+					<div class="sidebar-section">
+						<div class="sidebar-section-body px-2">
+
+							<!-- Find -->
+							<div class="filter-group">
+								<label class="filter-label">Find</label>
+								<div class="filter-input-wrapper">
+									<input id="find-input" type="text" class="wt w-100" v-model="searchTerm"
+										placeholder="Find..." spellcheck="false"
+										@input="onSearchTermInput" @keydown="onSearchTermKeydown">
+									<button v-if="searchTerm" class="filter-input-clear"
+										@click="clearSearchTerm" title="Clear">
+										<i class="bi bi-x"></i>
+									</button>
+								</div>
+								<div class="search-toolbar">
+									<button class="search-toggle-btn" :class="{active: searchCaseSensitive}"
+										@click="toggleSearchCaseSensitive" title="Match case">Aa</button>
+									<button class="search-toggle-btn" :class="{active: searchWholeWord}"
+										@click="toggleSearchWholeWord" title="Whole word">ab</button>
+									<button class="search-toggle-btn" :class="{active: searchRegex}"
+										@click="toggleSearchRegex" title="Regex">.*</button>
+									<span class="spacer"></span>
+									<button class="btn-icon" @click="findPrev" title="Previous (Shift+Enter)">
+										<i class="bi bi-chevron-up"></i>
+									</button>
+									<button class="btn-icon" @click="findNextMatch" title="Next (Enter)">
+										<i class="bi bi-chevron-down"></i>
+									</button>
+								</div>
+							</div>
+
+							<!-- Replace -->
+							<div class="filter-group">
+								<label class="filter-label">Replace</label>
+								<div class="filter-input-wrapper">
+									<input type="text" class="wt w-100" v-model="replaceTerm"
+										placeholder="Replace..." spellcheck="false"
+										@keydown="onReplaceTermKeydown">
+									<button v-if="replaceTerm" class="filter-input-clear"
+										@click="replaceTerm = ''" title="Clear">
+										<i class="bi bi-x"></i>
+									</button>
+								</div>
+								<div class="search-actions">
+									<button class="wt wt-primary wt-outlined wt-slim fs-small"
+										@click="replaceCurrent" :disabled="!searchTerm">Replace</button>
+									<button class="wt wt-primary wt-outlined wt-slim fs-small"
+										@click="replaceAllInDoc" :disabled="!searchTerm">All</button>
+								</div>
+							</div>
+
+							<!-- Status -->
+							<div v-if="searchNotFound" class="filter-status">
+								<span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>No matches</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Sidebar resize handle -->
+			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
+				@mousedown="onSidebarResizeStart"></div>
+
+			<!-- Center pane: editor -->
+			<!-- @drop uses .capture so we intercept file drops before CodeMirror's
+			     inner handler pastes the text/plain payload (the dragged path). -->
+			<div class="content-main island p-0"
+				@dragover.prevent.stop="onCenterPaneDragOver" @drop.capture="onCenterPaneDrop">
+
+				<!-- Header: file tabs -->
+				<div class="file-tabs-bar">
+					<div class="file-tabs">
+						<div v-for="(file, index) in files" :key="file.id"
+							class="file-tab"
+							:class="{active: currentFileIndex === index, modified: file.isModified}"
+							@click="selectTab(index)" :title="file.path || file.name">
+							<span class="file-tab-name">{{ file.name }}</span>
+							<span v-if="file.isModified" class="modified-dot">●</span>
+							<button class="file-tab-close" @click.stop="closeFile(index)" title="Close">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+						<button class="file-tab-add" @click="newFile" title="New file">
+							<i class="bi bi-plus-lg"></i>
+						</button>
+					</div>
+				</div>
+
+				<!-- Body: editor -->
+				<div class="editor-area">
+					<div id="editor-container"></div>
+				</div>
+			</div>
+
+			<!-- Preview resize handle -->
+			<div v-if="previewPanelVisible" class="detail-resize-handle"
+				@mousedown="onPreviewResizeStart"></div>
+
+			<!-- Right pane: preview -->
+			<div v-if="previewPanelVisible" class="detail-panel island p-0"
+				:style="{ width: previewPanelWidth + 'px' }"
+				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+
+				<!-- Header -->
+				<div class="detail-panel-header">
+					<span class="detail-panel-title">Preview</span>
+					<!-- Templated files: extension input + refresh button.
+					     Mirrors the Content Browser MIME-type editor pattern
+					     (input-group + input-group-actions). -->
+					<div v-if="isTemplated" class="preview-ext-group">
+						<div class="input-group">
+							<input type="text" v-model="previewExtension"
+								class="preview-ext-input"
+								placeholder="html"
+								spellcheck="false"
+								:disabled="previewLoading"
+								@keydown.enter.prevent="refreshTemplatedPreview" />
+							<div class="input-group-actions">
+								<button class="input-group-btn"
+									@click="refreshTemplatedPreview"
+									:disabled="previewLoading || !previewExtension.trim()"
+									title="Refresh preview">
+									<i class="bi" :class="previewLoading ? 'bi-arrow-repeat spin' : 'bi-arrow-clockwise'"></i>
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Body -->
+				<div class="preview-body" :class="{ 'preview-body-iframe': (isHtml && !isTemplated) || isTemplated }">
+					<!-- Markdown -->
+					<div v-if="isMarkdown" class="markdown-body" v-html="previewHtml"></div>
+					<!-- Plain HTML: real-time client-side preview -->
+					<iframe v-else-if="isHtml && !isTemplated"
+						class="preview-iframe"
+						:srcdoc="previewSrcDoc"
+						sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+						referrerpolicy="no-referrer"></iframe>
+					<!-- Templated: server-rendered, manual refresh -->
+					<template v-else-if="isTemplated">
+						<div v-if="previewError" class="detail-panel-empty">
+							<i class="bi bi-exclamation-triangle"></i>
+							<span>{{ previewError }}</span>
+						</div>
+						<iframe v-else-if="previewIframeUrl"
+							class="preview-iframe"
+							:src="previewIframeUrl"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+						<div v-else class="detail-panel-empty">
+							<i class="bi bi-arrow-clockwise"></i>
+							<span>Click refresh to render preview</span>
+						</div>
+					</template>
+					<div v-else class="detail-panel-empty">
+						<i class="bi bi-eye-slash"></i>
+						<span>Preview not available for this file type</span>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">Ln {{ cursorLine }}, Col {{ cursorColumn }}</span>
+				<span class="status-divider"></span>
+				<span class="status-item">{{ currentFile.encoding || 'UTF-8' }}</span>
+				<span class="status-divider"></span>
+				<span class="status-item">{{ currentFile.mimeType || 'text/plain' }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group">
+				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Saving...</span>
+				<span v-else-if="currentFile.isModified" class="status-item">Modified</span>
+				<span v-else class="status-item">Saved</span>
+			</div>
+		</div>
+
+		<!-- Save As Dialog -->
+		<div v-if="saveAsDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3>Save As</h3>
+							<button class="btn-icon" @click="closeSaveAsDialog" title="Close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<label class="dialog-label">File Name</label>
+						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
+							placeholder="filename.txt" @keydown.enter="closeSaveAsDialog" />
+						<div class="save-as-chip-area mt-3"
+							@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+							<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
+								<i class="bi bi-file-earmark-text me-1"></i>
+								<span>{{ saveAsDialog.fileName || 'untitled.txt' }}</span>
+							</div>
+							<p class="text-muted fs-small mt-2 mb-0">
+								Drag this file to Content Browser to save
+							</p>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Loading Overlay -->
+		<div v-if="currentFile.isLoading" class="loading-overlay flex-column text-center">
+			<span class="loader"></span>
+			<span class="mt-5">Loading file...</span>
+		</div>
+
+		<!-- Error Overlay -->
+		<div v-if="errorMessage && !currentFile.isLoading" class="error-overlay flex-column text-center">
+			<i class="bi bi-exclamation-triangle-fill text-warning fs-2 mb-3"></i>
+			<span class="mb-3">{{ errorMessage }}</span>
+			<button type="button" class="wt" @click="dismissError">Close</button>
+		</div>
+
+		<!-- Checkout Confirmation Dialog -->
+		<div v-if="checkoutDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-box-arrow-up-right me-2"></i>Checkout Required</h3>
+					</div>
+					<div class="dialog-body">
+						<p>This file is under version control and needs to be checked out before editing.</p>
+						<p class="text-muted fs-small mb-0">Version: {{ currentFile.baseVersionName }}</p>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="onCheckoutDialogAction('cancel')">Cancel</button>
+						<button class="wt wt-primary wt-outlined" @click="onCheckoutDialogAction('checkout')">
+							<i class="bi bi-box-arrow-up-right me-1"></i>Checkout
+						</button>
+						<button class="wt wt-primary" @click="onCheckoutDialogAction('checkoutAndCheckin')">
+							<i class="bi bi-check2-circle me-1"></i>Checkout &amp; Checkin after Save
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Checkin Dialog -->
+		<div v-if="checkinDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-floppy-fill me-2"></i>File Saved</h3>
+					</div>
+					<div class="dialog-body">
+						<p>The file has been saved successfully. Would you like to create a new version?</p>
+						<p class="text-muted fs-small mb-0">Current version: {{ currentFile.baseVersionName }}</p>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="closeCheckinDialog" :disabled="checkinDialog.isLoading">Keep Editing</button>
+						<button class="wt wt-primary wt-outlined" @click="submitCheckpoint" :disabled="checkinDialog.isLoading">
+							<i class="bi bi-save me-1"></i>Checkpoint
+						</button>
+						<button class="wt wt-primary" @click="submitCheckin" :disabled="checkinDialog.isLoading">
+							<i class="bi bi-box-arrow-in-down-left me-1"></i>Checkin
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Close Confirmation Dialog -->
+		<div v-if="closeConfirmDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Unsaved Changes</h3>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0">The file "<strong>{{ currentFile.name }}</strong>" has unsaved changes.</p>
+						<p>Do you want to save your changes before closing?</p>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">Cancel</button>
+						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
+							<i class="bi bi-trash me-1"></i>Don't Save
+						</button>
+						<button v-if="currentFile.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
+							<i class="bi bi-floppy me-1"></i>Save
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

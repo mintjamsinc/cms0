@@ -1,0 +1,30 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="bpmn-mod">
+  <defs>
+    <clipPath id="clip-bpmn-mod"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-bpmn-mod" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <defs><linearGradient id="bg-bpmn-mod" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#3a86ff"/>
+    <stop offset="100%" stop-color="#1d4ed8"/>
+  </linearGradient></defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-bpmn-mod)"/>
+  <g clip-path="url(#clip-bpmn-mod)">
+    <g stroke="white" stroke-width="4" stroke-linecap="round" fill="none" stroke-opacity="0.85">
+      <line x1="58" y1="90" x2="78" y2="90"/>
+      <line x1="102" y1="90" x2="118" y2="76"/>
+      <line x1="102" y1="90" x2="118" y2="104"/>
+    </g>
+    <circle cx="48" cy="90" r="14" fill="none" stroke="white" stroke-width="5"/>
+    <rect x="78" y="76" width="24" height="28" rx="5" fill="white"/>
+    <circle cx="132" cy="76" r="11" fill="white"/>
+    <circle cx="132" cy="104" r="11" fill="none" stroke="white" stroke-width="5"/>
+  </g>
+  <g clip-path="url(#clip-bpmn-mod)">
+    <rect x="0" y="0" width="180" height="180" fill="url(#hl-bpmn-mod)"/>
+    <rect x="0.5" y="0.5" width="179" height="179" rx="41.5" ry="41.5"
+          fill="none" stroke="white" stroke-opacity="0.18" stroke-width="1"/>
+  </g>
+</svg>

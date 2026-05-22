@@ -1,0 +1,12 @@
+identifier: 29a261c2-abb3-4214-ab1f-d1796524d391
+title: BPM Console
+icon: assets/icons/icon.svg
+isAdminOnly: true
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 960
+minimumHeight: 540
+customWindowControls: true
+singleton: true

@@ -1,0 +1,464 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Preferences — design tokens & layout
+ *
+ * Theme tokens / shared components live in webtop-app.css. This file only
+ * adds the preferences-specific tokens (none beyond shared) and the
+ * single-pane translucent-window layout used by the app.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--statusbar-height: 1rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Layout — top toolbar, content body, status bar
+ * -------------------------------------------------------------------------- */
+
+[v-cloak] {
+	display: none;
+}
+
+#app {
+	height: 100%;
+}
+
+/* Top toolbar (translucent, extends to window edges) */
+nav.nav-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 1rem 1.5rem 0.75rem;
+	color: var(--navbar-color) !important;
+	white-space: nowrap;
+	overflow: visible;
+	user-select: none;
+	position: relative;
+	z-index: 10;
+}
+
+.nav-spacer {
+	flex: 1;
+	min-width: 1rem;
+}
+
+.toolbar-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.5rem;
+	background-color: var(--window-controls-bg);
+	border: 1px solid var(--window-controls-border-color);
+	border-radius: 9999px;
+}
+
+/* Section icon button — highlighted when active */
+.section-btn.active {
+	color: var(--primary-color);
+	background-color: var(--nav-current-bg);
+}
+
+.section-btn.active:hover:not(:disabled) {
+	background-color: var(--nav-current-hover-bg);
+}
+
+/* Content body — single pane */
+.content-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	position: relative;
+	gap: 0.25rem;
+}
+
+.content-main {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	padding: 0;
+}
+
+.pref-pane {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 1rem;
+}
+
+/* Section title (replaces editor headers) */
+.pref-section-title {
+	font-size: 18px;
+	font-weight: 700;
+	letter-spacing: -0.025em;
+	margin: 0 0 1rem;
+	color: var(--text-color);
+}
+
+/* Property group + reusable property row classes (BPMN editor style) */
+.property-group {
+	margin-bottom: 1.25rem;
+}
+
+.property-group-title {
+	color: var(--text-soft-color);
+	margin-bottom: 0.5rem;
+}
+
+.property-description {
+	margin-bottom: 0.5rem;
+	font-size: 12px;
+	color: var(--text-soft-color);
+}
+
+.property-row {
+	margin-bottom: 0.75rem;
+}
+
+.property-label {
+	display: block;
+	font-size: 12px;
+	color: var(--text-soft-color);
+	margin-bottom: 0.125rem;
+	padding-left: 0.125rem;
+}
+
+/* Bottom status bar (translucent, extends to window edges, empty for non-editor apps) */
+.status-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: var(--statusbar-height);
+	margin-bottom: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 0 1rem;
+	color: var(--navbar-color);
+	font-size: 11px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+/* Remote update banner */
+.remote-notice {
+	display: flex;
+	align-items: center;
+	padding: 0.5rem 0.75rem;
+	margin-bottom: 0.75rem;
+	background-color: var(--info-input-bg);
+	border: 1px solid var(--info-input-border-color);
+	border-radius: 0.5rem;
+	color: var(--info-input-color);
+	font-size: 12px;
+}
+
+/* Inline status messages under forms */
+.pref-inline-message {
+	margin-top: 0.75rem;
+	padding: 0.5rem 0.75rem;
+	border-radius: 0.5rem;
+	font-size: 12px;
+}
+
+.pref-inline-success {
+	background-color: rgb(from var(--primary-color) r g b / 0.08);
+	border: 1px solid rgb(from var(--primary-color) r g b / 0.25);
+	color: var(--primary-color);
+}
+
+.pref-inline-error {
+	background-color: var(--danger-input-bg);
+	border: 1px solid var(--danger-input-border-color);
+	color: var(--danger-input-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Theme selector
+ * -------------------------------------------------------------------------- */
+
+.pref-theme-option {
+	cursor: pointer;
+	text-align: center;
+	user-select: none;
+}
+
+.pref-theme-preview {
+	width: 80px;
+	height: 56px;
+	border-radius: 0.5rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2px solid transparent;
+	transition: border-color 0.15s, box-shadow 0.15s;
+	font-size: 1.5rem;
+}
+
+.pref-theme-preview-light {
+	background: #f8f9fa;
+	color: #f59e0b;
+	border-color: #dee2e6;
+}
+
+.pref-theme-preview-dark {
+	background: #1e1e1e;
+	color: #90caf9;
+	border-color: #3e3e42;
+}
+
+.pref-theme-preview-auto {
+	background: linear-gradient(135deg, #f8f9fa 50%, #1e1e1e 50%);
+	color: #6c757d;
+	border-color: #dee2e6;
+}
+
+.pref-theme-option.selected .pref-theme-preview {
+	border-color: var(--primary-color);
+	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
+}
+
+.pref-theme-label {
+	display: block;
+	font-size: 12px;
+	margin-top: 0.25rem;
+	color: var(--text-soft-color);
+}
+
+.pref-theme-option.selected .pref-theme-label {
+	color: var(--primary-color);
+	font-weight: 700;
+}
+
+/* ----------------------------------------------------------------------------
+ * Drop areas (wallpaper / avatar)
+ * -------------------------------------------------------------------------- */
+
+.pref-drop-area {
+	position: relative;
+	border: 1px dashed transparent;
+	border-radius: 0.75rem;
+	padding: 0.75rem;
+	transition: border-color 0.15s, background-color 0.15s;
+}
+
+.pref-drop-area.drag-over {
+	border-color: var(--primary-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.08);
+}
+
+.pref-drop-hint {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin-top: 0.5rem;
+	padding: 0.25rem 0.5rem;
+	font-size: 11px;
+	color: var(--text-muted-color);
+	pointer-events: none;
+}
+
+.pref-drop-area.drag-over .pref-drop-hint {
+	color: var(--primary-color);
+	font-weight: 700;
+}
+
+/* ----------------------------------------------------------------------------
+ * Wallpaper
+ * -------------------------------------------------------------------------- */
+
+.pref-wallpaper-current {
+	border-radius: 0.5rem;
+	overflow: hidden;
+	border: 1px solid var(--island-border-color);
+}
+
+.pref-wallpaper-preview-img {
+	width: 100%;
+	max-height: 200px;
+	object-fit: cover;
+	display: block;
+}
+
+.pref-wallpaper-catalog {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.pref-wallpaper-thumb {
+	width: 96px;
+	height: 64px;
+	border-radius: 0.5rem;
+	overflow: hidden;
+	cursor: pointer;
+	border: 2px solid transparent;
+	position: relative;
+	transition: border-color 0.15s, transform 0.15s;
+}
+
+.pref-wallpaper-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.pref-wallpaper-thumb.selected {
+	border-color: var(--primary-color);
+}
+
+.pref-wallpaper-thumb:hover:not(.selected) {
+	border-color: var(--text-muted-color);
+}
+
+.pref-wallpaper-check {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	width: 1.25rem;
+	height: 1.25rem;
+	background: var(--primary-color);
+	color: var(--button-primary-color);
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 11px;
+}
+
+.pref-wallpaper-delete {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	width: 1.25rem;
+	height: 1.25rem;
+	background: rgb(0 0 0 / 0.55);
+	color: #fff;
+	border: none;
+	border-radius: 50%;
+	display: none;
+	align-items: center;
+	justify-content: center;
+	font-size: 13px;
+	line-height: 1;
+	padding: 0;
+	cursor: pointer;
+}
+
+.pref-wallpaper-thumb:hover .pref-wallpaper-delete {
+	display: flex;
+}
+
+.pref-wallpaper-delete:hover {
+	background: var(--danger-color);
+}
+
+.pref-wallpaper-upload {
+	border: 2px dashed var(--input-border-color);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 1.25rem;
+	color: var(--text-muted-color);
+	background: transparent;
+}
+
+.pref-wallpaper-upload:hover {
+	border-color: var(--primary-color);
+	color: var(--primary-color);
+	background: rgb(from var(--primary-color) r g b / 0.05);
+}
+
+/* ----------------------------------------------------------------------------
+ * Avatar / Profile photo
+ * -------------------------------------------------------------------------- */
+
+.pref-avatar-container {
+	width: 84px;
+	height: 84px;
+	border-radius: 50%;
+	overflow: hidden;
+	border: 2px solid var(--island-border-color);
+	flex-shrink: 0;
+	background: var(--input-bg);
+}
+
+.pref-avatar-img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.pref-avatar-placeholder {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted-color);
+	font-size: 2rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Inputs / form layout helpers
+ * -------------------------------------------------------------------------- */
+
+.pref-input {
+	max-width: 22rem;
+	flex: 1;
+}
+
+.pref-form {
+	max-width: 22rem;
+}
+
+.pref-select {
+	max-width: 22rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Sessions
+ * -------------------------------------------------------------------------- */
+
+.pref-session-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.pref-session-item {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.5rem 0.25rem;
+	border-bottom: 1px solid var(--island-border-color);
+}
+
+.pref-session-item:last-child {
+	border-bottom: none;
+}
+
+.pref-session-meta {
+	flex: 1;
+	min-width: 0;
+}
+
+.pref-session-name {
+	font-weight: 600;
+	color: var(--text-color);
+}
+
+.pref-session-date {
+	margin-top: 0.125rem;
+}
+
+.pref-session-delete {
+	color: var(--danger-color);
+}

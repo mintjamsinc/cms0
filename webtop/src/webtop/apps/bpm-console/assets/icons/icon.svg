@@ -1,0 +1,30 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="bpm-mgr">
+  <defs>
+    <clipPath id="clip-bpm-mgr"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-bpm-mgr" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <defs><linearGradient id="bg-bpm-mgr" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#1e6cf3"/>
+    <stop offset="100%" stop-color="#0a3a8c"/>
+  </linearGradient></defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-bpm-mgr)"/>
+  <g clip-path="url(#clip-bpm-mgr)" fill="none" stroke="white" stroke-linecap="round">
+    <path d="M 46 118 A 44 44 0 1 1 134 118" stroke-width="10" stroke-opacity="0.35"/>
+    <path d="M 46 118 A 44 44 0 0 1 102 76" stroke-width="10"/>
+    <line x1="90" y1="118" x2="120" y2="80" stroke-width="6"/>
+    <circle cx="90" cy="118" r="6" fill="white" stroke="none"/>
+    <g stroke-width="3" stroke-opacity="0.7">
+      <line x1="46" y1="118" x2="40" y2="118"/>
+      <line x1="134" y1="118" x2="140" y2="118"/>
+      <line x1="90" y1="64" x2="90" y2="56"/>
+    </g>
+  </g>
+  <g clip-path="url(#clip-bpm-mgr)">
+    <rect x="0" y="0" width="180" height="180" fill="url(#hl-bpm-mgr)"/>
+    <rect x="0.5" y="0.5" width="179" height="179" rx="41.5" ry="41.5"
+          fill="none" stroke="white" stroke-opacity="0.18" stroke-width="1"/>
+  </g>
+</svg>

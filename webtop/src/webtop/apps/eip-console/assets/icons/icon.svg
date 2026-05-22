@@ -1,0 +1,36 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="eip-console">
+  <defs>
+    <clipPath id="clip-eip-con"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-eip-con" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bg-eip-con" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6a3df0"/>
+      <stop offset="100%" stop-color="#2d1581"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-eip-con)"/>
+  <g clip-path="url(#clip-eip-con)">
+    <rect x="0" y="0" width="180" height="90" fill="url(#hl-eip-con)"/>
+    <!-- Bar chart bars -->
+    <g fill="white" fill-opacity="0.85">
+      <rect x="36" y="108" width="14" height="32" rx="2"/>
+      <rect x="58" y="88"  width="14" height="52" rx="2"/>
+      <rect x="80" y="72"  width="14" height="68" rx="2"/>
+      <rect x="102" y="96" width="14" height="44" rx="2"/>
+      <rect x="124" y="80" width="14" height="60" rx="2"/>
+    </g>
+    <!-- Trend line -->
+    <polyline points="36,118 65,98 87,82 109,104 131,86"
+              fill="none" stroke="white" stroke-width="4"
+              stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="36" cy="118" r="4" fill="white"/>
+    <circle cx="65" cy="98"  r="4" fill="white"/>
+    <circle cx="87" cy="82"  r="4" fill="white"/>
+    <circle cx="109" cy="104" r="4" fill="white"/>
+    <circle cx="131" cy="86" r="4" fill="white"/>
+    <!-- Baseline -->
+    <line x1="32" y1="142" x2="148" y2="142" stroke="white" stroke-width="3" stroke-opacity="0.5" stroke-linecap="round"/>
+  </g>
+</svg>

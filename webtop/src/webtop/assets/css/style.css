@@ -1,0 +1,1151 @@
+@charset "utf-8";
+
+@import url("./webtop-utilities.css");
+@import url("./webtop-app.css");
+
+@font-face {
+	font-family: "InterVariable";
+	font-style: normal;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url("../vendor/inter/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "InterVariable";
+	font-style: italic;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url("../vendor/inter/InterVariable-Italic.woff2") format("woff2");
+}
+
+html {
+	font-family: "InterVariable", ui-sans-serif, -apple-system, system-ui, Segoe UI, Helvetica, Apple Color Emoji, Arial, sans-serif, Segoe UI Emoji, Segoe UI Symbol;
+	font-feature-settings: "ss01" on;
+	font-size: 16px;
+}
+
+:root {
+	--menubar-height: 2rem;
+	--window-title-height: 0;
+	--window-shadow: 0 0 0 1px rgb(0 0 0 / 0.05), 0 20px 60px rgb(0 0 0 / 0.2);
+	--dock-bg: var(--window-bg);
+	--dock-border-color: var(--window-border-color);
+	--dock-color: var(--window-color);
+	--dock-shadow: var(--window-shadow);
+	scrollbar-width: thin;
+	scrollbar-color: var(--scrollbar-thumb-bg) var(--scrollbar-track-bg);
+	--menubar-shadow: rgb(0 0 0 / 0.05) 0px 1px 2px 0px;
+}
+
+:root[data-theme="light"] {
+	--logo-url: url("../icons/logo_light.svg");
+	--menubar-bg: rgb(241 240 245 / 0.6);
+	--menubar-color: rgb(26 27 31 / 1);
+	--menubar-group-name-color: rgb(70 70 75 / 1);
+	--menubar-border-color: rgb(0 0 0 / 0.1);
+	--menubar-hover-bg: rgb(255 255 255 / 0.5);
+	--boot-bg: rgba(255, 255, 255, 1);
+	--boot-loader-primary: #00bbff;
+	--boot-loader-secondary: #bbb;
+}
+
+:root[data-theme="dark"] {
+	--logo-url: url("../icons/logo_dark.svg");
+	--menubar-bg: rgb(26 27 31 / 0.6);
+	--menubar-color: rgb(227 226 231 / 1);
+	--menubar-group-name-color: rgb(171 171 176 / 1);
+	--menubar-border-color: rgb(255 255 255 / 0.1);
+	--menubar-hover-bg: rgb(255 255 255 / 0.2);
+	--boot-bg: rgb(32 32 32 / 1);
+	--boot-loader-primary: #00bbff;
+	--boot-loader-secondary: #fff;
+}
+
+body,
+html,
+#desktop {
+	margin: 0;
+	padding: 0;
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	overflow: hidden;
+}
+
+body {
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: -0.025em;
+	line-height: 1.5;
+	background-position: center;
+	background-size: cover;
+	background-repeat: no-repeat;
+	scrollbar-color: var(--scrollbar-thumb-bg) var(--scrollbar-track-bg);
+}
+
+* {
+	scrollbar-width: thin;
+	letter-spacing: inherit;
+}
+
+/* 起動中 */
+#boot {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	background-color: var(--boot-bg);
+	color: var(--menubar-color);
+	backdrop-filter: blur(1rem);
+	z-index: 11000;
+}
+
+/* メニュー */
+.menu-on-hover:hover {
+	background-color: var(--menubar-hover-bg);
+}
+
+.menu-on-hover:not(:hover) .show-on-hover {
+	display: none !important;
+}
+
+/* メニューバー */
+#menubar {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: var(--menubar-height);
+	display: flex;
+	justify-content: center;
+	align-items: stretch;
+	padding: 0;
+	background-color: var(--menubar-bg);
+	border-bottom: 1px solid var(--menubar-border-color);
+	color: var(--menubar-color);
+	backdrop-filter: blur(4rem);
+	box-shadow: none;
+	z-index: 1000;
+
+	&::after {
+		content: "";
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		box-shadow: var(--menubar-shadow);
+		z-index: -1;
+		pointer-events: none;
+	}
+
+	.text {
+		font-size: 12px;
+		color: var(--menubar-color);
+	}
+
+	.icon-block {
+		min-width: 3em;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+
+	.logo {
+		display: inline-block;
+		width: 1rem;
+		height: 1rem;
+		background-image: var(--logo-url);
+		background-position: center;
+		background-size: cover;
+		background-repeat: no-repeat;
+	}
+
+	.active-app-name {
+		display: flex;
+		align-items: center;
+		font-size: 14px;
+		font-weight: 700;
+		color: var(--menubar-color);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 40vw;
+	}
+
+	.user-avatar {
+		display: inline-block;
+		width: 1.25rem;
+		height: 1.25rem;
+		border-radius: 50%;
+		background-position: center;
+		background-size: cover;
+		background-repeat: no-repeat;
+	}
+}
+
+/* サイドメニュー */
+#menu-overlay {
+	position: fixed;
+	top: var(--menubar-height);
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 1010;
+}
+
+#dock-overlay {
+	position: fixed;
+	top: var(--menubar-height);
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 999;
+}
+
+/* Context Menu */
+#context-menu-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 2000;
+}
+
+#context-menu {
+	position: fixed;
+	min-width: 180px;
+	padding: 0.5rem 0;
+	background-color: var(--context-menu-bg);
+	border-radius: 0.5rem;
+	backdrop-filter: blur(1.5rem);
+	box-shadow: var(--context-menu-shadow);
+	z-index: 2001;
+	user-select: none;
+}
+
+.context-menu-item {
+	display: flex;
+	align-items: center;
+	padding: 0.5rem 1rem;
+	cursor: pointer;
+}
+
+.context-menu-item:hover {
+	background-color: var(--context-menu-hover-bg);
+}
+
+.context-menu-item.danger {
+	color: var(--danger-color);
+}
+
+.context-menu-item.danger:hover {
+	background-color: rgb(from var(--danger-color) r g b / 0.1);
+}
+
+.context-menu-separator {
+	height: 1px;
+	margin: 0.25rem 0.5rem;
+	background-color: var(--menu-divider-color);
+}
+
+/* App popup — iframe-escaping dropdown / menu rendered by the shell. */
+#app-popup-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 2000;
+}
+
+#app-popup {
+	position: fixed;
+	min-width: 12rem;
+	max-width: 28rem;
+	max-height: 24rem;
+	overflow-y: auto;
+	padding: 0.25rem 0;
+	background-color: var(--context-menu-bg, var(--menubar-bg));
+	border: 1px solid var(--context-menu-border-color, var(--menubar-border-color));
+	border-radius: 0.5rem;
+	backdrop-filter: blur(1.5rem);
+	-webkit-backdrop-filter: blur(1.5rem);
+	box-shadow: var(--context-menu-shadow);
+	z-index: 2001;
+	user-select: none;
+	font-size: 13px;
+	color: var(--menubar-color);
+}
+
+/* Placement-based transform origin: align right edge to anchor for *-end */
+#app-popup.placement-bottom-end,
+#app-popup.placement-top-end {
+	transform: translateX(-100%);
+}
+
+/* Translate Y up by full height for top-* */
+#app-popup.placement-top-start,
+#app-popup.placement-top-end {
+	transform: translateY(-100%);
+}
+
+#app-popup.placement-top-end {
+	transform: translate(-100%, -100%);
+}
+
+.app-popup-group + .app-popup-group {
+	border-top: 1px solid var(--context-menu-border-color, var(--menubar-border-color));
+	margin-top: 0.25rem;
+	padding-top: 0.25rem;
+}
+
+.app-popup-group-header {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.75rem 0.25rem;
+}
+
+.app-popup-group-label {
+	flex: 1;
+	min-width: 0;
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	color: var(--menubar-group-name-color, var(--menubar-color));
+	opacity: 0.7;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.app-popup-group-info {
+	font-size: 11px;
+	opacity: 0.6;
+	flex-shrink: 0;
+}
+
+.app-popup-group-action {
+	display: inline-flex;
+	align-items: center;
+	background: transparent;
+	border: 0;
+	color: inherit;
+	opacity: 0.65;
+	font-size: 11px;
+	padding: 0.125rem 0.375rem;
+	border-radius: 0.25rem;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.app-popup-group-action:hover {
+	background-color: var(--menubar-hover-bg);
+	opacity: 1;
+}
+
+.app-popup-group-action.danger {
+	color: #dc3545;
+	opacity: 0.85;
+}
+
+.app-popup-group-action.danger:hover {
+	background-color: rgba(220, 53, 69, 0.15);
+	opacity: 1;
+}
+
+.app-popup-group-empty {
+	padding: 0.375rem 0.75rem;
+	font-size: 12px;
+	opacity: 0.55;
+	font-style: italic;
+}
+
+.app-popup-item {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0.75rem;
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.app-popup-item:hover,
+.app-popup-item.highlighted {
+	background-color: var(--context-menu-hover-bg);
+}
+
+.app-popup-item.disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.app-popup-item.danger {
+	color: #dc3545;
+}
+
+.app-popup-item.danger:hover {
+	background-color: rgba(220, 53, 69, 0.15);
+}
+
+.app-popup-item-icon {
+	flex-shrink: 0;
+}
+
+/* SVG sprite icon used inside popup/context-menu items.
+   Rendered via <use href="...sprite.svg#id">. The symbol should use
+   currentColor for fill/stroke so it follows item text color. */
+.app-popup-item-icon-svg {
+	flex-shrink: 0;
+	width: 1em;
+	height: 1em;
+	fill: currentColor;
+	stroke: currentColor;
+	vertical-align: -0.125em;
+}
+
+/* Same family for the smaller inline locations (group-label, header
+   action button, item action button, context-menu item). Sized by
+   1em so it scales with surrounding font. */
+.menu-icon-svg {
+	width: 1em;
+	height: 1em;
+	fill: currentColor;
+	stroke: currentColor;
+	vertical-align: -0.125em;
+}
+
+.app-popup-item-body {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.app-popup-item-label {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.app-popup-item-desc {
+	font-size: 11px;
+	opacity: 0.65;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.app-popup-item.selected .app-popup-item-label {
+	font-weight: 700;
+}
+
+.app-popup-item-check {
+	flex-shrink: 0;
+	font-size: 0.85em;
+	opacity: 0.7;
+}
+
+.app-popup-item-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.125rem;
+	flex-shrink: 0;
+	margin-left: 0.25rem;
+}
+
+.app-popup-item-action-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	background: transparent;
+	border: 0;
+	color: inherit;
+	opacity: 0.55;
+	border-radius: 0.25rem;
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.app-popup-item-action-btn:hover {
+	background-color: var(--menubar-hover-bg);
+	opacity: 1;
+}
+
+.app-popup-item-action-btn.danger {
+	color: #dc3545;
+}
+
+.app-popup-item-action-btn.danger:hover {
+	background-color: rgba(220, 53, 69, 0.15);
+	opacity: 1;
+}
+
+.app-popup-item-action-btn.show-on-hover {
+	visibility: hidden;
+}
+
+.app-popup-item:hover .app-popup-item-action-btn.show-on-hover,
+.app-popup-item:focus-within .app-popup-item-action-btn.show-on-hover {
+	visibility: visible;
+}
+
+.drag-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 9999;
+}
+
+#side-menu {
+	position: fixed;
+	top: var(--menubar-height);
+	bottom: 0;
+	left: 0;
+	padding-top: 0.75rem;
+	padding-bottom: 0.75rem;
+	min-width: 22rem;
+	transform: translateX(-100%);
+	transition: transform 0.1s ease-out;
+	background-color: var(--menubar-bg);
+	backdrop-filter: blur(4rem);
+	border-right: 1px solid var(--menubar-border-color);
+	box-shadow: none;
+	display: flex;
+	flex-direction: column;
+	z-index: 1011;
+
+	&::after {
+		content: "";
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		box-shadow: var(--menubar-shadow);
+		z-index: -1;
+		pointer-events: none;
+	}
+
+	&.open {
+		transform: translateX(0);
+	}
+
+	.side-menu-apps {
+		flex: 1;
+		overflow-y: auto;
+	}
+
+	.divider {
+		height: 1px;
+		margin: 0.75rem 1rem;
+		background-color: var(--menu-divider-color);
+	}
+
+	.app-name {
+		font-size: 13px;
+		color: var(--menubar-color);
+	}
+
+	.menu-text {
+		font-size: 13px;
+		color: var(--menubar-color);
+	}
+
+	.icon-block {
+		font-size: 18px;
+		min-width: 2.5em;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+
+		img {
+			width: 1.25em;
+		}
+	}
+}
+
+/* ウィンドウを配置するエリア */
+#desktop-area {
+	position: absolute;
+	top: var(--menubar-height);
+	left: 0;
+	right: 0;
+	bottom: 0;
+}
+
+/* Desktop icons layer. Sits beneath app windows (windows manage their own
+   z-index starting at 1). pointer-events: none on the container lets drag
+   events on empty space fall through to #desktop-area's drop handler; each
+   icon re-enables interactivity for itself. */
+.desktop-icons {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-content: flex-start;
+	gap: 0.5rem;
+	padding: 0.75rem;
+	pointer-events: none;
+	user-select: none;
+}
+
+.desktop-icon {
+	pointer-events: auto;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	width: 6rem;
+	padding: 0.25rem;
+	border-radius: 0.25rem;
+	cursor: pointer;
+	color: var(--desktop-icon-color, #fff);
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.desktop-icon:hover {
+	background-color: rgba(255, 255, 255, 0.15);
+}
+
+.desktop-icon.selected {
+	background-color: rgba(0, 123, 255, 0.35);
+	outline: 1px solid rgba(0, 123, 255, 0.8);
+}
+
+.desktop-icon.drop-target {
+	background-color: rgba(0, 123, 255, 0.25);
+	outline: 2px dashed rgba(0, 123, 255, 0.8);
+}
+
+/* Rubber-band selection rectangle drawn over #desktop-area. */
+.desktop-selection-rect {
+	position: absolute;
+	border: 1px solid rgba(0, 123, 255, 0.8);
+	background-color: rgba(0, 123, 255, 0.15);
+	pointer-events: none;
+	z-index: 0;
+}
+
+/* Desktop upload / conflict / delete dialogs all use the shared
+   .session-overlay / .dialog-frame / .island pattern; only progress bar,
+   error text and conflict path keep desktop-specific styling here. */
+.desktop-upload-progress {
+	width: 100%;
+	height: 0.5rem;
+	background-color: rgba(255, 255, 255, 0.15);
+	border-radius: 0.25rem;
+	overflow: hidden;
+}
+
+.desktop-upload-progress-bar {
+	height: 100%;
+	background-color: var(--boot-loader-primary, #00bbff);
+	transition: width 0.15s linear;
+}
+
+.desktop-upload-error {
+	color: var(--danger-color, #e53935);
+	font-size: 0.875rem;
+}
+
+.desktop-conflict-path {
+	font-family: monospace;
+	font-size: 0.875rem;
+	opacity: 0.85;
+}
+
+/* Item list shown in desktop delete confirmation dialog. */
+.delete-items-list {
+	max-height: 10rem;
+	overflow-y: auto;
+	background-color: var(--item-even-bg);
+	border-radius: 0.25rem;
+	padding: 0.5rem;
+}
+
+.delete-items-list li {
+	padding: 0.125rem 0;
+}
+
+.desktop-icon-image {
+	font-size: 2.5rem;
+	line-height: 1;
+	margin-bottom: 0.25rem;
+}
+
+.desktop-icon-label {
+	width: 100%;
+	font-size: 0.75rem;
+	line-height: 1.2;
+	text-align: center;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	word-break: break-all;
+}
+
+/* Dock */
+#dock {
+	position: fixed;
+	left: 50%;
+	bottom: 0.5rem;
+	transform: translateX(-50%);
+	display: flex;
+	gap: 1rem;
+	padding: 0.5rem 1rem;
+	border-radius: 1rem;
+	background-color: var(--dock-bg);
+	border: 1px solid var(--dock-border-color);
+	color: var(--dock-color);
+	backdrop-filter: blur(4rem);
+	box-shadow: var(--dock-shadow);
+	z-index: 1000;
+
+	&.hidden {
+		display: none;
+	}
+
+	.dock-entry {
+		position: relative;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+	}
+
+	.dock-icon {
+		width: 2rem;
+		height: 2rem;
+		cursor: pointer;
+	}
+
+	.dock-count {
+		position: absolute;
+		top: 0;
+		right: 0;
+		transform: translate(50%, -50%);
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		width: 1rem;
+		height: 1rem;
+		border-radius: 50%;
+		background-color: #dc3545;
+		color: #fff;
+		font-size: 0.6rem;
+		line-height: 1;
+	}
+
+}
+
+/* Rendered as a sibling of #dock (not a child) so its backdrop-filter can
+   blur the desktop/windows behind it. When nested inside #dock, the parent's
+   own transform + backdrop-filter created a stacking context that isolated
+   this element's backdrop and made its blur a no-op. */
+.dock-preview {
+	position: fixed;
+	/* `left` and `bottom` are set inline by the shell when an icon is
+	   hovered, anchoring the preview's bottom edge to the icon's top edge
+	   and its horizontal center to the icon's center. */
+	transform: translateX(-50%) translateX(var(--preview-shift, 0px));
+	display: none;
+	flex-direction: row;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	/* Without an explicit width, a fixed-positioned wrap container
+	   shrink-to-fits to one card and never wraps. max-content lets it
+	   grow to its natural unwrapped width, then max-width caps it. */
+	width: max-content;
+	/* No margin-bottom: the preview's bottom edge sits exactly at the
+	   dock icon's top edge so the cursor never crosses empty space when
+	   moving from icon to preview. The internal padding-bottom keeps the
+	   visible cards visually separated from the icon. */
+	padding: 0.5rem 0.5rem 0.75rem 0.5rem;
+	/* Stay inside the viewport even when many windows force a wider
+	   layout. The combination of max-width + flex-wrap means cards
+	   wrap onto a second row instead of running off-screen. */
+	max-width: calc(100vw - 2rem);
+	/* Cap visible height to ~2 rows of cards; if more windows exist,
+	   the popover scrolls vertically. Card heights vary slightly
+	   between with/without subtitle, so this is intentionally generous. */
+	max-height: 7.5rem;
+	overflow-y: auto;
+	background-color: var(--menubar-bg);
+	border-radius: 0.75rem;
+	backdrop-filter: blur(4rem);
+	box-shadow: var(--menubar-shadow);
+	/* Just above #dock (z-index: 1000) but below modals/dialogs. */
+	z-index: 1001;
+
+	&.open {
+		display: flex;
+	}
+}
+
+.dock-preview-card {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.75rem;
+	border-radius: 0.5rem;
+	min-width: 9rem;
+	max-width: 16rem;
+	cursor: pointer;
+	transition: background-color 120ms ease;
+
+	&:hover {
+		background-color: var(--menubar-hover-bg);
+	}
+
+	&.minimized {
+		opacity: 0.65;
+	}
+
+	.dock-preview-icon {
+		position: relative;
+		flex: 0 0 auto;
+		width: 1.5rem;
+		height: 1.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+
+		img {
+			width: 1.5rem;
+			height: 1.5rem;
+		}
+	}
+
+	.dock-preview-minimized-badge {
+		position: absolute;
+		right: -0.25rem;
+		bottom: -0.25rem;
+		width: 0.65rem;
+		height: 0.15rem;
+		background-color: var(--dock-color, currentColor);
+		border-radius: 0.1rem;
+		opacity: 0.85;
+	}
+
+	.dock-preview-text {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		line-height: 1.15;
+	}
+
+	.dock-preview-title {
+		font-size: 0.85rem;
+		font-weight: 500;
+	}
+
+	.dock-preview-subtitle {
+		font-size: 0.7rem;
+		opacity: 0.7;
+	}
+}
+
+/* インジケーター */
+.loader {
+	transform: rotateZ(45deg);
+	perspective: 1000px;
+	border-radius: 50%;
+	width: 48px;
+	height: 48px;
+	color: var(--boot-loader-secondary);
+}
+
+.loader:before,
+.loader:after {
+	content: '';
+	display: block;
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: inherit;
+	height: inherit;
+	border-radius: 50%;
+	transform: rotateX(70deg);
+	animation: 1s spin linear infinite;
+}
+
+.loader:after {
+	color: var(--boot-loader-primary);
+	transform: rotateY(70deg);
+	animation-delay: .4s;
+}
+
+@keyframes rotate {
+	0% {
+		transform: translate(-50%, -50%) rotateZ(0deg);
+	}
+
+	100% {
+		transform: translate(-50%, -50%) rotateZ(360deg);
+	}
+}
+
+@keyframes rotateccw {
+	0% {
+		transform: translate(-50%, -50%) rotate(0deg);
+	}
+
+	100% {
+		transform: translate(-50%, -50%) rotate(-360deg);
+	}
+}
+
+@keyframes spin {
+
+	0%,
+	100% {
+		box-shadow: .2em 0px 0 0px currentcolor;
+	}
+
+	12% {
+		box-shadow: .2em .2em 0 0 currentcolor;
+	}
+
+	25% {
+		box-shadow: 0 .2em 0 0px currentcolor;
+	}
+
+	37% {
+		box-shadow: -.2em .2em 0 0 currentcolor;
+	}
+
+	50% {
+		box-shadow: -.2em 0 0 0 currentcolor;
+	}
+
+	62% {
+		box-shadow: -.2em -.2em 0 0 currentcolor;
+	}
+
+	75% {
+		box-shadow: 0px -.2em 0 0 currentcolor;
+	}
+
+	87% {
+		box-shadow: .2em -.2em 0 0 currentcolor;
+	}
+}
+
+/* Window */
+.window {
+	position: absolute;
+	overflow: visible;
+
+	.resize-top,
+	.resize-bottom,
+	.resize-left,
+	.resize-right,
+	.resize-top-left,
+	.resize-top-right,
+	.resize-bottom-left,
+	.resize-bottom-right {
+		position: absolute;
+		z-index: 10;
+	}
+
+	.resize-top {
+		top: -0.25rem;
+		left: 0.75rem;
+		right: 0.75rem;
+		height: 0.5rem;
+		cursor: ns-resize;
+	}
+
+	.resize-bottom {
+		bottom: -0.25rem;
+		left: 0.75rem;
+		right: 0.75rem;
+		height: 0.5rem;
+		cursor: ns-resize;
+	}
+
+	.resize-left {
+		left: -0.25rem;
+		top: 0.75rem;
+		bottom: 0.75rem;
+		width: 0.5rem;
+		cursor: ew-resize;
+	}
+
+	.resize-right {
+		right: -0.25rem;
+		top: 0.75rem;
+		bottom: 0.75rem;
+		width: 0.5rem;
+		cursor: ew-resize;
+	}
+
+	.resize-top-left {
+		top: 0.125rem;
+		left: 0.125rem;
+		width: 0.75rem;
+		height: 0.75rem;
+		cursor: nwse-resize;
+	}
+
+	.resize-top-right {
+		top: 0.125rem;
+		right: 0.125rem;
+		width: 0.75rem;
+		height: 0.75rem;
+		cursor: nesw-resize;
+	}
+
+	.resize-bottom-left {
+		bottom: 0.125rem;
+		left: 0.125rem;
+		width: 0.75rem;
+		height: 0.75rem;
+		cursor: nesw-resize;
+	}
+
+	.resize-bottom-right {
+		bottom: 0.125rem;
+		right: 0.125rem;
+		width: 0.75rem;
+		height: 0.75rem;
+		cursor: nwse-resize;
+	}
+
+	.window-inner {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background-color: var(--window-bg);
+		border: 1px solid var(--window-border-color);
+		border-radius: 1.5rem;
+		backdrop-filter: blur(6rem);
+		box-shadow: var(--window-shadow);
+		overflow: hidden;
+	}
+
+	&.maximized {
+		.resize-top,
+		.resize-bottom,
+		.resize-left,
+		.resize-right,
+		.resize-top-left,
+		.resize-top-right,
+		.resize-bottom-left,
+		.resize-bottom-right {
+			display: none;
+		}
+
+		.window-inner {
+			border-radius: 0;
+		}
+	}
+
+	.title-bar {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: var(--window-title-height);
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		padding: 0 0.5rem;
+		user-select: none;
+		cursor: default;
+	}
+
+	.content {
+		position: absolute;
+		top: var(--window-title-height);
+		left: 0;
+		right: 0;
+		bottom: 0;
+
+		.content-frame {
+			width: 100%;
+			height: 100%;
+			border: none;
+		}
+
+		> .launching,
+		> .launch-failed {
+			position: absolute;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			background-color: var(--body-bg);
+			color: var(--window-title-color);
+			z-index: 1000;
+		}
+	}
+}
+
+/* =========================================================================
+ * Session overlays
+ * ========================================================================= */
+
+.session-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 10000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	backdrop-filter: blur(0.5rem);
+	background-color: rgb(0 0 0 / 0.45);
+}
+
+/* .session-dialog removed — Session dialogs now use shared .dialog-frame / .island / .dialog-* */
+
+.session-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+	max-height: 18rem;
+	overflow-y: auto;
+}
+
+.session-item {
+	padding: 0.5rem 0.75rem;
+	border-radius: 0.5rem;
+	cursor: pointer;
+	border: 2px solid transparent;
+	background: var(--badge-bg, rgb(128 128 128 / 0.08));
+	transition: border-color 0.15s;
+}
+
+.session-item:hover {
+	border-color: var(--input-border-color);
+}
+
+.session-item.selected {
+	border-color: var(--primary-color);
+}
+
+.session-restoring {
+	color: #fff;
+	font-size: 1.1rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+

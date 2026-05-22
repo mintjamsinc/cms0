@@ -1,0 +1,77 @@
+# Node.js dependencies and logs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Diagnostic reports
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Build output
+build/
+dist/
+
+# TypeScript
+*.tsbuildinfo
+
+# TypeScript v1 declaration files
+typings/
+
+# Coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Cache
+.cache/
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Miscellaneous
+bower_components/
+jspm_packages/
+lib-cov/
+.grunt/
+.lock-wscript
+.project
+*.tgz
+.yarn-integrity
+.env
+.env.test
+.vuepress/dist/
+.next/
+.nuxt/
+.serverless/
+.fusebox/
+.dynamodb/
+.node_repl_history
+.tern-port
+
+# Build artifacts
+vdom.js
+vdom.min.js
+
+# IDE settings (IntelliJ, VSCode)
+.idea/
+.vscode/
+*.iml
+# End of IDE settings
+
+# Markdown files (except README.md and documents/)
+*.md
+!README.md
+!documents/*.md
+
+# Test directory
+tests/

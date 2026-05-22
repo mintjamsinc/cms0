@@ -1,0 +1,10 @@
+identifier: 2468cf47-1a30-4053-b80a-9c5486954b08
+title: Content Browser
+icon: assets/icons/icon.svg
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 960
+minimumHeight: 480
+customWindowControls: true

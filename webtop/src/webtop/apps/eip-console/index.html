@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>EIP Console</title>
+
+	<!-- Bootstrap Icons (icon font only; no Bootstrap CSS; bundled with webtop) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- App + shared webtop CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+<div id="app" v-cloak class="d-flex flex-column"
+	:class="{ 'is-resizing': isResizing }"
+	@mounted="onMounted" @unmount="onUnmount">
+
+	<!-- =================================================================
+	     Top Toolbar
+	     ================================================================= -->
+	<nav class="nav-bar window-drag-region">
+		<!-- Live tail / Refresh (click=refresh, hold 1.5s=live tail) -->
+		<div class="toolbar-group">
+			<button class="btn-icon"
+				:class="{active: liveTailActive}"
+				@pointerdown="onRefreshPointerDown"
+				@pointerup="onRefreshPointerUp"
+				@pointerleave="cancelLiveTailPress"
+				@pointercancel="cancelLiveTailPress"
+				:title="liveTailActive ? 'Live tail ON — click to stop' : 'Refresh (hold 1.5s for live tail)'">
+				<i class="bi bi-arrow-clockwise" :class="{spin: liveTailActive}"></i>
+			</button>
+		</div>
+
+		<span class="nav-spacer"></span>
+
+		<!-- Error chip -->
+		<span v-if="errorMessage" class="eip-error-chip">
+			<i class="bi bi-exclamation-triangle"></i> {{ errorMessage }}
+		</span>
+
+		<!-- Right: Pane Toggles -->
+		<div class="pane-toggles">
+			<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
+				@click="toggleSidebarPanel" title="Toggle Sidebar">
+				<i class="bi bi-layout-sidebar-inset"></i>
+			</button>
+			<button class="btn-icon pane-toggle-btn" :class="{active: bottomPanelVisible}"
+				@click="toggleBottomPanel" title="Toggle History">
+				<i class="bi bi-layout-split"></i>
+			</button>
+			<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
+				@click="toggleDetailPanel" title="Toggle Details">
+				<i class="bi bi-layout-sidebar-inset-reverse"></i>
+			</button>
+		</div>
+
+		<!-- Right: Window Controls -->
+		<div class="window-controls">
+			<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<i class="bi bi-dash-lg"></i>
+			</button>
+			<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<i class="bi bi-square"></i>
+			</button>
+			<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<i class="bi bi-x-lg"></i>
+			</button>
+		</div>
+	</nav>
+
+	<!-- =================================================================
+	     Content body — 3 columns: sidebar / center / detail
+	     ================================================================= -->
+	<div class="content-body">
+
+		<!-- ====================================================
+		     LEFT PANE — filters (search) or routes tree (manage)
+		     ==================================================== -->
+		<div v-if="sidebarPanelVisible" class="sidebar-panel island p-0"
+			:style="{ width: sidebarPanelWidth + 'px' }">
+
+			<!-- ===== SEARCH MODE ===== -->
+			<div v-if="leftMode === 'search'" class="pane-scroll">
+
+				<!-- Filter (click-to-edit, partial match across businessKey/exchangeId/routeId) -->
+				<div class="filter-group">
+					<label class="filter-label">Filter</label>
+					<div v-if="filterEditing" class="filter-editor">
+						<div class="input-group">
+							<input type="text" class="wt"
+								ref="filterInput"
+								v-model="filterInput"
+								@keydown.enter="commitFilterEdit"
+								@keydown.escape="cancelFilterEdit"
+								placeholder="Business key / Exchange ID / Route ID" />
+							<div class="input-group-actions">
+								<button class="input-group-btn" @click="commitFilterEdit" title="Apply">
+									<i class="bi bi-check-lg"></i>
+								</button>
+								<button class="input-group-btn" @click="cancelFilterEdit" title="Cancel">
+									<i class="bi bi-x-lg"></i>
+								</button>
+							</div>
+						</div>
+					</div>
+					<div v-else class="filter-clickable" @click="startFilterEdit"
+						:title="filterText ? 'Click to edit filter' : 'Click to enter a filter'">
+						<span v-if="filterText">{{ filterText }}</span>
+						<span v-else class="muted">Any</span>
+					</div>
+				</div>
+
+				<!-- Route multi-select -->
+				<div class="filter-group">
+					<div class="filter-label-row">
+						<label class="filter-label">
+							Route
+							<button class="btn-icon route-mode-toggle"
+								@click="switchLeftMode('manage')"
+								title="Switch to management mode">
+								<i class="bi bi-gear"></i>
+							</button>
+						</label>
+						<button v-if="selectedRouteIds.length > 0"
+							type="button" class="filter-clear-btn"
+							@click="clearRouteSelection" title="Clear selection">Clear</button>
+					</div>
+					<div v-if="!routesLoaded" class="filter-hint mt-0">
+						Loading routes…
+					</div>
+					<div v-else-if="routes.length === 0" class="filter-hint mt-0">
+						No routes deployed.
+					</div>
+					<div v-else class="route-checkbox-list">
+						<label v-for="r in routes" :key="r.routeId" class="filter-check route-checkbox-item">
+							<input type="checkbox" class="wt"
+								:checked="!!selectedRouteIdMap[r.routeId]"
+								@change="toggleRouteId(r.routeId)">
+							<span class="route-checkbox-label">{{ r.routeId }}</span>
+						</label>
+					</div>
+				</div>
+
+				<!-- Range -->
+				<div class="filter-group">
+					<label class="filter-label">Range</label>
+					<div class="filter-check-list">
+						<label v-for="opt in rangeOptions" :key="opt.key" class="filter-check">
+							<input type="radio" class="wt" name="eip-range"
+								:value="opt.key" v-model="rangeKey">
+							<span>{{ opt.label }}</span>
+						</label>
+					</div>
+				</div>
+
+				<!-- Elapsed (multi-select; drives chart series visibility + list filter) -->
+				<div class="filter-group">
+					<label class="filter-label">Elapsed</label>
+					<div class="filter-check-list">
+						<label v-for="opt in elapsedOptions" :key="opt.key" class="filter-check">
+							<input type="checkbox" class="wt"
+								:checked="!!elapsedFilterMap[opt.key]"
+								@change="toggleElapsedBand(opt.key)">
+							<span>{{ opt.label }}</span>
+						</label>
+					</div>
+				</div>
+
+				<!-- Status -->
+				<div class="filter-group">
+					<label class="filter-label">Status</label>
+					<div class="filter-check-list">
+						<label v-for="opt in statusOptions" :key="opt.key" class="filter-check">
+							<input type="radio" class="wt" name="eip-status"
+								:value="opt.key" v-model="statusFilter">
+							<span>{{ opt.label }}</span>
+						</label>
+					</div>
+				</div>
+			</div>
+
+			<!-- ===== MANAGE MODE ===== -->
+			<div v-else class="manage-pane">
+				<div class="sidebar-filter">
+					<div class="filter-label-row" style="margin-bottom: 0.5rem;">
+						<label class="filter-label">
+							Route
+							<button class="btn-icon route-mode-toggle active"
+								@click="switchLeftMode('search')"
+								title="Back to search mode">
+								<i class="bi bi-gear-fill"></i>
+							</button>
+						</label>
+					</div>
+					<div class="input-group">
+						<input type="text" class="wt"
+							v-model="manageFilterText"
+							placeholder="Filter by Route ID...">
+						<div v-if="manageFilterText" class="input-group-actions">
+							<button class="input-group-btn" @click="manageFilterText = ''" title="Clear">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<div class="list-body">
+					<div v-if="filteredGroups.length === 0 && routesLoaded" class="list-empty-message">
+						No routes deployed
+					</div>
+
+					<div v-for="group in filteredGroups" :key="group.key">
+						<div class="tree-group-header" @click="toggleGroupExpand(group)">
+							<span class="tree-toggle">
+								<i class="bi"
+									:class="group.expanded ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							</span>
+							<i class="bi bi-map tree-node-icon"></i>
+							<div class="tree-group-info">
+								<div class="tree-group-name">{{ group.name }}</div>
+								<div class="tree-group-key">{{ group.key }}</div>
+							</div>
+							<span class="bpm-badge bpm-badge-version">{{ group.routes.length }}</span>
+						</div>
+						<div v-if="group.expanded">
+							<div v-for="route in group.routes" :key="route.routeId"
+								class="tree-leaf"
+								:class="{ selected: managedRoute && managedRoute.routeId === route.routeId }"
+								@click="selectManagedRoute(route)">
+								<div class="tree-leaf-info">
+									<div class="tree-leaf-name">
+										<i class="bi bi-pin-map tree-node-icon"></i>
+										<span>{{ route.routeId }}</span>
+										<span v-if="route.exchangesFailed && route.exchangesFailed > 0"
+											class="bpm-badge bpm-badge-error" title="Failed exchanges">
+											<i class="bi bi-exclamation-triangle-fill"></i>{{ route.exchangesFailed }}
+										</span>
+									</div>
+									<div v-if="route.description" class="tree-leaf-sub">{{ route.description }}</div>
+								</div>
+								<i v-if="route.status === 'Started'" class="bi bi-circle-fill bpm-state-icon active" title="Started"></i>
+								<i v-else-if="route.status === 'Suspended'" class="bi bi-pause-circle bpm-state-icon suspended" title="Suspended"></i>
+								<i v-else-if="route.status === 'Stopped'" class="bi bi-stop-circle bpm-state-icon stopped" title="Stopped"></i>
+								<i v-else class="bi bi-question-circle bpm-state-icon" :title="route.status || 'Unknown'"></i>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
+			@mousedown="onSidebarResizeStart"></div>
+
+		<!-- ====================================================
+		     CENTER — upper (Stats chart) + lower (History list)
+		     ==================================================== -->
+		<div class="content-main">
+
+			<!-- Upper: chart (no header) -->
+			<div class="content-upper island p-0">
+				<div class="eip-chart-area" v-resize="onChartResize">
+					<div v-if="statsLoading && !stats" class="eip-empty">
+						<i class="bi bi-hourglass-split"></i> Loading…
+					</div>
+					<div v-else-if="!stats || stats.points.length === 0" class="eip-empty">
+						<i class="bi bi-bar-chart"></i> No data for the selected range
+					</div>
+					<template v-else>
+						<svg class="eip-chart"
+							:viewBox="'0 0 ' + chartWidth + ' ' + chartHeight"
+							preserveAspectRatio="none">
+							<g v-html="chartSvg"></g>
+						</svg>
+						<div class="eip-chart-legend">
+							<span class="legend-item legend-under1s">
+								<span class="legend-swatch"></span>&lt; 1s
+							</span>
+							<span class="legend-item legend-under5s">
+								<span class="legend-swatch"></span>1s – 5s
+							</span>
+							<span class="legend-item legend-over5s">
+								<span class="legend-swatch"></span>≥ 5s
+							</span>
+						</div>
+					</template>
+				</div>
+			</div>
+
+			<div v-if="bottomPanelVisible" class="bottom-resize-handle"
+				@mousedown="onBottomResizeStart"></div>
+
+			<!-- Lower: history list (no header, status bar at bottom) -->
+			<div v-if="bottomPanelVisible" class="content-lower island p-0"
+				:style="{ height: bottomPanelHeight + 'px' }">
+
+				<div class="content-list">
+					<table class="wt">
+						<thead>
+							<tr>
+								<th class="text-start">Exchange ID</th>
+								<th class="text-start">Business Key</th>
+								<th class="text-start">Started</th>
+								<th class="text-start">Status</th>
+								<th class="text-start">Elapsed</th>
+								<th class="text-start">Route</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-if="historyLoading && historyEdges.length === 0" class="item-empty">
+								<td colspan="6"><i class="bi bi-hourglass-split"></i> Loading…</td>
+							</tr>
+							<tr v-else-if="historyEdges.length === 0" class="item-empty">
+								<td colspan="6">No matching exchanges</td>
+							</tr>
+							<tr v-for="edge in historyEdges"
+								:key="edge.node.exchangeId"
+								class="item"
+								:class="{ 'item-selected': selectedExchange && selectedExchange.exchangeId === edge.node.exchangeId }"
+								@click="openInspector(edge.node.exchangeId)">
+								<td><code>{{ edge.node.exchangeId }}</code></td>
+								<td>{{ edge.node.businessKey || '' }}</td>
+								<td>{{ formatTime(edge.node.createdAt) }}</td>
+								<td>
+									<span class="bpm-status" :class="edge.node.status">{{ edge.node.status }}</span>
+								</td>
+								<td class="elapsed">{{ edge.node.elapsed }} ms</td>
+								<td>{{ edge.node.routeId }}</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+
+		<div v-if="detailPanelVisible" class="detail-resize-handle"
+			@mousedown="onDetailResizeStart"></div>
+
+		<!-- ====================================================
+		     RIGHT PANE — detail
+		     ==================================================== -->
+		<div v-if="detailPanelVisible" class="detail-panel island p-0"
+			:style="{ width: detailPanelWidth + 'px' }">
+			<div class="detail-panel-header">
+				<span class="detail-panel-title">Details</span>
+				<button v-if="activeDetailType === 'exchange' && selectedExchange"
+					class="btn-icon detail-panel-action"
+					@click="openRawJsonViewer"
+					title="Show raw JSON">
+					<i class="bi bi-braces"></i>
+				</button>
+			</div>
+
+			<div class="detail-panel-content">
+
+				<!-- ===== Nothing selected ===== -->
+				<div v-if="activeDetailType === 'none'" class="detail-panel-empty">
+					<i class="bi bi-card-list"></i>
+					<span>Select an item to see details</span>
+				</div>
+
+				<!-- ===== Route selected (manage mode) ===== -->
+				<div v-if="activeDetailType === 'route' && managedRoute">
+					<div class="detail-section-header">Route</div>
+					<div class="detail-section-body">
+						<div class="detail-prop">
+							<div class="detail-prop-label">Route ID</div>
+							<div class="detail-prop-value"><code>{{ managedRoute.routeId }}</code></div>
+						</div>
+						<div v-if="managedRoute.description" class="detail-prop">
+							<div class="detail-prop-label">Description</div>
+							<div class="detail-prop-value">{{ managedRoute.description }}</div>
+						</div>
+						<div v-if="managedRoute.group" class="detail-prop">
+							<div class="detail-prop-label">Group</div>
+							<div class="detail-prop-value">{{ managedRoute.group }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Status</div>
+							<div class="detail-prop-value">
+								<span class="bpm-status" :class="(managedRoute.status || '').toLowerCase()">
+									{{ managedRoute.status || 'Unknown' }}
+								</span>
+							</div>
+						</div>
+						<div v-if="managedRoute.uptime" class="detail-prop">
+							<div class="detail-prop-label">Uptime</div>
+							<div class="detail-prop-value">{{ managedRoute.uptime }}</div>
+						</div>
+					</div>
+
+					<div class="detail-section-header">Exchanges</div>
+					<div class="detail-section-body">
+						<div class="detail-prop">
+							<div class="detail-prop-label">Total</div>
+							<div class="detail-prop-value">{{ managedRoute.exchangesTotal || 0 }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Completed</div>
+							<div class="detail-prop-value">{{ managedRoute.exchangesCompleted || 0 }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Failed</div>
+							<div class="detail-prop-value">{{ managedRoute.exchangesFailed || 0 }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Inflight</div>
+							<div class="detail-prop-value">{{ managedRoute.exchangesInflight || 0 }}</div>
+						</div>
+						<div v-if="managedRoute.meanProcessingTime != null" class="detail-prop">
+							<div class="detail-prop-label">Mean processing time</div>
+							<div class="detail-prop-value">{{ Math.round(managedRoute.meanProcessingTime) }} ms</div>
+						</div>
+					</div>
+
+					<div class="detail-section-header">Actions</div>
+					<div class="detail-section-body actions-body">
+						<button v-if="managedRoute.status === 'Stopped'" class="wt wt-primary"
+							@click="confirmRouteAction('startRoute')">
+							<i class="bi bi-play-fill me-1"></i>Start
+						</button>
+						<button v-if="managedRoute.status === 'Started'" class="wt"
+							@click="confirmRouteAction('suspendRoute')">
+							<i class="bi bi-pause me-1"></i>Suspend
+						</button>
+						<button v-if="managedRoute.status === 'Suspended'" class="wt wt-primary"
+							@click="confirmRouteAction('resumeRoute')">
+							<i class="bi bi-play me-1"></i>Resume
+						</button>
+						<button v-if="managedRoute.status !== 'Stopped'" class="wt wt-danger wt-outlined"
+							@click="confirmRouteAction('stopRoute')">
+							<i class="bi bi-stop-fill me-1"></i>Stop
+						</button>
+					</div>
+				</div>
+
+				<!-- ===== Exchange selected ===== -->
+				<div v-if="activeDetailType === 'exchange' && selectedExchange">
+					<div class="detail-section-header">Overview</div>
+					<div class="detail-section-body">
+						<div class="detail-prop">
+							<div class="detail-prop-label">Exchange ID</div>
+							<div class="detail-prop-value"><code>{{ selectedExchange.exchangeId }}</code></div>
+						</div>
+						<div v-if="selectedExchange.businessKey" class="detail-prop">
+							<div class="detail-prop-label">Business Key</div>
+							<div class="detail-prop-value">{{ selectedExchange.businessKey }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Started</div>
+							<div class="detail-prop-value">{{ formatTime(selectedExchange.createdAt) }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Ended</div>
+							<div class="detail-prop-value">{{ formatTime(selectedExchange.completedAt) }}</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Status</div>
+							<div class="detail-prop-value">
+								<span class="bpm-status" :class="selectedExchange.status">{{ selectedExchange.status }}</span>
+							</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Elapsed</div>
+							<div class="detail-prop-value">{{ selectedExchange.elapsed }} ms</div>
+						</div>
+						<div class="detail-prop">
+							<div class="detail-prop-label">Route</div>
+							<div class="detail-prop-value">{{ selectedExchange.routeId }}</div>
+						</div>
+						<div v-if="selectedExchange.exceptionType" class="detail-prop">
+							<div class="detail-prop-label">Exception</div>
+							<div class="detail-prop-value">
+								<strong>{{ selectedExchange.exceptionType }}</strong><br>
+								<span class="muted">{{ selectedExchange.exceptionMessage }}</span>
+							</div>
+						</div>
+					</div>
+
+					<div class="detail-section-header">Execution Path</div>
+					<div class="detail-section-body">
+						<div v-if="!exchangeStepRows || exchangeStepRows.length === 0" class="detail-prop-value muted">
+							No steps recorded
+						</div>
+						<div v-else class="step-timeline">
+							<template v-for="row in exchangeStepRows" :key="row.key">
+								<div v-if="row.kind === 'gap'" class="step-row step-gap"
+									:title="'Gap of ' + row.gapMs + ' ms before next step'">
+									<div class="step-order"><i class="bi bi-exclamation-triangle"></i></div>
+									<div class="step-uri">{{ row.gapMs }} ms gap</div>
+									<div class="step-bar">
+										<div class="step-bar-fill step-bar-gap"
+											:style="row.barStyle"></div>
+									</div>
+									<div class="step-time">{{ row.gapMs }} ms</div>
+								</div>
+								<div v-else class="step-row">
+									<div class="step-order">{{ row.step.order }}</div>
+									<div class="step-uri" :title="row.step.endpointUri || ''">{{ stepLabel(row.step) }}</div>
+									<div class="step-bar">
+										<div class="step-bar-fill" :style="row.barStyle"></div>
+									</div>
+									<div class="step-time">{{ row.step.timeTaken }} ms</div>
+								</div>
+							</template>
+						</div>
+					</div>
+
+					<div class="detail-section-header">Headers</div>
+					<div class="detail-section-body">
+						<div v-if="!exchangeHeaders.length" class="detail-prop-value muted">No headers</div>
+						<div v-else class="bpm-var-list">
+							<div v-for="h in exchangeHeaders" :key="h.name" class="bpm-var-item">
+								<div class="bpm-var-header">
+									<span class="bpm-var-name">{{ h.name }}</span>
+									<span v-if="h.type === 'Date'" class="bpm-tz-badge">{{ localTZ }}</span>
+									<span class="bpm-type-badge">{{ h.type }}</span>
+								</div>
+								<div class="bpm-var-value" :class="{ muted: h.value === '—' }">{{ h.type === 'Date' ? formatTime(h.value) : h.value }}</div>
+							</div>
+						</div>
+					</div>
+
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- =================================================================
+	     Bottom Status Bar (translucent) — left side shows counts that
+	     depend on the current left-pane mode:
+	       - search mode  : history list count (or truncation / loading)
+	       - manage mode  : deployed route count
+	     ================================================================= -->
+	<div class="status-bar window-drag-region">
+		<div class="status-group">
+			<template v-if="rawJsonVisible">
+				<span class="nav-spacer"></span>
+			</template>
+			<template v-else-if="leftMode === 'manage'">
+				<span class="status-item">{{ routes.length }} route(s)</span>
+			</template>
+			<template v-else>
+				<span v-if="historyLoading" class="status-item">
+					<i class="bi bi-arrow-repeat spin me-1"></i>Loading…
+				</span>
+				<span v-else-if="historyTruncated" class="status-item">
+					Showing {{ historyEdges.length }} of more than {{ historyMaxRows }} exchanges
+				</span>
+				<span v-else class="status-item">
+					{{ historyEdges.length }} of {{ historyTotalCount }} exchange(s)
+				</span>
+			</template>
+		</div>
+		<span class="nav-spacer"></span>
+	</div>
+
+	<!-- =================================================================
+	     Dialogs (header / body / footer common form)
+	     ================================================================= -->
+
+	<!-- Route control confirmation (Start / Stop / Suspend / Resume) -->
+	<div v-if="dialog && dialog.kind === 'routeAction'" class="dialog-overlay">
+		<div class="dialog-frame" style="max-width: 28rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3>
+							<i class="bi" :class="dialog.icon"></i>
+							{{ dialog.title }}
+						</h3>
+						<button class="btn-icon" @click="closeDialog"><i class="bi bi-x-lg"></i></button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p>{{ dialog.message }}</p>
+					<p v-if="dialog.hint" class="dialog-help-text">{{ dialog.hint }}</p>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt" @click="closeDialog" :disabled="dialog.busy">Cancel</button>
+					<button class="wt" :class="dialog.confirmClass"
+						:disabled="dialog.busy"
+						@click="executeRouteAction">
+						<span v-if="dialog.busy"><i class="bi bi-hourglass-split"></i> Working…</span>
+						<span v-else>{{ dialog.confirmLabel }}</span>
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- =================================================================
+	     RAW JSON viewer — full-screen CodeMirror overlay (read-only)
+	     ================================================================= -->
+	<div v-if="rawJsonVisible" class="cm-expanded-overlay">
+		<div class="cm-expanded-toolbar">
+			<span class="cm-expanded-title">Raw JSON</span>
+			<div class="cm-expanded-actions">
+				<button class="wt wt-outlined wt-slim fs-small" @click="openCmSearch" title="Find (Ctrl+F)">
+					<i class="bi bi-search me-1"></i><span>Find</span>
+				</button>
+				<button class="wt wt-outlined wt-slim fs-small" @click="closeRawJsonViewer" title="Close (Esc)">
+					<i class="bi bi-fullscreen-exit me-1"></i><span>Close</span>
+				</button>
+			</div>
+		</div>
+		<!-- Custom Find bar (no Replace) -->
+		<div v-if="cmSearchVisible" class="cm-search-bar" :class="{ 'cm-search-not-found': cmSearchNotFound }">
+			<div class="cm-search-row">
+				<div class="input-group cm-search-input-group">
+					<input id="cm-search-input" type="text" v-model="cmSearchTerm"
+						@input="onCmSearchInput" @keydown="onCmSearchKeydown"
+						placeholder="Find" spellcheck="false">
+					<div class="input-group-actions">
+						<button class="input-group-btn" :class="{ active: cmSearchCaseSensitive }"
+							@click="toggleCmSearchCaseSensitive" title="Match case">Aa</button>
+						<button class="input-group-btn" :class="{ active: cmSearchWholeWord }"
+							@click="toggleCmSearchWholeWord" title="Whole word">ab</button>
+						<button class="input-group-btn" :class="{ active: cmSearchRegex }"
+							@click="toggleCmSearchRegex" title="Regex">.*</button>
+					</div>
+				</div>
+				<button class="btn-icon" @click="cmFindPrev" title="Previous (Shift+Enter)">
+					<i class="bi bi-chevron-up"></i>
+				</button>
+				<button class="btn-icon" @click="cmFindNext" title="Next (Enter)">
+					<i class="bi bi-chevron-down"></i>
+				</button>
+				<button class="btn-icon ms-auto" @click="closeCmSearch" title="Close (Esc)">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</div>
+		<div class="cm-expanded-body">
+			<div id="cm-editor-expanded" class="cm-editor-expanded"></div>
+		</div>
+	</div>
+
+	<!-- Error message dialog -->
+	<div v-if="dialog && dialog.kind === 'errorMessage'" class="dialog-overlay dialog-overlay-message">
+		<div class="dialog-frame" style="max-width: 32rem;">
+			<div class="island p-2">
+				<div class="dialog-header">
+					<div class="dialog-header-top">
+						<h3><i class="bi bi-exclamation-triangle text-danger"></i> Error</h3>
+						<button class="btn-icon" @click="closeDialog"><i class="bi bi-x-lg"></i></button>
+					</div>
+				</div>
+				<div class="dialog-body">
+					<p>{{ dialog.message }}</p>
+				</div>
+				<div class="dialog-footer">
+					<button class="wt wt-primary" @click="closeDialog">OK</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+</div>
+
+<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+</html>

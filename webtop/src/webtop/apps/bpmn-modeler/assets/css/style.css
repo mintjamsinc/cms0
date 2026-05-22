@@ -1,0 +1,1768 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * BPMN Modeler — design tokens & layout
+ *
+ * Theme tokens / shared components live in webtop-app.css. This file only
+ * adds the editor-specific colors, the 3-pane layout (palette / canvas /
+ * properties), and all BPMN-specific SVG shape / connection styles.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--statusbar-height: 1.75rem;
+}
+
+:root[data-theme="light"] {
+	/* BPMN-specific tokens */
+	--canvas-bg: #fafafa;
+	--canvas-grid-color: #e0e0e0;
+	--palette-section-bg: #f5f5f5;
+	--element-fill: #ffffff;
+	--element-stroke: #333333;
+	--element-selected-stroke: #0078d7;
+	--element-hover-stroke: #666666;
+	--connection-stroke: #333333;
+	--connection-selected-stroke: #0078d7;
+}
+
+:root[data-theme="dark"] {
+	/* BPMN-specific tokens */
+	--canvas-bg: #252526;
+	--canvas-grid-color: #3c3c3c;
+	--palette-section-bg: rgba(255, 255, 255, 0.04);
+	--element-fill: #2d2d2d;
+	--element-stroke: #333333;
+	--element-selected-stroke: #0078d7;
+	--element-hover-stroke: #666666;
+	--connection-stroke: #cccccc;
+	--connection-selected-stroke: #4ea1f0;
+}
+
+/* ----------------------------------------------------------------------------
+ * Layout — top toolbar, content body (3-pane), status bar
+ * -------------------------------------------------------------------------- */
+
+#app {
+	height: 100%;
+}
+
+/* Top toolbar (translucent, extends to window edges) */
+nav.nav-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 1rem 1.5rem 0.75rem;
+	color: var(--navbar-color) !important;
+	white-space: nowrap;
+	overflow: visible;
+	user-select: none;
+	position: relative;
+	z-index: 10;
+}
+
+.nav-spacer {
+	flex: 1;
+	min-width: 1rem;
+}
+
+.toolbar-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.5rem;
+	background-color: var(--window-controls-bg);
+	border: 1px solid var(--window-controls-border-color);
+	border-radius: 9999px;
+}
+
+/* Content body — 3 panes */
+.content-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	position: relative;
+	gap: 0.25rem;
+}
+
+/* Sidebar (left pane: palette) */
+.sidebar-panel {
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+	flex-shrink: 0;
+	min-width: 14rem;
+}
+
+.sidebar-panel-content {
+	display: flex;
+	flex-direction: column;
+}
+
+.sidebar-resize-handle {
+	width: 4px;
+	cursor: col-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 2;
+	transition: background-color 0.15s;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+	background-color: var(--element-selected-stroke);
+}
+
+/* Sidebar sections (collapsible headers, Content Browser style) */
+.sidebar-section {
+	margin-bottom: 0.25rem;
+}
+
+.sidebar-section-header {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.25rem 0;
+	cursor: pointer;
+	user-select: none;
+	color: var(--text-soft-color);
+	transition: color 0.15s;
+	line-height: 1;
+
+	&:hover {
+		color: var(--primary-color);
+	}
+
+	i {
+		font-size: 0.75em;
+		flex-shrink: 0;
+	}
+}
+
+.sidebar-section-body {
+	padding-bottom: 0.25rem;
+}
+
+/* Center pane (canvas) */
+.content-main {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* File tabs — header inside the center pane */
+.file-tabs-bar {
+	flex-shrink: 0;
+	height: var(--navbar-height);
+	background-color: var(--navbar-bg);
+	border-bottom: 1px solid var(--navbar-border-color);
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+}
+
+.file-tabs {
+	display: flex;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	padding: 0 0.5rem;
+	gap: 0.25rem;
+}
+
+.file-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+.file-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.125rem 0.75rem;
+	border: 1px solid transparent;
+	border-right-color: var(--navbar-border-color);
+	border-radius: 9999px;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	white-space: nowrap;
+	user-select: none;
+	transition: background-color 0.15s, color 0.15s;
+}
+
+.file-tab:not(.active):hover {
+	background-color: var(--item-hover-bg);
+	color: var(--text-color);
+}
+
+.file-tab.active {
+	color: var(--nav-current-color);
+	background-color: var(--nav-current-bg);
+	border-color: var(--nav-current-border-color);
+}
+
+.file-tab.active:hover {
+	background-color: var(--nav-current-hover-bg);
+}
+
+.file-tab-name {
+	max-width: 14rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.file-tab .modified-dot {
+	color: var(--primary-color);
+	font-size: 0.5rem;
+	line-height: 1;
+}
+
+.file-tab-close {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1rem;
+	height: 1rem;
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	border-radius: 9999px;
+	opacity: 0;
+	padding: 0;
+	transition: opacity 0.15s, background-color 0.15s;
+}
+
+.file-tab:hover .file-tab-close,
+.file-tab.active .file-tab-close {
+	opacity: 1;
+}
+
+.file-tab-close:hover {
+	background-color: var(--btn-icon-hover-bg);
+}
+
+.file-tab-add {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	border: none;
+	background: transparent;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	border-radius: 9999px;
+	flex-shrink: 0;
+}
+
+.file-tab-add:hover {
+	background-color: var(--btn-icon-hover-bg);
+	color: var(--text-color);
+}
+
+/* Right pane (properties) */
+.detail-resize-handle {
+	width: 4px;
+	cursor: col-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 2;
+	transition: background-color 0.15s;
+}
+
+.detail-resize-handle:hover,
+.detail-resize-handle:active {
+	background-color: var(--element-selected-stroke);
+}
+
+.detail-panel {
+	display: flex;
+	flex-direction: column;
+	user-select: text;
+	flex-shrink: 0;
+	position: relative;
+	min-width: 16rem;
+}
+
+.detail-panel-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-shrink: 0;
+	height: var(--navbar-height);
+	padding: 0 1rem;
+	background-color: var(--navbar-bg);
+	color: var(--navbar-color);
+	border-bottom: 1px solid var(--navbar-border-color);
+	white-space: nowrap;
+	user-select: none;
+	z-index: 1;
+}
+
+.detail-panel-title {
+	font-weight: 700;
+	font-size: 1em;
+}
+
+.properties-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 1rem;
+}
+
+.detail-panel-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	padding: 1.5rem;
+	color: var(--text-muted-color);
+	text-align: center;
+	gap: 0.5rem;
+}
+
+.detail-panel-empty i {
+	font-size: 2rem;
+	opacity: 0.5;
+}
+
+/* Bottom status bar (translucent, extends to window edges) */
+.status-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: var(--statusbar-height);
+	margin-bottom: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 0 1rem;
+	color: var(--navbar-color);
+	font-size: 11px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.status-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.status-item {
+	padding: 0 0.5rem;
+}
+
+.status-divider {
+	width: 1px;
+	height: 0.875rem;
+	background-color: var(--text-muted-color);
+	opacity: 0.5;
+}
+
+/* ----------------------------------------------------------------------------
+ * Palette (inside sidebar-panel)
+ * -------------------------------------------------------------------------- */
+
+.palette-items {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	padding: 0.25rem 0;
+}
+
+.palette-item {
+	width: 42px;
+	height: 42px;
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.375rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: grab;
+	background-color: var(--palette-section-bg);
+	transition: border-color 0.15s, background-color 0.15s;
+}
+
+.palette-item:hover {
+	border-color: var(--element-selected-stroke);
+	background-color: var(--item-hover-bg);
+}
+
+.palette-item:active {
+	cursor: grabbing;
+}
+
+.palette-item svg {
+	width: 28px;
+	height: 28px;
+}
+
+/* ----------------------------------------------------------------------------
+ * Canvas
+ * -------------------------------------------------------------------------- */
+
+.canvas-container {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+	background-color: var(--canvas-bg);
+}
+
+/* Space-held: show grab cursor as a hint that left-drag will pan. */
+.canvas-container.pan-mode {
+	cursor: grab;
+}
+.canvas-container.panning,
+.canvas-container.pan-mode.panning {
+	cursor: grabbing;
+}
+
+.canvas-svg {
+	width: 100%;
+	height: 100%;
+	display: block;
+}
+
+.canvas-grid {
+	pointer-events: none;
+}
+
+/* BPMN Elements */
+.bpmn-element {
+	cursor: move;
+}
+
+.bpmn-element:hover .element-shape {
+	stroke: var(--element-hover-stroke);
+}
+
+.bpmn-element.selected .element-shape {
+	stroke: var(--element-selected-stroke);
+	stroke-width: 2;
+}
+
+.bpmn-element.selected {
+	filter: drop-shadow(0 0 3px var(--element-selected-stroke));
+}
+
+.element-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+/* Sprite-driven canvas icons. Symbols use currentColor for fill/stroke,
+   so the icon color is set here (and overridden per element type). */
+.element-icon, .event-icon, .task-icon, .gateway-icon, .collection-marker {
+	color: var(--element-stroke);
+	pointer-events: none;
+}
+
+.element-label {
+	font-size: 11px;
+	fill: var(--text-color);
+	text-anchor: middle;
+	dominant-baseline: middle;
+	pointer-events: none;
+}
+
+.task-label-text {
+	font-size: 11px;
+	color: var(--text-color);
+	text-align: center;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	line-height: 1.3;
+}
+
+.event-label {
+	font-size: 11px;
+	fill: var(--text-color);
+	text-anchor: middle;
+	dominant-baseline: hanging;
+	pointer-events: all;
+	cursor: pointer;
+}
+
+.event-label-text {
+	font-size: 11px;
+	color: var(--text-color);
+	text-align: center;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	line-height: 1.3;
+	pointer-events: all;
+	cursor: pointer;
+}
+
+.gateway-label {
+	font-size: 11px;
+	fill: var(--text-color);
+	text-anchor: start;
+	dominant-baseline: middle;
+	pointer-events: all;
+	cursor: pointer;
+}
+
+/* Event styles */
+.event-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+}
+
+.start-event .event-shape {
+	stroke-width: 1.5;
+}
+
+.end-event .event-shape {
+	stroke-width: 3;
+}
+
+/* Task styles */
+.task-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+	rx: 8;
+	ry: 8;
+}
+
+/* Gateway styles */
+.gateway-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+/* Element Type-Specific Colors */
+.start-event .event-shape {
+	fill: #27AE60;
+	stroke: #1E8449;
+}
+/* Start event: green body, white icon. */
+.start-event .event-icon {
+	color: white;
+}
+
+.end-event .event-shape {
+	fill: #E74C3C;
+	stroke: #C0392B;
+}
+/* End event: red body, white icon (filled shapes via currentColor). */
+.end-event .event-icon {
+	color: white;
+}
+
+.intermediate-event .event-shape {
+	fill: #E67E22;
+	stroke: #D35400;
+}
+.intermediate-event circle:not(.element-shape):not(.connection-point) {
+	stroke: white;
+}
+/* Intermediate event: orange body, white icon. The throw-envelope fold
+   uses --icon-accent (matches body fill via theme variable, so the
+   fold blends into the envelope as it did with the inline rendering). */
+.intermediate-event .event-icon {
+	color: white;
+	--icon-accent: var(--element-fill);
+}
+
+.boundary-event .event-shape {
+	fill: #E67E22;
+	stroke: #D35400;
+}
+.boundary-event circle:not(.element-shape):not(.connection-point) {
+	stroke: white;
+}
+/* Boundary event: orange body, white icon. */
+.boundary-event .event-icon {
+	color: white;
+}
+
+.user-task .task-shape {
+	fill: #3498DB;
+	stroke: #2980B9;
+}
+.user-task .element-icon {
+	color: white;
+}
+.user-task .task-label-text {
+	color: white;
+}
+
+.service-task .task-shape {
+	fill: #8E44AD;
+	stroke: #6C3483;
+}
+.service-task .element-icon {
+	color: white;
+}
+.service-task .task-label-text {
+	color: white;
+}
+
+.script-task .task-shape {
+	fill: #2C3E6E;
+	stroke: #1A2540;
+}
+.script-task .element-icon {
+	color: white;
+}
+.script-task .task-label-text {
+	color: white;
+}
+
+.manual-task .task-shape {
+	fill: #16A085;
+	stroke: #0E6655;
+}
+.manual-task .element-icon {
+	color: white;
+}
+.manual-task .task-label-text {
+	color: white;
+}
+
+.send-task .task-shape {
+	fill: #FF6633;
+	stroke: #CC4422;
+}
+/* Send task: white envelope on orange body, with the fold drawn in
+   the body color. --icon-accent drives the fold stroke in the symbol. */
+.send-task .element-icon {
+	color: white;
+	--icon-accent: #FF6633;
+}
+.send-task .task-label-text {
+	color: white;
+}
+
+.receive-task .task-shape {
+	fill: #C0602B;
+	stroke: #8B4513;
+}
+.receive-task .element-icon {
+	color: white;
+}
+.receive-task .task-label-text {
+	color: white;
+}
+
+.business-rule-task .task-shape {
+	fill: #F39C12;
+	stroke: #D68910;
+}
+.business-rule-task .element-icon {
+	color: white;
+}
+.business-rule-task .task-label-text {
+	color: white;
+}
+
+.call-activity .task-shape {
+	fill: #2C3E50;
+	stroke: #1A252F;
+}
+.call-activity .task-label-text {
+	color: white;
+}
+
+.generic-task .task-shape {
+	fill: #6C7A89;
+	stroke: #4B5562;
+}
+.generic-task .task-label-text {
+	color: white;
+}
+
+.exclusive-gateway .gateway-shape,
+.parallel-gateway .gateway-shape,
+.inclusive-gateway .gateway-shape,
+.event-based-gateway .gateway-shape,
+.complex-gateway .gateway-shape {
+	fill: #FFCC00;
+	stroke: #CC9900;
+}
+
+/* Gateway icon markers — dark brown on yellow body, applied to the
+   sprite <use> via currentColor. */
+.exclusive-gateway .gateway-icon,
+.parallel-gateway .gateway-icon,
+.inclusive-gateway .gateway-icon,
+.event-based-gateway .gateway-icon,
+.complex-gateway .gateway-icon {
+	color: #664400;
+}
+
+/* Sub-Process styles */
+.subprocess-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+.subprocess-header-label {
+	font-size: 12px;
+	font-weight: bold;
+	fill: var(--text-color);
+}
+
+.event-subprocess .task-shape,
+.event-subprocess .subprocess-shape {
+	stroke-dasharray: 5, 3;
+}
+
+.transaction-subprocess .task-shape,
+.transaction-subprocess .subprocess-shape {
+	stroke-width: 2;
+}
+
+.expand-marker rect,
+.collapse-marker rect {
+	cursor: pointer;
+}
+
+.collapse-marker rect:hover {
+	fill: var(--item-hover-bg);
+}
+
+.resize-handle {
+	fill: var(--element-selected-stroke);
+	stroke: var(--element-fill);
+	stroke-width: 1;
+	cursor: nwse-resize;
+}
+
+/* ----------------------------------------------------------------------------
+ * Connections
+ * -------------------------------------------------------------------------- */
+
+.bpmn-connection {
+	cursor: pointer;
+}
+
+.bpmn-connection:hover .connection-line {
+	stroke: var(--element-hover-stroke);
+}
+
+.bpmn-connection.selected .connection-line {
+	stroke: var(--connection-selected-stroke);
+	stroke-width: 2;
+}
+
+.connection-line {
+	fill: none;
+	stroke: var(--connection-stroke);
+	stroke-width: 1.5;
+}
+
+.connection-hit-area {
+	fill: none;
+	stroke: transparent;
+	stroke-width: 12;
+	cursor: pointer;
+}
+
+.connection-label {
+	font-size: 11px;
+	fill: var(--text-color);
+	text-anchor: middle;
+	dominant-baseline: middle;
+	pointer-events: all;
+	cursor: pointer;
+}
+
+.draggable-label {
+	cursor: move;
+}
+
+.draggable-label:hover {
+	fill: var(--element-selected-stroke);
+	color: var(--element-selected-stroke);
+}
+
+.label-foreign-object {
+	overflow: visible;
+	pointer-events: none;
+}
+
+.gateway-label-text {
+	font-size: 11px;
+	color: var(--text-color);
+	text-align: right;
+	word-wrap: break-word;
+	overflow-wrap: break-word;
+	line-height: 1.3;
+	cursor: move;
+	pointer-events: all;
+}
+
+.connection-label-text {
+	font-size: 11px;
+	color: var(--text-color);
+	text-align: center;
+	word-wrap: break-word;
+	overflow-wrap: break-word;
+	line-height: 1.3;
+	cursor: move;
+	pointer-events: all;
+}
+
+.label-resize-handle {
+	fill: transparent;
+	stroke: none;
+	cursor: ew-resize;
+	pointer-events: all;
+}
+
+.label-resize-handle:hover {
+	fill: var(--element-selected-stroke);
+	opacity: 0.5;
+}
+
+.gateway-label-group:hover .label-resize-handle,
+.connection-label-group:hover .label-resize-handle {
+	fill: var(--element-selected-stroke);
+	opacity: 0.3;
+}
+
+.connection-arrow {
+	fill: var(--connection-stroke);
+	stroke: none;
+}
+
+.bpmn-connection.selected .connection-arrow {
+	fill: var(--connection-selected-stroke);
+}
+
+/* Selection rectangle */
+.selection-rect {
+	fill: rgb(from var(--element-selected-stroke) r g b / 0.1);
+	stroke: var(--element-selected-stroke);
+	stroke-width: 1;
+	stroke-dasharray: 4 2;
+}
+
+/* Connection preview */
+.connection-preview {
+	stroke: var(--element-selected-stroke);
+	stroke-width: 2;
+	stroke-dasharray: 5 3;
+	fill: none;
+	pointer-events: none;
+}
+
+/* Reconnect handles */
+.reconnect-handle {
+	fill: var(--element-fill);
+	stroke: var(--element-selected-stroke);
+	stroke-width: 2;
+	cursor: move;
+	transition: fill 0.15s;
+}
+
+.reconnect-handle:hover {
+	fill: var(--element-selected-stroke);
+}
+
+.reconnect-preview {
+	pointer-events: none;
+}
+
+/* Bend-point handles on selected connections */
+.bend-handle {
+	fill: var(--element-fill, #fff);
+	stroke: var(--element-selected-stroke, #1976d2);
+	stroke-width: 1.5;
+	cursor: move;
+	transition: fill 0.15s;
+}
+
+.bend-handle:hover {
+	fill: var(--element-selected-stroke, #1976d2);
+}
+
+/* Connection points */
+.connection-point {
+	fill: var(--element-selected-stroke);
+	stroke: var(--element-fill);
+	stroke-width: 1;
+	cursor: crosshair;
+	opacity: 0;
+	r: 5;
+	transition: opacity 0.15s, fill 0.15s;
+}
+
+.bpmn-element:hover .connection-point,
+.bpmn-element.selected .connection-point {
+	opacity: 1;
+}
+
+.bpmn-element.connection-target .connection-point {
+	opacity: 1;
+}
+
+.bpmn-element.connection-target .connection-point:hover {
+	fill: #27AE60;
+	r: 7;
+}
+
+/* Drag preview */
+.drag-preview {
+	position: fixed;
+	pointer-events: none;
+	opacity: 0.7;
+	z-index: 1000;
+}
+
+/* Data Object / Data Store */
+.data-object-shape,
+.data-store-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+.data-label {
+	font-size: 11px;
+	text-anchor: middle;
+	fill: var(--text-color);
+}
+
+.data-association .connection-line {
+	stroke-dasharray: 5, 3;
+}
+
+/* Text Annotation */
+.text-annotation .annotation-shape {
+	fill: none;
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+.text-annotation:hover .annotation-shape,
+.text-annotation.selected .annotation-shape {
+	stroke: var(--element-selected-stroke);
+}
+
+.annotation-text {
+	color: var(--text-color);
+	font-family: inherit;
+	font-size: 11px;
+	line-height: 1.3;
+	word-wrap: break-word;
+	white-space: pre-wrap;
+	overflow: hidden;
+	padding: 2px;
+	height: 100%;
+	box-sizing: border-box;
+}
+
+.annotation-textarea {
+	resize: vertical;
+	min-height: 60px;
+}
+
+.association .connection-line {
+	stroke-dasharray: 3, 3;
+}
+
+/* Pool / Lane */
+.pool-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 2px;
+}
+
+.pool-header {
+	fill: var(--palette-section-bg);
+	stroke: var(--element-stroke);
+	stroke-width: 1px;
+}
+
+.pool-label {
+	font-size: 14px;
+	font-weight: bold;
+	fill: var(--text-color);
+}
+
+.lane-area {
+	fill: transparent;
+	stroke: none;
+}
+
+.lane-area.selected {
+	stroke: var(--element-selected-stroke);
+	stroke-width: 2px;
+	stroke-dasharray: 5, 3;
+}
+
+.lane-header {
+	fill: var(--palette-section-bg);
+	stroke: none;
+	cursor: pointer;
+}
+
+.lane-header:hover {
+	fill: var(--item-hover-bg);
+}
+
+.lane-label {
+	font-size: 11px;
+	fill: var(--text-color);
+}
+
+.resize-handle-vertical {
+	fill: var(--element-stroke);
+	cursor: ns-resize;
+	opacity: 0.3;
+}
+
+.resize-handle-vertical:hover {
+	opacity: 0.6;
+}
+
+.lane-resize-handle {
+	fill: transparent;
+	cursor: ns-resize;
+}
+
+.lane-resize-handle:hover {
+	fill: rgb(from var(--element-selected-stroke) r g b / 0.3);
+}
+
+.add-lane-btn-bg {
+	fill: #4CAF50;
+	cursor: pointer;
+}
+
+.add-lane-btn-bg:hover {
+	fill: #45a049;
+}
+
+.add-lane-btn-text {
+	font-size: 11px;
+	fill: white;
+	pointer-events: none;
+}
+
+/* ----------------------------------------------------------------------------
+ * Type Change Menu (wrench popover)
+ * -------------------------------------------------------------------------- */
+
+.type-change-action {
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 0.2s;
+}
+
+.bpmn-element.selected .type-change-action {
+	opacity: 1;
+}
+
+.type-change-action .action-button {
+	fill: var(--element-selected-stroke);
+	stroke: var(--element-fill);
+	stroke-width: 1.5;
+	cursor: pointer;
+}
+
+.type-change-action .action-button:hover {
+	fill: var(--element-hover-stroke);
+}
+
+.type-change-action .action-icon {
+	color: white;
+	pointer-events: none;
+}
+
+.type-change-menu {
+	position: absolute;
+	z-index: 1000;
+	min-width: 180px;
+	background-color: var(--body-bg);
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.375rem;
+	box-shadow: var(--island-shadow);
+	overflow: hidden;
+	animation: menu-fade-in 0.15s ease-out;
+}
+
+@keyframes menu-fade-in {
+	from { opacity: 0; transform: translateY(-4px); }
+	to   { opacity: 1; transform: translateY(0); }
+}
+
+.type-change-header {
+	padding: 0.5rem 0.75rem;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-muted-color);
+	background-color: var(--palette-section-bg);
+	border-bottom: 1px solid var(--navbar-border-color);
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+}
+
+.type-change-options {
+	max-height: 300px;
+	overflow-y: auto;
+}
+
+.type-change-option {
+	display: flex;
+	align-items: center;
+	padding: 0.375rem 0.5rem;
+	cursor: pointer;
+	transition: background-color 0.15s;
+	gap: 0.5rem;
+}
+
+.type-change-option:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.type-change-option.active {
+	background-color: var(--item-selected-bg);
+}
+
+.type-option-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	color: var(--element-stroke);
+}
+
+.type-option-icon svg {
+	display: block;
+}
+
+.type-option-label {
+	flex: 1;
+	font-size: 13px;
+	color: var(--text-color);
+}
+
+.type-option-check {
+	color: var(--element-selected-stroke);
+	font-size: 1rem;
+}
+
+.event-icon {
+	pointer-events: none;
+}
+
+/* ----------------------------------------------------------------------------
+ * Reference combobox (Message / Signal / Error / Escalation)
+ *
+ * Display mode: bordered, clickable text. Click switches to edit mode where
+ * a text input is shown with confirm/cancel buttons; existing definitions
+ * are surfaced as suggestions in a shell-rendered popup. Mirrors the MIME
+ * type editor pattern in Content Browser.
+ * -------------------------------------------------------------------------- */
+
+.wt-ref-display {
+	box-sizing: border-box;
+	width: 100%;
+	display: block;
+	padding: 0.3rem 0.5rem;
+	border: 2px solid var(--input-border-color);
+	border-radius: 0.5rem;
+	background-color: var(--input-bg);
+	color: inherit;
+	cursor: pointer;
+	text-align: left;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	transition: background-color 0.15s, border-color 0.15s;
+}
+
+.wt-ref-display:hover {
+	border-color: var(--input-focus-border-color);
+	background-color: var(--item-hover-bg);
+}
+
+.wt-ref-display.placeholder {
+	opacity: 0.5;
+}
+
+/* ----------------------------------------------------------------------------
+ * Definition management dialog (Message / Signal / Error / Escalation)
+ * Body shows a borderless table of name / (code) / reference count / delete.
+ * -------------------------------------------------------------------------- */
+
+.management-table {
+	border-collapse: collapse;
+	font-size: 13px;
+}
+
+.management-table th {
+	padding: 0.25rem 0.5rem;
+	font-size: 12px;
+	font-weight: normal;
+	color: var(--text-soft-color);
+	border-bottom: 1px solid var(--navbar-border-color);
+	text-align: left;
+}
+
+.management-table td {
+	padding: 0.25rem 0.5rem;
+	border-bottom: 1px solid var(--navbar-border-color);
+	vertical-align: middle;
+}
+
+.management-table .management-cell-name {
+	word-break: break-word;
+}
+
+.management-table .management-cell-code {
+	color: var(--text-soft-color);
+	width: 8rem;
+}
+
+.management-table .management-cell-num {
+	width: 6rem;
+	text-align: right;
+}
+
+.management-table .management-cell-action {
+	width: 2.5rem;
+	text-align: right;
+}
+
+/* ----------------------------------------------------------------------------
+ * Notification dialog
+ * Info / Success severities don't have global utility classes yet, so define
+ * them locally. Warning and Error reuse webtop-utilities .text-warning /
+ * .text-danger.
+ * -------------------------------------------------------------------------- */
+
+.notification-icon-info {
+	color: var(--info-color);
+}
+
+.notification-icon-success {
+	/* Match the green family used elsewhere in BPMN diagrams (success-state). */
+	color: rgb(34 139 34);
+}
+
+.notification-message {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* ----------------------------------------------------------------------------
+ * Properties panel content (inside .properties-body)
+ * -------------------------------------------------------------------------- */
+
+.property-tabs {
+	display: flex;
+	border-bottom: 1px solid var(--navbar-border-color);
+	margin-bottom: 0.75rem;
+}
+
+.property-tab {
+	padding: 0.5rem 0.75rem;
+	font-size: 12px;
+	color: var(--text-muted-color);
+	background-color: transparent;
+	border: none;
+	border-bottom: 2px solid transparent;
+	cursor: pointer;
+	transition: color 0.15s, border-color 0.15s;
+	white-space: nowrap;
+}
+
+.property-tab:hover {
+	color: var(--text-color);
+}
+
+.property-tab.active {
+	color: var(--element-selected-stroke);
+	border-bottom-color: var(--element-selected-stroke);
+}
+
+.property-tab-content {
+	padding: 0;
+}
+
+.property-group {
+	margin-bottom: 1rem;
+}
+
+.property-group-title {
+	font-weight: 700;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--text-soft-color);
+	margin-bottom: 0.5rem;
+}
+
+.property-subsection {
+	margin-top: 0.5rem;
+	padding-top: 0.5rem;
+	border-top: 1px solid var(--navbar-border-color);
+}
+
+.property-subsection-title {
+	display: flex;
+	align-items: center;
+	font-weight: 500;
+	font-size: 11px;
+	color: var(--text-soft-color);
+	margin: 0.75rem 0 0.5rem 0;
+}
+
+.property-row {
+	margin-bottom: 0.75rem;
+}
+
+.property-label {
+	display: block;
+	font-size: 12px;
+	color: var(--text-soft-color);
+	margin-bottom: 0.25rem;
+}
+
+.property-value {
+	display: block;
+	padding: 0.375rem 0.5rem;
+	color: var(--text-color);
+	background-color: var(--palette-section-bg);
+	border-radius: 0.25rem;
+	font-size: 13px;
+}
+
+.checkbox-group {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+}
+
+.checkbox-inline {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	font-size: 12px;
+	color: var(--text-color);
+	cursor: pointer;
+}
+
+.checkbox-inline input[type="checkbox"] {
+	cursor: pointer;
+}
+
+.property-checkbox {
+	display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.property-checkbox input[type="checkbox"] {
+	margin: 0;
+}
+
+/* Listener / property list */
+.listener-list,
+.property-list {
+	margin-bottom: 0.75rem;
+}
+
+.listener-item,
+.property-item {
+	background-color: var(--palette-section-bg);
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.25rem;
+	margin-bottom: 0.5rem;
+	padding: 0.5rem;
+}
+
+.listener-item-header,
+.property-item-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 0.5rem;
+}
+
+.listener-item-title,
+.property-item-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-color);
+}
+
+.btn-remove-item {
+	background: none;
+	border: none;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	padding: 0.25rem;
+	font-size: 13px;
+	line-height: 1;
+	border-radius: 0.25rem;
+}
+
+.btn-remove-item:hover {
+	color: var(--danger-color);
+	background-color: var(--btn-icon-hover-bg);
+}
+
+.listener-item-fields,
+.property-item-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+}
+
+.listener-item-row,
+.property-item-row {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+}
+
+.listener-item-row .wt,
+.property-item-row .wt {
+	flex: 1;
+	font-size: 12px;
+	padding: 0.25rem 0.375rem;
+}
+
+.btn-add-item {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.375rem;
+	width: 100%;
+	padding: 0.5rem;
+	font-size: 12px;
+	color: var(--element-selected-stroke);
+	background-color: transparent;
+	border: 1px dashed var(--navbar-border-color);
+	border-radius: 0.25rem;
+	cursor: pointer;
+	transition: background-color 0.2s, border-color 0.2s;
+}
+
+.btn-add-item:hover {
+	background-color: var(--item-hover-bg);
+	border-color: var(--element-selected-stroke);
+}
+
+.btn-add-item i {
+	font-size: 13px;
+}
+
+.listener-script-textarea {
+	width: 100%;
+	min-height: 4rem;
+	font-family: 'Cascadia Code', 'Fira Code', monospace;
+	font-size: 12px;
+	padding: 0.375rem;
+	border: 1px solid var(--input-border-color);
+	border-radius: 0.25rem;
+	background-color: var(--body-bg);
+	color: var(--text-color);
+	resize: vertical;
+}
+
+.listener-script-textarea:focus {
+	outline: none;
+	border-color: var(--element-selected-stroke);
+}
+
+.list-empty,
+.empty-list-hint {
+	color: var(--text-muted-color);
+	font-size: 12px;
+	font-style: italic;
+	padding: 0.25rem 0;
+}
+
+.list-empty {
+	text-align: center;
+	padding: 1rem;
+	border: 1px dashed var(--navbar-border-color);
+	border-radius: 0.25rem;
+	margin-bottom: 0.5rem;
+}
+
+.field-injections-section {
+	margin-top: 0.5rem;
+	padding: 0.5rem;
+	background-color: var(--body-bg);
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.25rem;
+}
+
+.field-injection-item {
+	background-color: var(--palette-section-bg);
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.25rem;
+	margin-bottom: 0.375rem;
+	padding: 0.375rem;
+}
+
+.field-injection-item:last-child {
+	margin-bottom: 0;
+}
+
+.field-injection-row {
+	display: flex;
+	gap: 0.25rem;
+	margin-bottom: 0.375rem;
+	align-items: center;
+}
+
+.field-injection-row .field-name { flex: 1; min-width: 0; }
+.field-injection-row .field-type { width: 100px; flex-shrink: 0; }
+.field-injection-row .field-value { flex: 2; min-width: 0; }
+
+.btn-add-small {
+	padding: 0.125rem 0.5rem;
+	font-size: 12px;
+	cursor: pointer;
+	background-color: var(--palette-section-bg);
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.25rem;
+	color: var(--text-color);
+	margin-left: auto;
+}
+
+.btn-add-small:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.btn-remove {
+	padding: 0.125rem 0.375rem;
+	font-size: 13px;
+	cursor: pointer;
+	background-color: transparent;
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.25rem;
+	color: var(--text-muted-color);
+	flex-shrink: 0;
+}
+
+.btn-remove:hover {
+	background-color: rgb(from var(--danger-color) r g b / 0.1);
+	border-color: var(--danger-color);
+	color: var(--danger-color);
+}
+
+/* Connector parameter row */
+.connector-param-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+	margin-bottom: 0.5rem;
+	padding: 0.5rem;
+	background: var(--palette-section-bg);
+	border-radius: 0.25rem;
+	align-items: flex-start;
+}
+
+.connector-param-row .param-name { flex: 1; min-width: 80px; }
+.connector-param-row .param-type { width: 70px; flex-shrink: 0; }
+.connector-param-row .param-script-format { width: 90px; flex-shrink: 0; }
+
+.connector-param-row .param-value-wrapper {
+	flex: 2;
+	min-width: 120px;
+	display: flex;
+}
+
+.connector-param-row .param-value-wrapper .param-value {
+	flex: 1;
+}
+
+.connector-param-row .param-script-wrapper {
+	flex-basis: 100%;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+	margin-top: 0.25rem;
+}
+
+.connector-param-row .param-script-wrapper .param-value {
+	flex-basis: 100%;
+	min-height: 3rem;
+	resize: vertical;
+}
+
+/* ----------------------------------------------------------------------------
+ * Loading / error overlays (match Content Browser / Text Editor)
+ * -------------------------------------------------------------------------- */
+
+.loading-overlay,
+.error-overlay {
+	position: absolute;
+	inset: 1rem;
+	background-color: var(--body-bg);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	color: var(--text-color);
+	border-radius: 1rem;
+	box-shadow: var(--island-shadow);
+	z-index: 1000;
+}
+
+/* Data Object styles */
+.data-object-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+/* Data Store styles */
+.data-store-shape {
+	fill: var(--element-fill);
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+/* Data label styles */
+.data-label {
+	font-size: 11px;
+	text-anchor: middle;
+	fill: var(--text-color);
+}
+
+/* Data Association (dashed connection line) */
+.data-association .connection-line {
+	stroke-dasharray: 5, 3;
+}
+
+/* Text Annotation styles */
+.text-annotation .annotation-shape {
+	fill: none;
+	stroke: var(--element-stroke);
+	stroke-width: 1.5;
+}
+
+.text-annotation:hover .annotation-shape,
+.text-annotation.selected .annotation-shape {
+	stroke: var(--element-selected-stroke);
+}
+
+.annotation-text {
+	color: var(--text-color);
+	font-family: inherit;
+	font-size: 11px;
+	line-height: 1.3;
+	word-wrap: break-word;
+	white-space: pre-wrap;
+	overflow: hidden;
+	padding: 2px;
+	height: 100%;
+	box-sizing: border-box;
+}
+
+/* Annotation textarea in property panel */
+.annotation-textarea {
+	resize: vertical;
+	min-height: 60px;
+}
+
+/* Association connection (dotted line, no arrow) */
+.association .connection-line {
+	stroke-dasharray: 3, 3;
+}
+
+/* ===== Drop Overlay ===== */
+.drop-overlay {
+	position: absolute;
+	inset: 0;
+	background-color: var(--panel-bg);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 900;
+}
+
+.drop-zone {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 400px;
+	height: 300px;
+	border: 2px dashed var(--panel-border-color);
+	border-radius: 1rem;
+	box-shadow: var(--island-shadow);
+	z-index: 1000;
+}
+
+/* Spin animation for status bar saving indicator */
+.spin {
+	animation: spin-icon 1s linear infinite;
+	display: inline-block;
+}
+
+@keyframes spin-icon {
+	from { transform: rotate(0deg); }
+	to { transform: rotate(360deg); }
+}
+
+/* ----------------------------------------------------------------------------
+ * Save As dialog chip
+ * -------------------------------------------------------------------------- */
+
+.save-as-chip-area {
+	text-align: center;
+}
+
+.save-as-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 1rem;
+	background-color: var(--item-hover-bg);
+	border: 2px dashed var(--input-border-color);
+	border-radius: 9999px;
+	cursor: grab;
+	font-weight: 600;
+	transition: border-color 0.15s, background-color 0.15s;
+}
+
+.save-as-chip:hover {
+	border-color: var(--primary-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.08);
+}
+
+.save-as-chip:active {
+	cursor: grabbing;
+}
+
+/* ----------------------------------------------------------------------------
+ * Utility helpers
+ * -------------------------------------------------------------------------- */
+
+.fs-2 { font-size: 1.5rem !important; }

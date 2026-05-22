@@ -1,0 +1,97 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * OSGi Console — design tokens & layout
+ *
+ * Theme tokens / shared components live in webtop-app.css. This file only
+ * adds the single-pane translucent-window layout used by the app.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--statusbar-height: 1rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Layout — top toolbar, content body, status bar
+ * -------------------------------------------------------------------------- */
+
+[v-cloak] {
+	display: none;
+}
+
+#app {
+	height: 100%;
+}
+
+/* Top toolbar (translucent, extends to window edges) */
+nav.nav-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 1rem 1.5rem 0.75rem;
+	color: var(--navbar-color) !important;
+	white-space: nowrap;
+	overflow: visible;
+	user-select: none;
+	position: relative;
+	z-index: 10;
+}
+
+.nav-spacer {
+	flex: 1;
+	min-width: 1rem;
+}
+
+/* Content body — single pane */
+.content-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	position: relative;
+	gap: 0.25rem;
+}
+
+.content-main {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	padding: 0;
+}
+
+/* Bottom status bar (translucent, extends to window edges, empty — used as window drag handle) */
+.status-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: var(--statusbar-height);
+	margin-bottom: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 0 1rem;
+	color: var(--navbar-color);
+	font-size: 11px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+/* ----------------------------------------------------------------------------
+ * Console iframe — fills the island with no margin
+ * -------------------------------------------------------------------------- */
+
+.console-frame {
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+	border: 0;
+	margin: 0;
+	padding: 0;
+	background-color: var(--body-bg);
+	display: block;
+}
