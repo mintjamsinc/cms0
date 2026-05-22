@@ -1,0 +1,28 @@
+# Allow-list approach: ignore everything by default, then re-include only
+# what `docker/Dockerfile` actually needs from the build context.
+#
+# This keeps the build context small and prevents accidental inclusion of
+# source trees, IDE state, secrets, or other workspace files in the image.
+
+**
+
+# Pre-built Felix runtime (laid down by the build pipeline before `docker build`).
+!felix-dist/
+
+# Container packaging files referenced by the Dockerfile.
+!docker/Dockerfile
+!docker/entrypoint.sh
+!docker/THIRD_PARTY_LICENSES.md
+!docker/initial-repository/
+!docker/initial-repository/**
+
+# Defensive overrides: never include these even if a future allow-list entry
+# would otherwise pull them in.
+**/.git
+**/.gitignore
+**/.DS_Store
+**/Thumbs.db
+**/.vscode/
+**/.idea/
+**/*.log
+**/node_modules/
