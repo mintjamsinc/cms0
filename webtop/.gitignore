@@ -71,7 +71,6 @@ vdom.min.js
 # Markdown files (except README.md and documents/)
 *.md
 !README.md
-!documents/*.md
 
 # Test directory
 tests/
