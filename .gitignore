@@ -28,3 +28,8 @@ hs_err_pid*
 
 # IntelliJ IDEA settings
 .idea/
+
+# Docker build output: assembled Felix runtime (third-party JARs + project
+# bundles). Treated as a build artifact, not a source — distributed via the
+# DockerHub image rather than committed.
+/felix-dist/
