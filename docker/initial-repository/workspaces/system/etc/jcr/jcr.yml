@@ -1,0 +1,20 @@
+defaultNodes:
+  - path: /
+    primaryType: mi:root
+    acl:
+      - group: everyone
+        privileges: jcr:read, jcr:readAccessControl, jcr:lockManagement, jcr:versionManagement, jcr:nodeTypeManagement
+        effect: allow
+      - user: anonymous
+        privileges: jcr:all
+        effect: deny
+
+search:
+    suggestion:
+        propertyKeys: mi:suggestions
+
+security:
+    filters: [
+        { path: /content/public/*, user: anonymous, type: publicAccess },
+        { path: /content/WEB-INF/*, user: anonymous, type: publicAccess }
+        ]

@@ -1,0 +1,51 @@
+# Example compose file for the MintJams CMS container.
+#
+# Build:
+#   1. Build the Felix distribution (bundles + config) into ./felix-dist
+#      relative to the project root.
+#   2. From the project root, run:
+#        docker compose -f docker/docker-compose.yml build
+#        docker compose -f docker/docker-compose.yml up -d
+#
+# Volumes:
+#   cms-repository  - all JCR data, etc/*.yml, sp-keystore.p12, idp-keystore.p12
+#   cms-secrets     - the encryption master key (separate volume so it can be
+#                     backed up independently)
+
+services:
+  cms:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mintjams/cms:dev
+    container_name: cms
+    restart: unless-stopped
+    environment:
+      # External URL — drives SP rootURL, IdP baseUrl, and all derived URLs.
+      CMS_PUBLIC_BASE_URL: "http://localhost:8080"
+      # Path to the encryption master key. Keep on a dedicated volume.
+      MINTJAMS_CMS_SECRET_KEY_PATH: "/data/secrets/secret-key.yml"
+      # Optional: set the initial admin password explicitly instead of having
+      # one generated. When unset, a random password is generated on first boot
+      # and written to /data/repository/INITIAL_PASSWORD.txt (mode 0600).
+      # CMS_INITIAL_ADMIN_PASSWORD: "change-me-on-first-login"
+      # Optional: pin the SP / IdP keystore passwords. When unset, random
+      # passwords are generated on first boot and written to
+      # /data/repository/{SP,IDP}_KEYSTORE_PASSWORD.txt (mode 0600). Stored
+      # AES-encrypted in etc/saml2.yml / etc/idp.yml either way.
+      # CMS_SP_KEYSTORE_PASSWORD: ""
+      # CMS_IDP_KEYSTORE_PASSWORD: ""
+    ports:
+      - "8080:8080"
+    volumes:
+      - cms-repository:/data/repository
+      - cms-secrets:/data/secrets
+    # /opt/felix/tmp is for short-lived scratch files (uploads, expansions).
+    # Backing it with tmpfs keeps temp data off persistent storage and makes
+    # I/O faster. Resize if your workload writes large temp files.
+    tmpfs:
+      - /opt/felix/tmp:size=512m,mode=0700
+
+volumes:
+  cms-repository:
+  cms-secrets:

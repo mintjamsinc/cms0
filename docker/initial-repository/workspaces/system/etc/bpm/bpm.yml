@@ -1,0 +1,1 @@
+{jdbcURL: 'jdbc:h2:${workspace.home}/var/bpm/data'}

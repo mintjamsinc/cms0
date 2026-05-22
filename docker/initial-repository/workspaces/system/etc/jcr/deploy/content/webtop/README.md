@@ -1,0 +1,1 @@
+Copy the contents of webtop/dist/webtop/** here.
