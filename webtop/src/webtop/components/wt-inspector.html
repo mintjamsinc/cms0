@@ -1,0 +1,1282 @@
+<template id="wt-inspector">
+	<!--
+	  The Inspector custom element. The host renders an outer
+	  `.detail-resize-handle` and passes the resolved target plus a
+	  minimal API surface; everything below is self-contained.
+
+	  REFERENCE/WEAKREFERENCE/BINARY drop zones inside this panel use their
+	  own @drop.stop + @dragover.stop, so those inner drops bypass the
+	  panel-level forbidden handler via bubble-phase stopPropagation.
+	-->
+	<div class="detail-panel island p-0"
+		:style="width ? { width: width + 'px' } : null"
+		@mounted.stop="onMounted"
+		@unmount.stop="onUnmount"
+		@dragover.prevent.stop @drop.prevent.stop>
+
+		<!-- Panel Header -->
+		<div class="detail-panel-header">
+			<span class="detail-panel-title">Inspector</span>
+		</div>
+
+		<!-- Regular Inspector view (hidden while any sub-view overlay is open) -->
+		<template v-if="!detailVersionHistoryVisible && !detailACLEditorVisible && !detailPropertyEditorVisible">
+
+		<!-- No Selection State -->
+		<div v-if="!singleTarget && multiTargets.length === 0" class="detail-panel-empty">
+			<i class="bi bi-cursor-text"></i>
+			<span>Select an item to view details</span>
+		</div>
+
+		<!-- Multi-Selection State -->
+		<div v-else-if="multiTargets.length > 1" class="detail-panel-multi">
+			<i class="bi bi-collection"></i>
+			<span>{{ multiTargets.length }} items selected</span>
+			<div class="detail-panel-multi-summary">
+				<span v-if="selectedFolderCount > 0">{{ selectedFolderCount }} folder(s)</span>
+				<span v-if="selectedFileCount > 0">{{ selectedFileCount }} file(s)</span>
+				<span v-if="selectedTotalSize > 0">{{ displayTotalSize }}</span>
+			</div>
+		</div>
+
+		<!-- Single Selection State -->
+		<div v-else class="detail-panel-content">
+
+			<!-- Section 1: Preview (no header) -->
+			<div class="detail-preview-area">
+				<img v-if="isSelectedItemImage" :src="selectedItemPreviewURL"
+					class="detail-preview-image" @error="onPreviewImageError" />
+				<div v-else class="detail-preview-icon">
+					<i :class="[getFileIcon(singleTarget), getFileIconClass(singleTarget), 'detail-preview-icon-large']"></i>
+					<span class="detail-preview-type">{{ displayType(singleTarget) }}</span>
+				</div>
+			</div>
+
+			<!-- Section 2: Basic Info -->
+			<div class="detail-section-header">Info</div>
+
+			<div class="detail-section-body">
+				<div class="detail-section">
+					<div class="detail-label">Name</div>
+					<div class="detail-value text-break">{{ singleTarget.name }}</div>
+				</div>
+
+				<div class="detail-section">
+					<div class="detail-label">Type</div>
+					<!-- MIME type inline editor (suggestions popup is shown by the shell) -->
+					<div v-if="mimeTypeEditing" class="mime-type-editor">
+						<div class="input-group">
+							<input type="text" v-model="mimeTypeInput" class="mime-type-editor-input"
+								@input="updateMimeTypeSuggestions"
+								@keydown="handleMimeTypeKeydown"
+								:disabled="mimeTypeSaving"
+								placeholder="e.g. text/plain" />
+							<div class="input-group-actions">
+								<button class="input-group-btn" @click="confirmMimeTypeEdit"
+									:disabled="mimeTypeSaving || !mimeTypeInput.trim()"
+									title="Confirm">
+									<i class="bi bi-check-lg"></i>
+								</button>
+								<button class="input-group-btn" @click="cancelMimeTypeEdit"
+									:disabled="mimeTypeSaving" title="Cancel">
+									<i class="bi bi-x-lg"></i>
+								</button>
+							</div>
+						</div>
+					</div>
+					<!-- Display mode -->
+					<div v-else class="detail-value mime-type-clickable"
+						:class="{ 'mime-type-disabled': singleTarget.isCollection }"
+						@click="startMimeTypeEdit"
+						:title="singleTarget.isCollection ? '' : 'Click to change MIME type'">
+						{{ displayType(singleTarget) }}
+					</div>
+				</div>
+
+				<div v-if="!singleTarget.isCollection" class="detail-section">
+					<div class="detail-label">Encoding</div>
+					<!-- Encoding inline editor (suggestions popup is shown by the shell) -->
+					<div v-if="encodingEditing" class="mime-type-editor">
+						<div class="input-group">
+							<input type="text" v-model="encodingInput" class="mime-type-editor-input encoding-editor-input"
+								@input="updateEncodingSuggestions"
+								@keydown="handleEncodingKeydown"
+								:disabled="encodingSaving"
+								placeholder="e.g. UTF-8" />
+							<div class="input-group-actions">
+								<button class="input-group-btn" @click="confirmEncodingEdit"
+									:disabled="encodingSaving"
+									title="Confirm">
+									<i class="bi bi-check-lg"></i>
+								</button>
+								<button class="input-group-btn" @click="cancelEncodingEdit"
+									:disabled="encodingSaving" title="Cancel">
+									<i class="bi bi-x-lg"></i>
+								</button>
+							</div>
+						</div>
+					</div>
+					<!-- Display mode -->
+					<div v-else class="detail-value mime-type-clickable"
+						@click="startEncodingEdit"
+						title="Click to change encoding">
+						<span v-if="singleTarget.encoding">{{ displayEncoding(singleTarget) }}</span>
+						<span v-else class="text-muted">&mdash;</span>
+					</div>
+				</div>
+
+				<div class="detail-section">
+					<div class="detail-label">Size</div>
+					<div v-if="!singleTarget.isCollection" class="detail-value">{{ displaySize(singleTarget) }}</div>
+					<div v-else class="detail-muted-value">&mdash;</div>
+				</div>
+
+				<div class="detail-section">
+					<div class="detail-label">Path</div>
+					<div class="detail-value text-break d-flex align-items-start" style="word-break: break-all;">
+						<span class="flex-grow-1">{{ singleTarget.path }}</span>
+						<button class="detail-inline-btn ms-1 flex-shrink-0" @click="copyPathToClipboard(event)" title="Copy path">
+							<i class="bi bi-clipboard"></i>
+						</button>
+					</div>
+				</div>
+
+				<div class="detail-section">
+					<div class="detail-label">Created</div>
+					<div class="detail-value">{{ formatDetailDate(singleTarget.created) }}</div>
+					<div class="detail-value">{{ singleTarget.createdByDisplayName || singleTarget.createdBy || '—' }}</div>
+				</div>
+
+				<div class="detail-section">
+					<div class="detail-label">Modified</div>
+					<div class="detail-value">{{ formatDetailDate(singleTarget.lastModified) }}</div>
+					<div class="detail-value">{{ singleTarget.lastModifiedByDisplayName || singleTarget.lastModifiedBy || '—' }}</div>
+				</div>
+
+				<div class="detail-section">
+					<div class="detail-label">Lock Status</div>
+					<div class="detail-value">
+						<span v-if="singleTarget.isLocked" class="detail-status-badge detail-status-locked">
+							<i class="bi bi-lock-fill me-1"></i>Locked by {{ singleTarget.lockInfo?.lockOwner }}
+						</span>
+						<span v-else class="text-muted">&mdash;</span>
+					</div>
+				</div>
+
+				<div v-if="singleTarget.isVersionable" class="detail-section">
+					<div class="detail-label">Version</div>
+					<div class="detail-value">
+						<span>{{ displayVersion(singleTarget) }}</span>
+						<button class="detail-inline-btn ms-1" @click="showDetailVersionHistory" title="Version History">
+							<i class="bi bi-clock-history"></i>
+						</button>
+						<span v-if="singleTarget.isCheckedOut" class="detail-status-badge detail-status-checkedout ms-1">
+							Checked Out
+						</span>
+					</div>
+				</div>
+
+				<div class="detail-section">
+					<div class="detail-label">Referenceable</div>
+					<div class="detail-value">
+						<span v-if="singleTarget.isReferenceable">Yes <small class="text-muted ms-1">(UUID: {{ singleTarget.id }})</small></span>
+						<span v-else class="text-muted">No</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- Section 3: Properties -->
+			<div class="detail-section-header">
+				Properties
+				<button class="detail-section-header-btn ms-auto" @click="showDetailPropertyEditor" title="Edit Properties">
+					<i class="bi bi-pencil"></i>
+				</button>
+			</div>
+
+			<div class="detail-section-body">
+				<div v-if="detailPropertiesLoading" class="detail-section text-center py-3">
+					<span class="spinner-border spinner-border-sm"></span>
+				</div>
+				<div v-else-if="detailProperties.length === 0" class="detail-section text-muted small">
+					No custom properties
+				</div>
+				<template v-else>
+					<!-- Schema selector -->
+					<div v-if="availableSchemas.length > 0" class="schema-selector">
+						<div class="wt-select detail-schema-dropdown">
+							<button type="button" class="wt-select-trigger" @click.stop="openDetailSchemaDropdown(event)">
+								<span class="wt-select-value" :class="{placeholder: !selectedSchemaKey}">
+									{{ detailSchemaLabel() || '— No schema —' }}
+								</span>
+								<i class="bi bi-chevron-down wt-select-chevron"></i>
+							</button>
+						</div>
+					</div>
+
+					<!-- Property filter -->
+					<div class="property-filter">
+						<input type="text" class="wt w-100" v-model="detailPropertiesFilter" placeholder="Filter properties...">
+					</div>
+
+					<!-- Schema view: schema-ordered properties + extras -->
+					<div v-if="selectedSchemaKey && filteredSchemaDisplayProperties.schemaProps.length + filteredSchemaDisplayProperties.extraProps.length > 0" class="custom-properties">
+						<div v-for="prop in filteredSchemaDisplayProperties.schemaProps" :key="'s_' + prop.name" class="detail-section">
+							<div class="detail-label detail-prop-label">
+								<span class="detail-prop-name">{{ prop.schemaLabel }}</span>
+								<div class="detail-prop-badges">
+									<span v-if="prop.type === 'DATE'" class="prop-tz-badge">{{ localTZ }}</span>
+									<span class="prop-type-badge">{{ prop.isArray ? prop.type + '[]' : prop.type }}</span>
+								</div>
+							</div>
+							<!-- Format error -->
+							<div v-if="prop.formatError" class="detail-value schema-format-error" :title="prop.formatError">
+								<i class="bi bi-exclamation-triangle-fill"></i> {{ prop.formatError }}
+							</div>
+							<!-- Formatted value from display format -->
+							<div v-else-if="prop.formattedValue != null" class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': !prop.formattedValue }">{{ prop.formattedValue || '—' }}</div>
+							<!-- Choice labels (array) -->
+							<div v-else-if="prop.choiceLabels" class="prop-value-date-list">
+								<div v-for="(lbl, idx) in prop.choiceLabels" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !lbl }">{{ lbl || '—' }}</div>
+								<span v-if="prop.choiceLabels.length === 0" class="detail-muted-value">—</span>
+							</div>
+							<!-- Choice label (single) -->
+							<div v-else-if="prop.choiceLabel" class="detail-value text-break text-clamp-4">{{ prop.choiceLabel }}</div>
+							<!-- Binary array property -->
+							<div v-else-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
+								<div v-for="(mime, idx) in prop.mimeTypes" :key="idx" class="prop-binary-container">
+									<div v-if="prop.isImages[idx] && prop.propertyDownloadURLs[idx]" class="prop-binary-preview">
+										<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
+									</div>
+									<div v-else class="prop-binary-icon">
+										<i class="bi bi-file-earmark"></i>
+										<span class="prop-binary-mime">{{ mime }}</span>
+									</div>
+									<div class="prop-binary-info">
+										<span class="prop-binary-size">{{ prop.sizesFormatted[idx] }}</span>
+										<a v-if="prop.propertyDownloadURLs[idx]" :href="prop.propertyDownloadURLs[idx] + '&attachment=true'" class="prop-binary-download" title="Download">
+											<i class="bi bi-download"></i>
+										</a>
+									</div>
+								</div>
+								<span v-if="prop.mimeTypes.length === 0" class="detail-muted-value">—</span>
+							</div>
+							<!-- Binary single property -->
+							<div v-else-if="prop.type === 'BINARY'" class="prop-binary-container">
+								<div v-if="prop.isImage && prop.propertyDownloadURL" class="prop-binary-preview">
+									<img :src="prop.propertyDownloadURL" class="prop-binary-preview-image" />
+								</div>
+								<div v-else class="prop-binary-icon">
+									<i class="bi bi-file-earmark"></i>
+									<span class="prop-binary-mime">{{ prop.mimeType }}</span>
+								</div>
+								<div class="prop-binary-info">
+									<span class="prop-binary-size">{{ prop.sizeFormatted }}</span>
+									<a v-if="prop.propertyDownloadURL" :href="prop.propertyDownloadURL + '&attachment=true'" class="prop-binary-download" title="Download">
+										<i class="bi bi-download"></i>
+									</a>
+								</div>
+							</div>
+							<div v-else-if="prop.isArray" class="prop-value-date-list">
+								<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ item || '—' }}</div>
+								<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
+							</div>
+							<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ (prop.value === '' || prop.value == null) ? '—' : prop.value }}</div>
+						</div>
+						<!-- Extra properties not in schema -->
+						<div v-if="filteredSchemaDisplayProperties.extraProps.length > 0" class="custom-properties">
+							<div class="detail-section schema-extra-divider">
+								<span class="text-muted small">Other properties</span>
+							</div>
+							<div v-for="prop in filteredSchemaDisplayProperties.extraProps" :key="'e_' + prop.name" class="detail-section">
+								<div class="detail-label detail-prop-label">
+									<span class="detail-prop-name">{{ prop.name }}</span>
+									<div class="detail-prop-badges">
+										<span v-if="prop.type === 'DATE'" class="prop-tz-badge">{{ localTZ }}</span>
+										<span class="prop-type-badge">{{ prop.isArray ? prop.type + '[]' : prop.type }}</span>
+									</div>
+								</div>
+								<div v-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
+									<div v-for="(mime, idx) in prop.mimeTypes" :key="idx" class="prop-binary-container">
+										<div v-if="prop.isImages[idx] && prop.propertyDownloadURLs[idx]" class="prop-binary-preview">
+											<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
+										</div>
+										<div v-else class="prop-binary-icon">
+											<i class="bi bi-file-earmark"></i>
+											<span class="prop-binary-mime">{{ mime }}</span>
+										</div>
+										<div class="prop-binary-info">
+											<span class="prop-binary-size">{{ prop.sizesFormatted[idx] }}</span>
+											<a v-if="prop.propertyDownloadURLs[idx]" :href="prop.propertyDownloadURLs[idx] + '&attachment=true'" class="prop-binary-download" title="Download">
+												<i class="bi bi-download"></i>
+											</a>
+										</div>
+									</div>
+									<span v-if="prop.mimeTypes.length === 0" class="detail-muted-value">—</span>
+								</div>
+								<div v-else-if="prop.type === 'BINARY'" class="prop-binary-container">
+									<div v-if="prop.isImage && prop.propertyDownloadURL" class="prop-binary-preview">
+										<img :src="prop.propertyDownloadURL" class="prop-binary-preview-image" />
+									</div>
+									<div v-else class="prop-binary-icon">
+										<i class="bi bi-file-earmark"></i>
+										<span class="prop-binary-mime">{{ prop.mimeType }}</span>
+									</div>
+									<div class="prop-binary-info">
+										<span class="prop-binary-size">{{ prop.sizeFormatted }}</span>
+										<a v-if="prop.propertyDownloadURL" :href="prop.propertyDownloadURL + '&attachment=true'" class="prop-binary-download" title="Download">
+											<i class="bi bi-download"></i>
+										</a>
+									</div>
+								</div>
+								<div v-else-if="prop.isArray" class="prop-value-date-list">
+									<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ item || '—' }}</div>
+									<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
+								</div>
+								<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ (prop.value === '' || prop.value == null) ? '—' : prop.value }}</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Default view: no schema selected -->
+					<div v-else class="custom-properties">
+						<div v-for="prop in filteredDetailProperties" :key="prop.name" class="detail-section">
+							<div class="detail-label detail-prop-label">
+								<span class="detail-prop-name">{{ prop.name }}</span>
+								<div class="detail-prop-badges">
+									<span v-if="prop.type === 'DATE'" class="prop-tz-badge">{{ localTZ }}</span>
+									<span class="prop-type-badge">{{ prop.isArray ? prop.type + '[]' : prop.type }}</span>
+								</div>
+							</div>
+							<!-- Binary array property: multiple previews -->
+							<div v-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
+								<div v-for="(mime, idx) in prop.mimeTypes" :key="idx" class="prop-binary-container">
+									<div v-if="prop.isImages[idx] && prop.propertyDownloadURLs[idx]" class="prop-binary-preview">
+										<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
+									</div>
+									<div v-else class="prop-binary-icon">
+										<i class="bi bi-file-earmark"></i>
+										<span class="prop-binary-mime">{{ mime }}</span>
+									</div>
+									<div class="prop-binary-info">
+										<span class="prop-binary-size">{{ prop.sizesFormatted[idx] }}</span>
+										<a v-if="prop.propertyDownloadURLs[idx]" :href="prop.propertyDownloadURLs[idx] + '&attachment=true'" class="prop-binary-download" title="Download">
+											<i class="bi bi-download"></i>
+										</a>
+									</div>
+								</div>
+								<span v-if="prop.mimeTypes.length === 0" class="detail-muted-value">—</span>
+							</div>
+							<!-- Binary single property: preview + download -->
+							<div v-else-if="prop.type === 'BINARY'" class="prop-binary-container">
+								<div v-if="prop.isImage && prop.propertyDownloadURL" class="prop-binary-preview">
+									<img :src="prop.propertyDownloadURL" class="prop-binary-preview-image" />
+								</div>
+								<div v-else class="prop-binary-icon">
+									<i class="bi bi-file-earmark"></i>
+									<span class="prop-binary-mime">{{ prop.mimeType }}</span>
+								</div>
+								<div class="prop-binary-info">
+									<span class="prop-binary-size">{{ prop.sizeFormatted }}</span>
+									<a v-if="prop.propertyDownloadURL" :href="prop.propertyDownloadURL + '&attachment=true'" class="prop-binary-download" title="Download">
+										<i class="bi bi-download"></i>
+									</a>
+								</div>
+							</div>
+							<div v-else-if="prop.isArray" class="prop-value-date-list">
+								<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ item || '—' }}</div>
+								<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
+							</div>
+							<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ (prop.value === '' || prop.value == null) ? '—' : prop.value }}</div>
+						</div>
+					</div>
+				</template>
+			</div>
+
+			<!-- Section 4: Quick Actions -->
+			<div class="detail-section-header">Actions</div>
+
+			<div class="detail-section-body">
+				<div class="detail-section">
+					<button class="wt wt-primary w-100" @click="emitOpenItem(singleTarget)">
+						<i class="bi me-1" :class="singleTarget.isCollection ? 'bi-folder2-open' : 'bi-box-arrow-up-right'"></i>
+						{{ singleTarget.isCollection ? 'Open Folder' : 'Open File' }}
+					</button>
+				</div>
+			</div>
+
+			<!-- Section 5: Access Control -->
+			<div class="detail-section-header">
+				Access Control
+				<button class="detail-section-header-btn ms-auto" @click="showDetailACLEditor" title="Edit Permissions">
+					<i class="bi bi-pencil"></i>
+				</button>
+			</div>
+
+			<div class="detail-section-body">
+				<div v-if="detailACLLoading" class="detail-section text-center py-3">
+					<span class="spinner-border spinner-border-sm"></span>
+				</div>
+				<div v-else-if="detailACL.length === 0" class="detail-section text-muted small">
+					No access control policies
+				</div>
+				<template v-else>
+					<div v-for="policy in detailACL" :key="policy.path" class="detail-acl-policy">
+						<div class="detail-acl-path">
+							<i class="bi bi-folder me-1"></i>
+							<span class="text-break">{{ policy.path }}</span>
+							<button class="detail-inline-btn ms-auto" @click="emitNavigatePath(policy.path)" title="Navigate to folder">
+								<i class="bi bi-box-arrow-up-right"></i>
+							</button>
+						</div>
+						<div class="detail-acl">
+							<div v-for="entry in policy.entries" :key="entry.principal.id" class="detail-acl-entry">
+								<div class="detail-acl-principal">
+									<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id }}
+								</div>
+								<div class="detail-acl-privileges">
+									<span v-for="p in entry.privileges" :key="p" class="badge" :class="entry.allow ? 'acl-badge-allow' : 'acl-badge-deny'">
+										<i class="bi me-1" :class="entry.allow ? 'bi-check-circle' : 'bi-x-circle'"></i>
+										<span>{{ p }}</span>
+									</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				</template>
+			</div>
+		</div>
+
+		</template>
+
+		<!-- Version History view (replaces Inspector content) -->
+		<div v-if="detailVersionHistoryVisible" class="detail-overlay">
+			<div class="detail-overlay-header">
+				<button class="detail-overlay-back-btn" @click="closeDetailVersionHistory" title="Back">
+					<i class="bi bi-arrow-left"></i>
+				</button>
+				<span class="detail-overlay-title">
+					<i class="bi bi-clock-history me-1"></i>Version History
+				</span>
+			</div>
+
+			<!-- No selection or multi-selection -->
+			<div v-if="!singleTarget && multiTargets.length === 0" class="detail-overlay-body text-center text-muted py-4">
+				<i class="bi bi-cursor-text d-block mb-2" style="font-size: 2rem; opacity: 0.5;"></i>
+				Select an item to view version history.
+			</div>
+			<div v-else-if="multiTargets.length > 1" class="detail-overlay-body text-center text-muted py-4">
+				<i class="bi bi-collection d-block mb-2" style="font-size: 2rem; opacity: 0.5;"></i>
+				Version history is not available for multiple items.
+			</div>
+
+			<!-- Single selection: not versionable -->
+			<div v-else-if="versionHistoryDialog.item && !versionHistoryDialog.item.isVersionable" class="detail-overlay-body">
+				<div class="mb-2">
+					<span>{{ versionHistoryDialog.item.name }}</span>
+				</div>
+				<div class="text-muted py-3">
+					<i class="bi bi-info-circle me-1"></i>This item is not under version control.
+				</div>
+			</div>
+
+			<!-- Single selection: versionable -->
+			<div v-else-if="versionHistoryDialog.item" class="detail-overlay-body">
+				<div class="mb-2">
+					<span>{{ versionHistoryDialog.item.name }}</span>
+				</div>
+				<div v-if="versionHistoryDialog.isLoading && versionHistoryDialog.versions.length === 0" class="text-center py-4">
+					<span class="spinner-border spinner-border-sm me-2"></span>Loading...
+				</div>
+				<div v-else-if="versionHistoryDialog.versions.length > 0" class="content-list p-0">
+					<table class="wt w-100">
+						<thead>
+							<tr>
+								<th>Version</th>
+								<th>Created</th>
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="version in versionHistoryDialog.versions" :key="version.name" class="item item-on-hover" :class="{ 'version-current': isCurrentVersion(version.name) }">
+								<td class="text-center">{{ version.name }}</td>
+								<td class="text-center">
+									<div>{{ formatVersionDate(version.created) }}</div>
+									<div>{{ version.createdBy }}</div>
+								</td>
+								<td class="text-center">
+									<span v-if="isCurrentVersion(version.name)" class="version-current-badge">Current</span>
+									<button v-else-if="version.name !== 'jcr:rootVersion'" class="wt wt-primary wt-slim" @click="restoreVersion(version.name)" :disabled="versionHistoryDialog.isLoading">
+										<span>Restore</span>
+									</button>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+				<div v-else-if="!versionHistoryDialog.isLoading" class="text-muted py-3">
+					No versions found.
+				</div>
+				<div v-if="versionHistoryDialog.errorMessage" class="text-danger mt-2">
+					<i class="bi bi-exclamation-circle me-1"></i>{{ versionHistoryDialog.errorMessage }}
+				</div>
+			</div>
+		</div>
+
+		<!-- ACL Editor view (replaces Inspector content) -->
+		<div v-if="detailACLEditorVisible" class="detail-overlay">
+			<div class="detail-overlay-header">
+				<button class="detail-overlay-back-btn" @click="closeDetailACLEditor" title="Back">
+					<i class="bi bi-arrow-left"></i>
+				</button>
+				<span class="detail-overlay-title">
+					<i class="bi bi-shield-lock me-1"></i>Permissions
+				</span>
+			</div>
+
+			<!-- No selection -->
+			<div v-if="!singleTarget && multiTargets.length === 0" class="detail-overlay-body text-center text-muted py-4">
+				<i class="bi bi-cursor-text d-block mb-2" style="font-size: 2rem; opacity: 0.5;"></i>
+				Select an item to view permissions.
+			</div>
+			<!-- Multi-selection -->
+			<div v-else-if="multiTargets.length > 1" class="detail-overlay-body text-center text-muted py-4">
+				<i class="bi bi-collection d-block mb-2" style="font-size: 2rem; opacity: 0.5;"></i>
+				Permissions are not available for multiple items.
+			</div>
+
+			<div v-else class="detail-overlay-body">
+				<div v-if="aclDialog.isLoading && aclDialog.effectivePolicies.length === 0" class="text-center py-4">
+					<span class="spinner-border spinner-border-sm me-2"></span>Loading...
+				</div>
+				<div v-else-if="aclDialog.effectivePolicies.length > 0 || !aclDialog.isLoading">
+					<!-- Current item's own ACL section (uses pendingEntries) -->
+					<div class="acl-policy-section">
+						<div class="detail-acl-path">
+							<i class="bi bi-folder me-1"></i>
+							<span class="text-break">{{ aclDialog.item.path }}</span>
+							<span v-if="aclHasChanges" class="badge bg-warning text-dark ms-auto" style="font-size: 0.7em;">unsaved</span>
+						</div>
+						<div v-if="aclDialog.pendingEntries.length > 0" class="detail-acl">
+							<div v-for="entry in aclDialog.pendingEntries" :key="(entry.principal.id || entry.principal)" class="detail-acl-entry">
+								<div class="detail-acl-principal d-flex align-items-center">
+									<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id || entry.principal }}
+									<button class="filter-input-clear-sm ms-auto" @click="deleteAclEntry(entry.principal.id || entry.principal)" :disabled="aclDialog.isLoading || aclDialog.isSaving" title="Delete">
+										<i class="bi bi-x"></i>
+									</button>
+								</div>
+								<div class="detail-acl-privileges">
+									<span v-for="priv in entry.privileges" :key="priv" class="badge" :class="entry.allow ? 'acl-badge-allow' : 'acl-badge-deny'">{{ priv }}</span>
+								</div>
+							</div>
+						</div>
+						<div v-else class="text-muted py-2 ps-3 small">No permissions have been set.</div>
+						<div v-if="!aclDialog.addEntry.visible" class="my-3">
+							<button class="wt wt-primary wt-outlined" @click="showAddAclEntryDialog">
+								<i class="bi bi-plus-circle me-1"></i>Add a permission entry
+							</button>
+						</div>
+					</div>
+
+					<!-- Add ACL Entry Form (between current and inherited) -->
+					<div v-if="aclDialog.addEntry.visible" class="acl-add-entry-form">
+						<div class="fw-bold mb-2">
+							<i class="bi bi-plus-circle me-1"></i>Add Permission
+						</div>
+
+						<div class="mb-2">
+							<label class="filter-label">Effect</label>
+							<div class="d-flex gap-2">
+								<label class="acl-effect-option acl-badge-allow">
+									<input type="radio" :value="true" v-model="aclDialog.addEntry.allow">
+									Allow
+								</label>
+								<label class="acl-effect-option acl-badge-deny">
+									<input type="radio" :value="false" v-model="aclDialog.addEntry.allow">
+									Deny
+								</label>
+							</div>
+						</div>
+
+						<div class="mb-2">
+							<label class="filter-label">Principal</label>
+							<div class="position-relative">
+								<input type="text"
+									v-model="aclDialog.addEntry.searchKeyword"
+									@input="onAclSearchInput"
+									@focus="onAclSearchFocus"
+									placeholder="Search user or group..."
+									autocomplete="off"
+									class="wt w-100 acl-principal-input">
+								<div v-if="aclDialog.addEntry.isSearching" class="input-group-actions">
+									<span class="spinner-border spinner-border-sm"></span>
+								</div>
+							</div>
+							<div v-if="aclDialog.addEntry.principal" class="mt-1 small text-muted">
+								Selected: <strong>{{ aclDialog.addEntry.principalDisplayName || aclDialog.addEntry.principal }}</strong>
+								<span v-if="aclDialog.addEntry.principalDisplayName"> ({{ aclDialog.addEntry.principal }})</span>
+							</div>
+						</div>
+
+						<div class="mb-2">
+							<label class="filter-label">Privileges</label>
+							<div class="xpath-choices">
+								<label v-for="priv in [
+									{ value: 'jcr:all', label: 'All (jcr:all)' },
+									{ value: 'jcr:read', label: 'Read (jcr:read)' },
+									{ value: 'jcr:write', label: 'Write (jcr:write)' },
+									{ value: 'jcr:readAccessControl', label: 'Read ACL' },
+									{ value: 'jcr:modifyAccessControl', label: 'Modify ACL' },
+									{ value: 'jcr:lockManagement', label: 'Lock Mgmt' },
+									{ value: 'jcr:versionManagement', label: 'Version Mgmt' },
+								]" :key="priv.value" class="xpath-choice-item">
+									<input type="checkbox" class="wt"
+										:checked="aclDialog.addEntry.privileges.includes(priv.value)"
+										@change="togglePrivilege(priv.value)">
+									<span>{{ priv.label }}</span>
+								</label>
+							</div>
+						</div>
+
+						<div v-if="aclDialog.addEntry.errorMessage" class="text-danger small mb-2">
+							<i class="bi bi-exclamation-circle me-1"></i>{{ aclDialog.addEntry.errorMessage }}
+						</div>
+
+						<div class="d-flex gap-2 justify-content-end">
+							<button class="wt" @click="closeAddAclEntryDialog">Cancel</button>
+							<button class="wt wt-primary" @click="submitAclEntry">Add</button>
+						</div>
+					</div>
+
+					<!-- Inherited policies (hidden when add form is visible) -->
+					<div v-if="!aclDialog.addEntry.visible" class="pt-4">
+						<div v-for="policy in aclInheritedPolicies" :key="policy.path" class="acl-policy-section">
+							<div class="detail-acl-path">
+								<i class="bi bi-folder me-1"></i>
+								<span class="text-break">{{ policy.path }}</span>
+							</div>
+							<div v-if="policy.entries && policy.entries.length > 0" class="detail-acl">
+								<div v-for="entry in policy.entries" :key="entry.principal.id" class="detail-acl-entry">
+									<div class="detail-acl-principal">
+										<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id }}
+									</div>
+									<div class="detail-acl-privileges">
+										<span v-for="priv in entry.privileges" :key="priv" class="badge" :class="entry.allow ? 'acl-badge-allow' : 'acl-badge-deny'">{{ priv }}</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div v-if="aclDialog.errorMessage" class="text-danger mt-2">
+					<i class="bi bi-exclamation-circle me-1"></i>{{ aclDialog.errorMessage }}
+				</div>
+			</div>
+
+			<!-- Footer: Discard / Save (visible only when there are pending changes) -->
+			<div v-if="!!singleTarget && aclHasChanges" class="detail-overlay-footer">
+				<button class="wt" @click="discardAclChanges" :disabled="aclDialog.isSaving">Discard</button>
+				<button class="wt wt-primary" @click="saveAclChanges" :disabled="aclDialog.isSaving">
+					<span v-if="aclDialog.isSaving" class="spinner-border spinner-border-sm me-1"></span>
+					<span>Save</span>
+				</button>
+			</div>
+		</div>
+
+		<!-- CodeMirror Expanded Overlay (toggled from the inline editor inside
+		     the Property Editor). Lives at the panel root so it can position
+		     itself with fixed coordinates without being clipped by the panel. -->
+		<div v-if="cmExpanded" class="cm-expanded-overlay">
+			<div class="cm-expanded-toolbar">
+				<span class="cm-expanded-title">{{ cmEditorType }} Editor</span>
+				<div class="cm-expanded-actions">
+					<button class="wt wt-outlined wt-slim fs-small" @click="openCmSearch" title="Find / Replace (Ctrl+F)">
+						<i class="bi bi-search me-1"></i><span>Find</span>
+					</button>
+					<button v-if="cmEditorType === 'JSON' || cmEditorType === 'XML' || cmEditorType === 'HTML'" class="wt wt-outlined wt-slim fs-small" @click="formatCmContent" title="Format">
+						<i class="bi bi-magic me-1"></i><span>Format</span>
+					</button>
+					<button v-if="cmEditorType === 'Markdown' || cmEditorType === 'HTML'" class="wt wt-outlined wt-slim fs-small" @click="toggleCmPreview" :class="{ active: cmPreview }" title="Toggle preview">
+						<i class="bi bi-eye me-1"></i><span>Preview</span>
+					</button>
+					<button class="wt wt-outlined wt-slim fs-small" @click="toggleCmExpanded" title="Collapse (Esc)">
+						<i class="bi bi-fullscreen-exit me-1"></i><span>Collapse</span>
+					</button>
+				</div>
+			</div>
+			<!-- Custom Find / Replace bar -->
+			<div v-if="cmSearchVisible" class="cm-search-bar" :class="{ 'cm-search-not-found': cmSearchNotFound }">
+				<div class="cm-search-row">
+					<div class="input-group cm-search-input-group">
+						<input id="cm-search-input" type="text" v-model="cmSearchTerm"
+							@input="onCmSearchInput" @keydown="onCmSearchKeydown"
+							placeholder="Find" spellcheck="false">
+						<div class="input-group-actions">
+							<button class="input-group-btn" :class="{ active: cmSearchCaseSensitive }"
+								@click="toggleCmSearchCaseSensitive" title="Match case">Aa</button>
+							<button class="input-group-btn" :class="{ active: cmSearchWholeWord }"
+								@click="toggleCmSearchWholeWord" title="Whole word">ab</button>
+							<button class="input-group-btn" :class="{ active: cmSearchRegex }"
+								@click="toggleCmSearchRegex" title="Regex">.*</button>
+						</div>
+					</div>
+					<button class="btn-icon" @click="cmFindPrev" title="Previous (Shift+Enter)">
+						<i class="bi bi-chevron-up"></i>
+					</button>
+					<button class="btn-icon" @click="cmFindNext" title="Next (Enter)">
+						<i class="bi bi-chevron-down"></i>
+					</button>
+					<button class="btn-icon ms-auto" @click="closeCmSearch" title="Close (Esc)">
+						<i class="bi bi-x-lg"></i>
+					</button>
+				</div>
+				<div class="cm-search-row">
+					<div class="input-group cm-search-input-group">
+						<input type="text" v-model="cmReplaceTerm"
+							@keydown="onCmReplaceKeydown"
+							placeholder="Replace" spellcheck="false">
+					</div>
+					<button class="wt wt-outlined wt-slim" @click="cmReplaceNext" title="Replace (Enter)">Replace</button>
+					<button class="wt wt-outlined wt-slim" @click="cmReplaceAll" title="Replace All (Ctrl+Enter)">All</button>
+				</div>
+			</div>
+			<div class="cm-expanded-body" :class="{ 'cm-split': cmPreview }">
+				<div id="cm-editor-expanded" class="cm-editor-expanded"></div>
+				<div v-if="cmPreview" class="cm-preview-pane">
+					<div v-if="cmEditorType === 'Markdown'" class="cm-preview-content markdown-body" v-html="cmPreviewHtml"></div>
+					<iframe v-else-if="cmEditorType === 'HTML'" class="cm-preview-iframe" :srcdoc="cmPreviewHtml" sandbox="allow-same-origin"></iframe>
+				</div>
+			</div>
+		</div>
+
+		<!-- Property Editor view (replaces Inspector content) -->
+		<div v-if="detailPropertyEditorVisible" class="detail-overlay">
+			<div class="detail-overlay-header">
+				<button class="detail-overlay-back-btn" @click="closeDetailPropertyEditor" title="Back">
+					<i class="bi bi-arrow-left"></i>
+				</button>
+				<span class="detail-overlay-title">
+					<i class="bi bi-sliders me-1"></i>Properties
+				</span>
+				<span v-if="propEditorModifiedCount > 0" class="prop-editor-changed-badge ms-auto">{{ propEditorModifiedCount }} changed</span>
+			</div>
+
+			<!-- No selection -->
+			<div v-if="!singleTarget && multiTargets.length === 0" class="detail-overlay-body text-center text-muted py-4">
+				<i class="bi bi-cursor-text d-block mb-2" style="font-size: 2rem; opacity: 0.5;"></i>
+				Select an item to edit properties.
+			</div>
+			<!-- Multi-selection -->
+			<div v-else-if="multiTargets.length > 1" class="detail-overlay-body text-center text-muted py-4">
+				<i class="bi bi-collection d-block mb-2" style="font-size: 2rem; opacity: 0.5;"></i>
+				Property editing is not available for multiple items.
+			</div>
+
+			<!-- Single item -->
+			<div v-else class="prop-editor-body detail-overlay-body">
+				<!-- Loading -->
+				<div v-if="propEditorLoading" class="text-center py-4">
+					<span class="spinner-border spinner-border-sm me-2"></span>Loading...
+				</div>
+				<!-- Error -->
+				<div v-else-if="propEditorError" class="text-danger py-3 small">
+					<i class="bi bi-exclamation-circle me-1"></i>{{ propEditorError }}
+				</div>
+				<!-- Folder (no properties supported) -->
+				<div v-else-if="singleTarget && singleTarget.isCollection" class="text-muted py-3 small">
+					<i class="bi bi-info-circle me-1"></i>Property editing is not supported for folders.
+				</div>
+				<!-- Properties list -->
+				<div v-else>
+					<div class="mb-3">{{ singleTarget && singleTarget.name }}</div>
+
+					<!-- Schema selector -->
+					<div v-if="availableSchemas.length > 0" class="detail-section schema-selector mb-1">
+						<div class="wt-select prop-editor-schema-dropdown">
+							<button type="button" class="wt-select-trigger" @click.stop="openPropEditorSchemaDropdown(event)">
+								<span class="wt-select-value" :class="{placeholder: !propEditorSchemaKey}">
+									{{ propEditorSchemaLabel() || '— No schema —' }}
+								</span>
+								<i class="bi bi-chevron-down wt-select-chevron"></i>
+							</button>
+						</div>
+					</div>
+
+					<!-- Property filter -->
+					<div class="property-filter mb-1">
+						<input type="text" class="wt w-100" v-model="propEditorFilter" placeholder="Filter properties...">
+					</div>
+
+					<!-- Missing properties summary -->
+					<div v-if="propEditorSchemaKey && (propEditorMissingProperties.required.length > 0 || propEditorMissingProperties.optional.length > 0)" class="prop-issue-summary">
+						<div v-if="propEditorMissingProperties.required.length > 0" class="prop-issue-row prop-issue-warning">
+							<i class="bi bi-exclamation-triangle-fill me-1"></i>
+							<span>{{ propEditorMissingProperties.required.length }} required propert{{ propEditorMissingProperties.required.length === 1 ? 'y is' : 'ies are' }} missing</span>
+						</div>
+						<div v-if="propEditorMissingProperties.optional.length > 0" class="prop-issue-row prop-issue-info">
+							<i class="bi bi-info-circle-fill me-1"></i>
+							<span>{{ propEditorMissingProperties.optional.length }} optional propert{{ propEditorMissingProperties.optional.length === 1 ? 'y is' : 'ies are' }} missing</span>
+						</div>
+						<div>
+							<button class="wt wt-primary wt-outlined wt-slim mt-1 mb-2" @click="addAllMissingProperties">
+								<i class="bi bi-lightning-charge-fill me-1"></i>
+								<span>Add all missing properties</span>
+							</button>
+						</div>
+					</div>
+
+					<!-- Issue summary -->
+					<div v-if="propEditorIssueCounts.mismatch > 0 || propEditorIssueCounts.validation > 0 || propEditorErrorFilter" class="prop-issue-summary">
+						<div v-if="propEditorIssueCounts.mismatch > 0 || propEditorErrorFilter === 'mismatch'"
+							class="prop-issue-row prop-issue-warning"
+							:class="{ active: propEditorErrorFilter === 'mismatch' }"
+							@click="propEditorErrorFilter = propEditorErrorFilter === 'mismatch' ? '' : 'mismatch'">
+							<i class="bi bi-exclamation-triangle-fill me-1"></i>
+							<span v-if="propEditorErrorFilter === 'mismatch'" title="Click to clear">
+								{{ propEditorIssueCounts.mismatch }} type mismatch{{ propEditorIssueCounts.mismatch === 1 ? '' : 'es' }} (<i class="bi bi-funnel-fill me-1"></i>Filtered)
+							</span>
+							<span v-else title="Click to filter">
+								{{ propEditorIssueCounts.mismatch }} type mismatch{{ propEditorIssueCounts.mismatch === 1 ? '' : 'es' }} detected
+							</span>
+						</div>
+						<div v-if="propEditorIssueCounts.validation > 0 || propEditorErrorFilter === 'validation'"
+							class="prop-issue-row prop-issue-error c-pointer"
+							:class="{ active: propEditorErrorFilter === 'validation' }"
+							@click="propEditorErrorFilter = propEditorErrorFilter === 'validation' ? '' : 'validation'">
+							<i class="bi bi-x-circle-fill me-1"></i>
+							<span v-if="propEditorErrorFilter === 'validation'" title="Click to clear">
+								{{ propEditorIssueCounts.validation }} validation error{{ propEditorIssueCounts.validation === 1 ? '' : 's' }} (<i class="bi bi-funnel-fill me-1"></i>Filtered)
+							</span>
+							<span v-else title="Click to filter">
+								{{ propEditorIssueCounts.validation }} validation error{{ propEditorIssueCounts.validation === 1 ? '' : 's' }} detected
+							</span>
+						</div>
+					</div>
+
+					<div class="custom-properties">
+						<!-- Each property row -->
+						<div v-for="prop in filteredPropEditorDisplayItems" :key="prop.name" class="prop-editor-row"
+							:class="{ 'prop-row-modified': prop.isModified, 'prop-row-deleted': prop.isDeleted, 'prop-row-new': prop.isNew, 'prop-row-mismatch': prop.typeMismatch, 'prop-row-invalid': prop.validationError }">
+
+							<!-- Read mode -->
+							<div v-if="propEditorEditingName !== prop.name" class="prop-read-row"
+								:class="{ 'prop-read-only': prop.readOnly }"
+								@click="!prop.readOnly && startEditingProperty(prop)">
+								<div class="detail-label detail-prop-label">
+									<span class="detail-prop-name">{{ prop.schemaLabel || prop.name }}</span>
+									<div class="detail-prop-badges">
+										<span v-if="prop.schemaRequired" class="prop-required-badge">Required</span>
+										<span v-if="prop.readOnly" class="prop-tz-badge">Read Only</span>
+										<span v-if="prop.type === 'DATE'" class="prop-tz-badge">{{ localTZ }}</span>
+										<span class="prop-type-badge">{{ prop.isArray ? prop.type + '[]' : prop.type }}</span>
+										<button v-if="!prop.isDeleted && !prop.readOnly" class="prop-delete-btn" @click.stop="markPropertyDeleted(prop)" title="Delete property">
+											<i class="bi bi-x"></i>
+										</button>
+										<button v-if="prop.isDeleted && !prop.readOnly" class="prop-restore-btn" @click.stop="unmarkPropertyDeleted(prop)" title="Restore property">
+											<i class="bi bi-arrow-counterclockwise"></i>
+										</button>
+									</div>
+								</div>
+								<!-- Format error -->
+								<div v-if="prop.formatError && !prop.isDeleted" class="detail-value schema-format-error" :title="prop.formatError">
+									<i class="bi bi-exclamation-triangle-fill"></i> {{ prop.formatError }}
+								</div>
+								<!-- Formatted value from display format -->
+								<div v-else-if="prop.formattedValue != null && !prop.isDeleted" class="prop-value prop-value-text text-clamp-4" :class="{ 'detail-muted-value': !prop.formattedValue }">{{ prop.formattedValue || '—' }}</div>
+								<!-- Choice labels (array) -->
+								<div v-else-if="prop.choiceLabels && !prop.isDeleted" class="prop-value prop-value-list">
+									<div v-for="(lbl, idx) in prop.choiceLabels" :key="idx" class="prop-value-list-item" :class="{ 'detail-muted-value': !lbl }">{{ lbl || '—' }}</div>
+									<span v-if="prop.choiceLabels.length === 0" class="detail-muted-value">—</span>
+								</div>
+								<!-- Choice label (single) -->
+								<div v-else-if="prop.choiceLabel && !prop.isDeleted" class="prop-value prop-value-text text-clamp-4">{{ prop.choiceLabel || '—' }}</div>
+								<div v-else-if="prop.isArray && prop.type === 'DATE' && !prop.isDeleted" class="prop-value-date-list">
+									<div v-for="(val, idx) in prop.currentValues" :key="idx" class="prop-value-date-item">
+										{{ formatDateLocal(val) }}
+									</div>
+									<span v-if="prop.currentValues.length === 0" class="detail-muted-value">—</span>
+								</div>
+								<div v-else-if="prop.type === 'DATE' && prop.currentValue && !prop.isDeleted" class="prop-value prop-value-text text-clamp-4">
+									{{ formatDateLocal(prop.currentValue) }}
+								</div>
+								<div v-else-if="prop.isArray && (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE') && !prop.isDeleted" class="prop-value prop-value-list">
+									<div v-for="(val, idx) in prop.displayValues" :key="idx" class="prop-value-list-item" :class="{ 'detail-muted-value': !val }">{{ val || '—' }}</div>
+									<span v-if="prop.displayValues.length === 0" class="detail-muted-value">—</span>
+								</div>
+								<div v-else-if="prop.isArray && prop.type === 'BINARY' && !prop.isDeleted" class="prop-binary-array-list">
+									<div v-for="(val, idx) in (prop.currentValues.length ? prop.currentValues : prop.mimeTypes || [])" :key="idx" class="prop-binary-container">
+										<div v-if="prop.binaryPreviewURLs && prop.binaryPreviewURLs[idx] && prop.binaryFileMimeTypes && prop.binaryFileMimeTypes[idx] && prop.binaryFileMimeTypes[idx].startsWith('image/')" class="prop-binary-preview">
+											<img :src="prop.binaryPreviewURLs[idx]" class="prop-binary-preview-image" />
+										</div>
+										<div v-if="prop.binaryPreviewURLs && prop.binaryPreviewURLs[idx] && !(prop.binaryFileMimeTypes && prop.binaryFileMimeTypes[idx] && prop.binaryFileMimeTypes[idx].startsWith('image/'))" class="prop-binary-icon">
+											<i class="bi bi-file-earmark"></i>
+										</div>
+										<div v-if="!(prop.binaryPreviewURLs && prop.binaryPreviewURLs[idx]) && prop.propertyDownloadURLs && prop.propertyDownloadURLs[idx] && prop.mimeTypes && prop.mimeTypes[idx] && prop.mimeTypes[idx].startsWith('image/')" class="prop-binary-preview">
+											<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
+										</div>
+										<div v-if="!(prop.binaryPreviewURLs && prop.binaryPreviewURLs[idx]) && !(prop.propertyDownloadURLs && prop.propertyDownloadURLs[idx] && prop.mimeTypes && prop.mimeTypes[idx] && prop.mimeTypes[idx].startsWith('image/'))" class="prop-binary-icon">
+											<i class="bi bi-file-earmark"></i>
+											<span class="prop-binary-mime">{{ prop.mimeTypes ? prop.mimeTypes[idx] : '' }}</span>
+										</div>
+										<div class="prop-binary-info">
+											<span class="prop-binary-size">{{ prop.binaryFileSizesFormatted ? prop.binaryFileSizesFormatted[idx] : (prop.sizesFormatted ? prop.sizesFormatted[idx] : '') }}</span>
+											<a v-if="prop.propertyDownloadURLs && prop.propertyDownloadURLs[idx]" :href="prop.propertyDownloadURLs[idx] + '&attachment=true'" class="prop-binary-download" title="Download" @click.stop>
+												<i class="bi bi-download"></i>
+											</a>
+											<a v-else-if="prop.binaryPreviewURLs && prop.binaryPreviewURLs[idx]" :href="prop.binaryPreviewURLs[idx]" :download="prop.binaryFileNames && prop.binaryFileNames[idx] ? prop.binaryFileNames[idx] : 'download'" class="prop-binary-download" title="Download" @click.stop>
+												<i class="bi bi-download"></i>
+											</a>
+										</div>
+									</div>
+								</div>
+								<div v-else-if="prop.isArray && !prop.isDeleted" class="prop-value prop-value-list">
+									<div v-for="(val, idx) in prop.currentValues" :key="idx" class="prop-value-list-item" :class="{ 'detail-muted-value': !val }">{{ val || '—' }}</div>
+									<span v-if="prop.currentValues.length === 0" class="detail-muted-value">—</span>
+								</div>
+								<div v-else-if="prop.type === 'BINARY' && !prop.isDeleted" class="prop-binary-container">
+									<div v-if="prop.binaryPreviewURL || (prop.isImage && prop.propertyDownloadURL)" class="prop-binary-preview">
+										<img :src="prop.binaryPreviewURL || prop.propertyDownloadURL" class="prop-binary-preview-image" />
+									</div>
+									<div v-if="!(prop.binaryPreviewURL || (prop.isImage && prop.propertyDownloadURL))" class="prop-binary-icon">
+										<i class="bi bi-file-earmark"></i>
+										<span class="prop-binary-mime">{{ prop.binaryFileMimeType || prop.mimeType || '' }}</span>
+									</div>
+									<div class="prop-binary-info">
+										<span class="prop-binary-size">{{ prop.binaryFileSizeFormatted || prop.sizeFormatted || '' }}</span>
+										<a v-if="prop.propertyDownloadURL" :href="prop.propertyDownloadURL + '&attachment=true'" class="prop-binary-download" title="Download" @click.stop>
+											<i class="bi bi-download"></i>
+										</a>
+									</div>
+								</div>
+								<div v-else class="prop-value prop-value-text text-clamp-4" :class="{ 'fst-italic': prop.isDeleted, 'detail-muted-value': !displayPropValue(prop) }">{{ displayPropValue(prop) || '—' }}</div>
+								<!-- Type mismatch warning -->
+								<div v-if="prop.typeMismatch" class="prop-inline-warning">
+									<i class="bi bi-exclamation-triangle-fill me-1"></i>{{ prop.mismatchMessage }}
+								</div>
+								<!-- Validation error -->
+								<div v-if="prop.validationError" class="prop-inline-error">
+									<i class="bi bi-x-circle-fill me-1"></i>{{ prop.validationError }}
+								</div>
+							</div>
+
+							<!-- Edit mode -->
+							<div v-else class="prop-edit-row">
+								<div class="prop-edit-header">
+									<span class="prop-name-text">{{ prop.schemaLabel || prop.name }}</span>
+									<div class="prop-edit-header-right">
+										<span v-if="prop.schemaRequired" class="prop-required-badge">Required</span>
+										<span v-if="prop.type === 'DATE'" class="prop-tz-badge">{{ localTZ }}</span>
+										<span class="prop-type-badge">{{ propEditorEditIsArray ? prop.type + '[]' : prop.type }}</span>
+										<button class="prop-array-toggle-btn" @click="toggleEditArray"
+											:disabled="propEditorEditIsArrayLocked"
+											:title="propEditorEditIsArrayLocked ? (propEditorEditIsArray ? 'Multiple (defined by schema)' : 'Single (defined by schema)') : 'Toggle array/single'">
+											<i class="bi" :class="propEditorEditIsArray ? 'bi-list-ul' : 'bi-dot'"></i>
+										</button>
+									</div>
+								</div>
+								<!-- Schema choices selection (array, dropdown multi-select) -->
+								<div v-if="propEditorEditIsArray && prop.schemaChoices && prop.schemaChoices.length > 0 && prop.editorType === 'select' && prop.type !== 'REFERENCE' && prop.type !== 'WEAKREFERENCE'" class="prop-single-input">
+									<div class="wt-select">
+										<button type="button" class="wt-select-trigger" @click.stop="openPropEditChoicesMultiDropdown(prop, event)">
+											<span class="wt-select-value" :class="{placeholder: propEditorEditValues.length === 0}">{{ propEditChoicesMultiLabel(prop) }}</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+								</div>
+								<!-- Schema choices selection (array, checkbox list) -->
+								<div v-else-if="propEditorEditIsArray && prop.schemaChoices && prop.schemaChoices.length > 0 && prop.type !== 'REFERENCE' && prop.type !== 'WEAKREFERENCE'" class="ref-query-list">
+									<div v-if="propEditorEditValues.length > 0" class="ref-query-selected-list">
+										<div v-for="(val, idx) in propEditorEditValues" :key="'csel-' + idx" class="input-group">
+											<span class="ref-query-selected-label">{{ propEditorEditDisplayValues[idx] || val }}</span>
+											<div class="input-group-actions">
+												<button class="input-group-btn" @click.stop="moveRefEditChip(idx, -1)" :disabled="idx === 0" title="Move up"><i class="bi bi-chevron-up"></i></button>
+												<button class="input-group-btn" @click.stop="moveRefEditChip(idx, 1)" :disabled="idx === propEditorEditValues.length - 1" title="Move down"><i class="bi bi-chevron-down"></i></button>
+												<button class="input-group-btn" @click.stop="removeRefEditChip(idx)" title="Remove"><i class="bi bi-x-lg"></i></button>
+											</div>
+										</div>
+									</div>
+									<div class="ref-query-items">
+										<div v-for="ci in prop.schemaChoices" :key="ci.value"
+											class="ref-query-item"
+											:class="{ 'ref-query-selected': isQueryItemSelected(ci.value) }"
+											@click="selectQueryItem(ci)">
+											<i class="bi" :class="isQueryItemSelected(ci.value) ? 'bi-check-square-fill' : 'bi-square'"></i>
+											<span class="ref-query-item-label">{{ ci.label || ci.value }}</span>
+										</div>
+									</div>
+								</div>
+								<!-- Array chip input (non-REFERENCE/WEAKREFERENCE) -->
+								<div v-if="propEditorEditIsArray && prop.type !== 'REFERENCE' && prop.type !== 'WEAKREFERENCE' && prop.type !== 'BINARY' && !(prop.schemaChoices && prop.schemaChoices.length > 0)" class="prop-chip-input">
+									<div class="prop-chip-list">
+										<div v-for="(val, idx) in propEditorEditValues" :key="idx" class="input-group">
+											<div v-if="prop.type === 'BOOLEAN'" class="wt-select">
+												<button type="button" class="wt-select-trigger" @click.stop="openPropEditChipBooleanDropdown(idx, event)">
+													<span class="wt-select-value">{{ val }}</span>
+													<i class="bi bi-chevron-down wt-select-chevron"></i>
+												</button>
+											</div>
+											<input v-else-if="prop.type === 'DATE'" type="datetime-local" :value="toLocalDatetimeInput(val)" @change="updateEditChipDate(idx, event.target.value)">
+											<input v-else-if="prop.type === 'LONG'" type="number" step="1" :value="val" @change="updateEditChip(idx, event.target.value)">
+											<input v-else-if="prop.type === 'DOUBLE' || prop.type === 'DECIMAL'" type="number" step="any" :value="val" @change="updateEditChip(idx, event.target.value)">
+											<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Color'" type="color" :value="val" @change="updateEditChip(idx, event.target.value)">
+											<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Tel'" type="tel" :value="val" @change="updateEditChip(idx, event.target.value)">
+											<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Email'" type="email" :value="val" @change="updateEditChip(idx, event.target.value)">
+											<input v-else-if="prop.type === 'STRING' && prop.editorType === 'URL'" type="url" :value="val" @change="updateEditChip(idx, event.target.value)">
+											<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Password'" type="password" :value="val" @change="updateEditChip(idx, event.target.value)">
+											<input v-else type="text" :value="val" @change="updateEditChip(idx, event.target.value)">
+											<div class="input-group-actions">
+												<button class="input-group-btn" @click="moveEditChip(idx, -1)" :disabled="idx === 0" title="Move up"><i class="bi bi-chevron-up"></i></button>
+												<button class="input-group-btn" @click="moveEditChip(idx, 1)" :disabled="idx === propEditorEditValues.length - 1" title="Move down"><i class="bi bi-chevron-down"></i></button>
+												<button class="input-group-btn" @click="removeEditChip(idx)" title="Remove"><i class="bi bi-x-lg"></i></button>
+											</div>
+										</div>
+									</div>
+								</div>
+								<!-- Query-based REFERENCE/WEAKREFERENCE selection (array) -->
+								<div v-if="propEditorEditIsArray && (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE') && propEditorQueryConfig" class="ref-query-list">
+									<!-- Selected items (reorderable) -->
+									<div v-if="propEditorEditValues.length > 0" class="ref-query-selected-list">
+										<div v-for="(uuid, idx) in propEditorEditValues" :key="'sel-' + idx" class="input-group">
+											<span class="ref-query-selected-label">{{ propEditorEditDisplayValues[idx] || uuid }}</span>
+											<div class="input-group-actions">
+												<button class="input-group-btn" @click.stop="moveRefEditChip(idx, -1)" :disabled="idx === 0" title="Move up"><i class="bi bi-chevron-up"></i></button>
+												<button class="input-group-btn" @click.stop="moveRefEditChip(idx, 1)" :disabled="idx === propEditorEditValues.length - 1" title="Move down"><i class="bi bi-chevron-down"></i></button>
+												<button class="input-group-btn" @click.stop="removeRefEditChip(idx)" title="Remove"><i class="bi bi-x-lg"></i></button>
+											</div>
+										</div>
+									</div>
+									<!-- Query items list -->
+									<div v-if="propEditorQueryLoading" class="text-center py-2">
+										<span class="spinner-border spinner-border-sm me-1"></span>Loading...
+									</div>
+									<div v-else-if="propEditorQueryItems.length === 0" class="text-muted small py-2">No items found</div>
+									<div v-else class="ref-query-items">
+										<div v-for="qi in propEditorQueryItems" :key="qi.value"
+											class="ref-query-item"
+											:class="{ 'ref-query-selected': isQueryItemSelected(qi.value) }"
+											@click="selectQueryItem(qi)">
+											<i class="bi" :class="isQueryItemSelected(qi.value) ? 'bi-check-square-fill' : 'bi-square'"></i>
+											<span class="ref-query-item-label">{{ qi.label }}</span>
+										</div>
+									</div>
+								</div>
+								<!-- Array REFERENCE/WEAKREFERENCE drop zones -->
+								<div v-if="propEditorEditIsArray && (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE') && !propEditorQueryConfig" class="ref-array-edit">
+									<div v-for="(uuid, idx) in propEditorEditValues" :key="idx" class="input-group" :class="{ 'ref-drop-over': refDragOverProp === 'arr-' + idx }" @dragover.stop="onRefDragOver('arr-' + idx, event)" @dragleave="onRefDragLeave('arr-' + idx, event)" @drop.stop="onRefPropDropArrayItem(idx, event)">
+										<span class="ref-chip-label" @click="openRefBrowser(propEditorEditDisplayValues[idx])">
+											<span class="ref-path-display">{{ propEditorEditDisplayValues[idx] || uuid }}</span>
+											<i class="bi bi-folder2-open ref-browse-icon"></i>
+										</span>
+										<div class="input-group-actions">
+											<button class="input-group-btn" @click="moveRefEditChip(idx, -1)" :disabled="idx === 0" title="Move up"><i class="bi bi-chevron-up"></i></button>
+											<button class="input-group-btn" @click="moveRefEditChip(idx, 1)" :disabled="idx === propEditorEditValues.length - 1" title="Move down"><i class="bi bi-chevron-down"></i></button>
+											<button class="input-group-btn" @click="removeRefEditChip(idx)" title="Remove"><i class="bi bi-x-lg"></i></button>
+										</div>
+									</div>
+									<div class="ref-drop-zone ref-drop-add" :class="{ 'ref-drop-over': refDragOverProp === 'arr-add' }" @click="openRefBrowser(propEditorEditDisplayValues[0])" @dragover.stop="onRefDragOver('arr-add', event)" @dragleave="onRefDragLeave('arr-add', event)" @drop.stop="onRefPropDropArrayAdd(event)">
+										<i class="bi bi-plus-circle ref-add-icon"></i>
+										<span class="ref-drop-hint">Drop referenceable file to add</span>
+									</div>
+								</div>
+
+								<!-- Array BINARY drop zones -->
+								<div v-if="propEditorEditIsArray && prop.type === 'BINARY'" class="ref-array-edit">
+									<div v-for="(itemId, idx) in propEditorEditValues" :key="idx" class="input-group" :class="{ 'ref-drop-over': binaryEditArrayDragOver === idx }" @dragover.stop="onBinaryArrayDragOver(idx, event)" @dragleave="onBinaryArrayDragLeave(idx, event)" @drop.stop="onBinaryDropArrayItem(idx, event)">
+										<span class="binary-chip-label">
+											<img v-if="binaryEditPreviewURLs[idx] && binaryEditFileMimeTypes[idx] && binaryEditFileMimeTypes[idx].startsWith('image/')" :src="binaryEditPreviewURLs[idx]" class="binary-chip-preview" />
+											<i v-if="!(binaryEditPreviewURLs[idx] && binaryEditFileMimeTypes[idx] && binaryEditFileMimeTypes[idx].startsWith('image/'))" class="bi bi-file-earmark binary-chip-icon"></i>
+											<span class="binary-chip-name">{{ binaryEditFileNames[idx] || itemId }}</span>
+											<span class="binary-chip-size">{{ binaryEditFileSizesFormatted[idx] }}</span>
+										</span>
+										<div class="input-group-actions">
+											<button class="input-group-btn" @click="moveBinaryEditItem(idx, -1)" :disabled="idx === 0" title="Move up"><i class="bi bi-chevron-up"></i></button>
+											<button class="input-group-btn" @click="moveBinaryEditItem(idx, 1)" :disabled="idx === propEditorEditValues.length - 1" title="Move down"><i class="bi bi-chevron-down"></i></button>
+											<button class="input-group-btn" @click="removeBinaryEditItem(idx)" title="Remove"><i class="bi bi-x-lg"></i></button>
+										</div>
+									</div>
+									<div class="binary-drop-zone binary-drop-add" :class="{ 'binary-drop-over': binaryEditArrayDragOver === -1, 'binary-drop-uploading': binaryEditIsUploading }" @dragover.stop="onBinaryArrayDragOver(-1, event)" @dragleave="onBinaryArrayDragLeave(-1, event)" @drop.stop="onBinaryDropArrayAdd(event)">
+										<div v-if="binaryEditIsUploading" class="binary-upload-progress">
+											<div class="progress"><div class="progress-bar" :style="'width: ' + binaryEditProgress + '%'"></div></div>
+											<span class="binary-drop-hint-text">Uploading... {{ binaryEditProgress }}%</span>
+										</div>
+										<div v-else class="binary-drop-hint-inner">
+											<i class="bi bi-plus-circle binary-upload-icon"></i>
+											<span class="binary-drop-hint-text">Drop a file to add</span>
+										</div>
+									</div>
+								</div>
+								<!-- Query-based REFERENCE/WEAKREFERENCE selection (single) -->
+								<div v-if="!propEditorEditIsArray && (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE') && propEditorQueryConfig" class="ref-query-list">
+									<div v-if="propEditorQueryLoading" class="text-center py-2">
+										<span class="spinner-border spinner-border-sm me-1"></span>Loading...
+									</div>
+									<div v-else-if="propEditorQueryItems.length === 0" class="text-muted small py-2">No items found</div>
+									<div v-else class="ref-query-items">
+										<div v-for="qi in propEditorQueryItems" :key="qi.value"
+											class="ref-query-item"
+											:class="{ 'ref-query-selected': isQueryItemSelected(qi.value) }"
+											@click="selectQueryItem(qi)">
+											<i class="bi" :class="isQueryItemSelected(qi.value) ? 'bi-check-circle-fill' : 'bi-circle'"></i>
+											<span class="ref-query-item-label">{{ qi.label }}</span>
+										</div>
+									</div>
+								</div>
+								<!-- Single REFERENCE/WEAKREFERENCE drop zone -->
+								<div v-if="!propEditorEditIsArray && (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE') && !propEditorQueryConfig" class="ref-array-edit">
+									<div v-if="propEditorEditInput" class="input-group" :class="{ 'ref-drop-over': refDragOverProp === 'single' }" @dragover.stop="onRefDragOver('single', event)" @dragleave="onRefDragLeave('single', event)" @drop.stop="onRefPropDropSingle(event)">
+										<span class="ref-chip-label" @click="openRefBrowser(propEditorEditDisplayValue)">
+											<span class="ref-path-display">{{ propEditorEditDisplayValue || propEditorEditInput }}</span>
+											<i class="bi bi-folder2-open ref-browse-icon"></i>
+										</span>
+										<div class="input-group-actions">
+											<button class="input-group-btn" @click="clearRefSingleItem" title="Remove"><i class="bi bi-x-lg"></i></button>
+										</div>
+									</div>
+									<div v-if="!propEditorEditInput" class="ref-drop-zone ref-drop-add" :class="{ 'ref-drop-over': refDragOverProp === 'single' }" @click="openRefBrowser(propEditorEditDisplayValue)" @dragover.stop="onRefDragOver('single', event)" @dragleave="onRefDragLeave('single', event)" @drop.stop="onRefPropDropSingle(event)">
+										<i class="bi bi-plus-circle ref-add-icon"></i>
+										<span class="ref-drop-hint">Drop a referenceable file to set</span>
+									</div>
+								</div>
+
+								<!-- Single BINARY drop zone -->
+								<div v-if="!propEditorEditIsArray && prop.type === 'BINARY'" class="ref-array-edit">
+									<div v-if="propEditorEditInput" class="input-group" :class="{ 'ref-drop-over': binaryEditDragOver }" @dragover.stop="onBinaryDragOver(event)" @dragleave="onBinaryDragLeave(event)" @drop.stop="onBinaryDropSingle(event)">
+										<span class="binary-chip-label">
+											<img v-if="binaryEditPreviewURL && binaryEditFileMimeTypes[0] && binaryEditFileMimeTypes[0].startsWith('image/')" :src="binaryEditPreviewURL" class="binary-chip-preview" />
+											<i v-if="!(binaryEditPreviewURL && binaryEditFileMimeTypes[0] && binaryEditFileMimeTypes[0].startsWith('image/'))" class="bi bi-file-earmark binary-chip-icon"></i>
+											<span class="binary-chip-name">{{ binaryEditFileName || propEditorEditInput }}</span>
+											<span class="binary-chip-size">{{ binaryEditFileSizeFormatted }}</span>
+										</span>
+										<div class="input-group-actions">
+											<button class="input-group-btn" @click="clearBinarySingleItem" title="Remove"><i class="bi bi-x-lg"></i></button>
+										</div>
+									</div>
+									<div v-if="!propEditorEditInput" class="binary-drop-zone binary-drop-add" :class="{ 'binary-drop-over': binaryEditDragOver, 'binary-drop-uploading': binaryEditIsUploading }" @dragover.stop="onBinaryDragOver(event)" @dragleave="onBinaryDragLeave(event)" @drop.stop="onBinaryDropSingle(event)">
+										<div v-if="binaryEditIsUploading" class="binary-upload-progress">
+											<div class="progress"><div class="progress-bar" :style="'width: ' + binaryEditProgress + '%'"></div></div>
+											<span class="binary-drop-hint-text">Uploading... {{ binaryEditProgress }}%</span>
+										</div>
+										<div v-else class="binary-drop-hint-inner">
+											<i class="bi bi-plus-circle binary-upload-icon"></i>
+											<span class="binary-drop-hint-text">Drop a file to set</span>
+										</div>
+									</div>
+								</div>
+								<!-- Schema choices selection (single, radio) -->
+								<div v-if="!propEditorEditIsArray && prop.schemaChoices && prop.schemaChoices.length > 0 && prop.editorType === 'radio' && prop.type !== 'REFERENCE' && prop.type !== 'WEAKREFERENCE'" class="prop-radio-list">
+									<label v-for="ci in prop.schemaChoices" :key="ci.value" class="prop-radio-item">
+										<input type="radio" class="wt" :value="ci.value" v-model="propEditorEditInput">
+										<span>{{ ci.label || ci.value }}</span>
+									</label>
+								</div>
+								<!-- Schema choices selection (single, dropdown) -->
+								<div v-else-if="!propEditorEditIsArray && prop.schemaChoices && prop.schemaChoices.length > 0 && prop.type !== 'REFERENCE' && prop.type !== 'WEAKREFERENCE'" class="prop-single-input">
+									<div class="wt-select">
+										<button type="button" class="wt-select-trigger" @click.stop="openPropEditChoicesSingleDropdown(prop, event)">
+											<span class="wt-select-value" :class="{placeholder: !propEditorEditInput}">{{ propEditChoicesSingleLabel(prop) }}</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+								</div>
+								<!-- Single value input (non-REFERENCE/WEAKREFERENCE) -->
+								<div v-if="!propEditorEditIsArray && prop.type !== 'REFERENCE' && prop.type !== 'WEAKREFERENCE' && prop.type !== 'BINARY' && !(prop.schemaChoices && prop.schemaChoices.length > 0)" class="prop-single-input">
+									<input v-if="prop.type === 'DATE'" type="datetime-local" class="wt w-100" v-model="propEditorEditInput">
+									<input v-else-if="prop.type === 'LONG'" type="number" step="1" class="wt w-100" v-model="propEditorEditInput">
+									<input v-else-if="prop.type === 'DOUBLE' || prop.type === 'DECIMAL'" type="number" step="any" class="wt w-100" v-model="propEditorEditInput">
+									<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Color'" type="color" class="wt w-100 form-control-color" v-model="propEditorEditInput">
+									<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Tel'" type="tel" class="wt w-100" v-model="propEditorEditInput">
+									<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Email'" type="email" class="wt w-100" v-model="propEditorEditInput">
+									<input v-else-if="prop.type === 'STRING' && prop.editorType === 'URL'" type="url" class="wt w-100" v-model="propEditorEditInput">
+									<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Password'" type="password" class="wt w-100" v-model="propEditorEditInput">
+									<div v-else-if="prop.type === 'BOOLEAN' && prop.editorType === 'radio'" class="prop-radio-list">
+										<label class="prop-radio-item"><input type="radio" class="wt" value="true" v-model="propEditorEditInput"><span>true</span></label>
+										<label class="prop-radio-item"><input type="radio" class="wt" value="false" v-model="propEditorEditInput"><span>false</span></label>
+									</div>
+									<div v-else-if="prop.type === 'BOOLEAN'" class="wt-select">
+										<button type="button" class="wt-select-trigger" @click.stop="openPropEditBooleanDropdown(event)">
+											<span class="wt-select-value" :class="{placeholder: !propEditorEditInput}">{{ propEditorEditInput || '— Select —' }}</span>
+											<i class="bi bi-chevron-down wt-select-chevron"></i>
+										</button>
+									</div>
+									<textarea v-else-if="prop.editorType === 'TextArea'" class="wt w-100" v-model="propEditorEditInput" :rows="prop.editorRows || 3"></textarea>
+									<div v-else-if="prop.editorType === 'Text Editor' || prop.editorType === 'JSON' || prop.editorType === 'XML' || prop.editorType === 'HTML' || prop.editorType === 'Markdown'" class="cm-inline-wrap">
+										<div v-if="!cmExpanded" id="cm-editor-inline" class="cm-editor-inline" :style="{ height: 'calc(' + (prop.editorRows || 6) + 'lh + 2px)' }"></div>
+										<div v-if="!cmExpanded" class="cm-inline-actions">
+											<button class="wt wt-square fs-small" @click="toggleCmExpanded" title="Expand">
+												<i class="bi bi-arrows-fullscreen"></i>
+											</button>
+										</div>
+									</div>
+									<input v-else type="text" class="wt w-100" v-model="propEditorEditInput">
+								</div>
+								<!-- Add row / Confirm / Cancel -->
+								<div v-if="propEditorEditError" class="prop-inline-error">
+									<i class="bi bi-x-circle-fill me-1"></i>{{ propEditorEditError }}
+								</div>
+								<div class="prop-edit-actions">
+									<button v-if="propEditorQueryConfig && (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE')" class="wt wt-secondary wt-slim fs-small" @click="refreshQueryItems" :disabled="propEditorQueryLoading" title="Refresh list">
+										<i class="bi bi-arrow-clockwise" :class="{ 'spin': propEditorQueryLoading }"></i>
+									</button>
+									<button v-if="propEditorEditIsArray && prop.type !== 'REFERENCE' && prop.type !== 'WEAKREFERENCE' && prop.type !== 'BINARY'" class="wt wt-secondary wt-slim fs-small" @click="addEditChip" title="Add row"><i class="bi bi-plus-lg"></i></button>
+									<div class="prop-edit-actions-right">
+										<button class="wt wt-slim fs-small" @click="cancelPropertyEdit" title="Cancel"><i class="bi bi-x-lg"></i></button>
+										<button class="wt wt-primary wt-slim fs-small" @click="confirmPropertyEdit" :disabled="binaryEditIsUploading || !!propEditorEditError" title="Confirm"><i class="bi bi-check-lg"></i></button>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- No properties message -->
+						<div v-if="propEditorItems.length === 0 && !propEditorAddingNew" class="text-muted small py-2">
+							No custom properties
+						</div>
+
+						<!-- Add new property form -->
+						<div v-if="propEditorAddingNew" class="prop-add-form">
+							<div class="prop-add-header">
+								<input type="text" class="wt" v-model="propEditorNewName" placeholder="Property name" @keydown.enter.prevent="confirmAddProperty">
+								<div class="wt-select prop-type-select">
+									<button type="button" class="wt-select-trigger" @click.stop="openPropEditNewTypeDropdown(event)">
+										<span class="wt-select-value">{{ propEditNewTypeLabel() }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+								<button class="wt wt-outlined wt-square" @click="propEditorNewIsArray = !propEditorNewIsArray" title="Toggle array/single">
+									<i class="bi" :class="propEditorNewIsArray ? 'bi-list-ul' : 'bi-dot'"></i>
+								</button>
+							</div>
+							<!-- Confirm / Cancel -->
+							<div class="prop-edit-actions">
+								<div class="prop-edit-actions-right">
+									<button class="wt wt-slim fs-small" @click="cancelAddProperty" title="Cancel"><i class="bi bi-x-lg"></i></button>
+									<button class="wt wt-primary wt-slim fs-small" @click="confirmAddProperty" :disabled="!propEditorNewName.trim()" title="Confirm"><i class="bi bi-check-lg"></i></button>
+								</div>
+							</div>
+						</div>
+
+						<!-- Add property button (hidden when a schema is selected — properties
+							are added via the missing-properties summary instead) -->
+						<div v-if="!propEditorAddingNew && !propEditorSchemaKey" class="prop-add-btn-row">
+							<button class="wt wt-primary wt-outlined" @click="startAddingProperty">
+								<i class="bi bi-plus-lg me-1"></i><span>Add Property</span>
+							</button>
+						</div>
+
+						<!-- Save error -->
+						<div v-if="propEditorSaveError" class="text-danger mt-2 small">
+							<i class="bi bi-exclamation-circle me-1"></i><span>{{ propEditorSaveError }}</span>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Footer: Save / Revert -->
+			<div v-if="!!singleTarget && !singleTarget.isCollection" class="detail-overlay-footer">
+				<button class="wt" @click="revertAllProperties" :disabled="propEditorSaving">Revert</button>
+				<button class="wt wt-primary" @click="saveAllProperties" :disabled="propEditorSaving || propEditorModifiedCount === 0 || propEditorEditingName !== null">
+					<span v-if="propEditorSaving" class="spinner-border spinner-border-sm me-1"></span>
+					Save
+				</button>
+			</div>
+		</div>
+	</div>
+</template>
