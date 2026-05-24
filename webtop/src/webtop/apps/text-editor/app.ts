@@ -1,5 +1,11 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
+import { BUILD_VERSION } from "../../utils/build-version.js";
+import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
+
+// Side-effect import: registers the <wt-inspector> custom element so the
+// right-pane Inspector can be embedded for the active tab's file.
+import "../../components/wt-inspector.js";
 
 // CodeMirror imports
 import { EditorState, Compartment } from "@codemirror/state";
@@ -152,6 +158,9 @@ interface TextFile {
 	downloadUrl: string;
 	uuid: string;
 	hasWebTemplate: boolean;
+	// Object handed to <wt-inspector> as its target. Null for unsaved tabs
+	// (new file / dropped local file) that have no backing node yet.
+	inspectorItem: InspectorTarget | null;
 }
 
 // MIME type → preview extension hint. Used to seed the extension input on the
@@ -186,6 +195,38 @@ function guessExtensionFromMime(mimeType: string): string {
 // facet/extension resolution (notably syntaxHighlighting). Indexed by
 // TextFile.id so each tab keeps its own undo history and selection.
 const editorStates = new Map<string, EditorState>();
+
+// SSE subscription for the active tab's node. Kept in module scope (not in
+// reactive data) for the same reason as the preview channels below: there is
+// only ever one text-editor instance per iframe, and the unsubscribe handle
+// carries privileged internals that must not be Proxy-wrapped. The editor
+// watches whichever file is active so changes made through the Inspector
+// (MIME type, encoding, lock/version) flow back into the editor's own state.
+let activeNodeWatchUnsubscribe: (() => void) | null = null;
+
+// Content Browser app id (see apps/content-browser/app.yml). The Inspector's
+// "Open Containing Folder" action launches a fresh Content Browser at the
+// file's parent folder, since the text-editor has no folder list of its own.
+const CONTENT_BROWSER_APP_ID = '2468cf47-1a30-4053-b80a-9c5486954b08';
+
+function unwatchActiveNode(): void {
+	if (activeNodeWatchUnsubscribe) {
+		try { activeNodeWatchUnsubscribe(); } catch { /* ignore */ }
+		activeNodeWatchUnsubscribe = null;
+	}
+}
+
+// Fetch and inject the wt-inspector <template> into <body> so the custom
+// element can resolve `template: '#wt-inspector'` once it is mounted via the
+// v-if guard. Mirrors content-browser's helper of the same name.
+async function loadInspectorTemplate(): Promise<void> {
+	const res = await fetch(`../../components/wt-inspector.html?v=${BUILD_VERSION}`);
+	const html = await res.text();
+	const doc = new DOMParser().parseFromString(html, 'text/html');
+	for (const tmpl of Array.from(doc.querySelectorAll('template'))) {
+		document.body.appendChild(tmpl);
+	}
+}
 
 // Companion Preview window — see apps/text-editor-preview. The text-editor
 // keeps at most one preview window per editor instance; it follows whichever
@@ -281,6 +322,25 @@ export const App = {
 			// Pane visibility
 			sidebarPanelVisible: true,
 			sidebarPanelWidth: 260,
+			// Right pane: Inspector (wt-inspector). Layout (visibility/width)
+			// is the host's responsibility; the component owns everything
+			// inside. The API surface is built once (marked raw) in appLaunch.
+			detailPanelVisible: false,
+			detailPanelWidth: 280,
+			detailPanelMinWidth: 200,
+			detailPanelMaxWidth: 500,
+			detailPanelResizing: false,
+			detailResizeStartX: 0,
+			detailResizeStartWidth: 0,
+			inspectorApi: null as any,
+			// Display options handed to <wt-inspector>. The file is already open
+			// in the editor, so the Inspector's "Open File" action is redundant —
+			// hide it. "Open Containing Folder" stays (wired to open a Browser).
+			inspectorOptions: { showOpenItem: false } as Record<string, any>,
+			// Mirrors whether the Inspector currently has an overlay open, so
+			// the editor can suppress its own global keyboard shortcuts
+			// (Ctrl+S / Ctrl+F) while the user edits inside the panel.
+			inspectorOverlayOpen: false,
 			// Companion preview window — open/ready state and last-used
 			// extension hint per tab so re-opening reuses prior input.
 			previewOpen: false,
@@ -346,6 +406,13 @@ export const App = {
 			const f = (this as any).files[(this as any).currentFileIndex];
 			return f?.name || '';
 		},
+		// Target handed to <wt-inspector>: the active tab's backing node.
+		// Null for unsaved tabs (new / dropped local file) — the Inspector
+		// shows its "select an item" empty state for those.
+		inspectorTarget(): InspectorTarget | null {
+			const f = (this as any).files[(this as any).currentFileIndex];
+			return f?.inspectorItem ?? null;
+		},
 	},
 	watch: {
 		dockSubtitle(val: string) {
@@ -355,6 +422,16 @@ export const App = {
 	methods: {
 		async onMounted() {
 			const vm = this;
+
+			// Inject the wt-inspector <template> into <body> so the custom
+			// element can resolve `template: '#wt-inspector'` once it is mounted
+			// via the v-if guard. Must run before any state path can flip
+			// detailPanelVisible to true.
+			try {
+				await loadInspectorTemplate();
+			} catch (e) {
+				console.warn('[TextEditor] Failed to load wt-inspector template:', e);
+			}
 
 			// Save As response channel
 			saveAsChannelRef = new BroadcastChannel('webtop-save-as');
@@ -375,6 +452,10 @@ export const App = {
 						vm.files[vm.currentFileIndex].mimeType = event.data.mimeType;
 						vm.files[vm.currentFileIndex].isModified = false;
 						vm.files[vm.currentFileIndex].originalContent = vm.currentFile.content;
+						// The tab now has a backing node — wire the Inspector to it
+						// and pull the freshly created node's metadata.
+						vm.watchActiveFileNode();
+						vm.refreshActiveFileMetadata(event.data.path);
 					}
 				}
 			};
@@ -390,6 +471,10 @@ export const App = {
 			window.addEventListener('message', vm.messageListener);
 
 			document.addEventListener('keydown', (e: KeyboardEvent) => {
+				// While an Inspector overlay is up (property/ACL editor, version
+				// history) the user is editing inside the panel — let it own the
+				// keyboard and skip the editor's global shortcuts.
+				if (vm.inspectorOverlayOpen) return;
 				if ((e.ctrlKey || e.metaKey) && e.key === 's') {
 					e.preventDefault();
 					if (vm.currentFile.isModified && !vm.isSaving) {
@@ -398,11 +483,23 @@ export const App = {
 				} else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
 					e.preventDefault();
 					vm.openFindPanel();
+				} else if ((e.ctrlKey || e.metaKey) && (e.key === 'i' || e.key === 'I')) {
+					e.preventDefault();
+					vm.toggleDetailPanel();
 				}
 			});
 
 			window.appLaunch = async (instance: ApplicationInstance, options?: LaunchOptions) => {
 				vm.instance = vm.$markRaw(instance);
+				// Build the <wt-inspector> api surface once, marked raw so the
+				// reactive system never Proxy-wraps it. content/eventHub/popup all
+				// carry private fields (#client, etc.) that throw "Cannot read
+				// private member" when invoked through a Proxy.
+				vm.inspectorApi = vm.$markRaw({
+					content: instance.api.content,
+					eventHub: instance.api.eventHub,
+					popup: instance.popup,
+				});
 				instance.appState = () => {
 					const paths = vm.files.map((f: TextFile) => f.path).filter((p: string) => !!p);
 					if (paths.length === 0) return {};
@@ -412,6 +509,8 @@ export const App = {
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
+
+				await vm.loadDetailPanelState();
 
 				vm.initEditor();
 
@@ -463,6 +562,7 @@ export const App = {
 				} catch { /* ignore */ }
 			}
 			vm.closePreviewChannel();
+			unwatchActiveNode();
 			if (vm.messageListener) {
 				window.removeEventListener('message', vm.messageListener);
 			}
@@ -488,6 +588,151 @@ export const App = {
 		// ---- Pane toggles ----
 		toggleSidebarPanel() {
 			this.sidebarPanelVisible = !this.sidebarPanelVisible;
+		},
+		// ---- Inspector (right pane) ----
+		toggleDetailPanel() {
+			this.detailPanelVisible = !this.detailPanelVisible;
+			this.persistDetailPanelState();
+		},
+		onDetailResizeStart(event: MouseEvent) {
+			const vm = this;
+			event.preventDefault();
+			vm.detailPanelResizing = true;
+			vm.detailResizeStartX = event.clientX;
+			vm.detailResizeStartWidth = vm.detailPanelWidth;
+			const onMove = (e: MouseEvent) => {
+				if (!vm.detailPanelResizing) return;
+				// The Inspector sits on the right, so dragging the handle left
+				// (decreasing clientX) widens the panel.
+				const delta = vm.detailResizeStartX - e.clientX;
+				vm.detailPanelWidth = Math.max(
+					vm.detailPanelMinWidth,
+					Math.min(vm.detailPanelMaxWidth, vm.detailResizeStartWidth + delta),
+				);
+			};
+			const onUp = () => {
+				vm.detailPanelResizing = false;
+				document.removeEventListener('mousemove', onMove);
+				document.removeEventListener('mouseup', onUp);
+				vm.persistDetailPanelState();
+			};
+			document.addEventListener('mousemove', onMove);
+			document.addEventListener('mouseup', onUp);
+		},
+		async persistDetailPanelState() {
+			const vm = this;
+			const db = vm.instance?.api?.db;
+			const userID = vm.instance?.currentUser?.id || '*';
+			if (!db) return;
+			try {
+				await db.setUserSetting(userID, 'text-editor', 'detailPanel', {
+					visible: vm.detailPanelVisible,
+					width: vm.detailPanelWidth,
+				});
+			} catch { /* ignore */ }
+		},
+		async loadDetailPanelState() {
+			const vm = this;
+			const db = vm.instance?.api?.db;
+			const userID = vm.instance?.currentUser?.id || '*';
+			if (!db) return;
+			try {
+				const state = await db.getUserSetting(userID, 'text-editor', 'detailPanel');
+				if (state) {
+					vm.detailPanelVisible = state.visible ?? false;
+					vm.detailPanelWidth = state.width ?? 280;
+				}
+			} catch { /* ignore */ }
+		},
+		// wt-inspector event handlers. "Open File" is hidden via inspectorOptions
+		// (the file is already open here), and navigation has no in-editor list,
+		// so only reveal + overlay-changed are wired.
+		onInspectorOverlayChanged(open: boolean) {
+			this.inspectorOverlayOpen = !!open;
+		},
+		// "Open Containing Folder": launch a fresh Content Browser at the file's
+		// parent folder. (Content Browser navigates its own list instead; that
+		// behavior lives in its own host handler.)
+		onInspectorRevealItem(target: any) {
+			const path = target?.path;
+			if (!path) return;
+			const idx = path.lastIndexOf('/');
+			const parent = idx > 0 ? path.substring(0, idx) : '/';
+			window.parent?.postMessage({
+				type: 'open-app',
+				appId: CONTENT_BROWSER_APP_ID,
+				options: { initialPath: parent },
+			}, window.location.origin);
+		},
+		// Re-point the active-tab node watch and refresh editor metadata when the
+		// Inspector (or another client) changes the backing node.
+		watchActiveFileNode() {
+			const vm = this;
+			unwatchActiveNode();
+			const file = vm.files[vm.currentFileIndex];
+			if (!file || !file.path) return;
+			const eventHub = vm.instance?.api?.eventHub;
+			if (!eventHub || typeof eventHub.watchNode !== 'function') return;
+			const path = file.path;
+			activeNodeWatchUnsubscribe = eventHub.watchNode(path, () => {
+				vm.refreshActiveFileMetadata(path);
+			}, false);
+		},
+		// Pull the latest node metadata for the given path into its tab. Keeps the
+		// editor in sync with Inspector-driven changes (MIME type drives syntax
+		// highlighting; encoding/version/lock drive the status bar and save flow).
+		// Also rebuilds the Inspector target so the panel reloads.
+		async refreshActiveFileMetadata(path: string) {
+			const vm = this;
+			const idx = vm.files.findIndex((f: TextFile) => f.path === path);
+			if (idx < 0) return;
+			const contentService = vm.instance?.api?.content;
+			if (!contentService) return;
+			let node: Node | null;
+			try {
+				node = await contentService.getNode(path);
+			} catch {
+				return;
+			}
+			if (!node) return;
+			const file = vm.files[idx];
+			const prevMime = file.mimeType;
+			const hasWebTemplate = !!(node.properties || []).find(
+				(p: any) => p && p.name === 'web.template'
+			);
+			file.mimeType = node.mimeType || 'text/plain';
+			file.encoding = node.encoding || 'UTF-8';
+			file.isVersionable = node.isVersionable || false;
+			file.isCheckedOut = node.isCheckedOut || false;
+			file.baseVersionName = node.baseVersionName || '';
+			file.downloadUrl = node.downloadUrl || '';
+			file.uuid = node.uuid || '';
+			file.hasWebTemplate = hasWebTemplate;
+			file.inspectorItem = nodeToInspectorTarget(node);
+			if (idx === vm.currentFileIndex) {
+				vm.currentFile.mimeType = file.mimeType;
+				vm.currentFile.encoding = file.encoding;
+				vm.currentFile.isVersionable = file.isVersionable;
+				vm.currentFile.isCheckedOut = file.isCheckedOut;
+				vm.currentFile.baseVersionName = file.baseVersionName;
+				vm.currentFile.downloadUrl = file.downloadUrl;
+				vm.currentFile.uuid = file.uuid;
+				vm.currentFile.hasWebTemplate = file.hasWebTemplate;
+				if (prevMime !== file.mimeType) {
+					vm.applyLanguageForActiveFile();
+				}
+			}
+		},
+		// Reconfigure CodeMirror's language for the active file (used when the
+		// MIME type changes via the Inspector). The language compartment is
+		// module-scoped so it can be reconfigured on the live editor state.
+		applyLanguageForActiveFile() {
+			const vm = this;
+			if (!vm.editor) return;
+			const languageExt = getLanguageExtension(vm.currentFile.mimeType, vm.currentFile.name);
+			vm.editor.dispatch({
+				effects: languageCompartment.reconfigure(languageExt),
+			});
 		},
 		openFindPanel() {
 			const vm = this;
@@ -649,6 +894,9 @@ export const App = {
 				if (vm.previewOpen && vm.previewReady) vm.sendPreviewState();
 			});
 			vm.focusEditor();
+			// Point the Inspector node-watch at the now-active tab so changes
+			// made through the panel flow back into the editor's own state.
+			vm.watchActiveFileNode();
 		},
 		selectTab(index: number) {
 			const vm = this;
@@ -743,6 +991,7 @@ export const App = {
 				downloadUrl: '',
 				uuid: '',
 				hasWebTemplate: false,
+				inspectorItem: null,
 			};
 
 			if (vm.editor) {
@@ -845,6 +1094,7 @@ export const App = {
 						downloadUrl: '',
 						uuid: '',
 						hasWebTemplate: false,
+						inspectorItem: null,
 					};
 
 					editorStates.set(newFile.id, editorState);
@@ -915,6 +1165,7 @@ export const App = {
 					downloadUrl: node.downloadUrl || '',
 					uuid: node.uuid || '',
 					hasWebTemplate,
+					inspectorItem: nodeToInspectorTarget(node),
 				};
 
 				editorStates.set(newFile.id, editorState);

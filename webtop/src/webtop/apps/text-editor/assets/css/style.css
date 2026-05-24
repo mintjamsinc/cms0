@@ -124,6 +124,23 @@ nav.nav-bar {
 	background-color: var(--selection-rect-border);
 }
 
+/* Inspector (right pane) resize handle — host-owned layout, mirrors the
+   sidebar handle. The .detail-panel itself is styled by wt-inspector.css. */
+.detail-resize-handle {
+	width: 4px;
+	cursor: col-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 2;
+	transition: background-color 0.15s;
+}
+
+.detail-resize-handle:hover,
+.detail-resize-handle:active {
+	background-color: var(--selection-rect-border);
+}
+
 /* Sidebar section (no header, body only) */
 .sidebar-section-body {
 	margin-bottom: 0.75rem;

@@ -12,6 +12,7 @@
 	<!-- Default CSS -->
 	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
 	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link rel="stylesheet" href="../../components/wt-inspector.css?v=__BUILD_VERSION__">
 </head>
 
 <body>
@@ -50,6 +51,10 @@
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
 					@click="toggleSidebarPanel" title="Toggle Sidebar">
 					<i class="bi bi-layout-sidebar-inset"></i>
+				</button>
+				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
+					@click="toggleDetailPanel" title="Toggle Inspector (Ctrl+I)">
+					<i class="bi bi-layout-sidebar-inset-reverse"></i>
 				</button>
 				<button class="btn-icon pane-toggle-btn" :class="{active: previewOpen}"
 					@click="togglePreviewPanel" title="Open Preview Window">
@@ -174,6 +179,22 @@
 					<div id="editor-container"></div>
 				</div>
 			</div>
+
+			<!-- Detail Resize Handle -->
+			<div v-if="detailPanelVisible" class="detail-resize-handle"
+				@mousedown="onDetailResizeStart"></div>
+
+			<!-- Inspector Panel — wt-inspector custom element. Targets the active
+			     tab's file. The host owns panel visibility (detailPanelVisible)
+			     and width (detailPanelWidth); the inspector handles everything
+			     inside. -->
+			<wt-inspector v-if="detailPanelVisible"
+				:target="inspectorTarget"
+				:api="inspectorApi"
+				:view-options="inspectorOptions"
+				:width="detailPanelWidth"
+				@reveal-item="onInspectorRevealItem($event.detail)"
+				@overlay-changed="onInspectorOverlayChanged($event.detail)"></wt-inspector>
 
 		</div>
 
