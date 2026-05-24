@@ -29,6 +29,8 @@
 		"build:tasks:prod": "cross-env BUILD=production TARGETS=tasks rollup -c",
 		"build:text-editor": "cross-env BUILD=development TARGETS=text-editor rollup -c",
 		"build:text-editor:prod": "cross-env BUILD=production TARGETS=text-editor rollup -c",
+		"build:text-editor-preview": "cross-env BUILD=development TARGETS=text-editor-preview rollup -c",
+		"build:text-editor-preview:prod": "cross-env BUILD=production TARGETS=text-editor-preview rollup -c",
 		"prepare": "npm run build",
 		"test": "npm run build && node --test"
 	},

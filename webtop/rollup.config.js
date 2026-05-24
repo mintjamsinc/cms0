@@ -162,6 +162,7 @@ const webtopCoreConfig = makeConfig({
     { src: 'src/webtop/index.gsp', dest: 'dist/webtop', transform: stampVersion },
     { src: 'src/webtop/assets', dest: 'dist/webtop' },
     { src: 'src/webtop/components/*.html', dest: 'dist/webtop/components' },
+    { src: 'src/webtop/components/*.css', dest: 'dist/webtop/components' },
     // Bundle Bootstrap Icons (CSS + fonts) so apps can load it locally
     // instead of relying on a CDN. The CSS references fonts via the
     // relative path "fonts/bootstrap-icons.{woff,woff2}", so the resolved
@@ -184,6 +185,7 @@ const webtopCoreConfig = makeConfig({
   ],
   cssMinifyTargets: [
     { src: 'src/webtop/assets/css/*.css', dest: 'dist/webtop/assets/css' },
+    { src: 'src/webtop/components/*.css', dest: 'dist/webtop/components' },
   ],
 });
 
@@ -191,6 +193,7 @@ export default [
   webtopCoreConfig,
   makeAppConfig('content-browser'),
   makeAppConfig('text-editor'),
+  makeAppConfig('text-editor-preview'),
   makeAppConfig('bpmn-modeler'),
   makeAppConfig('eip-modeler'),
   makeAppConfig('schema-manager'),
