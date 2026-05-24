@@ -1019,11 +1019,20 @@ const WtDesktop = {
 				return;
 			}
 			const instance = new ApplicationInstance(app, window.Webtop);
-			const pos = vm.computeInitialWindowPosition();
-			const saved = await loadSavedWindowSize(app.id);
-			(instance as any)._initialWindowState = saved
-				? { ...pos, width: saved.width, height: saved.height }
-				: pos;
+			// If the caller pre-computed an exact placement (e.g. text-editor
+			// opens its preview to its own right), honor that verbatim and
+			// skip the cascade/saved-size logic.
+			const requested = payload.options?.initialWindowState;
+			if (requested && typeof requested.x === 'number' && typeof requested.y === 'number'
+				&& typeof requested.width === 'number' && typeof requested.height === 'number') {
+				(instance as any)._initialWindowState = { ...requested };
+			} else {
+				const pos = vm.computeInitialWindowPosition();
+				const saved = await loadSavedWindowSize(app.id);
+				(instance as any)._initialWindowState = saved
+					? { ...pos, width: saved.width, height: saved.height }
+					: pos;
+			}
 			if (payload.options) {
 				(instance as any).launchOptions = payload.options;
 			}
