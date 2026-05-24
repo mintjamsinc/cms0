@@ -902,6 +902,7 @@ public class WorkspaceQuery implements Adaptable {
 
 			StringBuilder statement = new StringBuilder().append("SELECT * FROM jcr_items");
 			statement.append(" WHERE item_path IN ({{paths;list}})");
+			statement.append(" AND is_deleted = FALSE");
 			statement.append(" ORDER BY item_path");
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("paths", paths)
 					.build();
