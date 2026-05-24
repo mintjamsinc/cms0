@@ -7,9 +7,7 @@
 
 import { GraphQLClient } from '../graphql/client.js';
 import { WEBTOP_QUERIES } from '../graphql/queries/webtop.js';
-import { CONTENT_QUERIES } from '../graphql/queries/content.js';
 import { UrlUtils } from '../utils/url.js';
-import { YamlParser } from '../utils/yaml.js';
 import { Application } from './webtop-service.js';
 
 // =============================================================================
@@ -18,6 +16,7 @@ import { Application } from './webtop-service.js';
 
 export interface AppAction {
   identifier: string;
+  label?: string;
   title?: string;
   icon?: string;
   handler?: string;
@@ -29,24 +28,42 @@ export interface ListAppsResult {
   apps: Application[];
 }
 
-interface NodeQueryResult {
-  path: string;
-  name: string;
-  nodeType?: string;
-  modified?: string;
-  downloadUrl?: string;
+/** Number of apps fetched per page from the `apps` connection. */
+const APPS_PAGE_SIZE = 100;
+
+interface AppActionNode {
+  identifier: string;
+  label?: string | null;
+  title?: string | null;
+  icon?: string | null;
+  handler?: string | null;
 }
 
-interface XPathQueryResult {
-  xpath: {
-    edges: Array<{ node: NodeQueryResult; cursor: string }>;
-    pageInfo: { hasNextPage: boolean; endCursor: string };
+interface AppNode {
+  identifier: string;
+  name: string;
+  title?: string | null;
+  icon?: string | null;
+  path: string;
+  relPath: string;
+  modified?: string | null;
+  editor?: boolean | null;
+  contentTypes?: string[] | null;
+  enableStartMenu?: boolean | null;
+  isAdminOnly?: boolean | null;
+  singleton?: boolean | null;
+  customWindowControls?: boolean | null;
+  minimumWidth?: number | null;
+  minimumHeight?: number | null;
+  actions?: AppActionNode[] | null;
+}
+
+interface ListAppsQueryResult {
+  apps: {
+    edges: Array<{ node: AppNode; cursor: string }>;
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
     totalCount: number;
   };
-}
-
-interface NodeResult {
-  node: NodeQueryResult | null;
 }
 
 // =============================================================================
@@ -74,38 +91,33 @@ export class WebtopServiceGraphQL {
   /**
    * List all available applications.
    *
-   * This method:
-   * 1. Searches for all app.yml files using XPath
-   * 2. Fetches and parses each app.yml file
-   * 3. Checks for icon.svg existence
-   * 4. Returns the complete app configurations
+   * Issues the `apps` GraphQL query, which returns each app's full metadata in
+   * a single Relay-style cursor connection (instead of the legacy ~3 requests
+   * per app). The connection is paged at {@link APPS_PAGE_SIZE} apps per
+   * request; all pages are accumulated. Admin-only apps are filtered out for
+   * non-admin users.
    */
   async listApps(): Promise<ListAppsResult> {
     const apps: Application[] = [];
 
     try {
-      // Step 1: Find all app.yml files using XPath
-      const xpathQuery = `/jcr:root${this.#appsPath}//element(app.yml,nt:file)`;
-      console.log('[WebtopServiceGraphQL] Searching for apps:', xpathQuery);
+      let after: string | null = null;
+      do {
+        const result = await this.#client.query<ListAppsQueryResult>(
+          WEBTOP_QUERIES.LIST_APPS,
+          { path: this.#appsPath, first: APPS_PAGE_SIZE, after }
+        );
 
-      const result = await this.#client.query<XPathQueryResult>(
-        CONTENT_QUERIES.XPATH,
-        { query: xpathQuery, first: 1000 }
-      );
-
-      console.log('[WebtopServiceGraphQL] Found', result.xpath.totalCount, 'app.yml files');
-
-      // Step 2: Process each app.yml file
-      for (const edge of result.xpath.edges) {
-        try {
-          const app = await this.#processAppYml(edge.node);
+        const connection = result.apps;
+        for (const edge of connection.edges) {
+          const app = this.#toApplication(edge.node);
           if (app) {
             apps.push(app);
           }
-        } catch (error) {
-          console.warn('[WebtopServiceGraphQL] Failed to process app:', edge.node.path, error);
         }
-      }
+
+        after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+      } while (after);
 
       console.log('[WebtopServiceGraphQL] Loaded', apps.length, 'apps');
 
@@ -121,125 +133,47 @@ export class WebtopServiceGraphQL {
   }
 
   /**
-   * Process a single app.yml file and return the application instance.
+   * Convert an App node from the GraphQL response into an Application, applying
+   * the admin-only visibility rule. Returns null when the app must be hidden.
    */
-  async #processAppYml(appYmlNode: NodeQueryResult): Promise<Application | null> {
-    // app.yml is at: {appsPath}/.../{appName}/app.yml
-    // Parent is the app directory; apps may live at any depth under appsPath.
-    const appDirPath = appYmlNode.path.replace(/\/app\.yml$/, '');
-    const appName = appDirPath.split('/').pop() || '';
-
-    // Fetch and parse app.yml content
-    const appYmlContent = await this.#fetchFileContent(appYmlNode.path);
-    if (!appYmlContent) {
-      console.warn('[WebtopServiceGraphQL] Failed to fetch app.yml:', appYmlNode.path);
+  #toApplication(node: AppNode): Application | null {
+    if (node.isAdminOnly && !this.#isAdmin) {
       return null;
     }
 
-    const appData = YamlParser.parse(appYmlContent) as Record<string, unknown>;
-
-    // Check admin-only restriction
-    if (appData.isAdminOnly && !this.#isAdmin) {
-      console.log('[WebtopServiceGraphQL] Skipping admin-only app:', appDirPath);
-      return null;
-    }
-
-    // Check for icon.svg (if not specified in app.yml)
-    if (!appData.icon) {
-      const iconSvgPath = `${appDirPath}/icon.svg`;
-      if (await this.#nodeExists(iconSvgPath)) {
-        appData.icon = 'icon.svg';
+    // Rebuild the action map keyed by identifier (the shape Application exposes).
+    const actions: Record<string, AppAction> = {};
+    for (const a of node.actions ?? []) {
+      if (!a.identifier) {
+        continue;
       }
+      const action: AppAction = { identifier: a.identifier };
+      if (a.label != null) action.label = a.label;
+      if (a.title != null) action.title = a.title;
+      if (a.icon != null) action.icon = a.icon;
+      if (a.handler != null) action.handler = a.handler;
+      actions[a.identifier] = action;
     }
 
-    // Get modified time from index.html if it exists
-    let modified = Date.now();
-    const indexHtmlPath = `${appDirPath}/index.html`;
-    const indexHtmlInfo = await this.#getNodeInfo(indexHtmlPath);
-    if (indexHtmlInfo?.modified) {
-      modified = new Date(indexHtmlInfo.modified).getTime();
-    }
-
-    // Annotate each action with its key as identifier (mirrors legacy GetApps.groovy behavior)
-    const actions = appData.actions as Record<string, unknown> | undefined;
-    if (actions) {
-      for (const [key, value] of Object.entries(actions)) {
-        if (typeof value === 'object' && value !== null) {
-          (value as AppAction).identifier = key;
-        }
-      }
-    }
-
-    // Compose the raw data shape consumed by Application's getters
     return new Application({
-      ...appData,
-      name: appName,
-      appHome: appDirPath,
-      relPath: appDirPath.substring(this.#appsPath.length + 1),
-      modified,
+      identifier: node.identifier,
+      name: node.name,
+      title: node.title ?? undefined,
+      appHome: node.path,
+      relPath: node.relPath,
+      icon: node.icon ?? undefined,
+      // Preserve legacy behavior: default to "now" when no index.html timestamp.
+      modified: node.modified ? new Date(node.modified).getTime() : Date.now(),
+      // null means "unset" → undefined so the default (visible) start-menu rule applies.
+      enableStartMenu: node.enableStartMenu ?? undefined,
+      editor: node.editor ?? undefined,
+      contentTypes: node.contentTypes ?? [],
+      actions,
+      minimumWidth: node.minimumWidth ?? undefined,
+      minimumHeight: node.minimumHeight ?? undefined,
+      customWindowControls: node.customWindowControls ?? undefined,
+      singleton: node.singleton ?? undefined,
     });
-  }
-
-  /**
-   * Check if a node exists at the given path.
-   */
-  async #nodeExists(path: string): Promise<boolean> {
-    try {
-      const result = await this.#client.query<NodeResult>(
-        WEBTOP_QUERIES.CHECK_NODE_EXISTS,
-        { path }
-      );
-      return result.node !== null;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Get basic node info.
-   */
-  async #getNodeInfo(path: string): Promise<NodeQueryResult | null> {
-    try {
-      const result = await this.#client.query<NodeResult>(
-        WEBTOP_QUERIES.GET_APP_INFO,
-        { path }
-      );
-      return result.node;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Fetch the content of a file.
-   */
-  async #fetchFileContent(path: string): Promise<string | null> {
-    try {
-      // First, get the download URL
-      const result = await this.#client.query<NodeResult>(
-        WEBTOP_QUERIES.GET_FILE_CONTENT,
-        { path }
-      );
-
-      if (!result.node?.downloadUrl) {
-        return null;
-      }
-
-      // Fetch the actual content
-      const response = await fetch(result.node.downloadUrl, {
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        console.warn('[WebtopServiceGraphQL] Failed to fetch file:', path, response.status);
-        return null;
-      }
-
-      return await response.text();
-    } catch (error) {
-      console.warn('[WebtopServiceGraphQL] Error fetching file:', path, error);
-      return null;
-    }
   }
 
   /**
