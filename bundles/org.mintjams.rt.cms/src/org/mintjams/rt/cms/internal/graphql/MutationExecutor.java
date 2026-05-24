@@ -441,12 +441,17 @@ public class MutationExecutor {
 				// Handle mixed binary array: each item is either {keepIndex: N} or {uploadId: "..."}
 				Value[] binValues = new Value[valueList.size()];
 				MultipartUploadManager uploadManager = new MultipartUploadManager(this.session);
-				// Read existing values from the property (if it exists)
+				// Read existing values from the property (if it exists). A
+				// single-valued property is exposed as a one-element array so a
+				// keepIndex of 0 can preserve its content when converting it to
+				// a multi-valued binary.
 				Value[] existingValues = null;
 				if (node.hasProperty(name)) {
 					javax.jcr.Property existingProp = node.getProperty(name);
 					if (existingProp.isMultiple()) {
 						existingValues = existingProp.getValues();
+					} else {
+						existingValues = new Value[] { existingProp.getValue() };
 					}
 				}
 				for (int i = 0; i < valueList.size(); i++) {
