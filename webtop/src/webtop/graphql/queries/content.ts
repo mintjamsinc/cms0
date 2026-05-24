@@ -41,9 +41,11 @@ export const NODE_FULL_FIELDS = `
     isLocked
     lockInfo {
       lockOwner
+      lockOwnerDisplayName
       isDeep
       isSessionScoped
       isLockOwningSession
+      isLockOwner
     }
   }
 `;
@@ -97,9 +99,11 @@ export const CONTENT_QUERIES = {
         isLocked
         lockInfo {
           lockOwner
+          lockOwnerDisplayName
           isDeep
           isSessionScoped
           isLockOwningSession
+          isLockOwner
         }
         isVersionable
         isCheckedOut
@@ -153,9 +157,11 @@ export const CONTENT_QUERIES = {
             isLocked
             lockInfo {
               lockOwner
+              lockOwnerDisplayName
               isDeep
               isSessionScoped
               isLockOwningSession
+              isLockOwner
             }
             isVersionable
             isCheckedOut
@@ -544,9 +550,11 @@ export const CONTENT_MUTATIONS = {
         isLocked
         lockInfo {
           lockOwner
+          lockOwnerDisplayName
           isDeep
           isSessionScoped
           isLockOwningSession
+          isLockOwner
         }
       }
     }

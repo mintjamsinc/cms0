@@ -1,8 +1,9 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import { isFolderNode, type Node, type LockInfo, type JobStatus } from "../../graphql/types.js";
+import { type Node, type JobStatus } from "../../graphql/types.js";
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from "../../services/content-delete.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
+import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
 // Display helpers used by the file list. The remaining inspector-only
 // display methods moved into wt-inspector along with the rest of the panel.
 import {
@@ -31,58 +32,21 @@ async function loadInspectorTemplate(): Promise<void> {
 // CodeMirror, marked, validation helpers and inline editor popup handles
 // moved to wt-inspector along with the Inspector UI itself.
 
-// Helper to convert GraphQL Node to CmsItem-compatible object
+// Helper to convert GraphQL Node to CmsItem-compatible object. The Inspector
+// target fields come from the shared nodeToInspectorTarget(); the list view adds
+// a few extras on top (existence, children, derived display attributes).
 function nodeToContentItem(node: Node): ContentItem {
 	return {
-		id: node.uuid || node.path,
-		name: node.name,
-		path: node.path,
+		...nodeToInspectorTarget(node),
 		exists: true,
-		isCollection: isFolderNode(node),
-		downloadURL: node.downloadUrl ? node.downloadUrl + (node.downloadUrl.includes('?') ? '&' : '?') + 'attachment' : null,
-		created: node.created ? new Date(node.created) : null,
-		createdBy: node.createdBy,
-		createdByDisplayName: node.createdByDisplayName ?? null,
-		lastModified: node.modified ? new Date(node.modified) : null,
-		lastModifiedBy: node.modifiedBy,
-		lastModifiedByDisplayName: node.modifiedByDisplayName ?? null,
-		contentLength: node.size || 0,
-		mimeType: node.mimeType || '',
-		encoding: node.encoding || '',
 		hasChildren: node.hasChildren || false,
-		isLocked: node.isLocked || false,
-		lockInfo: node.lockInfo || null,
-		isReferenceable: !!node.uuid,
-		isVersionable: node.isVersionable || false,
-		isCheckedOut: node.isCheckedOut || false,
-		baseVersionName: node.baseVersionName || null,
 		attributes: {},
 	};
 }
 
-interface ContentItem {
-	id: string;
-	name: string;
-	path: string;
+interface ContentItem extends InspectorTarget {
 	exists: boolean;
-	isCollection: boolean;
-	downloadURL: string | null;
-	created: Date | null;
-	createdBy: string;
-	createdByDisplayName: string | null;
-	lastModified: Date | null;
-	lastModifiedBy: string;
-	lastModifiedByDisplayName: string | null;
-	contentLength: number;
-	mimeType: string;
-	encoding: string;
 	hasChildren: boolean;
-	isLocked: boolean;
-	lockInfo: LockInfo | null;
-	isReferenceable: boolean;
-	isVersionable: boolean;
-	isCheckedOut: boolean;
-	baseVersionName: string | null;
 	attributes: Record<string, any>;
 }
 
@@ -1241,6 +1205,37 @@ export const App = {
 			if (!path) return;
 			this.navigateToPath(path);
 		},
+		// Open the folder that contains the given item and select the item
+		// within the freshly loaded list. Used by the inspector's
+		// "Open Containing Folder" action — handy when the item is a search
+		// result whose parent differs from the current folder.
+		async onInspectorRevealItem(target: any) {
+			const path = target?.path;
+			if (!path) return;
+			const idx = path.lastIndexOf('/');
+			const parent = idx > 0 ? path.substring(0, idx) : '/';
+			// While search results are showing, the list holds matches that may
+			// span folders, so always reload the real folder listing. Clear the
+			// search flags first (without xpathClearSearch's own reload, since
+			// navigateToPath performs the load).
+			const needLoad = this.xpathSearchActive || parent !== this.currentPath;
+			if (this.xpathSearchActive) {
+				this.xpathSearchActive = false;
+				this.xpathSearchTotalCount = 0;
+				this.xpathSearchError = '';
+			}
+			if (needLoad) {
+				await this.navigateToPath(parent);
+			}
+			const item = (this.items as any[]).find((i: any) => i.path === path);
+			if (!item) return;
+			this.selectedItems = [item.id];
+			this.lastSelectedIndex = (this.items as any[]).findIndex((i: any) => i.id === item.id);
+			this.$nextTick(() => {
+				const row = document.querySelector('.content-list tbody tr.item-selected');
+				row?.scrollIntoView({ block: 'nearest' });
+			});
+		},
 		onInspectorOverlayChanged(open: boolean) {
 			this.inspectorOverlayOpen = !!open;
 		},
@@ -1303,6 +1298,13 @@ export const App = {
 		displayVersion(item: any) {
 			return displayVersionUtil(item);
 		},
+		// Lock owner shown as a friendly display name, falling back to the raw
+		// identifier when the principal has no display name (or could not be resolved).
+		lockOwnerName(item: any): string {
+			const info = item?.lockInfo;
+			if (!info) return '';
+			return info.lockOwnerDisplayName || info.lockOwner || '';
+		},
 		getFileIcon(item: any): string {
 			return getFileIconUtil(item);
 		},
@@ -1338,8 +1340,8 @@ export const App = {
 					av = (a.lastModifiedByDisplayName || a.lastModifiedBy || '').toLowerCase();
 					bv = (b.lastModifiedByDisplayName || b.lastModifiedBy || '').toLowerCase();
 				} else if (column == 'lockOwner') {
-					av = a.lockInfo?.lockOwner?.toLowerCase() ?? '';
-					bv = b.lockInfo?.lockOwner?.toLowerCase() ?? '';
+					av = (a.lockInfo?.lockOwnerDisplayName || a.lockInfo?.lockOwner || '').toLowerCase();
+					bv = (b.lockInfo?.lockOwnerDisplayName || b.lockInfo?.lockOwner || '').toLowerCase();
 				} else if (column == 'version') {
 					av = a.baseVersionName?.toLowerCase() ?? '';
 					bv = b.baseVersionName?.toLowerCase() ?? '';
@@ -3059,8 +3061,21 @@ export const App = {
 		exitEditMode() {
 			this.navEditMode = false;
 		},
+		// Normalize a user-typed path: ensure a leading slash, collapse repeated
+		// slashes, and strip any trailing slash. Without this a value such as
+		// "/content/public/blog/" leaks a trailing slash into the XPath search
+		// scope (".../jcr:root/content/public/blog///element(*, nt:file)").
+		normalizePath(input: string): string {
+			let p = (input || '').trim();
+			if (!p) return '/';
+			if (!p.startsWith('/')) p = '/' + p;
+			p = p.replace(/\/{2,}/g, '/');
+			if (p.length > 1) p = p.replace(/\/$/, '');
+			return p;
+		},
 		async confirmEditPath() {
-			const path = this.editPathValue.trim();
+			const path = this.normalizePath(this.editPathValue);
+			this.editPathValue = path;
 			if (path && path !== this.currentPath) {
 				await this.load(path);
 			}

@@ -12,7 +12,12 @@
 //               single = single selection
 //     api     — { content: ContentServiceGraphQL, eventHub: EventHub }
 //               handed straight through from vm.instance.api
-//     options — optional display flags (showPreview, showActions, readOnly)
+//     viewOptions — optional display flags. Currently: showOpenItem (default
+//               true) toggles the "Open File/Folder" action button; hosts that
+//               already have the item open (text-editor) pass false to hide it.
+//               NOTE: bound as `:view-options` — the attribute name `options`
+//               is reserved by ichigojs for directive options, so a plain
+//               `:options` binding is silently ignored.
 //     width   — optional pixel width applied to the panel root
 //   emits:
 //     open-item     { target }
@@ -366,7 +371,7 @@ function validatePropertyValues(
 
 defineComponent('wt-inspector', {
 	template: '#wt-inspector',
-	props: ['target', 'api', 'options', 'width', 'command'],
+	props: ['target', 'api', 'viewOptions', 'width', 'command'],
 	data(this: any) {
 		return {
 			// Non-reactive private state (subscriptions, listeners, timers).
@@ -406,7 +411,7 @@ defineComponent('wt-inspector', {
 			selectedSchemaKey: '' as string,
 			detailPropertiesFilter: '' as string,
 			propEditorFilter: '' as string,
-			propEditorErrorFilter: '' as '' | 'mismatch' | 'validation',
+			propEditorErrorFilter: '' as '' | 'mismatch' | 'choice' | 'validation',
 			// Detail panel: ACL summary
 			detailACL: [] as { path: string; entries: { principal: string; privileges: string[]; allow: boolean }[] }[],
 			detailACLLoading: false,
@@ -534,6 +539,12 @@ defineComponent('wt-inspector', {
 		multiTargets(this: any): any[] {
 			const t = this.target;
 			return Array.isArray(t) && t.length > 1 ? t : [];
+		},
+		// Whether to show the "Open File/Folder" action button. Hosts that have
+		// the item open already (e.g. text-editor) pass viewOptions.showOpenItem
+		// = false to hide it. Defaults to shown.
+		showOpenAction(this: any): boolean {
+			return this.viewOptions?.showOpenItem !== false;
 		},
 		isSelectedItemImage(this: any): boolean {
 			const item = this.singleTarget;
@@ -677,6 +688,23 @@ defineComponent('wt-inspector', {
 					&& item.type !== 'BINARY' && item.type !== 'REFERENCE' && item.type !== 'WEAKREFERENCE') {
 					enrichedWithMeta.typeMismatch = true;
 					enrichedWithMeta.mismatchMessage = `Type mismatch: stored as ${item.type}, schema expects ${schemaType}. Editing and saving will convert it to ${schemaType}.`;
+				}
+				if (schemaChoices && schemaChoices.length > 0
+					&& item.type !== 'REFERENCE' && item.type !== 'WEAKREFERENCE'
+					&& schemaType !== 'REFERENCE' && schemaType !== 'WEAKREFERENCE') {
+					const allowedValues = new Set(schemaChoices.map((c: any) => String(c.value)));
+					const valuesToCheck = item.isArray ? (item.currentValues || []) : [item.currentValue];
+					const offending: string[] = [];
+					for (const cv of valuesToCheck) {
+						if (cv == null || String(cv).trim() === '') continue;
+						if (!allowedValues.has(String(cv))) offending.push(String(cv));
+					}
+					if (offending.length > 0) {
+						enrichedWithMeta.choiceMismatch = true;
+						enrichedWithMeta.choiceMismatchMessage = offending.length === 1
+							? `Value "${offending[0]}" is not one of the defined choices.`
+							: `${offending.length} values are not among the defined choices: ${offending.map((v) => `"${v}"`).join(', ')}.`;
+					}
 				}
 				void (this as any)._i18nTick;
 				const currentValues = item.isArray ? (item.currentValues || []) : [item.currentValue ?? ''];
@@ -852,6 +880,8 @@ defineComponent('wt-inspector', {
 			let items = this.propEditorDisplayItems as any[];
 			if (errorMode === 'mismatch') {
 				items = items.filter((p: any) => p.typeMismatch);
+			} else if (errorMode === 'choice') {
+				items = items.filter((p: any) => p.choiceMismatch);
 			} else if (errorMode === 'validation') {
 				items = items.filter((p: any) => p.validationError);
 			}
@@ -892,6 +922,22 @@ defineComponent('wt-inspector', {
 			};
 			return validatePropertyValues({ ...prop, isArray }, values, allPropsRaw, i18nFormat);
 		},
+		propEditorEditChoiceMismatch(this: any): string {
+			if (!this.propEditorEditingName) return '';
+			const prop = (this.propEditorDisplayItems as any[]).find((p: any) => p.name === this.propEditorEditingName);
+			if (!prop || !prop.schemaChoices || prop.schemaChoices.length === 0) return '';
+			if (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE') return '';
+			const allowed = new Set((prop.schemaChoices as any[]).map((c: any) => String(c.value)));
+			const isArray = this.propEditorEditIsArray as boolean;
+			const values: string[] = isArray
+				? [...(this.propEditorEditValues as string[])]
+				: [this.propEditorEditInput as string];
+			const offending = values.filter((v) => v != null && String(v).trim() !== '' && !allowed.has(String(v)));
+			if (offending.length === 0) return '';
+			return offending.length === 1
+				? `Value "${offending[0]}" is not one of the defined choices.`
+				: `${offending.length} values are not among the defined choices: ${offending.map((v) => `"${v}"`).join(', ')}.`;
+		},
 		propEditorMissingProperties(this: any): { required: any[]; optional: any[] } {
 			const required: any[] = [];
 			const optional: any[] = [];
@@ -910,17 +956,19 @@ defineComponent('wt-inspector', {
 			}
 			return { required, optional };
 		},
-		propEditorIssueCounts(this: any): { mismatch: number; validation: number; modified: number } {
+		propEditorIssueCounts(this: any): { mismatch: number; choiceMismatch: number; validation: number; modified: number } {
 			const items = this.propEditorDisplayItems as any[];
 			let mismatch = 0;
+			let choiceMismatch = 0;
 			let validation = 0;
 			let modified = 0;
 			for (const p of items) {
 				if (p.typeMismatch) mismatch++;
+				if (p.choiceMismatch) choiceMismatch++;
 				if (p.validationError) validation++;
 				if (p.isModified || p.isNew || p.isDeleted) modified++;
 			}
-			return { mismatch, validation, modified };
+			return { mismatch, choiceMismatch, validation, modified };
 		},
 	},
 	watch: {
@@ -1103,6 +1151,12 @@ defineComponent('wt-inspector', {
 		},
 		emitNavigatePath(this: any, path: string) {
 			this._dispatch('navigate-path', path);
+		},
+		// Ask the host to open the folder that contains the given item and
+		// reveal (select) the item within it. The host computes the parent
+		// path and handles selection.
+		emitRevealItem(this: any, target: any) {
+			this._dispatch('reveal-item', target);
 		},
 		emitRequestClose(this: any) {
 			this._dispatch('request-close');

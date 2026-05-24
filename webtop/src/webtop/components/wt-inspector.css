@@ -402,6 +402,34 @@ wt-inspector {
 	color: #198754;
 }
 
+/* Lock owner chip — pill that distinguishes a lock held by the current
+   user (primary) from one held by someone else (danger). */
+.lock-chip {
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	padding: 0.125rem 0.5rem;
+	border-radius: 9999px;
+	font-size: 0.85em;
+	line-height: 1.5;
+}
+
+.lock-chip .lock-chip-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.lock-chip-self {
+	background-color: rgb(from var(--primary-color) r g b / 0.12);
+	color: var(--primary-color);
+}
+
+.lock-chip-other {
+	background-color: rgb(from var(--danger-color) r g b / 0.12);
+	color: var(--danger-color);
+}
+
 .detail-action {
 	border-bottom: none;
 	padding-top: 0.75rem;

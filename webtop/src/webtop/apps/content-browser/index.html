@@ -387,13 +387,14 @@
 
 			<!-- XPath Search Bar -->
 			<div v-if="xpathSearchActive && !navEditMode" class="nav-breadcrumb xpath-search-bar">
-				<i class="bi bi-search xpath-search-bar-icon"></i>
-				<span class="xpath-search-bar-text">
-					Searching in <span class="xpath-search-bar-path">{{ currentPath }}</span>
-				</span>
-				<span v-if="!xpathSearchLoading" class="xpath-search-bar-count">&mdash; {{ xpathSearchTotalCount }} results</span>
-				<span v-if="xpathSearchLoading" class="xpath-search-bar-count">&mdash; searching...</span>
-				<span class="nav-spacer"></span>
+				<div class="xpath-search-bar-info">
+					<i class="bi bi-search xpath-search-bar-icon"></i>
+					<span class="xpath-search-bar-text">
+						Searching in <span class="xpath-search-bar-path">{{ currentPath }}</span>
+					</span>
+					<span v-if="!xpathSearchLoading" class="xpath-search-bar-count">&mdash; {{ xpathSearchTotalCount }} results</span>
+					<span v-if="xpathSearchLoading" class="xpath-search-bar-count">&mdash; searching...</span>
+				</div>
 				<button class="xpath-search-bar-close" @click="xpathClearSearch" title="Close search">
 					<i class="bi bi-x-lg"></i>
 				</button>
@@ -467,11 +468,6 @@
 				</div>
 			</div>
 
-			<!-- Upload from PC -->
-			<button class="btn-icon" :disabled="currentFolderDeleted"
-				@click="triggerFileUpload" title="Upload files from PC">
-				<i class="bi bi-upload"></i>
-			</button>
 		</div>
 
 		<!-- Hidden file inputs driving the "Upload from PC" actions. Resetting
@@ -559,8 +555,13 @@
 							</div>
 						</td>
 						<td class="lock-owner-column">
-							<div class="lock-owner-block pe-1 text-truncate">
-								<span v-if="item.isLocked"><i class="bi bi-lock-fill me-1"></i>{{ item.lockInfo?.lockOwner }}</span>
+							<div class="lock-owner-block pe-1">
+								<span v-if="item.isLocked" class="lock-chip"
+									:class="item.lockInfo?.isLockOwner ? 'lock-chip-self' : 'lock-chip-other'"
+									:title="item.lockInfo?.isLockOwner ? 'Locked by you' : ('Locked by ' + lockOwnerName(item))">
+									<i class="bi bi-lock-fill me-1"></i>
+									<span class="lock-chip-label">{{ item.lockInfo?.isLockOwner ? 'You' : lockOwnerName(item) }}</span>
+								</span>
 								<span v-else class="text-muted">&mdash;</span>
 							</div>
 						</td>
@@ -610,6 +611,7 @@
 			:command="inspectorCommand"
 			@open-item="onInspectorOpenItem($event.detail)"
 			@navigate-path="onInspectorNavigatePath($event.detail)"
+			@reveal-item="onInspectorRevealItem($event.detail)"
 			@overlay-changed="onInspectorOverlayChanged($event.detail)"></wt-inspector>
 		</div>
 

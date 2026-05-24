@@ -156,8 +156,11 @@
 				<div class="detail-section">
 					<div class="detail-label">Lock Status</div>
 					<div class="detail-value">
-						<span v-if="singleTarget.isLocked" class="detail-status-badge detail-status-locked">
-							<i class="bi bi-lock-fill me-1"></i>Locked by {{ singleTarget.lockInfo?.lockOwner }}
+						<span v-if="singleTarget.isLocked" class="lock-chip"
+							:class="singleTarget.lockInfo?.isLockOwner ? 'lock-chip-self' : 'lock-chip-other'">
+							<i class="bi bi-lock-fill me-1"></i>
+							<span v-if="singleTarget.lockInfo?.isLockOwner" class="lock-chip-label">Locked by you</span>
+							<span v-else class="lock-chip-label">Locked by {{ singleTarget.lockInfo?.lockOwnerDisplayName || singleTarget.lockInfo?.lockOwner }}</span>
 						</span>
 						<span v-else class="text-muted">&mdash;</span>
 					</div>
@@ -396,10 +399,16 @@
 			<div class="detail-section-header">Actions</div>
 
 			<div class="detail-section-body">
-				<div class="detail-section">
+				<div v-if="showOpenAction" class="detail-section">
 					<button class="wt wt-primary w-100" @click="emitOpenItem(singleTarget)">
 						<i class="bi me-1" :class="singleTarget.isCollection ? 'bi-folder2-open' : 'bi-box-arrow-up-right'"></i>
 						{{ singleTarget.isCollection ? 'Open Folder' : 'Open File' }}
+					</button>
+				</div>
+				<div v-if="!singleTarget.isCollection" class="detail-section">
+					<button class="wt w-100" @click="emitRevealItem(singleTarget)">
+						<i class="bi bi-folder2-open me-1"></i>
+						Open Containing Folder
 					</button>
 				</div>
 			</div>
@@ -825,7 +834,7 @@
 					</div>
 
 					<!-- Issue summary -->
-					<div v-if="propEditorIssueCounts.mismatch > 0 || propEditorIssueCounts.validation > 0 || propEditorErrorFilter" class="prop-issue-summary">
+					<div v-if="propEditorIssueCounts.mismatch > 0 || propEditorIssueCounts.choiceMismatch > 0 || propEditorIssueCounts.validation > 0 || propEditorErrorFilter" class="prop-issue-summary">
 						<div v-if="propEditorIssueCounts.mismatch > 0 || propEditorErrorFilter === 'mismatch'"
 							class="prop-issue-row prop-issue-warning"
 							:class="{ active: propEditorErrorFilter === 'mismatch' }"
@@ -836,6 +845,18 @@
 							</span>
 							<span v-else title="Click to filter">
 								{{ propEditorIssueCounts.mismatch }} type mismatch{{ propEditorIssueCounts.mismatch === 1 ? '' : 'es' }} detected
+							</span>
+						</div>
+						<div v-if="propEditorIssueCounts.choiceMismatch > 0 || propEditorErrorFilter === 'choice'"
+							class="prop-issue-row prop-issue-warning c-pointer"
+							:class="{ active: propEditorErrorFilter === 'choice' }"
+							@click="propEditorErrorFilter = propEditorErrorFilter === 'choice' ? '' : 'choice'">
+							<i class="bi bi-exclamation-triangle-fill me-1"></i>
+							<span v-if="propEditorErrorFilter === 'choice'" title="Click to clear">
+								{{ propEditorIssueCounts.choiceMismatch }} propert{{ propEditorIssueCounts.choiceMismatch === 1 ? 'y has' : 'ies have' }} a value not in choices (<i class="bi bi-funnel-fill me-1"></i>Filtered)
+							</span>
+							<span v-else title="Click to filter">
+								{{ propEditorIssueCounts.choiceMismatch }} propert{{ propEditorIssueCounts.choiceMismatch === 1 ? 'y has' : 'ies have' }} a value not in choices
 							</span>
 						</div>
 						<div v-if="propEditorIssueCounts.validation > 0 || propEditorErrorFilter === 'validation'"
@@ -855,7 +876,7 @@
 					<div class="custom-properties">
 						<!-- Each property row -->
 						<div v-for="prop in filteredPropEditorDisplayItems" :key="prop.name" class="prop-editor-row"
-							:class="{ 'prop-row-modified': prop.isModified, 'prop-row-deleted': prop.isDeleted, 'prop-row-new': prop.isNew, 'prop-row-mismatch': prop.typeMismatch, 'prop-row-invalid': prop.validationError }">
+							:class="{ 'prop-row-modified': prop.isModified, 'prop-row-deleted': prop.isDeleted, 'prop-row-new': prop.isNew, 'prop-row-mismatch': prop.typeMismatch || prop.choiceMismatch, 'prop-row-invalid': prop.validationError }">
 
 							<!-- Read mode -->
 							<div v-if="propEditorEditingName !== prop.name" class="prop-read-row"
@@ -951,6 +972,10 @@
 								<!-- Type mismatch warning -->
 								<div v-if="prop.typeMismatch" class="prop-inline-warning">
 									<i class="bi bi-exclamation-triangle-fill me-1"></i>{{ prop.mismatchMessage }}
+								</div>
+								<!-- Choice mismatch warning -->
+								<div v-if="prop.choiceMismatch" class="prop-inline-warning">
+									<i class="bi bi-exclamation-triangle-fill me-1"></i>{{ prop.choiceMismatchMessage }}
 								</div>
 								<!-- Validation error -->
 								<div v-if="prop.validationError" class="prop-inline-error">
@@ -1209,6 +1234,9 @@
 									<input v-else type="text" class="wt w-100" v-model="propEditorEditInput">
 								</div>
 								<!-- Add row / Confirm / Cancel -->
+								<div v-if="propEditorEditChoiceMismatch" class="prop-inline-warning">
+									<i class="bi bi-exclamation-triangle-fill me-1"></i>{{ propEditorEditChoiceMismatch }}
+								</div>
 								<div v-if="propEditorEditError" class="prop-inline-error">
 									<i class="bi bi-x-circle-fill me-1"></i>{{ propEditorEditError }}
 								</div>

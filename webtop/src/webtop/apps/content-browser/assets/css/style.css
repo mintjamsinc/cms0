@@ -855,6 +855,34 @@ nav.nav-bar {
 	max-width: 8rem;
 }
 
+/* Lock owner chip — pill that distinguishes a lock held by the current
+   user (primary) from one held by someone else (danger). */
+.lock-chip {
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	padding: 0.05rem 0.5rem;
+	border-radius: 9999px;
+	font-size: 0.85em;
+	line-height: 1.5;
+}
+
+.lock-chip .lock-chip-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.lock-chip-self {
+	background-color: rgb(from var(--primary-color) r g b / 0.12);
+	color: var(--primary-color);
+}
+
+.lock-chip-other {
+	background-color: rgb(from var(--danger-color) r g b / 0.12);
+	color: var(--danger-color);
+}
+
 .content-list .version-column {
 	min-width: 5rem;
 	max-width: 8rem;
@@ -1370,17 +1398,37 @@ nav.nav-bar {
 /* XPath search bar in navbar */
 .xpath-search-bar {
 	cursor: default;
+	/* Allow this flex item to shrink below its content width so the inner
+	   path can ellipsis instead of pushing the close (×) button out of view. */
+	min-width: 0;
+}
+
+/* Left group (icon + "Searching in <path>" + result count). Takes the
+   available width and clips; the close button sits outside it, pinned right. */
+.xpath-search-bar-info {
+	display: flex;
+	align-items: center;
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
 }
 
 .xpath-search-bar-icon {
 	/* font-size: 0.9em; */
 	margin-right: 0.5rem;
 	color: var(--primary-color);
+	flex: 0 0 auto;
 }
 
 .xpath-search-bar-text {
 	/* font-size: 0.85em; */
 	white-space: nowrap;
+	/* Shrink and ellipsis the path when long so the result count and the
+	   close (×) button stay visible. */
+	min-width: 0;
+	flex: 0 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .xpath-search-bar-path {
@@ -1392,6 +1440,7 @@ nav.nav-bar {
 	color: var(--text-muted-color);
 	margin-left: 0.25rem;
 	white-space: nowrap;
+	flex: 0 0 auto;
 }
 
 .xpath-search-bar-close {
@@ -1404,6 +1453,10 @@ nav.nav-bar {
 	border-radius: 9999px;
 	width: 1.5rem;
 	height: 1.5rem;
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .xpath-search-bar-close:hover {

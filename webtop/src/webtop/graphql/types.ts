@@ -22,9 +22,14 @@ export type SortOrder = 'ASC' | 'DESC';
 
 export interface LockInfo {
   lockOwner: string;
+  lockOwnerDisplayName?: string | null;
   isDeep: boolean;
   isSessionScoped: boolean;
   isLockOwningSession: boolean;
+  // True when the lock is held by the current user. Unlike isLockOwningSession,
+  // this also matches open-scoped locks taken by the same principal in an
+  // earlier session (e.g. locks created from the content browser).
+  isLockOwner?: boolean;
 }
 
 export interface Node {
