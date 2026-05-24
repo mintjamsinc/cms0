@@ -23,9 +23,6 @@ import { yaml } from "@codemirror/lang-yaml";
 import { sql } from "@codemirror/lang-sql";
 import { php } from "@codemirror/lang-php";
 
-// Markdown parser
-import { marked } from "marked";
-
 // CodeMirror theme — colors come from CSS variables, so the editor follows
 // the app's light/dark theme automatically (variables defined in style.css).
 const cmTheme = EditorView.theme({
@@ -190,6 +187,28 @@ function guessExtensionFromMime(mimeType: string): string {
 // TextFile.id so each tab keeps its own undo history and selection.
 const editorStates = new Map<string, EditorState>();
 
+// Companion Preview window — see apps/text-editor-preview. The text-editor
+// keeps at most one preview window per editor instance; it follows whichever
+// tab is currently active. previewKey is set to the editor's
+// ApplicationInstance id so multiple text-editor windows can each have their
+// own preview without crosstalk on the shared BroadcastChannel.
+const PREVIEW_APP_ID = 'e7a6fc4b-41c4-4362-8358-58839be4dd96';
+const PREVIEW_CHANNEL = 'webtop-text-preview';
+const PREVIEW_PING_INTERVAL_MS = 2000;
+
+// Native objects with privileged internal slots (BroadcastChannel, ...) must
+// NOT be stored in ichigojs's reactive data(). Even $markRaw isn't enough:
+// reads still pass through the parent data Proxy and `this` gets unbound
+// from the underlying instance, throwing "Illegal invocation" the moment
+// any native method runs. Keep these in module scope — there is only ever
+// one text-editor instance per iframe.
+let previewChannelRef: BroadcastChannel | null = null;
+let saveAsChannelRef: BroadcastChannel | null = null;
+// Path that the companion preview window is currently pinned to. When the
+// matching tab is closed, the editor notifies the preview so it can drop the
+// pin and follow the new active tab.
+let previewPinnedPath: string = '';
+
 interface LaunchOptions {
 	path?: string;
 	mimeType?: string;
@@ -258,18 +277,16 @@ export const App = {
 			cursorColumn: 1,
 			canUndo: false,
 			canRedo: false,
-			previewHtml: '',
-			previewSrcDoc: '',
-			previewIframeUrl: '',
-			previewExtension: 'html',
-			previewLoading: false,
-			previewError: '',
 			messageListener: null as ((e: MessageEvent) => void) | null,
 			// Pane visibility
 			sidebarPanelVisible: true,
-			previewPanelVisible: false,
 			sidebarPanelWidth: 260,
-			previewPanelWidth: 320,
+			// Companion preview window — open/ready state and last-used
+			// extension hint per tab so re-opening reuses prior input.
+			previewOpen: false,
+			previewReady: false,
+			previewPingTimer: null as number | null,
+			previewExtensionByTab: {} as Record<string, string>,
 			// Search/replace state (lives in the sidebar)
 			searchTerm: '',
 			replaceTerm: '',
@@ -281,9 +298,6 @@ export const App = {
 			sidebarResizing: false,
 			sidebarResizeStartX: 0,
 			sidebarResizeStartWidth: 0,
-			previewResizing: false,
-			previewResizeStartX: 0,
-			previewResizeStartWidth: 0,
 			// Checkout dialog state
 			checkoutDialog: {
 				visible: false,
@@ -303,7 +317,6 @@ export const App = {
 				fileName: '',
 			},
 			saveAsToken: '',
-			saveAsChannel: null as BroadcastChannel | null,
 		};
 	},
 	computed: {
@@ -344,8 +357,8 @@ export const App = {
 			const vm = this;
 
 			// Save As response channel
-			vm.saveAsChannel = new BroadcastChannel('webtop-save-as');
-			vm.saveAsChannel.onmessage = (event: MessageEvent) => {
+			saveAsChannelRef = new BroadcastChannel('webtop-save-as');
+			saveAsChannelRef.onmessage = (event: MessageEvent) => {
 				if (event.data?.type === 'save-as-complete' && event.data.saveAsToken && event.data.saveAsToken === vm.saveAsToken) {
 					vm.currentFile.path = event.data.path;
 					vm.currentFile.name = event.data.name;
@@ -403,7 +416,21 @@ export const App = {
 				vm.initEditor();
 
 				instance.setBeforeCloseCallback(async () => {
-					return await vm.confirmClose();
+					const ok = await vm.confirmClose();
+					if (ok && vm.previewOpen) {
+						// Close the preview window now (before the editor
+						// iframe is torn down) so the user doesn't see the
+						// "Editor was closed" placeholder for several seconds.
+						try {
+							previewChannelRef?.postMessage({
+								type: 'preview-close',
+								previewKey: vm.getPreviewKey(),
+							});
+						} catch { /* ignore */ }
+						vm.previewOpen = false;
+						vm.previewReady = false;
+					}
+					return ok;
 				});
 
 				if (options?.paths && options.paths.length > 0) {
@@ -425,19 +452,26 @@ export const App = {
 		},
 		async onUnmount() {
 			const vm = this;
+			// Tell the preview window the editor is closing so it can show
+			// the disconnected placeholder, then tear down the channel.
+			if (vm.previewOpen) {
+				try {
+					previewChannelRef?.postMessage({
+						type: 'preview-close',
+						previewKey: vm.getPreviewKey(),
+					});
+				} catch { /* ignore */ }
+			}
+			vm.closePreviewChannel();
 			if (vm.messageListener) {
 				window.removeEventListener('message', vm.messageListener);
 			}
 			if (vm.editor) {
 				vm.editor.destroy();
 			}
-			if (vm.saveAsChannel) {
-				vm.saveAsChannel.close();
-				vm.saveAsChannel = null;
-			}
-			if (vm.previewIframeUrl) {
-				try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
-				vm.previewIframeUrl = '';
+			if (saveAsChannelRef) {
+				saveAsChannelRef.close();
+				saveAsChannelRef = null;
 			}
 			for (const f of vm.files) editorStates.delete(f.id);
 		},
@@ -477,16 +511,15 @@ export const App = {
 				}
 			});
 		},
+		// Toggle the companion Preview window. The text-editor keeps at most
+		// one preview window open (per editor instance) — re-clicking the
+		// button closes the existing preview.
 		togglePreviewPanel() {
-			this.previewPanelVisible = !this.previewPanelVisible;
-			if (this.previewPanelVisible) {
-				if (!this.previewExtension) {
-					this.previewExtension = guessExtensionFromMime(this.currentFile.mimeType);
-				}
-				this.updatePreview();
-				if (this.isTemplated && !this.previewIframeUrl) {
-					this.refreshTemplatedPreview();
-				}
+			const vm = this;
+			if (vm.previewOpen) {
+				vm.closePreviewWindow();
+			} else {
+				vm.openPreviewWindow();
 			}
 		},
 		// ---- Sidebar resize ----
@@ -509,25 +542,6 @@ export const App = {
 			document.addEventListener('mousemove', onMove);
 			document.addEventListener('mouseup', onUp);
 		},
-		onPreviewResizeStart(event: MouseEvent) {
-			const vm = this;
-			event.preventDefault();
-			vm.previewResizing = true;
-			vm.previewResizeStartX = event.clientX;
-			vm.previewResizeStartWidth = vm.previewPanelWidth;
-			const onMove = (e: MouseEvent) => {
-				if (!vm.previewResizing) return;
-				const delta = vm.previewResizeStartX - e.clientX;
-				vm.previewPanelWidth = Math.max(220, Math.min(800, vm.previewResizeStartWidth + delta));
-			};
-			const onUp = () => {
-				vm.previewResizing = false;
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
 		// ---- Editor lifecycle ----
 		createUpdateListener() {
 			const vm = this;
@@ -540,9 +554,11 @@ export const App = {
 					if (vm.currentFileIndex >= 0 && vm.currentFileIndex < vm.files.length) {
 						vm.files[vm.currentFileIndex].isModified = vm.currentFile.isModified;
 					}
+					// Debounce updates to the companion Preview window so
+					// rapid typing does not flood the BroadcastChannel.
 					if (previewTimeout) clearTimeout(previewTimeout);
 					previewTimeout = window.setTimeout(() => {
-						if (vm.previewPanelVisible) vm.updatePreview();
+						if (vm.previewOpen && vm.previewReady) vm.sendPreviewState();
 						previewTimeout = null;
 					}, 300);
 				}
@@ -564,6 +580,24 @@ export const App = {
 				extensions: buildEditorExtensions(updateListener, []),
 			});
 			vm.editor = vm.$markRaw(new EditorView({ state, parent: container }));
+		},
+		// Move keyboard focus into the editor. Called whenever a tab becomes
+		// active (open, new, tab-switch, restore) so the user can start typing
+		// without clicking. Uses $nextTick + a brief deferral because the
+		// iframe is not always focusable on the very first paint after launch.
+		focusEditor() {
+			const vm = this;
+			if (!vm.editor) return;
+			const doFocus = () => {
+				try {
+					window.focus();
+					vm.editor?.focus();
+				} catch { /* ignore */ }
+			};
+			vm.$nextTick(() => {
+				doFocus();
+				setTimeout(doFocus, 0);
+			});
 		},
 		generateFileID(): string {
 			return 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -604,10 +638,6 @@ export const App = {
 			vm.currentFile.downloadUrl = file.downloadUrl;
 			vm.currentFile.uuid = file.uuid;
 			vm.currentFile.hasWebTemplate = file.hasWebTemplate;
-			vm.previewExtension = guessExtensionFromMime(file.mimeType);
-			vm.previewError = '';
-			vm.previewSrcDoc = '';
-			vm.previewIframeUrl = '';
 			const savedState = editorStates.get(file.id);
 			if (vm.editor && savedState) {
 				vm.editor.setState(savedState);
@@ -616,8 +646,9 @@ export const App = {
 				vm.currentFile.content = vm.editor.state.doc.toString();
 			}
 			vm.$nextTick(() => {
-				if (vm.previewPanelVisible) vm.updatePreview();
+				if (vm.previewOpen && vm.previewReady) vm.sendPreviewState();
 			});
+			vm.focusEditor();
 		},
 		selectTab(index: number) {
 			const vm = this;
@@ -655,6 +686,19 @@ export const App = {
 			}
 
 			editorStates.delete(file.id);
+			// If the preview window was pinned to this file, let it know so
+			// it can drop the pin and follow the new active tab.
+			if (previewPinnedPath && file.path && file.path === previewPinnedPath) {
+				previewPinnedPath = '';
+				if (vm.previewOpen) {
+					try {
+						previewChannelRef?.postMessage({
+							type: 'preview-unpinned',
+							previewKey: vm.getPreviewKey(),
+						});
+					} catch { /* ignore */ }
+				}
+			}
 			vm.files.splice(index, 1);
 
 			if (vm.files.length === 0) {
@@ -1064,112 +1108,143 @@ export const App = {
 				if (this.editor) this.editor.focus();
 			}
 		},
-		// ---- Preview ----
-		// Real-time for Markdown / plain HTML (rendered client-side from the
-		// editor buffer — no save, no server call). Templated HTML preview is
-		// driven by the manual "Refresh" button in the preview header instead.
-		updatePreview() {
+		// ---- Companion Preview window ----
+		// Rendering itself lives in the text-editor-preview app. The editor
+		// pushes content via BroadcastChannel; the preview window renders
+		// markdown / plain HTML / templated HTML on its own.
+		openPreviewChannel() {
 			const vm = this;
-			vm.previewError = '';
-			if (vm.isMarkdown) {
-				try {
-					marked.setOptions({ breaks: true, gfm: true });
-					vm.previewHtml = marked.parse(vm.currentFile.content) as string;
-				} catch {
-					vm.previewHtml = '<p class="text-danger">Error rendering preview</p>';
+			if (previewChannelRef) return;
+			const ch = new BroadcastChannel(PREVIEW_CHANNEL);
+			ch.onmessage = (event: MessageEvent) => {
+				const msg = event.data || {};
+				if (!msg.previewKey || msg.previewKey !== vm.getPreviewKey()) return;
+				if (msg.type === 'preview-ready') {
+					vm.previewReady = true;
+					vm.sendPreviewState();
+				} else if (msg.type === 'preview-closed') {
+					vm.previewOpen = false;
+					vm.previewReady = false;
+					previewPinnedPath = '';
+				} else if (msg.type === 'preview-pin') {
+					previewPinnedPath = msg.filePath || '';
+				} else if (msg.type === 'preview-unpin') {
+					previewPinnedPath = '';
 				}
-				return;
-			}
-			vm.previewHtml = '';
-			if (vm.isHtml && !vm.isTemplated) {
-				vm.previewSrcDoc = vm.currentFile.content || '';
-				return;
-			}
-			// Templated preview is refreshed via refreshTemplatedPreview().
+			};
+			previewChannelRef = ch;
 		},
-		refreshTemplatedPreview() {
+		closePreviewChannel() {
 			const vm = this;
-			if (!vm.isTemplated) return;
-			if (!vm.currentFile.path) {
-				vm.previewError = 'File must be saved before templated preview is available.';
-				return;
+			if (vm.previewPingTimer != null) {
+				clearInterval(vm.previewPingTimer);
+				vm.previewPingTimer = null;
 			}
-			let ext = (vm.previewExtension || 'html').trim();
-			if (!ext) {
-				vm.previewError = 'Enter a file extension (e.g. html).';
-				return;
+			if (previewChannelRef) {
+				try { previewChannelRef.close(); } catch { /* ignore */ }
+				previewChannelRef = null;
 			}
-			if (!ext.startsWith('.')) ext = '.' + ext;
-
-			const workspace = vm.instance?.api?.workspace || '';
-			if (!workspace) {
-				vm.previewError = 'Workspace is not available.';
-				return;
+		},
+		getPreviewKey(): string {
+			// Use the editor's ApplicationInstance id so multiple text-editor
+			// windows each have their own preview without crosstalk.
+			return (this as any).instance?.id || '';
+		},
+		// Place the preview window just to the right of this editor. If the
+		// editor sits near the right edge and there's no room, slide the
+		// preview left until it fits; this overlaps the editor but keeps the
+		// preview fully on-screen. Returns null when we can't read the
+		// editor's bounds (e.g. it's maximized — fall back to the cascade).
+		computePreviewBounds(): { x: number; y: number; width: number; height: number } | null {
+			const vm = this;
+			const ed = (vm.instance as any)?._sessionState
+				|| (vm.instance as any)?._initialWindowState;
+			if (!ed
+				|| typeof ed.x !== 'number' || typeof ed.y !== 'number'
+				|| typeof ed.width !== 'number' || typeof ed.height !== 'number') {
+				return null;
 			}
-
-			vm.previewLoading = true;
-			vm.previewError = '';
-			vm.previewSrcDoc = '';
-
-			// Browsers can only load <iframe src="..."> via GET, so we POST the
-			// draft buffer ourselves, then surface the response in the iframe
-			// through a blob URL. The CMS preview endpoint accepts the unsaved
-			// content and renders the template without touching version
-			// history.
-			const url = `/bin/cms.cgi/${workspace}${vm.currentFile.path}${ext}`;
-			const body = JSON.stringify({
-				content: vm.currentFile.content || '',
-			});
-
-			fetch(url, {
-				method: 'POST',
-				credentials: 'same-origin',
-				headers: { 'Content-Type': 'application/vnd.cms.preview+json; charset=UTF-8' },
-				body,
-			}).then(async (resp) => {
-				if (!resp.ok) {
-					const text = await resp.text().catch(() => '');
-					throw new Error(text || `Render failed: ${resp.status} ${resp.statusText}`);
-				}
-				const contentType = resp.headers.get('content-type') || '';
-				const isHtml = /\b(text\/html|application\/xhtml\+xml)\b/i.test(contentType);
-				let blob: Blob;
-				if (isHtml) {
-					// The blob: URL has no relationship to the original page
-					// URL, so relative links (./img.png, css, scripts) would
-					// not resolve. Inject a <base> pointing at the preview URL
-					// so the rendered document behaves as if served there.
-					// The href must be an absolute URL: path-relative hrefs
-					// resolve against the blob: document's fallback base URL,
-					// which browsers treat as opaque, so the base ends up
-					// ignored and relative links fall back to the iframe
-					// origin. Also strip any <base> already in the source so
-					// our injected one is unambiguously the document base
-					// (e.g. templates that hard-code a production base href).
-					const html = await resp.text();
-					const absoluteBase = new URL(url, window.location.href).href;
-					const baseTag = `<base href="${absoluteBase.replace(/"/g, '&quot;')}">`;
-					const stripped = html.replace(/<base\b[^>]*\/?>/gi, '');
-					let patched: string;
-					if (/<head\b[^>]*>/i.test(stripped)) {
-						patched = stripped.replace(/<head\b[^>]*>/i, (m) => m + baseTag);
-					} else if (/<html\b[^>]*>/i.test(stripped)) {
-						patched = stripped.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${baseTag}</head>`);
-					} else {
-						patched = `<head>${baseTag}</head>${stripped}`;
+			if (ed.maximized) return null;
+			const parent = window.parent || window;
+			const viewportW = (parent as Window).innerWidth || window.innerWidth;
+			const viewportH = (parent as Window).innerHeight || window.innerHeight;
+			// Preview minimums declared in text-editor-preview/app.yml.
+			const previewMinW = 480;
+			const previewMinH = 320;
+			let pw = Math.max(previewMinW, Math.min(ed.width, 800));
+			let ph = ed.height;
+			pw = Math.max(previewMinW, Math.min(pw, viewportW));
+			ph = Math.max(previewMinH, Math.min(ph, viewportH));
+			let px = ed.x + ed.width;
+			let py = ed.y;
+			if (px + pw > viewportW) px = Math.max(0, viewportW - pw);
+			if (py + ph > viewportH) py = Math.max(0, viewportH - ph);
+			return { x: px, y: py, width: pw, height: ph };
+		},
+		openPreviewWindow() {
+			const vm = this;
+			if (vm.previewOpen) return;
+			const key = vm.getPreviewKey();
+			if (!key) return;
+			vm.openPreviewChannel();
+			vm.previewOpen = true;
+			vm.previewReady = false;
+			// Ping every 2s so the preview can detect editor closures.
+			if (vm.previewPingTimer == null) {
+				vm.previewPingTimer = window.setInterval(() => {
+					if (vm.previewOpen) {
+						previewChannelRef?.postMessage({ type: 'preview-ping', previewKey: key });
 					}
-					blob = new Blob([patched], { type: contentType || 'text/html; charset=UTF-8' });
-				} else {
-					blob = await resp.blob();
+				}, PREVIEW_PING_INTERVAL_MS) as unknown as number;
+			}
+			const launchOptions: Record<string, any> = { previewKey: key };
+			const bounds = vm.computePreviewBounds();
+			if (bounds) launchOptions.initialWindowState = bounds;
+			window.parent?.postMessage({
+				type: 'open-app',
+				appId: PREVIEW_APP_ID,
+				options: launchOptions,
+			}, window.location.origin);
+			// If the preview never reports ready (app missing, blocked,
+			// crashed), unstick the toggle so the user can retry.
+			window.setTimeout(() => {
+				if (vm.previewOpen && !vm.previewReady) {
+					vm.previewOpen = false;
+					if (vm.previewPingTimer != null) {
+						clearInterval(vm.previewPingTimer);
+						vm.previewPingTimer = null;
+					}
 				}
-				if (vm.previewIframeUrl) {
-					try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
-				}
-				vm.previewIframeUrl = URL.createObjectURL(blob);
-			}).catch((e: any) => {
-				vm.previewError = e?.message || String(e) || 'Failed to render preview.';
-			}).finally(() => {
-				vm.previewLoading = false;
+			}, 10000);
+		},
+		closePreviewWindow() {
+			const vm = this;
+			if (!vm.previewOpen) return;
+			const key = vm.getPreviewKey();
+			previewChannelRef?.postMessage({ type: 'preview-close', previewKey: key });
+			vm.previewOpen = false;
+			vm.previewReady = false;
+		},
+		sendPreviewState() {
+			const vm = this;
+			if (!vm.previewOpen || !previewChannelRef) return;
+			const key = vm.getPreviewKey();
+			const file = vm.files[vm.currentFileIndex];
+			const tabId = file?.id || '';
+			const previewExtension = vm.previewExtensionByTab[tabId]
+				|| guessExtensionFromMime(vm.currentFile.mimeType);
+			previewChannelRef.postMessage({
+				type: 'preview-state',
+				previewKey: key,
+				fileName: vm.currentFile.name,
+				mimeType: vm.currentFile.mimeType,
+				content: vm.currentFile.content,
+				filePath: vm.currentFile.path,
+				workspace: vm.instance?.api?.workspace || '',
+				isMarkdown: vm.isMarkdown,
+				isHtml: vm.isHtml,
+				isTemplated: vm.isTemplated,
+				previewExtension,
 			});
 		},
 		dismissError() {

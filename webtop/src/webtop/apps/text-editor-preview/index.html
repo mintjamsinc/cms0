@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Preview</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" class="d-flex flex-column"
+		@mounted="onMounted" @unmount="onUnmount"
+		@dragover.prevent @drop.prevent>
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group">
+				<span class="preview-title-text">
+					<i class="bi bi-eye me-1"></i>
+					<span>Preview</span>
+					<span v-if="fileName" class="preview-filename">— {{ fileName }}</span>
+				</span>
+				<!-- Pin: when on, the preview stops following the editor's
+				     active tab and stays on the file it was pinned to. -->
+				<button v-if="filePath"
+					class="btn-icon pane-toggle-btn preview-pin-btn"
+					:class="{ active: pinned }"
+					@click="togglePin"
+					:title="pinned ? 'Unpin (follow editor)' : 'Pin to this file'">
+					<i class="bi" :class="pinned ? 'bi-pin-angle-fill' : 'bi-pin-angle'"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Templated preview: extension input + refresh -->
+			<div v-if="isTemplated" class="preview-ext-group">
+				<div class="input-group">
+					<input type="text" v-model="previewExtension"
+						class="preview-ext-input"
+						placeholder="html"
+						spellcheck="false"
+						:disabled="previewLoading"
+						@keydown.enter.prevent="refreshTemplatedPreview" />
+					<div class="input-group-actions">
+						<button class="input-group-btn"
+							@click="refreshTemplatedPreview"
+							:disabled="previewLoading || !previewExtension.trim()"
+							title="Refresh preview">
+							<i class="bi" :class="previewLoading ? 'bi-arrow-repeat spin' : 'bi-arrow-clockwise'"></i>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<!-- Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Body -->
+		<div class="content-body">
+			<div class="preview-main island p-0">
+				<div class="preview-body" :class="{ 'preview-body-iframe': (isHtml && !isTemplated) || isTemplated }">
+
+					<!-- Disconnected state (editor closed or tab closed) -->
+					<div v-if="disconnected" class="detail-panel-empty">
+						<i class="bi bi-link-45deg"></i>
+						<span>Editor was closed.</span>
+					</div>
+
+					<!-- Markdown -->
+					<div v-else-if="isMarkdown" class="markdown-body" v-html="previewHtml"></div>
+
+					<!-- Plain HTML (real-time client-side preview) -->
+					<iframe v-else-if="isHtml && !isTemplated"
+						class="preview-iframe"
+						:srcdoc="previewSrcDoc"
+						sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+						referrerpolicy="no-referrer"></iframe>
+
+					<!-- Templated (server-rendered, manual refresh) -->
+					<template v-else-if="isTemplated">
+						<div v-if="previewError" class="detail-panel-empty">
+							<i class="bi bi-exclamation-triangle"></i>
+							<span>{{ previewError }}</span>
+						</div>
+						<iframe v-else-if="previewIframeUrl"
+							class="preview-iframe"
+							:src="previewIframeUrl"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+						<div v-else class="detail-panel-empty">
+							<i class="bi bi-arrow-clockwise"></i>
+							<span>Click refresh to render preview</span>
+						</div>
+					</template>
+
+					<!-- Unsupported -->
+					<div v-else class="detail-panel-empty">
+						<i class="bi bi-eye-slash"></i>
+						<span>Preview not available for this file type</span>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

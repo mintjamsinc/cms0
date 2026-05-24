@@ -16,7 +16,7 @@
 
 <body>
 	<div id="app" class="d-flex flex-column"
-		:class="{ 'is-resizing': sidebarResizing || previewResizing }"
+		:class="{ 'is-resizing': sidebarResizing }"
 		@mounted="onMounted" @unmount="onUnmount"
 		@dragover.prevent="onAppDragOver" @drop.prevent>
 
@@ -51,9 +51,9 @@
 					@click="toggleSidebarPanel" title="Toggle Sidebar">
 					<i class="bi bi-layout-sidebar-inset"></i>
 				</button>
-				<button class="btn-icon pane-toggle-btn" :class="{active: previewPanelVisible}"
-					@click="togglePreviewPanel" title="Toggle Preview">
-					<i class="bi bi-layout-sidebar-inset-reverse"></i>
+				<button class="btn-icon pane-toggle-btn" :class="{active: previewOpen}"
+					@click="togglePreviewPanel" title="Open Preview Window">
+					<i class="bi bi-window"></i>
 				</button>
 			</div>
 
@@ -175,73 +175,6 @@
 				</div>
 			</div>
 
-			<!-- Preview resize handle -->
-			<div v-if="previewPanelVisible" class="detail-resize-handle"
-				@mousedown="onPreviewResizeStart"></div>
-
-			<!-- Right pane: preview -->
-			<div v-if="previewPanelVisible" class="detail-panel island p-0"
-				:style="{ width: previewPanelWidth + 'px' }"
-				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
-
-				<!-- Header -->
-				<div class="detail-panel-header">
-					<span class="detail-panel-title">Preview</span>
-					<!-- Templated files: extension input + refresh button.
-					     Mirrors the Content Browser MIME-type editor pattern
-					     (input-group + input-group-actions). -->
-					<div v-if="isTemplated" class="preview-ext-group">
-						<div class="input-group">
-							<input type="text" v-model="previewExtension"
-								class="preview-ext-input"
-								placeholder="html"
-								spellcheck="false"
-								:disabled="previewLoading"
-								@keydown.enter.prevent="refreshTemplatedPreview" />
-							<div class="input-group-actions">
-								<button class="input-group-btn"
-									@click="refreshTemplatedPreview"
-									:disabled="previewLoading || !previewExtension.trim()"
-									title="Refresh preview">
-									<i class="bi" :class="previewLoading ? 'bi-arrow-repeat spin' : 'bi-arrow-clockwise'"></i>
-								</button>
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Body -->
-				<div class="preview-body" :class="{ 'preview-body-iframe': (isHtml && !isTemplated) || isTemplated }">
-					<!-- Markdown -->
-					<div v-if="isMarkdown" class="markdown-body" v-html="previewHtml"></div>
-					<!-- Plain HTML: real-time client-side preview -->
-					<iframe v-else-if="isHtml && !isTemplated"
-						class="preview-iframe"
-						:srcdoc="previewSrcDoc"
-						sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-						referrerpolicy="no-referrer"></iframe>
-					<!-- Templated: server-rendered, manual refresh -->
-					<template v-else-if="isTemplated">
-						<div v-if="previewError" class="detail-panel-empty">
-							<i class="bi bi-exclamation-triangle"></i>
-							<span>{{ previewError }}</span>
-						</div>
-						<iframe v-else-if="previewIframeUrl"
-							class="preview-iframe"
-							:src="previewIframeUrl"
-							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-							referrerpolicy="no-referrer"></iframe>
-						<div v-else class="detail-panel-empty">
-							<i class="bi bi-arrow-clockwise"></i>
-							<span>Click refresh to render preview</span>
-						</div>
-					</template>
-					<div v-else class="detail-panel-empty">
-						<i class="bi bi-eye-slash"></i>
-						<span>Preview not available for this file type</span>
-					</div>
-				</div>
-			</div>
 		</div>
 
 		<!-- Bottom Status Bar (translucent) -->

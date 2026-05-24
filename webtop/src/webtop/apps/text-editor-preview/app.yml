@@ -1,0 +1,7 @@
+identifier: e7a6fc4b-41c4-4362-8358-58839be4dd96
+title: Preview
+icon: assets/icons/icon.svg
+enableStartMenu: false
+minimumWidth: 480
+minimumHeight: 320
+customWindowControls: true

@@ -1,0 +1,33 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="preview">
+  <defs>
+    <clipPath id="clip-prev"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-prev" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bg-prev" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a7f3d0"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-prev)"/>
+  <g clip-path="url(#clip-prev)">
+    <rect x="36" y="42" width="108" height="96" rx="6" fill="white"/>
+    <rect x="36" y="42" width="108" height="18" rx="6" fill="#10b981"/>
+    <circle cx="46" cy="51" r="3" fill="white" fill-opacity="0.7"/>
+    <circle cx="56" cy="51" r="3" fill="white" fill-opacity="0.7"/>
+    <circle cx="66" cy="51" r="3" fill="white" fill-opacity="0.7"/>
+    <g stroke="#10b981" stroke-width="3" stroke-linecap="round">
+      <line x1="48" y1="76" x2="132" y2="76"/>
+      <line x1="48" y1="88" x2="120" y2="88"/>
+      <line x1="48" y1="100" x2="126" y2="100"/>
+      <line x1="48" y1="112" x2="108" y2="112" stroke-opacity="0.55"/>
+      <line x1="48" y1="124" x2="118" y2="124" stroke-opacity="0.55"/>
+    </g>
+  </g>
+  <g clip-path="url(#clip-prev)">
+    <rect x="0" y="0" width="180" height="180" fill="url(#hl-prev)"/>
+    <rect x="0.5" y="0.5" width="179" height="179" rx="41.5" ry="41.5"
+          fill="none" stroke="white" stroke-opacity="0.18" stroke-width="1"/>
+  </g>
+</svg>
