@@ -499,11 +499,15 @@ const WtDesktop = {
 				} else if (type === 'avatar-changed') {
 					const userId = window.Webtop.currentUser?.id;
 					if (userId) {
-						window.Webtop.api.systemContent.getNode(`/home/users/${userId}/avatar`).then(node => {
+						window.Webtop.api.systemContent.getNode(`/home/users/${userId}/avatar`).then(async node => {
 							if (node?.downloadUrl) {
 								vm.avatarURL = `url(${node.downloadUrl}?t=${Date.now()})`;
+							} else {
+								vm.avatarURL = `url(${await window.Webtop.currentUser.getPhotoURL()})`;
 							}
-						}).catch(() => {});
+						}).catch(async () => {
+							vm.avatarURL = `url(${await window.Webtop.currentUser.getPhotoURL()})`;
+						});
 					}
 				}
 			});

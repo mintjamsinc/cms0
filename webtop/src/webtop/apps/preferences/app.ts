@@ -749,6 +749,35 @@ const App = {
 			}
 		},
 
+		removeAvatar() {
+			const vm = this;
+			const username = vm.instance?.currentUser?.id;
+			if (!username) return;
+			vm.openConfirmDialog({
+				title: 'Remove Profile Photo',
+				message: 'Your profile photo will be removed. Continue?',
+				confirmLabel: 'Remove',
+				danger: true,
+				iconClass: 'bi-exclamation-triangle-fill text-warning',
+				onConfirm: async () => {
+					vm.profileSaving = true;
+					vm.profileMessage = '';
+					try {
+						await vm.instance.api.systemContent.deleteNode(`/home/users/${username}/avatar`);
+						vm.avatarURL = null;
+						vm.profileMessage = 'Profile photo removed.';
+						vm.profileMessageType = 'success';
+						vm.instance.api.webtop.postMessage({ type: 'avatar-changed' });
+					} catch (e: any) {
+						vm.profileMessage = e.message || 'Failed to remove photo.';
+						vm.profileMessageType = 'error';
+					} finally {
+						vm.profileSaving = false;
+					}
+				},
+			});
+		},
+
 		// =====================================================================
 		// Drag & drop helpers
 		// =====================================================================

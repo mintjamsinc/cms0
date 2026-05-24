@@ -248,6 +248,10 @@
 										<button class="wt wt-outlined wt-slim" @click="triggerAvatarUpload">
 											<i class="bi bi-upload me-1"></i>Upload Photo
 										</button>
+										<button v-if="avatarURL" class="wt wt-outlined wt-slim ms-2" @click="removeAvatar"
+											:disabled="profileSaving">
+											<i class="bi bi-trash3 me-1"></i>Remove Photo
+										</button>
 										<input type="file" ref="avatarFileInput" accept="image/png,image/jpeg,image/gif"
 											@change="onAvatarFileSelected" class="d-none">
 										<div class="text-muted fs-small mt-2">JPG, PNG, or GIF. Max 2MB.</div>
