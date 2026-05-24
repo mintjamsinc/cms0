@@ -22,11 +22,13 @@
 
 package org.mintjams.rt.cms.internal.graphql;
 
+import java.io.InputStream;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -58,6 +60,8 @@ import org.mintjams.rt.cms.internal.graphql.ast.GraphQLParser;
 import org.mintjams.rt.cms.internal.graphql.ast.Operation;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
 import org.mintjams.tools.lang.Strings;
+import org.snakeyaml.engine.v2.api.Load;
+import org.snakeyaml.engine.v2.api.LoadSettings;
 
 /**
  * Class for executing GraphQL Query operations with advanced parsing and field selection optimization
@@ -1100,6 +1104,317 @@ public class QueryExecutor {
 		result.put("xpath", connection);
 
 		return result;
+	}
+
+	// Pattern: apps(path: "...", first: N, after: "...")
+	private static final Pattern APPS_PATH_LITERAL_PATTERN = Pattern
+			.compile("apps\\s*\\([^)]*path\\s*:\\s*\"([^\"]+)\"");
+	private static final Pattern APPS_PATH_VAR_PATTERN = Pattern
+			.compile("apps\\s*\\([^)]*path\\s*:\\s*\\$([^\\s,)]+)");
+
+	/**
+	 * Execute the Webtop application listing query as a Relay-style connection.
+	 *
+	 * Each Webtop app is a directory under {@code path} that contains an
+	 * {@code app.yml} descriptor. This resolver discovers those descriptors,
+	 * parses them server-side, and resolves the derived fields the client used
+	 * to gather with one request per app (icon fallback, index.html modified
+	 * time). The whole page is returned in a single round trip.
+	 *
+	 * Example:
+	 * {@code apps(path: "/content/webtop/apps", first: 100, after: "cursor") {
+	 *   edges { node { identifier name title icon path relPath modified editor
+	 *     contentTypes enableStartMenu isAdminOnly singleton customWindowControls
+	 *     minimumWidth minimumHeight actions { identifier label icon } } cursor }
+	 *   pageInfo { hasNextPage hasPreviousPage startCursor endCursor } totalCount } }
+	 */
+	public Map<String, Object> executeAppsQuery(GraphQLRequest request) throws Exception {
+		String queryStr = request.getQuery();
+		Map<String, Object> variables = request.getVariables();
+
+		// Apps root path (literal or variable)
+		String appsPath = null;
+		Matcher pathLiteral = APPS_PATH_LITERAL_PATTERN.matcher(queryStr);
+		if (pathLiteral.find()) {
+			appsPath = resolveVariable(pathLiteral.group(1), variables);
+		} else {
+			Matcher pathVar = APPS_PATH_VAR_PATTERN.matcher(queryStr);
+			if (pathVar.find()) {
+				String varName = pathVar.group(1);
+				appsPath = variables != null ? (String) variables.get(varName) : null;
+			}
+		}
+		if (appsPath == null || appsPath.isEmpty()) {
+			throw new IllegalArgumentException("Invalid apps query: path parameter not found " + queryStr);
+		}
+		// Normalize: drop trailing slash so relPath computation is consistent
+		while (appsPath.length() > 1 && appsPath.endsWith("/")) {
+			appsPath = appsPath.substring(0, appsPath.length() - 1);
+		}
+
+		// Pagination parameters (default first=100 — the page size the Webtop uses)
+		int first = 100;
+		Pattern firstLiteral = Pattern.compile("first\\s*:\\s*(\\d+)");
+		Matcher firstMatcher = firstLiteral.matcher(queryStr);
+		if (firstMatcher.find()) {
+			first = Integer.parseInt(firstMatcher.group(1));
+		} else {
+			Pattern firstVar = Pattern.compile("first\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher firstVarMatcher = firstVar.matcher(queryStr);
+			if (firstVarMatcher.find()) {
+				Object v = variables != null ? variables.get(firstVarMatcher.group(1)) : null;
+				if (v != null) {
+					first = v instanceof Number ? ((Number) v).intValue() : Integer.parseInt(v.toString());
+				}
+			}
+		}
+		if (first < 0) {
+			first = 0;
+		}
+
+		String afterCursor = null;
+		Pattern afterLiteral = Pattern.compile("after\\s*:\\s*\"([^\"]+)\"");
+		Matcher afterMatcher = afterLiteral.matcher(queryStr);
+		if (afterMatcher.find()) {
+			afterCursor = resolveVariable(afterMatcher.group(1), variables);
+		} else {
+			Pattern afterVar = Pattern.compile("after\\s*:\\s*\\$([^\\s,)]+)");
+			Matcher afterVarMatcher = afterVar.matcher(queryStr);
+			if (afterVarMatcher.find()) {
+				afterCursor = variables != null ? (String) variables.get(afterVarMatcher.group(1)) : null;
+			}
+		}
+
+		// Discover app.yml descriptors via XPath, mirroring the legacy client query.
+		if (!session.nodeExists(appsPath)) {
+			return emptyConnection("apps");
+		}
+		String xpath = "/jcr:root" + appsPath + "//element(app.yml,nt:file)";
+		QueryManager queryManager = session.getWorkspace().getQueryManager();
+		Query query = queryManager.createQuery(xpath, Query.XPATH);
+		QueryResult queryResult = query.execute();
+
+		NodeIterator nodeIterator = queryResult.getNodes();
+		long totalCount = nodeIterator.getSize();
+
+		int startPosition = 0;
+		if (afterCursor != null && !afterCursor.isEmpty()) {
+			startPosition = decodeCursor(afterCursor) + 1;
+		}
+		if (startPosition > 0) {
+			nodeIterator.skip(startPosition);
+		}
+
+		List<Map<String, Object>> edges = new ArrayList<>();
+		int currentPosition = startPosition;
+		int count = 0;
+		while (nodeIterator.hasNext() && count < first) {
+			Node appYmlNode = nodeIterator.nextNode();
+
+			Map<String, Object> edge = new HashMap<>();
+			edge.put("node", toAppNode(appYmlNode, appsPath));
+			edge.put("cursor", encodeCursor(currentPosition));
+			edges.add(edge);
+			currentPosition++;
+			count++;
+		}
+
+		Map<String, Object> pageInfo = new HashMap<>();
+		pageInfo.put("hasNextPage", nodeIterator.hasNext());
+		pageInfo.put("hasPreviousPage", startPosition > 0);
+		if (!edges.isEmpty()) {
+			pageInfo.put("startCursor", edges.get(0).get("cursor"));
+			pageInfo.put("endCursor", edges.get(edges.size() - 1).get("cursor"));
+		} else {
+			pageInfo.put("startCursor", null);
+			pageInfo.put("endCursor", null);
+		}
+
+		Map<String, Object> connection = new HashMap<>();
+		connection.put("edges", edges);
+		connection.put("pageInfo", pageInfo);
+		connection.put("totalCount", totalCount);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("apps", connection);
+		return result;
+	}
+
+	private Map<String, Object> emptyConnection(String field) {
+		Map<String, Object> pageInfo = new HashMap<>();
+		pageInfo.put("hasNextPage", false);
+		pageInfo.put("hasPreviousPage", false);
+		pageInfo.put("startCursor", null);
+		pageInfo.put("endCursor", null);
+
+		Map<String, Object> connection = new HashMap<>();
+		connection.put("edges", new ArrayList<>());
+		connection.put("pageInfo", pageInfo);
+		connection.put("totalCount", 0L);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put(field, connection);
+		return result;
+	}
+
+	/**
+	 * Build a single App node from its {@code app.yml} descriptor node. Derives
+	 * the icon (falling back to a sibling {@code icon.svg}) and the modified time
+	 * (from a sibling {@code index.html}, then the descriptor itself).
+	 */
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> toAppNode(Node appYmlNode, String appsPath) throws Exception {
+		Node appDir = appYmlNode.getParent();
+		String appHome = appDir.getPath();
+		String name = appDir.getName();
+		String relPath = name;
+		if (appHome.length() > appsPath.length() && appHome.startsWith(appsPath + "/")) {
+			relPath = appHome.substring(appsPath.length() + 1);
+		}
+
+		Map<String, Object> data = parseAppDescriptor(appYmlNode);
+
+		Map<String, Object> app = new HashMap<>();
+		app.put("identifier", data.get("identifier"));
+		app.put("name", name);
+		app.put("title", data.get("title"));
+		app.put("path", appHome);
+		app.put("relPath", relPath);
+		app.put("editor", asBoolean(data.get("editor")));
+		app.put("enableStartMenu", asBooleanOrNull(data.get("enableStartMenu")));
+		app.put("isAdminOnly", asBoolean(data.get("isAdminOnly")));
+		app.put("singleton", asBoolean(data.get("singleton")));
+		app.put("customWindowControls", asBoolean(data.get("customWindowControls")));
+		app.put("minimumWidth", asInteger(data.get("minimumWidth")));
+		app.put("minimumHeight", asInteger(data.get("minimumHeight")));
+
+		// contentTypes: list of strings
+		List<String> contentTypes = new ArrayList<>();
+		Object contentTypesObj = data.get("contentTypes");
+		if (contentTypesObj instanceof List) {
+			for (Object item : (List<Object>) contentTypesObj) {
+				if (item != null) {
+					contentTypes.add(item.toString());
+				}
+			}
+		}
+		app.put("contentTypes", contentTypes);
+
+		// icon: explicit value, otherwise fall back to a sibling icon.svg
+		Object iconObj = data.get("icon");
+		String icon = (iconObj instanceof String && !((String) iconObj).isEmpty()) ? (String) iconObj : null;
+		if (icon == null && appDir.hasNode("icon.svg")) {
+			icon = "icon.svg";
+		}
+		app.put("icon", icon);
+
+		// modified: prefer index.html, then the descriptor's own last-modified
+		String modified = lastModified(appDir, "index.html");
+		if (modified == null) {
+			modified = contentLastModified(appYmlNode);
+		}
+		app.put("modified", modified);
+
+		// actions: map keyed by action id -> list with the id folded in as identifier
+		List<Map<String, Object>> actions = new ArrayList<>();
+		Object actionsObj = data.get("actions");
+		if (actionsObj instanceof Map) {
+			for (Map.Entry<String, Object> entry : ((Map<String, Object>) actionsObj).entrySet()) {
+				Map<String, Object> action = new LinkedHashMap<>();
+				action.put("identifier", entry.getKey());
+				if (entry.getValue() instanceof Map) {
+					Map<String, Object> v = (Map<String, Object>) entry.getValue();
+					action.put("label", v.get("label"));
+					action.put("icon", v.get("icon"));
+					action.put("title", v.get("title"));
+					action.put("handler", v.get("handler"));
+				}
+				actions.add(action);
+			}
+		}
+		app.put("actions", actions);
+
+		return app;
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> parseAppDescriptor(Node appYmlNode) {
+		try {
+			if (!appYmlNode.hasNode("jcr:content")) {
+				return new HashMap<>();
+			}
+			Node content = appYmlNode.getNode("jcr:content");
+			if (!content.hasProperty("jcr:data")) {
+				return new HashMap<>();
+			}
+			try (InputStream in = content.getProperty("jcr:data").getBinary().getStream()) {
+				Object parsed = new Load(LoadSettings.builder().build()).loadFromInputStream(in);
+				if (parsed instanceof Map) {
+					return (Map<String, Object>) parsed;
+				}
+			}
+		} catch (Throwable ex) {
+			// A malformed descriptor must not abort the whole listing.
+		}
+		return new HashMap<>();
+	}
+
+	private String lastModified(Node parent, String childName) throws Exception {
+		if (!parent.hasNode(childName)) {
+			return null;
+		}
+		return contentLastModified(parent.getNode(childName));
+	}
+
+	private String contentLastModified(Node fileNode) throws Exception {
+		if (fileNode.hasNode("jcr:content")) {
+			Node content = fileNode.getNode("jcr:content");
+			if (content.hasProperty("jcr:lastModified")) {
+				return formatDate(content.getProperty("jcr:lastModified").getDate());
+			}
+		}
+		if (fileNode.hasProperty("jcr:lastModified")) {
+			return formatDate(fileNode.getProperty("jcr:lastModified").getDate());
+		}
+		return null;
+	}
+
+	private static String formatDate(java.util.Calendar calendar) {
+		if (calendar == null) {
+			return null;
+		}
+		return ISO8601_FORMAT.format(calendar.toInstant());
+	}
+
+	private static boolean asBoolean(Object value) {
+		if (value instanceof Boolean) {
+			return (Boolean) value;
+		}
+		if (value instanceof String) {
+			return Boolean.parseBoolean((String) value);
+		}
+		return false;
+	}
+
+	private static Boolean asBooleanOrNull(Object value) {
+		if (value == null) {
+			return null;
+		}
+		return asBoolean(value);
+	}
+
+	private static Integer asInteger(Object value) {
+		if (value instanceof Number) {
+			return ((Number) value).intValue();
+		}
+		if (value instanceof String) {
+			try {
+				return Integer.valueOf(((String) value).trim());
+			} catch (NumberFormatException ex) {
+				return null;
+			}
+		}
+		return null;
 	}
 
 	/**

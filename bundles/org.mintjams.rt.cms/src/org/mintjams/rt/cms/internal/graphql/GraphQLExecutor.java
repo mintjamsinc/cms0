@@ -97,7 +97,9 @@ public class GraphQLExecutor {
 			String query = request.getQuery().trim();
 
 			// Simple query parsing (Phase 1: basic functionality only)
-			if (query.contains("node(")) {
+			if (query.contains("apps(")) {
+				response.setData(queryExecutor.executeAppsQuery(request));
+			} else if (query.contains("node(")) {
 				response.setData(queryExecutor.executeNodeQuery(request));
 			} else if (query.contains("children(")) {
 				response.setData(queryExecutor.executeChildrenQuery(request));

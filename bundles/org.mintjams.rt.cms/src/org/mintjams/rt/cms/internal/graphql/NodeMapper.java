@@ -136,7 +136,7 @@ public class NodeMapper {
 
 		// Lock information (expensive operation, only if requested)
 		if (includeAll || selectionSet.hasField("isLocked") || selectionSet.hasField("lockInfo")) {
-			addLockInfo(node, result, selectionSet, includeAll);
+			addLockInfo(node, result, selectionSet, includeAll, resolver);
 		}
 
 		// Version information (only if requested)
@@ -552,7 +552,7 @@ public class NodeMapper {
 	 * Add lock information to result with field selection optimization
 	 * Returns isLocked as boolean and lockInfo as object (only when locked)
 	 */
-	private static void addLockInfo(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll) throws RepositoryException {
+	private static void addLockInfo(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll, PrincipalDisplayNameResolver resolver) throws RepositoryException {
 		try {
 			LockManager lockManager = node.getSession().getWorkspace().getLockManager();
 
@@ -568,10 +568,22 @@ public class NodeMapper {
 				if (isLocked) {
 					Lock lock = lockManager.getLock(node.getPath());
 					Map<String, Object> lockInfo = new HashMap<>();
-					lockInfo.put("lockOwner", lock.getLockOwner());
+					String lockOwner = lock.getLockOwner();
+					lockInfo.put("lockOwner", lockOwner);
 					lockInfo.put("isDeep", lock.isDeep());
 					lockInfo.put("isSessionScoped", lock.isSessionScoped());
 					lockInfo.put("isLockOwningSession", lock.isLockOwningSession());
+					// Authoritative "is this lock held by the current user" check.
+					// Unlike isLockOwningSession (which only matches the very session
+					// that created the lock), isLockOwner also matches open-scoped
+					// locks held by the same principal across sessions — e.g. a lock
+					// taken from the content browser in an earlier request.
+					if (lock instanceof org.mintjams.jcr.lock.Lock) {
+						lockInfo.put("isLockOwner", ((org.mintjams.jcr.lock.Lock) lock).isLockOwner());
+					}
+					if (resolver != null && lockOwner != null) {
+						lockInfo.put("lockOwnerDisplayName", resolver.resolve(lockOwner, false));
+					}
 					result.put("lockInfo", lockInfo);
 				} else {
 					result.put("lockInfo", null);
