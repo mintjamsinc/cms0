@@ -119,6 +119,7 @@ export const CONTENT_QUERIES = {
             ... on DatePropertyValue { type value }
             ... on DatePropertyValueArray { type values }
             ... on BinaryPropertyValue { type value mimeType size }
+            ... on BinaryPropertyValueArray { type mimeTypes sizes }
             ... on ReferencePropertyValue { type value path }
             ... on ReferencePropertyValueArray { type values paths }
             ... on WeakreferencePropertyValue { type value path }
