@@ -349,7 +349,7 @@ const App = {
 					vm.localizationMessageType = 'error';
 				}
 			}
-			vm.instance.api.webtopGraphQL.postMessage({
+			vm.instance.api.webtop.postMessage({
 				type: 'localization-changed',
 				settings: loc.settings,
 			});
@@ -380,7 +380,7 @@ const App = {
 					console.warn('[Preferences] Failed to save appearance to server:', e);
 				}
 			}
-			vm.instance.api.webtopGraphQL.postMessage({
+			vm.instance.api.webtop.postMessage({
 				type: 'theme-changed',
 				theme: vm.instance.api.theme.currentTheme,
 			});
@@ -641,7 +641,7 @@ const App = {
 					vm.originalDisplayName = vm.displayName;
 					vm.profileMessage = 'Display name updated.';
 					vm.profileMessageType = 'success';
-					vm.instance.api.webtopGraphQL.postMessage({ type: 'profile-changed', displayName: vm.displayName });
+					vm.instance.api.webtop.postMessage({ type: 'profile-changed', displayName: vm.displayName });
 					vm.idp.updatePreferences({
 						username,
 						category: 'profile',
@@ -740,7 +740,7 @@ const App = {
 				vm.profileMessage = 'Profile photo updated.';
 				vm.profileMessageType = 'success';
 
-				vm.instance.api.webtopGraphQL.postMessage({ type: 'avatar-changed' });
+				vm.instance.api.webtop.postMessage({ type: 'avatar-changed' });
 			} catch (e: any) {
 				vm.profileMessage = e.message || 'Failed to upload photo.';
 				vm.profileMessageType = 'error';
