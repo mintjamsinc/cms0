@@ -464,7 +464,7 @@ const WtDesktop = {
 					vm.desktopLastSelectedIndex = -1;
 				}
 			});
-			document.addEventListener('webtop-desktop-icon-mousedown', (e: Event) => {
+			document.addEventListener('webtop-desktop-icon-click', (e: Event) => {
 				const d = (e as CustomEvent).detail || {};
 				vm.onDesktopIconSelect(d.itemId, { ctrlKey: !!d.ctrlKey, shiftKey: !!d.shiftKey });
 			});
@@ -1472,9 +1472,8 @@ const WtDesktop = {
 		// Rubber-band selection. Mousedown on #desktop-area falls through any
 		// app windows because they sit above only inside their own bounds; the
 		// .desktop-icons overlay is pointer-events: none so clicking empty
-		// space lands here. Mousedown on an icon is handled by the component
-		// (onItemMouseDown) — its CustomEvent fires before this DOM bubble
-		// reaches us, and we early-return when the target is inside an icon.
+		// space lands here. We early-return when the target is inside an icon so
+		// pressing an icon (to click or drag it) never starts a rubber-band.
 		onDesktopAreaMouseDown(event: MouseEvent) {
 			const vm = this as any;
 			if (event.button !== 0) return;

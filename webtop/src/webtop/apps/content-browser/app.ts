@@ -2326,6 +2326,10 @@ export const App = {
 			}
 			event.dataTransfer.setData('text/plain', dragItems.map((i: any) => i.path).join('\n'));
 
+			// Replace the browser's default ghost (which can capture neighbouring,
+			// unselected rows) with one that shows exactly what is being dragged.
+			vm._setDragImage(event, dragItems);
+
 			// Store drag data on parent window for cross-iframe drag-and-drop
 			try {
 				(window.parent as any).__webtopDragData = {
@@ -2341,6 +2345,40 @@ export const App = {
 				(window.parent as any).__webtopDragData = null;
 			} catch (_) { /* cross-origin safety */ }
 			this.dragOverFolderID = null;
+		},
+		/**
+		 * Build a custom drag image showing only the dragged items so the ghost
+		 * never includes unselected rows. The element is rendered off-screen just
+		 * long enough for the browser to snapshot it, then removed.
+		 */
+		_setDragImage(event: DragEvent, dragItems: ContentItem[]) {
+			try {
+				if (!event.dataTransfer || dragItems.length === 0) return;
+				const count = dragItems.length;
+				const ghost = document.createElement('div');
+				ghost.style.cssText = [
+					'position:fixed', 'top:-1000px', 'left:-1000px',
+					'display:inline-flex', 'align-items:center', 'gap:8px',
+					'max-width:320px', 'padding:6px 12px', 'border-radius:6px',
+					'background:var(--bs-primary,#0d6efd)', 'color:#fff',
+					'font:13px/1.2 system-ui,-apple-system,sans-serif',
+					'box-shadow:0 2px 8px rgba(0,0,0,.3)', 'white-space:nowrap',
+					'pointer-events:none', 'z-index:2147483647',
+				].join(';');
+
+				const icon = document.createElement('i');
+				icon.className = count === 1 ? this.getFileIcon(dragItems[0]) : 'bi bi-files';
+				ghost.appendChild(icon);
+
+				const label = document.createElement('span');
+				label.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
+				label.textContent = count === 1 ? (dragItems[0].name || '') : `${count} items`;
+				ghost.appendChild(label);
+
+				document.body.appendChild(ghost);
+				event.dataTransfer.setDragImage(ghost, 12, 12);
+				setTimeout(() => { try { ghost.remove(); } catch (_) { /* ignore */ } }, 0);
+			} catch (_) { /* setDragImage is best-effort */ }
 		},
 		/**
 		 * Generate a unique copy name like "file - Copy.txt", "file - Copy (2).txt", etc.
