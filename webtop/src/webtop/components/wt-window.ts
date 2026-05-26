@@ -42,6 +42,7 @@ async function saveWindowSize(appId: string | undefined, width: number, height: 
 defineComponent('wt-window', {
 	template: '#wt-window',
 	props: ['appInstance'],
+	emits: ['window-activated', 'window-deactivated', 'window-maximize-changed', 'window-minimize-changed', 'app-instance-closed'],
 	data(this: any) {
 		const ai = this.$markRaw(this.appInstance);
 		const initialState = (this.appInstance as any)?._initialWindowState;
@@ -81,12 +82,6 @@ defineComponent('wt-window', {
 				mouseMoveHandler: null as ((e: MouseEvent) => void) | null,
 				mouseUpHandler: null as ((e: MouseEvent) => void) | null,
 				loadListener: null as (() => void) | null,
-				launchedListener: null as ((e: CustomEvent) => void) | null,
-				themeListener: null as ((e: CustomEvent) => void) | null,
-				restoreListener: null as ((e: CustomEvent) => void) | null,
-				controlListener: null as ((e: CustomEvent) => void) | null,
-				peekSetListener: null as ((e: CustomEvent) => void) | null,
-				peekClearListener: null as (() => void) | null,
 				focusInListener: null as (() => void) | null,
 				iframeDragMouseDownListener: null as ((e: MouseEvent) => void) | null,
 				iframeDragDblClickListener: null as ((e: MouseEvent) => void) | null,
@@ -148,9 +143,7 @@ defineComponent('wt-window', {
 			const vm = this as any;
 			vm.zIndex = ++zIndexSeed;
 			vm.syncSessionState();
-			document.dispatchEvent(new CustomEvent('window-activated', {
-				detail: { id: vm._.appInstanceId },
-			}));
+			vm.$emit('window-activated', { id: vm._.appInstanceId }, { target: document });
 		},
 		syncSessionState() {
 			const vm = this as any;
@@ -270,29 +263,23 @@ defineComponent('wt-window', {
 		minimize() {
 			const vm = this as any;
 			vm.minimized = true;
-			document.dispatchEvent(new CustomEvent('window-deactivated', {
-				detail: { id: vm._.appInstanceId },
-			}));
+			vm.$emit('window-deactivated', { id: vm._.appInstanceId }, { target: document });
 			vm.notifyMaximizeState();
 			vm.notifyMinimizeState();
 		},
 		notifyMaximizeState() {
 			const vm = this as any;
-			document.dispatchEvent(new CustomEvent('window-maximize-changed', {
-				detail: { id: vm._.appInstanceId, maximized: vm.maximized && !vm.minimized },
-			}));
+			vm.$emit('window-maximize-changed', { id: vm._.appInstanceId, maximized: vm.maximized && !vm.minimized }, { target: document });
 		},
 		notifyMinimizeState() {
 			const vm = this as any;
-			document.dispatchEvent(new CustomEvent('window-minimize-changed', {
-				detail: { id: vm._.appInstanceId, minimized: vm.minimized },
-			}));
+			vm.$emit('window-minimize-changed', { id: vm._.appInstanceId, minimized: vm.minimized }, { target: document });
 		},
 		async close() {
 			const vm = this as any;
 			const canClose = await vm._.originalAppInstance.canClose();
 			if (!canClose) return;
-			document.dispatchEvent(new CustomEvent('app-instance-closed', { detail: { id: vm._.appInstanceId } }));
+			vm.$emit('app-instance-closed', { id: vm._.appInstanceId }, { target: document });
 		},
 		onMounted($ctx: any) {
 			const vm = this as any;
@@ -410,64 +397,60 @@ defineComponent('wt-window', {
 					vm._.loadListener();
 				}
 			}
-
-			vm._.launchedListener = (e: CustomEvent) => {
-				if (e.detail.id === vm._.appInstanceId) { vm.isLaunched = true; }
-			};
-			document.addEventListener('app-launched', vm._.launchedListener);
-
-			vm._.themeListener = (e: CustomEvent) => { vm.theme = e.detail.theme; };
-			document.addEventListener('theme-changed', vm._.themeListener);
-
-			vm._.restoreListener = (e: CustomEvent) => {
-				if (e.detail.id === vm._.appInstanceId) {
-					const wasMinimized = vm.minimized;
-					vm.minimized = false;
-					vm.activate();
-					vm.notifyMaximizeState();
-					if (wasMinimized) vm.notifyMinimizeState();
-				}
-			};
-			document.addEventListener('restore-window', vm._.restoreListener);
-
-			vm._.peekSetListener = (e: CustomEvent) => {
-				const peekedId = e.detail?.id;
-				vm.peekHidden = peekedId && peekedId !== vm._.appInstanceId;
-			};
-			document.addEventListener('window-peek-set', vm._.peekSetListener);
-
-			vm._.peekClearListener = () => {
-				vm.peekHidden = false;
-			};
-			document.addEventListener('window-peek-clear', vm._.peekClearListener);
-
-			vm._.controlListener = (e: CustomEvent) => {
-				if (e.detail?.id !== vm._.appInstanceId) return;
-				switch (e.detail.action) {
-					case 'maximize':
-						if (!vm.maximized) { vm.toggleMaximize(); }
-						break;
-					case 'minimize':
-						vm.minimize();
-						break;
-					case 'restore':
-						if (vm.maximized) { vm.toggleMaximize(); }
-						if (vm.minimized) {
-							vm.minimized = false;
-							vm.activate();
-							vm.notifyMaximizeState();
-							vm.notifyMinimizeState();
-						}
-						break;
-					case 'toggle-maximize':
-						vm.toggleMaximize();
-						break;
-					case 'close':
-						vm.close();
-						break;
-				}
-			};
-			document.addEventListener('window-control', vm._.controlListener);
+		},
+		// Shell→window broadcasts. Bound declaratively via @event.document in
+		// the template so the listeners are removed automatically on unmount.
+		onAppLaunched(e: CustomEvent) {
+			const vm = this as any;
+			if (e.detail.id === vm._.appInstanceId) { vm.isLaunched = true; }
+		},
+		onThemeChanged(e: CustomEvent) {
+			(this as any).theme = e.detail.theme;
+		},
+		onRestoreWindow(e: CustomEvent) {
+			const vm = this as any;
+			if (e.detail.id === vm._.appInstanceId) {
+				const wasMinimized = vm.minimized;
+				vm.minimized = false;
+				vm.activate();
+				vm.notifyMaximizeState();
+				if (wasMinimized) vm.notifyMinimizeState();
+			}
+		},
+		onWindowPeekSet(e: CustomEvent) {
+			const vm = this as any;
+			const peekedId = e.detail?.id;
+			vm.peekHidden = peekedId && peekedId !== vm._.appInstanceId;
+		},
+		onWindowPeekClear() {
+			(this as any).peekHidden = false;
+		},
+		onWindowControl(e: CustomEvent) {
+			const vm = this as any;
+			if (e.detail?.id !== vm._.appInstanceId) return;
+			switch (e.detail.action) {
+				case 'maximize':
+					if (!vm.maximized) { vm.toggleMaximize(); }
+					break;
+				case 'minimize':
+					vm.minimize();
+					break;
+				case 'restore':
+					if (vm.maximized) { vm.toggleMaximize(); }
+					if (vm.minimized) {
+						vm.minimized = false;
+						vm.activate();
+						vm.notifyMaximizeState();
+						vm.notifyMinimizeState();
+					}
+					break;
+				case 'toggle-maximize':
+					vm.toggleMaximize();
+					break;
+				case 'close':
+					vm.close();
+					break;
+			}
 		},
 		onUnmount($ctx: any) {
 			const vm = this as any;
@@ -496,19 +479,7 @@ defineComponent('wt-window', {
 					vm._.iframeDragDblClickListener = null;
 				}
 			}
-			document.removeEventListener('app-launched', vm._.launchedListener);
 			vm.removeOverlay();
-			document.removeEventListener('theme-changed', vm._.themeListener);
-			document.removeEventListener('restore-window', vm._.restoreListener);
-			document.removeEventListener('window-control', vm._.controlListener);
-			if (vm._.peekSetListener) {
-				document.removeEventListener('window-peek-set', vm._.peekSetListener);
-				vm._.peekSetListener = null;
-			}
-			if (vm._.peekClearListener) {
-				document.removeEventListener('window-peek-clear', vm._.peekClearListener);
-				vm._.peekClearListener = null;
-			}
 		},
 	},
 	});

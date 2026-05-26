@@ -227,6 +227,131 @@ function getLanguageExtensionForEditorType(editorType: string) {
 	}
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Schema script context (ctx)
+//
+// A single context object shared by every schema-defined ECMAScript hook:
+// property validation, display formatting and calculated default values.
+// Each hook runs as `new Function('ctx', body)` and receives exactly this
+// shape, so the three are interchangeable. The same contract is meant to be
+// reproduced server-side (NativeEcmaScriptEngine), where the target node is
+// handed in as JSON — hence `item` is a frozen, serialisable snapshot rather
+// than a live InspectorTarget instance, and nothing here is passed as a
+// positional function argument.
+// ────────────────────────────────────────────────────────────────────────
+
+// Read-only snapshot of the node (file/folder) the script is acting on.
+export interface ScriptItem {
+	id: string | null;
+	name: string;
+	path: string;
+	isCollection: boolean;
+	mimeType: string;
+	contentLength: number;
+	encoding: string;
+	created: Date | string | null;
+	createdBy: string;
+	createdByDisplayName: string | null;
+	lastModified: Date | string | null;
+	lastModifiedBy: string;
+	lastModifiedByDisplayName: string | null;
+	isLocked: boolean;
+	baseVersionName: string | null;
+}
+
+// Build the frozen `item` snapshot from an InspectorTarget. Returns null when
+// there is no single target (e.g. a multi-selection).
+function buildScriptItem(target: any): ScriptItem | null {
+	if (!target) return null;
+	return Object.freeze({
+		id: target.id ?? null,
+		name: target.name ?? '',
+		path: target.path ?? '',
+		isCollection: !!target.isCollection,
+		mimeType: target.mimeType ?? '',
+		contentLength: target.contentLength ?? 0,
+		encoding: target.encoding ?? '',
+		created: target.created ?? null,
+		createdBy: target.createdBy ?? '',
+		createdByDisplayName: target.createdByDisplayName ?? null,
+		lastModified: target.lastModified ?? null,
+		lastModifiedBy: target.lastModifiedBy ?? '',
+		lastModifiedByDisplayName: target.lastModifiedByDisplayName ?? null,
+		isLocked: !!target.isLocked,
+		baseVersionName: target.baseVersionName ?? null,
+	});
+}
+
+interface ScriptContextOptions {
+	allPropsRaw: Map<string, { value: any; values: any[] }>;
+	item: ScriptItem | null;
+	propertyName: string;
+	value: any;
+	values: any[];
+	isArray: boolean;
+}
+
+// Construct the unified ctx handed to every schema script.
+function buildScriptContext(opts: ScriptContextOptions): any {
+	const { allPropsRaw, item, propertyName, value, values, isArray } = opts;
+	return {
+		item,
+		propertyName,
+		value,
+		values,
+		isArray,
+		get(propName: string, defaultValue?: any): any {
+			const entry = allPropsRaw.get(propName);
+			if (!entry || entry.value == null) return defaultValue ?? null;
+			return entry.value;
+		},
+		getString(propName: string, defaultValue?: string): string {
+			const entry = allPropsRaw.get(propName);
+			if (!entry || entry.value == null) return defaultValue ?? '';
+			return String(entry.value);
+		},
+		getNumber(propName: string, defaultValue?: number): number {
+			const entry = allPropsRaw.get(propName);
+			if (!entry || entry.value == null) return defaultValue ?? 0;
+			const n = Number(entry.value);
+			return isNaN(n) ? (defaultValue ?? 0) : n;
+		},
+		getValues(propName: string, defaultValue?: any[]): any[] {
+			const entry = allPropsRaw.get(propName);
+			if (!entry || !entry.values) return defaultValue ?? [];
+			return entry.values;
+		},
+		formatCurrency(amount: number, currencyCode?: string): string {
+			try {
+				const code = currencyCode || 'USD';
+				return new Intl.NumberFormat(undefined, {
+					style: 'currency',
+					currency: code,
+				}).format(amount);
+			} catch {
+				return String(amount);
+			}
+		},
+		formatDate(date: string | number | Date, pattern?: string): string {
+			try {
+				const d = date instanceof Date ? date : new Date(date);
+				if (isNaN(d.getTime())) return String(date);
+				if (!pattern) return d.toLocaleString();
+				const pad = (n: number) => String(n).padStart(2, '0');
+				return pattern
+					.replace('YYYY', String(d.getFullYear()))
+					.replace('MM', pad(d.getMonth() + 1))
+					.replace('DD', pad(d.getDate()))
+					.replace('HH', pad(d.getHours()))
+					.replace('mm', pad(d.getMinutes()))
+					.replace('ss', pad(d.getSeconds()));
+			} catch {
+				return String(date);
+			}
+		},
+	};
+}
+
 // Execute a user-provided validation script returning {valid, errors?}.
 function executeValidationScript(
 	script: string,
@@ -235,35 +360,17 @@ function executeValidationScript(
 	currentValues: any[],
 	isArray: boolean,
 	allPropsRaw: Map<string, { value: any; values: any[] }>,
+	item: ScriptItem | null,
 ): { valid: boolean; errors?: any[] } | null {
 	try {
-		const ctx = {
+		const ctx = buildScriptContext({
+			allPropsRaw,
+			item,
 			propertyName,
-			currentValue: isArray ? null : currentValue,
-			currentValues: isArray ? currentValues : [currentValue],
+			value: isArray ? null : currentValue,
+			values: isArray ? currentValues : [currentValue],
 			isArray,
-			get(propName: string, defaultValue?: any): any {
-				const entry = allPropsRaw.get(propName);
-				if (!entry || entry.value == null) return defaultValue ?? null;
-				return entry.value;
-			},
-			getString(propName: string, defaultValue?: string): string {
-				const entry = allPropsRaw.get(propName);
-				if (!entry || entry.value == null) return defaultValue ?? '';
-				return String(entry.value);
-			},
-			getNumber(propName: string, defaultValue?: number): number {
-				const entry = allPropsRaw.get(propName);
-				if (!entry || entry.value == null) return defaultValue ?? 0;
-				const n = Number(entry.value);
-				return isNaN(n) ? (defaultValue ?? 0) : n;
-			},
-			getValues(propName: string, defaultValue?: any[]): any[] {
-				const entry = allPropsRaw.get(propName);
-				if (!entry || !entry.values) return defaultValue ?? [];
-				return entry.values;
-			},
-		};
+		});
 		const fn = new Function('ctx', script);
 		const result = fn(ctx);
 		if (result && typeof result === 'object' && 'valid' in result) {
@@ -280,6 +387,7 @@ function validatePropertyValues(
 	values: string[],
 	allPropsRaw?: Map<string, { value: any; values: any[] }>,
 	i18nFormat?: (err: any) => string,
+	item?: ScriptItem | null,
 ): string {
 	if (!prop || !prop.schemaType) return '';
 	const type = prop.schemaType as string;
@@ -354,6 +462,7 @@ function validatePropertyValues(
 			values,
 			isArray,
 			allPropsRaw,
+			item ?? null,
 		);
 		if (result && result.valid === false && result.errors && result.errors.length > 0) {
 			const errors = result.errors.filter((e: any) =>
@@ -372,6 +481,7 @@ function validatePropertyValues(
 defineComponent('wt-inspector', {
 	template: '#wt-inspector',
 	props: ['target', 'api', 'viewOptions', 'width', 'command'],
+	emits: ['open-item', 'navigate-path', 'reveal-item', 'request-close', 'overlay-changed'],
 	data(this: any) {
 		return {
 			// Non-reactive private state (subscriptions, listeners, timers).
@@ -540,6 +650,11 @@ defineComponent('wt-inspector', {
 			const t = this.target;
 			return Array.isArray(t) && t.length > 1 ? t : [];
 		},
+		// Frozen `item` snapshot exposed to schema scripts as ctx.item. Null when
+		// there is no single target (multi-selection or empty selection).
+		scriptItem(this: any): ScriptItem | null {
+			return buildScriptItem(this.singleTarget);
+		},
 		// Whether to show the "Open File/Folder" action button. Hosts that have
 		// the item open already (e.g. text-editor) pass viewOptions.showOpenItem
 		// = false to hide it. Defaults to shown.
@@ -622,7 +737,7 @@ defineComponent('wt-inspector', {
 					};
 					try {
 						formattedValue = this.executeDisplayFormat(
-							schemaProp.displayFormat, compatProp, allPropsRaw
+							schemaProp.displayFormat, compatProp, allPropsRaw, schemaProp.key
 						);
 					} catch (e: any) {
 						formatError = e.message || String(e);
@@ -715,7 +830,7 @@ defineComponent('wt-inspector', {
 					}
 					return err.fallbackMessage || err.messageId || 'Validation failed';
 				};
-				const validationError = validatePropertyValues(enrichedWithMeta, currentValues, allPropsRaw, i18nFormat);
+				const validationError = validatePropertyValues(enrichedWithMeta, currentValues, allPropsRaw, i18nFormat, this.scriptItem);
 				if (validationError) {
 					enrichedWithMeta.validationError = validationError;
 				}
@@ -800,7 +915,7 @@ defineComponent('wt-inspector', {
 				if (schemaProp.displayFormat) {
 					try {
 						formattedValue = this.executeDisplayFormat(
-							schemaProp.displayFormat, detailProp, allPropsRaw
+							schemaProp.displayFormat, detailProp, allPropsRaw, schemaProp.key
 						);
 					} catch (e: any) {
 						formatError = e.message || String(e);
@@ -920,7 +1035,7 @@ defineComponent('wt-inspector', {
 				}
 				return err.fallbackMessage || err.messageId || 'Validation failed';
 			};
-			return validatePropertyValues({ ...prop, isArray }, values, allPropsRaw, i18nFormat);
+			return validatePropertyValues({ ...prop, isArray }, values, allPropsRaw, i18nFormat, this.scriptItem);
 		},
 		propEditorEditChoiceMismatch(this: any): string {
 			if (!this.propEditorEditingName) return '';
@@ -1138,13 +1253,11 @@ defineComponent('wt-inspector', {
 				// Non-critical
 			}
 		},
-		// Emit helpers. ichigo has no $emit; child→parent communication is via
-		// native CustomEvents dispatched on the host element, which the host
-		// binds with @event-name. Handlers read the payload from $event.detail.
+		// Emit helpers. Child→parent communication uses ichigo's $emit, which
+		// dispatches a bubbling CustomEvent from the component root; the host
+		// binds with @event-name and reads the payload from $event.detail.
 		_dispatch(this: any, name: string, detail?: any) {
-			const el = this._.el;
-			if (!el) return;
-			el.dispatchEvent(new CustomEvent(name, { detail, bubbles: true }));
+			this.$emit(name, detail);
 		},
 		emitOpenItem(this: any, target: any) {
 			this._dispatch('open-item', target);
@@ -1400,66 +1513,23 @@ defineComponent('wt-inspector', {
 			while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
 			return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 		},
-		executeDisplayFormat(this: any, script: string, prop: any, allPropsRaw: Map<string, { value: any; values: any[] }>): string {
-			const ctx = {
-				get(propName: string, defaultValue?: any): any {
-					const entry = allPropsRaw.get(propName);
-					if (!entry || entry.value == null) return defaultValue ?? null;
-					return entry.value;
-				},
-				getString(propName: string, defaultValue?: string): string {
-					const entry = allPropsRaw.get(propName);
-					if (!entry || entry.value == null) return defaultValue ?? '';
-					return String(entry.value);
-				},
-				getNumber(propName: string, defaultValue?: number): number {
-					const entry = allPropsRaw.get(propName);
-					if (!entry || entry.value == null) return defaultValue ?? 0;
-					const n = Number(entry.value);
-					return isNaN(n) ? (defaultValue ?? 0) : n;
-				},
-				getValues(propName: string, defaultValue?: any[]): any[] {
-					const entry = allPropsRaw.get(propName);
-					if (!entry || !entry.values) return defaultValue ?? [];
-					return entry.values;
-				},
-				formatCurrency(amount: number, currencyCode?: string): string {
-					try {
-						const code = currencyCode || 'USD';
-						return new Intl.NumberFormat(undefined, {
-							style: 'currency',
-							currency: code,
-						}).format(amount);
-					} catch {
-						return String(amount);
-					}
-				},
-				formatDate(date: string | number | Date, pattern?: string): string {
-					try {
-						const d = date instanceof Date ? date : new Date(date);
-						if (isNaN(d.getTime())) return String(date);
-						if (!pattern) return d.toLocaleString();
-						const pad = (n: number) => String(n).padStart(2, '0');
-						return pattern
-							.replace('YYYY', String(d.getFullYear()))
-							.replace('MM', pad(d.getMonth() + 1))
-							.replace('DD', pad(d.getDate()))
-							.replace('HH', pad(d.getHours()))
-							.replace('mm', pad(d.getMinutes()))
-							.replace('ss', pad(d.getSeconds()));
-					} catch {
-						return String(date);
-					}
-				},
-			};
-
-			const value = prop.isArray
+		executeDisplayFormat(this: any, script: string, prop: any, allPropsRaw: Map<string, { value: any; values: any[] }>, propertyName: string): string {
+			const isArray = !!prop.isArray;
+			const value = isArray
 				? (prop.items.length > 0 ? prop.items[0] : null)
 				: (prop.value || null);
-			const values = prop.isArray ? [...prop.items] : [prop.value];
+			const values = isArray ? [...prop.items] : [prop.value];
 
-			const fn = new Function('value', 'values', 'ctx', script);
-			const result = fn(value, values, ctx);
+			const ctx = buildScriptContext({
+				allPropsRaw,
+				item: this.scriptItem,
+				propertyName,
+				value,
+				values,
+				isArray,
+			});
+			const fn = new Function('ctx', script);
+			const result = fn(ctx);
 			return result == null ? '' : String(result);
 		},
 		// ────────────────────────────────────────────────────────────────────
@@ -3472,31 +3542,16 @@ defineComponent('wt-inspector', {
 				isNew: true,
 			};
 		},
-		evaluateCalculatedDefault(this: any, formula: string, allPropsRaw: Map<string, { value: any; values: any[] }>): string | null {
+		evaluateCalculatedDefault(this: any, formula: string, allPropsRaw: Map<string, { value: any; values: any[] }>, propertyName: string): string | null {
 			try {
-				const ctx = {
-					get(propName: string, defaultValue?: any): any {
-						const entry = allPropsRaw.get(propName);
-						if (!entry || entry.value == null) return defaultValue ?? null;
-						return entry.value;
-					},
-					getString(propName: string, defaultValue?: string): string {
-						const entry = allPropsRaw.get(propName);
-						if (!entry || entry.value == null) return defaultValue ?? '';
-						return String(entry.value);
-					},
-					getNumber(propName: string, defaultValue?: number): number {
-						const entry = allPropsRaw.get(propName);
-						if (!entry || entry.value == null) return defaultValue ?? 0;
-						const n = Number(entry.value);
-						return isNaN(n) ? (defaultValue ?? 0) : n;
-					},
-					getValues(propName: string, defaultValue?: any[]): any[] {
-						const entry = allPropsRaw.get(propName);
-						if (!entry || !entry.values) return defaultValue ?? [];
-						return entry.values;
-					},
-				};
+				const ctx = buildScriptContext({
+					allPropsRaw,
+					item: this.scriptItem,
+					propertyName,
+					value: null,
+					values: [],
+					isArray: false,
+				});
 				const fn = new Function('ctx', formula);
 				const result = fn(ctx);
 				return result == null ? null : String(result);
@@ -3569,7 +3624,7 @@ defineComponent('wt-inspector', {
 			};
 			for (const ci of ordered) {
 				const lookup = buildLookup();
-				const result = vm.evaluateCalculatedDefault(ci.schemaProp.defaultValue.value, lookup);
+				const result = vm.evaluateCalculatedDefault(ci.schemaProp.defaultValue.value, lookup, ci.schemaProp.key);
 				if (result != null) {
 					if (ci.item.isArray) ci.item.currentValues = [result];
 					else ci.item.currentValue = result;
@@ -3599,7 +3654,7 @@ defineComponent('wt-inspector', {
 						const vals = p.isArray ? [...p.currentValues] : [p.currentValue];
 						lookup.set(p.name, { value: val, values: vals });
 					}
-					const result = vm.evaluateCalculatedDefault(schemaProp.defaultValue.value, lookup);
+					const result = vm.evaluateCalculatedDefault(schemaProp.defaultValue.value, lookup, schemaProp.key);
 					if (result != null) {
 						if (newProp.isArray) newProp.currentValues = [result];
 						else newProp.currentValue = result;

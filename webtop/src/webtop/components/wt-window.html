@@ -1,5 +1,5 @@
 <template id="wt-window">
-	<div class="window" :class="{ maximized: maximized }" :data-id="appInstance.id" :style="windowStyle" @mounted.stop="onMounted" @unmount.stop="onUnmount" @mousedown="activate">
+	<div class="window" :class="{ maximized: maximized }" :data-id="appInstance.id" :style="windowStyle" @mounted.stop="onMounted" @unmount.stop="onUnmount" @mousedown="activate" @app-launched.document="onAppLaunched" @theme-changed.document="onThemeChanged" @restore-window.document="onRestoreWindow" @window-peek-set.document="onWindowPeekSet" @window-peek-clear.document="onWindowPeekClear" @window-control.document="onWindowControl">
 		<div class="resize-top" @mousedown.prevent.stop="startResize('top', event)"></div>
 		<div class="resize-bottom" @mousedown.prevent.stop="startResize('bottom', event)"></div>
 		<div class="resize-left" @mousedown.prevent.stop="startResize('left', event)"></div>

@@ -499,7 +499,7 @@
 										placeholder="Default value" @input="onPropertyFieldChange">
 									<textarea v-else
 										class="wt w-100" v-model="selectedProperty.behavior.defaultValue.value"
-										placeholder="return value;" rows="3"
+										placeholder="return ctx.item.name;" rows="3"
 										@input="onPropertyFieldChange"></textarea>
 								</div>
 								<div v-if="selectedProperty.behavior.calculated.enabled" class="property-row">
@@ -517,7 +517,7 @@
 									<div class="field-help">
 										Return <code>{ valid: true }</code> or
 										<code>{ valid: false, errors: [{ messageId, severity?, params?, ruleId?, fallbackMessage? }, ...] }</code>.<br>
-										<strong>ctx</strong>: <code>propertyName</code>, <code>currentValue</code>, <code>currentValues</code>, <code>isArray</code>, <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>.
+										<strong>ctx</strong>: <code>item</code> (<code>item.name</code>, <code>item.path</code>, <code>item.mimeType</code>, …), <code>propertyName</code>, <code>value</code>, <code>values</code>, <code>isArray</code>, <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>, <code>formatCurrency(amount, code?)</code>, <code>formatDate(date, pattern?)</code>.
 									</div>
 									<textarea class="wt w-100" v-model="selectedProperty.uiHint.validation"
 										:placeholder="validationPlaceholder" rows="8"
@@ -683,8 +683,12 @@
 							<div v-if="selectedProperty.type !== 'REFERENCE' && selectedProperty.type !== 'WEAKREFERENCE' && selectedProperty.type !== 'BINARY'"
 								class="property-row">
 								<label class="property-label">Display Format</label>
+								<div class="field-help">
+									Return the display string.
+									<strong>ctx</strong>: <code>value</code>, <code>values</code>, <code>item</code> (<code>item.name</code>, <code>item.path</code>, …), <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>, <code>formatCurrency(amount, code?)</code>, <code>formatDate(date, pattern?)</code>.
+								</div>
 								<textarea class="wt w-100" v-model="selectedProperty.uiHint.displayFormat"
-									placeholder="return value;" rows="3"
+									placeholder="return ctx.value;" rows="3"
 									@input="onPropertyFieldChange"></textarea>
 							</div>
 						</div>
