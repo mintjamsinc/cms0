@@ -1,12 +1,12 @@
 <template id="wt-desktop-icons">
-	<div class="desktop-icons" @mounted="onMounted" @unmount="onUnmount">
+	<div class="desktop-icons" @mounted="onMounted" @unmount="onUnmount" @webtop-desktop-reload.document="onReloadEvent">
 		<div v-for="item in items" :key="item.id"
 			class="desktop-icon"
 			:class="{ selected: isSelected(item), 'drop-target': dragOverItemID === item.id }"
 			:data-item-id="item.id"
 			:draggable="true"
 			:title="item.name"
-			@mousedown="onItemMouseDown(item, event)"
+			@click="onItemClick(item, event)"
 			@contextmenu="onItemContextMenu(item, event)"
 			@dragstart="onItemDragStart(item, event)"
 			@dragend="onItemDragEnd"

@@ -26,6 +26,7 @@ interface DesktopItem {
 defineComponent('wt-desktop-icons', {
 	template: '#wt-desktop-icons',
 	props: ['enabled', 'desktopPath', 'selectedIds', 'dragOverItemID'],
+	emits: ['webtop-desktop-items-changed', 'webtop-desktop-icon-click', 'webtop-desktop-icon-contextmenu', 'webtop-desktop-icon-dragend', 'webtop-desktop-icon-dragover', 'webtop-desktop-icon-dragleave', 'webtop-desktop-icon-drop'],
 	data() {
 		return {
 			items: [] as DesktopItem[],
@@ -44,9 +45,6 @@ defineComponent('wt-desktop-icons', {
 	methods: {
 		onMounted() {
 			(this as any).refresh();
-			// Allow the shell to request a reload (e.g. after user actions
-			// where waiting on the watchNode round-trip would feel laggy).
-			document.addEventListener('webtop-desktop-reload', (this as any).onReloadEvent);
 		},
 		onUnmount() {
 			const vm = this as any;
@@ -55,7 +53,6 @@ defineComponent('wt-desktop-icons', {
 				clearTimeout(vm._.reloadTimer);
 				vm._.reloadTimer = null;
 			}
-			document.removeEventListener('webtop-desktop-reload', vm.onReloadEvent);
 		},
 		onReloadEvent() {
 			(this as any).loadItems();
@@ -68,9 +65,7 @@ defineComponent('wt-desktop-icons', {
 			} else {
 				vm.unsubscribe();
 				vm.items = [];
-				document.dispatchEvent(new CustomEvent('webtop-desktop-items-changed', {
-					detail: { items: [] },
-				}));
+				vm.$emit('webtop-desktop-items-changed', { items: [] }, { target: document });
 			}
 		},
 		async loadItems() {
@@ -93,9 +88,7 @@ defineComponent('wt-desktop-icons', {
 					};
 				}).sort((a: DesktopItem, b: DesktopItem) => a.name.localeCompare(b.name));
 				// Notify shell so it can drop selectedIds that no longer exist.
-				document.dispatchEvent(new CustomEvent('webtop-desktop-items-changed', {
-					detail: { items: vm.items },
-				}));
+				vm.$emit('webtop-desktop-items-changed', { items: vm.items }, { target: document });
 			} catch (err) {
 				console.warn('[Webtop] Failed to load desktop items:', err);
 			}
@@ -180,23 +173,25 @@ defineComponent('wt-desktop-icons', {
 		// The shell owns selection state; we dispatch the requested change
 		// instead of mutating it ourselves so rubber-band, click and
 		// context-menu paths stay consistent.
-		onItemMouseDown(item: DesktopItem, event: MouseEvent) {
+		//
+		// This runs on `click`, not `mousedown`, on purpose: a click does not
+		// fire when the press turns into a drag, so grabbing one icon out of a
+		// multi-selection keeps the whole selection intact and the drag carries
+		// every selected file. Collapsing to a single item on mousedown would
+		// discard the rest of the selection before dragstart fires.
+		onItemClick(item: DesktopItem, event: MouseEvent) {
 			// Right-click is handled by onItemContextMenu below.
 			if (event.button !== 0) return;
-			document.dispatchEvent(new CustomEvent('webtop-desktop-icon-mousedown', {
-				detail: {
-					itemId: item.id,
-					ctrlKey: event.ctrlKey || event.metaKey,
-					shiftKey: event.shiftKey,
-				},
-			}));
+			(this as any).$emit('webtop-desktop-icon-click', {
+				itemId: item.id,
+				ctrlKey: event.ctrlKey || event.metaKey,
+				shiftKey: event.shiftKey,
+			}, { target: document });
 		},
 		onItemContextMenu(item: DesktopItem, event: MouseEvent) {
 			event.preventDefault();
 			event.stopPropagation();
-			document.dispatchEvent(new CustomEvent('webtop-desktop-icon-contextmenu', {
-				detail: { itemId: item.id, x: event.clientX, y: event.clientY },
-			}));
+			(this as any).$emit('webtop-desktop-icon-contextmenu', { itemId: item.id, x: event.clientX, y: event.clientY }, { target: document });
 		},
 		// Match the payload shape used by Content Browser so its existing
 		// onDragOver / onDrop / onItemDrop / _executeInternalDrop pipeline picks
@@ -230,6 +225,7 @@ defineComponent('wt-desktop-icons', {
 				event.dataTransfer.setData('application/x-webtop-file', JSON.stringify(payload[0]));
 			}
 			event.dataTransfer.setData('text/plain', dragItems.map(i => i.path).join('\n'));
+			vm._setDragImage(event, dragItems);
 			try {
 				(window as any).__webtopDragData = {
 					items: payload,
@@ -240,7 +236,39 @@ defineComponent('wt-desktop-icons', {
 		},
 		onItemDragEnd() {
 			try { (window as any).__webtopDragData = null; } catch { /* ignore */ }
-			document.dispatchEvent(new CustomEvent('webtop-desktop-icon-dragend'));
+			(this as any).$emit('webtop-desktop-icon-dragend', undefined, { target: document });
+		},
+		// Custom drag ghost showing only the dragged items, so the browser's
+		// default image never picks up neighbouring, unselected icons. Rendered
+		// off-screen just long enough for the browser to snapshot it.
+		_setDragImage(event: DragEvent, dragItems: DesktopItem[]) {
+			try {
+				if (!event.dataTransfer || dragItems.length === 0) return;
+				const count = dragItems.length;
+				const ghost = document.createElement('div');
+				ghost.style.cssText = [
+					'position:fixed', 'top:-1000px', 'left:-1000px',
+					'display:inline-flex', 'align-items:center', 'gap:8px',
+					'max-width:320px', 'padding:6px 12px', 'border-radius:6px',
+					'background:var(--bs-primary,#0d6efd)', 'color:#fff',
+					'font:13px/1.2 system-ui,-apple-system,sans-serif',
+					'box-shadow:0 2px 8px rgba(0,0,0,.3)', 'white-space:nowrap',
+					'pointer-events:none', 'z-index:2147483647',
+				].join(';');
+
+				const icon = document.createElement('i');
+				icon.className = count === 1 ? (this as any).getFileIcon(dragItems[0]) : 'bi bi-files';
+				ghost.appendChild(icon);
+
+				const label = document.createElement('span');
+				label.style.cssText = 'overflow:hidden;text-overflow:ellipsis';
+				label.textContent = count === 1 ? (dragItems[0].name || '') : `${count} items`;
+				ghost.appendChild(label);
+
+				document.body.appendChild(ghost);
+				event.dataTransfer.setDragImage(ghost, 12, 12);
+				setTimeout(() => { try { ghost.remove(); } catch { /* ignore */ } }, 0);
+			} catch { /* setDragImage is best-effort */ }
 		},
 		// Allow dropping onto folder icons. Background drops are handled in
 		// the shell on #desktop-area.
@@ -254,14 +282,10 @@ defineComponent('wt-desktop-icons', {
 			event.preventDefault();
 			event.stopPropagation();
 			event.dataTransfer.dropEffect = hasInternal && event.ctrlKey ? 'copy' : (hasInternal ? 'move' : 'copy');
-			document.dispatchEvent(new CustomEvent('webtop-desktop-icon-dragover', {
-				detail: { itemId: item.id },
-			}));
+			(this as any).$emit('webtop-desktop-icon-dragover', { itemId: item.id }, { target: document });
 		},
 		onItemDragLeave(item: DesktopItem) {
-			document.dispatchEvent(new CustomEvent('webtop-desktop-icon-dragleave', {
-				detail: { itemId: item.id },
-			}));
+			(this as any).$emit('webtop-desktop-icon-dragleave', { itemId: item.id }, { target: document });
 		},
 		onItemDrop(item: DesktopItem, event: DragEvent) {
 			if (!item.isCollection) return;
@@ -273,7 +297,7 @@ defineComponent('wt-desktop-icons', {
 			if (types.includes('Files')) {
 				detail.osItems = Array.from(event.dataTransfer.items || []);
 			}
-			document.dispatchEvent(new CustomEvent('webtop-desktop-icon-drop', { detail }));
+			(this as any).$emit('webtop-desktop-icon-drop', detail, { target: document });
 		},
 		onItemDoubleClick(item: DesktopItem) {
 			if (item.isCollection) {
