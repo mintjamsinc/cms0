@@ -12,9 +12,6 @@ import {
 	type Point
 } from './camel-model-types.js';
 
-// XML namespace for Camel routes
-const CAMEL_NS = 'http://camel.apache.org/schema/spring';
-
 // =============================================================================
 // Type Definitions
 // =============================================================================
@@ -390,7 +387,9 @@ function storeToXml(store: CamelModelStore): string {
 	const processors = store.getAllProcessors();
 
 	lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-	lines.push(`<routes xmlns="${CAMEL_NS}">`);
+	// camel-app DSL root: unlike <routes> (RoutesDefinition), <camel> (BeansDefinition)
+	// can contain both <route> and <routeConfiguration>, so route configurations survive.
+	lines.push('<camel>');
 
 	// 1. Group onException nodes by routeConfigurationId
 	const onExceptionNodes = processors.filter(p => p.type === 'onException');
@@ -450,7 +449,7 @@ function storeToXml(store: CamelModelStore): string {
 		lines.push('  </route>');
 	}
 
-	lines.push('</routes>');
+	lines.push('</camel>');
 	return lines.join('\n');
 }
 
@@ -532,7 +531,7 @@ function findMergeNodeForBranching(store: CamelModelStore, branchingId: string):
 			}
 
 			// Stop at other branching nodes (nested)
-			if (['choice', 'split', 'doTry'].includes(node.type)) {
+			if (['choice', 'split', 'doTry', 'filter'].includes(node.type)) {
 				// Try to find merge after this nested branching
 				const nestedMerge = findMergeNodeForBranching(store, curr);
 				if (nestedMerge) {
@@ -571,7 +570,7 @@ function getConnectedSteps(store: CamelModelStore, sourceId: string, stopAtMerge
 
 		// Stop traversal at branching nodes (Choice, Split, DoTry, Multicast) - their content is handled recursively
 		// But only if we're not at the starting node (to allow recursive calls to continue)
-		if (currentProc && ['choice', 'split', 'doTry', 'multicast'].includes(currentProc.type)) {
+		if (currentProc && ['choice', 'split', 'doTry', 'multicast', 'filter'].includes(currentProc.type)) {
 			if (currentId !== sourceId) {
 				// Add the branching node to result
 				result.push(currentProc);
@@ -630,7 +629,7 @@ function getConnectedSteps(store: CamelModelStore, sourceId: string, stopAtMerge
 			result.push(target);
 
 			// If we just added a branching node, look for its merge point
-			if (['choice', 'split', 'doTry', 'multicast'].includes(target.type)) {
+			if (['choice', 'split', 'doTry', 'multicast', 'filter'].includes(target.type)) {
 				// If stopAtMerge is true, stop after adding the branching node
 				// (its internal steps will be handled by processorToXml recursively)
 				if (stopAtMerge) {
@@ -665,7 +664,7 @@ function getBranchSteps(store: CamelModelStore, startNodeRef: string): CamelProc
 
 	// If the start node is ITSELF a container (Choice/Split/Multicast), we must treat it as a single block
 	// and then jump to its merge node to find subsequent steps in this branch.
-	if (['choice', 'split', 'doTry', 'multicast'].includes(targetProc.type)) {
+	if (['choice', 'split', 'doTry', 'multicast', 'filter'].includes(targetProc.type)) {
 		const mergeId = findMergeNodeForBranching(store, targetProc.id);
 		const subsequentSteps = mergeId ? getConnectedSteps(store, mergeId, true) : [];
 		return [targetProc, ...subsequentSteps];
@@ -783,6 +782,16 @@ function processorToXml(
 			const filterExprType = props.expressionType || 'simple';
 			lines.push(`${pad}<filter${idAttr}>`);
 			lines.push(`${pad}  <${filterExprType}>${escapeXml(props.expression || '')}</${filterExprType}>`);
+			// <filter> is a block: the steps reached from its output port (up to the
+			// merge node that closes the block) run only when the predicate matches.
+			const filterFlows = store.getAllFlows().filter(f => f.sourceRef === proc.id);
+			for (const flow of filterFlows) {
+				const bodySteps = getBranchSteps(store, flow.targetRef);
+				for (const step of bodySteps) {
+					const stepLines = processorToXml(step, indent + 2, store, new Set(visitedIds));
+					lines.push(...stepLines);
+				}
+			}
 			lines.push(`${pad}</filter>`);
 			break;
 		}
@@ -1480,6 +1489,46 @@ function parseStepElementToStore(
 					store.addFlow({ id: flowId, sourceRef: splitEndId, targetRef: mergeId });
 					store.addEdge({ id: flowId + '_di', semanticId: flowId, waypoints: [] });
 				}
+				endId = mergeId;
+				nextX += MERGE_WIDTH + STEP_GAP_X;
+			}
+		}
+	}
+
+	// Handle Filter element with conditional body steps.
+	// In Camel <filter> is a block, not a leaf: the child steps execute only when the
+	// predicate matches, then the route continues. Model it like Split (single branch +
+	// auto-merge) so the body (e.g. a nested <to>) is preserved and round-trips.
+	if (stepType === 'filter') {
+		const exprTags = new Set(['simple', 'xpath', 'jsonpath', 'constant', 'tokenize']);
+		const bodyStepEls = getChildElements(stepEl).filter(c => !exprTags.has(c.localName));
+
+		if (bodyStepEls.length > 0) {
+			let bodyMaxY = y;
+			let bodyPrevId: string | null = null;
+			let bodyX = nextX;
+			let lastResultEndId: string | null = null;
+
+			for (let i = 0; i < bodyStepEls.length; i++) {
+				const connectFrom = i === 0 ? stepId : bodyPrevId;
+				const result = parseStepElementToStore(store, bodyStepEls[i], bodyX, y, connectFrom);
+				if (result) {
+					bodyPrevId = result.endId;
+					bodyX = result.nextX;
+					nextX = Math.max(nextX, result.nextX);
+					bodyMaxY = Math.max(bodyMaxY, result.maxY);
+					lastResultEndId = result.endId;
+				}
+			}
+			maxY = Math.max(maxY, bodyMaxY);
+
+			if (lastResultEndId) {
+				const mergeId = generateUUID();
+				store.addProcessor({ id: mergeId, type: 'merge', properties: {} });
+				store.addShape({ id: mergeId + '_di', semanticId: mergeId, bounds: { x: nextX, y, width: MERGE_WIDTH, height: MERGE_HEIGHT } });
+				const flowId = generateUUID();
+				store.addFlow({ id: flowId, sourceRef: lastResultEndId, targetRef: mergeId });
+				store.addEdge({ id: flowId + '_di', semanticId: flowId, waypoints: [] });
 				endId = mergeId;
 				nextX += MERGE_WIDTH + STEP_GAP_X;
 			}
