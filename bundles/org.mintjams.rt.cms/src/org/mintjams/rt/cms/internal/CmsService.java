@@ -523,4 +523,9 @@ public class CmsService {
 		return GSON.toJson(obj);
 	}
 
+	@SuppressWarnings("unchecked")
+	public static <T> T fromJSON(String json, Class<T> type) {
+		return (T) GSON.toJson(json);
+	}
+
 }

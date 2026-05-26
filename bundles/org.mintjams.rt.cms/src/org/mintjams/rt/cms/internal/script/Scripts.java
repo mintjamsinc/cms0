@@ -42,6 +42,7 @@ import org.mintjams.script.YAML;
 import org.mintjams.script.bpm.ProcessAPI;
 import org.mintjams.script.eip.IntegrationAPI;
 import org.mintjams.script.event.EventAdminAPI;
+import org.mintjams.script.metadata.MetadataAPI;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.script.resource.SessionAPI;
 import org.mintjams.script.resource.query.XPath;
@@ -104,6 +105,7 @@ public class Scripts {
 		ctx.setAttribute(XPath.class.getSimpleName(), new XPath(ctx));
 		ctx.setAttribute(JSON.class.getSimpleName(), new JSON(ctx));
 		ctx.setAttribute(YAML.class.getSimpleName(), new YAML(ctx));
+		ctx.setAttribute(MetadataAPI.class.getSimpleName(), new MetadataAPI(ctx));
 		try {
 			ctx.setAttribute("repositorySession", ctx.getResourceResolver().getSession());
 		} catch (ResourceException ex) {
