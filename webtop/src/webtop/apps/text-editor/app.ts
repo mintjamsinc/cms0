@@ -1333,7 +1333,18 @@ export const App = {
 			const vm = this;
 			if (!vm.editor || !vm.searchTerm) return;
 			vm.applySearchQuery();
-			vm.searchNotFound = !replaceNext(vm.editor);
+			// replaceNext() leaves the selection on the inserted text instead of advancing.
+			// Detect whether a replacement actually happened (doc changed) and, if so, move
+			// to the next match so the following click replaces it directly.
+			const before = vm.editor.state.doc;
+			if (!replaceNext(vm.editor)) {
+				vm.searchNotFound = true;
+				return;
+			}
+			vm.searchNotFound = false;
+			if (vm.editor.state.doc !== before) {
+				findNext(vm.editor);
+			}
 		},
 		replaceAllInDoc() {
 			const vm = this;
