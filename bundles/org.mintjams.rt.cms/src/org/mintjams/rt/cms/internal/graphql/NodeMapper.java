@@ -41,12 +41,15 @@ import javax.jcr.RepositoryException;
 import javax.jcr.lock.Lock;
 import javax.jcr.lock.LockManager;
 import javax.jcr.version.VersionManager;
+import javax.script.ScriptEngineFactory;
 
 import org.apache.tika.Tika;
 import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
+import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
+import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
 import org.mintjams.rt.cms.internal.web.Webs;
 
 /**
@@ -221,6 +224,46 @@ public class NodeMapper {
 			}
 			result.put("downloadUrl", url);
 		}
+
+		// Whether the server evaluates this file through a script engine when
+		// served (e.g. ".gsp"). Mirrors WebResourceResolver.isScriptable(): a
+		// file is scriptable when its name ends with a registered script
+		// extension. Clients use this to route previews through server-side
+		// rendering instead of displaying the raw, unevaluated source.
+		if (includeAll || selectionSet.hasField("scriptable")) {
+			result.put("scriptable", isScriptable(node));
+		}
+	}
+
+	/**
+	 * Returns {@code true} when the node's name ends with one of the workspace's
+	 * registered script extensions, matching the server-side decision in
+	 * {@code WebResourceResolver.isScriptable()}.
+	 */
+	private static boolean isScriptable(Node node) throws RepositoryException {
+		WorkspaceScriptEngineManager manager =
+				CmsService.getWorkspaceScriptEngineManager(node.getSession().getWorkspace().getName());
+		if (manager == null) {
+			return false;
+		}
+		String name = node.getName();
+		for (ScriptEngineFactory factory : manager.getEngineFactories()) {
+			List<String> extensions;
+			try {
+				extensions = factory.getExtensions();
+			} catch (Throwable ignore) {
+				continue;
+			}
+			if (extensions == null) {
+				continue;
+			}
+			for (String extension : extensions) {
+				if (name.endsWith("." + extension)) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/**
