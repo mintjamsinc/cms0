@@ -47,6 +47,7 @@ export interface Node {
   size?: number;
   encoding?: string;
   downloadUrl?: string;
+  scriptable?: boolean;
   hasChildren?: boolean;
   isLocked?: boolean;
   lockInfo?: LockInfo;

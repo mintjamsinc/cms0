@@ -95,6 +95,7 @@ export const CONTENT_QUERIES = {
         size
         encoding
         downloadUrl
+        scriptable
         hasChildren
         isLocked
         lockInfo {
