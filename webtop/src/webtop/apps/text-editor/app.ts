@@ -397,7 +397,8 @@ export const App = {
 			const mimeType = this.currentFile.mimeType || '';
 			return ext === 'html' || ext === 'htm' ||
 				mimeType === 'text/html' ||
-				mimeType === 'application/xhtml+xml';
+				mimeType === 'application/xhtml+xml' ||
+				mimeType === 'application/x-gsp';
 		},
 		isTemplated(): boolean {
 			return !!this.currentFile.hasWebTemplate;
