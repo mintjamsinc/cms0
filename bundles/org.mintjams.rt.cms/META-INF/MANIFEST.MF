@@ -8,6 +8,7 @@ Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Service-Component: OSGI-INF/org.mintjams.rt.cms.CmsService.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.DownloadServlet.xml,
+ OSGI-INF/org.mintjams.rt.cms.internal.web.ArchiveDownloadServlet.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.GraphQLServlet.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.WebServlet.xml
 Import-Package: javax.activation;version="1.2.0",

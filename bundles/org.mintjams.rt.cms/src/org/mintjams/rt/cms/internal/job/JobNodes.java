@@ -65,11 +65,18 @@ public final class JobNodes {
 	public static final String PROP_JOB_PRIORITY = "jobPriority";
 	public static final String PROP_ITEMS_TOTAL = "jobItemsTotal";
 	public static final String PROP_ITEMS_PROCESSED = "jobItemsProcessed";
-	public static final String PROP_NODES_DELETED = "jobNodesDeleted";
+	/** Delete jobs: running count of items removed (nt:file and nt:folder only). */
+	public static final String PROP_ITEMS_DELETED = "jobItemsDeleted";
+	/** Archive jobs: running count of files written into the ZIP. */
+	public static final String PROP_ITEMS_ARCHIVED = "jobItemsArchived";
 	public static final String PROP_CURRENT_PATH = "jobCurrentPath";
 	public static final String PROP_ERROR_MESSAGE = "jobErrorMessage";
 	public static final String PROP_STARTED_AT = "jobStartedAt";
 	public static final String PROP_FINISHED_AT = "jobFinishedAt";
+	/** Archive jobs: file name to expose to the browser when the ZIP is downloaded. */
+	public static final String PROP_ARCHIVE_FILENAME = "jobArchiveFilename";
+	/** Set on completion by jobs whose result is a downloadable artifact (e.g. archive jobs). */
+	public static final String PROP_DOWNLOAD_URL = "jobDownloadUrl";
 
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private static final DateTimeFormatter YEAR_FMT = DateTimeFormatter.ofPattern("yyyy").withZone(ZoneOffset.UTC);
@@ -101,6 +108,19 @@ public final class JobNodes {
 		long millis = parseMillis(jobId);
 		Instant t = Instant.ofEpochMilli(millis);
 		return JOBS_ROOT + "/" + YEAR_FMT.format(t) + "/" + MONTH_FMT.format(t) + "/job-" + jobId;
+	}
+
+	/**
+	 * Resolve the absolute path of the archive artifact produced by an archive
+	 * job. Stored as an {@code nt:file} sibling of the job node so it shares the
+	 * job's YYYY/MM bucket but never matches {@link #isJobPath(String, String)}
+	 * (the prefix is {@code archive-} rather than {@code job-}), keeping its
+	 * writes out of the {@code jobProgress} event stream.
+	 */
+	public static String archiveNodePath(String jobId) {
+		String jobNodePath = jobNodePath(jobId);
+		String parentPath = jobNodePath.substring(0, jobNodePath.lastIndexOf('/'));
+		return parentPath + "/archive-" + jobId;
 	}
 
 	private static long parseMillis(String jobId) {
@@ -147,7 +167,10 @@ public final class JobNodes {
 		content.setProperty(PROP_JOB_PRIORITY, (long) priority);
 		content.setProperty(PROP_ITEMS_TOTAL, 0L);
 		content.setProperty(PROP_ITEMS_PROCESSED, 0L);
-		content.setProperty(PROP_NODES_DELETED, 0L);
+		// The leaf counter is job-type-specific (PROP_ITEMS_DELETED for delete,
+		// PROP_ITEMS_ARCHIVED for archive) and is initialised by the job itself
+		// when it starts running, so it never appears on a job that has no such
+		// notion (e.g. archive jobs must not advertise a delete count).
 
 		return fileNode;
 	}

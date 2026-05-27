@@ -303,7 +303,7 @@ public class GraphQLStreamHandler {
 		 * from the job's {@code jcr:content} child, and sends a structured
 		 * payload to the subscriber so the client doesn't need a follow-up
 		 * query. Coalesces nicely under high event rates because the job node
-		 * is updated by the worker on a throttle (every 100 nodes deleted or
+		 * is updated by the worker on a throttle (every 100 items deleted or
 		 * 500ms — whichever comes first).
 		 */
 		private void sendJobProgressEvent(SubscriptionMatcher matcher, CmsEvent event) {
@@ -325,7 +325,14 @@ public class GraphQLStreamHandler {
 					eventData.put("status", JobNodes.getString(content, JobNodes.PROP_JOB_STATUS, null));
 					eventData.put("itemsTotal", JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L));
 					eventData.put("itemsProcessed", JobNodes.getLong(content, JobNodes.PROP_ITEMS_PROCESSED, 0L));
-					eventData.put("nodesDeleted", JobNodes.getLong(content, JobNodes.PROP_NODES_DELETED, 0L));
+					// Leaf counter: job-type-specific. Delete jobs publish itemsDeleted,
+					// archive jobs publish itemsArchived; emit whichever the job records.
+					if (content.hasProperty(JobNodes.PROP_ITEMS_DELETED)) {
+						eventData.put("itemsDeleted", JobNodes.getLong(content, JobNodes.PROP_ITEMS_DELETED, 0L));
+					}
+					if (content.hasProperty(JobNodes.PROP_ITEMS_ARCHIVED)) {
+						eventData.put("itemsArchived", JobNodes.getLong(content, JobNodes.PROP_ITEMS_ARCHIVED, 0L));
+					}
 					String currentPath = JobNodes.getString(content, JobNodes.PROP_CURRENT_PATH, null);
 					if (currentPath != null) {
 						eventData.put("currentPath", currentPath);
@@ -333,6 +340,12 @@ public class GraphQLStreamHandler {
 					String errorMessage = JobNodes.getString(content, JobNodes.PROP_ERROR_MESSAGE, null);
 					if (errorMessage != null) {
 						eventData.put("errorMessage", errorMessage);
+					}
+					// Set by jobs whose result is a downloadable artifact (archive jobs);
+					// absent for delete jobs.
+					String downloadUrl = JobNodes.getString(content, JobNodes.PROP_DOWNLOAD_URL, null);
+					if (downloadUrl != null) {
+						eventData.put("downloadUrl", downloadUrl);
 					}
 				}
 				eventData.put("timestamp", Instant.now().toString());

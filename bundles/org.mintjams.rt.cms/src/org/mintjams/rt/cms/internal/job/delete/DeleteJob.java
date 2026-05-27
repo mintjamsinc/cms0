@@ -30,6 +30,7 @@ import javax.jcr.Node;
 import javax.jcr.NodeIterator;
 import javax.jcr.Session;
 
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.job.Job;
 import org.mintjams.rt.cms.internal.job.JobContext;
@@ -56,8 +57,8 @@ public class DeleteJob implements Job {
 
 	public static final String TYPE = "delete";
 
-	/** Throttle: write progress to the job node every N leaf deletions. */
-	private static final long PROGRESS_THROTTLE_NODES = 100L;
+	/** Throttle: write progress to the job node every N item deletions. */
+	private static final long PROGRESS_THROTTLE_ITEMS = 100L;
 	/** Throttle: also write progress when this much wall time has elapsed. */
 	private static final long PROGRESS_THROTTLE_MILLIS = 500L;
 
@@ -68,7 +69,7 @@ public class DeleteJob implements Job {
 
 	private long fItemsTotal;
 	private long fItemsProcessed;
-	private long fNodesDeleted;
+	private long fItemsDeleted;
 	private long fLastWriteAt;
 
 	public DeleteJob(String jobId, String workspaceName, String userId, int priority) {
@@ -139,10 +140,11 @@ public class DeleteJob implements Job {
 			paths = JobNodes.readPaths(progressContent);
 			fItemsTotal = paths.size();
 			fItemsProcessed = JobNodes.getLong(progressContent, JobNodes.PROP_ITEMS_PROCESSED, 0L);
-			fNodesDeleted = JobNodes.getLong(progressContent, JobNodes.PROP_NODES_DELETED, 0L);
+			fItemsDeleted = JobNodes.getLong(progressContent, JobNodes.PROP_ITEMS_DELETED, 0L);
 
 			JobNodes.setStatus(progressContent, JobStatus.RUNNING);
 			progressContent.setProperty(JobNodes.PROP_STARTED_AT, Calendar.getInstance());
+			progressContent.setProperty(JobNodes.PROP_ITEMS_DELETED, fItemsDeleted);
 			progressSession.save();
 		} catch (Throwable ex) {
 			initError = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
@@ -198,7 +200,7 @@ public class DeleteJob implements Job {
 					finalStatus = JobStatus.COMPLETED;
 				}
 				progressContent.setProperty(JobNodes.PROP_ITEMS_PROCESSED, fItemsProcessed);
-				progressContent.setProperty(JobNodes.PROP_NODES_DELETED, fNodesDeleted);
+				progressContent.setProperty(JobNodes.PROP_ITEMS_DELETED, fItemsDeleted);
 				progressContent.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
 				JobNodes.setStatus(progressContent, finalStatus);
 				progressSession.save();
@@ -230,9 +232,14 @@ public class DeleteJob implements Job {
 			return;
 		}
 		Node toRemove = session.getNode(path);
+		// Count only the items the user thinks of as deleted (files and folders);
+		// internal descendants such as jcr:content must not inflate the progress.
+		boolean countable = JCRs.isFile(toRemove) || JCRs.isFolder(toRemove);
 		toRemove.remove();
 		session.save();
-		fNodesDeleted++;
+		if (countable) {
+			fItemsDeleted++;
+		}
 		writeProgress(progressContent, progressSession, path, false);
 	}
 
@@ -240,13 +247,13 @@ public class DeleteJob implements Job {
 			throws Exception {
 		long now = System.currentTimeMillis();
 		boolean shouldWrite = force
-				|| (fNodesDeleted - JobNodes.getLong(content, JobNodes.PROP_NODES_DELETED, 0L)) >= PROGRESS_THROTTLE_NODES
+				|| (fItemsDeleted - JobNodes.getLong(content, JobNodes.PROP_ITEMS_DELETED, 0L)) >= PROGRESS_THROTTLE_ITEMS
 				|| (now - fLastWriteAt) >= PROGRESS_THROTTLE_MILLIS;
 		if (!shouldWrite) {
 			return;
 		}
 		content.setProperty(JobNodes.PROP_ITEMS_PROCESSED, fItemsProcessed);
-		content.setProperty(JobNodes.PROP_NODES_DELETED, fNodesDeleted);
+		content.setProperty(JobNodes.PROP_ITEMS_DELETED, fItemsDeleted);
 		if (currentPath != null) {
 			content.setProperty(JobNodes.PROP_CURRENT_PATH, currentPath);
 		}

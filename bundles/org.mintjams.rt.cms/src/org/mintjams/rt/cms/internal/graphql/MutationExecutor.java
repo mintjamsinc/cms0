@@ -53,6 +53,7 @@ import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.job.archive.ArchiveJob;
 import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 
@@ -2076,7 +2077,24 @@ public class MutationExecutor {
 			throw new IllegalArgumentException("jobId is required");
 		}
 
-		String resultStatus;
+		String resultStatus = abortJob(jobId);
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", resultStatus);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("abortDeleteNodes", data);
+		return result;
+	}
+
+	/**
+	 * Signal the named job to stop and return the resulting external status.
+	 * Generic across job kinds (delete, archive, …): a running worker is asked
+	 * to finalise (status flips to ABORTING), while a job that hasn't begun
+	 * executing is marked ABORTED directly. Terminal jobs are left untouched.
+	 */
+	private String abortJob(String jobId) throws Exception {
 		Session mgmt = openManagementSession();
 		try {
 			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
@@ -2087,23 +2105,60 @@ public class MutationExecutor {
 			JobStatus current = JobNodes.getStatus(content);
 
 			if (current == null || current.isTerminal()) {
-				resultStatus = current != null ? current.toExternalString() : "unknown";
-			} else {
-				boolean signalled = CmsService.getJobManager().abort(jobId);
-				if (signalled) {
-					// Worker is running — let it finalise. Mark as ABORTING so
-					// the client UI reflects the in-progress shutdown immediately.
-					JobNodes.setStatus(content, JobStatus.ABORTING);
-					mgmt.save();
-					resultStatus = JobStatus.ABORTING.toExternalString();
-				} else {
-					// No active worker (init or queued before pickup). Finalise here.
-					JobNodes.setStatus(content, JobStatus.ABORTED);
-					content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
-					mgmt.save();
-					resultStatus = JobStatus.ABORTED.toExternalString();
-				}
+				return current != null ? current.toExternalString() : "unknown";
 			}
+
+			boolean signalled = CmsService.getJobManager().abort(jobId);
+			if (signalled) {
+				// Worker is running — let it finalise. Mark as ABORTING so
+				// the client UI reflects the in-progress shutdown immediately.
+				JobNodes.setStatus(content, JobStatus.ABORTING);
+				mgmt.save();
+				return JobStatus.ABORTING.toExternalString();
+			}
+			// No active worker (init or queued before pickup). Finalise here.
+			JobNodes.setStatus(content, JobStatus.ABORTED);
+			content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
+			mgmt.save();
+			return JobStatus.ABORTED.toExternalString();
+		} catch (Exception ex) {
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
+		}
+	}
+
+	// =========================================================================
+	// Async ZIP-archive download jobs (Content Browser "Download" of a folder
+	// or a multi-selection). Mirrors the delete-job lifecycle:
+	//
+	// Lifecycle: initDownloadArchive -> appendDownloadArchive (1..N)
+	//            -> startDownloadArchive (records the file name, queues the job)
+	//            -> JobManager runs ArchiveJob in background
+	//            -> client tracks via jobProgress(jobId) subscription; the
+	//               terminal event carries downloadUrl
+	//            -> abortDownloadArchive can stop the worker between files
+	// =========================================================================
+
+	/**
+	 * Execute initDownloadArchive mutation.
+	 * Creates the job node in INIT status and returns its jobId.
+	 * Example: mutation { initDownloadArchive(input: {}) { jobId status } }
+	 */
+	public Map<String, Object> executeInitDownloadArchive(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		int priority = 0;
+		if (input.containsKey("priority") && input.get("priority") instanceof Number) {
+			priority = ((Number) input.get("priority")).intValue();
+		}
+
+		String jobId = JobNodes.newJobId();
+		Session mgmt = openManagementSession();
+		try {
+			JobNodes.createJobNode(mgmt, jobId, ArchiveJob.TYPE, mgmt.getUserID(), priority);
+			mgmt.save();
 		} catch (Exception ex) {
 			try { mgmt.refresh(false); } catch (Throwable ignore) {}
 			throw ex;
@@ -2113,10 +2168,175 @@ public class MutationExecutor {
 
 		Map<String, Object> data = new HashMap<>();
 		data.put("jobId", jobId);
+		data.put("status", JobStatus.INIT.toExternalString());
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("initDownloadArchive", data);
+		return result;
+	}
+
+	/**
+	 * Execute appendDownloadArchive mutation.
+	 * Appends up to 100 absolute paths (the top-level items to bundle) to the
+	 * job's body. Job must still be in INIT status.
+	 * Example: mutation { appendDownloadArchive(input: { jobId: "...", paths: ["/a","/b"] }) { jobId status itemsAccepted } }
+	 */
+	@SuppressWarnings("unchecked")
+	public Map<String, Object> executeAppendDownloadArchive(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String jobId = (String) input.get("jobId");
+		Object pathsObj = input.get("paths");
+
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+		if (!(pathsObj instanceof List)) {
+			throw new IllegalArgumentException("paths is required");
+		}
+
+		List<Object> rawPaths = (List<Object>) pathsObj;
+		if (rawPaths.size() > 100) {
+			throw new IllegalArgumentException("paths must contain at most 100 entries per call");
+		}
+
+		List<String> paths = new ArrayList<>();
+		for (Object o : rawPaths) {
+			if (o == null) continue;
+			String s = String.valueOf(o).trim();
+			if (s.isEmpty()) continue;
+			paths.add(s);
+		}
+
+		Session mgmt = openManagementSession();
+		JobStatus current;
+		int accepted;
+		try {
+			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
+			if (jobNode == null) {
+				throw new IllegalArgumentException("Unknown jobId: " + jobId);
+			}
+			Node content = JobNodes.getContent(jobNode);
+			current = JobNodes.getStatus(content);
+			if (current != JobStatus.INIT) {
+				throw new IllegalStateException("Cannot append to job in status: " + current);
+			}
+			accepted = JobNodes.appendPaths(jobNode, paths);
+			mgmt.save();
+		} catch (Exception ex) {
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
+		}
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", current.toExternalString());
+		data.put("itemsAccepted", (long) accepted);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("appendDownloadArchive", data);
+		return result;
+	}
+
+	/**
+	 * Execute startDownloadArchive mutation.
+	 * Records the desired archive file name, transitions the job to QUEUED and
+	 * hands it to the JobManager. Progress (including the terminal downloadUrl)
+	 * flows to the client via the jobProgress(jobId) subscription.
+	 * Example: mutation { startDownloadArchive(input: { jobId: "...", filename: "docs.zip" }) { jobId status itemsTotal } }
+	 */
+	public Map<String, Object> executeStartDownloadArchive(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String jobId = (String) input.get("jobId");
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+		String filename = sanitizeArchiveFilename((String) input.get("filename"));
+
+		String workspaceName = session.getWorkspace().getName();
+		String userId = session.getUserID();
+		long itemsTotal;
+		long priority;
+
+		Session mgmt = openManagementSession();
+		try {
+			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
+			if (jobNode == null) {
+				throw new IllegalArgumentException("Unknown jobId: " + jobId);
+			}
+			Node content = JobNodes.getContent(jobNode);
+			JobStatus current = JobNodes.getStatus(content);
+			if (current != JobStatus.INIT) {
+				throw new IllegalStateException("Cannot start job in status: " + current);
+			}
+			itemsTotal = JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L);
+			if (itemsTotal <= 0) {
+				throw new IllegalStateException("Cannot start job with no paths registered");
+			}
+			priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
+
+			content.setProperty(JobNodes.PROP_ARCHIVE_FILENAME, filename);
+			JobNodes.setStatus(content, JobStatus.QUEUED);
+			mgmt.save();
+		} catch (Exception ex) {
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
+		}
+
+		CmsService.getJobManager().submit(new ArchiveJob(jobId, workspaceName, userId, (int) priority));
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", JobStatus.QUEUED.toExternalString());
+		data.put("itemsTotal", itemsTotal);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("startDownloadArchive", data);
+		return result;
+	}
+
+	/**
+	 * Execute abortDownloadArchive mutation.
+	 * Signals the running worker to stop at its next safe point (between files).
+	 * Example: mutation { abortDownloadArchive(input: { jobId: "..." }) { jobId status } }
+	 */
+	public Map<String, Object> executeAbortDownloadArchive(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String jobId = (String) input.get("jobId");
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+
+		String resultStatus = abortJob(jobId);
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
 		data.put("status", resultStatus);
 
 		Map<String, Object> result = new HashMap<>();
-		result.put("abortDeleteNodes", data);
+		result.put("abortDownloadArchive", data);
 		return result;
+	}
+
+	/**
+	 * Reduce a client-supplied archive file name to a safe single path segment
+	 * used only for the {@code Content-Disposition} header. Strips path
+	 * separators and control characters and guarantees a {@code .zip} suffix.
+	 */
+	private static String sanitizeArchiveFilename(String filename) {
+		String name = (filename == null) ? "" : filename.trim();
+		name = name.replaceAll("[\\\\/\\r\\n\\t\\x00]", "_");
+		if (name.isEmpty()) {
+			name = "archive.zip";
+		} else if (!name.toLowerCase().endsWith(".zip")) {
+			name = name + ".zip";
+		}
+		return name;
 	}
 }
