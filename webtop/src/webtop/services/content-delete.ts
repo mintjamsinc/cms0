@@ -30,7 +30,7 @@ export interface DeleteJobProgress {
 	status: JobStatus;
 	itemsTotal: number;
 	itemsProcessed: number;
-	nodesDeleted: number;
+	itemsDeleted: number;
 	currentPath: string;
 	errorMessage?: string;
 }
@@ -122,7 +122,7 @@ export async function deleteContentItems(
 				status: event.status,
 				itemsTotal: typeof event.itemsTotal === 'number' ? event.itemsTotal : items.length,
 				itemsProcessed: typeof event.itemsProcessed === 'number' ? event.itemsProcessed : 0,
-				nodesDeleted: typeof event.nodesDeleted === 'number' ? event.nodesDeleted : 0,
+				itemsDeleted: typeof event.itemsDeleted === 'number' ? event.itemsDeleted : 0,
 				currentPath: event.currentPath ?? '',
 				errorMessage: event.errorMessage,
 			});
@@ -138,7 +138,7 @@ export async function deleteContentItems(
 			status: started.status,
 			itemsTotal: started.itemsTotal,
 			itemsProcessed: 0,
-			nodesDeleted: 0,
+			itemsDeleted: 0,
 			currentPath: '',
 		});
 	} catch (err) {

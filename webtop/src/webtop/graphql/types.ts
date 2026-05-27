@@ -844,14 +844,41 @@ export interface AbortDeleteNodesResult {
   status: JobStatus;
 }
 
+export interface InitDownloadArchiveResult {
+  jobId: string;
+  status: JobStatus;
+}
+
+export interface AppendDownloadArchiveResult {
+  jobId: string;
+  status: JobStatus;
+  itemsAccepted: number;
+}
+
+export interface StartDownloadArchiveResult {
+  jobId: string;
+  status: JobStatus;
+  itemsTotal: number;
+}
+
+export interface AbortDownloadArchiveResult {
+  jobId: string;
+  status: JobStatus;
+}
+
 export interface JobProgressEvent {
   jobId: string;
   status: JobStatus;
   itemsTotal: number;
   itemsProcessed: number;
-  nodesDeleted: number;
+  /** Delete jobs only: number of items removed (nt:file and nt:folder only). */
+  itemsDeleted?: number;
+  /** Archive jobs only: number of files written into the ZIP. */
+  itemsArchived?: number;
   currentPath?: string;
   errorMessage?: string;
+  /** Set on the terminal event of jobs that produce a downloadable artifact (archive jobs). */
+  downloadUrl?: string;
   timestamp: string;
 }
 

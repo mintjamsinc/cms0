@@ -23,9 +23,13 @@ import type {
   AppendDeleteNodesResult,
   StartDeleteNodesResult,
   AbortDeleteNodesResult,
+  InitDownloadArchiveResult,
+  AppendDownloadArchiveResult,
+  StartDownloadArchiveResult,
+  AbortDownloadArchiveResult,
 } from '../graphql/types.js';
 
-/** Server-side cap on paths per appendDeleteNodes call. */
+/** Server-side cap on paths per append call (shared by delete and archive jobs). */
 const DELETE_APPEND_CHUNK = 100;
 
 export interface ListChildrenOptions {
@@ -360,6 +364,75 @@ export class ContentServiceGraphQL {
       { input: { jobId } }
     );
     return data.abortDeleteNodes;
+  }
+
+  /**
+   * Async ZIP-archive download job — step 1.
+   * Allocates a job record on the server and returns its id.
+   */
+  async initDownloadArchive(): Promise<InitDownloadArchiveResult> {
+    const data = await this.#client.mutation<{ initDownloadArchive: InitDownloadArchiveResult }>(
+      CONTENT_MUTATIONS.INIT_DOWNLOAD_ARCHIVE,
+      { input: {} }
+    );
+    return data.initDownloadArchive;
+  }
+
+  /**
+   * Async ZIP-archive download job — step 2.
+   * Append a single chunk (up to {@link DELETE_APPEND_CHUNK} paths) of
+   * top-level items to bundle.
+   */
+  async appendDownloadArchive(jobId: string, paths: string[]): Promise<AppendDownloadArchiveResult> {
+    if (paths.length > DELETE_APPEND_CHUNK) {
+      throw new Error(`appendDownloadArchive accepts at most ${DELETE_APPEND_CHUNK} paths per call`);
+    }
+    const data = await this.#client.mutation<{ appendDownloadArchive: AppendDownloadArchiveResult }>(
+      CONTENT_MUTATIONS.APPEND_DOWNLOAD_ARCHIVE,
+      { input: { jobId, paths } }
+    );
+    return data.appendDownloadArchive;
+  }
+
+  /**
+   * Async ZIP-archive download job — append a longer list of paths by
+   * chunking, in order, into successive {@link appendDownloadArchive} calls.
+   * Returns the total number of items the server accepted across the calls.
+   */
+  async appendAllDownloadArchive(jobId: string, paths: string[]): Promise<number> {
+    let accepted = 0;
+    for (let i = 0; i < paths.length; i += DELETE_APPEND_CHUNK) {
+      const chunk = paths.slice(i, i + DELETE_APPEND_CHUNK);
+      const r = await this.appendDownloadArchive(jobId, chunk);
+      accepted += r.itemsAccepted;
+    }
+    return accepted;
+  }
+
+  /**
+   * Async ZIP-archive download job — step 3.
+   * Records the archive file name and hands the job to the background worker;
+   * the mutation returns immediately. Subscribe to {@code jobProgress(jobId)}
+   * for live updates and the terminal downloadUrl.
+   */
+  async startDownloadArchive(jobId: string, filename: string): Promise<StartDownloadArchiveResult> {
+    const data = await this.#client.mutation<{ startDownloadArchive: StartDownloadArchiveResult }>(
+      CONTENT_MUTATIONS.START_DOWNLOAD_ARCHIVE,
+      { input: { jobId, filename } }
+    );
+    return data.startDownloadArchive;
+  }
+
+  /**
+   * Async ZIP-archive download job — request abort.
+   * The worker stops at its next safe point (between files).
+   */
+  async abortDownloadArchive(jobId: string): Promise<AbortDownloadArchiveResult> {
+    const data = await this.#client.mutation<{ abortDownloadArchive: AbortDownloadArchiveResult }>(
+      CONTENT_MUTATIONS.ABORT_DOWNLOAD_ARCHIVE,
+      { input: { jobId } }
+    );
+    return data.abortDownloadArchive;
   }
 
   /**

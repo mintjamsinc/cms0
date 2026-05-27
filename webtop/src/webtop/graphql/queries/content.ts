@@ -504,6 +504,62 @@ export const CONTENT_MUTATIONS = {
     }
   `,
 
+  /**
+   * Async ZIP-archive download job — step 1.
+   * Allocates a job record; returns its id so subsequent appends can target it.
+   */
+  INIT_DOWNLOAD_ARCHIVE: `
+    mutation InitDownloadArchive($input: InitDownloadArchiveInput!) {
+      initDownloadArchive(input: $input) {
+        jobId
+        status
+      }
+    }
+  `,
+
+  /**
+   * Async ZIP-archive download job — step 2 (repeatable, max 100 paths per call).
+   * Appends the top-level items to bundle; rejected if the job has already started.
+   */
+  APPEND_DOWNLOAD_ARCHIVE: `
+    mutation AppendDownloadArchive($input: AppendDownloadArchiveInput!) {
+      appendDownloadArchive(input: $input) {
+        jobId
+        status
+        itemsAccepted
+      }
+    }
+  `,
+
+  /**
+   * Async ZIP-archive download job — step 3.
+   * Records the archive file name and hands the job to the background worker.
+   * Progress (and the terminal downloadUrl) arrive via the jobProgress(jobId)
+   * GraphQL subscription.
+   */
+  START_DOWNLOAD_ARCHIVE: `
+    mutation StartDownloadArchive($input: StartDownloadArchiveInput!) {
+      startDownloadArchive(input: $input) {
+        jobId
+        status
+        itemsTotal
+      }
+    }
+  `,
+
+  /**
+   * Async ZIP-archive download job — abort.
+   * Signals the worker to stop at its next safe point (between files).
+   */
+  ABORT_DOWNLOAD_ARCHIVE: `
+    mutation AbortDownloadArchive($input: AbortDownloadArchiveInput!) {
+      abortDownloadArchive(input: $input) {
+        jobId
+        status
+      }
+    }
+  `,
+
   /** Rename a node */
   RENAME_NODE: `
     mutation RenameNode($input: RenameNodeInput!) {

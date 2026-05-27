@@ -1,6 +1,7 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { type Node, type JobStatus } from "../../graphql/types.js";
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from "../../services/content-delete.js";
+import { downloadContentAsZip, type ArchiveJobHandle, type ArchiveJobProgress } from "../../services/content-archive.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
@@ -266,13 +267,26 @@ export const App = {
 				handle: DeleteJobHandle;
 				itemsTotal: number;
 				itemsProcessed: number;
-				nodesDeleted: number;
+				itemsDeleted: number;
 				currentPath: string;
 				status: JobStatus;
 				errorMessage: string;
 				isFinished: boolean;
 				isAborting: boolean;
 				targetPath: string;
+			},
+			archiveMonitor: null as null | {
+				jobId: string;
+				handle: ArchiveJobHandle;
+				filename: string;
+				itemsTotal: number;
+				itemsProcessed: number;
+				itemsArchived: number;
+				currentFile: string;
+				status: JobStatus;
+				errorMessage: string;
+				isFinished: boolean;
+				isAborting: boolean;
 			},
 			newFolderDialog: {
 				visible: false,
@@ -299,7 +313,7 @@ export const App = {
 				{ id: 'csv', label: 'CSV', extension: '.csv', mimeType: 'text/csv' },
 				{ id: 'yml', label: 'YAML Document', extension: '.yml', mimeType: 'application/yaml' },
 				{ id: 'bpmn', label: 'BPMN Document', extension: '.bpmn', mimeType: 'application/bpmn+xml' },
-				{ id: 'eip.yml', label: 'EIP/Route Document', extension: '.eip.yml', mimeType: 'application/x-camel-route' },
+				{ id: 'eip.xml', label: 'EIP/Route Document', extension: '.eip.xml', mimeType: 'application/vnd.webtop.eip+xml' },
 			],
 			// Selection state
 			selectedItems: [] as string[],
@@ -1943,7 +1957,9 @@ export const App = {
 			if (isSingleSelection && hasFolder) {
 				menuItems.push({ id: 'open', label: 'Open', icon: 'bi-folder2-open' });
 			}
-			if (hasFile) {
+			// Download is available for any selection: a single plain file streams
+			// directly, while folders and multi-selections are bundled into a ZIP.
+			if (hasFile || hasFolder) {
 				menuItems.push({ id: 'download', label: 'Download', icon: 'bi-download' });
 			}
 			menuItems.push({ type: 'separator', id: '', label: '' });
@@ -2077,10 +2093,13 @@ export const App = {
 					}
 					break;
 				case 'download':
-					for (const item of selectedItemObjects) {
-						if (!item.isCollection && item.downloadURL) {
-							vm.downloadFile(item.downloadURL, item.name);
-						}
+					// A single plain file streams directly; folders and any
+					// multi-selection are bundled server-side into a ZIP.
+					if (selectedItemObjects.length === 1 && !selectedItemObjects[0].isCollection) {
+						const only = selectedItemObjects[0];
+						if (only.downloadURL) vm.downloadFile(only.downloadURL, only.name);
+					} else if (selectedItemObjects.length > 0) {
+						vm.startZipDownload(selectedItemObjects);
 					}
 					break;
 				case 'rename':
@@ -2807,7 +2826,7 @@ export const App = {
 								handle,
 								itemsTotal: items.length,
 								itemsProcessed: 0,
-								nodesDeleted: 0,
+								itemsDeleted: 0,
 								currentPath: '',
 								status: 'init' as JobStatus,
 								errorMessage: '',
@@ -2845,7 +2864,7 @@ export const App = {
 			m.status = progress.status;
 			m.itemsTotal = progress.itemsTotal;
 			m.itemsProcessed = progress.itemsProcessed;
-			m.nodesDeleted = progress.nodesDeleted;
+			m.itemsDeleted = progress.itemsDeleted;
 			if (progress.currentPath) m.currentPath = progress.currentPath;
 			if (progress.errorMessage) m.errorMessage = progress.errorMessage;
 			if (progress.status === 'aborting') m.isAborting = true;
@@ -2880,6 +2899,109 @@ export const App = {
 				try { vm.deleteMonitor.handle.release(); } catch { /* noop */ }
 			}
 			vm.deleteMonitor = null;
+		},
+		// ZIP-archive download: bundle a folder or multi-selection server-side
+		// and download the resulting ZIP once it's ready.
+		async startZipDownload(items: ContentItem[]) {
+			const vm = this;
+			if (!items || items.length === 0) return;
+
+			const contentService = vm.instance.api.content;
+			const eventHub = vm.instance?.api?.eventHub;
+			const filename = vm._zipFilenameFor(items[0]);
+
+			try {
+				await downloadContentAsZip(
+					contentService,
+					eventHub,
+					items.map((it: ContentItem) => ({ path: it.path })),
+					filename,
+					{
+						onStart: (handle: ArchiveJobHandle) => {
+							vm.archiveMonitor = {
+								jobId: handle.jobId,
+								handle,
+								filename,
+								itemsTotal: items.length,
+								itemsProcessed: 0,
+								itemsArchived: 0,
+								currentFile: '',
+								status: 'init' as JobStatus,
+								errorMessage: '',
+								isFinished: false,
+								isAborting: false,
+							};
+						},
+						onProgress: (progress: ArchiveJobProgress) => {
+							vm.handleArchiveProgress(progress);
+						},
+					},
+				);
+			} catch (error: any) {
+				if (vm.archiveMonitor) {
+					vm.archiveMonitor.errorMessage = error?.message || 'Failed to create archive';
+					vm.archiveMonitor.isFinished = true;
+				}
+			}
+		},
+		handleArchiveProgress(progress: ArchiveJobProgress) {
+			const vm = this;
+			const m = vm.archiveMonitor;
+			if (!m || m.jobId !== progress.jobId) return;
+			m.status = progress.status;
+			m.itemsTotal = progress.itemsTotal;
+			m.itemsProcessed = progress.itemsProcessed;
+			m.itemsArchived = progress.itemsArchived;
+			if (progress.currentPath) {
+				const idx = progress.currentPath.lastIndexOf('/');
+				m.currentFile = idx >= 0 ? progress.currentPath.slice(idx + 1) : progress.currentPath;
+			}
+			if (progress.errorMessage) m.errorMessage = progress.errorMessage;
+			if (progress.status === 'aborting') m.isAborting = true;
+
+			if (progress.status === 'completed' || progress.status === 'aborted' || progress.status === 'failed') {
+				m.isFinished = true;
+				m.isAborting = false;
+				if (progress.status === 'completed' && progress.downloadUrl) {
+					vm.downloadFile(progress.downloadUrl, m.filename);
+				}
+				// Auto-close on success/abort so the monitor doesn't linger.
+				// Failures stay open so the user has time to read errorMessage.
+				if (progress.status !== 'failed') {
+					const closingJobId = m.jobId;
+					setTimeout(() => {
+						if (vm.archiveMonitor && vm.archiveMonitor.jobId === closingJobId) {
+							vm.closeArchiveMonitor();
+						}
+					}, 1500);
+				}
+			}
+		},
+		requestArchiveAbort() {
+			const vm = this;
+			const m = vm.archiveMonitor;
+			if (!m || m.isFinished || m.isAborting) return;
+			m.isAborting = true;
+			m.handle.abort();
+		},
+		closeArchiveMonitor() {
+			const vm = this;
+			if (vm.archiveMonitor) {
+				try { vm.archiveMonitor.handle.release(); } catch { /* noop */ }
+			}
+			vm.archiveMonitor = null;
+		},
+		// Derive the ZIP file name from the first selected item's name, as
+		// requested: a folder keeps its name ("docs" -> "docs.zip"); a file
+		// drops its extension ("report.pdf" -> "report.zip").
+		_zipFilenameFor(item: ContentItem): string {
+			let base = (item?.name || 'archive').trim();
+			if (item && !item.isCollection) {
+				const dot = base.lastIndexOf('.');
+				if (dot > 0) base = base.slice(0, dot);
+			}
+			if (!base) base = 'archive';
+			return base + '.zip';
 		},
 		onDeleteKeydown(event: KeyboardEvent) {
 			const vm = this;

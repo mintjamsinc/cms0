@@ -147,7 +147,7 @@ const WtDesktop = {
 				handle: DeleteJobHandle;
 				itemsTotal: number;
 				itemsProcessed: number;
-				nodesDeleted: number;
+				itemsDeleted: number;
 				currentPath: string;
 				status: JobStatus;
 				errorMessage: string;
@@ -1715,7 +1715,7 @@ const WtDesktop = {
 								handle,
 								itemsTotal: items.length,
 								itemsProcessed: 0,
-								nodesDeleted: 0,
+								itemsDeleted: 0,
 								currentPath: '',
 								status: 'init' as JobStatus,
 								errorMessage: '',
@@ -1750,7 +1750,7 @@ const WtDesktop = {
 			m.status = progress.status;
 			m.itemsTotal = progress.itemsTotal;
 			m.itemsProcessed = progress.itemsProcessed;
-			m.nodesDeleted = progress.nodesDeleted;
+			m.itemsDeleted = progress.itemsDeleted;
 			if (progress.currentPath) m.currentPath = progress.currentPath;
 			if (progress.errorMessage) m.errorMessage = progress.errorMessage;
 			if (progress.status === 'aborting') m.isAborting = true;

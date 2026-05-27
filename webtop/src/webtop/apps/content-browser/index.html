@@ -665,7 +665,7 @@
 			<span class="mt-5 text-break">{{ deleteMonitor.currentPath || 'Preparing…' }}</span>
 			<div class="mt-2">
 				<span>{{ deleteMonitor.itemsProcessed }} / {{ deleteMonitor.itemsTotal }} items</span>
-				<span v-if="deleteMonitor.nodesDeleted > 0" class="ms-2 text-muted">({{ deleteMonitor.nodesDeleted }} nodes deleted)</span>
+				<span v-if="deleteMonitor.itemsDeleted > 0" class="ms-2 text-muted">({{ deleteMonitor.itemsDeleted }} items deleted)</span>
 			</div>
 			<div v-if="deleteMonitor.errorMessage" class="mt-3 text-danger">
 				<i class="bi bi-exclamation-circle me-1"></i>{{ deleteMonitor.errorMessage }}
@@ -673,6 +673,26 @@
 			<span class="mt-3">
 				<button v-if="deleteMonitor.isFinished" type="button" class="wt" @click="closeDeleteMonitor">Close</button>
 				<button v-else type="button" class="wt" :disabled="deleteMonitor.isAborting" @click="requestDeleteAbort">{{ deleteMonitor.isAborting ? 'Stopping…' : 'Stop' }}</button>
+			</span>
+		</div>
+
+		<div v-if="archiveMonitor" class="upload-overlay flex-column text-center">
+			<span v-if="archiveMonitor.status !== 'failed'" class="loader"></span>
+			<span class="mt-5 text-break">
+				<template v-if="archiveMonitor.isFinished && archiveMonitor.status === 'completed'">Downloading {{ archiveMonitor.filename }}…</template>
+				<template v-else-if="archiveMonitor.currentFile">Archiving {{ archiveMonitor.currentFile }}</template>
+				<template v-else>Preparing archive…</template>
+			</span>
+			<div class="mt-2">
+				<span>{{ archiveMonitor.itemsProcessed }} / {{ archiveMonitor.itemsTotal }} items</span>
+				<span v-if="archiveMonitor.itemsArchived > 0" class="ms-2 text-muted">({{ archiveMonitor.itemsArchived }} items archived)</span>
+			</div>
+			<div v-if="archiveMonitor.errorMessage" class="mt-3 text-danger">
+				<i class="bi bi-exclamation-circle me-1"></i>{{ archiveMonitor.errorMessage }}
+			</div>
+			<span class="mt-3">
+				<button v-if="archiveMonitor.isFinished" type="button" class="wt" @click="closeArchiveMonitor">Close</button>
+				<button v-else type="button" class="wt" :disabled="archiveMonitor.isAborting" @click="requestArchiveAbort">{{ archiveMonitor.isAborting ? 'Stopping…' : 'Stop' }}</button>
 			</span>
 		</div>
 

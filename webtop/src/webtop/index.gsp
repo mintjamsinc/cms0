@@ -264,7 +264,7 @@
 							<div class="mt-4 w-100 text-truncate" :title="desktopDeleteMonitor.currentPath">{{ desktopDeleteMonitor.currentPath || 'Preparing…' }}</div>
 							<div class="mt-2">
 								<span>{{ desktopDeleteMonitor.itemsProcessed }} / {{ desktopDeleteMonitor.itemsTotal }} items</span>
-								<span v-if="desktopDeleteMonitor.nodesDeleted > 0" class="ms-2 text-muted">({{ desktopDeleteMonitor.nodesDeleted }} nodes deleted)</span>
+								<span v-if="desktopDeleteMonitor.itemsDeleted > 0" class="ms-2 text-muted">({{ desktopDeleteMonitor.itemsDeleted }} items deleted)</span>
 							</div>
 							<div v-if="desktopDeleteMonitor.errorMessage" class="mt-3 text-danger">
 								<i class="bi bi-exclamation-circle me-1"></i>{{ desktopDeleteMonitor.errorMessage }}
