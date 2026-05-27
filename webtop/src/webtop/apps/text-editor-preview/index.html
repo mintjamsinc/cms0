@@ -40,23 +40,38 @@
 
 			<span class="nav-spacer"></span>
 
-			<!-- Templated preview: extension input + refresh -->
+			<!-- Templated files render in real time for a chosen output
+			     extension; the chooser is a click-to-edit field (like the
+			     content-browser MIME type). Confirm refreshes the preview,
+			     cancel leaves it unchanged. Scriptable (non-templated) files
+			     are evaluated at their own path, so they show no chooser. -->
 			<div v-if="isTemplated" class="preview-ext-group">
-				<div class="input-group">
-					<input type="text" v-model="previewExtension"
-						class="preview-ext-input"
-						placeholder="html"
-						spellcheck="false"
-						:disabled="previewLoading"
-						@keydown.enter.prevent="refreshTemplatedPreview" />
-					<div class="input-group-actions">
-						<button class="input-group-btn"
-							@click="refreshTemplatedPreview"
-							:disabled="previewLoading || !previewExtension.trim()"
-							title="Refresh preview">
-							<i class="bi" :class="previewLoading ? 'bi-arrow-repeat spin' : 'bi-arrow-clockwise'"></i>
-						</button>
+				<div v-if="extEditing" class="preview-ext-editor">
+					<div class="input-group">
+						<input type="text" v-model="extInput"
+							class="preview-ext-editor-input"
+							placeholder="html"
+							spellcheck="false"
+							@keydown="handleExtKeydown" />
+						<div class="input-group-actions">
+							<button class="input-group-btn"
+								@click="confirmExtEdit"
+								:disabled="!extInput.trim()"
+								title="Confirm">
+								<i class="bi bi-check-lg"></i>
+							</button>
+							<button class="input-group-btn"
+								@click="cancelExtEdit"
+								title="Cancel">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
 					</div>
+				</div>
+				<div v-else class="preview-ext-clickable"
+					@click="startExtEdit"
+					title="Click to change output extension">
+					.{{ previewExtension }}
 				</div>
 			</div>
 
@@ -77,7 +92,7 @@
 		<!-- Body -->
 		<div class="content-body">
 			<div class="preview-main island p-0">
-				<div class="preview-body" :class="{ 'preview-body-iframe': (isHtml && !isTemplated) || isTemplated }">
+				<div class="preview-body" :class="{ 'preview-body-iframe': isHtml || isServerRendered }">
 
 					<!-- Disconnected state (editor closed or tab closed) -->
 					<div v-if="disconnected" class="detail-panel-empty">
@@ -85,18 +100,8 @@
 						<span>Editor was closed.</span>
 					</div>
 
-					<!-- Markdown -->
-					<div v-else-if="isMarkdown" class="markdown-body" v-html="previewHtml"></div>
-
-					<!-- Plain HTML (real-time client-side preview) -->
-					<iframe v-else-if="isHtml && !isTemplated"
-						class="preview-iframe"
-						:srcdoc="previewSrcDoc"
-						sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-						referrerpolicy="no-referrer"></iframe>
-
-					<!-- Templated (server-rendered, manual refresh) -->
-					<template v-else-if="isTemplated">
+					<!-- Server-rendered (templated or scriptable; real-time) -->
+					<template v-else-if="isServerRendered">
 						<div v-if="previewError" class="detail-panel-empty">
 							<i class="bi bi-exclamation-triangle"></i>
 							<span>{{ previewError }}</span>
@@ -107,10 +112,20 @@
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
 							referrerpolicy="no-referrer"></iframe>
 						<div v-else class="detail-panel-empty">
-							<i class="bi bi-arrow-clockwise"></i>
-							<span>Click refresh to render preview</span>
+							<i class="bi" :class="previewLoading ? 'bi-arrow-repeat spin' : 'bi-eye'"></i>
+							<span>{{ previewLoading ? 'Rendering preview…' : 'Preview will appear here' }}</span>
 						</div>
 					</template>
+
+					<!-- Markdown -->
+					<div v-else-if="isMarkdown" class="markdown-body" v-html="previewHtml"></div>
+
+					<!-- Plain HTML (real-time client-side preview) -->
+					<iframe v-else-if="isHtml"
+						class="preview-iframe"
+						:srcdoc="previewSrcDoc"
+						sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+						referrerpolicy="no-referrer"></iframe>
 
 					<!-- Unsupported -->
 					<div v-else class="detail-panel-empty">

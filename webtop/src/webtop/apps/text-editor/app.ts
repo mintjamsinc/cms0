@@ -142,6 +142,7 @@ interface CurrentFile {
 	baseVersionName: string;
 	uuid: string;
 	hasWebTemplate: boolean;
+	scriptable: boolean;
 }
 
 interface TextFile {
@@ -158,6 +159,7 @@ interface TextFile {
 	downloadUrl: string;
 	uuid: string;
 	hasWebTemplate: boolean;
+	scriptable: boolean;
 	// Object handed to <wt-inspector> as its target. Null for unsaved tabs
 	// (new file / dropped local file) that have no backing node yet.
 	inspectorItem: InspectorTarget | null;
@@ -310,6 +312,7 @@ export const App = {
 				baseVersionName: '',
 				uuid: '',
 				hasWebTemplate: false,
+				scriptable: false,
 			} as CurrentFile,
 			editor: null as EditorView | null,
 			errorMessage: '',
@@ -398,6 +401,12 @@ export const App = {
 		},
 		isTemplated(): boolean {
 			return !!this.currentFile.hasWebTemplate;
+		},
+		// True when the server evaluates this file through a script engine
+		// (e.g. .gsp). Such files must be previewed via server-side rendering,
+		// not by displaying their raw source.
+		isScriptable(): boolean {
+			return !!this.currentFile.scriptable;
 		},
 		// Subtitle pushed to the shell for the Dock hover preview.
 		// Recomputed when the active file (or its name) changes; the
@@ -708,6 +717,7 @@ export const App = {
 			file.downloadUrl = node.downloadUrl || '';
 			file.uuid = node.uuid || '';
 			file.hasWebTemplate = hasWebTemplate;
+			file.scriptable = node.scriptable || false;
 			file.inspectorItem = nodeToInspectorTarget(node);
 			if (idx === vm.currentFileIndex) {
 				vm.currentFile.mimeType = file.mimeType;
@@ -718,6 +728,7 @@ export const App = {
 				vm.currentFile.downloadUrl = file.downloadUrl;
 				vm.currentFile.uuid = file.uuid;
 				vm.currentFile.hasWebTemplate = file.hasWebTemplate;
+				vm.currentFile.scriptable = file.scriptable;
 				if (prevMime !== file.mimeType) {
 					vm.applyLanguageForActiveFile();
 				}
@@ -863,6 +874,7 @@ export const App = {
 			file.downloadUrl = vm.currentFile.downloadUrl;
 			file.uuid = vm.currentFile.uuid;
 			file.hasWebTemplate = vm.currentFile.hasWebTemplate;
+			file.scriptable = vm.currentFile.scriptable;
 			if (vm.editor) {
 				editorStates.set(file.id, vm.editor.state);
 			}
@@ -883,6 +895,7 @@ export const App = {
 			vm.currentFile.downloadUrl = file.downloadUrl;
 			vm.currentFile.uuid = file.uuid;
 			vm.currentFile.hasWebTemplate = file.hasWebTemplate;
+			vm.currentFile.scriptable = file.scriptable;
 			const savedState = editorStates.get(file.id);
 			if (vm.editor && savedState) {
 				vm.editor.setState(savedState);
@@ -991,6 +1004,7 @@ export const App = {
 				downloadUrl: '',
 				uuid: '',
 				hasWebTemplate: false,
+				scriptable: false,
 				inspectorItem: null,
 			};
 
@@ -1094,6 +1108,7 @@ export const App = {
 						downloadUrl: '',
 						uuid: '',
 						hasWebTemplate: false,
+						scriptable: false,
 						inspectorItem: null,
 					};
 
@@ -1165,6 +1180,7 @@ export const App = {
 					downloadUrl: node.downloadUrl || '',
 					uuid: node.uuid || '',
 					hasWebTemplate,
+					scriptable: node.scriptable || false,
 					inspectorItem: nodeToInspectorTarget(node),
 				};
 
@@ -1392,6 +1408,16 @@ export const App = {
 					previewPinnedPath = msg.filePath || '';
 				} else if (msg.type === 'preview-unpin') {
 					previewPinnedPath = '';
+				} else if (msg.type === 'preview-set-extension') {
+					// User chose a templated output extension in the preview
+					// window. Persist it on the owning tab so it survives tab
+					// switches and seeds future preview-state messages.
+					const ext = (msg.extension || '').trim();
+					const fp = msg.filePath || '';
+					if (ext && fp) {
+						const f = vm.files.find((x: any) => x.path === fp);
+						if (f?.id) vm.previewExtensionByTab[f.id] = ext;
+					}
 				}
 			};
 			previewChannelRef = ch;
@@ -1506,6 +1532,7 @@ export const App = {
 				isMarkdown: vm.isMarkdown,
 				isHtml: vm.isHtml,
 				isTemplated: vm.isTemplated,
+				isScriptable: vm.isScriptable,
 				previewExtension,
 			});
 		},

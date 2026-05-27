@@ -14,8 +14,8 @@ import { marked } from "marked";
 // Protocol (all messages carry { previewKey }):
 //   editor → preview:
 //     - 'preview-state'  { fileName, mimeType, content, filePath,
-//                          isMarkdown, isHtml, isTemplated, workspace,
-//                          previewExtension? }
+//                          isMarkdown, isHtml, isTemplated, isScriptable,
+//                          workspace, previewExtension? }
 //     - 'preview-close'  asks this window to close itself (editor or tab
 //                        gone).
 //     - 'preview-ping'   editor announcing it is alive (used so the
@@ -54,6 +54,23 @@ function guessExtensionFromMime(mimeType: string): string {
 	return ext || 'html';
 }
 
+// Inject a <base href> so relative links/assets in the preview resolve
+// against the file's real CMS location instead of the webtop app URL.
+// Both the srcdoc (plain HTML) and blob: (templated) iframes otherwise
+// resolve relative paths against the embedding document, breaking assets.
+// Any existing <base> in the source is stripped so ours always wins.
+function injectBaseTag(html: string, absoluteBaseUrl: string): string {
+	const baseTag = `<base href="${absoluteBaseUrl.replace(/"/g, '&quot;')}">`;
+	const stripped = html.replace(/<base\b[^>]*\/?>/gi, '');
+	if (/<head\b[^>]*>/i.test(stripped)) {
+		return stripped.replace(/<head\b[^>]*>/i, (m) => m + baseTag);
+	}
+	if (/<html\b[^>]*>/i.test(stripped)) {
+		return stripped.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${baseTag}</head>`);
+	}
+	return `<head>${baseTag}</head>${stripped}`;
+}
+
 // Index signature so this is assignable to the global appLaunch signature
 // (which declares { path?: string; mimeType?: string }) — see global.d.ts.
 interface LaunchOptions {
@@ -74,6 +91,12 @@ const EDITOR_PING_TIMEOUT_MS = 8000;
 // instead — there is only ever one preview window per iframe.
 let previewChannel: BroadcastChannel | null = null;
 
+// In-flight server render. Real-time previews fire a render on every settled
+// edit; only the latest content should win, so a new render aborts the
+// previous one and a monotonic token lets late responses be discarded.
+let previewAbort: AbortController | null = null;
+let renderSeq = 0;
+
 export const App = {
 	data() {
 		return {
@@ -87,10 +110,21 @@ export const App = {
 			isMarkdown: false,
 			isHtml: false,
 			isTemplated: false,
+			isScriptable: false,
+			// Derived: templated || scriptable. Both are rendered by the
+			// server so the preview matches what the CMS actually serves.
+			isServerRendered: false,
 			previewExtension: 'html',
+			// Click-to-edit state for the templated output-extension chooser
+			// (mirrors the content-browser MIME field).
+			extEditing: false,
+			extInput: '',
 			previewHtml: '',
 			previewSrcDoc: '',
 			previewIframeUrl: '',
+			// filePath the current previewIframeUrl was rendered from, so a
+			// stale server render isn't shown after switching files.
+			renderedFilePath: '',
 			previewLoading: false,
 			previewError: '',
 			disconnected: false,
@@ -291,6 +325,11 @@ export const App = {
 			vm.stopReadyRetry();
 			vm.disconnected = false;
 			vm.lastPingAt = Date.now();
+			// Detect a file switch before overwriting filePath: the extension
+			// is reseeded per file, but kept across same-file content edits so
+			// the user's chosen output extension isn't clobbered on every
+			// keystroke (the editor re-sends a MIME-guessed default each time).
+			const fileChanged = (msg.filePath || '') !== vm.filePath;
 			vm.fileName = msg.fileName || '';
 			vm.mimeType = msg.mimeType || 'text/plain';
 			vm.content = msg.content || '';
@@ -299,10 +338,14 @@ export const App = {
 			vm.isMarkdown = !!msg.isMarkdown;
 			vm.isHtml = !!msg.isHtml;
 			vm.isTemplated = !!msg.isTemplated;
+			vm.isScriptable = !!msg.isScriptable;
+			vm.isServerRendered = vm.isTemplated || vm.isScriptable;
 
-			// Seed/keep templated extension if provided; else guess from MIME.
-			if (msg.previewExtension) {
-				vm.previewExtension = msg.previewExtension;
+			if (fileChanged) {
+				vm.previewExtension = msg.previewExtension || guessExtensionFromMime(vm.mimeType);
+				// Abandon any half-finished extension edit from the prior file.
+				vm.extEditing = false;
+				vm.extInput = '';
 			} else if (!vm.previewExtension) {
 				vm.previewExtension = guessExtensionFromMime(vm.mimeType);
 			}
@@ -320,6 +363,27 @@ export const App = {
 			const vm = this;
 			vm.previewError = '';
 
+			// Server-rendered content (templated or scriptable, e.g. .gsp) is
+			// fetched from the server so the preview matches what the CMS
+			// actually serves. Rendering the raw source here would show
+			// unevaluated markup (template directives, GSP scriptlets) and
+			// diverge from the real output. This now runs in real time: every
+			// settled edit triggers a fresh server render.
+			if (vm.isServerRendered) {
+				vm.previewHtml = '';
+				vm.previewSrcDoc = '';
+				vm.refreshServerPreview();
+				return;
+			}
+
+			// Switched to a client-rendered type — cancel any in-flight server
+			// render so a late response can't overwrite the new preview.
+			if (previewAbort) {
+				try { previewAbort.abort(); } catch { /* ignore */ }
+				previewAbort = null;
+			}
+			vm.previewLoading = false;
+
 			if (vm.isMarkdown) {
 				try {
 					marked.setOptions({ breaks: true, gfm: true });
@@ -332,36 +396,78 @@ export const App = {
 
 			vm.previewHtml = '';
 
-			if (vm.isHtml && !vm.isTemplated) {
-				vm.previewSrcDoc = vm.content || '';
+			if (vm.isHtml) {
+				const content = vm.content || '';
+				// Resolve relative paths against the file's CMS location. The
+				// file is unsaved when filePath/workspace are missing, so there
+				// is no meaningful base to point at — leave content untouched.
+				if (content && vm.filePath && vm.workspace) {
+					const fileUrl = new URL(
+						`/bin/cms.cgi/${vm.workspace}${vm.filePath}`,
+						window.location.href,
+					).href;
+					vm.previewSrcDoc = injectBaseTag(content, fileUrl);
+				} else {
+					vm.previewSrcDoc = content;
+				}
 				return;
 			}
-			// Templated preview is refreshed manually via the toolbar button.
 		},
-		refreshTemplatedPreview() {
+		refreshServerPreview() {
 			const vm = this;
-			if (!vm.isTemplated) return;
+			if (!vm.isServerRendered) return;
 			if (!vm.filePath) {
-				vm.previewError = 'File must be saved before templated preview is available.';
+				vm.previewError = 'File must be saved before preview is available.';
+				vm.previewLoading = false;
 				return;
 			}
-			let ext = (vm.previewExtension || 'html').trim();
-			if (!ext) {
-				vm.previewError = 'Enter a file extension (e.g. html).';
-				return;
-			}
-			if (!ext.startsWith('.')) ext = '.' + ext;
-
 			if (!vm.workspace) {
 				vm.previewError = 'Workspace is not available.';
+				vm.previewLoading = false;
 				return;
 			}
+
+			// Templated files are rendered for a chosen output extension (the
+			// server selects the template by request extension). Scriptable
+			// files (e.g. .gsp) are evaluated at their own path, so the request
+			// targets the file directly without appending an extension.
+			let url: string;
+			if (vm.isTemplated) {
+				let ext = (vm.previewExtension || 'html').trim();
+				if (!ext) {
+					vm.previewError = 'Enter a file extension (e.g. html).';
+					vm.previewLoading = false;
+					return;
+				}
+				if (!ext.startsWith('.')) ext = '.' + ext;
+				url = `/bin/cms.cgi/${vm.workspace}${vm.filePath}${ext}`;
+			} else {
+				url = `/bin/cms.cgi/${vm.workspace}${vm.filePath}`;
+			}
+
+			// Rendering a different file than the one currently shown: drop the
+			// stale iframe so we don't display another file's output while the
+			// new render is in flight. Edits to the same file keep their render
+			// in place so the live update is seamless rather than flickering.
+			if (vm.filePath !== vm.renderedFilePath && vm.previewIframeUrl) {
+				try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
+				vm.previewIframeUrl = '';
+				vm.renderedFilePath = '';
+			}
+
+			// Supersede any in-flight render; only the latest content wins.
+			if (previewAbort) {
+				try { previewAbort.abort(); } catch { /* ignore */ }
+			}
+			const controller = new AbortController();
+			previewAbort = controller;
+			const seq = ++renderSeq;
 
 			vm.previewLoading = true;
 			vm.previewError = '';
 			vm.previewSrcDoc = '';
 
-			const url = `/bin/cms.cgi/${vm.workspace}${vm.filePath}${ext}`;
+			const targetPath = vm.filePath;
 			const body = JSON.stringify({ content: vm.content || '' });
 
 			fetch(url, {
@@ -369,6 +475,7 @@ export const App = {
 				credentials: 'same-origin',
 				headers: { 'Content-Type': 'application/vnd.cms.preview+json; charset=UTF-8' },
 				body,
+				signal: controller.signal,
 			}).then(async (resp) => {
 				if (!resp.ok) {
 					const text = await resp.text().catch(() => '');
@@ -378,33 +485,79 @@ export const App = {
 				const isHtml = /\b(text\/html|application\/xhtml\+xml)\b/i.test(contentType);
 				let blob: Blob;
 				if (isHtml) {
-					// Inject <base> so relative links resolve against the preview
-					// URL — see same logic in text-editor for rationale.
 					const html = await resp.text();
 					const absoluteBase = new URL(url, window.location.href).href;
-					const baseTag = `<base href="${absoluteBase.replace(/"/g, '&quot;')}">`;
-					const stripped = html.replace(/<base\b[^>]*\/?>/gi, '');
-					let patched: string;
-					if (/<head\b[^>]*>/i.test(stripped)) {
-						patched = stripped.replace(/<head\b[^>]*>/i, (m) => m + baseTag);
-					} else if (/<html\b[^>]*>/i.test(stripped)) {
-						patched = stripped.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${baseTag}</head>`);
-					} else {
-						patched = `<head>${baseTag}</head>${stripped}`;
-					}
+					const patched = injectBaseTag(html, absoluteBase);
 					blob = new Blob([patched], { type: contentType || 'text/html; charset=UTF-8' });
 				} else {
 					blob = await resp.blob();
 				}
+				// A newer render started while we awaited the response — discard
+				// this one so the preview reflects the latest content.
+				if (seq !== renderSeq) return;
 				if (vm.previewIframeUrl) {
 					try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
 				}
 				vm.previewIframeUrl = URL.createObjectURL(blob);
+				vm.renderedFilePath = targetPath;
+				vm.previewError = '';
 			}).catch((e: any) => {
+				if (e?.name === 'AbortError') return; // superseded — ignore
+				if (seq !== renderSeq) return;
 				vm.previewError = e?.message || String(e) || 'Failed to render preview.';
 			}).finally(() => {
-				vm.previewLoading = false;
+				if (seq === renderSeq) vm.previewLoading = false;
+				if (previewAbort === controller) previewAbort = null;
 			});
+		},
+		// ---- Templated output-extension chooser (click-to-edit) ----
+		startExtEdit() {
+			const vm = this;
+			if (!vm.isTemplated) return;
+			vm.extInput = vm.previewExtension || '';
+			vm.extEditing = true;
+			vm.$nextTick(() => {
+				const input = document.querySelector('.preview-ext-editor-input') as HTMLInputElement | null;
+				if (input) {
+					input.focus();
+					input.select();
+				}
+			});
+		},
+		confirmExtEdit() {
+			const vm = this;
+			// Tolerate leading dots / stray whitespace ("  .json" → "json").
+			const ext = (vm.extInput || '').trim().replace(/^\.+/, '').trim();
+			if (!ext) {
+				vm.cancelExtEdit();
+				return;
+			}
+			vm.extEditing = false;
+			vm.extInput = '';
+			vm.previewExtension = ext;
+			// Persist on the editor side so the choice survives tab switches
+			// (the editor seeds future preview-state messages from this).
+			previewChannel?.postMessage({
+				type: 'preview-set-extension',
+				previewKey: vm.previewKey,
+				filePath: vm.filePath,
+				extension: ext,
+			});
+			// Confirming always refreshes, per the editor's preview contract.
+			vm.refreshServerPreview();
+		},
+		cancelExtEdit() {
+			this.extEditing = false;
+			this.extInput = '';
+		},
+		handleExtKeydown(e: KeyboardEvent) {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				this.confirmExtEdit();
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				this.cancelExtEdit();
+			}
 		},
 	},
 };
