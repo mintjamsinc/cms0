@@ -3,8 +3,7 @@ title: EIP Modeler
 icon: assets/icons/icon.svg
 editor: true
 contentTypes:
-  - application/x-camel-route
-  - application/x-xml+camel
+  - application/vnd.webtop.eip+xml
 actions:
   open:
     icon: open
