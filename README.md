@@ -13,7 +13,7 @@ Identity Provider) is included out of the box.
   Identity Manager, BPM Console, BPMN/EIP Modeler, OSGi Console, etc.).
   Sources under [`webtop/`](webtop/).
 
-> Status: **0.1.5-beta** — public preview. APIs, on-disk formats, and bundled
+> Status: **0.1.6-beta** — public preview. APIs, on-disk formats, and bundled
 > apps may change before 1.0.
 
 ---
@@ -31,7 +31,7 @@ docker run --rm \
   -v cms-repository:/data/repository \
   -v cms-secrets:/data/secrets \
   --tmpfs /opt/felix/tmp:size=512m,mode=0700 \
-  mintjams/cms:0.1.5-beta
+  mintjams/cms:0.1.6-beta
 ```
 
 Then open <http://localhost:8080/> in a browser.
@@ -45,7 +45,7 @@ generate correct redirect URLs.
 ```yaml
 services:
   cms:
-    image: mintjams/cms:0.1.5-beta
+    image: mintjams/cms:0.1.6-beta
     restart: unless-stopped
     environment:
       CMS_PUBLIC_BASE_URL: "http://localhost:8080"
@@ -133,7 +133,7 @@ publish an arm64 manifest.
 Apple Silicon and other arm64 hosts can still run the image under emulation:
 
 ```bash
-docker run --platform linux/amd64 ... mintjams/cms:0.1.5-beta
+docker run --platform linux/amd64 ... mintjams/cms:0.1.6-beta
 ```
 
 This is fine for evaluation but not a supported production configuration.
