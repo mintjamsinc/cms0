@@ -496,6 +496,11 @@ const WtDesktop = {
 					if (payload.displayName) {
 						vm.username = payload.displayName;
 					}
+				} else if (type === 'localization-changed') {
+					// Repaint the menubar clock immediately so the user sees
+					// their new locale / timezone take effect without waiting
+					// for the next tick.
+					vm.onTimer();
 				} else if (type === 'avatar-changed') {
 					const userId = window.Webtop.currentUser?.id;
 					if (userId) {
@@ -543,17 +548,24 @@ const WtDesktop = {
 			const vm = this;
 
 			const now = new Date();
-			const locale = navigator.language || 'en-US';
+			// Follow the user's Preferences > Localization (locale + timezone).
+			// LocalizationManager.effectiveLocale / effectiveTimezone already
+			// fall back to the browser default when the preference is unset.
+			const loc = window.Webtop.api.localization;
+			const locale = loc?.effectiveLocale || navigator.language || 'en-US';
+			const timeZone = loc?.effectiveTimezone || undefined;
 
 			const dateText = now.toLocaleString(locale, {
 				weekday: 'short',
 				year: undefined,
 				month: 'short',
-				day: 'numeric'
+				day: 'numeric',
+				timeZone,
 			});
 			const timeText = now.toLocaleString(locale, {
 				hour: 'numeric',
-				minute: 'numeric'
+				minute: 'numeric',
+				timeZone,
 			});
 
 			if (vm.displayDate != dateText || vm.displayTime != timeText) {

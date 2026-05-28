@@ -25,6 +25,11 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { EipServiceGraphQL } from "../../services/eip-service-graphql.js";
 import { createGraphQLClient } from "../../graphql/client.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+} from "../../composables/use-localization.js";
 import type {
 	Route,
 	RouteStats,
@@ -157,6 +162,8 @@ export const App = {
 			instance: null as ApplicationInstance | null,
 			eip: null as EipServiceGraphQL | null,
 			messageListener: null as ((event: MessageEvent) => void) | null,
+			// Reactive Localization snapshot — see composables/use-localization.ts.
+			localization: createLocalizationSnapshot(),
 
 			workspace: '',
 			errorMessage: '',
@@ -412,7 +419,7 @@ export const App = {
 			const labelIdxs = n === 1 ? [0] : [0, Math.floor(n / 2), n - 1];
 			const xLabels = labelIdxs
 				.map(i => {
-					const t = formatBucketLabel(points[i].bucket, stats.interval);
+					const t = formatBucketLabel(points[i].bucket, stats.interval, vm.localization.locale || undefined, vm.localization.timeZone || undefined);
 					const x = xAt(i).toFixed(1);
 					return `<text class="axis-label" x="${x}" y="${(H - 8).toFixed(1)}" text-anchor="middle">${escapeXml(t)}</text>`;
 				})
@@ -490,6 +497,7 @@ export const App = {
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
 				}
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) return;
 			};
 			window.addEventListener('message', vm.messageListener);
 
@@ -500,6 +508,8 @@ export const App = {
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
 				vm.instance.windowTitle = 'EIP Console';
+
+				refreshLocalization(vm.localization, vm.instance);
 				vm.workspace = appInstance.api.workspace;
 
 				const client = createGraphQLClient(vm.workspace);
@@ -1011,7 +1021,15 @@ export const App = {
 		// =====================================================
 		formatTime(iso: string | null | undefined): string {
 			if (!iso) return '';
-			try { return new Date(iso).toLocaleString(); } catch { return String(iso); }
+			const dates = this.instance?.util?.dates;
+			if (!dates) {
+				try { return new Date(iso).toLocaleString(); } catch { return String(iso); }
+			}
+			return dates.format(iso, {
+				format: 'datetime',
+				locale: this.localization.locale || undefined,
+				timeZone: this.localization.timeZone || undefined,
+			}) ?? String(iso);
 		},
 
 		formatJson(value: unknown): string {
@@ -1300,13 +1318,13 @@ function niceGroupName(key: string): string {
  * X-axis bucket label: pick a granularity that matches the server-resolved
  * interval. We keep labels short so they fit when the chart shrinks.
  */
-function formatBucketLabel(iso: string, interval: string): string {
+function formatBucketLabel(iso: string, interval: string, locale?: string, timeZone?: string): string {
 	try {
 		const d = new Date(iso);
 		if (interval === '1d') {
-			return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+			return d.toLocaleDateString(locale || undefined, { month: 'short', day: 'numeric', timeZone: timeZone || undefined });
 		}
-		return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+		return d.toLocaleTimeString(locale || undefined, { hour: '2-digit', minute: '2-digit', timeZone: timeZone || undefined });
 	} catch {
 		return iso;
 	}

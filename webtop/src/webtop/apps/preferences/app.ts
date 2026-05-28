@@ -9,6 +9,11 @@
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+} from "../../composables/use-localization.js";
 
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
 const ACCEPTED_IMAGE_TYPES = /^image\/(png|jpeg|jpg|gif|webp|bmp|svg\+xml)$/;
@@ -19,6 +24,10 @@ const App = {
 		return {
 			instance: null as ApplicationInstance | null,
 			idp: null as IdpServiceGraphQL | null,
+			// Reactive Localization snapshot — see composables/use-localization.ts.
+			// Used by formatDate() etc. so the Saved-sessions date repaints when
+			// the user changes Localization (the shell broadcasts back to us).
+			localization: createLocalizationSnapshot(),
 			section: 'appearance',
 
 			// Remote update notice
@@ -116,6 +125,8 @@ const App = {
 				const { type, ...payload } = event.data || {};
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
+				} else if (handleLocalizationMessage(type, vm.localization, vm.instance)) {
+					return;
 				} else if (type === 'preferences-changed-remotely') {
 					if (vm.instance?.api) {
 						vm.instance.api.theme.getThemeSetting().then((t: string) => {
@@ -138,6 +149,7 @@ const App = {
 			window.appLaunch = async (instance: ApplicationInstance) => {
 				vm.instance = this.$markRaw(instance);
 				vm.idp = this.$markRaw(new IdpServiceGraphQL());
+				refreshLocalization(vm.localization, vm.instance);
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
@@ -980,11 +992,16 @@ const App = {
 		// =====================================================================
 
 		formatDate(dateStr: string): string {
-			try {
-				return new Date(dateStr).toLocaleString(navigator.language || 'en-US');
-			} catch {
-				return dateStr;
+			if (!dateStr) return dateStr;
+			const dates = this.instance?.util?.dates;
+			if (!dates) {
+				try { return new Date(dateStr).toLocaleString(navigator.language || 'en-US'); } catch { return dateStr; }
 			}
+			return dates.format(dateStr, {
+				format: 'datetime',
+				locale: this.localization.locale || undefined,
+				timeZone: this.localization.timeZone || undefined,
+			}) ?? dateStr;
 		},
 
 		readSliceAsBase64(blob: Blob): Promise<string> {

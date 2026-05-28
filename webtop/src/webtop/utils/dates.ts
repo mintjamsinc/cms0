@@ -3,6 +3,9 @@
 interface DatesFormatOptions {
 	format?: 'datetime' | 'date' | 'time' | 'friendly' | string;
 	locale?: string | string[];
+	// IANA time zone name (e.g. 'Asia/Tokyo'). When omitted the runtime
+	// (OS) time zone is used. Comes from the user's Localization preference.
+	timeZone?: string;
 }
 
 export class Dates {
@@ -13,6 +16,7 @@ export class Dates {
 
 		const format = options.format ?? 'datetime'; // 日付の表示形式を指定する
 		const locale = options.locale ?? undefined; // ロケール指定を追加
+		const timeZone = options.timeZone || undefined; // タイムゾーン指定（未指定ならOS）
 
 		let dateValue: Date | undefined;
 		// Use Object.prototype.toString for cross-realm Date detection (iframe compatibility)
@@ -32,7 +36,7 @@ export class Dates {
 
 		try {
 			if (format === 'friendly') {
-				return Dates.formatFriendly(dateValue, locale);
+				return Dates.formatFriendly(dateValue, locale, timeZone);
 			}
 
 			let options: Intl.DateTimeFormatOptions = {};
@@ -72,6 +76,9 @@ export class Dates {
 					};
 					break;
 			}
+			if (timeZone) {
+				options.timeZone = timeZone;
+			}
 			return dateValue.toLocaleString(locale, options);
 		} catch (e) {
 			console.error("日付のフォーマット中にエラーが発生しました:", e);
@@ -85,7 +92,7 @@ export class Dates {
 	 * @param {string} locale - 使用するロケール文字列 (例: 'ja-JP', 'en-US')。
 	 * @returns {string} 整形された相対時間文字列。
 	 */
-	static formatFriendly(date: Date, locale: string | string[] = 'ja'): string {
+	static formatFriendly(date: Date, locale: string | string[] = 'ja', timeZone?: string): string {
 		const now = new Date();
 		const diffSeconds = Math.floor((date.getTime() - now.getTime()) / 1000); // 未来は正の値、過去は負の値
 		const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
@@ -101,13 +108,17 @@ export class Dates {
 			return rtf.format(diffDays, 'day');
 		} else {
 			// 1週間以上未来／過去の場合は日付+時間で表示
-			return date.toLocaleString(locale, {
+			const absOptions: Intl.DateTimeFormatOptions = {
 				year: 'numeric',
 				month: 'long',
 				day: 'numeric',
 				hour: '2-digit',
 				minute: '2-digit',
-			});
+			};
+			if (timeZone) {
+				absOptions.timeZone = timeZone;
+			}
+			return date.toLocaleString(locale, absOptions);
 		}
 	}
 
@@ -232,5 +243,89 @@ export class Dates {
 
 		// その他の予期せぬ型の場合
 		return undefined;
+	}
+
+	/**
+	 * Offset (in milliseconds) of an IANA time zone at a given instant.
+	 * Returns `wallClock(timeZone) - UTC`, so a positive value means the zone
+	 * is ahead of UTC (e.g. +9h for 'Asia/Tokyo'). DST is handled because the
+	 * offset is resolved for the specific instant.
+	 */
+	static getTimeZoneOffsetMs(timeZone: string, date: Date): number {
+		const dtf = new Intl.DateTimeFormat('en-US', {
+			timeZone,
+			hourCycle: 'h23',
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+		});
+		const map: Record<string, number> = {};
+		for (const p of dtf.formatToParts(date)) {
+			if (p.type !== 'literal') map[p.type] = Number(p.value);
+		}
+		const asUTC = Date.UTC(map.year, map.month - 1, map.day, map.hour, map.minute, map.second);
+		return asUTC - date.getTime();
+	}
+
+	/**
+	 * Format an instant as the `YYYY-MM-DDTHH:mm` value expected by
+	 * `<input type="datetime-local">`, expressing the wall-clock time in the
+	 * given time zone (the user's Localization preference). When `timeZone`
+	 * is empty the runtime (OS) time zone is used.
+	 */
+	static toZonedInputValue(value: Date | number | string | null | undefined, timeZone?: string): string {
+		const date = Dates.toDate(value as any);
+		if (!date) return '';
+		const dtf = new Intl.DateTimeFormat('en-CA', {
+			timeZone: timeZone || undefined,
+			hourCycle: 'h23',
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+		});
+		const map: Record<string, string> = {};
+		for (const p of dtf.formatToParts(date)) {
+			if (p.type !== 'literal') map[p.type] = p.value;
+		}
+		return `${map.year}-${map.month}-${map.day}T${map.hour}:${map.minute}`;
+	}
+
+	/**
+	 * Inverse of {@link toZonedInputValue}: interpret a `datetime-local`
+	 * wall-clock string (`YYYY-MM-DDTHH:mm`) as a time in the given time zone
+	 * and return the absolute instant. When `timeZone` is empty the runtime
+	 * (OS) time zone is used. A two-pass offset resolution keeps DST
+	 * transitions correct.
+	 */
+	static fromZonedInputValue(localStr: string | null | undefined, timeZone?: string): Date | undefined {
+		if (!localStr) return undefined;
+		const m = String(localStr).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+		if (!m) {
+			const d = new Date(localStr);
+			return isNaN(d.getTime()) ? undefined : d;
+		}
+		const [, y, mo, d, h, mi, s] = m;
+		const year = Number(y), month = Number(mo), day = Number(d);
+		const hour = Number(h), minute = Number(mi), second = s ? Number(s) : 0;
+
+		if (!timeZone) {
+			// Interpret as OS local wall-clock.
+			return new Date(year, month - 1, day, hour, minute, second);
+		}
+
+		const naiveUTC = Date.UTC(year, month - 1, day, hour, minute, second);
+		const offset = Dates.getTimeZoneOffsetMs(timeZone, new Date(naiveUTC));
+		let instant = naiveUTC - offset;
+		// Re-resolve the offset at the computed instant to correct DST edges.
+		const offset2 = Dates.getTimeZoneOffsetMs(timeZone, new Date(instant));
+		if (offset2 !== offset) {
+			instant = naiveUTC - offset2;
+		}
+		return new Date(instant);
 	}
 }

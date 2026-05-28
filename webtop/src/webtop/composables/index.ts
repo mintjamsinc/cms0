@@ -77,3 +77,11 @@ export {
   type UseRouteMutationsReturn,
   type UseRouteEditorReturn,
 } from './use-eip.js';
+
+// Localization composable
+export {
+  createLocalizationSnapshot,
+  refreshLocalization,
+  handleLocalizationMessage,
+  type LocalizationSnapshot,
+} from './use-localization.js';

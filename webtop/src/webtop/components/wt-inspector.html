@@ -280,10 +280,10 @@
 								</div>
 							</div>
 							<div v-else-if="prop.isArray" class="prop-value-date-list">
-								<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ item || '—' }}</div>
+								<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ detailPropDisplayItem(prop, item) }}</div>
 								<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
 							</div>
-							<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ (prop.value === '' || prop.value == null) ? '—' : prop.value }}</div>
+							<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
 						</div>
 						<!-- Extra properties not in schema -->
 						<div v-if="filteredSchemaDisplayProperties.extraProps.length > 0" class="custom-properties">
@@ -332,10 +332,10 @@
 									</div>
 								</div>
 								<div v-else-if="prop.isArray" class="prop-value-date-list">
-									<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ item || '—' }}</div>
+									<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ detailPropDisplayItem(prop, item) }}</div>
 									<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
 								</div>
-								<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ (prop.value === '' || prop.value == null) ? '—' : prop.value }}</div>
+								<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
 							</div>
 						</div>
 					</div>
@@ -386,10 +386,10 @@
 								</div>
 							</div>
 							<div v-else-if="prop.isArray" class="prop-value-date-list">
-								<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ item || '—' }}</div>
+								<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ detailPropDisplayItem(prop, item) }}</div>
 								<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
 							</div>
-							<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ (prop.value === '' || prop.value == null) ? '—' : prop.value }}</div>
+							<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
 						</div>
 					</div>
 				</template>
@@ -1204,7 +1204,9 @@
 								</div>
 								<!-- Single value input (non-REFERENCE/WEAKREFERENCE) -->
 								<div v-if="!propEditorEditIsArray && prop.type !== 'REFERENCE' && prop.type !== 'WEAKREFERENCE' && prop.type !== 'BINARY' && !(prop.schemaChoices && prop.schemaChoices.length > 0)" class="prop-single-input">
-									<input v-if="prop.type === 'DATE'" type="datetime-local" class="wt w-100" v-model="propEditorEditInput">
+									<input v-if="prop.type === 'DATE'" type="datetime-local" class="wt w-100"
+										:value="toLocalDatetimeInput(propEditorEditInput)"
+										@change="propEditorEditInput = editInputDateToISO(event.target.value)">
 									<input v-else-if="prop.type === 'LONG'" type="number" step="1" class="wt w-100" v-model="propEditorEditInput">
 									<input v-else-if="prop.type === 'DOUBLE' || prop.type === 'DECIMAL'" type="number" step="any" class="wt w-100" v-model="propEditorEditInput">
 									<input v-else-if="prop.type === 'STRING' && prop.editorType === 'Color'" type="color" class="wt w-100 form-control-color" v-model="propEditorEditInput">

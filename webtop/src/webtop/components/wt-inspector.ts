@@ -34,6 +34,8 @@
 import { defineComponent } from '@mintjamsinc/ichigojs';
 import { MimeTypes } from '../utils/mime-types.js';
 import { Encodings } from '../utils/encodings.js';
+import { Dates } from '../utils/dates.js';
+import type { LocalizationSnapshot } from '../composables/use-localization.js';
 import {
 	displaySize as displaySizeUtil,
 	displayType as displayTypeUtil,
@@ -289,11 +291,25 @@ interface ScriptContextOptions {
 	value: any;
 	values: any[];
 	isArray: boolean;
+	// Default locale / time zone for ctx.formatDate and ctx.formatCurrency
+	// when the script doesn't pass an explicit option. On the client this
+	// carries the user's Preferences > Localization values so scripts that
+	// just call `ctx.formatDate(date)` follow the preference automatically.
+	// On the server the same fallbacks are supplied by MetadataItem
+	// (MetadataItem.setLocale / setTimeZone, typically derived from
+	// HttpServletRequest in a GSP template, defaulting to the JVM locale /
+	// zone when unset) so the same schema script renders the same way on
+	// both sides.
+	effectiveLocale?: string;
+	effectiveTimeZone?: string;
 }
 
-// Construct the unified ctx handed to every schema script.
+// Construct the unified ctx handed to every schema script. The shape of `ctx`
+// mirrors the server-side runtime in MetadataAPI.RUNTIME_SCRIPT exactly so a
+// single `displayFormat` / validation / calculated-default script runs the
+// same way in the browser and in GSP server-side rendering.
 function buildScriptContext(opts: ScriptContextOptions): any {
-	const { allPropsRaw, item, propertyName, value, values, isArray } = opts;
+	const { allPropsRaw, item, propertyName, value, values, isArray, effectiveLocale, effectiveTimeZone } = opts;
 	return {
 		item,
 		propertyName,
@@ -321,22 +337,76 @@ function buildScriptContext(opts: ScriptContextOptions): any {
 			if (!entry || !entry.values) return defaultValue ?? [];
 			return entry.values;
 		},
-		formatCurrency(amount: number, currencyCode?: string): string {
+		// ctx.formatCurrency(amount, currencyCodeOrOptions?)
+		//   - 2nd arg as string: legacy currency code, e.g. 'JPY'.
+		//   - 2nd arg as object: { currency?, locale? }.
+		//   On the client, `locale` falls back to the Preferences locale.
+		formatCurrency(amount: number, currencyCodeOrOptions?: string | { currency?: string; locale?: string }): string {
+			let currencyCode: string | undefined;
+			let locale: string | undefined;
+			if (typeof currencyCodeOrOptions === 'string') {
+				currencyCode = currencyCodeOrOptions;
+			} else if (currencyCodeOrOptions && typeof currencyCodeOrOptions === 'object') {
+				currencyCode = currencyCodeOrOptions.currency;
+				locale = currencyCodeOrOptions.locale;
+			}
+			if (locale == null) locale = effectiveLocale;
 			try {
-				const code = currencyCode || 'USD';
-				return new Intl.NumberFormat(undefined, {
+				return new Intl.NumberFormat(locale || undefined, {
 					style: 'currency',
-					currency: code,
+					currency: currencyCode || 'USD',
 				}).format(amount);
 			} catch {
 				return String(amount);
 			}
 		},
-		formatDate(date: string | number | Date, pattern?: string): string {
+		// ctx.formatDate(date, optionsOrPattern?)
+		//   - 2nd arg as string: legacy pattern (e.g. 'YYYY/MM/DD HH:mm').
+		//   - 2nd arg as object: { pattern?, locale?, timeZone? }.
+		//   On the client, `locale` / `timeZone` fall back to Preferences;
+		//   when a timeZone is in effect the pattern tokens are resolved in
+		//   that zone via Intl.DateTimeFormat, not the OS clock.
+		formatDate(date: string | number | Date, optionsOrPattern?: string | { pattern?: string; locale?: string; timeZone?: string }): string {
 			try {
 				const d = date instanceof Date ? date : new Date(date);
 				if (isNaN(d.getTime())) return String(date);
-				if (!pattern) return d.toLocaleString();
+				let pattern: string | undefined;
+				let locale: string | undefined;
+				let timeZone: string | undefined;
+				if (typeof optionsOrPattern === 'string') {
+					pattern = optionsOrPattern;
+				} else if (optionsOrPattern && typeof optionsOrPattern === 'object') {
+					pattern = optionsOrPattern.pattern;
+					locale = optionsOrPattern.locale;
+					timeZone = optionsOrPattern.timeZone;
+				}
+				if (locale == null) locale = effectiveLocale;
+				if (timeZone == null) timeZone = effectiveTimeZone;
+				if (!pattern) {
+					const dtOpts: Intl.DateTimeFormatOptions = {};
+					if (timeZone) dtOpts.timeZone = timeZone;
+					return d.toLocaleString(locale || undefined, dtOpts);
+				}
+				if (timeZone || locale) {
+					const dtfOpts: Intl.DateTimeFormatOptions = {
+						hourCycle: 'h23',
+						year: 'numeric', month: '2-digit', day: '2-digit',
+						hour: '2-digit', minute: '2-digit', second: '2-digit',
+					};
+					if (timeZone) dtfOpts.timeZone = timeZone;
+					const dtf = new Intl.DateTimeFormat('en-US', dtfOpts);
+					const map: Record<string, string> = {};
+					for (const p of dtf.formatToParts(d)) {
+						if (p.type !== 'literal') map[p.type] = p.value;
+					}
+					return pattern
+						.replace('YYYY', map.year)
+						.replace('MM', map.month)
+						.replace('DD', map.day)
+						.replace('HH', map.hour === '24' ? '00' : map.hour)
+						.replace('mm', map.minute)
+						.replace('ss', map.second);
+				}
 				const pad = (n: number) => String(n).padStart(2, '0');
 				return pattern
 					.replace('YYYY', String(d.getFullYear()))
@@ -361,6 +431,8 @@ function executeValidationScript(
 	isArray: boolean,
 	allPropsRaw: Map<string, { value: any; values: any[] }>,
 	item: ScriptItem | null,
+	effectiveLocale?: string,
+	effectiveTimeZone?: string,
 ): { valid: boolean; errors?: any[] } | null {
 	try {
 		const ctx = buildScriptContext({
@@ -370,6 +442,8 @@ function executeValidationScript(
 			value: isArray ? null : currentValue,
 			values: isArray ? currentValues : [currentValue],
 			isArray,
+			effectiveLocale,
+			effectiveTimeZone,
 		});
 		const fn = new Function('ctx', script);
 		const result = fn(ctx);
@@ -388,6 +462,8 @@ function validatePropertyValues(
 	allPropsRaw?: Map<string, { value: any; values: any[] }>,
 	i18nFormat?: (err: any) => string,
 	item?: ScriptItem | null,
+	effectiveLocale?: string,
+	effectiveTimeZone?: string,
 ): string {
 	if (!prop || !prop.schemaType) return '';
 	const type = prop.schemaType as string;
@@ -463,6 +539,8 @@ function validatePropertyValues(
 			isArray,
 			allPropsRaw,
 			item ?? null,
+			effectiveLocale,
+			effectiveTimeZone,
 		);
 		if (result && result.valid === false && result.errors && result.errors.length > 0) {
 			const errors = result.errors.filter((e: any) =>
@@ -480,7 +558,7 @@ function validatePropertyValues(
 
 defineComponent('wt-inspector', {
 	template: '#wt-inspector',
-	props: ['target', 'api', 'viewOptions', 'width', 'command'],
+	props: ['target', 'api', 'viewOptions', 'width', 'command', 'localization'],
 	emits: ['open-item', 'navigate-path', 'reveal-item', 'request-close', 'overlay-changed'],
 	data(this: any) {
 		return {
@@ -694,7 +772,8 @@ defineComponent('wt-inspector', {
 			return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 		},
 		localTZ(this: any): string {
-			return new Intl.DateTimeFormat('en', { timeZoneName: 'short' })
+			const tz = (this.localization as LocalizationSnapshot | undefined)?.timeZone || undefined;
+			return new Intl.DateTimeFormat('en', { timeZone: tz, timeZoneName: 'short' })
 				.formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || '';
 		},
 		propEditorModifiedCount(this: any): number {
@@ -830,7 +909,7 @@ defineComponent('wt-inspector', {
 					}
 					return err.fallbackMessage || err.messageId || 'Validation failed';
 				};
-				const validationError = validatePropertyValues(enrichedWithMeta, currentValues, allPropsRaw, i18nFormat, this.scriptItem);
+				const validationError = validatePropertyValues(enrichedWithMeta, currentValues, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone);
 				if (validationError) {
 					enrichedWithMeta.validationError = validationError;
 				}
@@ -1035,7 +1114,7 @@ defineComponent('wt-inspector', {
 				}
 				return err.fallbackMessage || err.messageId || 'Validation failed';
 			};
-			return validatePropertyValues({ ...prop, isArray }, values, allPropsRaw, i18nFormat, this.scriptItem);
+			return validatePropertyValues({ ...prop, isArray }, values, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone);
 		},
 		propEditorEditChoiceMismatch(this: any): string {
 			if (!this.propEditorEditingName) return '';
@@ -1343,10 +1422,14 @@ defineComponent('wt-inspector', {
 		displayVersion(this: any, item: any) { return displayVersionUtil(item); },
 		getFileIcon(this: any, item: any) { return getFileIconUtil(item); },
 		getFileIconClass(this: any, item: any) { return getFileIconClassUtil(item); },
-		formatDetailDate(this: any, date: Date | null) { return formatDetailDateUtil(date); },
+		formatDetailDate(this: any, date: Date | null) {
+			const loc = this.localization as LocalizationSnapshot | undefined;
+			return formatDetailDateUtil(date, { locale: loc?.locale, timeZone: loc?.timeZone });
+		},
 		formatVersionDate(this: any, dateString: string) {
 			if (!dateString) return '';
-			return formatDetailDateUtil(new Date(dateString));
+			const loc = this.localization as LocalizationSnapshot | undefined;
+			return formatDetailDateUtil(new Date(dateString), { locale: loc?.locale, timeZone: loc?.timeZone });
 		},
 		onPreviewImageError(this: any) {
 			this.previewImageError = true;
@@ -1468,18 +1551,16 @@ defineComponent('wt-inspector', {
 					}
 
 					if (isArray) {
-						items = (pv.values || []).map((v: string) => {
-							if (type === 'DATE') { try { return new Date(v).toLocaleString(); } catch { return v; } }
-							return String(v);
-						});
+						// Keep DATE values as raw ISO so the template can format
+						// them reactively against the current preference time zone
+						// via displayPropItem(); other types are emitted as plain
+						// strings as before.
+						items = (pv.values || []).map((v: string) => String(v));
 						value = items.join(', ');
 					} else if ('value' in pv) {
-						if (type === 'DATE' && pv.value) {
-							try { value = new Date(pv.value).toLocaleString(); }
-							catch { value = String(pv.value); }
-						} else {
-							value = String(pv.value ?? '');
-						}
+						// DATE: store raw ISO; reactive formatting happens at
+						// display time. Other types unchanged.
+						value = String(pv.value ?? '');
 					}
 					return { name: p.name, type, isArray, value, items };
 				});
@@ -1520,6 +1601,13 @@ defineComponent('wt-inspector', {
 				: (prop.value || null);
 			const values = isArray ? [...prop.items] : [prop.value];
 
+			// Reading `this.localization` here registers a dependency on the
+			// reactive snapshot, so the computeds that call this method
+			// (schemaDisplayProperties, propEditorDisplayItems) re-evaluate
+			// when the user changes Preferences > Localization, and the
+			// `displayFormat` script is re-run with the new defaults.
+			const loc = this.localization as { locale?: string; timeZone?: string } | undefined;
+
 			const ctx = buildScriptContext({
 				allPropsRaw,
 				item: this.scriptItem,
@@ -1527,6 +1615,8 @@ defineComponent('wt-inspector', {
 				value,
 				values,
 				isArray,
+				effectiveLocale: loc?.locale,
+				effectiveTimeZone: loc?.timeZone,
 			});
 			const fn = new Function('ctx', script);
 			const result = fn(ctx);
@@ -2598,11 +2688,10 @@ defineComponent('wt-inspector', {
 				vm.propEditorEditValues = [...prop.currentValues];
 				vm.propEditorEditInput = '';
 			} else {
-				if (prop.type === 'DATE' && prop.currentValue) {
-					vm.propEditorEditInput = vm.toLocalDatetimeInput(String(prop.currentValue));
-				} else {
-					vm.propEditorEditInput = String(prop.currentValue ?? '');
-				}
+				// Keep DATE values as the ISO instant in the editor model; the
+				// template converts to the wall-clock via toLocalDatetimeInput()
+				// against the current preference time zone.
+				vm.propEditorEditInput = String(prop.currentValue ?? '');
 				vm.propEditorEditValues = [];
 			}
 			vm.propEditorEditNewChip = '';
@@ -2683,7 +2772,7 @@ defineComponent('wt-inspector', {
 					const pendingChip = (vm.propEditorEditNewChip as string).trim();
 					if (pendingChip) {
 						const stored = prop.type === 'DATE'
-							? new Date(pendingChip).toISOString()
+							? vm.editInputDateToISO(pendingChip)
 							: pendingChip;
 						(vm.propEditorEditValues as string[]).push(stored);
 						vm.propEditorEditNewChip = '';
@@ -2713,7 +2802,7 @@ defineComponent('wt-inspector', {
 			} else {
 				let newValue = isRef ? (vm.propEditorEditInput as string) : (vm.propEditorEditInput as string);
 				if (prop.type === 'DATE' && newValue) {
-					newValue = new Date(newValue).toISOString();
+					newValue = vm.editInputDateToISO(newValue);
 				}
 				const isKeptBinary = prop.type === 'BINARY' && typeof newValue === 'string' && newValue.startsWith('__keep:');
 				const changed = isKeptBinary ? false : (typeChanged || newValue !== prop.originalValue || prop.isArray);
@@ -2828,7 +2917,7 @@ defineComponent('wt-inspector', {
 					const singleVal = vm.propEditorEditInput as string;
 					let storedVal = singleVal;
 					if ((vm.propEditorEditType as string) === 'DATE' && singleVal) {
-						storedVal = new Date(singleVal).toISOString();
+						storedVal = vm.editInputDateToISO(singleVal);
 					}
 					vm.propEditorEditValues = storedVal ? [storedVal] : [];
 					vm.propEditorEditInput = '';
@@ -2861,15 +2950,45 @@ defineComponent('wt-inspector', {
 			(this.propEditorEditValues as string[]).splice(idx, 1, val);
 		},
 		updateEditChipDate(this: any, idx: number, localVal: string) {
-			const stored = localVal ? new Date(localVal).toISOString() : '';
-			(this.propEditorEditValues as string[]).splice(idx, 1, stored);
+			(this.propEditorEditValues as string[]).splice(idx, 1, this.editInputDateToISO(localVal));
+		},
+		// Interpret a datetime-local wall-clock string as a time in the user's
+		// preference time zone and return the absolute ISO instant. Keeping
+		// the editor model in ISO means switching TZ while the editor is open
+		// re-renders the input via toLocalDatetimeInput() without shifting the
+		// stored instant.
+		editInputDateToISO(this: any, localVal: string): string {
+			if (!localVal) return '';
+			const tz = (this.localization as LocalizationSnapshot | undefined)?.timeZone || undefined;
+			const d = Dates.fromZonedInputValue(localVal, tz);
+			return d && !isNaN(d.getTime()) ? d.toISOString() : localVal;
 		},
 		removeEditChip(this: any, idx: number) {
 			(this.propEditorEditValues as string[]).splice(idx, 1);
 		},
 		formatDateLocal(this: any, val: string): string {
-			try { return new Date(val).toLocaleString(); }
-			catch { return val; }
+			if (!val) return val;
+			const loc = this.localization as LocalizationSnapshot | undefined;
+			return Dates.format(val, {
+				format: 'datetime',
+				locale: loc?.locale || undefined,
+				timeZone: loc?.timeZone || undefined,
+			}) || val;
+		},
+
+		// Display helpers for the detail-panel Properties section. `prop.value`
+		// and `prop.items` hold raw ISO strings for DATE so we format here
+		// against the reactive Localization snapshot — switching Preferences
+		// > Localization repaints these cells without touching the rest.
+		detailPropDisplayValue(this: any, prop: any): string {
+			if (prop.value === '' || prop.value == null) return '—';
+			if (prop.type === 'DATE') return this.formatDateLocal(prop.value) || '—';
+			return prop.value;
+		},
+		detailPropDisplayItem(this: any, prop: any, item: any): string {
+			if (item === '' || item == null) return '—';
+			if (prop.type === 'DATE') return this.formatDateLocal(item) || '—';
+			return item;
 		},
 		moveEditChip(this: any, idx: number, dir: number) {
 			const arr = this.propEditorEditValues as string[];
@@ -3474,13 +3593,11 @@ defineComponent('wt-inspector', {
 			[mimeTypes[idx], mimeTypes[target]] = [mimeTypes[target], mimeTypes[idx]];
 		},
 		toLocalDatetimeInput(this: any, isoStr: string): string {
-			try {
-				const d = new Date(isoStr);
-				const pad = (n: number) => String(n).padStart(2, '0');
-				return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-			} catch {
-				return isoStr.substring(0, 16);
-			}
+			if (!isoStr) return '';
+			// Render the datetime-local wall-clock in the preference time zone
+			// so display and read-back stay consistent.
+			const tz = (this.localization as LocalizationSnapshot | undefined)?.timeZone || undefined;
+			return Dates.toZonedInputValue(isoStr, tz) || isoStr.substring(0, 16);
 		},
 		// ────────────────────────────────────────────────────────────────────
 		// Property add/delete/save
@@ -3544,6 +3661,7 @@ defineComponent('wt-inspector', {
 		},
 		evaluateCalculatedDefault(this: any, formula: string, allPropsRaw: Map<string, { value: any; values: any[] }>, propertyName: string): string | null {
 			try {
+				const loc = this.localization as { locale?: string; timeZone?: string } | undefined;
 				const ctx = buildScriptContext({
 					allPropsRaw,
 					item: this.scriptItem,
@@ -3551,6 +3669,8 @@ defineComponent('wt-inspector', {
 					value: null,
 					values: [],
 					isArray: false,
+					effectiveLocale: loc?.locale,
+					effectiveTimeZone: loc?.timeZone,
 				});
 				const fn = new Function('ctx', formula);
 				const result = fn(ctx);

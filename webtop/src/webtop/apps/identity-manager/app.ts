@@ -9,6 +9,11 @@
 
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+} from "../../composables/use-localization.js";
 import type {
 	IdpUser,
 	IdpRole,
@@ -53,6 +58,8 @@ export const App = {
 			instance: null as ApplicationInstance | null,
 			idp: null as IdpServiceGraphQL | null,
 			messageListener: null as ((event: MessageEvent) => void) | null,
+			// Reactive Localization snapshot — see composables/use-localization.ts.
+			localization: createLocalizationSnapshot(),
 
 			// General state
 			isLoading: false,
@@ -236,6 +243,7 @@ export const App = {
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
 				}
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) return;
 			};
 			window.addEventListener('message', vm.messageListener);
 
@@ -246,6 +254,8 @@ export const App = {
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
 				vm.instance.windowTitle = 'Identity Manager';
+
+				refreshLocalization(vm.localization, vm.instance);
 
 				await vm.loadInitialData();
 
@@ -1197,12 +1207,15 @@ export const App = {
 
 		formatDate(isoString: string | null): string {
 			if (!isoString) return '';
-			try {
-				const d = new Date(isoString);
-				return d.toLocaleString();
-			} catch {
-				return isoString;
+			const dates = this.instance?.util?.dates;
+			if (!dates) {
+				try { return new Date(isoString).toLocaleString(); } catch { return isoString; }
 			}
+			return dates.format(isoString, {
+				format: 'datetime',
+				locale: this.localization.locale || undefined,
+				timeZone: this.localization.timeZone || undefined,
+			}) ?? isoString;
 		},
 	},
 };

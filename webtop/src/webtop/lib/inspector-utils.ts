@@ -48,9 +48,16 @@ export function displayVersion(item: DisplayItemLike): string {
 	return version;
 }
 
-export function formatDetailDate(date: Date | string | number | null | undefined): string {
+export function formatDetailDate(
+	date: Date | string | number | null | undefined,
+	options?: { locale?: string; timeZone?: string },
+): string {
 	if (!date) return '—';
-	return (Dates.format(date as any, { format: 'friendly' }) as string) || '—';
+	return (Dates.format(date as any, {
+		format: 'friendly',
+		locale: options?.locale || undefined,
+		timeZone: options?.timeZone || undefined,
+	}) as string) || '—';
 }
 
 export function getFileIcon(item: DisplayItemLike): string {

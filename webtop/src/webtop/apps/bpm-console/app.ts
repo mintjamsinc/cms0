@@ -10,6 +10,11 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import { BpmServiceGraphQL } from "../../services/bpm-service-graphql.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { createGraphQLClient } from "../../graphql/client.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+} from "../../composables/use-localization.js";
 import type {
 	ProcessDefinition,
 	ProcessInstance,
@@ -59,6 +64,10 @@ export const App = {
 			bpm: null as BpmServiceGraphQL | null,
 			idp: null as IdpServiceGraphQL | null,
 			messageListener: null as ((event: MessageEvent) => void) | null,
+			// Reactive Localization snapshot (effective locale + IANA time
+			// zone). Date displays, the TZ badge and datetime-local round-trip
+			// read this. See `composables/use-localization.ts`.
+			localization: createLocalizationSnapshot(),
 			_onKeyDown: null as ((event: KeyboardEvent) => void) | null,
 			_onKeyUp: null as ((event: KeyboardEvent) => void) | null,
 			_onVisibilityChange: null as (() => void) | null,
@@ -205,6 +214,9 @@ export const App = {
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
 				}
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) {
+					return;
+				}
 				if (type === 'context-menu-action') {
 					vm.handleContextMenuAction(payload.action);
 				}
@@ -251,6 +263,8 @@ export const App = {
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
 				vm.instance.windowTitle = 'BPM Console';
+
+				refreshLocalization(vm.localization, vm.instance);
 
 				vm.workspace = appInstance.api.workspace;
 
@@ -1346,11 +1360,32 @@ export const App = {
 
 		formatVarValue(v: DialogVariable): string {
 			if (v.type === 'Date' && v.value) {
-				// Convert datetime-local value to ISO8601 full format
+				// The dialog model holds Date variables as an absolute ISO 8601
+				// instant; normalise (re-emit via toISOString) before sending.
 				const d = new Date(v.value);
 				return isNaN(d.getTime()) ? v.value : d.toISOString();
 			}
 			return v.value;
+		},
+
+		// Write a datetime-local wall-clock back to the dialog model. The string
+		// is interpreted as a time in the user's preference time zone, and the
+		// model stores the absolute instant (ISO 8601). This keeps the input
+		// reactive to TZ changes: the displayed wall-clock follows the new zone
+		// without re-interpreting (and shifting) the underlying instant.
+		setDateVar(v: DialogVariable, localStr: string): void {
+			if (!localStr) { v.value = ''; return; }
+			const dates = this.instance?.util?.dates;
+			const tz = this.localization.timeZone || undefined;
+			let iso = '';
+			if (dates) {
+				const d = dates.fromZonedInputValue(localStr, tz);
+				if (d && !isNaN(d.getTime())) iso = d.toISOString();
+			} else {
+				const d = new Date(localStr);
+				if (!isNaN(d.getTime())) iso = d.toISOString();
+			}
+			v.value = iso || localStr;
 		},
 
 		async executeStartProcess() {
@@ -1402,9 +1437,14 @@ export const App = {
 
 		toDatetimeLocalValue(value: unknown): string {
 			if (value == null) return '';
+			// Render the datetime-local wall-clock in the user's preference time
+			// zone (not the OS zone) so display and input stay consistent.
+			const dates = this.instance?.util?.dates;
+			if (dates) {
+				return dates.toZonedInputValue(value as any, this.localization.timeZone || undefined) || String(value);
+			}
 			const d = new Date(String(value));
 			if (isNaN(d.getTime())) return String(value);
-			// Format as YYYY-MM-DDTHH:mm (local time, required by datetime-local input)
 			const pad = (n: number) => String(n).padStart(2, '0');
 			return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 		},
@@ -1413,10 +1453,11 @@ export const App = {
 			if (!this.selectedInstance) return;
 			const vars: DialogVariable[] = this.instanceVariables.map((v: ProcessVariable) => {
 				const type = this.normalizeVarType(v.type);
-				let value = v.value != null ? String(v.value) : '';
-				if (type === 'Date' && value) {
-					value = this.toDatetimeLocalValue(v.value);
-				}
+				// Date variables are kept as ISO 8601 in the model; the template
+				// converts to the datetime-local wall-clock in the current
+				// preference time zone via toDatetimeLocalValue(), so switching
+				// TZ while the dialog is open re-renders the input correctly.
+				const value = v.value != null ? String(v.value) : '';
 				return { name: v.name, type, value };
 			});
 			this.dialog = {
@@ -1529,10 +1570,11 @@ export const App = {
 			// Pre-populate with current process variables
 			const vars: DialogVariable[] = this.instanceVariables.map((v: ProcessVariable) => {
 				const type = this.normalizeVarType(v.type);
-				let value = v.value != null ? String(v.value) : '';
-				if (type === 'Date' && value) {
-					value = this.toDatetimeLocalValue(v.value);
-				}
+				// Date variables are kept as ISO 8601 in the model; the template
+				// converts to the datetime-local wall-clock in the current
+				// preference time zone via toDatetimeLocalValue(), so switching
+				// TZ while the dialog is open re-renders the input correctly.
+				const value = v.value != null ? String(v.value) : '';
 				return { name: v.name, type, value };
 			});
 			this.dialog = {
@@ -2032,21 +2074,34 @@ export const App = {
 
 		formatDate(isoString: string | null): string {
 			if (!isoString) return '—';
-			try {
-				return new Date(isoString).toLocaleString();
-			} catch {
-				return isoString;
+			const dates = this.instance?.util?.dates;
+			if (!dates) {
+				try { return new Date(isoString).toLocaleString(); } catch { return isoString; }
 			}
+			return dates.format(isoString, {
+				format: 'datetime',
+				locale: this.localization.locale || undefined,
+				timeZone: this.localization.timeZone || undefined,
+			}) ?? isoString;
 		},
 
 		formatDateShort(isoString: string | null): string {
 			if (!isoString) return '—';
-			try {
-				const d = new Date(isoString);
-				return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-			} catch {
-				return isoString;
+			const dates = this.instance?.util?.dates;
+			if (!dates) {
+				try {
+					const d = new Date(isoString);
+					return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+				} catch {
+					return isoString;
+				}
 			}
+			const locale = this.localization.locale || undefined;
+			const timeZone = this.localization.timeZone || undefined;
+			const datePart = dates.format(isoString, { format: 'date', locale, timeZone });
+			const timePart = dates.format(isoString, { format: 'time', locale, timeZone });
+			if (!datePart) return isoString;
+			return timePart ? `${datePart} ${timePart}` : datePart;
 		},
 
 		formatDuration(ms: number | null): string {
@@ -2105,7 +2160,8 @@ export const App = {
 		},
 
 		localTZ(): string {
-			return new Intl.DateTimeFormat('en', { timeZoneName: 'short' })
+			const timeZone = this.localization.timeZone || undefined;
+			return new Intl.DateTimeFormat('en', { timeZone, timeZoneName: 'short' })
 				.formatToParts(new Date()).find((p: { type: string }) => p.type === 'timeZoneName')?.value || '';
 		},
 

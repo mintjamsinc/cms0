@@ -517,7 +517,7 @@
 									<div class="field-help">
 										Return <code>{ valid: true }</code> or
 										<code>{ valid: false, errors: [{ messageId, severity?, params?, ruleId?, fallbackMessage? }, ...] }</code>.<br>
-										<strong>ctx</strong>: <code>item</code> (<code>item.name</code>, <code>item.path</code>, <code>item.mimeType</code>, …), <code>propertyName</code>, <code>value</code>, <code>values</code>, <code>isArray</code>, <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>, <code>formatCurrency(amount, code?)</code>, <code>formatDate(date, pattern?)</code>.
+										<strong>ctx</strong>: <code>item</code> (<code>item.name</code>, <code>item.path</code>, <code>item.mimeType</code>, …), <code>propertyName</code>, <code>value</code>, <code>values</code>, <code>isArray</code>, <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>, <code>formatCurrency(amount, currencyCodeOrOptions?)</code> (options: <code>{ currency?, locale? }</code>), <code>formatDate(date, optionsOrPattern?)</code> (options: <code>{ pattern?, locale?, timeZone? }</code>). On the browser, <code>locale</code> / <code>timeZone</code> default to Preferences &gt; Localization; on the server they default to the JVM and must be set explicitly.
 									</div>
 									<textarea class="wt w-100" v-model="selectedProperty.uiHint.validation"
 										:placeholder="validationPlaceholder" rows="8"
@@ -685,7 +685,7 @@
 								<label class="property-label">Display Format</label>
 								<div class="field-help">
 									Return the display string.
-									<strong>ctx</strong>: <code>value</code>, <code>values</code>, <code>item</code> (<code>item.name</code>, <code>item.path</code>, …), <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>, <code>formatCurrency(amount, code?)</code>, <code>formatDate(date, pattern?)</code>.
+									<strong>ctx</strong>: <code>value</code>, <code>values</code>, <code>item</code> (<code>item.name</code>, <code>item.path</code>, …), <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>, <code>formatCurrency(amount, currencyCodeOrOptions?)</code> (options: <code>{ currency?, locale? }</code>), <code>formatDate(date, optionsOrPattern?)</code> (options: <code>{ pattern?, locale?, timeZone? }</code>). On the browser, <code>locale</code> / <code>timeZone</code> default to Preferences &gt; Localization; on the server they default to the JVM and must be set explicitly.
 								</div>
 								<textarea class="wt w-100" v-model="selectedProperty.uiHint.displayFormat"
 									placeholder="return ctx.value;" rows="3"

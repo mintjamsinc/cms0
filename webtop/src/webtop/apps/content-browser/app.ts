@@ -5,6 +5,11 @@ import { downloadContentAsZip, type ArchiveJobHandle, type ArchiveJobProgress } 
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+} from "../../composables/use-localization.js";
 // Display helpers used by the file list. The remaining inspector-only
 // display methods moved into wt-inspector along with the rest of the panel.
 import {
@@ -244,6 +249,10 @@ export const App = {
 			sortDirection: 'asc' as 'asc' | 'desc',
 			uploadMonitor: null as any,
 			messageListener: null,
+			// Reactive Localization snapshot (effective locale + IANA time
+			// zone). Date displays read this and repaint on
+			// `localization-changed`. See `composables/use-localization.ts`.
+			localization: createLocalizationSnapshot(),
 			errorMessage: '',
 			conflictDialog: {
 				visible: false,
@@ -793,6 +802,16 @@ export const App = {
 					}
 					return;
 				}
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) {
+					// Re-stamp the precomputed friendly date on every item so
+					// the list cells repaint with the new locale / time zone.
+					for (const item of vm.items) {
+						if (item?.attributes) {
+							item.attributes.displayDate = vm.displayDate(item);
+						}
+					}
+					return;
+				}
 				if (type === 'context-menu-action') {
 					vm.handleContextMenuAction(payload.action);
 					return;
@@ -865,6 +884,9 @@ export const App = {
 				// apply theme
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
+
+				// snapshot the effective Localization preference
+				refreshLocalization(vm.localization, vm.instance);
 
 				// Use initialPath from launch options if provided (e.g. opened for reference browsing)
 				if (options?.initialPath) {
@@ -1299,7 +1321,11 @@ export const App = {
 			return displaySizeUtil(item);
 		},
 		displayDate(item: any) {
-			const options = { format: 'friendly' };
+			const options = {
+				format: 'friendly',
+				locale: this.localization.locale || undefined,
+				timeZone: this.localization.timeZone || undefined,
+			};
 			if (item.isCollection) {
 				return this.instance.util.dates.format(item.created, options);
 			}
@@ -3473,7 +3499,10 @@ export const App = {
 			if (minutes < 60) return minutes + ' min ago';
 			if (hours < 24) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
 			if (days < 7) return days + (days === 1 ? ' day ago' : ' days ago');
-			return new Date(timestamp).toLocaleDateString();
+			const d = new Date(timestamp);
+			return d.toLocaleDateString(this.localization.locale || undefined, {
+				timeZone: this.localization.timeZone || undefined,
+			});
 		},
 		onNavClickOutside(event: MouseEvent) {
 			const target = event.target as HTMLElement;
