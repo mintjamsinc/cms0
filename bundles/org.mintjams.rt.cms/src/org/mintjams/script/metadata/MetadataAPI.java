@@ -71,10 +71,31 @@ public class MetadataAPI implements Adaptable {
 	// one property script against it. Input is supplied as the JSON string
 	// `parametersJson`; the result is returned as a JSON string of the form
 	// {"value": <result>} or {"error": <message>}.
+	//
+	// ctx.formatDate(date, optionsOrPattern?) — `optionsOrPattern` is either a
+	//   legacy pattern string ("YYYY/MM/DD HH:mm") or an options object
+	//   { pattern?, locale?, timeZone? }. With an explicit time zone the
+	//   Y/M/D/H/m/s tokens (and the locale-default form when no pattern is
+	//   given) are resolved in that zone via Intl.DateTimeFormat. The server
+	//   has no user Preferences; when an option is omitted the runtime falls
+	//   back to the locale / time zone configured on the MetadataItem via
+	//   setLocale / setTimeZone (typically derived in a GSP template from
+	//   HttpServletRequest), and to the JVM defaults when those are unset —
+	//   so the same schema-defined script runs on browser and server.
+	// ctx.formatCurrency(amount, currencyCodeOrOptions?) — `currencyCodeOrOptions`
+	//   is either a legacy currency code string ("JPY") or an options object
+	//   { currency?, locale? }. Locale falls back to the item's locale (or the
+	//   JVM default) when not supplied, mirroring the client.
 	private static final String RUNTIME_SCRIPT = """
 			(function() {
 				var p = JSON.parse(parametersJson);
 				var allProps = p.allProps || {};
+				// Item-level fallbacks for the format helpers; the Java side
+				// pre-populates these with the JVM defaults when the GSP
+				// template didn't call setLocale / setTimeZone, so the script
+				// always sees a usable value here.
+				var effectiveLocale = p.effectiveLocale || null;
+				var effectiveTimeZone = p.effectiveTimeZone || null;
 				function entryOf(name) {
 					return Object.prototype.hasOwnProperty.call(allProps, name) ? allProps[name] : null;
 				}
@@ -105,18 +126,63 @@ public class MetadataAPI implements Adaptable {
 						if (!e || !e.values) { return (dflt === undefined ? [] : dflt); }
 						return e.values;
 					},
-					formatCurrency: function(amount, currencyCode) {
+					formatCurrency: function(amount, currencyCodeOrOptions) {
+						var currencyCode = null;
+						var locale = null;
+						if (typeof currencyCodeOrOptions === 'string') {
+							currencyCode = currencyCodeOrOptions;
+						} else if (currencyCodeOrOptions && typeof currencyCodeOrOptions === 'object') {
+							currencyCode = currencyCodeOrOptions.currency || null;
+							locale = currencyCodeOrOptions.locale || null;
+						}
+						if (locale == null) { locale = effectiveLocale; }
 						try {
-							return new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode || 'USD' }).format(amount);
+							return new Intl.NumberFormat(locale || undefined, { style: 'currency', currency: currencyCode || 'USD' }).format(amount);
 						} catch (e) {
 							return String(amount);
 						}
 					},
-					formatDate: function(date, pattern) {
+					formatDate: function(date, optionsOrPattern) {
 						try {
 							var d = (date instanceof Date) ? date : new Date(date);
 							if (isNaN(d.getTime())) { return String(date); }
-							if (!pattern) { return d.toLocaleString(); }
+							var pattern = null, locale = null, timeZone = null;
+							if (typeof optionsOrPattern === 'string') {
+								pattern = optionsOrPattern;
+							} else if (optionsOrPattern && typeof optionsOrPattern === 'object') {
+								pattern = optionsOrPattern.pattern || null;
+								locale = optionsOrPattern.locale || null;
+								timeZone = optionsOrPattern.timeZone || null;
+							}
+							if (locale == null) { locale = effectiveLocale; }
+							if (timeZone == null) { timeZone = effectiveTimeZone; }
+							if (!pattern) {
+								var opts = {};
+								if (timeZone) { opts.timeZone = timeZone; }
+								return d.toLocaleString(locale || undefined, opts);
+							}
+							if (timeZone || locale) {
+								// Derive Y/M/D/H/m/s in the requested zone via Intl.
+								var dtfOpts = {
+									hourCycle: 'h23',
+									year: 'numeric', month: '2-digit', day: '2-digit',
+									hour: '2-digit', minute: '2-digit', second: '2-digit'
+								};
+								if (timeZone) { dtfOpts.timeZone = timeZone; }
+								var dtf = new Intl.DateTimeFormat('en-US', dtfOpts);
+								var map = {};
+								var parts = dtf.formatToParts(d);
+								for (var i = 0; i < parts.length; i++) {
+									if (parts[i].type !== 'literal') { map[parts[i].type] = parts[i].value; }
+								}
+								return pattern
+									.replace('YYYY', map.year)
+									.replace('MM', map.month)
+									.replace('DD', map.day)
+									.replace('HH', map.hour === '24' ? '00' : map.hour)
+									.replace('mm', map.minute)
+									.replace('ss', map.second);
+							}
 							var pad = function(n) { n = String(n); return (n.length < 2) ? ('0' + n) : n; };
 							return pattern
 								.replace('YYYY', String(d.getFullYear()))

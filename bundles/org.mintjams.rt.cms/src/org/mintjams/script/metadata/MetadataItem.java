@@ -27,7 +27,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 import javax.jcr.PropertyType;
 
@@ -59,10 +61,75 @@ public class MetadataItem {
 	private Map<String, Object> fItem;
 	private Map<String, Object> fAllProps;
 
+	// Default locale / time zone applied to ctx.formatDate and ctx.formatCurrency
+	// when the schema script doesn't pass an explicit option. The server has no
+	// Preferences, so a GSP template typically derives these from
+	// HttpServletRequest (locale from Accept-Language, zone from a session
+	// attribute or cookie) and stores them on the item before invoking
+	// getDisplayText / validate / calculate. When left unset both fall back to
+	// the JVM defaults at evaluation time.
+	private String fLocale;
+	private String fTimeZone;
+
 	MetadataItem(MetadataAPI api, Resource resource, Map<String, Object> schema) {
 		fAPI = api;
 		fResource = resource;
 		fSchema = schema;
+	}
+
+	// ────────────────────────────────────────────────────────────────────
+	// Locale / time zone fallback (consumed by ctx.formatDate / formatCurrency)
+	// ────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Sets the BCP-47 language tag (e.g. {@code "ja-JP"}) used as the fallback
+	 * locale when a schema script calls {@code ctx.formatDate} or
+	 * {@code ctx.formatCurrency} without an explicit {@code locale} option.
+	 * Pass {@code null} to clear and revert to {@link Locale#getDefault()}.
+	 * Returns this item to allow fluent configuration in Groovy templates.
+	 */
+	public MetadataItem setLocale(String languageTag) {
+		fLocale = isBlank(languageTag) ? null : languageTag;
+		return this;
+	}
+
+	/**
+	 * Convenience overload accepting a {@link Locale}. Equivalent to
+	 * {@code setLocale(locale.toLanguageTag())}.
+	 */
+	public MetadataItem setLocale(Locale locale) {
+		fLocale = (locale == null) ? null : locale.toLanguageTag();
+		return this;
+	}
+
+	/** Returns the configured fallback locale tag, or {@code null} if unset. */
+	public String getLocale() {
+		return fLocale;
+	}
+
+	/**
+	 * Sets the IANA zone ID (e.g. {@code "Asia/Tokyo"}) used as the fallback
+	 * time zone when a schema script calls {@code ctx.formatDate} without an
+	 * explicit {@code timeZone} option. Pass {@code null} to clear and revert
+	 * to {@link TimeZone#getDefault()}.
+	 */
+	public MetadataItem setTimeZone(String zoneId) {
+		fTimeZone = isBlank(zoneId) ? null : zoneId;
+		return this;
+	}
+
+	/**
+	 * Convenience overload accepting a {@link TimeZone}. Equivalent to
+	 * {@code setTimeZone(timeZone.getID())}.
+	 */
+	public MetadataItem setTimeZone(TimeZone timeZone) {
+		fTimeZone = (timeZone == null) ? null : timeZone.getID();
+		return this;
+	}
+
+	/** Returns the configured fallback zone ID, or {@code null} if unset. */
+	public String getTimeZone() {
+		return fTimeZone;
 	}
 
 	/**
@@ -152,6 +219,12 @@ public class MetadataItem {
 		params.put("isArray", (entry != null) && Boolean.TRUE.equals(entry.get("isArray")));
 		params.put("allProps", fAllProps);
 		params.put("script", script);
+		// Fallbacks for ctx.formatDate / formatCurrency: prefer values configured
+		// on this item, else fall back to JVM defaults so the runtime never sees
+		// a null and the schema script behaves identically to the browser side
+		// (which falls back to Preferences > Localization).
+		params.put("effectiveLocale", (fLocale != null) ? fLocale : Locale.getDefault().toLanguageTag());
+		params.put("effectiveTimeZone", (fTimeZone != null) ? fTimeZone : TimeZone.getDefault().getID());
 
 		Map<String, Object> result = fAPI.evaluate(CmsService.toJSON(params));
 		if (result != null && result.containsKey("error")) {
