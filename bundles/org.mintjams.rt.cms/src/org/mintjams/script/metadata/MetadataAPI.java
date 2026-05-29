@@ -23,7 +23,9 @@
 package org.mintjams.script.metadata;
 
 import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.mintjams.rt.cms.internal.CmsService;
@@ -61,6 +63,7 @@ import org.mintjams.tools.adapter.Adaptables;
 public class MetadataAPI implements Adaptable {
 
 	static final String SCHEMAS_PATH = "/etc/metadata/schemas";
+	static final String MIXINS_PATH = "/etc/metadata/mixins";
 
 	// Synthetic identity used to cache the compiled runtime in the native
 	// ECMAScript engine. The body is fixed, so a constant timestamp is fine.
@@ -210,6 +213,7 @@ public class MetadataAPI implements Adaptable {
 	// Per-context (per-request) cache of parsed schemas. A null entry records a
 	// schema that could not be resolved, so we do not re-read it repeatedly.
 	private final Map<String, Map<String, Object>> fSchemaCache = new HashMap<>();
+	private final Map<String, Map<String, Object>> fMixinCache = new HashMap<>();
 
 	public MetadataAPI(WorkspaceScriptContext context) {
 		fContext = context;
@@ -234,11 +238,114 @@ public class MetadataAPI implements Adaptable {
 			Resource r = fContext.getResourceResolver().getResource(SCHEMAS_PATH + "/" + schemaKey + ".json");
 			if (r.exists() && r.canRead()) {
 				schema = CmsService.fromJSON(r.getContent(), Map.class);
+				schema = resolveMixins(schema);
 			}
 		} catch (Throwable ex) {
 			CmsService.getLogger(getClass()).warn("Failed to load metadata schema: " + schemaKey, ex);
 		}
 		fSchemaCache.put(schemaKey, schema);
+		return schema;
+	}
+
+	@SuppressWarnings("unchecked")
+	Map<String, Object> getMixin(String mixinKey) {
+		if (fMixinCache.containsKey(mixinKey)) {
+			return fMixinCache.get(mixinKey);
+		}
+
+		Map<String, Object> mixin = null;
+		try {
+			Resource r = fContext.getResourceResolver().getResource(MIXINS_PATH + "/" + mixinKey + ".json");
+			if (r.exists() && r.canRead()) {
+				mixin = CmsService.fromJSON(r.getContent(), Map.class);
+			}
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn("Failed to load metadata mixin: " + mixinKey, ex);
+		}
+		fMixinCache.put(mixinKey, mixin);
+		return mixin;
+	}
+
+	// Expands `schema.mixins[]` into `schema.properties` so downstream consumers
+	// (MetadataItem.findProperty et al.) keep seeing a flat property list. Schema
+	// own properties fully override mixin properties on key collision. Mixins
+	// must not themselves declare mixins (Phase 1: nesting is forbidden — any
+	// `mixins` field on a mixin is ignored). The `mixins` field is stripped from
+	// the returned schema so consumers never inspect it.
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> resolveMixins(Map<String, Object> schema) {
+		if (schema == null) {
+			return null;
+		}
+		Object mixinsObj = schema.get("mixins");
+		if (!(mixinsObj instanceof List) || ((List<Object>) mixinsObj).isEmpty()) {
+			schema.remove("mixins");
+			return schema;
+		}
+
+		List<Map<String, Object>> resolved = new ArrayList<>();
+		Map<String, Integer> indexByKey = new HashMap<>();
+
+		for (Object mxKeyObj : (List<Object>) mixinsObj) {
+			if (!(mxKeyObj instanceof String)) {
+				continue;
+			}
+			String mxKey = (String) mxKeyObj;
+			Map<String, Object> mx = getMixin(mxKey);
+			if (mx == null) {
+				CmsService.getLogger(getClass()).warn("Metadata mixin not found: " + mxKey
+						+ " (referenced by schema: " + schema.get("key") + ")");
+				continue;
+			}
+			Object mxProps = mx.get("properties");
+			if (!(mxProps instanceof List)) {
+				continue;
+			}
+			for (Object p : (List<Object>) mxProps) {
+				if (!(p instanceof Map)) {
+					continue;
+				}
+				Map<String, Object> prop = (Map<String, Object>) p;
+				Object keyObj = prop.get("key");
+				if (!(keyObj instanceof String)) {
+					continue;
+				}
+				String key = (String) keyObj;
+				if (indexByKey.containsKey(key)) {
+					CmsService.getLogger(getClass()).warn("Metadata mixin property collision: '" + key
+							+ "' from mixin '" + mxKey + "' is shadowed by an earlier mixin"
+							+ " (schema: " + schema.get("key") + ")");
+					continue;
+				}
+				indexByKey.put(key, resolved.size());
+				resolved.add(prop);
+			}
+		}
+
+		Object ownProps = schema.get("properties");
+		if (ownProps instanceof List) {
+			for (Object p : (List<Object>) ownProps) {
+				if (!(p instanceof Map)) {
+					continue;
+				}
+				Map<String, Object> prop = (Map<String, Object>) p;
+				Object keyObj = prop.get("key");
+				if (!(keyObj instanceof String)) {
+					continue;
+				}
+				String key = (String) keyObj;
+				Integer idx = indexByKey.get(key);
+				if (idx != null) {
+					resolved.set(idx, prop);
+				} else {
+					indexByKey.put(key, resolved.size());
+					resolved.add(prop);
+				}
+			}
+		}
+
+		schema.put("properties", resolved);
+		schema.remove("mixins");
 		return schema;
 	}
 

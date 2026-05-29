@@ -21,7 +21,7 @@
 		<nav class="nav-bar window-drag-region">
 			<!-- Left: file actions -->
 			<div class="toolbar-group">
-				<button class="btn-icon" @click="addSchema" title="Add Schema">
+				<button class="btn-icon" @click="openAddMenu(event)" title="New">
 					<i class="bi bi-plus-lg"></i>
 				</button>
 				<button class="btn-icon" @click="saveAll"
@@ -83,16 +83,24 @@
 								'is-new': schema._isNew,
 								'is-deleted': schema._isDeleted,
 								'is-changed': !schema._isNew && !schema._isDeleted && isSchemaChanged(schema)
-							}">
+							}"
+							@click="selectSchema(schema._id)">
 							<span class="schema-toggle" @click.stop="toggleSchema(schema._id)">
 								<i :class="schema._expanded ? 'bi bi-chevron-down' : 'bi bi-chevron-right'"></i>
 							</span>
-							<i class="bi bi-collection schema-item-icon" @click="selectSchema(schema._id)"></i>
-							<span class="schema-item-key" @click="selectSchema(schema._id)">
+							<i :class="schema.kind === 'mixin' ? 'bi bi-puzzle schema-item-icon' : 'bi bi-collection schema-item-icon'"
+								:title="schema.kind === 'mixin' ? 'Mixin' : 'Schema'"></i>
+							<span class="schema-item-key">
 								{{ schema.key || '(unnamed)' }}
 							</span>
-							<span v-if="schema.label" class="schema-item-label" @click="selectSchema(schema._id)">
+							<span v-if="schema.label" class="schema-item-label">
 								{{ schema.label }}
+							</span>
+							<span v-if="schema.kind === 'mixin'" class="schema-kind-badge" title="Mixin">mixin</span>
+							<span v-if="schema.kind === 'schema' && schema.mixins.length > 0"
+								class="schema-mixin-hint"
+								:title="'Attached mixins: ' + schema.mixins.join(', ')">
+								+ {{ schema.mixins.join(', ') }}
 							</span>
 							<span class="schema-item-actions">
 								<button v-if="!schema._isDeleted" class="btn-icon btn-item-delete"
@@ -130,6 +138,11 @@
 									<span class="property-item-key">{{ prop.key || '(unnamed)' }}</span>
 									<span v-if="prop.label && prop.label.trim()" class="property-item-label">{{ prop.label }}</span>
 								</span>
+								<span v-if="schema.kind === 'schema' && shadowedByMixinKey(schema, prop.key)"
+									class="mixin-override-badge"
+									:title="'Shadows mixin property from ' + shadowedByMixinKey(schema, prop.key)">
+									shadows {{ shadowedByMixinKey(schema, prop.key) }}
+								</span>
 								<span class="prop-type-badge">{{ prop.type }}</span>
 								<span class="property-item-actions">
 									<button v-if="!prop._isDeleted" class="btn-icon btn-item-delete"
@@ -156,6 +169,9 @@
 						<span>No schemas found.</span>
 						<button class="wt wt-primary wt-slim" @click="addSchema">
 							<i class="bi bi-plus-lg me-1"></i>Add Schema
+						</button>
+						<button class="wt wt-slim mt-1" @click="addMixin">
+							<i class="bi bi-puzzle me-1"></i>Add Mixin
 						</button>
 					</div>
 				</div>
@@ -351,7 +367,7 @@
 							<span class="nav-item is-static"><i class="bi bi-diagram-3"></i></span>
 							<span class="nav-divider"><i class="bi bi-chevron-right"></i></span>
 							<span :class="{ 'nav-current': editingMode === 'schema', 'nav-item': editingMode !== 'schema' }">
-								<i class="bi bi-collection me-1"></i>{{ schemaPathLabel }}
+								<i :class="(selectedSchema && selectedSchema.kind === 'mixin') ? 'bi bi-puzzle me-1' : 'bi bi-collection me-1'"></i>{{ schemaPathLabel }}
 							</span>
 							<template v-if="editingMode === 'property'">
 								<span class="nav-divider"><i class="bi bi-chevron-right"></i></span>
@@ -369,45 +385,212 @@
 						<span>Select a schema or property to edit</span>
 					</div>
 
-					<!-- Schema form -->
+					<!-- Schema / Mixin form (shape is identical; only the Mixins
+					     reference section and Summary copy differ by kind) -->
 					<div v-if="editingMode === 'schema'" class="content-form">
 						<div class="property-group">
-							<div class="property-group-title">Schema</div>
+							<div class="property-group-title">
+								{{ selectedSchema.kind === 'mixin' ? 'Mixin' : 'Schema' }}
+							</div>
 							<div class="form-row">
 								<div class="property-row half">
 									<label class="property-label">Key</label>
 									<input type="text" class="wt w-100" v-model="selectedSchema.key"
 										:class="{'is-invalid': validationErrors['schema.' + selectedSchema._id + '.key']}"
-										placeholder="e.g. article"
+										:placeholder="selectedSchema.kind === 'mixin' ? 'e.g. seo' : 'e.g. article'"
 										@input="onSchemaFieldChange">
 									<div v-if="validationErrors['schema.' + selectedSchema._id + '.key']"
 										class="invalid-feedback">
 										{{ validationErrors['schema.' + selectedSchema._id + '.key'] }}
 									</div>
+									<!-- Rename cascade notice: shown when a saved mixin's key
+									     has been changed but not yet saved. The save flow
+									     will rewrite the same number of schema references. -->
+									<div v-if="isMixinKeyRenamed(selectedSchema) && mixinDependentsByOriginalKey(selectedSchema).length > 0"
+										class="rename-cascade-notice">
+										<i class="bi bi-arrow-repeat me-1"></i>
+										Renaming will update
+										<strong>{{ mixinDependentsByOriginalKey(selectedSchema).length }}</strong>
+										schema reference{{ mixinDependentsByOriginalKey(selectedSchema).length === 1 ? '' : 's' }}
+										(<span class="mixin-chip-key">{{ selectedSchema._originalKey }}</span>
+										&rarr; <span class="mixin-chip-key">{{ selectedSchema.key || '?' }}</span>)
+										on save.
+									</div>
 								</div>
 								<div class="property-row half">
 									<label class="property-label">Label</label>
 									<input type="text" class="wt w-100" v-model="selectedSchema.label"
-										placeholder="e.g. Article"
+										:placeholder="selectedSchema.kind === 'mixin' ? 'e.g. SEO' : 'e.g. Article'"
 										@input="onSchemaFieldChange">
 								</div>
 							</div>
 							<div class="property-row">
 								<label class="property-label">Description</label>
 								<textarea class="wt w-100" v-model="selectedSchema.description" rows="3"
-									placeholder="Schema description..."
+									:placeholder="(selectedSchema.kind === 'mixin' ? 'Mixin' : 'Schema') + ' description...'"
 									@input="onSchemaFieldChange"></textarea>
+							</div>
+						</div>
+
+						<!-- Mixins (schemas only): which reusable bundles are pulled
+						     in, in declared order. Phase 1 forbids mixin-on-mixin
+						     nesting so this block is suppressed for kind=mixin. -->
+						<div v-if="selectedSchema.kind === 'schema'" class="property-group">
+							<div class="property-group-title">Mixins</div>
+
+							<div v-if="selectedSchema.mixins.length === 0" class="property-row">
+								<span class="text-muted">No mixins attached.</span>
+							</div>
+
+							<div v-else class="mixin-chip-list">
+								<div v-for="(mxKey, idx) in selectedSchema.mixins" :key="mxKey"
+									class="mixin-chip"
+									:class="{ 'is-dangling': !mixinByKey(mxKey) }"
+									:title="mixinByKey(mxKey) ? (mixinByKey(mxKey).label || mxKey) : 'Unknown mixin: ' + mxKey">
+									<i class="bi bi-puzzle me-1"></i>
+									<span class="mixin-chip-key">{{ mxKey }}</span>
+									<span v-if="mixinByKey(mxKey) && mixinByKey(mxKey).label"
+										class="mixin-chip-label">{{ mixinByKey(mxKey).label }}</span>
+									<span v-if="!mixinByKey(mxKey)" class="mixin-chip-warning"
+										title="Referenced mixin not found">
+										<i class="bi bi-exclamation-triangle-fill"></i>
+									</span>
+									<button class="btn-icon mixin-chip-btn" :disabled="idx === 0"
+										@click="moveMixinReference(selectedSchema, mxKey, -1)" title="Move up">
+										<i class="bi bi-chevron-up"></i>
+									</button>
+									<button class="btn-icon mixin-chip-btn"
+										:disabled="idx === selectedSchema.mixins.length - 1"
+										@click="moveMixinReference(selectedSchema, mxKey, 1)" title="Move down">
+										<i class="bi bi-chevron-down"></i>
+									</button>
+									<button class="btn-icon mixin-chip-btn"
+										@click="removeMixinReference(selectedSchema, mxKey)" title="Remove">
+										<i class="bi bi-x-lg"></i>
+									</button>
+								</div>
+							</div>
+
+							<div v-if="validationErrors['schema.' + selectedSchema._id + '.mixins']"
+								class="invalid-feedback d-block">
+								{{ validationErrors['schema.' + selectedSchema._id + '.mixins'] }}
+							</div>
+
+							<div v-if="availableMixinsFor(selectedSchema).length > 0" class="property-row mt-2">
+								<label class="property-label">Add mixin</label>
+								<select class="wt" :value="''"
+									@change="addMixinReference(selectedSchema, $event.target.value); $event.target.value = ''">
+									<option value="" disabled>Select a mixin to attach...</option>
+									<option v-for="mx in availableMixinsFor(selectedSchema)"
+										:key="mx.key" :value="mx.key">
+										{{ mx.key }}<template v-if="mx.label && mx.label !== mx.key"> — {{ mx.label }}</template>
+									</option>
+								</select>
+							</div>
+						</div>
+
+						<div v-if="selectedSchema.kind === 'schema'" class="property-group">
+							<!-- Inherited (read-only) preview: properties contributed
+							     by attached mixins, in mixin-declaration order. Each
+							     row shows the originating mixin; an "overridden"
+							     row indicates the schema has its own property with
+							     the same key (which will fully replace this one). -->
+							<div class="property-group-title">Inherited properties</div>
+							<div v-if="inheritedProperties(selectedSchema).length > 0" class="inherited-preview">
+								<div v-for="entry in inheritedProperties(selectedSchema)"
+									:key="entry.mixinKey + ':' + entry.prop.key"
+									class="inherited-prop-row"
+									:class="{ 'is-overridden': entry.overridden }">
+									<i class="bi bi-file-code me-1"></i>
+									<span class="inherited-prop-key">{{ entry.prop.key }}</span>
+									<span v-if="entry.prop.label" class="inherited-prop-label">{{ entry.prop.label }}</span>
+									<span class="prop-type-badge">{{ entry.prop.type }}</span>
+									<span class="mixin-origin-badge">from {{ entry.mixinKey }}</span>
+									<span v-if="entry.overridden" class="mixin-override-badge"
+										title="This schema defines an own property with the same key">overridden</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Used by (mixins only): interactive list of dependent
+						     schemas. Clicking a row jumps to that schema so the
+						     author can verify the impact of a mixin edit. -->
+						<div v-if="selectedSchema.kind === 'mixin'" class="property-group">
+							<div class="property-group-title">
+								Used by ({{ mixinDependents(selectedSchema).length }})
+							</div>
+							<div v-if="mixinDependents(selectedSchema).length === 0" class="property-row">
+								<span class="text-muted">Not used by any schema yet.</span>
+							</div>
+							<div v-else class="mixin-dependent-rows">
+								<div v-for="dep in mixinDependents(selectedSchema)" :key="dep._id"
+									class="mixin-dependent-row"
+									@click="jumpToSchema(dep._id)">
+									<i class="bi bi-collection me-1"></i>
+									<span class="mixin-chip-key">{{ dep.key }}</span>
+									<span v-if="dep.label" class="mixin-chip-label">{{ dep.label }}</span>
+									<span class="mixin-dependent-stats">
+										<span>{{ (selectedSchema.properties.filter(p => !p._isDeleted)).length }} inherited</span>
+										<span v-if="selectedSchema.properties.filter(p => !p._isDeleted && dep.properties.some(op => !op._isDeleted && op.key === p.key)).length > 0"
+											class="mixin-override-badge">
+											{{ selectedSchema.properties.filter(p => !p._isDeleted && dep.properties.some(op => !op._isDeleted && op.key === p.key)).length }} overridden
+										</span>
+									</span>
+									<i class="bi bi-chevron-right ms-auto"></i>
+								</div>
+							</div>
+						</div>
+
+						<!-- Preview Impact (mixins only): for each property the mixin
+						     contributes, show how many dependent schemas shadow it
+						     via an own property. Helps the author see at a glance
+						     which edits will be fully effective and which won't. -->
+						<div v-if="selectedSchema.kind === 'mixin' && selectedSchema.properties.filter(p => !p._isDeleted).length > 0 && mixinDependents(selectedSchema).length > 0"
+							class="property-group">
+							<div class="property-group-title">Preview Impact</div>
+							<div class="inherited-preview">
+								<div v-for="p in selectedSchema.properties.filter(p => !p._isDeleted)"
+									:key="p._id"
+									class="inherited-prop-row">
+									<i class="bi bi-file-code me-1"></i>
+									<span class="inherited-prop-key">{{ p.key || '(unnamed)' }}</span>
+									<span v-if="p.label" class="inherited-prop-label">{{ p.label }}</span>
+									<span class="prop-type-badge">{{ p.type }}</span>
+									<span v-if="mixinPropertyShadowCount(selectedSchema, p.key) > 0"
+										class="mixin-override-badge ms-auto"
+										:title="'Shadowed by ' + mixinPropertyShadowCount(selectedSchema, p.key) + ' dependent schema(s)'">
+										shadowed by {{ mixinPropertyShadowCount(selectedSchema, p.key) }}
+									</span>
+									<span v-else class="mixin-origin-badge ms-auto">
+										reaches {{ mixinDependents(selectedSchema).length }}
+									</span>
+								</div>
 							</div>
 						</div>
 
 						<div class="property-group">
 							<div class="property-group-title">Summary</div>
 							<div class="property-row">
-								<span class="text-muted">{{ selectedSchema.properties.filter(p => !p._isDeleted).length }} properties</span>
+								<span class="text-muted">
+									{{ selectedSchema.properties.filter(p => !p._isDeleted).length }} own properties
+									<template v-if="selectedSchema.kind === 'schema' && inheritedProperties(selectedSchema).length > 0">
+										&middot; {{ inheritedProperties(selectedSchema).length }} inherited
+									</template>
+									<template v-if="selectedSchema.kind === 'mixin'">
+										&middot; used by {{ mixinUsageCount(selectedSchema) }} schema(s)
+									</template>
+								</span>
 							</div>
-							<div>
+							<div class="d-flex flex-wrap" style="gap: 0.5rem;">
 								<button class="wt wt-primary wt-outlined" @click="startScan(selectedSchema._id)">
 									<i class="bi bi-search me-1"></i><span>Scan Properties</span>
+								</button>
+								<button v-if="selectedSchema.kind === 'schema'"
+									class="wt wt-outlined"
+									:disabled="selectedSchema.properties.filter(p => !p._isDeleted && p.key).length === 0"
+									@click="openExtractDialog(selectedSchema._id)"
+									title="Move selected properties to a new mixin">
+									<i class="bi bi-box-arrow-up-right me-1"></i><span>Extract to mixin...</span>
 								</button>
 							</div>
 						</div>
@@ -415,6 +598,19 @@
 
 					<!-- Property form -->
 					<div v-if="editingMode === 'property'" :key="selection.propertyID" class="content-form">
+
+						<!-- Mixin shadow notice: when this own property has the
+						     same key as a mixin-contributed property, it fully
+						     replaces the mixin version on resolve. Surfacing
+						     it here prevents the "where did this come from?"
+						     surprise when authors only see the schema form. -->
+						<div v-if="selectedSchema && selectedSchema.kind === 'schema' && selectedProperty && shadowedByMixinKey(selectedSchema, selectedProperty.key)"
+							class="shadow-notice">
+							<i class="bi bi-layers-half me-1"></i>
+							This property shadows the same-keyed property from
+							<span class="mixin-chip-key">{{ shadowedByMixinKey(selectedSchema, selectedProperty.key) }}</span>
+							and will fully replace it on resolve.
+						</div>
 
 						<!-- Basic fields -->
 						<div class="property-group">
@@ -714,9 +910,19 @@
 		<!-- Bottom Status Bar (translucent) -->
 		<div class="status-bar window-drag-region">
 			<div class="status-group">
-				<span class="status-item">{{ schemas.length }} schemas</span>
+				<span class="status-item">{{ schemaCount }} schemas</span>
+				<span class="status-divider"></span>
+				<span class="status-item">{{ mixinCount }} mixins</span>
 				<span class="status-divider"></span>
 				<span class="status-item">{{ totalPropertyCount }} properties</span>
+				<template v-if="schemasWithDanglingMixins().length > 0">
+					<span class="status-divider"></span>
+					<span class="status-item status-warning"
+						:title="schemasWithDanglingMixins().map(s => s.key).join(', ')">
+						<i class="bi bi-exclamation-triangle-fill me-1"></i>
+						{{ schemasWithDanglingMixins().length }} dangling mixin reference{{ schemasWithDanglingMixins().length === 1 ? '' : 's' }}
+					</span>
+				</template>
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
@@ -750,6 +956,139 @@
 						</button>
 						<button class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
 							<i class="bi bi-floppy me-1"></i>Save
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Delete Mixin Confirmation Dialog
+		     Surfaces when the user deletes a mixin that has live dependent
+		     schemas. The mode radios decide how those schemas are treated:
+		     Inline preserves their effective shape by copying the mixin's
+		     properties into each schema; Detach drops them. -->
+		<div v-if="deleteMixinDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 36rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3>
+							<i class="bi bi-exclamation-triangle-fill me-2"></i>Delete Mixin
+							"<span class="mixin-chip-key">{{ deleteMixinDialog.mixinKey }}</span>"
+						</h3>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0">
+							This mixin is used by
+							<strong>{{ deleteMixinDialog.dependentIDs.length }}</strong>
+							schema{{ deleteMixinDialog.dependentIDs.length === 1 ? '' : 's' }}:
+						</p>
+						<ul class="mixin-dependent-list">
+							<li v-for="depID in deleteMixinDialog.dependentIDs" :key="depID">
+								<i class="bi bi-collection ms-1 me-3"></i>
+								<span class="mixin-chip-key">{{ (schemas.find(s => s._id === depID) || {}).key || '(unnamed)' }}</span>
+								<span v-if="(schemas.find(s => s._id === depID) || {}).label"
+									class="mixin-chip-label ms-2">{{ (schemas.find(s => s._id === depID) || {}).label }}</span>
+							</li>
+						</ul>
+						<p class="mt-6 mb-0">How should the dependent schemas be handled?</p>
+						<label class="dialog-radio">
+							<input class="wt" type="radio" name="delete-mixin-mode" value="inline"
+								v-model="deleteMixinDialog.mode">
+							<span>
+								<strong>Inline</strong> — copy the mixin's properties into each
+								schema as own properties. Schemas keep the same effective shape.
+							</span>
+						</label>
+						<label class="dialog-radio">
+							<input class="wt" type="radio" name="delete-mixin-mode" value="detach"
+								v-model="deleteMixinDialog.mode">
+							<span>
+								<strong>Detach</strong> — drop the mixin reference. Schemas
+								lose the inherited properties.
+							</span>
+						</label>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="cancelDeleteMixinDialog">Cancel</button>
+						<button class="wt wt-danger" @click="confirmDeleteMixinDialog">
+							<i class="bi bi-trash me-1"></i>Delete
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Extract to Mixin Dialog
+		     Splits selected own properties from the current schema into a
+		     new mixin file. Properties whose key collides with one already
+		     contributed by an attached mixin are blocked from selection —
+		     extracting them would silently drop the override (mixin-mixin
+		     collisions are first-wins on resolution). Everything happens
+		     in-memory; Save All persists the new mixin and the updated
+		     schema as one batch. -->
+		<div v-if="extractDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 40rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-box-arrow-up-right me-2"></i>Extract to Mixin</h3>
+					</div>
+					<div class="dialog-body direction-column">
+						<div class="form-row">
+							<div class="property-row half">
+								<label class="property-label">New mixin key</label>
+								<input type="text" class="wt w-100" v-model="extractDialog.newKey"
+									:class="{'is-invalid': extractDialog.newKey && !isExtractKeyValid()}"
+									placeholder="e.g. seo">
+								<div v-if="extractDialog.newKey && !isExtractKeyValid()"
+									class="invalid-feedback">
+									Must be unique among mixins and contain only letters, digits, hyphens, underscores.
+								</div>
+							</div>
+							<div class="property-row half">
+								<label class="property-label">Label</label>
+								<input type="text" class="wt w-100" v-model="extractDialog.newLabel"
+									placeholder="e.g. SEO">
+							</div>
+						</div>
+						<div class="property-row">
+							<label class="property-label">Description</label>
+							<textarea class="wt w-100" v-model="extractDialog.newDescription" rows="2"
+								placeholder="Optional mixin description..."></textarea>
+						</div>
+
+						<div class="property-group-title mt-2">
+							Properties to extract
+							({{ extractDialog.selectedPropertyIDs.length }} selected)
+						</div>
+						<div v-if="extractDialogRows().length === 0" class="text-muted">
+							This schema has no own properties to extract.
+						</div>
+						<div v-else class="extract-row-list">
+							<label v-for="row in extractDialogRows()"
+								:key="row.prop._id"
+								class="extract-row"
+								:class="{ 'is-blocked': row.blocked }"
+								:title="row.blocked ? ('Already contributed by mixin: ' + row.blockedBy) : ''">
+								<input type="checkbox" class="wt"
+									:disabled="row.blocked"
+									:checked="extractDialog.selectedPropertyIDs.includes(row.prop._id)"
+									@change="toggleExtractProperty(row.prop._id)">
+								<i class="bi bi-file-code"></i>
+								<span class="extract-row-key">{{ row.prop.key }}</span>
+								<span v-if="row.prop.label" class="extract-row-label">{{ row.prop.label }}</span>
+								<span class="prop-type-badge">{{ row.prop.type }}</span>
+								<span v-if="row.blocked" class="mixin-override-badge ms-auto">
+									in {{ row.blockedBy }}
+								</span>
+							</label>
+						</div>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="cancelExtractDialog">Cancel</button>
+						<button class="wt wt-primary"
+							:disabled="!canConfirmExtract()"
+							@click="confirmExtractDialog">
+							<i class="bi bi-box-arrow-up-right me-1"></i>Extract
 						</button>
 					</div>
 				</div>

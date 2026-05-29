@@ -475,7 +475,6 @@ nav.nav-bar {
 .property-row {
 	display: flex;
 	flex-direction: column;
-	/* gap: 0.2rem; */
 	flex: 1;
 	min-width: 0;
 }
@@ -495,7 +494,6 @@ nav.nav-bar {
 .form-row {
 	display: flex;
 	gap: 0.75rem;
-	/* margin-bottom: 0.75rem; */
 }
 
 /* Validation message */
@@ -513,7 +511,6 @@ input.wt.is-invalid,
 .field-help {
 	font-size: 11px;
 	color: var(--text-muted-color);
-	/* line-height: 1.45; */
 	margin-bottom: 0.25rem;
     padding-left: 0.125rem;
 }
@@ -699,7 +696,6 @@ input.wt.is-invalid,
 .scan-table {
 	width: 100%;
 	border-collapse: collapse;
-	/* font-size: 12px; */
 	user-select: none;
 }
 
@@ -730,24 +726,7 @@ input.wt.is-invalid,
 	text-align: center;
 }
 
-.scan-table .col-key {
-	/* min-width: 8rem; */
-}
-
-.scan-table .col-label {
-	/* min-width: 6rem; */
-}
-
-.scan-table .col-type {
-	/* width: 8rem; */
-}
-
-.scan-table .col-semantic {
-	/* width: 7rem; */
-}
-
 .scan-table .col-multi {
-	/* width: 3rem; */
 	text-align: center;
 }
 
@@ -778,7 +757,6 @@ input.wt.is-invalid,
 
 /* Inline edit input (no border by default, focus ring on edit) */
 .scan-inline-input {
-	/* width: 100%; */
 	max-width: 10rem;
 	background: transparent;
 	border: 1px solid transparent;
@@ -786,7 +764,6 @@ input.wt.is-invalid,
 	padding: 0.15rem 0.3rem;
 	color: inherit;
 	font-family: inherit;
-	/* font-size: 12px; */
 	font-weight: inherit;
 	outline: none;
 }
@@ -799,12 +776,10 @@ input.wt.is-invalid,
 
 .scan-inline-select-wrapper > .wt-select-trigger {
 	padding: 0.15rem 0.4rem;
-	/* font-size: 12px; */
 	border-width: 1px;
 }
 
 .sample-value {
-	/* font-size: 11px; */
 	color: var(--text-muted-color);
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -902,6 +877,274 @@ input.wt.is-invalid,
 
 @keyframes spin {
 	to { transform: rotate(360deg); }
+}
+
+/* ----------------------------------------------------------------------------
+ * Mixin support — reusable property bundles authored alongside schemas.
+ * -------------------------------------------------------------------------- */
+
+/* Small "mixin" pill displayed next to mixin entries in the sidebar tree so
+ * mixins are visually distinct from schemas at a glance. */
+.schema-kind-badge {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	height: 1.125rem;
+	line-height: 1;
+	font-size: 9px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0;
+	padding: 0 0.5em;
+	margin-left: 0.25rem;
+	border-radius: 9999px;
+	background-color: rgba(from var(--primary-color, #4a90e2) r g b / 0.12);
+	color: var(--primary-color, #4a90e2);
+	border: 1px solid rgba(from var(--primary-color, #4a90e2) r g b / 0.35);
+}
+
+/* Mixins-section chip list (selected mixins displayed in declared order). */
+.mixin-chip-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.mixin-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0.5rem;
+	border-radius: 0.5rem;
+	border: 2px solid var(--input-border-color);
+}
+
+.mixin-chip.is-dangling {
+	border-color: rgba(from var(--danger-color, #d9534f) r g b / 0.5);
+	background-color: rgba(from var(--danger-color, #d9534f) r g b / 0.06);
+}
+
+.mixin-chip-label {
+	color: var(--text-muted-color);
+	font-size: 0.8125rem;
+}
+
+.mixin-chip-warning {
+	color: var(--danger-color, #d9534f);
+}
+
+.mixin-chip-btn {
+	margin-left: auto;
+}
+
+.mixin-chip .mixin-chip-btn + .mixin-chip-btn {
+	margin-left: 0;
+}
+
+/* Inherited-properties preview: the read-only listing of properties a schema
+ * receives from its attached mixins. Rows that the schema itself shadows via
+ * a same-keyed own property are dimmed and tagged "overridden". */
+.inherited-preview {
+	display: flex;
+	flex-direction: column;
+	border: 2px solid var(--input-border-color);
+	border-radius: 0.5rem;
+}
+
+.inherited-prop-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0.5rem;
+}
+
+.inherited-preview .inherited-prop-row:nth-child(2n) {
+    background-color: var(--item-even-bg);
+}
+
+.inherited-prop-row:hover {
+    background-color: var(--item-hover-bg)!important;
+}
+
+.inherited-prop-row.is-overridden {
+	opacity: 0.55;
+}
+
+.inherited-prop-label {
+	color: var(--text-muted-color);
+	font-size: 0.8125rem;
+}
+
+.mixin-origin-badge,
+.mixin-override-badge {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	height: 1.125rem;
+	line-height: 1;
+	font-size: 9px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0;
+	padding: 0 0.5em;
+	border-radius: 9999px;
+}
+
+.mixin-origin-badge {
+	background-color: rgba(from var(--primary-color, #4a90e2) r g b / 0.1);
+	color: var(--primary-color, #4a90e2);
+	border: 1px solid rgba(from var(--primary-color, #4a90e2) r g b / 0.3);
+	margin-left: auto;
+}
+
+.mixin-override-badge {
+	background-color: rgba(from var(--warning-color, #f0ad4e) r g b / 0.1);
+	color: var(--warning-color, #f0ad4e);
+	border: 1px solid rgba(from var(--warning-color, #f0ad4e) r g b / 0.3);
+}
+
+/* Phase 2 — sidebar / cross-cut UI */
+
+/* Faint inline hint on a schema row showing which mixins are attached. */
+.schema-mixin-hint {
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+	font-style: italic;
+	margin-left: 0.375rem;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Rename-cascade notice under a mixin's Key field. Yellow because the
+ * action is benign but consequential — author should notice. */
+.rename-cascade-notice {
+	margin-top: 0.375rem;
+	padding: 0.375rem 0.5rem;
+	border-radius: 0.25rem;
+	font-size: 0.8125rem;
+	background-color: rgba(from var(--warning-color, #f0ad4e) r g b / 0.08);
+	border: 1px solid rgba(from var(--warning-color, #f0ad4e) r g b / 0.35);
+	color: var(--text-color);
+}
+
+/* Shadow notice in the property form: makes it obvious that the own
+ * property will replace an inherited mixin property. */
+.shadow-notice {
+	padding: 0.5rem 0.75rem;
+	border-radius: 0.375rem;
+	font-size: 0.875rem;
+	background-color: rgba(from var(--primary-color, #4a90e2) r g b / 0.08);
+	border: 1px solid rgba(from var(--primary-color, #4a90e2) r g b / 0.3);
+	color: var(--text-color);
+}
+
+/* Used-by panel in the mixin editor: each row is a clickable dependent
+ * schema. The hover affordance mirrors the sidebar so authors recognise
+ * it as a navigation target. */
+.mixin-dependent-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.mixin-dependent-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0.5rem;
+	border-radius: 0.5rem;
+	cursor: pointer;
+	border: 2px solid var(--input-border-color);
+}
+
+.mixin-dependent-row:hover {
+	background-color: rgba(from var(--primary-color, #4a90e2) r g b / 0.06);
+	border-color: rgba(from var(--primary-color, #4a90e2) r g b / 0.3);
+}
+
+.mixin-dependent-stats {
+	display: inline-flex;
+	gap: 0.375rem;
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+	margin-left: 0.5rem;
+}
+
+/* Dependent list inside the delete-mixin dialog. */
+.mixin-dependent-list {
+	list-style: none;
+	padding: 0;
+	margin: 0.5rem 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.mixin-dependent-list li {
+	padding: 0.375rem 0.5rem;
+	background-color: var(--item-even-bg);
+	border-radius: 0.5rem;
+}
+
+/* Radio rows in the delete-mixin dialog. */
+.dialog-radio {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem;
+	margin: 0.25rem 0;
+	border-radius: 0.5rem;
+	cursor: pointer;
+}
+
+.dialog-radio:hover {
+	background-color: var(--item-even-bg);
+}
+
+/* Status-bar warning chip for dangling mixin references. */
+.status-warning {
+	color: var(--warning-color, #f0ad4e);
+}
+
+/* Phase 2.5 — Extract to mixin dialog: scrollable property checklist. */
+.extract-row-list {
+	display: flex;
+	flex-direction: column;
+	max-height: 18rem;
+	overflow-y: auto;
+	border: 2px solid var(--input-border-color);
+	border-radius: 0.375rem;
+}
+
+.extract-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0.5rem;
+	cursor: pointer;
+}
+
+.extract-row-list .extract-row:nth-child(2n) {
+    background-color: var(--item-even-bg);
+}
+
+.extract-row:hover {
+    background-color: var(--item-hover-bg)!important;
+}
+
+.extract-row.is-blocked {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.extract-row.is-blocked:hover {
+	background-color: transparent;
+}
+
+.extract-row-label {
+	color: var(--text-muted-color);
+	font-size: 0.8125rem;
 }
 
 /* ----------------------------------------------------------------------------

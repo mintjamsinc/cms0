@@ -2,7 +2,15 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 
 // Constants
 const SCHEMAS_PATH = '/etc/metadata/schemas';
+const MIXINS_PATH  = '/etc/metadata/mixins';
 const MIME_TYPE = 'application/vnd.webtop.metadata-schema+json';
+
+// Discriminator for SchemaDefinition entries. A "schema" lives under
+// SCHEMAS_PATH and may declare mixin references; a "mixin" lives under
+// MIXINS_PATH and supplies reusable properties that schemas pull in. The two
+// share the exact same in-memory shape so they can reuse the existing editor;
+// only the persistence path and which fields are meaningful differ.
+type SchemaKind = 'schema' | 'mixin';
 
 // JCR property types
 const JCR_TYPES = [
@@ -215,9 +223,13 @@ interface PropertyDefinition {
 
 interface SchemaDefinition {
 	_id: string;
+	kind: SchemaKind;
 	key: string;
 	label: string;
 	description: string;
+	// Mixin keys this schema pulls in (resolved order). Always empty for
+	// kind === 'mixin' (Phase 1 forbids mixin nesting).
+	mixins: string[];
 	properties: PropertyDefinition[];
 	_filePath: string;
 	_isNew: boolean;
@@ -225,6 +237,12 @@ interface SchemaDefinition {
 	_isDeleted: boolean;
 	_originalJSON: string;
 	_expanded: boolean;
+	// Last-saved key for this entry. Phase 2 rename-cascade compares this to
+	// the current `key` on Save All: if they differ, every schema whose
+	// `mixins[]` references _originalKey is auto-updated to the new key
+	// before the mixin file itself is renamed on disk. Set on load and on
+	// first save; never touched by editing the `key` field directly.
+	_originalKey: string;
 }
 
 // Selection target: either a schema or a property within a schema
@@ -279,12 +297,14 @@ function createEmptyProperty(): PropertyDefinition {
 	};
 }
 
-function createEmptySchema(): SchemaDefinition {
+function createEmptySchema(kind: SchemaKind = 'schema'): SchemaDefinition {
 	return {
 		_id: nextID(),
+		kind,
 		key: '',
 		label: '',
 		description: '',
+		mixins: [],
 		properties: [],
 		_filePath: '',
 		_isNew: true,
@@ -292,7 +312,23 @@ function createEmptySchema(): SchemaDefinition {
 		_isDeleted: false,
 		_originalJSON: '',
 		_expanded: true,
+		_originalKey: '',
 	};
+}
+
+// Deep-clone a property definition for the "Inline" delete flow: a mixin's
+// properties get copied into each dependent schema's own-properties list, so
+// the schema retains the same effective shape after the mixin is gone. The
+// copy is marked _isNew so it round-trips through saveAll's create path; its
+// `_id` is regenerated to keep DOM keys stable.
+function cloneAsOwnProperty(p: PropertyDefinition): PropertyDefinition {
+	return JSON.parse(JSON.stringify({
+		...p,
+		_id: nextID(),
+		_isNew: true,
+		_isModified: false,
+		_isDeleted: false,
+	})) as PropertyDefinition;
 }
 
 // Convert server JSON property to internal PropertyDefinition
@@ -455,11 +491,17 @@ function toServerProperty(prop: PropertyDefinition): any {
 function schemaToJSON(schema: SchemaDefinition): string {
 	const activeProps = schema.properties.filter(p => !p._isDeleted);
 	const output: any = {
+		kind: schema.kind,
 		key: schema.key,
 		label: schema.label,
 	};
 	if (schema.description) {
 		output.description = schema.description;
+	}
+	// Mixin references are only meaningful on schemas. A mixin file never
+	// declares its own mixins in Phase 1.
+	if (schema.kind === 'schema' && schema.mixins && schema.mixins.length > 0) {
+		output.mixins = [...schema.mixins];
 	}
 	output.properties = activeProps.map(p => toServerProperty(p));
 	return JSON.stringify(output, null, 2);
@@ -516,6 +558,32 @@ export const App = {
 			closeConfirmDialog: {
 				visible: false,
 				resolve: null as null | ((result: 'save' | 'discard' | 'cancel') => void),
+			},
+			// Modal shown when deleting a mixin that has live dependents. The
+			// user picks how to treat dependents (default: inline copy so the
+			// effective shape is preserved; or detach to drop the inherited
+			// properties). See confirmDeleteMixinDialog for the algorithm.
+			deleteMixinDialog: {
+				visible: false,
+				mixinID: '' as string,
+				mixinKey: '' as string,
+				dependentIDs: [] as string[],
+				mode: 'inline' as 'inline' | 'detach',
+			},
+			// Modal for Phase 2.5 "Extract to mixin": select own properties
+			// from the current schema, name a new mixin, and split. The
+			// extraction is in-memory only — Save All persists both the new
+			// mixin file and the updated schema as a single batch.
+			extractDialog: {
+				visible: false,
+				schemaID: '' as string,
+				newKey: '' as string,
+				newLabel: '' as string,
+				newDescription: '' as string,
+				// Selected propertyIDs from the source schema. The order
+				// reflects the user's check sequence so we can preserve it
+				// in the new mixin (which uses Set semantics on key only).
+				selectedPropertyIDs: [] as string[],
 			},
 		};
 	},
@@ -633,7 +701,7 @@ export const App = {
 			if (key) return key;
 			return '(unnamed)';
 		},
-		// Total active property count across all schemas (status bar)
+		// Total active property count across all schemas and mixins (status bar)
 		totalPropertyCount(): number {
 			let total = 0;
 			for (const s of this.schemas as SchemaDefinition[]) {
@@ -643,6 +711,16 @@ export const App = {
 				}
 			}
 			return total;
+		},
+		schemaCount(): number {
+			return (this.schemas as SchemaDefinition[]).filter(
+				(s: SchemaDefinition) => s.kind === 'schema' && !s._isDeleted
+			).length;
+		},
+		mixinCount(): number {
+			return (this.schemas as SchemaDefinition[]).filter(
+				(s: SchemaDefinition) => s.kind === 'mixin' && !s._isDeleted
+			).length;
 		},
 		// Scan: number of checked properties
 		checkedScanCount(): number {
@@ -911,7 +989,7 @@ export const App = {
 			vm.updateDuplicateFlags();
 		},
 
-		// Load all schema files from /etc/metadata/schemas/
+		// Load all schema and mixin files from /etc/metadata/{schemas,mixins}/
 		async loadAllSchemas() {
 			const vm = this;
 			vm.isLoading = true;
@@ -920,55 +998,81 @@ export const App = {
 			try {
 				const contentService = vm.instance.api.content;
 
-				// Check if directory exists
-				let dirExists = false;
-				try {
-					const dirNode = await contentService.getNode(SCHEMAS_PATH);
-					if (dirNode) dirExists = true;
-				} catch { /* does not exist */ }
+				const loadFrom = async (dirPath: string, kind: SchemaKind): Promise<SchemaDefinition[]> => {
+					let dirExists = false;
+					try {
+						const dirNode = await contentService.getNode(dirPath);
+						if (dirNode) dirExists = true;
+					} catch { /* does not exist */ }
+					if (!dirExists) return [];
 
-				if (!dirExists) {
-					vm.schemas = [];
-					return;
-				}
+					const out: SchemaDefinition[] = [];
+					for await (const batch of contentService.listAllChildren(dirPath, 50)) {
+						for (const node of batch) {
+							if (!node.name?.endsWith('.json')) continue;
+							if (!node.downloadUrl) continue;
 
-				const schemas: SchemaDefinition[] = [];
+							try {
+								const response = await fetch(node.downloadUrl);
+								if (!response.ok) continue;
+								const text = await response.text();
+								const data = JSON.parse(text);
 
-				for await (const batch of contentService.listAllChildren(SCHEMAS_PATH, 50)) {
-					for (const node of batch) {
-						if (!node.name?.endsWith('.json')) continue;
-						if (!node.downloadUrl) continue;
+								// Trust the directory we loaded from; if a file disagrees
+								// with its location (legacy or hand-edited), log and force
+								// the correct kind so save round-trips to the right path.
+								const declaredKind = (data.kind === 'mixin' || data.kind === 'schema') ? data.kind : kind;
+								if (declaredKind !== kind) {
+									console.warn(`[SchemaEditor] kind mismatch: file ${node.path} declared "${declaredKind}" but lives under ${dirPath}; treating as "${kind}".`);
+								}
 
-						try {
-							const response = await fetch(node.downloadUrl);
-							if (!response.ok) continue;
-							const text = await response.text();
-							const data = JSON.parse(text);
+								// Phase 1: mixins must not declare their own `mixins` field.
+								const rawMixins: string[] = (kind === 'schema' && Array.isArray(data.mixins))
+									? data.mixins.filter((m: any) => typeof m === 'string')
+									: [];
+								if (kind === 'mixin' && Array.isArray(data.mixins) && data.mixins.length > 0) {
+									console.warn(`[SchemaEditor] Mixin nesting is not supported in Phase 1; ignoring "mixins" in ${node.path}.`);
+								}
 
-							const schema: SchemaDefinition = {
-								_id: nextID(),
-								key: data.key || '',
-								label: data.label || '',
-								description: data.description || '',
-								properties: (data.properties || []).map((p: any) => fromServerProperty(p)),
-								_filePath: node.path,
-								_isNew: false,
-								_isModified: false,
-								_isDeleted: false,
-								_originalJSON: '',
-								_expanded: false,
-							};
-							schema._originalJSON = schemaToJSON(schema);
-							schemas.push(schema);
-						} catch {
-							console.warn(`[SchemaEditor] Failed to parse: ${node.path}`);
+								const schema: SchemaDefinition = {
+									_id: nextID(),
+									kind,
+									key: data.key || '',
+									label: data.label || '',
+									description: data.description || '',
+									mixins: rawMixins,
+									properties: (data.properties || []).map((p: any) => fromServerProperty(p)),
+									_filePath: node.path,
+									_isNew: false,
+									_isModified: false,
+									_isDeleted: false,
+									_originalJSON: '',
+									_expanded: false,
+									_originalKey: data.key || '',
+								};
+								schema._originalJSON = schemaToJSON(schema);
+								out.push(schema);
+							} catch {
+								console.warn(`[SchemaEditor] Failed to parse: ${node.path}`);
+							}
 						}
 					}
-				}
+					return out;
+				};
 
-				// Sort by key
-				schemas.sort((a, b) => a.key.localeCompare(b.key));
-				vm.schemas = schemas;
+				const [schemaItems, mixinItems] = await Promise.all([
+					loadFrom(SCHEMAS_PATH, 'schema'),
+					loadFrom(MIXINS_PATH, 'mixin'),
+				]);
+
+				// Mixins first so the side panel shows reusable parts above the
+				// schemas that consume them; within each kind, sort by key.
+				const all = [...mixinItems, ...schemaItems];
+				all.sort((a, b) => {
+					if (a.kind !== b.kind) return a.kind === 'mixin' ? -1 : 1;
+					return a.key.localeCompare(b.key);
+				});
+				vm.schemas = all;
 			} catch (error: any) {
 				vm.errorMessage = error?.message || String(error);
 			} finally {
@@ -1003,17 +1107,211 @@ export const App = {
 			}
 		},
 
+		// Open the "New" menu anchored to the + button. The menu is placed at a
+		// fixed position relative to the trigger (not the mouse pointer) and lets
+		// the user choose between creating a schema or a mixin.
+		async openAddMenu(event: MouseEvent) {
+			const vm = this;
+			if (!vm.instance) return;
+			const trigger = event.currentTarget as HTMLElement;
+			const rect = trigger.getBoundingClientRect();
+			const handle = vm.instance.popup.open({
+				anchor: rect,
+				placement: 'bottom-start',
+				items: [
+					{ id: 'schema', label: 'Schema', icon: 'bi bi-collection' },
+					{ id: 'mixin', label: 'Mixin', icon: 'bi bi-puzzle' },
+				],
+			});
+			const result = await handle.result;
+			if (result === 'schema') vm.addSchema();
+			else if (result === 'mixin') vm.addMixin();
+		},
+
 		// Add a new schema
 		addSchema() {
-			const schema = createEmptySchema();
+			const schema = createEmptySchema('schema');
 			this.schemas.push(schema);
 			this.selectSchema(schema._id);
+		},
+
+		// Add a new mixin (reusable property bundle, e.g. SEO, publishing).
+		addMixin() {
+			const mixin = createEmptySchema('mixin');
+			this.schemas.push(mixin);
+			this.selectSchema(mixin._id);
+		},
+
+		// Mixin keys available to attach to the currently selected schema.
+		// Excludes the schema's already-attached mixins and excludes mixins
+		// that have not been saved yet (no stable key to reference).
+		availableMixinsFor(schema: SchemaDefinition): { key: string; label: string }[] {
+			if (!schema || schema.kind !== 'schema') return [];
+			const used = new Set(schema.mixins);
+			return (this.schemas as SchemaDefinition[])
+				.filter((s: SchemaDefinition) => s.kind === 'mixin' && !s._isDeleted && s.key && !used.has(s.key))
+				.map((s: SchemaDefinition) => ({ key: s.key, label: s.label || s.key }));
+		},
+
+		// Resolve a mixin key to its in-memory definition (so the schema editor
+		// can render inherited properties read-only). Returns null when the
+		// referenced mixin is missing — the UI shows a dangling-reference badge.
+		mixinByKey(key: string): SchemaDefinition | null {
+			return (this.schemas as SchemaDefinition[])
+				.find((s: SchemaDefinition) => s.kind === 'mixin' && !s._isDeleted && s.key === key) || null;
+		},
+
+		// Inherited (read-only) properties for a schema, in mixin-declaration
+		// order, with the originating mixin key recorded so the UI can label
+		// each row. The schema's own properties (and their overrides) are NOT
+		// included here — they are rendered by the existing property list.
+		inheritedProperties(schema: SchemaDefinition): { mixinKey: string; prop: PropertyDefinition; overridden: boolean }[] {
+			if (!schema || schema.kind !== 'schema') return [];
+			const ownKeys = new Set(
+				schema.properties.filter((p: PropertyDefinition) => !p._isDeleted && p.key).map((p: PropertyDefinition) => p.key)
+			);
+			const seen = new Set<string>();
+			const out: { mixinKey: string; prop: PropertyDefinition; overridden: boolean }[] = [];
+			for (const mxKey of schema.mixins) {
+				const mx = this.mixinByKey(mxKey);
+				if (!mx) continue;
+				for (const p of mx.properties) {
+					if (p._isDeleted || !p.key) continue;
+					if (seen.has(p.key)) continue;
+					seen.add(p.key);
+					out.push({ mixinKey: mxKey, prop: p, overridden: ownKeys.has(p.key) });
+				}
+			}
+			return out;
+		},
+
+		addMixinReference(schema: SchemaDefinition, mixinKey: string) {
+			if (!schema || schema.kind !== 'schema' || !mixinKey) return;
+			if (schema.mixins.includes(mixinKey)) return;
+			schema.mixins = [...schema.mixins, mixinKey];
+		},
+
+		removeMixinReference(schema: SchemaDefinition, mixinKey: string) {
+			if (!schema || schema.kind !== 'schema') return;
+			schema.mixins = schema.mixins.filter((k: string) => k !== mixinKey);
+		},
+
+		moveMixinReference(schema: SchemaDefinition, mixinKey: string, delta: number) {
+			if (!schema || schema.kind !== 'schema') return;
+			const idx = schema.mixins.indexOf(mixinKey);
+			if (idx < 0) return;
+			const next = idx + delta;
+			if (next < 0 || next >= schema.mixins.length) return;
+			const arr = [...schema.mixins];
+			arr.splice(idx, 1);
+			arr.splice(next, 0, mixinKey);
+			schema.mixins = arr;
+		},
+
+		// How many schemas reference this mixin? Used by the mixin form to show
+		// impact ("3 schemas use this mixin") and to gate deletion in future
+		// phases. Returns 0 for non-mixin entries.
+		mixinUsageCount(mixin: SchemaDefinition): number {
+			if (!mixin || mixin.kind !== 'mixin' || !mixin.key) return 0;
+			return (this.schemas as SchemaDefinition[]).filter(
+				(s: SchemaDefinition) => s.kind === 'schema' && !s._isDeleted && s.mixins.includes(mixin.key)
+			).length;
+		},
+
+		// Schemas that currently reference this mixin (live list, excluding
+		// soft-deleted entries). Used by the mixin editor's "Used by" panel
+		// and by the deletion impact dialog. Looks up by the mixin's current
+		// in-memory key, so a pending rename is reflected immediately — the
+		// dependent schemas under the OLD key are surfaced via _originalKey
+		// instead when needed (see mixinDependentsByOriginalKey).
+		mixinDependents(mixin: SchemaDefinition): SchemaDefinition[] {
+			if (!mixin || mixin.kind !== 'mixin' || !mixin.key) return [];
+			return (this.schemas as SchemaDefinition[]).filter(
+				(s: SchemaDefinition) => s.kind === 'schema' && !s._isDeleted && s.mixins.includes(mixin.key)
+			);
+		},
+
+		// Dependent schemas for the mixin's _originalKey (i.e. the key the
+		// file is currently saved under). Used by the rename-cascade warning
+		// so we can show "Renaming will update N schema references" before
+		// the rename actually happens.
+		mixinDependentsByOriginalKey(mixin: SchemaDefinition): SchemaDefinition[] {
+			if (!mixin || mixin.kind !== 'mixin' || !mixin._originalKey) return [];
+			return (this.schemas as SchemaDefinition[]).filter(
+				(s: SchemaDefinition) => s.kind === 'schema' && !s._isDeleted && s.mixins.includes(mixin._originalKey)
+			);
+		},
+
+		// True when the mixin's current `key` differs from its last-saved
+		// key (and the entry actually exists on disk). Drives the rename
+		// warning chip in the mixin editor.
+		isMixinKeyRenamed(mixin: SchemaDefinition): boolean {
+			if (!mixin || mixin.kind !== 'mixin') return false;
+			if (mixin._isNew) return false;
+			return mixin._originalKey !== '' && mixin._originalKey !== mixin.key;
+		},
+
+		// For each property in the mixin, count how many dependent schemas
+		// shadow it via an own property of the same key. Used by the Preview
+		// Impact panel and by the per-row overridden indicator.
+		mixinPropertyShadowCount(mixin: SchemaDefinition, propKey: string): number {
+			if (!mixin || !propKey) return 0;
+			const dependents = this.mixinDependents(mixin);
+			let count = 0;
+			for (const s of dependents) {
+				const has = s.properties.some(
+					(p: PropertyDefinition) => !p._isDeleted && p.key === propKey
+				);
+				if (has) count++;
+			}
+			return count;
+		},
+
+		// Inverse of inheritedProperties(): given an own property on a schema,
+		// is there a mixin in the schema's attached list that contributes a
+		// same-keyed property? Returns the mixin key (for badge labelling)
+		// or null. Used in the sidebar tree and in the property form so the
+		// editor can flag rows like "shadows seo".
+		shadowedByMixinKey(schema: SchemaDefinition, propKey: string): string | null {
+			if (!schema || schema.kind !== 'schema' || !propKey) return null;
+			for (const mxKey of schema.mixins) {
+				const mx = this.mixinByKey(mxKey);
+				if (!mx) continue;
+				const hit = mx.properties.find(
+					(p: PropertyDefinition) => !p._isDeleted && p.key === propKey
+				);
+				if (hit) return mxKey;
+			}
+			return null;
+		},
+
+		// Schemas that currently reference a mixin which no longer exists.
+		// Used by the status bar warning and (per-schema) by the dangling
+		// chip in the schema editor. Recomputed on the fly.
+		schemasWithDanglingMixins(): SchemaDefinition[] {
+			return (this.schemas as SchemaDefinition[]).filter((s: SchemaDefinition) => {
+				if (s.kind !== 'schema' || s._isDeleted) return false;
+				return s.mixins.some((mxKey: string) => !this.mixinByKey(mxKey));
+			});
 		},
 
 		// Mark a schema as deleted
 		markSchemaDeleted(schemaID: string) {
 			const schema = this.schemas.find((s: SchemaDefinition) => s._id === schemaID);
 			if (!schema) return;
+
+			// Deleting a mixin that has live dependents is a destructive op:
+			// we surface a modal so the user can pick Inline (default — keep
+			// schemas' effective shape) or Detach (drop the inherited props).
+			// New (never-saved) mixins skip the modal because there's nothing
+			// to clean up on disk and dependents (if any) are also in-memory.
+			if (schema.kind === 'mixin' && !schema._isNew) {
+				const dependents = this.mixinDependents(schema);
+				if (dependents.length > 0) {
+					this.openDeleteMixinDialog(schema, dependents);
+					return;
+				}
+			}
 
 			if (schema._isNew) {
 				// Remove entirely
@@ -1032,6 +1330,220 @@ export const App = {
 			if (schema) {
 				schema._isDeleted = false;
 			}
+		},
+
+		openDeleteMixinDialog(mixin: SchemaDefinition, dependents: SchemaDefinition[]) {
+			this.deleteMixinDialog = {
+				visible: true,
+				mixinID: mixin._id,
+				mixinKey: mixin.key,
+				dependentIDs: dependents.map((s: SchemaDefinition) => s._id),
+				mode: 'inline',
+			};
+		},
+
+		cancelDeleteMixinDialog() {
+			this.deleteMixinDialog.visible = false;
+			this.deleteMixinDialog.mixinID = '';
+			this.deleteMixinDialog.dependentIDs = [];
+		},
+
+		// Confirm deletion of a mixin that has dependents. "inline" copies the
+		// mixin's properties into each dependent as own properties (only when
+		// the dependent doesn't already shadow that key), then drops the
+		// mixin reference. "detach" simply drops the reference, leaving the
+		// dependent without those properties. Both paths mark the mixin as
+		// deleted; the actual file I/O happens on Save All in dependency
+		// order (schemas first, mixin last — see saveAll).
+		confirmDeleteMixinDialog() {
+			const dlg = this.deleteMixinDialog;
+			const mixin = (this.schemas as SchemaDefinition[]).find(
+				(s: SchemaDefinition) => s._id === dlg.mixinID
+			);
+			if (!mixin || mixin.kind !== 'mixin') {
+				this.cancelDeleteMixinDialog();
+				return;
+			}
+			const mixinKey = mixin.key;
+			const dependents = (this.schemas as SchemaDefinition[]).filter(
+				(s: SchemaDefinition) => dlg.dependentIDs.includes(s._id)
+			);
+
+			for (const dep of dependents) {
+				if (dlg.mode === 'inline') {
+					const ownKeys = new Set(
+						dep.properties.filter((p: PropertyDefinition) => !p._isDeleted).map((p: PropertyDefinition) => p.key)
+					);
+					for (const src of mixin.properties) {
+						if (src._isDeleted) continue;
+						if (!src.key) continue;
+						if (ownKeys.has(src.key)) continue;
+						dep.properties.push(cloneAsOwnProperty(src));
+						ownKeys.add(src.key);
+					}
+				}
+				dep.mixins = dep.mixins.filter((k: string) => k !== mixinKey);
+			}
+
+			mixin._isDeleted = true;
+			if (this.selection.schemaID === mixin._id) {
+				this.selection = { schemaID: '', propertyID: '' };
+			}
+			this.cancelDeleteMixinDialog();
+		},
+
+		// Jump to a schema from anywhere (used by the Used-by panel and the
+		// delete-mixin dialog's dependent list).
+		jumpToSchema(schemaID: string) {
+			this.selectSchema(schemaID);
+		},
+
+		// --------------------------------------------------------------
+		// Extract to mixin (Phase 2.5)
+		// --------------------------------------------------------------
+		// Open the extract dialog for the given schema. The dialog lists
+		// the schema's active own properties, each toggleable. Properties
+		// whose key collides with one already inherited from an attached
+		// mixin are surfaced with `blocked` set to true so the UI can
+		// disable them — extracting would otherwise silently change the
+		// schema's effective shape (mixin-mixin collisions are first-wins,
+		// so the new mixin's contribution would be shadowed by the older
+		// one and the override would vanish).
+		openExtractDialog(schemaID: string) {
+			const schema = (this.schemas as SchemaDefinition[]).find(
+				(s: SchemaDefinition) => s._id === schemaID
+			);
+			if (!schema || schema.kind !== 'schema') return;
+			this.extractDialog = {
+				visible: true,
+				schemaID,
+				newKey: '',
+				newLabel: '',
+				newDescription: '',
+				selectedPropertyIDs: [],
+			};
+		},
+
+		cancelExtractDialog() {
+			this.extractDialog.visible = false;
+			this.extractDialog.schemaID = '';
+			this.extractDialog.selectedPropertyIDs = [];
+		},
+
+		// Toggle a property in the extract selection.
+		toggleExtractProperty(propID: string) {
+			const idx = this.extractDialog.selectedPropertyIDs.indexOf(propID);
+			if (idx >= 0) {
+				this.extractDialog.selectedPropertyIDs.splice(idx, 1);
+			} else {
+				this.extractDialog.selectedPropertyIDs.push(propID);
+			}
+		},
+
+		// Rows for the extract dialog: each active own property of the
+		// source schema, plus a `blocked` flag for keys that would lose
+		// their override on extraction (see openExtractDialog).
+		extractDialogRows(): { prop: PropertyDefinition; blocked: boolean; blockedBy: string }[] {
+			const schema = (this.schemas as SchemaDefinition[]).find(
+				(s: SchemaDefinition) => s._id === this.extractDialog.schemaID
+			);
+			if (!schema) return [];
+			const out: { prop: PropertyDefinition; blocked: boolean; blockedBy: string }[] = [];
+			for (const p of schema.properties) {
+				if (p._isDeleted) continue;
+				if (!p.key) continue;
+				const shadowed = this.shadowedByMixinKey(schema, p.key);
+				out.push({
+					prop: p,
+					blocked: shadowed != null,
+					blockedBy: shadowed || '',
+				});
+			}
+			return out;
+		},
+
+		// True when the new mixin key is non-empty, syntactically valid,
+		// and not already used by another mixin (including unsaved ones).
+		// Schema-side uniqueness isn't a concern: mixins live in their own
+		// directory so a schema may share a key.
+		isExtractKeyValid(): boolean {
+			const k = (this.extractDialog.newKey || '').trim();
+			if (!k) return false;
+			if (!/^[a-zA-Z0-9_-]+$/.test(k)) return false;
+			const dupe = (this.schemas as SchemaDefinition[]).find(
+				(s: SchemaDefinition) => s.kind === 'mixin' && !s._isDeleted && s.key === k
+			);
+			return !dupe;
+		},
+
+		canConfirmExtract(): boolean {
+			if (!this.isExtractKeyValid()) return false;
+			if (this.extractDialog.selectedPropertyIDs.length === 0) return false;
+			// All selected properties must be non-blocked. The UI disables
+			// blocked checkboxes but defensive: re-check here.
+			const rows = this.extractDialogRows();
+			const blockedIDs = new Set(
+				rows.filter((r) => r.blocked).map((r) => r.prop._id)
+			);
+			return !this.extractDialog.selectedPropertyIDs.some((id: string) => blockedIDs.has(id));
+		},
+
+		// Perform the extraction:
+		//   1. Build a new mixin (kind="mixin") from a deep clone of each
+		//      selected property — the source schema entries will be
+		//      removed, so the clones become the canonical instances.
+		//   2. Mark each selected property as deleted on the source schema
+		//      (soft-delete; Save All filters them out).
+		//   3. Append the new mixin's key to the schema's mixins[].
+		//   4. Select the source schema so the author sees the new chip
+		//      and inherited-properties preview immediately.
+		// Resolution order note: a NEWLY extracted mixin is appended at
+		// the end of mixins[]. With first-wins mixin collisions this is
+		// safe because we forbid extracting keys that already collide.
+		confirmExtractDialog() {
+			if (!this.canConfirmExtract()) return;
+			const schema = (this.schemas as SchemaDefinition[]).find(
+				(s: SchemaDefinition) => s._id === this.extractDialog.schemaID
+			);
+			if (!schema || schema.kind !== 'schema') {
+				this.cancelExtractDialog();
+				return;
+			}
+
+			const newMixin = createEmptySchema('mixin');
+			newMixin.key = this.extractDialog.newKey.trim();
+			newMixin.label = (this.extractDialog.newLabel || '').trim();
+			newMixin.description = (this.extractDialog.newDescription || '').trim();
+
+			// Preserve the source order of the selected properties so the
+			// new mixin reads the same way as the schema did.
+			const selectedSet = new Set(this.extractDialog.selectedPropertyIDs);
+			for (const p of schema.properties) {
+				if (!selectedSet.has(p._id)) continue;
+				if (p._isDeleted) continue;
+				newMixin.properties.push(cloneAsOwnProperty(p));
+			}
+
+			// Soft-delete the source-side properties. New (never saved)
+			// ones can just be filtered out; existing ones need the
+			// soft-delete so saveAll skips them in the new persisted JSON.
+			schema.properties = schema.properties.filter((p: PropertyDefinition) => {
+				if (!selectedSet.has(p._id)) return true;
+				if (p._isNew) return false;
+				p._isDeleted = true;
+				return true;
+			});
+
+			schema.mixins = [...schema.mixins, newMixin.key];
+
+			this.schemas.push(newMixin);
+
+			// The mixin needs an _originalJSON baseline so isSchemaChanged
+			// treats it as new-and-pending until Save All commits it.
+			newMixin._originalJSON = '';
+
+			this.cancelExtractDialog();
+			this.selectSchema(schema._id);
 		},
 
 		// Add a property to the currently selected schema
@@ -1220,14 +1732,37 @@ export const App = {
 					break;
 				}
 
-				// Check duplicate schema keys
+				// Check duplicate keys WITHIN THE SAME KIND. Schemas and mixins
+				// live in different directories, so a schema and mixin sharing a
+				// key is fine. Within a single kind, the file name (= key) must
+				// be unique.
 				const dupeSchema = this.schemas.find(
-					(s: SchemaDefinition) => s._id !== schema._id && !s._isDeleted && s.key === schema.key
+					(s: SchemaDefinition) => s._id !== schema._id
+						&& !s._isDeleted
+						&& s.kind === schema.kind
+						&& s.key === schema.key
 				);
 				if (dupeSchema) {
 					errors[`schema.${schema._id}.key`] = `Duplicate key: "${schema.key}"`;
 					this.selectSchema(schema._id);
 					break;
+				}
+
+				// Validate mixin references on schemas: every referenced mixin
+				// must exist (and not be a deleted one). Unsaved-but-present
+				// mixins are fine — saveAll persists everything in one batch.
+				if (schema.kind === 'schema' && schema.mixins.length > 0) {
+					const missing = schema.mixins.find((mxKey: string) => {
+						const mx = (this.schemas as SchemaDefinition[]).find(
+							(s: SchemaDefinition) => s.kind === 'mixin' && !s._isDeleted && s.key === mxKey
+						);
+						return !mx;
+					});
+					if (missing) {
+						errors[`schema.${schema._id}.mixins`] = `Unknown mixin: "${missing}"`;
+						this.selectSchema(schema._id);
+						break;
+					}
 				}
 
 				// Property validation
@@ -1287,12 +1822,46 @@ export const App = {
 			try {
 				const contentService = vm.instance.api.content;
 
-				// Ensure schemas directory exists
+				// Ensure target directories exist (one of them may be unused on
+				// first-time projects, but creating the dir is cheap and the
+				// directory's existence is also what the loader uses to detect
+				// "no files yet" gracefully).
 				await vm.ensureDirectoryExists(contentService, SCHEMAS_PATH);
+				await vm.ensureDirectoryExists(contentService, MIXINS_PATH);
 
-				// Process deleted schemas
-				const deletedSchemas = vm.schemas.filter((s: SchemaDefinition) => s._isDeleted && !s._isNew);
-				for (const schema of deletedSchemas) {
+				// Phase 2: cascade mixin key renames into dependent schemas
+				// BEFORE we compute the changed-set. A rename here might be
+				// the ONLY change in a dependent schema, so the cascade has
+				// to run before isSchemaChanged() is consulted.
+				for (const mixin of vm.schemas as SchemaDefinition[]) {
+					if (mixin.kind !== 'mixin') continue;
+					if (mixin._isDeleted) continue;
+					if (mixin._isNew) continue;
+					if (!mixin._originalKey || mixin._originalKey === mixin.key) continue;
+
+					for (const dep of vm.schemas as SchemaDefinition[]) {
+						if (dep.kind !== 'schema' || dep._isDeleted) continue;
+						const idx = dep.mixins.indexOf(mixin._originalKey);
+						if (idx < 0) continue;
+						const next = [...dep.mixins];
+						next[idx] = mixin.key;
+						dep.mixins = next;
+					}
+				}
+
+				// Process deletions. Order matters: delete schemas FIRST, then
+				// mixins. If we deleted a mixin before a schema that still
+				// referenced it, an interim re-read of the schema would emit
+				// an "unknown mixin" warning. By the time we get to mixin
+				// deletion, every dependent schema is gone or has had its
+				// reference removed by the inline/detach flow earlier.
+				const deletedSchemas = vm.schemas.filter(
+					(s: SchemaDefinition) => s._isDeleted && !s._isNew && s.kind === 'schema'
+				);
+				const deletedMixins = vm.schemas.filter(
+					(s: SchemaDefinition) => s._isDeleted && !s._isNew && s.kind === 'mixin'
+				);
+				for (const schema of [...deletedSchemas, ...deletedMixins]) {
 					if (schema._filePath) {
 						try {
 							await contentService.deleteNode(schema._filePath);
@@ -1310,7 +1879,8 @@ export const App = {
 				for (const schema of changedSchemas) {
 					const jsonStr = schemaToJSON(schema);
 					const fileName = schema.key + '.json';
-					const filePath = SCHEMAS_PATH + '/' + fileName;
+					const dirPath = schema.kind === 'mixin' ? MIXINS_PATH : SCHEMAS_PATH;
+					const filePath = dirPath + '/' + fileName;
 
 					const encoder = new TextEncoder();
 					const bytes = encoder.encode(jsonStr);
@@ -1319,18 +1889,19 @@ export const App = {
 					if (schema._isNew) {
 						console.log('[SchemaEditor] Creating new file:', filePath, 'mimeType:', MIME_TYPE);
 						const result = await contentService.createFile(
-							SCHEMAS_PATH, fileName, MIME_TYPE, base64Content,
+							dirPath, fileName, MIME_TYPE, base64Content,
 						);
 						console.log('[SchemaEditor] Create result:', result);
 						schema._filePath = filePath;
 					} else {
-						// If key changed, the file name changes - delete old, create new
+						// If key (or kind) changed, the destination path changes -
+						// delete the old file and create at the new location.
 						if (schema._filePath !== filePath) {
 							try {
 								await contentService.deleteNode(schema._filePath);
 							} catch { /* old file may not exist */ }
 							await contentService.createFile(
-								SCHEMAS_PATH, fileName, MIME_TYPE, base64Content,
+								dirPath, fileName, MIME_TYPE, base64Content,
 							);
 							schema._filePath = filePath;
 						} else {
@@ -1340,7 +1911,7 @@ export const App = {
 							try {
 								await contentService.appendMultipartUploadChunk(uploadID, base64Content);
 								await contentService.completeMultipartUpload(
-									uploadID, SCHEMAS_PATH, fileName, MIME_TYPE, true,
+									uploadID, dirPath, fileName, MIME_TYPE, true,
 								);
 							} catch (uploadError) {
 								try { await contentService.abortMultipartUpload(uploadID); } catch { /* ignore */ }
@@ -1357,6 +1928,7 @@ export const App = {
 					}
 					schema._isNew = false;
 					schema._isModified = false;
+					schema._originalKey = schema.key;
 					schema._originalJSON = schemaToJSON(schema);
 				}
 

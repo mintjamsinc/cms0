@@ -211,7 +211,8 @@ const WtDesktop = {
 				left: p.x + 'px',
 				top: p.y + 'px',
 			};
-			const min = p.minWidth || p.anchorWidth;
+			let min = p.minWidth || p.anchorWidth;
+			if (!min || min < 160) min = 160;
 			if (min) style.minWidth = min + 'px';
 			if (p.maxHeight) style.maxHeight = p.maxHeight + 'px';
 			return style;
