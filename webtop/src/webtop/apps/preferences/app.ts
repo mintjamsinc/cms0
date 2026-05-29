@@ -19,6 +19,123 @@ const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
 const ACCEPTED_IMAGE_TYPES = /^image\/(png|jpeg|jpg|gif|webp|bmp|svg\+xml)$/;
 const AVATAR_ACCEPTED_TYPES = /^image\/(png|jpeg|jpg|gif)$/;
 
+/**
+ * Render a locale code (e.g. "ja-jp", "en-us") as its own native language
+ * name (e.g. "日本語", "American English") via Intl.DisplayNames, asking for
+ * the name in the very locale being described so each entry shows up in its
+ * native script. Locale codes here are stored lowercase, so they are first
+ * canonicalized ("ja-jp" -> "ja-JP"). Falls back to the raw code when the
+ * platform cannot resolve a display name.
+ */
+function nativeLocaleName(code: string): string {
+	if (!code) return code;
+	try {
+		const canonical = Intl.getCanonicalLocales(code)[0] || code;
+		const dn = new Intl.DisplayNames([canonical], { type: 'language', style: 'short' });
+		const name = dn.of(canonical);
+		if (name && name.toLowerCase() !== canonical.toLowerCase()) {
+			// Capitalize the leading character: languages such as French
+			// return lowercase native names ("français") that read better
+			// title-cased in a selection list.
+			return name.charAt(0).toUpperCase() + name.slice(1);
+		}
+	} catch {
+		// Intl.DisplayNames unsupported or the code is not a valid locale.
+	}
+	return code;
+}
+
+// Sample value used to preview how a locale groups thousands and marks the
+// decimal separator (e.g. "1,234,567.89" vs "1.234.567,89" vs "1 234 567,89").
+const NUMBER_FORMAT_SAMPLE = 1234567.89;
+
+/**
+ * Render a number-format locale (e.g. "en-us", "de", "fr") as a country name
+ * shown in the currently selected UI language, paired with a live sample of
+ * how that locale formats a number — e.g. (display language ja):
+ *   "アメリカ合衆国: 1,234,567.89"
+ *   "ドイツ: 1.234.567,89"
+ *   "フランス: 1 234 567,89"
+ *
+ * The country is derived from the locale's region subtag, maximizing the
+ * locale first ("de" -> "de-Latn-DE") so language-only codes still resolve to
+ * a representative country. Falls back to the native language name and/or the
+ * raw code when a part cannot be resolved.
+ */
+function numberFormatOptionLabel(code: string, displayLocale: string): string {
+	if (!code) return code;
+	let canonical = code;
+	try {
+		canonical = Intl.getCanonicalLocales(code)[0] || code;
+	} catch {
+		// Keep the raw code; Intl.NumberFormat below is itself lenient.
+	}
+
+	let countryName = '';
+	try {
+		const loc = new Intl.Locale(canonical);
+		const region = (loc as any).region || (loc.maximize() as any).region;
+		if (region) {
+			const dn = new Intl.DisplayNames([displayLocale], { type: 'region' });
+			countryName = dn.of(region) || '';
+		}
+	} catch {
+		// Region resolution failed — fall back to the language name below.
+	}
+
+	let sample = '';
+	try {
+		sample = new Intl.NumberFormat(canonical).format(NUMBER_FORMAT_SAMPLE);
+	} catch {
+		// Locale not supported by Intl.NumberFormat — omit the sample.
+	}
+
+	const name = countryName || nativeLocaleName(code);
+	return sample ? `${name}: ${sample}` : name;
+}
+
+/**
+ * City portion of an IANA time-zone id: the last path segment with
+ * underscores turned into spaces — e.g. "America/Argentina/Buenos_Aires"
+ * -> "Buenos Aires", "Asia/Tokyo" -> "Tokyo". The IANA database has no
+ * localized city names and the Intl APIs cannot translate them, so these
+ * stay in their canonical (English) form.
+ */
+function timezoneCityName(tz: string): string {
+	const seg = tz.split('/').pop() || tz;
+	return seg.replace(/_/g, ' ');
+}
+
+/**
+ * Current UTC offset of a time zone as "GMT+9:00" / "GMT-5:00" (leading zero
+ * stripped from the hour), reflecting DST for today. Returns "GMT" for UTC
+ * and '' when the platform cannot resolve the zone.
+ */
+function timezoneOffsetText(tz: string): string {
+	try {
+		const parts = new Intl.DateTimeFormat('en-US', {
+			timeZone: tz,
+			timeZoneName: 'longOffset',
+		}).formatToParts(new Date());
+		const raw = parts.find(p => p.type === 'timeZoneName')?.value || '';
+		const m = raw.match(/^GMT([+-])(\d{1,2}):(\d{2})$/);
+		if (m) return `GMT${m[1]}${parseInt(m[2], 10)}:${m[3]}`;
+		return raw; // "GMT" (UTC) or an unexpected shape — show as-is.
+	} catch {
+		return '';
+	}
+}
+
+/**
+ * Time-zone selector label: city name paired with its current GMT offset,
+ * e.g. "Tokyo (GMT+9:00)".
+ */
+function timezoneOptionLabel(tz: string): string {
+	const city = timezoneCityName(tz);
+	const offset = timezoneOffsetText(tz);
+	return offset ? `${city} (${offset})` : city;
+}
+
 const App = {
 	data() {
 		return {
@@ -250,13 +367,26 @@ const App = {
 		},
 
 		localeLabel(value: string): string {
-			return value || 'Auto (browser language)';
+			return value ? nativeLocaleName(value) : 'Auto (browser language)';
 		},
 		timezoneLabel(value: string): string {
-			return value || 'Auto (system time zone)';
+			return value ? timezoneOptionLabel(value) : 'Auto (system time zone)';
+		},
+		// The locale used to render localized names (country, etc.) in the
+		// selectors: the explicitly chosen language, else the effective
+		// language resolved by the shell, else the browser language.
+		currentDisplayLocale(): string {
+			if (this.locale) return this.locale;
+			try {
+				const i18n = (window.parent as any)?.Webtop?.i18n;
+				if (i18n?.currentLocale) return String(i18n.currentLocale);
+			} catch {
+				// Ignore — fall through to the browser language.
+			}
+			return navigator.language || 'en';
 		},
 		numberFormatLabel(value: string): string {
-			return value || 'Auto (use display language)';
+			return value ? numberFormatOptionLabel(value, this.currentDisplayLocale()) : 'Auto (use display language)';
 		},
 		currencyLabel(value: string): string {
 			if (!value) return 'Auto (derived from language)';
@@ -268,7 +398,7 @@ const App = {
 			const vm = this;
 			const items = [
 				{ id: '__auto__', label: 'Auto (browser language)', selected: !vm.locale },
-				...vm.availableLocales.map(l => ({ id: l, label: l, selected: l === vm.locale })),
+				...vm.availableLocales.map(l => ({ id: l, label: nativeLocaleName(l), selected: l === vm.locale })),
 			];
 			const result = await vm.openSelectPopup(event, items);
 			if (result == null) return;
@@ -279,7 +409,7 @@ const App = {
 			const vm = this;
 			const items = [
 				{ id: '__auto__', label: 'Auto (system time zone)', selected: !vm.timezone },
-				...vm.availableTimezones.map(tz => ({ id: tz, label: tz, selected: tz === vm.timezone })),
+				...vm.availableTimezones.map(tz => ({ id: tz, label: timezoneOptionLabel(tz), selected: tz === vm.timezone })),
 			];
 			const result = await vm.openSelectPopup(event, items);
 			if (result == null) return;
@@ -290,7 +420,7 @@ const App = {
 			const vm = this;
 			const items = [
 				{ id: '__auto__', label: 'Auto (use display language)', selected: !vm.numberFormat },
-				...vm.availableLocales.map(l => ({ id: l, label: l, selected: l === vm.numberFormat })),
+				...vm.availableLocales.map(l => ({ id: l, label: numberFormatOptionLabel(l, vm.currentDisplayLocale()), selected: l === vm.numberFormat })),
 			];
 			const result = await vm.openSelectPopup(event, items);
 			if (result == null) return;
