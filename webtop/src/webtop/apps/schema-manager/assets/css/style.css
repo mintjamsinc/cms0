@@ -282,7 +282,6 @@ nav.nav-bar {
 .schema-children {
 	display: flex;
 	flex-direction: column;
-	padding-left: 0.5rem;
 }
 
 .property-item {
@@ -290,6 +289,7 @@ nav.nav-bar {
 	align-items: center;
 	gap: 0.375rem;
 	padding: 0.25rem;
+	padding-left: 0.5rem;
 	cursor: pointer;
 	border-radius: 0.375rem;
 	user-select: none;
