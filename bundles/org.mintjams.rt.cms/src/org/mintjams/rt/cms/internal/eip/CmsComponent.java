@@ -42,9 +42,12 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import javax.jcr.AccessDeniedException;
@@ -127,38 +130,52 @@ public class CmsComponent extends DefaultComponent {
 			// Determine operation type
 			if ("load".equals(fOperation)) {
 				return new LoadProducer();
-			} else if ("loadAsString".equals(fOperation)) {
+			}
+			if ("loadAsString".equals(fOperation)) {
 				return new LoadAsStringProducer();
-			} else if ("store".equals(fOperation)) {
+			}
+			if ("store".equals(fOperation)) {
 				return new StoreProducer();
-			} else if ("getProperties".equals(fOperation)) {
+			}
+			if ("getProperties".equals(fOperation)) {
 				return new GetPropertiesProducer();
-			} else if ("setProperties".equals(fOperation)) {
+			}
+			if ("setProperties".equals(fOperation)) {
 				return new SetPropertiesProducer();
-			} else if ("move".equals(fOperation)) {
+			}
+			if ("move".equals(fOperation)) {
 				return new MoveProducer();
-			} else if ("exists".equals(fOperation)) {
+			}
+			if ("exists".equals(fOperation)) {
 				return new ExistsProducer();
-			} else if ("addVersionControl".equals(fOperation)) {
+			}
+			if ("addVersionControl".equals(fOperation)) {
 				return new AddVersionControlProducer();
-			} else if ("checkout".equals(fOperation)) {
+			}
+			if ("checkout".equals(fOperation)) {
 				return new CheckoutProducer();
-			} else if ("checkin".equals(fOperation)) {
+			}
+			if ("checkin".equals(fOperation)) {
 				return new CheckinProducer();
-			} else if ("uncheckout".equals(fOperation)) {
+			}
+			if ("uncheckout".equals(fOperation)) {
 				return new UncheckoutProducer();
-			} else if ("checkpoint".equals(fOperation)) {
+			}
+			if ("checkpoint".equals(fOperation)) {
 				return new CheckpointProducer();
-			} else if ("lock".equals(fOperation)) {
+			}
+			if ("lock".equals(fOperation)) {
 				return new LockProducer();
-			} else if ("unlock".equals(fOperation)) {
+			}
+			if ("unlock".equals(fOperation)) {
 				return new UnlockProducer();
-			} else if ("script".equals(fOperation)) {
-				return new ScriptProducer(fOperation);
-			} else {
-				// Default: script execution (backward compatibility)
+			}
+			if ("script".equals(fOperation)) {
 				return new ScriptProducer(fOperation);
 			}
+
+			// Default: script execution (backward compatibility)
+			return new ScriptProducer(fOperation);
 		}
 
 		private abstract class CmsProducer extends DefaultProducer {
@@ -269,6 +286,127 @@ public class CmsComponent extends DefaultComponent {
 				 */
 				public void setHeader(String key, Object value) {
 					fExchange.getIn().setHeader(key, value);
+				}
+
+				/**
+				 * Set the message body in the exchange for downstream processing.
+				 */
+				public void setBody(Object value) {
+					fExchange.getIn().setBody(value);
+				}
+
+				/**
+				 * Set an exchange property for downstream processing.
+				 */
+				public void setProperty(String key, Object value) {
+					fExchange.setProperty(key, value);
+				}
+
+				/**
+				 * A single output binding describing how a named result source should be placed
+				 * back into the exchange (body, a header, or an exchange property).
+				 */
+				private final class ResultBinding {
+					private final String kind; // "body", "header" or "property"
+					private final String target; // header/property name (null for body)
+					private final String sourceName;
+
+					private ResultBinding(String kind, String target, String sourceName) {
+						this.kind = kind;
+						this.target = target;
+						this.sourceName = sourceName;
+					}
+				}
+
+				/**
+				 * Collect output bindings declared either as endpoint (URL) parameters or as exchange headers.
+				 *
+				 * Binding syntax:
+				 *   "@body=sourceName"          — set the message body to the named source value
+				 *   "@header.headerName=source" — set the header "headerName" to the named source value
+				 *   "@property.propName=source" — set the exchange property "propName" to the named source value
+				 *
+				 * Endpoint parameters take precedence over exchange headers for the same binding key,
+				 * so a binding may be supplied through either channel (URL parameter first, header as fallback).
+				 */
+				private List<ResultBinding> collectBindings() {
+					Map<String, Object> declared = new LinkedHashMap<>();
+					for (Map.Entry<String, Object> entry : fParameters.entrySet()) {
+						if (isBindingKey(entry.getKey())) {
+							declared.put(entry.getKey(), entry.getValue());
+						}
+					}
+					for (Map.Entry<String, Object> entry : fExchange.getIn().getHeaders().entrySet()) {
+						if (isBindingKey(entry.getKey()) && !declared.containsKey(entry.getKey())) {
+							declared.put(entry.getKey(), entry.getValue());
+						}
+					}
+
+					List<ResultBinding> bindings = new ArrayList<>();
+					for (Map.Entry<String, Object> entry : declared.entrySet()) {
+						String key = entry.getKey();
+						String sourceName = (entry.getValue() == null) ? null : entry.getValue().toString().trim();
+						if (key.equals("@body")) {
+							bindings.add(new ResultBinding("body", null, sourceName));
+						} else if (key.startsWith("@header.")) {
+							bindings.add(new ResultBinding("header", key.substring("@header.".length()), sourceName));
+						} else if (key.startsWith("@property.")) {
+							bindings.add(new ResultBinding("property", key.substring("@property.".length()), sourceName));
+						}
+					}
+					return bindings;
+				}
+
+				/**
+				 * Whether the given key declares an output binding (@body / @header.x / @property.x).
+				 */
+				private boolean isBindingKey(String key) {
+					if (Strings.isEmpty(key)) {
+						return false;
+					}
+					return key.equals("@body") || key.startsWith("@header.") || key.startsWith("@property.");
+				}
+
+				/**
+				 * The set of result source names referenced by the declared output bindings.
+				 * Callers use this to compute only the sources that are actually needed.
+				 * <p>
+				 * Because bindings may be declared as exchange headers, this set can include names left
+				 * over from a binding set for a previously invoked producer in the same route. Callers must
+				 * therefore test for the specific source names they support (rather than treating a
+				 * non-empty set as "something was requested"), so that a foreign leftover binding never
+				 * changes this producer's behaviour.
+				 */
+				public Set<String> getBoundSourceNames() {
+					Set<String> names = new HashSet<>();
+					for (ResultBinding binding : collectBindings()) {
+						names.add(binding.sourceName);
+					}
+					return names;
+				}
+
+				/**
+				 * Bind named result values to the exchange according to the declared output bindings.
+				 * Only bindings whose source name is present in {@code sources} take effect; bindings that
+				 * reference an unknown source (for example, a binding left over from a previously invoked
+				 * producer) are ignored. Output is produced solely through these bindings — there is no
+				 * implicit default such as placing the result in a fixed header.
+				 */
+				public void applyResultBindings(Map<String, Object> sources) {
+					for (ResultBinding binding : collectBindings()) {
+						if (!sources.containsKey(binding.sourceName)) {
+							continue;
+						}
+
+						Object value = sources.get(binding.sourceName);
+						if ("body".equals(binding.kind)) {
+							setBody(value);
+						} else if ("header".equals(binding.kind)) {
+							setHeader(binding.target, value);
+						} else {
+							setProperty(binding.target, value);
+						}
+					}
 				}
 
 				@Override
@@ -449,10 +587,15 @@ public class CmsComponent extends DefaultComponent {
 		/**
 		 * Producer for loading files from JCR as byte array
 		 *
-		 * URI format: cms:load?path=/content/file.txt&destination=headerName
+		 * Exposes the loaded content (byte[]) through the declared output bindings (source name: "content"),
+		 * for example {@code @body=content}, {@code @header.headerName=content} or
+		 * {@code @property.propName=content}. Output is produced solely through these bindings.
+		 *
+		 * URI format: cms:load?path=/content/file.txt&@body=content
 		 * Parameters:
 		 *   - path: Source file path (required)
-		 *   - destination: Header name to set content in (default: @body for exchange body)
+		 *   - runAs: User to impersonate (optional)
+		 *   - Output binding: @body=content, @header.headerName=content, or @property.propName=content
 		 */
 		private class LoadProducer extends CmsProducer {
 			private LoadProducer() {
@@ -470,13 +613,9 @@ public class CmsComponent extends DefaultComponent {
 
 					// Get parameters from endpoint parameters or exchange headers
 					String path = (String) pc.getParameter("path");
-					String destination = (String) pc.getParameter("destination");
 
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
-					}
-					if (destination == null || destination.trim().isEmpty()) {
-						destination = "@body"; // Default to exchange body if destination parameter is not provided
 					}
 
 					if (!session.nodeExists(path)) {
@@ -488,11 +627,9 @@ public class CmsComponent extends DefaultComponent {
 					try(InputStream in = JCRs.getContentAsStream(node)) {
 						IOs.copy(in, out);
 					}
-					if (destination.equalsIgnoreCase("@body")) {
-						pc.getExchange().getIn().setBody(out.toByteArray());
-					} else {
-						pc.setHeader(destination, out.toByteArray());
-					}
+
+					// Expose the loaded content through the declared output bindings (source name: "content")
+					pc.applyResultBindings(Map.of("content", out.toByteArray()));
 				}
 			}
 		}
@@ -500,10 +637,15 @@ public class CmsComponent extends DefaultComponent {
 		/**
 		 * Producer for loading files from JCR as string (with optional encoding)
 		 *
-		 * URI format: cms:loadAsString?path=/content/file.txt&destination=headerName
+		 * Exposes the loaded content (String) through the declared output bindings (source name: "content"),
+		 * for example {@code @body=content}, {@code @header.headerName=content} or
+		 * {@code @property.propName=content}. Output is produced solely through these bindings.
+		 *
+		 * URI format: cms:loadAsString?path=/content/file.txt&@body=content
 		 * Parameters:
 		 *   - path: Source file path (required)
-		 *   - destination: Header name to set content in (default: @body for exchange body)
+		 *   - runAs: User to impersonate (optional)
+		 *   - Output binding: @body=content, @header.headerName=content, or @property.propName=content
 		 */
 		private class LoadAsStringProducer extends CmsProducer {
 			private LoadAsStringProducer() {
@@ -521,13 +663,9 @@ public class CmsComponent extends DefaultComponent {
 
 					// Get parameters from endpoint parameters or exchange headers
 					String path = (String) pc.getParameter("path");
-					String destination = (String) pc.getParameter("destination");
 
 					if (path == null || path.trim().isEmpty()) {
 						throw new IllegalArgumentException("path parameter is required");
-					}
-					if (destination == null || destination.trim().isEmpty()) {
-						destination = "@body"; // Default to exchange body if destination parameter is not provided
 					}
 
 					if (!session.nodeExists(path)) {
@@ -536,11 +674,9 @@ public class CmsComponent extends DefaultComponent {
 
 					Node node = session.getNode(path);
 					String content = JCRs.getContentAsString(node);
-					if (destination.equalsIgnoreCase("@body")) {
-						pc.getExchange().getIn().setBody(content);
-					} else {
-						pc.setHeader(destination, content);
-					}
+
+					// Expose the loaded content through the declared output bindings (source name: "content")
+					pc.applyResultBindings(Map.of("content", content));
 				}
 			}
 		}
@@ -548,15 +684,18 @@ public class CmsComponent extends DefaultComponent {
 		/**
 		 * Producer for storing files to JCR
 		 *
-		 * Sets the stored path in exchange header 'cmsStoredPath'.
+		 * Exposes the stored path through the declared output bindings (source name: "path"),
+		 * for example {@code @header.cmsStoredPath=path}, {@code @body=path} or
+		 * {@code @property.storedPath=path}. Output is produced solely through these bindings.
 		 *
-		 * URI format: cms:store?path=/content/file.txt&mimeType=application/json&createParents=true
+		 * URI format: cms:store?path=/content/file.txt&mimeType=application/json&createParents=true&@header.cmsStoredPath=path
 		 * Parameters:
 		 *   - path: Target file path (required)
 		 *   - mimeType: MIME type (default: application/octet-stream)
 		 *   - encoding: Optional encoding for string content (e.g., "UTF-8")
 		 *   - createParents: Auto-create parent folders (default: true)
 		 *   - source: Header name to get content from (default: @body for exchange body)
+		 *   - Output binding: @body=path, @header.headerName=path, or @property.propName=path
 		 */
 		private class StoreProducer extends CmsProducer {
 			private StoreProducer() {
@@ -660,8 +799,8 @@ public class CmsComponent extends DefaultComponent {
 
 					session.save();
 
-					// Set result path in exchange header (camelCase to match GraphQL conventions)
-					pc.setHeader("cmsStoredPath", fileNode.getPath());
+					// Expose the stored path through the declared output bindings (source name: "path")
+					pc.applyResultBindings(Map.of("path", fileNode.getPath()));
 				}
 			}
 		}
@@ -1186,13 +1325,16 @@ public class CmsComponent extends DefaultComponent {
 		/**
 		 * Producer for checking node existence via XPath query
 		 *
-		 * Executes the given XPath query and returns whether any matching node exists.
-		 * The result is set as the exchange body (Boolean) and as a header 'cmsExists'.
+		 * Executes the given XPath query and determines whether any matching node exists.
+		 * Exposes the boolean result through the declared output bindings (source name: "exists"),
+		 * for example {@code @body=exists}, {@code @header.cmsExists=exists} or
+		 * {@code @property.exists=exists}. Output is produced solely through these bindings.
 		 *
-		 * URI format: cms:exists?query=/jcr:root/content//element(*, nt:file)
+		 * URI format: cms:exists?query=/jcr:root/content//element(*, nt:file)&@body=exists
 		 * Parameters:
 		 *   - query: XPath expression (required)
 		 *   - runAs: User to impersonate (optional)
+		 *   - Output binding: @body=exists, @header.headerName=exists, or @property.propName=exists
 		 */
 		private class ExistsProducer extends CmsProducer {
 			private ExistsProducer() {
@@ -1220,8 +1362,8 @@ public class CmsComponent extends DefaultComponent {
 					QueryResult result = q.execute();
 					boolean exists = result.getNodes().hasNext();
 
-					pc.setHeader("cmsExists", exists);
-					pc.getExchange().getIn().setBody(exists);
+					// Expose the existence result through the declared output bindings (source name: "exists")
+					pc.applyResultBindings(Map.of("exists", exists));
 				}
 			}
 		}
@@ -1359,12 +1501,15 @@ public class CmsComponent extends DefaultComponent {
 		 * Creates a new version. The node must be checked out.
 		 * Default conflict behavior: FAIL (silent skip is dangerous)
 		 *
-		 * Sets the created version name in exchange header 'cmsVersionName'.
+		 * Exposes the created version name through the declared output bindings (source name: "version"),
+		 * for example {@code @header.cmsVersionName=version}, {@code @body=version} or
+		 * {@code @property.version=version}. Output is produced solely through these bindings.
 		 *
-		 * URI format: cms:checkin?path=/content/file.txt&conflictBehavior=FAIL
+		 * URI format: cms:checkin?path=/content/file.txt&conflictBehavior=FAIL&@header.cmsVersionName=version
 		 * Parameters:
 		 *   - path: Target node path (required)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
+		 *   - Output binding: @body=version, @header.headerName=version, or @property.propName=version
 		 */
 		private class CheckinProducer extends CmsProducer {
 			private CheckinProducer() {
@@ -1404,7 +1549,9 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					Version version = versionManager.checkin(path);
-					pc.setHeader("cmsVersionName", version.getName());
+
+					// Expose the created version name through the declared output bindings (source name: "version")
+					pc.applyResultBindings(Map.of("version", version.getName()));
 				}
 			}
 		}
@@ -1469,12 +1616,15 @@ public class CmsComponent extends DefaultComponent {
 		 * Requires that the node is versionable and currently checked out.
 		 * Default conflict behavior: FAIL (precondition not met is dangerous to skip)
 		 *
-		 * Sets the created version name in exchange header 'cmsVersionName'.
+		 * Exposes the created version name through the declared output bindings (source name: "version"),
+		 * for example {@code @header.cmsVersionName=version}, {@code @body=version} or
+		 * {@code @property.version=version}. Output is produced solely through these bindings.
 		 *
-		 * URI format: cms:checkpoint?path=/content/file.txt&conflictBehavior=FAIL
+		 * URI format: cms:checkpoint?path=/content/file.txt&conflictBehavior=FAIL&@header.cmsVersionName=version
 		 * Parameters:
 		 *   - path: Target node path (required)
 		 *   - conflictBehavior: FAIL, IGNORE, or WARN (default: FAIL)
+		 *   - Output binding: @body=version, @header.headerName=version, or @property.propName=version
 		 */
 		private class CheckpointProducer extends CmsProducer {
 			private CheckpointProducer() {
@@ -1518,7 +1668,9 @@ public class CmsComponent extends DefaultComponent {
 					}
 
 					Version version = versionManager.checkpoint(path);
-					pc.setHeader("cmsVersionName", version.getName());
+
+					// Expose the created version name through the declared output bindings (source name: "version")
+					pc.applyResultBindings(Map.of("version", version.getName()));
 				}
 			}
 		}
@@ -1679,11 +1831,16 @@ public class CmsComponent extends DefaultComponent {
 		 * - If destPath does not exist: treated as full destination path (JCR style)
 		 * - Optional 'name' parameter overrides the destination filename
 		 *
-		 * URI format: cms:move?sourcePath=/content/old&destPath=/content/new
+		 * Exposes the moved path through the declared output bindings (source name: "path"),
+		 * for example {@code @header.cmsMovedPath=path}, {@code @body=path} or
+		 * {@code @property.movedPath=path}. Output is produced solely through these bindings.
+		 *
+		 * URI format: cms:move?sourcePath=/content/old&destPath=/content/new&@header.cmsMovedPath=path
 		 * Examples:
 		 *   destPath=/content/folder (existing) → /content/folder/oldname
 		 *   destPath=/content/newfile → /content/newfile
 		 *   destPath=/content/folder&name=custom → /content/folder/custom
+		 *   Output binding: @body=path, @header.headerName=path, or @property.propName=path
 		 */
 		private class MoveProducer extends CmsProducer {
 			private MoveProducer() {
@@ -1748,8 +1905,8 @@ public class CmsComponent extends DefaultComponent {
 					session.move(sourcePath, finalDestPath);
 					session.save();
 
-					// Set result path in exchange header (camelCase to match GraphQL conventions)
-					pc.setHeader("cmsMovedPath", finalDestPath);
+					// Expose the moved path through the declared output bindings (source name: "path")
+					pc.applyResultBindings(Map.of("path", finalDestPath));
 				}
 			}
 		}
