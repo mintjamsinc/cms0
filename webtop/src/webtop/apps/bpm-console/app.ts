@@ -175,6 +175,7 @@ export const App = {
 			migrationMonitor: null as null | {
 				jobId: string;
 				abortable: boolean;
+				sourceKey: string;
 				sourceLabel: string;
 				targetLabel: string;
 				jobsTotal: number;
@@ -455,7 +456,12 @@ export const App = {
 				this.processDefs = conn.edges.map((e: { node: ProcessDefinition }) => e.node);
 				this.buildGroups();
 				this.filterDefs();
-				this.loadGlobalIncidentCounts();
+				// Awaited so callers (e.g. delete/migrate) don't return before the
+				// incident counts reflect the new definition set. Fire-and-forget
+				// here let rapid one-by-one deletes resolve their listIncidents
+				// responses out of order, leaving a stale snapshot — and thus a
+				// lingering group incident badge — as the last writer.
+				await this.loadGlobalIncidentCounts();
 			} catch (err) {
 				this.errorMessage = 'Failed to load process definitions: ' + (err instanceof Error ? err.message : String(err));
 			} finally {
@@ -794,9 +800,11 @@ export const App = {
 				this.closeDialog();
 				this.startMigrationMonitor(job, source, target);
 				// Refresh definition/instance counts — they update once the
-				// engine's batch jobs run. The badges may still lag a moment.
+				// engine's batch jobs run. The badges may still lag a moment;
+				// finishMigrationMonitor refreshes again on completion.
 				await this.loadDefinitions();
-				if (this.selectedGroup) {
+				await this.refreshGroupCounts(source.key);
+				if (this.selectedGroup && this.selectedGroup.key !== source.key) {
 					await this.loadDefInstanceCounts(this.selectedGroup);
 				}
 			} catch (err) {
@@ -834,6 +842,7 @@ export const App = {
 			vm.migrationMonitor = {
 				jobId: job.id,
 				abortable: job.abortable,
+				sourceKey: source.key,
 				sourceLabel,
 				targetLabel,
 				jobsTotal: 0,
@@ -866,6 +875,10 @@ export const App = {
 				if (!m || m.isFinished) return;
 				if (m.jobsCompleted > 0) return;
 				m.isUnreachable = true;
+				// No progress events arrived (the batch may have completed
+				// silently). Refresh the tree counts as a best-effort fallback so
+				// the left pane still reflects the migration outcome.
+				vm.loadDefinitions().then(() => vm.refreshGroupCounts(m.sourceKey));
 			}, PROGRESS_TIMEOUT_MS);
 		},
 
@@ -913,10 +926,15 @@ export const App = {
 
 			// Refresh the definition tree so the badges reflect the migrated
 			// instances. Awaiting isn't necessary; the UI updates asynchronously.
-			vm.loadDefinitions();
-			if (vm.selectedGroup) {
-				vm.loadDefInstanceCounts(vm.selectedGroup);
-			}
+			// Refresh the affected (source) group's counts explicitly — it may
+			// differ from selectedGroup, or there may be no selection at all.
+			const sourceKey = m.sourceKey;
+			vm.loadDefinitions().then(() => {
+				vm.refreshGroupCounts(sourceKey);
+				if (vm.selectedGroup && vm.selectedGroup.key !== sourceKey) {
+					vm.loadDefInstanceCounts(vm.selectedGroup);
+				}
+			});
 
 			// Auto-close on success so the overlay doesn't linger. Failures
 			// stay open so the user can read the error and copy it.
@@ -1247,6 +1265,16 @@ export const App = {
 			}
 		},
 
+		// Refresh the instance-count badges for the group identified by its
+		// process-definition key, resolving it against the freshly rebuilt tree.
+		// Used after migrations, which run as background batch jobs and are
+		// launched from the context menu without changing the current selection,
+		// so the affected group is not necessarily `selectedGroup`.
+		async refreshGroupCounts(key: string) {
+			const group = this.groups.find((g: ProcessGroup) => g.key === key);
+			if (group) await this.loadDefInstanceCounts(group);
+		},
+
 		async reloadInstances() {
 			if (this.selectedGroup) {
 				await this.loadInstancesForGroup(this.selectedGroup);
@@ -1337,11 +1365,23 @@ export const App = {
 			try {
 				this.errorMessage = '';
 				await this.bpm.cancelProcessInstance(id, reason || undefined);
+				// Clear any right-pane selection tied to the cancelled instance —
+				// whether the user reached it via the instance list or via a user
+				// task that belongs to it.
 				if (this.selectedInstance?.id === id) {
 					this.selectedInstance = null;
+				}
+				if (this.selectedTask?.processInstanceId === id) {
+					this.selectedTask = null;
+				}
+				if (!this.selectedInstance && !this.selectedTask) {
 					this.activeDetailType = this.selectedDef ? 'definition' : 'none';
 				}
-				if (this.selectedDef) await this.reloadInstances();
+				// Reload both the instance and user-task lists. reloadInstances()
+				// guards on the current selection (group or definition), so the
+				// stale task row is removed even when no specific version is
+				// selected (User Tasks viewed at the group level).
+				await this.reloadInstances();
 			} catch (err) {
 				this.errorMessage = 'Failed to cancel: ' + (err instanceof Error ? err.message : String(err));
 			}
@@ -1857,7 +1897,7 @@ export const App = {
 					new Date(b.incidentTimestamp).getTime() - new Date(a.incidentTimestamp).getTime(),
 				);
 				this.incidents = list;
-				this.loadGlobalIncidentCounts();
+				await this.loadGlobalIncidentCounts();
 			} catch (err) {
 				this.errorMessage = 'Failed to load incidents: '
 					+ (err instanceof Error ? err.message : String(err));
@@ -2217,7 +2257,11 @@ export const App = {
 		// Map of group key → total incident count summed across all versions.
 		groupIncidentCounts(): Record<string, number> {
 			const map: Record<string, number> = {};
-			const counts = this.defIncidentCounts as Record<string, number>;
+			// Depend directly on the raw reactive map rather than the
+			// defIncidentCounts computed, so this subtree total is recomputed
+			// whenever the underlying incident counts change — without relying on
+			// computed→computed dependency propagation.
+			const counts = this.globalIncidentCounts as Record<string, number>;
 			for (const group of this.processGroups as ProcessGroup[]) {
 				let total = 0;
 				for (const def of group.versions) {
