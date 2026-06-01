@@ -22,14 +22,18 @@
 
 package org.mintjams.script;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.tools.lang.Cause;
+import org.mintjams.tools.lang.Strings;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,28 +56,32 @@ public class JSON {
 			return null;
 		}
 
-		if (value instanceof String) {
-			return fObjectMapper.readValue((String) value, new TypeReference<>() {});
+		if (value instanceof String s) {
+			return fObjectMapper.readValue(s, new TypeReference<Object>() {});
 		}
 
-		if (value instanceof InputStream) {
-			try (InputStream in = (InputStream) value) {
-				return fObjectMapper.readValue(in, new TypeReference<>() {});
+		if (value instanceof InputStream in) {
+			try (in) {
+				return parse(Strings.readAll(in, StandardCharsets.UTF_8));
 			}
 		}
 
-		if (value instanceof Reader) {
-			try (Reader in = (Reader) value) {
-				return fObjectMapper.readValue(in, new TypeReference<>() {});
+		if (value instanceof Reader in) {
+			try (in) {
+				return parse(Strings.readAll(in));
 			}
 		}
 
-		if (value instanceof Resource) {
-			try (Reader in = ((Resource) value).getContentAsReader()) {
-				return fObjectMapper.readValue(in, new TypeReference<>() {});
+		if (value instanceof Resource resource) {
+			try (Reader in = resource.getContentAsReader()) {
+				return parse(Strings.readAll(in));
 			} catch (ResourceException ex) {
 				throw Cause.create(ex).wrap(IllegalArgumentException.class);
 			}
+		}
+
+		if (value instanceof File file) {
+			return parse(Files.readString(file.toPath(), StandardCharsets.UTF_8));
 		}
 
 		throw new IllegalArgumentException(value.toString());

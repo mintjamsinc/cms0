@@ -22,14 +22,18 @@
 
 package org.mintjams.script;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.tools.lang.Cause;
+import org.mintjams.tools.lang.Strings;
 import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
@@ -53,28 +57,32 @@ public class YAML {
 			return null;
 		}
 
-		if (value instanceof String) {
-			return new Load(LoadSettings.builder().build()).loadFromString((String) value);
+		if (value instanceof String s) {
+			return new Load(LoadSettings.builder().build()).loadFromString(s);
 		}
 
-		if (value instanceof InputStream) {
-			try (InputStream in = (InputStream) value) {
-				return new Load(LoadSettings.builder().build()).loadFromInputStream(in);
+		if (value instanceof InputStream in) {
+			try (in) {
+				return parse(Strings.readAll(in, StandardCharsets.UTF_8));
 			}
 		}
 
-		if (value instanceof Reader) {
-			try (Reader in = (Reader) value) {
-				return new Load(LoadSettings.builder().build()).loadFromReader(in);
+		if (value instanceof Reader in) {
+			try (in) {
+				return parse(Strings.readAll(in));
 			}
 		}
 
-		if (value instanceof Resource) {
-			try (Reader in = ((Resource) value).getContentAsReader()) {
-				return new Load(LoadSettings.builder().build()).loadFromReader(in);
+		if (value instanceof Resource resource) {
+			try (Reader in = resource.getContentAsReader()) {
+				return parse(Strings.readAll(in));
 			} catch (ResourceException ex) {
 				throw Cause.create(ex).wrap(IllegalArgumentException.class);
 			}
+		}
+
+		if (value instanceof File file) {
+			return parse(Files.readString(file.toPath(), StandardCharsets.UTF_8));
 		}
 
 		throw new IllegalArgumentException(value.toString());
