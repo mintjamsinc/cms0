@@ -16,39 +16,7 @@
 	height: 100%;
 }
 
-/* Top toolbar (translucent, extends to window edges) */
-nav.nav-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	margin-top: -1rem;
-	margin-left: -1rem;
-	margin-right: -1rem;
-	padding: 1rem 1.5rem 0.75rem;
-	color: var(--navbar-color) !important;
-	white-space: nowrap;
-	overflow: visible;
-	user-select: none;
-	position: relative;
-	z-index: 10;
-}
-
-.nav-spacer {
-	flex: 1;
-	min-width: 1rem;
-}
-
-/* Toolbar pill group (mirrors text-editor) */
-.toolbar-group {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.5rem;
-	padding: 0.25rem 0.75rem;
-	background-color: var(--window-controls-bg);
-	border: 1px solid var(--window-controls-border-color);
-	border-radius: 9999px;
-	font-size: 12px;
-}
+/* .nav-bar / .nav-spacer: see shared webtop-app.css */
 
 .preview-title-text {
 	display: inline-flex;
@@ -120,7 +88,6 @@ nav.nav-bar {
 
 .preview-ext-editor-input {
 	width: 5rem;
-	font-size: 11px;
 }
 
 /* Display mode: a small pill matching the toolbar group's look. */

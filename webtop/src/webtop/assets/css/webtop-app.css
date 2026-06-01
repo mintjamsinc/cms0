@@ -281,6 +281,42 @@ html {
 	}
 
 	/* ------------------------------------------------------------------------
+	 * Nav bar
+	 * Translucent top toolbar pinned to the app's top edge. The negative
+	 * margins cancel the #app padding so the bar spans the full width, and
+	 * the spacer pushes trailing groups (pane-toggles / window-controls) to
+	 * the right.
+	 *
+	 * Usage:
+	 *   <nav class="nav-bar window-drag-region">
+	 *     ...left content...
+	 *     <span class="nav-spacer"></span>
+	 *     <div class="pane-toggles">...</div>
+	 *     <div class="window-controls">...</div>
+	 *   </nav>
+	 * ---------------------------------------------------------------------- */
+	.nav-bar {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: -1rem;
+		margin-left: -1rem;
+		margin-right: -1rem;
+		padding: 1rem 1.5rem 0.75rem;
+		color: var(--navbar-color) !important;
+		white-space: nowrap;
+		overflow: visible;
+		user-select: none;
+		position: relative;
+		z-index: 10;
+	}
+
+	.nav-spacer {
+		flex: 1;
+		min-width: 1rem;
+	}
+
+	/* ------------------------------------------------------------------------
 	 * Island
 	 * Half-transparent panel that floats on top of the window.
 	 * Used for sidebar, main content, inspector, etc.
@@ -903,6 +939,33 @@ html {
 	}
 
 	.pane-toggle-btn.active {
+		background-color: var(--pane-toggle-active-bg);
+		color: #fff;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * Toolbar group (pill group for action buttons)
+	 * Same pill look as .pane-toggles, but for action buttons (save, undo,
+	 * zoom, ...) rather than pane-visibility toggles. Group related .btn-icon
+	 * buttons inside it; add .active to a button to show it pressed.
+	 *
+	 * Usage:
+	 *   <div class="toolbar-group">
+	 *     <button class="btn-icon" @click="save">...</button>
+	 *     <button class="btn-icon" :class="{active: foo}" @click="...">...</button>
+	 *   </div>
+	 * ---------------------------------------------------------------------- */
+	.toolbar-group {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.25rem 0.5rem;
+		background-color: var(--window-controls-bg);
+		border: 1px solid var(--window-controls-border-color);
+		border-radius: 9999px;
+	}
+
+	.toolbar-group .btn-icon.active {
 		background-color: var(--pane-toggle-active-bg);
 		color: #fff;
 	}

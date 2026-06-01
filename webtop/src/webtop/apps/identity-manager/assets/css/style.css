@@ -22,43 +22,9 @@
 	height: 100%;
 }
 
-/* Top toolbar (translucent, extends to window edges) */
-nav.nav-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	margin-top: -1rem;
-	margin-left: -1rem;
-	margin-right: -1rem;
-	padding: 1rem 1.5rem 0.75rem;
-	color: var(--navbar-color) !important;
-	white-space: nowrap;
-	overflow: visible;
-	user-select: none;
-	position: relative;
-	z-index: 10;
-}
-
-.nav-spacer {
-	flex: 1;
-	min-width: 1rem;
-}
-
-.toolbar-group {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.5rem;
-	padding: 0.25rem 0.5rem;
-	background-color: var(--window-controls-bg);
-	border: 1px solid var(--window-controls-border-color);
-	border-radius: 9999px;
-}
-
-/* Active state for left-side section toggle (Users / Groups / Roles) */
-.toolbar-group .btn-icon.section-toggle.active {
-	background-color: var(--pane-toggle-active-bg);
-	color: #fff;
-}
+/* .nav-bar / .nav-spacer / .toolbar-group (+ .active): see shared webtop-app.css
+ * The Users / Groups / Roles section toggles use .btn-icon.active, which the
+ * shared .toolbar-group .btn-icon.active rule highlights. */
 
 /* Content body — 2 panes */
 .content-body {

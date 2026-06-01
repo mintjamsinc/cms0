@@ -162,22 +162,7 @@
 	user-select: none;
 }
 
-/* Navigation Bar */
-nav.nav-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-    margin-top: -1rem;
-	margin-left: -1rem;
-    margin-right: -1rem;
-    padding: 1rem 1.5rem 0.75rem;
-	color: var(--navbar-color) !important;
-	white-space: nowrap;
-	overflow: visible;
-	user-select: none;
-	position: relative;
-	z-index: 10;
-}
+/* Navigation Bar: .nav-bar / .nav-spacer — see shared webtop-app.css */
 
 /* Back/Forward arrows */
 .nav-arrows {
@@ -480,12 +465,6 @@ nav.nav-bar {
 	&:hover {
 		background-color: var(--nav-current-hover-bg);
 	}
-}
-
-.nav-spacer {
-	flex: 1;
-	min-width: 1rem;
-	height: 100%;
 }
 
 .nav-edit-hint {
