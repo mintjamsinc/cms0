@@ -10,6 +10,7 @@ import {
 	type Bounds,
 	type Point,
 	type ExecutionListener as StoreExecutionListener,
+	type TaskListener as StoreTaskListener,
 	type InputOutputParameter as StoreInputOutputParameter,
 } from './core/bpmn-model-types.js';
 
@@ -399,6 +400,22 @@ const LISTENER_EVENT_OPTIONS: ChoiceOption[] = [
 const LISTENER_TYPE_OPTIONS: ChoiceOption[] = [
 	{ id: 'class', label: 'Java Class' },
 	{ id: 'expression', label: 'Expression' },
+	{ id: 'script', label: 'Script' },
+];
+
+// Task listeners (user tasks): user-task lifecycle events + delegateExpression.
+const TASK_LISTENER_EVENT_OPTIONS: ChoiceOption[] = [
+	{ id: 'create', label: 'create' },
+	{ id: 'assignment', label: 'assignment' },
+	{ id: 'complete', label: 'complete' },
+	{ id: 'delete', label: 'delete' },
+	{ id: 'update', label: 'update' },
+];
+
+const TASK_LISTENER_TYPE_OPTIONS: ChoiceOption[] = [
+	{ id: 'class', label: 'Java Class' },
+	{ id: 'expression', label: 'Expression' },
+	{ id: 'delegateExpression', label: 'Delegate Expression' },
 	{ id: 'script', label: 'Script' },
 ];
 
@@ -973,6 +990,7 @@ export const App = {
 						inputParameters: el.inputParameters,
 						outputParameters: el.outputParameters,
 						executionListeners: el.executionListeners,
+						taskListeners: el.taskListeners,
 						extensionProperties: el.extensionProperties,
 						// Data
 						isCollection: el.isCollection,
@@ -1152,6 +1170,7 @@ export const App = {
 					inputParameters: semantic.inputParameters,
 					outputParameters: semantic.outputParameters,
 					executionListeners: semantic.executionListeners,
+					taskListeners: semantic.taskListeners,
 					extensionProperties: semantic.extensionProperties,
 					// Data
 					isCollection: semantic.isCollection,
@@ -1492,6 +1511,7 @@ export const App = {
 					inputParameters: element.inputParameters as StoreInputOutputParameter[] | undefined,
 					outputParameters: element.outputParameters as StoreInputOutputParameter[] | undefined,
 					executionListeners: element.executionListeners as StoreExecutionListener[] | undefined,
+					taskListeners: element.taskListeners as StoreTaskListener[] | undefined,
 					extensionProperties: element.extensionProperties,
 					// Data
 					isCollection: element.isCollection,
@@ -4740,6 +4760,7 @@ export const App = {
 					inputParameters: semantic.inputParameters,
 					outputParameters: semantic.outputParameters,
 					executionListeners: semantic.executionListeners,
+					taskListeners: semantic.taskListeners,
 					extensionProperties: semantic.extensionProperties,
 					isCollection: semantic.isCollection,
 					dataState: semantic.dataState,
@@ -5183,6 +5204,27 @@ export const App = {
 			this.openChoicePopup(event, FIELD_TYPE_OPTIONS,
 				field.type || 'string',
 				v => { field.type = v; this.onPropertyChange(); });
+		},
+
+		// Task listeners (script format / type / field type reuse the execution
+		// listener dropdowns above; only event and listener type differ).
+		openTaskListenerEventDropdown(listener: any, event: MouseEvent) {
+			this.openChoicePopup(event, TASK_LISTENER_EVENT_OPTIONS,
+				listener.event || 'create',
+				v => { listener.event = v; this.onPropertyChange(); });
+		},
+		taskListenerEventLabel(listener: any): string {
+			return this.optionLabel(TASK_LISTENER_EVENT_OPTIONS, listener?.event || 'create', 'create');
+		},
+
+		openTaskListenerTypeDropdown(listener: any, event: MouseEvent) {
+			this.openChoicePopup(event, TASK_LISTENER_TYPE_OPTIONS,
+				listener.listenerType || 'class',
+				v => { listener.listenerType = v; this.onPropertyChange(); });
+		},
+		taskListenerTypeLabel(listener: any): string {
+			return this.optionLabel(TASK_LISTENER_TYPE_OPTIONS,
+				listener?.listenerType || 'class', 'Java Class');
 		},
 
 		// -- Reference combobox widget (Message / Signal / Error / Escalation) --
@@ -6355,6 +6397,81 @@ export const App = {
 			const element = vm.selectedElement as BpmnElement;
 			if (element.executionListeners && index >= 0 && index < element.executionListeners.length) {
 				element.executionListeners.splice(index, 1);
+				vm.markModified();
+			}
+		},
+
+		/**
+		 * Add a new task listener to the selected element (user tasks)
+		 */
+		addTaskListener() {
+			const vm = this;
+			if (!vm.selectedElement || !('type' in vm.selectedElement)) return;
+
+			const element = vm.selectedElement as BpmnElement;
+			if (!element.taskListeners) {
+				element.taskListeners = [];
+			}
+
+			element.taskListeners.push({
+				event: 'create',
+				listenerType: 'class',
+				javaClass: '',
+				fields: [],
+			});
+			vm.markModified();
+		},
+
+		/**
+		 * Add a new field injection to a task listener
+		 */
+		addTaskListenerField(listenerIndex: number) {
+			const vm = this;
+			if (!vm.selectedElement || !('type' in vm.selectedElement)) return;
+
+			const element = vm.selectedElement as BpmnElement;
+			if (!element.taskListeners || !element.taskListeners[listenerIndex]) return;
+
+			const listener = element.taskListeners[listenerIndex];
+			if (!listener.fields) {
+				listener.fields = [];
+			}
+
+			listener.fields.push({
+				name: '',
+				type: 'string',
+				value: '',
+			});
+			vm.markModified();
+		},
+
+		/**
+		 * Remove a field injection from a task listener
+		 */
+		removeTaskListenerField(listenerIndex: number, fieldIndex: number) {
+			const vm = this;
+			if (!vm.selectedElement || !('type' in vm.selectedElement)) return;
+
+			const element = vm.selectedElement as BpmnElement;
+			if (!element.taskListeners || !element.taskListeners[listenerIndex]) return;
+
+			const listener = element.taskListeners[listenerIndex];
+			if (listener.fields && fieldIndex >= 0 && fieldIndex < listener.fields.length) {
+				listener.fields.splice(fieldIndex, 1);
+				vm.markModified();
+			}
+		},
+
+		/**
+		 * Remove a task listener from the selected element
+		 */
+		removeTaskListener(index: number) {
+			const vm = this;
+			if (!vm.selectedElement || !('type' in vm.selectedElement)) return;
+
+			const element = vm.selectedElement as BpmnElement;
+			if (element.taskListeners && index >= 0 && index < element.taskListeners.length) {
+				element.taskListeners.splice(index, 1);
 				vm.markModified();
 			}
 		},
