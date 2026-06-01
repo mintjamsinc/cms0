@@ -5,7 +5,7 @@ actions:
   open:
     icon: open
     label: Open
-minimumWidth: 960
-minimumHeight: 540
+minimumWidth: 480
+minimumHeight: 480
 customWindowControls: true
 singleton: true
