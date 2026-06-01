@@ -317,7 +317,7 @@ public class TransformComponent extends DefaultComponent {
 				 */
 				public Integer getParameterAsInteger(String key) {
 					Object value = getParameter(key);
-					return new BigDecimal(value.toString()).intValue();
+					return value != null ? new BigDecimal(value.toString().trim()).intValue() : null;
 				}
 
 				/**
