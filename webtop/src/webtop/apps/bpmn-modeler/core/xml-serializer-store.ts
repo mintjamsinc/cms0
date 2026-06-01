@@ -273,8 +273,9 @@ export function serializeStoreToXml(store: BpmnModelStore): string {
 			childLines.push(`${indent}  <bpmn:documentation>${escapeXml(semantic.documentation)}</bpmn:documentation>`);
 		}
 
-		// Extension elements (must precede incoming/outgoing per BPMN 2.0 XSD)
-		const extLines = serializeExtensionElements(semantic, indent + '  ');
+		// Extension elements (must precede incoming/outgoing per BPMN 2.0 XSD).
+		// Content nests one level under <bpmn:extensionElements> (indent + 4).
+		const extLines = serializeExtensionElements(semantic, indent + '    ');
 		if (extLines.length > 0) {
 			childLines.push(`${indent}  <bpmn:extensionElements>`);
 			childLines.push(...extLines);
@@ -473,9 +474,12 @@ export function serializeStoreToXml(store: BpmnModelStore): string {
 			});
 		}
 
-		// Failed job retry time cycle
-		if (semantic.failedJobRetryTimeCycle) {
-			extLines.push(`${indent}<camunda:failedJobRetryTimeCycle>${escapeXml(semantic.failedJobRetryTimeCycle)}</camunda:failedJobRetryTimeCycle>`);
+		// Failed job retry time cycle. The parser reads this into retryTimeCycle
+		// (the field the properties panel binds to); failedJobRetryTimeCycle is
+		// accepted as a fallback for models populated by other code paths.
+		const retryCycle = semantic.retryTimeCycle || semantic.failedJobRetryTimeCycle;
+		if (retryCycle) {
+			extLines.push(`${indent}<camunda:failedJobRetryTimeCycle>${escapeXml(retryCycle)}</camunda:failedJobRetryTimeCycle>`);
 		}
 
 		// Execution listeners
@@ -507,6 +511,42 @@ export function serializeStoreToXml(store: BpmnModelStore): string {
 					}
 				} else if (listener.listenerType === 'expression' && listener.expression) {
 					extLines.push(`${indent}<camunda:executionListener event="${listener.event}" expression="${escapeXml(listener.expression)}"/>`);
+				}
+			});
+		}
+
+		// Task listeners (user tasks). Mirrors execution listeners, plus the
+		// delegateExpression type.
+		if (semantic.taskListeners && semantic.taskListeners.length > 0) {
+			semantic.taskListeners.forEach(listener => {
+				if (listener.listenerType === 'script') {
+					extLines.push(`${indent}<camunda:taskListener event="${listener.event}">`);
+					if (listener.scriptType === 'external' && listener.resource) {
+						extLines.push(`${indent}  <camunda:script scriptFormat="${escapeXml(listener.scriptFormat || 'groovy')}" resource="${escapeXml(listener.resource)}"/>`);
+					} else if (listener.script) {
+						extLines.push(`${indent}  <camunda:script scriptFormat="${escapeXml(listener.scriptFormat || 'groovy')}"><![CDATA[${listener.script}]]></camunda:script>`);
+					}
+					extLines.push(`${indent}</camunda:taskListener>`);
+				} else if (listener.listenerType === 'class' && listener.javaClass) {
+					if (listener.fields && listener.fields.length > 0) {
+						extLines.push(`${indent}<camunda:taskListener event="${listener.event}" class="${escapeXml(listener.javaClass)}">`);
+						listener.fields.forEach(field => {
+							extLines.push(`${indent}  <camunda:field name="${escapeXml(field.name)}">`);
+							if (field.type === 'expression') {
+								extLines.push(`${indent}    <camunda:expression>${escapeXml(field.value)}</camunda:expression>`);
+							} else {
+								extLines.push(`${indent}    <camunda:string>${escapeXml(field.value)}</camunda:string>`);
+							}
+							extLines.push(`${indent}  </camunda:field>`);
+						});
+						extLines.push(`${indent}</camunda:taskListener>`);
+					} else {
+						extLines.push(`${indent}<camunda:taskListener event="${listener.event}" class="${escapeXml(listener.javaClass)}"/>`);
+					}
+				} else if (listener.listenerType === 'expression' && listener.expression) {
+					extLines.push(`${indent}<camunda:taskListener event="${listener.event}" expression="${escapeXml(listener.expression)}"/>`);
+				} else if (listener.listenerType === 'delegateExpression' && listener.delegateExpression) {
+					extLines.push(`${indent}<camunda:taskListener event="${listener.event}" delegateExpression="${escapeXml(listener.delegateExpression)}"/>`);
 				}
 			});
 		}
@@ -546,6 +586,18 @@ export function serializeStoreToXml(store: BpmnModelStore): string {
 						extLines.push(`${indent}  <camunda:outputParameter name="${escapeXml(param.name)}">`);
 						extLines.push(`${indent}    <camunda:script scriptFormat="${escapeXml(param.scriptFormat || 'groovy')}"><![CDATA[${param.script}]]></camunda:script>`);
 						extLines.push(`${indent}  </camunda:outputParameter>`);
+					} else if (param.type === 'list' && param.listValues) {
+						extLines.push(`${indent}  <camunda:outputParameter name="${escapeXml(param.name)}">`);
+						extLines.push(`${indent}    <camunda:list>`);
+						param.listValues.forEach(v => extLines.push(`${indent}      <camunda:value>${escapeXml(v)}</camunda:value>`));
+						extLines.push(`${indent}    </camunda:list>`);
+						extLines.push(`${indent}  </camunda:outputParameter>`);
+					} else if (param.type === 'map' && param.mapEntries) {
+						extLines.push(`${indent}  <camunda:outputParameter name="${escapeXml(param.name)}">`);
+						extLines.push(`${indent}    <camunda:map>`);
+						param.mapEntries.forEach(e => extLines.push(`${indent}      <camunda:entry key="${escapeXml(e.key)}">${escapeXml(e.value)}</camunda:entry>`));
+						extLines.push(`${indent}    </camunda:map>`);
+						extLines.push(`${indent}  </camunda:outputParameter>`);
 					}
 				});
 			}
@@ -573,6 +625,17 @@ export function serializeStoreToXml(store: BpmnModelStore): string {
 					extLines.push(`${indent}<camunda:out source="${escapeXml(m.source)}" target="${escapeXml(m.target)}"/>`);
 				});
 			}
+		}
+
+		// Unmodeled extension elements preserved verbatim on parse (e.g.
+		// camunda:taskListener). Re-indent each captured block to sit under the
+		// current <bpmn:extensionElements>.
+		if (semantic.unknownExtensions && semantic.unknownExtensions.length > 0) {
+			semantic.unknownExtensions.forEach(block => {
+				block.split('\n').forEach(line => {
+					extLines.push(line.length > 0 ? `${indent}${line}` : line);
+				});
+			});
 		}
 
 		return extLines;

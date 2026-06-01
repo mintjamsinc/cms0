@@ -57,6 +57,29 @@ export interface ExecutionListener {
 }
 
 /**
+ * Camunda Task Listener (user tasks only). Mirrors ExecutionListener but with
+ * the user-task lifecycle events and the additional delegateExpression type.
+ * The timeout event (which carries a timer definition) is not modeled here; such
+ * listeners are preserved verbatim via BpmnSemantic.unknownExtensions instead.
+ */
+export interface TaskListener {
+	event: 'create' | 'assignment' | 'complete' | 'delete' | 'update';
+	listenerType: 'class' | 'expression' | 'delegateExpression' | 'script';
+	// For class type
+	javaClass?: string;
+	fields?: FieldInjection[];
+	// For expression type
+	expression?: string;
+	// For delegateExpression type
+	delegateExpression?: string;
+	// For script type
+	scriptFormat?: string;
+	scriptType?: 'inline' | 'external';
+	script?: string;
+	resource?: string;
+}
+
+/**
  * Extension Property for BPMN elements
  */
 export interface ExtensionProperty {
@@ -192,6 +215,7 @@ export interface BpmnSemantic {
 	// Common Camunda extensions
 	documentation?: string;
 	executionListeners?: ExecutionListener[];
+	taskListeners?: TaskListener[];
 	extensionProperties?: ExtensionProperty[];
 	// Start Event specific
 	initiator?: string;
@@ -207,6 +231,12 @@ export interface BpmnSemantic {
 	outputParameters?: InputOutputParameter[];
 	// Failed job retry time cycle (Camunda extension)
 	failedJobRetryTimeCycle?: string;
+	// Verbatim-preserved children of <bpmn:extensionElements> that the editor
+	// does not model (e.g. camunda:taskListener, camunda:connector). Each entry
+	// is one pretty-printed extension element (2-space indented, base column 0)
+	// captured on parse and re-emitted unchanged on save so unknown extensions
+	// survive the round-trip instead of being silently dropped.
+	unknownExtensions?: string[];
 	// User Task specific
 	assignee?: string;
 	candidateUsers?: string;

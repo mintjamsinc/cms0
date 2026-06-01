@@ -18,10 +18,26 @@ import {
 	type Bounds,
 	type Point,
 	type ExecutionListener as StoreExecutionListener,
+	type TaskListener as StoreTaskListener,
 	type InputOutputParameter as StoreInputOutputParameter,
 	generateUUID,
 } from './bpmn-model-types.js';
 import { generateId } from './element-config.js';
+import { serializeElementToLines } from './xml-utils.js';
+
+// Local names of <bpmn:extensionElements> children that the serializer
+// reconstructs from the semantic model. Every other child is unmodeled and is
+// preserved verbatim (see BpmnSemantic.unknownExtensions) so it survives the
+// open→save round-trip instead of being dropped.
+const MODELED_EXTENSION_ELEMENTS = new Set([
+	'executionListener',
+	'field',
+	'failedJobRetryTimeCycle',
+	'inputOutput',
+	'properties',
+	'in',
+	'out',
+]);
 
 /**
  * Parse BPMN XML and populate the BpmnModelStore with separated semantic and DI layers.
@@ -229,13 +245,80 @@ export function parseBpmnXmlToStore(xml: string, store: BpmnModelStore): void {
 		return result;
 	};
 
-	// Helper function to parse input parameters
-	const parseInputParameters = (extensionElements: Element | null): StoreInputOutputParameter[] | undefined => {
+	// Parse a single camunda:taskListener element into the model. Returns null
+	// for variants the editor does not model (e.g. timeout listeners, which
+	// carry a timer definition) so the caller can preserve them verbatim.
+	const parseTaskListenerElement = (listener: Element): StoreTaskListener | null => {
+		const event = getAttr(listener, 'event') || 'create';
+		// Timeout listeners carry a timer event definition we do not model;
+		// let the caller keep them verbatim instead of dropping the timer.
+		if (event === 'timeout') return null;
+
+		const listenerClass = getAttr(listener, 'class');
+		const listenerExpression = getAttr(listener, 'expression');
+		const listenerDelegate = getAttr(listener, 'delegateExpression');
+		const scriptEl = findChildByLocalName(listener, 'script');
+
+		const listenerObj: StoreTaskListener = {
+			event: event as StoreTaskListener['event'],
+			listenerType: 'class',
+		};
+
+		if (listenerClass) {
+			listenerObj.listenerType = 'class';
+			listenerObj.javaClass = listenerClass;
+
+			const fieldEls = findAllByLocalName(listener, 'field');
+			if (fieldEls.length > 0) {
+				listenerObj.fields = [];
+				fieldEls.forEach(fieldEl => {
+					const fieldName = getAttr(fieldEl, 'name');
+					const stringEl = findChildByLocalName(fieldEl, 'string');
+					const expressionEl = findChildByLocalName(fieldEl, 'expression');
+
+					if (stringEl) {
+						listenerObj.fields!.push({ name: fieldName, type: 'string', value: stringEl.textContent || '' });
+					} else if (expressionEl) {
+						listenerObj.fields!.push({ name: fieldName, type: 'expression', value: expressionEl.textContent || '' });
+					}
+				});
+			}
+		} else if (listenerExpression) {
+			listenerObj.listenerType = 'expression';
+			listenerObj.expression = listenerExpression;
+		} else if (listenerDelegate) {
+			listenerObj.listenerType = 'delegateExpression';
+			listenerObj.delegateExpression = listenerDelegate;
+		} else if (scriptEl) {
+			listenerObj.listenerType = 'script';
+			listenerObj.scriptFormat = getAttr(scriptEl, 'scriptFormat') || 'groovy';
+
+			const resource = getAttr(scriptEl, 'resource');
+			if (resource) {
+				listenerObj.scriptType = 'external';
+				listenerObj.resource = resource;
+			} else {
+				listenerObj.scriptType = 'inline';
+				listenerObj.script = scriptEl.textContent || '';
+			}
+		} else {
+			// No recognised implementation — preserve verbatim rather than emit
+			// an empty listener that would lose the original content.
+			return null;
+		}
+
+		return listenerObj;
+	};
+
+	// Helper function to parse input/output parameters of a camunda:inputOutput.
+	// `localName` is 'inputParameter' or 'outputParameter'; the body is identical
+	// for both (Camunda uses the same structure for each).
+	const parseIOParameters = (extensionElements: Element | null, localName: string): StoreInputOutputParameter[] | undefined => {
 		if (!extensionElements) return undefined;
 		const inputOutput = findFirstByLocalName(extensionElements, 'inputOutput');
 		if (!inputOutput) return undefined;
 
-		const inputParams = findAllByLocalName(inputOutput, 'inputParameter');
+		const inputParams = findAllByLocalName(inputOutput, localName);
 		if (inputParams.length === 0) return undefined;
 
 		const result: StoreInputOutputParameter[] = [];
@@ -277,6 +360,12 @@ export function parseBpmnXmlToStore(xml: string, store: BpmnModelStore): void {
 		});
 		return result;
 	};
+
+	const parseInputParameters = (extensionElements: Element | null): StoreInputOutputParameter[] | undefined =>
+		parseIOParameters(extensionElements, 'inputParameter');
+
+	const parseOutputParameters = (extensionElements: Element | null): StoreInputOutputParameter[] | undefined =>
+		parseIOParameters(extensionElements, 'outputParameter');
 
 	// Helper function to parse extension properties
 	const parseExtensionProperties = (extensionElements: Element | null): { name: string; value: string }[] | undefined => {
@@ -332,6 +421,33 @@ export function parseBpmnXmlToStore(xml: string, store: BpmnModelStore): void {
 			const failedJobRetryTimeCycle = findFirstByLocalName(extensionElements, 'failedJobRetryTimeCycle');
 			if (failedJobRetryTimeCycle) {
 				semantic.retryTimeCycle = failedJobRetryTimeCycle.textContent || '';
+			}
+		}
+
+		// Task listeners (modeled where possible) and any other extension children
+		// the editor does not model (e.g. camunda:connector). Unmodeled task
+		// listeners and unknown elements are preserved verbatim so save does not
+		// drop them.
+		if (extensionElements) {
+			const preserved: string[] = [];
+			const taskListeners: StoreTaskListener[] = [];
+			for (const child of Array.from(extensionElements.children)) {
+				if (child.localName === 'taskListener') {
+					const modeled = parseTaskListenerElement(child);
+					if (modeled) {
+						taskListeners.push(modeled);
+					} else {
+						preserved.push(serializeElementToLines(child).join('\n'));
+					}
+				} else if (!MODELED_EXTENSION_ELEMENTS.has(child.localName)) {
+					preserved.push(serializeElementToLines(child).join('\n'));
+				}
+			}
+			if (taskListeners.length > 0) {
+				semantic.taskListeners = taskListeners;
+			}
+			if (preserved.length > 0) {
+				semantic.unknownExtensions = preserved;
 			}
 		}
 
@@ -490,6 +606,7 @@ export function parseBpmnXmlToStore(xml: string, store: BpmnModelStore): void {
 			semantic.exclusive = exclusiveAttr === '' ? true : exclusiveAttr === 'true';
 			semantic.jobPriority = getAttr(el, 'jobPriority');
 			semantic.inputParameters = parseInputParameters(extensionElements);
+			semantic.outputParameters = parseOutputParameters(extensionElements);
 		}
 
 		// Intermediate Event
@@ -714,6 +831,7 @@ export function parseBpmnXmlToStore(xml: string, store: BpmnModelStore): void {
 				semantic.implementation = 'class';
 			}
 			semantic.inputParameters = parseInputParameters(extensionElements);
+			semantic.outputParameters = parseOutputParameters(extensionElements);
 			if (extensionElements) {
 				const fieldEls = findAllByLocalName(extensionElements, 'field');
 				if (fieldEls.length > 0) {

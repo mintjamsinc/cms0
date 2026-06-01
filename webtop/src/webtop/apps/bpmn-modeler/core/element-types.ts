@@ -11,6 +11,7 @@ import type {
 	ConnectorInput,
 	ConnectorOutput,
 	ExecutionListener,
+	TaskListener,
 	ExtensionProperty,
 	InputOutputParameter,
 	MessageDefinition,
@@ -23,6 +24,7 @@ export type {
 	ConnectorInput,
 	ConnectorOutput,
 	ExecutionListener,
+	TaskListener,
 	ExtensionProperty,
 	InputOutputParameter,
 	MessageDefinition,
@@ -47,6 +49,7 @@ export interface BpmnElement {
 	// Common Camunda extensions
 	documentation?: string;
 	executionListeners?: ExecutionListener[];
+	taskListeners?: TaskListener[];
 	extensionProperties?: ExtensionProperty[];
 	// Start Event specific
 	initiator?: string;

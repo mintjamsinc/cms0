@@ -3354,6 +3354,153 @@
 							</div>
 						</div>
 
+						<!-- Listeners Tab — Task Listeners (user tasks only) -->
+						<div v-if="propertyTab === 'listeners' && selectedElement.type === 'userTask'" class="property-tab-content">
+							<div class="property-group">
+								<div class="property-group-title d-flex justify-content-between align-items-center">
+									<span>Task Listeners</span>
+									<button type="button" class="wt wt-slim wt-square wt-outlined wt-primary" @click="addTaskListener">
+										<i class="bi bi-plus"></i>
+									</button>
+								</div>
+								<div v-if="!selectedElement.taskListeners || selectedElement.taskListeners.length === 0" class="text-muted small py-2">
+									No task listeners defined
+								</div>
+								<div v-else>
+									<div v-for="(listener, index) in selectedElement.taskListeners" :key="index" class="listener-item">
+										<div class="listener-header d-flex justify-content-between align-items-center">
+											<span class="listener-title">Listener #{{ index + 1 }}</span>
+											<button type="button" class="wt wt-slim wt-square wt-outlined wt-danger" @click="removeTaskListener(index)">
+												<i class="bi bi-trash"></i>
+											</button>
+										</div>
+										<div class="property-row">
+											<label class="property-label">Event</label>
+											<div class="wt-select w-100">
+												<button type="button" class="wt-select-trigger" @click.stop="openTaskListenerEventDropdown(listener, event)">
+													<span class="wt-select-value">{{ taskListenerEventLabel(listener) }}</span>
+													<i class="bi bi-chevron-down wt-select-chevron"></i>
+												</button>
+											</div>
+										</div>
+										<div class="property-row">
+											<label class="property-label">Listener Type</label>
+											<div class="wt-select w-100">
+												<button type="button" class="wt-select-trigger" @click.stop="openTaskListenerTypeDropdown(listener, event)">
+													<span class="wt-select-value">{{ taskListenerTypeLabel(listener) }}</span>
+													<i class="bi bi-chevron-down wt-select-chevron"></i>
+												</button>
+											</div>
+										</div>
+
+										<!-- Java Class Type -->
+										<div v-if="listener.listenerType === 'class'">
+											<div class="property-row">
+												<label class="property-label">Java Class</label>
+												<input type="text" class="wt w-100" v-model="listener.javaClass" @input="onPropertyChange"
+													   placeholder="e.g., com.example.MyTaskListener">
+											</div>
+											<!-- Field Injections -->
+											<div class="field-injections-section">
+												<div class="property-group-title d-flex justify-content-between align-items-center" style="font-size: 0.75rem; margin-top: 0.5rem;">
+													<span>Field Injection</span>
+													<button type="button" class="wt wt-slim wt-square wt-outlined wt-secondary" @click="addTaskListenerField(index)" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;">
+														<i class="bi bi-plus"></i>
+													</button>
+												</div>
+												<div v-if="!listener.fields || listener.fields.length === 0" class="text-muted small py-1" style="font-size: 0.7rem;">
+													No field injections
+												</div>
+												<div v-else>
+													<div v-for="(field, fieldIndex) in listener.fields" :key="fieldIndex" class="field-injection-item">
+														<div class="d-flex gap-1 align-items-start">
+															<div class="flex-grow-1">
+																<div class="property-row" style="margin-bottom: 0.25rem;">
+																	<label class="property-label" style="font-size: 0.7rem;">Name</label>
+																	<input type="text" class="wt w-100" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
+																		   v-model="field.name" @input="onPropertyChange">
+																</div>
+																<div class="property-row" style="margin-bottom: 0.25rem;">
+																	<label class="property-label" style="font-size: 0.7rem;">Type</label>
+																	<div class="wt-select w-100" style="font-size: 0.75rem;">
+																		<button type="button" class="wt-select-trigger" style="padding: 0.2rem 0.3rem;" @click.stop="openListenerFieldTypeDropdown(field, event)">
+																			<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
+																			<i class="bi bi-chevron-down wt-select-chevron"></i>
+																		</button>
+																	</div>
+																</div>
+																<div class="property-row" style="margin-bottom: 0.25rem;">
+																	<label class="property-label" style="font-size: 0.7rem;">Value</label>
+																	<input type="text" class="wt w-100" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
+																		   v-model="field.value" @input="onPropertyChange">
+																</div>
+															</div>
+															<button type="button" class="wt wt-slim wt-square wt-outlined wt-danger" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;"
+																	@click="removeTaskListenerField(index, fieldIndex)">
+																<i class="bi bi-x"></i>
+															</button>
+														</div>
+													</div>
+												</div>
+											</div>
+										</div>
+
+										<!-- Expression Type -->
+										<div v-if="listener.listenerType === 'expression'">
+											<div class="property-row">
+												<label class="property-label">Expression</label>
+												<input type="text" class="wt w-100" v-model="listener.expression" @input="onPropertyChange"
+													   placeholder="e.g., ${myBean.doSomething()}">
+											</div>
+										</div>
+
+										<!-- Delegate Expression Type -->
+										<div v-if="listener.listenerType === 'delegateExpression'">
+											<div class="property-row">
+												<label class="property-label">Delegate Expression</label>
+												<input type="text" class="wt w-100" v-model="listener.delegateExpression" @input="onPropertyChange"
+													   placeholder="e.g., ${myListenerBean}">
+											</div>
+										</div>
+
+										<!-- Script Type -->
+										<div v-if="listener.listenerType === 'script'">
+											<div class="property-row">
+												<label class="property-label">Script Format</label>
+												<div class="wt-select w-100">
+													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptFormatDropdown(listener, event)">
+														<span class="wt-select-value">{{ listenerScriptFormatLabel(listener) }}</span>
+														<i class="bi bi-chevron-down wt-select-chevron"></i>
+													</button>
+												</div>
+											</div>
+											<div class="property-row">
+												<label class="property-label">Script Type</label>
+												<div class="wt-select w-100">
+													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptTypeDropdown(listener, event)">
+														<span class="wt-select-value">{{ listenerScriptTypeLabel(listener) }}</span>
+														<i class="bi bi-chevron-down wt-select-chevron"></i>
+													</button>
+												</div>
+											</div>
+											<!-- Inline Script -->
+											<div class="property-row" v-if="listener.scriptType === 'inline' || !listener.scriptType">
+												<label class="property-label">Script</label>
+												<textarea class="wt w-100" v-model="listener.script" @input="onPropertyChange"
+														  placeholder="Enter script code..."></textarea>
+											</div>
+											<!-- External Resource -->
+											<div class="property-row" v-if="listener.scriptType === 'external'">
+												<label class="property-label">Resource</label>
+												<input type="text" class="wt w-100" v-model="listener.resource" @input="onPropertyChange"
+													   placeholder="e.g., classpath://scripts/myScript.groovy">
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
 						<!-- Extensions Tab -->
 						<div v-if="propertyTab === 'extensions'" class="property-tab-content">
 							<div class="property-group">

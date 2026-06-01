@@ -37,6 +37,44 @@ export function escapeXmlAttr(str: string): string {
 		.replace(/\t/g, '&#9;');
 }
 
+/**
+ * Pretty-print an arbitrary XML element to indented lines, preserving its tag
+ * (with namespace prefix), attributes and nested structure. Used to round-trip
+ * extension elements the editor does not model: they are captured verbatim on
+ * parse and re-emitted on save instead of being dropped.
+ *
+ * Lines are produced with 2-space indentation starting at `indent` (base column
+ * 0 by default); callers prepend their own base indent when splicing the block
+ * into a larger document.
+ *
+ * Text content is XML-escaped. Mixed content (significant text alongside child
+ * elements) does not occur in Camunda extension subtrees and is not preserved;
+ * whitespace-only text between child elements is normalised away.
+ */
+export function serializeElementToLines(el: Element, indent: string = ''): string[] {
+	const tag = el.tagName; // qualified name, e.g. "camunda:taskListener"
+	let attrs = '';
+	for (const attr of Array.from(el.attributes)) {
+		attrs += ` ${attr.name}="${escapeXmlAttr(attr.value)}"`;
+	}
+
+	const childElements = Array.from(el.children);
+	if (childElements.length === 0) {
+		const text = el.textContent ?? '';
+		if (text.trim() === '') {
+			return [`${indent}<${tag}${attrs}/>`];
+		}
+		return [`${indent}<${tag}${attrs}>${escapeXml(text)}</${tag}>`];
+	}
+
+	const lines: string[] = [`${indent}<${tag}${attrs}>`];
+	for (const child of childElements) {
+		lines.push(...serializeElementToLines(child, indent + '  '));
+	}
+	lines.push(`${indent}</${tag}>`);
+	return lines;
+}
+
 // =============================================================================
 // Geometry helpers used by the store-mode serializer to compute the
 // waypoints written to bpmndi:BPMNEdge when an edge has none.
