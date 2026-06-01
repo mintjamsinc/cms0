@@ -22,23 +22,23 @@
 		<nav class="nav-bar window-drag-region">
 			<!-- Left: section icons -->
 			<div class="toolbar-group">
-				<button class="btn-icon section-btn" :class="{active: section === 'appearance'}"
+				<button class="btn-icon section-toggle" :class="{active: section === 'appearance'}"
 					@click="selectSection('appearance')" title="Appearance">
 					<i class="bi bi-palette"></i>
 				</button>
-				<button class="btn-icon section-btn" :class="{active: section === 'localization'}"
+				<button class="btn-icon section-toggle" :class="{active: section === 'localization'}"
 					@click="selectSection('localization')" title="Localization">
 					<i class="bi bi-globe2"></i>
 				</button>
-				<button class="btn-icon section-btn" :class="{active: section === 'profile'}"
+				<button class="btn-icon section-toggle" :class="{active: section === 'profile'}"
 					@click="selectSection('profile')" title="Profile">
 					<i class="bi bi-person-circle"></i>
 				</button>
-				<button class="btn-icon section-btn" :class="{active: section === 'security'}"
+				<button class="btn-icon section-toggle" :class="{active: section === 'security'}"
 					@click="selectSection('security')" title="Security">
 					<i class="bi bi-shield-lock"></i>
 				</button>
-				<button class="btn-icon section-btn" :class="{active: section === 'sessions'}"
+				<button class="btn-icon section-toggle" :class="{active: section === 'sessions'}"
 					@click="selectSection('sessions')" title="Sessions">
 					<i class="bi bi-layout-text-window-reverse"></i>
 				</button>
@@ -77,7 +77,7 @@
 				<div class="pref-pane">
 
 					<!-- ========== Appearance ========== -->
-					<div v-if="section === 'appearance'">
+					<template v-if="section === 'appearance'">
 						<h2 class="pref-section-title">Appearance</h2>
 
 						<!-- Theme -->
@@ -109,7 +109,7 @@
 									<span class="pref-theme-label">Auto</span>
 								</label>
 							</div>
-							<div v-if="theme === 'auto'" class="text-muted fs-small mt-2">
+							<div v-if="theme === 'auto'" class="text-muted mt-3">
 								<i class="bi bi-info-circle me-1"></i>
 								Switches to dark mode between 19:00 and 6:00.
 							</div>
@@ -164,14 +164,14 @@
 								</div>
 							</div>
 						</div>
-					</div>
+					</template>
 
 					<!-- ========== Localization ========== -->
-					<div v-if="section === 'localization'">
+					<template v-if="section === 'localization'">
 						<h2 class="pref-section-title">Localization</h2>
 
 						<div class="property-group">
-							<div class="property-group-title">Language</div>
+							<div class="property-group-title mb-2">Language</div>
 							<div class="property-label">Display language for Webtop and applications.</div>
 							<div class="wt-select pref-select">
 								<button type="button" class="wt-select-trigger"
@@ -183,7 +183,7 @@
 						</div>
 
 						<div class="property-group">
-							<div class="property-group-title">Time zone</div>
+							<div class="property-group-title mb-2">Time zone</div>
 							<div class="property-label">Used for date and time display.</div>
 							<div class="wt-select pref-select">
 								<button type="button" class="wt-select-trigger"
@@ -195,7 +195,7 @@
 						</div>
 
 						<div class="property-group">
-							<div class="property-group-title">Number format</div>
+							<div class="property-group-title mb-2">Number format</div>
 							<div class="property-label">Locale used to format numbers, dates and lists.</div>
 							<div class="wt-select pref-select">
 								<button type="button" class="wt-select-trigger"
@@ -207,7 +207,7 @@
 						</div>
 
 						<div class="property-group">
-							<div class="property-group-title">Currency</div>
+							<div class="property-group-title mb-2">Currency</div>
 							<div class="property-label">Default currency for monetary values.</div>
 							<div class="wt-select pref-select">
 								<button type="button" class="wt-select-trigger"
@@ -222,10 +222,10 @@
 							:class="localizationMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
 							{{ localizationMessage }}
 						</div>
-					</div>
+					</template>
 
 					<!-- ========== Profile ========== -->
-					<div v-if="section === 'profile'">
+					<template v-if="section === 'profile'">
 						<h2 class="pref-section-title">Profile</h2>
 
 						<!-- Avatar -->
@@ -280,14 +280,14 @@
 								{{ profileMessage }}
 							</div>
 						</div>
-					</div>
+					</template>
 
 					<!-- ========== Security ========== -->
-					<div v-if="section === 'security'">
+					<template v-if="section === 'security'">
 						<h2 class="pref-section-title">Security</h2>
 
 						<div class="property-group">
-							<div class="property-group-title">Change Password</div>
+							<div class="property-group-title mb-2">Change Password</div>
 							<div class="pref-form">
 								<div class="property-row">
 									<label class="property-label">Current Password</label>
@@ -304,7 +304,7 @@
 									<input type="password" class="wt w-100"
 										v-model="passwordForm.confirm" autocomplete="new-password">
 								</div>
-								<div class="d-flex gap-2 mt-3">
+								<div class="d-flex gap-2 mt-1">
 									<button class="wt wt-primary" @click="changePassword"
 										:disabled="!canChangePassword || passwordSaving">
 										Change Password
@@ -316,21 +316,21 @@
 								</div>
 							</div>
 						</div>
-					</div>
+					</template>
 
 					<!-- ========== Sessions ========== -->
-					<div v-if="section === 'sessions'">
+					<template v-if="section === 'sessions'">
 						<h2 class="pref-section-title">Sessions</h2>
 
 						<div class="property-group">
 							<div class="property-group-title">Saved Sessions</div>
-							<div v-if="sessionsLoading" class="text-muted fs-small mt-2">Loading&hellip;</div>
-							<div v-else-if="sessionList.length === 0" class="text-muted fs-small mt-2">No saved sessions.</div>
+							<div v-if="sessionsLoading" class="text-muted mt-2">Loading&hellip;</div>
+							<div v-else-if="sessionList.length === 0" class="text-muted mt-2">No saved sessions.</div>
 							<div v-else class="pref-session-list mt-2">
 								<div v-for="s in sessionList" :key="s.id" class="pref-session-item">
 									<div class="pref-session-meta">
 										<div class="pref-session-name text-truncate">{{ s.displayName }}</div>
-										<div class="pref-session-date text-muted fs-small">{{ formatDate(s.savedAt) }}</div>
+										<div class="pref-session-date text-muted">{{ formatDate(s.savedAt) }}</div>
 									</div>
 									<button class="btn-icon pref-session-delete"
 										@click="confirmDeleteSession(s)" title="Delete">
@@ -343,7 +343,7 @@
 								{{ sessionMessage }}
 							</div>
 						</div>
-					</div>
+					</template>
 
 				</div>
 			</div>
