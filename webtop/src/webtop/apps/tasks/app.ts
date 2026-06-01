@@ -115,6 +115,59 @@ function cmsPathToFrameSrc(workspace: string, jcrPath: string): string {
 	return '/bin/cms.cgi' + ws + jcrPath;
 }
 
+// A formKey may carry a query string so the form can be cache-busted, e.g.
+//   cms:/content/.../form.html?t=${modified}
+// Split it into the path component (which still carries the cms: prefix and is
+// fed to cmsKeyToPath) and the raw query string (resolved by
+// resolveFormKeyTokens once the node is known). Only the first '?' splits.
+function splitFormKeyQuery(formKey: string): { keyPath: string; query: string } {
+	const q = formKey.indexOf('?');
+	if (q < 0) return { keyPath: formKey, query: '' };
+	return { keyPath: formKey.slice(0, q), query: formKey.slice(q + 1) };
+}
+
+// Resolve template tokens embedded in a formKey query string.
+//
+// The only supported token today is the form node's last-modified time in
+// epoch milliseconds. Appending it as a query parameter forces the iframe to
+// reload whenever the form HTML changes, so reviewers always see the latest
+// version instead of a stale cached copy. Several spellings are accepted so
+// authors can pick the one they prefer:
+//
+//   cms:/content/.../form.html?t={{lastModified}}    ← Webtop's short form
+//   cms:/content/.../form.html?v={{lastModifiedMs}}  ← verbose / explicit
+//
+// IMPORTANT: tokens use double braces `{{...}}`, NOT `${...}`. The BPM engine
+// is Camunda 7, which evaluates `camunda:formKey` as a JUEL expression
+// (TaskEntity.initializeFormKey → Expression.getValue), so a `${...}` token
+// would be resolved against process variables server-side and collapse to an
+// empty string before it ever reaches this app. JUEL never touches `{{...}}`,
+// so those tokens survive the engine and are substituted here instead.
+//
+// Webtop itself cache-busts content URLs as `?t=<modified-in-ms>` (see the
+// avatar loader in index.ts); `{{lastModified}}` pairs naturally with that
+// `t` parameter. If the node has no usable modified timestamp we fall back to
+// "now" so the form is still served fresh rather than emitting an empty value.
+const FORM_KEY_TOKEN_RE = /\{\{\s*([A-Za-z]+)\s*\}\}/g;
+
+function resolveFormKeyTokens(query: string, node: { modified?: string | null } | null): string {
+	if (!query || query.indexOf('{{') < 0) return query;
+	const t = node && node.modified ? new Date(node.modified).getTime() : NaN;
+	const modifiedMs = String(Number.isFinite(t) ? t : nowMs());
+	return query.replace(FORM_KEY_TOKEN_RE, (whole, name: string) => {
+		switch (name.toLowerCase()) {
+			case 't':
+			case 'modified':
+			case 'lastmodified':
+			case 'lastmodifiedms':
+				return modifiedMs;
+			default:
+				console.warn(`Tasks: unknown formKey token ${whole}`);
+				return whole;
+		}
+	});
+}
+
 function nowMs(): number {
 	return Date.now();
 }
@@ -704,7 +757,11 @@ export const App = {
 			this.formLoading = true;
 			this.formError = '';
 			try {
-				const path = cmsKeyToPath(formKey);
+				// A formKey may carry a cache-busting query string, e.g.
+				// cms:/content/.../form.html?t={{lastModified}}. Resolve the path
+				// against the node, then substitute the query tokens.
+				const { keyPath, query } = splitFormKeyQuery(formKey);
+				const path = cmsKeyToPath(keyPath);
 				if (!path) {
 					this.formError = `Unsupported formKey: ${formKey}. Expected cms:/...`;
 					return;
@@ -715,13 +772,16 @@ export const App = {
 				}
 				// Resolving the node verifies existence + read ACL server-side;
 				// the iframe then loads the rendered HTML via downloadUrl (or the
-				// cms.html servlet path as a fallback).
+				// cms.html servlet path as a fallback). The node's modified time
+				// also feeds any ${...} cache-busting tokens in the query string.
 				const node = await this.cms.getNode(path);
 				if (!node) {
 					this.formError = `Form not found: ${path}`;
 					return;
 				}
-				this.formSrc = cmsPathToFrameSrc(this.workspace, path);
+				const resolvedQuery = resolveFormKeyTokens(query, node);
+				this.formSrc = cmsPathToFrameSrc(this.workspace, path)
+					+ (resolvedQuery ? '?' + resolvedQuery : '');
 			} catch (err) {
 				this.formError = 'Failed to load form: ' + (err instanceof Error ? err.message : String(err));
 			} finally {
