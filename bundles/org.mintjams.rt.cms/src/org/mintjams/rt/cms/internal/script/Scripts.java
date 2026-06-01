@@ -72,8 +72,12 @@ public class Scripts {
 	}
 
 	public static String[] getScriptExtensions(ActionContext context) {
+		return getScriptExtensions(getScriptEngineManager(context));
+	}
+
+	public static String[] getScriptExtensions(ScriptEngineManager scriptEngineManager) {
 		List<String> l = new ArrayList<>();
-		for (ScriptEngineFactory factory : getScriptEngineManager(context).getEngineFactories()) {
+		for (ScriptEngineFactory factory : scriptEngineManager.getEngineFactories()) {
 			for (String e : factory.getExtensions()) {
 				if (!l.contains(e)) {
 					l.add(e);

@@ -29,7 +29,6 @@ import java.util.stream.Collectors;
 
 import javax.jcr.AccessDeniedException;
 import javax.jcr.PathNotFoundException;
-import javax.script.ScriptEngine;
 
 import org.camunda.bpm.engine.delegate.DelegateExecution;
 import org.camunda.bpm.engine.delegate.DelegateTask;
@@ -136,11 +135,17 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 			throw new AccessDeniedException("Cannot read resource: " + resourcePath);
 		}
 
-		// Determine script engine by MIME type
-		String mimeType = resource.getContentType();
-		ScriptEngine scriptEngine = Scripts.getScriptEngineManager(context).getEngineByMimeType(mimeType);
-		if (scriptEngine == null) {
-			throw new IllegalStateException("No script engine found for MIME type: " + mimeType);
+		// Determine script engine by resource name
+		String resourceName = resource.getName();
+		String scriptExtension = null;
+		for (String extension : Scripts.getScriptExtensions(context)) {
+			if (resourceName.endsWith("." + extension)) {
+				scriptExtension = extension;
+				break;
+			}
+		}
+		if (scriptExtension == null) {
+			throw new IllegalStateException("No script engine found for resource: " + resourcePath);
 		}
 
 		// Set variables to script context based on input filters
@@ -189,11 +194,11 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		try (ScriptReader scriptReader = new ScriptReader(resource.getContentAsReader())) {
 			scriptReader
 					.setScriptName("jcr://" + resource.getPath())
-					.setMimeType(mimeType)
+					.setExtension(scriptExtension)
 					.setLastModified(resource.getLastModified())
 					.setScriptEngineManager(Scripts.getScriptEngineManager(context))
 					.setClassLoader(Scripts.getClassLoader(context))
-					.setScriptContext(Scripts.getWorkspaceScriptContext(context))
+					.setScriptContext(context)
 					.eval();
 		}
 
