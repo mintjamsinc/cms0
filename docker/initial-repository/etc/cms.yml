@@ -5,8 +5,8 @@ classLoaderRefreshInterval: 3
 
 security:
   serviceAccounts:
-    - name: cms-batch-user
-      description: "Service account for batch processing"
+    - name: commerce-service-user
+      description: "Service account for commerce (Shopify) integration"
       groups:
-        - batch-service-group
+        - commerce-service-group
 
