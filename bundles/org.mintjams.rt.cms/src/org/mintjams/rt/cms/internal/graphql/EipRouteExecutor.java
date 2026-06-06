@@ -27,17 +27,26 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import javax.jcr.Session;
 
 import org.apache.camel.CamelContext;
+import org.apache.camel.Endpoint;
+import org.apache.camel.Route;
 import org.apache.camel.ServiceStatus;
+import org.apache.camel.StatefulService;
 import org.apache.camel.api.management.ManagedCamelContext;
 import org.apache.camel.api.management.mbean.ManagedRouteMBean;
+import org.apache.camel.health.HealthCheck;
+import org.apache.camel.health.HealthCheckHelper;
+import org.apache.camel.spi.RuntimeEndpointRegistry;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
 
@@ -58,6 +67,12 @@ public class EipRouteExecutor {
 
 	private static final int DEFAULT_PAGE_SIZE = 50;
 	private static final int MAX_PAGE_SIZE = 500;
+
+	// Per-request Health Check snapshot (L2). Computed lazily once per executor
+	// instance so a single routes query invokes the checks at most once.
+	private boolean healthComputed;
+	private Map<String, String> healthByRoute = new HashMap<>();
+	private Map<String, String> healthByUri = new HashMap<>();
 
 	public EipRouteExecutor(Session session) {
 		this.session = session;
@@ -359,11 +374,235 @@ public class EipRouteExecutor {
 		node.put("exchangesInflight", inflight);
 		node.put("meanProcessingTime", meanTime);
 		node.put("lastProcessingTime", lastTime);
+		ensureHealth(context);
+		node.put("health", healthByRoute.getOrDefault(ref.routeId, "UNKNOWN"));
+		node.put("endpoints", buildEndpoints(context, ref.routeId));
 		return node;
+	}
+
+	// =========================================================================
+	// Endpoint connectivity (Route.endpoints)
+	//
+	// Surfaces the endpoints a route actually talks to — used by the Dashboard's
+	// "External connections" panel. This is L1: which endpoints are wired, their
+	// component, whether they are remote (an external system) and their
+	// lifecycle state. True reachability (UP/DOWN via Camel Health Checks) is a
+	// deliberate follow-up and is NOT computed here.
+	// =========================================================================
+
+	private List<Map<String, Object>> buildEndpoints(CamelContext context, String routeId) {
+		List<Map<String, Object>> out = new ArrayList<>();
+		if (context == null) {
+			return out;
+		}
+
+		// Collect the endpoints this route uses (consumers + producers). Camel's
+		// runtime registry tracks them per route but only learns an endpoint once
+		// it has been used, so also fold in the route's input (consumer) endpoint
+		// — that way a freshly-started, still-idle route reports at least its
+		// source instead of looking like it talks to nothing.
+		LinkedHashSet<String> uris = new LinkedHashSet<>();
+		try {
+			RuntimeEndpointRegistry registry = context.getRuntimeEndpointRegistry();
+			if (registry != null && registry.isEnabled()) {
+				// getEndpointsPerRoute(routeId, includeInputs) -> List<String> of URIs.
+				for (String uri : registry.getEndpointsPerRoute(routeId, true)) {
+					if (uri != null) {
+						uris.add(uri);
+					}
+				}
+			}
+		} catch (Exception ignore) {
+			// Registry unavailable (management off) — fall back to the input below.
+		}
+		try {
+			Route route = context.getRoute(routeId);
+			if (route != null && route.getEndpoint() != null) {
+				uris.add(route.getEndpoint().getEndpointUri());
+			}
+		} catch (Exception ignore) {
+			// Route not resolvable — leave whatever the registry provided.
+		}
+
+		for (String uri : uris) {
+			Endpoint endpoint = null;
+			try {
+				endpoint = context.hasEndpoint(uri);
+			} catch (Exception ignore) {
+				// Unresolvable URI — fall back to scheme-based heuristics below.
+			}
+			String scheme = schemeOf(uri);
+			String sanitized = sanitizeUri(uri);
+			Map<String, Object> node = new LinkedHashMap<>();
+			node.put("uri", sanitized);
+			node.put("component", scheme);
+			// Prefer the component's own declaration; only guess from the scheme
+			// when the endpoint object cannot be resolved.
+			node.put("remote", endpoint != null ? endpoint.isRemote() : isRemoteScheme(scheme));
+			node.put("state", endpointState(endpoint));
+			node.put("singleton", endpoint == null || endpoint.isSingleton());
+			// L2 reachability: an endpoint-specific health result if the check
+			// carried its URI, otherwise the owning route's health.
+			String health = healthByUri.get(sanitized);
+			if (health == null) {
+				health = healthByRoute.get(routeId);
+			}
+			node.put("health", health == null ? "UNKNOWN" : health);
+			out.add(node);
+		}
+		return out;
+	}
+
+	private static String endpointState(Endpoint endpoint) {
+		if (endpoint instanceof StatefulService) {
+			return serviceStatusName(((StatefulService) endpoint).getStatus());
+		}
+		// Endpoints without their own lifecycle are effectively available once
+		// the route referencing them is started.
+		return endpoint == null ? "Unknown" : "Started";
+	}
+
+	private static String schemeOf(String uri) {
+		if (uri == null) {
+			return "";
+		}
+		int i = uri.indexOf(':');
+		return i > 0 ? uri.substring(0, i) : uri;
+	}
+
+	// In-VM / internal component schemes. Used only when Endpoint#isRemote()
+	// cannot be consulted (the endpoint object is not resolvable); everything
+	// not listed here is then treated as a remote integration.
+	private static final Set<String> LOCAL_SCHEMES = Set.of(
+			"direct", "direct-vm", "seda", "vm", "log", "mock", "stub", "dataset",
+			"timer", "scheduler", "quartz", "bean", "class", "language", "ref",
+			"controlbus", "browse", "dataformat", "validator", "stream",
+			// CMS-internal components (see WorkspaceCamelContext).
+			"cms", "bpm", "eventadmin", "transform");
+
+	private static boolean isRemoteScheme(String scheme) {
+		if (scheme == null || scheme.isEmpty()) {
+			return false;
+		}
+		return !LOCAL_SCHEMES.contains(scheme.toLowerCase());
+	}
+
+	// Strip credentials so the dashboard never surfaces secrets embedded in an
+	// endpoint URI: drop any "user:pass@" userinfo and mask obvious secret query
+	// parameters.
+	private static String sanitizeUri(String uri) {
+		if (uri == null) {
+			return "";
+		}
+		String out = uri.replaceFirst("://[^/@?#]*@", "://");
+		out = out.replaceAll(
+				"(?i)([?&](?:password|passphrase|secret|secretkey|accesskey|accesstoken|token|apikey|sas|sig)=)[^&]*",
+				"$1***");
+		return out;
 	}
 
 	private static String serviceStatusName(ServiceStatus status) {
 		return status == null ? "Unknown" : status.name();
+	}
+
+	// =========================================================================
+	// Health (L2 reachability) — UP / DOWN / UNKNOWN per route and endpoint
+	// =========================================================================
+
+	// Invoke the readiness health checks once per request and index the results
+	// by route id and (when the check carries one) by endpoint URI. Route /
+	// consumer / producer checks come from camel-health; components that ship
+	// their own connectivity checks fold in here too. Entirely best-effort: any
+	// failure (health disabled, no registry) leaves the maps empty so callers
+	// fall back to "UNKNOWN".
+	private void ensureHealth(CamelContext context) {
+		if (healthComputed) {
+			return;
+		}
+		healthComputed = true;
+		if (context == null) {
+			return;
+		}
+		try {
+			// uri -> routeId, so a check that only reports endpoint.uri can still
+			// be attributed to its route.
+			Map<String, String> routeByUri = new HashMap<>();
+			Set<String> knownRouteIds = new HashSet<>();
+			RuntimeEndpointRegistry registry = context.getRuntimeEndpointRegistry();
+			for (Route route : context.getRoutes()) {
+				String routeId = route.getRouteId();
+				knownRouteIds.add(routeId);
+				try {
+					if (registry != null && registry.isEnabled()) {
+						for (String u : registry.getEndpointsPerRoute(routeId, true)) {
+							if (u != null) {
+								routeByUri.putIfAbsent(sanitizeUri(u), routeId);
+							}
+						}
+					}
+					if (route.getEndpoint() != null) {
+						routeByUri.putIfAbsent(sanitizeUri(route.getEndpoint().getEndpointUri()), routeId);
+					}
+				} catch (Exception ignore) {
+					// skip this route's endpoint indexing
+				}
+			}
+
+			for (HealthCheck.Result result : HealthCheckHelper.invokeReadiness(context)) {
+				if (result == null) {
+					continue;
+				}
+				String state = result.getState() == null ? "UNKNOWN" : result.getState().name();
+				Map<String, Object> details = result.getDetails();
+				String uri = (details == null) ? null : asString(details.get(HealthCheck.ENDPOINT_URI));
+				String sanitizedUri = (uri == null) ? null : sanitizeUri(uri);
+				if (sanitizedUri != null) {
+					mergeHealth(healthByUri, sanitizedUri, state);
+				}
+
+				String routeId = (sanitizedUri == null) ? null : routeByUri.get(sanitizedUri);
+				if (routeId == null && result.getCheck() != null) {
+					String checkId = result.getCheck().getId();
+					if (checkId != null) {
+						if (knownRouteIds.contains(checkId)) {
+							routeId = checkId;
+						} else {
+							String stripped = stripPrefix(checkId);
+							if (knownRouteIds.contains(stripped)) {
+								routeId = stripped;
+							}
+						}
+					}
+				}
+				if (routeId != null) {
+					mergeHealth(healthByRoute, routeId, state);
+				}
+			}
+		} catch (Throwable t) {
+			// Health unavailable — leave maps empty (callers default to UNKNOWN).
+		}
+	}
+
+	// DOWN wins over UP wins over UNKNOWN, so an endpoint/route reachable by one
+	// check but failing another is reported as the more severe state.
+	private static void mergeHealth(Map<String, String> map, String key, String state) {
+		String current = map.get(key);
+		if ("DOWN".equals(current) || "DOWN".equals(state)) {
+			map.put(key, "DOWN");
+		} else if ("UP".equals(current) || "UP".equals(state)) {
+			map.put(key, "UP");
+		} else {
+			map.put(key, current != null ? current : (state != null ? state : "UNKNOWN"));
+		}
+	}
+
+	private static String stripPrefix(String id) {
+		int i = id.indexOf(':');
+		return (i > 0 && i + 1 < id.length()) ? id.substring(i + 1) : id;
+	}
+
+	private static String asString(Object o) {
+		return o == null ? null : o.toString();
 	}
 
 	private static String encodeCursor(String routeId) {

@@ -313,7 +313,7 @@ export const App = {
 			};
 			window.addEventListener('message', vm.messageListener);
 
-			window.appLaunch = async (appInstance: ApplicationInstance) => {
+			window.appLaunch = async (appInstance: ApplicationInstance, options?: Record<string, any>) => {
 				vm.instance = vm.$markRaw(appInstance);
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
@@ -325,7 +325,13 @@ export const App = {
 				await vm.initServices();
 				await vm.loadCurrentUser();
 				vm.loadFavorites();
+
+				// A drill-down (e.g. from the Dashboard) hands us a filter to land
+				// on. Seed the scope/process filter BEFORE the first load so the
+				// initial query already targets the requested slice.
+				vm.seedLaunchFilters(options);
 				await vm.refresh();
+				vm.selectLaunchTask(options);
 
 				vm.$nextTick(() => {
 					appInstance.notifyLaunched();
@@ -824,6 +830,16 @@ export const App = {
 				return;
 			}
 
+			// Drill-down re-target: the shell re-launches this singleton with a
+			// fresh filter (e.g. the Dashboard opening a specific process's
+			// tasks). Re-apply the requested slice without reopening the window.
+			if (data && typeof data === 'object' && data.type === 'app-reopen') {
+				if (event.origin === window.location.origin) {
+					this.handleReopen(data.options);
+				}
+				return;
+			}
+
 			// Form iframe messages.
 			if (data && typeof data === 'object' && data.__tasksRpc) {
 				if (!this.isFromFormFrame(event)) return;
@@ -839,6 +855,60 @@ export const App = {
 					return;
 				}
 			}
+		},
+
+		// =====================================================================
+		// Drill-down launch options
+		//
+		// A caller (e.g. the Dashboard) may open Tasks pre-filtered. Supported
+		// options:
+		//   scope                 'assigned' | 'candidate' | 'all'
+		//   processDefinitionKey  string  — narrow to a single process
+		//   processDefinitionKeys string[] — narrow to several processes
+		//   taskKeyword           string  — seed the keyword box (e.g. a task name)
+		//   taskId                string  — select this task once loaded
+		// All options are optional; unknown keys are ignored.
+		// =====================================================================
+
+		// Seed filter state from launch options BEFORE the first load so the
+		// initial query already targets the requested slice. Always lands in the
+		// runtime task list (the only mode a drill-down makes sense in).
+		seedLaunchFilters(options?: Record<string, any>) {
+			if (!options) return;
+			this.mode = 'tasks-runtime';
+			if (options.scope === 'assigned' || options.scope === 'candidate' || options.scope === 'all') {
+				this.filters.scope = options.scope;
+			}
+			if (typeof options.processDefinitionKey === 'string' && options.processDefinitionKey) {
+				this.filters.processDefinitionKeys = [options.processDefinitionKey];
+			} else if (Array.isArray(options.processDefinitionKeys)) {
+				this.filters.processDefinitionKeys = options.processDefinitionKeys.filter((k: unknown) => typeof k === 'string');
+			}
+			if (typeof options.taskKeyword === 'string') {
+				this.filters.taskKeyword = options.taskKeyword;
+			}
+		},
+
+		// Select the requested task once the list is loaded (best-effort).
+		selectLaunchTask(options?: Record<string, any>) {
+			if (!options || typeof options.taskId !== 'string' || !options.taskId) return;
+			const t = (this.tasks as Task[]).find(x => x.id === options.taskId);
+			if (t) this.selectTask(t);
+		},
+
+		// Apply launch options to an already-running window (singleton re-target).
+		async handleReopen(options?: Record<string, any>) {
+			const prevScope = this.filters.scope;
+			const prevMode = this.mode;
+			this.seedLaunchFilters(options);
+			// A scope or mode change requires a fresh server query; otherwise the
+			// process/keyword filters are client-side and a refilter suffices.
+			if (this.filters.scope !== prevScope || this.mode !== prevMode) {
+				await this.refresh();
+			} else {
+				this.filterList();
+			}
+			this.selectLaunchTask(options);
 		},
 
 		pushContextToFrame() {

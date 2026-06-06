@@ -105,15 +105,25 @@ function makeConfig({
     plugins.push(copy({ targets: copyTargets, hook: 'writeBundle' }));
   }
 
-  // In production, overwrite the just-copied CSS with minified content at
-  // the same paths. Must run on closeBundle (not writeBundle): rollup
-  // executes writeBundle hooks in parallel, so a recursive asset directory
-  // copy can otherwise finish after — and silently clobber — the minified
-  // CSS. closeBundle is guaranteed to run after all writeBundle hooks
-  // complete.
-  if (isProduction && cssMinifyTargets.length) {
+  // Re-emit CSS with __BUILD_VERSION__ stamped into @import URLs (and
+  // minified in production). This ALWAYS runs — not just in production —
+  // because the plain assets-directory copy above writes CSS verbatim and
+  // never substitutes the version token, so CSS @import cache-busting would
+  // otherwise be broken in development and the literal "__BUILD_VERSION__"
+  // would ship unsubstituted.
+  //   dev  -> stamp only
+  //   prod -> stamp, then minify
+  // Stamp before minify so the minifier only sees a resolved query string.
+  // Must run on closeBundle (not writeBundle): rollup executes writeBundle
+  // hooks in parallel, so a recursive asset directory copy can otherwise
+  // finish after — and silently clobber — this output. closeBundle is
+  // guaranteed to run after all writeBundle hooks complete.
+  if (cssMinifyTargets.length) {
+    const stampCss = isProduction
+      ? (contents) => minifyCss(stampVersion(contents))
+      : stampVersion;
     plugins.push(copy({
-      targets: cssMinifyTargets.map(t => ({ ...t, transform: minifyCss })),
+      targets: cssMinifyTargets.map(t => ({ ...t, transform: stampCss })),
       hook: 'closeBundle',
     }));
   }
@@ -203,4 +213,5 @@ export default [
   makeAppConfig('eip-console'),
   makeAppConfig('tasks'),
   makeAppConfig('osgi-console'),
+  makeAppConfig('dashboard'),
 ].filter(Boolean);

@@ -95,15 +95,17 @@ function numberFormatOptionLabel(code: string, displayLocale: string): string {
 }
 
 /**
- * City portion of an IANA time-zone id: the last path segment with
- * underscores turned into spaces — e.g. "America/Argentina/Buenos_Aires"
- * -> "Buenos Aires", "Asia/Tokyo" -> "Tokyo". The IANA database has no
- * localized city names and the Intl APIs cannot translate them, so these
+ * Human-readable location of an IANA time-zone id: every path segment
+ * (region / city) joined by " / " with underscores turned into spaces —
+ * e.g. "Asia/Tokyo" -> "Asia / Tokyo",
+ * "America/Argentina/Buenos_Aires" -> "America / Argentina / Buenos Aires".
+ * Keeping the region prefix disambiguates zones that share a final
+ * segment and matches the canonical IANA hierarchy. The IANA database has
+ * no localized names and the Intl APIs cannot translate them, so these
  * stay in their canonical (English) form.
  */
-function timezoneCityName(tz: string): string {
-	const seg = tz.split('/').pop() || tz;
-	return seg.replace(/_/g, ' ');
+function timezoneLocationName(tz: string): string {
+	return tz.split('/').map(seg => seg.replace(/_/g, ' ')).join(' / ');
 }
 
 /**
@@ -127,13 +129,13 @@ function timezoneOffsetText(tz: string): string {
 }
 
 /**
- * Time-zone selector label: city name paired with its current GMT offset,
- * e.g. "Tokyo (GMT+9:00)".
+ * Time-zone selector label: full location path paired with its current GMT
+ * offset, e.g. "Asia / Tokyo (GMT+9:00)".
  */
 function timezoneOptionLabel(tz: string): string {
-	const city = timezoneCityName(tz);
+	const location = timezoneLocationName(tz);
 	const offset = timezoneOffsetText(tz);
-	return offset ? `${city} (${offset})` : city;
+	return offset ? `${location} (${offset})` : location;
 }
 
 const App = {

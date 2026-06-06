@@ -31,11 +31,11 @@ import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.tools.lang.Cause;
 
-public class UserServiceAuthenticator implements Authenticator {
+public class ServiceUserAuthenticator implements Authenticator {
 
 	@Override
 	public boolean canAuthenticate(Credentials credentials) {
-		return (credentials instanceof UserServiceCredentials);
+		return (credentials instanceof ServiceUserCredentials);
 	}
 
 	@Override
@@ -49,7 +49,7 @@ public class UserServiceAuthenticator implements Authenticator {
 			systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
 			UserPrincipal principal = Workspace.class.cast(systemSession.getWorkspace())
 					.getPrincipalProvider()
-					.getUserPrincipal(((UserServiceCredentials) credentials).getUserID());
+					.getUserPrincipal(((ServiceUserCredentials) credentials).getUserID());
 			return new ResultImpl(principal);
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(LoginException.class);

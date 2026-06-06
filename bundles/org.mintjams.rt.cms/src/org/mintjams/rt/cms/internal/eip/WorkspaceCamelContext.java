@@ -22,7 +22,9 @@
 
 package org.mintjams.rt.cms.internal.eip;
 
+import org.apache.camel.health.HealthCheckRegistry;
 import org.apache.camel.impl.DefaultCamelContext;
+import org.apache.camel.impl.health.DefaultHealthCheckRegistry;
 import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
 
 public class WorkspaceCamelContext extends DefaultCamelContext {
@@ -39,6 +41,29 @@ public class WorkspaceCamelContext extends DefaultCamelContext {
 		setMessageHistory(true);
 		getManagementStrategy().addEventNotifier(
 				new ExchangeHistoryEventNotifier(config.getWorkspaceName()));
+
+		enableHealthChecks();
+	}
+
+	// Bootstrap Camel's Health Check registry so the Dashboard can report true
+	// readiness (UP/DOWN) for each route and the external systems it talks to.
+	// loadHealthChecks() pulls in the route / consumer / producer health-check
+	// repositories shipped with camel-health, and components that provide their
+	// own connectivity checks register into the same registry. Purely
+	// observability — wrapped so a wiring problem can never stop the integration
+	// engine from starting.
+	private void enableHealthChecks() {
+		try {
+			HealthCheckRegistry registry = HealthCheckRegistry.get(this);
+			if (registry == null) {
+				registry = new DefaultHealthCheckRegistry(this);
+				getCamelContextExtension().addContextPlugin(HealthCheckRegistry.class, registry);
+			}
+			registry.setEnabled(true);
+			registry.loadHealthChecks();
+		} catch (Throwable t) {
+			// Best-effort: health checks are optional observability.
+		}
 	}
 
 }

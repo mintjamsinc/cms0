@@ -145,6 +145,20 @@ export class EipServiceGraphQL {
   }
 
   /**
+   * Dashboard route snapshot — returns every route with both its
+   * throughput/error stats and its endpoint connectivity (remote endpoint
+   * state) populated in a single round trip. Used by the cross-cutting
+   * Dashboard for the route, throughput and external-connection panels.
+   */
+  async getDashboardRoutes(first = 1000): Promise<Route[]> {
+    const data = await this.#client.query<{ routes: RouteConnection }>(
+      EIP_QUERIES.DASHBOARD_ROUTES,
+      { first }
+    );
+    return data.routes.edges.map(e => e.node);
+  }
+
+  /**
    * Get routes by status
    */
   async getRoutesByStatus(status: RouteState): Promise<Route[]> {

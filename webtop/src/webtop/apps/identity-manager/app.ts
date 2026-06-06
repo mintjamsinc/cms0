@@ -988,7 +988,7 @@ export const App = {
 			if (this.activeSection === 'users') {
 				this.dialog = {
 					type: 'createUser',
-					data: { username: '', password: '', displayName: '', mail: '' },
+					data: { username: '', password: '', displayName: '', mail: '', service: false },
 				};
 			} else if (this.activeSection === 'groups') {
 				this.dialog = {
@@ -1076,11 +1076,14 @@ export const App = {
 			try {
 				this.errorMessage = '';
 				const d = this.dialog.data;
+				const service = !!d.service;
 				const result = await this.idp!.createUser({
 					username: d.username as string,
-					password: d.password as string,
+					// Service accounts have no password and can never sign in.
+					password: service ? undefined : (d.password as string),
 					displayName: (d.displayName as string) || undefined,
-					mail: (d.mail as string) || undefined,
+					mail: service ? undefined : (d.mail as string) || undefined,
+					service: service || undefined,
 				});
 				if (result.errors) {
 					this.errorMessage = result.errors.map((e: { message: string }) => e.message).join(', ');

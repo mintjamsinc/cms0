@@ -69,6 +69,7 @@ import org.mintjams.jcr.UncheckedRepositoryException;
 import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalProvider;
 import org.mintjams.jcr.security.UserPrincipal;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.lock.JcrLock;
 import org.mintjams.rt.jcr.internal.lock.JcrLockManager;
 import org.mintjams.rt.jcr.internal.nodetype.JcrNodeTypeManager;
@@ -196,6 +197,9 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 		// Normalize paths
 		JcrPath srcPath = JcrPath.valueOf(srcAbsPath).with(adaptTo(NamespaceProvider.class));
 		JcrPath destPath = JcrPath.valueOf(destAbsPath).with(adaptTo(NamespaceProvider.class));
+
+		// The destination introduces a new node name; its namespace must be registered.
+		JCRs.checkNamespaceRegistered(JcrPath.valueOf(destAbsPath).getName().toString(), getNamespaceRegistry());
 
 		// Check root copy
 		if (srcPath.isRoot()) {
@@ -433,6 +437,9 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 		// Normalize paths
 		JcrPath srcPath = JcrPath.valueOf(srcAbsPath).with(adaptTo(NamespaceProvider.class));
 		JcrPath destPath = JcrPath.valueOf(destAbsPath).with(adaptTo(NamespaceProvider.class));
+
+		// The destination introduces a new node name; its namespace must be registered.
+		JCRs.checkNamespaceRegistered(JcrPath.valueOf(destAbsPath).getName().toString(), getNamespaceRegistry());
 
 		// Check root move
 		if (srcPath.isRoot()) {

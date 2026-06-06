@@ -757,46 +757,15 @@ public class QueryExecutor {
 				boolean isGroup = node.getProperty("isGroup").getBoolean();
 				principal.put("identifier", identifier);
 				principal.put("isGroup", isGroup);
-				principal.put("isService", false);
+				// Service accounts now live in the identity store like any other
+				// principal, marked by the isService property on their profile
+				// (absent means false).
+				principal.put("isService", node.hasProperty("isService")
+						&& node.getProperty("isService").getBoolean());
 				principal.put("displayName", node.hasProperty("displayName")
 						? node.getProperty("displayName").getString() : null);
 				principals.add(principal);
 				count++;
-			}
-
-			// Also search service accounts from cms.yml configuration
-			String keywordLower = keyword != null ? keyword.toLowerCase() : null;
-
-			// Service users
-			Map<String, Map<String, Object>> serviceUsers = org.mintjams.rt.cms.internal.CmsService.getConfiguration().getServiceUserAccounts();
-			for (Map.Entry<String, Map<String, Object>> entry : serviceUsers.entrySet()) {
-				if (count >= limit) break;
-				String name = entry.getKey();
-				if (keywordLower == null || name.toLowerCase().contains(keywordLower)) {
-					Map<String, Object> principal = new HashMap<>();
-					principal.put("identifier", name);
-					principal.put("isGroup", false);
-					principal.put("isService", true);
-					principal.put("displayName", null);
-					principals.add(principal);
-					count++;
-				}
-			}
-
-			// Service groups
-			Map<String, Map<String, Object>> serviceGroups = org.mintjams.rt.cms.internal.CmsService.getConfiguration().getServiceGroupAccounts();
-			for (Map.Entry<String, Map<String, Object>> entry : serviceGroups.entrySet()) {
-				if (count >= limit) break;
-				String name = entry.getKey();
-				if (keywordLower == null || name.toLowerCase().contains(keywordLower)) {
-					Map<String, Object> principal = new HashMap<>();
-					principal.put("identifier", name);
-					principal.put("isGroup", true);
-					principal.put("isService", true);
-					principal.put("displayName", null);
-					principals.add(principal);
-					count++;
-				}
 			}
 
 			Map<String, Object> result = new HashMap<>();

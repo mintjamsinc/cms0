@@ -42,6 +42,8 @@ import java.util.TimeZone;
 
 import javax.jcr.Binary;
 import javax.jcr.ItemExistsException;
+import javax.jcr.NamespaceException;
+import javax.jcr.NamespaceRegistry;
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.Property;
@@ -143,6 +145,54 @@ public class JCRs {
 			l.add(pathname);
 		}
 		return l.toArray(String[]::new);
+	}
+
+	/**
+	 * Verifies that the namespace referenced by the given JCR name is registered.
+	 * <p>
+	 * The {@code name} may be either in qualified form ({@code prefix:localName}) or
+	 * in expanded form ({@code {namespaceURI}localName}). When a prefix is present it
+	 * must resolve to a registered namespace URI; when an expanded namespace URI is
+	 * present it must resolve to a registered prefix. Names without any namespace
+	 * (i.e. names in the default namespace) are always valid.
+	 * <p>
+	 * This check is intended to be applied to every JCR name supplied by a caller
+	 * before it is persisted (property names, node names, destination names of
+	 * move/copy, and so on), so that an unregistered namespace can never leak into
+	 * the repository through any write operation.
+	 *
+	 * @param name the JCR name to validate; {@code null} or empty is treated as valid
+	 * @param namespaceRegistry the namespace registry to resolve against
+	 * @throws NamespaceException if the name references an unregistered namespace
+	 * @throws RepositoryException if another error occurs
+	 */
+	public static void checkNamespaceRegistered(String name, NamespaceRegistry namespaceRegistry)
+			throws NamespaceException, RepositoryException {
+		if (Strings.isEmpty(name)) {
+			return;
+		}
+
+		if (name.startsWith("{")) {
+			int closingBraceIndex = name.indexOf('}');
+			if (closingBraceIndex < 0) {
+				throw new NamespaceException("Invalid name: " + name);
+			}
+			String namespaceURI = name.substring(1, closingBraceIndex);
+			if (Strings.isEmpty(namespaceURI)) {
+				// {}localName means the default (empty) namespace.
+				return;
+			}
+			// Throws NamespaceException if the namespace URI is not registered.
+			namespaceRegistry.getPrefix(namespaceURI);
+			return;
+		}
+
+		int colonIndex = name.indexOf(':');
+		if (colonIndex > 0) {
+			String prefix = name.substring(0, colonIndex);
+			// Throws NamespaceException if the prefix is not registered.
+			namespaceRegistry.getURI(prefix);
+		}
 	}
 
 	public static NodeDefinition findChildNodeDefinition(Node item, String name) throws RepositoryException {

@@ -239,6 +239,36 @@
 	color: var(--text-muted-color);
 }
 
+/* Service-account marker: shown on non-interactive identities (no password,
+ * never sign in). Mirrors the disabled-badge pill, tinted with the accent. */
+.service-badge {
+	flex-shrink: 0;
+	font-size: 10px;
+	padding: 0 0.5em;
+	border-radius: 9999px;
+	background-color: rgba(from var(--primary-color) r g b / 0.15);
+	color: var(--primary-color);
+}
+
+.service-note {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin-bottom: 0.75rem;
+	padding: 0.5rem 0.75rem;
+	border-radius: var(--radius, 6px);
+	font-size: 12px;
+	background-color: rgba(from var(--primary-color) r g b / 0.1);
+	color: var(--text-muted-color);
+}
+
+.property-hint {
+	display: block;
+	margin-top: 0.25rem;
+	font-size: 11px;
+	color: var(--text-muted-color);
+}
+
 /* ----------------------------------------------------------------------------
  * Detail pane — header (sub-tabs) + body (form)
  * -------------------------------------------------------------------------- */

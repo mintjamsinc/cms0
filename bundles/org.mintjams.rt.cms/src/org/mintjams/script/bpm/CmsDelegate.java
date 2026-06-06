@@ -42,7 +42,7 @@ import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
-import org.mintjams.rt.cms.internal.security.UserServiceCredentials;
+import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
@@ -64,7 +64,7 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		try (WorkspaceScriptContext context = new WorkspaceScriptContext(getWorkspaceName(execution))) {
 			String runAs = getRunAs(execution);
 			if (runAs != null && !runAs.trim().isEmpty()) {
-				context.setCredentials(new UserServiceCredentials(runAs));
+				context.setCredentials(new ServiceUserCredentials(runAs));
 			}
 			context.setAttribute("execution", execution);
 			Scripts.prepareAPIs(context);
@@ -83,7 +83,7 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		try (WorkspaceScriptContext context = new WorkspaceScriptContext(getWorkspaceName(task))) {
 			String runAs = getRunAs(task);
 			if (runAs != null && !runAs.trim().isEmpty()) {
-				context.setCredentials(new UserServiceCredentials(runAs));
+				context.setCredentials(new ServiceUserCredentials(runAs));
 			}
 			context.setAttribute("task", task);
 			Scripts.prepareAPIs(context);
@@ -104,7 +104,7 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 		try (WorkspaceScriptContext context = new WorkspaceScriptContext(getWorkspaceName(execution))) {
 			String runAs = getRunAs(execution);
 			if (runAs != null && !runAs.trim().isEmpty()) {
-				context.setCredentials(new UserServiceCredentials(runAs));
+				context.setCredentials(new ServiceUserCredentials(runAs));
 			}
 			context.setAttribute("execution", execution);
 			Scripts.prepareAPIs(context);

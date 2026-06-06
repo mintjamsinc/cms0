@@ -221,6 +221,10 @@ export const App = {
 				if (type === 'context-menu-action') {
 					vm.handleContextMenuAction(payload.action);
 				}
+				// Drill-down re-target while already open (singleton re-launch).
+				if (type === 'app-reopen') {
+					vm.applyLaunchOptions(payload.options);
+				}
 			};
 			window.addEventListener('message', vm.messageListener);
 
@@ -253,7 +257,7 @@ export const App = {
 			};
 			document.addEventListener('visibilitychange', vm._onVisibilityChange);
 
-			window.appLaunch = async (appInstance: ApplicationInstance) => {
+			window.appLaunch = async (appInstance: ApplicationInstance, options?: Record<string, any>) => {
 				vm.instance = vm.$markRaw(appInstance);
 
 				vm.spriteUrl = new URL(
@@ -271,6 +275,11 @@ export const App = {
 
 				vm.initBpmService();
 				await vm.loadDefinitions();
+
+				// A drill-down (e.g. from the Dashboard) may target a specific
+				// process and view (instances / incidents). Apply it once the
+				// definitions — and therefore the process groups — are loaded.
+				await vm.applyLaunchOptions(options);
 
 				vm.$nextTick(() => {
 					appInstance.notifyLaunched();
@@ -542,6 +551,33 @@ export const App = {
 			group.expanded = !group.expanded;
 			if (group.expanded) {
 				this.loadDefInstanceCounts(group);
+			}
+		},
+
+		// Drill-down entry point. A caller (e.g. the Dashboard) may open the
+		// console pre-focused. Supported options:
+		//   processDefinitionKey  string  — select that process group
+		//   view                  'instances' | 'incidents' | 'tasks' — bottom tab
+		// All options are optional; unknown keys are ignored.
+		async applyLaunchOptions(options?: Record<string, any>) {
+			if (!options) return;
+
+			const key = typeof options.processDefinitionKey === 'string' ? options.processDefinitionKey : '';
+			if (key) {
+				const group = (this.processGroups as ProcessGroup[]).find((g) => g.key === key);
+				if (group) {
+					group.expanded = true;
+					await this.selectGroup(group);
+				}
+			}
+
+			const view = options.view;
+			if (view === 'incidents' || view === 'instances' || view === 'tasks') {
+				this.bottomPanelVisible = true;
+				this.switchBottomTab(view);
+				if (view === 'incidents') {
+					await this.loadIncidents();
+				}
 			}
 		},
 

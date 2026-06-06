@@ -1,7 +1,7 @@
 @charset "utf-8";
 
-@import url("./webtop-utilities.css");
-@import url("./webtop-app.css");
+@import url("./webtop-utilities.css?v=__BUILD_VERSION__");
+@import url("./webtop-app.css?v=__BUILD_VERSION__");
 
 @font-face {
 	font-family: "InterVariable";

@@ -2,6 +2,11 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+} from "../../composables/use-localization.js";
 
 // Side-effect import: registers the <wt-inspector> custom element so the
 // right-pane Inspector can be embedded for the active tab's file.
@@ -322,6 +327,10 @@ export const App = {
 			canUndo: false,
 			canRedo: false,
 			messageListener: null as ((e: MessageEvent) => void) | null,
+			// Reactive Localization snapshot (effective locale + IANA time
+			// zone). Handed to <wt-inspector> so its date displays repaint on
+			// `localization-changed`. See `composables/use-localization.ts`.
+			localization: createLocalizationSnapshot(),
 			// Pane visibility
 			sidebarPanelVisible: true,
 			sidebarPanelWidth: 260,
@@ -477,6 +486,12 @@ export const App = {
 					document.documentElement.dataset.theme = payload.theme;
 					return;
 				}
+				// Re-snapshot the effective locale / time zone so the embedded
+				// Inspector's date displays repaint when the user edits the
+				// Preferences > Localization settings.
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) {
+					return;
+				}
 			};
 			window.addEventListener('message', vm.messageListener);
 
@@ -519,6 +534,9 @@ export const App = {
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
+
+				// snapshot the effective Localization preference
+				refreshLocalization(vm.localization, vm.instance);
 
 				await vm.loadDetailPanelState();
 
@@ -733,6 +751,16 @@ export const App = {
 				if (prevMime !== file.mimeType) {
 					vm.applyLanguageForActiveFile();
 				}
+				// A node change here means the file's metadata was edited out of
+				// band — typically via the Inspector (MIME type, web.template,
+				// other properties), or by another client. The companion preview
+				// renders from that metadata too: server-rendered (templated /
+				// scriptable) output depends on the node's properties, and a
+				// MIME/web.template flip switches the preview mode itself. The
+				// content-edit path already refreshes the preview, but property
+				// edits don't touch the document, so push the refreshed state
+				// here so the preview reflects the change as well.
+				if (vm.previewOpen && vm.previewReady) vm.sendPreviewState();
 			}
 		},
 		// Reconfigure CodeMirror's language for the active file (used when the

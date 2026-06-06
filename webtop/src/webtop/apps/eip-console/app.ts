@@ -498,12 +498,16 @@ export const App = {
 					document.documentElement.dataset.theme = payload.theme;
 				}
 				if (handleLocalizationMessage(type, vm.localization, vm.instance)) return;
+				// Drill-down re-target while already open (singleton re-launch).
+				if (type === 'app-reopen') {
+					vm.applyLaunchOptions(payload.options);
+				}
 			};
 			window.addEventListener('message', vm.messageListener);
 
 			document.addEventListener('visibilitychange', vm.onVisibilityChange);
 
-			window.appLaunch = async (appInstance: ApplicationInstance) => {
+			window.appLaunch = async (appInstance: ApplicationInstance, options?: Record<string, any>) => {
 				vm.instance = vm.$markRaw(appInstance);
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
@@ -516,6 +520,10 @@ export const App = {
 				vm.eip = vm.$markRaw(new EipServiceGraphQL(client));
 
 				await vm.loadRoutes();
+				// A drill-down (e.g. from the Dashboard) may target a specific
+				// route and exchange status. Seed the filters before the first
+				// reload so the initial query reflects the requested slice.
+				vm.applyLaunchOptions(options);
 				await vm.reloadAll();
 
 				vm.$nextTick(() => appInstance.notifyLaunched());
@@ -724,6 +732,30 @@ export const App = {
 
 		clearRouteSelection() {
 			(this as any).selectedRouteIds = [];
+		},
+
+		// =====================================================
+		// Drill-down launch options
+		//
+		// A caller (e.g. the Dashboard) may open the console pre-focused.
+		// Supported options:
+		//   routeId  string  — focus this route (selects it in the list)
+		//   status   'all' | 'completed' | 'failed' — exchange status filter
+		// The field watchers reload the views automatically once set.
+		// All options are optional; unknown keys are ignored.
+		// =====================================================
+		applyLaunchOptions(options?: Record<string, any>) {
+			const vm = this as any;
+			if (!options) return;
+			if (typeof options.routeId === 'string' && options.routeId) {
+				vm.selectedRouteIds = [options.routeId];
+				// Do not also keyword-filter the route list, or the freshly
+				// selected route could be hidden from view.
+				vm.filterText = '';
+			}
+			if (options.status === 'all' || options.status === 'completed' || options.status === 'failed') {
+				vm.statusFilter = options.status;
+			}
 		},
 
 		// =====================================================

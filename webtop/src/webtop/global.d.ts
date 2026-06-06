@@ -24,7 +24,7 @@ export interface WebtopContext {
 declare global {
 	interface Window {
 		Webtop: WebtopContext;
-		appLaunch?: (instance: ApplicationInstance, options?: { path?: string; mimeType?: string }) => void;
+		appLaunch?: (instance: ApplicationInstance, options?: { path?: string; mimeType?: string;[key: string]: any }) => void;
 	}
 }
 

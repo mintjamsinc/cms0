@@ -42,6 +42,7 @@ import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalProvider;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.provisioning.Provisioner;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.web.Webs;
 import org.mintjams.script.resource.security.AccessControlManager;
@@ -270,7 +271,16 @@ public class Session implements Closeable, Adaptable {
 
 	public void deploy() throws ResourceException, IOException {
 		try {
-			deploy(CmsService.getWorkspacePath(fContext.getWorkspaceName()).resolve("etc/jcr/deploy"), getRootFolder());
+			Path jcrPath = CmsService.getWorkspacePath(fContext.getWorkspaceName()).resolve("etc/jcr");
+			// Provision identity and access control first so that the node
+			// hierarchy, ACLs and principals are already in place before content
+			// is imported into them. Importing files into an established,
+			// permission-bounded structure keeps the workspace consistent and
+			// avoids resolving content against not-yet-known principals.
+			try (Provisioner provisioner = new Provisioner(this)) {
+				provisioner.provision(jcrPath.resolve("provisioning"));
+			}
+			deploy(jcrPath.resolve("deploy"), getRootFolder());
 		} catch (Throwable ex) {
 			try {
 				rollback();

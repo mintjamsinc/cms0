@@ -200,6 +200,9 @@ defineComponent('wt-window', {
 				const wasResize = !!vm.resizeInfo;
 				vm.dragInfo = null;
 				vm.resizeInfo = null;
+				if (wasResize) {
+					try { vm._.frame?.contentDocument?.documentElement.classList.remove('wt-window-resizing'); } catch (_) { /* cross-origin */ }
+				}
 				vm.removeOverlay();
 				if (wasResize) vm.persistWindowSize();
 			};
@@ -239,6 +242,10 @@ defineComponent('wt-window', {
 			const vm = this as any;
 			vm.activate();
 			vm.resizeInfo = { dir, x: vm.x, y: vm.y, width: vm.width, height: vm.height, startX: event.clientX, startY: event.clientY };
+			// Mark the iframe document so the app can react to resizing (mirrors the
+			// wt-window-dragging behavior used while moving the window). Also disables
+			// pointer events on nested iframes for the duration of the resize.
+			try { vm._.frame?.contentDocument?.documentElement.classList.add('wt-window-resizing'); } catch (_) { /* cross-origin */ }
 			const cursor = window.getComputedStyle(event.target as HTMLElement).cursor;
 			vm.createOverlay(cursor);
 		},
@@ -286,6 +293,7 @@ defineComponent('wt-window', {
 			vm.activate();
 
 			const frame = ($ctx.element as HTMLElement).querySelector('iframe') as HTMLIFrameElement | null;
+			vm._.frame = frame;
 			if (frame) {
 				vm._.focusInListener = () => { vm.activate(); };
 

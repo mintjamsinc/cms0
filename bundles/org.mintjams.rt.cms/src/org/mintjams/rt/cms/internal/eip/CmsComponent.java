@@ -83,7 +83,7 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
-import org.mintjams.rt.cms.internal.security.UserServiceCredentials;
+import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.tools.io.IOs;
 import org.mintjams.tools.lang.Strings;
@@ -431,7 +431,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					context.setAttribute("exchange", pc.getExchange());
 					Scripts.prepareAPIs(context);
@@ -612,7 +612,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -662,7 +662,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -712,7 +712,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -831,7 +831,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1077,7 +1077,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 					ValueFactory vf = session.getValueFactory();
@@ -1351,7 +1351,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1394,7 +1394,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1448,7 +1448,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1526,7 +1526,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1582,7 +1582,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1641,7 +1641,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1704,7 +1704,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1783,7 +1783,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 
@@ -1857,7 +1857,7 @@ public class CmsComponent extends DefaultComponent {
 				try (WorkspaceScriptContext context = new WorkspaceScriptContext(fWorkspaceName)) {
 					String runAs = (String) pc.getParameter("runAs");
 					if (runAs != null && !runAs.trim().isEmpty()) {
-						context.setCredentials(new UserServiceCredentials(runAs));
+						context.setCredentials(new ServiceUserCredentials(runAs));
 					}
 					Session session = Scripts.getJcrSession(context);
 

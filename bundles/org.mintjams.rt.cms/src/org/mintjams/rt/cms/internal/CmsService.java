@@ -71,8 +71,7 @@ import org.mintjams.rt.cms.internal.security.DefaultIdentityProvider;
 import org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider;
 import org.mintjams.rt.cms.internal.security.FelixWebConsoleSecurityProvider;
 import org.mintjams.rt.cms.internal.security.FileSecretKeyProvider;
-import org.mintjams.rt.cms.internal.security.ServiceAccountPrincipalProvider;
-import org.mintjams.rt.cms.internal.security.UserServiceAuthenticator;
+import org.mintjams.rt.cms.internal.security.ServiceUserAuthenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Authenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2ServiceProvider;
@@ -184,8 +183,34 @@ public class CmsService {
 		fJobManager = fCloser.register(new JobManager(fConfig.getJobManagerWorkers()));
 		fCloser.register(new RepositoryServletsProvider(fConfig)).open();
 
+		// Prepare standard folders for all workspaces
 		prepareStandardFolders();
 
+		// The service user authenticator
+		fCloser.register(Registration.newBuilder(Authenticator.class)
+				.setService(new ServiceUserAuthenticator())
+				.setBundleContext(getBundleContext())
+				.build());
+		// The default principal provider
+		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
+				.setService(new DefaultPrincipalProvider())
+				.setBundleContext(getBundleContext())
+				.build());
+
+		// The SAML2 authenticator
+		Saml2ServiceProvider saml2ServiceProvider = new Saml2ServiceProvider();
+		fCloser.register(saml2ServiceProvider).open();
+		fCloser.register(Registration.newBuilder(Authenticator.class)
+				.setService(new Saml2Authenticator(saml2ServiceProvider.getConfiguration()))
+				.setBundleContext(getBundleContext())
+				.build());
+		// The SAML2 principal provider
+		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
+				.setService(new Saml2PrincipalProvider(saml2ServiceProvider.getConfiguration()))
+				.setBundleContext(getBundleContext())
+				.build());
+
+		// Load content for all workspaces
 		try {
 			loadContent("system");
 		} catch (Throwable ex) {
@@ -203,8 +228,7 @@ public class CmsService {
 			}
 		}
 
-		prepareDefaultAuthorizables();
-
+		// Prepare services for all workspaces
 		prepareServices("system");
 		for (String workspaceName : getWorkspaceNames()) {
 			if (workspaceName.equals("system")) {
@@ -218,37 +242,10 @@ public class CmsService {
 			}
 		}
 
+		// The web console security provider
 		fCloser.register(Registration.newBuilder(WebConsoleSecurityProvider.class)
 				.setService(new FelixWebConsoleSecurityProvider())
 				.setProperty(Constants.SERVICE_PID, FelixWebConsoleSecurityProvider.SERVICE_PID)
-				.setBundleContext(getBundleContext())
-				.build());
-
-		// The default principal provider
-		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
-				.setService(new DefaultPrincipalProvider())
-				.setBundleContext(getBundleContext())
-				.build());
-
-		// The user service authenticator and principal provider
-		fCloser.register(Registration.newBuilder(Authenticator.class)
-				.setService(new UserServiceAuthenticator())
-				.setBundleContext(getBundleContext())
-				.build());
-		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
-				.setService(new ServiceAccountPrincipalProvider())
-				.setBundleContext(getBundleContext())
-				.build());
-
-		// The SAML2 authenticator and principal provider
-		Saml2ServiceProvider saml2ServiceProvider = new Saml2ServiceProvider();
-		fCloser.register(saml2ServiceProvider).open();
-		fCloser.register(Registration.newBuilder(Authenticator.class)
-				.setService(new Saml2Authenticator(saml2ServiceProvider.getConfiguration()))
-				.setBundleContext(getBundleContext())
-				.build());
-		fCloser.register(Registration.newBuilder(PrincipalProvider.class)
-				.setService(new Saml2PrincipalProvider(saml2ServiceProvider.getConfiguration()))
 				.setBundleContext(getBundleContext())
 				.build());
 
@@ -301,15 +298,6 @@ public class CmsService {
 					session.logout();
 				} catch (Throwable ignore) {}
 			}
-		}
-	}
-
-	private void prepareDefaultAuthorizables() throws IOException {
-		try (WorkspaceScriptContext context = new WorkspaceScriptContext("system")) {
-			context.setCredentials(new CmsServiceCredentials());
-			context.getSession().getUserManager().registerIfNotExists(new GuestPrincipal(), new EveryonePrincipal());
-		} catch (ResourceException ex) {
-			throw Cause.create(ex).wrap(IOException.class);
 		}
 	}
 

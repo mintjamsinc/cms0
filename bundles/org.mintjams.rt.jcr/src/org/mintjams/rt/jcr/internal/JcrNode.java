@@ -279,6 +279,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_ADD_CHILD_NODES);
 		checkCanAddNode();
 		JcrPath path = JcrPath.valueOf(getPath()).resolve(relPath);
+		validateNamePrefixRegistered(path.getName().toString());
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedNode(path.getName().toString())) {
 			throw new ConstraintViolationException("The node '" + path.getName().toString() + "' is protected.");
 		}
@@ -753,6 +754,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			LockException, ConstraintViolationException, RepositoryException {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_MODIFY_PROPERTIES);
 		checkWritable();
+		validateNamePrefixRegistered(name);
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(name)) {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
 		}
@@ -780,6 +782,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			LockException, ConstraintViolationException, RepositoryException {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_MODIFY_PROPERTIES);
 		checkWritable();
+		validateNamePrefixRegistered(name);
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(name)) {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
 		}
@@ -864,23 +867,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	private void validateNamePrefixRegistered(String name) throws NamespaceException, RepositoryException {
-		if (name.startsWith("{")) {
-			int closingBraceIndex = name.indexOf('}');
-			if (closingBraceIndex < 0) {
-				throw new NamespaceException("Invalid name: " + name);
-			}
-			String namespaceURI = name.substring(1, closingBraceIndex);
-			// Throws NamespaceException if the namespace URI is not registered
-			fSession.getWorkspace().getNamespaceRegistry().getPrefix(namespaceURI);
-			return;
-		}
-
-		int colonIndex = name.indexOf(':');
-		if (colonIndex > 0) {
-			String prefix = name.substring(0, colonIndex);
-			// Throws NamespaceException if the prefix is not registered
-			fSession.getWorkspace().getNamespaceRegistry().getURI(prefix);
-		}
+		JCRs.checkNamespaceRegistered(name, fSession.getWorkspace().getNamespaceRegistry());
 	}
 
 	@Override

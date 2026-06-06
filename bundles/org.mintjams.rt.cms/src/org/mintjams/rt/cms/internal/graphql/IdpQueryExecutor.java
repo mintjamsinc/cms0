@@ -325,6 +325,9 @@ public class IdpQueryExecutor {
 		user.put("displayName", contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null);
 		user.put("mail", contentNode.hasProperty("mail") ? contentNode.getProperty("mail").getString() : null);
 		user.put("enabled", contentNode.hasProperty("enabled") ? contentNode.getProperty("enabled").getBoolean() : true);
+		// Service accounts are non-interactive identities (no password, never sign
+		// in); the marker defaults to false when the property is absent.
+		user.put("isService", contentNode.hasProperty("isService") ? contentNode.getProperty("isService").getBoolean() : false);
 
 		// Roles via WeakReference
 		List<Map<String, Object>> roles = new ArrayList<>();

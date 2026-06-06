@@ -219,6 +219,58 @@ export const EIP_QUERIES = {
     }
   `,
 
+  /**
+   * Dashboard route snapshot — one fetch that carries both the per-route
+   * throughput/error stats AND the route's endpoint connectivity (remote
+   * endpoint state). The cross-cutting Dashboard derives its EIP route,
+   * throughput and external-connection panels from this single query so it
+   * never has to issue an N+1 `getRoute` per route just to learn whether the
+   * remote systems a route talks to are reachable.
+   */
+  DASHBOARD_ROUTES: `
+    query DashboardRoutes($first: Int) {
+      routes(first: $first) {
+        edges {
+          node {
+            id
+            routeId
+            description
+            group
+            status
+            health
+            uptime
+            uptimeMillis
+            exchangesTotal
+            exchangesCompleted
+            exchangesFailed
+            exchangesInflight
+            meanProcessingTime
+            maxProcessingTime
+            lastExchangeFailureTime
+            lastError {
+              timestamp
+              message
+              endpoint
+            }
+            endpoints {
+              uri
+              component
+              state
+              remote
+              health
+            }
+          }
+          cursor
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        totalCount
+      }
+    }
+  `,
+
   /** Get a component by name */
   GET_COMPONENT: `
     query GetComponent($name: String!) {

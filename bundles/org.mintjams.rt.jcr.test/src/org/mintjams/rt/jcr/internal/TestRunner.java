@@ -55,7 +55,8 @@ public class TestRunner {
 		Class<?>[] testClasses = {
 			JcrSessionTest.class,
 			JcrRepositoryTest.class,
-			JcrNamespaceRegistryTest.class
+			JcrNamespaceRegistryTest.class,
+			NamespaceRegistrationValidationTest.class
 		};
 
 		// Run tests

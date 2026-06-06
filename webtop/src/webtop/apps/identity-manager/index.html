@@ -96,11 +96,12 @@
 					<div v-for="u in displayedUsers" :key="u.username" class="list-item"
 						:class="{ selected: selectedUser && selectedUser.username === u.username }"
 						@click="selectUser(u)">
-						<i class="bi bi-person list-item-icon"></i>
+						<i :class="u.isService ? 'bi bi-robot list-item-icon' : 'bi bi-person list-item-icon'"></i>
 						<div class="list-item-info">
 							<div class="list-item-key">{{ u.displayName || u.username }}</div>
 							<div class="list-item-sub">{{ u.username }}</div>
 						</div>
+						<span v-if="u.isService" class="service-badge">Service</span>
 						<span v-if="!u.enabled" class="disabled-badge">Disabled</span>
 					</div>
 					<div v-if="displayedUsers.length === 0" class="list-empty-message">
@@ -191,6 +192,9 @@
 							<template v-if="userSubTab === 'profile'">
 								<div class="property-group">
 									<div class="property-group-title">User Information</div>
+									<div v-if="selectedUser.isService" class="service-note">
+										<i class="bi bi-robot me-1"></i>Service account — a non-interactive identity used by integrations (via runAs). It has no password and can never sign in.
+									</div>
 									<div class="form-row">
 										<div class="property-row half">
 											<label class="property-label">Username</label>
@@ -264,7 +268,8 @@
 									</div>
 								</div>
 
-								<div class="property-group">
+								<!-- Service accounts have no password and can never sign in. -->
+								<div class="property-group" v-if="!selectedUser.isService">
 									<div class="property-group-title">Password</div>
 									<div class="form-row">
 										<div class="property-row half">
@@ -598,8 +603,10 @@
 								<input type="text" class="wt w-100" v-model="dialog.data.username">
 							</div>
 							<div class="property-row half">
-								<label class="property-label">Password <span class="text-danger">*</span></label>
-								<input type="password" class="wt w-100" v-model="dialog.data.password">
+								<label class="property-label">Password <span v-if="!dialog.data.service" class="text-danger">*</span></label>
+								<input type="password" class="wt w-100" v-model="dialog.data.password"
+									:disabled="dialog.data.service"
+									:placeholder="dialog.data.service ? 'Not required for service accounts' : ''">
 							</div>
 						</div>
 						<div class="form-row mt-2">
@@ -609,14 +616,23 @@
 							</div>
 							<div class="property-row half">
 								<label class="property-label">Email</label>
-								<input type="email" class="wt w-100" v-model="dialog.data.mail">
+								<input type="email" class="wt w-100" v-model="dialog.data.mail" :disabled="dialog.data.service">
+							</div>
+						</div>
+						<div class="form-row mt-2">
+							<div class="property-row">
+								<label class="wt-checkbox-label">
+									<input type="checkbox" class="wt" v-model="dialog.data.service">
+									<span>Service account</span>
+								</label>
+								<small class="property-hint">A non-interactive identity used by integrations (via runAs). Has no password and can never sign in.</small>
 							</div>
 						</div>
 					</div>
 					<div class="dialog-footer">
 						<button class="wt" @click="closeDialog">Cancel</button>
 						<button class="wt wt-primary" @click="createUser"
-							:disabled="!dialog.data.username || !dialog.data.password">Create</button>
+							:disabled="!dialog.data.username || (!dialog.data.service && !dialog.data.password)">Create</button>
 					</div>
 				</div>
 			</div>

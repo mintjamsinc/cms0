@@ -73,6 +73,11 @@ public class JcrUserStore implements UserStore {
 			}
 
 			Node contentNode = JCRs.getContentNode(jcrSession.getNode(profilePath));
+			// Service accounts are non-interactive identities (assumed only via
+			// runAs) and must never sign in, regardless of any stored credential.
+			if (contentNode.hasProperty("isService") && contentNode.getProperty("isService").getBoolean()) {
+				return null;
+			}
 			if (!contentNode.hasProperty("password")) {
 				return null;
 			}

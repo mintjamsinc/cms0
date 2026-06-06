@@ -29,14 +29,14 @@ import javax.jcr.Session;
 
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
-import org.mintjams.rt.cms.internal.security.UserServiceCredentials;
+import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
 import org.osgi.service.log.Logger;
 
 /**
  * Standard {@link JobContext} that opens two distinct sessions on demand:
  *
  * <ul>
- *   <li><b>jobSession</b> — {@link UserServiceCredentials} so the actual work
+ *   <li><b>jobSession</b> — {@link ServiceUserCredentials} so the actual work
  *       (e.g. node deletion) is gated by the requesting user's ACLs.</li>
  *   <li><b>progressSession</b> — {@link CmsServiceCredentials} (privileged,
  *       tagged with the requesting user's id) so progress writes against
@@ -66,7 +66,7 @@ class DefaultJobContext implements JobContext {
 	public synchronized Session getJobSession() throws RepositoryException {
 		if (fJobSession == null) {
 			fJobSession = CmsService.getRepository()
-					.login(new UserServiceCredentials(fJob.getUserId()), fJob.getWorkspaceName());
+					.login(new ServiceUserCredentials(fJob.getUserId()), fJob.getWorkspaceName());
 		}
 		return fJobSession;
 	}

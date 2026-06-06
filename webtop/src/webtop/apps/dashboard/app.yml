@@ -1,0 +1,11 @@
+identifier: 42e97656-0cc8-41f2-9a92-94f996289dca
+title: Dashboard
+icon: assets/icons/icon.svg
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 720
+minimumHeight: 540
+customWindowControls: true
+singleton: true

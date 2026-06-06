@@ -7,6 +7,8 @@
 		"build:prod": "cross-env NODE_OPTIONS=--max-old-space-size=8192 BUILD=production rollup -c",
 		"build:webtop": "cross-env BUILD=development TARGETS=webtop rollup -c",
 		"build:webtop:prod": "cross-env BUILD=production TARGETS=webtop rollup -c",
+		"build:dashboard": "cross-env BUILD=development TARGETS=dashboard rollup -c",
+		"build:dashboard:prod": "cross-env BUILD=production TARGETS=dashboard rollup -c",
 		"build:bpm-console": "cross-env NODE_OPTIONS=--max-old-space-size=8192 BUILD=development TARGETS=bpm-console rollup -c",
 		"build:bpm-console:prod": "cross-env NODE_OPTIONS=--max-old-space-size=8192 BUILD=production TARGETS=bpm-console rollup -c",
 		"build:bpmn-modeler": "cross-env NODE_OPTIONS=--max-old-space-size=8192 BUILD=development TARGETS=bpmn-modeler rollup -c",

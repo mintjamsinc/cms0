@@ -613,6 +613,8 @@ export interface Route {
   description?: string;
   group?: string;
   status: RouteState;
+  /** Readiness from Camel Health Checks: 'UP' | 'DOWN' | 'UNKNOWN'. */
+  health?: HealthState | null;
   uptime?: string;
   uptimeMillis?: number;
   exchangesTotal: number;
@@ -678,6 +680,8 @@ export interface EndpointDefinition {
 
 export type EndpointState = 'STARTED' | 'STOPPED' | 'SUSPENDED';
 
+export type HealthState = 'UP' | 'DOWN' | 'UNKNOWN';
+
 export interface Endpoint {
   uri: string;
   component: string;
@@ -687,6 +691,12 @@ export interface Endpoint {
   exchangesTotal?: number;
   exchangesCompleted?: number;
   exchangesFailed?: number;
+  /**
+   * Readiness from Camel Health Checks: reflects whether the external system
+   * this endpoint talks to is actually reachable (as opposed to `state`, which
+   * is the endpoint's lifecycle). 'UNKNOWN' when no health check covers it.
+   */
+  health?: HealthState | null;
 }
 
 export interface Component {
@@ -1067,6 +1077,12 @@ export interface IdpUser {
   displayName: string | null;
   mail: string | null;
   enabled: boolean;
+  /**
+   * Whether this is a service account: a non-interactive identity used by
+   * integrations (via runAs). Service accounts have no password and can never
+   * sign in. Defaults to false.
+   */
+  isService: boolean;
   roles: IdpRole[];
   memberOf: IdpGroup[];
   effectiveGroups: IdpGroup[];
@@ -1136,12 +1152,18 @@ export type GroupOrderField = 'GROUP_ID' | 'DISPLAY_NAME' | 'CREATED';
 
 export interface CreateUserInput {
   username: string;
-  password: string;
+  /** Required for interactive users; omitted for service accounts (service: true). */
+  password?: string;
   sn?: string;
   givenName?: string;
   displayName?: string;
   mail?: string;
   enabled?: boolean;
+  /**
+   * Create a service account: a non-interactive identity used by integrations
+   * (via runAs). When true, no password is required. Defaults to false.
+   */
+  service?: boolean;
   roles?: string[];
   memberOf?: string[];
 }

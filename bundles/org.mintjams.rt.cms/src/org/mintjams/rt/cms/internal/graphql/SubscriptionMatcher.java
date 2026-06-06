@@ -145,8 +145,10 @@ public class SubscriptionMatcher {
 	 * Match nodeChanged subscription against a CMS event.
 	 *
 	 * Parameters:
-	 * - path: The directory path to watch (default: "/")
-	 * - deep: Whether to watch descendants (default: false)
+	 * - path: The node path to watch (default: "/")
+	 * - deep: Whether to also watch descendants beyond direct children
+	 *         (default: false). The watch path itself and its direct children
+	 *         always match; deep additionally matches deeper descendants.
 	 */
 	private boolean matchesNodeChanged(CmsEvent event) {
 		String eventPath = event.getPath();
@@ -175,15 +177,29 @@ public class SubscriptionMatcher {
 
 	/**
 	 * Check if the event path matches the watch path based on deep flag.
+	 *
+	 * In this event model a change to a node (including changes to that node's
+	 * own properties) is reported as an event whose path is the node itself; the
+	 * affected property names are carried separately via
+	 * {@link CmsEvent#getPropertyNames()}. Both depths therefore include the
+	 * watch path itself, so that a subscriber watching a node is notified when
+	 * that node's own properties change (or when it is added/moved/removed),
+	 * not only when its descendants change:
+	 * - deep == true:  the watch path itself or any descendant of it
+	 * - deep == false: the watch path itself or a direct child of it
 	 */
 	private boolean matchesPath(String eventPath, String watchPath, boolean deep) {
+		// Both depths match the watch path itself.
+		if (eventPath.equals(watchPath)) {
+			return true;
+		}
+
 		if (deep) {
-			// Match if event path starts with watch path or equals it
-			return eventPath.equals(watchPath) || eventPath.startsWith(watchPath + "/");
+			// Match any descendant of the watch path.
+			return eventPath.startsWith(watchPath + "/");
 		} else {
-			// Match if event path is a direct child of watch path
-			String parentPath = getParentPath(eventPath);
-			return parentPath.equals(watchPath);
+			// Match a direct child of the watch path.
+			return getParentPath(eventPath).equals(watchPath);
 		}
 	}
 

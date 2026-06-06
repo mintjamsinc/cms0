@@ -71,6 +71,7 @@ import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UserPrincipal;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.lock.JcrLock;
 import org.mintjams.rt.jcr.internal.lock.JcrLockManager;
 import org.mintjams.rt.jcr.internal.observation.JournalObserver;
@@ -378,6 +379,9 @@ public class JcrSession implements Session, Adaptable {
 		// Normalize paths
 		JcrPath srcPath = JcrPath.valueOf(srcAbsPath).with(adaptTo(NamespaceProvider.class));
 		JcrPath destPath = JcrPath.valueOf(destAbsPath).with(adaptTo(NamespaceProvider.class));
+
+		// The destination introduces a new node name; its namespace must be registered.
+		JCRs.checkNamespaceRegistered(JcrPath.valueOf(destAbsPath).getName().toString(), getWorkspace().getNamespaceRegistry());
 
 		// Check root move
 		if (srcPath.isRoot()) {

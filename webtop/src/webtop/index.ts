@@ -1035,6 +1035,21 @@ const WtDesktop = {
 				console.warn(`[Webtop] App not found: ${payload.appId}`);
 				return;
 			}
+			// Singleton apps must not spawn a second window when re-launched with
+			// options (e.g. a dashboard drill-down into an already-open operator
+			// console). Focus the running instance and re-target it with the new
+			// options instead, so it routes to the requested view/filter.
+			if (app.singleton) {
+				const existing = vm.appInstances.find((i: ApplicationInstance) => i.app.id === app.id);
+				if (existing) {
+					if (payload.options) {
+						(existing as any).launchOptions = payload.options;
+						vm.retargetApp(existing, payload.options);
+					}
+					vm.restoreWindow(existing);
+					return;
+				}
+			}
 			const instance = new ApplicationInstance(app, window.Webtop);
 			// If the caller pre-computed an exact placement (e.g. text-editor
 			// opens its preview to its own right), honor that verbatim and
@@ -1054,6 +1069,17 @@ const WtDesktop = {
 				(instance as any).launchOptions = payload.options;
 			}
 			vm.appInstances.push(vm.$markRaw(instance));
+		},
+		// Deliver fresh launch options to an already-running app (singleton
+		// re-launch). The app receives `{ type: 'app-reopen', options }` in its
+		// window message listener and re-routes to the requested view. Apps that
+		// do not handle it simply ignore the message (the window still gets
+		// focused), so this is safe for every app.
+		retargetApp(instance: ApplicationInstance, options: Record<string, any>) {
+			const iframe = document.querySelector(`iframe[data-app-id="${instance.id}"]`) as HTMLIFrameElement | null;
+			if (iframe?.contentWindow) {
+				iframe.contentWindow.postMessage({ type: 'app-reopen', options }, window.location.origin);
+			}
 		},
 		handleWindowControl(source: Window | null, payload: { action: string; id?: string }) {
 			const vm = this;

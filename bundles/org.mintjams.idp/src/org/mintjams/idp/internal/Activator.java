@@ -307,6 +307,7 @@ public class Activator implements BundleActivator {
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
 		JCRs.setProperty(profileFile, "identifier", "admin");
 		JCRs.setProperty(profileFile, "isGroup", false);
+		JCRs.setProperty(profileFile, "isService", false);
 		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "mail", "admin@example.com");
 		JCRs.setProperty(profileFile, "enabled", true);
@@ -407,6 +408,7 @@ public class Activator implements BundleActivator {
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
 		JCRs.setProperty(profileFile, "identifier", "anonymous");
 		JCRs.setProperty(profileFile, "isGroup", false);
+		JCRs.setProperty(profileFile, "isService", false);
 		JCRs.setProperty(profileFile, "displayName", "Anonymous");
 		JCRs.setProperty(profileFile, "mail", "anonymous@example.com");
 		JCRs.setProperty(profileFile, "enabled", true);

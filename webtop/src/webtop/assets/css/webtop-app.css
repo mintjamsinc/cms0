@@ -1,6 +1,6 @@
 @charset "utf-8";
 
-@import url("./webtop-utilities.css");
+@import url("./webtop-utilities.css?v=__BUILD_VERSION__");
 
 /* ============================================================================
  * Webtop App - Shared base stylesheet
@@ -88,7 +88,7 @@ html {
 		--context-menu-border-color: rgb(255 255 255 / 0.6);
 		--context-menu-hover-bg: rgb(0 91 193 / 0.15);
 		--menu-divider-color: rgb(26 27 31 / 0.1);
-		--window-bg: rgb(255 255 255 / 0.03);
+		--window-bg: rgb(255 255 255 / 0.3);
 		--window-border-color: rgb(255 255 255 / 0.2);
 		--navbar-bg: rgb(26 27 31 / 0.02);
 		--navbar-border-color: rgb(26 27 31 / 0.05);
@@ -146,8 +146,8 @@ html {
 		--context-menu-border-color: rgb(255 255 255 / 0.1);
 		--context-menu-hover-bg: rgb(173 198 255 / 0.15);
 		--menu-divider-color: rgb(255 255 255 / 0.1);
-		--window-bg: rgb(255 255 255 / 0.03);
-		--window-border-color: rgb(255 255 255 / 0.2);
+		--window-bg: rgb(0 0 0 / 0.3);
+		--window-border-color: rgb(227 226 231 / 0.1);
 		--navbar-bg: rgb(227 226 231 / 0.04);
 		--navbar-border-color: rgb(227 226 231 / 0.1);
 		--item-hover-bg: rgb(173 198 255 / 0.15);
@@ -277,6 +277,23 @@ html {
 	}
 
 	html.wt-window-dragging iframe {
+		pointer-events: none;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * Window resize in progress
+	 * The shell (wt-window) adds this class to <html> while a window resize is
+	 * in progress, mirroring wt-window-dragging. Suppress text selection and
+	 * disable pointer events on nested iframes so the cursor crossing them does
+	 * not interrupt the resize. Apps can also hook this class to react to
+	 * resizing (e.g. pause expensive reflows).
+	 * ---------------------------------------------------------------------- */
+	html.wt-window-resizing {
+		user-select: none;
+		-webkit-user-select: none;
+	}
+
+	html.wt-window-resizing iframe {
 		pointer-events: none;
 	}
 
@@ -812,6 +829,18 @@ html {
 			border: none;
 			outline: none;
 			box-shadow: none;
+		}
+
+		/* Suppress the browser's native search affordances (e.g. WebKit's blue
+		 * clear "×" and the magnifier decoration). The input-group renders its own
+		 * inline action buttons, so the native chrome would otherwise duplicate
+		 * them and break the design system's look. */
+		input[type="search"]::-webkit-search-cancel-button,
+		input[type="search"]::-webkit-search-decoration,
+		input[type="search"]::-webkit-search-results-button,
+		input[type="search"]::-webkit-search-results-decoration {
+			-webkit-appearance: none;
+			appearance: none;
 		}
 	}
 

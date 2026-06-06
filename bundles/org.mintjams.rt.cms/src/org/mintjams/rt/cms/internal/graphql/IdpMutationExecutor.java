@@ -69,9 +69,15 @@ public class IdpMutationExecutor {
 		Map<String, Object> input = extractInput(request);
 		String username = (String) input.get("username");
 		String password = (String) input.get("password");
+		// Service accounts are non-interactive identities (only assumed via runAs),
+		// so they never sign in and require no password. Every other user does.
+		boolean service = getBoolInput(input, "service", false);
 
-		if (username == null || password == null) {
-			return errorPayload("createUser", "username and password are required", "INVALID_INPUT");
+		if (username == null) {
+			return errorPayload("createUser", "username is required", "INVALID_INPUT");
+		}
+		if (!service && password == null) {
+			return errorPayload("createUser", "password is required", "INVALID_INPUT");
 		}
 
 		// Check if user or group with the same name already exists
@@ -86,11 +92,14 @@ public class IdpMutationExecutor {
 		Node userFolder = JCRs.getOrCreateFolder(usersFolder, username);
 		Node profileFile = JCRs.createFile(userFolder, "profile");
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
-		JCRs.setProperty(profileFile, "password", "{bcrypt}" + BCrypt.hash(password));
+		if (password != null && !password.isEmpty()) {
+			JCRs.setProperty(profileFile, "password", "{bcrypt}" + BCrypt.hash(password));
+		}
 
 		Node contentNode = JCRs.getContentNode(profileFile);
 		contentNode.setProperty("identifier", username);
 		contentNode.setProperty("isGroup", false);
+		contentNode.setProperty("isService", service);
 		setStringIfPresent(contentNode, "sn", input);
 		setStringIfPresent(contentNode, "givenName", input);
 		setStringIfPresent(contentNode, "displayName", input);
