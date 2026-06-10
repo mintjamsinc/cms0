@@ -1,4 +1,10 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+	translate,
+} from "../../composables/use-localization.js";
 
 // Constants
 const SCHEMAS_PATH = '/etc/metadata/schemas';
@@ -519,6 +525,10 @@ export const App = {
 			isSaving: false,
 			errorMessage: '',
 			messageListener: null as ((e: MessageEvent) => void) | null,
+			// Reactive Localization snapshot (effective locale). `t()` lookups
+			// read this and repaint on `localization-changed` /
+			// `i18n-bundles-updated`. See composables/use-localization.ts.
+			localization: createLocalizationSnapshot(),
 			// All schemas loaded from /etc/metadata/schemas/
 			schemas: [] as SchemaDefinition[],
 			// Current selection
@@ -677,7 +687,7 @@ export const App = {
 			if (label) return label;
 			const key = schema.key?.trim();
 			if (key) return key;
-			return '(unnamed)';
+			return this.t('app.schema-manager.tree.unnamed', undefined, '(unnamed)');
 		},
 		// Path-bar label for the currently selected property
 		propertyPathLabel(): string {
@@ -687,7 +697,7 @@ export const App = {
 			if (label) return label;
 			const key = prop.key?.trim();
 			if (key) return key;
-			return '(unnamed)';
+			return this.t('app.schema-manager.tree.unnamed', undefined, '(unnamed)');
 		},
 		// Path-bar label for the schema that scan mode is targeting
 		scanSchemaLabel(): string {
@@ -699,7 +709,7 @@ export const App = {
 			if (label) return label;
 			const key = schema.key?.trim();
 			if (key) return key;
-			return '(unnamed)';
+			return this.t('app.schema-manager.tree.unnamed', undefined, '(unnamed)');
 		},
 		// Total active property count across all schemas and mixins (status bar)
 		totalPropertyCount(): number {
@@ -740,6 +750,15 @@ export const App = {
 		},
 	},
 	methods: {
+		/**
+		 * Reactive i18n lookup. Reads the localization snapshot so every
+		 * `{{ t(...) }}` binding repaints the moment the user switches language
+		 * or an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
+
 		async onMounted() {
 			const vm = this;
 
@@ -747,6 +766,7 @@ export const App = {
 			vm.messageListener = async (event: MessageEvent) => {
 				if (event.origin !== window.location.origin) return;
 				const { type, ...payload } = event.data || {};
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) return;
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
 					return;
@@ -777,6 +797,10 @@ export const App = {
 			}) => {
 				vm.instance = vm.$markRaw(instance);
 
+				// Snapshot the effective Localization preference so `t()` bindings
+				// render in the user's language from the first paint.
+				refreshLocalization(vm.localization, vm.instance);
+
 				// Apply theme
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
@@ -800,7 +824,7 @@ export const App = {
 
 				// Set window title
 				if (vm.instance) {
-					vm.instance.windowTitle = 'Schema Editor';
+					vm.instance.windowTitle = vm.t('app.schema-manager.title', undefined, 'Schema Manager');
 				}
 
 				vm.$nextTick(() => {
@@ -900,7 +924,7 @@ export const App = {
 			const trigger = event.currentTarget as HTMLElement;
 			const rect = trigger.getBoundingClientRect();
 			const items: any[] = [
-				{ id: '__auto__', label: '— Auto —', selected: !prop.uiHint.editorType },
+				{ id: '__auto__', label: vm.t('app.schema-manager.editor.editorTypeAuto', undefined, '— Auto —'), selected: !prop.uiHint.editorType },
 			];
 			for (const t of vm.availableEditorTypes as string[]) {
 				items.push({ id: t, label: t, selected: prop.uiHint.editorType === t });
@@ -947,10 +971,10 @@ export const App = {
 			const trigger = event.currentTarget as HTMLElement;
 			const rect = trigger.getBoundingClientRect();
 			const items = [
-				{ id: 'camelCase',  label: 'camel' },
-				{ id: 'snake_case', label: 'snake' },
-				{ id: 'kebab-case', label: 'kebab' },
-				{ id: 'dot.case',   label: 'dot'   },
+				{ id: 'camelCase',  label: vm.t('app.schema-manager.scan.case.camel', undefined, 'camel') },
+				{ id: 'snake_case', label: vm.t('app.schema-manager.scan.case.snake', undefined, 'snake') },
+				{ id: 'kebab-case', label: vm.t('app.schema-manager.scan.case.kebab', undefined, 'kebab') },
+				{ id: 'dot.case',   label: vm.t('app.schema-manager.scan.case.dot', undefined, 'dot')   },
 			];
 			const handle = vm.instance.popup.open({
 				anchor: rect,
@@ -1119,8 +1143,8 @@ export const App = {
 				anchor: rect,
 				placement: 'bottom-start',
 				items: [
-					{ id: 'schema', label: 'Schema', icon: 'bi bi-collection' },
-					{ id: 'mixin', label: 'Mixin', icon: 'bi bi-puzzle' },
+					{ id: 'schema', label: vm.t('app.schema-manager.kind.schema', undefined, 'Schema'), icon: 'bi bi-collection' },
+					{ id: 'mixin', label: vm.t('app.schema-manager.kind.mixin', undefined, 'Mixin'), icon: 'bi bi-puzzle' },
 				],
 			});
 			const result = await handle.result;
@@ -1722,12 +1746,12 @@ export const App = {
 
 				// Schema key
 				if (!schema.key.trim()) {
-					errors[`schema.${schema._id}.key`] = 'Required';
+					errors[`schema.${schema._id}.key`] = this.t('app.schema-manager.validation.required', undefined, 'Required');
 					this.selectSchema(schema._id);
 					break;
 				}
 				if (!/^[a-zA-Z0-9_-]+$/.test(schema.key)) {
-					errors[`schema.${schema._id}.key`] = 'Only alphanumeric, hyphens, underscores';
+					errors[`schema.${schema._id}.key`] = this.t('app.schema-manager.validation.keyChars', undefined, 'Only alphanumeric, hyphens, underscores');
 					this.selectSchema(schema._id);
 					break;
 				}
@@ -1743,7 +1767,7 @@ export const App = {
 						&& s.key === schema.key
 				);
 				if (dupeSchema) {
-					errors[`schema.${schema._id}.key`] = `Duplicate key: "${schema.key}"`;
+					errors[`schema.${schema._id}.key`] = this.t('app.schema-manager.validation.duplicateKey', { key: schema.key }, 'Duplicate key: "{key}"');
 					this.selectSchema(schema._id);
 					break;
 				}
@@ -1759,7 +1783,7 @@ export const App = {
 						return !mx;
 					});
 					if (missing) {
-						errors[`schema.${schema._id}.mixins`] = `Unknown mixin: "${missing}"`;
+						errors[`schema.${schema._id}.mixins`] = this.t('app.schema-manager.validation.unknownMixin', { mixin: missing }, 'Unknown mixin: "{mixin}"');
 						this.selectSchema(schema._id);
 						break;
 					}
@@ -1770,13 +1794,13 @@ export const App = {
 				let propError = false;
 				for (const p of activeProps) {
 					if (!p.key.trim()) {
-						errors['prop.key'] = 'Required';
+						errors['prop.key'] = this.t('app.schema-manager.validation.required', undefined, 'Required');
 						this.selectProperty(schema._id, p._id);
 						propError = true;
 						break;
 					}
 					if (!p.label.trim()) {
-						errors['prop.label'] = 'Required';
+						errors['prop.label'] = this.t('app.schema-manager.validation.required', undefined, 'Required');
 						this.selectProperty(schema._id, p._id);
 						propError = true;
 						break;
@@ -1785,7 +1809,7 @@ export const App = {
 						try {
 							new RegExp(p.constraints.pattern);
 						} catch (e: any) {
-							errors['prop.pattern'] = 'Invalid regex: ' + (e.message || 'syntax error');
+							errors['prop.pattern'] = this.t('app.schema-manager.validation.invalidRegex', { detail: e.message || this.t('app.schema-manager.validation.syntaxError', undefined, 'syntax error') }, 'Invalid regex: {detail}');
 							this.selectProperty(schema._id, p._id);
 							propError = true;
 							break;
@@ -1800,7 +1824,7 @@ export const App = {
 				if (dupKeys.length > 0) {
 					const dupeProp = activeProps.find((p: PropertyDefinition) => p.key.trim() === dupKeys[0]);
 					if (dupeProp) {
-						errors['prop.key'] = `Duplicate key: "${dupKeys[0]}"`;
+						errors['prop.key'] = this.t('app.schema-manager.validation.duplicateKey', { key: dupKeys[0] }, 'Duplicate key: "{key}"');
 						this.selectProperty(schema._id, dupeProp._id);
 					}
 					break;
@@ -2100,7 +2124,7 @@ export const App = {
 					const text = await file.text();
 					this.parseFileContent(text, file.name);
 				} catch (e: any) {
-					this.errorMessage = 'Failed to read file: ' + (e?.message || String(e));
+					this.errorMessage = this.t('app.schema-manager.error.readFile', { detail: e?.message || String(e) }, 'Failed to read file: {detail}');
 				}
 			}
 		},
@@ -2110,13 +2134,13 @@ export const App = {
 			try {
 				const response = await fetch(downloadURL);
 				if (!response.ok) {
-					this.errorMessage = `Failed to fetch file: ${response.status}`;
+					this.errorMessage = this.t('app.schema-manager.error.fetchFileStatus', { status: response.status }, 'Failed to fetch file: {status}');
 					return;
 				}
 				const text = await response.text();
 				this.parseFileContent(text, fileName);
 			} catch (e: any) {
-				this.errorMessage = 'Failed to fetch file: ' + (e?.message || String(e));
+				this.errorMessage = this.t('app.schema-manager.error.fetchFile', { detail: e?.message || String(e) }, 'Failed to fetch file: {detail}');
 			}
 		},
 
@@ -2127,7 +2151,7 @@ export const App = {
 				const contentService = vm.instance.api.content;
 				const node = await contentService.getNode(nodePath);
 				if (!node || !node.properties) {
-					vm.errorMessage = 'No properties found for this node.';
+					vm.errorMessage = vm.t('app.schema-manager.error.noNodeProperties', undefined, 'No properties found for this node.');
 					return;
 				}
 
@@ -2170,7 +2194,9 @@ export const App = {
 						} else if (type === 'BINARY') {
 							// BinaryPropertyValueArray has mimeTypes/sizes
 							const mimeTypes = (pv as any).mimeTypes || [];
-							sampleValue = mimeTypes.length > 0 ? `[binary: ${mimeTypes[0] || 'unknown'}]` : '[binary]';
+							sampleValue = mimeTypes.length > 0
+								? vm.t('app.schema-manager.scan.binarySample', { mime: mimeTypes[0] || vm.t('app.schema-manager.scan.unknown', undefined, 'unknown') }, '[binary: {mime}]')
+								: vm.t('app.schema-manager.scan.binary', undefined, '[binary]');
 						}
 					} else {
 						if ('path' in pv && (pv as any).path) {
@@ -2178,9 +2204,11 @@ export const App = {
 							sampleValue = String((pv as any).path);
 						} else if ('value' in pv) {
 							if (type === 'BINARY') {
-								const mime = (pv as any).mimeType || 'unknown';
+								const mime = (pv as any).mimeType || vm.t('app.schema-manager.scan.unknown', undefined, 'unknown');
 								const size = (pv as any).size;
-								sampleValue = `[binary: ${mime}${size ? ', ' + vm.formatFileSize(size) : ''}]`;
+								sampleValue = size
+									? vm.t('app.schema-manager.scan.binarySampleSized', { mime, size: vm.formatFileSize(size) }, '[binary: {mime}, {size}]')
+									: vm.t('app.schema-manager.scan.binarySample', { mime }, '[binary: {mime}]');
 							} else {
 								sampleValue = String((pv as any).value ?? '');
 							}
@@ -2201,7 +2229,7 @@ export const App = {
 				}
 
 				if (properties.length === 0) {
-					vm.errorMessage = 'No user properties found on this node.';
+					vm.errorMessage = vm.t('app.schema-manager.error.noUserProperties', undefined, 'No user properties found on this node.');
 					return;
 				}
 
@@ -2209,7 +2237,7 @@ export const App = {
 				vm.scanState.properties = properties;
 				vm.scanState.phase = 'review';
 			} catch (e: any) {
-				vm.errorMessage = 'Failed to read node properties: ' + (e?.message || String(e));
+				vm.errorMessage = vm.t('app.schema-manager.error.readNodeProperties', { detail: e?.message || String(e) }, 'Failed to read node properties: {detail}');
 			}
 		},
 
@@ -2230,11 +2258,11 @@ export const App = {
 				try {
 					data = JSON.parse(text);
 				} catch {
-					vm.errorMessage = 'Failed to parse JSON file';
+					vm.errorMessage = vm.t('app.schema-manager.error.parseJson', undefined, 'Failed to parse JSON file');
 					return;
 				}
 			} else {
-				vm.errorMessage = `Unsupported file format: .${ext}. Only JSON files are supported.`;
+				vm.errorMessage = vm.t('app.schema-manager.error.unsupportedFormat', { ext }, 'Unsupported file format: .{ext}. Only JSON files are supported.');
 				return;
 			}
 
@@ -2247,7 +2275,7 @@ export const App = {
 				// Array of objects: use first element as schema sample
 				vm.extractProperties(data[0], '', properties);
 			} else {
-				vm.errorMessage = 'File does not contain a parseable object structure.';
+				vm.errorMessage = vm.t('app.schema-manager.error.notParseable', undefined, 'File does not contain a parseable object structure.');
 				return;
 			}
 
@@ -2496,7 +2524,11 @@ export const App = {
 
 			// Show feedback via a temporary error message (reusing existing mechanism)
 			if (skippedCount > 0) {
-				vm.errorMessage = `Imported ${importedCount} properties. ${skippedCount} skipped (duplicate keys).`;
+				vm.errorMessage = vm.t(
+					'app.schema-manager.scan.importedWithSkips',
+					{ imported: importedCount, skipped: skippedCount },
+					'Imported {imported} properties. {skipped} skipped (duplicate keys).',
+				);
 			}
 
 			// Select the schema to show summary

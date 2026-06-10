@@ -5,6 +5,9 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
 	<title>Text Editor</title>
+	<!-- The document <title> is intentionally left as a static literal: it is
+	     the browser/tab title, not app chrome, and is replaced by the shell. -->
+
 
 	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
 	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
@@ -26,21 +29,33 @@
 			<!-- Left: file actions -->
 			<div class="toolbar-group">
 				<button class="btn-icon" @click="saveFile"
-					:disabled="!currentFile.path || !currentFile.isModified || isSaving" title="Save (Ctrl+S)">
+					:disabled="!currentFile.path || !currentFile.isModified || isSaving"
+					:title="t('app.text-editor.toolbar.save', undefined, 'Save (Ctrl+S)')">
 					<i class="bi bi-floppy"></i>
 				</button>
-				<button class="btn-icon" @click="openSaveAsDialog" :disabled="isSaving" title="Save As...">
+				<button class="btn-icon" @click="openSaveAsDialog" :disabled="isSaving"
+					:title="t('app.text-editor.toolbar.saveAs', undefined, 'Save As...')">
 					<i class="bi bi-floppy2"></i>
 				</button>
 			</div>
 
 			<!-- Left: undo/redo -->
 			<div class="toolbar-group">
-				<button class="btn-icon" @click="undo" :disabled="!canUndo" title="Undo (Ctrl+Z)">
+				<button class="btn-icon" @click="undo" :disabled="!canUndo"
+					:title="t('app.text-editor.toolbar.undo', undefined, 'Undo (Ctrl+Z)')">
 					<i class="bi bi-arrow-counterclockwise"></i>
 				</button>
-				<button class="btn-icon" @click="redo" :disabled="!canRedo" title="Redo (Ctrl+Y)">
+				<button class="btn-icon" @click="redo" :disabled="!canRedo"
+					:title="t('app.text-editor.toolbar.redo', undefined, 'Redo (Ctrl+Y)')">
 					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+			</div>
+
+			<!-- Left: editor view options -->
+			<div class="toolbar-group">
+				<button class="btn-icon" :class="{active: lineWrap}" @click="toggleLineWrap"
+					:title="lineWrap ? t('app.text-editor.toolbar.wordWrapOn', undefined, 'Word Wrap: On — wrap at right edge') : t('app.text-editor.toolbar.wordWrapOff', undefined, 'Word Wrap: Off — horizontal scroll')">
+					<i class="bi bi-text-wrap"></i>
 				</button>
 			</div>
 
@@ -49,28 +64,28 @@
 			<!-- Right: Pane Toggles -->
 			<div class="pane-toggles">
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
-					@click="toggleSidebarPanel" title="Toggle Sidebar">
+					@click="toggleSidebarPanel" :title="t('app.text-editor.toolbar.toggleSidebar', undefined, 'Toggle Sidebar')">
 					<i class="bi bi-layout-sidebar-inset"></i>
 				</button>
 				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
-					@click="toggleDetailPanel" title="Toggle Inspector (Ctrl+I)">
+					@click="toggleDetailPanel" :title="t('app.text-editor.toolbar.toggleInspector', undefined, 'Toggle Inspector (Ctrl+I)')">
 					<i class="bi bi-layout-sidebar-inset-reverse"></i>
 				</button>
 				<button class="btn-icon pane-toggle-btn" :class="{active: previewOpen}"
-					@click="togglePreviewPanel" title="Open Preview Window">
+					@click="togglePreviewPanel" :title="t('app.text-editor.toolbar.openPreview', undefined, 'Open Preview Window')">
 					<i class="bi bi-window"></i>
 				</button>
 			</div>
 
 			<!-- Right: Window Controls -->
 			<div class="window-controls">
-				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize', undefined, 'Minimize')">
 					<i class="bi bi-dash-lg"></i>
 				</button>
-				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize', undefined, 'Maximize')">
 					<i class="bi bi-square"></i>
 				</button>
-				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close', undefined, 'Close')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -89,28 +104,28 @@
 
 							<!-- Find -->
 							<div class="filter-group">
-								<label class="filter-label">Find</label>
+								<label class="filter-label">{{ t('app.text-editor.find.find', undefined, 'Find') }}</label>
 								<div class="filter-input-wrapper">
 									<input id="find-input" type="text" class="wt w-100" v-model="searchTerm"
-										placeholder="Find..." spellcheck="false"
+										:placeholder="t('app.text-editor.find.findPlaceholder', undefined, 'Find...')" spellcheck="false"
 										@input="onSearchTermInput" @keydown="onSearchTermKeydown">
 									<button v-if="searchTerm" class="filter-input-clear"
-										@click="clearSearchTerm" title="Clear">
+										@click="clearSearchTerm" :title="t('app.text-editor.find.clear', undefined, 'Clear')">
 										<i class="bi bi-x"></i>
 									</button>
 								</div>
 								<div class="search-toolbar">
 									<button class="search-toggle-btn" :class="{active: searchCaseSensitive}"
-										@click="toggleSearchCaseSensitive" title="Match case">Aa</button>
+										@click="toggleSearchCaseSensitive" :title="t('app.text-editor.find.matchCase', undefined, 'Match case')">Aa</button>
 									<button class="search-toggle-btn" :class="{active: searchWholeWord}"
-										@click="toggleSearchWholeWord" title="Whole word">ab</button>
+										@click="toggleSearchWholeWord" :title="t('app.text-editor.find.wholeWord', undefined, 'Whole word')">ab</button>
 									<button class="search-toggle-btn" :class="{active: searchRegex}"
-										@click="toggleSearchRegex" title="Regex">.*</button>
+										@click="toggleSearchRegex" :title="t('app.text-editor.find.regex', undefined, 'Regex')">.*</button>
 									<span class="spacer"></span>
-									<button class="btn-icon" @click="findPrev" title="Previous (Shift+Enter)">
+									<button class="btn-icon" @click="findPrev" :title="t('app.text-editor.find.previous', undefined, 'Previous (Shift+Enter)')">
 										<i class="bi bi-chevron-up"></i>
 									</button>
-									<button class="btn-icon" @click="findNextMatch" title="Next (Enter)">
+									<button class="btn-icon" @click="findNextMatch" :title="t('app.text-editor.find.next', undefined, 'Next (Enter)')">
 										<i class="bi bi-chevron-down"></i>
 									</button>
 								</div>
@@ -118,27 +133,27 @@
 
 							<!-- Replace -->
 							<div class="filter-group">
-								<label class="filter-label">Replace</label>
+								<label class="filter-label">{{ t('app.text-editor.find.replace', undefined, 'Replace') }}</label>
 								<div class="filter-input-wrapper">
 									<input type="text" class="wt w-100" v-model="replaceTerm"
-										placeholder="Replace..." spellcheck="false"
+										:placeholder="t('app.text-editor.find.replacePlaceholder', undefined, 'Replace...')" spellcheck="false"
 										@keydown="onReplaceTermKeydown">
 									<button v-if="replaceTerm" class="filter-input-clear"
-										@click="replaceTerm = ''" title="Clear">
+										@click="replaceTerm = ''" :title="t('app.text-editor.find.clear', undefined, 'Clear')">
 										<i class="bi bi-x"></i>
 									</button>
 								</div>
 								<div class="search-actions">
 									<button class="wt wt-primary wt-outlined wt-slim fs-small"
-										@click="replaceCurrent" :disabled="!searchTerm">Replace</button>
+										@click="replaceCurrent" :disabled="!searchTerm">{{ t('app.text-editor.find.replace', undefined, 'Replace') }}</button>
 									<button class="wt wt-primary wt-outlined wt-slim fs-small"
-										@click="replaceAllInDoc" :disabled="!searchTerm">All</button>
+										@click="replaceAllInDoc" :disabled="!searchTerm">{{ t('app.text-editor.find.replaceAll', undefined, 'All') }}</button>
 								</div>
 							</div>
 
 							<!-- Status -->
 							<div v-if="searchNotFound" class="filter-status">
-								<span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>No matches</span>
+								<span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>{{ t('app.text-editor.find.noMatches', undefined, 'No matches') }}</span>
 							</div>
 						</div>
 					</div>
@@ -164,11 +179,11 @@
 							@click="selectTab(index)" :title="file.path || file.name">
 							<span class="file-tab-name">{{ file.name }}</span>
 							<span v-if="file.isModified" class="modified-dot">●</span>
-							<button class="file-tab-close" @click.stop="closeFile(index)" title="Close">
+							<button class="file-tab-close" @click.stop="closeFile(index)" :title="t('common.close', undefined, 'Close')">
 								<i class="bi bi-x"></i>
 							</button>
 						</div>
-						<button class="file-tab-add" @click="newFile" title="New file">
+						<button class="file-tab-add" @click="newFile" :title="t('app.text-editor.tabs.newFile', undefined, 'New file')">
 							<i class="bi bi-plus-lg"></i>
 						</button>
 					</div>
@@ -195,14 +210,15 @@
 				:width="detailPanelWidth"
 				:localization="localization"
 				@reveal-item="onInspectorRevealItem($event.detail)"
-				@overlay-changed="onInspectorOverlayChanged($event.detail)"></wt-inspector>
+				@overlay-changed="onInspectorOverlayChanged($event.detail)"
+				@content-reverted="onInspectorContentReverted($event.detail)"></wt-inspector>
 
 		</div>
 
 		<!-- Bottom Status Bar (translucent) -->
 		<div class="status-bar window-drag-region">
 			<div class="status-group">
-				<span class="status-item">Ln {{ cursorLine }}, Col {{ cursorColumn }}</span>
+				<span class="status-item">{{ t('app.text-editor.statusbar.lineCol', { line: cursorLine, col: cursorColumn }, 'Ln {line}, Col {col}') }}</span>
 				<span class="status-divider"></span>
 				<span class="status-item">{{ currentFile.encoding || 'UTF-8' }}</span>
 				<span class="status-divider"></span>
@@ -210,9 +226,9 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Saving...</span>
-				<span v-else-if="currentFile.isModified" class="status-item">Modified</span>
-				<span v-else class="status-item">Saved</span>
+				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.text-editor.statusbar.saving', undefined, 'Saving...') }}</span>
+				<span v-else-if="currentFile.isModified" class="status-item">{{ t('app.text-editor.statusbar.modified', undefined, 'Modified') }}</span>
+				<span v-else class="status-item">{{ t('app.text-editor.statusbar.saved', undefined, 'Saved') }}</span>
 			</div>
 		</div>
 
@@ -222,14 +238,14 @@
 				<div class="island p-2">
 					<div class="dialog-header">
 						<div class="dialog-header-top">
-							<h3>Save As</h3>
-							<button class="btn-icon" @click="closeSaveAsDialog" title="Close">
+							<h3>{{ t('app.text-editor.saveAs.title', undefined, 'Save As') }}</h3>
+							<button class="btn-icon" @click="closeSaveAsDialog" :title="t('common.close', undefined, 'Close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
 					</div>
 					<div class="dialog-body">
-						<label class="dialog-label">File Name</label>
+						<label class="dialog-label">{{ t('app.text-editor.saveAs.fileName', undefined, 'File Name') }}</label>
 						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
 							placeholder="filename.txt" @keydown.enter="closeSaveAsDialog" />
 						<div class="save-as-chip-area mt-3"
@@ -239,7 +255,7 @@
 								<span>{{ saveAsDialog.fileName || 'untitled.txt' }}</span>
 							</div>
 							<p class="text-muted fs-small mt-2 mb-0">
-								Drag this file to Content Browser to save
+								{{ t('app.text-editor.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
 							</p>
 						</div>
 					</div>
@@ -250,14 +266,14 @@
 		<!-- Loading Overlay -->
 		<div v-if="currentFile.isLoading" class="loading-overlay flex-column text-center">
 			<span class="loader"></span>
-			<span class="mt-5">Loading file...</span>
+			<span class="mt-5">{{ t('app.text-editor.loadingFile', undefined, 'Loading file...') }}</span>
 		</div>
 
 		<!-- Error Overlay -->
 		<div v-if="errorMessage && !currentFile.isLoading" class="error-overlay flex-column text-center">
 			<i class="bi bi-exclamation-triangle-fill text-warning fs-2 mb-3"></i>
 			<span class="mb-3">{{ errorMessage }}</span>
-			<button type="button" class="wt" @click="dismissError">Close</button>
+			<button type="button" class="wt" @click="dismissError">{{ t('common.close', undefined, 'Close') }}</button>
 		</div>
 
 		<!-- Checkout Confirmation Dialog -->
@@ -265,19 +281,19 @@
 			<div class="dialog-frame" style="max-width: 32rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-box-arrow-up-right me-2"></i>Checkout Required</h3>
+						<h3><i class="bi bi-box-arrow-up-right me-2"></i>{{ t('app.text-editor.checkout.title', undefined, 'Checkout Required') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<p>This file is under version control and needs to be checked out before editing.</p>
-						<p class="text-muted fs-small mb-0">Version: {{ currentFile.baseVersionName }}</p>
+						<p>{{ t('app.text-editor.checkout.message', undefined, 'This file is under version control and needs to be checked out before editing.') }}</p>
+						<p class="text-muted fs-small mb-0">{{ t('app.text-editor.checkout.version', { version: currentFile.baseVersionName }, 'Version: {version}') }}</p>
 					</div>
 					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCheckoutDialogAction('cancel')">Cancel</button>
+						<button class="wt" @click="onCheckoutDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 						<button class="wt wt-primary wt-outlined" @click="onCheckoutDialogAction('checkout')">
-							<i class="bi bi-box-arrow-up-right me-1"></i>Checkout
+							<i class="bi bi-box-arrow-up-right me-1"></i>{{ t('app.text-editor.checkout.checkout', undefined, 'Checkout') }}
 						</button>
 						<button class="wt wt-primary" @click="onCheckoutDialogAction('checkoutAndCheckin')">
-							<i class="bi bi-check2-circle me-1"></i>Checkout &amp; Checkin after Save
+							<i class="bi bi-check2-circle me-1"></i>{{ t('app.text-editor.checkout.checkoutAndCheckin', undefined, 'Checkout & Checkin after Save') }}
 						</button>
 					</div>
 				</div>
@@ -289,19 +305,19 @@
 			<div class="dialog-frame" style="max-width: 32rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-floppy-fill me-2"></i>File Saved</h3>
+						<h3><i class="bi bi-floppy-fill me-2"></i>{{ t('app.text-editor.checkin.title', undefined, 'File Saved') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<p>The file has been saved successfully. Would you like to create a new version?</p>
-						<p class="text-muted fs-small mb-0">Current version: {{ currentFile.baseVersionName }}</p>
+						<p>{{ t('app.text-editor.checkin.message', undefined, 'The file has been saved successfully. Would you like to create a new version?') }}</p>
+						<p class="text-muted fs-small mb-0">{{ t('app.text-editor.checkin.currentVersion', { version: currentFile.baseVersionName }, 'Current version: {version}') }}</p>
 					</div>
 					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="closeCheckinDialog" :disabled="checkinDialog.isLoading">Keep Editing</button>
+						<button class="wt" @click="closeCheckinDialog" :disabled="checkinDialog.isLoading">{{ t('app.text-editor.checkin.keepEditing', undefined, 'Keep Editing') }}</button>
 						<button class="wt wt-primary wt-outlined" @click="submitCheckpoint" :disabled="checkinDialog.isLoading">
-							<i class="bi bi-save me-1"></i>Checkpoint
+							<i class="bi bi-save me-1"></i>{{ t('app.text-editor.checkin.checkpoint', undefined, 'Checkpoint') }}
 						</button>
 						<button class="wt wt-primary" @click="submitCheckin" :disabled="checkinDialog.isLoading">
-							<i class="bi bi-box-arrow-in-down-left me-1"></i>Checkin
+							<i class="bi bi-box-arrow-in-down-left me-1"></i>{{ t('app.text-editor.checkin.checkin', undefined, 'Checkin') }}
 						</button>
 					</div>
 				</div>
@@ -313,19 +329,19 @@
 			<div class="dialog-frame" style="max-width: 32rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Unsaved Changes</h3>
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.text-editor.unsaved.title', undefined, 'Unsaved Changes') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<p class="mt-0">The file "<strong>{{ currentFile.name }}</strong>" has unsaved changes.</p>
-						<p>Do you want to save your changes before closing?</p>
+						<p class="mt-0">{{ t('app.text-editor.unsaved.hasChanges', { name: currentFile.name }, 'The file "{name}" has unsaved changes.') }}</p>
+						<p>{{ t('app.text-editor.unsaved.prompt', undefined, 'Do you want to save your changes before closing?') }}</p>
 					</div>
 					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">Cancel</button>
+						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
-							<i class="bi bi-trash me-1"></i>Don't Save
+							<i class="bi bi-trash me-1"></i>{{ t('app.text-editor.unsaved.dontSave', undefined, "Don't Save") }}
 						</button>
 						<button v-if="currentFile.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
-							<i class="bi bi-floppy me-1"></i>Save
+							<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
 						</button>
 					</div>
 				</div>

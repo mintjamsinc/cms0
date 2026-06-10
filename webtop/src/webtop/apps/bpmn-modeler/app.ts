@@ -34,6 +34,12 @@ import {
 } from './core/element-config.js';
 import { parseBpmnXmlToStore } from './core/xml-parser-store.js';
 import { serializeStoreToXml } from './core/xml-serializer-store.js';
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+	translate,
+} from "../../composables/use-localization.js";
 
 interface CurrentFile {
 	path: string;
@@ -238,7 +244,7 @@ const REF_CONFIGS: Record<RefKind, RefConfig> = {
 		nameField: 'messageName',
 		listField: 'messages',
 		idPrefix: 'Message',
-		displayPlaceholder: '-- Select Message --',
+		displayPlaceholder: 'app.bpmn-modeler.ref.placeholder.message',
 		inputPlaceholder: 'Message name',
 	},
 	signal: {
@@ -247,7 +253,7 @@ const REF_CONFIGS: Record<RefKind, RefConfig> = {
 		nameField: 'signalName',
 		listField: 'signals',
 		idPrefix: 'Signal',
-		displayPlaceholder: '-- Select Signal --',
+		displayPlaceholder: 'app.bpmn-modeler.ref.placeholder.signal',
 		inputPlaceholder: 'Signal name',
 	},
 	error: {
@@ -257,7 +263,7 @@ const REF_CONFIGS: Record<RefKind, RefConfig> = {
 		codeField: 'errorCode',
 		listField: 'errors',
 		idPrefix: 'Error',
-		displayPlaceholder: '-- Select Error --',
+		displayPlaceholder: 'app.bpmn-modeler.ref.placeholder.error',
 		inputPlaceholder: 'Error name',
 	},
 	escalation: {
@@ -267,7 +273,7 @@ const REF_CONFIGS: Record<RefKind, RefConfig> = {
 		codeField: 'escalationCode',
 		listField: 'escalations',
 		idPrefix: 'Escalation',
-		displayPlaceholder: '-- Select Escalation --',
+		displayPlaceholder: 'app.bpmn-modeler.ref.placeholder.escalation',
 		inputPlaceholder: 'Escalation name',
 	},
 };
@@ -280,25 +286,25 @@ const REF_CONFIGS: Record<RefKind, RefConfig> = {
 interface ChoiceOption { id: string; label: string; }
 
 const TIMER_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'timeDate', label: 'Date (specific date/time)' },
-	{ id: 'timeDuration', label: 'Duration (after period)' },
-	{ id: 'timeCycle', label: 'Cycle (recurring)' },
+	{ id: 'timeDate', label: 'app.bpmn-modeler.opt.timerType.timeDate' },
+	{ id: 'timeDuration', label: 'app.bpmn-modeler.opt.timerType.timeDuration' },
+	{ id: 'timeCycle', label: 'app.bpmn-modeler.opt.timerType.timeCycle' },
 ];
 // Compact variant used by boundary events (shorter labels)
 const TIMER_TYPE_SHORT_OPTIONS: ChoiceOption[] = [
-	{ id: 'timeDate', label: 'Date' },
-	{ id: 'timeDuration', label: 'Duration' },
-	{ id: 'timeCycle', label: 'Cycle' },
+	{ id: 'timeDate', label: 'app.bpmn-modeler.opt.timerTypeShort.timeDate' },
+	{ id: 'timeDuration', label: 'app.bpmn-modeler.opt.timerTypeShort.timeDuration' },
+	{ id: 'timeCycle', label: 'app.bpmn-modeler.opt.timerTypeShort.timeCycle' },
 ];
 
 const CONDITION_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'expression', label: 'Expression' },
-	{ id: 'script', label: 'Script' },
+	{ id: 'expression', label: 'app.bpmn-modeler.opt.conditionType.expression' },
+	{ id: 'script', label: 'app.bpmn-modeler.opt.conditionType.script' },
 ];
 
 const SCRIPT_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'inline', label: 'Inline Script' },
-	{ id: 'external', label: 'External Resource' },
+	{ id: 'inline', label: 'app.bpmn-modeler.opt.scriptType.inline' },
+	{ id: 'external', label: 'app.bpmn-modeler.opt.scriptType.external' },
 ];
 
 // JavaScript-first 3-option format list
@@ -320,40 +326,40 @@ const PARAM_SCRIPT_FORMAT_OPTIONS: ChoiceOption[] = [
 ];
 
 const MESSAGE_IMPL_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'class', label: 'Java Class' },
-	{ id: 'expression', label: 'Expression' },
-	{ id: 'external', label: 'External' },
-	{ id: 'connector', label: 'Connector' },
+	{ id: 'class', label: 'app.bpmn-modeler.opt.implType.class' },
+	{ id: 'expression', label: 'app.bpmn-modeler.opt.implType.expression' },
+	{ id: 'external', label: 'app.bpmn-modeler.opt.implType.external' },
+	{ id: 'connector', label: 'app.bpmn-modeler.opt.implType.connector' },
 ];
 
 const PARAM_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'text', label: 'Text' },
-	{ id: 'script', label: 'Script' },
+	{ id: 'text', label: 'app.bpmn-modeler.opt.paramType.text' },
+	{ id: 'script', label: 'app.bpmn-modeler.opt.paramType.script' },
 ];
 // Extension property editor supports list / map as well
 const EXTENSION_PARAM_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'text', label: 'Text' },
-	{ id: 'script', label: 'Script' },
-	{ id: 'list', label: 'List' },
-	{ id: 'map', label: 'Map' },
+	{ id: 'text', label: 'app.bpmn-modeler.opt.paramType.text' },
+	{ id: 'script', label: 'app.bpmn-modeler.opt.paramType.script' },
+	{ id: 'list', label: 'app.bpmn-modeler.opt.paramType.list' },
+	{ id: 'map', label: 'app.bpmn-modeler.opt.paramType.map' },
 ];
 
 const FIELD_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'string', label: 'String' },
-	{ id: 'expression', label: 'Expression' },
+	{ id: 'string', label: 'app.bpmn-modeler.opt.fieldType.string' },
+	{ id: 'expression', label: 'app.bpmn-modeler.opt.implType.expression' },
 ];
 
 const SERVICE_TASK_IMPL_OPTIONS: ChoiceOption[] = [
-	{ id: 'class', label: 'Java Class' },
-	{ id: 'expression', label: 'Expression' },
-	{ id: 'delegateExpression', label: 'Delegate Expression' },
+	{ id: 'class', label: 'app.bpmn-modeler.opt.implType.class' },
+	{ id: 'expression', label: 'app.bpmn-modeler.opt.implType.expression' },
+	{ id: 'delegateExpression', label: 'app.bpmn-modeler.opt.implType.delegateExpression' },
 ];
 
 const BUSINESS_RULE_IMPL_OPTIONS: ChoiceOption[] = [
-	{ id: 'dmn', label: 'DMN' },
-	{ id: 'class', label: 'Java Class' },
-	{ id: 'expression', label: 'Expression' },
-	{ id: 'external', label: 'External' },
+	{ id: 'dmn', label: 'app.bpmn-modeler.opt.businessRule.dmn' },
+	{ id: 'class', label: 'app.bpmn-modeler.opt.implType.class' },
+	{ id: 'expression', label: 'app.bpmn-modeler.opt.implType.expression' },
+	{ id: 'external', label: 'app.bpmn-modeler.opt.implType.external' },
 ];
 
 const REF_BINDING_OPTIONS: ChoiceOption[] = [
@@ -371,25 +377,25 @@ const MAP_DECISION_RESULT_OPTIONS: ChoiceOption[] = [
 ];
 
 const CALLED_ELEMENT_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'bpmn', label: 'BPMN' },
-	{ id: 'cmmn', label: 'CMMN' },
+	{ id: 'bpmn', label: 'app.bpmn-modeler.opt.calledElementType.bpmn' },
+	{ id: 'cmmn', label: 'app.bpmn-modeler.opt.calledElementType.cmmn' },
 ];
 
 const EVENT_GATEWAY_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'exclusive', label: 'Exclusive' },
-	{ id: 'parallel', label: 'Parallel' },
+	{ id: 'exclusive', label: 'app.bpmn-modeler.opt.eventGatewayType.exclusive' },
+	{ id: 'parallel', label: 'app.bpmn-modeler.opt.eventGatewayType.parallel' },
 ];
 
 const LOOP_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'standard', label: 'Standard Loop' },
-	{ id: 'multiInstanceParallel', label: 'Multi-Instance Parallel' },
-	{ id: 'multiInstanceSequential', label: 'Multi-Instance Sequential' },
+	{ id: 'standard', label: 'app.bpmn-modeler.opt.loopType.standard' },
+	{ id: 'multiInstanceParallel', label: 'app.bpmn-modeler.opt.loopType.multiInstanceParallel' },
+	{ id: 'multiInstanceSequential', label: 'app.bpmn-modeler.opt.loopType.multiInstanceSequential' },
 ];
 
 const TRANSACTION_METHOD_OPTIONS: ChoiceOption[] = [
-	{ id: 'compensate', label: 'Compensate' },
-	{ id: 'store', label: 'Store' },
-	{ id: 'image', label: 'Image' },
+	{ id: 'compensate', label: 'app.bpmn-modeler.opt.transactionMethod.compensate' },
+	{ id: 'store', label: 'app.bpmn-modeler.opt.transactionMethod.store' },
+	{ id: 'image', label: 'app.bpmn-modeler.opt.transactionMethod.image' },
 ];
 
 const LISTENER_EVENT_OPTIONS: ChoiceOption[] = [
@@ -398,9 +404,9 @@ const LISTENER_EVENT_OPTIONS: ChoiceOption[] = [
 ];
 
 const LISTENER_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'class', label: 'Java Class' },
-	{ id: 'expression', label: 'Expression' },
-	{ id: 'script', label: 'Script' },
+	{ id: 'class', label: 'app.bpmn-modeler.opt.implType.class' },
+	{ id: 'expression', label: 'app.bpmn-modeler.opt.implType.expression' },
+	{ id: 'script', label: 'app.bpmn-modeler.opt.paramType.script' },
 ];
 
 // Task listeners (user tasks): user-task lifecycle events + delegateExpression.
@@ -413,10 +419,10 @@ const TASK_LISTENER_EVENT_OPTIONS: ChoiceOption[] = [
 ];
 
 const TASK_LISTENER_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'class', label: 'Java Class' },
-	{ id: 'expression', label: 'Expression' },
-	{ id: 'delegateExpression', label: 'Delegate Expression' },
-	{ id: 'script', label: 'Script' },
+	{ id: 'class', label: 'app.bpmn-modeler.opt.implType.class' },
+	{ id: 'expression', label: 'app.bpmn-modeler.opt.implType.expression' },
+	{ id: 'delegateExpression', label: 'app.bpmn-modeler.opt.implType.delegateExpression' },
+	{ id: 'script', label: 'app.bpmn-modeler.opt.paramType.script' },
 ];
 
 // Sentinel value returned by the shell popup for the blank/placeholder row.
@@ -427,6 +433,10 @@ export const App = {
 	data() {
 		return {
 			instance: null as ApplicationInstance | null,
+			// Reactive localization snapshot. Folded by the message listener on
+			// `localization-changed` / `i18n-bundles-updated`. See
+			// `composables/use-localization.ts`.
+			localization: createLocalizationSnapshot(),
 			// Resolved URL of the BPMN icon sprite. Populated in appLaunch
 			// from instance.getFullPath. Used in canvas template via
 			// <use :href="spriteUrl + '#canvas-...'"/> for shape sub-icons.
@@ -1051,6 +1061,15 @@ export const App = {
 		},
 	},
 	methods: {
+		/**
+		 * Reactive i18n lookup. Reads the localization snapshot so every
+		 * binding repaints when the user changes their Preferences > Localization
+		 * or an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
+
 		// =====================================================================
 		// Store-based Rendering Helpers (for gradual migration)
 		// =====================================================================
@@ -1799,6 +1818,7 @@ export const App = {
 			vm.messageListener = async (event: MessageEvent) => {
 				if (event.origin !== window.location.origin) return;
 				const { type, ...payload } = event.data || {};
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) return;
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
 					return;
@@ -1864,6 +1884,7 @@ export const App = {
 			// Register appLaunch callback
 			window.appLaunch = async (instance: ApplicationInstance, options?: LaunchOptions) => {
 				vm.instance = vm.$markRaw(instance);
+				refreshLocalization(vm.localization, vm.instance);
 				vm.spriteUrl = new URL("assets/icons/icons.svg", window.location.origin + window.location.pathname).href
 				instance.appState = () => {
 					vm.saveCurrentFileState();
@@ -2175,7 +2196,7 @@ export const App = {
 				// Center view on content
 				vm.fitToScreen();
 			} catch (error: any) {
-				vm.errorMessage = error?.message || String(error) || 'Failed to load file';
+				vm.errorMessage = error?.message || String(error) || vm.t('app.bpmn-modeler.error.loadFile');
 			} finally {
 				vm.isLoading = false;
 			}
@@ -2232,7 +2253,7 @@ export const App = {
 					throw error;
 				}
 			} catch (error: any) {
-				vm.errorMessage = error?.message || String(error) || 'Failed to save file';
+				vm.errorMessage = error?.message || String(error) || vm.t('app.bpmn-modeler.error.saveFile');
 			} finally {
 				vm.isSaving = false;
 			}
@@ -2392,7 +2413,7 @@ export const App = {
 					vm.fitToScreen();
 				} catch (e) {
 					console.error('Failed to load local file:', file.name, e);
-					vm.errorMessage = 'Failed to load file: ' + file.name;
+					vm.errorMessage = vm.t('app.bpmn-modeler.error.loadFileNamed', { name: file.name });
 				}
 			}
 		},
@@ -3384,7 +3405,7 @@ export const App = {
 			if (type === 'boundaryEvent') {
 				const targetTask = vm.findTaskAtPosition(x, y);
 				if (!targetTask) {
-					vm.showNotification('Boundary Event must be dropped on a Task or SubProcess', 'warning');
+					vm.showNotification(vm.t('app.bpmn-modeler.error.boundaryEventTarget'), 'warning');
 					return;
 				}
 
@@ -3573,7 +3594,7 @@ export const App = {
 			const spriteUrl = new URL("assets/icons/icons.svg", window.location.origin + window.location.pathname).href
 			const items: PopupItem[] = options.map((opt, idx) => ({
 				id: idx,
-				label: opt.label,
+				label: vm.t(opt.label),
 				iconSvg: `${spriteUrl}#${opt.icon || 'blank'}`,
 				selected: vm.isCurrentSubTypeOption(opt),
 			}));
@@ -4564,9 +4585,9 @@ export const App = {
 		 */
 		getAttachedToName(attachedToRef: string | undefined): string {
 			const vm = this;
-			if (!attachedToRef) return '(none)';
+			if (!attachedToRef) return vm.t('app.bpmn-modeler.placeholder.noneParen');
 			const el = vm.getElementsForRendering().find((e: BpmnElement) => e.id === attachedToRef);
-			return el ? (el.name || el.id) : '(unknown)';
+			return el ? (el.name || el.id) : vm.t('app.bpmn-modeler.placeholder.unknownParen');
 		},
 
 		// ==========================================================================
@@ -4821,7 +4842,7 @@ export const App = {
 			for (const o of options) {
 				items.push({
 					id: o.id,
-					label: o.label,
+					label: vm.t(o.label, undefined, o.label),
 					selected: currentValue === o.id,
 				});
 			}
@@ -4849,7 +4870,8 @@ export const App = {
 		 */
 		optionLabel(options: ChoiceOption[], value: string | undefined, fallback = ''): string {
 			if (!value) return fallback;
-			return options.find(o => o.id === value)?.label ?? fallback;
+			const key = options.find(o => o.id === value)?.label;
+			return key ? this.t(key, undefined, key) : fallback;
 		},
 
 		// -- Static enum dropdowns --------------------------------------------
@@ -4859,11 +4881,11 @@ export const App = {
 			this.openChoicePopup(event, TIMER_TYPE_OPTIONS,
 				(vm.selectedElement as any)?.timerType || '',
 				v => { (vm.selectedElement as any).timerType = v; vm.onPropertyChange(); },
-				'Select timer type...');
+				this.t('app.bpmn-modeler.placeholder.selectTimerType'));
 		},
 		timerTypeLabel(): string {
 			return this.optionLabel(TIMER_TYPE_OPTIONS,
-				(this.selectedElement as any)?.timerType, 'Select timer type...');
+				(this.selectedElement as any)?.timerType, this.t('app.bpmn-modeler.placeholder.selectTimerType'));
 		},
 
 		openTimerTypeShortDropdown(event: MouseEvent) {
@@ -4871,11 +4893,11 @@ export const App = {
 			this.openChoicePopup(event, TIMER_TYPE_SHORT_OPTIONS,
 				(vm.selectedElement as any)?.timerType || '',
 				v => { (vm.selectedElement as any).timerType = v; vm.onPropertyChange(); },
-				'(none)');
+				this.t('app.bpmn-modeler.placeholder.noneParen'));
 		},
 		timerTypeShortLabel(): string {
 			return this.optionLabel(TIMER_TYPE_SHORT_OPTIONS,
-				(this.selectedElement as any)?.timerType, '(none)');
+				(this.selectedElement as any)?.timerType, this.t('app.bpmn-modeler.placeholder.noneParen'));
 		},
 
 		openConditionTypeDropdown(event: MouseEvent, onChange?: 'conditionTypeChange' | 'propertyChange') {
@@ -4894,7 +4916,7 @@ export const App = {
 		},
 		conditionTypeLabel(): string {
 			return this.optionLabel(CONDITION_TYPE_OPTIONS,
-				(this.selectedElement as any)?.conditionType, 'Expression');
+				(this.selectedElement as any)?.conditionType, this.t('app.bpmn-modeler.opt.implType.expression'));
 		},
 
 		// Variant allowing an empty "None" choice (Sequence Flow condition editor)
@@ -4903,11 +4925,11 @@ export const App = {
 			this.openChoicePopup(event, CONDITION_TYPE_OPTIONS,
 				(vm.selectedElement as any)?.conditionType || '',
 				v => { (vm.selectedElement as any).conditionType = v; vm.onPropertyChange(); },
-				'None');
+				this.t('app.bpmn-modeler.placeholder.none'));
 		},
 		conditionTypeWithNoneLabel(): string {
 			return this.optionLabel(CONDITION_TYPE_OPTIONS,
-				(this.selectedElement as any)?.conditionType, 'None');
+				(this.selectedElement as any)?.conditionType, this.t('app.bpmn-modeler.placeholder.none'));
 		},
 
 		openConditionScriptTypeDropdown(event: MouseEvent) {
@@ -4918,7 +4940,7 @@ export const App = {
 		},
 		conditionScriptTypeLabel(): string {
 			return this.optionLabel(SCRIPT_TYPE_OPTIONS,
-				(this.selectedElement as any)?.conditionScriptType || 'inline', 'Inline Script');
+				(this.selectedElement as any)?.conditionScriptType || 'inline', this.t('app.bpmn-modeler.opt.scriptType.inline'));
 		},
 
 		openConditionScriptFormatDropdown(event: MouseEvent) {
@@ -4937,11 +4959,11 @@ export const App = {
 			this.openChoicePopup(event, MESSAGE_IMPL_TYPE_OPTIONS,
 				(vm.selectedElement as any)?.messageImplementationType || '',
 				v => { (vm.selectedElement as any).messageImplementationType = v; vm.onPropertyChange(); },
-				'(none)');
+				this.t('app.bpmn-modeler.placeholder.noneParen'));
 		},
 		messageImplTypeLabel(): string {
 			return this.optionLabel(MESSAGE_IMPL_TYPE_OPTIONS,
-				(this.selectedElement as any)?.messageImplementationType, '(none)');
+				(this.selectedElement as any)?.messageImplementationType, this.t('app.bpmn-modeler.placeholder.noneParen'));
 		},
 
 		openServiceTaskImplDropdown(event: MouseEvent) {
@@ -4952,7 +4974,7 @@ export const App = {
 		},
 		serviceTaskImplLabel(): string {
 			return this.optionLabel(SERVICE_TASK_IMPL_OPTIONS,
-				(this.selectedElement as any)?.implementation || 'class', 'Java Class');
+				(this.selectedElement as any)?.implementation || 'class', this.t('app.bpmn-modeler.opt.implType.class'));
 		},
 
 		openScriptFormatGroovyFirstDropdown(event: MouseEvent) {
@@ -4971,11 +4993,11 @@ export const App = {
 			this.openChoicePopup(event, MESSAGE_IMPL_TYPE_OPTIONS,
 				(vm.selectedElement as any)?.implementationType || '',
 				v => { (vm.selectedElement as any).implementationType = v; vm.onPropertyChange(); },
-				'(none)');
+				this.t('app.bpmn-modeler.placeholder.noneParen'));
 		},
 		implementationTypeLabel(): string {
 			return this.optionLabel(MESSAGE_IMPL_TYPE_OPTIONS,
-				(this.selectedElement as any)?.implementationType, '(none)');
+				(this.selectedElement as any)?.implementationType, this.t('app.bpmn-modeler.placeholder.noneParen'));
 		},
 
 		openBusinessRuleImplDropdown(event: MouseEvent) {
@@ -4986,7 +5008,7 @@ export const App = {
 		},
 		businessRuleImplLabel(): string {
 			return this.optionLabel(BUSINESS_RULE_IMPL_OPTIONS,
-				(this.selectedElement as any)?.implementationType || 'dmn', 'DMN');
+				(this.selectedElement as any)?.implementationType || 'dmn', this.t('app.bpmn-modeler.opt.businessRule.dmn'));
 		},
 
 		openDecisionRefBindingDropdown(event: MouseEvent) {
@@ -5019,7 +5041,7 @@ export const App = {
 		},
 		calledElementTypeLabel(): string {
 			return this.optionLabel(CALLED_ELEMENT_TYPE_OPTIONS,
-				(this.selectedElement as any)?.calledElementType || 'bpmn', 'BPMN');
+				(this.selectedElement as any)?.calledElementType || 'bpmn', this.t('app.bpmn-modeler.opt.calledElementType.bpmn'));
 		},
 
 		openCalledElementBindingDropdown(event: MouseEvent) {
@@ -5041,7 +5063,7 @@ export const App = {
 		},
 		eventGatewayTypeLabel(): string {
 			return this.optionLabel(EVENT_GATEWAY_TYPE_OPTIONS,
-				(this.selectedElement as any)?.eventGatewayType || 'exclusive', 'Exclusive');
+				(this.selectedElement as any)?.eventGatewayType || 'exclusive', this.t('app.bpmn-modeler.opt.eventGatewayType.exclusive'));
 		},
 
 		openLoopTypeDropdown(event: MouseEvent) {
@@ -5049,11 +5071,11 @@ export const App = {
 			this.openChoicePopup(event, LOOP_TYPE_OPTIONS,
 				(vm.selectedElement as any)?.loopType || '',
 				v => { (vm.selectedElement as any).loopType = v; vm.onPropertyChange(); },
-				'None');
+				this.t('app.bpmn-modeler.placeholder.none'));
 		},
 		loopTypeLabel(): string {
 			return this.optionLabel(LOOP_TYPE_OPTIONS,
-				(this.selectedElement as any)?.loopType, 'None');
+				(this.selectedElement as any)?.loopType, this.t('app.bpmn-modeler.placeholder.none'));
 		},
 
 		openTransactionMethodDropdown(event: MouseEvent) {
@@ -5061,11 +5083,11 @@ export const App = {
 			this.openChoicePopup(event, TRANSACTION_METHOD_OPTIONS,
 				(vm.selectedElement as any)?.transactionMethod || '',
 				v => { (vm.selectedElement as any).transactionMethod = v; vm.onPropertyChange(); },
-				'Default');
+				this.t('app.bpmn-modeler.placeholder.default'));
 		},
 		transactionMethodLabel(): string {
 			return this.optionLabel(TRANSACTION_METHOD_OPTIONS,
-				(this.selectedElement as any)?.transactionMethod, 'Default');
+				(this.selectedElement as any)?.transactionMethod, this.t('app.bpmn-modeler.placeholder.default'));
 		},
 
 		// Compensation Activity Ref — dynamic list of tasks in the process
@@ -5076,7 +5098,7 @@ export const App = {
 			const rect = trigger.getBoundingClientRect();
 			const currentId = (vm.selectedElement as any)?.compensationActivityRef || '';
 			const items: any[] = [
-				{ id: EMPTY_CHOICE_ID, label: '(none - broadcast)', selected: !currentId },
+				{ id: EMPTY_CHOICE_ID, label: this.t('app.bpmn-modeler.placeholder.noneBroadcast'), selected: !currentId },
 			];
 			for (const task of (vm.compensatableTasks as any[])) {
 				items.push({
@@ -5100,7 +5122,7 @@ export const App = {
 		compensationActivityRefLabel(): string {
 			const vm = this;
 			const id = (vm.selectedElement as any)?.compensationActivityRef || '';
-			if (!id) return '(none - broadcast)';
+			if (!id) return this.t('app.bpmn-modeler.placeholder.noneBroadcast');
 			const task = (vm.compensatableTasks as any[]).find(t => t.id === id);
 			return (task?.name || task?.id) || id;
 		},
@@ -5118,7 +5140,7 @@ export const App = {
 				v => { output.type = v; this.onPropertyChange(); });
 		},
 		paramTypeLabel(item: any): string {
-			return this.optionLabel(PARAM_TYPE_OPTIONS, item?.type || 'text', 'Text');
+			return this.optionLabel(PARAM_TYPE_OPTIONS, item?.type || 'text', this.t('app.bpmn-modeler.opt.paramType.text'));
 		},
 
 		openParamScriptFormatDropdown(item: any, event: MouseEvent) {
@@ -5137,7 +5159,7 @@ export const App = {
 				v => { field.type = v; this.onPropertyChange(); });
 		},
 		fieldTypeLabel(field: any): string {
-			return this.optionLabel(FIELD_TYPE_OPTIONS, field?.type || 'string', 'String');
+			return this.optionLabel(FIELD_TYPE_OPTIONS, field?.type || 'string', this.t('app.bpmn-modeler.opt.fieldType.string'));
 		},
 
 		// Extension properties: 4-way param.type (text/script/list/map)
@@ -5147,7 +5169,7 @@ export const App = {
 				v => { param.type = v; this.onPropertyChange(); });
 		},
 		extParamTypeLabel(param: any): string {
-			return this.optionLabel(EXTENSION_PARAM_TYPE_OPTIONS, param?.type || 'text', 'Text');
+			return this.optionLabel(EXTENSION_PARAM_TYPE_OPTIONS, param?.type || 'text', this.t('app.bpmn-modeler.opt.paramType.text'));
 		},
 
 		openExtParamScriptFormatDropdown(param: any, event: MouseEvent) {
@@ -5177,7 +5199,7 @@ export const App = {
 		},
 		listenerTypeLabel(listener: any): string {
 			return this.optionLabel(LISTENER_TYPE_OPTIONS,
-				listener?.listenerType || 'class', 'Java Class');
+				listener?.listenerType || 'class', this.t('app.bpmn-modeler.opt.implType.class'));
 		},
 
 		openListenerScriptFormatDropdown(listener: any, event: MouseEvent) {
@@ -5197,7 +5219,7 @@ export const App = {
 		},
 		listenerScriptTypeLabel(listener: any): string {
 			return this.optionLabel(SCRIPT_TYPE_OPTIONS,
-				listener?.scriptType || 'inline', 'Inline Script');
+				listener?.scriptType || 'inline', this.t('app.bpmn-modeler.opt.scriptType.inline'));
 		},
 
 		openListenerFieldTypeDropdown(field: any, event: MouseEvent) {
@@ -5224,7 +5246,7 @@ export const App = {
 		},
 		taskListenerTypeLabel(listener: any): string {
 			return this.optionLabel(TASK_LISTENER_TYPE_OPTIONS,
-				listener?.listenerType || 'class', 'Java Class');
+				listener?.listenerType || 'class', this.t('app.bpmn-modeler.opt.implType.class'));
 		},
 
 		// -- Reference combobox widget (Message / Signal / Error / Escalation) --
@@ -5244,9 +5266,9 @@ export const App = {
 			const vm = this;
 			const cfg = REF_CONFIGS[kind];
 			const el = vm.selectedElement as any;
-			if (!el) return cfg.displayPlaceholder;
+			if (!el) return vm.t(cfg.displayPlaceholder);
 			const refId = el[cfg.refField];
-			if (!refId) return cfg.displayPlaceholder;
+			if (!refId) return vm.t(cfg.displayPlaceholder);
 			// Prefer the document-level definition's name so the label stays
 			// in sync if the definition is renamed elsewhere.
 			const list = (bpmnModelStore.getModelData() as any)[cfg.listField] as any[] | undefined;
@@ -5478,10 +5500,10 @@ export const App = {
 			if (!trigger || !vm.instance) return;
 			const rect = trigger.getBoundingClientRect();
 			const items = [
-				{ id: 'message',    label: 'Manage Messages...' },
-				{ id: 'signal',     label: 'Manage Signals...' },
-				{ id: 'error',      label: 'Manage Errors...' },
-				{ id: 'escalation', label: 'Manage Escalations...' },
+				{ id: 'message',    label: vm.t('app.bpmn-modeler.menu.manageMessages') },
+				{ id: 'signal',     label: vm.t('app.bpmn-modeler.menu.manageSignals') },
+				{ id: 'error',      label: vm.t('app.bpmn-modeler.menu.manageErrors') },
+				{ id: 'escalation', label: vm.t('app.bpmn-modeler.menu.manageEscalations') },
 			];
 			const handle = vm.instance.popup.open({
 				anchor: rect,
@@ -5505,10 +5527,10 @@ export const App = {
 
 		managementDialogTitle(): string {
 			const titles: Record<RefKind, string> = {
-				message: 'Manage Messages',
-				signal: 'Manage Signals',
-				error: 'Manage Errors',
-				escalation: 'Manage Escalations',
+				message: this.t('app.bpmn-modeler.dialog.management.title.message'),
+				signal: this.t('app.bpmn-modeler.dialog.management.title.signal'),
+				error: this.t('app.bpmn-modeler.dialog.management.title.error'),
+				escalation: this.t('app.bpmn-modeler.dialog.management.title.escalation'),
 			};
 			return this.managementDialog.kind ? titles[this.managementDialog.kind as RefKind] : '';
 		},
@@ -5602,10 +5624,10 @@ export const App = {
 			title?: string,
 		) {
 			const defaultTitles: Record<'info' | 'success' | 'warning' | 'error', string> = {
-				info: 'Information',
-				success: 'Success',
-				warning: 'Warning',
-				error: 'Error',
+				info: this.t('app.bpmn-modeler.notification.title.info'),
+				success: this.t('app.bpmn-modeler.notification.title.success'),
+				warning: this.t('app.bpmn-modeler.notification.title.warning'),
+				error: this.t('app.bpmn-modeler.notification.title.error'),
 			};
 			this.notificationDialog.severity = severity;
 			this.notificationDialog.title = title || defaultTitles[severity];
@@ -5684,11 +5706,11 @@ export const App = {
 		 */
 		getSubProcessTypeLabel(subType: string): string {
 			switch (subType) {
-				case 'collapsed': return 'Collapsed Sub-Process';
-				case 'expanded': return 'Expanded Sub-Process';
-				case 'event': return 'Event Sub-Process';
-				case 'transaction': return 'Transaction';
-				default: return 'Sub-Process';
+				case 'collapsed': return this.t('app.bpmn-modeler.subProcessType.collapsed');
+				case 'expanded': return this.t('app.bpmn-modeler.subProcessType.expanded');
+				case 'event': return this.t('app.bpmn-modeler.subProcessType.event');
+				case 'transaction': return this.t('app.bpmn-modeler.subProcessType.transaction');
+				default: return this.t('app.bpmn-modeler.subProcessType.default');
 			}
 		},
 

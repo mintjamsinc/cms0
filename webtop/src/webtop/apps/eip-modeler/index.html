@@ -23,37 +23,37 @@
 			<!-- Left: Save / Save As -->
 			<div class="toolbar-group">
 				<button class="btn-icon" @click="saveFile"
-					:disabled="!currentFile?.path || !isModified || isSaving" title="Save (Ctrl+S)">
+					:disabled="!currentFile?.path || !isModified || isSaving" :title="t('app.eip-modeler.toolbar.save', undefined, 'Save (Ctrl+S)')">
 					<i class="bi bi-floppy"></i>
 				</button>
 				<button class="btn-icon" @click="openSaveAsDialog"
-					:disabled="!activeStore || isSaving" title="Save As...">
+					:disabled="!activeStore || isSaving" :title="t('app.eip-modeler.toolbar.saveAs', undefined, 'Save As...')">
 					<i class="bi bi-floppy2"></i>
 				</button>
 			</div>
 
 			<!-- Left: Undo / Redo / Delete -->
 			<div class="toolbar-group">
-				<button class="btn-icon" @click="undo" :disabled="!canUndo" title="Undo (Ctrl+Z)">
+				<button class="btn-icon" @click="undo" :disabled="!canUndo" :title="t('app.eip-modeler.toolbar.undo', undefined, 'Undo (Ctrl+Z)')">
 					<i class="bi bi-arrow-counterclockwise"></i>
 				</button>
-				<button class="btn-icon" @click="redo" :disabled="!canRedo" title="Redo (Ctrl+Y)">
+				<button class="btn-icon" @click="redo" :disabled="!canRedo" :title="t('app.eip-modeler.toolbar.redo', undefined, 'Redo (Ctrl+Y)')">
 					<i class="bi bi-arrow-clockwise"></i>
 				</button>
-				<button class="btn-icon" @click="deleteSelected" :disabled="!hasSelection" title="Delete (Del)">
+				<button class="btn-icon" @click="deleteSelected" :disabled="!hasSelection" :title="t('app.eip-modeler.toolbar.delete', undefined, 'Delete (Del)')">
 					<i class="bi bi-trash"></i>
 				</button>
 			</div>
 
 			<!-- Left: Zoom -->
 			<div class="toolbar-group">
-				<button class="btn-icon" @click="zoomIn" title="Zoom In">
+				<button class="btn-icon" @click="zoomIn" :title="t('app.eip-modeler.toolbar.zoomIn', undefined, 'Zoom In')">
 					<i class="bi bi-zoom-in"></i>
 				</button>
-				<button class="btn-icon" @click="zoomOut" title="Zoom Out">
+				<button class="btn-icon" @click="zoomOut" :title="t('app.eip-modeler.toolbar.zoomOut', undefined, 'Zoom Out')">
 					<i class="bi bi-zoom-out"></i>
 				</button>
-				<button class="btn-icon" @click="fitToScreen" title="Fit to Screen">
+				<button class="btn-icon" @click="fitToScreen" :title="t('app.eip-modeler.toolbar.fitToScreen', undefined, 'Fit to Screen')">
 					<i class="bi bi-fullscreen"></i>
 				</button>
 			</div>
@@ -63,24 +63,24 @@
 			<!-- Right: Pane Toggles -->
 			<div class="pane-toggles">
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
-					@click="toggleSidebarPanel" title="Toggle Palette">
+					@click="toggleSidebarPanel" :title="t('app.eip-modeler.toolbar.togglePalette', undefined, 'Toggle Palette')">
 					<i class="bi bi-layout-sidebar-inset"></i>
 				</button>
 				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
-					@click="toggleDetailPanel" title="Toggle Properties">
+					@click="toggleDetailPanel" :title="t('app.eip-modeler.toolbar.toggleProperties', undefined, 'Toggle Properties')">
 					<i class="bi bi-layout-sidebar-inset-reverse"></i>
 				</button>
 			</div>
 
 			<!-- Right: Window Controls -->
 			<div class="window-controls">
-				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize', undefined, 'Minimize')">
 					<i class="bi bi-dash-lg"></i>
 				</button>
-				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize', undefined, 'Maximize')">
 					<i class="bi bi-square"></i>
 				</button>
-				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close', undefined, 'Close')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -98,7 +98,7 @@
 						<div class="sidebar-section-header"
 							@click="paletteExpanded[category.key] = !paletteExpanded[category.key]">
 							<i class="bi" :class="paletteExpanded[category.key] ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-							<span>{{ category.name }}</span>
+							<span>{{ category.nameKey ? t(category.nameKey, undefined, category.name) : category.name }}</span>
 						</div>
 						<div v-show="paletteExpanded[category.key]" class="sidebar-section-body px-2">
 							<div class="palette-items">
@@ -106,7 +106,7 @@
 									class="palette-item"
 									draggable="true"
 									@dragstart="onPaletteDragStart(event, item.type)"
-									:title="item.label">
+									:title="item.labelKey ? t(item.labelKey, undefined, item.label) : item.label">
 									<svg viewBox="0 0 36 36">
 										<!-- From Icon -->
 										<g v-if="item.type === 'from'">
@@ -186,9 +186,9 @@
 											<rect x="4" y="4" width="28" height="28" rx="3" fill="#9B59B6" stroke="#8E44AD" stroke-width="2"/>
 											<text x="18" y="23" text-anchor="middle" fill="white" font-size="11" font-weight="bold">{ }</text>
 										</g>
-										<!-- OnException Icon -->
+										<!-- OnException Icon (circle — a flow origin, mirrors From/To) -->
 										<g v-if="item.type === 'onException'">
-											<rect x="4" y="4" width="28" height="28" rx="3" fill="#E74C3C" stroke="#C0392B" stroke-width="2"/>
+											<circle cx="18" cy="18" r="14" fill="#E74C3C" stroke="#C0392B" stroke-width="2"/>
 											<text x="18" y="24" text-anchor="middle" fill="white" font-size="16" font-weight="bold">!</text>
 										</g>
 										<!-- DoTry Icon -->
@@ -295,11 +295,11 @@
 							@click="selectTab(index)" :title="file.path || file.name">
 							<span class="file-tab-name">{{ file.name }}</span>
 							<span v-if="file.isModified" class="modified-dot">●</span>
-							<button class="file-tab-close" @click.stop="closeFile(index)" title="Close">
+							<button class="file-tab-close" @click.stop="closeFile(index)" :title="t('common.close', undefined, 'Close')">
 								<i class="bi bi-x"></i>
 							</button>
 						</div>
-						<button class="file-tab-add" @click="newDiagram" title="New file">
+						<button class="file-tab-add" @click="newDiagram" :title="t('app.eip-modeler.fileTab.newFile', undefined, 'New file')">
 							<i class="bi bi-plus-lg"></i>
 						</button>
 					</div>
@@ -376,26 +376,26 @@
 										  class="connection-label otherwise"
 										  :x="getConnectionLabelPosition(conn.path).x"
 										  :y="getConnectionLabelPosition(conn.path).y">
-										otherwise
+										{{ t('app.eip-modeler.canvas.connection.otherwise', undefined, 'otherwise') }}
 									</text>
 									<!-- DoTry role labels (try/catch/finally) -->
 									<text v-if="activeStore?.getFlow(conn.flowId)?.role === 'try'"
 										  class="connection-label try"
 										  :x="getConnectionLabelPosition(conn.path).x"
 										  :y="getConnectionLabelPosition(conn.path).y">
-										try
+										{{ t('app.eip-modeler.canvas.connection.try', undefined, 'try') }}
 									</text>
 									<text v-if="activeStore?.getFlow(conn.flowId)?.role === 'catch'"
 										  class="connection-label catch"
 										  :x="getConnectionLabelPosition(conn.path).x"
 										  :y="getConnectionLabelPosition(conn.path).y">
-										{{ 'catch: ' + (activeStore.getFlow(conn.flowId).exceptions?.[0]?.split('.').pop() || 'Exception') }}
+										{{ t('app.eip-modeler.canvas.connection.catch', { exception: (activeStore.getFlow(conn.flowId).exceptions?.[0]?.split('.').pop() || 'Exception') }, 'catch: ' + (activeStore.getFlow(conn.flowId).exceptions?.[0]?.split('.').pop() || 'Exception')) }}
 									</text>
 									<text v-if="activeStore?.getFlow(conn.flowId)?.role === 'finally'"
 										  class="connection-label finally"
 										  :x="getConnectionLabelPosition(conn.path).x"
 										  :y="getConnectionLabelPosition(conn.path).y">
-										finally
+										{{ t('app.eip-modeler.canvas.connection.finally', undefined, 'finally') }}
 									</text>
 								</g>
 							</g>
@@ -419,7 +419,7 @@
 									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'from'">
 										<rect class="node-body from" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="25"/>
 										<use :href="spriteUrl + '#canvas-from'" x="0" y="0" width="56" height="50"/>
-										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">From</text>
+										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.from', undefined, 'From') }}</text>
 										<text class="node-label-light" x="70" y="35" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -434,7 +434,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-to'" x="0" y="0" width="56" height="50"/>
-										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">To</text>
+										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.to', undefined, 'To') }}</text>
 										<text class="node-label-light" x="70" y="35" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -448,7 +448,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-toD'" x="0" y="0" width="56" height="50"/>
-										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">To D</text>
+										<text class="node-label-light" x="70" y="20" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.toD', undefined, 'To D') }}</text>
 										<text class="node-label-light" x="70" y="35" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -462,7 +462,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-log'" x="0" y="0" width="50" height="50"/>
-										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Log</text>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.log', undefined, 'Log') }}</text>
 										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -476,7 +476,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-setBody'" x="0" y="0" width="50" height="50"/>
-										<text class="node-label-light" x="85" y="26" text-anchor="middle" font-weight="600">Set Body</text>
+										<text class="node-label-light" x="85" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.setBody', undefined, 'Set Body') }}</text>
 										<text class="node-label-light" x="85" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -490,7 +490,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-setHeader'" x="0" y="0" width="50" height="50"/>
-										<text class="node-label-light" x="85" y="26" text-anchor="middle" font-weight="600">Set Header</text>
+										<text class="node-label-light" x="85" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.setHeader', undefined, 'Set Header') }}</text>
 										<text class="node-label-light" x="85" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -504,7 +504,7 @@
 										<circle class="port input-port" cx="0" cy="30" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-choice'" x="0" y="0" width="100" height="60"/>
-										<text class="node-label" x="50" y="72" text-anchor="middle">Choice</text>
+										<text class="node-label" x="50" y="72" text-anchor="middle">{{ t('app.eip-modeler.canvas.node.choice', undefined, 'Choice') }}</text>
 										<circle class="port output-port" cx="100" cy="30" r="5"
 												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
 									</g>
@@ -515,7 +515,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-filter'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Filter</text>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.filter', undefined, 'Filter') }}</text>
 										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -529,7 +529,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-split'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Split</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.split', undefined, 'Split') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -543,7 +543,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-delay'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Delay</text>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.delay', undefined, 'Delay') }}</text>
 										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -557,7 +557,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-bean'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Bean</text>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.bean', undefined, 'Bean') }}</text>
 										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -571,7 +571,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-stop'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="90" y="35" text-anchor="middle" font-weight="600">Stop</text>
+										<text class="node-label-light" x="90" y="35" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.stop', undefined, 'Stop') }}</text>
 									</g>
 
 									<!-- Merge Node (Diamond shape like Choice, but inverted colors) -->
@@ -584,21 +584,21 @@
 												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
 									</g>
 
-									<!-- OnException Node (height: 50 to match From/To) -->
+									<!-- OnException Node (pill/capsule — a flow origin like From/To) -->
 									<g v-if="activeStore.getProcessor(shape.semanticId).type === 'onException'">
-										<rect class="node-body onException" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="8"/>
+										<rect class="node-body onException" x="0" y="0" :width="shape.bounds.width" :height="shape.bounds.height" rx="25"/>
 										<!-- No input port - onException is a flow origin like 'from' -->
 										<use :href="spriteUrl + '#canvas-onException'" x="0" y="0" width="50" height="50"/>
-										<text class="node-label-light" x="95" y="18" text-anchor="middle" font-weight="600">onException</text>
+										<text class="node-label-light" x="95" y="18" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.onException', undefined, 'onException') }}</text>
 										<text class="node-label-light" x="95" y="30" text-anchor="middle" font-size="8">
-											{{ activeStore.getProcessor(shape.semanticId).properties.exceptions?.[0]?.split('.').pop() || 'Exception' }}
+											{{ activeStore.getProcessor(shape.semanticId).properties.exceptions?.[0]?.split('.').pop() || t('app.eip-modeler.canvas.node.exceptionFallback', undefined, 'Exception') }}
 										</text>
 										<text v-if="activeStore.getProcessor(shape.semanticId).properties.routeConfigurationId"
 											  class="node-label-light" x="95" y="42" text-anchor="middle" font-size="7" opacity="0.7">
 											{{ activeStore.getProcessor(shape.semanticId).properties.routeConfigurationId }}
 										</text>
 										<text v-else class="node-label-light" x="95" y="42" text-anchor="middle" font-size="7" opacity="0.7">
-											{{ activeStore.getProcessor(shape.semanticId).properties.handled ? 'handled' : 'unhandled' }}
+											{{ activeStore.getProcessor(shape.semanticId).properties.handled ? t('app.eip-modeler.canvas.node.handled', undefined, 'handled') : t('app.eip-modeler.canvas.node.unhandled', undefined, 'unhandled') }}
 										</text>
 										<!-- Output port for connecting to error handling steps -->
 										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
@@ -611,9 +611,9 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-doTry'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">doTry</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.doTry', undefined, 'doTry') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
-											Try-Catch-Finally
+											{{ t('app.eip-modeler.canvas.node.doTrySubtitle', undefined, 'Try-Catch-Finally') }}
 										</text>
 										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
 												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
@@ -625,7 +625,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-throttle'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Throttle</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.throttle', undefined, 'Throttle') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
 											{{ activeStore.getProcessor(shape.semanticId).properties.constant || '10' }}/{{ activeStore.getProcessor(shape.semanticId).properties.timePeriodMillis || '1000' }}ms
 										</text>
@@ -639,7 +639,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-aggregate'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Aggregate</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.aggregate', undefined, 'Aggregate') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -653,7 +653,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-marshal'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Marshal</text>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.marshal', undefined, 'Marshal') }}</text>
 										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
 											{{ activeStore.getProcessor(shape.semanticId).properties.dataFormat || 'json' }}
 										</text>
@@ -667,7 +667,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-unmarshal'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">Unmarshal</text>
+										<text class="node-label-light" x="90" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.unmarshal', undefined, 'Unmarshal') }}</text>
 										<text class="node-label-light" x="90" y="40" text-anchor="middle" font-size="9">
 											{{ activeStore.getProcessor(shape.semanticId).properties.dataFormat || 'json' }}
 										</text>
@@ -681,7 +681,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-transform'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Transform</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.transform', undefined, 'Transform') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -695,9 +695,9 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-multicast'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Multicast</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.multicast', undefined, 'Multicast') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
-											{{ activeStore.getProcessor(shape.semanticId).properties.parallelProcessing ? 'parallel' : 'sequential' }}
+											{{ activeStore.getProcessor(shape.semanticId).properties.parallelProcessing ? t('app.eip-modeler.canvas.node.parallel', undefined, 'parallel') : t('app.eip-modeler.canvas.node.sequential', undefined, 'sequential') }}
 										</text>
 										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
 												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
@@ -709,7 +709,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-recipientList'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="35" text-anchor="middle" font-weight="600" font-size="10">Recipients</text>
+										<text class="node-label-light" x="95" y="35" text-anchor="middle" font-weight="600" font-size="10">{{ t('app.eip-modeler.canvas.node.recipientList', undefined, 'Recipients') }}</text>
 										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
 												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
 									</g>
@@ -720,7 +720,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-loop'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Loop</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.loop', undefined, 'Loop') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
 											{{ activeStore.getProcessor(shape.semanticId).properties.simple || '3' }}x
 										</text>
@@ -734,7 +734,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-wireTap'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">WireTap</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.wireTap', undefined, 'WireTap') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -748,7 +748,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-enrich'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Enrich</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.enrich', undefined, 'Enrich') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -762,7 +762,7 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-pollEnrich'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600" font-size="10">PollEnrich</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600" font-size="10">{{ t('app.eip-modeler.canvas.node.pollEnrich', undefined, 'PollEnrich') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
 											{{ getShortLabel(activeStore.getProcessor(shape.semanticId)) }}
 										</text>
@@ -776,9 +776,9 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-threads'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">Threads</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.threads', undefined, 'Threads') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
-											pool: {{ activeStore.getProcessor(shape.semanticId).properties.poolSize || 10 }}
+											{{ t('app.eip-modeler.canvas.node.threadsPool', { count: activeStore.getProcessor(shape.semanticId).properties.poolSize || 10 }, 'pool: ' + (activeStore.getProcessor(shape.semanticId).properties.poolSize || 10)) }}
 										</text>
 										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
 												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
@@ -790,9 +790,9 @@
 										<circle class="port input-port" cx="0" :cy="shape.bounds.height/2" r="5"
 												@mouseup.stop="onInputPortMouseUp(event, shape.semanticId)"/>
 										<use :href="spriteUrl + '#canvas-circuitBreaker'" x="0" y="0" width="60" height="60"/>
-										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600" font-size="9">CircuitBreaker</text>
+										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600" font-size="9">{{ t('app.eip-modeler.canvas.node.circuitBreaker', undefined, 'CircuitBreaker') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="8">
-											{{ activeStore.getProcessor(shape.semanticId).properties.resilience4jConfiguration?.failureRateThreshold || 50 }}% threshold
+											{{ t('app.eip-modeler.canvas.node.circuitBreakerThreshold', { percent: activeStore.getProcessor(shape.semanticId).properties.resilience4jConfiguration?.failureRateThreshold || 50 }, (activeStore.getProcessor(shape.semanticId).properties.resilience4jConfiguration?.failureRateThreshold || 50) + '% threshold') }}
 										</text>
 										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
 												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
@@ -837,27 +837,27 @@
 				:style="{ width: propertiesPanelWidth + 'px' }"
 				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
 				<div class="detail-panel-header">
-					<span class="detail-panel-title">Properties</span>
+					<span class="detail-panel-title">{{ t('app.eip-modeler.properties.title', undefined, 'Properties') }}</span>
 				</div>
 				<div class="properties-body">
 
 					<!-- No selection placeholder -->
 					<div v-if="!selectedElement" class="detail-panel-empty">
 						<i class="bi bi-cursor"></i>
-						<p class="mt-0 mb-0">Select an item to view details</p>
+						<p class="mt-0 mb-0">{{ t('app.eip-modeler.properties.empty', undefined, 'Select an item to view details') }}</p>
 					</div>
 
 					<!-- Connection (Flow) Properties -->
 					<div v-else-if="isFlowSelected">
 						<div class="property-group">
 							<div class="property-group-title">{{ getFlowLabel(selectedFlow) }}</div>
-							<span class="element-type-badge">Connection</span>
+							<span class="element-type-badge">{{ t('app.eip-modeler.properties.connection.badge', undefined, 'Connection') }}</span>
 						</div>
 
 						<!-- Choice flow: when/otherwise -->
 						<div v-if="activeStore?.getProcessor(selectedFlow.sourceRef)?.type === 'choice'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Route Type</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.routeType', undefined, 'Route Type') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openFlowConditionTypeDropdown(event)">
@@ -867,7 +867,7 @@
 								</div>
 							</div>
 							<div class="property-row" v-if="(selectedFlow.conditionType || 'when') === 'when'">
-								<label class="property-label">Language</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.language', undefined, 'Language') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openFlowLanguageDropdown(event)">
@@ -877,18 +877,18 @@
 								</div>
 							</div>
 							<div class="property-row" v-if="(selectedFlow.conditionType || 'when') === 'when'">
-								<label class="property-label">Expression</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedFlow.expression"
 									@input="updateFlowProperty('expression', event)"
-									placeholder="${body} contains 'foo'"/>
+									:placeholder="t('app.eip-modeler.properties.choiceExpressionPlaceholder', undefined, '${body} contains \'foo\'')"/>
 							</div>
 						</div>
 
 						<!-- DoTry flow: try/catch/finally -->
 						<div v-else-if="activeStore?.getProcessor(selectedFlow.sourceRef)?.type === 'doTry'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Block Role</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.blockRole', undefined, 'Block Role') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openFlowRoleDropdown(event)">
@@ -898,32 +898,32 @@
 								</div>
 							</div>
 							<div class="property-row" v-if="selectedFlow.role === 'catch'">
-								<label class="property-label">Exceptions (comma separated)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.exceptionsCommaSeparated', undefined, 'Exceptions (comma separated)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedFlow.exceptions?.join(', ')"
 									@input="updateFlowExceptions(event)"
-									placeholder="java.lang.Exception"/>
+									:placeholder="t('app.eip-modeler.properties.exceptionsPlaceholder', undefined, 'java.lang.Exception')"/>
 							</div>
 							<div class="property-info">
 								<p class="mt-0">
 									<i class="bi bi-info-circle me-1"></i>
-									<span v-if="(selectedFlow.role || 'try') === 'try'">Main execution path - will run first</span>
-									<span v-else-if="selectedFlow.role === 'catch'">Runs when matching exception occurs</span>
-									<span v-else-if="selectedFlow.role === 'finally'">Always runs after try/catch completes</span>
+									<span v-if="(selectedFlow.role || 'try') === 'try'">{{ t('app.eip-modeler.properties.tryInfo', undefined, 'Main execution path - will run first') }}</span>
+									<span v-else-if="selectedFlow.role === 'catch'">{{ t('app.eip-modeler.properties.catchInfo', undefined, 'Runs when matching exception occurs') }}</span>
+									<span v-else-if="selectedFlow.role === 'finally'">{{ t('app.eip-modeler.properties.finallyInfo', undefined, 'Always runs after try/catch completes') }}</span>
 								</p>
 							</div>
 						</div>
 
 						<!-- Generic flow info -->
 						<div v-else class="property-info">
-							<p class="mt-0">This connection links two processors.</p>
-							<p>From: {{ activeStore?.getProcessor(selectedFlow.sourceRef)?.type || 'unknown' }}</p>
-							<p>To: {{ activeStore?.getProcessor(selectedFlow.targetRef)?.type || 'unknown' }}</p>
+							<p class="mt-0">{{ t('app.eip-modeler.properties.connectionLinks', undefined, 'This connection links two processors.') }}</p>
+							<p>{{ t('app.eip-modeler.properties.connectionFrom', { type: activeStore?.getProcessor(selectedFlow.sourceRef)?.type || t('app.eip-modeler.properties.unknownType', undefined, 'unknown') }, 'From: ' + (activeStore?.getProcessor(selectedFlow.sourceRef)?.type || 'unknown')) }}</p>
+							<p>{{ t('app.eip-modeler.properties.connectionTo', { type: activeStore?.getProcessor(selectedFlow.targetRef)?.type || t('app.eip-modeler.properties.unknownType', undefined, 'unknown') }, 'To: ' + (activeStore?.getProcessor(selectedFlow.targetRef)?.type || 'unknown')) }}</p>
 						</div>
 
 						<div class="property-group">
 							<button class="wt wt-danger" @click="deleteSelected">
-								<i class="bi bi-trash me-1"></i>Delete Connection
+								<i class="bi bi-trash me-1"></i>{{ t('app.eip-modeler.properties.deleteConnection', undefined, 'Delete Connection') }}
 							</button>
 						</div>
 					</div>
@@ -939,11 +939,11 @@
 							`merge` (visual-only), and `onException` (handled separately). -->
 						<div v-if="selectedProcessor && !['from', 'merge', 'onException'].includes(selectedProcessor.type)" class="property-group">
 							<div class="property-row">
-								<label class="property-label">ID</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.id', undefined, 'ID') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.id || ''"
 									@input="updateProperty('id', event)"
-									placeholder="Optional — used by MessageHistory"/>
+									:placeholder="t('app.eip-modeler.properties.idPlaceholder', undefined, 'Optional — used by MessageHistory')"/>
 								<div v-if="getStepIdError(selectedProcessor)" class="property-info text-danger mt-1">
 									<i class="bi bi-exclamation-triangle me-1"></i>{{ getStepIdError(selectedProcessor) }}
 								</div>
@@ -953,45 +953,45 @@
 						<!-- From Properties -->
 						<div v-if="selectedProcessor?.type === 'from'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Route ID</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.routeId', undefined, 'Route ID') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.routeId || ''"
 									@input="updateProperty('routeId', event)"
-									placeholder="Auto-generated if empty"/>
+									:placeholder="t('app.eip-modeler.properties.routeIdPlaceholder', undefined, 'Auto-generated if empty')"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Route Configuration ID</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.routeConfigurationId', undefined, 'Route Configuration ID') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.routeConfigurationId || ''"
 									@input="updateProperty('routeConfigurationId', event)"
-									placeholder="e.g., my-error-handler"/>
+									:placeholder="t('app.eip-modeler.properties.routeConfigurationIdPlaceholder', undefined, 'e.g., my-error-handler')"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">URI</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.uri', undefined, 'URI') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.uri || ''"
 									@input="updateProperty('uri', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Parameters</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.parameters', undefined, 'Parameters') }}</label>
 								<div v-if="hasParameters()" class="parameter-list">
 									<div v-for="key in getParameterKeys()" :key="key" class="parameter-item">
 										<input type="text" class="wt" :value="key"
-											@change="renameParameter(key, event)" placeholder="Key"/>
+											@change="renameParameter(key, event)" :placeholder="t('app.eip-modeler.properties.paramKey', undefined, 'Key')"/>
 										<input type="text" class="wt" :value="getParameterValue(key)"
-											@input="updateParameterValue(key, event)" placeholder="Value"/>
+											@input="updateParameterValue(key, event)" :placeholder="t('app.eip-modeler.properties.paramValue', undefined, 'Value')"/>
 										<button class="wt wt-square wt-danger wt-outlined"
-											@click="removeParameter(key)" title="Remove">
+											@click="removeParameter(key)" :title="t('common.remove', undefined, 'Remove')">
 											<i class="bi bi-x"></i>
 										</button>
 									</div>
 								</div>
 								<div v-else class="property-info">
-									<p class="mt-0">No parameters defined.</p>
+									<p class="mt-0">{{ t('app.eip-modeler.properties.noParameters', undefined, 'No parameters defined.') }}</p>
 								</div>
 								<div class="parameter-add-row">
 									<button class="wt wt-slim" @click="addParameter">
-										<i class="bi bi-plus me-1"></i>Add
+										<i class="bi bi-plus me-1"></i>{{ t('common.add', undefined, 'Add') }}
 									</button>
 								</div>
 							</div>
@@ -1000,31 +1000,31 @@
 						<!-- To Properties -->
 						<div v-if="selectedProcessor?.type === 'to'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">URI</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.uri', undefined, 'URI') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.uri || ''"
 									@input="updateProperty('uri', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Parameters</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.parameters', undefined, 'Parameters') }}</label>
 								<div v-if="hasParameters()" class="parameter-list">
 									<div v-for="key in getParameterKeys()" :key="key" class="parameter-item">
 										<input type="text" class="wt" :value="key"
-											@change="renameParameter(key, event)" placeholder="Key"/>
+											@change="renameParameter(key, event)" :placeholder="t('app.eip-modeler.properties.paramKey', undefined, 'Key')"/>
 										<input type="text" class="wt" :value="getParameterValue(key)"
-											@input="updateParameterValue(key, event)" placeholder="Value"/>
+											@input="updateParameterValue(key, event)" :placeholder="t('app.eip-modeler.properties.paramValue', undefined, 'Value')"/>
 										<button class="wt wt-square wt-danger wt-outlined"
-											@click="removeParameter(key)" title="Remove">
+											@click="removeParameter(key)" :title="t('common.remove', undefined, 'Remove')">
 											<i class="bi bi-x"></i>
 										</button>
 									</div>
 								</div>
 								<div v-else class="property-info">
-									<p class="mt-0">No parameters defined.</p>
+									<p class="mt-0">{{ t('app.eip-modeler.properties.noParameters', undefined, 'No parameters defined.') }}</p>
 								</div>
 								<div class="parameter-add-row">
 									<button class="wt wt-slim" @click="addParameter">
-										<i class="bi bi-plus me-1"></i>Add
+										<i class="bi bi-plus me-1"></i>{{ t('common.add', undefined, 'Add') }}
 									</button>
 								</div>
 							</div>
@@ -1033,32 +1033,32 @@
 						<!-- ToD Properties -->
 						<div v-if="selectedProcessor?.type === 'toD'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">URI (Dynamic)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.uriDynamic', undefined, 'URI (Dynamic)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.uri || ''"
 									@input="updateProperty('uri', event)"
 									placeholder="${header.destinationUri}"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Parameters</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.parameters', undefined, 'Parameters') }}</label>
 								<div v-if="hasParameters()" class="parameter-list">
 									<div v-for="key in getParameterKeys()" :key="key" class="parameter-item">
 										<input type="text" class="wt" :value="key"
-											@change="renameParameter(key, event)" placeholder="Key"/>
+											@change="renameParameter(key, event)" :placeholder="t('app.eip-modeler.properties.paramKey', undefined, 'Key')"/>
 										<input type="text" class="wt" :value="getParameterValue(key)"
-											@input="updateParameterValue(key, event)" placeholder="Value"/>
+											@input="updateParameterValue(key, event)" :placeholder="t('app.eip-modeler.properties.paramValue', undefined, 'Value')"/>
 										<button class="wt wt-square wt-danger wt-outlined"
-											@click="removeParameter(key)" title="Remove">
+											@click="removeParameter(key)" :title="t('common.remove', undefined, 'Remove')">
 											<i class="bi bi-x"></i>
 										</button>
 									</div>
 								</div>
 								<div v-else class="property-info">
-									<p class="mt-0">No parameters defined.</p>
+									<p class="mt-0">{{ t('app.eip-modeler.properties.noParameters', undefined, 'No parameters defined.') }}</p>
 								</div>
 								<div class="parameter-add-row">
 									<button class="wt wt-slim" @click="addParameter">
-										<i class="bi bi-plus me-1"></i>Add
+										<i class="bi bi-plus me-1"></i>{{ t('common.add', undefined, 'Add') }}
 									</button>
 								</div>
 							</div>
@@ -1067,13 +1067,13 @@
 						<!-- Log Properties -->
 						<div v-if="selectedProcessor?.type === 'log'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Message</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.message', undefined, 'Message') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.message || ''"
 									@input="updateProperty('message', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Logging Level</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.loggingLevel', undefined, 'Logging Level') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openLoggingLevelDropdown(event)">
@@ -1083,17 +1083,17 @@
 								</div>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Logger Name</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.loggerName', undefined, 'Logger Name') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.loggerName || ''"
-									@input="updateProperty('loggerName', event)" placeholder="myAppLogger"/>
+									@input="updateProperty('loggerName', event)" :placeholder="t('app.eip-modeler.properties.loggerNamePlaceholder', undefined, 'myAppLogger')"/>
 							</div>
 						</div>
 
 						<!-- SetBody Properties -->
 						<div v-if="selectedProcessor?.type === 'setBody'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Simple Expression</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.simpleExpression', undefined, 'Simple Expression') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.simple || ''"
 									@input="updateProperty('simple', event)"/>
@@ -1103,13 +1103,13 @@
 						<!-- SetHeader Properties -->
 						<div v-if="selectedProcessor?.type === 'setHeader'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Header Name</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.headerName', undefined, 'Header Name') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.name || ''"
 									@input="updateProperty('name', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Expression Type</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expressionType', undefined, 'Expression Type') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openSetHeaderExpressionTypeDropdown(event)">
@@ -1119,7 +1119,7 @@
 								</div>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Expression</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.expression || ''"
 									@input="updateProperty('expression', event)"/>
@@ -1128,14 +1128,14 @@
 
 						<!-- Choice Properties -->
 						<div v-if="selectedProcessor?.type === 'choice'" class="property-info">
-							<p class="mt-0">Draw connections from this Choice node to define branching paths.</p>
-							<p>Select a connection to set When/Otherwise conditions.</p>
+							<p class="mt-0">{{ t('app.eip-modeler.properties.choiceInfo1', undefined, 'Draw connections from this Choice node to define branching paths.') }}</p>
+							<p>{{ t('app.eip-modeler.properties.choiceInfo2', undefined, 'Select a connection to set When/Otherwise conditions.') }}</p>
 						</div>
 
 						<!-- Filter Properties -->
 						<div v-if="selectedProcessor?.type === 'filter'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Expression Type</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expressionType', undefined, 'Expression Type') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openFilterExpressionTypeDropdown(event)">
@@ -1145,7 +1145,7 @@
 								</div>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Expression</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.expression || ''"
 									@input="updateProperty('expression', event)"/>
@@ -1155,7 +1155,7 @@
 						<!-- Split Properties -->
 						<div v-if="selectedProcessor?.type === 'split'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Expression Type</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expressionType', undefined, 'Expression Type') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openSplitExpressionTypeDropdown(event)">
@@ -1165,7 +1165,7 @@
 								</div>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Expression</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.expression || ''"
 									@input="updateProperty('expression', event)"/>
@@ -1174,79 +1174,79 @@
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.streaming"
 										@change="updatePropertyBoolean('streaming', event)"/>
-									Streaming
+									{{ t('app.eip-modeler.properties.streaming', undefined, 'Streaming') }}
 								</label>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.parallelProcessing"
 										@change="updatePropertyBoolean('parallelProcessing', event)"/>
-									Parallel Processing
+									{{ t('app.eip-modeler.properties.parallelProcessing', undefined, 'Parallel Processing') }}
 								</label>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.stopOnException"
 										@change="updatePropertyBoolean('stopOnException', event)"/>
-									Stop On Exception
+									{{ t('app.eip-modeler.properties.stopOnException', undefined, 'Stop On Exception') }}
 								</label>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.shareUnitOfWork"
 										@change="updatePropertyBoolean('shareUnitOfWork', event)"/>
-									Share Unit of Work
+									{{ t('app.eip-modeler.properties.shareUnitOfWork', undefined, 'Share Unit of Work') }}
 								</label>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.aggregationStrategy', undefined, 'Aggregation Strategy (Bean Ref)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.aggregationStrategy || ''"
 									@input="updateProperty('aggregationStrategy', event)"
-									placeholder="myAggregationStrategyBean"/>
+									:placeholder="t('app.eip-modeler.properties.aggregationStrategyPlaceholder', undefined, 'myAggregationStrategyBean')"/>
 							</div>
 						</div>
 
 						<!-- Aggregate Properties -->
 						<div v-if="selectedProcessor?.type === 'aggregate'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Correlation Expression (Simple)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.correlationExpression', undefined, 'Correlation Expression (Simple)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.correlationExpression || ''"
 									@input="updateProperty('correlationExpression', event)"
 									placeholder="${header.correlationId}"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Completion Size</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.completionSize', undefined, 'Completion Size') }}</label>
 								<input type="number" min="1" class="wt w-100"
 									:value="selectedProcessor.properties.completionSize || ''"
 									@input="updatePropertyNumber('completionSize', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Completion Timeout (ms)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.completionTimeout', undefined, 'Completion Timeout (ms)') }}</label>
 								<input type="number" min="0" class="wt w-100"
 									:value="selectedProcessor.properties.completionTimeout || ''"
 									@input="updatePropertyNumber('completionTimeout', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.aggregationStrategy', undefined, 'Aggregation Strategy (Bean Ref)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.aggregationStrategy || ''"
 									@input="updateProperty('aggregationStrategy', event)"
-									placeholder="myAggregationStrategyBean"/>
+									:placeholder="t('app.eip-modeler.properties.aggregationStrategyPlaceholder', undefined, 'myAggregationStrategyBean')"/>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.eagerCheckCompletion"
 										@change="updatePropertyBoolean('eagerCheckCompletion', event)"/>
-									Eager Check Completion
+									{{ t('app.eip-modeler.properties.eagerCheckCompletion', undefined, 'Eager Check Completion') }}
 								</label>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.completionFromBatchConsumer"
 										@change="updatePropertyBoolean('completionFromBatchConsumer', event)"/>
-									Completion from Batch Consumer
+									{{ t('app.eip-modeler.properties.completionFromBatchConsumer', undefined, 'Completion from Batch Consumer') }}
 								</label>
 							</div>
 						</div>
@@ -1254,7 +1254,7 @@
 						<!-- Delay Properties -->
 						<div v-if="selectedProcessor?.type === 'delay'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Delay (ms)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.delayMs', undefined, 'Delay (ms)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.constant || ''"
 									@input="updateProperty('constant', event)"/>
@@ -1263,7 +1263,7 @@
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.asyncDelayed"
 										@change="updatePropertyBoolean('asyncDelayed', event)"/>
-									Async Delayed
+									{{ t('app.eip-modeler.properties.asyncDelayed', undefined, 'Async Delayed') }}
 								</label>
 							</div>
 						</div>
@@ -1271,13 +1271,13 @@
 						<!-- Throttle Properties -->
 						<div v-if="selectedProcessor?.type === 'throttle'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Maximum Requests</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.maximumRequests', undefined, 'Maximum Requests') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.constant || ''"
 									@input="updateProperty('constant', event)" placeholder="10"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Time Period (ms)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.timePeriodMs', undefined, 'Time Period (ms)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.timePeriodMillis || ''"
 									@input="updateProperty('timePeriodMillis', event)" placeholder="1000"/>
@@ -1286,14 +1286,14 @@
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.asyncDelayed"
 										@change="updatePropertyBoolean('asyncDelayed', event)"/>
-									Async Delayed
+									{{ t('app.eip-modeler.properties.asyncDelayed', undefined, 'Async Delayed') }}
 								</label>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.rejectExecution"
 										@change="updatePropertyBoolean('rejectExecution', event)"/>
-									Reject Execution (throw exception when throttled)
+									{{ t('app.eip-modeler.properties.rejectExecution', undefined, 'Reject Execution (throw exception when throttled)') }}
 								</label>
 							</div>
 						</div>
@@ -1301,29 +1301,29 @@
 						<!-- Bean Properties -->
 						<div v-if="selectedProcessor?.type === 'bean'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Bean Reference</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.beanReference', undefined, 'Bean Reference') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.ref || ''"
-									@input="updateProperty('ref', event)" placeholder="myBean"/>
+									@input="updateProperty('ref', event)" :placeholder="t('app.eip-modeler.properties.beanReferencePlaceholder', undefined, 'myBean')"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Method</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.method', undefined, 'Method') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.method || ''"
-									@input="updateProperty('method', event)" placeholder="processMessage"/>
+									@input="updateProperty('method', event)" :placeholder="t('app.eip-modeler.properties.methodPlaceholder', undefined, 'processMessage')"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Bean Type (fully qualified class name)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.beanType', undefined, 'Bean Type (fully qualified class name)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.beanType || ''"
-									@input="updateProperty('beanType', event)" placeholder="com.example.MyBean"/>
+									@input="updateProperty('beanType', event)" :placeholder="t('app.eip-modeler.properties.beanTypePlaceholder', undefined, 'com.example.MyBean')"/>
 							</div>
 						</div>
 
 						<!-- Marshal Properties -->
 						<div v-if="selectedProcessor?.type === 'marshal'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Data Format</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.dataFormat', undefined, 'Data Format') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openMarshalDataFormatDropdown(event)">
@@ -1333,7 +1333,7 @@
 								</div>
 							</div>
 							<div class="property-row" v-if="selectedProcessor.properties.dataFormat === 'json'">
-								<label class="property-label">JSON Library</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.jsonLibrary', undefined, 'JSON Library') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openMarshalLibraryDropdown(event)">
@@ -1346,21 +1346,21 @@
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.prettyPrint"
 										@change="updatePropertyBoolean('prettyPrint', event)"/>
-									Pretty Print
+									{{ t('app.eip-modeler.properties.prettyPrint', undefined, 'Pretty Print') }}
 								</label>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Unmarshal Type (Java Class)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.unmarshalType', undefined, 'Unmarshal Type (Java Class)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.unmarshalType || ''"
-									@input="updateProperty('unmarshalType', event)" placeholder="com.example.MyPojo"/>
+									@input="updateProperty('unmarshalType', event)" :placeholder="t('app.eip-modeler.properties.unmarshalTypePlaceholder', undefined, 'com.example.MyPojo')"/>
 							</div>
 						</div>
 
 						<!-- Unmarshal Properties -->
 						<div v-if="selectedProcessor?.type === 'unmarshal'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Data Format</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.dataFormat', undefined, 'Data Format') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openUnmarshalDataFormatDropdown(event)">
@@ -1370,7 +1370,7 @@
 								</div>
 							</div>
 							<div class="property-row" v-if="selectedProcessor.properties.dataFormat === 'json'">
-								<label class="property-label">JSON Library</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.jsonLibrary', undefined, 'JSON Library') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openUnmarshalLibraryDropdown(event)">
@@ -1380,17 +1380,17 @@
 								</div>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Unmarshal Type (Java Class)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.unmarshalType', undefined, 'Unmarshal Type (Java Class)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.unmarshalType || ''"
-									@input="updateProperty('unmarshalType', event)" placeholder="com.example.MyPojo"/>
+									@input="updateProperty('unmarshalType', event)" :placeholder="t('app.eip-modeler.properties.unmarshalTypePlaceholder', undefined, 'com.example.MyPojo')"/>
 							</div>
 						</div>
 
 						<!-- Transform Properties -->
 						<div v-if="selectedProcessor?.type === 'transform'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Expression Type</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expressionType', undefined, 'Expression Type') }}</label>
 								<div class="wt-select w-100">
 									<button type="button" class="wt-select-trigger"
 										@click.stop="openTransformExpressionTypeDropdown(event)">
@@ -1400,7 +1400,7 @@
 								</div>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Expression</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
 								<textarea rows="3" class="wt w-100"
 									:value="selectedProcessor.properties.expression || ''"
 									@input="updateProperty('expression', event)" placeholder="${body}"></textarea>
@@ -1413,29 +1413,29 @@
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.parallelProcessing"
 										@change="updatePropertyBoolean('parallelProcessing', event)"/>
-									Parallel Processing
+									{{ t('app.eip-modeler.properties.parallelProcessing', undefined, 'Parallel Processing') }}
 								</label>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.stopOnException"
 										@change="updatePropertyBoolean('stopOnException', event)"/>
-									Stop On Exception
+									{{ t('app.eip-modeler.properties.stopOnException', undefined, 'Stop On Exception') }}
 								</label>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.aggregationStrategy', undefined, 'Aggregation Strategy (Bean Ref)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.aggregationStrategy || ''"
 									@input="updateProperty('aggregationStrategy', event)"
-									placeholder="myAggregationStrategyBean"/>
+									:placeholder="t('app.eip-modeler.properties.aggregationStrategyPlaceholder', undefined, 'myAggregationStrategyBean')"/>
 							</div>
 						</div>
 
 						<!-- RecipientList Properties -->
 						<div v-if="selectedProcessor?.type === 'recipientList'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Expression (Simple)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.expressionSimple', undefined, 'Expression (Simple)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.simple || ''"
 									@input="updateProperty('simple', event)" placeholder="${header.recipients}"/>
@@ -1444,14 +1444,14 @@
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.parallelProcessing"
 										@change="updatePropertyBoolean('parallelProcessing', event)"/>
-									Parallel Processing
+									{{ t('app.eip-modeler.properties.parallelProcessing', undefined, 'Parallel Processing') }}
 								</label>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.stopOnException"
 										@change="updatePropertyBoolean('stopOnException', event)"/>
-									Stop On Exception
+									{{ t('app.eip-modeler.properties.stopOnException', undefined, 'Stop On Exception') }}
 								</label>
 							</div>
 						</div>
@@ -1459,7 +1459,7 @@
 						<!-- Loop Properties -->
 						<div v-if="selectedProcessor?.type === 'loop'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Loop Count (Simple Expression)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.loopCount', undefined, 'Loop Count (Simple Expression)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.simple || ''"
 									@input="updateProperty('simple', event)" placeholder="3"/>
@@ -1468,14 +1468,14 @@
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.doWhile"
 										@change="updatePropertyBoolean('doWhile', event)"/>
-									Do While (evaluate condition per iteration)
+									{{ t('app.eip-modeler.properties.doWhile', undefined, 'Do While (evaluate condition per iteration)') }}
 								</label>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.copy"
 										@change="updatePropertyBoolean('copy', event)"/>
-									Copy (copy original message for each iteration)
+									{{ t('app.eip-modeler.properties.copyPerIteration', undefined, 'Copy (copy original message for each iteration)') }}
 								</label>
 							</div>
 						</div>
@@ -1483,7 +1483,7 @@
 						<!-- WireTap Properties -->
 						<div v-if="selectedProcessor?.type === 'wireTap'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">URI</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.uri', undefined, 'URI') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.uri || ''"
 									@input="updateProperty('uri', event)" placeholder="direct:tap"/>
@@ -1492,7 +1492,7 @@
 								<label>
 									<input type="checkbox" :checked="selectedProcessor.properties.copy"
 										@change="updatePropertyBoolean('copy', event)"/>
-									Copy (send copy of message)
+									{{ t('app.eip-modeler.properties.copySendCopy', undefined, 'Copy (send copy of message)') }}
 								</label>
 							</div>
 						</div>
@@ -1500,59 +1500,59 @@
 						<!-- Enrich Properties -->
 						<div v-if="selectedProcessor?.type === 'enrich'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">URI</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.uri', undefined, 'URI') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.uri || ''"
 									@input="updateProperty('uri', event)" placeholder="direct:enrich"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.aggregationStrategy', undefined, 'Aggregation Strategy (Bean Ref)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.aggregationStrategy || ''"
 									@input="updateProperty('aggregationStrategy', event)"
-									placeholder="myAggregationStrategyBean"/>
+									:placeholder="t('app.eip-modeler.properties.aggregationStrategyPlaceholder', undefined, 'myAggregationStrategyBean')"/>
 							</div>
 						</div>
 
 						<!-- PollEnrich Properties -->
 						<div v-if="selectedProcessor?.type === 'pollEnrich'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">URI</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.uri', undefined, 'URI') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.uri || ''"
 									@input="updateProperty('uri', event)" placeholder="file:inbox"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Timeout (ms)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.timeoutMs', undefined, 'Timeout (ms)') }}</label>
 								<input type="number" min="0" class="wt w-100"
 									:value="selectedProcessor.properties.timeout || ''"
 									@input="updatePropertyNumber('timeout', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Aggregation Strategy (Bean Ref)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.aggregationStrategy', undefined, 'Aggregation Strategy (Bean Ref)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.aggregationStrategy || ''"
 									@input="updateProperty('aggregationStrategy', event)"
-									placeholder="myAggregationStrategyBean"/>
+									:placeholder="t('app.eip-modeler.properties.aggregationStrategyPlaceholder', undefined, 'myAggregationStrategyBean')"/>
 							</div>
 						</div>
 
 						<!-- Threads Properties -->
 						<div v-if="selectedProcessor?.type === 'threads'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Pool Size</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.poolSize', undefined, 'Pool Size') }}</label>
 								<input type="number" min="1" class="wt w-100"
 									:value="selectedProcessor.properties.poolSize || ''"
 									@input="updatePropertyNumber('poolSize', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Max Pool Size</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.maxPoolSize', undefined, 'Max Pool Size') }}</label>
 								<input type="number" min="1" class="wt w-100"
 									:value="selectedProcessor.properties.maxPoolSize || ''"
 									@input="updatePropertyNumber('maxPoolSize', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Max Queue Size</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.maxQueueSize', undefined, 'Max Queue Size') }}</label>
 								<input type="number" min="0" class="wt w-100"
 									:value="selectedProcessor.properties.maxQueueSize || ''"
 									@input="updatePropertyNumber('maxQueueSize', event)"/>
@@ -1562,19 +1562,19 @@
 						<!-- CircuitBreaker Properties -->
 						<div v-if="selectedProcessor?.type === 'circuitBreaker'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Minimum Number of Calls</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.minimumNumberOfCalls', undefined, 'Minimum Number of Calls') }}</label>
 								<input type="number" min="1" class="wt w-100"
 									:value="selectedProcessor.properties.resilience4jConfiguration?.minimumNumberOfCalls || ''"
 									@input="updateCircuitBreakerProperty('minimumNumberOfCalls', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Failure Rate Threshold (%)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.failureRateThreshold', undefined, 'Failure Rate Threshold (%)') }}</label>
 								<input type="number" min="0" max="100" class="wt w-100"
 									:value="selectedProcessor.properties.resilience4jConfiguration?.failureRateThreshold || ''"
 									@input="updateCircuitBreakerProperty('failureRateThreshold', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Wait Duration in Open State (ms)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.waitDurationInOpenState', undefined, 'Wait Duration in Open State (ms)') }}</label>
 								<input type="number" min="0" class="wt w-100"
 									:value="selectedProcessor.properties.resilience4jConfiguration?.waitDurationInOpenState || ''"
 									@input="updateCircuitBreakerProperty('waitDurationInOpenState', event)"/>
@@ -1584,35 +1584,35 @@
 						<!-- OnException Properties -->
 						<div v-if="selectedProcessor?.type === 'onException'" class="property-group">
 							<div class="property-row">
-								<label class="property-label">Route Configuration ID</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.routeConfigurationId', undefined, 'Route Configuration ID') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.routeConfigurationId || ''"
 									@input="updateProperty('routeConfigurationId', event)"
-									placeholder="e.g., my-error-handler"/>
+									:placeholder="t('app.eip-modeler.properties.routeConfigurationIdPlaceholder', undefined, 'e.g., my-error-handler')"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Exceptions (comma separated)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.onExceptionExceptions', undefined, 'Exceptions (comma separated)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.exceptions?.join(', ')"
 									@input="updateExceptionList('exceptions', event)"
-									placeholder="java.lang.Exception, java.io.IOException"/>
+									:placeholder="t('app.eip-modeler.properties.onExceptionExceptionsPlaceholder', undefined, 'java.lang.Exception, java.io.IOException')"/>
 							</div>
 							<div class="property-row">
 								<label>
 									<input type="checkbox"
 										:checked="selectedProcessor.properties.handled"
 										@change="updatePropertyBoolean('handled', event)"/>
-									Handled (mark exception as processed)
+									{{ t('app.eip-modeler.properties.handled', undefined, 'Handled (mark exception as processed)') }}
 								</label>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Max Redeliveries</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.maxRedeliveries', undefined, 'Max Redeliveries') }}</label>
 								<input type="number" min="0" class="wt w-100"
 									:value="selectedProcessor.properties.maximumRedeliveries || 0"
 									@input="updatePropertyNumber('maximumRedeliveries', event)"/>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Redelivery Delay (ms)</label>
+								<label class="property-label">{{ t('app.eip-modeler.properties.redeliveryDelayMs', undefined, 'Redelivery Delay (ms)') }}</label>
 								<input type="text" class="wt w-100"
 									:value="selectedProcessor.properties.redeliveryDelay || '1000'"
 									@input="updateProperty('redeliveryDelay', event)"
@@ -1621,22 +1621,22 @@
 							<div class="property-info">
 								<p class="mt-0">
 									<i class="bi bi-info-circle me-1"></i>
-									Draw a line from this node to define error handling steps (e.g., Log, To).
+									{{ t('app.eip-modeler.properties.onExceptionInfo', undefined, 'Draw a line from this node to define error handling steps (e.g., Log, To).') }}
 								</p>
 							</div>
 						</div>
 
 						<!-- DoTry Properties -->
 						<div v-if="selectedProcessor?.type === 'doTry'" class="property-info">
-							<p class="mt-0">Draw connections from this Try-Catch node to define:</p>
+							<p class="mt-0">{{ t('app.eip-modeler.properties.doTryInfo', undefined, 'Draw connections from this Try-Catch node to define:') }}</p>
 							<ul>
-								<li><strong>Try:</strong> Main execution flow (default)</li>
-								<li><strong>Catch:</strong> Error handling for specific exceptions</li>
-								<li><strong>Finally:</strong> Always runs after try/catch</li>
+								<li><strong>{{ t('app.eip-modeler.properties.doTryTry', undefined, 'Try:') }}</strong> {{ t('app.eip-modeler.properties.doTryTryDesc', undefined, 'Main execution flow (default)') }}</li>
+								<li><strong>{{ t('app.eip-modeler.properties.doTryCatch', undefined, 'Catch:') }}</strong> {{ t('app.eip-modeler.properties.doTryCatchDesc', undefined, 'Error handling for specific exceptions') }}</li>
+								<li><strong>{{ t('app.eip-modeler.properties.doTryFinally', undefined, 'Finally:') }}</strong> {{ t('app.eip-modeler.properties.doTryFinallyDesc', undefined, 'Always runs after try/catch') }}</li>
 							</ul>
 							<p>
 								<i class="bi bi-info-circle me-1"></i>
-								Select a connection line to change its role (Try/Catch/Finally).
+								{{ t('app.eip-modeler.properties.doTryInfo2', undefined, 'Select a connection line to change its role (Try/Catch/Finally).') }}
 							</p>
 						</div>
 					</div>
@@ -1651,15 +1651,15 @@
 			<div class="status-group">
 				<span class="status-item">{{ Math.round(scale * 100) }}%</span>
 				<span class="status-divider"></span>
-				<span class="status-item">{{ shapes.length }} elements</span>
+				<span class="status-item">{{ t('app.eip-modeler.statusbar.elements', { count: shapes.length }, shapes.length + ' elements') }}</span>
 				<span class="status-divider"></span>
-				<span class="status-item">{{ connectionPaths.length }} connections</span>
+				<span class="status-item">{{ t('app.eip-modeler.statusbar.connections', { count: connectionPaths.length }, connectionPaths.length + ' connections') }}</span>
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Saving...</span>
-				<span v-else-if="isModified" class="status-item">Modified</span>
-				<span v-else class="status-item">Saved</span>
+				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.eip-modeler.statusbar.saving', undefined, 'Saving...') }}</span>
+				<span v-else-if="isModified" class="status-item">{{ t('app.eip-modeler.statusbar.modified', undefined, 'Modified') }}</span>
+				<span v-else class="status-item">{{ t('app.eip-modeler.statusbar.saved', undefined, 'Saved') }}</span>
 			</div>
 		</div>
 
@@ -1669,24 +1669,24 @@
 				<div class="island p-2">
 					<div class="dialog-header">
 						<div class="dialog-header-top">
-							<h3>Save As</h3>
-							<button class="btn-icon" @click="closeSaveAsDialog" title="Close">
+							<h3>{{ t('app.eip-modeler.dialog.saveAs.title', undefined, 'Save As') }}</h3>
+							<button class="btn-icon" @click="closeSaveAsDialog" :title="t('common.close', undefined, 'Close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
 					</div>
 					<div class="dialog-body">
-						<label class="dialog-label">File Name</label>
+						<label class="dialog-label">{{ t('app.eip-modeler.dialog.saveAs.fileName', undefined, 'File Name') }}</label>
 						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
-							placeholder="filename.xml" @keydown.enter="closeSaveAsDialog" />
+							:placeholder="t('app.eip-modeler.dialog.saveAs.fileNamePlaceholder', undefined, 'filename.xml')" @keydown.enter="closeSaveAsDialog" />
 						<div class="save-as-chip-area mt-3"
 							@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
 							<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
 								<i class="bi bi-file-earmark-code me-1"></i>
-								<span>{{ saveAsDialog.fileName || 'untitled.xml' }}</span>
+								<span>{{ saveAsDialog.fileName || t('app.eip-modeler.dialog.saveAs.untitled', undefined, 'untitled.xml') }}</span>
 							</div>
 							<p class="text-muted fs-small mt-2 mb-0">
-								Drag this file to Content Browser to save
+								{{ t('app.eip-modeler.dialog.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
 							</p>
 						</div>
 					</div>
@@ -1697,7 +1697,7 @@
 		<!-- Loading Overlay -->
 		<div v-if="isLoading" class="loading-overlay flex-column text-center">
 			<span class="loader"></span>
-			<span class="mt-3">Loading file...</span>
+			<span class="mt-3">{{ t('app.eip-modeler.loading.file', undefined, 'Loading file...') }}</span>
 		</div>
 
 		<!-- Close Confirmation Dialog -->
@@ -1705,19 +1705,19 @@
 			<div class="dialog-frame" style="max-width: 32rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Unsaved Changes</h3>
+						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.eip-modeler.dialog.close.title', undefined, 'Unsaved Changes') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<p class="mt-0">The file has unsaved changes.</p>
-						<p>Do you want to save your changes before closing?</p>
+						<p class="mt-0">{{ t('app.eip-modeler.dialog.close.body1', undefined, 'The file has unsaved changes.') }}</p>
+						<p>{{ t('app.eip-modeler.dialog.close.body2', undefined, 'Do you want to save your changes before closing?') }}</p>
 					</div>
 					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">Cancel</button>
+						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
-							<i class="bi bi-trash me-1"></i>Don't Save
+							<i class="bi bi-trash me-1"></i>{{ t('app.eip-modeler.dialog.close.dontSave', undefined, 'Don\'t Save') }}
 						</button>
 						<button v-if="currentFile?.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
-							<i class="bi bi-floppy me-1"></i>Save
+							<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
 						</button>
 					</div>
 				</div>

@@ -12,9 +12,14 @@
 //               single = single selection
 //     api     — { content: ContentServiceGraphQL, eventHub: EventHub }
 //               handed straight through from vm.instance.api
-//     viewOptions — optional display flags. Currently: showOpenItem (default
-//               true) toggles the "Open File/Folder" action button; hosts that
-//               already have the item open (text-editor) pass false to hide it.
+//     viewOptions — optional display flags.
+//               showOpenItem (default true) toggles the "Open File/Folder"
+//               action button; hosts that already have the item open
+//               (text-editor) pass false to hide it.
+//               hasUnsavedChanges (default false) tells the Inspector the
+//               host is holding unsaved edits for the target; destructive
+//               quick actions (version restore, cancel checkout) then warn
+//               that those edits will be discarded before proceeding.
 //               NOTE: bound as `:view-options` — the attribute name `options`
 //               is reserved by ichigojs for directive options, so a plain
 //               `:options` binding is silently ignored.
@@ -22,6 +27,11 @@
 //   emits:
 //     open-item     { target }
 //     navigate-path { path }
+//     content-reverted { target, reason: 'restore' | 'uncheckout', versionName? }
+//               — the node's *stored content* was rewritten server-side by a
+//               quick action. Hosts that display the content (text-editor)
+//               reload it; metadata-only changes are NOT announced this way,
+//               they flow through the SSE node update stream as usual.
 //     request-close — (reserved for the header close button)
 //
 // Internal data flow:
@@ -36,6 +46,7 @@ import { MimeTypes } from '../utils/mime-types.js';
 import { Encodings } from '../utils/encodings.js';
 import { Dates } from '../utils/dates.js';
 import type { LocalizationSnapshot } from '../composables/use-localization.js';
+import { translate, createLocalizationSnapshot } from '../composables/use-localization.js';
 import {
 	displaySize as displaySizeUtil,
 	displayType as displayTypeUtil,
@@ -464,68 +475,73 @@ function validatePropertyValues(
 	item?: ScriptItem | null,
 	effectiveLocale?: string,
 	effectiveTimeZone?: string,
+	t?: (id: string, params?: Record<string, any>, fallback?: string) => string,
 ): string {
+	// Resolve a built-in validation message via the supplied translator,
+	// falling back to the English literal when no translator is wired.
+	const vt = (id: string, fallback: string, params?: Record<string, any>): string =>
+		t ? t('webtop.inspector.validation.' + id, params, fallback) : fallback;
 	if (!prop || !prop.schemaType) return '';
 	const type = prop.schemaType as string;
 	if (type === 'BINARY' || type === 'REFERENCE' || type === 'WEAKREFERENCE') return '';
 	const nonEmpty = values.filter((v: string) => v != null && String(v).trim() !== '');
 	if (prop.schemaRequired && nonEmpty.length === 0) {
-		return 'This property is required';
+		return vt('required', 'This property is required');
 	}
 	for (const raw of nonEmpty) {
 		const v = String(raw);
 		if (type === 'STRING' || type === 'NAME' || type === 'PATH' || type === 'URI') {
 			if (prop.schemaMinLength != null && v.length < prop.schemaMinLength) {
-				return `Min length is ${prop.schemaMinLength}`;
+				return vt('minLength', `Min length is ${prop.schemaMinLength}`, { min: prop.schemaMinLength });
 			}
 			if (prop.schemaMaxLength != null && v.length > prop.schemaMaxLength) {
-				return `Max length is ${prop.schemaMaxLength}`;
+				return vt('maxLength', `Max length is ${prop.schemaMaxLength}`, { max: prop.schemaMaxLength });
 			}
 		}
 		if (type === 'STRING' && prop.schemaPattern) {
 			try {
 				const re = new RegExp(prop.schemaPattern);
-				if (!re.test(v)) return 'Value does not match pattern';
+				if (!re.test(v)) return vt('pattern', 'Value does not match pattern');
 			} catch {
 				// Invalid regex in schema — ignore
 			}
 		}
 		if (type === 'STRING' && prop.editorType === 'Email') {
-			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'Invalid email format';
+			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return vt('email', 'Invalid email format');
 		}
 		if (type === 'STRING' && prop.editorType === 'URL') {
-			try { new URL(v); } catch { return 'Invalid URL format'; }
+			try { new URL(v); } catch { return vt('url', 'Invalid URL format'); }
 		}
 		if (type === 'STRING' && prop.editorType === 'Tel') {
-			if (!/^\+?[0-9\s\-()]{3,}$/.test(v)) return 'Invalid phone number format';
+			if (!/^\+?[0-9\s\-()]{3,}$/.test(v)) return vt('tel', 'Invalid phone number format');
 		}
 		if (type === 'NAME') {
 			if (!/^([A-Za-z_][A-Za-z0-9_\-.]*:)?[A-Za-z_][A-Za-z0-9_\-.]*$/.test(v)) {
-				return 'Invalid NAME format';
+				return vt('name', 'Invalid NAME format');
 			}
 		}
 		if (type === 'PATH') {
-			if (!/^\/([^\/]+(\/[^\/]+)*)?$/.test(v)) return 'Invalid PATH format';
+			if (!/^\/([^\/]+(\/[^\/]+)*)?$/.test(v)) return vt('path', 'Invalid PATH format');
 		}
 		if (type === 'URI') {
-			try { new URL(v, 'http://a'); } catch { return 'Invalid URI format'; }
+			try { new URL(v, 'http://a'); } catch { return vt('uri', 'Invalid URI format'); }
 		}
 		if (type === 'LONG' || type === 'DOUBLE' || type === 'DECIMAL') {
 			const n = Number(v);
-			if (isNaN(n)) return 'Invalid number';
-			if (type === 'LONG' && !Number.isInteger(n)) return 'Must be an integer';
+			if (isNaN(n)) return vt('number', 'Invalid number');
+			if (type === 'LONG' && !Number.isInteger(n)) return vt('integer', 'Must be an integer');
 			if (prop.schemaMinValue != null && prop.schemaMinValue !== '' && n < Number(prop.schemaMinValue)) {
-				return `Min value is ${prop.schemaMinValue}`;
+				return vt('minValue', `Min value is ${prop.schemaMinValue}`, { min: prop.schemaMinValue });
 			}
 			if (prop.schemaMaxValue != null && prop.schemaMaxValue !== '' && n > Number(prop.schemaMaxValue)) {
-				return `Max value is ${prop.schemaMaxValue}`;
+				return vt('maxValue', `Max value is ${prop.schemaMaxValue}`, { max: prop.schemaMaxValue });
 			}
 		}
 		if (type === 'BOOLEAN') {
-			if (v !== 'true' && v !== 'false') return 'Must be true or false';
+			if (v !== 'true' && v !== 'false') return vt('boolean', 'Must be true or false');
 		}
 		if (type === 'DATE') {
-			if (isNaN(new Date(v).getTime())) return 'Invalid date';
+			if (isNaN(new Date(v).getTime())) return vt('date', 'Invalid date');
 		}
 	}
 	if (prop.schemaValidation && allPropsRaw) {
@@ -549,7 +565,7 @@ function validatePropertyValues(
 			if (errors.length > 0) {
 				const first = errors[0];
 				if (i18nFormat) return i18nFormat(first);
-				return first.fallbackMessage || first.messageId || 'Validation failed';
+				return first.fallbackMessage || first.messageId || vt('failed', 'Validation failed');
 			}
 		}
 	}
@@ -559,7 +575,7 @@ function validatePropertyValues(
 defineComponent('wt-inspector', {
 	template: '#wt-inspector',
 	props: ['target', 'api', 'viewOptions', 'width', 'command', 'localization'],
-	emits: ['open-item', 'navigate-path', 'reveal-item', 'request-close', 'overlay-changed'],
+	emits: ['open-item', 'navigate-path', 'reveal-item', 'request-close', 'overlay-changed', 'content-reverted'],
 	data(this: any) {
 		return {
 			// Non-reactive private state (subscriptions, listeners, timers).
@@ -608,12 +624,20 @@ defineComponent('wt-inspector', {
 			detailVersionHistoryVisible: false,
 			detailACLEditorVisible: false,
 			detailPropertyEditorVisible: false,
-			// Version history dialog state
+			// Quick action (lock / version control) state. actionConfirm holds
+			// the id of the destructive action awaiting confirmation in the
+			// confirmation dialog ('uncheckout'; '' = none).
+			actionBusy: false,
+			actionErrorMessage: '',
+			actionConfirm: '' as string,
+			// Version history dialog state. confirmVersionName holds the version
+			// awaiting restore confirmation ('' = none).
 			versionHistoryDialog: {
 				visible: false,
 				item: null as any,
 				versions: [] as { name: string; created: string; predecessors: string[]; successors: string[]; createdBy?: string }[],
 				baseVersionName: '',
+				confirmVersionName: '',
 				isLoading: false,
 				errorMessage: '',
 			},
@@ -738,6 +762,11 @@ defineComponent('wt-inspector', {
 		// = false to hide it. Defaults to shown.
 		showOpenAction(this: any): boolean {
 			return this.viewOptions?.showOpenItem !== false;
+		},
+		// Whether the host holds unsaved edits for the target (text-editor's
+		// dirty flag). Destructive quick actions warn about discarding them.
+		hostHasUnsavedChanges(this: any): boolean {
+			return this.viewOptions?.hasUnsavedChanges === true;
 		},
 		isSelectedItemImage(this: any): boolean {
 			const item = this.singleTarget;
@@ -881,7 +910,7 @@ defineComponent('wt-inspector', {
 					&& schemaType !== 'BINARY' && schemaType !== 'REFERENCE' && schemaType !== 'WEAKREFERENCE'
 					&& item.type !== 'BINARY' && item.type !== 'REFERENCE' && item.type !== 'WEAKREFERENCE') {
 					enrichedWithMeta.typeMismatch = true;
-					enrichedWithMeta.mismatchMessage = `Type mismatch: stored as ${item.type}, schema expects ${schemaType}. Editing and saving will convert it to ${schemaType}.`;
+					enrichedWithMeta.mismatchMessage = this.t('webtop.inspector.mismatch.type', { stored: item.type, expected: schemaType });
 				}
 				if (schemaChoices && schemaChoices.length > 0
 					&& item.type !== 'REFERENCE' && item.type !== 'WEAKREFERENCE'
@@ -896,8 +925,8 @@ defineComponent('wt-inspector', {
 					if (offending.length > 0) {
 						enrichedWithMeta.choiceMismatch = true;
 						enrichedWithMeta.choiceMismatchMessage = offending.length === 1
-							? `Value "${offending[0]}" is not one of the defined choices.`
-							: `${offending.length} values are not among the defined choices: ${offending.map((v) => `"${v}"`).join(', ')}.`;
+							? this.t('webtop.inspector.mismatch.choiceOne', { value: offending[0] })
+							: this.t('webtop.inspector.mismatch.choiceMany', { count: offending.length, values: offending.map((v) => `"${v}"`).join(', ') });
 					}
 				}
 				void (this as any)._i18nTick;
@@ -907,9 +936,9 @@ defineComponent('wt-inspector', {
 					if (i18n && typeof i18n.formatValidationError === 'function') {
 						return i18n.formatValidationError(err);
 					}
-					return err.fallbackMessage || err.messageId || 'Validation failed';
+					return err.fallbackMessage || err.messageId || this.t('webtop.inspector.validation.failed', undefined, 'Validation failed');
 				};
-				const validationError = validatePropertyValues(enrichedWithMeta, currentValues, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone);
+				const validationError = validatePropertyValues(enrichedWithMeta, currentValues, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone, (id, params, fallback) => this.t(id, params, fallback));
 				if (validationError) {
 					enrichedWithMeta.validationError = validationError;
 				}
@@ -1114,7 +1143,7 @@ defineComponent('wt-inspector', {
 				}
 				return err.fallbackMessage || err.messageId || 'Validation failed';
 			};
-			return validatePropertyValues({ ...prop, isArray }, values, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone);
+			return validatePropertyValues({ ...prop, isArray }, values, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone, (id, params, fallback) => this.t(id, params, fallback));
 		},
 		propEditorEditChoiceMismatch(this: any): string {
 			if (!this.propEditorEditingName) return '';
@@ -1172,6 +1201,9 @@ defineComponent('wt-inspector', {
 			this.cancelEncodingEdit?.();
 			this.selectedSchemaKey = '';
 			this.previewImageError = false;
+			this.actionErrorMessage = '';
+			this.actionConfirm = '';
+			this.versionHistoryDialog.confirmVersionName = '';
 			this.resubscribeNodeWatch();
 			this.loadDetailData();
 		},
@@ -1182,6 +1214,18 @@ defineComponent('wt-inspector', {
 		},
 	},
 	methods: {
+		/**
+		 * Reactive i18n lookup for the Inspector. Reads the `localization`
+		 * snapshot (passed down as a prop from the host app) so every
+		 * `{{ t(...) }}` binding repaints when the user switches language or an
+		 * i18n bundle is hot-reloaded. The Inspector runs inside the host app's
+		 * iframe, so `translate` resolves the shell's I18nService via
+		 * `window.parent.Webtop.i18n` (no instance is needed here).
+		 * See composables/use-localization.ts.
+		 */
+		t(this: any, messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization || createLocalizationSnapshot(), undefined, messageId, params, fallback);
+		},
 		onMounted(this: any, $ctx: any) {
 			const vm = this;
 			vm._.el = $ctx?.element || null;
@@ -1565,7 +1609,7 @@ defineComponent('wt-inspector', {
 					return { name: p.name, type, isArray, value, items };
 				});
 			} catch (error: any) {
-				vm.detailPropertiesError = error?.message || 'Failed to load properties';
+				vm.detailPropertiesError = error?.message || vm.t('webtop.inspector.propertyEditor.loadFailed', undefined, 'Failed to load properties');
 			} finally {
 				vm.detailPropertiesLoading = false;
 			}
@@ -1580,7 +1624,7 @@ defineComponent('wt-inspector', {
 				const contentService = vm.api.content;
 				vm.detailACL = await contentService.getEffectiveAccessControl(item.path);
 			} catch (error: any) {
-				vm.detailACLError = error?.message || 'Failed to load access control';
+				vm.detailACLError = error?.message || vm.t('webtop.inspector.acl.loadFailed', undefined, 'Failed to load access control');
 			} finally {
 				vm.detailACLLoading = false;
 			}
@@ -1932,7 +1976,7 @@ defineComponent('wt-inspector', {
 			const NONE = '__none__';
 			const items: any[] = [{
 				id: NONE,
-				label: '— No schema —',
+				label: vm.t('webtop.inspector.schema.none', undefined, '— No schema —'),
 				selected: !currentKey,
 			}];
 			for (const s of vm.availableSchemas as any[]) {
@@ -2012,7 +2056,7 @@ defineComponent('wt-inspector', {
 		},
 		propEditChoicesMultiLabel(this: any, prop: any): string {
 			const values = this.propEditorEditValues as string[];
-			if (!values.length) return '— Select —';
+			if (!values.length) return this.t('webtop.inspector.select.none', undefined, '— Select —');
 			const choices = prop.schemaChoices as any[];
 			return values
 				.map(v => {
@@ -2030,7 +2074,7 @@ defineComponent('wt-inspector', {
 			const EMPTY = '__empty__';
 			const items: any[] = [{
 				id: EMPTY,
-				label: '— Select —',
+				label: vm.t('webtop.inspector.select.none', undefined, '— Select —'),
 				selected: !vm.propEditorEditInput,
 			}];
 			for (const ci of prop.schemaChoices as any[]) {
@@ -2052,7 +2096,7 @@ defineComponent('wt-inspector', {
 		},
 		propEditChoicesSingleLabel(this: any, prop: any): string {
 			const val = this.propEditorEditInput as string;
-			if (!val) return '— Select —';
+			if (!val) return this.t('webtop.inspector.select.none', undefined, '— Select —');
 			const c = (prop.schemaChoices as any[]).find((x: any) => x.value === val);
 			return c ? (c.label || c.value) : val;
 		},
@@ -2105,7 +2149,7 @@ defineComponent('wt-inspector', {
 			const rect = trigger.getBoundingClientRect();
 			const items = (vm.propTypeOptions as any[]).map((o: any) => ({
 				id: o.id,
-				label: o.label,
+				label: vm.t('webtop.inspector.propType.' + o.id, undefined, o.label),
 				selected: o.id === vm.propEditorNewType,
 			}));
 			const handle = popup.open({
@@ -2120,7 +2164,7 @@ defineComponent('wt-inspector', {
 		},
 		propEditNewTypeLabel(this: any): string {
 			const o = (this.propTypeOptions as any[]).find((x: any) => x.id === this.propEditorNewType);
-			return o ? o.label : String(this.propEditorNewType);
+			return o ? this.t('webtop.inspector.propType.' + o.id, undefined, o.label) : String(this.propEditorNewType);
 		},
 		// ────────────────────────────────────────────────────────────────────
 		// Version History overlay
@@ -2145,6 +2189,7 @@ defineComponent('wt-inspector', {
 			if (!item) return;
 			vm.versionHistoryDialog.versions = [];
 			vm.versionHistoryDialog.baseVersionName = '';
+			vm.versionHistoryDialog.confirmVersionName = '';
 			vm.versionHistoryDialog.errorMessage = '';
 			vm.versionHistoryDialog.isLoading = true;
 
@@ -2156,7 +2201,7 @@ defineComponent('wt-inspector', {
 					vm.versionHistoryDialog.baseVersionName = history.baseVersion?.name || '';
 				}
 			} catch (error: any) {
-				vm.versionHistoryDialog.errorMessage = error?.message || 'Failed to load version history';
+				vm.versionHistoryDialog.errorMessage = error?.message || vm.t('webtop.inspector.versionHistory.loadFailed', undefined, 'Failed to load version history');
 			} finally {
 				vm.versionHistoryDialog.isLoading = false;
 			}
@@ -2167,6 +2212,7 @@ defineComponent('wt-inspector', {
 			vm.versionHistoryDialog.item = null;
 			vm.versionHistoryDialog.versions = [];
 			vm.versionHistoryDialog.baseVersionName = '';
+			vm.versionHistoryDialog.confirmVersionName = '';
 			vm.versionHistoryDialog.errorMessage = '';
 			vm.versionHistoryDialog.isLoading = false;
 			vm._notifyOverlayState();
@@ -2174,21 +2220,121 @@ defineComponent('wt-inspector', {
 		isCurrentVersion(this: any, versionName: string) {
 			return versionName === this.versionHistoryDialog.baseVersionName;
 		},
+		// Restoring rewrites the node's stored content, so it always goes
+		// through a confirmation dialog first (with an extra warning when the
+		// host reports unsaved edits — see viewOptions.hasUnsavedChanges).
+		requestRestoreVersion(this: any, versionName: string) {
+			this.versionHistoryDialog.confirmVersionName = versionName;
+		},
+		cancelRestoreVersion(this: any) {
+			this.versionHistoryDialog.confirmVersionName = '';
+		},
 		async restoreVersion(this: any, versionName: string) {
 			const vm = this;
 			const item = vm.versionHistoryDialog.item;
 			if (!item || !versionName) return;
+			vm.versionHistoryDialog.confirmVersionName = '';
 			vm.versionHistoryDialog.isLoading = true;
 			vm.versionHistoryDialog.errorMessage = '';
 			try {
 				const contentService = vm.api.content;
 				await contentService.restoreVersion(item.path, versionName);
+				// Tell the host the stored content changed so an open editor can
+				// reload it (the user already confirmed discarding local edits).
+				vm._dispatch('content-reverted', { target: item, reason: 'restore', versionName });
 				// Refresh both the version listing and detail data
 				await vm.refreshDetailVersionHistory();
 				vm.loadDetailData();
 			} catch (error: any) {
-				vm.versionHistoryDialog.errorMessage = error?.message || 'Failed to restore version';
+				vm.versionHistoryDialog.errorMessage = error?.message || vm.t('webtop.inspector.versionHistory.restoreFailed', undefined, 'Failed to restore version');
 				vm.versionHistoryDialog.isLoading = false;
+			}
+		},
+		// ────────────────────────────────────────────────────────────────────
+		// Quick actions (lock / version control)
+		//
+		// Mirrors the content-browser context menu so hosts without one
+		// (text-editor) can still operate on the target. The mutations
+		// themselves refresh nothing here: the SSE node update stream notifies
+		// both this panel and the host, which rebuilds the `target` prop.
+		// ────────────────────────────────────────────────────────────────────
+		async _runQuickAction(this: any, run: (path: string) => Promise<any>, failureMessage: string): Promise<boolean> {
+			const vm = this;
+			const item = vm.singleTarget;
+			if (!item?.path || vm.actionBusy) return false;
+			vm.actionBusy = true;
+			vm.actionErrorMessage = '';
+			try {
+				await run(item.path);
+				return true;
+			} catch (error: any) {
+				vm.actionErrorMessage = error?.message || failureMessage;
+				return false;
+			} finally {
+				vm.actionBusy = false;
+			}
+		},
+		actionLock(this: any) {
+			const vm = this;
+			vm._runQuickAction(
+				(path: string) => vm.api.content.lockNode(path),
+				vm.t('webtop.inspector.action.lockFailed', undefined, 'Failed to lock'),
+			);
+		},
+		actionUnlock(this: any) {
+			const vm = this;
+			vm._runQuickAction(
+				(path: string) => vm.api.content.unlockNode(path),
+				vm.t('webtop.inspector.action.unlockFailed', undefined, 'Failed to unlock'),
+			);
+		},
+		actionEnableVersionControl(this: any) {
+			const vm = this;
+			vm._runQuickAction(
+				(path: string) => vm.api.content.addVersionControl(path),
+				vm.t('webtop.inspector.action.enableVersionControlFailed', undefined, 'Failed to enable version control'),
+			);
+		},
+		actionCheckout(this: any) {
+			const vm = this;
+			vm._runQuickAction(
+				(path: string) => vm.api.content.checkout(path),
+				vm.t('webtop.inspector.action.checkoutFailed', undefined, 'Failed to checkout'),
+			);
+		},
+		actionCheckin(this: any) {
+			const vm = this;
+			vm._runQuickAction(
+				(path: string) => vm.api.content.checkin(path),
+				vm.t('webtop.inspector.action.checkinFailed', undefined, 'Failed to checkin'),
+			);
+		},
+		actionCheckpoint(this: any) {
+			const vm = this;
+			vm._runQuickAction(
+				(path: string) => vm.api.content.checkpoint(path),
+				vm.t('webtop.inspector.action.checkpointFailed', undefined, 'Failed to create checkpoint'),
+			);
+		},
+		// Cancel Checkout reverts the stored content to the base version, so it
+		// is confirmed via a dialog first, like a version restore.
+		requestCancelCheckout(this: any) {
+			this.actionErrorMessage = '';
+			this.actionConfirm = 'uncheckout';
+		},
+		dismissActionConfirm(this: any) {
+			this.actionConfirm = '';
+		},
+		async actionCancelCheckout(this: any) {
+			const vm = this;
+			vm.actionConfirm = '';
+			const target = vm.singleTarget;
+			const ok = await vm._runQuickAction(
+				(path: string) => vm.api.content.uncheckout(path),
+				vm.t('webtop.inspector.action.cancelCheckoutFailed', undefined, 'Failed to cancel checkout'),
+			);
+			if (ok) {
+				vm._dispatch('content-reverted', { target, reason: 'uncheckout' });
 			}
 		},
 		// ────────────────────────────────────────────────────────────────────
@@ -2223,7 +2369,7 @@ defineComponent('wt-inspector', {
 				vm.aclDialog.effectivePolicies = await contentService.getEffectiveAccessControl(item.path);
 				vm._syncAclPendingEntries();
 			} catch (error: any) {
-				vm.aclDialog.errorMessage = error?.message || 'Failed to load access control';
+				vm.aclDialog.errorMessage = error?.message || vm.t('webtop.inspector.acl.loadFailed', undefined, 'Failed to load access control');
 			} finally {
 				vm.aclDialog.isLoading = false;
 			}
@@ -2402,11 +2548,11 @@ defineComponent('wt-inspector', {
 			const { principal, privileges, allow, principalDisplayName } = vm.aclDialog.addEntry;
 
 			if (!principal.trim()) {
-				vm.aclDialog.addEntry.errorMessage = 'Principal is required';
+				vm.aclDialog.addEntry.errorMessage = vm.t('webtop.inspector.acl.principalRequired', undefined, 'Principal is required');
 				return;
 			}
 			if (privileges.length === 0) {
-				vm.aclDialog.addEntry.errorMessage = 'At least one privilege is required';
+				vm.aclDialog.addEntry.errorMessage = vm.t('webtop.inspector.acl.privilegeRequired', undefined, 'At least one privilege is required');
 				return;
 			}
 
@@ -2443,7 +2589,7 @@ defineComponent('wt-inspector', {
 				await contentService.setAccessControl(vm.aclDialog.item.path, { entries });
 				await vm.refreshDetailACLEditor();
 			} catch (error: any) {
-				vm.aclDialog.errorMessage = error?.message || 'Failed to save access control';
+				vm.aclDialog.errorMessage = error?.message || vm.t('webtop.inspector.acl.saveFailed', undefined, 'Failed to save access control');
 			} finally {
 				vm.aclDialog.isSaving = false;
 			}
@@ -2605,7 +2751,7 @@ defineComponent('wt-inspector', {
 					};
 				});
 			} catch (error: any) {
-				vm.propEditorError = error?.message || 'Failed to load properties';
+				vm.propEditorError = error?.message || vm.t('webtop.inspector.propertyEditor.loadFailed', undefined, 'Failed to load properties');
 			} finally {
 				vm.propEditorLoading = false;
 			}
@@ -3893,7 +4039,7 @@ defineComponent('wt-inspector', {
 				await vm.loadPropEditorData(item);
 				vm.loadDetailProperties(item);
 			} catch (error: any) {
-				vm.propEditorSaveError = error?.message || 'Failed to save properties';
+				vm.propEditorSaveError = error?.message || vm.t('webtop.inspector.propertyEditor.saveFailed', undefined, 'Failed to save properties');
 			} finally {
 				vm.propEditorSaving = false;
 			}

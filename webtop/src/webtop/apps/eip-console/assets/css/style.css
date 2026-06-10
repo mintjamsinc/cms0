@@ -57,7 +57,61 @@
 	height: 100%;
 }
 
-/* .nav-bar / .nav-spacer / .toolbar-group (+ .active): see shared webtop-app.css */
+/* .nav-bar / .nav-spacer / .toolbar-group / .view-tabs (+ .view-tab): see shared webtop-app.css */
+
+/* Range selector in the toolbar (mirrors commerce-dashboard `.dash-range`). */
+.eip-range {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.15rem;
+	margin-left: 0.5rem;
+}
+
+.eip-range button {
+	border: none;
+	background: transparent;
+	color: var(--text-soft-color);
+	font-size: 12px;
+	font-weight: 600;
+	padding: 0.15rem 0.5rem;
+	border-radius: 0.35rem;
+	cursor: pointer;
+}
+
+.eip-range button.active {
+	background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+	color: var(--primary-color);
+}
+
+/* Live indicator in the toolbar (mirrors commerce-dashboard `.dash-live`). */
+.eip-live {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	font-size: 12px;
+	color: var(--text-soft-color);
+	padding: 0 0.5rem;
+	margin-left: 0.5rem;
+}
+
+.eip-live-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--text-soft-color);
+}
+
+.eip-live.connected .eip-live-dot {
+	background: var(--primary-color);
+	box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary-color) 60%, transparent);
+	animation: eip-live-pulse 2s infinite;
+}
+
+@keyframes eip-live-pulse {
+	0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary-color) 55%, transparent); }
+	70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary-color) 0%, transparent); }
+	100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary-color) 0%, transparent); }
+}
 
 .eip-error-chip {
 	display: inline-flex;
@@ -212,6 +266,64 @@
 .filter-clear-btn:hover {
 	text-decoration: underline;
 }
+
+/* "All" toggle next to Route / Status labels. Muted when not all selected,
+ * primary when every option is selected. */
+.filter-all-toggle {
+	margin-left: 0.25rem;
+	color: var(--text-muted-color);
+}
+
+.filter-all-toggle.active {
+	color: var(--primary-color);
+}
+
+/* Filter input relocated above the Exchange table (graph screen). */
+.exchange-filter {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem;
+	border-bottom: 1px solid var(--list-header-bg, rgb(from var(--body-color) r g b / 0.08));
+}
+
+.exchange-filter .input-group {
+	flex: 1;
+	min-width: 0;
+}
+
+/* Chart drill-down focus chip shown next to the Filter input. */
+.exchange-focus-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	flex-shrink: 0;
+	padding: 0.15rem 0.5rem;
+	border-radius: 9999px;
+	font-size: 11px;
+	background: color-mix(in srgb, var(--primary-color) 16%, transparent);
+	color: var(--primary-color);
+	white-space: nowrap;
+}
+
+.exchange-focus-clear {
+	display: inline-flex;
+	border: none;
+	background: none;
+	color: inherit;
+	cursor: pointer;
+	padding: 0;
+}
+
+/* "More" row centers its button. */
+.content-list .item-more td {
+	padding: 0.5rem;
+	text-align: center;
+}
+
+/* Chart points are clickable for drill-down. */
+.eip-chart { cursor: pointer; }
 
 .filter-check {
 	display: flex;
@@ -495,6 +607,25 @@
 	flex-direction: column;
 }
 
+/* Routes screen — read-only model area + diagram. */
+.eip-model-area {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	position: relative;
+	display: flex;
+	flex-direction: column;
+}
+
+/* Read-only route diagram host: fill the pane and let <eip-canvas> own its
+ * internal pan/zoom (no outer scrollbars). */
+.eip-model-canvas {
+	flex: 1;
+	min-height: 0;
+	display: block;
+	overflow: hidden;
+}
+
 .eip-chart {
 	flex: 1;
 	width: 100%;
@@ -513,29 +644,7 @@
 	font-size: 10px;
 }
 
-.eip-chart .under1s-line {
-	fill: none;
-	stroke: var(--emerald-color);
-	stroke-width: 1.5;
-}
-
-.eip-chart .under1s-point { fill: var(--emerald-color); }
-
-.eip-chart .under5s-line {
-	fill: none;
-	stroke: var(--amber-color);
-	stroke-width: 1.5;
-}
-
-.eip-chart .under5s-point { fill: var(--amber-color); }
-
-.eip-chart .over5s-line {
-	fill: none;
-	stroke: var(--rose-color);
-	stroke-width: 1.5;
-}
-
-.eip-chart .over5s-point { fill: var(--rose-color); }
+/* Chart series are coloured inline per elapsed band (see chartSvg). */
 
 .eip-chart-legend {
 	display: flex;
@@ -558,11 +667,108 @@
 	width: 0.875rem;
 	height: 0.25rem;
 	border-radius: 9999px;
+	background-color: var(--text-muted-color);
 }
 
-.legend-under1s .legend-swatch { background-color: var(--emerald-color); }
-.legend-under5s .legend-swatch { background-color: var(--amber-color); }
-.legend-over5s .legend-swatch { background-color: var(--rose-color); }
+/* ----------------------------------------------------------------------------
+ * Elapsed bands — multi-handle slider + colour palette
+ * -------------------------------------------------------------------------- */
+
+/* Framed panel matching .route-checkbox-list / .filter-check-list so the
+ * Elapsed control lines up visually with the Route and Status filters. */
+.elapsed-panel {
+	padding: 0.5rem;
+	border-radius: 0.5rem;
+	background-color: var(--input-bg);
+	border: 2px solid var(--input-border-color);
+}
+
+/* First child already padded by .elapsed-panel — drop its top margin. */
+.elapsed-bar {
+	position: relative;
+	height: 1rem;
+	margin-top: 0.25rem;
+	overflow: visible;
+	background: var(--input-bg, rgb(from var(--body-color) r g b / 0.06));
+	user-select: none;
+}
+
+.elapsed-seg {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	opacity: 0.85;
+}
+
+.elapsed-handle {
+	position: absolute;
+	top: -0.2rem;
+	bottom: -0.2rem;
+	width: 0.5rem;
+	transform: translateX(-50%);
+	border-radius: 9999px;
+	background: var(--body-bg);
+	border: 1px solid var(--body-color);
+	cursor: ew-resize;
+	box-shadow: 0 1px 1px rgb(0 0 0 / 0.25);
+}
+
+.elapsed-handle.removing {
+	border-color: var(--danger-color);
+	opacity: 0.5;
+}
+
+.elapsed-axis {
+	display: flex;
+	justify-content: space-between;
+	font-size: 10px;
+	color: var(--text-muted-color);
+	margin-top: 0.15rem;
+}
+
+.elapsed-bands {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	margin-top: 0.5rem;
+}
+
+.elapsed-band-row {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+}
+
+.elapsed-chip {
+	flex-shrink: 0;
+	width: 0.9rem;
+	height: 0.9rem;
+	border-radius: 50%;
+	border: 1px solid rgb(from var(--body-color) r g b / 0.3);
+	cursor: pointer;
+	padding: 0;
+}
+
+.elapsed-band-label {
+	flex: 1;
+	font-size: 11px;
+	color: var(--text-soft-color);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.elapsed-ms {
+	width: 4.5rem;
+	font-size: 11px;
+	padding: 0.125rem 0.375rem;
+	border-radius: 0.25rem;
+}
+
+.elapsed-remove {
+	flex-shrink: 0;
+	color: var(--text-muted-color);
+}
 
 .eip-empty {
 	flex: 1;
@@ -604,6 +810,25 @@
 	z-index: 1;
 }
 
+/* Sortable column headers — click to reorder the loaded rows. The active
+   column shows a chevron (▲/▼) via .sort-indicator; hover gives a subtle
+   affordance consistent with the shared icon-button hover. */
+.content-list table thead th.c-pointer:hover {
+	color: var(--body-color);
+	background-color: var(--btn-icon-hover-bg);
+}
+
+.content-list table thead th .sort-indicator i {
+	font-size: 10px;
+}
+
+/* Elapsed cell — painted in its chart-band colour (see elapsedColor). Tabular
+   figures keep the millisecond values aligned as the column is re-sorted. */
+.content-list td.elapsed {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+}
+
 .content-list .item {
 	cursor: pointer;
 	transition: background-color 0.15s;
@@ -620,6 +845,18 @@
 .content-list .item.item-selected {
 	background-color: var(--item-selected-bg) !important;
 	color: var(--item-selected-color) !important;
+}
+
+/* Flash applied to rows streamed in by the live subscription, so the operator
+ * can see what just arrived. Fades from a primary-tinted highlight back to the
+ * row's normal background over ~1.2s. */
+.content-list .item.item-flash {
+	animation: eip-row-flash 1.2s ease-out;
+}
+
+@keyframes eip-row-flash {
+	0%   { background-color: color-mix(in srgb, var(--primary-color) 35%, transparent); }
+	100% { background-color: transparent; }
 }
 
 .content-list .item-empty td {

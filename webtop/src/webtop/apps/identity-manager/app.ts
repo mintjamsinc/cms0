@@ -13,6 +13,8 @@ import {
 	createLocalizationSnapshot,
 	refreshLocalization,
 	handleLocalizationMessage,
+	translate,
+	formatDate,
 } from "../../composables/use-localization.js";
 import type {
 	IdpUser,
@@ -132,16 +134,16 @@ export const App = {
 	computed: {
 		// Placeholder text for the search input in the left pane
 		searchPlaceholder(): string {
-			if (this.activeSection === 'users') return 'Search users...';
-			if (this.activeSection === 'groups') return 'Search groups...';
-			return 'Search roles...';
+			if (this.activeSection === 'users') return this.t('app.identity-manager.search.users', undefined, 'Search users...');
+			if (this.activeSection === 'groups') return this.t('app.identity-manager.search.groups', undefined, 'Search groups...');
+			return this.t('app.identity-manager.search.roles', undefined, 'Search roles...');
 		},
 
 		// Tooltip for the [+] (New) button
 		newActionTitle(): string {
-			if (this.activeSection === 'users') return 'New User';
-			if (this.activeSection === 'groups') return 'New Group';
-			return 'New Role';
+			if (this.activeSection === 'users') return this.t('app.identity-manager.action.newUser', undefined, 'New User');
+			if (this.activeSection === 'groups') return this.t('app.identity-manager.action.newGroup', undefined, 'New Group');
+			return this.t('app.identity-manager.action.newRole', undefined, 'New Role');
 		},
 
 		// Two-way binding for the search input — routed to the active section
@@ -161,7 +163,7 @@ export const App = {
 		// Label shown inside the create-group "Parent Group" select trigger
 		parentGroupLabel(): string {
 			const id = this.dialog?.data?.parentGroupId as string | undefined;
-			if (!id) return '(Root level)';
+			if (!id) return this.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)');
 			const found = (this.flatGroupTree as FlatGroupNode[]).find((g) => g.groupId === id);
 			return found ? (found.displayName || found.name) : id;
 		},
@@ -169,7 +171,7 @@ export const App = {
 		// Label shown inside the create-role "Parent Role" select trigger
 		parentRoleLabel(): string {
 			const id = this.dialog?.data?.parentRoleId as string | undefined;
-			if (!id) return '(Root level)';
+			if (!id) return this.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)');
 			const found = (this.allRolesFlat as FlatRoleNode[]).find((r) => r.roleId === id);
 			return found ? (found.displayName || found.name) : id;
 		},
@@ -192,26 +194,26 @@ export const App = {
 			if (this.activeSection === 'users') {
 				const total = this.userList.length;
 				if (this.userSearch.trim()) {
-					return `${this.displayedUsers.length} of ${total} user(s)`;
+					return this.t('app.identity-manager.status.usersFiltered', { shown: this.displayedUsers.length, total }, `${this.displayedUsers.length} of ${total} user(s)`);
 				}
-				return `${total} user(s)`;
+				return this.t('app.identity-manager.status.users', { count: total }, `${total} user(s)`);
 			}
 			if (this.activeSection === 'groups') {
 				const total = this.flatGroupTree.length;
 				if (this.groupSearch.trim()) {
 					const matched = (this.filteredGroupTree as FlatGroupNode[])
 						.filter((n) => n.matched).length;
-					return `${matched} of ${total} group(s)`;
+					return this.t('app.identity-manager.status.groupsFiltered', { shown: matched, total }, `${matched} of ${total} group(s)`);
 				}
-				return `${total} group(s)`;
+				return this.t('app.identity-manager.status.groups', { count: total }, `${total} group(s)`);
 			}
 			const total = this.flatRoleTree.length;
 			if (this.roleSearch.trim()) {
 				const matched = (this.filteredRoleTree as FlatRoleNode[])
 					.filter((n) => n.matched).length;
-				return `${matched} of ${total} role(s)`;
+				return this.t('app.identity-manager.status.rolesFiltered', { shown: matched, total }, `${matched} of ${total} role(s)`);
 			}
-			return `${total} role(s)`;
+			return this.t('app.identity-manager.status.roles', { count: total }, `${total} role(s)`);
 		},
 
 		// True when the selected user is a built-in principal that cannot be deleted
@@ -230,6 +232,14 @@ export const App = {
 	},
 
 	methods: {
+		// =====================================================================
+		// Localization
+		// =====================================================================
+
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
+
 		// =====================================================================
 		// Lifecycle
 		// =====================================================================
@@ -253,7 +263,7 @@ export const App = {
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
-				vm.instance.windowTitle = 'Identity Manager';
+				vm.instance.windowTitle = vm.t('app.identity-manager.title', undefined, 'Identity Manager');
 
 				refreshLocalization(vm.localization, vm.instance);
 
@@ -409,7 +419,7 @@ export const App = {
 				}
 				this.userList = all;
 			} catch (err) {
-				this.errorMessage = 'Failed to load users: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.identity-manager.error.loadUsers', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load users: ' + (err instanceof Error ? err.message : String(err)));
 			}
 		},
 
@@ -521,7 +531,7 @@ export const App = {
 			this.dialog = {
 				type: 'confirmDelete',
 				data: {
-					message: `Delete user "${this.selectedUser.username}"? This action cannot be undone.`,
+					message: this.t('app.identity-manager.dialog.deleteUserConfirm', { name: this.selectedUser.username }, `Delete user "${this.selectedUser.username}"? This action cannot be undone.`),
 					target: 'user',
 					id: this.selectedUser.username,
 				},
@@ -537,7 +547,7 @@ export const App = {
 				this.groupTree = await this.idp!.getGroupTree({ maxDepth: 20 });
 				this.rebuildFlatGroupTree();
 			} catch (err) {
-				this.errorMessage = 'Failed to load groups: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.identity-manager.error.loadGroups', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load groups: ' + (err instanceof Error ? err.message : String(err)));
 			}
 		},
 
@@ -815,7 +825,7 @@ export const App = {
 			this.dialog = {
 				type: 'confirmDelete',
 				data: {
-					message: `Delete group "${this.selectedGroup.groupId}"? This will also delete all child groups.`,
+					message: this.t('app.identity-manager.dialog.deleteGroupConfirm', { name: this.selectedGroup.groupId }, `Delete group "${this.selectedGroup.groupId}"? This will also delete all child groups.`),
 					target: 'group',
 					id: this.selectedGroup.groupId,
 				},
@@ -831,7 +841,7 @@ export const App = {
 				this.roleTree = await this.idp!.getRoleTree({ maxDepth: 20 });
 				this.rebuildFlatRoleTree();
 			} catch (err) {
-				this.errorMessage = 'Failed to load roles: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.identity-manager.error.loadRoles', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load roles: ' + (err instanceof Error ? err.message : String(err)));
 			}
 		},
 
@@ -973,7 +983,7 @@ export const App = {
 			this.dialog = {
 				type: 'confirmDelete',
 				data: {
-					message: `Delete role "${this.selectedRole.roleId}"? This will also delete all child roles and remove it from all users.`,
+					message: this.t('app.identity-manager.dialog.deleteRoleConfirm', { name: this.selectedRole.roleId }, `Delete role "${this.selectedRole.roleId}"? This will also delete all child roles and remove it from all users.`),
 					target: 'role',
 					id: this.selectedRole.roleId,
 				},
@@ -1024,7 +1034,7 @@ export const App = {
 			const rect = trigger.getBoundingClientRect();
 			const currentId = (vm.dialog.data.parentGroupId as string) || '';
 			const items: any[] = [
-				{ id: '__root__', label: '(Root level)', selected: !currentId },
+				{ id: '__root__', label: vm.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)'), selected: !currentId },
 			];
 			for (const g of vm.flatGroupTree as FlatGroupNode[]) {
 				items.push({
@@ -1052,7 +1062,7 @@ export const App = {
 			const rect = trigger.getBoundingClientRect();
 			const currentId = (vm.dialog.data.parentRoleId as string) || '';
 			const items: any[] = [
-				{ id: '__root__', label: '(Root level)', selected: !currentId },
+				{ id: '__root__', label: vm.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)'), selected: !currentId },
 			];
 			for (const r of vm.allRolesFlat as FlatRoleNode[]) {
 				items.push({
@@ -1210,15 +1220,7 @@ export const App = {
 
 		formatDate(isoString: string | null): string {
 			if (!isoString) return '';
-			const dates = this.instance?.util?.dates;
-			if (!dates) {
-				try { return new Date(isoString).toLocaleString(); } catch { return isoString; }
-			}
-			return dates.format(isoString, {
-				format: 'datetime',
-				locale: this.localization.locale || undefined,
-				timeZone: this.localization.timeZone || undefined,
-			}) ?? isoString;
+			return formatDate(this.localization, isoString, { format: 'datetime' }) || isoString;
 		},
 	},
 };

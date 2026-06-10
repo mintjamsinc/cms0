@@ -84,6 +84,12 @@ export class WebtopAPI {
 	get db() { return this.#db; }
 	get theme() { return this.#theme; }
 	get localization() { return this.#localization; }
+	/**
+	 * The shell's i18n message-bundle service. Owned by the Webtop context and
+	 * surfaced here so apps reach it the same way as every other service
+	 * (`instance.api.i18n`). `null` until `Webtop.initI18n()` has completed.
+	 */
+	get i18n() { return this.#context.i18n; }
 	get wallpaper() { return this.#wallpaper; }
 	get session() { return this.#session; }
 	get resourceResolver() { return this.#resourceResolver; }

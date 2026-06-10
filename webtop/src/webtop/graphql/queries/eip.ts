@@ -131,25 +131,8 @@ export const EIP_QUERIES = {
         lastExchangeFailureTime
         definition {
           id
+          xml
           yaml
-          from {
-            uri
-            component
-            properties
-          }
-          steps {
-            id
-            type
-            label
-            description
-            properties
-            children {
-              id
-              type
-              label
-              properties
-            }
-          }
         }
         endpoints {
           uri
@@ -309,6 +292,7 @@ export const EIP_QUERIES = {
         }
         definition {
           id
+          xml
           yaml
         }
       }
@@ -329,18 +313,8 @@ export const EIP_QUERIES = {
         }
         definition {
           id
+          xml
           yaml
-          from {
-            uri
-            component
-          }
-          steps {
-            id
-            type
-            label
-            description
-            properties
-          }
         }
       }
     }
@@ -384,35 +358,48 @@ export const EIP_QUERIES = {
   `,
 
   /**
-   * Three-band exchange-count time series for the EIP Console graph.
+   * Banded exchange-count time series for the EIP Console graph.
    *
    * Routes may be filtered server-side; passing an empty / null list
-   * aggregates across every route. The server picks the bucket interval
-   * automatically from the requested range when `interval` is omitted.
+   * aggregates across every route.
+   *
+   * Window — two modes:
+   *   anchor — `at` (instant) + `buckets` (count). The right-edge bucket is the
+   *            fixed wall-clock bucket containing `at`; the window walks back
+   *            `buckets` whole `interval`s. Used by the live console so that
+   *            between bucket boundaries only the right-edge bucket changes.
+   *   window — legacy explicit `from`/`to` (used when `buckets` is omitted); the
+   *            server auto-resolves the interval from the span.
    */
   ROUTE_STATS: `
     query RouteStats(
       $routes: [String!],
-      $from: String!,
-      $to: String!,
+      $at: String,
+      $buckets: Int,
+      $from: String,
+      $to: String,
       $status: String,
-      $interval: String
+      $interval: String,
+      $elapsedBoundaries: [Int!]
     ) {
       routeStats(
         routes: $routes,
+        at: $at,
+        buckets: $buckets,
         from: $from,
         to: $to,
         status: $status,
-        interval: $interval
+        interval: $interval,
+        elapsedBoundaries: $elapsedBoundaries
       ) {
+        anchor
         from
         to
         interval
+        boundaries
         points {
           bucket
-          under1s
-          under5s
-          over5s
+          bands
         }
       }
     }
@@ -446,6 +433,7 @@ export const EIP_QUERIES = {
       ) {
         edges {
           node {
+            path
             exchangeId
             routeId
             status
@@ -466,10 +454,17 @@ export const EIP_QUERIES = {
     }
   `,
 
-  /** Full detail for one exchange (Inspector). */
+  /**
+   * Full detail for one exchange record (Inspector).
+   *
+   * Addressed by node `path` because a single exchange may have one record per
+   * route it completed in (same exchangeId), making exchangeId ambiguous. The
+   * legacy `exchangeId` argument is retained for callers that only have an id.
+   */
   HISTORY_EXCHANGE: `
-    query HistoryExchange($exchangeId: String!) {
-      historyExchange(exchangeId: $exchangeId) {
+    query HistoryExchange($path: String, $exchangeId: String) {
+      historyExchange(path: $path, exchangeId: $exchangeId) {
+        path
         exchangeId
         routeId
         status
@@ -556,6 +551,7 @@ export const EIP_MUTATIONS = {
         status
         definition {
           id
+          xml
           yaml
         }
       }
@@ -573,6 +569,7 @@ export const EIP_MUTATIONS = {
         status
         definition {
           id
+          xml
           yaml
         }
       }
@@ -597,6 +594,7 @@ export const EIP_MUTATIONS = {
         status
         definition {
           id
+          xml
           yaml
         }
       }

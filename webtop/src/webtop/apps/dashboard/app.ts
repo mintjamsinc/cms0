@@ -28,6 +28,14 @@ import { VDOM } from '@mintjamsinc/ichigojs';
 import { createGraphQLClient } from '../../graphql/client.js';
 import { BpmServiceGraphQL } from '../../services/bpm-service-graphql.js';
 import { EipServiceGraphQL } from '../../services/eip-service-graphql.js';
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+	translate,
+	formatNumber,
+	formatDate,
+} from '../../composables/use-localization.js';
 import type {
 	Task,
 	ProcessDefinition,
@@ -55,18 +63,8 @@ const TOP_N = 5;
 const SCAN_LIMIT = 500;
 
 // --- Formatting helpers ----------------------------------------------------
-function formatNum(n: number): string {
-	if (!Number.isFinite(n)) return '0';
-	return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(n);
-}
-
-// Compact count for the big metrics (1234 -> 1.2k) so a busy context does not
-// overflow the KPI typography.
-function compact(n: number): string {
-	if (!Number.isFinite(n)) return '0';
-	if (Math.abs(n) >= 1000) return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n);
-	return String(n);
-}
+// Locale-aware number formatting lives on the component (`fmtNum` / `fmtCompact`)
+// so it can read the localization snapshot and repaint on a locale change.
 
 function formatLatency(ms: number | undefined | null): string {
 	const n = Number(ms);
@@ -127,7 +125,7 @@ const EMPTY_MODEL = () => ({
 	defs: { deployed: 0, active: 0, suspended: 0 },
 	running: { active: 0, suspended: 0, withIncidents: 0, top: [] as any[] },
 	incidents: { total: 0, byType: [] as any[], topProcesses: [] as any[] },
-	routes: { total: 0, started: 0, stopped: 0, suspended: 0, contextState: '—', uptime: '' },
+	routes: { total: 0, started: 0, stopped: 0, suspended: 0, contextState: '—', contextStateRaw: '', uptime: '' },
 	throughput: { total: 0, completed: 0, failed: 0, inflight: 0, meanLatency: '—', failing: [] as any[] },
 	connections: { remoteTotal: 0, down: 0, problems: [] as any[] },
 });
@@ -136,10 +134,20 @@ const App = {
 	data() {
 		return {
 			instance: null as AnyInstance,
+
+			// Reactive Localization snapshot (effective locale + IANA time
+			// zone + number format). `t()`, number and time displays read this
+			// and repaint on `localization-changed` / `i18n-bundles-updated`.
+			// See composables/use-localization.ts.
+			localization: createLocalizationSnapshot(),
+
 			view: 'loading' as 'loading' | 'error' | 'ready',
 			errorMessage: '',
 			model: EMPTY_MODEL(),
-			lastUpdated: '',
+			// Epoch ms of the last successful snapshot (0 = never). Formatted
+			// reactively via the `lastUpdatedLabel` computed so it repaints in
+			// the user's locale / time zone on a localization change.
+			lastUpdated: 0,
 			refreshing: false,
 			connected: false,
 
@@ -160,8 +168,23 @@ const App = {
 		greeting(): string {
 			const name = this.userDisplay || this.userId;
 			const h = new Date().getHours();
-			const part = h < 5 ? 'Hello' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-			return name ? `${part}, ${name}` : part;
+			const key = h < 5 ? 'app.dashboard.greeting.hello'
+				: h < 12 ? 'app.dashboard.greeting.morning'
+					: h < 18 ? 'app.dashboard.greeting.afternoon'
+						: 'app.dashboard.greeting.evening';
+			const fallbackPart = h < 5 ? 'Hello' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+			// Whole-sentence keys (named vs anonymous) so word order can differ
+			// per language; never concatenate the greeting and the name.
+			return name
+				? this.t(key + 'Named', { name }, `${fallbackPart}, ${name}`)
+				: this.t(key, undefined, fallbackPart);
+		},
+
+		// Locale/zone-aware time of the last refresh. Reads the snapshot via
+		// formatDate so it repaints on a localization change.
+		lastUpdatedLabel(): string {
+			if (!this.lastUpdated) return '';
+			return formatDate(this.localization, this.lastUpdated, { format: 'time' });
 		},
 
 		work(): any { return this.model.work; },
@@ -174,38 +197,40 @@ const App = {
 
 		routes(): any {
 			const r = this.model.routes;
-			return { ...r, contextPill: pillForContextState(r.contextState) };
+			// Severity pill is derived from the raw (untranslated) state so the
+			// bucketing keeps working regardless of display language.
+			return { ...r, contextPill: pillForContextState(r.contextStateRaw || r.contextState) };
 		},
 
 		throughput(): any {
 			const t = this.model.throughput;
 			return {
 				...t,
-				completedLabel: compact(t.completed),
-				failedLabel: compact(t.failed),
+				completedLabel: this.fmtCompact(t.completed),
+				failedLabel: this.fmtCompact(t.failed),
 			};
 		},
 
 		connections(): any {
 			const c = this.model.connections;
-			return { ...c, healthyLabel: `${formatNum(Math.max(0, c.remoteTotal - c.down))}/${formatNum(c.remoteTotal)}` };
+			return { ...c, healthyLabel: `${this.fmtNum(Math.max(0, c.remoteTotal - c.down))}/${this.fmtNum(c.remoteTotal)}` };
 		},
 
 		ops(): any {
 			const m = this.model;
 			const failed = m.throughput.failed;
 			const overall = (m.incidents.total > 0 || m.connections.down > 0)
-				? { cls: 'danger', label: 'Issues' }
+				? { cls: 'danger', label: this.t('app.dashboard.ops.overall.issues', undefined, 'Issues') }
 				: (failed > 0 || m.running.suspended > 0 || m.routes.stopped > 0)
-					? { cls: 'warn', label: 'Attention' }
-					: { cls: 'ok', label: 'Healthy' };
+					? { cls: 'warn', label: this.t('app.dashboard.ops.overall.attention', undefined, 'Attention') }
+					: { cls: 'ok', label: this.t('app.dashboard.ops.overall.healthy', undefined, 'Healthy') };
 			return {
-				runningProcesses: formatNum(m.running.active),
+				runningProcesses: this.fmtNum(m.running.active),
 				activeRoutes: m.routes.started,
 				totalRoutes: m.routes.total,
 				openIncidents: m.incidents.total,
 				failedExchanges: failed,
-				failedExchangesLabel: compact(failed),
+				failedExchangesLabel: this.fmtCompact(failed),
 				extIssues: m.connections.down,
 				overall,
 			};
@@ -213,6 +238,29 @@ const App = {
 	},
 
 	methods: {
+		/**
+		 * Reactive i18n lookup. Reads the localization snapshot so every
+		 * `{{ t(...) }}` binding repaints the moment the user switches language
+		 * or an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
+
+		// Locale-aware integer formatting (grouping separators) routed through
+		// the localization snapshot so counts repaint on a locale change.
+		fmtNum(n: number): string {
+			if (!Number.isFinite(n)) return '0';
+			return formatNumber(this.localization, n, { maximumFractionDigits: 0 });
+		},
+
+		// Compact count for the big KPIs (1234 -> 1.2k / 1.2万), locale-aware.
+		fmtCompact(n: number): string {
+			if (!Number.isFinite(n)) return '0';
+			if (Math.abs(n) >= 1000) return formatNumber(this.localization, n, { notation: 'compact', maximumFractionDigits: 1 });
+			return String(n);
+		},
+
 		onMounted() {
 			const vm = this;
 
@@ -220,6 +268,10 @@ const App = {
 			vm._messageListener = (event: MessageEvent) => {
 				if (event.origin !== window.location.origin) return;
 				const data: any = event.data || {};
+				// Localization changes (locale / time zone / bundle hot-reload)
+				// broadcast by the shell. Fold them into the reactive snapshot so
+				// every `t()` and date/number binding repaints.
+				if (handleLocalizationMessage(data.type, vm.localization, vm.instance)) return;
 				if (data.type === 'theme-changed' && data.theme) {
 					document.documentElement.dataset.theme = data.theme;
 				}
@@ -234,7 +286,12 @@ const App = {
 					document.documentElement.dataset.theme = theme;
 				} catch (_) { /* theme service unavailable */ }
 
-				try { instance.windowTitle = 'Dashboard'; } catch (_) {}
+				// Snapshot the effective Localization preference so `t()`, date
+				// and number bindings render in the user's language from the
+				// first paint.
+				refreshLocalization(vm.localization, vm.instance);
+
+				try { instance.windowTitle = vm.t('app.dashboard.title', undefined, 'Dashboard'); } catch (_) {}
 
 				vm.resolveUser();
 				vm._workspace = (() => { try { return instance.api.workspace as string; } catch (_) { return ''; } })();
@@ -298,7 +355,7 @@ const App = {
 		async load() {
 			try {
 				this.model = this.$markRaw(await this.buildSnapshot());
-				this.lastUpdated = new Date().toLocaleTimeString();
+				this.lastUpdated = Date.now();
 				this.view = 'ready';
 			} catch (e: any) {
 				this.errorMessage = (e && e.message) ? e.message : String(e);
@@ -311,7 +368,7 @@ const App = {
 			this.refreshing = true;
 			try {
 				this.model = this.$markRaw(await this.buildSnapshot());
-				this.lastUpdated = new Date().toLocaleTimeString();
+				this.lastUpdated = Date.now();
 				if (this.view !== 'ready') this.view = 'ready';
 			} catch (e: any) {
 				// Keep the last good data on a transient refresh failure; only show
@@ -331,7 +388,7 @@ const App = {
 		async buildSnapshot(): Promise<any> {
 			const bpm = this._bpm;
 			const eip = this._eip;
-			if (!bpm) throw new Error('BPM service is unavailable.');
+			if (!bpm) throw new Error(this.t('app.dashboard.error.bpmUnavailable', undefined, 'BPM service is unavailable.'));
 
 			const now = Date.now();
 			const model = EMPTY_MODEL();
@@ -348,7 +405,7 @@ const App = {
 			} catch (_) { /* keep zeros */ }
 			const nameFor = (key: string): string => {
 				const d = defByKey[key];
-				return (d && (d.name || '')) || humanizeKey(key) || key || 'Process';
+				return (d && (d.name || '')) || humanizeKey(key) || key || this.t('app.dashboard.fallback.process', undefined, 'Process');
 			};
 
 			// ---- Today's Work (every user) ----------------------------------
@@ -418,14 +475,14 @@ const App = {
 				const dueMs = t.due ? Date.parse(t.due) : NaN;
 				let pill = '', pillClass = 'neutral';
 				if (Number.isFinite(dueMs)) {
-					if (dueMs < now) { pill = 'Overdue'; pillClass = 'danger'; }
-					else if (dueMs - now < 24 * 3600 * 1000) { pill = 'Today'; pillClass = 'warn'; }
-					else { pill = `in ${ageLabel(now, dueMs)}`; pillClass = 'neutral'; }
+					if (dueMs < now) { pill = this.t('app.dashboard.pill.overdue', undefined, 'Overdue'); pillClass = 'danger'; }
+					else if (dueMs - now < 24 * 3600 * 1000) { pill = this.t('app.dashboard.pill.today', undefined, 'Today'); pillClass = 'warn'; }
+					else { pill = this.t('app.dashboard.pill.dueIn', { age: ageLabel(now, dueMs) }, `in ${ageLabel(now, dueMs)}`); pillClass = 'neutral'; }
 				}
 				const bkey = (t.businessKey || (t.processInstance && t.processInstance.businessKey)) || '';
 				return {
 					id: t.id,
-					title: t.name || humanizeKey(t.taskDefinitionKey) || 'Task',
+					title: t.name || humanizeKey(t.taskDefinitionKey) || this.t('app.dashboard.fallback.task', undefined, 'Task'),
 					sub: bkey ? `${nameFor(t.processDefinitionKey)} · ${bkey}` : nameFor(t.processDefinitionKey),
 					pill,
 					pillClass,
@@ -441,7 +498,7 @@ const App = {
 				const key = `${pk} ${tk}`;
 				let g = groupsMap.get(key);
 				if (!g) {
-					g = { processKey: pk, taskKey: tk, taskName: t.name || humanizeKey(tk) || 'Task', count: 0, oldest: Number.POSITIVE_INFINITY };
+					g = { processKey: pk, taskKey: tk, taskName: t.name || humanizeKey(tk) || this.t('app.dashboard.fallback.task', undefined, 'Task'), count: 0, oldest: Number.POSITIVE_INFINITY };
 				}
 				g.count++;
 				const c = Date.parse(t.created);
@@ -584,7 +641,7 @@ const App = {
 							routeId: r.routeId,
 							uri: e.uri,
 							component: e.component,
-							state: 'Down',
+							state: this.t('app.dashboard.connections.down', undefined, 'Down'),
 							label: endpointLabel(e.uri, e.component),
 						});
 					}
@@ -600,9 +657,16 @@ const App = {
 			let ctx = null;
 			try { ctx = await eip.getCamelContext(); } catch (_) { ctx = null; }
 			const ctxState = ctx && ctx.state ? String(ctx.state) : '';
+			// Keep the raw lifecycle state for severity bucketing; the display
+			// string below is localized.
+			model.routes.contextStateRaw = ctxState || (started > 0 ? 'Started' : routes.length > 0 ? 'Stopped' : '');
 			model.routes.contextState = ctxState
-				? humanizeKey(ctxState)
-				: (started > 0 ? 'Started' : routes.length > 0 ? 'Stopped' : '—');
+				? this.localizeContextState(ctxState)
+				: (started > 0
+					? this.t('app.dashboard.context.started', undefined, 'Started')
+					: routes.length > 0
+						? this.t('app.dashboard.context.stopped', undefined, 'Stopped')
+						: '—');
 			model.routes.uptime = (ctx && ctx.uptime) ? ctx.uptime : '';
 
 			// If JMX gave us nothing per route but the engine exposes aggregate
@@ -614,6 +678,17 @@ const App = {
 				model.throughput.inflight = ctx.exchangesInflight || 0;
 				if (mean === 0) model.throughput.meanLatency = formatLatency(ctx.meanProcessingTime);
 			}
+		},
+
+		// Map a Camel context state to a localized label. Known lifecycle
+		// states get a translated string; anything unexpected degrades to a
+		// humanized version of the raw value so the pill is never blank.
+		localizeContextState(state: string): string {
+			const s = String(state || '').toLowerCase();
+			if (s.startsWith('start')) return this.t('app.dashboard.context.started', undefined, 'Started');
+			if (s.startsWith('suspend')) return this.t('app.dashboard.context.suspended', undefined, 'Suspended');
+			if (s.startsWith('stop')) return this.t('app.dashboard.context.stopped', undefined, 'Stopped');
+			return humanizeKey(state);
 		},
 
 		// ---- Real-time -------------------------------------------------------

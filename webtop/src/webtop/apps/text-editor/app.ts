@@ -6,6 +6,7 @@ import {
 	createLocalizationSnapshot,
 	refreshLocalization,
 	handleLocalizationMessage,
+	translate,
 } from "../../composables/use-localization.js";
 
 // Side-effect import: registers the <wt-inspector> custom element so the
@@ -165,6 +166,10 @@ interface TextFile {
 	uuid: string;
 	hasWebTemplate: boolean;
 	scriptable: boolean;
+	// Raw jcr:lastModified of the backing node as last seen by this tab
+	// (ISO string, '' when unknown). Compared against incoming node events
+	// to detect out-of-band changes to the stored content.
+	modified: string;
 	// Object handed to <wt-inspector> as its target. Null for unsaved tabs
 	// (new file / dropped local file) that have no backing node yet.
 	inspectorItem: InspectorTarget | null;
@@ -264,14 +269,25 @@ interface LaunchOptions {
 	activeIndex?: number;
 }
 
-// Non-reactive compartment for language switching (kept outside data() so
-// ichigo.js does not Proxy-wrap it — Compartment relies on identity).
+// Non-reactive compartments for live reconfiguration (kept outside data() so
+// ichigo.js does not Proxy-wrap them — Compartment relies on identity).
+// languageCompartment swaps the per-file language; lineWrapCompartment toggles
+// soft line wrapping vs. horizontal scrolling for the whole editor.
 const languageCompartment = new Compartment();
+const lineWrapCompartment = new Compartment();
+
+// Resolve the line-wrap compartment's contents. When wrapping is on,
+// EditorView.lineWrapping sets the scroller to wrap long lines at the right
+// edge; when off, lines run past the edge and the scroller scrolls
+// horizontally (CodeMirror's default).
+function lineWrapExtension(wrap: boolean) {
+	return wrap ? EditorView.lineWrapping : [];
+}
 
 // Build the standard set of CodeMirror extensions used for every editor
 // state. The built-in search panel is suppressed because search/replace UI
 // lives in the left sidebar.
-function buildEditorExtensions(updateListener: any, languageExt: any) {
+function buildEditorExtensions(updateListener: any, languageExt: any, lineWrap: boolean) {
 	return [
 		lineNumbers(),
 		highlightActiveLineGutter(),
@@ -292,6 +308,7 @@ function buildEditorExtensions(updateListener: any, languageExt: any) {
 		]),
 		cmTheme,
 		languageCompartment.of(languageExt),
+		lineWrapCompartment.of(lineWrapExtension(lineWrap)),
 		updateListener,
 	];
 }
@@ -331,6 +348,10 @@ export const App = {
 			// zone). Handed to <wt-inspector> so its date displays repaint on
 			// `localization-changed`. See `composables/use-localization.ts`.
 			localization: createLocalizationSnapshot(),
+			// Editor view options. lineWrap toggles between horizontal
+			// scrolling (false, the default) and wrapping long lines at the
+			// editor's right edge (true). Persisted per user.
+			lineWrap: false,
 			// Pane visibility
 			sidebarPanelVisible: true,
 			sidebarPanelWidth: 260,
@@ -345,10 +366,6 @@ export const App = {
 			detailResizeStartX: 0,
 			detailResizeStartWidth: 0,
 			inspectorApi: null as any,
-			// Display options handed to <wt-inspector>. The file is already open
-			// in the editor, so the Inspector's "Open File" action is redundant —
-			// hide it. "Open Containing Folder" stays (wired to open a Browser).
-			inspectorOptions: { showOpenItem: false } as Record<string, any>,
 			// Mirrors whether the Inspector currently has an overlay open, so
 			// the editor can suppress its own global keyboard shortcuts
 			// (Ctrl+S / Ctrl+F) while the user edits inside the panel.
@@ -432,6 +449,17 @@ export const App = {
 			const f = (this as any).files[(this as any).currentFileIndex];
 			return f?.inspectorItem ?? null;
 		},
+		// Display options handed to <wt-inspector>. The file is already open
+		// in the editor, so the Inspector's "Open File" action is redundant —
+		// hide it. hasUnsavedChanges mirrors the active tab's dirty flag so
+		// the Inspector warns before destructive actions (version restore,
+		// cancel checkout) that the unsaved edits will be discarded.
+		inspectorOptions(): Record<string, any> {
+			return {
+				showOpenItem: false,
+				hasUnsavedChanges: !!(this as any).currentFile.isModified,
+			};
+		},
 	},
 	watch: {
 		dockSubtitle(val: string) {
@@ -439,6 +467,12 @@ export const App = {
 		},
 	},
 	methods: {
+		// Reactive i18n lookup. Reads the localization snapshot so every binding
+		// repaints when the user switches language in Preferences or an i18n
+		// bundle is hot-reloaded. See composables/use-localization.ts.
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
 		async onMounted() {
 			const vm = this;
 
@@ -539,6 +573,7 @@ export const App = {
 				refreshLocalization(vm.localization, vm.instance);
 
 				await vm.loadDetailPanelState();
+				await vm.loadLineWrapState();
 
 				vm.initEditor();
 
@@ -616,6 +651,46 @@ export const App = {
 		// ---- Pane toggles ----
 		toggleSidebarPanel() {
 			this.sidebarPanelVisible = !this.sidebarPanelVisible;
+		},
+		// ---- Line wrap (horizontal scroll vs. wrap at right edge) ----
+		toggleLineWrap() {
+			this.lineWrap = !this.lineWrap;
+			this.applyLineWrap();
+			this.persistLineWrapState();
+		},
+		// Reconfigure the live editor's wrap mode. The compartment is shared
+		// across every tab's EditorState, so each saved state carries the wrap
+		// value it was created with; restoring a tab reconfigures it back to the
+		// current setting (see restoreFileState) to keep all tabs consistent.
+		applyLineWrap() {
+			const vm = this;
+			if (!vm.editor) return;
+			vm.editor.dispatch({
+				effects: lineWrapCompartment.reconfigure(lineWrapExtension(vm.lineWrap)),
+			});
+		},
+		async persistLineWrapState() {
+			const vm = this;
+			const db = vm.instance?.api?.db;
+			const userID = vm.instance?.currentUser?.id || '*';
+			if (!db) return;
+			try {
+				await db.setUserSetting(userID, 'text-editor', 'lineWrap', {
+					enabled: vm.lineWrap,
+				});
+			} catch { /* ignore */ }
+		},
+		async loadLineWrapState() {
+			const vm = this;
+			const db = vm.instance?.api?.db;
+			const userID = vm.instance?.currentUser?.id || '*';
+			if (!db) return;
+			try {
+				const state = await db.getUserSetting(userID, 'text-editor', 'lineWrap');
+				if (state) {
+					vm.lineWrap = state.enabled ?? false;
+				}
+			} catch { /* ignore */ }
 		},
 		// ---- Inspector (right pane) ----
 		toggleDetailPanel() {
@@ -725,6 +800,14 @@ export const App = {
 			if (!node) return;
 			const file = vm.files[idx];
 			const prevMime = file.mimeType;
+			// Detect an out-of-band change to the *stored content* (version
+			// restore or cancel checkout from the Inspector or another client,
+			// a save from another editor, ...) by comparing the modification
+			// timestamps. Metadata-only edits don't move jcr:lastModified.
+			const prevModified = file.modified || '';
+			const nextModified = node.modified || '';
+			const contentMayHaveChanged = !!prevModified && !!nextModified
+				&& prevModified !== nextModified;
 			const hasWebTemplate = !!(node.properties || []).find(
 				(p: any) => p && p.name === 'web.template'
 			);
@@ -737,6 +820,7 @@ export const App = {
 			file.uuid = node.uuid || '';
 			file.hasWebTemplate = hasWebTemplate;
 			file.scriptable = node.scriptable || false;
+			file.modified = nextModified;
 			file.inspectorItem = nodeToInspectorTarget(node);
 			if (idx === vm.currentFileIndex) {
 				vm.currentFile.mimeType = file.mimeType;
@@ -762,6 +846,75 @@ export const App = {
 				// here so the preview reflects the change as well.
 				if (vm.previewOpen && vm.previewReady) vm.sendPreviewState();
 			}
+			// Stored content changed server-side: pull it into the editor so
+			// the tab tracks the node in real time. Never clobbers unsaved
+			// edits (force=false skips dirty tabs) — destructive flows confirm
+			// in the Inspector first and arrive via onInspectorContentReverted.
+			if (contentMayHaveChanged) {
+				vm.reloadFileContent(path, false);
+			}
+		},
+		// Re-pull the stored content of the given path into its tab. When
+		// `force` is false the reload is skipped while the tab has unsaved
+		// edits so the user's work is never discarded silently; when true the
+		// caller has already obtained the user's confirmation (Inspector
+		// version restore / cancel checkout).
+		async reloadFileContent(path: string, force: boolean) {
+			const vm = this;
+			const idx = vm.files.findIndex((f: TextFile) => f.path === path);
+			if (idx < 0) return;
+			let file = vm.files[idx];
+			if (!force && file.isModified) return;
+			const contentService = vm.instance?.api?.content;
+			if (!contentService) return;
+			let text: string;
+			try {
+				const node: Node | null = await contentService.getNode(path);
+				if (!node || !node.downloadUrl) return;
+				const response = await fetch(node.downloadUrl);
+				if (!response.ok) return;
+				text = await response.text();
+			} catch {
+				return;
+			}
+			// Re-resolve the tab: it may have moved or closed during the fetch.
+			const liveIdx = vm.files.findIndex((f: TextFile) => f.path === path);
+			if (liveIdx < 0) return;
+			file = vm.files[liveIdx];
+			if (!force && file.isModified) return;
+			// Identical content (e.g. the SSE echo of our own save): no-op so
+			// the cursor, selection and undo history stay untouched.
+			if (text === file.originalContent && !file.isModified) return;
+			file.originalContent = text;
+			file.isModified = false;
+			if (liveIdx === vm.currentFileIndex && vm.editor) {
+				// Set originalContent before dispatching so the update listener
+				// recomputes isModified as false and pushes the preview state.
+				vm.currentFile.originalContent = text;
+				vm.editor.dispatch({
+					changes: { from: 0, to: vm.editor.state.doc.length, insert: text },
+				});
+			} else {
+				// Background tab: rebuild its saved editor state. The undo
+				// history is dropped deliberately — it no longer matches the
+				// reverted content.
+				const languageExt = getLanguageExtension(file.mimeType, file.name);
+				editorStates.set(file.id, EditorState.create({
+					doc: text,
+					extensions: buildEditorExtensions(vm.createUpdateListener(), languageExt, vm.lineWrap),
+				}));
+			}
+		},
+		// The Inspector reverted the node's stored content (version restore or
+		// cancel checkout). The user already confirmed discarding any unsaved
+		// edits there, so force-reload the editor content.
+		onInspectorContentReverted(detail: any) {
+			const path = detail?.target?.path;
+			if (!path) return;
+			this.reloadFileContent(path, true);
+			// Pull the post-revert metadata (isCheckedOut, baseVersionName, …)
+			// right away instead of waiting for the SSE node event.
+			this.refreshActiveFileMetadata(path);
 		},
 		// Reconfigure CodeMirror's language for the active file (used when the
 		// MIME type changes via the Inspector). The language compartment is
@@ -862,7 +1015,7 @@ export const App = {
 			const updateListener = vm.createUpdateListener();
 			const state = EditorState.create({
 				doc: '',
-				extensions: buildEditorExtensions(updateListener, []),
+				extensions: buildEditorExtensions(updateListener, [], vm.lineWrap),
 			});
 			vm.editor = vm.$markRaw(new EditorView({ state, parent: container }));
 		},
@@ -928,6 +1081,10 @@ export const App = {
 			const savedState = editorStates.get(file.id);
 			if (vm.editor && savedState) {
 				vm.editor.setState(savedState);
+				// The restored state carries whatever wrap value it was created
+				// with; re-apply the current setting so every tab honors the
+				// active wrap mode.
+				vm.applyLineWrap();
 			}
 			if (vm.editor) {
 				vm.currentFile.content = vm.editor.state.doc.toString();
@@ -1019,10 +1176,12 @@ export const App = {
 				vm.saveCurrentFileState();
 			}
 
+			const untitledName = vm.t('app.text-editor.untitled', undefined, 'Untitled');
+
 			const newFile: TextFile = {
 				id: vm.generateFileID(),
 				path: '',
-				name: 'Untitled',
+				name: untitledName,
 				mimeType: 'text/plain',
 				originalContent: '',
 				isModified: false,
@@ -1034,13 +1193,14 @@ export const App = {
 				uuid: '',
 				hasWebTemplate: false,
 				scriptable: false,
+				modified: '',
 				inspectorItem: null,
 			};
 
 			if (vm.editor) {
 				editorStates.set(newFile.id, EditorState.create({
 					doc: '',
-					extensions: buildEditorExtensions(vm.createUpdateListener(), []),
+					extensions: buildEditorExtensions(vm.createUpdateListener(), [], vm.lineWrap),
 				}));
 			}
 
@@ -1049,7 +1209,7 @@ export const App = {
 			vm.restoreFileState(vm.currentFileIndex);
 
 			if (vm.instance) {
-				vm.instance.windowTitle = 'Untitled';
+				vm.instance.windowTitle = untitledName;
 			}
 		},
 		// ---- Drag & drop ----
@@ -1120,7 +1280,7 @@ export const App = {
 					const languageExt = getLanguageExtension(mimeType, file.name);
 					const editorState = EditorState.create({
 						doc: content,
-						extensions: buildEditorExtensions(vm.createUpdateListener(), languageExt),
+						extensions: buildEditorExtensions(vm.createUpdateListener(), languageExt, vm.lineWrap),
 					});
 
 					const newFile: TextFile = {
@@ -1138,6 +1298,7 @@ export const App = {
 						uuid: '',
 						hasWebTemplate: false,
 						scriptable: false,
+						modified: '',
 						inspectorItem: null,
 					};
 
@@ -1170,7 +1331,7 @@ export const App = {
 			try {
 				const contentService = vm.instance.api.content;
 				const node: Node | null = await contentService.getNode(path);
-				if (!node) throw new Error(`File not found: ${path}`);
+				if (!node) throw new Error(vm.t('app.text-editor.error.fileNotFound', { path }, `File not found: ${path}`));
 
 				if (vm.currentFileIndex >= 0) {
 					vm.saveCurrentFileState();
@@ -1179,7 +1340,7 @@ export const App = {
 				let content = '';
 				if (node.downloadUrl) {
 					const response = await fetch(node.downloadUrl);
-					if (!response.ok) throw new Error(`Failed to fetch: ${response.statusText}`);
+					if (!response.ok) throw new Error(vm.t('app.text-editor.error.fetchFailed', { status: response.statusText }, `Failed to fetch: ${response.statusText}`));
 					content = await response.text();
 				}
 
@@ -1188,7 +1349,7 @@ export const App = {
 
 				const editorState = EditorState.create({
 					doc: content,
-					extensions: buildEditorExtensions(vm.createUpdateListener(), languageExt),
+					extensions: buildEditorExtensions(vm.createUpdateListener(), languageExt, vm.lineWrap),
 				});
 
 				const hasWebTemplate = !!(node.properties || []).find(
@@ -1210,6 +1371,7 @@ export const App = {
 					uuid: node.uuid || '',
 					hasWebTemplate,
 					scriptable: node.scriptable || false,
+					modified: node.modified || '',
 					inspectorItem: nodeToInspectorTarget(node),
 				};
 
@@ -1222,7 +1384,7 @@ export const App = {
 					vm.instance.windowTitle = node.name;
 				}
 			} catch (error: any) {
-				vm.errorMessage = error?.message || String(error) || 'Failed to load file';
+				vm.errorMessage = error?.message || String(error) || vm.t('app.text-editor.error.loadFile', undefined, 'Failed to load file');
 			} finally {
 				vm.currentFile.isLoading = false;
 			}
@@ -1293,7 +1455,7 @@ export const App = {
 					throw error;
 				}
 			} catch (error: any) {
-				vm.errorMessage = error?.message || String(error) || 'Failed to save file';
+				vm.errorMessage = error?.message || String(error) || vm.t('app.text-editor.error.saveFile', undefined, 'Failed to save file');
 			} finally {
 				vm.isSaving = false;
 			}
@@ -1611,7 +1773,7 @@ export const App = {
 				}
 				vm.closeCheckinDialog();
 			} catch (error: any) {
-				vm.errorMessage = error?.message || String(error) || 'Failed to checkin';
+				vm.errorMessage = error?.message || String(error) || vm.t('app.text-editor.error.checkin', undefined, 'Failed to checkin');
 				vm.closeCheckinDialog();
 			}
 		},
@@ -1627,7 +1789,7 @@ export const App = {
 				}
 				vm.closeCheckinDialog();
 			} catch (error: any) {
-				vm.errorMessage = error?.message || String(error) || 'Failed to create checkpoint';
+				vm.errorMessage = error?.message || String(error) || vm.t('app.text-editor.error.checkpoint', undefined, 'Failed to create checkpoint');
 				vm.closeCheckinDialog();
 			}
 		},

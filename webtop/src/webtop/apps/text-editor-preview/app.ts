@@ -1,4 +1,10 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+	translate,
+} from "../../composables/use-localization.js";
 
 // Markdown parser
 import { marked } from "marked";
@@ -97,6 +103,29 @@ let previewChannel: BroadcastChannel | null = null;
 let previewAbort: AbortController | null = null;
 let renderSeq = 0;
 
+// Scroll preservation across preview refreshes. A live edit re-renders the
+// whole preview (markdown re-parsed, iframe reloaded), which would otherwise
+// snap the reader back to the top on every keystroke. We capture the current
+// scroll position just before a same-file content update and re-apply it once
+// the new content is laid out. A file switch skips capture so the new file
+// starts at the top. mode tells which container the offsets belong to:
+//   'markdown' → the .preview-body scroll container (top)
+//   'iframe'   → the preview iframe's own document (x/y)
+let pendingScrollRestore = false;
+let savedScroll: { mode: 'markdown' | 'iframe'; top: number; x: number; y: number } | null = null;
+
+// Window move/resize interaction watch. The shell (wt-window) toggles
+// wt-window-resizing / wt-window-dragging on our <html> for the duration of a
+// move or resize, and while either is set it disables pointer events on nested
+// iframes (see webtop-app.css). A browser layer optimization can then leave the
+// inner preview iframe unable to scroll once that style is lifted; we watch for
+// the markers and pin the inner document to overflow:auto for the duration of
+// the gesture so it stays a live scroll container, clearing the override once
+// the gesture ends. MutationObserver is kept in module scope (not reactive
+// data) because it carries privileged internals that must not be Proxy-wrapped.
+const WINDOW_INTERACTION_CLASSES = ['wt-window-resizing', 'wt-window-dragging'];
+let windowInteractionObserver: MutationObserver | null = null;
+
 export const App = {
 	data() {
 		return {
@@ -139,29 +168,42 @@ export const App = {
 			// path so it can tell us when that file gets closed.
 			pinned: false,
 			pinnedFilePath: '',
+			// Reactive Localization snapshot — see composables/use-localization.ts.
+			localization: createLocalizationSnapshot(),
 		};
 	},
 	methods: {
+		/** Reactive i18n lookup; repaints on language change. */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
 		async onMounted() {
 			const vm = this;
 
 			vm.messageListener = (event: MessageEvent) => {
 				if (event.origin !== window.location.origin) return;
 				const { type, ...payload } = event.data || {};
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) {
+					return;
+				}
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
 				}
 			};
 			window.addEventListener('message', vm.messageListener);
 
+			// Recover inner-iframe scrolling after a window move/resize ends.
+			vm.startWindowInteractionWatch();
+
 			window.appLaunch = async (instance: ApplicationInstance, options?: LaunchOptions) => {
 				vm.instance = vm.$markRaw(instance);
 				vm.previewKey = options?.previewKey || '';
+				refreshLocalization(vm.localization, vm.instance);
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
 
-				vm.instance.windowTitle = 'Preview';
+				vm.instance.windowTitle = vm.t('app.text-editor-preview.toolbar.label', undefined, 'Preview');
 				vm.instance.setDisplayInfo({ subtitle: '' });
 
 				instance.appState = () => ({ previewKey: vm.previewKey });
@@ -188,6 +230,7 @@ export const App = {
 			vm.notifyClosed();
 			vm.stopPingMonitor();
 			vm.stopReadyRetry();
+			vm.stopWindowInteractionWatch();
 			if (previewChannel) {
 				try { previewChannel.close(); } catch { /* ignore */ }
 				previewChannel = null;
@@ -330,6 +373,16 @@ export const App = {
 			// the user's chosen output extension isn't clobbered on every
 			// keystroke (the editor re-sends a MIME-guessed default each time).
 			const fileChanged = (msg.filePath || '') !== vm.filePath;
+			// Same-file content edit: remember where the reader is so the
+			// refreshed preview lands back at the same spot. Capture now, while
+			// vm's mode flags and the DOM still reflect the preview on screen.
+			// A file switch starts fresh at the top instead (the markdown
+			// scroll container is reused across files, so reset it explicitly).
+			if (fileChanged) {
+				vm.clearScrollCapture();
+			} else {
+				vm.captureScroll();
+			}
 			vm.fileName = msg.fileName || '';
 			vm.mimeType = msg.mimeType || 'text/plain';
 			vm.content = msg.content || '';
@@ -350,13 +403,133 @@ export const App = {
 				vm.previewExtension = guessExtensionFromMime(vm.mimeType);
 			}
 
-			// Window title reflects active filename.
-			if (vm.instance) {
-				vm.instance.windowTitle = vm.fileName ? `Preview — ${vm.fileName}` : 'Preview';
-				vm.instance.setDisplayInfo({ subtitle: vm.fileName });
-			}
+				// Window title reflects active filename.
+				if (vm.instance) {
+					const previewLabel = vm.t('app.text-editor-preview.toolbar.label', undefined, 'Preview');
+					vm.instance.windowTitle = vm.fileName
+						? vm.t('app.text-editor-preview.window.titleWithFile', { fileName: vm.fileName }, `${previewLabel} — ${vm.fileName}`)
+						: previewLabel;
+					vm.instance.setDisplayInfo({ subtitle: vm.fileName });
+				}
 
 			vm.updatePreview();
+
+			// A new file always starts at the top. The markdown scroll
+			// container persists across file switches, so reset it once the
+			// new content is in place. (Iframe previews reload into a fresh
+			// document that already starts at the top.)
+			if (fileChanged) {
+				vm.$nextTick(() => {
+					const el = vm.getScrollContainer();
+					if (el) el.scrollTop = 0;
+				});
+			}
+		},
+		// ---- Scroll preservation ----
+		getScrollContainer(): HTMLElement | null {
+			return document.querySelector('.preview-body') as HTMLElement | null;
+		},
+		getPreviewIframe(): HTMLIFrameElement | null {
+			return document.querySelector('.preview-iframe') as HTMLIFrameElement | null;
+		},
+		// Snapshot the current scroll position of whichever preview is on
+		// screen. Reads the live DOM so it reflects the actual rendered
+		// preview, independent of the mode flags about to be overwritten.
+		captureScroll() {
+			const vm = this;
+			if (vm.isHtml || vm.isServerRendered) {
+				const win = vm.getPreviewIframe()?.contentWindow;
+				if (win) {
+					try {
+						savedScroll = { mode: 'iframe', top: 0, x: win.scrollX || 0, y: win.scrollY || 0 };
+						pendingScrollRestore = true;
+						return;
+					} catch { /* cross-origin or not ready — skip */ }
+				}
+			} else if (vm.isMarkdown) {
+				const el = vm.getScrollContainer();
+				if (el) {
+					savedScroll = { mode: 'markdown', top: el.scrollTop || 0, x: 0, y: 0 };
+					pendingScrollRestore = true;
+					return;
+				}
+			}
+			vm.clearScrollCapture();
+		},
+		clearScrollCapture() {
+			pendingScrollRestore = false;
+			savedScroll = null;
+		},
+		// Re-apply a captured markdown scroll once the re-parsed HTML is in
+		// the DOM. Iframe previews restore on their load event instead (see
+		// onIframeLoad), because their content arrives asynchronously.
+		restoreMarkdownScroll() {
+			const vm = this;
+			const s = savedScroll;
+			if (!pendingScrollRestore || !s || s.mode !== 'markdown') return;
+			const top = s.top;
+			vm.$nextTick(() => {
+				const el = vm.getScrollContainer();
+				if (el) el.scrollTop = top;
+				vm.clearScrollCapture();
+			});
+		},
+		// Restore a captured iframe scroll after the reloaded document lays
+		// out. Fires for both the plain-HTML (srcdoc) and server-rendered
+		// (blob src) iframes; a no-op unless a same-file update captured a
+		// position first (a file switch / first load leaves it pending=false).
+		onIframeLoad(event: Event) {
+			const s = savedScroll;
+			if (!pendingScrollRestore || !s || s.mode !== 'iframe') return;
+			const win = (event.target as HTMLIFrameElement)?.contentWindow;
+			if (win) {
+				try { win.scrollTo(s.x, s.y); } catch { /* ignore */ }
+			}
+			this.clearScrollCapture();
+		},
+		// ---- Window interaction watch (move / resize) ----
+		hasInteractionClass(root: HTMLElement): boolean {
+			return WINDOW_INTERACTION_CLASSES.some((c) => root.classList.contains(c));
+		},
+		startWindowInteractionWatch() {
+			const vm = this;
+			if (windowInteractionObserver) return;
+			const root = document.documentElement;
+			let wasInteracting = vm.hasInteractionClass(root);
+			windowInteractionObserver = new MutationObserver(() => {
+				const isInteracting = vm.hasInteractionClass(root);
+				// The gesture just began or ended:
+				// pin the inner preview to overflow:auto for its duration so
+					// scrolling survives, then release the override once it settles.
+				if (isInteracting !== wasInteracting) {
+					vm.setInnerPreviewOverflow(isInteracting);
+				}
+				wasInteracting = isInteracting;
+			});
+			windowInteractionObserver.observe(root, { attributes: true, attributeFilter: ['class'] });
+		},
+		stopWindowInteractionWatch() {
+			if (windowInteractionObserver) {
+				try { windowInteractionObserver.disconnect(); } catch { /* ignore */ }
+				windowInteractionObserver = null;
+			}
+		},
+		// Hold the inner preview iframe's document as an explicit scroll
+		// container while the window is being moved/resized, then release it.
+		// During the gesture the shell disables pointer events on nested
+		// iframes, and a browser layer optimization can otherwise leave the
+		// inner document unable to scroll once that style is lifted; overflow:
+		// auto keeps it a live scroll container, and removing the override
+		// afterward restores its default. Markdown previews have no inner
+		// iframe, so this is a no-op there.
+		setInnerPreviewOverflow(active: boolean) {
+			const el = this.getPreviewIframe()?.contentDocument?.documentElement;
+			if (!el) return;
+			if (active) {
+				el.style.overflow = 'auto';
+			} else {
+				el.style.removeProperty('overflow');
+			}
 		},
 		// ---- Preview rendering ----
 		updatePreview() {
@@ -389,8 +562,9 @@ export const App = {
 					marked.setOptions({ breaks: true, gfm: true });
 					vm.previewHtml = marked.parse(vm.content) as string;
 				} catch {
-					vm.previewHtml = '<p class="text-danger">Error rendering preview</p>';
+					vm.previewHtml = `<p class="text-danger">${vm.t('app.text-editor-preview.error.markdownRender', undefined, 'Error rendering preview')}</p>`;
 				}
+				vm.restoreMarkdownScroll();
 				return;
 			}
 
@@ -417,12 +591,12 @@ export const App = {
 			const vm = this;
 			if (!vm.isServerRendered) return;
 			if (!vm.filePath) {
-				vm.previewError = 'File must be saved before preview is available.';
+				vm.previewError = vm.t('app.text-editor-preview.error.notSaved', undefined, 'File must be saved before preview is available.');
 				vm.previewLoading = false;
 				return;
 			}
 			if (!vm.workspace) {
-				vm.previewError = 'Workspace is not available.';
+				vm.previewError = vm.t('app.text-editor-preview.error.noWorkspace', undefined, 'Workspace is not available.');
 				vm.previewLoading = false;
 				return;
 			}
@@ -435,7 +609,7 @@ export const App = {
 			if (vm.isTemplated) {
 				let ext = (vm.previewExtension || 'html').trim();
 				if (!ext) {
-					vm.previewError = 'Enter a file extension (e.g. html).';
+					vm.previewError = vm.t('app.text-editor-preview.error.enterExtension', undefined, 'Enter a file extension (e.g. html).');
 					vm.previewLoading = false;
 					return;
 				}
@@ -479,7 +653,7 @@ export const App = {
 			}).then(async (resp) => {
 				if (!resp.ok) {
 					const text = await resp.text().catch(() => '');
-					throw new Error(text || `Render failed: ${resp.status} ${resp.statusText}`);
+					throw new Error(text || vm.t('app.text-editor-preview.error.renderFailed', { status: resp.status, statusText: resp.statusText }, `Render failed: ${resp.status} ${resp.statusText}`));
 				}
 				const contentType = resp.headers.get('content-type') || '';
 				const isHtml = /\b(text\/html|application\/xhtml\+xml)\b/i.test(contentType);
@@ -504,7 +678,7 @@ export const App = {
 			}).catch((e: any) => {
 				if (e?.name === 'AbortError') return; // superseded — ignore
 				if (seq !== renderSeq) return;
-				vm.previewError = e?.message || String(e) || 'Failed to render preview.';
+				vm.previewError = e?.message || String(e) || vm.t('app.text-editor-preview.error.renderGeneric', undefined, 'Failed to render preview.');
 			}).finally(() => {
 				if (seq === renderSeq) vm.previewLoading = false;
 				if (previewAbort === controller) previewAbort = null;

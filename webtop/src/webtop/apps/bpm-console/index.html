@@ -27,10 +27,10 @@
 				@pointerup="onRefreshPointerUp"
 				@pointerleave="cancelLiveTailPress"
 				@pointercancel="cancelLiveTailPress"
-				:title="liveTailActive ? 'Live tail ON — click to stop' : 'Refresh (hold 1.5s for live tail)'">
+				:title="liveTailActive ? t('app.bpm-console.toolbar.liveTailOn', undefined, 'Live tail ON — click to stop') : t('app.bpm-console.toolbar.refresh', undefined, 'Refresh (hold 1.5s for live tail)')">
 				<i class="bi bi-arrow-clockwise" :class="{spin: liveTailActive}"></i>
 			</button>
-			<button class="btn-icon" @click="showDeployDialog" title="Deploy BPMN">
+			<button class="btn-icon" @click="showDeployDialog" :title="t('app.bpm-console.toolbar.deployBpmn', undefined, 'Deploy BPMN')">
 				<i class="bi bi-cloud-upload"></i>
 			</button>
 		</div>
@@ -40,13 +40,13 @@
 			<button class="btn-icon"
 				:class="{active: viewMode === 'diagram'}"
 				:disabled="!selectedDef"
-				@click="viewMode = 'diagram'" title="Diagram view">
+				@click="viewMode = 'diagram'" :title="t('app.bpm-console.toolbar.diagramView', undefined, 'Diagram view')">
 				<i class="bi bi-diagram-3"></i>
 			</button>
 			<button class="btn-icon"
 				:class="{active: viewMode === 'xml'}"
 				:disabled="!selectedDef"
-				@click="switchToXmlView" title="XML view">
+				@click="switchToXmlView" :title="t('app.bpm-console.toolbar.xmlView', undefined, 'XML view')">
 				<i class="bi bi-code-slash"></i>
 			</button>
 		</div>
@@ -55,17 +55,17 @@
 		<div class="toolbar-group">
 			<button class="btn-icon"
 				:disabled="!selectedDef || viewMode !== 'diagram'"
-				@click="zoomIn" title="Zoom in">
+				@click="zoomIn" :title="t('app.bpm-console.toolbar.zoomIn', undefined, 'Zoom in')">
 				<i class="bi bi-zoom-in"></i>
 			</button>
 			<button class="btn-icon"
 				:disabled="!selectedDef || viewMode !== 'diagram'"
-				@click="zoomOut" title="Zoom out">
+				@click="zoomOut" :title="t('app.bpm-console.toolbar.zoomOut', undefined, 'Zoom out')">
 				<i class="bi bi-zoom-out"></i>
 			</button>
 			<button class="btn-icon"
 				:disabled="!selectedDef || viewMode !== 'diagram'"
-				@click="zoomFit" title="Fit to screen">
+				@click="zoomFit" :title="t('app.bpm-console.toolbar.zoomFit', undefined, 'Fit to screen')">
 				<i class="bi bi-arrows-fullscreen"></i>
 			</button>
 		</div>
@@ -75,7 +75,7 @@
 			<button class="btn-icon"
 				:disabled="!selectedDef || selectedDef.suspended"
 				@click="startProcessDialog"
-				:title="selectedDef && selectedDef.suspended ? 'Cannot start: definition is suspended' : 'Start new instance'">
+				:title="selectedDef && selectedDef.suspended ? t('app.bpm-console.toolbar.startInstanceDisabled', undefined, 'Cannot start: definition is suspended') : t('app.bpm-console.toolbar.startInstance', undefined, 'Start new instance')">
 				<i class="bi bi-play-fill"></i>
 			</button>
 		</div>
@@ -85,28 +85,28 @@
 		<!-- Right: Pane Toggles -->
 		<div class="pane-toggles">
 			<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
-				@click="toggleSidebarPanel" title="Toggle Sidebar">
+				@click="toggleSidebarPanel" :title="t('app.bpm-console.toolbar.toggleSidebar', undefined, 'Toggle Sidebar')">
 				<i class="bi bi-layout-sidebar-inset"></i>
 			</button>
 			<button class="btn-icon pane-toggle-btn" :class="{active: bottomPanelVisible}"
-				@click="toggleBottomPanel" title="Toggle Lists">
+				@click="toggleBottomPanel" :title="t('app.bpm-console.toolbar.toggleLists', undefined, 'Toggle Lists')">
 				<i class="bi bi-layout-split"></i>
 			</button>
 			<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
-				@click="toggleDetailPanel" title="Toggle Details">
+				@click="toggleDetailPanel" :title="t('app.bpm-console.toolbar.toggleDetails', undefined, 'Toggle Details')">
 				<i class="bi bi-layout-sidebar-inset-reverse"></i>
 			</button>
 		</div>
 
 		<!-- Right: Window Controls -->
 		<div class="window-controls">
-			<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+			<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize', undefined, 'Minimize')">
 				<i class="bi bi-dash-lg"></i>
 			</button>
-			<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+			<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize', undefined, 'Maximize')">
 				<i class="bi bi-square"></i>
 			</button>
-			<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+			<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close', undefined, 'Close')">
 				<i class="bi bi-x-lg"></i>
 			</button>
 		</div>
@@ -127,9 +127,9 @@
 					<input type="text" class="wt"
 						v-model="defSearch"
 						@input="filterDefs"
-						placeholder="Filter processes...">
+						:placeholder="t('app.bpm-console.filter.placeholder', undefined, 'Filter processes...')">
 					<div v-if="defSearch" class="input-group-actions">
-						<button class="input-group-btn" @click="clearDefSearch" title="Clear">
+						<button class="input-group-btn" @click="clearDefSearch" :title="t('app.bpm-console.action.clear', undefined, 'Clear')">
 							<i class="bi bi-x"></i>
 						</button>
 					</div>
@@ -139,7 +139,7 @@
 			<!-- Process tree -->
 			<div class="list-body">
 				<div v-if="filteredGroups.length === 0 && !isLoading" class="list-empty-message">
-					No process definitions found
+					{{ t('app.bpm-console.empty.noDefinitions', undefined, 'No process definitions found') }}
 				</div>
 				<div v-for="group in filteredGroups" :key="group.key">
 					<!-- Group header -->
@@ -155,7 +155,7 @@
 							<div class="tree-group-name">{{ group.name }}</div>
 							<div class="tree-group-key">{{ group.key }}</div>
 						</div>
-						<span v-if="groupIncidentCounts[group.key]" class="bpm-badge bpm-badge-incident" title="Total incidents">
+						<span v-if="groupIncidentCounts[group.key]" class="bpm-badge bpm-badge-incident" :title="t('app.bpm-console.badge.totalIncidents', undefined, 'Total incidents')">
 							{{ groupIncidentCounts[group.key] }}
 						</span>
 						<span class="bpm-badge bpm-badge-version">{{ group.versions.length }}</span>
@@ -170,24 +170,24 @@
 							<div class="tree-leaf-info">
 								<div class="tree-leaf-name">
 									<span>v{{ def.version }}</span>
-									<span v-if="def.version === group.latestVersion" class="bpm-badge bpm-badge-latest">Latest</span>
+									<span v-if="def.version === group.latestVersion" class="bpm-badge bpm-badge-latest">{{ t('app.bpm-console.badge.latest', undefined, 'Latest') }}</span>
 									<span v-if="defInstanceCounts[def.id] && defInstanceCounts[def.id].active > 0"
-										class="bpm-badge bpm-badge-active" title="Active instances">
+										class="bpm-badge bpm-badge-active" :title="t('app.bpm-console.badge.activeInstances', undefined, 'Active instances')">
 										<i class="bi bi-play-fill"></i>{{ defInstanceCounts[def.id].active }}
 									</span>
 									<span v-if="defIncidentCounts[def.id]"
-										class="bpm-badge bpm-badge-incident" title="Incidents">
+										class="bpm-badge bpm-badge-incident" :title="t('app.bpm-console.badge.incidents', undefined, 'Incidents')">
 										<i class="bi bi-exclamation-triangle-fill"></i>{{ defIncidentCounts[def.id] }}
 									</span>
 									<span v-if="defInstanceCounts[def.id] && defInstanceCounts[def.id].ended > 0"
-										class="bpm-badge bpm-badge-ended" title="Ended instances">
+										class="bpm-badge bpm-badge-ended" :title="t('app.bpm-console.badge.endedInstances', undefined, 'Ended instances')">
 										<i class="bi bi-check2"></i>{{ defInstanceCounts[def.id].ended }}
 									</span>
 								</div>
 								<div v-if="def.deploymentName" class="tree-leaf-sub">{{ def.deploymentName }}</div>
 							</div>
-							<i v-if="def.suspended" class="bi bi-pause-circle bpm-state-icon suspended" title="Suspended"></i>
-							<i v-else class="bi bi-check-circle-fill bpm-state-icon active" title="Active"></i>
+							<i v-if="def.suspended" class="bi bi-pause-circle bpm-state-icon suspended" :title="t('app.bpm-console.status.suspended', undefined, 'Suspended')"></i>
+							<i v-else class="bi bi-check-circle-fill bpm-state-icon active" :title="t('app.bpm-console.status.active', undefined, 'Active')"></i>
 						</div>
 					</div>
 				</div>
@@ -209,20 +209,20 @@
 					<span class="upper-title">
 						<i class="bi bi-diagram-3 me-2"></i>
 						<span v-if="selectedDef">{{ (selectedDef.name || selectedDef.key) + ' v' + selectedDef.version }}</span>
-						<span v-else>Select a process definition</span>
+						<span v-else>{{ t('app.bpm-console.diagram.selectDefinition', undefined, 'Select a process definition') }}</span>
 					</span>
 				</div>
 
 				<!-- Empty state -->
 				<div v-if="!selectedDef" class="bpm-empty-state">
 					<i class="bi bi-diagram-3"></i>
-					<span>Select a process definition to view details</span>
+					<span>{{ t('app.bpm-console.diagram.selectDefinitionHint', undefined, 'Select a process definition to view details') }}</span>
 				</div>
 
 				<!-- Loading state -->
 				<div v-if="selectedDef && !bpmnXml && isLoading" class="bpm-empty-state">
 					<span class="spinner"></span>
-					<span>Loading BPMN...</span>
+					<span>{{ t('app.bpm-console.diagram.loadingBpmn', undefined, 'Loading BPMN...') }}</span>
 				</div>
 
 				<!-- BPMN Diagram View -->
@@ -267,7 +267,7 @@
 							<rect class="pool-header" x="0" y="0" width="30" :height="el.height"/>
 							<text class="pool-label"
 								:transform="'translate(15, ' + (el.height / 2) + ') rotate(-90)'"
-								text-anchor="middle" dominant-baseline="middle">{{ el.name || 'Pool' }}</text>
+								text-anchor="middle" dominant-baseline="middle">{{ el.name || t('app.bpm-console.diagram.poolLabel', undefined, 'Pool') }}</text>
 						</g>
 
 						<!-- Lanes -->
@@ -278,7 +278,7 @@
 							<rect class="lane-header" x="0" y="0" width="30" :height="el.height"/>
 							<text class="lane-label"
 								:transform="'translate(15, ' + (el.height / 2) + ') rotate(-90)'"
-								text-anchor="middle" dominant-baseline="middle">{{ el.name || 'Lane' }}</text>
+								text-anchor="middle" dominant-baseline="middle">{{ el.name || t('app.bpm-console.diagram.laneLabel', undefined, 'Lane') }}</text>
 						</g>
 
 						<!-- Connections -->
@@ -484,7 +484,7 @@
 								<rect class="element-shape subprocess-shape" x="0" y="0" :width="el.width" :height="el.height"
 									:class="{ 'event-subprocess': el.triggeredByEvent }"
 									:stroke-dasharray="el.triggeredByEvent ? '5,3' : 'none'"/>
-								<text class="subprocess-header-label" x="10" y="20">{{ el.name || 'Sub-Process' }}</text>
+								<text class="subprocess-header-label" x="10" y="20">{{ el.name || t('app.bpm-console.diagram.subProcessLabel', undefined, 'Sub-Process') }}</text>
 							</g>
 
 							<!-- Exclusive Gateway -->
@@ -598,7 +598,7 @@
 				<!-- No data state -->
 				<div v-if="selectedDef && !bpmnXml && !isLoading" class="bpm-empty-state">
 					<i class="bi bi-exclamation-circle"></i>
-					<span>No BPMN data available</span>
+					<span>{{ t('app.bpm-console.diagram.noBpmnData', undefined, 'No BPMN data available') }}</span>
 				</div>
 			</div>
 
@@ -614,19 +614,19 @@
 						<div class="detail-tab" :class="{ active: bottomTab === 'instances' }"
 							@click="switchBottomTab('instances')">
 							<i class="bi bi-list-task"></i>
-							<span>Instances</span>
+							<span>{{ t('app.bpm-console.tab.instances', undefined, 'Instances') }}</span>
 							<span v-if="filteredInstances.length" class="tab-count">({{ filteredInstances.length }})</span>
 						</div>
 						<div class="detail-tab" :class="{ active: bottomTab === 'tasks' }"
 							@click="switchBottomTab('tasks')">
 							<i class="bi bi-person-check"></i>
-							<span>User Tasks</span>
+							<span>{{ t('app.bpm-console.tab.userTasks', undefined, 'User Tasks') }}</span>
 							<span v-if="filteredTasks.length" class="tab-count">({{ filteredTasks.length }})</span>
 						</div>
 						<div class="detail-tab" :class="{ active: bottomTab === 'incidents', 'has-incidents': filteredIncidents.length > 0 }"
 							@click="switchBottomTab('incidents')">
 							<i class="bi bi-exclamation-triangle-fill"></i>
-							<span>Incidents</span>
+							<span>{{ t('app.bpm-console.tab.incidents', undefined, 'Incidents') }}</span>
 							<span v-if="filteredIncidents.length" class="tab-count">({{ filteredIncidents.length }})</span>
 						</div>
 					</div>
@@ -642,18 +642,18 @@
 					<table class="wt">
 						<thead>
 							<tr>
-								<th class="text-start">Instance ID</th>
-								<th class="text-start">Business Key</th>
-								<th class="text-start">Started</th>
-								<th class="text-start">Status</th>
-								<th class="text-start">Incidents</th>
-								<th class="col-actions">Actions</th>
+								<th class="text-start">{{ t('app.bpm-console.column.instanceId', undefined, 'Instance ID') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.businessKey', undefined, 'Business Key') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.started', undefined, 'Started') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.status', undefined, 'Status') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.incidents', undefined, 'Incidents') }}</th>
+								<th class="col-actions">{{ t('app.bpm-console.column.actions', undefined, 'Actions') }}</th>
 							</tr>
 						</thead>
 						<tbody>
 							<tr v-if="filteredInstances.length === 0" class="item-empty">
 								<td colspan="6">
-									{{ diagramFilterElementId ? 'No instances at this element' : (selectedDef || selectedGroup ? 'No instances found' : 'Select a process definition to see instances') }}
+									{{ diagramFilterElementId ? t('app.bpm-console.empty.noInstancesAtElement', undefined, 'No instances at this element') : (selectedDef || selectedGroup ? t('app.bpm-console.empty.noInstances', undefined, 'No instances found') : t('app.bpm-console.empty.selectForInstances', undefined, 'Select a process definition to see instances')) }}
 								</td>
 							</tr>
 							<tr v-for="inst in filteredInstances" :key="inst.id"
@@ -664,27 +664,27 @@
 								<td>{{ inst.businessKey || '—' }}</td>
 								<td>{{ formatDateShort(inst.startTime) }}</td>
 								<td>
-									<span v-if="inst.ended" class="bpm-status ended">Ended</span>
-									<span v-else-if="inst.suspended" class="bpm-status suspended">Suspended</span>
-									<span v-else class="bpm-status active">Active</span>
+									<span v-if="inst.ended" class="bpm-status ended">{{ t('app.bpm-console.status.ended', undefined, 'Ended') }}</span>
+									<span v-else-if="inst.suspended" class="bpm-status suspended">{{ t('app.bpm-console.status.suspended', undefined, 'Suspended') }}</span>
+									<span v-else class="bpm-status active">{{ t('app.bpm-console.status.active', undefined, 'Active') }}</span>
 								</td>
 								<td>
 									<span v-if="inst.incidentCount > 0" class="bpm-status incident bpm-status-clickable"
 										@click.stop="switchToIncidents(); diagramFilterInstanceIds = { [inst.id]: true }"
-										title="View incidents">
+										:title="t('app.bpm-console.action.viewIncidents', undefined, 'View incidents')">
 										<i class="bi bi-exclamation-triangle-fill"></i>{{ inst.incidentCount }}
 									</span>
 									<span v-else class="text-muted">—</span>
 								</td>
 								<td class="col-actions">
 									<div class="actions-cell">
-										<button v-if="!inst.ended && !inst.suspended" class="btn-icon" @click.stop="suspendInstance(inst.id)" title="Suspend">
+										<button v-if="!inst.ended && !inst.suspended" class="btn-icon" @click.stop="suspendInstance(inst.id)" :title="t('app.bpm-console.action.suspendInstance', undefined, 'Suspend')">
 											<i class="bi bi-pause"></i>
 										</button>
-										<button v-if="!inst.ended && inst.suspended" class="btn-icon" @click.stop="activateInstance(inst.id)" title="Activate">
+										<button v-if="!inst.ended && inst.suspended" class="btn-icon" @click.stop="activateInstance(inst.id)" :title="t('app.bpm-console.action.activateInstance', undefined, 'Activate')">
 											<i class="bi bi-play"></i>
 										</button>
-										<button v-if="!inst.ended" class="btn-icon" @click.stop="confirmCancelInstance(inst)" title="Cancel">
+										<button v-if="!inst.ended" class="btn-icon" @click.stop="confirmCancelInstance(inst)" :title="t('app.bpm-console.action.cancelInstance', undefined, 'Cancel')">
 											<i class="bi bi-x-circle"></i>
 										</button>
 									</div>
@@ -699,18 +699,18 @@
 					<table class="wt">
 						<thead>
 							<tr>
-								<th class="text-start">Task Name</th>
-								<th class="text-start">Assignee</th>
-								<th class="text-start">Process Instance</th>
-								<th class="text-start">Created</th>
-								<th class="text-start">Due</th>
-								<th class="col-actions">Actions</th>
+								<th class="text-start">{{ t('app.bpm-console.column.taskName', undefined, 'Task Name') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.assignee', undefined, 'Assignee') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.processInstance', undefined, 'Process Instance') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.created', undefined, 'Created') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.due', undefined, 'Due') }}</th>
+								<th class="col-actions">{{ t('app.bpm-console.column.actions', undefined, 'Actions') }}</th>
 							</tr>
 						</thead>
 						<tbody>
 							<tr v-if="filteredTasks.length === 0" class="item-empty">
 								<td colspan="6">
-									{{ diagramFilterElementId ? 'No tasks at this element' : (selectedDef || selectedGroup ? 'No open tasks found' : 'Select a process definition to see tasks') }}
+									{{ diagramFilterElementId ? t('app.bpm-console.empty.noTasksAtElement', undefined, 'No tasks at this element') : (selectedDef || selectedGroup ? t('app.bpm-console.empty.noTasks', undefined, 'No open tasks found') : t('app.bpm-console.empty.selectForTasks', undefined, 'Select a process definition to see tasks')) }}
 								</td>
 							</tr>
 							<tr v-for="task in filteredTasks" :key="task.id"
@@ -720,20 +720,20 @@
 								<td>{{ task.name || task.taskDefinitionKey }}</td>
 								<td>
 									<span v-if="task.assignee">{{ task.assignee }}</span>
-									<span v-else class="text-muted">Unassigned</span>
+									<span v-else class="text-muted">{{ t('app.bpm-console.task.unassigned', undefined, 'Unassigned') }}</span>
 								</td>
 								<td>{{ task.processInstanceId || '—' }}</td>
 								<td>{{ formatDateShort(task.created) }}</td>
 								<td :class="{ 'text-danger': isOverdue(task.due), 'text-muted': !task.due }">{{ task.due ? formatDateShort(task.due) : '—' }}</td>
 								<td class="col-actions">
 									<div class="actions-cell">
-										<button class="btn-icon" @click.stop="showAssignTaskDialog(task.id)" title="Assign">
+										<button class="btn-icon" @click.stop="showAssignTaskDialog(task.id)" :title="t('app.bpm-console.action.assign', undefined, 'Assign')">
 											<i class="bi bi-person-check"></i>
 										</button>
-										<button v-if="task.assignee" class="btn-icon" @click.stop="unclaimTask(task.id)" title="Unassign">
+										<button v-if="task.assignee" class="btn-icon" @click.stop="unclaimTask(task.id)" :title="t('app.bpm-console.action.unassign', undefined, 'Unassign')">
 											<i class="bi bi-person-dash"></i>
 										</button>
-										<button class="btn-icon" @click.stop="showCompleteTaskDialog(task)" title="Complete">
+										<button class="btn-icon" @click.stop="showCompleteTaskDialog(task)" :title="t('app.bpm-console.action.complete', undefined, 'Complete')">
 											<i class="bi bi-check-lg"></i>
 										</button>
 									</div>
@@ -746,30 +746,30 @@
 				<!-- Incidents tab -->
 				<div v-if="bottomTab === 'incidents'" class="content-list">
 					<div v-if="selectedIncidentCount > 0" class="incidents-batch-bar">
-						<span>{{ selectedIncidentCount }} selected</span>
+						<span>{{ t('app.bpm-console.incident.selectedCount', { count: selectedIncidentCount }, '{count} selected') }}</span>
 						<button class="wt wt-slim" @click="showRetrySelectedDialog">
-							<i class="bi bi-arrow-clockwise me-1"></i>Retry selected
+							<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.bpm-console.incident.retrySelected', undefined, 'Retry selected') }}
 						</button>
 						<button class="wt wt-slim" @click="incidentSelection = {}">
-							<i class="bi bi-x me-1"></i>Clear
+							<i class="bi bi-x me-1"></i>{{ t('app.bpm-console.action.clear', undefined, 'Clear') }}
 						</button>
 					</div>
 					<table class="wt">
 						<thead>
 							<tr>
 								<th style="width:32px"></th>
-								<th class="text-start">Time <span class="bpm-tz-badge">{{ localTZ }}</span></th>
-								<th class="text-start">Type</th>
-								<th class="text-start">Activity</th>
-								<th class="text-start">Message</th>
-								<th class="text-start">Instance</th>
-								<th class="col-actions">Actions</th>
+								<th class="text-start">{{ t('app.bpm-console.column.time', undefined, 'Time') }} <span class="bpm-tz-badge">{{ localTZ }}</span></th>
+								<th class="text-start">{{ t('app.bpm-console.column.type', undefined, 'Type') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.activity', undefined, 'Activity') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.message', undefined, 'Message') }}</th>
+								<th class="text-start">{{ t('app.bpm-console.column.instance', undefined, 'Instance') }}</th>
+								<th class="col-actions">{{ t('app.bpm-console.column.actions', undefined, 'Actions') }}</th>
 							</tr>
 						</thead>
 						<tbody>
 							<tr v-if="filteredIncidents.length === 0" class="item-empty">
 								<td colspan="7">
-									{{ diagramFilterElementId ? 'No incidents at this element' : (selectedDef || selectedGroup ? 'No incidents' : 'Select a process definition to see incidents') }}
+									{{ diagramFilterElementId ? t('app.bpm-console.empty.noIncidentsAtElement', undefined, 'No incidents at this element') : (selectedDef || selectedGroup ? t('app.bpm-console.empty.noIncidents', undefined, 'No incidents') : t('app.bpm-console.empty.selectForIncidents', undefined, 'Select a process definition to see incidents')) }}
 								</td>
 							</tr>
 							<tr v-for="inc in filteredIncidents" :key="inc.id"
@@ -788,13 +788,13 @@
 								<td class="text-muted">{{ inc.processInstanceId.slice(0, 8) }}…</td>
 								<td class="col-actions">
 									<div class="actions-cell">
-										<button class="btn-icon" @click.stop="showRetryIncidentDialog(inc)" title="Retry (set retries)">
+										<button class="btn-icon" @click.stop="showRetryIncidentDialog(inc)" :title="t('app.bpm-console.action.retrySetRetries', undefined, 'Retry (set retries)')">
 											<i class="bi bi-arrow-clockwise"></i>
 										</button>
-										<button class="btn-icon" @click.stop="showResolveIncidentDialog(inc)" title="Resolve incident">
+										<button class="btn-icon" @click.stop="showResolveIncidentDialog(inc)" :title="t('app.bpm-console.action.resolveIncident', undefined, 'Resolve incident')">
 											<i class="bi bi-check2-circle"></i>
 										</button>
-										<button class="btn-icon" @click.stop="jumpToIncidentOnDiagram(inc)" title="Show on diagram">
+										<button class="btn-icon" @click.stop="jumpToIncidentOnDiagram(inc)" :title="t('app.bpm-console.action.showOnDiagram', undefined, 'Show on diagram')">
 											<i class="bi bi-link-45deg"></i>
 										</button>
 									</div>
@@ -816,7 +816,7 @@
 		<div v-if="detailPanelVisible" class="detail-panel island p-0"
 			:style="{ width: detailPanelWidth + 'px' }">
 			<div class="detail-panel-header">
-				<span class="detail-panel-title">Details</span>
+				<span class="detail-panel-title">{{ t('app.bpm-console.detail.title', undefined, 'Details') }}</span>
 			</div>
 
 			<div class="detail-panel-content">
@@ -825,47 +825,47 @@
 				<div v-if="activeDetailType === 'instance' && selectedInstance">
 
 					<!-- Section 1: Process Instance -->
-					<div class="detail-section-header">Process Instance</div>
+					<div class="detail-section-header">{{ t('app.bpm-console.detail.processInstance', undefined, 'Process Instance') }}</div>
 					<div class="detail-section-body">
 						<div class="detail-prop">
-							<div class="detail-prop-label">Instance ID</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.id', undefined, 'Instance ID') }}</div>
 							<div class="detail-prop-value">{{ selectedInstance.id }}</div>
 						</div>
 						<div v-if="selectedInstance.businessKey" class="detail-prop">
-							<div class="detail-prop-label">Business Key</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.column.businessKey', undefined, 'Business Key') }}</div>
 							<div class="detail-prop-value">{{ selectedInstance.businessKey }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Started <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.started', undefined, 'Started') }} <span class="bpm-tz-badge">{{ localTZ }}</span></div>
 							<div class="detail-prop-value">{{ formatDate(selectedInstance.startTime) }}</div>
 						</div>
 						<div v-if="selectedInstance.endTime" class="detail-prop">
-							<div class="detail-prop-label">Ended <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.ended', undefined, 'Ended') }} <span class="bpm-tz-badge">{{ localTZ }}</span></div>
 							<div class="detail-prop-value">{{ formatDate(selectedInstance.endTime) }}</div>
 						</div>
 						<div v-if="selectedInstance.durationInMillis" class="detail-prop">
-							<div class="detail-prop-label">Duration</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.duration', undefined, 'Duration') }}</div>
 							<div class="detail-prop-value">{{ formatDuration(selectedInstance.durationInMillis) }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Status</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.column.status', undefined, 'Status') }}</div>
 							<div class="detail-prop-value">
-								<span v-if="selectedInstance.ended" class="bpm-status ended">Ended</span>
-								<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">Suspended</span>
-								<span v-else class="bpm-status active">Active</span>
+								<span v-if="selectedInstance.ended" class="bpm-status ended">{{ t('app.bpm-console.status.ended', undefined, 'Ended') }}</span>
+								<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">{{ t('app.bpm-console.status.suspended', undefined, 'Suspended') }}</span>
+								<span v-else class="bpm-status active">{{ t('app.bpm-console.status.active', undefined, 'Active') }}</span>
 							</div>
 						</div>
 					</div>
 
 					<!-- Section 2: Variables -->
 					<div class="detail-section-header">
-						Variables
+						{{ t('app.bpm-console.detail.variables', undefined, 'Variables') }}
 						<button v-if="!selectedInstance.ended" class="detail-section-header-action" @click="showSetVariablesDialog">
 							<i class="bi bi-pencil"></i>
 						</button>
 					</div>
 					<div class="detail-section-body">
-						<div v-if="!instanceVariables.length" class="detail-prop-value muted">No variables</div>
+						<div v-if="!instanceVariables.length" class="detail-prop-value muted">{{ t('app.bpm-console.empty.noVariables', undefined, 'No variables') }}</div>
 						<div v-else class="bpm-var-list">
 							<div v-for="v in instanceVariables" :key="v.name" class="bpm-var-item">
 								<div class="bpm-var-header">
@@ -881,8 +881,8 @@
 					<!-- Section 2b: Incidents (inline summary) -->
 					<template v-if="incidentsForSelectedInstance.length > 0">
 						<div class="detail-section-header">
-							<span>Incidents <span class="bpm-badge bpm-badge-incident">{{ incidentsForSelectedInstance.length }}</span></span>
-							<button class="detail-section-header-action" @click="switchToIncidents()" title="View all incidents">
+							<span>{{ t('app.bpm-console.detail.incidents', undefined, 'Incidents') }} <span class="bpm-badge bpm-badge-incident">{{ incidentsForSelectedInstance.length }}</span></span>
+							<button class="detail-section-header-action" @click="switchToIncidents()" :title="t('app.bpm-console.action.viewAllIncidents', undefined, 'View all incidents')">
 								<i class="bi bi-arrow-right"></i>
 							</button>
 						</div>
@@ -896,8 +896,8 @@
 										<span class="bpm-incident-mini-time">{{ formatDateShort(inc.incidentTimestamp) }}</span>
 									</div>
 									<div class="bpm-incident-mini-actions">
-										<button class="btn-icon" @click.stop="showRetryIncidentDialog(inc)" title="Retry"><i class="bi bi-arrow-clockwise"></i></button>
-										<button class="btn-icon" @click.stop="showResolveIncidentDialog(inc)" title="Resolve"><i class="bi bi-check2-circle"></i></button>
+										<button class="btn-icon" @click.stop="showRetryIncidentDialog(inc)" :title="t('app.bpm-console.action.retry', undefined, 'Retry')"><i class="bi bi-arrow-clockwise"></i></button>
+										<button class="btn-icon" @click.stop="showResolveIncidentDialog(inc)" :title="t('app.bpm-console.action.resolve', undefined, 'Resolve')"><i class="bi bi-check2-circle"></i></button>
 									</div>
 								</div>
 							</div>
@@ -905,49 +905,49 @@
 					</template>
 
 					<!-- Section 3: Actions -->
-					<div class="detail-section-header">Actions</div>
+					<div class="detail-section-header">{{ t('app.bpm-console.detail.actions', undefined, 'Actions') }}</div>
 					<div class="detail-section-body actions-body">
 						<div v-if="selectedInstance.ended" class="detail-prop-value muted">
-							This process instance has ended.
+							{{ t('app.bpm-console.detail.instanceEnded', undefined, 'This process instance has ended.') }}
 						</div>
 						<template v-else>
 							<button v-if="!selectedInstance.suspended" class="wt" @click="suspendInstance(selectedInstance.id)">
-								<i class="bi bi-pause-fill me-1"></i>Suspend Instance
+								<i class="bi bi-pause-fill me-1"></i>{{ t('app.bpm-console.action.suspendInstanceLong', undefined, 'Suspend Instance') }}
 							</button>
 							<button v-if="selectedInstance.suspended" class="wt" @click="activateInstance(selectedInstance.id)">
-								<i class="bi bi-play me-1"></i>Activate Instance
+								<i class="bi bi-play me-1"></i>{{ t('app.bpm-console.action.activateInstanceLong', undefined, 'Activate Instance') }}
 							</button>
 							<button class="wt wt-danger wt-outlined" @click="confirmCancelInstance(selectedInstance)">
-								<i class="bi bi-x-circle me-1"></i>Cancel Instance
+								<i class="bi bi-x-circle me-1"></i>{{ t('app.bpm-console.action.cancelInstanceLong', undefined, 'Cancel Instance') }}
 							</button>
 						</template>
 					</div>
 
 					<!-- Section 4: Process Definition -->
 					<template v-if="instanceDef">
-						<div class="detail-section-header">Process Definition</div>
+						<div class="detail-section-header">{{ t('app.bpm-console.detail.processDefinition', undefined, 'Process Definition') }}</div>
 						<div class="detail-section-body">
 							<div class="detail-prop">
-								<div class="detail-prop-label">Key</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.key', undefined, 'Key') }}</div>
 								<div class="detail-prop-value">{{ instanceDef.key }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">Version</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.version', undefined, 'Version') }}</div>
 								<div class="detail-prop-value">{{ instanceDef.version }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">ID</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.id', undefined, 'ID') }}</div>
 								<div class="detail-prop-value">{{ instanceDef.id }}</div>
 							</div>
 							<div v-if="instanceDef.deploymentName" class="detail-prop">
-								<div class="detail-prop-label">Deployment Name</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.deploymentName', undefined, 'Deployment Name') }}</div>
 								<div class="detail-prop-value">{{ instanceDef.deploymentName }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">Status</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.column.status', undefined, 'Status') }}</div>
 								<div class="detail-prop-value">
-									<span v-if="instanceDef.suspended" class="bpm-status suspended">Suspended</span>
-									<span v-else class="bpm-status active">Active</span>
+									<span v-if="instanceDef.suspended" class="bpm-status suspended">{{ t('app.bpm-console.status.suspended', undefined, 'Suspended') }}</span>
+									<span v-else class="bpm-status active">{{ t('app.bpm-console.status.active', undefined, 'Active') }}</span>
 								</div>
 							</div>
 						</div>
@@ -958,18 +958,18 @@
 				<div v-if="activeDetailType === 'incident' && selectedIncident">
 
 					<!-- Section 1: Incident -->
-					<div class="detail-section-header">Incident</div>
+					<div class="detail-section-header">{{ t('app.bpm-console.detail.incident', undefined, 'Incident') }}</div>
 					<div class="detail-section-body">
 						<div class="detail-prop">
-							<div class="detail-prop-label">ID</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.id', undefined, 'ID') }}</div>
 							<div class="detail-prop-value">{{ selectedIncident.id }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Type</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.type', undefined, 'Type') }}</div>
 							<div class="detail-prop-value">{{ incidentTypeLabel(selectedIncident.type) }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Activity</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.activity', undefined, 'Activity') }}</div>
 							<div class="detail-prop-value">
 								<a href="#" @click.prevent="jumpToIncidentOnDiagram(selectedIncident)">
 									{{ selectedIncident.activityName || selectedIncident.activityId }}
@@ -977,20 +977,20 @@
 							</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Created <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.created', undefined, 'Created') }} <span class="bpm-tz-badge">{{ localTZ }}</span></div>
 							<div class="detail-prop-value">{{ formatDate(selectedIncident.incidentTimestamp) }}</div>
 						</div>
 						<div v-if="selectedIncident.jobId" class="detail-prop">
-							<div class="detail-prop-label">Job ID</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.jobId', undefined, 'Job ID') }}</div>
 							<div class="detail-prop-value">{{ selectedIncident.jobId }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Retries Left</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.retriesLeft', undefined, 'Retries Left') }}</div>
 							<div class="detail-prop-value">{{ selectedIncident.jobRetries }}</div>
 						</div>
 						<div class="detail-prop">
 							<div class="detail-prop-label">
-								Annotation
+								{{ t('app.bpm-console.detail.annotation', undefined, 'Annotation') }}
 								<button class="detail-section-header-action" @click="showEditAnnotationDialog(selectedIncident)">
 									<i class="bi bi-pencil"></i>
 								</button>
@@ -1001,8 +1001,8 @@
 
 					<!-- Section 2: Error Message -->
 					<div class="detail-section-header">
-						<span>Error Message</span>
-						<button class="detail-section-header-action" @click="copyErrorMessage(event)" title="Copy to clipboard">
+						<span>{{ t('app.bpm-console.detail.errorMessage', undefined, 'Error Message') }}</span>
+						<button class="detail-section-header-action" @click="copyErrorMessage(event)" :title="t('app.bpm-console.action.copyToClipboard', undefined, 'Copy to clipboard')">
 							<i class="bi bi-clipboard"></i>
 						</button>
 					</div>
@@ -1013,8 +1013,8 @@
 					<!-- Section 3: Stack Trace -->
 					<template v-if="selectedIncident.stackTrace">
 						<div class="detail-section-header">
-							<span>Stack Trace</span>
-							<button class="detail-section-header-action" @click="copyStackTrace(event)" title="Copy to clipboard">
+							<span>{{ t('app.bpm-console.detail.stackTrace', undefined, 'Stack Trace') }}</span>
+							<button class="detail-section-header-action" @click="copyStackTrace(event)" :title="t('app.bpm-console.action.copyToClipboard', undefined, 'Copy to clipboard')">
 								<i class="bi bi-clipboard"></i>
 							</button>
 						</div>
@@ -1025,82 +1025,82 @@
 
 					<!-- Section 4: Process Instance -->
 					<template v-if="selectedInstance">
-						<div class="detail-section-header">Process Instance</div>
+						<div class="detail-section-header">{{ t('app.bpm-console.detail.processInstance', undefined, 'Process Instance') }}</div>
 						<div class="detail-section-body">
 							<div class="detail-prop">
-								<div class="detail-prop-label">Instance ID</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.id', undefined, 'Instance ID') }}</div>
 								<div class="detail-prop-value">{{ selectedInstance.id }}</div>
 							</div>
 							<div v-if="selectedInstance.businessKey" class="detail-prop">
-								<div class="detail-prop-label">Business Key</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.column.businessKey', undefined, 'Business Key') }}</div>
 								<div class="detail-prop-value">{{ selectedInstance.businessKey }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">Status</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.column.status', undefined, 'Status') }}</div>
 								<div class="detail-prop-value">
-									<span v-if="selectedInstance.ended" class="bpm-status ended">Ended</span>
-									<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">Suspended</span>
-									<span v-else class="bpm-status active">Active</span>
+									<span v-if="selectedInstance.ended" class="bpm-status ended">{{ t('app.bpm-console.status.ended', undefined, 'Ended') }}</span>
+									<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">{{ t('app.bpm-console.status.suspended', undefined, 'Suspended') }}</span>
+									<span v-else class="bpm-status active">{{ t('app.bpm-console.status.active', undefined, 'Active') }}</span>
 								</div>
 							</div>
 						</div>
 					</template>
 
 					<!-- Section 5: Actions -->
-					<div class="detail-section-header">Actions</div>
+					<div class="detail-section-header">{{ t('app.bpm-console.detail.actions', undefined, 'Actions') }}</div>
 					<div class="detail-section-body actions-body">
 						<button class="wt wt-primary" @click="showRetryIncidentDialog(selectedIncident)">
-							<i class="bi bi-arrow-clockwise me-1"></i>Retry (+1)
+							<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.bpm-console.action.retryPlusOne', undefined, 'Retry (+1)') }}
 						</button>
 						<button class="wt" @click="showResolveIncidentDialog(selectedIncident)">
-							<i class="bi bi-check2-circle me-1"></i>Resolve Incident
+							<i class="bi bi-check2-circle me-1"></i>{{ t('app.bpm-console.action.resolveIncidentLong', undefined, 'Resolve Incident') }}
 						</button>
 						<button class="wt" @click="showEditAnnotationDialog(selectedIncident)">
-							<i class="bi bi-pencil me-1"></i>Edit Annotation
+							<i class="bi bi-pencil me-1"></i>{{ t('app.bpm-console.action.editAnnotation', undefined, 'Edit Annotation') }}
 						</button>
 						<button class="wt" @click="jumpToIncidentOnDiagram(selectedIncident)">
-							<i class="bi bi-link-45deg me-1"></i>Show on Diagram
+							<i class="bi bi-link-45deg me-1"></i>{{ t('app.bpm-console.action.showOnDiagramLong', undefined, 'Show on Diagram') }}
 						</button>
 					</div>
 				</div>
 
 				<!-- ===== Definition only ===== -->
 				<div v-if="activeDetailType === 'definition' && selectedDef && !selectedInstance">
-					<div class="detail-section-header">Process Definition</div>
+					<div class="detail-section-header">{{ t('app.bpm-console.detail.processDefinition', undefined, 'Process Definition') }}</div>
 					<div class="detail-section-body">
 						<div class="detail-prop">
-							<div class="detail-prop-label">Key</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.key', undefined, 'Key') }}</div>
 							<div class="detail-prop-value">{{ selectedDef.key }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Version</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.version', undefined, 'Version') }}</div>
 							<div class="detail-prop-value">{{ selectedDef.version }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">ID</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.id', undefined, 'ID') }}</div>
 							<div class="detail-prop-value">{{ selectedDef.id }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Deployment ID</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.deploymentId', undefined, 'Deployment ID') }}</div>
 							<div class="detail-prop-value">{{ selectedDef.deploymentId }}</div>
 						</div>
 						<div v-if="selectedDef.deploymentName" class="detail-prop">
-							<div class="detail-prop-label">Deployment Name</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.deploymentName', undefined, 'Deployment Name') }}</div>
 							<div class="detail-prop-value">{{ selectedDef.deploymentName }}</div>
 						</div>
 						<div v-if="selectedDef.description" class="detail-prop">
-							<div class="detail-prop-label">Description</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.description', undefined, 'Description') }}</div>
 							<div class="detail-prop-value">{{ selectedDef.description }}</div>
 						</div>
 						<div v-if="selectedDef.category" class="detail-prop">
-							<div class="detail-prop-label">Category</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.category', undefined, 'Category') }}</div>
 							<div class="detail-prop-value">{{ selectedDef.category }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Status</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.column.status', undefined, 'Status') }}</div>
 							<div class="detail-prop-value">
-								<span v-if="selectedDef.suspended" class="bpm-status suspended">Suspended</span>
-								<span v-else class="bpm-status active">Active</span>
+								<span v-if="selectedDef.suspended" class="bpm-status suspended">{{ t('app.bpm-console.status.suspended', undefined, 'Suspended') }}</span>
+								<span v-else class="bpm-status active">{{ t('app.bpm-console.status.active', undefined, 'Active') }}</span>
 							</div>
 						</div>
 					</div>
@@ -1110,66 +1110,66 @@
 				<div v-if="activeDetailType === 'task' && selectedTask">
 
 					<!-- Section 1: User Task -->
-					<div class="detail-section-header">User Task</div>
+					<div class="detail-section-header">{{ t('app.bpm-console.detail.userTask', undefined, 'User Task') }}</div>
 					<div class="detail-section-body">
 						<div class="detail-prop">
-							<div class="detail-prop-label">Task ID</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.taskId', undefined, 'Task ID') }}</div>
 							<div class="detail-prop-value">{{ selectedTask.id }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Name</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.name', undefined, 'Name') }}</div>
 							<div class="detail-prop-value">{{ selectedTask.name || selectedTask.taskDefinitionKey }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Assignee</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.assignee', undefined, 'Assignee') }}</div>
 							<div class="detail-prop-value">{{ selectedTask.assignee || '—' }}</div>
 						</div>
 						<div v-if="selectedTask.owner" class="detail-prop">
-							<div class="detail-prop-label">Owner</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.owner', undefined, 'Owner') }}</div>
 							<div class="detail-prop-value">{{ selectedTask.owner }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Priority</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.priority', undefined, 'Priority') }}</div>
 							<div class="detail-prop-value">{{ selectedTask.priority }}</div>
 						</div>
 						<div v-if="selectedTask.due" class="detail-prop">
-							<div class="detail-prop-label">Due <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.due', undefined, 'Due') }} <span class="bpm-tz-badge">{{ localTZ }}</span></div>
 							<div class="detail-prop-value" :class="{ 'text-danger': isOverdue(selectedTask.due) }">
 								{{ formatDate(selectedTask.due) }}
 							</div>
 						</div>
 						<div v-if="selectedTask.description" class="detail-prop">
-							<div class="detail-prop-label">Description</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.description', undefined, 'Description') }}</div>
 							<div class="detail-prop-value">{{ selectedTask.description }}</div>
 						</div>
 						<div v-if="selectedTask.candidateGroups && selectedTask.candidateGroups.length" class="detail-prop">
-							<div class="detail-prop-label">Candidate Groups</div>
+							<div class="detail-prop-label">{{ t('app.bpm-console.detail.candidateGroups', undefined, 'Candidate Groups') }}</div>
 							<div class="detail-prop-value">{{ selectedTask.candidateGroups.join(', ') }}</div>
 						</div>
 					</div>
 
 					<!-- Section 2: Process Instance -->
 					<template v-if="selectedInstance">
-						<div class="detail-section-header">Process Instance</div>
+						<div class="detail-section-header">{{ t('app.bpm-console.detail.processInstance', undefined, 'Process Instance') }}</div>
 						<div class="detail-section-body">
 							<div class="detail-prop">
-								<div class="detail-prop-label">Instance ID</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.id', undefined, 'Instance ID') }}</div>
 								<div class="detail-prop-value">{{ selectedInstance.id }}</div>
 							</div>
 							<div v-if="selectedInstance.businessKey" class="detail-prop">
-								<div class="detail-prop-label">Business Key</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.column.businessKey', undefined, 'Business Key') }}</div>
 								<div class="detail-prop-value">{{ selectedInstance.businessKey }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">Started <span class="bpm-tz-badge">{{ localTZ }}</span></div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.started', undefined, 'Started') }} <span class="bpm-tz-badge">{{ localTZ }}</span></div>
 								<div class="detail-prop-value">{{ formatDate(selectedInstance.startTime) }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">Status</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.column.status', undefined, 'Status') }}</div>
 								<div class="detail-prop-value">
-									<span v-if="selectedInstance.ended" class="bpm-status ended">Ended</span>
-									<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">Suspended</span>
-									<span v-else class="bpm-status active">Active</span>
+									<span v-if="selectedInstance.ended" class="bpm-status ended">{{ t('app.bpm-console.status.ended', undefined, 'Ended') }}</span>
+									<span v-else-if="selectedInstance.suspended" class="bpm-status suspended">{{ t('app.bpm-console.status.suspended', undefined, 'Suspended') }}</span>
+									<span v-else class="bpm-status active">{{ t('app.bpm-console.status.active', undefined, 'Active') }}</span>
 								</div>
 							</div>
 						</div>
@@ -1178,13 +1178,13 @@
 					<!-- Section 3: Variables -->
 					<template v-if="selectedInstance">
 						<div class="detail-section-header">
-							Variables
+							{{ t('app.bpm-console.detail.variables', undefined, 'Variables') }}
 							<button v-if="!selectedInstance.ended" class="detail-section-header-action" @click="showSetVariablesDialog">
 								<i class="bi bi-pencil"></i>
 							</button>
 						</div>
 						<div class="detail-section-body">
-							<div v-if="!instanceVariables.length" class="detail-prop-value muted">No variables</div>
+							<div v-if="!instanceVariables.length" class="detail-prop-value muted">{{ t('app.bpm-console.empty.noVariables', undefined, 'No variables') }}</div>
 							<div v-else class="bpm-var-list">
 								<div v-for="v in instanceVariables" :key="v.name" class="bpm-var-item">
 									<div class="bpm-var-header">
@@ -1199,55 +1199,55 @@
 					</template>
 
 					<!-- Section 4: Actions -->
-					<div class="detail-section-header">Actions</div>
+					<div class="detail-section-header">{{ t('app.bpm-console.detail.actions', undefined, 'Actions') }}</div>
 					<div class="detail-section-body actions-body">
 						<button class="wt" @click="showAssignTaskDialog(selectedTask.id)">
-							<i class="bi bi-person-check me-1"></i>Assign Task
+							<i class="bi bi-person-check me-1"></i>{{ t('app.bpm-console.action.assignTask', undefined, 'Assign Task') }}
 						</button>
 						<button v-if="selectedTask.assignee" class="wt" @click="unclaimTask(selectedTask.id)">
-							<i class="bi bi-person-dash me-1"></i>Unassign Task
+							<i class="bi bi-person-dash me-1"></i>{{ t('app.bpm-console.action.unassignTask', undefined, 'Unassign Task') }}
 						</button>
 						<button class="wt wt-primary" @click="showCompleteTaskDialog(selectedTask)">
-							<i class="bi bi-check-lg me-1"></i>Complete Task
+							<i class="bi bi-check-lg me-1"></i>{{ t('app.bpm-console.action.completeTask', undefined, 'Complete Task') }}
 						</button>
 						<template v-if="selectedInstance && !selectedInstance.ended">
 							<button v-if="!selectedInstance.suspended" class="wt" @click="suspendInstance(selectedInstance.id)">
-								<i class="bi bi-pause-fill me-1"></i>Suspend Instance
+								<i class="bi bi-pause-fill me-1"></i>{{ t('app.bpm-console.action.suspendInstanceLong', undefined, 'Suspend Instance') }}
 							</button>
 							<button v-if="selectedInstance.suspended" class="wt" @click="activateInstance(selectedInstance.id)">
-								<i class="bi bi-play me-1"></i>Activate Instance
+								<i class="bi bi-play me-1"></i>{{ t('app.bpm-console.action.activateInstanceLong', undefined, 'Activate Instance') }}
 							</button>
 							<button class="wt wt-danger wt-outlined" @click="confirmCancelInstance(selectedInstance)">
-								<i class="bi bi-x-circle me-1"></i>Cancel Instance
+								<i class="bi bi-x-circle me-1"></i>{{ t('app.bpm-console.action.cancelInstanceLong', undefined, 'Cancel Instance') }}
 							</button>
 						</template>
 					</div>
 
 					<!-- Section 5: Process Definition -->
 					<template v-if="instanceDef">
-						<div class="detail-section-header">Process Definition</div>
+						<div class="detail-section-header">{{ t('app.bpm-console.detail.processDefinition', undefined, 'Process Definition') }}</div>
 						<div class="detail-section-body">
 							<div class="detail-prop">
-								<div class="detail-prop-label">Key</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.key', undefined, 'Key') }}</div>
 								<div class="detail-prop-value">{{ instanceDef.key }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">Version</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.version', undefined, 'Version') }}</div>
 								<div class="detail-prop-value">{{ instanceDef.version }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">ID</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.id', undefined, 'ID') }}</div>
 								<div class="detail-prop-value">{{ instanceDef.id }}</div>
 							</div>
 							<div v-if="instanceDef.deploymentName" class="detail-prop">
-								<div class="detail-prop-label">Deployment Name</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.detail.deploymentName', undefined, 'Deployment Name') }}</div>
 								<div class="detail-prop-value">{{ instanceDef.deploymentName }}</div>
 							</div>
 							<div class="detail-prop">
-								<div class="detail-prop-label">Status</div>
+								<div class="detail-prop-label">{{ t('app.bpm-console.column.status', undefined, 'Status') }}</div>
 								<div class="detail-prop-value">
-									<span v-if="instanceDef.suspended" class="bpm-status suspended">Suspended</span>
-									<span v-else class="bpm-status active">Active</span>
+									<span v-if="instanceDef.suspended" class="bpm-status suspended">{{ t('app.bpm-console.status.suspended', undefined, 'Suspended') }}</span>
+									<span v-else class="bpm-status active">{{ t('app.bpm-console.status.active', undefined, 'Active') }}</span>
 								</div>
 							</div>
 						</div>
@@ -1257,7 +1257,7 @@
 				<!-- Empty state -->
 				<div v-if="activeDetailType === 'none'" class="detail-panel-empty">
 					<i class="bi bi-info-circle"></i>
-					<span>Select an item to see details</span>
+					<span>{{ t('app.bpm-console.detail.selectItem', undefined, 'Select an item to see details') }}</span>
 				</div>
 			</div>
 		</div>
@@ -1266,26 +1266,26 @@
 	<!-- Bottom Status Bar (translucent) -->
 	<div class="status-bar window-drag-region">
 		<div class="status-group">
-			<span class="status-item">{{ processGroups.length }} process(es)</span>
+			<span class="status-item">{{ t('app.bpm-console.status.processCount', { count: processGroups.length }) }}</span>
 			<span class="status-divider"></span>
 			<span v-if="selectedDef" class="status-item">
 				<i class="bi bi-diagram-2 me-1"></i>{{ selectedDef.key }} v{{ selectedDef.version }}
 			</span>
 			<span v-if="selectedDef" class="status-divider"></span>
-			<span v-if="instances.length" class="status-item">{{ instances.length }} instance(s)</span>
+			<span v-if="instances.length" class="status-item">{{ t('app.bpm-console.status.instanceCount', { count: instances.length }) }}</span>
 			<span v-if="instances.length && tasks.length" class="status-divider"></span>
-			<span v-if="tasks.length" class="status-item">{{ tasks.length }} task(s)</span>
+			<span v-if="tasks.length" class="status-item">{{ t('app.bpm-console.status.taskCount', { count: tasks.length }) }}</span>
 		</div>
 		<span class="nav-spacer"></span>
 		<div class="status-group">
-			<span v-if="isLoading" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Loading</span>
+			<span v-if="isLoading" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.bpm-console.status.loading', undefined, 'Loading') }}</span>
 		</div>
 	</div>
 
 	<!-- Loading Overlay -->
 	<div v-if="isLoading && !processDefs.length" class="loading-overlay">
 		<span class="spinner"></span>
-		<span>Loading...</span>
+		<span>{{ t('app.bpm-console.status.loadingOverlay', undefined, 'Loading...') }}</span>
 	</div>
 
 	<!-- ===== Error Dialog ===== -->
@@ -1294,8 +1294,8 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Notice</h3>
-						<button class="btn-icon" @click="errorMessage = ''" title="Close">
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.bpm-console.dialog.notice', undefined, 'Notice') }}</h3>
+						<button class="btn-icon" @click="errorMessage = ''" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
@@ -1304,7 +1304,7 @@
 					<p class="mt-0 mb-0">{{ errorMessage }}</p>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt wt-primary" @click="errorMessage = ''">OK</button>
+					<button class="wt wt-primary" @click="errorMessage = ''">{{ t('common.ok', undefined, 'OK') }}</button>
 				</div>
 			</div>
 		</div>
@@ -1316,20 +1316,20 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-x-circle me-2"></i>Cancel Process Instance</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-x-circle me-2"></i>{{ t('app.bpm-console.dialog.cancelInstanceTitle', undefined, 'Cancel Process Instance') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
-					<p class="mt-0">Cancel instance <strong>{{ dialog.data.id }}</strong>?</p>
-					<label class="dialog-label">Reason (optional)</label>
-					<input class="wt w-100" type="text" v-model="dialog.data.reason" placeholder="Cancellation reason...">
+					<p class="mt-0">{{ t('app.bpm-console.dialog.cancelInstancePrompt', { id: dialog.data.id }, 'Cancel instance {id}?') }}</p>
+					<label class="dialog-label">{{ t('app.bpm-console.dialog.reasonOptional', undefined, 'Reason (optional)') }}</label>
+					<input class="wt w-100" type="text" v-model="dialog.data.reason" :placeholder="t('app.bpm-console.dialog.reasonPlaceholder', undefined, 'Cancellation reason...')">
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-danger" @click="executeCancelInstance">Confirm Cancel</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-danger" @click="executeCancelInstance">{{ t('app.bpm-console.dialog.confirmCancel', undefined, 'Confirm Cancel') }}</button>
 				</div>
 			</div>
 		</div>
@@ -1341,8 +1341,8 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-play-fill me-2"></i>Start Process</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-play-fill me-2"></i>{{ t('app.bpm-console.dialog.startProcessTitle', undefined, 'Start Process') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
@@ -1355,24 +1355,24 @@
 					<div v-if="selectedDef" class="dialog-help-text mt-1">{{ selectedDef.id }}</div>
 
 					<div class="mt-3">
-						<label class="dialog-label">Business Key (optional)</label>
-						<input class="wt w-100" type="text" v-model="dialog.data.businessKey" placeholder="e.g. ORDER-001">
+						<label class="dialog-label">{{ t('app.bpm-console.dialog.businessKeyOptional', undefined, 'Business Key (optional)') }}</label>
+						<input class="wt w-100" type="text" v-model="dialog.data.businessKey" :placeholder="t('app.bpm-console.dialog.businessKeyPlaceholder', undefined, 'e.g. ORDER-001')">
 					</div>
 
 					<div class="mt-3">
-						<label class="dialog-label">Variables</label>
+						<label class="dialog-label">{{ t('app.bpm-console.dialog.variables', undefined, 'Variables') }}</label>
 						<table class="var-edit-table">
 							<thead>
 								<tr>
-									<th>Name</th>
-									<th style="min-width:6rem">Type</th>
-									<th>Value</th>
+									<th>{{ t('app.bpm-console.dialog.varName', undefined, 'Name') }}</th>
+									<th style="min-width:6rem">{{ t('app.bpm-console.dialog.varType', undefined, 'Type') }}</th>
+									<th>{{ t('app.bpm-console.dialog.varValue', undefined, 'Value') }}</th>
 									<th class="col-actions"></th>
 								</tr>
 							</thead>
 							<tbody>
 								<tr v-for="(v, idx) in dialog.data.variables" :key="idx">
-									<td><input class="wt" type="text" v-model="v.name" placeholder="name"></td>
+									<td><input class="wt" type="text" v-model="v.name" :placeholder="t('app.bpm-console.dialog.varNamePlaceholder', undefined, 'name')"></td>
 									<td>
 										<div class="wt-select">
 											<button type="button" class="wt-select-trigger"
@@ -1393,13 +1393,13 @@
 												<i class="bi bi-chevron-down wt-select-chevron"></i>
 											</button>
 										</div>
-										<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" placeholder="value">
-										<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" placeholder="value">
-										<input v-else class="wt" type="text" v-model="v.value" placeholder="value">
+										<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
+										<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
+										<input v-else class="wt" type="text" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
 										<span v-if="v.type === 'Date'" class="bpm-tz-badge ms-1">{{ localTZ }}</span>
 									</td>
 									<td class="col-actions">
-										<button class="btn-icon" @click="dialog.data.variables.splice(idx, 1)" title="Remove">
+										<button class="btn-icon" @click="dialog.data.variables.splice(idx, 1)" :title="t('common.remove', undefined, 'Remove')">
 											<i class="bi bi-trash"></i>
 										</button>
 									</td>
@@ -1407,13 +1407,13 @@
 							</tbody>
 						</table>
 						<button class="wt wt-slim mt-2" @click="addDialogVariable">
-							<i class="bi bi-plus-lg me-1"></i>Add Variable
+							<i class="bi bi-plus-lg me-1"></i>{{ t('app.bpm-console.dialog.addVariable', undefined, 'Add Variable') }}
 						</button>
 					</div>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-primary" @click="executeStartProcess">Start</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-primary" @click="executeStartProcess">{{ t('app.bpm-console.dialog.start', undefined, 'Start') }}</button>
 				</div>
 			</div>
 		</div>
@@ -1425,27 +1425,27 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-check-lg me-2"></i>Complete Task: {{ dialog.data.taskName }}</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-check-lg me-2"></i>{{ t('app.bpm-console.dialog.completeTaskTitle', { name: dialog.data.taskName }, 'Complete Task: {name}') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
-					<p class="mt-0 dialog-help-text">Complete this task and update variables. Any pending work will be finalized.</p>
-					<label class="dialog-label">Variables</label>
+					<p class="mt-0 dialog-help-text">{{ t('app.bpm-console.dialog.completeTaskHelp', undefined, 'Complete this task and update variables. Any pending work will be finalized.') }}</p>
+					<label class="dialog-label">{{ t('app.bpm-console.dialog.variables', undefined, 'Variables') }}</label>
 					<table class="var-edit-table">
 						<thead>
 							<tr>
-								<th>Name</th>
-								<th style="min-width:6rem">Type</th>
-								<th>Value</th>
+								<th>{{ t('app.bpm-console.dialog.varName', undefined, 'Name') }}</th>
+								<th style="min-width:6rem">{{ t('app.bpm-console.dialog.varType', undefined, 'Type') }}</th>
+								<th>{{ t('app.bpm-console.dialog.varValue', undefined, 'Value') }}</th>
 								<th class="col-actions"></th>
 							</tr>
 						</thead>
 						<tbody>
 							<tr v-for="(v, idx) in dialog.data.variables" :key="idx">
-								<td><input class="wt" type="text" v-model="v.name" placeholder="name"></td>
+								<td><input class="wt" type="text" v-model="v.name" :placeholder="t('app.bpm-console.dialog.varNamePlaceholder', undefined, 'name')"></td>
 								<td>
 									<div class="wt-select">
 										<button type="button" class="wt-select-trigger"
@@ -1466,13 +1466,13 @@
 											<i class="bi bi-chevron-down wt-select-chevron"></i>
 										</button>
 									</div>
-									<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" placeholder="value">
-									<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" placeholder="value">
-									<input v-else class="wt" type="text" v-model="v.value" placeholder="value">
+									<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
+									<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
+									<input v-else class="wt" type="text" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
 									<span v-if="v.type === 'Date'" class="bpm-tz-badge ms-1">{{ localTZ }}</span>
 								</td>
 								<td class="col-actions">
-									<button class="btn-icon" @click="dialog.data.variables.splice(idx, 1)" title="Remove">
+									<button class="btn-icon" @click="dialog.data.variables.splice(idx, 1)" :title="t('common.remove', undefined, 'Remove')">
 										<i class="bi bi-trash"></i>
 									</button>
 								</td>
@@ -1480,12 +1480,12 @@
 						</tbody>
 					</table>
 					<button class="wt wt-slim mt-2" @click="addDialogVariable">
-						<i class="bi bi-plus-lg me-1"></i>Add Variable
+						<i class="bi bi-plus-lg me-1"></i>{{ t('app.bpm-console.dialog.addVariable', undefined, 'Add Variable') }}
 					</button>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-primary" @click="executeCompleteTask">Complete</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-primary" @click="executeCompleteTask">{{ t('app.bpm-console.action.complete', undefined, 'Complete') }}</button>
 				</div>
 			</div>
 		</div>
@@ -1497,8 +1497,8 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-pencil me-2"></i>Edit Variables</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-pencil me-2"></i>{{ t('app.bpm-console.dialog.editVariablesTitle', undefined, 'Edit Variables') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
@@ -1507,15 +1507,15 @@
 					<table class="var-edit-table">
 						<thead>
 							<tr>
-								<th>Name</th>
-								<th style="min-width:6rem">Type</th>
-								<th>Value</th>
+								<th>{{ t('app.bpm-console.dialog.varName', undefined, 'Name') }}</th>
+								<th style="min-width:6rem">{{ t('app.bpm-console.dialog.varType', undefined, 'Type') }}</th>
+								<th>{{ t('app.bpm-console.dialog.varValue', undefined, 'Value') }}</th>
 								<th class="col-actions"></th>
 							</tr>
 						</thead>
 						<tbody>
 							<tr v-for="(v, idx) in dialog.data.variables" :key="idx">
-								<td><input class="wt" type="text" v-model="v.name" placeholder="name"></td>
+								<td><input class="wt" type="text" v-model="v.name" :placeholder="t('app.bpm-console.dialog.varNamePlaceholder', undefined, 'name')"></td>
 								<td>
 									<div class="wt-select">
 										<button type="button" class="wt-select-trigger"
@@ -1536,13 +1536,13 @@
 											<i class="bi bi-chevron-down wt-select-chevron"></i>
 										</button>
 									</div>
-									<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" placeholder="value">
-									<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" placeholder="value">
-									<input v-else class="wt" type="text" v-model="v.value" placeholder="value">
+									<input v-else-if="v.type === 'Long'" class="wt" type="number" step="1" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
+									<input v-else-if="v.type === 'Double'" class="wt" type="number" step="any" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
+									<input v-else class="wt" type="text" v-model="v.value" :placeholder="t('app.bpm-console.dialog.varValuePlaceholder', undefined, 'value')">
 									<span v-if="v.type === 'Date'" class="bpm-tz-badge ms-1">{{ localTZ }}</span>
 								</td>
 								<td class="col-actions">
-									<button class="btn-icon" @click="removeDialogVariable(idx)" title="Remove">
+									<button class="btn-icon" @click="removeDialogVariable(idx)" :title="t('common.remove', undefined, 'Remove')">
 										<i class="bi bi-trash"></i>
 									</button>
 								</td>
@@ -1550,12 +1550,12 @@
 						</tbody>
 					</table>
 					<button class="wt wt-slim mt-2" @click="addDialogVariable">
-						<i class="bi bi-plus-lg me-1"></i>Add Variable
+						<i class="bi bi-plus-lg me-1"></i>{{ t('app.bpm-console.dialog.addVariable', undefined, 'Add Variable') }}
 					</button>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-primary" @click="executeSetVariables">Save</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-primary" @click="executeSetVariables">{{ t('common.save', undefined, 'Save') }}</button>
 				</div>
 			</div>
 		</div>
@@ -1567,8 +1567,8 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-cloud-upload me-2"></i>Deploy BPMN Process</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-cloud-upload me-2"></i>{{ t('app.bpm-console.dialog.deployTitle', undefined, 'Deploy BPMN Process') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
@@ -1581,7 +1581,7 @@
 						@drop.prevent="onDeployDrop(event)">
 						<div v-if="!dialog.data.name" class="deploy-drop-placeholder">
 							<i class="bi bi-folder2-open"></i>
-							<span>Drag a BPMN file from Content Browser</span>
+							<span>{{ t('app.bpm-console.dialog.deployDropHint', undefined, 'Drag a BPMN file from Content Browser') }}</span>
 						</div>
 						<div v-else class="deploy-drop-file">
 							<i class="bi bi-file-earmark-code"></i>
@@ -1593,8 +1593,8 @@
 					</div>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-primary" :disabled="!dialog.data.name || !dialog.data.bpmnXml" @click="executeDeploy">Deploy</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-primary" :disabled="!dialog.data.name || !dialog.data.bpmnXml" @click="executeDeploy">{{ t('app.bpm-console.dialog.deploy', undefined, 'Deploy') }}</button>
 				</div>
 			</div>
 		</div>
@@ -1606,17 +1606,17 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-person-check me-2"></i>Assign Task</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-person-check me-2"></i>{{ t('app.bpm-console.action.assignTask', undefined, 'Assign Task') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
 					<div class="input-group">
-						<input type="text" class="wt" v-model="dialog.data.search" placeholder="Search users...">
+						<input type="text" class="wt" v-model="dialog.data.search" :placeholder="t('app.bpm-console.dialog.searchUsersPlaceholder', undefined, 'Search users...')">
 						<div v-if="dialog.data.search" class="input-group-actions">
-							<button class="input-group-btn" @click="dialog.data.search = ''" title="Clear">
+							<button class="input-group-btn" @click="dialog.data.search = ''" :title="t('app.bpm-console.action.clear', undefined, 'Clear')">
 								<i class="bi bi-x"></i>
 							</button>
 						</div>
@@ -1635,8 +1635,8 @@
 					</div>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-primary" :disabled="!dialog.data.selectedUser" @click="executeAssignTask">Assign</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-primary" :disabled="!dialog.data.selectedUser" @click="executeAssignTask">{{ t('app.bpm-console.dialog.assign', undefined, 'Assign') }}</button>
 				</div>
 			</div>
 		</div>
@@ -1648,24 +1648,24 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-trash me-2"></i>Delete Deployment</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-trash me-2"></i>{{ t('app.bpm-console.action.deleteDeployment', undefined, 'Delete Deployment') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
-					<p class="mt-0">Delete deployment for <strong>{{ dialog.data.defName }}</strong> v{{ dialog.data.defVersion }}?</p>
-					<p class="dialog-help-text">Deployment ID: <span>{{ dialog.data.deploymentId }}</span></p>
+					<p class="mt-0">{{ t('app.bpm-console.dialog.deleteDeploymentPrompt', { name: dialog.data.defName, version: dialog.data.defVersion }, 'Delete deployment for {name} v{version}?') }}</p>
+					<p class="dialog-help-text">{{ t('app.bpm-console.dialog.deploymentIdLabel', { id: dialog.data.deploymentId }, 'Deployment ID: {id}') }}</p>
 					<label class="d-inline-flex align-items-center gap-2" style="cursor:pointer">
 						<input type="checkbox" class="wt" v-model="dialog.data.cascade">
-						<span>Cascade — also delete all running instances for this version</span>
+						<span>{{ t('app.bpm-console.dialog.cascadeLabel', undefined, 'Cascade — also delete all running instances for this version') }}</span>
 					</label>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 					<button class="wt wt-danger" @click="executeDeleteDeployment">
-						<i class="bi bi-trash me-1"></i>Delete
+						<i class="bi bi-trash me-1"></i>{{ t('common.delete', undefined, 'Delete') }}
 					</button>
 				</div>
 			</div>
@@ -1680,10 +1680,10 @@
 					<div class="dialog-header-top">
 						<h3>
 							<i class="bi bi-arrow-clockwise me-2"></i>
-							<span v-if="dialog.data.ids.length === 1">Retry Failed Job</span>
-							<span v-else>Retry {{ dialog.data.ids.length }} Failed Jobs</span>
+							<span v-if="dialog.data.ids.length === 1">{{ t('app.bpm-console.dialog.retryFailedJobTitle', undefined, 'Retry Failed Job') }}</span>
+							<span v-else>{{ t('app.bpm-console.dialog.retryFailedJobsTitle', { count: dialog.data.ids.length }, 'Retry {count} Failed Jobs') }}</span>
 						</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
@@ -1691,35 +1691,34 @@
 				<div class="dialog-body">
 					<p class="mt-0 dialog-help-text">
 						<span v-if="dialog.data.ids.length === 1">
-							Activity: <strong>{{ dialog.data.summary }}</strong>
+							{{ t('app.bpm-console.dialog.retryActivityLabel', { summary: dialog.data.summary }, 'Activity: {summary}') }}
 						</span>
 						<span v-else>
-							Selected: <strong>{{ dialog.data.summary }}</strong>
+							{{ t('app.bpm-console.dialog.retrySelectedLabel', { summary: dialog.data.summary }, 'Selected: {summary}') }}
 						</span>
 					</p>
 					<div class="mt-3">
-						<label class="dialog-label">Set retries to</label>
+						<label class="dialog-label">{{ t('app.bpm-console.dialog.setRetriesTo', undefined, 'Set retries to') }}</label>
 						<input class="wt" type="number" min="1" max="10" step="1"
 							v-model="dialog.data.retries" style="width:6rem">
 					</div>
 					<div class="mt-3">
 						<label class="d-inline-flex align-items-center gap-2" style="cursor:pointer">
 							<input type="checkbox" class="wt" v-model="dialog.data.clearAnnotation">
-							<span>Also clear incident annotation</span>
+							<span>{{ t('app.bpm-console.dialog.clearAnnotationLabel', undefined, 'Also clear incident annotation') }}</span>
 						</label>
 					</div>
 					<p class="dialog-help-text mt-3">
 						<i class="bi bi-info-circle me-1"></i>
-						The Job Executor will pick this job up on the next cycle.
-						The incident is auto-resolved on success.
+						{{ t('app.bpm-console.dialog.retryHelp', undefined, 'The Job Executor will pick this job up on the next cycle. The incident is auto-resolved on success.') }}
 					</p>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 					<button class="wt wt-primary" @click="executeRetryIncident">
 						<i class="bi bi-arrow-clockwise me-1"></i>
-						<span v-if="dialog.data.ids.length === 1">Retry Now</span>
-						<span v-else>Retry All ({{ dialog.data.ids.length }})</span>
+						<span v-if="dialog.data.ids.length === 1">{{ t('app.bpm-console.dialog.retryNow', undefined, 'Retry Now') }}</span>
+						<span v-else>{{ t('app.bpm-console.dialog.retryAll', { count: dialog.data.ids.length }, 'Retry All ({count})') }}</span>
 					</button>
 				</div>
 			</div>
@@ -1732,25 +1731,23 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-check2-circle me-2"></i>Resolve Incident</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-check2-circle me-2"></i>{{ t('app.bpm-console.dialog.resolveIncidentTitle', undefined, 'Resolve Incident') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
-					<p class="mt-0">Mark incident on <strong>{{ dialog.data.activity }}</strong> as resolved?</p>
+					<p class="mt-0">{{ t('app.bpm-console.dialog.resolveIncidentPrompt', { activity: dialog.data.activity }, 'Mark incident on {activity} as resolved?') }}</p>
 					<p v-if="dialog.data.type === 'failedJob'" class="dialog-help-text">
 						<i class="bi bi-exclamation-triangle me-1"></i>
-						This is a <strong>failed job</strong> incident. Resolving it without fixing
-						the underlying Job will cause the incident to reappear. Consider using
-						<strong>Retry</strong> instead.
+						{{ t('app.bpm-console.dialog.resolveFailedJobHelp', undefined, 'This is a failed job incident. Resolving it without fixing the underlying Job will cause the incident to reappear. Consider using Retry instead.') }}
 					</p>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 					<button class="wt wt-primary" @click="executeResolveIncident">
-						<i class="bi bi-check2-circle me-1"></i>Resolve
+						<i class="bi bi-check2-circle me-1"></i>{{ t('app.bpm-console.action.resolve', undefined, 'Resolve') }}
 					</button>
 				</div>
 			</div>
@@ -1763,21 +1760,21 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-pencil me-2"></i>Edit Incident Annotation</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-pencil me-2"></i>{{ t('app.bpm-console.dialog.editAnnotationTitle', undefined, 'Edit Incident Annotation') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
-					<label class="dialog-label">Annotation</label>
+					<label class="dialog-label">{{ t('app.bpm-console.dialog.annotation', undefined, 'Annotation') }}</label>
 					<textarea class="wt w-100" rows="4"
 						v-model="dialog.data.annotation"
-						placeholder="e.g. Acknowledged by ops — will retry after upstream fix"></textarea>
+						:placeholder="t('app.bpm-console.dialog.annotationPlaceholder', undefined, 'e.g. Acknowledged by ops — will retry after upstream fix')"></textarea>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-primary" @click="executeSetAnnotation">Save</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-primary" @click="executeSetAnnotation">{{ t('common.save', undefined, 'Save') }}</button>
 				</div>
 			</div>
 		</div>
@@ -1789,28 +1786,24 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-arrow-right-circle me-2"></i>Migrate Instances</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-arrow-right-circle me-2"></i>{{ t('app.bpm-console.dialog.migrateTitle', undefined, 'Migrate Instances') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('common.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
 					<p class="mt-0 dialog-help-text">
-						Source: <strong>{{ dialog.data.source.name || dialog.data.source.key }}</strong>
-						v{{ dialog.data.source.version }}
-						<span v-if="dialog.data.activeCount > 0">
-							— <strong>{{ dialog.data.activeCount }}</strong> active instance(s)
-						</span>
-						<span v-else>— no active instances</span>
+						<span v-if="dialog.data.activeCount > 0">{{ t('app.bpm-console.dialog.migrateSourceActive', { name: dialog.data.source.name || dialog.data.source.key, version: dialog.data.source.version, count: dialog.data.activeCount }, 'Source: {name} v{version} — {count} active instance(s)') }}</span>
+						<span v-else>{{ t('app.bpm-console.dialog.migrateSourceNoActive', { name: dialog.data.source.name || dialog.data.source.key, version: dialog.data.source.version }, 'Source: {name} v{version} — no active instances') }}</span>
 					</p>
 
 					<div class="mt-3">
-						<label class="dialog-label">Target version</label>
+						<label class="dialog-label">{{ t('app.bpm-console.dialog.targetVersion', undefined, 'Target version') }}</label>
 						<button class="wt wt-popup-trigger d-flex justify-content-between align-items-center"
 							style="width: 12rem"
 							@click="openTargetVersionPopup">
-							<span>v{{ selectedTargetDef()?.version }}<span v-if="selectedTargetDef()?.suspended"> (suspended)</span></span>
+							<span>{{ selectedTargetDef()?.suspended ? t('app.bpm-console.dialog.targetVersionSuspended', { version: selectedTargetDef()?.version }, 'v{version} (suspended)') : t('app.bpm-console.dialog.targetVersionLabel', { version: selectedTargetDef()?.version }, 'v{version}') }}</span>
 							<i class="bi bi-chevron-down"></i>
 						</button>
 					</div>
@@ -1820,32 +1813,32 @@
 							<input type="checkbox" class="wt"
 								v-model="dialog.data.mapEqualActivities"
 								@change="loadMigrationPlan">
-							<span>Map activities by ID (mapEqualActivities)</span>
+							<span>{{ t('app.bpm-console.dialog.mapEqualActivities', undefined, 'Map activities by ID (mapEqualActivities)') }}</span>
 						</label>
 						<br>
 						<label class="d-inline-flex align-items-center gap-2 mt-1" style="cursor:pointer">
 							<input type="checkbox" class="wt"
 								v-model="dialog.data.updateEventTriggers"
 								@change="loadMigrationPlan">
-							<span>Update event triggers (timers, message subscriptions)</span>
+							<span>{{ t('app.bpm-console.dialog.updateEventTriggers', undefined, 'Update event triggers (timers, message subscriptions)') }}</span>
 						</label>
 						<br>
 						<label class="d-inline-flex align-items-center gap-2 mt-1" style="cursor:pointer">
 							<input type="checkbox" class="wt" v-model="dialog.data.skipCustomListeners">
-							<span>Skip custom execution listeners</span>
+							<span>{{ t('app.bpm-console.dialog.skipCustomListeners', undefined, 'Skip custom execution listeners') }}</span>
 						</label>
 						<br>
 						<label class="d-inline-flex align-items-center gap-2 mt-1" style="cursor:pointer">
 							<input type="checkbox" class="wt" v-model="dialog.data.skipIoMappings">
-							<span>Skip BPMN I/O mappings</span>
+							<span>{{ t('app.bpm-console.dialog.skipIoMappings', undefined, 'Skip BPMN I/O mappings') }}</span>
 						</label>
 					</div>
 
 					<!-- Plan preview -->
 					<div class="mt-3">
-						<label class="dialog-label">Migration plan preview</label>
+						<label class="dialog-label">{{ t('app.bpm-console.dialog.migrationPlanPreview', undefined, 'Migration plan preview') }}</label>
 						<div v-if="dialog.data.planLoading" class="dialog-help-text">
-							<i class="bi bi-hourglass-split me-1"></i>Building plan…
+							<i class="bi bi-hourglass-split me-1"></i>{{ t('app.bpm-console.dialog.buildingPlan', undefined, 'Building plan…') }}
 						</div>
 						<div v-else-if="dialog.data.planError" class="dialog-help-text" style="color: var(--wt-danger, #c33);">
 							<i class="bi bi-exclamation-triangle me-1"></i>{{ dialog.data.planError }}
@@ -1854,9 +1847,9 @@
 							<table class="wt-table" style="width:100%; font-size: 0.85em;">
 								<thead>
 									<tr>
-										<th>Source activity</th>
+										<th>{{ t('app.bpm-console.dialog.sourceActivity', undefined, 'Source activity') }}</th>
 										<th></th>
-										<th>Target activity</th>
+										<th>{{ t('app.bpm-console.dialog.targetActivity', undefined, 'Target activity') }}</th>
 										<th title="updateEventTrigger"><i class="bi bi-stopwatch"></i></th>
 									</tr>
 								</thead>
@@ -1872,9 +1865,7 @@
 									<tr v-if="dialog.data.plan.instructions.length === 0">
 										<td colspan="4" class="dialog-help-text">
 											<i class="bi bi-info-circle me-1"></i>
-											No mappings produced. All currently-active activities of
-											the source are absent from the target — the migration will
-											fail validation.
+											{{ t('app.bpm-console.dialog.noMappings', undefined, 'No mappings produced. All currently-active activities of the source are absent from the target — the migration will fail validation.') }}
 										</td>
 									</tr>
 								</tbody>
@@ -1884,19 +1875,18 @@
 
 					<p class="dialog-help-text mt-3">
 						<i class="bi bi-info-circle me-1"></i>
-						The engine queues an async migration batch covering all <strong>active</strong>
-						instances of v{{ dialog.data.source.version }}. Progress is shown after submit.
+						{{ t('app.bpm-console.dialog.migrateHelp', { version: dialog.data.source.version }, 'The engine queues an async migration batch covering all active instances of v{version}. Progress is shown after submit.') }}
 					</p>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
+					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 					<button
 						class="wt wt-primary"
 						:disabled="dialog.data.submitting || dialog.data.planLoading || !dialog.data.plan || (dialog.data.plan && dialog.data.plan.instructions.length === 0)"
 						@click="executeMigrate">
 						<i class="bi bi-arrow-right-circle me-1"></i>
-						<span v-if="dialog.data.submitting">Submitting…</span>
-						<span v-else>Migrate</span>
+						<span v-if="dialog.data.submitting">{{ t('app.bpm-console.dialog.submitting', undefined, 'Submitting…') }}</span>
+						<span v-else>{{ t('app.bpm-console.dialog.migrate', undefined, 'Migrate') }}</span>
 					</button>
 				</div>
 			</div>
@@ -1916,11 +1906,11 @@
 		<span v-else class="spinner"></span>
 
 		<div class="mt-3 migration-title">
-			<span v-if="migrationMonitor.status === 'failed'">Migration failed</span>
-			<span v-else-if="migrationMonitor.status === 'aborted'">Migration aborted</span>
-			<span v-else-if="migrationMonitor.isFinished">Migration completed</span>
-			<span v-else-if="migrationMonitor.isUnreachable">Migration running in background</span>
-			<span v-else>Migrating instances…</span>
+			<span v-if="migrationMonitor.status === 'failed'">{{ t('app.bpm-console.migration.failed', undefined, 'Migration failed') }}</span>
+			<span v-else-if="migrationMonitor.status === 'aborted'">{{ t('app.bpm-console.migration.aborted', undefined, 'Migration aborted') }}</span>
+			<span v-else-if="migrationMonitor.isFinished">{{ t('app.bpm-console.migration.completed', undefined, 'Migration completed') }}</span>
+			<span v-else-if="migrationMonitor.isUnreachable">{{ t('app.bpm-console.migration.background', undefined, 'Migration running in background') }}</span>
+			<span v-else>{{ t('app.bpm-console.migration.inProgress', undefined, 'Migrating instances…') }}</span>
 		</div>
 
 		<div class="dialog-help-text mt-1">
@@ -1930,8 +1920,7 @@
 		</div>
 
 		<div class="mt-3" v-if="migrationMonitor.jobsTotal > 0">
-			<strong>{{ migrationMonitor.jobsCompleted }}</strong>
-			/ {{ migrationMonitor.jobsTotal }} jobs
+			{{ t('app.bpm-console.migration.jobsProgress', { completed: migrationMonitor.jobsCompleted, total: migrationMonitor.jobsTotal }, '{completed} / {total} jobs') }}
 			<span v-if="!migrationMonitor.isFinished && !migrationMonitor.isUnreachable" class="ms-2 text-muted">
 				({{ Math.round(migrationMonitor.jobsCompleted / migrationMonitor.jobsTotal * 100) }}%)
 			</span>
@@ -1940,8 +1929,7 @@
 		<div v-if="migrationMonitor.isUnreachable && !migrationMonitor.isFinished"
 			class="dialog-help-text mt-2" style="max-width: 28rem;">
 			<i class="bi bi-info-circle me-1"></i>
-			The Job Executor is processing the batch on the server. Live progress is
-			unavailable — refresh the definition list later to verify completion.
+			{{ t('app.bpm-console.migration.backgroundHelp', undefined, 'The Job Executor is processing the batch on the server. Live progress is unavailable — refresh the definition list later to verify completion.') }}
 		</div>
 
 		<div v-if="migrationMonitor.errorMessage" class="mt-3" style="color: var(--wt-danger, #c33); max-width: 32rem;">
@@ -1949,7 +1937,7 @@
 		</div>
 
 		<div class="dialog-help-text mt-2">
-			Job ID: <code>{{ migrationMonitor.jobId }}</code>
+			{{ t('app.bpm-console.migration.jobIdLabel', { id: migrationMonitor.jobId }, 'Job ID: {id}') }}
 		</div>
 
 		<!-- Abort button is gated on the server's `abortable` flag. Camunda 7
@@ -1959,11 +1947,11 @@
 		     job types that opt in to abort can reuse this overlay. -->
 		<div class="mt-3"
 			v-if="migrationMonitor.abortable && !migrationMonitor.isFinished && !migrationMonitor.isUnreachable">
-			<button type="button" class="wt" @click="abortMigration">Abort</button>
+			<button type="button" class="wt" @click="abortMigration">{{ t('app.bpm-console.migration.abort', undefined, 'Abort') }}</button>
 		</div>
 
 		<div class="mt-3" v-if="migrationMonitor.isFinished || migrationMonitor.isUnreachable">
-			<button type="button" class="wt" @click="closeMigrationMonitor">Close</button>
+			<button type="button" class="wt" @click="closeMigrationMonitor">{{ t('common.close', undefined, 'Close') }}</button>
 		</div>
 	</div>
 

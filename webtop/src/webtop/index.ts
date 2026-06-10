@@ -12,6 +12,12 @@ import { UrlUtils } from './utils/url.js';
 import { BUILD_VERSION } from './utils/build-version.js';
 import { MetadataDefinitionCache } from './services/metadata-cache.js';
 import { I18nService } from './services/webtop-i18n-service.js';
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+	translate,
+} from './composables/use-localization.js';
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from './services/content-delete.js';
 import type { JobStatus } from './graphql/types.js';
 
@@ -70,6 +76,11 @@ const WtDesktop = {
 	data() {
 		return {
 			isReady: false,
+			// Reactive Localization snapshot for the shell itself. `t()` and the
+			// menubar clock read this, so the desktop, menus and dialogs repaint
+			// the moment the user changes their language / region preference or
+			// an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+			localization: createLocalizationSnapshot(),
 			username: null,
 			avatarURL: null,
 			isMenuOpen: false,
@@ -109,7 +120,14 @@ const WtDesktop = {
 				visible: false,
 				x: 0,
 				y: 0,
-				items: [] as { id: string; label: string; icon?: string; danger?: boolean; type?: string }[],
+				// `variant` selects the layout: 'list' (default vertical menu) or
+				// 'swatch-grid' (a compact grid of colour swatches, e.g. a colour
+				// picker). `columns` is the grid width when variant is 'swatch-grid'.
+				// Items may carry `swatch` (a CSS colour rendered as a dot/tile) and
+				// `selected` (marks the current choice).
+				variant: 'list' as 'list' | 'swatch-grid',
+				columns: 6,
+				items: [] as { id: string; label: string; icon?: string; iconSvg?: string; swatch?: string; selected?: boolean; danger?: boolean; type?: string }[],
 				sourceAppId: null as string | null,
 				onAction: null as ((id: string) => void) | null,
 			},
@@ -261,7 +279,7 @@ const WtDesktop = {
 		activeAppName() {
 			if (!this.activeAppInstanceID) return '';
 			const inst = this.appInstances.find((i: ApplicationInstance) => i.id === this.activeAppInstanceID);
-			return inst?.app?.title || '';
+			return inst?.app ? (this as any).appTitle(inst.app) : '';
 		},
 	},
 	methods: {
@@ -278,6 +296,11 @@ const WtDesktop = {
 			}
 
 			vm.username = window.Webtop.currentUser.fullName || window.Webtop.currentUser.id;
+
+			// Seed the shell's localization snapshot now that the API (and with it
+			// LocalizationManager) is initialized. `window.Webtop` acts as the
+			// context: its `api.localization` / `api.i18n` back the helpers.
+			refreshLocalization(vm.localization, window.Webtop);
 
 			// Load avatar: system workspace takes priority over Identicon
 			try {
@@ -318,7 +341,11 @@ const WtDesktop = {
 				console.warn('[Webtop] Failed to initialize metadata definitions cache:', err);
 			});
 			// I18n バンドルキャッシュを初期化（バックグラウンド）
-			window.Webtop.initI18n().catch((err: any) => {
+			window.Webtop.initI18n().then(() => {
+				// Bundles loaded — repaint any t() bindings that rendered during
+				// boot (e.g. the startup session picker) before they were ready.
+				handleLocalizationMessage('i18n-bundles-updated', vm.localization, window.Webtop);
+			}).catch((err: any) => {
 				console.warn('[Webtop] Failed to initialize i18n bundles cache:', err);
 			});
 			// onTimer内で初回必ず commit される
@@ -497,10 +524,12 @@ const WtDesktop = {
 					if (payload.displayName) {
 						vm.username = payload.displayName;
 					}
-				} else if (type === 'localization-changed') {
-					// Repaint the menubar clock immediately so the user sees
-					// their new locale / timezone take effect without waiting
-					// for the next tick.
+				} else if (handleLocalizationMessage(type, vm.localization, window.Webtop)) {
+					// `localization-changed` re-resolves the snapshot (locale,
+					// zone, number format, currency); `i18n-bundles-updated`
+					// bumps its revision. Both repaint every `t()` binding. Also
+					// refresh the menubar clock so the new locale/timezone shows
+					// without waiting for the next tick.
 					vm.onTimer();
 				} else if (type === 'avatar-changed') {
 					const userId = window.Webtop.currentUser?.id;
@@ -831,9 +860,33 @@ const WtDesktop = {
 				vm.restoringSession = false;
 			}
 		},
+		/**
+		 * Reactive i18n lookup for the shell. Reads the localization snapshot so
+		 * every `{{ t(...) }}` binding repaints on language / bundle change.
+		 * `window.Webtop` is the context (its `api.i18n` backs the lookup).
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate((this as any).localization, window.Webtop, messageId, params, fallback);
+		},
+		/**
+		 * Localized display title for an app. By convention an app's title is
+		 * translated under `app.<relPath>.title` (relPath is the app folder, the
+		 * same id used for the app's own `app.<id>.*` messages), falling back to
+		 * the literal `title` from app.yml when no bundle key exists. Reactive
+		 * via t(), so the start menu / dock / menubar repaint on language change.
+		 */
+		appTitle(app: any): string {
+			if (!app) return '';
+			const literal = app.title || '';
+			const relPath = app.relPath || '';
+			return relPath ? (this as any).t(`app.${relPath}.title`, undefined, literal) : literal;
+		},
 		formatDate(dateStr: string): string {
+			const vm = this as any;
 			try {
-				return new Date(dateStr).toLocaleString(navigator.language || 'en-US');
+				const locale = vm.localization?.locale || navigator.language || 'en-US';
+				const timeZone = vm.localization?.timeZone || undefined;
+				return new Date(dateStr).toLocaleString(locale, { timeZone });
 			} catch {
 				return dateStr;
 			}
@@ -850,8 +903,11 @@ const WtDesktop = {
 			return opts;
 		},
 		// Context menu methods
-		showContextMenu(payload: { x: number; y: number; items: any[]; sourceAppId?: string | null; onAction?: (id: string) => void }) {
+		showContextMenu(payload: { x: number; y: number; items: any[]; variant?: 'list' | 'swatch-grid'; columns?: number; sourceAppId?: string | null; onAction?: (id: string) => void }) {
 			const vm = this;
+
+			const variant = payload.variant === 'swatch-grid' ? 'swatch-grid' : 'list';
+			const columns = payload.columns && payload.columns > 0 ? payload.columns : 6;
 
 			// iframeの位置を取得して座標を補正
 			let actualX = payload.x;
@@ -865,14 +921,27 @@ const WtDesktop = {
 				}
 			}
 
-			// 画面端からはみ出さないように位置を調整
-			const menuWidth = 200;
-			const menuHeight = payload.items.length * 32 + 16;
+			// 画面端からはみ出さないように位置を調整。グリッドと縦リストで
+			// 想定サイズが異なるため、variant ごとに概算する。
+			let menuWidth: number;
+			let menuHeight: number;
+			if (variant === 'swatch-grid') {
+				// swatch ≈ 1.5rem(24px) + 0.3rem(≈5px) gap、外周 padding 0.5rem(8px)*2。
+				const cellPx = 29;
+				const rows = Math.ceil(payload.items.length / columns);
+				menuWidth = columns * cellPx + 16;
+				menuHeight = rows * cellPx + 16;
+			} else {
+				menuWidth = 200;
+				menuHeight = payload.items.length * 32 + 16;
+			}
 			const maxX = window.innerWidth - menuWidth;
 			const maxY = window.innerHeight - menuHeight;
 
-			vm.contextMenu.x = Math.min(actualX, maxX);
-			vm.contextMenu.y = Math.min(actualY, maxY);
+			vm.contextMenu.x = Math.max(0, Math.min(actualX, maxX));
+			vm.contextMenu.y = Math.max(0, Math.min(actualY, maxY));
+			vm.contextMenu.variant = variant;
+			vm.contextMenu.columns = columns;
 			vm.contextMenu.items = payload.items;
 			vm.contextMenu.sourceAppId = payload.sourceAppId || null;
 			vm.contextMenu.onAction = payload.onAction || null;
@@ -881,6 +950,7 @@ const WtDesktop = {
 		hideContextMenu() {
 			const vm = this;
 			vm.contextMenu.visible = false;
+			vm.contextMenu.variant = 'list';
 			vm.contextMenu.items = [];
 			vm.contextMenu.sourceAppId = null;
 			vm.contextMenu.onAction = null;
@@ -1589,12 +1659,12 @@ const WtDesktop = {
 			const hasFolder = selected.some((i: any) => i.isCollection);
 			const hasFile = selected.some((i: any) => !i.isCollection);
 			const items: any[] = [];
-			if (isSingle && hasFolder) items.push({ id: 'open', label: 'Open', icon: 'bi-folder2-open' });
-			if (isSingle && !hasFolder) items.push({ id: 'open', label: 'Open', icon: 'bi-box-arrow-up-right' });
-			if (hasFile) items.push({ id: 'download', label: 'Download', icon: 'bi-download' });
+			if (isSingle && hasFolder) items.push({ id: 'open', label: vm.t('webtop.contextMenu.open', undefined, 'Open'), icon: 'bi-folder2-open' });
+			if (isSingle && !hasFolder) items.push({ id: 'open', label: vm.t('webtop.contextMenu.open', undefined, 'Open'), icon: 'bi-box-arrow-up-right' });
+			if (hasFile) items.push({ id: 'download', label: vm.t('webtop.contextMenu.download', undefined, 'Download'), icon: 'bi-download' });
 			items.push({ type: 'separator', id: '', label: '' });
-			if (isSingle) items.push({ id: 'rename', label: 'Rename', icon: 'bi-pencil' });
-			items.push({ id: 'delete', label: 'Delete', icon: 'bi-trash', danger: true });
+			if (isSingle) items.push({ id: 'rename', label: vm.t('webtop.contextMenu.rename', undefined, 'Rename'), icon: 'bi-pencil' });
+			items.push({ id: 'delete', label: vm.t('common.delete', undefined, 'Delete'), icon: 'bi-trash', danger: true });
 			vm.showContextMenu({
 				x, y, items,
 				onAction: (id: string) => vm.onDesktopContextAction(id, selected),
@@ -1609,9 +1679,9 @@ const WtDesktop = {
 			vm.desktopSelectedIds = [];
 			vm.desktopLastSelectedIndex = -1;
 			const items: any[] = [
-				{ id: 'refresh', label: 'Refresh', icon: 'bi-arrow-clockwise' },
+				{ id: 'refresh', label: vm.t('webtop.contextMenu.refresh', undefined, 'Refresh'), icon: 'bi-arrow-clockwise' },
 				{ type: 'separator', id: '', label: '' },
-				{ id: 'open-content-browser', label: 'Open in Content Browser', icon: 'bi-folder2-open' },
+				{ id: 'open-content-browser', label: vm.t('webtop.contextMenu.openInContentBrowser', undefined, 'Open in Content Browser'), icon: 'bi-folder2-open' },
 			];
 			vm.showContextMenu({
 				x: event.clientX, y: event.clientY, items,
@@ -1773,12 +1843,12 @@ const WtDesktop = {
 					document.dispatchEvent(new CustomEvent('webtop-desktop-reload'));
 				}
 			} catch (err: any) {
-				const msg = err?.message || String(err) || 'Failed to delete';
+				const msg = err?.message || String(err) || vm.t('webtop.delete.failed', undefined, 'Failed to delete');
 				if (vm.desktopDeleteMonitor) {
 					vm.desktopDeleteMonitor.errorMessage = msg;
 					vm.desktopDeleteMonitor.isFinished = true;
 				} else {
-					vm.desktopAlert = { visible: true, title: 'Delete failed', message: msg };
+					vm.desktopAlert = { visible: true, title: vm.t('webtop.delete.failedTitle', undefined, 'Delete failed'), message: msg };
 				}
 			}
 		},
@@ -1855,8 +1925,8 @@ const WtDesktop = {
 			const vm = this as any;
 			vm.desktopAlert = {
 				visible: true,
-				title: 'Desktop folder not available',
-				message: 'Your Desktop folder is not set up. Please ask your administrator to provision it, then sign out and sign in again.',
+				title: vm.t('webtop.alert.missingDesktop.title', undefined, 'Desktop folder not available'),
+				message: vm.t('webtop.alert.missingDesktop.message', undefined, 'Your Desktop folder is not set up. Please ask your administrator to provision it, then sign out and sign in again.'),
 			};
 		},
 		closeDesktopAlert() {

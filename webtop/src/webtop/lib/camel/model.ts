@@ -2,6 +2,31 @@
 // Apache Camel Model/DI Separation Type Definitions
 // =============================================================================
 
+// --- EIP processor types ----------------------------------------------------
+
+/**
+ * Every Apache Camel EIP processor type understood by the model engine.
+ * Shared by the modeler (editing) and the read-only canvas (rendering) so both
+ * speak the same vocabulary.
+ */
+export type EipType =
+	// Basic
+	| 'from' | 'to' | 'toD'
+	// Routing
+	| 'choice' | 'filter' | 'split' | 'aggregate' | 'multicast'
+	| 'recipientList' | 'routingSlip' | 'dynamicRouter' | 'loadBalance' | 'loop'
+	// Transformation
+	| 'log' | 'setBody' | 'setHeader' | 'setHeaders' | 'setProperty' | 'setVariable'
+	| 'removeHeader' | 'removeHeaders' | 'transform' | 'marshal' | 'unmarshal' | 'convertBodyTo'
+	// Error Handling
+	| 'onException' | 'doTry' | 'doCatch' | 'doFinally'
+	// Control Flow
+	| 'delay' | 'throttle' | 'stop' | 'process' | 'bean' | 'circuitBreaker' | 'threads' | 'step'
+	// Merge (visual-only, not output to XML)
+	| 'merge'
+	// Others
+	| 'wireTap' | 'enrich' | 'pollEnrich' | 'script' | 'validate' | 'saga';
+
 // --- Utility ---
 export function generateUUID(): string {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {

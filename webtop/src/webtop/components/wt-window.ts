@@ -1,6 +1,7 @@
 // wt-window custom element
 import { defineComponent } from '@mintjamsinc/ichigojs';
 import { BUILD_VERSION } from '../utils/build-version.js';
+import { translate, createLocalizationSnapshot } from '../composables/use-localization.js';
 
 let zIndexSeed = 1;
 
@@ -41,7 +42,10 @@ async function saveWindowSize(appId: string | undefined, width: number, height: 
 
 defineComponent('wt-window', {
 	template: '#wt-window',
-	props: ['appInstance'],
+	// `localization` is the shell's reactive snapshot, passed down so window
+	// chrome strings localize and repaint on language change (ichigojs
+	// propagates nested mutations of the received proxy to our bindings).
+	props: ['appInstance', 'localization'],
 	emits: ['window-activated', 'window-deactivated', 'window-maximize-changed', 'window-minimize-changed', 'app-instance-closed'],
 	data(this: any) {
 		const ai = this.$markRaw(this.appInstance);
@@ -139,6 +143,15 @@ defineComponent('wt-window', {
 		},
 	},
 	methods: {
+		/**
+		 * Reactive i18n lookup for window chrome. Reads the `localization` prop
+		 * snapshot (passed from the shell) so strings repaint on language change.
+		 * Falls back to an empty snapshot before the prop is wired.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			const vm = this as any;
+			return translate(vm.localization || createLocalizationSnapshot(), vm.appInstance, messageId, params, fallback);
+		},
 		activate() {
 			const vm = this as any;
 			vm.zIndex = ++zIndexSeed;

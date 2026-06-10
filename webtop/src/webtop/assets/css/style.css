@@ -257,6 +257,54 @@ body {
 	background-color: var(--menu-divider-color);
 }
 
+/* Colour dot shown in a list-variant item carrying `swatch`. */
+.context-menu-color-dot {
+	flex-shrink: 0;
+	width: 0.9rem;
+	height: 0.9rem;
+	margin-right: 0.5rem;
+	border-radius: 50%;
+	border: 1px solid rgb(from var(--body-color) r g b / 0.3);
+}
+
+/* Trailing check mark marking the currently-selected list item. */
+.context-menu-check {
+	margin-left: auto;
+	padding-left: 0.75rem;
+}
+
+/* Swatch-grid variant — a compact colour-picker popup. Shares the
+   floating-overlay chrome of #context-menu but lays its items out as a grid. */
+#context-menu.swatch-grid {
+	display: grid;
+	gap: 0.3rem;
+	padding: 0.5rem;
+}
+
+.context-menu-swatch {
+	width: 1.5rem;
+	height: 1.5rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	border: 1px solid rgb(from var(--body-color) r g b / 0.25);
+	cursor: pointer;
+	padding: 0;
+	color: #fff;
+	font-size: 0.85rem;
+	line-height: 1;
+	transition: transform 0.08s ease;
+}
+
+.context-menu-swatch:hover {
+	transform: scale(1.12);
+}
+
+.context-menu-swatch.selected {
+	box-shadow: 0 0 0 2px var(--body-bg), 0 0 0 4px var(--primary-color, #039BE5);
+}
+
 /* App popup — iframe-escaping dropdown / menu rendered by the shell. */
 #app-popup-overlay {
 	position: fixed;

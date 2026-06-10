@@ -5,6 +5,5 @@ security:
     principalProviders:
       - org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider
       - org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider
-      - org.mintjams.rt.cms.internal.security.ServiceAccountPrincipalProvider
     identityProviders:
       - org.mintjams.rt.cms.internal.security.DefaultIdentityProvider

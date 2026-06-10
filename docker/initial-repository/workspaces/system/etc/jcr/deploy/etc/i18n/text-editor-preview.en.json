@@ -1,0 +1,18 @@
+{
+	"app.text-editor-preview.title": "Preview",
+	"app.text-editor-preview.toolbar.label": "Preview",
+	"app.text-editor-preview.toolbar.pin": "Pin to this file",
+	"app.text-editor-preview.toolbar.unpin": "Unpin (follow editor)",
+	"app.text-editor-preview.toolbar.ext.change": "Click to change output extension",
+	"app.text-editor-preview.empty.disconnected": "Editor was closed.",
+	"app.text-editor-preview.empty.rendering": "Rendering preview…",
+	"app.text-editor-preview.empty.placeholder": "Preview will appear here",
+	"app.text-editor-preview.empty.unsupported": "Preview not available for this file type",
+	"app.text-editor-preview.window.titleWithFile": "Preview — {fileName}",
+	"app.text-editor-preview.error.notSaved": "File must be saved before preview is available.",
+	"app.text-editor-preview.error.noWorkspace": "Workspace is not available.",
+	"app.text-editor-preview.error.enterExtension": "Enter a file extension (e.g. html).",
+	"app.text-editor-preview.error.renderFailed": "Render failed: {status} {statusText}",
+	"app.text-editor-preview.error.renderGeneric": "Failed to render preview.",
+	"app.text-editor-preview.error.markdownRender": "Error rendering preview"
+}

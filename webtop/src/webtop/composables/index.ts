@@ -83,5 +83,9 @@ export {
   createLocalizationSnapshot,
   refreshLocalization,
   handleLocalizationMessage,
+  translate,
+  formatNumber,
+  formatCurrency,
+  formatDate,
   type LocalizationSnapshot,
 } from './use-localization.js';

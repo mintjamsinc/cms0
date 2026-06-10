@@ -27,26 +27,26 @@
 			<button class="btn-icon"
 				:class="{active: mode === 'tasks-runtime'}"
 				@click="switchMode('tasks-runtime')"
-				title="My tasks (running)">
+				:title="t('app.tasks.mode.runtime', undefined, 'My tasks (running)')">
 				<i class="bi bi-inbox-fill"></i>
 			</button>
 			<button class="btn-icon"
 				:class="{active: mode === 'tasks-history'}"
 				@click="switchMode('tasks-history')"
-				title="My tasks (completed)">
+				:title="t('app.tasks.mode.history', undefined, 'My tasks (completed)')">
 				<i class="bi bi-archive"></i>
 			</button>
 			<button class="btn-icon"
 				:class="{active: mode === 'start'}"
 				@click="switchMode('start')"
-				title="Start a process">
+				:title="t('app.tasks.mode.start', undefined, 'Start a process')">
 				<i class="bi bi-play-fill"></i>
 			</button>
 		</div>
 
 		<!-- Left: refresh -->
 		<div class="toolbar-group">
-			<button class="btn-icon" @click="refresh" title="Refresh (F5)">
+			<button class="btn-icon" @click="refresh" :title="t('app.tasks.toolbar.refresh', undefined, 'Refresh (F5)')">
 				<i class="bi bi-arrow-clockwise"></i>
 			</button>
 		</div>
@@ -56,24 +56,24 @@
 		<!-- Right: pane toggles -->
 		<div class="pane-toggles">
 			<button class="btn-icon pane-toggle-btn" :class="{active: searchPanelVisible}"
-				@click="toggleSearchPanel" title="Toggle filters">
+				@click="toggleSearchPanel" :title="t('app.tasks.toolbar.toggleFilters', undefined, 'Toggle filters')">
 				<i class="bi bi-funnel"></i>
 			</button>
 			<button class="btn-icon pane-toggle-btn" :class="{active: listPanelVisible}"
-				@click="toggleListPanel" title="Toggle list">
+				@click="toggleListPanel" :title="t('app.tasks.toolbar.toggleList', undefined, 'Toggle list')">
 				<i class="bi bi-list-task"></i>
 			</button>
 		</div>
 
 		<!-- Right: window controls -->
 		<div class="window-controls">
-			<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+			<button class="btn-icon" @click="onMinimizeWindow" :title="t('app.tasks.window.minimize', undefined, 'Minimize')">
 				<i class="bi bi-dash-lg"></i>
 			</button>
-			<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+			<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('app.tasks.window.maximize', undefined, 'Maximize')">
 				<i class="bi bi-square"></i>
 			</button>
-			<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+			<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('app.tasks.window.close', undefined, 'Close')">
 				<i class="bi bi-x-lg"></i>
 			</button>
 		</div>
@@ -94,14 +94,14 @@
 				<!-- Tasks (Runtime) filters -->
 				<div v-if="mode === 'tasks-runtime'">
 					<div class="filter-group">
-						<label class="filter-label">Keyword</label>
+						<label class="filter-label">{{ t('app.tasks.filter.keyword', undefined, 'Keyword') }}</label>
 						<div class="input-group">
 							<input type="text" class="wt"
 								v-model="filters.taskKeyword"
 								@input="filterList"
-								placeholder="Name, process, business key…">
+								:placeholder="t('app.tasks.filter.taskKeywordPlaceholder', undefined, 'Name, process, business key…')">
 							<div v-if="filters.taskKeyword" class="input-group-actions">
-								<button class="input-group-btn" @click="clearTaskKeyword" title="Clear">
+								<button class="input-group-btn" @click="clearTaskKeyword" :title="t('app.tasks.action.clear', undefined, 'Clear')">
 									<i class="bi bi-x"></i>
 								</button>
 							</div>
@@ -109,37 +109,37 @@
 					</div>
 
 					<div class="filter-group">
-						<label class="filter-label">Scope</label>
+						<label class="filter-label">{{ t('app.tasks.filter.scope', undefined, 'Scope') }}</label>
 						<label class="filter-check">
 							<input type="radio" class="wt" name="task-scope" value="assigned"
 								v-model="filters.scope" @change="loadTasks">
-							<span>Assigned to me</span>
+							<span>{{ t('app.tasks.filter.scope.assigned', undefined, 'Assigned to me') }}</span>
 						</label>
 						<label class="filter-check">
 							<input type="radio" class="wt" name="task-scope" value="candidate"
 								v-model="filters.scope" @change="loadTasks">
-							<span>Candidate (my groups)</span>
+							<span>{{ t('app.tasks.filter.scope.candidate', undefined, 'Candidate (my groups)') }}</span>
 						</label>
 						<label class="filter-check">
 							<input type="radio" class="wt" name="task-scope" value="all"
 								v-model="filters.scope" @change="loadTasks">
-							<span>All</span>
+							<span>{{ t('app.tasks.filter.scope.all', undefined, 'All') }}</span>
 						</label>
 					</div>
 
 					<div class="filter-group">
 						<div class="filter-label-row">
-							<label class="filter-label">Process definition</label>
+							<label class="filter-label">{{ t('app.tasks.filter.processDefinition', undefined, 'Process definition') }}</label>
 							<button v-if="filters.processDefinitionKeys.length > 0"
 								type="button"
 								class="filter-clear-btn"
 								@click="clearDefKeySelection"
-								title="Clear selection">
-								Clear
+								:title="t('app.tasks.filter.clearSelection', undefined, 'Clear selection')">
+								{{ t('app.tasks.action.clear', undefined, 'Clear') }}
 							</button>
 						</div>
 						<div v-if="definitions.length === 0" class="filter-hint mt-0">
-							No process definitions deployed.
+							{{ t('app.tasks.filter.noProcessDefinitions', undefined, 'No process definitions deployed.') }}
 						</div>
 						<div v-else class="def-checkbox-list">
 							<label v-for="def in definitions" :key="def.id" class="filter-check def-checkbox-item">
@@ -152,17 +152,17 @@
 					</div>
 
 					<div class="filter-group">
-						<label class="filter-label">Due</label>
+						<label class="filter-label">{{ t('app.tasks.filter.due', undefined, 'Due') }}</label>
 						<button type="button" class="wt-select-trigger" @click="openDuePickerPopup">
 							<span class="wt-select-value" :class="{placeholder: !filters.dueLabel}">
-								{{ filters.dueLabel || 'Any time' }}
+								{{ filters.dueLabel || t('app.tasks.filter.due.any', undefined, 'Any time') }}
 							</span>
 							<i class="bi bi-chevron-down wt-select-chevron"></i>
 						</button>
 					</div>
 
 					<div class="filter-group">
-						<label class="filter-label">Priority (≥)</label>
+						<label class="filter-label">{{ t('app.tasks.filter.priorityMin', undefined, 'Priority (≥)') }}</label>
 						<input type="number" class="wt w-100" min="0" max="100" step="1"
 							v-model.number="filters.priorityMin" @input="filterList"
 							placeholder="0">
@@ -172,14 +172,14 @@
 				<!-- Tasks (History) filters -->
 				<div v-if="mode === 'tasks-history'">
 					<div class="filter-group">
-						<label class="filter-label">Keyword</label>
+						<label class="filter-label">{{ t('app.tasks.filter.keyword', undefined, 'Keyword') }}</label>
 						<div class="input-group">
 							<input type="text" class="wt"
 								v-model="filters.taskKeyword"
 								@input="filterList"
-								placeholder="Name, process, business key…">
+								:placeholder="t('app.tasks.filter.taskKeywordPlaceholder', undefined, 'Name, process, business key…')">
 							<div v-if="filters.taskKeyword" class="input-group-actions">
-								<button class="input-group-btn" @click="clearTaskKeyword" title="Clear">
+								<button class="input-group-btn" @click="clearTaskKeyword" :title="t('app.tasks.action.clear', undefined, 'Clear')">
 									<i class="bi bi-x"></i>
 								</button>
 							</div>
@@ -187,7 +187,7 @@
 					</div>
 					<div class="filter-group">
 						<p class="filter-hint mt-0">
-							Completed tasks are sourced from the Camunda history; this view is currently read-only.
+							{{ t('app.tasks.history.hint', undefined, 'Completed tasks are sourced from the Camunda history; this view is currently read-only.') }}
 						</p>
 					</div>
 				</div>
@@ -195,14 +195,14 @@
 				<!-- Process Start filters -->
 				<div v-if="mode === 'start'">
 					<div class="filter-group">
-						<label class="filter-label">Keyword</label>
+						<label class="filter-label">{{ t('app.tasks.filter.keyword', undefined, 'Keyword') }}</label>
 						<div class="input-group">
 							<input type="text" class="wt"
 								v-model="filters.defKeyword"
 								@input="filterList"
-								placeholder="Name, key, description…">
+								:placeholder="t('app.tasks.filter.defKeywordPlaceholder', undefined, 'Name, key, description…')">
 							<div v-if="filters.defKeyword" class="input-group-actions">
-								<button class="input-group-btn" @click="clearDefKeyword" title="Clear">
+								<button class="input-group-btn" @click="clearDefKeyword" :title="t('app.tasks.action.clear', undefined, 'Clear')">
 									<i class="bi bi-x"></i>
 								</button>
 							</div>
@@ -210,10 +210,10 @@
 					</div>
 
 					<div class="filter-group">
-						<label class="filter-label">Category</label>
+						<label class="filter-label">{{ t('app.tasks.filter.category', undefined, 'Category') }}</label>
 						<button type="button" class="wt-select-trigger" @click="openCategoryPickerPopup">
 							<span class="wt-select-value" :class="{placeholder: !filters.category}">
-								{{ filters.category || 'All categories' }}
+								{{ filters.category || t('app.tasks.filter.category.all', undefined, 'All categories') }}
 							</span>
 							<i class="bi bi-chevron-down wt-select-chevron"></i>
 						</button>
@@ -222,7 +222,7 @@
 					<div class="filter-group">
 						<label class="filter-check">
 							<input type="checkbox" class="wt" v-model="filters.favoritesOnly" @change="filterList">
-							<span>Favorites only</span>
+							<span>{{ t('app.tasks.filter.favoritesOnly', undefined, 'Favorites only') }}</span>
 						</label>
 					</div>
 				</div>
@@ -241,7 +241,7 @@
 
 			<div v-if="isLoading && filteredItems.length === 0" class="list-empty">
 				<span class="spinner"></span>
-				<span>Loading…</span>
+				<span>{{ t('app.tasks.list.loading', undefined, 'Loading…') }}</span>
 			</div>
 
 			<div v-else-if="filteredItems.length === 0" class="list-empty">
@@ -256,23 +256,23 @@
 					:class="{selected: selectedTask && selectedTask.id === task.id}"
 					@click="selectTask(task)">
 					<div class="task-item-row1">
-						<span v-if="!task.assignee" class="task-badge task-badge-unassigned" title="Unassigned">
+						<span v-if="!task.assignee" class="task-badge task-badge-unassigned" :title="t('app.tasks.badge.unassigned', undefined, 'Unassigned')">
 							<i class="bi bi-person-dash"></i>
 						</span>
-						<span v-else-if="task.assignee === currentUserID" class="task-badge task-badge-mine" title="Assigned to me">
+						<span v-else-if="task.assignee === currentUserID" class="task-badge task-badge-mine" :title="t('app.tasks.badge.assignedToMe', undefined, 'Assigned to me')">
 							<i class="bi bi-person-check-fill"></i>
 						</span>
-						<span v-else class="task-badge task-badge-other" :title="'Assigned to ' + task.assignee">
+						<span v-else class="task-badge task-badge-other" :title="t('app.tasks.badge.assignedTo', { assignee: task.assignee }, 'Assigned to {assignee}')">
 							<i class="bi bi-person-fill"></i>
 						</span>
 						<span class="task-item-name">{{ task.name || task.taskDefinitionKey }}</span>
-						<span v-if="task.priority >= 75" class="task-badge task-badge-priority" title="High priority">
+						<span v-if="task.priority >= 75" class="task-badge task-badge-priority" :title="t('app.tasks.badge.highPriority', undefined, 'High priority')">
 							<i class="bi bi-flag-fill"></i>
 						</span>
 					</div>
 					<div class="task-item-row2">
 						<span class="task-process-name">{{ resolveProcessName(task) }}</span>
-						<span v-if="task.businessKey" class="task-business-key" :title="'Business key: ' + task.businessKey">
+						<span v-if="task.businessKey" class="task-business-key" :title="t('app.tasks.list.businessKey', { key: task.businessKey }, 'Business key: {key}')">
 							#{{ task.businessKey }}
 						</span>
 					</div>
@@ -281,7 +281,7 @@
 							<i class="bi bi-clock"></i>
 							{{ formatRelativeDate(task.due) }}
 						</span>
-						<span v-else class="task-meta">created {{ formatRelativeDate(task.created) }}</span>
+						<span v-else class="task-meta">{{ t('app.tasks.list.createdAt', { when: formatRelativeDate(task.created) }, 'created {when}') }}</span>
 						<span v-if="task.assignee && task.assignee !== currentUserID" class="task-meta">
 							· {{ task.assignee }}
 						</span>
@@ -299,11 +299,11 @@
 						<button class="btn-icon def-fav-btn"
 							:class="{active: favorites[def.key]}"
 							@click.stop="toggleFavorite(def)"
-							:title="favorites[def.key] ? 'Remove from favorites' : 'Add to favorites'">
+							:title="favorites[def.key] ? t('app.tasks.action.removeFavorite', undefined, 'Remove from favorites') : t('app.tasks.action.addFavorite', undefined, 'Add to favorites')">
 							<i class="bi" :class="favorites[def.key] ? 'bi-star-fill' : 'bi-star'"></i>
 						</button>
 						<span class="def-item-name">{{ def.name || def.key }}</span>
-						<span class="def-item-version">v{{ def.version }}</span>
+						<span class="def-item-version">{{ t('app.tasks.def.version', { version: def.version }, 'v{version}') }}</span>
 					</div>
 					<div class="def-item-row2">
 						<span class="def-item-key">{{ def.key }}</span>
@@ -331,15 +331,15 @@
 					<span v-if="mode === 'start' && selectedDef" class="form-context-title">
 						<i class="bi bi-play-fill"></i>
 						<strong>{{ selectedDef.name || selectedDef.key }}</strong>
-						<span class="form-context-sub">v{{ selectedDef.version }}</span>
+						<span class="form-context-sub">{{ t('app.tasks.def.version', { version: selectedDef.version }, 'v{version}') }}</span>
 					</span>
 					<span v-else-if="mode !== 'start' && selectedTask" class="form-context-title">
 						<i class="bi bi-card-checklist"></i>
 						<strong>{{ selectedTask.name || selectedTask.taskDefinitionKey }}</strong>
 						<span v-if="selectedTask.assignee" class="form-context-sub">
-							· {{ selectedTask.assignee === currentUserID ? 'me' : selectedTask.assignee }}
+							· {{ selectedTask.assignee === currentUserID ? t('app.tasks.context.me', undefined, 'me') : selectedTask.assignee }}
 						</span>
-						<span v-else class="form-context-sub form-context-warn">· unassigned</span>
+						<span v-else class="form-context-sub form-context-warn">· {{ t('app.tasks.context.unassigned', undefined, 'unassigned') }}</span>
 					</span>
 					<span v-else class="form-context-placeholder">
 						{{ contextPlaceholder }}
@@ -351,24 +351,24 @@
 						<button v-if="!selectedTask.assignee"
 							class="wt wt-slim wt-primary"
 							@click="claimSelectedTask"
-							title="Claim this task">
-							<i class="bi bi-person-check me-1"></i>Claim
+							:title="t('app.tasks.action.claim.title', undefined, 'Claim this task')">
+							<i class="bi bi-person-check me-1"></i>{{ t('app.tasks.action.claim', undefined, 'Claim') }}
 						</button>
 						<button v-else-if="selectedTask.assignee === currentUserID"
 							class="wt wt-slim"
 							@click="unclaimSelectedTask"
-							title="Release this task">
-							<i class="bi bi-person-dash me-1"></i>Unclaim
+							:title="t('app.tasks.action.unclaim.title', undefined, 'Release this task')">
+							<i class="bi bi-person-dash me-1"></i>{{ t('app.tasks.action.unclaim', undefined, 'Unclaim') }}
 						</button>
 						<button v-else
 							class="wt wt-slim"
 							@click="confirmTakeOverSelectedTask"
-							title="Take over this task">
-							<i class="bi bi-arrow-left-right me-1"></i>Take over
+							:title="t('app.tasks.action.takeover.title', undefined, 'Take over this task')">
+							<i class="bi bi-arrow-left-right me-1"></i>{{ t('app.tasks.action.takeover', undefined, 'Take over') }}
 						</button>
 						<button class="wt wt-slim"
 							@click="showAssignDialog"
-							title="Assign to another user">
+							:title="t('app.tasks.action.assign.title', undefined, 'Assign to another user')">
 							<i class="bi bi-person-gear"></i>
 						</button>
 					</template>
@@ -392,7 +392,7 @@
 				<!-- Loading state -->
 				<div v-else-if="formLoading" class="form-empty">
 					<span class="spinner"></span>
-					<span>Loading form…</span>
+					<span>{{ t('app.tasks.form.loading', undefined, 'Loading form…') }}</span>
 				</div>
 
 				<!-- Form load error -->
@@ -420,11 +420,11 @@
 		<div class="status-group">
 			<span class="status-item"><i class="bi bi-person me-1"></i>{{ currentUserDisplay }}</span>
 			<span class="status-divider"></span>
-			<span class="status-item">{{ filteredItems.length }} {{ mode === 'start' ? 'process(es)' : 'task(s)' }}</span>
+			<span class="status-item">{{ mode === 'start' ? t('app.tasks.status.processCount', { count: filteredItems.length }, '{count} process(es)') : t('app.tasks.status.taskCount', { count: filteredItems.length }, '{count} task(s)') }}</span>
 		</div>
 		<span class="nav-spacer"></span>
 		<div class="status-group">
-			<span v-if="isLoading" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Loading</span>
+			<span v-if="isLoading" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.tasks.status.loading', undefined, 'Loading') }}</span>
 		</div>
 	</div>
 
@@ -436,8 +436,8 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Notice</h3>
-						<button class="btn-icon" @click="errorMessage = ''" title="Close">
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.tasks.dialog.notice.title', undefined, 'Notice') }}</h3>
+						<button class="btn-icon" @click="errorMessage = ''" :title="t('app.tasks.window.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
@@ -446,7 +446,7 @@
 					<p class="mt-0 mb-0">{{ errorMessage }}</p>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt wt-primary" @click="errorMessage = ''">OK</button>
+					<button class="wt wt-primary" @click="errorMessage = ''">{{ t('app.tasks.action.ok', undefined, 'OK') }}</button>
 				</div>
 			</div>
 		</div>
@@ -460,25 +460,21 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-arrow-left-right me-2"></i>Take Over Task</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-arrow-left-right me-2"></i>{{ t('app.tasks.dialog.takeover.title', undefined, 'Take Over Task') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('app.tasks.window.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
-					<p class="mt-0">
-						Take over <strong>{{ dialog.data.taskName }}</strong> from
-						<strong>{{ dialog.data.currentAssignee }}</strong>?
-					</p>
+					<p class="mt-0">{{ t('app.tasks.dialog.takeover.confirm', { taskName: dialog.data.taskName, assignee: dialog.data.currentAssignee }, 'Take over "{taskName}" from "{assignee}"?') }}</p>
 					<p class="mb-0 small text-muted">
-						You will become the new assignee. The previous assignee will lose
-						access to this task.
+						{{ t('app.tasks.dialog.takeover.note', undefined, 'You will become the new assignee. The previous assignee will lose access to this task.') }}
 					</p>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-primary" @click="executeTakeOver">Take over</button>
+					<button class="wt" @click="closeDialog">{{ t('app.tasks.action.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-primary" @click="executeTakeOver">{{ t('app.tasks.action.takeover', undefined, 'Take over') }}</button>
 				</div>
 			</div>
 		</div>
@@ -492,21 +488,21 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-person-gear me-2"></i>Assign Task</h3>
-						<button class="btn-icon" @click="closeDialog" title="Close">
+						<h3><i class="bi bi-person-gear me-2"></i>{{ t('app.tasks.dialog.assign.title', undefined, 'Assign Task') }}</h3>
+						<button class="btn-icon" @click="closeDialog" :title="t('app.tasks.window.close', undefined, 'Close')">
 							<i class="bi bi-x-lg"></i>
 						</button>
 					</div>
 				</div>
 				<div class="dialog-body">
-					<p class="mt-0">Reassign <strong>{{ dialog.data.taskName }}</strong> to another user. Search by username, display name, or email — any user can be selected.</p>
-					<label class="dialog-label">User</label>
+					<p class="mt-0">{{ t('app.tasks.dialog.assign.intro', { taskName: dialog.data.taskName }, 'Reassign "{taskName}" to another user. Search by username, display name, or email — any user can be selected.') }}</p>
+					<label class="dialog-label">{{ t('app.tasks.dialog.assign.userLabel', undefined, 'User') }}</label>
 					<div class="position-relative">
 						<input class="wt w-100 tasks-assignee-input" type="text"
 							v-model="dialog.data.assignee"
 							@input="onAssigneeSearchInput"
 							@focus="onAssigneeSearchFocus"
-							placeholder="Search user..."
+							:placeholder="t('app.tasks.dialog.assign.searchPlaceholder', undefined, 'Search user...')"
 							autocomplete="off"
 							autofocus>
 						<div v-if="dialog.data.isSearching" class="input-group-actions">
@@ -514,13 +510,13 @@
 						</div>
 					</div>
 					<div v-if="dialog.data.assigneeDisplayName" class="mt-1 small text-muted">
-						Selected: <strong>{{ dialog.data.assigneeDisplayName }}</strong>
+						{{ t('app.tasks.dialog.assign.selected', undefined, 'Selected:') }} <strong>{{ dialog.data.assigneeDisplayName }}</strong>
 						<span> ({{ dialog.data.assignee }})</span>
 					</div>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">Cancel</button>
-					<button class="wt wt-primary" :disabled="!dialog.data.assignee" @click="executeAssign">Assign</button>
+					<button class="wt" @click="closeDialog">{{ t('app.tasks.action.cancel', undefined, 'Cancel') }}</button>
+					<button class="wt wt-primary" :disabled="!dialog.data.assignee" @click="executeAssign">{{ t('app.tasks.action.assign', undefined, 'Assign') }}</button>
 				</div>
 			</div>
 		</div>

@@ -1,0 +1,206 @@
+/* ----------------------------------------------------------------------------
+ * eip-canvas — shared read-only EIP route diagram
+ *
+ * Renders a Camel route model (parsed from XML DSL by lib/camel/engine.ts) as a
+ * faithful, non-interactive flow diagram. The visual language (node colours,
+ * connection styling) intentionally matches the EIP modeler so a route looks the
+ * same whether you are editing it there or viewing it in an operations console.
+ *
+ * Self-contained: it defines its own colour variables (light/dark) so any host
+ * app can drop in <eip-canvas> without wiring up theme tokens.
+ * ------------------------------------------------------------------------- */
+
+.eip-canvas {
+	/* Camel signature orange + neutral element/connection tokens (light). */
+	--eipc-orange: #FF6633;
+	--eipc-orange-dark: #CC4422;
+	--eipc-grid-color: #e0e0e0;
+	--eipc-element-fill: #ffffff;
+	--eipc-element-stroke: #333333;
+	--eipc-highlight-stroke: #0078d7;
+	--eipc-connection-stroke: #333333;
+	--eipc-text-color: #1f1f1f;
+
+	position: relative;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	background-color: var(--canvas-bg, transparent);
+}
+
+:root[data-theme="dark"] .eip-canvas,
+.eip-canvas[data-theme="dark"] {
+	--eipc-grid-color: #3c3c3c;
+	--eipc-element-fill: #2d2d2d;
+	--eipc-element-stroke: #cccccc;
+	--eipc-highlight-stroke: #4ea1f0;
+	--eipc-connection-stroke: #cccccc;
+	--eipc-text-color: #e6e6e6;
+}
+
+.eip-canvas-svg {
+	width: 100%;
+	height: 100%;
+	display: block;
+	cursor: grab;
+}
+
+.eip-canvas-svg.panning {
+	cursor: grabbing;
+}
+
+/* --- Nodes --------------------------------------------------------------- */
+
+.eip-canvas .camel-element {
+	/* read-only: no move cursor, no pointer events on individual nodes */
+	pointer-events: none;
+}
+
+.eip-canvas .node-body {
+	fill: var(--eipc-element-fill);
+	stroke: var(--eipc-element-stroke);
+	stroke-width: 1.5;
+	filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+	transition: stroke 0.15s, stroke-width 0.15s;
+}
+
+.eip-canvas .node-label-light {
+	font-size: 11px;
+	fill: white;
+	pointer-events: none;
+}
+
+.eip-canvas .node-label {
+	font-size: 11px;
+	fill: var(--eipc-text-color);
+	pointer-events: none;
+}
+
+/* Node type-specific colours (mirrors eip-modeler) */
+.eip-canvas .node-body.from { fill: var(--eipc-orange); stroke: var(--eipc-orange-dark); }
+.eip-canvas .node-body.to { fill: var(--eipc-orange); stroke: var(--eipc-orange-dark); }
+.eip-canvas .node-body.toD { fill: #E8913A; stroke: #C06B1A; }
+.eip-canvas .node-body.log { fill: #4A90D9; stroke: #2E5F8A; }
+.eip-canvas .node-body.setBody,
+.eip-canvas .node-body.setHeader,
+.eip-canvas .node-body.transform { fill: #3498DB; stroke: #2980B9; }
+.eip-canvas .node-body.choice { fill: #FFCC00; stroke: #CC9900; }
+.eip-canvas .node-body.filter { fill: #9B59B6; stroke: #7D3C98; }
+.eip-canvas .node-body.split { fill: #27AE60; stroke: #1E8449; }
+.eip-canvas .node-body.merge { fill: #16A085; stroke: #0E6655; }
+.eip-canvas .node-body.marshal { fill: #E67E22; stroke: #D35400; }
+.eip-canvas .node-body.unmarshal { fill: #9B59B6; stroke: #8E44AD; }
+.eip-canvas .node-body.delay { fill: #E67E22; stroke: #D35400; }
+.eip-canvas .node-body.throttle { fill: #E74C3C; stroke: #C0392B; }
+.eip-canvas .node-body.bean { fill: #8E44AD; stroke: #6C3483; }
+.eip-canvas .node-body.onException,
+.eip-canvas .node-body.doTry { fill: #E74C3C; stroke: #C0392B; }
+.eip-canvas .node-body.circuitBreaker { fill: #F39C12; stroke: #D68910; }
+.eip-canvas .node-body.stop { fill: #95A5A6; stroke: #7F8C8D; }
+.eip-canvas .node-body.aggregate { fill: #27AE60; stroke: #1E8449; }
+.eip-canvas .node-body.multicast { fill: #8E44AD; stroke: #6C3483; }
+.eip-canvas .node-body.recipientList { fill: #9B59B6; stroke: #7D3C98; }
+.eip-canvas .node-body.loop { fill: #3498DB; stroke: #2980B9; }
+.eip-canvas .node-body.wireTap { fill: #E67E22; stroke: #D35400; }
+.eip-canvas .node-body.enrich { fill: #1ABC9C; stroke: #16A085; }
+.eip-canvas .node-body.pollEnrich { fill: #16A085; stroke: #0E6655; }
+.eip-canvas .node-body.threads { fill: #34495E; stroke: #2C3E50; }
+.eip-canvas .node-body.generic { fill: #6C7A89; stroke: #4B5562; }
+
+/* --- Selection glow ------------------------------------------------------
+ * When the host scopes the view to one route (highlightRouteId), every node
+ * outside that route is dimmed and the route's own nodes get a soft glow, so a
+ * file with several routes still reads as "this is the one you selected". */
+.eip-canvas.has-highlight .camel-element {
+	opacity: 0.28;
+	transition: opacity 0.2s;
+}
+
+.eip-canvas.has-highlight .camel-element.highlighted {
+	opacity: 1;
+}
+
+.eip-canvas.has-highlight .camel-element.highlighted .node-body {
+	stroke: var(--eipc-highlight-stroke);
+	stroke-width: 2.5;
+	filter: drop-shadow(0 0 6px var(--eipc-highlight-stroke));
+}
+
+/* --- Connections --------------------------------------------------------- */
+
+.eip-canvas .connection-line {
+	fill: none;
+	stroke: var(--eipc-connection-stroke);
+	stroke-width: 1.5;
+	pointer-events: none;
+}
+
+.eip-canvas .connection-label {
+	font-size: 11px;
+	fill: var(--eipc-text-color);
+	pointer-events: none;
+	text-anchor: middle;
+	dominant-baseline: middle;
+}
+
+.eip-canvas .connection-label.when { fill: #2196f3; }
+.eip-canvas .connection-label.otherwise { fill: #ff9800; }
+.eip-canvas .connection-label.try { fill: #607d8b; }
+.eip-canvas .connection-label.catch { fill: #e74c3c; }
+.eip-canvas .connection-label.finally { fill: #9b59b6; }
+
+/* --- Zoom / fit controls ------------------------------------------------- */
+
+.eip-canvas-controls {
+	position: absolute;
+	right: 0.75rem;
+	bottom: 0.75rem;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: 2px;
+	border-radius: 8px;
+	background: var(--card-bg, var(--body-bg, #fff));
+	border: 1px solid var(--input-border-color, rgba(0, 0, 0, 0.15));
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.eip-canvas-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.85rem;
+	height: 1.85rem;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--body-color, #1f1f1f);
+	font-size: 0.9rem;
+	cursor: pointer;
+	transition: background 0.12s, color 0.12s;
+}
+
+.eip-canvas-btn:hover {
+	background: var(--eipc-highlight-stroke);
+	color: #fff;
+}
+
+.eip-canvas-btn:active {
+	transform: translateY(1px);
+}
+
+/* --- Empty state --------------------------------------------------------- */
+
+.eip-canvas-empty {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	color: var(--eipc-text-color);
+	opacity: 0.6;
+	font-size: 0.9rem;
+	pointer-events: none;
+}

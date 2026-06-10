@@ -24,24 +24,24 @@
 			<!-- Pane Toggles -->
 			<div class="pane-toggles">
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
-					@click="toggleSidebarPanel" title="Toggle Sidebar">
+					@click="toggleSidebarPanel" :title="t('app.content-browser.toolbar.toggleSidebar')">
 					<i class="bi bi-layout-sidebar-inset"></i>
 				</button>
 				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
-					@click="toggleDetailPanel" title="Toggle Inspector (Ctrl+I)">
+					@click="toggleDetailPanel" :title="t('app.content-browser.toolbar.toggleInspector')">
 					<i class="bi bi-layout-sidebar-inset-reverse"></i>
 				</button>
 			</div>
 
 			<!-- Window Controls -->
 			<div class="window-controls">
-				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('app.content-browser.toolbar.minimize')">
 					<i class="bi bi-dash-lg"></i>
 				</button>
-				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('app.content-browser.toolbar.maximize')">
 					<i class="bi bi-square"></i>
 				</button>
-				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('app.content-browser.toolbar.close')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -57,16 +57,16 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('filter')">
 						<i class="bi" :class="sidebarSectionExpanded.filter ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Filter</span>
+						<span>{{ t('app.content-browser.filter.title') }}</span>
 					</div>
 					<div v-show="sidebarSectionExpanded.filter" class="sidebar-section-body px-2">
 						<!-- Text filter -->
 						<div class="filter-group">
-							<label class="filter-label">Text</label>
+							<label class="filter-label">{{ t('app.content-browser.filter.text') }}</label>
 							<div class="filter-input-wrapper">
 								<input type="text" class="wt w-100" v-model="filterText"
-									placeholder="Filter by name...">
-								<button v-if="filterText" class="filter-input-clear" @click="filterText = ''" title="Clear">
+									:placeholder="t('app.content-browser.filter.filterByName')">
+								<button v-if="filterText" class="filter-input-clear" @click="filterText = ''" :title="t('app.content-browser.filter.clear')">
 									<i class="bi bi-x"></i>
 								</button>
 							</div>
@@ -74,7 +74,7 @@
 
 						<!-- Date filter -->
 						<div class="filter-group">
-							<label class="filter-label">Modified</label>
+							<label class="filter-label">{{ t('app.content-browser.filter.modified') }}</label>
 							<div class="wt-select filter-date-dropdown">
 								<button type="button" class="wt-select-trigger" @click.stop="openFilterDateDropdown(event)">
 									<span class="wt-select-value">{{ filterDateModeLabel() }}</span>
@@ -84,7 +84,7 @@
 
 							<!-- Past N days input -->
 							<div v-if="filterDateMode === 'pastN'" class="filter-date-pastn">
-								<label class="filter-sublabel">Days</label>
+								<label class="filter-sublabel">{{ t('app.content-browser.filter.days') }}</label>
 								<input type="number" class="wt filter-input-narrow"
 									v-model.number="filterDatePastN" min="1">
 							</div>
@@ -93,21 +93,21 @@
 							<div v-if="filterDateMode === 'range'" class="filter-date-range">
 								<div class="filter-date-row">
 									<button class="filter-operator-toggle" @click="filterDateFromInclusive = !filterDateFromInclusive"
-										:title="filterDateFromInclusive ? 'Greater than or equal (click to switch)' : 'Greater than (click to switch)'">
+										:title="filterDateFromInclusive ? t('app.content-browser.filter.gteSwitch') : t('app.content-browser.filter.gtSwitch')">
 										{{ filterDateFromInclusive ? '\u2265' : '>' }}
 									</button>
 									<input type="datetime-local" class="wt" v-model="filterDateFrom">
-									<button v-if="filterDateFrom" class="filter-input-clear-sm" @click="filterDateFrom = ''" title="Clear">
+									<button v-if="filterDateFrom" class="filter-input-clear-sm" @click="filterDateFrom = ''" :title="t('app.content-browser.filter.clear')">
 										<i class="bi bi-x"></i>
 									</button>
 								</div>
 								<div class="filter-date-row">
 									<button class="filter-operator-toggle" @click="filterDateToInclusive = !filterDateToInclusive"
-										:title="filterDateToInclusive ? 'Less than or equal (click to switch)' : 'Less than (click to switch)'">
+										:title="filterDateToInclusive ? t('app.content-browser.filter.lteSwitch') : t('app.content-browser.filter.ltSwitch')">
 										{{ filterDateToInclusive ? '\u2264' : '<' }}
 									</button>
 									<input type="datetime-local" class="wt" v-model="filterDateTo">
-									<button v-if="filterDateTo" class="filter-input-clear-sm" @click="filterDateTo = ''" title="Clear">
+									<button v-if="filterDateTo" class="filter-input-clear-sm" @click="filterDateTo = ''" :title="t('app.content-browser.filter.clear')">
 										<i class="bi bi-x"></i>
 									</button>
 								</div>
@@ -117,8 +117,8 @@
 						<!-- Filter status -->
 						<div v-if="filterActive" class="filter-status">
 							<span>{{ filteredItems.length }} / {{ items.length }}</span>
-							<button class="filter-clear-all" @click="clearAllFilters" title="Clear all filters">
-								<i class="bi bi-eraser me-1"></i>Clear
+							<button class="filter-clear-all" @click="clearAllFilters" :title="t('app.content-browser.filter.clearAll')">
+								<i class="bi bi-eraser me-1"></i>{{ t('app.content-browser.filter.clear') }}
 							</button>
 						</div>
 					</div>
@@ -128,11 +128,11 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('favorites')">
 						<i class="bi" :class="sidebarSectionExpanded.favorites ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Favorites</span>
+						<span>{{ t('app.content-browser.sidebar.favorites') }}</span>
 						<span v-if="pinnedPaths.length > 0" class="sidebar-section-badge">{{ pinnedPaths.length }}</span>
 					</div>
 					<div v-show="sidebarSectionExpanded.favorites" class="sidebar-section-body sidebar-section-body-list">
-						<div v-if="pinnedPaths.length === 0" class="sidebar-placeholder ps-3">No favorites yet. Pin a path from the history dropdown.</div>
+						<div v-if="pinnedPaths.length === 0" class="sidebar-placeholder ps-3">{{ t('app.content-browser.sidebar.noFavorites') }}</div>
 						<div v-for="pin in pinnedPaths" :key="'sb-pin-' + pin.path"
 							class="sidebar-fav-item" :class="{ 'sidebar-fav-item-active': currentPath === pin.path }"
 							@click="navigateToPath(pin.path)" :title="pin.path">
@@ -141,7 +141,7 @@
 								<span class="sidebar-fav-name">{{ pin.name }}</span>
 								<span class="sidebar-fav-path">{{ pin.path }}</span>
 							</div>
-							<button class="sidebar-fav-unpin" @click.stop="unpinPath(pin.path)" title="Unpin">
+							<button class="sidebar-fav-unpin" @click.stop="unpinPath(pin.path)" :title="t('app.content-browser.sidebar.unpin')">
 								<i class="bi bi-x"></i>
 							</button>
 						</div>
@@ -152,12 +152,12 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('smartFolders')">
 						<i class="bi" :class="sidebarSectionExpanded.smartFolders ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Smart Folders</span>
+						<span>{{ t('app.content-browser.sidebar.smartFolders') }}</span>
 						<span v-if="smartFolders.length > 0" class="sidebar-section-badge">{{ smartFolders.length }}</span>
 					</div>
 					<div v-show="sidebarSectionExpanded.smartFolders" class="sidebar-section-body sidebar-section-body-list">
 						<div v-if="smartFolders.length === 0" class="sidebar-placeholder" style="padding: 0.4rem 0.6rem;">
-							Save a search to create a smart folder.
+							{{ t('app.content-browser.sidebar.noSmartFolders') }}
 						</div>
 						<div v-for="sf in smartFolders" :key="'sf-' + sf.id" class="sidebar-sf-item">
 							<!-- Rename mode -->
@@ -166,10 +166,10 @@
 									<input type="text" v-model="smartFolderEditName"
 										@keydown="smartFolderRenameKeydown(event, sf.id)">
 									<div class="input-group-actions">
-										<button class="input-group-btn" @click="smartFolderConfirmRename(sf.id)" title="Confirm">
+										<button class="input-group-btn" @click="smartFolderConfirmRename(sf.id)" :title="t('app.content-browser.sidebar.confirm')">
 											<i class="bi bi-check-lg"></i>
 										</button>
-										<button class="input-group-btn" @click="smartFolderCancelRename" title="Cancel">
+										<button class="input-group-btn" @click="smartFolderCancelRename" :title="t('app.content-browser.sidebar.cancel')">
 											<i class="bi bi-x"></i>
 										</button>
 									</div>
@@ -183,10 +183,10 @@
 									<span class="sidebar-sf-path">{{ sf.path }}</span>
 								</div>
 								<div class="sidebar-sf-actions">
-									<button class="sidebar-sf-action-btn" @click.stop="smartFolderStartRename(sf.id)" title="Rename">
+									<button class="sidebar-sf-action-btn" @click.stop="smartFolderStartRename(sf.id)" :title="t('app.content-browser.sidebar.rename')">
 										<i class="bi bi-pencil"></i>
 									</button>
-									<button class="sidebar-sf-action-btn" @click.stop="smartFolderDelete(sf.id)" title="Delete">
+									<button class="sidebar-sf-action-btn" @click.stop="smartFolderDelete(sf.id)" :title="t('app.content-browser.sidebar.delete')">
 										<i class="bi bi-trash"></i>
 									</button>
 								</div>
@@ -199,19 +199,19 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('xpathSearch')">
 						<i class="bi" :class="sidebarSectionExpanded.xpathSearch ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Search</span>
+						<span>{{ t('app.content-browser.search.title') }}</span>
 					</div>
 					<div v-show="sidebarSectionExpanded.xpathSearch" class="sidebar-section-body px-2">
 						<!-- Full-text search input -->
 						<div class="filter-group fulltext-group">
-							<label class="filter-label" for="content-fulltext-input">Full text</label>
+							<label class="filter-label" for="content-fulltext-input">{{ t('app.content-browser.search.fullText') }}</label>
 							<div class="fulltext-input-row">
 								<input id="content-fulltext-input" type="text" class="wt fulltext-input"
 									v-model="fullTextKeyword"
 									placeholder='word -ng "phrase" OR ...'
 									@keydown.enter.prevent="xpathExecuteSearch">
 								<button v-if="fullTextKeyword" class="filter-input-clear-sm fulltext-input-clear"
-									@click="fullTextKeyword = ''" title="Clear">
+									@click="fullTextKeyword = ''" :title="t('app.content-browser.filter.clear')">
 									<i class="bi bi-x"></i>
 								</button>
 							</div>
@@ -223,7 +223,7 @@
 							<div v-for="cond in xpathConditions" :key="cond.id" class="xpath-condition">
 								<div class="xpath-condition-header">
 									<span class="xpath-condition-label">{{ xpathSchemaProperties.find(p => p.key === cond.propertyKey)?.label || cond.propertyKey }}</span>
-									<button class="filter-input-clear-sm" @click="xpathRemoveCondition(cond.id)" title="Remove">
+									<button class="filter-input-clear-sm" @click="xpathRemoveCondition(cond.id)" :title="t('app.content-browser.sidebar.remove')">
 										<i class="bi bi-x"></i>
 									</button>
 								</div>
@@ -242,7 +242,7 @@
 								<!-- String input -->
 								<div v-else-if="cond.type === 'STRING' || cond.type === 'NAME' || cond.type === 'PATH' || cond.type === 'URI'" class="xpath-string">
 									<input type="text" class="wt" v-model="cond.stringValue"
-										placeholder="Contains...">
+										:placeholder="t('app.content-browser.search.contains')">
 								</div>
 
 								<!-- Number range -->
@@ -251,13 +251,13 @@
 										<button class="filter-operator-toggle" @click="cond.numberFromInclusive = !cond.numberFromInclusive">
 											{{ cond.numberFromInclusive ? '\u2265' : '>' }}
 										</button>
-										<input type="number" class="wt w-100" v-model="cond.numberFrom" placeholder="Min">
+										<input type="number" class="wt w-100" v-model="cond.numberFrom" :placeholder="t('app.content-browser.search.min')">
 									</div>
 									<div class="filter-date-row">
 										<button class="filter-operator-toggle" @click="cond.numberToInclusive = !cond.numberToInclusive">
 											{{ cond.numberToInclusive ? '\u2264' : '<' }}
 										</button>
-										<input type="number" class="wt w-100" v-model="cond.numberTo" placeholder="Max">
+										<input type="number" class="wt w-100" v-model="cond.numberTo" :placeholder="t('app.content-browser.search.max')">
 									</div>
 								</div>
 
@@ -280,7 +280,7 @@
 										</button>
 									</div>
 									<div v-if="cond.dateMode === 'pastN'" class="filter-date-pastn">
-										<label class="filter-sublabel">Days</label>
+										<label class="filter-sublabel">{{ t('app.content-browser.filter.days') }}</label>
 										<input type="number" class="wt filter-input-narrow"
 											v-model.number="cond.datePastN" min="1">
 									</div>
@@ -290,7 +290,7 @@
 												{{ cond.dateFromInclusive ? '\u2265' : '>' }}
 											</button>
 											<input type="datetime-local" class="wt" v-model="cond.dateFrom">
-											<button v-if="cond.dateFrom" class="filter-input-clear-sm" @click="cond.dateFrom = ''" title="Clear">
+											<button v-if="cond.dateFrom" class="filter-input-clear-sm" @click="cond.dateFrom = ''" :title="t('app.content-browser.filter.clear')">
 												<i class="bi bi-x"></i>
 											</button>
 										</div>
@@ -299,7 +299,7 @@
 												{{ cond.dateToInclusive ? '\u2264' : '<' }}
 											</button>
 											<input type="datetime-local" class="wt" v-model="cond.dateTo">
-											<button v-if="cond.dateTo" class="filter-input-clear-sm" @click="cond.dateTo = ''" title="Clear">
+											<button v-if="cond.dateTo" class="filter-input-clear-sm" @click="cond.dateTo = ''" :title="t('app.content-browser.filter.clear')">
 												<i class="bi bi-x"></i>
 											</button>
 										</div>
@@ -311,11 +311,11 @@
 
 						<!-- Schema selector -->
 						<div class="filter-group">
-							<label class="filter-label">Schema</label>
+							<label class="filter-label">{{ t('app.content-browser.search.schema') }}</label>
 							<div class="wt-select xpath-schema-dropdown">
 								<button type="button" class="wt-select-trigger" @click.stop="openXpathSchemaDropdown(event)">
 									<span class="wt-select-value" :class="{placeholder: !xpathSelectedSchema}">
-										{{ xpathSelectedSchemaLabel() || 'Select schema...' }}
+										{{ xpathSelectedSchemaLabel() || t('app.content-browser.search.selectSchema') }}
 									</span>
 									<i class="bi bi-chevron-down wt-select-chevron"></i>
 								</button>
@@ -326,7 +326,7 @@
 						<div v-if="xpathSelectedSchema && xpathAvailableProperties.length > 0"
 							class="wt-select xpath-add-dropdown">
 							<button type="button" class="wt-select-trigger" @click.stop="openXpathAddConditionDropdown(event)">
-								<span class="wt-select-value placeholder">+ Add condition...</span>
+								<span class="wt-select-value placeholder">{{ t('app.content-browser.search.addCondition') }}</span>
 								<i class="bi bi-chevron-down wt-select-chevron"></i>
 							</button>
 						</div>
@@ -337,18 +337,18 @@
 								<button class="wt wt-primary" @click="xpathExecuteSearch"
 									:disabled="xpathSearchLoading || !hasSearchInput">
 									<i class="bi bi-search me-1"></i>
-									<span v-if="xpathSearchLoading">Searching...</span>
-									<span v-else>Search</span>
+									<span v-if="xpathSearchLoading">{{ t('app.content-browser.search.searching') }}</span>
+									<span v-else>{{ t('app.content-browser.search.search') }}</span>
 								</button>
 								<button class="wt wt-primary wt-outlined px-2" @click="xpathClearAllConditions"
 									:disabled="!hasSearchInput"
-									title="Clear search">
+									:title="t('app.content-browser.search.clearSearch')">
 									<i class="bi bi-eraser"></i>
 								</button>
 								<span class="spacer"></span>
 								<button class="wt wt-secondary px-2" @click="smartFolderSaveCurrent"
 									:disabled="!hasSearchInput"
-									title="Save as Smart Folder">
+									:title="t('app.content-browser.search.saveAsSmartFolder')">
 									<i class="bi bi-bookmark-plus"></i>
 								</button>
 							</div>
@@ -375,12 +375,12 @@
 			<div class="nav-arrows">
 				<div class="nav-back-wrapper" @click.stop>
 					<button class="btn-icon" :disabled="!canGoBack"
-						@click="goBack" @contextmenu.prevent="toggleBackDropdown(event)" title="Back (right-click for history)">
+						@click="goBack" @contextmenu.prevent="toggleBackDropdown(event)" :title="t('app.content-browser.toolbar.back')">
 						<i class="bi bi-chevron-left"></i>
 					</button>
 				</div>
 				<button class="btn-icon" :disabled="!canGoForward"
-					@click="goForward" title="Forward">
+					@click="goForward" :title="t('app.content-browser.toolbar.forward')">
 						<i class="bi bi-chevron-right"></i>
 				</button>
 			</div>
@@ -390,12 +390,12 @@
 				<div class="xpath-search-bar-info">
 					<i class="bi bi-search xpath-search-bar-icon"></i>
 					<span class="xpath-search-bar-text">
-						Searching in <span class="xpath-search-bar-path">{{ currentPath }}</span>
+						{{ t('app.content-browser.search.searchingIn') }} <span class="xpath-search-bar-path">{{ currentPath }}</span>
 					</span>
-					<span v-if="!xpathSearchLoading" class="xpath-search-bar-count">&mdash; {{ xpathSearchTotalCount }} results</span>
-					<span v-if="xpathSearchLoading" class="xpath-search-bar-count">&mdash; searching...</span>
+					<span v-if="!xpathSearchLoading" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.results', { count: xpathSearchTotalCount }) }}</span>
+					<span v-if="xpathSearchLoading" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.searchingEllipsis') }}</span>
 				</div>
-				<button class="xpath-search-bar-close" @click="xpathClearSearch" title="Close search">
+				<button class="xpath-search-bar-close" @click="xpathClearSearch" :title="t('app.content-browser.search.closeSearch')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -441,7 +441,7 @@
 				<template v-if="smartBreadcrumb.current">
 					<span v-if="smartBreadcrumb.home" class="nav-divider"><i class="bi bi-chevron-right"></i></span>
 					<span class="nav-current" @click.stop="navigateToPath(smartBreadcrumb.current.path)">
-						<i class="bi bi-folder2-open me-1"></i>{{ smartBreadcrumb.current.name || 'root' }}
+						<i class="bi bi-folder2-open me-1"></i>{{ smartBreadcrumb.current.name || t('app.content-browser.toolbar.root') }}
 					</span>
 				</template>
 
@@ -455,13 +455,13 @@
 					<input type="text" v-model="editPathValue"
 						@keydown="onEditPathKeydown" spellcheck="false" />
 					<div class="input-group-actions">
-						<button class="input-group-btn" @click="toggleHistoryDropdown(event)" title="Recent Locations">
+						<button class="input-group-btn" @click="toggleHistoryDropdown(event)" :title="t('app.content-browser.toolbar.recentLocations')">
 							<i class="bi bi-clock-history"></i>
 						</button>
-						<button class="input-group-btn" @click="copyPathToClipboard" title="Copy Path">
+						<button class="input-group-btn" @click="copyPathToClipboard" :title="t('app.content-browser.toolbar.copyPath')">
 							<i class="bi bi-clipboard"></i>
 						</button>
-						<button class="input-group-btn nav-edit-confirm" @click="confirmEditPath" title="Confirm">
+						<button class="input-group-btn nav-edit-confirm" @click="confirmEditPath" :title="t('app.content-browser.toolbar.confirm')">
 							<i class="bi bi-check-circle"></i>
 						</button>
 					</div>
@@ -481,51 +481,50 @@
 			<div v-if="currentFolderDeleted" class="folder-deleted-notice">
 				<i class="bi bi-exclamation-triangle"></i>
 				<div class="folder-deleted-notice-text">
-					<div class="folder-deleted-notice-title">This folder has been deleted.</div>
+					<div class="folder-deleted-notice-title">{{ t('app.content-browser.list.folderDeletedTitle') }}</div>
 					<div class="folder-deleted-notice-detail">
-						The folder <code>{{ currentPath }}</code> no longer exists.
-						Move to another folder to continue working.
+						{{ t('app.content-browser.list.folderDeletedDetail', { path: currentPath }) }}
 					</div>
 				</div>
 				<button type="button" class="wt wt-primary" @click="navigateToNearestExistingAncestor">
-					<i class="bi bi-arrow-up me-1"></i>Go to parent
+					<i class="bi bi-arrow-up me-1"></i>{{ t('app.content-browser.toolbar.goToParent') }}
 				</button>
 			</div>
 			<table v-if="!currentFolderDeleted" class="wt w-100">
 				<thead>
 					<tr>
 						<th></th>
-						<th class="c-pointer text-start" @click="sortItems('name')">Name
+						<th class="c-pointer text-start" @click="sortItems('name')">{{ t('app.content-browser.column.name') }}
 							<span v-if="sortColumn == 'name'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('date')">Date modified
+						<th class="c-pointer text-start" @click="sortItems('date')">{{ t('app.content-browser.column.dateModified') }}
 							<span v-if="sortColumn == 'date'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('modifiedBy')">Modified by
+						<th class="c-pointer text-start" @click="sortItems('modifiedBy')">{{ t('app.content-browser.column.modifiedBy') }}
 							<span v-if="sortColumn == 'modifiedBy'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('lockOwner')">Lock owner
+						<th class="c-pointer text-start" @click="sortItems('lockOwner')">{{ t('app.content-browser.column.lockOwner') }}
 							<span v-if="sortColumn == 'lockOwner'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('version')">Version
+						<th class="c-pointer text-start" @click="sortItems('version')">{{ t('app.content-browser.column.version') }}
 							<span v-if="sortColumn == 'version'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('kind')">Kind
+						<th class="c-pointer text-start" @click="sortItems('kind')">{{ t('app.content-browser.column.kind') }}
 							<span v-if="sortColumn == 'kind'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('size')">Size
+						<th class="c-pointer text-start" @click="sortItems('size')">{{ t('app.content-browser.column.size') }}
 							<span v-if="sortColumn == 'size'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
@@ -558,9 +557,9 @@
 							<div class="lock-owner-block pe-1">
 								<span v-if="item.isLocked" class="lock-chip"
 									:class="item.lockInfo?.isLockOwner ? 'lock-chip-self' : 'lock-chip-other'"
-									:title="item.lockInfo?.isLockOwner ? 'Locked by you' : ('Locked by ' + lockOwnerName(item))">
+									:title="item.lockInfo?.isLockOwner ? t('app.content-browser.column.lockedByYou') : t('app.content-browser.column.lockedBy', { name: lockOwnerName(item) })">
 									<i class="bi bi-lock-fill me-1"></i>
-									<span class="lock-chip-label">{{ item.lockInfo?.isLockOwner ? 'You' : lockOwnerName(item) }}</span>
+									<span class="lock-chip-label">{{ item.lockInfo?.isLockOwner ? t('app.content-browser.column.you') : lockOwnerName(item) }}</span>
 								</span>
 								<span v-else class="text-muted">&mdash;</span>
 							</div>
@@ -623,13 +622,13 @@
 			<span class="loader"></span>
 			<span class="text-center mt-5"></span>
 			<span>
-				<span v-if="!loadingMonitor.isCanceled">Fetching stuff...<span v-if="loadingMonitor.retrievedCount > 0"> {{ loadingMonitor?.retrievedCount }} found</span></span>
-				<span v-else>Canceling...</span>
+				<span v-if="!loadingMonitor.isCanceled">{{ t('app.content-browser.list.fetching') }}<span v-if="loadingMonitor.retrievedCount > 0"> {{ t('app.content-browser.list.fetchingFound', { count: loadingMonitor.retrievedCount }) }}</span></span>
+				<span v-else>{{ t('app.content-browser.list.canceling') }}</span>
 			</span>
 			<span v-if="errorMessage" class="mt-3 text-danger"><i class="bi bi-exclamation-circle mr-2"></i>{{ errorMessage }}</span>
 			<span class="mt-3">
-				<button v-if="errorMessage" type="button" class="wt" :class="{ disabled: loadingMonitor.isCanceled }" @click="loadingMonitor.cancel()">Cancel</button>
-				<button v-else type="button" class="wt" @click="closeLoading">Close</button>
+				<button v-if="errorMessage" type="button" class="wt" :class="{ disabled: loadingMonitor.isCanceled }" @click="loadingMonitor.cancel()">{{ t('app.content-browser.dialog.cancel') }}</button>
+				<button v-else type="button" class="wt" @click="closeLoading">{{ t('app.content-browser.dialog.close') }}</button>
 			</span>
 		</div>
 
@@ -641,59 +640,59 @@
 			</div>
 			<span v-if="errorMessage" class="mt-3 text-danger"><i class="bi bi-exclamation-circle mr-2"></i>{{ errorMessage }}</span>
 			<span class="mt-3">
-				<button v-if="errorMessage" type="button" class="wt" @click="closeUpload">Cancel</button>
-				<button v-else type="button" class="wt" @click="closeUpload">Close</button>
+				<button v-if="errorMessage" type="button" class="wt" @click="closeUpload">{{ t('app.content-browser.dialog.cancel') }}</button>
+				<button v-else type="button" class="wt" @click="closeUpload">{{ t('app.content-browser.dialog.close') }}</button>
 			</span>
 		</div>
 
 		<div v-if="uploadMonitor && conflictDialog.visible" class="conflict-dialog-overlay flex-column text-center">
 			<div class="conflict-dialog p-4">
-				<div class="fw-bold mb-2">Conflicting item name</div>
-				<div class="mb-2">The following item already exists.<br>Do you want to overwrite it?</div>
+				<div class="fw-bold mb-2">{{ t('app.content-browser.dialog.conflictTitle') }}</div>
+				<div class="mb-2">{{ t('app.content-browser.dialog.conflictExists') }}<br>{{ t('app.content-browser.dialog.conflictOverwrite') }}</div>
 				<div class="conflict-path text-break mb-3">{{ uploadMonitor.target.currentFile }}</div>
 				<div class="conflict-buttons d-flex flex-wrap gap-2 justify-content-center">
-					<button class="wt" @click="onConflictDialogAction('cancel')">Cancel</button>
-					<button class="wt" @click="onConflictDialogAction('skip')">No</button>
-					<button class="wt" @click="onConflictDialogAction('skipAll')">No to All</button>
-					<button class="wt wt-primary" @click="onConflictDialogAction('overwrite')">Yes</button>
-					<button class="wt wt-primary" @click="onConflictDialogAction('overwriteAll')">Yes to All</button>
+					<button class="wt" @click="onConflictDialogAction('cancel')">{{ t('app.content-browser.dialog.cancel') }}</button>
+					<button class="wt" @click="onConflictDialogAction('skip')">{{ t('app.content-browser.dialog.no') }}</button>
+					<button class="wt" @click="onConflictDialogAction('skipAll')">{{ t('app.content-browser.dialog.noToAll') }}</button>
+					<button class="wt wt-primary" @click="onConflictDialogAction('overwrite')">{{ t('app.content-browser.dialog.yes') }}</button>
+					<button class="wt wt-primary" @click="onConflictDialogAction('overwriteAll')">{{ t('app.content-browser.dialog.yesToAll') }}</button>
 				</div>
 			</div>
 		</div>
 
 		<div v-if="deleteMonitor" class="upload-overlay flex-column text-center">
 			<span v-if="deleteMonitor.status !== 'failed'" class="loader"></span>
-			<span class="mt-5 text-break">{{ deleteMonitor.currentPath || 'Preparing…' }}</span>
+			<span class="mt-5 text-break">{{ deleteMonitor.currentPath || t('app.content-browser.progress.preparing') }}</span>
 			<div class="mt-2">
-				<span>{{ deleteMonitor.itemsProcessed }} / {{ deleteMonitor.itemsTotal }} items</span>
-				<span v-if="deleteMonitor.itemsDeleted > 0" class="ms-2 text-muted">({{ deleteMonitor.itemsDeleted }} items deleted)</span>
+				<span>{{ t('app.content-browser.progress.itemsProgress', { processed: deleteMonitor.itemsProcessed, total: deleteMonitor.itemsTotal }) }}</span>
+				<span v-if="deleteMonitor.itemsDeleted > 0" class="ms-2 text-muted">{{ t('app.content-browser.progress.itemsDeleted', { count: deleteMonitor.itemsDeleted }) }}</span>
 			</div>
 			<div v-if="deleteMonitor.errorMessage" class="mt-3 text-danger">
 				<i class="bi bi-exclamation-circle me-1"></i>{{ deleteMonitor.errorMessage }}
 			</div>
 			<span class="mt-3">
-				<button v-if="deleteMonitor.isFinished" type="button" class="wt" @click="closeDeleteMonitor">Close</button>
-				<button v-else type="button" class="wt" :disabled="deleteMonitor.isAborting" @click="requestDeleteAbort">{{ deleteMonitor.isAborting ? 'Stopping…' : 'Stop' }}</button>
+				<button v-if="deleteMonitor.isFinished" type="button" class="wt" @click="closeDeleteMonitor">{{ t('app.content-browser.dialog.close') }}</button>
+				<button v-else type="button" class="wt" :disabled="deleteMonitor.isAborting" @click="requestDeleteAbort">{{ deleteMonitor.isAborting ? t('app.content-browser.progress.stopping') : t('app.content-browser.progress.stop') }}</button>
 			</span>
 		</div>
 
 		<div v-if="archiveMonitor" class="upload-overlay flex-column text-center">
 			<span v-if="archiveMonitor.status !== 'failed'" class="loader"></span>
 			<span class="mt-5 text-break">
-				<template v-if="archiveMonitor.isFinished && archiveMonitor.status === 'completed'">Downloading {{ archiveMonitor.filename }}…</template>
-				<template v-else-if="archiveMonitor.currentFile">Archiving {{ archiveMonitor.currentFile }}</template>
-				<template v-else>Preparing archive…</template>
+				<template v-if="archiveMonitor.isFinished && archiveMonitor.status === 'completed'">{{ t('app.content-browser.progress.downloading', { filename: archiveMonitor.filename }) }}</template>
+				<template v-else-if="archiveMonitor.currentFile">{{ t('app.content-browser.progress.archiving', { file: archiveMonitor.currentFile }) }}</template>
+				<template v-else>{{ t('app.content-browser.progress.preparingArchive') }}</template>
 			</span>
 			<div class="mt-2">
-				<span>{{ archiveMonitor.itemsProcessed }} / {{ archiveMonitor.itemsTotal }} items</span>
-				<span v-if="archiveMonitor.itemsArchived > 0" class="ms-2 text-muted">({{ archiveMonitor.itemsArchived }} items archived)</span>
+				<span>{{ t('app.content-browser.progress.itemsProgress', { processed: archiveMonitor.itemsProcessed, total: archiveMonitor.itemsTotal }) }}</span>
+				<span v-if="archiveMonitor.itemsArchived > 0" class="ms-2 text-muted">{{ t('app.content-browser.progress.itemsArchived', { count: archiveMonitor.itemsArchived }) }}</span>
 			</div>
 			<div v-if="archiveMonitor.errorMessage" class="mt-3 text-danger">
 				<i class="bi bi-exclamation-circle me-1"></i>{{ archiveMonitor.errorMessage }}
 			</div>
 			<span class="mt-3">
-				<button v-if="archiveMonitor.isFinished" type="button" class="wt" @click="closeArchiveMonitor">Close</button>
-				<button v-else type="button" class="wt" :disabled="archiveMonitor.isAborting" @click="requestArchiveAbort">{{ archiveMonitor.isAborting ? 'Stopping…' : 'Stop' }}</button>
+				<button v-if="archiveMonitor.isFinished" type="button" class="wt" @click="closeArchiveMonitor">{{ t('app.content-browser.dialog.close') }}</button>
+				<button v-else type="button" class="wt" :disabled="archiveMonitor.isAborting" @click="requestArchiveAbort">{{ archiveMonitor.isAborting ? t('app.content-browser.progress.stopping') : t('app.content-browser.progress.stop') }}</button>
 			</span>
 		</div>
 
@@ -701,7 +700,7 @@
 			<div class="dialog-frame" style="max-width: 30rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3>Rename</h3>
+						<h3>{{ t('app.content-browser.dialog.rename') }}</h3>
 					</div>
 					<div class="dialog-body">
 						<input type="text" class="wt w-100" v-model="renameDialog.newName" @keydown="onRenameKeydown" :disabled="renameDialog.isLoading" />
@@ -710,10 +709,10 @@
 						</div>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeRenameDialog" :disabled="renameDialog.isLoading">Cancel</button>
+						<button class="wt" @click="closeRenameDialog" :disabled="renameDialog.isLoading">{{ t('app.content-browser.dialog.cancel') }}</button>
 						<button class="wt wt-primary" @click="submitRename" :disabled="renameDialog.isLoading || !renameDialog.newName.trim()">
 							<span v-if="renameDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
-							Rename
+							{{ t('app.content-browser.dialog.rename') }}
 						</button>
 					</div>
 				</div>
@@ -724,15 +723,15 @@
 			<div class="dialog-frame" style="max-width: 30rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Delete Confirmation</h3>
+						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.content-browser.dialog.deleteConfirmTitle') }}</h3>
 					</div>
 					<div class="dialog-body">
 						<div class="mb-3">
 							<span v-if="deleteDialog.items.length === 1">
-								Are you sure you want to delete "<strong>{{ deleteDialog.items[0].name }}</strong>"?
+								{{ t('app.content-browser.dialog.deleteConfirmOne', { name: deleteDialog.items[0].name }) }}
 							</span>
 							<span v-else>
-								Are you sure you want to delete <strong>{{ deleteDialog.items.length }}</strong> items?
+								{{ t('app.content-browser.dialog.deleteConfirmMany', { count: deleteDialog.items.length }) }}
 							</span>
 						</div>
 						<div v-if="deleteDialog.items.length > 1" class="delete-items-list mb-3">
@@ -747,10 +746,10 @@
 						</div>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeDeleteDialog" :disabled="deleteDialog.isLoading">Cancel</button>
+						<button class="wt" @click="closeDeleteDialog" :disabled="deleteDialog.isLoading">{{ t('app.content-browser.dialog.cancel') }}</button>
 						<button class="wt wt-danger" @click="submitDelete" :disabled="deleteDialog.isLoading">
 							<span v-if="deleteDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
-							Delete
+							{{ t('app.content-browser.dialog.delete') }}
 						</button>
 					</div>
 				</div>
@@ -761,20 +760,20 @@
 			<div class="dialog-frame" style="max-width: 30rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-folder-plus me-2"></i>New Folder</h3>
+						<h3><i class="bi bi-folder-plus me-2"></i>{{ t('app.content-browser.dialog.newFolderTitle') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<input type="text" class="wt w-100" v-model="newFolderDialog.name" @keydown="onNewFolderKeydown" :disabled="newFolderDialog.isLoading" placeholder="Folder name" />
-						<div v-if="newFolderNameExists" class="text-danger mt-2">A folder or file with this name already exists.</div>
+						<input type="text" class="wt w-100" v-model="newFolderDialog.name" @keydown="onNewFolderKeydown" :disabled="newFolderDialog.isLoading" :placeholder="t('app.content-browser.dialog.folderName')" />
+						<div v-if="newFolderNameExists" class="text-danger mt-2">{{ t('app.content-browser.dialog.folderNameExists') }}</div>
 						<div v-if="newFolderDialog.errorMessage" class="text-danger mt-2">
 							<i class="bi bi-exclamation-circle me-1"></i>{{ newFolderDialog.errorMessage }}
 						</div>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeNewFolderDialog" :disabled="newFolderDialog.isLoading">Cancel</button>
+						<button class="wt" @click="closeNewFolderDialog" :disabled="newFolderDialog.isLoading">{{ t('app.content-browser.dialog.cancel') }}</button>
 						<button class="wt wt-primary" @click="submitNewFolder" :disabled="newFolderDialog.isLoading || !newFolderDialog.name.trim() || newFolderNameExists">
 							<span v-if="newFolderDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
-							Create
+							{{ t('app.content-browser.dialog.create') }}
 						</button>
 					</div>
 				</div>
@@ -785,16 +784,16 @@
 			<div class="dialog-frame" style="max-width: 32rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-file-earmark-plus me-2"></i>New File</h3>
+						<h3><i class="bi bi-file-earmark-plus me-2"></i>{{ t('app.content-browser.dialog.newFileTitle') }}</h3>
 					</div>
 					<div class="dialog-body">
 						<div class="mb-3">
-							<label class="dialog-label">File Name</label>
-							<input type="text" class="wt w-100" v-model="newFileDialog.name" @keydown="onNewFileKeydown" :disabled="newFileDialog.isLoading" placeholder="Enter file name" />
-							<div v-if="newFileNameExists" class="text-danger mt-1">A file with this name already exists.</div>
+							<label class="dialog-label">{{ t('app.content-browser.dialog.fileName') }}</label>
+							<input type="text" class="wt w-100" v-model="newFileDialog.name" @keydown="onNewFileKeydown" :disabled="newFileDialog.isLoading" :placeholder="t('app.content-browser.dialog.enterFileName')" />
+							<div v-if="newFileNameExists" class="text-danger mt-1">{{ t('app.content-browser.dialog.fileNameExists') }}</div>
 						</div>
 						<div>
-							<label class="dialog-label">File Type</label>
+							<label class="dialog-label">{{ t('app.content-browser.dialog.fileType') }}</label>
 							<div class="wt-select" :class="{disabled: newFileDialog.isLoading}">
 								<button type="button" class="wt-select-trigger" @click.stop="openNewFileTypeDropdown(event)" :disabled="newFileDialog.isLoading">
 									<span class="wt-select-value">{{ newFileTypeLabel() }}</span>
@@ -807,10 +806,10 @@
 						</div>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeNewFileDialog" :disabled="newFileDialog.isLoading">Cancel</button>
+						<button class="wt" @click="closeNewFileDialog" :disabled="newFileDialog.isLoading">{{ t('app.content-browser.dialog.cancel') }}</button>
 						<button class="wt wt-primary" @click="submitNewFile" :disabled="newFileDialog.isLoading || !newFileDialog.name.trim() || newFileNameExists">
 							<span v-if="newFileDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
-							Create
+							{{ t('app.content-browser.dialog.create') }}
 						</button>
 					</div>
 				</div>
@@ -822,20 +821,20 @@
 			<div class="dialog-frame" style="max-width: 32rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-box-arrow-up-right me-2"></i>Checkout Required</h3>
+						<h3><i class="bi bi-box-arrow-up-right me-2"></i>{{ t('app.content-browser.dialog.checkoutRequiredTitle') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<p class="mt-0">The file "<strong>{{ checkoutDialog.fileName }}</strong>" is under version control and needs to be checked out before overwriting.</p>
-						<p class="text-muted small mb-0">Version: {{ checkoutDialog.baseVersionName }}</p>
+						<p class="mt-0">{{ t('app.content-browser.dialog.checkoutRequiredMessage', { name: checkoutDialog.fileName }) }}</p>
+						<p class="text-muted small mb-0">{{ t('app.content-browser.dialog.versionLabel', { name: checkoutDialog.baseVersionName }) }}</p>
 					</div>
 					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCheckoutDialogAction('skip')">Skip</button>
-						<button class="wt" @click="onCheckoutDialogAction('skipAll')">Skip All</button>
+						<button class="wt" @click="onCheckoutDialogAction('skip')">{{ t('app.content-browser.dialog.skip') }}</button>
+						<button class="wt" @click="onCheckoutDialogAction('skipAll')">{{ t('app.content-browser.dialog.skipAll') }}</button>
 						<button class="wt wt-primary wt-primary-outlined" @click="onCheckoutDialogAction('checkout')">
-							<i class="bi bi-box-arrow-up-right me-1"></i>Checkout & Upload
+							<i class="bi bi-box-arrow-up-right me-1"></i>{{ t('app.content-browser.dialog.checkoutUpload') }}
 						</button>
 						<button class="wt wt-primary" @click="onCheckoutDialogAction('checkoutCheckin')">
-							<i class="bi bi-check2-circle me-1"></i>Checkout, Upload & Checkin
+							<i class="bi bi-check2-circle me-1"></i>{{ t('app.content-browser.dialog.checkoutUploadCheckin') }}
 						</button>
 					</div>
 				</div>
@@ -848,7 +847,7 @@
 				<div class="history-panel island p-2" @click.stop>
 					<div class="dialog-header">
 						<div class="dialog-header-top">
-							<h3>Navigation History</h3>
+							<h3>{{ t('app.content-browser.dialog.navigationHistoryTitle') }}</h3>
 							<button class="btn-icon" @click="closeFullHistoryPanel">
 								<i class="bi bi-x-lg"></i>
 							</button>
@@ -856,7 +855,7 @@
 					</div>
 					<div class="dialog-body history-panel-body">
 						<div v-if="groupedHistory.length > 0" class="mb-2">
-							<input type="text" class="wt w-100" placeholder="Search paths..."
+							<input type="text" class="wt w-100" :placeholder="t('app.content-browser.dialog.searchPaths')"
 								v-model="historySearchKeyword" spellcheck="false" />
 						</div>
 						<template v-for="group in filteredGroupedHistory" :key="'fp-' + group.label">
@@ -871,27 +870,27 @@
 								</div>
 								<div class="history-panel-item-actions">
 									<button v-if="!isPathPinned(entry.path)" class="nav-history-action-btn"
-										@click.stop="pinPath(entry.path)" title="Pin">
+										@click.stop="pinPath(entry.path)" :title="t('app.content-browser.sidebar.pin')">
 										<i class="bi bi-pin-angle"></i>
 									</button>
 									<button v-if="isPathPinned(entry.path)" class="nav-history-action-btn nav-unpin-btn"
-										@click.stop="unpinPath(entry.path)" title="Unpin">
+										@click.stop="unpinPath(entry.path)" :title="t('app.content-browser.sidebar.unpin')">
 										<i class="bi bi-pin-angle-fill"></i>
 									</button>
 									<button class="nav-history-action-btn nav-delete-btn"
-										@click.stop="removeHistoryItem(entry.path)" title="Remove">
+										@click.stop="removeHistoryItem(entry.path)" :title="t('app.content-browser.sidebar.remove')">
 										<i class="bi bi-x-lg"></i>
 									</button>
 								</div>
 							</div>
 						</template>
 						<div v-if="filteredGroupedHistory.length === 0" class="nav-history-empty">
-							{{ historySearchKeyword ? 'No matching history' : 'No history' }}
+							{{ historySearchKeyword ? t('app.content-browser.dialog.noMatchingHistory') : t('app.content-browser.dialog.noHistory') }}
 						</div>
 					</div>
 					<div class="dialog-footer">
 						<button class="history-panel-clear-btn" @click="clearAllHistory">
-							<i class="bi bi-trash me-1"></i>Clear All History
+							<i class="bi bi-trash me-1"></i>{{ t('app.content-browser.dialog.clearAllHistory') }}
 						</button>
 					</div>
 				</div>

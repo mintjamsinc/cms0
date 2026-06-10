@@ -23,43 +23,43 @@
 			<!-- Left: file actions -->
 			<div class="toolbar-group">
 				<button class="btn-icon" @click="saveFile"
-					:disabled="!currentFile.path || !isModified || isSaving" title="Save (Ctrl+S)">
+					:disabled="!currentFile.path || !isModified || isSaving" :title="t('app.bpmn-modeler.toolbar.save', undefined, 'Save (Ctrl+S)')">
 					<i class="bi bi-floppy"></i>
 				</button>
-				<button class="btn-icon" @click="openSaveAsDialog" :disabled="isSaving" title="Save As...">
+				<button class="btn-icon" @click="openSaveAsDialog" :disabled="isSaving" :title="t('app.bpmn-modeler.toolbar.saveAs', undefined, 'Save As...')">
 					<i class="bi bi-floppy2"></i>
 				</button>
 			</div>
 
 			<!-- Left: undo / redo / delete -->
 			<div class="toolbar-group">
-				<button class="btn-icon" @click="undo" :disabled="!canUndo" title="Undo (Ctrl+Z)">
+				<button class="btn-icon" @click="undo" :disabled="!canUndo" :title="t('app.bpmn-modeler.toolbar.undo', undefined, 'Undo (Ctrl+Z)')">
 					<i class="bi bi-arrow-counterclockwise"></i>
 				</button>
-				<button class="btn-icon" @click="redo" :disabled="!canRedo" title="Redo (Ctrl+Y)">
+				<button class="btn-icon" @click="redo" :disabled="!canRedo" :title="t('app.bpmn-modeler.toolbar.redo', undefined, 'Redo (Ctrl+Y)')">
 					<i class="bi bi-arrow-clockwise"></i>
 				</button>
-				<button class="btn-icon" @click="deleteSelected" :disabled="!hasSelection" title="Delete (Del)">
+				<button class="btn-icon" @click="deleteSelected" :disabled="!hasSelection" :title="t('app.bpmn-modeler.toolbar.delete', undefined, 'Delete (Del)')">
 					<i class="bi bi-trash"></i>
 				</button>
 			</div>
 
 			<!-- Left: zoom -->
 			<div class="toolbar-group">
-				<button class="btn-icon" @click="zoomIn" title="Zoom In">
+				<button class="btn-icon" @click="zoomIn" :title="t('app.bpmn-modeler.toolbar.zoomIn', undefined, 'Zoom In')">
 					<i class="bi bi-zoom-in"></i>
 				</button>
-				<button class="btn-icon" @click="zoomOut" title="Zoom Out">
+				<button class="btn-icon" @click="zoomOut" :title="t('app.bpmn-modeler.toolbar.zoomOut', undefined, 'Zoom Out')">
 					<i class="bi bi-zoom-out"></i>
 				</button>
-				<button class="btn-icon" @click="fitToScreen" title="Fit to Screen">
+				<button class="btn-icon" @click="fitToScreen" :title="t('app.bpmn-modeler.toolbar.fitToScreen', undefined, 'Fit to Screen')">
 					<i class="bi bi-fullscreen"></i>
 				</button>
 			</div>
 
 			<!-- Left: process-level definitions management -->
 			<div class="toolbar-group">
-				<button class="btn-icon" @click.stop="openManagementMenu(event)" title="Manage Definitions">
+				<button class="btn-icon" @click.stop="openManagementMenu(event)" :title="t('app.bpmn-modeler.toolbar.manageDefinitions', undefined, 'Manage Definitions')">
 					<i class="bi bi-menu-app"></i>
 				</button>
 			</div>
@@ -69,24 +69,24 @@
 			<!-- Right: Pane Toggles -->
 			<div class="pane-toggles">
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
-					@click="toggleSidebarPanel" title="Toggle Palette">
+					@click="toggleSidebarPanel" :title="t('app.bpmn-modeler.toolbar.togglePalette', undefined, 'Toggle Palette')">
 					<i class="bi bi-layout-sidebar-inset"></i>
 				</button>
 				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
-					@click="toggleDetailPanel" title="Toggle Properties">
+					@click="toggleDetailPanel" :title="t('app.bpmn-modeler.toolbar.toggleProperties', undefined, 'Toggle Properties')">
 					<i class="bi bi-layout-sidebar-inset-reverse"></i>
 				</button>
 			</div>
 
 			<!-- Right: Window Controls -->
 			<div class="window-controls">
-				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize', undefined, 'Minimize')">
 					<i class="bi bi-dash-lg"></i>
 				</button>
-				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize', undefined, 'Maximize')">
 					<i class="bi bi-square"></i>
 				</button>
-				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close', undefined, 'Close')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -104,27 +104,27 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="paletteExpanded.events = !paletteExpanded.events">
 						<i class="bi" :class="paletteExpanded.events ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Events</span>
+						<span>{{ t('app.bpmn-modeler.palette.section.events') }}</span>
 					</div>
 					<div v-show="paletteExpanded.events" class="sidebar-section-body px-2">
 					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'startEvent')" title="Start Event">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'startEvent')" :title="t('app.bpmn-modeler.palette.startEvent', undefined, 'Start Event')">
 							<svg viewBox="0 0 36 36">
 								<circle cx="18" cy="18" r="15" fill="#27AE60" stroke="#1E8449" stroke-width="1.5"/>
 							</svg>
 						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'endEvent')" title="End Event">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'endEvent')" :title="t('app.bpmn-modeler.palette.endEvent', undefined, 'End Event')">
 							<svg viewBox="0 0 36 36">
 								<circle cx="18" cy="18" r="15" fill="#E74C3C" stroke="#C0392B" stroke-width="3"/>
 							</svg>
 						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'intermediateEvent')" title="Intermediate Event">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'intermediateEvent')" :title="t('app.bpmn-modeler.palette.intermediateEvent', undefined, 'Intermediate Event')">
 							<svg viewBox="0 0 36 36">
 								<circle cx="18" cy="18" r="15" fill="#E67E22" stroke="#D35400" stroke-width="1.5"/>
 								<circle cx="18" cy="18" r="12" fill="none" stroke="white" stroke-width="1"/>
 							</svg>
 						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'boundaryEvent')" title="Boundary Event (drop on task)">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'boundaryEvent')" :title="t('app.bpmn-modeler.palette.boundaryEvent', undefined, 'Boundary Event (drop on task)')">
 							<svg viewBox="0 0 36 36">
 								<circle cx="18" cy="18" r="15" fill="#E67E22" stroke="#D35400" stroke-width="1.5"/>
 								<circle cx="18" cy="18" r="12" fill="none" stroke="white" stroke-width="1"/>
@@ -141,30 +141,30 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="paletteExpanded.tasks = !paletteExpanded.tasks">
 						<i class="bi" :class="paletteExpanded.tasks ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Tasks</span>
+						<span>{{ t('app.bpmn-modeler.palette.section.tasks') }}</span>
 					</div>
 					<div v-show="paletteExpanded.tasks" class="sidebar-section-body px-2">
 					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'userTask')" title="User Task">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'userTask')" :title="t('app.bpmn-modeler.palette.userTask', undefined, 'User Task')">
 							<svg viewBox="0 0 48 40">
 								<rect x="2" y="2" width="44" height="36" rx="4" fill="#3498DB" stroke="#2980B9" stroke-width="1.5"/>
 								<path d="M8 10 a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0 M6 20 Q12 16 18 20" fill="none" stroke="white" stroke-width="1"/>
 							</svg>
 						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'serviceTask')" title="Service Task">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'serviceTask')" :title="t('app.bpmn-modeler.palette.serviceTask', undefined, 'Service Task')">
 							<svg viewBox="0 0 48 40">
 								<rect x="2" y="2" width="44" height="36" rx="4" fill="#8E44AD" stroke="#6C3483" stroke-width="1.5"/>
 								<circle cx="12" cy="12" r="5" fill="none" stroke="white" stroke-width="1"/>
 								<circle cx="12" cy="12" r="2" fill="white"/>
 							</svg>
 						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'scriptTask')" title="Script Task">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'scriptTask')" :title="t('app.bpmn-modeler.palette.scriptTask', undefined, 'Script Task')">
 							<svg viewBox="0 0 48 40">
 								<rect x="2" y="2" width="44" height="36" rx="4" fill="#2C3E6E" stroke="#1A2540" stroke-width="1.5"/>
 								<path d="M8 8 L8 18 Q8 20 10 20 L14 20 Q16 20 16 22 L16 28" fill="none" stroke="white" stroke-width="1.5"/>
 							</svg>
 						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'manualTask')" title="Manual Task">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'manualTask')" :title="t('app.bpmn-modeler.palette.manualTask', undefined, 'Manual Task')">
 							<svg viewBox="0 0 48 40">
 								<rect x="2" y="2" width="44" height="36" rx="4" fill="#16A085" stroke="#0E6655" stroke-width="1.5"/>
 								<path d="M8 18 L12 14 L16 18 L12 22 Z" fill="none" stroke="white" stroke-width="1"/>
@@ -179,17 +179,17 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="paletteExpanded.gateways = !paletteExpanded.gateways">
 						<i class="bi" :class="paletteExpanded.gateways ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Gateways</span>
+						<span>{{ t('app.bpmn-modeler.palette.section.gateways') }}</span>
 					</div>
 					<div v-show="paletteExpanded.gateways" class="sidebar-section-body px-2">
 					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'exclusiveGateway')" title="Exclusive Gateway">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'exclusiveGateway')" :title="t('app.bpmn-modeler.palette.exclusiveGateway', undefined, 'Exclusive Gateway')">
 							<svg viewBox="0 0 50 50">
 								<path d="M25 5 L45 25 L25 45 L5 25 Z" fill="#FFCC00" stroke="#CC9900" stroke-width="1.5"/>
 								<path d="M18 18 L32 32 M32 18 L18 32" stroke="#664400" stroke-width="2"/>
 							</svg>
 						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'parallelGateway')" title="Parallel Gateway">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'parallelGateway')" :title="t('app.bpmn-modeler.palette.parallelGateway', undefined, 'Parallel Gateway')">
 							<svg viewBox="0 0 50 50">
 								<path d="M25 5 L45 25 L25 45 L5 25 Z" fill="#FFCC00" stroke="#CC9900" stroke-width="1.5"/>
 								<path d="M25 15 L25 35 M15 25 L35 25" stroke="#664400" stroke-width="2"/>
@@ -204,11 +204,11 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="paletteExpanded.subProcesses = !paletteExpanded.subProcesses">
 						<i class="bi" :class="paletteExpanded.subProcesses ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Sub-Processes</span>
+						<span>{{ t('app.bpmn-modeler.palette.section.subProcesses') }}</span>
 					</div>
 					<div v-show="paletteExpanded.subProcesses" class="sidebar-section-body px-2">
 					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'subProcess')" title="Sub-Process">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'subProcess')" :title="t('app.bpmn-modeler.palette.subProcess', undefined, 'Sub-Process')">
 							<svg viewBox="0 0 50 50">
 								<rect x="5" y="8" width="40" height="32" rx="4" ry="4" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
 								<rect x="20" y="32" width="10" height="8" fill="white" stroke="var(--element-stroke)" stroke-width="1"/>
@@ -224,18 +224,18 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="paletteExpanded.data = !paletteExpanded.data">
 						<i class="bi" :class="paletteExpanded.data ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Data</span>
+						<span>{{ t('app.bpmn-modeler.palette.section.data') }}</span>
 					</div>
 					<div v-show="paletteExpanded.data" class="sidebar-section-body px-2">
 					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'dataObject')" title="Data Object">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'dataObject')" :title="t('app.bpmn-modeler.palette.dataObject', undefined, 'Data Object')">
 							<svg viewBox="0 0 50 50">
 								<!-- Folded corner paper icon -->
 								<path d="M10 5 L32 5 L40 13 L40 45 L10 45 Z" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
 								<path d="M32 5 L32 13 L40 13" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
 							</svg>
 						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'dataStore')" title="Data Store">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'dataStore')" :title="t('app.bpmn-modeler.palette.dataStore', undefined, 'Data Store')">
 							<svg viewBox="0 0 50 50">
 								<!-- Cylinder / database icon -->
 								<path d="M5 12 C5 7, 15 4, 25 4 C35 4, 45 7, 45 12 L45 38 C45 43, 35 46, 25 46 C15 46, 5 43, 5 38 Z" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
@@ -251,11 +251,11 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="paletteExpanded.artifacts = !paletteExpanded.artifacts">
 						<i class="bi" :class="paletteExpanded.artifacts ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Artifacts</span>
+						<span>{{ t('app.bpmn-modeler.palette.section.artifacts') }}</span>
 					</div>
 					<div v-show="paletteExpanded.artifacts" class="sidebar-section-body px-2">
 					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'textAnnotation')" title="Text Annotation">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'textAnnotation')" :title="t('app.bpmn-modeler.palette.textAnnotation', undefined, 'Text Annotation')">
 							<svg viewBox="0 0 50 50">
 								<!-- Left bracket shape with text lines -->
 								<path d="M15 5 L5 5 L5 45 L15 45" fill="none" stroke="var(--element-stroke)" stroke-width="1.5"/>
@@ -273,11 +273,11 @@
 				<div class="sidebar-section">
 					<div class="sidebar-section-header" @click="paletteExpanded.swimlanes = !paletteExpanded.swimlanes">
 						<i class="bi" :class="paletteExpanded.swimlanes ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>Swimlanes</span>
+						<span>{{ t('app.bpmn-modeler.palette.section.swimlanes') }}</span>
 					</div>
 					<div v-show="paletteExpanded.swimlanes" class="sidebar-section-body px-2">
 					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'pool')" title="Pool">
+						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'pool')" :title="t('app.bpmn-modeler.palette.pool', undefined, 'Pool')">
 							<svg viewBox="0 0 50 50">
 								<!-- Pool icon - rectangle with header -->
 								<rect x="3" y="5" width="44" height="40" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
@@ -307,11 +307,11 @@
 							@click="selectTab(index)" :title="file.path || file.name">
 							<span class="file-tab-name">{{ file.name }}</span>
 							<span v-if="file.isModified" class="modified-dot">●</span>
-							<button class="file-tab-close" @click.stop="closeFile(index)" title="Close">
+							<button class="file-tab-close" @click.stop="closeFile(index)" :title="t('common.close', undefined, 'Close')">
 								<i class="bi bi-x"></i>
 							</button>
 						</div>
-						<button class="file-tab-add" @click="newDiagram" title="New file">
+						<button class="file-tab-add" @click="newDiagram" :title="t('app.bpmn-modeler.tabs.newFile', undefined, 'New file')">
 							<i class="bi bi-plus-lg"></i>
 						</button>
 					</div>
@@ -380,7 +380,7 @@
 								<text class="pool-label"
 									  :transform="'translate(15, ' + ((element.height || 200) / 2) + ') rotate(-90)'"
 									  text-anchor="middle" dominant-baseline="middle">
-									{{ element.name || 'Pool' }}
+									{{ element.name || t('app.bpmn-modeler.canvas.pool', undefined, 'Pool') }}
 								</text>
 								<!-- Lane divider lines -->
 								<line v-for="(lane, index) in getLanesForPool(element.id)" :key="lane.id + '_line'" v-if="index > 0"
@@ -409,7 +409,7 @@
 									  :transform="'translate(15, ' + ((element.height || 100) / 2) + ') rotate(-90)'"
 									  text-anchor="middle" dominant-baseline="middle"
 									  @mousedown.stop="onLaneHeaderMouseDown(event, element)">
-									{{ element.name || 'Lane' }}
+									{{ element.name || t('app.bpmn-modeler.canvas.lane', undefined, 'Lane') }}
 								</text>
 								<!-- Vertical resize handle (bottom edge) - visible when Lane is selected -->
 								<rect v-if="selectedIds.includes(element.id)"
@@ -1309,28 +1309,28 @@
 				:style="{ width: propertiesPanelWidth + 'px' }"
 				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
 				<div class="detail-panel-header">
-					<span class="detail-panel-title">Properties</span>
+					<span class="detail-panel-title">{{ t('app.bpmn-modeler.properties.title') }}</span>
 				</div>
 				<div class="properties-body">
 					<div v-if="selectedElement">
 						<!-- Property Tabs -->
 						<div class="property-tabs">
 							<button type="button" class="property-tab" :class="{ active: propertyTab === 'general' }" @click="propertyTab = 'general'">
-								General
+								{{ t('app.bpmn-modeler.properties.tab.general') }}
 							</button>
 							<button type="button" class="property-tab" :class="{ active: propertyTab === 'forms' }" @click="propertyTab = 'forms'"
 									v-if="selectedElement.type === 'startEvent' || selectedElement.type === 'userTask'">
-								Forms
+								{{ t('app.bpmn-modeler.properties.tab.forms') }}
 							</button>
 							<button type="button" class="property-tab" :class="{ active: propertyTab === 'io' }" @click="propertyTab = 'io'"
 									v-if="selectedElement.type === 'endEvent' || selectedElement.type === 'serviceTask'">
-								Input/Output
+								{{ t('app.bpmn-modeler.properties.tab.io') }}
 							</button>
 							<button type="button" class="property-tab" :class="{ active: propertyTab === 'listeners' }" @click="propertyTab = 'listeners'">
-								Listeners
+								{{ t('app.bpmn-modeler.properties.tab.listeners') }}
 							</button>
 							<button type="button" class="property-tab" :class="{ active: propertyTab === 'extensions' }" @click="propertyTab = 'extensions'">
-								Extensions
+								{{ t('app.bpmn-modeler.properties.tab.extensions') }}
 							</button>
 						</div>
 
@@ -1338,33 +1338,33 @@
 						<div v-if="propertyTab === 'general'" class="property-tab-content">
 							<!-- Basic Properties -->
 							<div class="property-group">
-								<div class="property-group-title">General</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.general') }}</div>
 								<div class="property-row">
-									<label class="property-label">ID</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.id') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.id" readonly>
 								</div>
 								<div v-if="selectedElement.type !== 'textAnnotation'" class="property-row">
-									<label class="property-label">Name</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.name') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.name" @input="onPropertyChange">
 								</div>
 							</div>
 
 							<!-- Start Event Details -->
 							<div v-if="selectedElement.type === 'startEvent'" class="property-group">
-								<div class="property-group-title">Details</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.details') }}</div>
 								<div class="property-row">
-									<label class="property-label">Initiator</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.initiator') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.initiator" @input="onPropertyChange"
-										   placeholder="Variable to store initiator">
+										   :placeholder="t('app.bpmn-modeler.properties.initiator.placeholder')">
 								</div>
 							</div>
 
 							<!-- Start Event - Event Definition Properties -->
 							<div v-if="selectedElement.type === 'startEvent' && selectedElement.subType === 'message'" class="property-group">
-								<div class="property-group-title">Message Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.messageEvent') }}</div>
 								<!-- Message Selection -->
 								<div class="property-row">
-									<label class="property-label">Message</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.message') }}</label>
 									<div v-if="!isRefEditing('message')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
@@ -1372,12 +1372,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Message name">
+											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -1386,9 +1386,9 @@
 							</div>
 
 							<div v-if="selectedElement.type === 'startEvent' && selectedElement.subType === 'timer'" class="property-group">
-								<div class="property-group-title">Timer Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.timerEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Timer Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.timerType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openTimerTypeDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.timerType}">{{ timerTypeLabel() }}</span>
@@ -1398,8 +1398,8 @@
 								</div>
 								<div v-if="selectedElement.timerType" class="property-row">
 									<label class="property-label">
-										{{ selectedElement.timerType === 'timeDate' ? 'Date' :
-										   selectedElement.timerType === 'timeDuration' ? 'Duration' : 'Cycle' }}
+										{{ selectedElement.timerType === 'timeDate' ? t('app.bpmn-modeler.properties.date') :
+										   selectedElement.timerType === 'timeDuration' ? t('app.bpmn-modeler.properties.duration') : t('app.bpmn-modeler.properties.cycle') }}
 									</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.timerValue" @input="onPropertyChange"
 										   :placeholder="selectedElement.timerType === 'timeDate' ? '2023-12-31T23:59:59Z or ${dateVar}' :
@@ -1409,9 +1409,9 @@
 							</div>
 
 							<div v-if="selectedElement.type === 'startEvent' && selectedElement.subType === 'conditional'" class="property-group">
-								<div class="property-group-title">Conditional Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.conditionalEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Condition Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.conditionType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openConditionTypeDropdown(event)">
 											<span class="wt-select-value">{{ conditionTypeLabel() }}</span>
@@ -1421,14 +1421,14 @@
 								</div>
 								<!-- Expression Type -->
 								<div v-if="selectedElement.conditionType === 'expression' || !selectedElement.conditionType" class="property-row">
-									<label class="property-label">Expression</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.conditionExpression" @input="onPropertyChange"
-										   placeholder="${condition == true}">
+										   :placeholder="t('app.bpmn-modeler.properties.expression.placeholder')">
 								</div>
 								<!-- Script Type -->
 								<div v-if="selectedElement.conditionType === 'script'">
 									<div class="property-row">
-										<label class="property-label">Script Type</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptType') }}</label>
 										<div class="wt-select w-100">
 											<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptTypeDropdown(event)">
 												<span class="wt-select-value">{{ conditionScriptTypeLabel() }}</span>
@@ -1439,7 +1439,7 @@
 									<!-- Inline Script -->
 									<div v-if="selectedElement.conditionScriptType !== 'external'">
 										<div class="property-row">
-											<label class="property-label">Script Format</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 											<div class="wt-select w-100">
 												<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptFormatDropdown(event)">
 													<span class="wt-select-value">{{ conditionScriptFormatLabel() }}</span>
@@ -1448,15 +1448,15 @@
 											</div>
 										</div>
 										<div class="property-row">
-											<label class="property-label">Script</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
 											<textarea class="wt w-100" v-model="selectedElement.conditionScript" @input="onPropertyChange"
-													  placeholder="// Your condition script here"></textarea>
+													  :placeholder="t('app.bpmn-modeler.properties.script.placeholder.condition')"></textarea>
 										</div>
 									</div>
 									<!-- External Resource -->
 									<div v-if="selectedElement.conditionScriptType === 'external'">
 										<div class="property-row">
-											<label class="property-label">Script Format</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 											<div class="wt-select w-100">
 												<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptFormatDropdown(event)">
 													<span class="wt-select-value">{{ conditionScriptFormatLabel() }}</span>
@@ -1465,20 +1465,20 @@
 											</div>
 										</div>
 										<div class="property-row">
-											<label class="property-label">Resource</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.resource') }}</label>
 											<input type="text" class="wt w-100" v-model="selectedElement.conditionScriptResource" @input="onPropertyChange"
-												   placeholder="scripts/condition.groovy">
+												   :placeholder="t('app.bpmn-modeler.properties.resource.placeholder.condition')">
 										</div>
 									</div>
 								</div>
 								<!-- Variable Settings -->
 								<div class="property-row">
-									<label class="property-label">Variable Name</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.variableName') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.conditionVariableName" @input="onPropertyChange"
-										   placeholder="(empty = monitor all variables)">
+										   :placeholder="t('app.bpmn-modeler.properties.variableName.placeholder')">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Variable Events</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.variableEvents') }}</label>
 									<div class="checkbox-group">
 										<label class="checkbox-inline">
 											<input type="checkbox"
@@ -1500,10 +1500,10 @@
 							</div>
 
 							<div v-if="selectedElement.type === 'startEvent' && selectedElement.subType === 'signal'" class="property-group">
-								<div class="property-group-title">Signal Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.signalEvent') }}</div>
 								<!-- Signal Selection -->
 								<div class="property-row">
-									<label class="property-label">Signal</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.signal') }}</label>
 									<div v-if="!isRefEditing('signal')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
@@ -1511,12 +1511,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Signal name">
+											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -1527,22 +1527,22 @@
 
 							<!-- Intermediate Event - Basic Info -->
 							<div v-if="selectedElement.type === 'intermediateEvent'" class="property-group">
-								<div class="property-group-title">Intermediate Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.intermediateEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Direction</label>
-									<span class="property-value">{{ selectedElement.catching !== false ? 'Catching (Receive)' : 'Throwing (Send)' }}</span>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.direction') }}</label>
+									<span class="property-value">{{ selectedElement.catching !== false ? t('app.bpmn-modeler.properties.direction.catching') : t('app.bpmn-modeler.properties.direction.throwing') }}</span>
 								</div>
 								<div class="property-row">
-									<label class="property-label">Event Type</label>
-									<span class="property-value">{{ selectedElement.subType || 'None' }}</span>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.eventType') }}</label>
+									<span class="property-value">{{ selectedElement.subType || t('app.bpmn-modeler.properties.none') }}</span>
 								</div>
 							</div>
 
 							<!-- Intermediate Event - Message Catch Properties -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'message' && selectedElement.catching !== false" class="property-group">
-								<div class="property-group-title">Message Catch Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.messageCatchEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Message</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.message') }}</label>
 									<div v-if="!isRefEditing('message')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
@@ -1550,12 +1550,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Message name">
+											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -1565,9 +1565,9 @@
 
 							<!-- Intermediate Event - Message Throw Properties -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'message' && selectedElement.catching === false" class="property-group">
-								<div class="property-group-title">Message Throw Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.messageThrowEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Message</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.message') }}</label>
 									<div v-if="!isRefEditing('message')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
@@ -1575,12 +1575,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Message name">
+											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -1589,7 +1589,7 @@
 
 								<!-- Implementation Type for Message Throw Event -->
 								<div class="property-row">
-									<label class="property-label">Implementation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openMessageImplTypeDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.messageImplementationType}">{{ messageImplTypeLabel() }}</span>
@@ -1600,47 +1600,47 @@
 
 								<!-- Java Class -->
 								<div v-if="selectedElement.messageImplementationType === 'class'" class="property-row">
-									<label class="property-label">Java Class</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.messageJavaClass" @input="onPropertyChange"
-										   placeholder="com.example.MessageHandler">
+										   :placeholder="t('app.bpmn-modeler.properties.javaClass.placeholder.messageHandler')">
 								</div>
 
 								<!-- Expression -->
 								<div v-if="selectedElement.messageImplementationType === 'expression'">
 									<div class="property-row">
-										<label class="property-label">Expression</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.messageExpression" @input="onPropertyChange"
-											   placeholder="${messageService.send(execution)}">
+											   :placeholder="t('app.bpmn-modeler.properties.expression.placeholder.messageService')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Result Variable</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.resultVariable') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.messageResultVariable" @input="onPropertyChange"
-											   placeholder="result">
+											   :placeholder="t('app.bpmn-modeler.properties.resultVariable.placeholder')">
 									</div>
 								</div>
 
 								<!-- External -->
 								<div v-if="selectedElement.messageImplementationType === 'external'">
 									<div class="property-row">
-										<label class="property-label">Topic</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.topic') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.messageTopic" @input="onPropertyChange"
-											   placeholder="sendNotification">
+											   :placeholder="t('app.bpmn-modeler.properties.topic.placeholder.sendNotification')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Priority</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.priority') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.messageExternalPriority" @input="onPropertyChange"
-											   placeholder="0">
+											   :placeholder="t('app.bpmn-modeler.properties.priority.placeholder')">
 									</div>
 								</div>
 
 								<!-- Connector -->
 								<div v-if="selectedElement.messageImplementationType === 'connector'">
 									<div class="property-row">
-										<label class="property-label">Connector ID</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.connectorId') }}</label>
 										<input type="text" class="wt w-100"
 											   v-model="selectedElement.messageConnectorId"
 											   @input="onPropertyChange"
-											   placeholder="http-connector"
+											   :placeholder="t('app.bpmn-modeler.properties.connectorId.placeholder')"
 											   list="connectorIdSuggestionsIntermediateThrow">
 										<datalist id="connectorIdSuggestionsIntermediateThrow">
 											<option value="http-connector"></option>
@@ -1651,7 +1651,7 @@
 									<!-- Connector Inputs -->
 									<div class="property-subsection">
 										<div class="property-subsection-title">
-											<span>Connector Inputs</span>
+											<span>{{ t('app.bpmn-modeler.properties.connectorInputs') }}</span>
 											<button type="button" class="btn-add-small" @click="addConnectorInput">+</button>
 										</div>
 										<div v-if="!selectedElement.messageConnectorInputs || selectedElement.messageConnectorInputs.length === 0"
@@ -1661,7 +1661,7 @@
 										<div v-for="(input, index) in selectedElement.messageConnectorInputs" :key="'ime-input-'+index"
 											 class="connector-param-row">
 											<input type="text" class="wt param-name" v-model="input.name"
-												   @input="onPropertyChange" placeholder="Name">
+												   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.paramName')">
 											<div class="wt-select param-type">
 												<button type="button" class="wt-select-trigger" @click.stop="openInputTypeDropdown(input, event)">
 													<span class="wt-select-value">{{ paramTypeLabel(input) }}</span>
@@ -1670,7 +1670,7 @@
 											</div>
 											<div v-if="input.type === 'text'" class="param-value-wrapper">
 												<input type="text" class="wt param-value" v-model="input.value"
-													   @input="onPropertyChange" placeholder="Value or ${expression}">
+													   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.valueOrExpression')">
 											</div>
 											<div v-if="input.type === 'script'" class="param-script-wrapper">
 												<div class="wt-select param-script-format">
@@ -1680,7 +1680,7 @@
 													</button>
 												</div>
 												<textarea class="wt param-value" v-model="input.value"
-														  @input="onPropertyChange" placeholder="Script code" rows="2"></textarea>
+														  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.scriptCode')" rows="2"></textarea>
 											</div>
 											<button type="button" class="btn-remove" @click="removeConnectorInput(index)">×</button>
 										</div>
@@ -1689,7 +1689,7 @@
 									<!-- Connector Outputs -->
 									<div class="property-subsection">
 										<div class="property-subsection-title">
-											<span>Connector Outputs</span>
+											<span>{{ t('app.bpmn-modeler.properties.connectorOutputs') }}</span>
 											<button type="button" class="btn-add-small" @click="addConnectorOutput">+</button>
 										</div>
 										<div v-if="!selectedElement.messageConnectorOutputs || selectedElement.messageConnectorOutputs.length === 0"
@@ -1699,7 +1699,7 @@
 										<div v-for="(output, index) in selectedElement.messageConnectorOutputs" :key="'ime-output-'+index"
 											 class="connector-param-row">
 											<input type="text" class="wt param-name" v-model="output.name"
-												   @input="onPropertyChange" placeholder="Variable name">
+												   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.variableName')">
 											<div class="wt-select param-type">
 												<button type="button" class="wt-select-trigger" @click.stop="openOutputTypeDropdown(output, event)">
 													<span class="wt-select-value">{{ paramTypeLabel(output) }}</span>
@@ -1708,7 +1708,7 @@
 											</div>
 											<div v-if="output.type === 'text'" class="param-value-wrapper">
 												<input type="text" class="wt param-value" v-model="output.value"
-													   @input="onPropertyChange" placeholder="Value or ${expression}">
+													   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.valueOrExpression')">
 											</div>
 											<div v-if="output.type === 'script'" class="param-script-wrapper">
 												<div class="wt-select param-script-format">
@@ -1718,7 +1718,7 @@
 													</button>
 												</div>
 												<textarea class="wt param-value" v-model="output.value"
-														  @input="onPropertyChange" placeholder="Script code" rows="2"></textarea>
+														  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.scriptCode')" rows="2"></textarea>
 											</div>
 											<button type="button" class="btn-remove" @click="removeConnectorOutput(index)">×</button>
 										</div>
@@ -1728,7 +1728,7 @@
 								<!-- Field Injections (for Java Class) -->
 								<div v-if="selectedElement.messageImplementationType === 'class'" class="property-subsection">
 									<div class="property-subsection-title">
-										<span>Field Injections</span>
+										<span>{{ t('app.bpmn-modeler.properties.fieldInjections') }}</span>
 										<button type="button" class="btn-add-small" @click="addMessageFieldInjection">+</button>
 									</div>
 									<div v-if="!selectedElement.messageFieldInjections || selectedElement.messageFieldInjections.length === 0"
@@ -1738,7 +1738,7 @@
 									<div v-for="(field, index) in selectedElement.messageFieldInjections" :key="'ime-field-'+index"
 										 class="field-injection-row">
 										<input type="text" class="wt field-name" v-model="field.name"
-											   @input="onPropertyChange" placeholder="Field name">
+											   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.fieldName')">
 										<div class="wt-select field-type">
 											<button type="button" class="wt-select-trigger" @click.stop="openFieldTypeDropdown(field, event)">
 												<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
@@ -1754,9 +1754,9 @@
 
 							<!-- Intermediate Event - Timer Properties (Catching only) -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'timer'" class="property-group">
-								<div class="property-group-title">Timer Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.timerEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Timer Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.timerType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openTimerTypeDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.timerType}">{{ timerTypeLabel() }}</span>
@@ -1766,8 +1766,8 @@
 								</div>
 								<div v-if="selectedElement.timerType" class="property-row">
 									<label class="property-label">
-										{{ selectedElement.timerType === 'timeDate' ? 'Date' :
-										   selectedElement.timerType === 'timeDuration' ? 'Duration' : 'Cycle' }}
+										{{ selectedElement.timerType === 'timeDate' ? t('app.bpmn-modeler.properties.date') :
+										   selectedElement.timerType === 'timeDuration' ? t('app.bpmn-modeler.properties.duration') : t('app.bpmn-modeler.properties.cycle') }}
 									</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.timerValue" @input="onPropertyChange"
 										   :placeholder="selectedElement.timerType === 'timeDate' ? '2023-12-31T23:59:59Z or ${dateVar}' :
@@ -1778,9 +1778,9 @@
 
 							<!-- Intermediate Event - Conditional Properties (Catching only) -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'conditional'" class="property-group">
-								<div class="property-group-title">Conditional Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.conditionalEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Condition Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.conditionType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openConditionTypeDropdown(event)">
 											<span class="wt-select-value">{{ conditionTypeLabel() }}</span>
@@ -1789,29 +1789,29 @@
 									</div>
 								</div>
 								<div v-if="selectedElement.conditionType === 'expression' || !selectedElement.conditionType" class="property-row">
-									<label class="property-label">Expression</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.conditionExpression" @input="onPropertyChange"
-										   placeholder="${condition == true}">
+										   :placeholder="t('app.bpmn-modeler.properties.expression.placeholder')">
 								</div>
 								<div v-if="selectedElement.conditionType === 'script'">
 									<div class="property-row">
-										<label class="property-label">Script Format</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.conditionScriptFormat" @input="onPropertyChange"
-											   placeholder="groovy">
+											   :placeholder="t('app.bpmn-modeler.properties.scriptFormat.placeholder.groovy')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Script</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
 										<textarea class="wt w-100" v-model="selectedElement.conditionScript" @input="onPropertyChange"
-												  placeholder="return true" rows="3"></textarea>
+												  :placeholder="t('app.bpmn-modeler.properties.script.placeholder.returnTrue')" rows="3"></textarea>
 									</div>
 								</div>
 							</div>
 
 							<!-- Intermediate Event - Signal Catch Properties -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'signal' && selectedElement.catching !== false" class="property-group">
-								<div class="property-group-title">Signal Catch Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.signalCatchEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Signal</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.signal') }}</label>
 									<div v-if="!isRefEditing('signal')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
@@ -1819,12 +1819,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Signal name">
+											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -1834,9 +1834,9 @@
 
 							<!-- Intermediate Event - Signal Throw Properties -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'signal' && selectedElement.catching === false" class="property-group">
-								<div class="property-group-title">Signal Throw Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.signalThrowEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Signal</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.signal') }}</label>
 									<div v-if="!isRefEditing('signal')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
@@ -1844,12 +1844,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Signal name">
+											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -1859,9 +1859,9 @@
 
 							<!-- Intermediate Event - Escalation Catch Properties -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'escalation' && selectedElement.catching !== false" class="property-group">
-								<div class="property-group-title">Escalation Catch Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.escalationCatchEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Escalation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.escalation') }}</label>
 									<div v-if="!isRefEditing('escalation')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.escalationRef}"
 										 @click="startRefEdit('escalation')">{{ refDisplayLabel('escalation') }}</div>
@@ -1869,29 +1869,29 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Escalation name">
+											   :placeholder="t('app.bpmn-modeler.properties.escalation.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
 									</div>
 								</div>
 								<div v-if="selectedElement.escalationRef" class="property-row">
-									<label class="property-label">Escalation Code</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.escalationCode') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.escalationCode" @input="onPropertyChange"
-										   placeholder="e.g., ESC_001">
+										   :placeholder="t('app.bpmn-modeler.properties.escalationCode.placeholder')">
 								</div>
 							</div>
 
 							<!-- Intermediate Event - Escalation Throw Properties -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'escalation' && selectedElement.catching === false" class="property-group">
-								<div class="property-group-title">Escalation Throw Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.escalationThrowEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Escalation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.escalation') }}</label>
 									<div v-if="!isRefEditing('escalation')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.escalationRef}"
 										 @click="startRefEdit('escalation')">{{ refDisplayLabel('escalation') }}</div>
@@ -1899,21 +1899,21 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Escalation name">
+											   :placeholder="t('app.bpmn-modeler.properties.escalation.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
 									</div>
 								</div>
 								<div v-if="selectedElement.escalationRef" class="property-row">
-									<label class="property-label">Escalation Code</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.escalationCode') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.escalationCode" @input="onPropertyChange"
-										   placeholder="e.g., ESC_001">
+										   :placeholder="t('app.bpmn-modeler.properties.escalationCode.placeholder')">
 								</div>
 							</div>
 
@@ -1921,25 +1921,25 @@
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'link'" class="property-group">
 								<div class="property-group-title">{{ selectedElement.catching !== false ? 'Link Catch Event' : 'Link Throw Event' }}</div>
 								<div class="property-row">
-									<label class="property-label">Link Name</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.linkName') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.linkName" @input="onPropertyChange"
-										   placeholder="e.g., GoToApproval">
+										   :placeholder="t('app.bpmn-modeler.properties.linkName.placeholder')">
 								</div>
 							</div>
 
 							<!-- Intermediate Event - Compensation Catch Properties -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'compensation' && selectedElement.catching !== false" class="property-group">
-								<div class="property-group-title">Compensation Catch Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.compensationCatchEvent') }}</div>
 								<div class="property-row">
-									<span class="property-hint">This event catches compensation triggers. Usually used as a Boundary Event on tasks.</span>
+									<span class="property-hint">{{ t('app.bpmn-modeler.properties.compensationCatchHint') }}</span>
 								</div>
 							</div>
 
 							<!-- Intermediate Event - Compensation Throw Properties -->
 							<div v-if="selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'compensation' && selectedElement.catching === false" class="property-group">
-								<div class="property-group-title">Compensation Throw Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.compensationThrowEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Activity Ref</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.activityRef') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openCompensationActivityRefDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.compensationActivityRef}">{{ compensationActivityRefLabel() }}</span>
@@ -1958,10 +1958,10 @@
 
 							<!-- Boundary Event Properties -->
 							<div v-if="selectedElement.type === 'boundaryEvent'" class="property-group">
-								<div class="property-group-title">Boundary Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.boundaryEvent') }}</div>
 								<!-- Attached To (read-only) -->
 								<div class="property-row">
-									<label class="property-label">Attached To</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.attachedTo') }}</label>
 									<span class="property-value">{{ getAttachedToName(selectedElement.attachedToRef) }}</span>
 								</div>
 								<!-- Cancel Activity (Interrupting) -->
@@ -1976,9 +1976,9 @@
 
 							<!-- Boundary Event - Message Event Properties -->
 							<div v-if="selectedElement.type === 'boundaryEvent' && selectedElement.subType === 'message'" class="property-group">
-								<div class="property-group-title">Message Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.messageEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Message</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.message') }}</label>
 									<div v-if="!isRefEditing('message')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
@@ -1986,12 +1986,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Message name">
+											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -2001,9 +2001,9 @@
 
 							<!-- Boundary Event - Timer Event Properties -->
 							<div v-if="selectedElement.type === 'boundaryEvent' && selectedElement.subType === 'timer'" class="property-group">
-								<div class="property-group-title">Timer Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.timerEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Timer Definition Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.timerDefinitionType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openTimerTypeShortDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.timerType}">{{ timerTypeShortLabel() }}</span>
@@ -2012,27 +2012,27 @@
 									</div>
 								</div>
 								<div v-if="selectedElement.timerType === 'timeDate'" class="property-row">
-									<label class="property-label">Date</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.date') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.timerValue"
-										   @input="onPropertyChange" placeholder="2024-12-31T23:59:59Z or ${dateVar}">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.dateValue.placeholder')">
 								</div>
 								<div v-if="selectedElement.timerType === 'timeDuration'" class="property-row">
-									<label class="property-label">Duration</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.duration') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.timerValue"
-										   @input="onPropertyChange" placeholder="PT1H30M or ${durationVar}">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.duration.placeholder')">
 								</div>
 								<div v-if="selectedElement.timerType === 'timeCycle'" class="property-row">
-									<label class="property-label">Cycle</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.cycle') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.timerValue"
-										   @input="onPropertyChange" placeholder="R3/PT10M or ${cycleVar}">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.cycle.placeholder')">
 								</div>
 							</div>
 
 							<!-- Boundary Event - Signal Event Properties -->
 							<div v-if="selectedElement.type === 'boundaryEvent' && selectedElement.subType === 'signal'" class="property-group">
-								<div class="property-group-title">Signal Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.signalEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Signal</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.signal') }}</label>
 									<div v-if="!isRefEditing('signal')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
@@ -2040,12 +2040,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Signal name">
+											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -2055,9 +2055,9 @@
 
 							<!-- Boundary Event - Error Event Properties -->
 							<div v-if="selectedElement.type === 'boundaryEvent' && selectedElement.subType === 'error'" class="property-group">
-								<div class="property-group-title">Error Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.errorEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Error</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.error') }}</label>
 									<div v-if="!isRefEditing('error')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.errorRef}"
 										 @click="startRefEdit('error')">{{ refDisplayLabel('error') }}</div>
@@ -2065,29 +2065,29 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Error name">
+											   :placeholder="t('app.bpmn-modeler.properties.error.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
 									</div>
 								</div>
 								<div v-if="selectedElement.errorRef" class="property-row">
-									<label class="property-label">Error Code</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.errorCode') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.errorCode"
-										   @input="onPropertyChange" placeholder="e.g., ERR_001">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.errorCode.placeholder')">
 								</div>
 							</div>
 
 							<!-- Boundary Event - Escalation Event Properties -->
 							<div v-if="selectedElement.type === 'boundaryEvent' && selectedElement.subType === 'escalation'" class="property-group">
-								<div class="property-group-title">Escalation Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.escalationEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Escalation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.escalation') }}</label>
 									<div v-if="!isRefEditing('escalation')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.escalationRef}"
 										 @click="startRefEdit('escalation')">{{ refDisplayLabel('escalation') }}</div>
@@ -2095,29 +2095,29 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Escalation name">
+											   :placeholder="t('app.bpmn-modeler.properties.escalation.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
 									</div>
 								</div>
 								<div v-if="selectedElement.escalationRef" class="property-row">
-									<label class="property-label">Escalation Code</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.escalationCode') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.escalationCode"
-										   @input="onPropertyChange" placeholder="e.g., ESC_001">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.escalationCode.placeholder')">
 								</div>
 							</div>
 
 							<!-- Boundary Event - Conditional Event Properties -->
 							<div v-if="selectedElement.type === 'boundaryEvent' && selectedElement.subType === 'conditional'" class="property-group">
-								<div class="property-group-title">Conditional Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.conditionalEvent') }}</div>
 								<div class="property-row">
-									<label class="property-label">Condition Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.conditionType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openConditionTypeDropdown(event, 'propertyChange')">
 											<span class="wt-select-value">{{ conditionTypeLabel() }}</span>
@@ -2126,12 +2126,12 @@
 									</div>
 								</div>
 								<div v-if="selectedElement.conditionType !== 'script'" class="property-row">
-									<label class="property-label">Expression</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.conditionExpression"
-										   @input="onPropertyChange" placeholder="${orderStatus == 'approved'}">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.expression.placeholder.orderStatus')">
 								</div>
 								<div v-if="selectedElement.conditionType === 'script'" class="property-row">
-									<label class="property-label">Script Format</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptFormatDropdown(event)">
 											<span class="wt-select-value">{{ conditionScriptFormatLabel() }}</span>
@@ -2140,18 +2140,18 @@
 									</div>
 								</div>
 								<div v-if="selectedElement.conditionType === 'script'" class="property-row">
-									<label class="property-label">Script</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
 									<textarea class="wt w-100" v-model="selectedElement.conditionScript"
-											  @input="onPropertyChange" rows="3" placeholder="return orderAmount > 1000;"></textarea>
+											  @input="onPropertyChange" rows="3" :placeholder="t('app.bpmn-modeler.properties.script.placeholder.orderAmount')"></textarea>
 								</div>
 							</div>
 
 							<!-- End Event - Event Definition Properties -->
 							<div v-if="selectedElement.type === 'endEvent' && selectedElement.subType === 'message'" class="property-group">
-								<div class="property-group-title">Message Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.messageEvent') }}</div>
 								<!-- Message Selection -->
 								<div class="property-row">
-									<label class="property-label">Message</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.message') }}</label>
 									<div v-if="!isRefEditing('message')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
@@ -2159,12 +2159,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Message name">
+											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -2173,7 +2173,7 @@
 
 								<!-- Implementation Type for Message End Event -->
 								<div class="property-row">
-									<label class="property-label">Implementation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openMessageImplTypeDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.messageImplementationType}">{{ messageImplTypeLabel() }}</span>
@@ -2184,47 +2184,47 @@
 
 								<!-- Java Class -->
 								<div v-if="selectedElement.messageImplementationType === 'class'" class="property-row">
-									<label class="property-label">Java Class</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.messageJavaClass" @input="onPropertyChange"
-										   placeholder="com.example.MessageHandler">
+										   :placeholder="t('app.bpmn-modeler.properties.javaClass.placeholder.messageHandler')">
 								</div>
 
 								<!-- Expression -->
 								<div v-if="selectedElement.messageImplementationType === 'expression'">
 									<div class="property-row">
-										<label class="property-label">Expression</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.messageExpression" @input="onPropertyChange"
-											   placeholder="${messageService.send(execution)}">
+											   :placeholder="t('app.bpmn-modeler.properties.expression.placeholder.messageService')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Result Variable</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.resultVariable') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.messageResultVariable" @input="onPropertyChange"
-											   placeholder="result">
+											   :placeholder="t('app.bpmn-modeler.properties.resultVariable.placeholder')">
 									</div>
 								</div>
 
 								<!-- External -->
 								<div v-if="selectedElement.messageImplementationType === 'external'">
 									<div class="property-row">
-										<label class="property-label">Topic</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.topic') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.messageTopic" @input="onPropertyChange"
-											   placeholder="sendNotification">
+											   :placeholder="t('app.bpmn-modeler.properties.topic.placeholder.sendNotification')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Priority</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.priority') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.messageExternalPriority" @input="onPropertyChange"
-											   placeholder="0">
+											   :placeholder="t('app.bpmn-modeler.properties.priority.placeholder')">
 									</div>
 								</div>
 
 								<!-- Connector -->
 								<div v-if="selectedElement.messageImplementationType === 'connector'">
 									<div class="property-row">
-										<label class="property-label">Connector ID</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.connectorId') }}</label>
 										<input type="text" class="wt w-100"
 											   v-model="selectedElement.messageConnectorId"
 											   @input="onPropertyChange"
-											   placeholder="http-connector"
+											   :placeholder="t('app.bpmn-modeler.properties.connectorId.placeholder')"
 											   list="connectorIdSuggestions">
 										<datalist id="connectorIdSuggestions">
 											<option value="http-connector"></option>
@@ -2235,7 +2235,7 @@
 									<!-- Connector Inputs -->
 									<div class="property-subsection">
 										<div class="property-subsection-title">
-											<span>Connector Inputs</span>
+											<span>{{ t('app.bpmn-modeler.properties.connectorInputs') }}</span>
 											<button type="button" class="btn-add-small" @click="addConnectorInput">+</button>
 										</div>
 										<div v-if="!selectedElement.messageConnectorInputs || selectedElement.messageConnectorInputs.length === 0"
@@ -2245,7 +2245,7 @@
 										<div v-for="(input, index) in selectedElement.messageConnectorInputs" :key="'input-'+index"
 											 class="connector-param-row">
 											<input type="text" class="wt param-name" v-model="input.name"
-												   @input="onPropertyChange" placeholder="Name">
+												   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.paramName')">
 											<div class="wt-select param-type">
 												<button type="button" class="wt-select-trigger" @click.stop="openInputTypeDropdown(input, event)">
 													<span class="wt-select-value">{{ paramTypeLabel(input) }}</span>
@@ -2254,7 +2254,7 @@
 											</div>
 											<div v-if="input.type === 'text'" class="param-value-wrapper">
 												<input type="text" class="wt param-value" v-model="input.value"
-													   @input="onPropertyChange" placeholder="Value or ${expression}">
+													   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.valueOrExpression')">
 											</div>
 											<div v-if="input.type === 'script'" class="param-script-wrapper">
 												<div class="wt-select param-script-format">
@@ -2264,7 +2264,7 @@
 													</button>
 												</div>
 												<textarea class="wt param-value" v-model="input.value"
-														  @input="onPropertyChange" placeholder="Script code" rows="2"></textarea>
+														  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.scriptCode')" rows="2"></textarea>
 											</div>
 											<button type="button" class="btn-remove" @click="removeConnectorInput(index)">×</button>
 										</div>
@@ -2273,7 +2273,7 @@
 									<!-- Connector Outputs -->
 									<div class="property-subsection">
 										<div class="property-subsection-title">
-											<span>Connector Outputs</span>
+											<span>{{ t('app.bpmn-modeler.properties.connectorOutputs') }}</span>
 											<button type="button" class="btn-add-small" @click="addConnectorOutput">+</button>
 										</div>
 										<div v-if="!selectedElement.messageConnectorOutputs || selectedElement.messageConnectorOutputs.length === 0"
@@ -2283,7 +2283,7 @@
 										<div v-for="(output, index) in selectedElement.messageConnectorOutputs" :key="'output-'+index"
 											 class="connector-param-row">
 											<input type="text" class="wt param-name" v-model="output.name"
-												   @input="onPropertyChange" placeholder="Variable name">
+												   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.variableName')">
 											<div class="wt-select param-type">
 												<button type="button" class="wt-select-trigger" @click.stop="openOutputTypeDropdown(output, event)">
 													<span class="wt-select-value">{{ paramTypeLabel(output) }}</span>
@@ -2292,7 +2292,7 @@
 											</div>
 											<div v-if="output.type === 'text'" class="param-value-wrapper">
 												<input type="text" class="wt param-value" v-model="output.value"
-													   @input="onPropertyChange" placeholder="Value or ${expression}">
+													   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.valueOrExpression')">
 											</div>
 											<div v-if="output.type === 'script'" class="param-script-wrapper">
 												<div class="wt-select param-script-format">
@@ -2302,7 +2302,7 @@
 													</button>
 												</div>
 												<textarea class="wt param-value" v-model="output.value"
-														  @input="onPropertyChange" placeholder="Script code" rows="2"></textarea>
+														  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.scriptCode')" rows="2"></textarea>
 											</div>
 											<button type="button" class="btn-remove" @click="removeConnectorOutput(index)">×</button>
 										</div>
@@ -2312,7 +2312,7 @@
 								<!-- Field Injections (for Java Class only) -->
 								<div v-if="selectedElement.messageImplementationType === 'class'" class="property-subsection">
 									<div class="property-subsection-title">
-										<span>Field Injections</span>
+										<span>{{ t('app.bpmn-modeler.properties.fieldInjections') }}</span>
 										<button type="button" class="btn-add-small" @click="addMessageFieldInjection">+</button>
 									</div>
 									<div v-if="!selectedElement.messageFieldInjections || selectedElement.messageFieldInjections.length === 0"
@@ -2322,7 +2322,7 @@
 									<div v-for="(field, index) in selectedElement.messageFieldInjections" :key="index"
 										 class="field-injection-row">
 										<input type="text" class="wt field-name" v-model="field.name"
-											   @input="onPropertyChange" placeholder="Field name">
+											   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.fieldName')">
 										<div class="wt-select field-type">
 											<button type="button" class="wt-select-trigger" @click.stop="openFieldTypeDropdown(field, event)">
 												<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
@@ -2338,10 +2338,10 @@
 							</div>
 
 							<div v-if="selectedElement.type === 'endEvent' && selectedElement.subType === 'error'" class="property-group">
-								<div class="property-group-title">Error Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.errorEvent') }}</div>
 								<!-- Error Selection -->
 								<div class="property-row">
-									<label class="property-label">Error</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.error') }}</label>
 									<div v-if="!isRefEditing('error')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.errorRef}"
 										 @click="startRefEdit('error')">{{ refDisplayLabel('error') }}</div>
@@ -2349,12 +2349,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Error name">
+											   :placeholder="t('app.bpmn-modeler.properties.error.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -2363,19 +2363,19 @@
 								<!-- Error Fields (always editable when errorRef exists or creating new) -->
 								<div v-if="selectedElement.errorRef">
 									<div class="property-row">
-										<label class="property-label">Error Code</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.errorCode') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.errorCode"
 											   @input="onExistingErrorCodeChange(event)"
-											   placeholder="e.g., ERR_PAYMENT_001">
+											   :placeholder="t('app.bpmn-modeler.properties.errorCode.placeholder.payment')">
 									</div>
 								</div>
 							</div>
 
 							<div v-if="selectedElement.type === 'endEvent' && selectedElement.subType === 'escalation'" class="property-group">
-								<div class="property-group-title">Escalation Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.escalationEvent') }}</div>
 								<!-- Escalation Selection -->
 								<div class="property-row">
-									<label class="property-label">Escalation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.escalation') }}</label>
 									<div v-if="!isRefEditing('escalation')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.escalationRef}"
 										 @click="startRefEdit('escalation')">{{ refDisplayLabel('escalation') }}</div>
@@ -2383,12 +2383,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Escalation name">
+											   :placeholder="t('app.bpmn-modeler.properties.escalation.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -2397,19 +2397,19 @@
 								<!-- Escalation Fields (always editable when escalationRef exists or creating new) -->
 								<div v-if="selectedElement.escalationRef">
 									<div class="property-row">
-										<label class="property-label">Escalation Code</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.escalationCode') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.escalationCode"
 											   @input="onExistingEscalationCodeChange(event)"
-											   placeholder="e.g., ESC_PRIORITY_001">
+											   :placeholder="t('app.bpmn-modeler.properties.escalationCode.placeholder.priority')">
 									</div>
 								</div>
 							</div>
 
 							<div v-if="selectedElement.type === 'endEvent' && selectedElement.subType === 'signal'" class="property-group">
-								<div class="property-group-title">Signal Event</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.signalEvent') }}</div>
 								<!-- Signal Selection -->
 								<div class="property-row">
-									<label class="property-label">Signal</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.signal') }}</label>
 									<div v-if="!isRefEditing('signal')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
@@ -2417,12 +2417,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Signal name">
+											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -2433,26 +2433,26 @@
 
 							<!-- Asynchronous Continuations (for Start Event) -->
 							<div v-if="selectedElement.type === 'startEvent'" class="property-group">
-								<div class="property-group-title">Asynchronous Continuations</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.asyncContinuations') }}</div>
 								<div class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox"
 											   v-model="selectedElement.asyncBefore" @change="onPropertyChange">
-										Asynchronous Before
+										{{ t('app.bpmn-modeler.properties.asyncBefore') }}
 									</label>
 								</div>
 								<div class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox"
 											   v-model="selectedElement.asyncAfter" @change="onPropertyChange">
-										Asynchronous After
+										{{ t('app.bpmn-modeler.properties.asyncAfter') }}
 									</label>
 								</div>
 								<div v-if="selectedElement.asyncBefore || selectedElement.asyncAfter" class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox"
 											   v-model="selectedElement.exclusive" @change="onPropertyChange">
-										Exclusive
+										{{ t('app.bpmn-modeler.properties.exclusive') }}
 									</label>
 								</div>
 							</div>
@@ -2460,92 +2460,92 @@
 							<!-- Job Configuration (for Start Event with async or Timer, and Timer Intermediate Event) -->
 							<div v-if="(selectedElement.type === 'startEvent' && (selectedElement.asyncBefore || selectedElement.asyncAfter || selectedElement.subType === 'timer')) ||
 									   (selectedElement.type === 'intermediateEvent' && selectedElement.subType === 'timer')" class="property-group">
-								<div class="property-group-title">Job Configuration</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.jobConfiguration') }}</div>
 								<div class="property-row">
-									<label class="property-label">Job Priority</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.jobPriority') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.jobPriority" @input="onPropertyChange"
-										   placeholder="e.g., 10 or ${priority}">
+										   :placeholder="t('app.bpmn-modeler.properties.jobPriority.placeholder')">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Retry Time Cycle</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.retryTimeCycle') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.retryTimeCycle" @input="onPropertyChange"
-										   placeholder="e.g., R3/PT10M">
+										   :placeholder="t('app.bpmn-modeler.properties.retryTimeCycle.placeholder')">
 								</div>
 							</div>
 
 							<!-- Asynchronous Continuations (for End Event) -->
 							<div v-if="selectedElement.type === 'endEvent'" class="property-group">
-								<div class="property-group-title">Asynchronous Continuations</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.asyncContinuations') }}</div>
 								<div class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox"
 											   v-model="selectedElement.asyncBefore" @change="onPropertyChange">
-										Asynchronous Before
+										{{ t('app.bpmn-modeler.properties.asyncBefore') }}
 									</label>
 								</div>
 								<div class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox"
 											   v-model="selectedElement.asyncAfter" @change="onPropertyChange">
-										Asynchronous After
+										{{ t('app.bpmn-modeler.properties.asyncAfter') }}
 									</label>
 								</div>
 								<div v-if="selectedElement.asyncBefore || selectedElement.asyncAfter" class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox"
 											   v-model="selectedElement.exclusive" @change="onPropertyChange">
-										Exclusive
+										{{ t('app.bpmn-modeler.properties.exclusive') }}
 									</label>
 								</div>
 							</div>
 
 							<!-- Job Configuration (for End Event with async) -->
 							<div v-if="selectedElement.type === 'endEvent' && (selectedElement.asyncBefore || selectedElement.asyncAfter)" class="property-group">
-								<div class="property-group-title">Job Configuration</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.jobConfiguration') }}</div>
 								<div class="property-row">
-									<label class="property-label">Job Priority</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.jobPriority') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.jobPriority" @input="onPropertyChange"
-										   placeholder="e.g., 10 or ${priority}">
+										   :placeholder="t('app.bpmn-modeler.properties.jobPriority.placeholder')">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Retry Time Cycle</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.retryTimeCycle') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.retryTimeCycle" @input="onPropertyChange"
-										   placeholder="e.g., R3/PT10M">
+										   :placeholder="t('app.bpmn-modeler.properties.retryTimeCycle.placeholder')">
 								</div>
 							</div>
 
 							<!-- Documentation -->
 							<div class="property-group">
-								<div class="property-group-title">Documentation</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.documentation') }}</div>
 								<div class="property-row">
-									<label class="property-label">Element Documentation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.elementDocumentation') }}</label>
 									<textarea class="wt w-100" v-model="selectedElement.documentation"
-											  @input="onPropertyChange" placeholder="Enter documentation..."></textarea>
+											  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.documentation.placeholder')"></textarea>
 								</div>
 							</div>
 
 							<!-- User Task Properties -->
 							<div v-if="selectedElement.type === 'userTask'" class="property-group">
-								<div class="property-group-title">User Task</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.userTask') }}</div>
 								<div class="property-row">
-									<label class="property-label">Assignee</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.assignee') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.assignee" @input="onPropertyChange">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Candidate Users</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.candidateUsers') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.candidateUsers" @input="onPropertyChange">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Candidate Groups</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.candidateGroups') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.candidateGroups" @input="onPropertyChange">
 								</div>
 							</div>
 
 							<!-- Service Task Properties -->
 							<div v-if="selectedElement.type === 'serviceTask'" class="property-group">
-								<div class="property-group-title">Service Task</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.serviceTask') }}</div>
 								<div class="property-row">
-									<label class="property-label">Implementation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openServiceTaskImplDropdown(event)">
 											<span class="wt-select-value">{{ serviceTaskImplLabel() }}</span>
@@ -2554,29 +2554,29 @@
 									</div>
 								</div>
 								<div class="property-row" v-if="selectedElement.implementation === 'class'">
-									<label class="property-label">Java Class</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.javaClass" @input="onPropertyChange">
 								</div>
 								<div class="property-row" v-if="selectedElement.implementation === 'expression'">
-									<label class="property-label">Expression</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.expression" @input="onPropertyChange">
 								</div>
 								<div class="property-row" v-if="selectedElement.implementation === 'delegateExpression'">
-									<label class="property-label">Delegate Expression</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.delegateExpression') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.delegateExpression" @input="onPropertyChange">
 								</div>
 								<!-- Field Injections (for Java Class only) -->
 								<div v-if="selectedElement.implementation === 'class'" class="field-injections-section">
 									<div class="property-row">
-										<span>Field Injections</span>
+										<span>{{ t('app.bpmn-modeler.properties.fieldInjections') }}</span>
 										<button type="button" class="btn-add-small" @click="addServiceTaskFieldInjection">+</button>
 									</div>
 									<div v-if="!selectedElement.fieldInjections || selectedElement.fieldInjections.length === 0"
-										 class="text-muted small py-1" style="font-size: 0.7rem;">No field injections defined</div>
+										 class="text-muted small py-1" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.noFieldInjections') }}</div>
 									<div v-for="(field, index) in selectedElement.fieldInjections" :key="index"
 										 class="field-injection-row">
 										<input type="text" class="wt field-name" v-model="field.name"
-											   @input="onPropertyChange" placeholder="Field name">
+											   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.fieldName')">
 										<div class="wt-select field-type">
 											<button type="button" class="wt-select-trigger" @click.stop="openFieldTypeDropdown(field, event)">
 												<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
@@ -2592,9 +2592,9 @@
 
 							<!-- Script Task Properties -->
 							<div v-if="selectedElement.type === 'scriptTask'" class="property-group">
-								<div class="property-group-title">Script Task</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.scriptTask') }}</div>
 								<div class="property-row">
-									<label class="property-label">Script Format</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openScriptFormatGroovyFirstDropdown(event)">
 											<span class="wt-select-value">{{ scriptFormatGroovyFirstLabel() }}</span>
@@ -2603,16 +2603,16 @@
 									</div>
 								</div>
 								<div class="property-row">
-									<label class="property-label">Script</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
 									<textarea class="wt w-100" v-model="selectedElement.script" @input="onPropertyChange"></textarea>
 								</div>
 							</div>
 
 							<!-- Send Task Properties -->
 							<div v-if="selectedElement.type === 'sendTask'" class="property-group">
-								<div class="property-group-title">Send Task</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.sendTask') }}</div>
 								<div class="property-row">
-									<label class="property-label">Implementation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openImplementationTypeDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.implementationType}">{{ implementationTypeLabel() }}</span>
@@ -2621,41 +2621,41 @@
 									</div>
 								</div>
 								<div v-if="selectedElement.implementationType === 'class'" class="property-row">
-									<label class="property-label">Java Class</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.javaClass" @input="onPropertyChange"
-										   placeholder="com.example.SendMessageDelegate">
+										   :placeholder="t('app.bpmn-modeler.properties.javaClass.placeholder.sendDelegate')">
 								</div>
 								<div v-if="selectedElement.implementationType === 'expression'">
 									<div class="property-row">
-										<label class="property-label">Expression</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.expression" @input="onPropertyChange"
-											   placeholder="${messageSender.send(execution)}">
+											   :placeholder="t('app.bpmn-modeler.properties.expression.placeholder.messageSender')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Result Variable</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.resultVariable') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.resultVariable" @input="onPropertyChange"
-											   placeholder="sendResult">
+											   :placeholder="t('app.bpmn-modeler.properties.resultVariable.placeholder.send')">
 									</div>
 								</div>
 								<div v-if="selectedElement.implementationType === 'external'">
 									<div class="property-row">
-										<label class="property-label">Topic</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.topic') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.topic" @input="onPropertyChange"
-											   placeholder="sendMessage">
+											   :placeholder="t('app.bpmn-modeler.properties.topic.placeholder.sendMessage')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Priority</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.priority') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.priority" @input="onPropertyChange"
-											   placeholder="0">
+											   :placeholder="t('app.bpmn-modeler.properties.priority.placeholder')">
 									</div>
 								</div>
 							</div>
 
 							<!-- Receive Task Properties -->
 							<div v-if="selectedElement.type === 'receiveTask'" class="property-group">
-								<div class="property-group-title">Receive Task</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.receiveTask') }}</div>
 								<div class="property-row">
-									<label class="property-label">Message</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.message') }}</label>
 									<div v-if="!isRefEditing('message')" class="wt-ref-display"
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
@@ -2663,12 +2663,12 @@
 										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
-											   placeholder="Message name">
+											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
 										<div class="input-group-actions">
-											<button class="input-group-btn" @click="confirmRefEdit" title="Confirm">
+											<button class="input-group-btn" @click="confirmRefEdit" :title="t('common.confirm', undefined, 'Confirm')">
 												<i class="bi bi-check-lg"></i>
 											</button>
-											<button class="input-group-btn" @click="cancelRefEdit" title="Cancel">
+											<button class="input-group-btn" @click="cancelRefEdit" :title="t('common.cancel', undefined, 'Cancel')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
@@ -2678,9 +2678,9 @@
 
 							<!-- Business Rule Task Properties -->
 							<div v-if="selectedElement.type === 'businessRuleTask'" class="property-group">
-								<div class="property-group-title">Business Rule Task</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.businessRuleTask') }}</div>
 								<div class="property-row">
-									<label class="property-label">Implementation</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openBusinessRuleImplDropdown(event)">
 											<span class="wt-select-value">{{ businessRuleImplLabel() }}</span>
@@ -2690,12 +2690,12 @@
 								</div>
 								<div v-if="selectedElement.implementationType === 'dmn' || !selectedElement.implementationType">
 									<div class="property-row">
-										<label class="property-label">Decision Ref</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.decisionRef') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.decisionRef" @input="onPropertyChange"
-											   placeholder="e.g., calculateDiscount">
+											   :placeholder="t('app.bpmn-modeler.properties.decisionRef.placeholder')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Decision Ref Binding</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.decisionRefBinding') }}</label>
 										<div class="wt-select w-100">
 											<button type="button" class="wt-select-trigger" @click.stop="openDecisionRefBindingDropdown(event)">
 												<span class="wt-select-value">{{ decisionRefBindingLabel() }}</span>
@@ -2704,22 +2704,22 @@
 										</div>
 									</div>
 									<div v-if="selectedElement.decisionRefBinding === 'version'" class="property-row">
-										<label class="property-label">Decision Ref Version</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.decisionRefVersion') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.decisionRefVersion" @input="onPropertyChange"
-											   placeholder="1">
+											   :placeholder="t('app.bpmn-modeler.properties.version.placeholder')">
 									</div>
 									<div v-if="selectedElement.decisionRefBinding === 'versionTag'" class="property-row">
-										<label class="property-label">Decision Ref Version Tag</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.decisionRefVersionTag') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.decisionRefVersionTag" @input="onPropertyChange"
-											   placeholder="v1.0">
+											   :placeholder="t('app.bpmn-modeler.properties.versionTag.placeholder')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Result Variable</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.resultVariable') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.resultVariable" @input="onPropertyChange"
-											   placeholder="discountResult">
+											   :placeholder="t('app.bpmn-modeler.properties.resultVariable.placeholder.discount')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Map Decision Result</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.mapDecisionResult') }}</label>
 										<div class="wt-select w-100">
 											<button type="button" class="wt-select-trigger" @click.stop="openMapDecisionResultDropdown(event)">
 												<span class="wt-select-value">{{ mapDecisionResultLabel() }}</span>
@@ -2728,47 +2728,47 @@
 										</div>
 									</div>
 									<div class="property-row">
-										<label class="property-label">Decision Ref Tenant Id</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.decisionRefTenantId') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.decisionRefTenantId" @input="onPropertyChange"
 											   placeholder="">
 									</div>
 								</div>
 								<div v-if="selectedElement.implementationType === 'class'" class="property-row">
-									<label class="property-label">Java Class</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.javaClass" @input="onPropertyChange"
-										   placeholder="com.example.RuleDelegate">
+										   :placeholder="t('app.bpmn-modeler.properties.javaClass.placeholder.ruleDelegate')">
 								</div>
 								<div v-if="selectedElement.implementationType === 'expression'">
 									<div class="property-row">
-										<label class="property-label">Expression</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.expression" @input="onPropertyChange"
-											   placeholder="${ruleEngine.evaluate(execution)}">
+											   :placeholder="t('app.bpmn-modeler.properties.expression.placeholder.ruleEngine')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Result Variable</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.resultVariable') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.resultVariable" @input="onPropertyChange"
-											   placeholder="ruleResult">
+											   :placeholder="t('app.bpmn-modeler.properties.resultVariable.placeholder.rule')">
 									</div>
 								</div>
 								<div v-if="selectedElement.implementationType === 'external'">
 									<div class="property-row">
-										<label class="property-label">Topic</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.topic') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.topic" @input="onPropertyChange"
-											   placeholder="businessRule">
+											   :placeholder="t('app.bpmn-modeler.properties.topic.placeholder.businessRule')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Priority</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.priority') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.priority" @input="onPropertyChange"
-											   placeholder="0">
+											   :placeholder="t('app.bpmn-modeler.properties.priority.placeholder')">
 									</div>
 								</div>
 							</div>
 
 							<!-- Call Activity Properties -->
 							<div v-if="selectedElement.type === 'callActivity'" class="property-group">
-								<div class="property-group-title">Call Activity</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.callActivity') }}</div>
 								<div class="property-row">
-									<label class="property-label">Called Element Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.calledElementType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openCalledElementTypeDropdown(event)">
 											<span class="wt-select-value">{{ calledElementTypeLabel() }}</span>
@@ -2777,12 +2777,12 @@
 									</div>
 								</div>
 								<div class="property-row">
-									<label class="property-label">Called Element</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.calledElement') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.calledElement" @input="onPropertyChange"
-										   placeholder="e.g., subProcess">
+										   :placeholder="t('app.bpmn-modeler.properties.calledElement.placeholder')">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Binding</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.binding') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openCalledElementBindingDropdown(event)">
 											<span class="wt-select-value">{{ calledElementBindingLabel() }}</span>
@@ -2791,30 +2791,30 @@
 									</div>
 								</div>
 								<div v-if="selectedElement.calledElementBinding === 'version'" class="property-row">
-									<label class="property-label">Version</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.version') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.calledElementVersion" @input="onPropertyChange"
-										   placeholder="1">
+										   :placeholder="t('app.bpmn-modeler.properties.version.placeholder')">
 								</div>
 								<div v-if="selectedElement.calledElementBinding === 'versionTag'" class="property-row">
-									<label class="property-label">Version Tag</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.versionTagLabel') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.calledElementVersionTag" @input="onPropertyChange"
-										   placeholder="v1.0">
+										   :placeholder="t('app.bpmn-modeler.properties.versionTag.placeholder')">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Tenant Id</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.tenantId') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.calledElementTenantId" @input="onPropertyChange"
 										   placeholder="">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Business Key</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.businessKey') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.businessKey" @input="onPropertyChange"
-										   placeholder="${execution.processBusinessKey}">
+										   :placeholder="t('app.bpmn-modeler.properties.businessKey.placeholder')">
 								</div>
 							</div>
 
 							<!-- Call Activity Variable Mappings -->
 							<div v-if="selectedElement.type === 'callActivity'" class="property-group">
-								<div class="property-group-title">Variable Mappings</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.variableMappings') }}</div>
 								<div class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox" v-model="selectedElement.variableMappingDelegateExpression" @change="onPropertyChange">
@@ -2824,7 +2824,7 @@
 								<!-- In Mappings -->
 								<div class="property-subsection">
 									<div class="property-group-title d-flex justify-content-between align-items-center" style="font-size: 0.85rem;">
-										<span>In Mappings</span>
+										<span>{{ t('app.bpmn-modeler.properties.inMappings') }}</span>
 										<button type="button" class="wt wt-slim wt-square wt-outlined wt-primary" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;" @click="addInMapping">
 											<i class="bi bi-plus"></i>
 										</button>
@@ -2834,10 +2834,10 @@
 									</div>
 									<div v-for="(mapping, index) in selectedElement.inMappings" :key="'in-'+index" class="d-flex gap-1 align-items-center mb-1">
 										<input type="text" v-model="mapping.source" @input="onPropertyChange"
-											   placeholder="Source" class="wt w-100" style="flex: 1;">
+											   :placeholder="t('app.bpmn-modeler.properties.placeholder.source')" class="wt w-100" style="flex: 1;">
 										<span style="font-size: 0.8rem;">→</span>
 										<input type="text" v-model="mapping.target" @input="onPropertyChange"
-											   placeholder="Target" class="wt w-100" style="flex: 1;">
+											   :placeholder="t('app.bpmn-modeler.properties.placeholder.target')" class="wt w-100" style="flex: 1;">
 										<button type="button" class="wt wt-slim wt-square wt-outlined wt-danger" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;" @click="removeInMapping(index)">
 											<i class="bi bi-x"></i>
 										</button>
@@ -2846,7 +2846,7 @@
 								<!-- Out Mappings -->
 								<div class="property-subsection" style="margin-top: 0.5rem;">
 									<div class="property-group-title d-flex justify-content-between align-items-center" style="font-size: 0.85rem;">
-										<span>Out Mappings</span>
+										<span>{{ t('app.bpmn-modeler.properties.outMappings') }}</span>
 										<button type="button" class="wt wt-slim wt-square wt-outlined wt-primary" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;" @click="addOutMapping">
 											<i class="bi bi-plus"></i>
 										</button>
@@ -2856,10 +2856,10 @@
 									</div>
 									<div v-for="(mapping, index) in selectedElement.outMappings" :key="'out-'+index" class="d-flex gap-1 align-items-center mb-1">
 										<input type="text" v-model="mapping.source" @input="onPropertyChange"
-											   placeholder="Source" class="wt w-100" style="flex: 1;">
+											   :placeholder="t('app.bpmn-modeler.properties.placeholder.source')" class="wt w-100" style="flex: 1;">
 										<span style="font-size: 0.8rem;">→</span>
 										<input type="text" v-model="mapping.target" @input="onPropertyChange"
-											   placeholder="Target" class="wt w-100" style="flex: 1;">
+											   :placeholder="t('app.bpmn-modeler.properties.placeholder.target')" class="wt w-100" style="flex: 1;">
 										<button type="button" class="wt wt-slim wt-square wt-outlined wt-danger" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;" @click="removeOutMapping(index)">
 											<i class="bi bi-x"></i>
 										</button>
@@ -2869,7 +2869,7 @@
 
 							<!-- Event-based Gateway Properties -->
 							<div v-if="selectedElement.type === 'eventBasedGateway'" class="property-group">
-								<div class="property-group-title">Event-based Gateway</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.eventBasedGateway') }}</div>
 								<div class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox" v-model="selectedElement.instantiate" @change="onPropertyChange">
@@ -2877,7 +2877,7 @@
 									</label>
 								</div>
 								<div v-if="selectedElement.instantiate" class="property-row">
-									<label class="property-label">Event Gateway Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.eventGatewayType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openEventGatewayTypeDropdown(event)">
 											<span class="wt-select-value">{{ eventGatewayTypeLabel() }}</span>
@@ -2889,31 +2889,31 @@
 
 							<!-- Complex Gateway Properties -->
 							<div v-if="selectedElement.type === 'complexGateway'" class="property-group">
-								<div class="property-group-title">Complex Gateway</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.complexGateway') }}</div>
 								<div class="property-row">
-									<label class="property-label">Activation Condition</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.activationCondition') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.activationCondition" @input="onPropertyChange"
-										   placeholder="${nrOfCompletedInstances >= 2}">
+										   :placeholder="t('app.bpmn-modeler.properties.activationCondition.placeholder')">
 								</div>
 							</div>
 
 							<!-- Sub-Process Properties -->
 							<div v-if="selectedElement.type === 'subProcess'" class="property-group">
-								<div class="property-group-title">Sub-Process</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.subProcess') }}</div>
 								<div class="property-row">
-									<label class="property-label">Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.type') }}</label>
 									<span class="property-value">{{ getSubProcessTypeLabel(selectedElement.subType) }}</span>
 								</div>
 								<div v-if="selectedElement.subType === 'event' || selectedElement.triggeredByEvent" class="property-row">
-									<span class="text-muted small">Triggered by Start Event inside</span>
+									<span class="text-muted small">{{ t('app.bpmn-modeler.properties.triggeredByStartEvent') }}</span>
 								</div>
 							</div>
 
 							<!-- Sub-Process Multi-Instance -->
 							<div v-if="selectedElement.type === 'subProcess'" class="property-group">
-								<div class="property-group-title">Multi-Instance</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.multiInstance') }}</div>
 								<div class="property-row">
-									<label class="property-label">Loop Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.loopType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openLoopTypeDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.loopType}">{{ loopTypeLabel() }}</span>
@@ -2923,23 +2923,23 @@
 								</div>
 								<div v-if="selectedElement.loopType === 'multiInstanceParallel' || selectedElement.loopType === 'multiInstanceSequential'">
 									<div class="property-row">
-										<label class="property-label">Collection</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.collection') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.collection"
-											   @input="onPropertyChange" placeholder="${orderItems}">
+											   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.collection.placeholder')">
 									</div>
 									<div class="property-row">
-										<label class="property-label">Element Variable</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.elementVariable') }}</label>
 										<input type="text" class="wt w-100" v-model="selectedElement.elementVariable"
-											   @input="onPropertyChange" placeholder="item">
+											   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.elementVariable.placeholder')">
 									</div>
 								</div>
 							</div>
 
 							<!-- Transaction Properties -->
 							<div v-if="selectedElement.type === 'subProcess' && selectedElement.subType === 'transaction'" class="property-group">
-								<div class="property-group-title">Transaction</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.transaction') }}</div>
 								<div class="property-row">
-									<label class="property-label">Method</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.method') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openTransactionMethodDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.transactionMethod}">{{ transactionMethodLabel() }}</span>
@@ -2951,45 +2951,45 @@
 
 							<!-- Data Object Properties -->
 							<div v-if="selectedElement.type === 'dataObject'" class="property-group">
-								<div class="property-group-title">Data Object</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.dataObject') }}</div>
 								<div class="property-row">
 									<label class="property-checkbox">
 										<input type="checkbox" v-model="selectedElement.isCollection" @change="onPropertyChange">
-										Is Collection
+										{{ t('app.bpmn-modeler.properties.isCollection') }}
 									</label>
 								</div>
 								<div class="property-row">
-									<label class="property-label">Data State</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.dataState') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.dataState"
-										   @input="onPropertyChange" placeholder="e.g., [validated]">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.dataState.placeholder')">
 								</div>
 							</div>
 
 							<!-- Data Store Properties -->
 							<div v-if="selectedElement.type === 'dataStore'" class="property-group">
-								<div class="property-group-title">Data Store</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.dataStore') }}</div>
 								<div class="property-row">
-									<label class="property-label">Reference</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.reference') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.dataStoreRef"
-										   @input="onPropertyChange" placeholder="e.g., CustomerDB">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.reference.placeholder')">
 								</div>
 							</div>
 
 							<!-- Text Annotation Properties -->
 							<div v-if="selectedElement.type === 'textAnnotation'" class="property-group">
-								<div class="property-group-title">Text Annotation</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.textAnnotation') }}</div>
 								<div class="property-row">
-									<label class="property-label">Text</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.text') }}</label>
 									<textarea class="wt w-100 annotation-textarea" v-model="selectedElement.name"
-											  @input="onPropertyChange" rows="4" placeholder="Enter annotation text..."></textarea>
+											  @input="onPropertyChange" rows="4" :placeholder="t('app.bpmn-modeler.properties.text.placeholder')"></textarea>
 								</div>
 								<div class="property-row">
-									<label class="property-label">Width</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.width') }}</label>
 									<input type="number" class="wt w-100" v-model.number="selectedElement.width"
 										   @input="onPropertyChange" min="50" step="10">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Height</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.height') }}</label>
 									<input type="number" class="wt w-100" v-model.number="selectedElement.height"
 										   @input="onPropertyChange" min="30" step="10">
 								</div>
@@ -2997,30 +2997,30 @@
 
 							<!-- Pool Properties -->
 							<div v-if="selectedElement.type === 'pool'" class="property-group">
-								<div class="property-group-title">Pool (Participant)</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.pool') }}</div>
 								<div class="property-row">
-									<label class="property-label">Process Ref</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.processRef') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.processRef"
-										   @input="onPropertyChange" placeholder="e.g., Process_Customer">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.processRef.placeholder')">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Candidate Starter Groups</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.candidateStarterGroups') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.candidateStarterGroups"
-										   @input="onPropertyChange" placeholder="sales,manager">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.candidateStarterGroups.placeholder')">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Candidate Starter Users</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.candidateStarterUsers') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.candidateStarterUsers"
-										   @input="onPropertyChange" placeholder="alice,bob">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.candidateStarterUsers.placeholder')">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Size</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.size') }}</label>
 									<span class="property-value">
 										{{ selectedElement.width || 600 }} × {{ selectedElement.height || 200 }}
 									</span>
 								</div>
 								<div class="property-row">
-									<label class="property-label">Lanes</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.lanes') }}</label>
 									<span class="property-value">
 										{{ getLanesForPool(selectedElement.id).length }}
 									</span>
@@ -3029,15 +3029,15 @@
 
 							<!-- Lane Properties -->
 							<div v-if="selectedElement.type === 'lane'" class="property-group">
-								<div class="property-group-title">Lane</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.lane') }}</div>
 								<div class="property-row">
-									<label class="property-label">Parent Pool</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.parentPool') }}</label>
 									<span class="property-value">
 										{{ getPoolName(selectedElement.parentPoolId) }}
 									</span>
 								</div>
 								<div class="property-row">
-									<label class="property-label">Height</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.height') }}</label>
 									<input type="number" class="wt w-100" v-model.number="selectedElement.height"
 										   @input="onLaneHeightChange" min="50" step="10">
 								</div>
@@ -3045,9 +3045,9 @@
 
 							<!-- Connection Properties -->
 							<div v-if="selectedElement.sourceRef" class="property-group">
-								<div class="property-group-title">Sequence Flow</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.sequenceFlow') }}</div>
 								<div class="property-row">
-									<label class="property-label">Condition Type</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.conditionType') }}</label>
 									<div class="wt-select w-100">
 										<button type="button" class="wt-select-trigger" @click.stop="openConditionTypeWithNoneDropdown(event)">
 											<span class="wt-select-value" :class="{placeholder: !selectedElement.conditionType}">{{ conditionTypeWithNoneLabel() }}</span>
@@ -3056,13 +3056,13 @@
 									</div>
 								</div>
 								<div v-if="selectedElement.conditionType === 'expression'" class="property-row">
-									<label class="property-label">Expression</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.conditionExpression"
-										   @input="onPropertyChange" placeholder="${amount > 1000}">
+										   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.expression.placeholder.amount')">
 								</div>
 								<div v-if="selectedElement.conditionType === 'script'">
 									<div class="property-row">
-										<label class="property-label">Script Format</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 										<div class="wt-select w-100">
 											<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptFormatDropdown(event)">
 												<span class="wt-select-value">{{ conditionScriptFormatLabel() }}</span>
@@ -3071,9 +3071,9 @@
 										</div>
 									</div>
 									<div class="property-row">
-										<label class="property-label">Script</label>
+										<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
 										<textarea class="wt w-100" v-model="selectedElement.conditionScript"
-												  @input="onPropertyChange" rows="4" placeholder="return amount > 1000;"></textarea>
+												  @input="onPropertyChange" rows="4" :placeholder="t('app.bpmn-modeler.properties.script.placeholder.amount')"></textarea>
 									</div>
 								</div>
 							</div>
@@ -3082,11 +3082,11 @@
 						<!-- Forms Tab -->
 						<div v-if="propertyTab === 'forms'" class="property-tab-content">
 							<div class="property-group">
-								<div class="property-group-title">Form</div>
+								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.form') }}</div>
 								<div class="property-row">
-									<label class="property-label">Form Key</label>
+									<label class="property-label">{{ t('app.bpmn-modeler.properties.formKey') }}</label>
 									<input type="text" class="wt w-100" v-model="selectedElement.formKey" @input="onPropertyChange"
-										   placeholder="e.g., embedded:app:forms/start-form.html">
+										   :placeholder="t('app.bpmn-modeler.properties.formKey.placeholder')">
 								</div>
 							</div>
 						</div>
@@ -3095,7 +3095,7 @@
 						<div v-if="propertyTab === 'io'" class="property-tab-content">
 							<div class="property-group">
 								<div class="property-group-title d-flex justify-content-between align-items-center">
-									<span>Input Parameters</span>
+									<span>{{ t('app.bpmn-modeler.properties.inputParameters') }}</span>
 									<button type="button" class="wt wt-slim wt-square wt-outlined wt-primary" @click="addInputParameter">
 										<i class="bi bi-plus"></i>
 									</button>
@@ -3106,18 +3106,18 @@
 								<div v-else>
 									<div v-for="(param, index) in selectedElement.inputParameters" :key="index" class="listener-item">
 										<div class="listener-header d-flex justify-content-between align-items-center">
-											<span class="listener-title">Parameter #{{ index + 1 }}</span>
+											<span class="listener-title">{{ t('app.bpmn-modeler.properties.parameterN', { n: index + 1 }) }}</span>
 											<button type="button" class="wt wt-slim wt-square wt-outlined wt-danger" @click="removeInputParameter(index)">
 												<i class="bi bi-trash"></i>
 											</button>
 										</div>
 										<div class="property-row">
-											<label class="property-label">Name</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.name') }}</label>
 											<input type="text" class="wt w-100" v-model="param.name" @input="onPropertyChange"
-												   placeholder="Parameter name">
+												   :placeholder="t('app.bpmn-modeler.properties.parameterName.placeholder')">
 										</div>
 										<div class="property-row">
-											<label class="property-label">Type</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.type') }}</label>
 											<div class="wt-select w-100">
 												<button type="button" class="wt-select-trigger" @click.stop="openExtParamTypeDropdown(param, event)">
 													<span class="wt-select-value">{{ extParamTypeLabel(param) }}</span>
@@ -3128,15 +3128,15 @@
 
 										<!-- Text Type -->
 										<div v-if="param.type === 'text'" class="property-row">
-											<label class="property-label">Value</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.value') }}</label>
 											<input type="text" class="wt w-100" v-model="param.value" @input="onPropertyChange"
-												   placeholder="Parameter value or ${expression}">
+												   :placeholder="t('app.bpmn-modeler.properties.parameterValue.placeholder')">
 										</div>
 
 										<!-- Script Type -->
 										<div v-if="param.type === 'script'">
 											<div class="property-row">
-												<label class="property-label">Script Format</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 												<div class="wt-select w-100">
 													<button type="button" class="wt-select-trigger" @click.stop="openExtParamScriptFormatDropdown(param, event)">
 														<span class="wt-select-value">{{ extParamScriptFormatLabel(param) }}</span>
@@ -3145,16 +3145,16 @@
 												</div>
 											</div>
 											<div class="property-row">
-												<label class="property-label">Script</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
 												<textarea class="wt w-100" v-model="param.script" @input="onPropertyChange"
-														  placeholder="Enter script code..."></textarea>
+														  :placeholder="t('app.bpmn-modeler.properties.script.placeholder.enter')"></textarea>
 											</div>
 										</div>
 
 										<!-- List Type -->
 										<div v-if="param.type === 'list'" class="field-injections-section">
 											<div class="property-group-title d-flex justify-content-between align-items-center" style="font-size: 0.75rem; margin-top: 0.5rem;">
-												<span>List Values</span>
+												<span>{{ t('app.bpmn-modeler.properties.listValues') }}</span>
 												<button type="button" class="wt wt-slim wt-square wt-outlined wt-secondary" @click="addInputParameterListValue(index)" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;">
 													<i class="bi bi-plus"></i>
 												</button>
@@ -3167,7 +3167,7 @@
 													<div class="d-flex gap-1 align-items-center">
 														<input type="text" class="wt flex-grow-1" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
 															   v-model="param.listValues[valueIndex]" @input="onPropertyChange"
-															   placeholder="Value">
+															   :placeholder="t('app.bpmn-modeler.properties.value')">
 														<button type="button" class="wt wt-slim wt-square wt-outlined wt-danger" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;"
 																@click="removeInputParameterListValue(index, valueIndex)">
 															<i class="bi bi-x"></i>
@@ -3180,7 +3180,7 @@
 										<!-- Map Type -->
 										<div v-if="param.type === 'map'" class="field-injections-section">
 											<div class="property-group-title d-flex justify-content-between align-items-center" style="font-size: 0.75rem; margin-top: 0.5rem;">
-												<span>Map Entries</span>
+												<span>{{ t('app.bpmn-modeler.properties.mapEntries') }}</span>
 												<button type="button" class="wt wt-slim wt-square wt-outlined wt-secondary" @click="addInputParameterMapEntry(index)" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;">
 													<i class="bi bi-plus"></i>
 												</button>
@@ -3193,12 +3193,12 @@
 													<div class="d-flex gap-1 align-items-start">
 														<div class="flex-grow-1">
 															<div class="property-row" style="margin-bottom: 0.25rem;">
-																<label class="property-label" style="font-size: 0.7rem;">Key</label>
+																<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.key') }}</label>
 																<input type="text" class="wt w-100" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
 																	   v-model="entry.key" @input="onPropertyChange">
 															</div>
 															<div class="property-row" style="margin-bottom: 0.25rem;">
-																<label class="property-label" style="font-size: 0.7rem;">Value</label>
+																<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.value') }}</label>
 																<input type="text" class="wt w-100" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
 																	   v-model="entry.value" @input="onPropertyChange">
 															</div>
@@ -3220,7 +3220,7 @@
 						<div v-if="propertyTab === 'listeners'" class="property-tab-content">
 							<div class="property-group">
 								<div class="property-group-title d-flex justify-content-between align-items-center">
-									<span>Execution Listeners</span>
+									<span>{{ t('app.bpmn-modeler.properties.executionListeners') }}</span>
 									<button type="button" class="wt wt-slim wt-square wt-outlined wt-primary" @click="addExecutionListener">
 										<i class="bi bi-plus"></i>
 									</button>
@@ -3231,13 +3231,13 @@
 								<div v-else>
 									<div v-for="(listener, index) in selectedElement.executionListeners" :key="index" class="listener-item">
 										<div class="listener-header d-flex justify-content-between align-items-center">
-											<span class="listener-title">Listener #{{ index + 1 }}</span>
+											<span class="listener-title">{{ t('app.bpmn-modeler.properties.listenerN', { n: index + 1 }) }}</span>
 											<button type="button" class="wt wt-slim wt-square wt-outlined wt-danger" @click="removeExecutionListener(index)">
 												<i class="bi bi-trash"></i>
 											</button>
 										</div>
 										<div class="property-row">
-											<label class="property-label">Event</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.event') }}</label>
 											<div class="wt-select w-100">
 												<button type="button" class="wt-select-trigger" @click.stop="openListenerEventDropdown(listener, event)">
 													<span class="wt-select-value">{{ listenerEventLabel(listener) }}</span>
@@ -3246,7 +3246,7 @@
 											</div>
 										</div>
 										<div class="property-row">
-											<label class="property-label">Listener Type</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.listenerType') }}</label>
 											<div class="wt-select w-100">
 												<button type="button" class="wt-select-trigger" @click.stop="openListenerTypeDropdown(listener, event)">
 													<span class="wt-select-value">{{ listenerTypeLabel(listener) }}</span>
@@ -3258,14 +3258,14 @@
 										<!-- Java Class Type -->
 										<div v-if="listener.listenerType === 'class'">
 											<div class="property-row">
-												<label class="property-label">Java Class</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
 												<input type="text" class="wt w-100" v-model="listener.javaClass" @input="onPropertyChange"
-													   placeholder="e.g., com.example.MyListener">
+													   :placeholder="t('app.bpmn-modeler.properties.javaClass.placeholder.listener')">
 											</div>
 											<!-- Field Injections -->
 											<div class="field-injections-section">
 												<div class="property-group-title d-flex justify-content-between align-items-center" style="font-size: 0.75rem; margin-top: 0.5rem;">
-													<span>Field Injection</span>
+													<span>{{ t('app.bpmn-modeler.properties.fieldInjection') }}</span>
 													<button type="button" class="wt wt-slim wt-square wt-outlined wt-secondary" @click="addFieldInjection(index)" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;">
 														<i class="bi bi-plus"></i>
 													</button>
@@ -3278,12 +3278,12 @@
 														<div class="d-flex gap-1 align-items-start">
 															<div class="flex-grow-1">
 																<div class="property-row" style="margin-bottom: 0.25rem;">
-																	<label class="property-label" style="font-size: 0.7rem;">Name</label>
+																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.name') }}</label>
 																	<input type="text" class="wt w-100" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
 																		   v-model="field.name" @input="onPropertyChange">
 																</div>
 																<div class="property-row" style="margin-bottom: 0.25rem;">
-																	<label class="property-label" style="font-size: 0.7rem;">Type</label>
+																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.type') }}</label>
 																	<div class="wt-select w-100" style="font-size: 0.75rem;">
 																		<button type="button" class="wt-select-trigger" style="padding: 0.2rem 0.3rem;" @click.stop="openListenerFieldTypeDropdown(field, event)">
 																			<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
@@ -3292,7 +3292,7 @@
 																	</div>
 																</div>
 																<div class="property-row" style="margin-bottom: 0.25rem;">
-																	<label class="property-label" style="font-size: 0.7rem;">Value</label>
+																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.value') }}</label>
 																	<input type="text" class="wt w-100" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
 																		   v-model="field.value" @input="onPropertyChange">
 																</div>
@@ -3310,16 +3310,16 @@
 										<!-- Expression Type -->
 										<div v-if="listener.listenerType === 'expression'">
 											<div class="property-row">
-												<label class="property-label">Expression</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 												<input type="text" class="wt w-100" v-model="listener.expression" @input="onPropertyChange"
-													   placeholder="e.g., ${myBean.doSomething()}">
+													   :placeholder="t('app.bpmn-modeler.properties.expression.placeholder.myBean')">
 											</div>
 										</div>
 
 										<!-- Script Type -->
 										<div v-if="listener.listenerType === 'script'">
 											<div class="property-row">
-												<label class="property-label">Script Format</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 												<div class="wt-select w-100">
 													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptFormatDropdown(listener, event)">
 														<span class="wt-select-value">{{ listenerScriptFormatLabel(listener) }}</span>
@@ -3328,7 +3328,7 @@
 												</div>
 											</div>
 											<div class="property-row">
-												<label class="property-label">Script Type</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptType') }}</label>
 												<div class="wt-select w-100">
 													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptTypeDropdown(listener, event)">
 														<span class="wt-select-value">{{ listenerScriptTypeLabel(listener) }}</span>
@@ -3338,15 +3338,15 @@
 											</div>
 											<!-- Inline Script -->
 											<div class="property-row" v-if="listener.scriptType === 'inline' || !listener.scriptType">
-												<label class="property-label">Script</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
 												<textarea class="wt w-100" v-model="listener.script" @input="onPropertyChange"
-														  placeholder="Enter script code..."></textarea>
+														  :placeholder="t('app.bpmn-modeler.properties.script.placeholder.enter')"></textarea>
 											</div>
 											<!-- External Resource -->
 											<div class="property-row" v-if="listener.scriptType === 'external'">
-												<label class="property-label">Resource</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.resource') }}</label>
 												<input type="text" class="wt w-100" v-model="listener.resource" @input="onPropertyChange"
-													   placeholder="e.g., classpath://scripts/myScript.groovy">
+													   :placeholder="t('app.bpmn-modeler.properties.resource.placeholder.script')">
 											</div>
 										</div>
 									</div>
@@ -3358,7 +3358,7 @@
 						<div v-if="propertyTab === 'listeners' && selectedElement.type === 'userTask'" class="property-tab-content">
 							<div class="property-group">
 								<div class="property-group-title d-flex justify-content-between align-items-center">
-									<span>Task Listeners</span>
+									<span>{{ t('app.bpmn-modeler.properties.taskListeners') }}</span>
 									<button type="button" class="wt wt-slim wt-square wt-outlined wt-primary" @click="addTaskListener">
 										<i class="bi bi-plus"></i>
 									</button>
@@ -3369,13 +3369,13 @@
 								<div v-else>
 									<div v-for="(listener, index) in selectedElement.taskListeners" :key="index" class="listener-item">
 										<div class="listener-header d-flex justify-content-between align-items-center">
-											<span class="listener-title">Listener #{{ index + 1 }}</span>
+											<span class="listener-title">{{ t('app.bpmn-modeler.properties.listenerN', { n: index + 1 }) }}</span>
 											<button type="button" class="wt wt-slim wt-square wt-outlined wt-danger" @click="removeTaskListener(index)">
 												<i class="bi bi-trash"></i>
 											</button>
 										</div>
 										<div class="property-row">
-											<label class="property-label">Event</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.event') }}</label>
 											<div class="wt-select w-100">
 												<button type="button" class="wt-select-trigger" @click.stop="openTaskListenerEventDropdown(listener, event)">
 													<span class="wt-select-value">{{ taskListenerEventLabel(listener) }}</span>
@@ -3384,7 +3384,7 @@
 											</div>
 										</div>
 										<div class="property-row">
-											<label class="property-label">Listener Type</label>
+											<label class="property-label">{{ t('app.bpmn-modeler.properties.listenerType') }}</label>
 											<div class="wt-select w-100">
 												<button type="button" class="wt-select-trigger" @click.stop="openTaskListenerTypeDropdown(listener, event)">
 													<span class="wt-select-value">{{ taskListenerTypeLabel(listener) }}</span>
@@ -3396,14 +3396,14 @@
 										<!-- Java Class Type -->
 										<div v-if="listener.listenerType === 'class'">
 											<div class="property-row">
-												<label class="property-label">Java Class</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
 												<input type="text" class="wt w-100" v-model="listener.javaClass" @input="onPropertyChange"
-													   placeholder="e.g., com.example.MyTaskListener">
+													   :placeholder="t('app.bpmn-modeler.properties.javaClass.placeholder.taskListener')">
 											</div>
 											<!-- Field Injections -->
 											<div class="field-injections-section">
 												<div class="property-group-title d-flex justify-content-between align-items-center" style="font-size: 0.75rem; margin-top: 0.5rem;">
-													<span>Field Injection</span>
+													<span>{{ t('app.bpmn-modeler.properties.fieldInjection') }}</span>
 													<button type="button" class="wt wt-slim wt-square wt-outlined wt-secondary" @click="addTaskListenerField(index)" style="padding: 0.1rem 0.3rem; font-size: 0.7rem;">
 														<i class="bi bi-plus"></i>
 													</button>
@@ -3416,12 +3416,12 @@
 														<div class="d-flex gap-1 align-items-start">
 															<div class="flex-grow-1">
 																<div class="property-row" style="margin-bottom: 0.25rem;">
-																	<label class="property-label" style="font-size: 0.7rem;">Name</label>
+																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.name') }}</label>
 																	<input type="text" class="wt w-100" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
 																		   v-model="field.name" @input="onPropertyChange">
 																</div>
 																<div class="property-row" style="margin-bottom: 0.25rem;">
-																	<label class="property-label" style="font-size: 0.7rem;">Type</label>
+																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.type') }}</label>
 																	<div class="wt-select w-100" style="font-size: 0.75rem;">
 																		<button type="button" class="wt-select-trigger" style="padding: 0.2rem 0.3rem;" @click.stop="openListenerFieldTypeDropdown(field, event)">
 																			<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
@@ -3430,7 +3430,7 @@
 																	</div>
 																</div>
 																<div class="property-row" style="margin-bottom: 0.25rem;">
-																	<label class="property-label" style="font-size: 0.7rem;">Value</label>
+																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.value') }}</label>
 																	<input type="text" class="wt w-100" style="font-size: 0.75rem; padding: 0.2rem 0.3rem;"
 																		   v-model="field.value" @input="onPropertyChange">
 																</div>
@@ -3448,25 +3448,25 @@
 										<!-- Expression Type -->
 										<div v-if="listener.listenerType === 'expression'">
 											<div class="property-row">
-												<label class="property-label">Expression</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
 												<input type="text" class="wt w-100" v-model="listener.expression" @input="onPropertyChange"
-													   placeholder="e.g., ${myBean.doSomething()}">
+													   :placeholder="t('app.bpmn-modeler.properties.expression.placeholder.myBean')">
 											</div>
 										</div>
 
 										<!-- Delegate Expression Type -->
 										<div v-if="listener.listenerType === 'delegateExpression'">
 											<div class="property-row">
-												<label class="property-label">Delegate Expression</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.delegateExpression') }}</label>
 												<input type="text" class="wt w-100" v-model="listener.delegateExpression" @input="onPropertyChange"
-													   placeholder="e.g., ${myListenerBean}">
+													   :placeholder="t('app.bpmn-modeler.properties.delegateExpression.placeholder.listener')">
 											</div>
 										</div>
 
 										<!-- Script Type -->
 										<div v-if="listener.listenerType === 'script'">
 											<div class="property-row">
-												<label class="property-label">Script Format</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
 												<div class="wt-select w-100">
 													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptFormatDropdown(listener, event)">
 														<span class="wt-select-value">{{ listenerScriptFormatLabel(listener) }}</span>
@@ -3475,7 +3475,7 @@
 												</div>
 											</div>
 											<div class="property-row">
-												<label class="property-label">Script Type</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptType') }}</label>
 												<div class="wt-select w-100">
 													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptTypeDropdown(listener, event)">
 														<span class="wt-select-value">{{ listenerScriptTypeLabel(listener) }}</span>
@@ -3485,15 +3485,15 @@
 											</div>
 											<!-- Inline Script -->
 											<div class="property-row" v-if="listener.scriptType === 'inline' || !listener.scriptType">
-												<label class="property-label">Script</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
 												<textarea class="wt w-100" v-model="listener.script" @input="onPropertyChange"
-														  placeholder="Enter script code..."></textarea>
+														  :placeholder="t('app.bpmn-modeler.properties.script.placeholder.enter')"></textarea>
 											</div>
 											<!-- External Resource -->
 											<div class="property-row" v-if="listener.scriptType === 'external'">
-												<label class="property-label">Resource</label>
+												<label class="property-label">{{ t('app.bpmn-modeler.properties.resource') }}</label>
 												<input type="text" class="wt w-100" v-model="listener.resource" @input="onPropertyChange"
-													   placeholder="e.g., classpath://scripts/myScript.groovy">
+													   :placeholder="t('app.bpmn-modeler.properties.resource.placeholder.script')">
 											</div>
 										</div>
 									</div>
@@ -3505,7 +3505,7 @@
 						<div v-if="propertyTab === 'extensions'" class="property-tab-content">
 							<div class="property-group">
 								<div class="property-group-title d-flex justify-content-between align-items-center">
-									<span>Properties</span>
+									<span>{{ t('app.bpmn-modeler.properties.properties') }}</span>
 									<button type="button" class="wt wt-slim wt-square wt-outlined wt-primary" @click="addExtensionProperty">
 										<i class="bi bi-plus"></i>
 									</button>
@@ -3518,11 +3518,11 @@
 										<div class="d-flex gap-2 align-items-start">
 											<div class="flex-grow-1">
 												<div class="property-row">
-													<label class="property-label">Name</label>
+													<label class="property-label">{{ t('app.bpmn-modeler.properties.name') }}</label>
 													<input type="text" class="wt w-100" v-model="prop.name" @input="onPropertyChange">
 												</div>
 												<div class="property-row">
-													<label class="property-label">Value</label>
+													<label class="property-label">{{ t('app.bpmn-modeler.properties.value') }}</label>
 													<input type="text" class="wt w-100" v-model="prop.value" @input="onPropertyChange">
 												</div>
 											</div>
@@ -3539,13 +3539,13 @@
 					<!-- No Selection - Show Process Properties -->
 					<div v-else>
 						<div class="property-group">
-							<div class="property-group-title">Process</div>
+							<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.process') }}</div>
 							<div class="property-row">
-								<label class="property-label">Process ID</label>
+								<label class="property-label">{{ t('app.bpmn-modeler.properties.processId') }}</label>
 								<input type="text" class="wt w-100" v-model="model.id" @input="onPropertyChange">
 							</div>
 							<div class="property-row">
-								<label class="property-label">Process Name</label>
+								<label class="property-label">{{ t('app.bpmn-modeler.properties.processName') }}</label>
 								<input type="text" class="wt w-100" v-model="model.name" @input="onPropertyChange">
 							</div>
 							<div class="property-row">
@@ -3555,19 +3555,19 @@
 								</label>
 							</div>
 							<div class="property-row">
-								<label class="property-label">Candidate Starter Groups</label>
+								<label class="property-label">{{ t('app.bpmn-modeler.properties.candidateStarterGroups') }}</label>
 								<input type="text" class="wt w-100" v-model="model.candidateStarterGroups"
-									   @input="onPropertyChange" placeholder="sales,manager">
+									   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.candidateStarterGroups.placeholder')">
 							</div>
 							<div class="property-row">
-								<label class="property-label">Candidate Starter Users</label>
+								<label class="property-label">{{ t('app.bpmn-modeler.properties.candidateStarterUsers') }}</label>
 								<input type="text" class="wt w-100" v-model="model.candidateStarterUsers"
-									   @input="onPropertyChange" placeholder="alice,bob">
+									   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.candidateStarterUsers.placeholder')">
 							</div>
 						</div>
 						<div class="text-muted text-center py-3">
 							<i class="bi bi-cursor" style="font-size: 1.5rem;"></i>
-							<p class="mt-2 mb-0 small">Select an element to view its properties</p>
+							<p class="mt-2 mb-0 small">{{ t('app.bpmn-modeler.properties.emptyHint') }}</p>
 						</div>
 					</div>
 				</div>
@@ -3585,9 +3585,9 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>Saving...</span>
-				<span v-else-if="isModified" class="status-item">Modified</span>
-				<span v-else class="status-item">Saved</span>
+				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.bpmn-modeler.statusbar.saving') }}</span>
+				<span v-else-if="isModified" class="status-item">{{ t('app.bpmn-modeler.statusbar.modified') }}</span>
+				<span v-else class="status-item">{{ t('app.bpmn-modeler.statusbar.saved') }}</span>
 			</div>
 		</div>
 
@@ -3597,24 +3597,24 @@
 				<div class="island p-2">
 					<div class="dialog-header">
 						<div class="dialog-header-top">
-							<h3>Save As</h3>
-							<button class="btn-icon" @click="closeSaveAsDialog" title="Close">
+							<h3>{{ t('app.bpmn-modeler.dialog.saveAs.title') }}</h3>
+							<button class="btn-icon" @click="closeSaveAsDialog" :title="t('common.close', undefined, 'Close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
 					</div>
 					<div class="dialog-body">
-						<label class="dialog-label">File Name</label>
+						<label class="dialog-label">{{ t('app.bpmn-modeler.dialog.saveAs.fileName') }}</label>
 						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
-							placeholder="filename.bpmn" @keydown.enter="closeSaveAsDialog" />
+							:placeholder="t('app.bpmn-modeler.dialog.saveAs.fileName.placeholder')" @keydown.enter="closeSaveAsDialog" />
 						<div class="save-as-chip-area mt-3"
 							@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
 							<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
 								<i class="bi bi-file-earmark-code me-1"></i>
-								<span>{{ saveAsDialog.fileName || 'Untitled.bpmn' }}</span>
+								<span>{{ saveAsDialog.fileName || t('app.bpmn-modeler.dialog.saveAs.untitled') }}</span>
 							</div>
 							<p class="text-muted fs-small mt-2 mb-0">
-								Drag this file to Content Browser to save
+								{{ t('app.bpmn-modeler.dialog.saveAs.dragHint') }}
 							</p>
 						</div>
 					</div>
@@ -3629,33 +3629,33 @@
 					<div class="dialog-header">
 						<div class="dialog-header-top">
 							<h3>{{ managementDialogTitle() }}</h3>
-							<button class="btn-icon" @click="closeManagementDialog" title="Close">
+							<button class="btn-icon" @click="closeManagementDialog" :title="t('common.close', undefined, 'Close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
 					</div>
 					<div class="dialog-body">
 						<div v-if="managementDialogItems().length === 0" class="text-muted">
-							No definitions yet.
+							{{ t('app.bpmn-modeler.dialog.management.noDefinitions') }}
 						</div>
 						<table v-else class="management-table w-100">
 							<thead>
 								<tr>
-									<th>Name</th>
-									<th v-if="managementDialogHasCode()">Code</th>
-									<th class="management-cell-num">References</th>
+									<th>{{ t('app.bpmn-modeler.dialog.management.colName') }}</th>
+									<th v-if="managementDialogHasCode()">{{ t('app.bpmn-modeler.dialog.management.colCode') }}</th>
+									<th class="management-cell-num">{{ t('app.bpmn-modeler.dialog.management.colReferences') }}</th>
 									<th class="management-cell-action"></th>
 								</tr>
 							</thead>
 							<tbody>
 								<tr v-for="item in managementDialogItems()" :key="item.id">
-									<td class="management-cell-name">{{ item.name || '(unnamed)' }}</td>
+									<td class="management-cell-name">{{ item.name || t('app.bpmn-modeler.dialog.management.unnamed') }}</td>
 									<td v-if="managementDialogHasCode()" class="management-cell-code">{{ item.code || '' }}</td>
 									<td class="management-cell-num">{{ item.refCount }}</td>
 									<td class="management-cell-action">
 										<button v-if="item.refCount === 0" class="btn-icon"
 												@click="deleteDefinition(managementDialog.kind, item.id)"
-												title="Delete">
+												:title="t('common.delete', undefined, 'Delete')">
 											<i class="bi bi-trash"></i>
 										</button>
 									</td>
@@ -3664,11 +3664,11 @@
 						</table>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeManagementDialog">Close</button>
+						<button class="wt" @click="closeManagementDialog">{{ t('common.close', undefined, 'Close') }}</button>
 						<button class="wt wt-danger"
 								@click="deleteUnreferencedDefinitions(managementDialog.kind)"
 								:disabled="!hasUnreferencedDefinitions()">
-							<i class="bi bi-trash me-1"></i>Delete All Unreferenced
+							<i class="bi bi-trash me-1"></i>{{ t('app.bpmn-modeler.dialog.management.deleteAllUnreferenced') }}
 						</button>
 					</div>
 				</div>
@@ -3688,7 +3688,7 @@
 						<p class="mt-0 mb-0 notification-message">{{ notificationDialog.message }}</p>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt wt-primary" @click="closeNotificationDialog">OK</button>
+						<button class="wt wt-primary" @click="closeNotificationDialog">{{ t('common.ok', undefined, 'OK') }}</button>
 					</div>
 				</div>
 			</div>
@@ -3697,14 +3697,14 @@
 		<!-- Loading Overlay -->
 		<div v-if="isLoading" class="loading-overlay flex-column text-center">
 			<span class="loader"></span>
-			<span class="mt-5">Loading file...</span>
+			<span class="mt-5">{{ t('app.bpmn-modeler.loading.file') }}</span>
 		</div>
 
 		<!-- Error Overlay -->
 		<div v-if="errorMessage && !isLoading" class="error-overlay flex-column text-center">
 			<i class="bi bi-exclamation-triangle-fill text-warning fs-2 mb-3"></i>
 			<span class="mb-3">{{ errorMessage }}</span>
-			<button type="button" class="wt" @click="errorMessage = ''">Close</button>
+			<button type="button" class="wt" @click="errorMessage = ''">{{ t('common.close', undefined, 'Close') }}</button>
 		</div>
 
 		<!-- Close Confirmation Dialog -->
@@ -3712,19 +3712,19 @@
 			<div class="dialog-frame" style="max-width: 32rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Unsaved Changes</h3>
+						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.bpmn-modeler.dialog.closeConfirm.title') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<p class="mt-0">The diagram "<strong>{{ currentFile.name }}</strong>" has unsaved changes.</p>
-						<p>Do you want to save your changes before closing?</p>
+						<p class="mt-0">{{ t('app.bpmn-modeler.dialog.closeConfirm.message', { name: currentFile.name }) }}</p>
+						<p>{{ t('app.bpmn-modeler.dialog.closeConfirm.question') }}</p>
 					</div>
 					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">Cancel</button>
+						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
-							<i class="bi bi-trash me-1"></i>Don't Save
+							<i class="bi bi-trash me-1"></i>{{ t('app.bpmn-modeler.dialog.closeConfirm.dontSave') }}
 						</button>
 						<button v-if="currentFile.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
-							<i class="bi bi-floppy me-1"></i>Save
+							<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
 						</button>
 					</div>
 				</div>

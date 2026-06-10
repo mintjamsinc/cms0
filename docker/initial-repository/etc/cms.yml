@@ -2,11 +2,3 @@ startWebURI: /bin/cms.cgi/system/content/webtop/
 maxScriptCachePerScriptEngine: 32
 nativeEcmaPoolSizePerScriptEngine: 0
 classLoaderRefreshInterval: 3
-
-security:
-  serviceAccounts:
-    - name: commerce-service-user
-      description: "Service account for commerce (Shopify) integration"
-      groups:
-        - commerce-service-group
-

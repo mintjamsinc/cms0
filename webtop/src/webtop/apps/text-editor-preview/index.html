@@ -24,7 +24,7 @@
 			<div class="pane-toggles">
 				<span class="preview-title-text">
 					<i class="bi bi-eye me-1"></i>
-					<span>Preview</span>
+					<span>{{ t('app.text-editor-preview.toolbar.label') }}</span>
 					<span v-if="fileName" class="preview-filename">— {{ fileName }}</span>
 				</span>
 				<!-- Pin: when on, the preview stops following the editor's
@@ -33,7 +33,7 @@
 					class="btn-icon pane-toggle-btn preview-pin-btn"
 					:class="{ active: pinned }"
 					@click="togglePin"
-					:title="pinned ? 'Unpin (follow editor)' : 'Pin to this file'">
+					:title="pinned ? t('app.text-editor-preview.toolbar.unpin') : t('app.text-editor-preview.toolbar.pin')">
 					<i class="bi" :class="pinned ? 'bi-pin-angle-fill' : 'bi-pin-angle'"></i>
 				</button>
 			</div>
@@ -57,12 +57,12 @@
 							<button class="input-group-btn"
 								@click="confirmExtEdit"
 								:disabled="!extInput.trim()"
-								title="Confirm">
+								:title="t('common.confirm')">
 								<i class="bi bi-check-lg"></i>
 							</button>
 							<button class="input-group-btn"
 								@click="cancelExtEdit"
-								title="Cancel">
+								:title="t('common.cancel')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
@@ -70,20 +70,20 @@
 				</div>
 				<div v-else class="preview-ext-clickable"
 					@click="startExtEdit"
-					title="Click to change output extension">
+					:title="t('app.text-editor-preview.toolbar.ext.change')">
 					.{{ previewExtension }}
 				</div>
 			</div>
 
 			<!-- Window Controls -->
 			<div class="window-controls">
-				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
 					<i class="bi bi-dash-lg"></i>
 				</button>
-				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
 					<i class="bi bi-square"></i>
 				</button>
-				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -97,7 +97,7 @@
 					<!-- Disconnected state (editor closed or tab closed) -->
 					<div v-if="disconnected" class="detail-panel-empty">
 						<i class="bi bi-link-45deg"></i>
-						<span>Editor was closed.</span>
+						<span>{{ t('app.text-editor-preview.empty.disconnected') }}</span>
 					</div>
 
 					<!-- Server-rendered (templated or scriptable; real-time) -->
@@ -109,11 +109,12 @@
 						<iframe v-else-if="previewIframeUrl"
 							class="preview-iframe"
 							:src="previewIframeUrl"
+							@load="onIframeLoad"
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
 							referrerpolicy="no-referrer"></iframe>
 						<div v-else class="detail-panel-empty">
 							<i class="bi" :class="previewLoading ? 'bi-arrow-repeat spin' : 'bi-eye'"></i>
-							<span>{{ previewLoading ? 'Rendering preview…' : 'Preview will appear here' }}</span>
+							<span>{{ previewLoading ? t('app.text-editor-preview.empty.rendering') : t('app.text-editor-preview.empty.placeholder') }}</span>
 						</div>
 					</template>
 
@@ -124,13 +125,14 @@
 					<iframe v-else-if="isHtml"
 						class="preview-iframe"
 						:srcdoc="previewSrcDoc"
+						@load="onIframeLoad"
 						sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
 						referrerpolicy="no-referrer"></iframe>
 
 					<!-- Unsupported -->
 					<div v-else class="detail-panel-empty">
 						<i class="bi bi-eye-slash"></i>
-						<span>Preview not available for this file type</span>
+						<span>{{ t('app.text-editor-preview.empty.unsupported') }}</span>
 					</div>
 				</div>
 			</div>

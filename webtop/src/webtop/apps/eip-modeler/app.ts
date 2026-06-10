@@ -2,6 +2,12 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { VDOM } from '@mintjamsinc/ichigojs';
 import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+	translate,
+} from "../../composables/use-localization.js";
+import {
 	CamelModelStore,
 	CamelProcessorSemantic,
 	CamelFlowSemantic,
@@ -9,33 +15,27 @@ import {
 	CamelDiEdge,
 	generateUUID,
 	type Bounds,
-	type Point
-} from './camel-model-types.js';
+	type Point,
+	type EipType
+} from '../../lib/camel/model.js';
+import {
+	NODE_WIDTH, NODE_HEIGHT, FROM_WIDTH, FROM_HEIGHT,
+	CHOICE_WIDTH, CHOICE_HEIGHT, MERGE_WIDTH, MERGE_HEIGHT,
+	STEP_GAP_X, STEP_GAP_Y,
+	NODE_STYLE, FROM_NODE_STYLE, CHOICE_NODE_STYLE, MERGE_NODE_STYLE,
+	getHorizontalConnectionYOffset, getNodeDimensions, getNodeStyleForType,
+	getChildText, getChildElements, getChildrenByTag,
+	parseXmlToStore,
+	parseRouteConfigurationElementToStore, parseOnExceptionElementToStore,
+	parseRouteElementToStore, parseStepElementToStore, parseStepElementProperties,
+	selectOptimalPorts, createSmartPath, getConnectionLabelPosition,
+	getShortLabel as eipGetShortLabel,
+} from '../../lib/camel/engine.js';
 
 // =============================================================================
 // Type Definitions
 // =============================================================================
 
-/**
- * EIP Types supported by Apache Camel
- */
-type EipType =
-	// Basic
-	| 'from' | 'to' | 'toD'
-	// Routing
-	| 'choice' | 'filter' | 'split' | 'aggregate' | 'multicast'
-	| 'recipientList' | 'routingSlip' | 'dynamicRouter' | 'loadBalance' | 'loop'
-	// Transformation
-	| 'log' | 'setBody' | 'setHeader' | 'setHeaders' | 'setProperty' | 'setVariable'
-	| 'removeHeader' | 'removeHeaders' | 'transform' | 'marshal' | 'unmarshal' | 'convertBodyTo'
-	// Error Handling
-	| 'onException' | 'doTry' | 'doCatch' | 'doFinally'
-	// Control Flow
-	| 'delay' | 'throttle' | 'stop' | 'process' | 'bean' | 'circuitBreaker' | 'threads' | 'step'
-	// Merge (visual-only, not output to XML)
-	| 'merge'
-	// Others
-	| 'wireTap' | 'enrich' | 'pollEnrich' | 'script' | 'validate' | 'saga';
 
 /**
  * Escape special characters for XML content
@@ -72,6 +72,8 @@ interface PaletteCategory {
 	/** Stable key used for the per-category collapsed/expanded state. */
 	key: string;
 	name: string;
+	/** i18n message id for the category name; resolved at display time. */
+	nameKey?: string;
 	items: PaletteItem[];
 }
 
@@ -81,6 +83,8 @@ interface PaletteCategory {
 interface PaletteItem {
 	type: EipType;
 	label: string;
+	/** i18n message id for the palette item label; resolved at display time. */
+	labelKey?: string;
 	icon: string;
 }
 
@@ -91,6 +95,8 @@ interface PaletteItem {
 interface ChoiceOption {
 	id: string;
 	label: string;
+	/** i18n message id; resolved at display time. Falls back to `label`. */
+	labelKey?: string;
 }
 
 // Sentinel for the implicit "(none)" / placeholder choice in popups.
@@ -98,19 +104,20 @@ const EMPTY_CHOICE_ID = '__empty__';
 
 // -- Static option lists for property-panel dropdowns ----------------------
 const FLOW_CONDITION_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'when',      label: 'When (Condition)' },
-	{ id: 'otherwise', label: 'Otherwise' },
+	{ id: 'when',      label: 'When (Condition)', labelKey: 'app.eip-modeler.option.flowConditionType.when' },
+	{ id: 'otherwise', label: 'Otherwise', labelKey: 'app.eip-modeler.option.flowConditionType.otherwise' },
 ];
 const FLOW_LANGUAGE_OPTIONS: ChoiceOption[] = [
-	{ id: 'simple',   label: 'Simple' },
-	{ id: 'xpath',    label: 'XPath' },
-	{ id: 'jsonpath', label: 'JSONPath' },
+	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.flowLanguage.simple' },
+	{ id: 'xpath',    label: 'XPath', labelKey: 'app.eip-modeler.option.flowLanguage.xpath' },
+	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.flowLanguage.jsonpath' },
 ];
 const FLOW_ROLE_OPTIONS: ChoiceOption[] = [
-	{ id: 'try',     label: 'Try (Main Flow)' },
-	{ id: 'catch',   label: 'Catch (Error Handling)' },
-	{ id: 'finally', label: 'Finally (Always Run)' },
+	{ id: 'try',     label: 'Try (Main Flow)', labelKey: 'app.eip-modeler.option.flowRole.try' },
+	{ id: 'catch',   label: 'Catch (Error Handling)', labelKey: 'app.eip-modeler.option.flowRole.catch' },
+	{ id: 'finally', label: 'Finally (Always Run)', labelKey: 'app.eip-modeler.option.flowRole.finally' },
 ];
+// LOGGING_LEVEL_OPTIONS are SLF4J level identifiers (TRACE/DEBUG/...): kept literal.
 const LOGGING_LEVEL_OPTIONS: ChoiceOption[] = [
 	{ id: 'TRACE', label: 'TRACE' },
 	{ id: 'DEBUG', label: 'DEBUG' },
@@ -119,39 +126,39 @@ const LOGGING_LEVEL_OPTIONS: ChoiceOption[] = [
 	{ id: 'ERROR', label: 'ERROR' },
 ];
 const SET_HEADER_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'simple',   label: 'Simple' },
-	{ id: 'constant', label: 'Constant' },
-	{ id: 'jsonpath', label: 'JSONPath' },
+	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.setHeaderExpressionType.simple' },
+	{ id: 'constant', label: 'Constant', labelKey: 'app.eip-modeler.option.setHeaderExpressionType.constant' },
+	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.setHeaderExpressionType.jsonpath' },
 ];
 const FILTER_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'simple',   label: 'Simple' },
-	{ id: 'xpath',    label: 'XPath' },
-	{ id: 'jsonpath', label: 'JSONPath' },
+	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.filterExpressionType.simple' },
+	{ id: 'xpath',    label: 'XPath', labelKey: 'app.eip-modeler.option.filterExpressionType.xpath' },
+	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.filterExpressionType.jsonpath' },
 ];
 const SPLIT_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'simple',   label: 'Simple' },
-	{ id: 'xpath',    label: 'XPath' },
-	{ id: 'jsonpath', label: 'JSONPath' },
-	{ id: 'tokenize', label: 'Tokenize' },
+	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.splitExpressionType.simple' },
+	{ id: 'xpath',    label: 'XPath', labelKey: 'app.eip-modeler.option.splitExpressionType.xpath' },
+	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.splitExpressionType.jsonpath' },
+	{ id: 'tokenize', label: 'Tokenize', labelKey: 'app.eip-modeler.option.splitExpressionType.tokenize' },
 ];
 const TRANSFORM_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
-	{ id: 'simple',   label: 'Simple' },
-	{ id: 'xpath',    label: 'XPath' },
-	{ id: 'jsonpath', label: 'JSONPath' },
-	{ id: 'groovy',   label: 'Groovy' },
+	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.transformExpressionType.simple' },
+	{ id: 'xpath',    label: 'XPath', labelKey: 'app.eip-modeler.option.transformExpressionType.xpath' },
+	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.transformExpressionType.jsonpath' },
+	{ id: 'groovy',   label: 'Groovy', labelKey: 'app.eip-modeler.option.transformExpressionType.groovy' },
 ];
 const DATA_FORMAT_OPTIONS: ChoiceOption[] = [
-	{ id: 'json',     label: 'JSON' },
-	{ id: 'xml',      label: 'XML (JAXB)' },
-	{ id: 'csv',      label: 'CSV' },
-	{ id: 'yaml',     label: 'YAML' },
-	{ id: 'avro',     label: 'Avro' },
-	{ id: 'protobuf', label: 'Protobuf' },
+	{ id: 'json',     label: 'JSON', labelKey: 'app.eip-modeler.option.dataFormat.json' },
+	{ id: 'xml',      label: 'XML (JAXB)', labelKey: 'app.eip-modeler.option.dataFormat.xml' },
+	{ id: 'csv',      label: 'CSV', labelKey: 'app.eip-modeler.option.dataFormat.csv' },
+	{ id: 'yaml',     label: 'YAML', labelKey: 'app.eip-modeler.option.dataFormat.yaml' },
+	{ id: 'avro',     label: 'Avro', labelKey: 'app.eip-modeler.option.dataFormat.avro' },
+	{ id: 'protobuf', label: 'Protobuf', labelKey: 'app.eip-modeler.option.dataFormat.protobuf' },
 ];
 const JSON_LIBRARY_OPTIONS: ChoiceOption[] = [
-	{ id: 'jackson', label: 'Jackson' },
-	{ id: 'gson',    label: 'Gson' },
-	{ id: 'jsonb',   label: 'JSON-B' },
+	{ id: 'jackson', label: 'Jackson', labelKey: 'app.eip-modeler.option.jsonLibrary.jackson' },
+	{ id: 'gson',    label: 'Gson', labelKey: 'app.eip-modeler.option.jsonLibrary.gson' },
+	{ id: 'jsonb',   label: 'JSON-B', labelKey: 'app.eip-modeler.option.jsonLibrary.jsonb' },
 ];
 
 /**
@@ -169,80 +176,6 @@ interface LaunchOptions {
 // Constants
 // =============================================================================
 
-// Node dimensions
-const NODE_WIDTH = 140;
-const NODE_HEIGHT = 60;
-const FROM_WIDTH = 120;
-const FROM_HEIGHT = 50;
-const CHOICE_WIDTH = 100;
-const CHOICE_HEIGHT = 60;
-const MERGE_WIDTH = 50;
-const MERGE_HEIGHT = 50;
-
-// Layout constants
-const STEP_GAP_X = 40;
-const STEP_GAP_Y = 80;
-
-/**
- * Unified node style constants
- */
-const NODE_STYLE = {
-	width: 140,
-	height: 60,
-	borderRadius: 8,
-	iconSize: 24,
-	padding: 10,
-	ports: {
-		left:   { x: 0,   y: 30 },
-		right:  { x: 140, y: 30 },
-		top:    { x: 70,  y: 0 },
-		bottom: { x: 70,  y: 60 }
-	},
-	inputPort: { x: 0, y: 30 },
-	outputPort: { x: 140, y: 30 }
-};
-
-const FROM_NODE_STYLE = {
-	width: 120,
-	height: 50,
-	borderRadius: 25,
-	iconSize: 20,
-	padding: 10,
-	ports: {
-		left:   { x: 0,   y: 25 },
-		right:  { x: 120, y: 25 },
-		top:    { x: 60,  y: 0 },
-		bottom: { x: 60,  y: 50 }
-	},
-	inputPort: { x: 0, y: 25 },
-	outputPort: { x: 120, y: 25 }
-};
-
-const CHOICE_NODE_STYLE = {
-	width: 100,
-	height: 60,
-	ports: {
-		left:   { x: 0,   y: 30 },
-		right:  { x: 100, y: 30 },
-		top:    { x: 50,  y: 0 },
-		bottom: { x: 50,  y: 60 }
-	},
-	inputPort: { x: 0, y: 30 },
-	outputPort: { x: 100, y: 30 }
-};
-
-const MERGE_NODE_STYLE = {
-	width: 50,
-	height: 50,
-	ports: {
-		left:   { x: 0,   y: 25 },
-		right:  { x: 50,  y: 25 },
-		top:    { x: 25,  y: 0 },
-		bottom: { x: 25,  y: 50 }
-	},
-	inputPort: { x: 0, y: 25 },
-	outputPort: { x: 50, y: 25 }
-};
 
 // =============================================================================
 // Helper Functions
@@ -316,64 +249,6 @@ function getDefaultProperties(type: EipType): Record<string, any> {
 	return defaults[type] ? { ...defaults[type] } : {};
 }
 
-/**
- * Get the Y offset for horizontal connection points (left/right ports) for a given node type.
- * This is used for snapping nodes to align connection lines horizontally.
- */
-function getHorizontalConnectionYOffset(type: string): number {
-	switch (type) {
-		case 'from':
-		case 'to':
-		case 'toD':
-		case 'onException':
-			return FROM_NODE_STYLE.ports.left.y;
-		case 'choice':
-			return CHOICE_NODE_STYLE.ports.left.y;
-		case 'merge':
-			return MERGE_NODE_STYLE.ports.left.y;
-		default:
-			return NODE_STYLE.ports.left.y;
-	}
-}
-
-/**
- * Get node dimensions for a type
- */
-function getNodeDimensions(type: string): { width: number; height: number } {
-	switch (type) {
-		case 'from':
-		case 'to':
-		case 'toD':
-			return { width: FROM_WIDTH, height: FROM_HEIGHT };
-		case 'onException':
-			return { width: NODE_WIDTH, height: FROM_HEIGHT };
-		case 'choice':
-			return { width: CHOICE_WIDTH, height: CHOICE_HEIGHT };
-		case 'merge':
-			return { width: MERGE_WIDTH, height: MERGE_HEIGHT };
-		default:
-			return { width: NODE_WIDTH, height: NODE_HEIGHT };
-	}
-}
-
-/**
- * Get node style for a type
- */
-function getNodeStyleForType(type: string): typeof NODE_STYLE {
-	switch (type) {
-		case 'from':
-		case 'to':
-		case 'toD':
-		case 'onException':
-			return FROM_NODE_STYLE as typeof NODE_STYLE;
-		case 'choice':
-			return CHOICE_NODE_STYLE as typeof NODE_STYLE;
-		case 'merge':
-			return MERGE_NODE_STYLE as typeof NODE_STYLE;
-		default:
-			return NODE_STYLE;
-	}
-}
 
 // =============================================================================
 // XML Serialization
@@ -1071,797 +946,6 @@ function processorToXml(
 	return lines;
 }
 
-/**
- * Get text content of a direct child element by tag name
- */
-function getChildText(parent: Element, tagName: string): string | null {
-	const child = Array.from(parent.children).find(c => c.localName === tagName);
-	return child ? child.textContent?.trim() || null : null;
-}
-
-/**
- * Get all direct child elements (excluding text nodes)
- */
-function getChildElements(parent: Element): Element[] {
-	return Array.from(parent.children);
-}
-
-/**
- * Get direct child elements by tag name
- */
-function getChildrenByTag(parent: Element, tagName: string): Element[] {
-	return Array.from(parent.children).filter(c => c.localName === tagName);
-}
-
-/**
- * Parse XML string to CamelModelStore
- */
-function parseXmlToStore(xmlString: string): CamelModelStore {
-	const store = new CamelModelStore();
-
-	try {
-		const parser = new DOMParser();
-		const doc = parser.parseFromString(xmlString, 'application/xml');
-
-		// Check for parse errors
-		const parseError = doc.querySelector('parsererror');
-		if (parseError) {
-			console.error('XML parse error:', parseError.textContent);
-			return store;
-		}
-
-		const root = doc.documentElement;
-
-		let currentY = 100;
-
-		// Parse routeConfiguration elements
-		for (const rcEl of getChildrenByTag(root, 'routeConfiguration')) {
-			parseRouteConfigurationElementToStore(store, rcEl, currentY);
-			currentY += 250;
-		}
-
-		// Parse standalone onException elements
-		for (const oeEl of getChildrenByTag(root, 'onException')) {
-			parseOnExceptionElementToStore(store, oeEl, currentY);
-			currentY += 250;
-		}
-
-		// Parse route elements
-		for (const routeEl of getChildrenByTag(root, 'route')) {
-			parseRouteElementToStore(store, routeEl, currentY);
-			currentY += 300;
-		}
-	} catch (e) {
-		console.error('Failed to parse XML:', e);
-	}
-
-	return store;
-}
-
-/**
- * Parse a routeConfiguration element into the store
- */
-function parseRouteConfigurationElementToStore(store: CamelModelStore, configEl: Element, baseY: number) {
-	const configId = configEl.getAttribute('id') || '';
-
-	let currentY = baseY;
-	for (const oeEl of getChildrenByTag(configEl, 'onException')) {
-		parseOnExceptionElementToStore(store, oeEl, currentY, configId);
-		currentY += 250;
-	}
-}
-
-/**
- * Parse an onException XML element into the store
- */
-function parseOnExceptionElementToStore(store: CamelModelStore, oeEl: Element, baseY: number, routeConfigurationId?: string) {
-	const stepId = generateUUID();
-	const x = 150;
-	const y = baseY;
-
-	// Parse exception classes
-	const exceptionEls = getChildrenByTag(oeEl, 'exception');
-	const exceptions = exceptionEls.length > 0
-		? exceptionEls.map(el => el.textContent?.trim() || 'java.lang.Exception')
-		: ['java.lang.Exception'];
-
-	// Parse handled
-	const handledEl = Array.from(oeEl.children).find(c => c.localName === 'handled');
-	const handledConstant = handledEl ? getChildText(handledEl, 'constant') : null;
-	const handled = handledConstant === 'true';
-
-	// Parse redeliveryPolicy
-	const rpEl = Array.from(oeEl.children).find(c => c.localName === 'redeliveryPolicy');
-	const maxRedeliveries = rpEl ? parseInt(rpEl.getAttribute('maximumRedeliveries') || '0', 10) : 0;
-	const redeliveryDelay = rpEl ? rpEl.getAttribute('redeliveryDelay') || '1000' : '1000';
-
-	const semantic: CamelProcessorSemantic = {
-		id: stepId,
-		type: 'onException',
-		properties: {
-			exceptions,
-			handled,
-			maximumRedeliveries: maxRedeliveries,
-			redeliveryDelay: String(redeliveryDelay),
-			routeConfigurationId: routeConfigurationId || ''
-		}
-	};
-	store.addProcessor(semantic);
-
-	const dims = getNodeDimensions('onException');
-	const shape: CamelDiShape = {
-		id: stepId + '_di',
-		semanticId: stepId,
-		bounds: { x, y, width: dims.width, height: dims.height }
-	};
-	store.addShape(shape);
-
-	// Parse step child elements (skip exception, handled, redeliveryPolicy)
-	const skipTags = new Set(['exception', 'handled', 'redeliveryPolicy']);
-	const stepElements = getChildElements(oeEl).filter(c => !skipTags.has(c.localName));
-	if (stepElements.length > 0) {
-		let currentX = x + dims.width + STEP_GAP_X;
-		let previousId = stepId;
-
-		for (const stepEl of stepElements) {
-			const result = parseStepElementToStore(store, stepEl, currentX, y, previousId);
-			if (result) {
-				previousId = result.endId;
-				currentX = result.nextX;
-			}
-		}
-	}
-}
-
-/**
- * Parse a route XML element into the store
- */
-function parseRouteElementToStore(store: CamelModelStore, routeEl: Element, baseY: number) {
-	let currentX = 150;
-	let currentY = baseY;
-	let previousId: string | null = null;
-
-	const routeId = routeEl.getAttribute('id') || '';
-	const routeConfigurationId = routeEl.getAttribute('routeConfigurationId') || '';
-
-	// Parse from element
-	const fromEl = Array.from(routeEl.children).find(c => c.localName === 'from');
-	if (fromEl) {
-		const fromId = generateUUID();
-		const rawUri = fromEl.getAttribute('uri') || '';
-
-		// Split URI and query parameters
-		const qIdx = rawUri.indexOf('?');
-		const fromUri = qIdx >= 0 ? rawUri.substring(0, qIdx) : rawUri;
-		const parameters: Record<string, string> = {};
-		if (qIdx >= 0) {
-			const queryStr = rawUri.substring(qIdx + 1);
-			for (const pair of queryStr.split('&')) {
-				const eqIdx = pair.indexOf('=');
-				if (eqIdx >= 0) {
-					parameters[pair.substring(0, eqIdx)] = pair.substring(eqIdx + 1);
-				}
-			}
-		}
-
-		const fromSemantic: CamelProcessorSemantic = {
-			id: fromId,
-			type: 'from',
-			properties: {
-				uri: fromUri,
-				parameters,
-				routeId,
-				routeConfigurationId
-			}
-		};
-		store.addProcessor(fromSemantic);
-
-		const fromShape: CamelDiShape = {
-			id: fromId + '_di',
-			semanticId: fromId,
-			bounds: { x: currentX, y: currentY, width: FROM_WIDTH, height: FROM_HEIGHT }
-		};
-		store.addShape(fromShape);
-
-		previousId = fromId;
-		currentX += FROM_WIDTH + STEP_GAP_X;
-	}
-
-	// Parse step elements (all children after from)
-	const stepElements = getChildElements(routeEl).filter(c => c.localName !== 'from');
-	for (const stepEl of stepElements) {
-		const result = parseStepElementToStore(store, stepEl, currentX, currentY, previousId);
-		if (result) {
-			previousId = result.endId;
-			currentX = result.nextX;
-		}
-	}
-}
-
-/**
- * Parse a step XML element into the store
- * Returns the created node's ID details and layout info
- *
- * @param store The model store
- * @param stepEl The step XML element
- * @param x Current X position
- * @param y Current Y position
- * @param previousId Previous node ID for connection
- * @param flowProperties Optional properties for the connecting flow (for when/otherwise/doTry)
- * @returns id: the created node's ID, endId: the end point (node itself or its merge node), nextX, maxY
- */
-function parseStepElementToStore(
-	store: CamelModelStore,
-	stepEl: Element,
-	x: number,
-	y: number,
-	previousId: string | null,
-	flowProperties?: {
-		conditionType?: 'when' | 'otherwise';
-		expression?: string;
-		language?: string;
-		role?: 'try' | 'catch' | 'finally';
-		exceptions?: string[];
-	}
-): { id: string; endId: string; nextX: number; maxY: number } | null {
-	const stepType = stepEl.localName as EipType;
-	const stepId = generateUUID();
-
-	// User-authored Camel `id` attribute on the step (e.g., <to id="GetMetafields" ...>).
-	// Kept separate from the internal UUID `stepId` so flow/shape references stay stable
-	// even when the user edits this value.
-	const userIdAttr = stepEl.getAttribute('id') || undefined;
-
-	// Create semantic (for Choice, don't include when/otherwise in properties - they're represented as flows)
-	const baseProps = stepType === 'choice' ? {} : parseStepElementProperties(stepType, stepEl);
-	const semantic: CamelProcessorSemantic = {
-		id: stepId,
-		type: stepType,
-		properties: userIdAttr ? { ...baseProps, id: userIdAttr } : baseProps
-	};
-	store.addProcessor(semantic);
-
-	// Create shape
-	const dims = getNodeDimensions(stepType);
-	const shape: CamelDiShape = {
-		id: stepId + '_di',
-		semanticId: stepId,
-		bounds: { x, y, width: dims.width, height: dims.height }
-	};
-	store.addShape(shape);
-
-	// Create flow from previous
-	if (previousId) {
-		const flowId = generateUUID();
-		const flow: CamelFlowSemantic = {
-			id: flowId,
-			sourceRef: previousId,
-			targetRef: stepId,
-			...(flowProperties?.conditionType && { conditionType: flowProperties.conditionType }),
-			...(flowProperties?.expression && { expression: flowProperties.expression }),
-			...(flowProperties?.language && { language: flowProperties.language }),
-			...(flowProperties?.role && { role: flowProperties.role }),
-			...(flowProperties?.exceptions && { exceptions: flowProperties.exceptions })
-		};
-		store.addFlow(flow);
-
-		const edge: CamelDiEdge = {
-			id: flowId + '_di',
-			semanticId: flowId,
-			waypoints: []
-		};
-		store.addEdge(edge);
-	}
-
-	let nextX = x + dims.width + STEP_GAP_X;
-	let maxY = y;
-	let endId = stepId;
-
-	// Handle Choice element with when/otherwise branches
-	if (stepType === 'choice') {
-		let branchY = y;
-		const branchStartX = nextX;
-		let branchMaxY = y;
-		const branchEndIds: string[] = [];
-
-		// Parse 'when' branches
-		const whenEls = getChildrenByTag(stepEl, 'when');
-		for (const whenEl of whenEls) {
-			// Extract expression - first child element that is an expression type
-			const exprEl = Array.from(whenEl.children).find(c =>
-				['simple', 'xpath', 'jsonpath', 'constant', 'tokenize'].includes(c.localName)
-			);
-			const exprType = exprEl?.localName || 'simple';
-			const expression = exprEl?.textContent?.trim() || '';
-
-			branchMaxY = branchY;
-
-			// Get step elements inside when (skip expression element)
-			const whenStepEls = getChildElements(whenEl).filter(c =>
-				!['simple', 'xpath', 'jsonpath', 'constant', 'tokenize'].includes(c.localName)
-			);
-			if (whenStepEls.length > 0) {
-				let branchPrevId: string | null = null;
-				let branchX = branchStartX;
-				let lastResultEndId: string | null = null;
-
-				for (let i = 0; i < whenStepEls.length; i++) {
-					const branchStepEl = whenStepEls[i];
-					const flowProps = i === 0 ? { conditionType: 'when' as const, expression, language: exprType } : undefined;
-					const connectFrom = i === 0 ? stepId : branchPrevId;
-
-					const result = parseStepElementToStore(store, branchStepEl, branchX, branchY, connectFrom, flowProps);
-					if (result) {
-						branchPrevId = result.endId;
-						branchX = result.nextX;
-						nextX = Math.max(nextX, result.nextX);
-						branchMaxY = Math.max(branchMaxY, result.maxY);
-						lastResultEndId = result.endId;
-					}
-				}
-				if (lastResultEndId) branchEndIds.push(lastResultEndId);
-			}
-
-			branchY = branchMaxY + NODE_HEIGHT + STEP_GAP_Y;
-			maxY = Math.max(maxY, branchMaxY);
-		}
-
-		// Parse 'otherwise' branch
-		const otherwiseEl = Array.from(stepEl.children).find(c => c.localName === 'otherwise');
-		if (otherwiseEl) {
-			const otherwiseStepEls = getChildElements(otherwiseEl);
-			if (otherwiseStepEls.length > 0) {
-				branchMaxY = branchY;
-				let branchPrevId: string | null = null;
-				let branchX = branchStartX;
-				let lastResultEndId: string | null = null;
-
-				for (let i = 0; i < otherwiseStepEls.length; i++) {
-					const branchStepEl = otherwiseStepEls[i];
-					const flowProps = i === 0 ? { conditionType: 'otherwise' as const } : undefined;
-					const connectFrom = i === 0 ? stepId : branchPrevId;
-
-					const result = parseStepElementToStore(store, branchStepEl, branchX, branchY, connectFrom, flowProps);
-					if (result) {
-						branchPrevId = result.endId;
-						branchX = result.nextX;
-						nextX = Math.max(nextX, result.nextX);
-						branchMaxY = Math.max(branchMaxY, result.maxY);
-						lastResultEndId = result.endId;
-					}
-				}
-				if (lastResultEndId) branchEndIds.push(lastResultEndId);
-				maxY = Math.max(maxY, branchMaxY);
-			}
-		}
-
-		maxY = Math.max(maxY, branchY);
-
-		// AUTO-MERGE
-		if (branchEndIds.length > 0) {
-			const mergeId = generateUUID();
-			store.addProcessor({ id: mergeId, type: 'merge', properties: {} });
-			store.addShape({ id: mergeId + '_di', semanticId: mergeId, bounds: { x: nextX, y, width: MERGE_WIDTH, height: MERGE_HEIGHT } });
-			for (const branchEndId of branchEndIds) {
-				const flowId = generateUUID();
-				store.addFlow({ id: flowId, sourceRef: branchEndId, targetRef: mergeId });
-				store.addEdge({ id: flowId + '_di', semanticId: flowId, waypoints: [] });
-			}
-			endId = mergeId;
-			nextX += MERGE_WIDTH + STEP_GAP_X;
-		}
-	}
-
-	// Handle Split element with internal steps
-	if (stepType === 'split') {
-		// Get step elements (skip expression elements)
-		const exprTags = new Set(['simple', 'xpath', 'jsonpath', 'constant', 'tokenize']);
-		const splitStepEls = getChildElements(stepEl).filter(c => !exprTags.has(c.localName));
-
-		if (splitStepEls.length > 0) {
-			const splitStartX = nextX;
-			let splitMaxY = y;
-			const splitEndIds: string[] = [];
-			let splitPrevId: string | null = null;
-			let splitX = splitStartX;
-			let lastResultEndId: string | null = null;
-
-			for (let i = 0; i < splitStepEls.length; i++) {
-				const connectFrom = i === 0 ? stepId : splitPrevId;
-				const result = parseStepElementToStore(store, splitStepEls[i], splitX, y, connectFrom);
-				if (result) {
-					splitPrevId = result.endId;
-					splitX = result.nextX;
-					nextX = Math.max(nextX, result.nextX);
-					splitMaxY = Math.max(splitMaxY, result.maxY);
-					lastResultEndId = result.endId;
-				}
-			}
-			if (lastResultEndId) splitEndIds.push(lastResultEndId);
-			maxY = Math.max(maxY, splitMaxY);
-
-			if (splitEndIds.length > 0) {
-				const mergeId = generateUUID();
-				store.addProcessor({ id: mergeId, type: 'merge', properties: {} });
-				store.addShape({ id: mergeId + '_di', semanticId: mergeId, bounds: { x: nextX, y, width: MERGE_WIDTH, height: MERGE_HEIGHT } });
-				for (const splitEndId of splitEndIds) {
-					const flowId = generateUUID();
-					store.addFlow({ id: flowId, sourceRef: splitEndId, targetRef: mergeId });
-					store.addEdge({ id: flowId + '_di', semanticId: flowId, waypoints: [] });
-				}
-				endId = mergeId;
-				nextX += MERGE_WIDTH + STEP_GAP_X;
-			}
-		}
-	}
-
-	// Handle Filter element with conditional body steps.
-	// In Camel <filter> is a block, not a leaf: the child steps execute only when the
-	// predicate matches, then the route continues. Model it like Split (single branch +
-	// auto-merge) so the body (e.g. a nested <to>) is preserved and round-trips.
-	if (stepType === 'filter') {
-		const exprTags = new Set(['simple', 'xpath', 'jsonpath', 'constant', 'tokenize']);
-		const bodyStepEls = getChildElements(stepEl).filter(c => !exprTags.has(c.localName));
-
-		if (bodyStepEls.length > 0) {
-			let bodyMaxY = y;
-			let bodyPrevId: string | null = null;
-			let bodyX = nextX;
-			let lastResultEndId: string | null = null;
-
-			for (let i = 0; i < bodyStepEls.length; i++) {
-				const connectFrom = i === 0 ? stepId : bodyPrevId;
-				const result = parseStepElementToStore(store, bodyStepEls[i], bodyX, y, connectFrom);
-				if (result) {
-					bodyPrevId = result.endId;
-					bodyX = result.nextX;
-					nextX = Math.max(nextX, result.nextX);
-					bodyMaxY = Math.max(bodyMaxY, result.maxY);
-					lastResultEndId = result.endId;
-				}
-			}
-			maxY = Math.max(maxY, bodyMaxY);
-
-			if (lastResultEndId) {
-				const mergeId = generateUUID();
-				store.addProcessor({ id: mergeId, type: 'merge', properties: {} });
-				store.addShape({ id: mergeId + '_di', semanticId: mergeId, bounds: { x: nextX, y, width: MERGE_WIDTH, height: MERGE_HEIGHT } });
-				const flowId = generateUUID();
-				store.addFlow({ id: flowId, sourceRef: lastResultEndId, targetRef: mergeId });
-				store.addEdge({ id: flowId + '_di', semanticId: flowId, waypoints: [] });
-				endId = mergeId;
-				nextX += MERGE_WIDTH + STEP_GAP_X;
-			}
-		}
-	}
-
-	// Handle DoTry element with doCatch/doFinally
-	if (stepType === 'doTry') {
-		let branchY = y;
-		const branchStartX = nextX;
-		let branchMaxY = y;
-		const branchEndIds: string[] = [];
-
-		// Helper function to parse step elements with flow properties
-		const parseBranchElements = (
-			stepEls: Element[],
-			startY: number,
-			flowProps?: { role?: 'try' | 'catch' | 'finally'; exceptions?: string[] }
-		) => {
-			if (stepEls.length === 0) return { lastEndId: null, maxY: startY };
-
-			let branchPrevId: string | null = null;
-			let branchX = branchStartX;
-			let lastResultEndId: string | null = null;
-			let currentMaxY = startY;
-
-			for (let i = 0; i < stepEls.length; i++) {
-				const connectFrom = i === 0 ? stepId : branchPrevId;
-				const firstStepFlowProps = i === 0 ? flowProps : undefined;
-				const result = parseStepElementToStore(store, stepEls[i], branchX, startY, connectFrom, firstStepFlowProps as any);
-				if (result) {
-					branchPrevId = result.endId;
-					branchX = result.nextX;
-					nextX = Math.max(nextX, result.nextX);
-					currentMaxY = Math.max(currentMaxY, result.maxY);
-					lastResultEndId = result.endId;
-				}
-			}
-			return { lastEndId: lastResultEndId, maxY: currentMaxY };
-		};
-
-		// 1. Try steps: child elements that are NOT doCatch/doFinally
-		const tryStepEls = getChildElements(stepEl).filter(c =>
-			c.localName !== 'doCatch' && c.localName !== 'doFinally'
-		);
-		if (tryStepEls.length > 0) {
-			branchMaxY = branchY;
-			const result = parseBranchElements(tryStepEls, branchY, { role: 'try' });
-			if (result.lastEndId) branchEndIds.push(result.lastEndId);
-			branchMaxY = Math.max(branchMaxY, result.maxY);
-			branchY = branchMaxY + NODE_HEIGHT + STEP_GAP_Y;
-			maxY = Math.max(maxY, branchMaxY);
-		}
-
-		// 2. doCatch blocks
-		const catchEls = getChildrenByTag(stepEl, 'doCatch');
-		for (const catchEl of catchEls) {
-			branchMaxY = branchY;
-			const exceptionEls = getChildrenByTag(catchEl, 'exception');
-			const exceptions = exceptionEls.length > 0
-				? exceptionEls.map(el => el.textContent?.trim() || 'java.lang.Exception')
-				: ['java.lang.Exception'];
-			const catchStepEls = getChildElements(catchEl).filter(c => c.localName !== 'exception');
-			const result = parseBranchElements(catchStepEls, branchY, { role: 'catch', exceptions });
-			if (result.lastEndId) branchEndIds.push(result.lastEndId);
-			branchMaxY = Math.max(branchMaxY, result.maxY);
-			branchY = branchMaxY + NODE_HEIGHT + STEP_GAP_Y;
-			maxY = Math.max(maxY, branchMaxY);
-		}
-
-		// 3. doFinally
-		const finallyEl = Array.from(stepEl.children).find(c => c.localName === 'doFinally');
-		if (finallyEl) {
-			branchMaxY = branchY;
-			const finallyStepEls = getChildElements(finallyEl);
-			const result = parseBranchElements(finallyStepEls, branchY, { role: 'finally' });
-			if (result.lastEndId) branchEndIds.push(result.lastEndId);
-			branchMaxY = Math.max(branchMaxY, result.maxY);
-			maxY = Math.max(maxY, branchMaxY);
-		}
-
-		// AUTO-MERGE
-		if (branchEndIds.length > 0) {
-			const mergeId = generateUUID();
-			store.addProcessor({ id: mergeId, type: 'merge', properties: {} });
-			store.addShape({ id: mergeId + '_di', semanticId: mergeId, bounds: { x: nextX, y, width: MERGE_WIDTH, height: MERGE_HEIGHT } });
-			for (const branchEndId of branchEndIds) {
-				const flowId = generateUUID();
-				store.addFlow({ id: flowId, sourceRef: branchEndId, targetRef: mergeId });
-				store.addEdge({ id: flowId + '_di', semanticId: flowId, waypoints: [] });
-			}
-			endId = mergeId;
-			nextX += MERGE_WIDTH + STEP_GAP_X;
-		}
-	}
-
-	// Handle Multicast element with child step branches
-	if (stepType === 'multicast') {
-		const multicastStepEls = getChildElements(stepEl);
-		if (multicastStepEls.length > 0) {
-			let branchY = y;
-			const branchStartX = nextX;
-			let branchMaxY = y;
-			const branchEndIds: string[] = [];
-
-			for (const branchStepEl of multicastStepEls) {
-				branchMaxY = branchY;
-				const result = parseStepElementToStore(store, branchStepEl, branchStartX, branchY, stepId);
-				if (result) {
-					nextX = Math.max(nextX, result.nextX);
-					branchMaxY = Math.max(branchMaxY, result.maxY);
-					branchEndIds.push(result.endId);
-				}
-				branchY = branchMaxY + NODE_HEIGHT + STEP_GAP_Y;
-				maxY = Math.max(maxY, branchMaxY);
-			}
-
-			if (branchEndIds.length > 0) {
-				const mergeId = generateUUID();
-				store.addProcessor({ id: mergeId, type: 'merge', properties: {} });
-				store.addShape({ id: mergeId + '_di', semanticId: mergeId, bounds: { x: nextX, y, width: MERGE_WIDTH, height: MERGE_HEIGHT } });
-				for (const branchEndId of branchEndIds) {
-					const flowId = generateUUID();
-					store.addFlow({ id: flowId, sourceRef: branchEndId, targetRef: mergeId });
-					store.addEdge({ id: flowId + '_di', semanticId: flowId, waypoints: [] });
-				}
-				endId = mergeId;
-				nextX += MERGE_WIDTH + STEP_GAP_X;
-			}
-		}
-	}
-
-	return {
-		id: stepId,
-		endId,
-		nextX,
-		maxY
-	};
-}
-
-/**
- * Parse step element properties based on type
- */
-function parseStepElementProperties(type: EipType, el: Element): Record<string, any> {
-	switch (type) {
-		case 'to':
-		case 'toD': {
-			const rawUri = el.getAttribute('uri') || '';
-			const qIdx = rawUri.indexOf('?');
-			const uri = qIdx >= 0 ? rawUri.substring(0, qIdx) : rawUri;
-			const parameters: Record<string, string> = {};
-			if (qIdx >= 0) {
-				for (const pair of rawUri.substring(qIdx + 1).split('&')) {
-					const eqIdx = pair.indexOf('=');
-					if (eqIdx >= 0) parameters[pair.substring(0, eqIdx)] = pair.substring(eqIdx + 1);
-				}
-			}
-			return { uri, parameters: Object.keys(parameters).length > 0 ? parameters : undefined };
-		}
-		case 'log':
-			return {
-				message: el.getAttribute('message') || '',
-				loggingLevel: el.getAttribute('loggingLevel') || 'INFO',
-				loggerName: el.getAttribute('loggerName') || undefined
-			};
-		case 'setBody': {
-			const simple = getChildText(el, 'simple');
-			const constant = getChildText(el, 'constant');
-			return { simple: simple || undefined, constant: constant || undefined };
-		}
-		case 'setHeader': {
-			const name = el.getAttribute('name') || '';
-			const exprEl = Array.from(el.children).find(c =>
-				['simple', 'constant', 'jsonpath', 'xpath'].includes(c.localName)
-			);
-			return {
-				name,
-				expressionType: exprEl?.localName || 'simple',
-				expression: exprEl?.textContent?.trim() || ''
-			};
-		}
-		case 'filter': {
-			const exprEl = Array.from(el.children).find(c =>
-				['simple', 'xpath', 'jsonpath'].includes(c.localName)
-			);
-			return {
-				expressionType: exprEl?.localName || 'simple',
-				expression: exprEl?.textContent?.trim() || ''
-			};
-		}
-		case 'split': {
-			const exprEl = Array.from(el.children).find(c =>
-				['simple', 'xpath', 'jsonpath', 'tokenize'].includes(c.localName)
-			);
-			return {
-				expressionType: exprEl?.localName || 'simple',
-				expression: exprEl?.textContent?.trim() || '',
-				streaming: el.getAttribute('streaming') === 'true',
-				parallelProcessing: el.getAttribute('parallelProcessing') === 'true',
-				stopOnException: el.getAttribute('stopOnException') === 'true',
-				shareUnitOfWork: el.getAttribute('shareUnitOfWork') === 'true',
-				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined
-			};
-		}
-		case 'choice':
-			return {};
-		case 'delay': {
-			const constant = getChildText(el, 'constant') || getChildText(el, 'simple') || '1000';
-			return { constant };
-		}
-		case 'throttle': {
-			const constant = getChildText(el, 'constant') || '10';
-			return {
-				constant,
-				timePeriodMillis: el.getAttribute('timePeriodMillis') || undefined,
-				asyncDelayed: el.getAttribute('asyncDelayed') === 'true' || undefined,
-				rejectExecution: el.getAttribute('rejectExecution') === 'true' || undefined
-			};
-		}
-		case 'bean':
-			return {
-				ref: el.getAttribute('ref') || '',
-				method: el.getAttribute('method') || '',
-				beanType: el.getAttribute('beanType') || undefined
-			};
-		case 'aggregate': {
-			const corrEl = Array.from(el.children).find(c => c.localName === 'correlationExpression');
-			const corrSimple = corrEl ? getChildText(corrEl, 'simple') : '';
-			return {
-				correlationExpression: corrSimple || '',
-				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined,
-				completionSize: el.getAttribute('completionSize') || undefined,
-				completionTimeout: el.getAttribute('completionTimeout') || undefined,
-				eagerCheckCompletion: el.getAttribute('eagerCheckCompletion') === 'true' || undefined,
-				completionFromBatchConsumer: el.getAttribute('completionFromBatchConsumer') === 'true' || undefined
-			};
-		}
-		case 'marshal':
-		case 'unmarshal': {
-			const dfEl = el.children[0];
-			if (!dfEl) return { dataFormat: 'json' };
-			const dataFormat = dfEl.localName;
-			const result: Record<string, any> = { dataFormat };
-			if (dataFormat === 'json') {
-				if (dfEl.getAttribute('library')) result.library = dfEl.getAttribute('library');
-				if (dfEl.getAttribute('prettyPrint') === 'true') result.prettyPrint = true;
-				if (dfEl.getAttribute('unmarshalType')) result.unmarshalType = dfEl.getAttribute('unmarshalType');
-			}
-			return result;
-		}
-		case 'transform': {
-			const exprEl = Array.from(el.children).find(c =>
-				['simple', 'constant', 'xpath'].includes(c.localName)
-			);
-			return {
-				expressionType: exprEl?.localName || 'simple',
-				expression: exprEl?.textContent?.trim() || ''
-			};
-		}
-		case 'multicast':
-			return {
-				parallelProcessing: el.getAttribute('parallelProcessing') === 'true' || undefined,
-				stopOnException: el.getAttribute('stopOnException') === 'true' || undefined,
-				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined
-			};
-		case 'recipientList': {
-			const simple = getChildText(el, 'simple') || '';
-			return {
-				simple,
-				parallelProcessing: el.getAttribute('parallelProcessing') === 'true' || undefined,
-				stopOnException: el.getAttribute('stopOnException') === 'true' || undefined,
-				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined
-			};
-		}
-		case 'loop': {
-			const simple = getChildText(el, 'simple') || '3';
-			return {
-				simple,
-				doWhile: el.getAttribute('doWhile') === 'true' || undefined,
-				copy: el.getAttribute('copy') === 'true' || undefined
-			};
-		}
-		case 'wireTap':
-			return {
-				uri: el.getAttribute('uri') || '',
-				copy: el.getAttribute('copy') === 'false' ? false : undefined
-			};
-		case 'enrich': {
-			const constant = getChildText(el, 'constant') || '';
-			return {
-				uri: constant,
-				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined
-			};
-		}
-		case 'pollEnrich': {
-			const constant = getChildText(el, 'constant') || '';
-			return {
-				uri: constant,
-				timeout: el.getAttribute('timeout') || undefined,
-				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined
-			};
-		}
-		case 'threads':
-			return {
-				poolSize: el.getAttribute('poolSize') || undefined,
-				maxPoolSize: el.getAttribute('maxPoolSize') || undefined,
-				maxQueueSize: el.getAttribute('maxQueueSize') || undefined
-			};
-		case 'circuitBreaker': {
-			const r4jEl = Array.from(el.children).find(c => c.localName === 'resilience4jConfiguration');
-			if (r4jEl) {
-				return {
-					resilience4jConfiguration: {
-						minimumNumberOfCalls: r4jEl.getAttribute('minimumNumberOfCalls') || undefined,
-						failureRateThreshold: r4jEl.getAttribute('failureRateThreshold') || undefined,
-						waitDurationInOpenState: r4jEl.getAttribute('waitDurationInOpenState') || undefined
-					}
-				};
-			}
-			return {};
-		}
-		case 'stop':
-			return {};
-		default: {
-			// Generic: extract all attributes as properties
-			const props: Record<string, any> = {};
-			for (const attr of Array.from(el.attributes)) {
-				props[attr.name] = attr.value;
-			}
-			return props;
-		}
-	}
-}
 
 // =============================================================================
 // Application
@@ -1872,6 +956,11 @@ const App = {
 		return {
 			// Application instance
 			instance: null as ApplicationInstance | null,
+
+			// Reactive Localization snapshot (effective locale + bundle revision).
+			// Every `t()` lookup reads this and repaints on `localization-changed`
+			// / `i18n-bundles-updated`. See composables/use-localization.ts.
+			localization: createLocalizationSnapshot(),
 
 			// Resolved URL of the canvas EIP icon sprite. Populated in
 			// appLaunch from the app's deployed location. Used in the
@@ -1959,65 +1048,71 @@ const App = {
 				{
 					key: 'basic',
 					name: 'Basic',
+					nameKey: 'app.eip-modeler.palette.category.basic',
 					items: [
-						{ type: 'from', label: 'From', icon: 'icon-from' },
-						{ type: 'to', label: 'To', icon: 'icon-to' },
-						{ type: 'toD', label: 'To D', icon: 'icon-tod' },
+						{ type: 'from', label: 'From', labelKey: 'app.eip-modeler.palette.item.from', icon: 'icon-from' },
+						{ type: 'to', label: 'To', labelKey: 'app.eip-modeler.palette.item.to', icon: 'icon-to' },
+						{ type: 'toD', label: 'To D', labelKey: 'app.eip-modeler.palette.item.toD', icon: 'icon-tod' },
 					],
 				},
 				{
 					key: 'transform',
 					name: 'Transform',
+					nameKey: 'app.eip-modeler.palette.category.transform',
 					items: [
-						{ type: 'log', label: 'Log', icon: 'icon-log' },
-						{ type: 'setBody', label: 'Set Body', icon: 'icon-setbody' },
-						{ type: 'setHeader', label: 'Set Header', icon: 'icon-setheader' },
-						{ type: 'transform', label: 'Transform', icon: 'icon-transform' },
-						{ type: 'marshal', label: 'Marshal', icon: 'icon-marshal' },
-						{ type: 'unmarshal', label: 'Unmarshal', icon: 'icon-unmarshal' },
+						{ type: 'log', label: 'Log', labelKey: 'app.eip-modeler.palette.item.log', icon: 'icon-log' },
+						{ type: 'setBody', label: 'Set Body', labelKey: 'app.eip-modeler.palette.item.setBody', icon: 'icon-setbody' },
+						{ type: 'setHeader', label: 'Set Header', labelKey: 'app.eip-modeler.palette.item.setHeader', icon: 'icon-setheader' },
+						{ type: 'transform', label: 'Transform', labelKey: 'app.eip-modeler.palette.item.transform', icon: 'icon-transform' },
+						{ type: 'marshal', label: 'Marshal', labelKey: 'app.eip-modeler.palette.item.marshal', icon: 'icon-marshal' },
+						{ type: 'unmarshal', label: 'Unmarshal', labelKey: 'app.eip-modeler.palette.item.unmarshal', icon: 'icon-unmarshal' },
 					],
 				},
 				{
 					key: 'routing',
 					name: 'Routing',
+					nameKey: 'app.eip-modeler.palette.category.routing',
 					items: [
-						{ type: 'choice', label: 'Choice', icon: 'icon-choice' },
-						{ type: 'filter', label: 'Filter', icon: 'icon-filter' },
-						{ type: 'split', label: 'Split', icon: 'icon-split' },
-						{ type: 'aggregate', label: 'Aggregate', icon: 'icon-aggregate' },
-						{ type: 'multicast', label: 'Multicast', icon: 'icon-multicast' },
-						{ type: 'recipientList', label: 'Recipient List', icon: 'icon-recipientlist' },
-						{ type: 'loop', label: 'Loop', icon: 'icon-loop' },
-						{ type: 'merge', label: 'Merge', icon: 'icon-merge' },
+						{ type: 'choice', label: 'Choice', labelKey: 'app.eip-modeler.palette.item.choice', icon: 'icon-choice' },
+						{ type: 'filter', label: 'Filter', labelKey: 'app.eip-modeler.palette.item.filter', icon: 'icon-filter' },
+						{ type: 'split', label: 'Split', labelKey: 'app.eip-modeler.palette.item.split', icon: 'icon-split' },
+						{ type: 'aggregate', label: 'Aggregate', labelKey: 'app.eip-modeler.palette.item.aggregate', icon: 'icon-aggregate' },
+						{ type: 'multicast', label: 'Multicast', labelKey: 'app.eip-modeler.palette.item.multicast', icon: 'icon-multicast' },
+						{ type: 'recipientList', label: 'Recipient List', labelKey: 'app.eip-modeler.palette.item.recipientList', icon: 'icon-recipientlist' },
+						{ type: 'loop', label: 'Loop', labelKey: 'app.eip-modeler.palette.item.loop', icon: 'icon-loop' },
+						{ type: 'merge', label: 'Merge', labelKey: 'app.eip-modeler.palette.item.merge', icon: 'icon-merge' },
 					],
 				},
 				{
 					key: 'control',
 					name: 'Control',
+					nameKey: 'app.eip-modeler.palette.category.control',
 					items: [
-						{ type: 'delay', label: 'Delay', icon: 'icon-delay' },
-						{ type: 'throttle', label: 'Throttle', icon: 'icon-throttle' },
-						{ type: 'bean', label: 'Bean', icon: 'icon-bean' },
-						{ type: 'threads', label: 'Threads', icon: 'icon-threads' },
-						{ type: 'circuitBreaker', label: 'Circuit Breaker', icon: 'icon-circuitbreaker' },
-						{ type: 'stop', label: 'Stop', icon: 'icon-stop' },
+						{ type: 'delay', label: 'Delay', labelKey: 'app.eip-modeler.palette.item.delay', icon: 'icon-delay' },
+						{ type: 'throttle', label: 'Throttle', labelKey: 'app.eip-modeler.palette.item.throttle', icon: 'icon-throttle' },
+						{ type: 'bean', label: 'Bean', labelKey: 'app.eip-modeler.palette.item.bean', icon: 'icon-bean' },
+						{ type: 'threads', label: 'Threads', labelKey: 'app.eip-modeler.palette.item.threads', icon: 'icon-threads' },
+						{ type: 'circuitBreaker', label: 'Circuit Breaker', labelKey: 'app.eip-modeler.palette.item.circuitBreaker', icon: 'icon-circuitbreaker' },
+						{ type: 'stop', label: 'Stop', labelKey: 'app.eip-modeler.palette.item.stop', icon: 'icon-stop' },
 					],
 				},
 				{
 					key: 'integration',
 					name: 'Integration',
+					nameKey: 'app.eip-modeler.palette.category.integration',
 					items: [
-						{ type: 'wireTap', label: 'Wire Tap', icon: 'icon-wiretap' },
-						{ type: 'enrich', label: 'Enrich', icon: 'icon-enrich' },
-						{ type: 'pollEnrich', label: 'Poll Enrich', icon: 'icon-pollenrich' },
+						{ type: 'wireTap', label: 'Wire Tap', labelKey: 'app.eip-modeler.palette.item.wireTap', icon: 'icon-wiretap' },
+						{ type: 'enrich', label: 'Enrich', labelKey: 'app.eip-modeler.palette.item.enrich', icon: 'icon-enrich' },
+						{ type: 'pollEnrich', label: 'Poll Enrich', labelKey: 'app.eip-modeler.palette.item.pollEnrich', icon: 'icon-pollenrich' },
 					],
 				},
 				{
 					key: 'errorHandling',
 					name: 'Error Handling',
+					nameKey: 'app.eip-modeler.palette.category.errorHandling',
 					items: [
-						{ type: 'onException', label: 'On Exception', icon: 'icon-onexception' },
-						{ type: 'doTry', label: 'Try-Catch', icon: 'icon-dotry' },
+						{ type: 'onException', label: 'On Exception', labelKey: 'app.eip-modeler.palette.item.onException', icon: 'icon-onexception' },
+						{ type: 'doTry', label: 'Try-Catch', labelKey: 'app.eip-modeler.palette.item.doTry', icon: 'icon-dotry' },
 					],
 				},
 			] as PaletteCategory[],
@@ -2202,6 +1297,15 @@ const App = {
 	},
 
 	methods: {
+		/**
+		 * Reactive i18n lookup. Reads the localization snapshot so every
+		 * `{{ t(...) }}` binding repaints the moment the user switches language
+		 * or an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
+
 		// =========================================================================
 		// Lifecycle
 		// =========================================================================
@@ -2218,6 +1322,9 @@ const App = {
 			vm.messageListener = (event: MessageEvent) => {
 				if (event.origin !== window.location.origin) return;
 				const { type, ...payload } = event.data || {};
+				// Localization changes (locale switch / bundle hot-reload) broadcast
+				// by the shell. Fold them into the snapshot so every `t()` repaints.
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) return;
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
 				}
@@ -2245,6 +1352,9 @@ const App = {
 			// Register appLaunch callback
 			window.appLaunch = async (instance: ApplicationInstance, options?: LaunchOptions) => {
 				vm.instance = vm.$markRaw(instance);
+				// Snapshot the effective Localization preference so `t()` bindings
+				// render in the user's language from the first paint.
+				refreshLocalization(vm.localization, vm.instance);
 				vm.spriteUrl = new URL("assets/icons/icons.svg", window.location.origin + window.location.pathname).href;
 				instance.appState = () => {
 					const paths = vm.files.map((f: CamelFile) => f.path).filter((p: string) => !!p);
@@ -3120,7 +2230,7 @@ const App = {
 			for (const o of options) {
 				items.push({
 					id: o.id,
-					label: o.label,
+					label: o.labelKey ? vm.t(o.labelKey, undefined, o.label) : o.label,
 					selected: currentValue === o.id,
 				});
 			}
@@ -3142,7 +2252,9 @@ const App = {
 		 */
 		optionLabel(options: ChoiceOption[], value: string | undefined, fallback = ''): string {
 			if (!value) return fallback;
-			return options.find(o => o.id === value)?.label ?? fallback;
+			const opt = options.find(o => o.id === value);
+			if (!opt) return fallback;
+			return opt.labelKey ? this.t(opt.labelKey, undefined, opt.label) : opt.label;
 		},
 
 		// -- Flow (connection) dropdowns --
@@ -3406,109 +2518,28 @@ const App = {
 		// Smart Path Calculation
 		// =========================================================================
 
+		// Smart connection routing is shared with the read-only canvas; see
+		// lib/camel/engine.ts. These thin wrappers keep the template's
+		// `this.*` call sites unchanged.
 		selectOptimalPorts(
 			source: { x: number; y: number; style: typeof NODE_STYLE },
 			target: { x: number; y: number; style: typeof NODE_STYLE }
 		): { sourcePort: { x: number; y: number }; targetPort: { x: number; y: number } } {
-			const sourceCenterX = source.x + source.style.width / 2;
-			const sourceCenterY = source.y + source.style.height / 2;
-			const targetCenterX = target.x + target.style.width / 2;
-			const targetCenterY = target.y + target.style.height / 2;
-
-			const dx = targetCenterX - sourceCenterX;
-			const dy = targetCenterY - sourceCenterY;
-			const absDx = Math.abs(dx);
-			const absDy = Math.abs(dy);
-			const threshold = 30;
-
-			let sourcePortKey: 'left' | 'right' | 'top' | 'bottom';
-			let targetPortKey: 'left' | 'right' | 'top' | 'bottom';
-
-			if (absDx > absDy + threshold) {
-				if (dx > 0) {
-					sourcePortKey = 'right';
-					targetPortKey = 'left';
-				} else {
-					sourcePortKey = 'left';
-					targetPortKey = 'right';
-				}
-			} else if (absDy > absDx + threshold) {
-				if (dy > 0) {
-					sourcePortKey = 'bottom';
-					targetPortKey = 'top';
-				} else {
-					sourcePortKey = 'top';
-					targetPortKey = 'bottom';
-				}
-			} else {
-				if (dx >= 0) {
-					sourcePortKey = 'right';
-					targetPortKey = 'left';
-				} else {
-					sourcePortKey = 'left';
-					targetPortKey = 'right';
-				}
-			}
-
-			const sourcePorts = source.style.ports || {
-				left: source.style.inputPort,
-				right: source.style.outputPort,
-				top: { x: source.style.width / 2, y: 0 },
-				bottom: { x: source.style.width / 2, y: source.style.height }
-			};
-			const targetPorts = target.style.ports || {
-				left: target.style.inputPort,
-				right: target.style.outputPort,
-				top: { x: target.style.width / 2, y: 0 },
-				bottom: { x: target.style.width / 2, y: target.style.height }
-			};
-
-			return {
-				sourcePort: {
-					x: source.x + sourcePorts[sourcePortKey].x,
-					y: source.y + sourcePorts[sourcePortKey].y
-				},
-				targetPort: {
-					x: target.x + targetPorts[targetPortKey].x,
-					y: target.y + targetPorts[targetPortKey].y
-				}
-			};
+			return selectOptimalPorts(source, target);
 		},
 
 		createSmartPath(
 			sourcePort: { x: number; y: number },
 			targetPort: { x: number; y: number }
 		): string {
-			const dx = targetPort.x - sourcePort.x;
-			const dy = targetPort.y - sourcePort.y;
-
-			if (Math.abs(dx) > Math.abs(dy)) {
-				const midX = (sourcePort.x + targetPort.x) / 2;
-				return `M ${sourcePort.x} ${sourcePort.y} C ${midX} ${sourcePort.y}, ${midX} ${targetPort.y}, ${targetPort.x} ${targetPort.y}`;
-			}
-
-			const midY = (sourcePort.y + targetPort.y) / 2;
-			return `M ${sourcePort.x} ${sourcePort.y} C ${sourcePort.x} ${midY}, ${targetPort.x} ${midY}, ${targetPort.x} ${targetPort.y}`;
+			return createSmartPath(sourcePort, targetPort);
 		},
 
 		/**
 		 * Get connection label position (midpoint of the path)
 		 */
 		getConnectionLabelPosition(pathData: string): { x: number; y: number } {
-			// Parse the path to get start and end points
-			// Path format: M x1 y1 C cx1 cy1, cx2 cy2, x2 y2
-			const match = pathData.match(/M\s+([\d.]+)\s+([\d.]+).*?([\d.]+)\s+([\d.]+)$/);
-			if (match) {
-				const x1 = parseFloat(match[1]);
-				const y1 = parseFloat(match[2]);
-				const x2 = parseFloat(match[3]);
-				const y2 = parseFloat(match[4]);
-				return {
-					x: (x1 + x2) / 2,
-					y: (y1 + y2) / 2 - 8 // Offset above the line
-				};
-			}
-			return { x: 0, y: 0 };
+			return getConnectionLabelPosition(pathData);
 		},
 
 		/**
@@ -4178,12 +3209,13 @@ const App = {
 		 */
 		getFlowLabel(flow: CamelFlowSemantic): string {
 			if (flow.conditionType === 'when') {
-				return `When: ${flow.expression || '(no condition)'}`;
+				const expr = flow.expression || this.t('app.eip-modeler.label.flowLabel.whenNoCondition', undefined, '(no condition)');
+				return this.t('app.eip-modeler.label.flowLabel.when', { expression: expr }, `When: ${expr}`);
 			}
 			if (flow.conditionType === 'otherwise') {
-				return 'Otherwise';
+				return this.t('app.eip-modeler.label.flowLabel.otherwise', undefined, 'Otherwise');
 			}
-			return 'Connection';
+			return this.t('app.eip-modeler.label.flowLabel.connection', undefined, 'Connection');
 		},
 
 		/**
@@ -4193,93 +3225,47 @@ const App = {
 			const props = semantic.properties;
 			switch (semantic.type) {
 				case 'from':
-					return props.uri || 'From';
+					return props.uri || this.t('app.eip-modeler.label.processorLabel.from', undefined, 'From');
 				case 'to':
-					return props.uri || 'To';
+					return props.uri || this.t('app.eip-modeler.label.processorLabel.to', undefined, 'To');
 				case 'toD':
-					return props.uri || 'To D';
+					return props.uri || this.t('app.eip-modeler.label.processorLabel.toD', undefined, 'To D');
 				case 'log':
-					return 'Log';
+					return this.t('app.eip-modeler.label.processorLabel.log', undefined, 'Log');
 				case 'setBody':
-					return 'Set Body';
+					return this.t('app.eip-modeler.label.processorLabel.setBody', undefined, 'Set Body');
 				case 'setHeader':
-					return props.name || 'Set Header';
+					return props.name || this.t('app.eip-modeler.label.processorLabel.setHeader', undefined, 'Set Header');
 				case 'choice':
-					return 'Choice';
+					return this.t('app.eip-modeler.label.processorLabel.choice', undefined, 'Choice');
 				case 'filter':
-					return 'Filter';
+					return this.t('app.eip-modeler.label.processorLabel.filter', undefined, 'Filter');
 				case 'split':
-					return 'Split';
+					return this.t('app.eip-modeler.label.processorLabel.split', undefined, 'Split');
 				case 'delay':
-					return `Delay ${props.constant || ''}ms`;
+					return this.t('app.eip-modeler.label.processorLabel.delayMs', { ms: props.constant || '' }, `Delay ${props.constant || ''}ms`);
 				case 'bean':
-					return props.ref || 'Bean';
+					return props.ref || this.t('app.eip-modeler.label.processorLabel.bean', undefined, 'Bean');
 				case 'stop':
-					return 'Stop';
+					return this.t('app.eip-modeler.label.processorLabel.stop', undefined, 'Stop');
 				case 'merge':
-					return 'Merge';
-				case 'onException':
+					return this.t('app.eip-modeler.label.processorLabel.merge', undefined, 'Merge');
+				case 'onException': {
 					const exceptions = props.exceptions || ['Exception'];
-					return `onException (${exceptions[0]?.split('.').pop() || 'Exception'})`;
+					const ex = exceptions[0]?.split('.').pop() || 'Exception';
+					return this.t('app.eip-modeler.label.processorLabel.onException', { exception: ex }, `onException (${ex})`);
+				}
 				default:
 					return semantic.type;
 			}
 		},
 
 		/**
-		 * Get short label for display on node
+		 * Get short label for display on node. Shared with the read-only canvas;
+		 * see lib/camel/engine.ts.
 		 */
 		getShortLabel(semantic: CamelProcessorSemantic): string {
-			const props = semantic.properties;
-			// User-authored step ID takes precedence — matches what
-			// MessageHistory will show in logs.
-			if (props.id) {
-				const idStr = String(props.id);
-				return idStr.length > 15 ? idStr.substring(0, 15) + '...' : idStr;
-			}
-			switch (semantic.type) {
-				case 'from':
-					const fromUri = props.uri || '';
-					return fromUri.length > 15 ? fromUri.substring(0, 15) + '...' : fromUri;
-				case 'to':
-				case 'toD': {
-					const toUri = props.uri || '';
-					return toUri.length > 12 ? toUri.substring(0, 12) + '...' : toUri;
-				}
-				case 'log':
-					return props.loggingLevel || 'INFO';
-				case 'setBody':
-					return props.simple ? '${...}' : 'Set Body';
-				case 'setHeader':
-					return props.name?.substring(0, 10) || 'Header';
-				case 'delay':
-					return `${props.constant || '1000'}ms`;
-				case 'bean':
-					return props.ref?.substring(0, 10) || 'Bean';
-				case 'merge':
-					return '';  // Merge node shows only the icon
-				case 'onException':
-					// Show the short class name of the first exception
-					const exceptions = props.exceptions || ['Exception'];
-					const firstEx = exceptions[0] || 'Exception';
-					const shortName = firstEx.split('.').pop() || firstEx;
-					return shortName.length > 12 ? shortName.substring(0, 12) + '...' : shortName;
-				case 'aggregate':
-					return props.correlationExpression ? props.correlationExpression.substring(0, 12) : 'Aggregate';
-				case 'transform':
-					return props.expression ? '${...}' : 'Transform';
-				case 'wireTap':
-				case 'enrich':
-				case 'pollEnrich':
-					const uri = props.uri || '';
-					return uri.length > 12 ? uri.substring(0, 12) + '...' : uri;
-				case 'filter':
-					return props.expression ? props.expression.substring(0, 12) : 'Filter';
-				case 'split':
-					return props.expression ? props.expression.substring(0, 12) : 'Split';
-				default:
-					return semantic.type;
-			}
+			return eipGetShortLabel(semantic);
 		},
 
 		/**
@@ -4321,14 +3307,14 @@ const App = {
 			if (!this.activeStore || !proc) return '';
 			const idVal = (proc.properties?.id || '').toString().trim();
 			if (!idVal) return '';
-			if (/\s/.test(idVal)) return 'ID must not contain whitespace';
+			if (/\s/.test(idVal)) return this.t('app.eip-modeler.error.idWhitespace', undefined, 'ID must not contain whitespace');
 			const route = this.getRouteRootOf(proc.id);
 			const dup = this.activeStore.getAllProcessors().some((p: CamelProcessorSemantic) =>
 				p.id !== proc.id &&
 				(p.properties?.id || '').toString().trim() === idVal &&
 				this.getRouteRootOf(p.id) === route
 			);
-			return dup ? `Duplicate ID '${idVal}' in this route` : '';
+			return dup ? this.t('app.eip-modeler.error.idDuplicate', { id: idVal }, `Duplicate ID '${idVal}' in this route`) : '';
 		},
 
 		/**
@@ -4351,41 +3337,41 @@ const App = {
 					case 'to':
 					case 'toD':
 					case 'wireTap':
-						if (!props.uri) errors.set(proc.id, 'URI is required');
+						if (!props.uri) errors.set(proc.id, this.t('app.eip-modeler.error.uriRequired', undefined, 'URI is required'));
 						break;
 					case 'log':
-						if (!props.message) errors.set(proc.id, 'Log message is required');
+						if (!props.message) errors.set(proc.id, this.t('app.eip-modeler.error.logMessageRequired', undefined, 'Log message is required'));
 						break;
 					case 'setHeader':
 					case 'setProperty':
 					case 'setVariable':
-						if (!props.name) errors.set(proc.id, 'Name is required');
+						if (!props.name) errors.set(proc.id, this.t('app.eip-modeler.error.nameRequired', undefined, 'Name is required'));
 						break;
 					case 'choice':
 						if (!outgoing.some((f: CamelFlowSemantic) => f.conditionType === 'when')) {
-							errors.set(proc.id, 'Choice requires at least one "When" branch');
+							errors.set(proc.id, this.t('app.eip-modeler.error.choiceRequiresWhen', undefined, 'Choice requires at least one "When" branch'));
 						}
 						break;
 					case 'aggregate':
-						if (!props.correlationExpression) errors.set(proc.id, 'Correlation Expression is required');
-						if (!props.aggregationStrategy) errors.set(proc.id, 'Aggregation Strategy is required');
+						if (!props.correlationExpression) errors.set(proc.id, this.t('app.eip-modeler.error.correlationExpressionRequired', undefined, 'Correlation Expression is required'));
+						if (!props.aggregationStrategy) errors.set(proc.id, this.t('app.eip-modeler.error.aggregationStrategyRequired', undefined, 'Aggregation Strategy is required'));
 						break;
 					case 'split':
 					case 'recipientList':
 					case 'filter':
-						if (!props.expression && !props.simple) errors.set(proc.id, 'Expression is required');
+						if (!props.expression && !props.simple) errors.set(proc.id, this.t('app.eip-modeler.error.expressionRequired', undefined, 'Expression is required'));
 						break;
 					case 'doTry':
 						if (!outgoing.some((f: CamelFlowSemantic) => f.role === 'catch')) {
-							errors.set(proc.id, 'doTry usually requires at least one "Catch" branch');
+							errors.set(proc.id, this.t('app.eip-modeler.error.doTryRequiresCatch', undefined, 'doTry usually requires at least one "Catch" branch'));
 						}
 						break;
 					case 'bean':
-						if (!props.ref && !props.beanType) errors.set(proc.id, 'Bean reference or type is required');
+						if (!props.ref && !props.beanType) errors.set(proc.id, this.t('app.eip-modeler.error.beanRefRequired', undefined, 'Bean reference or type is required'));
 						break;
 					case 'enrich':
 					case 'pollEnrich':
-						if (!props.uri) errors.set(proc.id, 'URI is required');
+						if (!props.uri) errors.set(proc.id, this.t('app.eip-modeler.error.uriRequired', undefined, 'URI is required'));
 						break;
 				}
 			});

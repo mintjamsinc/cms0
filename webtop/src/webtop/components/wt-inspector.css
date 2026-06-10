@@ -19,12 +19,29 @@ wt-inspector {
 }
 
 /* --- detail panel layout --- */
+/* The panel root is a plain (non-island) layout container: it stretches to the
+   host row's height and carries the fixed width. It deliberately has NO
+   backdrop-filter / overflow clip, so the confirmation dialogs parented here
+   (siblings of .detail-panel-frame) can break out of the side pane with
+   position: fixed. The frosted-glass island styling lives on the inner frame. */
 .detail-panel {
 	display: flex;
 	flex-direction: column;
 	user-select: text;
 	flex-shrink: 0;
 	position: relative;
+}
+
+/* Inner island frame: carries the design-system island look (translucent blur,
+   border, rounded corners) and clips its own scrolling content. Fills the panel
+   root. Kept separate from .detail-panel so .island's backdrop-filter — which
+   establishes a containing block for fixed-position descendants — does NOT trap
+   the confirmation dialogs (see the .dialog-overlay note below). */
+.detail-panel-frame {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
 }
 
 /* .detail-panel-overlay-active removed — sub-views replace content via v-if instead of stacking */
@@ -433,6 +450,21 @@ wt-inspector {
 .detail-action {
 	border-bottom: none;
 	padding-top: 0.75rem;
+}
+
+/* Confirmation dialogs for destructive quick actions (version restore,
+   cancel checkout). They reuse the design system's .dialog-overlay /
+   .dialog-frame structure. The base .dialog-overlay is position: absolute;
+   override it to fixed so the dialog centers over the whole app window,
+   exactly like the host apps' own dialogs.
+
+   This only escapes the side pane because these dialogs sit OUTSIDE
+   .detail-panel-frame (they are direct children of .detail-panel). The frame's
+   .island backdrop-filter establishes a containing block for fixed-position
+   descendants, so a .dialog-overlay placed inside the frame would be pinned to
+   the narrow pane instead of the viewport. Keep them as siblings of the frame. */
+.detail-panel .dialog-overlay {
+	position: fixed;
 }
 
 /* --- detail ACL summary --- */

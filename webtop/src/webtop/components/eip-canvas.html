@@ -1,0 +1,59 @@
+<template id="eip-canvas">
+	<div class="eip-canvas" :class="{ 'has-highlight': hasHighlight }" :data-theme="theme"
+		 @mounted.stop="onMounted" @unmount.stop="onUnmount">
+		<svg class="eip-canvas-svg" :class="{ panning: isPanning }"
+			 @mousedown="onPanStart" @wheel.prevent="onWheel">
+			<defs>
+				<marker id="eipc-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+						markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+					<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--eipc-connection-stroke)"/>
+				</marker>
+			</defs>
+
+			<g :transform="viewportTransform">
+				<!-- Connections -->
+				<g class="connections-layer">
+					<g v-for="link in links" :key="link.flowId">
+						<path class="connection-line" :d="link.path" marker-end="url(#eipc-arrow)"/>
+						<text v-if="link.label" class="connection-label" :class="link.labelClass"
+							  :x="link.labelX" :y="link.labelY">{{ link.label }}</text>
+					</g>
+				</g>
+
+				<!-- Nodes -->
+				<g v-for="node in nodes" :key="node.id" class="camel-element"
+				   :class="{ highlighted: node.highlighted }" :transform="node.transform">
+					<path v-if="node.kind === 'choice'" class="node-body choice" d="M50,0 L100,30 L50,60 L0,30 Z"/>
+					<path v-else-if="node.kind === 'merge'" class="node-body merge" d="M25,0 L50,25 L25,50 L0,25 Z"/>
+					<rect v-else class="node-body" :class="node.bodyClass"
+						  x="0" y="0" :width="node.w" :height="node.h" :rx="node.rx"/>
+
+					<use v-if="spriteHref && node.iconId" :href="spriteHref + '#' + node.iconId"
+						 x="0" y="0" :width="node.iconW" :height="node.iconH"/>
+
+					<text v-if="node.title" :class="node.titleClass" :x="node.titleX" :y="node.titleY"
+						  text-anchor="middle" font-weight="600">{{ node.title }}</text>
+					<text v-if="node.subLabel" class="node-label-light" :x="node.titleX" :y="node.subY"
+						  text-anchor="middle" font-size="9">{{ node.subLabel }}</text>
+				</g>
+			</g>
+		</svg>
+
+		<div v-if="isEmpty" class="eip-canvas-empty">
+			<i class="bi bi-bounding-box"></i> No route model
+		</div>
+
+		<!-- Zoom / fit controls (mirrors the EIP modeler's toolbar) -->
+		<div v-if="!isEmpty" class="eip-canvas-controls" @mousedown.stop @wheel.stop>
+			<button type="button" class="eip-canvas-btn" title="Zoom in" @click="zoomIn">
+				<i class="bi bi-zoom-in"></i>
+			</button>
+			<button type="button" class="eip-canvas-btn" title="Zoom out" @click="zoomOut">
+				<i class="bi bi-zoom-out"></i>
+			</button>
+			<button type="button" class="eip-canvas-btn" title="Fit to screen" @click="fit">
+				<i class="bi bi-arrows-fullscreen"></i>
+			</button>
+		</div>
+	</div>
+</template>

@@ -13,6 +13,7 @@ import {
 	createLocalizationSnapshot,
 	refreshLocalization,
 	handleLocalizationMessage,
+	translate,
 } from "../../composables/use-localization.js";
 
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
@@ -163,13 +164,13 @@ const App = {
 			availableLocales: [] as string[],
 			availableTimezones: [] as string[],
 			availableCurrencies: [
-				{ code: 'JPY', label: 'Japanese Yen (¥)' },
-				{ code: 'USD', label: 'US Dollar ($)' },
-				{ code: 'EUR', label: 'Euro (€)' },
-				{ code: 'GBP', label: 'British Pound (£)' },
-				{ code: 'CNY', label: 'Chinese Yuan (¥)' },
-				{ code: 'KRW', label: 'Korean Won (₩)' },
-			] as { code: string; label: string }[],
+				{ code: 'JPY', labelKey: 'app.preferences.currency.jpy' },
+				{ code: 'USD', labelKey: 'app.preferences.currency.usd' },
+				{ code: 'EUR', labelKey: 'app.preferences.currency.eur' },
+				{ code: 'GBP', labelKey: 'app.preferences.currency.gbp' },
+				{ code: 'CNY', labelKey: 'app.preferences.currency.cny' },
+				{ code: 'KRW', labelKey: 'app.preferences.currency.krw' },
+			] as { code: string; labelKey: string }[],
 			localizationMessage: '',
 			localizationMessageType: 'success',
 
@@ -368,11 +369,19 @@ const App = {
 			}
 		},
 
+		/**
+		 * Reactive i18n lookup. Reads the localization snapshot so every
+		 * `{{ t(...) }}` binding repaints the moment the user switches language
+		 * or an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
 		localeLabel(value: string): string {
-			return value ? nativeLocaleName(value) : 'Auto (browser language)';
+			return value ? nativeLocaleName(value) : this.t('app.preferences.localization.language.auto', undefined, 'Auto (browser language)');
 		},
 		timezoneLabel(value: string): string {
-			return value ? timezoneOptionLabel(value) : 'Auto (system time zone)';
+			return value ? timezoneOptionLabel(value) : this.t('app.preferences.localization.timezone.auto', undefined, 'Auto (system time zone)');
 		},
 		// The locale used to render localized names (country, etc.) in the
 		// selectors: the explicitly chosen language, else the effective
@@ -388,18 +397,18 @@ const App = {
 			return navigator.language || 'en';
 		},
 		numberFormatLabel(value: string): string {
-			return value ? numberFormatOptionLabel(value, this.currentDisplayLocale()) : 'Auto (use display language)';
+			return value ? numberFormatOptionLabel(value, this.currentDisplayLocale()) : this.t('app.preferences.localization.numberFormat.auto', undefined, 'Auto (use display language)');
 		},
 		currencyLabel(value: string): string {
-			if (!value) return 'Auto (derived from language)';
+			if (!value) return this.t('app.preferences.localization.currency.auto', undefined, 'Auto (derived from language)');
 			const found = this.availableCurrencies.find(c => c.code === value);
-			return found ? found.label : value;
+			return found ? this.t(found.labelKey) : value;
 		},
 
 		async openLocaleDropdown(event: MouseEvent) {
 			const vm = this;
 			const items = [
-				{ id: '__auto__', label: 'Auto (browser language)', selected: !vm.locale },
+				{ id: '__auto__', label: vm.t('app.preferences.localization.language.auto', undefined, 'Auto (browser language)'), selected: !vm.locale },
 				...vm.availableLocales.map(l => ({ id: l, label: nativeLocaleName(l), selected: l === vm.locale })),
 			];
 			const result = await vm.openSelectPopup(event, items);
@@ -410,7 +419,7 @@ const App = {
 		async openTimezoneDropdown(event: MouseEvent) {
 			const vm = this;
 			const items = [
-				{ id: '__auto__', label: 'Auto (system time zone)', selected: !vm.timezone },
+				{ id: '__auto__', label: vm.t('app.preferences.localization.timezone.auto', undefined, 'Auto (system time zone)'), selected: !vm.timezone },
 				...vm.availableTimezones.map(tz => ({ id: tz, label: timezoneOptionLabel(tz), selected: tz === vm.timezone })),
 			];
 			const result = await vm.openSelectPopup(event, items);
@@ -421,7 +430,7 @@ const App = {
 		async openNumberFormatDropdown(event: MouseEvent) {
 			const vm = this;
 			const items = [
-				{ id: '__auto__', label: 'Auto (use display language)', selected: !vm.numberFormat },
+				{ id: '__auto__', label: vm.t('app.preferences.localization.numberFormat.auto', undefined, 'Auto (use display language)'), selected: !vm.numberFormat },
 				...vm.availableLocales.map(l => ({ id: l, label: numberFormatOptionLabel(l, vm.currentDisplayLocale()), selected: l === vm.numberFormat })),
 			];
 			const result = await vm.openSelectPopup(event, items);
@@ -432,8 +441,8 @@ const App = {
 		async openCurrencyDropdown(event: MouseEvent) {
 			const vm = this;
 			const items = [
-				{ id: '__auto__', label: 'Auto (derived from language)', selected: !vm.currency },
-				...vm.availableCurrencies.map(c => ({ id: c.code, label: c.label, selected: c.code === vm.currency })),
+				{ id: '__auto__', label: vm.t('app.preferences.localization.currency.auto', undefined, 'Auto (derived from language)'), selected: !vm.currency },
+				...vm.availableCurrencies.map(c => ({ id: c.code, label: vm.t(c.labelKey), selected: c.code === vm.currency })),
 			];
 			const result = await vm.openSelectPopup(event, items);
 			if (result == null) return;
@@ -485,11 +494,11 @@ const App = {
 							currency: vm.currency,
 						},
 					});
-					vm.localizationMessage = 'Saved';
+					vm.localizationMessage = vm.t('app.preferences.msg.saved', undefined, 'Saved');
 					vm.localizationMessageType = 'success';
 				} catch (e) {
 					console.warn('[Preferences] Failed to save localization to server:', e);
-					vm.localizationMessage = 'Failed to save to server';
+					vm.localizationMessage = vm.t('app.preferences.msg.saveServerFailed', undefined, 'Failed to save to server');
 					vm.localizationMessageType = 'error';
 				}
 			}
@@ -624,9 +633,9 @@ const App = {
 		async deleteWallpaper(id: string) {
 			const vm = this;
 			vm.openConfirmDialog({
-				title: 'Delete Wallpaper',
-				message: 'This wallpaper will be removed from your catalog. Continue?',
-				confirmLabel: 'Delete',
+				title: vm.t('app.preferences.dialog.deleteWallpaperTitle', undefined, 'Delete Wallpaper'),
+				message: vm.t('app.preferences.dialog.deleteWallpaperMessage', undefined, 'This wallpaper will be removed from your catalog. Continue?'),
+				confirmLabel: vm.t('common.delete', undefined, 'Delete'),
 				danger: true,
 				iconClass: 'bi-exclamation-triangle-fill text-warning',
 				onConfirm: async () => {
@@ -686,8 +695,8 @@ const App = {
 			if (!file.type.startsWith('image/')) {
 				vm.openNotification({
 					kind: 'error',
-					title: 'Invalid File',
-					message: 'Only image files can be used as wallpapers.',
+					title: vm.t('app.preferences.dialog.invalidFileTitle', undefined, 'Invalid File'),
+					message: vm.t('app.preferences.dialog.invalidWallpaperMessage', undefined, 'Only image files can be used as wallpapers.'),
 				});
 				return;
 			}
@@ -729,8 +738,8 @@ const App = {
 				console.warn('[Preferences] wallpaper upload failed:', e);
 				vm.openNotification({
 					kind: 'error',
-					title: 'Upload Failed',
-					message: e?.message || 'Failed to upload wallpaper.',
+					title: vm.t('app.preferences.dialog.uploadFailedTitle', undefined, 'Upload Failed'),
+					message: e?.message || vm.t('app.preferences.dialog.uploadWallpaperFailed', undefined, 'Failed to upload wallpaper.'),
 				});
 			}
 		},
@@ -783,7 +792,7 @@ const App = {
 					vm.profileMessageType = 'error';
 				} else {
 					vm.originalDisplayName = vm.displayName;
-					vm.profileMessage = 'Display name updated.';
+					vm.profileMessage = vm.t('app.preferences.msg.displayNameUpdated', undefined, 'Display name updated.');
 					vm.profileMessageType = 'success';
 					vm.instance.api.webtop.postMessage({ type: 'profile-changed', displayName: vm.displayName });
 					vm.idp.updatePreferences({
@@ -793,7 +802,7 @@ const App = {
 					}).catch(e => console.warn('[Preferences] Failed to sync display name:', e));
 				}
 			} catch (e: any) {
-				vm.profileMessage = e.message || 'Failed to save.';
+				vm.profileMessage = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
 				vm.profileMessageType = 'error';
 			} finally {
 				vm.profileSaving = false;
@@ -847,12 +856,12 @@ const App = {
 		async uploadAvatarFile(file: File) {
 			const vm = this;
 			if (file.size > MAX_AVATAR_SIZE) {
-				vm.profileMessage = 'File is too large. Maximum size is 2MB.';
+				vm.profileMessage = vm.t('app.preferences.msg.fileTooLarge', undefined, 'File is too large. Maximum size is 2MB.');
 				vm.profileMessageType = 'error';
 				return;
 			}
 			if (!AVATAR_ACCEPTED_TYPES.test(file.type)) {
-				vm.profileMessage = 'Only JPG, PNG, and GIF files are allowed.';
+				vm.profileMessage = vm.t('app.preferences.msg.invalidImageType', undefined, 'Only JPG, PNG, and GIF files are allowed.');
 				vm.profileMessageType = 'error';
 				return;
 			}
@@ -881,12 +890,12 @@ const App = {
 					vm.avatarURL = `${avatarNode.downloadUrl}?t=${ts}`;
 				}
 
-				vm.profileMessage = 'Profile photo updated.';
+				vm.profileMessage = vm.t('app.preferences.msg.photoUpdated', undefined, 'Profile photo updated.');
 				vm.profileMessageType = 'success';
 
 				vm.instance.api.webtop.postMessage({ type: 'avatar-changed' });
 			} catch (e: any) {
-				vm.profileMessage = e.message || 'Failed to upload photo.';
+				vm.profileMessage = e.message || vm.t('app.preferences.msg.photoUploadFailed', undefined, 'Failed to upload photo.');
 				vm.profileMessageType = 'error';
 			} finally {
 				vm.profileSaving = false;
@@ -898,9 +907,9 @@ const App = {
 			const username = vm.instance?.currentUser?.id;
 			if (!username) return;
 			vm.openConfirmDialog({
-				title: 'Remove Profile Photo',
-				message: 'Your profile photo will be removed. Continue?',
-				confirmLabel: 'Remove',
+				title: vm.t('app.preferences.dialog.removePhotoTitle', undefined, 'Remove Profile Photo'),
+				message: vm.t('app.preferences.dialog.removePhotoMessage', undefined, 'Your profile photo will be removed. Continue?'),
+				confirmLabel: vm.t('common.remove', undefined, 'Remove'),
 				danger: true,
 				iconClass: 'bi-exclamation-triangle-fill text-warning',
 				onConfirm: async () => {
@@ -909,11 +918,11 @@ const App = {
 					try {
 						await vm.instance.api.systemContent.deleteNode(`/home/users/${username}/avatar`);
 						vm.avatarURL = null;
-						vm.profileMessage = 'Profile photo removed.';
+						vm.profileMessage = vm.t('app.preferences.msg.photoRemoved', undefined, 'Profile photo removed.');
 						vm.profileMessageType = 'success';
 						vm.instance.api.webtop.postMessage({ type: 'avatar-changed' });
 					} catch (e: any) {
-						vm.profileMessage = e.message || 'Failed to remove photo.';
+						vm.profileMessage = e.message || vm.t('app.preferences.msg.photoRemoveFailed', undefined, 'Failed to remove photo.');
 						vm.profileMessageType = 'error';
 					} finally {
 						vm.profileSaving = false;
@@ -972,8 +981,8 @@ const App = {
 			if (!ACCEPTED_IMAGE_TYPES.test(mime) && !mime.startsWith('image/')) {
 				vm.openNotification({
 					kind: 'error',
-					title: 'Invalid File',
-					message: 'Only image files can be used here.',
+					title: vm.t('app.preferences.dialog.invalidFileTitle', undefined, 'Invalid File'),
+					message: vm.t('app.preferences.dialog.invalidImageHereMessage', undefined, 'Only image files can be used here.'),
 				});
 				return null;
 			}
@@ -992,7 +1001,7 @@ const App = {
 			if (!vm.canChangePassword) return;
 
 			if (vm.passwordForm.newPassword !== vm.passwordForm.confirm) {
-				vm.passwordMessage = 'Passwords do not match.';
+				vm.passwordMessage = vm.t('app.preferences.msg.passwordsNoMatch', undefined, 'Passwords do not match.');
 				vm.passwordMessageType = 'error';
 				return;
 			}
@@ -1015,11 +1024,11 @@ const App = {
 					vm.passwordForm.current = '';
 					vm.passwordForm.newPassword = '';
 					vm.passwordForm.confirm = '';
-					vm.passwordMessage = 'Password changed successfully.';
+					vm.passwordMessage = vm.t('app.preferences.msg.passwordChanged', undefined, 'Password changed successfully.');
 					vm.passwordMessageType = 'success';
 				}
 			} catch (e: any) {
-				vm.passwordMessage = e.message || 'Failed to change password.';
+				vm.passwordMessage = e.message || vm.t('app.preferences.msg.passwordChangeFailed', undefined, 'Failed to change password.');
 				vm.passwordMessageType = 'error';
 			} finally {
 				vm.passwordSaving = false;
@@ -1048,9 +1057,9 @@ const App = {
 		confirmDeleteSession(session: { id: string; displayName: string }) {
 			const vm = this;
 			vm.openConfirmDialog({
-				title: 'Delete Session',
-				message: `Delete saved session "${session.displayName}"?`,
-				confirmLabel: 'Delete',
+				title: vm.t('app.preferences.dialog.deleteSessionTitle', undefined, 'Delete Session'),
+				message: vm.t('app.preferences.dialog.deleteSessionMessage', { name: session.displayName }),
+				confirmLabel: vm.t('common.delete', undefined, 'Delete'),
 				danger: true,
 				iconClass: 'bi-exclamation-triangle-fill text-warning',
 				onConfirm: () => vm.deleteSession(session.id),
@@ -1062,10 +1071,10 @@ const App = {
 			try {
 				await vm.instance.api.session.deleteSession(id);
 				vm.sessionList = vm.sessionList.filter((s: any) => s.id !== id);
-				vm.sessionMessage = 'Session deleted.';
+				vm.sessionMessage = vm.t('app.preferences.msg.sessionDeleted', undefined, 'Session deleted.');
 				vm.sessionMessageType = 'success';
 			} catch (e: any) {
-				vm.sessionMessage = e.message || 'Failed to delete session.';
+				vm.sessionMessage = e.message || vm.t('app.preferences.msg.sessionDeleteFailed', undefined, 'Failed to delete session.');
 				vm.sessionMessageType = 'error';
 			}
 		},
@@ -1084,7 +1093,7 @@ const App = {
 		}) {
 			this.confirmDialog.title = opts.title;
 			this.confirmDialog.message = opts.message;
-			this.confirmDialog.confirmLabel = opts.confirmLabel || 'OK';
+			this.confirmDialog.confirmLabel = opts.confirmLabel || this.t('common.ok', undefined, 'OK');
 			this.confirmDialog.iconClass = opts.iconClass || 'bi-question-circle';
 			this.confirmDialog.danger = !!opts.danger;
 			this.confirmDialog.onConfirm = opts.onConfirm;

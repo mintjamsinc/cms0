@@ -22,15 +22,15 @@
 			<!-- Left: section toggle (Users / Groups / Roles) -->
 			<div class="toolbar-group">
 				<button class="btn-icon section-toggle" :class="{active: activeSection === 'users'}"
-					@click="switchSection('users')" title="Users">
+					@click="switchSection('users')" :title="t('app.identity-manager.tab.users', undefined, 'Users')">
 					<i class="bi bi-people"></i>
 				</button>
 				<button class="btn-icon section-toggle" :class="{active: activeSection === 'groups'}"
-					@click="switchSection('groups')" title="Groups">
+					@click="switchSection('groups')" :title="t('app.identity-manager.tab.groups', undefined, 'Groups')">
 					<i class="bi bi-diagram-3"></i>
 				</button>
 				<button class="btn-icon section-toggle" :class="{active: activeSection === 'roles'}"
-					@click="switchSection('roles')" title="Roles">
+					@click="switchSection('roles')" :title="t('app.identity-manager.tab.roles', undefined, 'Roles')">
 					<i class="bi bi-shield"></i>
 				</button>
 			</div>
@@ -40,7 +40,7 @@
 				<button class="btn-icon" @click="showCreateDialog" :title="newActionTitle">
 					<i class="bi bi-plus-lg"></i>
 				</button>
-				<button class="btn-icon" @click="refresh" title="Refresh">
+				<button class="btn-icon" @click="refresh" :title="t('app.identity-manager.action.refresh', undefined, 'Refresh')">
 					<i class="bi bi-arrow-clockwise"></i>
 				</button>
 			</div>
@@ -50,20 +50,20 @@
 			<!-- Right: Pane Toggle -->
 			<div class="pane-toggles">
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
-					@click="toggleSidebarPanel" title="Toggle Sidebar">
+					@click="toggleSidebarPanel" :title="t('app.identity-manager.action.toggleSidebar', undefined, 'Toggle Sidebar')">
 					<i class="bi bi-layout-sidebar-inset"></i>
 				</button>
 			</div>
 
 			<!-- Right: Window Controls -->
 			<div class="window-controls">
-				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('app.identity-manager.action.minimize', undefined, 'Minimize')">
 					<i class="bi bi-dash-lg"></i>
 				</button>
-				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('app.identity-manager.action.maximize', undefined, 'Maximize')">
 					<i class="bi bi-square"></i>
 				</button>
-				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('app.identity-manager.action.close', undefined, 'Close')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -84,7 +84,7 @@
 							@input="onSearchInput"
 							:placeholder="searchPlaceholder">
 						<div v-if="currentSearchQuery" class="input-group-actions">
-							<button class="input-group-btn" @click="clearSearch" title="Clear">
+							<button class="input-group-btn" @click="clearSearch" :title="t('app.identity-manager.action.clear', undefined, 'Clear')">
 								<i class="bi bi-x"></i>
 							</button>
 						</div>
@@ -101,11 +101,11 @@
 							<div class="list-item-key">{{ u.displayName || u.username }}</div>
 							<div class="list-item-sub">{{ u.username }}</div>
 						</div>
-						<span v-if="u.isService" class="service-badge">Service</span>
-						<span v-if="!u.enabled" class="disabled-badge">Disabled</span>
+						<span v-if="u.isService" class="service-badge">{{ t('app.identity-manager.user.serviceBadge', undefined, 'Service') }}</span>
+						<span v-if="!u.enabled" class="disabled-badge">{{ t('app.identity-manager.status.disabled', undefined, 'Disabled') }}</span>
 					</div>
 					<div v-if="displayedUsers.length === 0" class="list-empty-message">
-						No users found
+						{{ t('app.identity-manager.empty.users', undefined, 'No users found') }}
 					</div>
 				</div>
 
@@ -126,7 +126,7 @@
 						<span class="tree-node-label">{{ node.displayName || node.name }}</span>
 					</div>
 					<div v-if="filteredGroupTree.length === 0" class="list-empty-message">
-						No groups found
+						{{ t('app.identity-manager.empty.groups', undefined, 'No groups found') }}
 					</div>
 				</div>
 
@@ -147,7 +147,7 @@
 						<span class="tree-node-label">{{ node.displayName || node.name }}</span>
 					</div>
 					<div v-if="filteredRoleTree.length === 0" class="list-empty-message">
-						No roles found
+						{{ t('app.identity-manager.empty.roles', undefined, 'No roles found') }}
 					</div>
 				</div>
 			</div>
@@ -170,17 +170,17 @@
 								<div class="detail-tab" :class="{ active: userSubTab === 'profile' }"
 									@click="userSubTab = 'profile'">
 									<i class="bi bi-person"></i>
-									<span>Profile</span>
+									<span>{{ t('app.identity-manager.user.tab.profile', undefined, 'Profile') }}</span>
 								</div>
 								<div class="detail-tab" :class="{ active: userSubTab === 'security' }"
 									@click="userSubTab = 'security'">
 									<i class="bi bi-shield-lock"></i>
-									<span>Security</span>
+									<span>{{ t('app.identity-manager.user.tab.security', undefined, 'Security') }}</span>
 								</div>
 								<div class="detail-tab" :class="{ active: userSubTab === 'membership' }"
 									@click="userSubTab = 'membership'">
 									<i class="bi bi-diagram-3"></i>
-									<span>Membership</span>
+									<span>{{ t('app.identity-manager.user.tab.membership', undefined, 'Membership') }}</span>
 								</div>
 							</div>
 						</div>
@@ -191,57 +191,57 @@
 							<!-- Profile sub-tab -->
 							<template v-if="userSubTab === 'profile'">
 								<div class="property-group">
-									<div class="property-group-title">User Information</div>
+									<div class="property-group-title">{{ t('app.identity-manager.user.infoTitle', undefined, 'User Information') }}</div>
 									<div v-if="selectedUser.isService" class="service-note">
-										<i class="bi bi-robot me-1"></i>Service account — a non-interactive identity used by integrations (via runAs). It has no password and can never sign in.
+										<i class="bi bi-robot me-1"></i>{{ t('app.identity-manager.user.serviceNote', undefined, 'Service account — a non-interactive identity used by integrations (via runAs). It has no password and can never sign in.') }}
 									</div>
 									<div class="form-row">
 										<div class="property-row half">
-											<label class="property-label">Username</label>
+											<label class="property-label">{{ t('app.identity-manager.field.username', undefined, 'Username') }}</label>
 											<input type="text" class="wt w-100" :value="selectedUser.username" disabled>
 										</div>
 										<div class="property-row half">
-											<label class="property-label">Email</label>
+											<label class="property-label">{{ t('app.identity-manager.field.email', undefined, 'Email') }}</label>
 											<input type="email" class="wt w-100" v-model="editForm.mail">
 										</div>
 									</div>
 									<div class="form-row">
 										<div class="property-row half">
-											<label class="property-label">Family Name (sn)</label>
+											<label class="property-label">{{ t('app.identity-manager.field.familyName', undefined, 'Family Name (sn)') }}</label>
 											<input type="text" class="wt w-100" v-model="editForm.sn">
 										</div>
 										<div class="property-row half">
-											<label class="property-label">Given Name</label>
+											<label class="property-label">{{ t('app.identity-manager.field.givenName', undefined, 'Given Name') }}</label>
 											<input type="text" class="wt w-100" v-model="editForm.givenName">
 										</div>
 									</div>
 									<div class="form-row">
 										<div class="property-row half">
-											<label class="property-label">Display Name</label>
+											<label class="property-label">{{ t('app.identity-manager.field.displayName', undefined, 'Display Name') }}</label>
 											<input type="text" class="wt w-100" v-model="editForm.displayName">
 										</div>
 										<div class="property-row half">
-											<label class="property-label">Status</label>
+											<label class="property-label">{{ t('app.identity-manager.field.status', undefined, 'Status') }}</label>
 											<label class="wt-checkbox-label">
 												<input type="checkbox" class="wt" v-model="editForm.enabled">
-												<span>Enabled</span>
+												<span>{{ t('app.identity-manager.status.enabled', undefined, 'Enabled') }}</span>
 											</label>
 										</div>
 									</div>
 								</div>
 
 								<div class="property-group">
-									<div class="property-group-title">Actions</div>
+									<div class="property-group-title">{{ t('app.identity-manager.section.actions', undefined, 'Actions') }}</div>
 									<div class="form-actions">
 										<button class="wt wt-primary" @click="saveUser">
-											<i class="bi bi-check-lg me-1"></i>Save
+											<i class="bi bi-check-lg me-1"></i>{{ t('app.identity-manager.action.save', undefined, 'Save') }}
 										</button>
 										<button v-if="!isProtectedSelectedUser" class="wt wt-danger wt-outlined" @click="confirmDeleteUser">
-											<i class="bi bi-trash me-1"></i>Delete
+											<i class="bi bi-trash me-1"></i>{{ t('app.identity-manager.action.delete', undefined, 'Delete') }}
 										</button>
 									</div>
 									<div class="timestamp-line" v-if="selectedUser.created">
-										Created: {{ formatDate(selectedUser.created) }}<span v-if="selectedUser.lastModified"> · Modified: {{ formatDate(selectedUser.lastModified) }}</span><span v-if="selectedUser.lastLogin"> · Last login: {{ formatDate(selectedUser.lastLogin) }}</span>
+										{{ t('app.identity-manager.field.created', undefined, 'Created') }}: {{ formatDate(selectedUser.created) }}<span v-if="selectedUser.lastModified"> · {{ t('app.identity-manager.field.modified', undefined, 'Modified') }}: {{ formatDate(selectedUser.lastModified) }}</span><span v-if="selectedUser.lastLogin"> · {{ t('app.identity-manager.field.lastLogin', undefined, 'Last login') }}: {{ formatDate(selectedUser.lastLogin) }}</span>
 									</div>
 								</div>
 							</template>
@@ -249,7 +249,7 @@
 							<!-- Security sub-tab -->
 							<template v-if="userSubTab === 'security'">
 								<div class="property-group">
-									<div class="property-group-title">Roles</div>
+									<div class="property-group-title">{{ t('app.identity-manager.user.rolesTitle', undefined, 'Roles') }}</div>
 									<div v-if="allRolesFlat.length > 0" class="role-check-list">
 										<label v-for="r in allRolesFlat" :key="r.roleId" class="role-check-row wt-checkbox-label"
 											:style="{ paddingLeft: (r.depth * 1.25) + 'rem' }">
@@ -260,29 +260,29 @@
 											<span class="role-id-hint">{{ r.roleId }}</span>
 										</label>
 									</div>
-									<div v-if="allRolesFlat.length === 0" class="text-muted">No roles defined</div>
+									<div v-if="allRolesFlat.length === 0" class="text-muted">{{ t('app.identity-manager.empty.rolesDefined', undefined, 'No roles defined') }}</div>
 									<div class="form-actions">
 										<button class="wt wt-primary" @click="saveUser">
-											<i class="bi bi-check-lg me-1"></i>Save Role Changes
+											<i class="bi bi-check-lg me-1"></i>{{ t('app.identity-manager.user.saveRoleChanges', undefined, 'Save Role Changes') }}
 										</button>
 									</div>
 								</div>
 
 								<!-- Service accounts have no password and can never sign in. -->
 								<div class="property-group" v-if="!selectedUser.isService">
-									<div class="property-group-title">Password</div>
+									<div class="property-group-title">{{ t('app.identity-manager.field.password', undefined, 'Password') }}</div>
 									<div class="form-row">
 										<div class="property-row half">
-											<label class="property-label">New Password</label>
+											<label class="property-label">{{ t('app.identity-manager.field.newPassword', undefined, 'New Password') }}</label>
 											<input type="password" class="wt w-100" v-model="passwordForm.newPassword"
-												placeholder="New password">
+												:placeholder="t('app.identity-manager.field.newPasswordPlaceholder', undefined, 'New password')">
 										</div>
 									</div>
 									<div class="form-actions">
 										<button class="wt wt-primary wt-outlined"
 											@click="resetUserPassword"
 											:disabled="!passwordForm.newPassword">
-											<i class="bi bi-key me-1"></i>Reset Password
+											<i class="bi bi-key me-1"></i>{{ t('app.identity-manager.action.resetPassword', undefined, 'Reset Password') }}
 										</button>
 									</div>
 								</div>
@@ -291,20 +291,20 @@
 							<!-- Membership sub-tab -->
 							<template v-if="userSubTab === 'membership'">
 								<div class="property-group">
-									<div class="property-group-title">Direct Group Memberships</div>
+									<div class="property-group-title">{{ t('app.identity-manager.user.directMemberships', undefined, 'Direct Group Memberships') }}</div>
 									<div v-if="selectedUser.memberOf && selectedUser.memberOf.length > 0" class="chip-list">
 										<span v-for="g in selectedUser.memberOf" :key="g.groupId" class="chip">
 											<i class="bi bi-diagram-2"></i>
 											<span>{{ g.displayName || g.groupId }}</span>
 											<button class="chip-remove"
-												@click="removeUserFromGroup(g.groupId)" title="Remove">×</button>
+												@click="removeUserFromGroup(g.groupId)" :title="t('app.identity-manager.action.remove', undefined, 'Remove')">×</button>
 										</span>
 									</div>
-									<div v-else class="text-muted">No group memberships</div>
+									<div v-else class="text-muted">{{ t('app.identity-manager.empty.memberships', undefined, 'No group memberships') }}</div>
 								</div>
 
 								<div class="property-group" v-if="selectedUser.effectiveGroups && selectedUser.effectiveGroups.length > 0">
-									<div class="property-group-title">Effective Groups (including ancestors)</div>
+									<div class="property-group-title">{{ t('app.identity-manager.user.effectiveGroups', undefined, 'Effective Groups (including ancestors)') }}</div>
 									<div class="chip-list">
 										<span v-for="g in selectedUser.effectiveGroups" :key="g.groupId" class="chip muted">
 											<i class="bi bi-diagram-2"></i>
@@ -317,7 +317,7 @@
 					</template>
 					<div v-else class="content-empty">
 						<i class="bi bi-person-circle"></i>
-						<span>Select a user to view details</span>
+						<span>{{ t('app.identity-manager.empty.selectUser', undefined, 'Select a user to view details') }}</span>
 					</div>
 				</template>
 
@@ -332,12 +332,12 @@
 								<div class="detail-tab" :class="{ active: groupSubTab === 'info' }"
 									@click="groupSubTab = 'info'">
 									<i class="bi bi-info-circle"></i>
-									<span>Information</span>
+									<span>{{ t('app.identity-manager.group.tab.info', undefined, 'Information') }}</span>
 								</div>
 								<div class="detail-tab" :class="{ active: groupSubTab === 'members' }"
 									@click="groupSubTab = 'members'">
 									<i class="bi bi-people"></i>
-									<span>Members</span>
+									<span>{{ t('app.identity-manager.group.tab.members', undefined, 'Members') }}</span>
 								</div>
 							</div>
 						</div>
@@ -348,50 +348,50 @@
 							<!-- Info sub-tab -->
 							<template v-if="groupSubTab === 'info'">
 								<div class="property-group">
-									<div class="property-group-title">Group Information</div>
+									<div class="property-group-title">{{ t('app.identity-manager.group.infoTitle', undefined, 'Group Information') }}</div>
 									<div class="property-row">
-										<label class="property-label">Group ID (path)</label>
+										<label class="property-label">{{ t('app.identity-manager.group.groupIdPath', undefined, 'Group ID (path)') }}</label>
 										<input type="text" class="wt w-100" :value="selectedGroup.groupId" disabled>
 									</div>
 									<div class="form-row">
 										<div class="property-row half">
-											<label class="property-label">Display Name</label>
+											<label class="property-label">{{ t('app.identity-manager.field.displayName', undefined, 'Display Name') }}</label>
 											<input type="text" class="wt w-100" v-model="groupEditForm.displayName">
 										</div>
 										<div class="property-row half">
-											<label class="property-label">Depth</label>
+											<label class="property-label">{{ t('app.identity-manager.field.depth', undefined, 'Depth') }}</label>
 											<input type="text" class="wt w-100" :value="selectedGroup.depth" disabled>
 										</div>
 									</div>
 									<div class="property-row">
-										<label class="property-label">Description</label>
+										<label class="property-label">{{ t('app.identity-manager.field.description', undefined, 'Description') }}</label>
 										<textarea class="wt w-100" rows="2" v-model="groupEditForm.description"></textarea>
 									</div>
 								</div>
 
 								<div class="property-group">
-									<div class="property-group-title">Ancestors</div>
+									<div class="property-group-title">{{ t('app.identity-manager.field.ancestors', undefined, 'Ancestors') }}</div>
 									<div v-if="selectedGroup.ancestors && selectedGroup.ancestors.length > 0" class="chip-list">
 										<span v-for="a in selectedGroup.ancestors" :key="a.groupId" class="chip muted">
 											<i class="bi bi-diagram-2"></i>
 											<span>{{ a.displayName || a.groupId }}</span>
 										</span>
 									</div>
-									<div v-else class="text-muted">This is a root-level group.</div>
+									<div v-else class="text-muted">{{ t('app.identity-manager.group.rootLevelNote', undefined, 'This is a root-level group.') }}</div>
 								</div>
 
 								<div class="property-group">
-									<div class="property-group-title">Actions</div>
+									<div class="property-group-title">{{ t('app.identity-manager.section.actions', undefined, 'Actions') }}</div>
 									<div class="form-actions">
 										<button class="wt wt-primary" @click="saveGroup">
-											<i class="bi bi-check-lg me-1"></i>Save
+											<i class="bi bi-check-lg me-1"></i>{{ t('app.identity-manager.action.save', undefined, 'Save') }}
 										</button>
 										<button v-if="!isProtectedSelectedGroup" class="wt wt-danger wt-outlined" @click="confirmDeleteGroup">
-											<i class="bi bi-trash me-1"></i>Delete
+											<i class="bi bi-trash me-1"></i>{{ t('app.identity-manager.action.delete', undefined, 'Delete') }}
 										</button>
 									</div>
 									<div class="timestamp-line" v-if="selectedGroup.created">
-										Created: {{ formatDate(selectedGroup.created) }}<span v-if="selectedGroup.lastModified"> · Modified: {{ formatDate(selectedGroup.lastModified) }}</span>
+										{{ t('app.identity-manager.field.created', undefined, 'Created') }}: {{ formatDate(selectedGroup.created) }}<span v-if="selectedGroup.lastModified"> · {{ t('app.identity-manager.field.modified', undefined, 'Modified') }}: {{ formatDate(selectedGroup.lastModified) }}</span>
 									</div>
 								</div>
 							</template>
@@ -399,32 +399,32 @@
 							<!-- Members sub-tab -->
 							<template v-if="groupSubTab === 'members'">
 								<div class="property-group">
-									<div class="property-group-title">Direct Members ({{ groupMembers.length }})</div>
+									<div class="property-group-title">{{ t('app.identity-manager.group.directMembers', { count: groupMembers.length }, 'Direct Members (' + groupMembers.length + ')') }}</div>
 									<div v-if="groupMembers.length > 0" class="member-list">
 										<div v-for="m in groupMembers" :key="m.username" class="member-row">
 											<i class="bi bi-person"></i>
 											<span class="member-name">{{ m.displayName || m.username }}</span>
 											<span class="member-username">{{ m.username }}</span>
 											<button class="btn-icon" @click="removeGroupMember(m.username)"
-												title="Remove member">
+												:title="t('app.identity-manager.action.removeMember', undefined, 'Remove member')">
 												<i class="bi bi-x-lg"></i>
 											</button>
 										</div>
 									</div>
-									<div v-else class="text-muted">No direct members</div>
+									<div v-else class="text-muted">{{ t('app.identity-manager.empty.directMembers', undefined, 'No direct members') }}</div>
 								</div>
 
 								<div class="property-group">
-									<div class="property-group-title">Add Members</div>
+									<div class="property-group-title">{{ t('app.identity-manager.group.addMembers', undefined, 'Add Members') }}</div>
 									<div class="member-search">
 										<div class="input-group">
 											<input type="text" class="wt"
 												v-model="memberSearchQuery"
 												@input="searchMemberCandidates"
 												@keydown="handleMemberSearchKeydown"
-												placeholder="Search by name, username, or email...">
+												:placeholder="t('app.identity-manager.group.memberSearchPlaceholder', undefined, 'Search by name, username, or email...')">
 											<div v-if="memberSearchQuery" class="input-group-actions">
-												<button class="input-group-btn" @click="clearMemberSearch" title="Clear">
+												<button class="input-group-btn" @click="clearMemberSearch" :title="t('app.identity-manager.action.clear', undefined, 'Clear')">
 													<i class="bi bi-x"></i>
 												</button>
 											</div>
@@ -444,8 +444,8 @@
 														{{ c.username }}<span v-if="c.mail"> · {{ c.mail }}</span>
 													</div>
 												</div>
-												<span v-if="c.alreadyMember" class="member-suggestion-tag">Added</span>
-												<span v-else-if="c.staged" class="member-suggestion-tag">Selected</span>
+												<span v-if="c.alreadyMember" class="member-suggestion-tag">{{ t('app.identity-manager.group.memberAdded', undefined, 'Added') }}</span>
+												<span v-else-if="c.staged" class="member-suggestion-tag">{{ t('app.identity-manager.group.memberSelected', undefined, 'Selected') }}</span>
 											</div>
 										</div>
 									</div>
@@ -454,13 +454,13 @@
 										<span v-for="s in stagedMembers" :key="s.username" class="chip">
 											<i class="bi bi-person"></i>
 											<span>{{ s.displayName || s.username }}</span>
-											<button class="chip-remove" @click="unstageCandidate(s)" title="Remove">×</button>
+											<button class="chip-remove" @click="unstageCandidate(s)" :title="t('app.identity-manager.action.remove', undefined, 'Remove')">×</button>
 										</span>
 									</div>
 
 									<div v-if="stagedMembers.length > 0" class="form-actions">
 										<button class="wt wt-primary" @click="addStagedMembers">
-											<i class="bi bi-person-plus me-1"></i>Add {{ stagedMembers.length }} Member(s)
+											<i class="bi bi-person-plus me-1"></i>{{ t('app.identity-manager.group.addNMembers', { count: stagedMembers.length }, 'Add ' + stagedMembers.length + ' Member(s)') }}
 										</button>
 									</div>
 								</div>
@@ -469,7 +469,7 @@
 					</template>
 					<div v-else class="content-empty">
 						<i class="bi bi-diagram-2"></i>
-						<span>Select a group to view details</span>
+						<span>{{ t('app.identity-manager.empty.selectGroup', undefined, 'Select a group to view details') }}</span>
 					</div>
 				</template>
 
@@ -483,7 +483,7 @@
 							<div class="detail-tabs">
 								<div class="detail-tab active">
 									<i class="bi bi-info-circle"></i>
-									<span>Information</span>
+									<span>{{ t('app.identity-manager.role.tab.info', undefined, 'Information') }}</span>
 								</div>
 							</div>
 						</div>
@@ -491,57 +491,57 @@
 						<!-- Body -->
 						<div class="content-form">
 							<div class="property-group">
-								<div class="property-group-title">Role Information</div>
+								<div class="property-group-title">{{ t('app.identity-manager.role.infoTitle', undefined, 'Role Information') }}</div>
 								<div class="property-row">
-									<label class="property-label">Role ID (path)</label>
+									<label class="property-label">{{ t('app.identity-manager.role.roleIdPath', undefined, 'Role ID (path)') }}</label>
 									<input type="text" class="wt w-100" :value="selectedRole.roleId" disabled>
 								</div>
 								<div class="form-row">
 									<div class="property-row half">
-										<label class="property-label">Display Name</label>
+										<label class="property-label">{{ t('app.identity-manager.field.displayName', undefined, 'Display Name') }}</label>
 										<input type="text" class="wt w-100" v-model="roleEditForm.displayName">
 									</div>
 									<div class="property-row half">
-										<label class="property-label">Depth</label>
+										<label class="property-label">{{ t('app.identity-manager.field.depth', undefined, 'Depth') }}</label>
 										<input type="text" class="wt w-100" :value="selectedRole.depth" disabled>
 									</div>
 								</div>
 								<div class="property-row">
-									<label class="property-label">Description</label>
+									<label class="property-label">{{ t('app.identity-manager.field.description', undefined, 'Description') }}</label>
 									<textarea class="wt w-100" rows="2" v-model="roleEditForm.description"></textarea>
 								</div>
 							</div>
 
 							<div class="property-group">
-								<div class="property-group-title">Ancestors</div>
+								<div class="property-group-title">{{ t('app.identity-manager.field.ancestors', undefined, 'Ancestors') }}</div>
 								<div v-if="selectedRole.ancestors && selectedRole.ancestors.length > 0" class="chip-list">
 									<span v-for="a in selectedRole.ancestors" :key="a.roleId" class="chip muted">
 										<i class="bi bi-shield"></i>
 										<span>{{ a.displayName || a.roleId }}</span>
 									</span>
 								</div>
-								<div v-else class="text-muted">This is a root-level role.</div>
+								<div v-else class="text-muted">{{ t('app.identity-manager.role.rootLevelNote', undefined, 'This is a root-level role.') }}</div>
 							</div>
 
 							<div class="property-group">
-								<div class="property-group-title">Actions</div>
+								<div class="property-group-title">{{ t('app.identity-manager.section.actions', undefined, 'Actions') }}</div>
 								<div class="form-actions">
 									<button class="wt wt-primary" @click="saveRole">
-										<i class="bi bi-check-lg me-1"></i>Save
+										<i class="bi bi-check-lg me-1"></i>{{ t('app.identity-manager.action.save', undefined, 'Save') }}
 									</button>
 									<button class="wt wt-danger wt-outlined" @click="confirmDeleteRole">
-										<i class="bi bi-trash me-1"></i>Delete
+										<i class="bi bi-trash me-1"></i>{{ t('app.identity-manager.action.delete', undefined, 'Delete') }}
 									</button>
 								</div>
 								<div class="timestamp-line" v-if="selectedRole.created">
-									Created: {{ formatDate(selectedRole.created) }}<span v-if="selectedRole.lastModified"> · Modified: {{ formatDate(selectedRole.lastModified) }}</span>
+									{{ t('app.identity-manager.field.created', undefined, 'Created') }}: {{ formatDate(selectedRole.created) }}<span v-if="selectedRole.lastModified"> · {{ t('app.identity-manager.field.modified', undefined, 'Modified') }}: {{ formatDate(selectedRole.lastModified) }}</span>
 								</div>
 							</div>
 						</div>
 					</template>
 					<div v-else class="content-empty">
 						<i class="bi bi-shield"></i>
-						<span>Select a role to view details</span>
+						<span>{{ t('app.identity-manager.empty.selectRole', undefined, 'Select a role to view details') }}</span>
 					</div>
 				</template>
 
@@ -559,7 +559,7 @@
 		<!-- Loading Overlay -->
 		<div v-if="isLoading" class="loading-overlay">
 			<div class="spinner"></div>
-			<span>Loading...</span>
+			<span>{{ t('app.identity-manager.status.loading', undefined, 'Loading...') }}</span>
 		</div>
 
 		<!-- Error Dialog -->
@@ -568,8 +568,8 @@
 				<div class="island p-2">
 					<div class="dialog-header">
 						<div class="dialog-header-top">
-							<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Notice</h3>
-							<button class="btn-icon" @click="errorMessage = ''" title="Close">
+							<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.identity-manager.dialog.noticeTitle', undefined, 'Notice') }}</h3>
+							<button class="btn-icon" @click="errorMessage = ''" :title="t('app.identity-manager.action.close', undefined, 'Close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
@@ -578,7 +578,7 @@
 						<p class="mt-0 mb-0">{{ errorMessage }}</p>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt wt-primary" @click="errorMessage = ''">OK</button>
+						<button class="wt wt-primary" @click="errorMessage = ''">{{ t('app.identity-manager.action.ok', undefined, 'OK') }}</button>
 					</div>
 				</div>
 			</div>
@@ -590,8 +590,8 @@
 				<div class="island p-2">
 					<div class="dialog-header">
 						<div class="dialog-header-top">
-							<h3><i class="bi bi-person-plus me-2"></i>New User</h3>
-							<button class="btn-icon" @click="closeDialog" title="Close">
+							<h3><i class="bi bi-person-plus me-2"></i>{{ t('app.identity-manager.action.newUser', undefined, 'New User') }}</h3>
+							<button class="btn-icon" @click="closeDialog" :title="t('app.identity-manager.action.close', undefined, 'Close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
@@ -599,23 +599,23 @@
 					<div class="dialog-body">
 						<div class="form-row">
 							<div class="property-row half">
-								<label class="property-label">Username <span class="text-danger">*</span></label>
+								<label class="property-label">{{ t('app.identity-manager.field.username', undefined, 'Username') }} <span class="text-danger">*</span></label>
 								<input type="text" class="wt w-100" v-model="dialog.data.username">
 							</div>
 							<div class="property-row half">
-								<label class="property-label">Password <span v-if="!dialog.data.service" class="text-danger">*</span></label>
+								<label class="property-label">{{ t('app.identity-manager.field.password', undefined, 'Password') }} <span v-if="!dialog.data.service" class="text-danger">*</span></label>
 								<input type="password" class="wt w-100" v-model="dialog.data.password"
 									:disabled="dialog.data.service"
-									:placeholder="dialog.data.service ? 'Not required for service accounts' : ''">
+									:placeholder="dialog.data.service ? t('app.identity-manager.dialog.passwordNotRequired', undefined, 'Not required for service accounts') : ''">
 							</div>
 						</div>
 						<div class="form-row mt-2">
 							<div class="property-row half">
-								<label class="property-label">Display Name</label>
+								<label class="property-label">{{ t('app.identity-manager.field.displayName', undefined, 'Display Name') }}</label>
 								<input type="text" class="wt w-100" v-model="dialog.data.displayName">
 							</div>
 							<div class="property-row half">
-								<label class="property-label">Email</label>
+								<label class="property-label">{{ t('app.identity-manager.field.email', undefined, 'Email') }}</label>
 								<input type="email" class="wt w-100" v-model="dialog.data.mail" :disabled="dialog.data.service">
 							</div>
 						</div>
@@ -623,16 +623,16 @@
 							<div class="property-row">
 								<label class="wt-checkbox-label">
 									<input type="checkbox" class="wt" v-model="dialog.data.service">
-									<span>Service account</span>
+									<span>{{ t('app.identity-manager.dialog.serviceAccount', undefined, 'Service account') }}</span>
 								</label>
-								<small class="property-hint">A non-interactive identity used by integrations (via runAs). Has no password and can never sign in.</small>
+								<small class="property-hint">{{ t('app.identity-manager.dialog.serviceAccountHint', undefined, 'A non-interactive identity used by integrations (via runAs). Has no password and can never sign in.') }}</small>
 							</div>
 						</div>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeDialog">Cancel</button>
+						<button class="wt" @click="closeDialog">{{ t('app.identity-manager.action.cancel', undefined, 'Cancel') }}</button>
 						<button class="wt wt-primary" @click="createUser"
-							:disabled="!dialog.data.username || (!dialog.data.service && !dialog.data.password)">Create</button>
+							:disabled="!dialog.data.username || (!dialog.data.service && !dialog.data.password)">{{ t('app.identity-manager.action.create', undefined, 'Create') }}</button>
 					</div>
 				</div>
 			</div>
@@ -644,19 +644,19 @@
 				<div class="island p-2">
 					<div class="dialog-header">
 						<div class="dialog-header-top">
-							<h3><i class="bi bi-folder-plus me-2"></i>New Group</h3>
-							<button class="btn-icon" @click="closeDialog" title="Close">
+							<h3><i class="bi bi-folder-plus me-2"></i>{{ t('app.identity-manager.action.newGroup', undefined, 'New Group') }}</h3>
+							<button class="btn-icon" @click="closeDialog" :title="t('app.identity-manager.action.close', undefined, 'Close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
 					</div>
 					<div class="dialog-body">
 						<div class="property-row">
-							<label class="property-label">Name <span class="text-danger">*</span></label>
-							<input type="text" class="wt w-100" v-model="dialog.data.name" placeholder="e.g. tokyo">
+							<label class="property-label">{{ t('app.identity-manager.field.name', undefined, 'Name') }} <span class="text-danger">*</span></label>
+							<input type="text" class="wt w-100" v-model="dialog.data.name" :placeholder="t('app.identity-manager.dialog.groupNamePlaceholder', undefined, 'e.g. tokyo')">
 						</div>
 						<div class="property-row mt-2">
-							<label class="property-label">Parent Group</label>
+							<label class="property-label">{{ t('app.identity-manager.field.parentGroup', undefined, 'Parent Group') }}</label>
 							<div class="wt-select w-100">
 								<button type="button" class="wt-select-trigger"
 									@click.stop="openParentGroupDropdown(event)">
@@ -668,14 +668,14 @@
 							</div>
 						</div>
 						<div class="property-row mt-2">
-							<label class="property-label">Display Name</label>
+							<label class="property-label">{{ t('app.identity-manager.field.displayName', undefined, 'Display Name') }}</label>
 							<input type="text" class="wt w-100" v-model="dialog.data.displayName">
 						</div>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeDialog">Cancel</button>
+						<button class="wt" @click="closeDialog">{{ t('app.identity-manager.action.cancel', undefined, 'Cancel') }}</button>
 						<button class="wt wt-primary" @click="createGroup"
-							:disabled="!dialog.data.name">Create</button>
+							:disabled="!dialog.data.name">{{ t('app.identity-manager.action.create', undefined, 'Create') }}</button>
 					</div>
 				</div>
 			</div>
@@ -687,19 +687,19 @@
 				<div class="island p-2">
 					<div class="dialog-header">
 						<div class="dialog-header-top">
-							<h3><i class="bi bi-shield-plus me-2"></i>New Role</h3>
-							<button class="btn-icon" @click="closeDialog" title="Close">
+							<h3><i class="bi bi-shield-plus me-2"></i>{{ t('app.identity-manager.action.newRole', undefined, 'New Role') }}</h3>
+							<button class="btn-icon" @click="closeDialog" :title="t('app.identity-manager.action.close', undefined, 'Close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
 					</div>
 					<div class="dialog-body">
 						<div class="property-row">
-							<label class="property-label">Name <span class="text-danger">*</span></label>
-							<input type="text" class="wt w-100" v-model="dialog.data.name" placeholder="e.g. editor">
+							<label class="property-label">{{ t('app.identity-manager.field.name', undefined, 'Name') }} <span class="text-danger">*</span></label>
+							<input type="text" class="wt w-100" v-model="dialog.data.name" :placeholder="t('app.identity-manager.dialog.roleNamePlaceholder', undefined, 'e.g. editor')">
 						</div>
 						<div class="property-row mt-2">
-							<label class="property-label">Parent Role</label>
+							<label class="property-label">{{ t('app.identity-manager.field.parentRole', undefined, 'Parent Role') }}</label>
 							<div class="wt-select w-100">
 								<button type="button" class="wt-select-trigger"
 									@click.stop="openParentRoleDropdown(event)">
@@ -711,18 +711,18 @@
 							</div>
 						</div>
 						<div class="property-row mt-2">
-							<label class="property-label">Display Name</label>
+							<label class="property-label">{{ t('app.identity-manager.field.displayName', undefined, 'Display Name') }}</label>
 							<input type="text" class="wt w-100" v-model="dialog.data.displayName">
 						</div>
 						<div class="property-row mt-2">
-							<label class="property-label">Description</label>
+							<label class="property-label">{{ t('app.identity-manager.field.description', undefined, 'Description') }}</label>
 							<textarea class="wt w-100" rows="2" v-model="dialog.data.description"></textarea>
 						</div>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeDialog">Cancel</button>
+						<button class="wt" @click="closeDialog">{{ t('app.identity-manager.action.cancel', undefined, 'Cancel') }}</button>
 						<button class="wt wt-primary" @click="createRole"
-							:disabled="!dialog.data.name">Create</button>
+							:disabled="!dialog.data.name">{{ t('app.identity-manager.action.create', undefined, 'Create') }}</button>
 					</div>
 				</div>
 			</div>
@@ -733,15 +733,15 @@
 			<div class="dialog-frame" style="max-width: 28rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>Confirm Delete</h3>
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.identity-manager.dialog.confirmDeleteTitle', undefined, 'Confirm Delete') }}</h3>
 					</div>
 					<div class="dialog-body">
 						<p class="mt-0 mb-0">{{ dialog.data.message }}</p>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeDialog">Cancel</button>
+						<button class="wt" @click="closeDialog">{{ t('app.identity-manager.action.cancel', undefined, 'Cancel') }}</button>
 						<button class="wt wt-danger" @click="executeDelete">
-							<i class="bi bi-trash me-1"></i>Delete
+							<i class="bi bi-trash me-1"></i>{{ t('app.identity-manager.action.delete', undefined, 'Delete') }}
 						</button>
 					</div>
 				</div>

@@ -1000,6 +1000,36 @@ html {
 	}
 
 	/* ------------------------------------------------------------------------
+	 * View tabs (segmented control)
+	 * Same pill look as .pane-toggles, but for *mutually-exclusive* selection:
+	 * exactly one tab is active at a time (switching the app's primary view /
+	 * screen). Use this — not .pane-toggles — when the buttons are radio-like
+	 * rather than independent on/off toggles.
+	 *
+	 * Usage:
+	 *   <div class="view-tabs">
+	 *     <button class="btn-icon view-tab" :class="{active: view === 'graph'}"
+	 *             @click="switchView('graph')">...</button>
+	 *     <button class="btn-icon view-tab" :class="{active: view === 'routes'}"
+	 *             @click="switchView('routes')">...</button>
+	 *   </div>
+	 * ---------------------------------------------------------------------- */
+	.view-tabs {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.25rem 0.5rem;
+		background-color: var(--window-controls-bg);
+		border: 1px solid var(--window-controls-border-color);
+		border-radius: 9999px;
+	}
+
+	.view-tab.active {
+		background-color: var(--pane-toggle-active-bg);
+		color: #fff;
+	}
+
+	/* ------------------------------------------------------------------------
 	 * Window controls (pill group + close variant)
 	 * [Minimize][Maximize][Close] buttons placed inside an app that declares
 	 * `customWindowControls: true` in its manifest.

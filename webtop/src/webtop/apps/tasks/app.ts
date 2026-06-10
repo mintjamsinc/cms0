@@ -18,6 +18,13 @@ import { BpmServiceGraphQL } from "../../services/bpm-service-graphql.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { ContentServiceGraphQL } from "../../services/content-service-graphql.js";
 import { createGraphQLClient } from "../../graphql/client.js";
+import {
+	createLocalizationSnapshot,
+	refreshLocalization,
+	handleLocalizationMessage,
+	translate,
+	formatDate,
+} from "../../composables/use-localization.js";
 import type {
 	Task,
 	TaskEdge,
@@ -82,7 +89,21 @@ interface RpcReady {
 
 type FormContextEvent =
 	| { __tasksRpc: 'event'; type: 'context'; payload: Record<string, unknown> }
-	| { __tasksRpc: 'event'; type: 'theme-changed'; theme: string };
+	| { __tasksRpc: 'event'; type: 'theme-changed'; theme: string }
+	| { __tasksRpc: 'event'; type: 'localization-changed'; localization: FormLocalization };
+
+// Effective localization forwarded to the form iframe. Mirrors the shell's
+// LocalizationSnapshot fields the form needs to translate labels and format
+// money / dates / numbers in the user's language. Pushed initially inside the
+// context payload and again on every shell `localization-changed` /
+// `i18n-bundles-updated` broadcast — the theme-channel pattern, applied to
+// locale.
+interface FormLocalization {
+	locale: string;
+	timeZone: string;
+	numberFormat: string;
+	currency: string;
+}
 
 // Suggestion popup for the "Assign Task" dialog. Module-scoped because the
 // shell-managed popup outlives any single dialog open/close cycle and there
@@ -182,6 +203,12 @@ export const App = {
 
 			messageListener: null as ((event: MessageEvent) => void) | null,
 
+			// Reactive Localization snapshot (effective locale + IANA time
+			// zone). Date displays and `t()` lookups read this and repaint on
+			// `localization-changed` / `i18n-bundles-updated`. See
+			// `composables/use-localization.ts`.
+			localization: createLocalizationSnapshot(),
+
 			// User context
 			currentUser: null as IdpUser | null,
 			currentUserID: '' as string,
@@ -260,25 +287,25 @@ export const App = {
 		},
 
 		emptyListMessage(): string {
-			if (this.mode === 'start') return 'No startable processes';
-			if (this.mode === 'tasks-history') return 'No completed tasks';
-			return 'No tasks';
+			if (this.mode === 'start') return this.t('app.tasks.empty.noStartableProcesses', undefined, 'No startable processes');
+			if (this.mode === 'tasks-history') return this.t('app.tasks.empty.noCompletedTasks', undefined, 'No completed tasks');
+			return this.t('app.tasks.empty.noTasks', undefined, 'No tasks');
 		},
 
 		emptyFormMessage(): string {
-			if (this.mode === 'start') return 'Select a process to start';
-			return 'Select a task to process';
+			if (this.mode === 'start') return this.t('app.tasks.empty.selectProcess', undefined, 'Select a process to start');
+			return this.t('app.tasks.empty.selectTask', undefined, 'Select a task to process');
 		},
 
 		noFormKeyMessage(): string {
-			if (this.mode === 'start') return 'This process has no start form (formKey).';
-			return 'This task has no form (formKey).';
+			if (this.mode === 'start') return this.t('app.tasks.empty.noStartForm', undefined, 'This process has no start form (formKey).');
+			return this.t('app.tasks.empty.noTaskForm', undefined, 'This task has no form (formKey).');
 		},
 
 		contextPlaceholder(): string {
-			if (this.mode === 'start') return 'Process start';
-			if (this.mode === 'tasks-history') return 'Completed tasks';
-			return 'My tasks';
+			if (this.mode === 'start') return this.t('app.tasks.context.processStart', undefined, 'Process start');
+			if (this.mode === 'tasks-history') return this.t('app.tasks.context.completedTasks', undefined, 'Completed tasks');
+			return this.t('app.tasks.context.myTasks', undefined, 'My tasks');
 		},
 
 		// O(1) checked-state lookup for the process-definition checkbox list.
@@ -301,6 +328,15 @@ export const App = {
 	},
 
 	methods: {
+		/**
+		 * Reactive i18n lookup. Reads the localization snapshot so every
+		 * `{{ t(...) }}` binding repaints the moment the user switches language
+		 * or an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
+
 		// =====================================================================
 		// Lifecycle
 		// =====================================================================
@@ -319,8 +355,12 @@ export const App = {
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
 				vm.currentTheme = theme;
-				vm.instance.windowTitle = 'Tasks';
+				vm.instance.windowTitle = vm.t('app.tasks.title', undefined, 'Tasks');
 				vm.workspace = appInstance.api.workspace;
+
+				// Snapshot the effective Localization preference so date / `t()`
+				// bindings render in the user's language from the first paint.
+				refreshLocalization(vm.localization, vm.instance);
 
 				await vm.initServices();
 				await vm.loadCurrentUser();
@@ -479,7 +519,7 @@ export const App = {
 				for (const d of all) map[d.key] = d;
 				this.processDefByKey = map;
 			} catch (err) {
-				this.errorMessage = 'Failed to load processes: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.tasks.error.loadProcesses', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load processes: {detail}');
 			} finally {
 				this.isLoading = false;
 			}
@@ -518,7 +558,7 @@ export const App = {
 
 				this.filterList();
 			} catch (err) {
-				this.errorMessage = 'Failed to load tasks: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.tasks.error.loadTasks', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load tasks: {detail}');
 			} finally {
 				this.isLoading = false;
 			}
@@ -635,10 +675,10 @@ export const App = {
 
 		async openDuePickerPopup(event: MouseEvent) {
 			const options: Array<{ id: Filters['dueRange']; label: string }> = [
-				{ id: 'any', label: 'Any time' },
-				{ id: 'overdue', label: 'Overdue' },
-				{ id: 'today', label: 'Due today' },
-				{ id: 'week', label: 'Due this week' },
+				{ id: 'any', label: this.t('app.tasks.filter.due.any', undefined, 'Any time') },
+				{ id: 'overdue', label: this.t('app.tasks.filter.due.overdue', undefined, 'Overdue') },
+				{ id: 'today', label: this.t('app.tasks.filter.due.today', undefined, 'Due today') },
+				{ id: 'week', label: this.t('app.tasks.filter.due.week', undefined, 'Due this week') },
 			];
 			const handle = this.instance?.popup.open({
 				anchor: (event.currentTarget as HTMLElement).getBoundingClientRect(),
@@ -661,7 +701,7 @@ export const App = {
 		async openCategoryPickerPopup(event: MouseEvent) {
 			const cats = Array.from(new Set(this.definitions.map(d => d.category).filter(Boolean) as string[])).sort();
 			const items = [
-				{ id: '', label: 'All categories', selected: !this.filters.category },
+				{ id: '', label: this.t('app.tasks.filter.category.all', undefined, 'All categories'), selected: !this.filters.category },
 				...cats.map(c => ({ id: c, label: c, selected: this.filters.category === c })),
 			];
 			const handle = this.instance?.popup.open({
@@ -769,11 +809,11 @@ export const App = {
 				const { keyPath, query } = splitFormKeyQuery(formKey);
 				const path = cmsKeyToPath(keyPath);
 				if (!path) {
-					this.formError = `Unsupported formKey: ${formKey}. Expected cms:/...`;
+					this.formError = this.t('app.tasks.form.unsupportedKey', { formKey }, 'Unsupported formKey: {formKey}. Expected cms:/...');
 					return;
 				}
 				if (!this.cms) {
-					this.formError = 'CMS service is not initialized';
+					this.formError = this.t('app.tasks.form.cmsNotInitialized', undefined, 'CMS service is not initialized');
 					return;
 				}
 				// Resolving the node verifies existence + read ACL server-side;
@@ -782,14 +822,14 @@ export const App = {
 				// also feeds any ${...} cache-busting tokens in the query string.
 				const node = await this.cms.getNode(path);
 				if (!node) {
-					this.formError = `Form not found: ${path}`;
+					this.formError = this.t('app.tasks.form.notFound', { path }, 'Form not found: {path}');
 					return;
 				}
 				const resolvedQuery = resolveFormKeyTokens(query, node);
 				this.formSrc = cmsPathToFrameSrc(this.workspace, path)
 					+ (resolvedQuery ? '?' + resolvedQuery : '');
 			} catch (err) {
-				this.formError = 'Failed to load form: ' + (err instanceof Error ? err.message : String(err));
+				this.formError = this.t('app.tasks.form.loadFailed', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load form: {detail}');
 			} finally {
 				this.formLoading = false;
 			}
@@ -819,6 +859,18 @@ export const App = {
 
 		handleWindowMessage(event: MessageEvent) {
 			const data = event.data;
+
+			// Localization changes (locale / time zone / bundle hot-reload)
+			// broadcast by the shell. Fold them into the reactive snapshot so
+			// every `t()` and date binding repaints, then forward the fresh
+			// snapshot to the form iframe (which can't observe the shell
+			// directly). Same-origin only.
+			if (data && typeof data === 'object' && event.origin === window.location.origin) {
+				if (handleLocalizationMessage(data.type, this.localization, this.instance)) {
+					this.pushLocalizationToFrame();
+					return;
+				}
+			}
 
 			// Theme propagation from shell (same-origin, parent → app).
 			if (data && typeof data === 'object' && data.type === 'theme-changed') {
@@ -945,11 +997,54 @@ export const App = {
 			frame.contentWindow.postMessage(msg, '*');
 		},
 
+		// Sandboxed form iframes (opaque origin) cannot reach the shell's
+		// LocalizationManager / I18nService, so locale changes must be pushed
+		// explicitly — the theme-channel pattern applied to localization. The
+		// initial value rides along inside the context payload; this fires when
+		// the user switches language/zone (`localization-changed`) or an i18n
+		// bundle hot-reloads (`i18n-bundles-updated`). The form re-fetches its
+		// messages via the `getI18nMessages` RPC and repaints.
+		pushLocalizationToFrame() {
+			if (!this.formReady) return;
+			const frame = this.getFormFrame();
+			if (!frame || !frame.contentWindow) return;
+			const msg: FormContextEvent = {
+				__tasksRpc: 'event',
+				type: 'localization-changed',
+				localization: this.buildLocalization(),
+			};
+			// Plain data — no reactive Proxies — so a direct post is safe.
+			frame.contentWindow.postMessage(msg, '*');
+		},
+
+		// Snapshot the effective localization for the form iframe. Read from the
+		// same reactive snapshot the host's own `t()` / date bindings use, so the
+		// form always paints in the user's current language and zone.
+		// Read the LIVE LocalizationManager, not the reactive snapshot: the
+		// snapshot is seeded once at appLaunch and only re-synced on a
+		// `localization-changed` broadcast, so on the first form open it can
+		// still be empty (the manager's async settings load may resolve after
+		// appLaunch). Forwarding an empty locale makes the form fall back to
+		// the browser locale — Japanese labels but en-US dates / half-width
+		// ¥ — even though the user is on `ja`. The manager's effective*
+		// getters always reflect the current preference and are authoritative
+		// here; the snapshot is only a fallback.
+		buildLocalization(): FormLocalization {
+			const loc = this.instance?.api?.localization;
+			return {
+				locale: loc?.effectiveLocale || this.localization.locale || '',
+				timeZone: loc?.effectiveTimezone || this.localization.timeZone || '',
+				numberFormat: loc?.effectiveNumberFormat || this.localization.numberFormat || '',
+				currency: loc?.effectiveCurrency || this.localization.currency || '',
+			};
+		},
+
 		buildContext(): Record<string, unknown> {
 			if (this.mode === 'start' && this.selectedDef) {
 				return {
 					mode: 'start',
 					currentUser: { id: this.currentUserID, displayName: this.currentUserDisplay },
+					localization: this.buildLocalization(),
 					processDefinition: {
 						id: this.selectedDef.id,
 						key: this.selectedDef.key,
@@ -964,6 +1059,7 @@ export const App = {
 				return {
 					mode: 'task',
 					currentUser: { id: this.currentUserID, displayName: this.currentUserDisplay },
+					localization: this.buildLocalization(),
 					task: {
 						id: this.selectedTask.id,
 						name: this.selectedTask.name,
@@ -984,7 +1080,7 @@ export const App = {
 					},
 				};
 			}
-			return { mode: this.mode };
+			return { mode: this.mode, localization: this.buildLocalization() };
 		},
 
 		rejectAllPendingRpcs(err: Error) {
@@ -1047,6 +1143,29 @@ export const App = {
 						displayName: user.displayName || user.username,
 						mail: user.mail,
 					};
+				}
+
+				// ----- Localization -----
+				// Hand the form a resolved, flat i18n message map for the user's
+				// effective locale (fallback chain already merged). The form runs
+				// in an opaque origin and cannot reach the shell I18nService, so it
+				// pulls its namespace's messages through here and compiles ICU
+				// templates locally. `locale` is returned alongside so the form
+				// formats those templates against the correct locale.
+				case 'getI18nMessages': {
+					const i18n = this.instance?.api?.i18n;
+					// Live manager first (authoritative), then the snapshot, then the
+					// i18n service's own resolution — never hand the form an empty
+					// locale or it formats dates/numbers in the browser locale.
+					const locale = this.instance?.api?.localization?.effectiveLocale
+						|| this.localization.locale
+						|| (i18n ? i18n.currentLocale : '')
+						|| '';
+					if (!i18n || typeof i18n.getMessages !== 'function') {
+						return { locale, messages: {} };
+					}
+					const prefix = typeof p.prefix === 'string' ? p.prefix : undefined;
+					return { locale, messages: i18n.getMessages(prefix, locale || undefined) };
 				}
 
 				// ----- Process start (start mode only) -----
@@ -1235,7 +1354,7 @@ export const App = {
 		requireOwnership() {
 			const t = this.selectedTask!;
 			if (t.assignee !== this.currentUserID) {
-				throw new Error('You are not the assignee of this task. Claim it first.');
+				throw new Error(this.t('app.tasks.error.notAssignee', undefined, 'You are not the assignee of this task. Claim it first.'));
 			}
 		},
 
@@ -1345,7 +1464,7 @@ export const App = {
 				this.patchTaskInList(updated);
 				this.pushContextToFrame();
 			} catch (err) {
-				this.errorMessage = 'Failed to claim: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.tasks.error.claim', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to claim: {detail}');
 			}
 		},
 
@@ -1357,7 +1476,7 @@ export const App = {
 				this.patchTaskInList(updated);
 				this.pushContextToFrame();
 			} catch (err) {
-				this.errorMessage = 'Failed to unclaim: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.tasks.error.unclaim', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to unclaim: {detail}');
 			}
 		},
 
@@ -1389,7 +1508,7 @@ export const App = {
 				this.closeDialog();
 				this.pushContextToFrame();
 			} catch (err) {
-				this.errorMessage = 'Failed to take over: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.tasks.error.takeover', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to take over: {detail}');
 			}
 		},
 
@@ -1419,7 +1538,7 @@ export const App = {
 				this.closeDialog();
 				this.pushContextToFrame();
 			} catch (err) {
-				this.errorMessage = 'Failed to assign: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.tasks.error.assign', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to assign: {detail}');
 			}
 		},
 
@@ -1553,23 +1672,11 @@ export const App = {
 			if (!value) return '';
 			const d = new Date(value).getTime();
 			if (Number.isNaN(d)) return '';
-			const diffMs = d - nowMs();
-			const absSec = Math.abs(Math.round(diffMs / 1000));
-			const past = diffMs < 0;
-			const fmt = (n: number, unit: string) => `${past ? '' : 'in '}${n} ${unit}${n === 1 ? '' : 's'}${past ? ' ago' : ''}`;
-			if (absSec < 60) return past ? 'just now' : 'in a moment';
-			const min = Math.round(absSec / 60);
-			if (min < 60) return fmt(min, 'min');
-			const hr = Math.round(min / 60);
-			if (hr < 24) return fmt(hr, 'hr');
-			const day = Math.round(hr / 24);
-			if (day < 14) return fmt(day, 'day');
-			const wk = Math.round(day / 7);
-			if (wk < 9) return fmt(wk, 'wk');
-			const mo = Math.round(day / 30);
-			if (mo < 12) return fmt(mo, 'mo');
-			const yr = Math.round(day / 365);
-			return fmt(yr, 'yr');
+			// Locale-aware relative/friendly time (e.g. "in 3 days", "2時間前").
+			// Routed through the localization snapshot so it repaints on
+			// locale / time-zone change and renders in the user's language.
+			// Delegates to Dates.formatFriendly (Intl.RelativeTimeFormat).
+			return formatDate(this.localization, value, { format: 'friendly' });
 		},
 	},
 };

@@ -23,23 +23,23 @@
 			<!-- Left: section icons -->
 			<div class="toolbar-group">
 				<button class="btn-icon section-toggle" :class="{active: section === 'appearance'}"
-					@click="selectSection('appearance')" title="Appearance">
+					@click="selectSection('appearance')" :title="t('app.preferences.nav.appearance')">
 					<i class="bi bi-palette"></i>
 				</button>
 				<button class="btn-icon section-toggle" :class="{active: section === 'localization'}"
-					@click="selectSection('localization')" title="Localization">
+					@click="selectSection('localization')" :title="t('app.preferences.nav.localization')">
 					<i class="bi bi-globe2"></i>
 				</button>
 				<button class="btn-icon section-toggle" :class="{active: section === 'profile'}"
-					@click="selectSection('profile')" title="Profile">
+					@click="selectSection('profile')" :title="t('app.preferences.nav.profile')">
 					<i class="bi bi-person-circle"></i>
 				</button>
 				<button class="btn-icon section-toggle" :class="{active: section === 'security'}"
-					@click="selectSection('security')" title="Security">
+					@click="selectSection('security')" :title="t('app.preferences.nav.security')">
 					<i class="bi bi-shield-lock"></i>
 				</button>
 				<button class="btn-icon section-toggle" :class="{active: section === 'sessions'}"
-					@click="selectSection('sessions')" title="Sessions">
+					@click="selectSection('sessions')" :title="t('app.preferences.nav.sessions')">
 					<i class="bi bi-layout-text-window-reverse"></i>
 				</button>
 			</div>
@@ -48,13 +48,13 @@
 
 			<!-- Right: Window Controls -->
 			<div class="window-controls">
-				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
 					<i class="bi bi-dash-lg"></i>
 				</button>
-				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
 					<i class="bi bi-square"></i>
 				</button>
-				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -68,8 +68,8 @@
 				<!-- Remote update notice -->
 				<div v-if="remoteUpdateNotice" class="remote-notice">
 					<i class="bi bi-info-circle me-2"></i>
-					<span class="flex-grow-1">Settings were updated on another device. Reload to apply the latest changes.</span>
-					<button type="button" class="btn-icon" @click="remoteUpdateNotice = false" title="Dismiss">
+					<span class="flex-grow-1">{{ t('app.preferences.remoteNotice') }}</span>
+					<button type="button" class="btn-icon" @click="remoteUpdateNotice = false" :title="t('app.preferences.dismiss')">
 						<i class="bi bi-x-lg"></i>
 					</button>
 				</div>
@@ -78,11 +78,11 @@
 
 					<!-- ========== Appearance ========== -->
 					<template v-if="section === 'appearance'">
-						<h2 class="pref-section-title">Appearance</h2>
+						<h2 class="pref-section-title">{{ t('app.preferences.appearance.title') }}</h2>
 
 						<!-- Theme -->
 						<div class="property-group">
-							<div class="property-group-title">Theme</div>
+							<div class="property-group-title">{{ t('app.preferences.appearance.theme') }}</div>
 							<div class="d-flex gap-3 mt-2">
 								<label class="pref-theme-option" :class="{ selected: theme === 'light' }">
 									<input type="radio" name="theme" value="light" v-model="theme"
@@ -90,7 +90,7 @@
 									<div class="pref-theme-preview pref-theme-preview-light">
 										<i class="bi bi-sun"></i>
 									</div>
-									<span class="pref-theme-label">Light</span>
+									<span class="pref-theme-label">{{ t('app.preferences.appearance.themeLight') }}</span>
 								</label>
 								<label class="pref-theme-option" :class="{ selected: theme === 'dark' }">
 									<input type="radio" name="theme" value="dark" v-model="theme"
@@ -98,7 +98,7 @@
 									<div class="pref-theme-preview pref-theme-preview-dark">
 										<i class="bi bi-moon-stars"></i>
 									</div>
-									<span class="pref-theme-label">Dark</span>
+									<span class="pref-theme-label">{{ t('app.preferences.appearance.themeDark') }}</span>
 								</label>
 								<label class="pref-theme-option" :class="{ selected: theme === 'auto' }">
 									<input type="radio" name="theme" value="auto" v-model="theme"
@@ -106,18 +106,18 @@
 									<div class="pref-theme-preview pref-theme-preview-auto">
 										<i class="bi bi-clock-history"></i>
 									</div>
-									<span class="pref-theme-label">Auto</span>
+									<span class="pref-theme-label">{{ t('app.preferences.appearance.themeAuto') }}</span>
 								</label>
 							</div>
 							<div v-if="theme === 'auto'" class="text-muted mt-3">
 								<i class="bi bi-info-circle me-1"></i>
-								Switches to dark mode between 19:00 and 6:00.
+								{{ t('app.preferences.appearance.themeAutoHint') }}
 							</div>
 						</div>
 
 						<!-- Wallpaper -->
 						<div class="property-group">
-							<div class="property-group-title">Wallpaper</div>
+							<div class="property-group-title">{{ t('app.preferences.appearance.wallpaper') }}</div>
 
 							<!-- Drop area: current preview + catalog -->
 							<div class="pref-drop-area"
@@ -144,14 +144,14 @@
 										<button v-if="wp.id !== 'default' && wp.id !== selectedWallpaperID"
 											class="pref-wallpaper-delete"
 											@click.stop="deleteWallpaper(wp.id)"
-											title="Delete">
+											:title="t('common.delete')">
 											<i class="bi bi-x"></i>
 										</button>
 									</div>
 
 									<!-- Upload button -->
 									<div class="pref-wallpaper-thumb pref-wallpaper-upload"
-										@click="triggerWallpaperUpload" title="Upload wallpaper">
+										@click="triggerWallpaperUpload" :title="t('app.preferences.appearance.uploadWallpaper')">
 										<i class="bi bi-plus-lg"></i>
 									</div>
 									<input type="file" ref="wallpaperFileInput" accept="image/*"
@@ -160,7 +160,7 @@
 
 								<div class="pref-drop-hint">
 									<i class="bi bi-cloud-upload me-1"></i>
-									Drop an image here, or click + to choose a file.
+									{{ t('app.preferences.appearance.wallpaperDropHint') }}
 								</div>
 							</div>
 						</div>
@@ -168,11 +168,11 @@
 
 					<!-- ========== Localization ========== -->
 					<template v-if="section === 'localization'">
-						<h2 class="pref-section-title">Localization</h2>
+						<h2 class="pref-section-title">{{ t('app.preferences.localization.title') }}</h2>
 
 						<div class="property-group">
-							<div class="property-group-title mb-2">Language</div>
-							<div class="property-label">Display language for Webtop and applications.</div>
+							<div class="property-group-title mb-2">{{ t('app.preferences.localization.language.title') }}</div>
+							<div class="property-label">{{ t('app.preferences.localization.language.desc') }}</div>
 							<div class="wt-select pref-select">
 								<button type="button" class="wt-select-trigger"
 									@click.stop="openLocaleDropdown(event)">
@@ -183,8 +183,8 @@
 						</div>
 
 						<div class="property-group">
-							<div class="property-group-title mb-2">Time zone</div>
-							<div class="property-label">Used for date and time display.</div>
+							<div class="property-group-title mb-2">{{ t('app.preferences.localization.timezone.title') }}</div>
+							<div class="property-label">{{ t('app.preferences.localization.timezone.desc') }}</div>
 							<div class="wt-select pref-select">
 								<button type="button" class="wt-select-trigger"
 									@click.stop="openTimezoneDropdown(event)">
@@ -195,8 +195,8 @@
 						</div>
 
 						<div class="property-group">
-							<div class="property-group-title mb-2">Number format</div>
-							<div class="property-label">Locale used to format numbers, dates and lists.</div>
+							<div class="property-group-title mb-2">{{ t('app.preferences.localization.numberFormat.title') }}</div>
+							<div class="property-label">{{ t('app.preferences.localization.numberFormat.desc') }}</div>
 							<div class="wt-select pref-select">
 								<button type="button" class="wt-select-trigger"
 									@click.stop="openNumberFormatDropdown(event)">
@@ -207,8 +207,8 @@
 						</div>
 
 						<div class="property-group">
-							<div class="property-group-title mb-2">Currency</div>
-							<div class="property-label">Default currency for monetary values.</div>
+							<div class="property-group-title mb-2">{{ t('app.preferences.localization.currency.title') }}</div>
+							<div class="property-label">{{ t('app.preferences.localization.currency.desc') }}</div>
 							<div class="wt-select pref-select">
 								<button type="button" class="wt-select-trigger"
 									@click.stop="openCurrencyDropdown(event)">
@@ -226,11 +226,11 @@
 
 					<!-- ========== Profile ========== -->
 					<template v-if="section === 'profile'">
-						<h2 class="pref-section-title">Profile</h2>
+						<h2 class="pref-section-title">{{ t('app.preferences.profile.title') }}</h2>
 
 						<!-- Avatar -->
 						<div class="property-group">
-							<div class="property-group-title">Profile Photo</div>
+							<div class="property-group-title">{{ t('app.preferences.profile.photo') }}</div>
 							<div class="pref-drop-area pref-avatar-drop"
 								:class="{ 'drag-over': avatarDragOver }"
 								@dragenter.prevent.stop="onAvatarDragEnter"
@@ -246,33 +246,33 @@
 									</div>
 									<div class="flex-grow-1">
 										<button class="wt wt-outlined wt-slim" @click="triggerAvatarUpload">
-											<i class="bi bi-upload me-1"></i>Upload Photo
+											<i class="bi bi-upload me-1"></i>{{ t('app.preferences.profile.uploadPhoto') }}
 										</button>
 										<button v-if="avatarURL" class="wt wt-outlined wt-slim ms-2" @click="removeAvatar"
 											:disabled="profileSaving">
-											<i class="bi bi-trash3 me-1"></i>Remove Photo
+											<i class="bi bi-trash3 me-1"></i>{{ t('app.preferences.profile.removePhoto') }}
 										</button>
 										<input type="file" ref="avatarFileInput" accept="image/png,image/jpeg,image/gif"
 											@change="onAvatarFileSelected" class="d-none">
-										<div class="text-muted fs-small mt-2">JPG, PNG, or GIF. Max 2MB.</div>
+										<div class="text-muted fs-small mt-2">{{ t('app.preferences.profile.photoHint') }}</div>
 									</div>
 								</div>
 								<div class="pref-drop-hint">
 									<i class="bi bi-cloud-upload me-1"></i>
-									Drop an image here to set as profile photo.
+									{{ t('app.preferences.profile.photoDropHint') }}
 								</div>
 							</div>
 						</div>
 
 						<!-- Display Name -->
 						<div class="property-group">
-							<div class="property-label">Display Name</div>
+							<div class="property-label">{{ t('app.preferences.profile.displayName') }}</div>
 							<div class="d-flex gap-2 align-items-center">
 								<input type="text" class="wt pref-input" v-model="displayName"
-									placeholder="Enter display name">
+									:placeholder="t('app.preferences.profile.displayNamePlaceholder')">
 								<button class="wt wt-primary" @click="saveDisplayName"
 									:disabled="!displayNameChanged || profileSaving">
-									Save
+									{{ t('common.save') }}
 								</button>
 							</div>
 							<div v-if="profileMessage" class="pref-inline-message"
@@ -284,30 +284,30 @@
 
 					<!-- ========== Security ========== -->
 					<template v-if="section === 'security'">
-						<h2 class="pref-section-title">Security</h2>
+						<h2 class="pref-section-title">{{ t('app.preferences.security.title') }}</h2>
 
 						<div class="property-group">
-							<div class="property-group-title mb-2">Change Password</div>
+							<div class="property-group-title mb-2">{{ t('app.preferences.security.changePassword') }}</div>
 							<div class="pref-form">
 								<div class="property-row">
-									<label class="property-label">Current Password</label>
+									<label class="property-label">{{ t('app.preferences.security.currentPassword') }}</label>
 									<input type="password" class="wt w-100"
 										v-model="passwordForm.current" autocomplete="current-password">
 								</div>
 								<div class="property-row">
-									<label class="property-label">New Password</label>
+									<label class="property-label">{{ t('app.preferences.security.newPassword') }}</label>
 									<input type="password" class="wt w-100"
 										v-model="passwordForm.newPassword" autocomplete="new-password">
 								</div>
 								<div class="property-row">
-									<label class="property-label">Confirm New Password</label>
+									<label class="property-label">{{ t('app.preferences.security.confirmPassword') }}</label>
 									<input type="password" class="wt w-100"
 										v-model="passwordForm.confirm" autocomplete="new-password">
 								</div>
 								<div class="d-flex gap-2 mt-1">
 									<button class="wt wt-primary" @click="changePassword"
 										:disabled="!canChangePassword || passwordSaving">
-										Change Password
+										{{ t('app.preferences.security.changePassword') }}
 									</button>
 								</div>
 								<div v-if="passwordMessage" class="pref-inline-message"
@@ -320,12 +320,12 @@
 
 					<!-- ========== Sessions ========== -->
 					<template v-if="section === 'sessions'">
-						<h2 class="pref-section-title">Sessions</h2>
+						<h2 class="pref-section-title">{{ t('app.preferences.sessions.title') }}</h2>
 
 						<div class="property-group">
-							<div class="property-group-title">Saved Sessions</div>
-							<div v-if="sessionsLoading" class="text-muted mt-2">Loading&hellip;</div>
-							<div v-else-if="sessionList.length === 0" class="text-muted mt-2">No saved sessions.</div>
+							<div class="property-group-title">{{ t('app.preferences.sessions.saved') }}</div>
+							<div v-if="sessionsLoading" class="text-muted mt-2">{{ t('common.loading') }}</div>
+							<div v-else-if="sessionList.length === 0" class="text-muted mt-2">{{ t('app.preferences.sessions.empty') }}</div>
 							<div v-else class="pref-session-list mt-2">
 								<div v-for="s in sessionList" :key="s.id" class="pref-session-item">
 									<div class="pref-session-meta">
@@ -333,7 +333,7 @@
 										<div class="pref-session-date text-muted">{{ formatDate(s.savedAt) }}</div>
 									</div>
 									<button class="btn-icon pref-session-delete"
-										@click="confirmDeleteSession(s)" title="Delete">
+										@click="confirmDeleteSession(s)" :title="t('common.delete')">
 										<i class="bi bi-trash3"></i>
 									</button>
 								</div>
@@ -361,7 +361,7 @@
 							<h3>
 								<i :class="['bi', 'me-2', confirmDialog.iconClass || 'bi-question-circle']"></i>{{ confirmDialog.title }}
 							</h3>
-							<button class="btn-icon" @click="closeConfirmDialog" title="Close">
+							<button class="btn-icon" @click="closeConfirmDialog" :title="t('common.close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
@@ -370,11 +370,11 @@
 						<p class="mt-0 mb-0">{{ confirmDialog.message }}</p>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeConfirmDialog">Cancel</button>
+						<button class="wt" @click="closeConfirmDialog">{{ t('common.cancel') }}</button>
 						<button class="wt"
 							:class="confirmDialog.danger ? 'wt-danger' : 'wt-primary'"
 							@click="acceptConfirmDialog">
-							{{ confirmDialog.confirmLabel || 'OK' }}
+							{{ confirmDialog.confirmLabel || t('common.ok') }}
 						</button>
 					</div>
 				</div>
@@ -390,7 +390,7 @@
 							<h3>
 								<i :class="['bi', 'me-2', notificationIconClass()]"></i>{{ notificationDialog.title }}
 							</h3>
-							<button class="btn-icon" @click="closeNotificationDialog" title="Close">
+							<button class="btn-icon" @click="closeNotificationDialog" :title="t('common.close')">
 								<i class="bi bi-x-lg"></i>
 							</button>
 						</div>
@@ -399,7 +399,7 @@
 						<p class="mt-0 mb-0">{{ notificationDialog.message }}</p>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt wt-primary" @click="closeNotificationDialog">OK</button>
+						<button class="wt wt-primary" @click="closeNotificationDialog">{{ t('common.ok') }}</button>
 					</div>
 				</div>
 			</div>

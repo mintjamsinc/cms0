@@ -173,6 +173,10 @@ const webtopCoreConfig = makeConfig({
     { src: 'src/webtop/assets', dest: 'dist/webtop' },
     { src: 'src/webtop/components/*.html', dest: 'dist/webtop/components' },
     { src: 'src/webtop/components/*.css', dest: 'dist/webtop/components' },
+    // The read-only <eip-canvas> reuses the modeler's node icon sprite. It has a
+    // single source (the modeler) and is copied to components/ so any app that
+    // mounts the shared canvas can resolve it at ../../components/.
+    { src: 'src/webtop/apps/eip-modeler/assets/icons/icons.svg', dest: 'dist/webtop/components', rename: 'eip-canvas-icons.svg' },
     // Bundle Bootstrap Icons (CSS + fonts) so apps can load it locally
     // instead of relying on a CDN. The CSS references fonts via the
     // relative path "fonts/bootstrap-icons.{woff,woff2}", so the resolved

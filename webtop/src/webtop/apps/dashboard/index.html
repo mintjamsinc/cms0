@@ -20,28 +20,28 @@
 		<!-- Top toolbar -->
 		<nav class="nav-bar window-drag-region">
 			<div class="toolbar-group">
-				<button class="btn-icon" @click="refresh" :disabled="refreshing" title="Refresh">
+				<button class="btn-icon" @click="refresh" :disabled="refreshing" :title="t('app.dashboard.toolbar.refresh', undefined, 'Refresh')">
 					<i class="bi bi-arrow-clockwise" :class="{ spin: refreshing }"></i>
 				</button>
 			</div>
 
 			<span class="dash-greeting" v-if="view === 'ready'">{{ greeting }}</span>
 
-			<span class="dash-live" :class="{ connected }" :title="connected ? 'Live updates on' : 'Live updates off'">
-				<span class="dash-live-dot"></span>{{ connected ? 'Live' : 'Offline' }}
+			<span class="dash-live" :class="{ connected }" :title="connected ? t('app.dashboard.live.on', undefined, 'Live updates on') : t('app.dashboard.live.off', undefined, 'Live updates off')">
+				<span class="dash-live-dot"></span>{{ connected ? t('app.dashboard.live.live', undefined, 'Live') : t('app.dashboard.live.offline', undefined, 'Offline') }}
 			</span>
 
 			<span class="nav-spacer"></span>
 
 			<!-- Window controls -->
 			<div class="window-controls">
-				<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('app.dashboard.window.minimize', undefined, 'Minimize')">
 					<i class="bi bi-dash-lg"></i>
 				</button>
-				<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('app.dashboard.window.maximize', undefined, 'Maximize')">
 					<i class="bi bi-square"></i>
 				</button>
-				<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('app.dashboard.window.close', undefined, 'Close')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -50,14 +50,14 @@
 		<!-- Loading -->
 		<div v-if="view === 'loading'" class="dash-state">
 			<div class="spinner"></div>
-			<span>Loading dashboard&hellip;</span>
+			<span>{{ t('app.dashboard.state.loading', undefined, 'Loading dashboard…') }}</span>
 		</div>
 
 		<!-- Error -->
 		<div v-else-if="view === 'error'" class="dash-state">
 			<i class="bi bi-exclamation-triangle-fill text-warning" style="font-size: 1.5rem;"></i>
 			<span>{{ errorMessage }}</span>
-			<button class="wt" @click="refresh">Retry</button>
+			<button class="wt" @click="refresh">{{ t('app.dashboard.action.retry', undefined, 'Retry') }}</button>
 		</div>
 
 		<!-- Ready -->
@@ -69,8 +69,8 @@
 			     ============================================================== -->
 			<section class="dash-section">
 				<div class="dash-section-head">
-					<i class="bi bi-sun"></i>Today's Work
-					<span class="dash-section-sub">What needs your attention</span>
+					<i class="bi bi-sun"></i>{{ t('app.dashboard.work.title', undefined, "Today's Work") }}
+					<span class="dash-section-sub">{{ t('app.dashboard.work.subtitle', undefined, 'What needs your attention') }}</span>
 				</div>
 
 				<div class="dash-grid">
@@ -78,8 +78,8 @@
 					<!-- HERO: Today's Work -->
 					<div class="island dash-card dash-card-wide">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-person-workspace"></i>My day</span>
-							<button class="dash-card-link" title="Open my tasks"
+							<span class="head-title"><i class="bi bi-person-workspace"></i>{{ t('app.dashboard.myDay.title', undefined, 'My day') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openMyTasks', undefined, 'Open my tasks')"
 								@click="openTasks({ scope: 'assigned' })">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
@@ -87,26 +87,26 @@
 						<div class="dash-wide-body">
 							<div>
 								<div class="dash-kpis">
-									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" title="Tasks assigned to me">
+									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" :title="t('app.dashboard.myDay.myOpen.hint', undefined, 'Tasks assigned to me')">
 										<span class="dash-kpi-value">{{ work.myOpen }}</span>
-										<span class="dash-kpi-label">My open tasks</span>
+										<span class="dash-kpi-label">{{ t('app.dashboard.myDay.myOpen', undefined, 'My open tasks') }}</span>
 									</div>
-									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" title="Assigned to me, due today">
+									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" :title="t('app.dashboard.myDay.dueToday.hint', undefined, 'Assigned to me, due today')">
 										<span class="dash-kpi-value" :class="{ 'dash-value-warn': work.dueToday > 0 }">{{ work.dueToday }}</span>
-										<span class="dash-kpi-label">Due today</span>
+										<span class="dash-kpi-label">{{ t('app.dashboard.metric.dueToday', undefined, 'Due today') }}</span>
 									</div>
-									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" title="Assigned to me, past due">
+									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" :title="t('app.dashboard.myDay.overdue.hint', undefined, 'Assigned to me, past due')">
 										<span class="dash-kpi-value" :class="{ 'dash-value-danger': work.overdue > 0 }">{{ work.overdue }}</span>
-										<span class="dash-kpi-label">Overdue</span>
+										<span class="dash-kpi-label">{{ t('app.dashboard.metric.overdue', undefined, 'Overdue') }}</span>
 									</div>
-									<div class="dash-kpi is-link" @click="openTasks({ scope: 'candidate' })" title="Tasks I can claim from the team queue">
+									<div class="dash-kpi is-link" @click="openTasks({ scope: 'candidate' })" :title="t('app.dashboard.myDay.toClaim.hint', undefined, 'Tasks I can claim from the team queue')">
 										<span class="dash-kpi-value">{{ work.claimable }}</span>
-										<span class="dash-kpi-label">To claim</span>
+										<span class="dash-kpi-label">{{ t('app.dashboard.metric.toClaim', undefined, 'To claim') }}</span>
 									</div>
 								</div>
 							</div>
 							<div>
-								<div class="dash-card-head" style="margin-bottom: 0.5rem;">Next up</div>
+								<div class="dash-card-head" style="margin-bottom: 0.5rem;">{{ t('app.dashboard.myDay.nextUp', undefined, 'Next up') }}</div>
 								<div class="dash-list">
 									<button class="dash-list-row" v-for="(t, i) in work.next" :key="t.id"
 										@click="openTasks({ scope: 'assigned', taskId: t.id })" :title="t.title">
@@ -118,7 +118,7 @@
 										<span class="dash-pill" :class="t.pillClass" v-if="t.pill">{{ t.pill }}</span>
 									</button>
 									<div class="dash-list-empty" v-if="work.next.length === 0">
-										Nothing assigned to you right now. Nice and clear.
+										{{ t('app.dashboard.myDay.empty', undefined, 'Nothing assigned to you right now. Nice and clear.') }}
 									</div>
 								</div>
 							</div>
@@ -128,27 +128,27 @@
 					<!-- My Tasks -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-person-check"></i>My tasks</span>
-							<button class="dash-card-link" title="Open my tasks"
+							<span class="head-title"><i class="bi bi-person-check"></i>{{ t('app.dashboard.myTasks.title', undefined, 'My tasks') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openMyTasks', undefined, 'Open my tasks')"
 								@click="openTasks({ scope: 'assigned' })">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
 						</div>
 						<div class="dash-metric">
 							<span class="dash-metric-value">{{ myTasks.total }}</span>
-							<span class="dash-metric-unit">assigned to me</span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.myTasks.assignedToMe', undefined, 'assigned to me') }}</span>
 						</div>
 						<div class="dash-rows">
 							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-alarm"></i>Overdue</span>
+								<span class="dash-row-label"><i class="bi bi-alarm"></i>{{ t('app.dashboard.metric.overdue', undefined, 'Overdue') }}</span>
 								<span class="dash-pill" :class="myTasks.overdue > 0 ? 'danger' : 'ok'">{{ myTasks.overdue }}</span>
 							</div>
 							<div class="dash-row">
-								<span class="dash-row-label">Due today</span>
+								<span class="dash-row-label">{{ t('app.dashboard.metric.dueToday', undefined, 'Due today') }}</span>
 								<span class="dash-row-value" :class="{ 'dash-value-warn': myTasks.dueToday > 0 }">{{ myTasks.dueToday }}</span>
 							</div>
 							<div class="dash-row">
-								<span class="dash-row-label">Due this week</span>
+								<span class="dash-row-label">{{ t('app.dashboard.metric.dueThisWeek', undefined, 'Due this week') }}</span>
 								<span class="dash-row-value">{{ myTasks.dueThisWeek }}</span>
 							</div>
 						</div>
@@ -157,23 +157,23 @@
 					<!-- Team Queue -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-people"></i>Team queue</span>
-							<button class="dash-card-link" title="Open the team queue"
+							<span class="head-title"><i class="bi bi-people"></i>{{ t('app.dashboard.queue.title', undefined, 'Team queue') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openTeamQueue', undefined, 'Open the team queue')"
 								@click="openTasks({ scope: 'candidate' })">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
 						</div>
 						<div class="dash-metric">
 							<span class="dash-metric-value" :class="{ 'dash-value-warn': queue.unassigned > 0 }">{{ queue.unassigned }}</span>
-							<span class="dash-metric-unit">unassigned</span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.queue.unassigned', undefined, 'unassigned') }}</span>
 						</div>
 						<div class="dash-rows">
 							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-hand-index"></i>I can claim</span>
+								<span class="dash-row-label"><i class="bi bi-hand-index"></i>{{ t('app.dashboard.queue.iCanClaim', undefined, 'I can claim') }}</span>
 								<span class="dash-row-value">{{ queue.claimable }}</span>
 							</div>
 							<div class="dash-row">
-								<span class="dash-row-label">Open across the team</span>
+								<span class="dash-row-label">{{ t('app.dashboard.queue.openAcrossTeam', undefined, 'Open across the team') }}</span>
 								<span class="dash-row-value">{{ queue.teamTotal }}</span>
 							</div>
 						</div>
@@ -182,8 +182,8 @@
 					<!-- Task Bottlenecks -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-cone-striped"></i>Where work piles up</span>
-							<button class="dash-card-link" title="Open all tasks"
+							<span class="head-title"><i class="bi bi-cone-striped"></i>{{ t('app.dashboard.bottlenecks.title', undefined, 'Where work piles up') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openAllTasks', undefined, 'Open all tasks')"
 								@click="openTasks({ scope: 'all' })">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
@@ -195,12 +195,12 @@
 								<span class="dash-list-rank">{{ i + 1 }}</span>
 								<span class="dash-list-main">
 									<span class="dash-list-title">{{ b.taskName }}</span>
-									<span class="dash-list-sub">{{ b.processName }} · oldest {{ b.oldestAge }}</span>
+									<span class="dash-list-sub">{{ t('app.dashboard.bottlenecks.subtitle', { process: b.processName, age: b.oldestAge }, b.processName + ' · oldest ' + b.oldestAge) }}</span>
 								</span>
 								<span class="dash-list-value">{{ b.count }}</span>
 							</button>
 							<div class="dash-list-empty" v-if="bottlenecks.length === 0">
-								No tasks are waiting anywhere. The flow is clear.
+								{{ t('app.dashboard.bottlenecks.empty', undefined, 'No tasks are waiting anywhere. The flow is clear.') }}
 							</div>
 						</div>
 					</div>
@@ -214,39 +214,39 @@
 			     ============================================================== -->
 			<section class="dash-section" v-if="isAdmin">
 				<div class="dash-section-head">
-					<i class="bi bi-activity"></i>Operations
-					<span class="dash-section-sub">BPM &amp; EIP — is everything running?</span>
+					<i class="bi bi-activity"></i>{{ t('app.dashboard.ops.title', undefined, 'Operations') }}
+					<span class="dash-section-sub">{{ t('app.dashboard.ops.subtitle', undefined, 'BPM & EIP — is everything running?') }}</span>
 				</div>
 
 				<div class="dash-grid">
 
 					<!-- ADMIN HERO: business operations health -->
 					<div class="island dash-card dash-card-wide">
-						<div class="dash-card-head"><i class="bi bi-heart-pulse"></i>Are operations healthy?</div>
+						<div class="dash-card-head"><i class="bi bi-heart-pulse"></i>{{ t('app.dashboard.ops.healthy.title', undefined, 'Are operations healthy?') }}</div>
 						<div class="dash-kpis">
-							<div class="dash-kpi is-link" @click="openBpm({ view: 'instances' })" title="Running process instances">
+							<div class="dash-kpi is-link" @click="openBpm({ view: 'instances' })" :title="t('app.dashboard.ops.runningProcesses.hint', undefined, 'Running process instances')">
 								<span class="dash-kpi-value">{{ ops.runningProcesses }}</span>
-								<span class="dash-kpi-label">Running processes</span>
+								<span class="dash-kpi-label">{{ t('app.dashboard.ops.runningProcesses', undefined, 'Running processes') }}</span>
 							</div>
-							<div class="dash-kpi is-link" @click="openEip()" title="Started routes / deployed routes">
+							<div class="dash-kpi is-link" @click="openEip()" :title="t('app.dashboard.ops.activeRoutes.hint', undefined, 'Started routes / deployed routes')">
 								<span class="dash-kpi-value">{{ ops.activeRoutes }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ ops.totalRoutes }}</span></span>
-								<span class="dash-kpi-label">Active routes</span>
+								<span class="dash-kpi-label">{{ t('app.dashboard.ops.activeRoutes', undefined, 'Active routes') }}</span>
 							</div>
-							<div class="dash-kpi is-link" @click="openBpm({ view: 'incidents' })" title="Open process incidents">
+							<div class="dash-kpi is-link" @click="openBpm({ view: 'incidents' })" :title="t('app.dashboard.ops.openIncidents.hint', undefined, 'Open process incidents')">
 								<span class="dash-kpi-value" :class="{ 'dash-value-danger': ops.openIncidents > 0 }">{{ ops.openIncidents }}</span>
-								<span class="dash-kpi-label">Open incidents</span>
+								<span class="dash-kpi-label">{{ t('app.dashboard.ops.openIncidents', undefined, 'Open incidents') }}</span>
 							</div>
-							<div class="dash-kpi is-link" @click="openEip({ status: 'failed' })" title="Failed exchanges since context start">
+							<div class="dash-kpi is-link" @click="openEip({ status: 'failed' })" :title="t('app.dashboard.ops.failedExchanges.hint', undefined, 'Failed exchanges since context start')">
 								<span class="dash-kpi-value" :class="{ 'dash-value-danger': ops.failedExchanges > 0 }">{{ ops.failedExchangesLabel }}</span>
-								<span class="dash-kpi-label">Failed exchanges</span>
+								<span class="dash-kpi-label">{{ t('app.dashboard.ops.failedExchanges', undefined, 'Failed exchanges') }}</span>
 							</div>
-							<div class="dash-kpi is-link" @click="openEip()" title="External endpoints not reachable">
+							<div class="dash-kpi is-link" @click="openEip()" :title="t('app.dashboard.ops.connectionIssues.hint', undefined, 'External endpoints not reachable')">
 								<span class="dash-kpi-value" :class="{ 'dash-value-danger': ops.extIssues > 0 }">{{ ops.extIssues }}</span>
-								<span class="dash-kpi-label">Connection issues</span>
+								<span class="dash-kpi-label">{{ t('app.dashboard.ops.connectionIssues', undefined, 'Connection issues') }}</span>
 							</div>
 							<div class="dash-kpi text-center">
 								<span class="dash-kpi-value"><span class="dash-pill" :class="ops.overall.cls">{{ ops.overall.label }}</span></span>
-								<span class="dash-kpi-label">Overall</span>
+								<span class="dash-kpi-label">{{ t('app.dashboard.ops.overall', undefined, 'Overall') }}</span>
 							</div>
 						</div>
 					</div>
@@ -254,22 +254,22 @@
 					<!-- Process Definitions -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-diagram-3"></i>Process definitions</span>
-							<button class="dash-card-link" title="Open BPM Console" @click="openBpm()">
+							<span class="head-title"><i class="bi bi-diagram-3"></i>{{ t('app.dashboard.defs.title', undefined, 'Process definitions') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openBpmConsole', undefined, 'Open BPM Console')" @click="openBpm()">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
 						</div>
 						<div class="dash-metric">
 							<span class="dash-metric-value">{{ defs.deployed }}</span>
-							<span class="dash-metric-unit">deployed</span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.defs.deployed', undefined, 'deployed') }}</span>
 						</div>
 						<div class="dash-rows">
 							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-play-circle"></i>Active</span>
+								<span class="dash-row-label"><i class="bi bi-play-circle"></i>{{ t('app.dashboard.status.active', undefined, 'Active') }}</span>
 								<span class="dash-row-value">{{ defs.active }}</span>
 							</div>
 							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>Suspended</span>
+								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
 								<span class="dash-pill" :class="defs.suspended > 0 ? 'warn' : 'ok'">{{ defs.suspended }}</span>
 							</div>
 						</div>
@@ -278,14 +278,14 @@
 					<!-- Running Processes -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-arrow-repeat"></i>Running processes</span>
-							<button class="dash-card-link" title="Open BPM Console" @click="openBpm({ view: 'instances' })">
+							<span class="head-title"><i class="bi bi-arrow-repeat"></i>{{ t('app.dashboard.running.title', undefined, 'Running processes') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openBpmConsole', undefined, 'Open BPM Console')" @click="openBpm({ view: 'instances' })">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
 						</div>
 						<div class="dash-metric">
 							<span class="dash-metric-value">{{ running.active }}</span>
-							<span class="dash-metric-unit">active instances</span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.running.activeInstances', undefined, 'active instances') }}</span>
 						</div>
 						<div class="dash-list">
 							<button class="dash-list-row" v-for="(p, i) in running.top" :key="p.key"
@@ -296,15 +296,15 @@
 								</span>
 								<span class="dash-list-value">{{ p.count }}</span>
 							</button>
-							<div class="dash-list-empty" v-if="running.top.length === 0">No processes are running.</div>
+							<div class="dash-list-empty" v-if="running.top.length === 0">{{ t('app.dashboard.running.empty', undefined, 'No processes are running.') }}</div>
 						</div>
 						<div class="dash-rows" v-if="running.suspended > 0 || running.withIncidents > 0">
 							<div class="dash-row" v-if="running.suspended > 0">
-								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>Suspended</span>
+								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
 								<span class="dash-pill warn">{{ running.suspended }}</span>
 							</div>
 							<div class="dash-row" v-if="running.withIncidents > 0">
-								<span class="dash-row-label"><i class="bi bi-exclamation-octagon"></i>With incidents</span>
+								<span class="dash-row-label"><i class="bi bi-exclamation-octagon"></i>{{ t('app.dashboard.running.withIncidents', undefined, 'With incidents') }}</span>
 								<span class="dash-pill danger">{{ running.withIncidents }}</span>
 							</div>
 						</div>
@@ -313,15 +313,15 @@
 					<!-- Incidents -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-exclamation-octagon"></i>Incidents</span>
-							<button class="dash-card-link" title="Open incidents in BPM Console"
+							<span class="head-title"><i class="bi bi-exclamation-octagon"></i>{{ t('app.dashboard.incidents.title', undefined, 'Incidents') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openIncidents', undefined, 'Open incidents in BPM Console')"
 								@click="openBpm({ view: 'incidents' })">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
 						</div>
 						<div class="dash-metric">
 							<span class="dash-metric-value" :class="{ 'dash-value-danger': incidents.total > 0 }">{{ incidents.total }}</span>
-							<span class="dash-metric-unit">open</span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.incidents.open', undefined, 'open') }}</span>
 						</div>
 						<div class="dash-list">
 							<button class="dash-list-row" v-for="(p, i) in incidents.topProcesses" :key="p.key"
@@ -333,37 +333,37 @@
 								</span>
 								<span class="dash-list-value dash-value-danger">{{ p.count }}</span>
 							</button>
-							<div class="dash-list-empty" v-if="incidents.total === 0">No incidents. Everything is processing cleanly.</div>
+							<div class="dash-list-empty" v-if="incidents.total === 0">{{ t('app.dashboard.incidents.empty', undefined, 'No incidents. Everything is processing cleanly.') }}</div>
 						</div>
 					</div>
 
 					<!-- Integration Routes -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-signpost-split"></i>Integration routes</span>
-							<button class="dash-card-link" title="Open EIP Console" @click="openEip()">
+							<span class="head-title"><i class="bi bi-signpost-split"></i>{{ t('app.dashboard.routes.title', undefined, 'Integration routes') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openEipConsole', undefined, 'Open EIP Console')" @click="openEip()">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
 						</div>
 						<div class="dash-metric">
 							<span class="dash-metric-value">{{ routes.started }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ routes.total }}</span></span>
-							<span class="dash-metric-unit">started</span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.routes.started', undefined, 'started') }}</span>
 						</div>
 						<div class="dash-rows">
 							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-hdd-network"></i>Context</span>
+								<span class="dash-row-label"><i class="bi bi-hdd-network"></i>{{ t('app.dashboard.routes.context', undefined, 'Context') }}</span>
 								<span class="dash-pill" :class="routes.contextPill">{{ routes.contextState }}</span>
 							</div>
 							<div class="dash-row" v-if="routes.stopped > 0">
-								<span class="dash-row-label"><i class="bi bi-stop-circle"></i>Stopped</span>
+								<span class="dash-row-label"><i class="bi bi-stop-circle"></i>{{ t('app.dashboard.status.stopped', undefined, 'Stopped') }}</span>
 								<span class="dash-pill" :class="routes.stopped > 0 ? 'warn' : 'ok'">{{ routes.stopped }}</span>
 							</div>
 							<div class="dash-row" v-if="routes.suspended > 0">
-								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>Suspended</span>
+								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
 								<span class="dash-pill warn">{{ routes.suspended }}</span>
 							</div>
 							<div class="dash-row" v-if="routes.uptime">
-								<span class="dash-row-label">Uptime</span>
+								<span class="dash-row-label">{{ t('app.dashboard.routes.uptime', undefined, 'Uptime') }}</span>
 								<span class="dash-row-value" style="font-weight: 400;">{{ routes.uptime }}</span>
 							</div>
 						</div>
@@ -372,23 +372,23 @@
 					<!-- Route Throughput / Errors -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-graph-up-arrow"></i>Throughput &amp; errors</span>
-							<button class="dash-card-link" title="Open failing routes in EIP Console"
+							<span class="head-title"><i class="bi bi-graph-up-arrow"></i>{{ t('app.dashboard.throughput.title', undefined, 'Throughput & errors') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openFailingRoutes', undefined, 'Open failing routes in EIP Console')"
 								@click="openEip({ status: 'failed' })">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
 						</div>
 						<div class="dash-metric">
 							<span class="dash-metric-value">{{ throughput.completedLabel }}</span>
-							<span class="dash-metric-unit">completed · {{ throughput.meanLatency }}</span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.throughput.completedLatency', { latency: throughput.meanLatency }, 'completed · ' + throughput.meanLatency) }}</span>
 						</div>
 						<div class="dash-rows">
 							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-x-octagon"></i>Failed</span>
+								<span class="dash-row-label"><i class="bi bi-x-octagon"></i>{{ t('app.dashboard.status.failed', undefined, 'Failed') }}</span>
 								<span class="dash-pill" :class="throughput.failed > 0 ? 'danger' : 'ok'">{{ throughput.failedLabel }}</span>
 							</div>
 							<div class="dash-row" v-if="throughput.inflight > 0">
-								<span class="dash-row-label"><i class="bi bi-hourglass-split"></i>In flight</span>
+								<span class="dash-row-label"><i class="bi bi-hourglass-split"></i>{{ t('app.dashboard.throughput.inFlight', undefined, 'In flight') }}</span>
 								<span class="dash-row-value">{{ throughput.inflight }}</span>
 							</div>
 						</div>
@@ -408,14 +408,14 @@
 					<!-- External Connections -->
 					<div class="island dash-card">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-plug"></i>External connections</span>
-							<button class="dash-card-link" title="Open EIP Console" @click="openEip()">
+							<span class="head-title"><i class="bi bi-plug"></i>{{ t('app.dashboard.connections.title', undefined, 'External connections') }}</span>
+							<button class="dash-card-link" :title="t('app.dashboard.action.openEipConsole', undefined, 'Open EIP Console')" @click="openEip()">
 								<i class="bi bi-box-arrow-up-right"></i>
 							</button>
 						</div>
 						<div class="dash-metric">
 							<span class="dash-metric-value" :class="{ 'dash-value-danger': connections.down > 0 }">{{ connections.healthyLabel }}</span>
-							<span class="dash-metric-unit">endpoints reachable</span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.connections.endpointsReachable', undefined, 'endpoints reachable') }}</span>
 						</div>
 						<div class="dash-list" v-if="connections.problems.length">
 							<button class="dash-list-row" v-for="(c, i) in connections.problems" :key="c.key"
@@ -429,7 +429,7 @@
 							</button>
 						</div>
 						<div class="dash-list-empty" v-else>
-							{{ connections.remoteTotal > 0 ? 'All external systems are reachable.' : 'No external connections in use.' }}
+							{{ connections.remoteTotal > 0 ? t('app.dashboard.connections.allReachable', undefined, 'All external systems are reachable.') : t('app.dashboard.connections.none', undefined, 'No external connections in use.') }}
 						</div>
 					</div>
 
@@ -441,13 +441,13 @@
 		<!-- Status bar -->
 		<div class="status-bar window-drag-region">
 			<div class="status-group">
-				<span class="status-item">{{ isAdmin ? 'Operator view' : 'My work' }}</span>
+				<span class="status-item">{{ isAdmin ? t('app.dashboard.statusbar.operatorView', undefined, 'Operator view') : t('app.dashboard.statusbar.myWork', undefined, 'My work') }}</span>
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="refreshing" class="status-item"><i class="bi bi-arrow-repeat me-1"></i>Refreshing&hellip;</span>
-				<span v-else-if="lastUpdated" class="status-item">Updated {{ lastUpdated }}</span>
-				<span v-else class="status-item">Ready</span>
+				<span v-if="refreshing" class="status-item"><i class="bi bi-arrow-repeat me-1"></i>{{ t('app.dashboard.statusbar.refreshing', undefined, 'Refreshing…') }}</span>
+				<span v-else-if="lastUpdated" class="status-item">{{ t('app.dashboard.statusbar.updated', { when: lastUpdatedLabel }, 'Updated ' + lastUpdatedLabel) }}</span>
+				<span v-else class="status-item">{{ t('app.dashboard.statusbar.ready', undefined, 'Ready') }}</span>
 			</div>
 		</div>
 

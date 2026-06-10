@@ -32,12 +32,25 @@ import type {
 export interface RouteStatsOptions {
   /** Route IDs to include. Empty / undefined means all routes. */
   routes?: string[];
-  from: string;
-  to: string;
+  /**
+   * Anchor mode: instant the window is right-aligned to (ISO). The right-edge
+   * bucket is the fixed wall-clock bucket containing this; omit → server now.
+   */
+  at?: string;
+  /**
+   * Anchor mode: number of buckets to return, walking back from the anchor
+   * bucket. With {@link interval} this fully defines the window.
+   */
+  buckets?: number;
+  /** Legacy explicit window (used when {@link buckets} is omitted). */
+  from?: string;
+  to?: string;
   /** Status filter (all | completed | failed). */
   status?: string;
-  /** Bucket interval (5min | 1h | 1d). Server auto-resolves when omitted. */
+  /** Bucket interval (5min | 1h | 1d). Required in anchor mode; auto-resolved otherwise. */
   interval?: StatInterval;
+  /** Ascending elapsed-band boundaries in ms (N boundaries => N+1 bands). */
+  elapsedBoundaries?: number[];
 }
 
 export interface HistorySearchOptions {
@@ -530,7 +543,7 @@ export class EipServiceGraphQL {
    */
   async isRouteRunning(id: string): Promise<boolean> {
     const route = await this.getRoute(id);
-    return route?.status === 'STARTED';
+    return route?.status === 'Started';
   }
 
   // =========================================================================
@@ -546,10 +559,15 @@ export class EipServiceGraphQL {
       EIP_QUERIES.ROUTE_STATS,
       {
         routes: options.routes && options.routes.length ? options.routes : undefined,
+        at: options.at,
+        buckets: options.buckets,
         from: options.from,
         to: options.to,
         status: options.status,
         interval: options.interval,
+        elapsedBoundaries: options.elapsedBoundaries && options.elapsedBoundaries.length
+          ? options.elapsedBoundaries
+          : undefined,
       }
     );
     return data.routeStats;
@@ -581,12 +599,17 @@ export class EipServiceGraphQL {
   }
 
   /**
-   * Fetch the full detail of a single exchange (Inspector).
+   * Fetch the full detail of a single exchange record (Inspector).
+   *
+   * Prefer addressing by node {@link HistoryExchange.path} — a single exchange
+   * may have one record per route (same exchangeId), so an id is ambiguous.
+   * Passing a bare exchangeId remains supported for callers that only have one.
    */
-  async getHistoryExchange(exchangeId: string): Promise<HistoryExchange | null> {
+  async getHistoryExchange(ref: string | { path?: string; exchangeId?: string }): Promise<HistoryExchange | null> {
+    const vars = typeof ref === 'string' ? { exchangeId: ref } : ref;
     const data = await this.#client.query<{ historyExchange: HistoryExchange | null }>(
       EIP_QUERIES.HISTORY_EXCHANGE,
-      { exchangeId }
+      vars
     );
     return data.historyExchange;
   }

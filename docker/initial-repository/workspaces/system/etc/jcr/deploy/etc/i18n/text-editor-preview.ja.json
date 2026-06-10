@@ -1,0 +1,18 @@
+{
+	"app.text-editor-preview.title": "プレビュー",
+	"app.text-editor-preview.toolbar.label": "プレビュー",
+	"app.text-editor-preview.toolbar.pin": "このファイルに固定",
+	"app.text-editor-preview.toolbar.unpin": "固定を解除（エディターに追従）",
+	"app.text-editor-preview.toolbar.ext.change": "クリックして出力拡張子を変更",
+	"app.text-editor-preview.empty.disconnected": "エディターが閉じられました。",
+	"app.text-editor-preview.empty.rendering": "プレビューを生成しています…",
+	"app.text-editor-preview.empty.placeholder": "ここにプレビューが表示されます",
+	"app.text-editor-preview.empty.unsupported": "このファイル形式はプレビューできません",
+	"app.text-editor-preview.window.titleWithFile": "プレビュー — {fileName}",
+	"app.text-editor-preview.error.notSaved": "プレビューを表示するにはファイルを保存してください。",
+	"app.text-editor-preview.error.noWorkspace": "ワークスペースを利用できません。",
+	"app.text-editor-preview.error.enterExtension": "ファイル拡張子を入力してください（例: html）。",
+	"app.text-editor-preview.error.renderFailed": "レンダリングに失敗しました: {status} {statusText}",
+	"app.text-editor-preview.error.renderGeneric": "プレビューのレンダリングに失敗しました。",
+	"app.text-editor-preview.error.markdownRender": "プレビューのレンダリング中にエラーが発生しました"
+}

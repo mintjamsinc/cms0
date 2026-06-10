@@ -599,13 +599,17 @@ export interface CamelContext {
   components: Component[];
 }
 
+// Mirrors Camel's org.apache.camel.ServiceStatus enum constant names
+// (PascalCase), as returned by the server (ServiceStatus.name()); 'Unknown'
+// is the server's fallback when the status is unavailable.
 export type RouteState =
-  | 'STARTED'
-  | 'STOPPED'
-  | 'SUSPENDED'
-  | 'STARTING'
-  | 'STOPPING'
-  | 'SUSPENDING';
+  | 'Started'
+  | 'Stopped'
+  | 'Suspended'
+  | 'Starting'
+  | 'Stopping'
+  | 'Suspending'
+  | 'Unknown';
 
 export interface Route {
   id: string;
@@ -656,26 +660,18 @@ export interface RouteConnection {
   totalCount: number;
 }
 
+/**
+ * A route's structured model, dumped from the live engine. Both Camel DSL
+ * interchange formats are provided:
+ *   - xml  : Camel XML DSL — fed to the shared <eip-canvas> for a faithful,
+ *            auto-laid-out, read-only diagram.
+ *   - yaml : Camel YAML DSL — human-friendly export.
+ * Either may be null if the engine could not dump that representation.
+ */
 export interface RouteDefinition {
   id: string;
-  yaml: string;
-  from: EndpointDefinition;
-  steps: RouteStep[];
-}
-
-export interface RouteStep {
-  id: string;
-  type: string;
-  label?: string;
-  description?: string;
-  children?: RouteStep[];
-  properties?: unknown;
-}
-
-export interface EndpointDefinition {
-  uri: string;
-  component: string;
-  properties?: unknown;
+  xml: string | null;
+  yaml: string | null;
 }
 
 export type EndpointState = 'STARTED' | 'STOPPED' | 'SUSPENDED';
@@ -1388,19 +1384,36 @@ export type StatusFilter = 'all' | 'completed' | 'failed';
  */
 export interface StatPoint {
   bucket: string;
-  under1s: number;
-  under5s: number;
-  over5s: number;
+  /**
+   * Per-band exchange counts, aligned with RouteStats.boundaries:
+   * bands[0] = elapsed < boundaries[0]; bands[i] = [boundaries[i-1],
+   * boundaries[i]); bands[last] = elapsed >= boundaries[last].
+   */
+  bands: number[];
 }
 
 export interface RouteStats {
+  /**
+   * Anchor instant the window is right-aligned to (anchor mode). The right-edge
+   * bucket is the fixed wall-clock bucket that contains this instant.
+   */
+  anchor?: string;
   from: string;
   to: string;
   interval: StatInterval;
+  /** Ascending elapsed-band boundaries in ms (N boundaries => N+1 bands). */
+  boundaries: number[];
   points: StatPoint[];
 }
 
 export interface HistoryExchangeSummary {
+  /**
+   * JCR node path — the stable, globally-unique identity of a history record.
+   * A single exchange that completes in multiple routes yields one record per
+   * route (same exchangeId AND createdAt), so use this, not exchangeId, to key
+   * list rows and to open the inspector.
+   */
+  path: string;
   exchangeId: string;
   routeId: string | null;
   status: string | null;
@@ -1431,6 +1444,8 @@ export interface HistoryStep {
 }
 
 export interface HistoryExchange {
+  /** JCR node path — stable unique identity (see HistoryExchangeSummary). */
+  path: string;
   exchangeId: string;
   routeId: string | null;
   status: string | null;

@@ -26,7 +26,7 @@
 				<iframe class="content-frame" :src="contentURL" :style="contentFrameStyle" :data-app-id="appInstance.id"></iframe>
 				<div v-if="!isLaunched" class="launching"><span class="loader"></span></div>
 				<div v-if="!launchFailed" class="launch-failed">
-					<span>The application could not be started.</span>
+					<span>{{ t('webtop.window.launchFailed', undefined, 'The application could not be started.') }}</span>
 				</div>
 			</div>
 		</div>

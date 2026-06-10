@@ -9,6 +9,7 @@ import {
 	createLocalizationSnapshot,
 	refreshLocalization,
 	handleLocalizationMessage,
+	translate,
 } from "../../composables/use-localization.js";
 // Display helpers used by the file list. The remaining inspector-only
 // display methods moved into wt-inspector along with the rest of the panel.
@@ -312,17 +313,17 @@ export const App = {
 			},
 			// versionHistoryDialog / propTypeOptions moved to wt-inspector.
 			fileTypeOptions: [
-				{ id: 'text', label: 'Text Document', extension: '.txt', mimeType: 'text/plain' },
-				{ id: 'html', label: 'HTML Document', extension: '.html', mimeType: 'text/html' },
-				{ id: 'css', label: 'CSS Stylesheet', extension: '.css', mimeType: 'text/css' },
-				{ id: 'javascript', label: 'JavaScript', extension: '.js', mimeType: 'application/javascript' },
-				{ id: 'json', label: 'JSON', extension: '.json', mimeType: 'application/json' },
-				{ id: 'xml', label: 'XML Document', extension: '.xml', mimeType: 'application/xml' },
-				{ id: 'markdown', label: 'Markdown', extension: '.md', mimeType: 'text/markdown' },
-				{ id: 'csv', label: 'CSV', extension: '.csv', mimeType: 'text/csv' },
-				{ id: 'yml', label: 'YAML Document', extension: '.yml', mimeType: 'application/yaml' },
-				{ id: 'bpmn', label: 'BPMN Document', extension: '.bpmn', mimeType: 'application/bpmn+xml' },
-				{ id: 'eip.xml', label: 'EIP/Route Document', extension: '.eip.xml', mimeType: 'application/vnd.webtop.eip+xml' },
+				{ id: 'text', label: 'Text Document', labelKey: 'text', extension: '.txt', mimeType: 'text/plain' },
+				{ id: 'html', label: 'HTML Document', labelKey: 'html', extension: '.html', mimeType: 'text/html' },
+				{ id: 'css', label: 'CSS Stylesheet', labelKey: 'css', extension: '.css', mimeType: 'text/css' },
+				{ id: 'javascript', label: 'JavaScript', labelKey: 'javascript', extension: '.js', mimeType: 'application/javascript' },
+				{ id: 'json', label: 'JSON', labelKey: 'json', extension: '.json', mimeType: 'application/json' },
+				{ id: 'xml', label: 'XML Document', labelKey: 'xml', extension: '.xml', mimeType: 'application/xml' },
+				{ id: 'markdown', label: 'Markdown', labelKey: 'markdown', extension: '.md', mimeType: 'text/markdown' },
+				{ id: 'csv', label: 'CSV', labelKey: 'csv', extension: '.csv', mimeType: 'text/csv' },
+				{ id: 'yml', label: 'YAML Document', labelKey: 'yml', extension: '.yml', mimeType: 'application/yaml' },
+				{ id: 'bpmn', label: 'BPMN Document', labelKey: 'bpmn', extension: '.bpmn', mimeType: 'application/bpmn+xml' },
+				{ id: 'eip.xml', label: 'EIP/Route Document', labelKey: 'eipxml', extension: '.eip.xml', mimeType: 'application/vnd.webtop.eip+xml' },
 			],
 			// Selection state
 			selectedItems: [] as string[],
@@ -677,42 +678,47 @@ export const App = {
 			return entries;
 		},
 		// Group pathHistory by time category
-		groupedHistory(): { label: string; items: { path: string; timestamp: number }[] }[] {
+		groupedHistory(): { label: string; labelKey: string; items: { path: string; timestamp: number }[] }[] {
 			const now = new Date();
 			const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 			const yesterdayStart = todayStart - 86400000;
 			const weekStart = todayStart - 6 * 86400000;
 
-			const groups: Record<string, { path: string; timestamp: number }[]> = {
-				'Today': [],
-				'Yesterday': [],
-				'This Week': [],
-				'Older': [],
-			};
+			const buckets: { key: string; fallback: string; items: { path: string; timestamp: number }[] }[] = [
+				{ key: 'today', fallback: 'Today', items: [] },
+				{ key: 'yesterday', fallback: 'Yesterday', items: [] },
+				{ key: 'thisWeek', fallback: 'This Week', items: [] },
+				{ key: 'older', fallback: 'Older', items: [] },
+			];
 
 			for (const entry of this.pathHistory) {
 				if (entry.timestamp >= todayStart) {
-					groups['Today'].push(entry);
+					buckets[0].items.push(entry);
 				} else if (entry.timestamp >= yesterdayStart) {
-					groups['Yesterday'].push(entry);
+					buckets[1].items.push(entry);
 				} else if (entry.timestamp >= weekStart) {
-					groups['This Week'].push(entry);
+					buckets[2].items.push(entry);
 				} else {
-					groups['Older'].push(entry);
+					buckets[3].items.push(entry);
 				}
 			}
 
-			return Object.entries(groups)
-				.filter(([, items]) => items.length > 0)
-				.map(([label, items]) => ({ label, items }));
+			return buckets
+				.filter(b => b.items.length > 0)
+				.map(b => ({
+					label: this.t('app.content-browser.dategroup.' + b.key, undefined, b.fallback),
+					labelKey: b.key,
+					items: b.items,
+				}));
 		},
 		// Filtered history for overlay panel search
-		filteredGroupedHistory(): { label: string; items: { path: string; timestamp: number }[] }[] {
+		filteredGroupedHistory(): { label: string; labelKey: string; items: { path: string; timestamp: number }[] }[] {
 			const keyword = this.historySearchKeyword.trim().toLowerCase();
 			if (!keyword) return this.groupedHistory;
 			return this.groupedHistory
 				.map((group: any) => ({
 					label: group.label,
+					labelKey: group.labelKey,
 					items: group.items.filter((item: any) => item.path.toLowerCase().includes(keyword)),
 				}))
 				.filter((group: any) => group.items.length > 0);
@@ -771,6 +777,14 @@ export const App = {
 		},
 	},
 	methods: {
+		/**
+		 * Reactive i18n lookup. Reads the localization snapshot so every
+		 * `{{ t(...) }}` binding repaints the moment the user switches language
+		 * or an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
 		async onMounted() {
 			const vm = this;
 
@@ -993,7 +1007,7 @@ export const App = {
 				vm.items = items;
 				vm.sortItems(vm.sortColumn, vm.sortDirection);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || String(error) || 'Failed to fetch data';
+				vm.errorMessage = error?.message || String(error) || vm.t('app.content-browser.error.fetchFailed', undefined, 'Failed to fetch data');
 			} finally {
 				vm.loadingMonitor = null;
 			}
@@ -1485,7 +1499,7 @@ export const App = {
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
 				if (!vm.uploadMonitor?.isCanceled) {
-					vm.errorMessage = error?.message || String(error) || 'Upload failed';
+					vm.errorMessage = error?.message || String(error) || vm.t('app.content-browser.error.uploadFailed', undefined, 'Upload failed');
 				}
 			} finally {
 				if (!vm.errorMessage) {
@@ -1514,7 +1528,7 @@ export const App = {
 					await vm.saveDroppedContent(name, mimeType, content, saveAsToken);
 					await vm.load(vm.currentPath);
 				} catch (error: any) {
-					vm.errorMessage = error?.message || 'Save failed';
+					vm.errorMessage = error?.message || vm.t('app.content-browser.error.saveFailed', undefined, 'Save failed');
 				}
 				return;
 			}
@@ -1553,7 +1567,7 @@ export const App = {
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
 				if (!vm.uploadMonitor?.isCanceled) {
-					vm.errorMessage = error?.message || String(error) || 'Upload failed';
+					vm.errorMessage = error?.message || String(error) || vm.t('app.content-browser.error.uploadFailed', undefined, 'Upload failed');
 				}
 			} finally {
 				if (!vm.errorMessage) {
@@ -1974,69 +1988,69 @@ export const App = {
 			const menuItems: { id: string; label: string; icon?: string; danger?: boolean; type?: string }[] = [];
 
 			// New Folder/File + Upload options (always available)
-			menuItems.push({ id: 'new-folder', label: 'New Folder', icon: 'bi-folder-plus' });
-			menuItems.push({ id: 'new-file', label: 'New File', icon: 'bi-file-earmark-plus' });
-			menuItems.push({ id: 'upload-files', label: 'Upload Files', icon: 'bi-upload' });
-			menuItems.push({ id: 'upload-folder', label: 'Upload Folder', icon: 'bi-folder-symlink' });
+			menuItems.push({ id: 'new-folder', label: vm.t('app.content-browser.menu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' });
+			menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
+			menuItems.push({ id: 'upload-files', label: vm.t('app.content-browser.menu.uploadFiles', undefined, 'Upload Files'), icon: 'bi-upload' });
+			menuItems.push({ id: 'upload-folder', label: vm.t('app.content-browser.menu.uploadFolder', undefined, 'Upload Folder'), icon: 'bi-folder-symlink' });
 			menuItems.push({ type: 'separator', id: '', label: '' });
 
 			if (isSingleSelection && hasFolder) {
-				menuItems.push({ id: 'open', label: 'Open', icon: 'bi-folder2-open' });
+				menuItems.push({ id: 'open', label: vm.t('app.content-browser.menu.open', undefined, 'Open'), icon: 'bi-folder2-open' });
 			}
 			// Download is available for any selection: a single plain file streams
 			// directly, while folders and multi-selections are bundled into a ZIP.
 			if (hasFile || hasFolder) {
-				menuItems.push({ id: 'download', label: 'Download', icon: 'bi-download' });
+				menuItems.push({ id: 'download', label: vm.t('app.content-browser.menu.download', undefined, 'Download'), icon: 'bi-download' });
 			}
 			menuItems.push({ type: 'separator', id: '', label: '' });
-			menuItems.push({ id: 'copy', label: 'Copy', icon: 'bi-clipboard' });
-			menuItems.push({ id: 'cut', label: 'Cut', icon: 'bi-scissors' });
+			menuItems.push({ id: 'copy', label: vm.t('app.content-browser.menu.copy', undefined, 'Copy'), icon: 'bi-clipboard' });
+			menuItems.push({ id: 'cut', label: vm.t('app.content-browser.menu.cut', undefined, 'Cut'), icon: 'bi-scissors' });
 			if (vm.clipboardHasItems()) {
-				menuItems.push({ id: 'paste', label: 'Paste', icon: 'bi-clipboard-check' });
+				menuItems.push({ id: 'paste', label: vm.t('app.content-browser.menu.paste', undefined, 'Paste'), icon: 'bi-clipboard-check' });
 			}
 			menuItems.push({ type: 'separator', id: '', label: '' });
 			if (isSingleSelection) {
-				menuItems.push({ id: 'rename', label: 'Rename', icon: 'bi-pencil' });
+				menuItems.push({ id: 'rename', label: vm.t('app.content-browser.menu.rename', undefined, 'Rename'), icon: 'bi-pencil' });
 			}
 			// Lock/Unlock options
 			if (hasUnlocked) {
-				menuItems.push({ id: 'lock', label: 'Lock', icon: 'bi-lock' });
+				menuItems.push({ id: 'lock', label: vm.t('app.content-browser.menu.lock', undefined, 'Lock'), icon: 'bi-lock' });
 			}
 			if (hasLocked) {
-				menuItems.push({ id: 'unlock', label: 'Unlock', icon: 'bi-unlock' });
+				menuItems.push({ id: 'unlock', label: vm.t('app.content-browser.menu.unlock', undefined, 'Unlock'), icon: 'bi-unlock' });
 			}
 			// Referenceable options (only for files, not folders; exclude versionable from disable)
 			if (hasNonReferenceableFile) {
-				menuItems.push({ id: 'enable-referenceable', label: 'Enable Referenceable', icon: 'bi-link-45deg' });
+				menuItems.push({ id: 'enable-referenceable', label: vm.t('app.content-browser.menu.enableReferenceable', undefined, 'Enable Referenceable'), icon: 'bi-link-45deg' });
 			}
 			if (hasReferenceableNonVersionable) {
-				menuItems.push({ id: 'disable-referenceable', label: 'Disable Referenceable', icon: 'bi-link' });
+				menuItems.push({ id: 'disable-referenceable', label: vm.t('app.content-browser.menu.disableReferenceable', undefined, 'Disable Referenceable'), icon: 'bi-link' });
 			}
 			// Version control options (files only, not folders)
 			if (hasNonVersionableFile) {
-				menuItems.push({ id: 'enable-version-control', label: 'Enable Version Control', icon: 'bi-clock-history' });
+				menuItems.push({ id: 'enable-version-control', label: vm.t('app.content-browser.menu.enableVersionControl', undefined, 'Enable Version Control'), icon: 'bi-clock-history' });
 			}
 			if (hasCheckedInFile) {
-				menuItems.push({ id: 'checkout', label: 'Checkout', icon: 'bi-box-arrow-up-right' });
+				menuItems.push({ id: 'checkout', label: vm.t('app.content-browser.menu.checkout', undefined, 'Checkout'), icon: 'bi-box-arrow-up-right' });
 			}
 			if (hasCheckedOutFile) {
-				menuItems.push({ id: 'checkin', label: 'Checkin', icon: 'bi-box-arrow-in-down-left' });
-				menuItems.push({ id: 'checkpoint', label: 'Checkpoint', icon: 'bi-save' });
+				menuItems.push({ id: 'checkin', label: vm.t('app.content-browser.menu.checkin', undefined, 'Checkin'), icon: 'bi-box-arrow-in-down-left' });
+				menuItems.push({ id: 'checkpoint', label: vm.t('app.content-browser.menu.checkpoint', undefined, 'Checkpoint'), icon: 'bi-save' });
 			}
 			if (hasCheckedOutNonRootFile) {
-				menuItems.push({ id: 'uncheckout', label: 'Cancel Checkout', icon: 'bi-x-circle' });
+				menuItems.push({ id: 'uncheckout', label: vm.t('app.content-browser.menu.cancelCheckout', undefined, 'Cancel Checkout'), icon: 'bi-x-circle' });
 			}
 			// Version History: show for versionable files (single selection only)
 			const hasVersionableFile = selectedItemObjects.some((i: any) => i.isVersionable && !i.isCollection);
 			if (isSingleSelection && hasVersionableFile) {
-				menuItems.push({ id: 'version-history', label: 'Version History', icon: 'bi-clock-history' });
+				menuItems.push({ id: 'version-history', label: vm.t('app.content-browser.menu.versionHistory', undefined, 'Version History'), icon: 'bi-clock-history' });
 			}
 			// Permissions (single selection only)
 			if (isSingleSelection) {
-				menuItems.push({ id: 'permissions', label: 'Permissions', icon: 'bi-shield-lock' });
+				menuItems.push({ id: 'permissions', label: vm.t('app.content-browser.menu.permissions', undefined, 'Permissions'), icon: 'bi-shield-lock' });
 			}
 			menuItems.push({ type: 'separator', id: '', label: '' });
-			menuItems.push({ id: 'delete', label: 'Delete', icon: 'bi-trash', danger: true });
+			menuItems.push({ id: 'delete', label: vm.t('app.content-browser.menu.delete', undefined, 'Delete'), icon: 'bi-trash', danger: true });
 
 			// iframeの位置を計算してスクリーン座標に変換
 			const iframeRect = document.body.getBoundingClientRect();
@@ -2067,13 +2081,13 @@ export const App = {
 
 			// Build context menu with New Folder / New File / Upload / Paste
 			const menuItems: { id: string; label: string; icon?: string; danger?: boolean; type?: string }[] = [];
-			menuItems.push({ id: 'new-folder', label: 'New Folder', icon: 'bi-folder-plus' });
-			menuItems.push({ id: 'new-file', label: 'New File', icon: 'bi-file-earmark-plus' });
-			menuItems.push({ id: 'upload-files', label: 'Upload Files', icon: 'bi-upload' });
-			menuItems.push({ id: 'upload-folder', label: 'Upload Folder', icon: 'bi-folder-symlink' });
+			menuItems.push({ id: 'new-folder', label: vm.t('app.content-browser.menu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' });
+			menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
+			menuItems.push({ id: 'upload-files', label: vm.t('app.content-browser.menu.uploadFiles', undefined, 'Upload Files'), icon: 'bi-upload' });
+			menuItems.push({ id: 'upload-folder', label: vm.t('app.content-browser.menu.uploadFolder', undefined, 'Upload Folder'), icon: 'bi-folder-symlink' });
 			if (vm.clipboardHasItems()) {
 				menuItems.push({ type: 'separator', id: '', label: '' });
-				menuItems.push({ id: 'paste', label: 'Paste', icon: 'bi-clipboard-check' });
+				menuItems.push({ id: 'paste', label: vm.t('app.content-browser.menu.paste', undefined, 'Paste'), icon: 'bi-clipboard-check' });
 			}
 
 			const screenX = event.clientX;
@@ -2191,7 +2205,7 @@ export const App = {
 				// Reload the current directory to reflect the changes
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to lock';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.lockFailed', undefined, 'Failed to lock');
 			}
 		},
 		async unlockItems(items: ContentItem[]) {
@@ -2208,7 +2222,7 @@ export const App = {
 				// Reload the current directory to reflect the changes
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to unlock';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.unlockFailed', undefined, 'Failed to unlock');
 			}
 		},
 		// =====================================================================
@@ -2330,7 +2344,7 @@ export const App = {
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
 				if (!vm.uploadMonitor?.isCanceled) {
-					vm.errorMessage = error?.message || String(error) || 'Paste failed';
+					vm.errorMessage = error?.message || String(error) || vm.t('app.content-browser.error.pasteFailed', undefined, 'Paste failed');
 				}
 			} finally {
 				if (!vm.errorMessage) {
@@ -2607,7 +2621,7 @@ export const App = {
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
 				if (!vm.uploadMonitor?.isCanceled) {
-					vm.errorMessage = error?.message || String(error) || 'Operation failed';
+					vm.errorMessage = error?.message || String(error) || vm.t('app.content-browser.error.operationFailed', undefined, 'Operation failed');
 				}
 			} finally {
 				if (!vm.errorMessage) {
@@ -2634,7 +2648,7 @@ export const App = {
 				// Reload the current directory to reflect the changes
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to enable referenceable';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.enableReferenceableFailed', undefined, 'Failed to enable referenceable');
 			}
 		},
 		async disableReferenceable(items: ContentItem[]) {
@@ -2651,7 +2665,7 @@ export const App = {
 				// Reload the current directory to reflect the changes
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to disable referenceable';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.disableReferenceableFailed', undefined, 'Failed to disable referenceable');
 			}
 		},
 		async enableVersionControl(items: ContentItem[]) {
@@ -2668,7 +2682,7 @@ export const App = {
 				// Reload the current directory to reflect the changes
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to enable version control';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.enableVersionControlFailed', undefined, 'Failed to enable version control');
 			}
 		},
 		async checkoutItems(items: ContentItem[]) {
@@ -2685,7 +2699,7 @@ export const App = {
 				// Reload the current directory to reflect the changes
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to checkout';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.checkoutFailed', undefined, 'Failed to checkout');
 			}
 		},
 		async checkinItems(items: ContentItem[]) {
@@ -2701,7 +2715,7 @@ export const App = {
 				}
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to checkin';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.checkinFailed', undefined, 'Failed to checkin');
 			}
 		},
 		async checkpointItems(items: ContentItem[]) {
@@ -2717,7 +2731,7 @@ export const App = {
 				}
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to create checkpoint';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.createCheckpointFailed', undefined, 'Failed to create checkpoint');
 			}
 		},
 		async uncheckoutItems(items: ContentItem[]) {
@@ -2734,7 +2748,7 @@ export const App = {
 				// Reload the current directory to reflect the changes
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || 'Failed to cancel checkout';
+				vm.errorMessage = error?.message || vm.t('app.content-browser.error.cancelCheckoutFailed', undefined, 'Failed to cancel checkout');
 			}
 		},
 		// Rename dialog methods
@@ -2775,7 +2789,7 @@ export const App = {
 
 			const newName = vm.renameDialog.newName.trim();
 			if (!newName) {
-				vm.renameDialog.errorMessage = 'Name cannot be empty';
+				vm.renameDialog.errorMessage = vm.t('app.content-browser.error.nameEmpty', undefined, 'Name cannot be empty');
 				return;
 			}
 			if (newName === item.name) {
@@ -2794,7 +2808,7 @@ export const App = {
 				// Reload the current directory to reflect the change
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.renameDialog.errorMessage = error?.message || 'Failed to rename';
+				vm.renameDialog.errorMessage = error?.message || vm.t('app.content-browser.error.renameFailed', undefined, 'Failed to rename');
 			} finally {
 				vm.renameDialog.isLoading = false;
 			}
@@ -2874,10 +2888,10 @@ export const App = {
 				}
 			} catch (error: any) {
 				if (vm.deleteMonitor) {
-					vm.deleteMonitor.errorMessage = error?.message || 'Failed to start delete';
+					vm.deleteMonitor.errorMessage = error?.message || vm.t('app.content-browser.error.startDeleteFailed', undefined, 'Failed to start delete');
 					vm.deleteMonitor.isFinished = true;
 				} else {
-					vm.deleteDialog.errorMessage = error?.message || 'Failed to delete';
+					vm.deleteDialog.errorMessage = error?.message || vm.t('app.content-browser.error.deleteFailed', undefined, 'Failed to delete');
 				}
 			} finally {
 				vm.deleteDialog.isLoading = false;
@@ -2965,7 +2979,7 @@ export const App = {
 				);
 			} catch (error: any) {
 				if (vm.archiveMonitor) {
-					vm.archiveMonitor.errorMessage = error?.message || 'Failed to create archive';
+					vm.archiveMonitor.errorMessage = error?.message || vm.t('app.content-browser.error.createArchiveFailed', undefined, 'Failed to create archive');
 					vm.archiveMonitor.isFinished = true;
 				}
 			}
@@ -3066,7 +3080,7 @@ export const App = {
 			const name = vm.newFolderDialog.name.trim();
 
 			if (!name) {
-				vm.newFolderDialog.errorMessage = 'Folder name cannot be empty';
+				vm.newFolderDialog.errorMessage = vm.t('app.content-browser.error.folderNameEmpty', undefined, 'Folder name cannot be empty');
 				return;
 			}
 
@@ -3080,7 +3094,7 @@ export const App = {
 				// Reload the current directory to show the new folder
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.newFolderDialog.errorMessage = error?.message || 'Failed to create folder';
+				vm.newFolderDialog.errorMessage = error?.message || vm.t('app.content-browser.error.createFolderFailed', undefined, 'Failed to create folder');
 			} finally {
 				vm.newFolderDialog.isLoading = false;
 			}
@@ -3131,7 +3145,7 @@ export const App = {
 			let name = vm.newFileDialog.name.trim();
 
 			if (!name) {
-				vm.newFileDialog.errorMessage = 'File name cannot be empty';
+				vm.newFileDialog.errorMessage = vm.t('app.content-browser.error.fileNameEmpty', undefined, 'File name cannot be empty');
 				return;
 			}
 
@@ -3153,7 +3167,7 @@ export const App = {
 				// Reload the current directory to show the new file
 				await vm.load(vm.currentPath);
 			} catch (error: any) {
-				vm.newFileDialog.errorMessage = error?.message || 'Failed to create file';
+				vm.newFileDialog.errorMessage = error?.message || vm.t('app.content-browser.error.createFileFailed', undefined, 'Failed to create file');
 			} finally {
 				vm.newFileDialog.isLoading = false;
 			}
@@ -3314,39 +3328,39 @@ export const App = {
 			const buildItems = () => {
 				const groups: any[] = [];
 				groups.push({
-					label: 'Pinned Locations',
+					label: vm.t('app.content-browser.history.pinnedLocations', undefined, 'Pinned Locations'),
 					icon: 'bi bi-pin-angle',
-					info: vm.pinnedPaths.length + ' Pinned',
-					emptyMessage: 'No pinned locations',
+					info: vm.t('app.content-browser.history.pinnedCount', { count: vm.pinnedPaths.length }, vm.pinnedPaths.length + ' Pinned'),
+					emptyMessage: vm.t('app.content-browser.history.noPinnedLocations', undefined, 'No pinned locations'),
 					items: vm.pinnedPaths.map((pin: any) => ({
 						id: pin.path,
 						label: pin.name,
 						description: pin.path,
 						icon: 'bi bi-folder-symlink',
 						actions: [
-							{ id: 'unpin', icon: 'bi bi-pin-angle-fill', title: 'Unpin' },
+							{ id: 'unpin', icon: 'bi bi-pin-angle-fill', title: vm.t('app.content-browser.sidebar.unpin', undefined, 'Unpin') },
 						],
 					})),
 				});
 				const recent: any = {
-					label: 'Recent History',
+					label: vm.t('app.content-browser.history.recentHistory', undefined, 'Recent History'),
 					icon: 'bi bi-clock-history',
-					emptyMessage: 'No recent history',
+					emptyMessage: vm.t('app.content-browser.history.noRecentHistory', undefined, 'No recent history'),
 					items: vm.pathHistory.map((entry: any) => ({
 						id: entry.path,
 						label: vm.pathDisplayName(entry.path),
 						description: entry.path + ' · ' + vm.formatHistoryTimestamp(entry.timestamp),
 						icon: 'bi bi-folder',
 						actions: vm.isPathPinned(entry.path)
-							? [{ id: 'remove', icon: 'bi bi-x-lg', title: 'Remove', danger: true, showOnHover: true }]
+							? [{ id: 'remove', icon: 'bi bi-x-lg', title: vm.t('app.content-browser.sidebar.remove', undefined, 'Remove'), danger: true, showOnHover: true }]
 							: [
-								{ id: 'pin', icon: 'bi bi-pin-angle', title: 'Pin', showOnHover: true },
-								{ id: 'remove', icon: 'bi bi-x-lg', title: 'Remove', danger: true, showOnHover: true },
+								{ id: 'pin', icon: 'bi bi-pin-angle', title: vm.t('app.content-browser.sidebar.pin', undefined, 'Pin'), showOnHover: true },
+								{ id: 'remove', icon: 'bi bi-x-lg', title: vm.t('app.content-browser.sidebar.remove', undefined, 'Remove'), danger: true, showOnHover: true },
 							],
 					})),
 				};
 				if (vm.pathHistory.length > 0) {
-					recent.headerAction = { id: 'clear-all', icon: 'bi bi-trash', label: 'Clear All', title: 'Clear all history', danger: true };
+					recent.headerAction = { id: 'clear-all', icon: 'bi bi-trash', label: vm.t('app.content-browser.history.clearAll', undefined, 'Clear All'), title: vm.t('app.content-browser.history.clearAllHistory', undefined, 'Clear all history'), danger: true };
 				}
 				groups.push(recent);
 				return groups;
@@ -3418,14 +3432,14 @@ export const App = {
 			}
 			if (items.length === 0) {
 				items.push({
-					label: 'History',
-					items: [{ id: '__no-history', label: 'No history', disabled: true }],
+					label: vm.t('app.content-browser.history.history', undefined, 'History'),
+					items: [{ id: '__no-history', label: vm.t('app.content-browser.history.noHistory', undefined, 'No history'), disabled: true }],
 				});
 			}
 			// Trailing action — open the full history panel
 			items.push({
 				label: '',
-				items: [{ id: '__show-full-history', label: 'Show full history...', icon: 'bi bi-clock-history' }],
+				items: [{ id: '__show-full-history', label: vm.t('app.content-browser.history.showFullHistory', undefined, 'Show full history...'), icon: 'bi bi-clock-history' }],
 			});
 
 			const handle = vm.instance.popup.open({
@@ -3495,10 +3509,10 @@ export const App = {
 			const minutes = Math.floor(diff / 60000);
 			const hours = Math.floor(diff / 3600000);
 			const days = Math.floor(diff / 86400000);
-			if (minutes < 1) return 'Just now';
-			if (minutes < 60) return minutes + ' min ago';
-			if (hours < 24) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
-			if (days < 7) return days + (days === 1 ? ' day ago' : ' days ago');
+			if (minutes < 1) return this.t('app.content-browser.dategroup.justNow', undefined, 'Just now');
+			if (minutes < 60) return this.t('app.content-browser.dategroup.minAgo', { count: minutes }, minutes + ' min ago');
+			if (hours < 24) return this.t('app.content-browser.dategroup.hourAgo', { count: hours }, hours + (hours === 1 ? ' hour ago' : ' hours ago'));
+			if (days < 7) return this.t('app.content-browser.dategroup.dayAgo', { count: days }, days + (days === 1 ? ' day ago' : ' days ago'));
 			const d = new Date(timestamp);
 			return d.toLocaleDateString(this.localization.locale || undefined, {
 				timeZone: this.localization.timeZone || undefined,
@@ -3513,21 +3527,27 @@ export const App = {
 				this.backDropdownOpen = false;
 			}
 		},
+		// Localized label for a date-filter mode id ('none'|'today'|'pastN'|'range').
+		// Shared by the filter and per-condition date dropdowns + their labels.
+		dateModeLabel(id: string): string {
+			const map: Record<string, { key: string; fallback: string }> = {
+				none: { key: 'anyTime', fallback: 'Any time' },
+				today: { key: 'today', fallback: 'Today' },
+				pastN: { key: 'pastNDays', fallback: 'Past N days' },
+				range: { key: 'dateRange', fallback: 'Date range' },
+			};
+			const m = map[id] || map.none;
+			return this.t('app.content-browser.search.' + m.key, undefined, m.fallback);
+		},
 		async openFilterDateDropdown(event: MouseEvent) {
 			const vm = this;
 			const trigger = event.currentTarget as HTMLElement;
 			if (!trigger || !vm.instance) return;
 			const rect = trigger.getBoundingClientRect();
-			const modes: { id: string; label: string }[] = [
-				{ id: 'none', label: 'Any time' },
-				{ id: 'today', label: 'Today' },
-				{ id: 'pastN', label: 'Past N days' },
-				{ id: 'range', label: 'Date range' },
-			];
-			const items = modes.map(m => ({
-				id: m.id,
-				label: m.label,
-				selected: vm.filterDateMode === m.id,
+			const items = ['none', 'today', 'pastN', 'range'].map(id => ({
+				id,
+				label: vm.dateModeLabel(id),
+				selected: vm.filterDateMode === id,
 			}));
 			const handle = vm.instance.popup.open({
 				anchor: rect,
@@ -3540,13 +3560,7 @@ export const App = {
 			vm.filterDateMode = String(result);
 		},
 		filterDateModeLabel(): string {
-			const map: Record<string, string> = {
-				none: 'Any time',
-				today: 'Today',
-				pastN: 'Past N days',
-				range: 'Date range',
-			};
-			return map[this.filterDateMode] || 'Any time';
+			return this.dateModeLabel(this.filterDateMode);
 		},
 		async openXpathSchemaDropdown(event: MouseEvent) {
 			const vm = this;
@@ -3555,7 +3569,7 @@ export const App = {
 			const rect = trigger.getBoundingClientRect();
 			const items: any[] = [{
 				id: '',
-				label: 'Select schema...',
+				label: vm.t('app.content-browser.search.selectSchema', undefined, 'Select schema...'),
 				selected: !vm.xpathSelectedSchema,
 			}];
 			for (const s of vm.availableSchemas as any[]) {
@@ -3607,14 +3621,14 @@ export const App = {
 			const trigger = event.currentTarget as HTMLElement;
 			if (!trigger || !vm.instance) return;
 			const rect = trigger.getBoundingClientRect();
-			const options: { id: string; label: string }[] = [
-				{ id: '', label: 'Any' },
-				{ id: 'true', label: 'True' },
-				{ id: 'false', label: 'False' },
+			const options: { id: string; key: string; fallback: string }[] = [
+				{ id: '', key: 'any', fallback: 'Any' },
+				{ id: 'true', key: 'true', fallback: 'True' },
+				{ id: 'false', key: 'false', fallback: 'False' },
 			];
 			const items = options.map(o => ({
 				id: o.id || '__any__',
-				label: o.label,
+				label: vm.t('app.content-browser.search.' + o.key, undefined, o.fallback),
 				selected: cond.booleanValue === o.id,
 			}));
 			const handle = vm.instance.popup.open({
@@ -3628,24 +3642,23 @@ export const App = {
 			cond.booleanValue = result === '__any__' ? '' : String(result);
 		},
 		condBoolLabel(cond: any): string {
-			const map: Record<string, string> = { '': 'Any', 'true': 'True', 'false': 'False' };
-			return map[cond.booleanValue] || 'Any';
+			const map: Record<string, { key: string; fallback: string }> = {
+				'': { key: 'any', fallback: 'Any' },
+				'true': { key: 'true', fallback: 'True' },
+				'false': { key: 'false', fallback: 'False' },
+			};
+			const m = map[cond.booleanValue] || map[''];
+			return this.t('app.content-browser.search.' + m.key, undefined, m.fallback);
 		},
 		async openCondDateDropdown(cond: any, event: MouseEvent) {
 			const vm = this;
 			const trigger = event.currentTarget as HTMLElement;
 			if (!trigger || !vm.instance) return;
 			const rect = trigger.getBoundingClientRect();
-			const modes: { id: string; label: string }[] = [
-				{ id: 'none', label: 'Any time' },
-				{ id: 'today', label: 'Today' },
-				{ id: 'pastN', label: 'Past N days' },
-				{ id: 'range', label: 'Date range' },
-			];
-			const items = modes.map(m => ({
-				id: m.id,
-				label: m.label,
-				selected: cond.dateMode === m.id,
+			const items = ['none', 'today', 'pastN', 'range'].map(id => ({
+				id,
+				label: vm.dateModeLabel(id),
+				selected: cond.dateMode === id,
 			}));
 			const handle = vm.instance.popup.open({
 				anchor: rect,
@@ -3658,13 +3671,7 @@ export const App = {
 			cond.dateMode = String(result);
 		},
 		condDateModeLabel(cond: any): string {
-			const map: Record<string, string> = {
-				none: 'Any time',
-				today: 'Today',
-				pastN: 'Past N days',
-				range: 'Date range',
-			};
-			return map[cond.dateMode] || 'Any time';
+			return this.dateModeLabel(cond.dateMode);
 		},
 		// Property editor dropdowns (shell-rendered popups replacing native <select>)
 		async openNewFileTypeDropdown(event: MouseEvent) {
@@ -3675,7 +3682,7 @@ export const App = {
 			const rect = trigger.getBoundingClientRect();
 			const items = (vm.fileTypeOptions as any[]).map((o: any) => ({
 				id: o.id,
-				label: `${o.label} (${o.extension})`,
+				label: `${vm.fileTypeLabel(o)} (${o.extension})`,
 				selected: o.id === vm.newFileDialog.fileType,
 			}));
 			const handle = vm.instance.popup.open({
@@ -3688,9 +3695,13 @@ export const App = {
 			if (result == null) return;
 			vm.newFileDialog.fileType = String(result);
 		},
+		// Localized display label for a file-type option.
+		fileTypeLabel(o: any): string {
+			return this.t('app.content-browser.filetype.' + o.labelKey, undefined, o.label);
+		},
 		newFileTypeLabel(): string {
 			const o = (this.fileTypeOptions as any[]).find((x: any) => x.id === this.newFileDialog.fileType);
-			return o ? `${o.label} (${o.extension})` : '';
+			return o ? `${this.fileTypeLabel(o)} (${o.extension})` : '';
 		},
 		// Client-side filter methods
 		clearAllFilters() {

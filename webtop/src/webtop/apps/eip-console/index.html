@@ -12,6 +12,8 @@
 	<!-- App + shared webtop CSS -->
 	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
 	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<!-- Shared read-only route canvas (<eip-canvas>) -->
+	<link href="../../components/eip-canvas.css?v=__BUILD_VERSION__" rel="stylesheet" />
 </head>
 
 <body>
@@ -23,18 +25,40 @@
 	     Top Toolbar
 	     ================================================================= -->
 	<nav class="nav-bar window-drag-region">
-		<!-- Live tail / Refresh (click=refresh, hold 1.5s=live tail) -->
-		<div class="toolbar-group">
-			<button class="btn-icon"
-				:class="{active: liveTailActive}"
-				@pointerdown="onRefreshPointerDown"
-				@pointerup="onRefreshPointerUp"
-				@pointerleave="cancelLiveTailPress"
-				@pointercancel="cancelLiveTailPress"
-				:title="liveTailActive ? 'Live tail ON — click to stop' : 'Refresh (hold 1.5s for live tail)'">
-				<i class="bi bi-arrow-clockwise" :class="{spin: liveTailActive}"></i>
+		<!-- Screen tabs: Graph (chart exploration) / Routes (management) -->
+		<div class="view-tabs">
+			<button class="btn-icon view-tab" :class="{active: view === 'graph'}"
+				@click="switchView('graph')" :title="t('app.eip-console.tab.graph', undefined, 'Graph')">
+				<i class="bi bi-graph-up"></i>
+			</button>
+			<button class="btn-icon view-tab" :class="{active: view === 'routes'}"
+				@click="switchView('routes')" :title="t('app.eip-console.tab.routes', undefined, 'Routes')">
+				<i class="bi bi-diagram-3"></i>
 			</button>
 		</div>
+
+		<!-- Refresh — click reloads routes + chart + list -->
+		<div class="toolbar-group">
+			<button class="btn-icon"
+				@click="onRefreshClick"
+				:disabled="refreshing"
+				:title="t('app.eip-console.toolbar.refresh', undefined, 'Refresh')">
+				<i class="bi bi-arrow-clockwise" :class="{spin: refreshing}"></i>
+			</button>
+		</div>
+
+		<!-- Range selector (time window for chart + history) -->
+		<div v-if="view === 'graph'" class="eip-range" :title="t('app.eip-console.toolbar.timeRange', undefined, 'Time range')">
+			<button v-for="opt in rangeOptions" :key="opt.key"
+				:class="{active: rangeKey === opt.key}"
+				@click="rangeKey = opt.key">{{ opt.key }}</button>
+		</div>
+
+		<!-- Live indicator — reflects the /var/eip/history subscription -->
+		<span class="eip-live" :class="{ connected: liveConnected }"
+			:title="liveConnected ? t('app.eip-console.toolbar.liveOn', undefined, 'Live updates on') : t('app.eip-console.toolbar.liveOff', undefined, 'Live updates off')">
+			<span class="eip-live-dot"></span>{{ liveConnected ? t('app.eip-console.toolbar.live', undefined, 'Live') : t('app.eip-console.toolbar.offline', undefined, 'Offline') }}
+		</span>
 
 		<span class="nav-spacer"></span>
 
@@ -46,28 +70,28 @@
 		<!-- Right: Pane Toggles -->
 		<div class="pane-toggles">
 			<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
-				@click="toggleSidebarPanel" title="Toggle Sidebar">
+				@click="toggleSidebarPanel" :title="t('app.eip-console.toolbar.toggleSidebar', undefined, 'Toggle Sidebar')">
 				<i class="bi bi-layout-sidebar-inset"></i>
 			</button>
 			<button class="btn-icon pane-toggle-btn" :class="{active: bottomPanelVisible}"
-				@click="toggleBottomPanel" title="Toggle History">
+				@click="toggleBottomPanel" :title="t('app.eip-console.toolbar.toggleHistory', undefined, 'Toggle History')">
 				<i class="bi bi-layout-split"></i>
 			</button>
 			<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
-				@click="toggleDetailPanel" title="Toggle Details">
+				@click="toggleDetailPanel" :title="t('app.eip-console.toolbar.toggleDetails', undefined, 'Toggle Details')">
 				<i class="bi bi-layout-sidebar-inset-reverse"></i>
 			</button>
 		</div>
 
 		<!-- Right: Window Controls -->
 		<div class="window-controls">
-			<button class="btn-icon" @click="onMinimizeWindow" title="Minimize">
+			<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize', undefined, 'Minimize')">
 				<i class="bi bi-dash-lg"></i>
 			</button>
-			<button class="btn-icon" @click="onToggleMaximizeWindow" title="Maximize">
+			<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize', undefined, 'Maximize')">
 				<i class="bi bi-square"></i>
 			</button>
-			<button class="btn-icon window-control-close" @click="onCloseWindow" title="Close">
+			<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close', undefined, 'Close')">
 				<i class="bi bi-x-lg"></i>
 			</button>
 		</div>
@@ -84,57 +108,25 @@
 		<div v-if="sidebarPanelVisible" class="sidebar-panel island p-0"
 			:style="{ width: sidebarPanelWidth + 'px' }">
 
-			<!-- ===== SEARCH MODE ===== -->
-			<div v-if="leftMode === 'search'" class="pane-scroll">
+			<!-- ===== GRAPH SCREEN — filters ===== -->
+			<div v-if="view === 'graph'" class="pane-scroll">
 
-				<!-- Filter (click-to-edit, partial match across businessKey/exchangeId/routeId) -->
-				<div class="filter-group">
-					<label class="filter-label">Filter</label>
-					<div v-if="filterEditing" class="filter-editor">
-						<div class="input-group">
-							<input type="text" class="wt"
-								ref="filterInput"
-								v-model="filterInput"
-								@keydown.enter="commitFilterEdit"
-								@keydown.escape="cancelFilterEdit"
-								placeholder="Business key / Exchange ID / Route ID" />
-							<div class="input-group-actions">
-								<button class="input-group-btn" @click="commitFilterEdit" title="Apply">
-									<i class="bi bi-check-lg"></i>
-								</button>
-								<button class="input-group-btn" @click="cancelFilterEdit" title="Cancel">
-									<i class="bi bi-x-lg"></i>
-								</button>
-							</div>
-						</div>
-					</div>
-					<div v-else class="filter-clickable" @click="startFilterEdit"
-						:title="filterText ? 'Click to edit filter' : 'Click to enter a filter'">
-						<span v-if="filterText">{{ filterText }}</span>
-						<span v-else class="muted">Any</span>
-					</div>
-				</div>
-
-				<!-- Route multi-select -->
+				<!-- Route multi-select (+ All toggle) -->
 				<div class="filter-group">
 					<div class="filter-label-row">
-						<label class="filter-label">
-							Route
-							<button class="btn-icon route-mode-toggle"
-								@click="switchLeftMode('manage')"
-								title="Switch to management mode">
-								<i class="bi bi-gear"></i>
-							</button>
-						</label>
-						<button v-if="selectedRouteIds.length > 0"
-							type="button" class="filter-clear-btn"
-							@click="clearRouteSelection" title="Clear selection">Clear</button>
+						<label class="filter-label">{{ t('app.eip-console.filter.route', undefined, 'Route') }}</label>
+						<button type="button" class="btn-icon filter-all-toggle"
+							:class="{ active: allRoutesSelected }"
+							@click="toggleAllRoutes"
+							:title="allRoutesSelected ? t('app.eip-console.filter.deselectAllRoutes', undefined, 'Deselect all routes') : t('app.eip-console.filter.selectAllRoutes', undefined, 'Select all routes')">
+							<i class="bi bi-check2-all"></i>
+						</button>
 					</div>
 					<div v-if="!routesLoaded" class="filter-hint mt-0">
-						Loading routes…
+						{{ t('app.eip-console.empty.loadingRoutes', undefined, 'Loading routes…') }}
 					</div>
 					<div v-else-if="routes.length === 0" class="filter-hint mt-0">
-						No routes deployed.
+						{{ t('app.eip-console.empty.noRoutesDeployed', undefined, 'No routes deployed.') }}
 					</div>
 					<div v-else class="route-checkbox-list">
 						<label v-for="r in routes" :key="r.routeId" class="filter-check route-checkbox-item">
@@ -146,63 +138,93 @@
 					</div>
 				</div>
 
-				<!-- Range -->
+				<!-- Elapsed bands — multi-handle slider + colour palette.
+				     Defines the chart's elapsed-time series and their colours. -->
 				<div class="filter-group">
-					<label class="filter-label">Range</label>
-					<div class="filter-check-list">
-						<label v-for="opt in rangeOptions" :key="opt.key" class="filter-check">
-							<input type="radio" class="wt" name="eip-range"
-								:value="opt.key" v-model="rangeKey">
-							<span>{{ opt.label }}</span>
-						</label>
+					<div class="filter-label-row">
+						<label class="filter-label">{{ t('app.eip-console.filter.elapsed', undefined, 'Elapsed') }}</label>
+						<button type="button" class="btn-icon filter-all-toggle active"
+							@click="addBoundary" :title="t('app.eip-console.filter.addBand', undefined, 'Add band')">
+							<i class="bi bi-plus-lg"></i>
+						</button>
 					</div>
+
+					<!-- Framed panel so Elapsed matches Route/Status visually. -->
+					<div class="elapsed-panel">
+						<!-- Painted bar with draggable handles -->
+						<div class="elapsed-bar" @dblclick="onBandTrackDblClick(event)">
+							<div v-for="seg in bandSegments" :key="'seg' + seg.index" class="elapsed-seg"
+								:style="{ left: seg.leftPct + '%', width: seg.widthPct + '%', background: seg.color }"></div>
+							<div v-for="(b, i) in bandBoundaries" :key="'h' + i" class="elapsed-handle"
+								:class="{ removing: _bandDrag && _bandDrag.index === i && _bandDrag.removing }"
+								:style="{ left: msToPct(b) + '%' }"
+								@pointerdown="onBandHandleDown(event, i)"
+								:title="t('app.eip-console.filter.handleHint', undefined, 'Drag to move, drag off to remove')"></div>
+						</div>
+						<div class="elapsed-axis">
+							<span>0s</span>
+							<span>{{ (elapsedMaxMs / 1000) }}s+</span>
+						</div>
+
+						<!-- Per-band rows: colour chip + range + boundary input -->
+						<div class="elapsed-bands">
+							<div v-for="seg in bandSegments" :key="'row' + seg.index" class="elapsed-band-row">
+								<button type="button" class="elapsed-chip" :style="{ background: seg.color }"
+									@click="openColorPicker(seg.index, event)" :title="t('app.eip-console.filter.bandColor', undefined, 'Band colour')"></button>
+								<span class="elapsed-band-label">{{ seg.label }}</span>
+								<template v-if="!seg.last">
+									<input type="number" class="wt elapsed-ms"
+										:value="bandBoundaries[seg.index]"
+										min="0" :max="elapsedMaxMs" step="100"
+										@change="onBoundaryInput(seg.index, event.target.value)"
+										:title="t('app.eip-console.filter.upperBoundMs', undefined, 'Upper bound (ms)')">
+									<button type="button" class="btn-icon elapsed-remove"
+										@click="removeBoundary(seg.index)" :title="t('app.eip-console.filter.removeBoundary', undefined, 'Remove boundary')">
+										<i class="bi bi-x"></i>
+									</button>
+								</template>
+							</div>
+						</div>
+					</div>
+
+					<!-- Colour picker is a shell-rendered floating popup (swatch grid),
+					     raised by openColorPicker() — see app.ts. -->
 				</div>
 
-				<!-- Elapsed (multi-select; drives chart series visibility + list filter) -->
+				<!-- Status multi-select (+ All toggle) -->
 				<div class="filter-group">
-					<label class="filter-label">Elapsed</label>
-					<div class="filter-check-list">
-						<label v-for="opt in elapsedOptions" :key="opt.key" class="filter-check">
-							<input type="checkbox" class="wt"
-								:checked="!!elapsedFilterMap[opt.key]"
-								@change="toggleElapsedBand(opt.key)">
-							<span>{{ opt.label }}</span>
-						</label>
+					<div class="filter-label-row">
+						<label class="filter-label">{{ t('app.eip-console.filter.status', undefined, 'Status') }}</label>
+						<button type="button" class="btn-icon filter-all-toggle"
+							:class="{ active: allStatusSelected }"
+							@click="toggleAllStatus"
+							:title="allStatusSelected ? t('app.eip-console.filter.deselectAllStatuses', undefined, 'Deselect all statuses') : t('app.eip-console.filter.selectAllStatuses', undefined, 'Select all statuses')">
+							<i class="bi bi-check2-all"></i>
+						</button>
 					</div>
-				</div>
-
-				<!-- Status -->
-				<div class="filter-group">
-					<label class="filter-label">Status</label>
 					<div class="filter-check-list">
 						<label v-for="opt in statusOptions" :key="opt.key" class="filter-check">
-							<input type="radio" class="wt" name="eip-status"
-								:value="opt.key" v-model="statusFilter">
-							<span>{{ opt.label }}</span>
+							<input type="checkbox" class="wt"
+								:checked="!!statusFilterMap[opt.key]"
+								@change="toggleStatus(opt.key)">
+							<span>{{ statusLabel(opt.key) }}</span>
 						</label>
 					</div>
 				</div>
 			</div>
 
-			<!-- ===== MANAGE MODE ===== -->
+			<!-- ===== ROUTES SCREEN — routes tree ===== -->
 			<div v-else class="manage-pane">
 				<div class="sidebar-filter">
 					<div class="filter-label-row" style="margin-bottom: 0.5rem;">
-						<label class="filter-label">
-							Route
-							<button class="btn-icon route-mode-toggle active"
-								@click="switchLeftMode('search')"
-								title="Back to search mode">
-								<i class="bi bi-gear-fill"></i>
-							</button>
-						</label>
+						<label class="filter-label">{{ t('app.eip-console.filter.route', undefined, 'Route') }}</label>
 					</div>
 					<div class="input-group">
 						<input type="text" class="wt"
 							v-model="manageFilterText"
-							placeholder="Filter by Route ID...">
+							:placeholder="t('app.eip-console.route.filterPlaceholder', undefined, 'Filter by Route ID...')">
 						<div v-if="manageFilterText" class="input-group-actions">
-							<button class="input-group-btn" @click="manageFilterText = ''" title="Clear">
+							<button class="input-group-btn" @click="manageFilterText = ''" :title="t('app.eip-console.action.clear', undefined, 'Clear')">
 								<i class="bi bi-x"></i>
 							</button>
 						</div>
@@ -211,7 +233,7 @@
 
 				<div class="list-body">
 					<div v-if="filteredGroups.length === 0 && routesLoaded" class="list-empty-message">
-						No routes deployed
+						{{ t('app.eip-console.empty.noRoutes', undefined, 'No routes deployed') }}
 					</div>
 
 					<div v-for="group in filteredGroups" :key="group.key">
@@ -231,22 +253,23 @@
 							<div v-for="route in group.routes" :key="route.routeId"
 								class="tree-leaf"
 								:class="{ selected: managedRoute && managedRoute.routeId === route.routeId }"
-								@click="selectManagedRoute(route)">
+								@click="selectManagedRoute(route)"
+								@contextmenu.prevent="showRouteContextMenu(event, route)">
 								<div class="tree-leaf-info">
 									<div class="tree-leaf-name">
 										<i class="bi bi-pin-map tree-node-icon"></i>
 										<span>{{ route.routeId }}</span>
 										<span v-if="route.exchangesFailed && route.exchangesFailed > 0"
-											class="bpm-badge bpm-badge-error" title="Failed exchanges">
+											class="bpm-badge bpm-badge-error" :title="t('app.eip-console.route.failedExchanges', undefined, 'Failed exchanges')">
 											<i class="bi bi-exclamation-triangle-fill"></i>{{ route.exchangesFailed }}
 										</span>
 									</div>
 									<div v-if="route.description" class="tree-leaf-sub">{{ route.description }}</div>
 								</div>
-								<i v-if="route.status === 'Started'" class="bi bi-circle-fill bpm-state-icon active" title="Started"></i>
-								<i v-else-if="route.status === 'Suspended'" class="bi bi-pause-circle bpm-state-icon suspended" title="Suspended"></i>
-								<i v-else-if="route.status === 'Stopped'" class="bi bi-stop-circle bpm-state-icon stopped" title="Stopped"></i>
-								<i v-else class="bi bi-question-circle bpm-state-icon" :title="route.status || 'Unknown'"></i>
+								<i v-if="route.status === 'Started'" class="bi bi-circle-fill bpm-state-icon active" :title="t('app.eip-console.status.started', undefined, 'Started')"></i>
+								<i v-else-if="route.status === 'Suspended'" class="bi bi-pause-circle bpm-state-icon suspended" :title="t('app.eip-console.status.suspended', undefined, 'Suspended')"></i>
+								<i v-else-if="route.status === 'Stopped'" class="bi bi-stop-circle bpm-state-icon stopped" :title="t('app.eip-console.status.stopped', undefined, 'Stopped')"></i>
+								<i v-else class="bi bi-question-circle bpm-state-icon" :title="route.status || t('app.eip-console.status.unknown', undefined, 'Unknown')"></i>
 							</div>
 						</div>
 					</div>
@@ -262,75 +285,151 @@
 		     ==================================================== -->
 		<div class="content-main">
 
-			<!-- Upper: chart (no header) -->
+			<!-- Upper: chart (graph screen) or route model (routes screen) -->
 			<div class="content-upper island p-0">
-				<div class="eip-chart-area" v-resize="onChartResize">
+				<!-- GRAPH: time-series chart -->
+				<div v-if="view === 'graph'" class="eip-chart-area" v-resize="onChartResize">
 					<div v-if="statsLoading && !stats" class="eip-empty">
-						<i class="bi bi-hourglass-split"></i> Loading…
+						<i class="bi bi-hourglass-split"></i> {{ t('common.loading', undefined, 'Loading…') }}
 					</div>
 					<div v-else-if="!stats || stats.points.length === 0" class="eip-empty">
-						<i class="bi bi-bar-chart"></i> No data for the selected range
+						<i class="bi bi-bar-chart"></i> {{ t('app.eip-console.empty.noChartData', undefined, 'No data for the selected range') }}
 					</div>
 					<template v-else>
 						<svg class="eip-chart"
 							:viewBox="'0 0 ' + chartWidth + ' ' + chartHeight"
-							preserveAspectRatio="none">
+							preserveAspectRatio="none"
+							@click="onChartClick(event)"
+							:title="t('app.eip-console.chart.clickHint', undefined, 'Click a point to focus the list on that period')">
 							<g v-html="chartSvg"></g>
 						</svg>
 						<div class="eip-chart-legend">
-							<span class="legend-item legend-under1s">
-								<span class="legend-swatch"></span>&lt; 1s
-							</span>
-							<span class="legend-item legend-under5s">
-								<span class="legend-swatch"></span>1s – 5s
-							</span>
-							<span class="legend-item legend-over5s">
-								<span class="legend-swatch"></span>≥ 5s
+							<span v-for="seg in bandSegments" :key="'lg' + seg.index" class="legend-item">
+								<span class="legend-swatch" :style="{ background: seg.color }"></span>{{ seg.label }}
 							</span>
 						</div>
 					</template>
+				</div>
+
+				<!-- ROUTES: read-only route model -->
+				<div v-else class="eip-model-area">
+					<div v-if="!managedRoute" class="eip-empty">
+						<i class="bi bi-diagram-3"></i> {{ t('app.eip-console.empty.selectRoute', undefined, 'Select a route') }}
+					</div>
+					<div v-else-if="!routeModelXml" class="eip-empty">
+						<i class="bi bi-bounding-box"></i> {{ t('app.eip-console.empty.noModel', { routeId: managedRoute.routeId }, 'No model available for ' + managedRoute.routeId) }}
+					</div>
+					<eip-canvas v-else class="eip-model-canvas"
+						:xml="routeModelXml"
+						:highlightRouteId="managedRoute.routeId"></eip-canvas>
 				</div>
 			</div>
 
 			<div v-if="bottomPanelVisible" class="bottom-resize-handle"
 				@mousedown="onBottomResizeStart"></div>
 
-			<!-- Lower: history list (no header, status bar at bottom) -->
+			<!-- Lower: history list (Filter above the table, status bar at bottom) -->
 			<div v-if="bottomPanelVisible" class="content-lower island p-0"
 				:style="{ height: bottomPanelHeight + 'px' }">
 
-				<div class="content-list">
+				<!-- Filter + chart drill-down focus chip -->
+				<div class="exchange-filter">
+					<span v-if="bucketFocus" class="exchange-focus-chip" :title="t('app.eip-console.history.drillDown', undefined, 'Chart drill-down')">
+						<i class="bi bi-funnel-fill"></i>{{ bucketFocus.label }}
+						<button class="exchange-focus-clear" @click="clearBucketFocus" :title="t('app.eip-console.history.clearFocus', undefined, 'Clear focus')">
+							<i class="bi bi-x"></i>
+						</button>
+					</span>
+					<div class="input-group">
+						<input type="text" class="wt"
+							v-model="filterText"
+							:placeholder="t('app.eip-console.history.filterPlaceholder', undefined, 'Filter by Business key / Exchange ID / Route ID')">
+						<div v-if="filterText" class="input-group-actions">
+							<button class="input-group-btn" @click="filterText = ''" :title="t('app.eip-console.action.clear', undefined, 'Clear')">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<div class="content-list" @scroll="onHistoryScroll(event)">
 					<table class="wt">
 						<thead>
 							<tr>
-								<th class="text-start">Exchange ID</th>
-								<th class="text-start">Business Key</th>
-								<th class="text-start">Started</th>
-								<th class="text-start">Status</th>
-								<th class="text-start">Elapsed</th>
-								<th class="text-start">Route</th>
+								<th class="text-start c-pointer" @click="toggleSort('exchangeId')" :title="t('app.eip-console.column.sortByExchangeId', undefined, 'Sort by Exchange ID')">
+									{{ t('app.eip-console.column.exchangeId', undefined, 'Exchange ID') }}
+									<span v-if="sortColumn === 'exchangeId'" class="sort-indicator ms-1">
+										<i class="bi" :class="sortDirection === 'asc' ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+									</span>
+								</th>
+								<th class="text-start c-pointer" @click="toggleSort('businessKey')" :title="t('app.eip-console.column.sortByBusinessKey', undefined, 'Sort by Business Key')">
+									{{ t('app.eip-console.column.businessKey', undefined, 'Business Key') }}
+									<span v-if="sortColumn === 'businessKey'" class="sort-indicator ms-1">
+										<i class="bi" :class="sortDirection === 'asc' ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+									</span>
+								</th>
+								<th class="text-start c-pointer" @click="toggleSort('started')" :title="t('app.eip-console.column.sortByStarted', undefined, 'Sort by Started')">
+									{{ t('app.eip-console.column.started', undefined, 'Started') }}
+									<span v-if="sortColumn === 'started'" class="sort-indicator ms-1">
+										<i class="bi" :class="sortDirection === 'asc' ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+									</span>
+								</th>
+								<th class="text-start c-pointer" @click="toggleSort('status')" :title="t('app.eip-console.column.sortByStatus', undefined, 'Sort by Status')">
+									{{ t('app.eip-console.column.status', undefined, 'Status') }}
+									<span v-if="sortColumn === 'status'" class="sort-indicator ms-1">
+										<i class="bi" :class="sortDirection === 'asc' ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+									</span>
+								</th>
+								<th class="text-start c-pointer" @click="toggleSort('elapsed')" :title="t('app.eip-console.column.sortByElapsed', undefined, 'Sort by Elapsed')">
+									{{ t('app.eip-console.column.elapsed', undefined, 'Elapsed') }}
+									<span v-if="sortColumn === 'elapsed'" class="sort-indicator ms-1">
+										<i class="bi" :class="sortDirection === 'asc' ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+									</span>
+								</th>
+								<th class="text-start c-pointer" @click="toggleSort('route')" :title="t('app.eip-console.column.sortByRoute', undefined, 'Sort by Route')">
+									{{ t('app.eip-console.column.route', undefined, 'Route') }}
+									<span v-if="sortColumn === 'route'" class="sort-indicator ms-1">
+										<i class="bi" :class="sortDirection === 'asc' ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+									</span>
+								</th>
 							</tr>
 						</thead>
 						<tbody>
 							<tr v-if="historyLoading && historyEdges.length === 0" class="item-empty">
-								<td colspan="6"><i class="bi bi-hourglass-split"></i> Loading…</td>
+								<td colspan="6"><i class="bi bi-hourglass-split"></i> {{ t('common.loading', undefined, 'Loading…') }}</td>
 							</tr>
-							<tr v-else-if="historyEdges.length === 0" class="item-empty">
-								<td colspan="6">No matching exchanges</td>
+							<tr v-else-if="visibleHistoryEdges.length === 0" class="item-empty">
+								<td colspan="6">{{ t('app.eip-console.empty.noExchanges', undefined, 'No matching exchanges') }}</td>
 							</tr>
-							<tr v-for="edge in historyEdges"
-								:key="edge.node.exchangeId"
+							<tr v-for="edge in visibleHistoryEdges"
+								:key="edge.node.path"
 								class="item"
-								:class="{ 'item-selected': selectedExchange && selectedExchange.exchangeId === edge.node.exchangeId }"
-								@click="openInspector(edge.node.exchangeId)">
+								:class="{
+									'item-selected': selectedExchange && selectedExchange.path === edge.node.path,
+									'item-flash': flashIds[edge.node.path]
+								}"
+								@click="openInspector(edge.node.path)">
 								<td><code>{{ edge.node.exchangeId }}</code></td>
 								<td>{{ edge.node.businessKey || '' }}</td>
 								<td>{{ formatTime(edge.node.createdAt) }}</td>
 								<td>
-									<span class="bpm-status" :class="edge.node.status">{{ edge.node.status }}</span>
+									<span class="bpm-status" :class="edge.node.status">{{ statusLabel(edge.node.status) }}</span>
 								</td>
-								<td class="elapsed">{{ edge.node.elapsed }} ms</td>
+								<td class="elapsed" :style="{ color: elapsedColor(edge.node.elapsed) }"
+									:title="elapsedBandLabel(edge.node.elapsed)">{{ edge.node.elapsed }} ms</td>
 								<td>{{ edge.node.routeId }}</td>
+							</tr>
+							<!-- More / cap annotation -->
+							<tr v-if="historyHasMore" class="item-more">
+								<td colspan="6">
+									<button class="wt wt-outlined wt-slim" @click="loadMoreHistory" :disabled="historyLoadingMore">
+										<span v-if="historyLoadingMore"><i class="bi bi-hourglass-split"></i> {{ t('common.loading', undefined, 'Loading…') }}</span>
+										<span v-else>{{ t('app.eip-console.history.more', undefined, 'More') }}</span>
+									</button>
+								</td>
+							</tr>
+							<tr v-else-if="historyCapReached" class="item-empty">
+								<td colspan="6">{{ t('app.eip-console.history.capReached', { max: historyMaxRows, total: historyTotalCount }, 'Showing the first ' + historyMaxRows + ' of ' + historyTotalCount + ' exchanges. Narrow the filters to see more.') }}</td>
 							</tr>
 						</tbody>
 					</table>
@@ -347,11 +446,11 @@
 		<div v-if="detailPanelVisible" class="detail-panel island p-0"
 			:style="{ width: detailPanelWidth + 'px' }">
 			<div class="detail-panel-header">
-				<span class="detail-panel-title">Details</span>
+				<span class="detail-panel-title">{{ t('app.eip-console.detail.title', undefined, 'Details') }}</span>
 				<button v-if="activeDetailType === 'exchange' && selectedExchange"
 					class="btn-icon detail-panel-action"
 					@click="openRawJsonViewer"
-					title="Show raw JSON">
+					:title="t('app.eip-console.detail.showRawJson', undefined, 'Show raw JSON')">
 					<i class="bi bi-braces"></i>
 				</button>
 			</div>
@@ -361,120 +460,120 @@
 				<!-- ===== Nothing selected ===== -->
 				<div v-if="activeDetailType === 'none'" class="detail-panel-empty">
 					<i class="bi bi-card-list"></i>
-					<span>Select an item to see details</span>
+					<span>{{ t('app.eip-console.detail.empty', undefined, 'Select an item to see details') }}</span>
 				</div>
 
 				<!-- ===== Route selected (manage mode) ===== -->
 				<div v-if="activeDetailType === 'route' && managedRoute">
-					<div class="detail-section-header">Route</div>
+					<div class="detail-section-header">{{ t('app.eip-console.filter.route', undefined, 'Route') }}</div>
 					<div class="detail-section-body">
 						<div class="detail-prop">
-							<div class="detail-prop-label">Route ID</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.detail.routeId', undefined, 'Route ID') }}</div>
 							<div class="detail-prop-value"><code>{{ managedRoute.routeId }}</code></div>
 						</div>
 						<div v-if="managedRoute.description" class="detail-prop">
-							<div class="detail-prop-label">Description</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.detail.description', undefined, 'Description') }}</div>
 							<div class="detail-prop-value">{{ managedRoute.description }}</div>
 						</div>
 						<div v-if="managedRoute.group" class="detail-prop">
-							<div class="detail-prop-label">Group</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.detail.group', undefined, 'Group') }}</div>
 							<div class="detail-prop-value">{{ managedRoute.group }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Status</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.column.status', undefined, 'Status') }}</div>
 							<div class="detail-prop-value">
 								<span class="bpm-status" :class="(managedRoute.status || '').toLowerCase()">
-									{{ managedRoute.status || 'Unknown' }}
+									{{ routeStatusLabel(managedRoute.status) }}
 								</span>
 							</div>
 						</div>
 						<div v-if="managedRoute.uptime" class="detail-prop">
-							<div class="detail-prop-label">Uptime</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.detail.uptime', undefined, 'Uptime') }}</div>
 							<div class="detail-prop-value">{{ managedRoute.uptime }}</div>
 						</div>
 					</div>
 
-					<div class="detail-section-header">Exchanges</div>
+					<div class="detail-section-header">{{ t('app.eip-console.detail.exchanges', undefined, 'Exchanges') }}</div>
 					<div class="detail-section-body">
 						<div class="detail-prop">
-							<div class="detail-prop-label">Total</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.stats.total', undefined, 'Total') }}</div>
 							<div class="detail-prop-value">{{ managedRoute.exchangesTotal || 0 }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Completed</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.status.completed', undefined, 'Completed') }}</div>
 							<div class="detail-prop-value">{{ managedRoute.exchangesCompleted || 0 }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Failed</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.status.failed', undefined, 'Failed') }}</div>
 							<div class="detail-prop-value">{{ managedRoute.exchangesFailed || 0 }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Inflight</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.stats.inflight', undefined, 'Inflight') }}</div>
 							<div class="detail-prop-value">{{ managedRoute.exchangesInflight || 0 }}</div>
 						</div>
 						<div v-if="managedRoute.meanProcessingTime != null" class="detail-prop">
-							<div class="detail-prop-label">Mean processing time</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.stats.meanProcessingTime', undefined, 'Mean processing time') }}</div>
 							<div class="detail-prop-value">{{ Math.round(managedRoute.meanProcessingTime) }} ms</div>
 						</div>
 					</div>
 
-					<div class="detail-section-header">Actions</div>
+					<div class="detail-section-header">{{ t('app.eip-console.detail.actions', undefined, 'Actions') }}</div>
 					<div class="detail-section-body actions-body">
 						<button v-if="managedRoute.status === 'Stopped'" class="wt wt-primary"
 							@click="confirmRouteAction('startRoute')">
-							<i class="bi bi-play-fill me-1"></i>Start
+							<i class="bi bi-play-fill me-1"></i>{{ t('app.eip-console.action.start', undefined, 'Start') }}
 						</button>
 						<button v-if="managedRoute.status === 'Started'" class="wt"
 							@click="confirmRouteAction('suspendRoute')">
-							<i class="bi bi-pause me-1"></i>Suspend
+							<i class="bi bi-pause me-1"></i>{{ t('app.eip-console.action.suspend', undefined, 'Suspend') }}
 						</button>
 						<button v-if="managedRoute.status === 'Suspended'" class="wt wt-primary"
 							@click="confirmRouteAction('resumeRoute')">
-							<i class="bi bi-play me-1"></i>Resume
+							<i class="bi bi-play me-1"></i>{{ t('app.eip-console.action.resume', undefined, 'Resume') }}
 						</button>
 						<button v-if="managedRoute.status !== 'Stopped'" class="wt wt-danger wt-outlined"
 							@click="confirmRouteAction('stopRoute')">
-							<i class="bi bi-stop-fill me-1"></i>Stop
+							<i class="bi bi-stop-fill me-1"></i>{{ t('app.eip-console.action.stop', undefined, 'Stop') }}
 						</button>
 					</div>
 				</div>
 
 				<!-- ===== Exchange selected ===== -->
 				<div v-if="activeDetailType === 'exchange' && selectedExchange">
-					<div class="detail-section-header">Overview</div>
+					<div class="detail-section-header">{{ t('app.eip-console.detail.overview', undefined, 'Overview') }}</div>
 					<div class="detail-section-body">
 						<div class="detail-prop">
-							<div class="detail-prop-label">Exchange ID</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.column.exchangeId', undefined, 'Exchange ID') }}</div>
 							<div class="detail-prop-value"><code>{{ selectedExchange.exchangeId }}</code></div>
 						</div>
 						<div v-if="selectedExchange.businessKey" class="detail-prop">
-							<div class="detail-prop-label">Business Key</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.column.businessKey', undefined, 'Business Key') }}</div>
 							<div class="detail-prop-value">{{ selectedExchange.businessKey }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Started</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.column.started', undefined, 'Started') }}</div>
 							<div class="detail-prop-value">{{ formatTime(selectedExchange.createdAt) }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Ended</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.detail.ended', undefined, 'Ended') }}</div>
 							<div class="detail-prop-value">{{ formatTime(selectedExchange.completedAt) }}</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Status</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.column.status', undefined, 'Status') }}</div>
 							<div class="detail-prop-value">
-								<span class="bpm-status" :class="selectedExchange.status">{{ selectedExchange.status }}</span>
+								<span class="bpm-status" :class="selectedExchange.status">{{ statusLabel(selectedExchange.status) }}</span>
 							</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Elapsed</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.column.elapsed', undefined, 'Elapsed') }}</div>
 							<div class="detail-prop-value">{{ selectedExchange.elapsed }} ms</div>
 						</div>
 						<div class="detail-prop">
-							<div class="detail-prop-label">Route</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.filter.route', undefined, 'Route') }}</div>
 							<div class="detail-prop-value">{{ selectedExchange.routeId }}</div>
 						</div>
 						<div v-if="selectedExchange.exceptionType" class="detail-prop">
-							<div class="detail-prop-label">Exception</div>
+							<div class="detail-prop-label">{{ t('app.eip-console.detail.exception', undefined, 'Exception') }}</div>
 							<div class="detail-prop-value">
 								<strong>{{ selectedExchange.exceptionType }}</strong><br>
 								<span class="muted">{{ selectedExchange.exceptionMessage }}</span>
@@ -482,17 +581,17 @@
 						</div>
 					</div>
 
-					<div class="detail-section-header">Execution Path</div>
+					<div class="detail-section-header">{{ t('app.eip-console.detail.executionPath', undefined, 'Execution Path') }}</div>
 					<div class="detail-section-body">
 						<div v-if="!exchangeStepRows || exchangeStepRows.length === 0" class="detail-prop-value muted">
-							No steps recorded
+							{{ t('app.eip-console.empty.noSteps', undefined, 'No steps recorded') }}
 						</div>
 						<div v-else class="step-timeline">
 							<template v-for="row in exchangeStepRows" :key="row.key">
 								<div v-if="row.kind === 'gap'" class="step-row step-gap"
-									:title="'Gap of ' + row.gapMs + ' ms before next step'">
+									:title="t('app.eip-console.detail.gapTitle', { gapMs: row.gapMs }, 'Gap of ' + row.gapMs + ' ms before next step')">
 									<div class="step-order"><i class="bi bi-exclamation-triangle"></i></div>
-									<div class="step-uri">{{ row.gapMs }} ms gap</div>
+									<div class="step-uri">{{ t('app.eip-console.detail.gapLabel', { gapMs: row.gapMs }, row.gapMs + ' ms gap') }}</div>
 									<div class="step-bar">
 										<div class="step-bar-fill step-bar-gap"
 											:style="row.barStyle"></div>
@@ -511,9 +610,9 @@
 						</div>
 					</div>
 
-					<div class="detail-section-header">Headers</div>
+					<div class="detail-section-header">{{ t('app.eip-console.detail.headers', undefined, 'Headers') }}</div>
 					<div class="detail-section-body">
-						<div v-if="!exchangeHeaders.length" class="detail-prop-value muted">No headers</div>
+						<div v-if="!exchangeHeaders.length" class="detail-prop-value muted">{{ t('app.eip-console.empty.noHeaders', undefined, 'No headers') }}</div>
 						<div v-else class="bpm-var-list">
 							<div v-for="h in exchangeHeaders" :key="h.name" class="bpm-var-item">
 								<div class="bpm-var-header">
@@ -542,18 +641,15 @@
 			<template v-if="rawJsonVisible">
 				<span class="nav-spacer"></span>
 			</template>
-			<template v-else-if="leftMode === 'manage'">
-				<span class="status-item">{{ routes.length }} route(s)</span>
+			<template v-else-if="view === 'routes'">
+				<span class="status-item">{{ t('app.eip-console.status.routeCount', { count: routes.length }, routes.length + ' route(s)') }}</span>
 			</template>
 			<template v-else>
-				<span v-if="historyLoading" class="status-item">
-					<i class="bi bi-arrow-repeat spin me-1"></i>Loading…
-				</span>
-				<span v-else-if="historyTruncated" class="status-item">
-					Showing {{ historyEdges.length }} of more than {{ historyMaxRows }} exchanges
+				<span v-if="filterText" class="status-item">
+					{{ t('app.eip-console.status.shownLoaded', { shown: visibleHistoryEdges.length, loaded: historyEdges.length, total: historyTotalCount }, visibleHistoryEdges.length + ' shown, ' + historyEdges.length + ' loaded of ' + historyTotalCount) }}
 				</span>
 				<span v-else class="status-item">
-					{{ historyEdges.length }} of {{ historyTotalCount }} exchange(s)
+					{{ t('app.eip-console.status.exchangeCount', { loaded: historyEdges.length, total: historyTotalCount }, historyEdges.length + ' of ' + historyTotalCount + ' exchange(s)') }}
 				</span>
 			</template>
 		</div>
@@ -582,11 +678,11 @@
 					<p v-if="dialog.hint" class="dialog-help-text">{{ dialog.hint }}</p>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog" :disabled="dialog.busy">Cancel</button>
+					<button class="wt" @click="closeDialog" :disabled="dialog.busy">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 					<button class="wt" :class="dialog.confirmClass"
 						:disabled="dialog.busy"
 						@click="executeRouteAction">
-						<span v-if="dialog.busy"><i class="bi bi-hourglass-split"></i> Working…</span>
+						<span v-if="dialog.busy"><i class="bi bi-hourglass-split"></i> {{ t('app.eip-console.dialog.working', undefined, 'Working…') }}</span>
 						<span v-else>{{ dialog.confirmLabel }}</span>
 					</button>
 				</div>
@@ -599,13 +695,13 @@
 	     ================================================================= -->
 	<div v-if="rawJsonVisible" class="cm-expanded-overlay">
 		<div class="cm-expanded-toolbar">
-			<span class="cm-expanded-title">Raw JSON</span>
+			<span class="cm-expanded-title">{{ t('app.eip-console.rawJson.title', undefined, 'Raw JSON') }}</span>
 			<div class="cm-expanded-actions">
-				<button class="wt wt-outlined wt-slim fs-small" @click="openCmSearch" title="Find (Ctrl+F)">
-					<i class="bi bi-search me-1"></i><span>Find</span>
+				<button class="wt wt-outlined wt-slim fs-small" @click="openCmSearch" :title="t('app.eip-console.rawJson.findTitle', undefined, 'Find (Ctrl+F)')">
+					<i class="bi bi-search me-1"></i><span>{{ t('app.eip-console.rawJson.find', undefined, 'Find') }}</span>
 				</button>
-				<button class="wt wt-outlined wt-slim fs-small" @click="closeRawJsonViewer" title="Close (Esc)">
-					<i class="bi bi-fullscreen-exit me-1"></i><span>Close</span>
+				<button class="wt wt-outlined wt-slim fs-small" @click="closeRawJsonViewer" :title="t('app.eip-console.rawJson.closeTitle', undefined, 'Close (Esc)')">
+					<i class="bi bi-fullscreen-exit me-1"></i><span>{{ t('common.close', undefined, 'Close') }}</span>
 				</button>
 			</div>
 		</div>
@@ -615,23 +711,23 @@
 				<div class="input-group cm-search-input-group">
 					<input id="cm-search-input" type="text" v-model="cmSearchTerm"
 						@input="onCmSearchInput" @keydown="onCmSearchKeydown"
-						placeholder="Find" spellcheck="false">
+						:placeholder="t('app.eip-console.rawJson.find', undefined, 'Find')" spellcheck="false">
 					<div class="input-group-actions">
 						<button class="input-group-btn" :class="{ active: cmSearchCaseSensitive }"
-							@click="toggleCmSearchCaseSensitive" title="Match case">Aa</button>
+							@click="toggleCmSearchCaseSensitive" :title="t('app.eip-console.rawJson.matchCase', undefined, 'Match case')">Aa</button>
 						<button class="input-group-btn" :class="{ active: cmSearchWholeWord }"
-							@click="toggleCmSearchWholeWord" title="Whole word">ab</button>
+							@click="toggleCmSearchWholeWord" :title="t('app.eip-console.rawJson.wholeWord', undefined, 'Whole word')">ab</button>
 						<button class="input-group-btn" :class="{ active: cmSearchRegex }"
-							@click="toggleCmSearchRegex" title="Regex">.*</button>
+							@click="toggleCmSearchRegex" :title="t('app.eip-console.rawJson.regex', undefined, 'Regex')">.*</button>
 					</div>
 				</div>
-				<button class="btn-icon" @click="cmFindPrev" title="Previous (Shift+Enter)">
+				<button class="btn-icon" @click="cmFindPrev" :title="t('app.eip-console.rawJson.previous', undefined, 'Previous (Shift+Enter)')">
 					<i class="bi bi-chevron-up"></i>
 				</button>
-				<button class="btn-icon" @click="cmFindNext" title="Next (Enter)">
+				<button class="btn-icon" @click="cmFindNext" :title="t('app.eip-console.rawJson.next', undefined, 'Next (Enter)')">
 					<i class="bi bi-chevron-down"></i>
 				</button>
-				<button class="btn-icon ms-auto" @click="closeCmSearch" title="Close (Esc)">
+				<button class="btn-icon ms-auto" @click="closeCmSearch" :title="t('app.eip-console.rawJson.closeTitle', undefined, 'Close (Esc)')">
 					<i class="bi bi-x-lg"></i>
 				</button>
 			</div>
@@ -647,7 +743,7 @@
 			<div class="island p-2">
 				<div class="dialog-header">
 					<div class="dialog-header-top">
-						<h3><i class="bi bi-exclamation-triangle text-danger"></i> Error</h3>
+						<h3><i class="bi bi-exclamation-triangle text-danger"></i> {{ t('common.error', undefined, 'Error') }}</h3>
 						<button class="btn-icon" @click="closeDialog"><i class="bi bi-x-lg"></i></button>
 					</div>
 				</div>
@@ -655,7 +751,7 @@
 					<p>{{ dialog.message }}</p>
 				</div>
 				<div class="dialog-footer">
-					<button class="wt wt-primary" @click="closeDialog">OK</button>
+					<button class="wt wt-primary" @click="closeDialog">{{ t('common.ok', undefined, 'OK') }}</button>
 				</div>
 			</div>
 		</div>

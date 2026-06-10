@@ -14,6 +14,7 @@ import {
 	createLocalizationSnapshot,
 	refreshLocalization,
 	handleLocalizationMessage,
+	translate,
 } from "../../composables/use-localization.js";
 import type {
 	ProcessDefinition,
@@ -202,6 +203,15 @@ export const App = {
 	},
 
 	methods: {
+		/**
+		 * Reactive i18n lookup. Reads the localization snapshot so every
+		 * `{{ t(...) }}` binding repaints the moment the user switches language
+		 * or an i18n bundle is hot-reloaded. See composables/use-localization.ts.
+		 */
+		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
+			return translate(this.localization, this.instance, messageId, params, fallback);
+		},
+
 		// =====================================================================
 		// Lifecycle
 		// =====================================================================
@@ -267,7 +277,7 @@ export const App = {
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
-				vm.instance.windowTitle = 'BPM Console';
+				vm.instance.windowTitle = vm.t('app.bpm-console.title', undefined, 'BPM Console');
 
 				refreshLocalization(vm.localization, vm.instance);
 
@@ -472,7 +482,7 @@ export const App = {
 				// lingering group incident badge — as the last writer.
 				await this.loadGlobalIncidentCounts();
 			} catch (err) {
-				this.errorMessage = 'Failed to load process definitions: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.loadDefinitions', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load process definitions: {error}');
 			} finally {
 				this.isLoading = false;
 			}
@@ -615,11 +625,11 @@ export const App = {
 
 			// Start Instance is only valid for active definitions
 			if (!def.suspended) {
-				menuItems.push({ id: 'start-instance', label: 'Start Instance', icon: 'bi-play-fill' });
+				menuItems.push({ id: 'start-instance', label: this.t('app.bpm-console.action.startInstance', undefined, 'Start Instance'), icon: 'bi-play-fill' });
 				menuItems.push({ type: 'separator', id: '', label: '' });
-				menuItems.push({ id: 'suspend-def', label: 'Suspend', icon: 'bi-pause-fill' });
+				menuItems.push({ id: 'suspend-def', label: this.t('app.bpm-console.action.suspend', undefined, 'Suspend'), icon: 'bi-pause-fill' });
 			} else {
-				menuItems.push({ id: 'activate-def', label: 'Activate', icon: 'bi-play' });
+				menuItems.push({ id: 'activate-def', label: this.t('app.bpm-console.action.activate', undefined, 'Activate'), icon: 'bi-play' });
 			}
 
 			// Migration is meaningful only when another version of the same key
@@ -629,11 +639,11 @@ export const App = {
 			);
 			if (sameKeyOthers.length > 0) {
 				menuItems.push({ type: 'separator', id: '', label: '' });
-				menuItems.push({ id: 'migrate-instances', label: 'Migrate Instances…', icon: 'bi-arrow-right-circle' });
+				menuItems.push({ id: 'migrate-instances', label: this.t('app.bpm-console.action.migrateInstances', undefined, 'Migrate Instances…'), icon: 'bi-arrow-right-circle' });
 			}
 
 			menuItems.push({ type: 'separator', id: '', label: '' });
-			menuItems.push({ id: 'delete-deployment', label: 'Delete Deployment', icon: 'bi-trash', danger: true });
+			menuItems.push({ id: 'delete-deployment', label: this.t('app.bpm-console.action.deleteDeployment', undefined, 'Delete Deployment'), icon: 'bi-trash', danger: true });
 
 			// Request context menu from parent window
 			window.parent.postMessage({
@@ -684,7 +694,7 @@ export const App = {
 				await this.bpm.suspendProcessDefinition(def.id);
 				await this.loadDefinitions();
 			} catch (err) {
-				this.errorMessage = 'Failed to suspend: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.suspend', { error: err instanceof Error ? err.message : String(err) }, 'Failed to suspend: {error}');
 			}
 		},
 
@@ -695,7 +705,7 @@ export const App = {
 				await this.bpm.activateProcessDefinition(def.id);
 				await this.loadDefinitions();
 			} catch (err) {
-				this.errorMessage = 'Failed to activate: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.activate', { error: err instanceof Error ? err.message : String(err) }, 'Failed to activate: {error}');
 			}
 		},
 
@@ -719,7 +729,7 @@ export const App = {
 				}
 				await this.loadDefinitions();
 			} catch (err) {
-				this.errorMessage = 'Failed to delete deployment: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.deleteDeployment', { error: err instanceof Error ? err.message : String(err) }, 'Failed to delete deployment: {error}');
 			} finally {
 				this.isLoading = false;
 			}
@@ -771,7 +781,9 @@ export const App = {
 			const currentId = this.dialog.data.targetId as string;
 			const items = candidates.map((c: ProcessDefinition) => ({
 				id: c.id,
-				label: `v${c.version}` + (c.suspended ? ' (suspended)' : ''),
+				label: c.suspended
+					? this.t('app.bpm-console.dialog.targetVersionSuspended', { version: c.version }, 'v{version} (suspended)')
+					: this.t('app.bpm-console.dialog.targetVersionLabel', { version: c.version }, 'v{version}'),
 				selected: c.id === currentId,
 			}));
 			const handle = this.instance.popup.open({
@@ -844,7 +856,7 @@ export const App = {
 					await this.loadDefInstanceCounts(this.selectedGroup);
 				}
 			} catch (err) {
-				this.errorMessage = 'Failed to submit migration: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.submitMigration', { error: err instanceof Error ? err.message : String(err) }, 'Failed to submit migration: {error}');
 				this.dialog.data.planError = err instanceof Error ? err.message : String(err);
 			} finally {
 				this.dialog.data.submitting = false;
@@ -1044,7 +1056,7 @@ export const App = {
 					});
 				}
 			} catch (err) {
-				this.errorMessage = 'Failed to load BPMN: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.loadBpmn', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load BPMN: {error}');
 			} finally {
 				this.isLoading = false;
 			}
@@ -1237,7 +1249,7 @@ export const App = {
 				this.tasks = taskConn.edges.map((e: { node: Task }) => e.node);
 				await this.loadIncidents();
 			} catch (err) {
-				this.errorMessage = 'Failed to load instances: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.loadInstances', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load instances: {error}');
 			} finally {
 				this.isLoading = false;
 			}
@@ -1261,7 +1273,7 @@ export const App = {
 				this.tasks = taskConn.edges.map((e: { node: Task }) => e.node);
 				await this.loadIncidents();
 			} catch (err) {
-				this.errorMessage = 'Failed to load instances: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.loadInstances', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load instances: {error}');
 			} finally {
 				this.isLoading = false;
 			}
@@ -1368,7 +1380,7 @@ export const App = {
 					await this.selectInstance(this.selectedInstance);
 				}
 			} catch (err) {
-				this.errorMessage = 'Failed to suspend: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.suspend', { error: err instanceof Error ? err.message : String(err) }, 'Failed to suspend: {error}');
 			}
 		},
 
@@ -1382,7 +1394,7 @@ export const App = {
 					await this.selectInstance(this.selectedInstance);
 				}
 			} catch (err) {
-				this.errorMessage = 'Failed to activate: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.activate', { error: err instanceof Error ? err.message : String(err) }, 'Failed to activate: {error}');
 			}
 		},
 
@@ -1419,7 +1431,7 @@ export const App = {
 				// selected (User Tasks viewed at the group level).
 				await this.reloadInstances();
 			} catch (err) {
-				this.errorMessage = 'Failed to cancel: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.cancel', { error: err instanceof Error ? err.message : String(err) }, 'Failed to cancel: {error}');
 			}
 		},
 
@@ -1480,7 +1492,7 @@ export const App = {
 				});
 				await this.reloadInstances();
 			} catch (err) {
-				this.errorMessage = 'Failed to start process: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.startProcess', { error: err instanceof Error ? err.message : String(err) }, 'Failed to start process: {error}');
 			}
 		},
 
@@ -1561,7 +1573,7 @@ export const App = {
 				await this.bpm.setProcessVariables(this.selectedInstance.id, vars);
 				await this.selectInstance(this.selectedInstance);
 			} catch (err) {
-				this.errorMessage = 'Failed to set variables: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.setVariables', { error: err instanceof Error ? err.message : String(err) }, 'Failed to set variables: {error}');
 			}
 		},
 
@@ -1612,7 +1624,7 @@ export const App = {
 					},
 				};
 			} catch (err) {
-				this.errorMessage = 'Failed to load users: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.loadUsers', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load users: {error}');
 			}
 		},
 
@@ -1627,7 +1639,7 @@ export const App = {
 				await this.bpm.setTaskAssignee(taskId, assignee);
 				await this.reloadInstances();
 			} catch (err) {
-				this.errorMessage = 'Failed to assign task: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.assignTask', { error: err instanceof Error ? err.message : String(err) }, 'Failed to assign task: {error}');
 			}
 		},
 
@@ -1638,7 +1650,7 @@ export const App = {
 				await this.bpm.setTaskAssignee(taskId, null);
 				await this.reloadInstances();
 			} catch (err) {
-				this.errorMessage = 'Failed to unclaim task: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.unclaimTask', { error: err instanceof Error ? err.message : String(err) }, 'Failed to unclaim task: {error}');
 			}
 		},
 
@@ -1682,7 +1694,7 @@ export const App = {
 				}
 				await this.reloadInstances();
 			} catch (err) {
-				this.errorMessage = 'Failed to complete task: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.completeTask', { error: err instanceof Error ? err.message : String(err) }, 'Failed to complete task: {error}');
 			}
 		},
 
@@ -1721,7 +1733,7 @@ export const App = {
 						}
 					}
 				} catch (e) {
-					this.errorMessage = 'Failed to load file: ' + (e instanceof Error ? e.message : String(e));
+					this.errorMessage = this.t('app.bpm-console.error.loadFile', { error: e instanceof Error ? e.message : String(e) }, 'Failed to load file: {error}');
 				}
 				return;
 			}
@@ -1747,7 +1759,7 @@ export const App = {
 			const name = this.dialog.data.name as string;
 			const bpmnXml = this.dialog.data.bpmnXml as string;
 			if (!name.trim() || !bpmnXml.trim()) {
-				this.errorMessage = 'Please drop a BPMN file first';
+				this.errorMessage = this.t('app.bpm-console.error.dropBpmnFirst', undefined, 'Please drop a BPMN file first');
 				return;
 			}
 			this.closeDialog();
@@ -1757,7 +1769,7 @@ export const App = {
 				await this.bpm.deployBpmn(name, bpmnXml);
 				await this.loadDefinitions();
 			} catch (err) {
-				this.errorMessage = 'Failed to deploy: ' + (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.deploy', { error: err instanceof Error ? err.message : String(err) }, 'Failed to deploy: {error}');
 			} finally {
 				this.isLoading = false;
 			}
@@ -1935,8 +1947,7 @@ export const App = {
 				this.incidents = list;
 				await this.loadGlobalIncidentCounts();
 			} catch (err) {
-				this.errorMessage = 'Failed to load incidents: '
-					+ (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.loadIncidents', { error: err instanceof Error ? err.message : String(err) }, 'Failed to load incidents: {error}');
 				this.incidents = [];
 			}
 		},
@@ -2047,8 +2058,7 @@ export const App = {
 				this.incidentSelection = {};
 				await this.loadIncidents();
 			} catch (err) {
-				this.errorMessage = 'Failed to retry incident: '
-					+ (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.retryIncident', { error: err instanceof Error ? err.message : String(err) }, 'Failed to retry incident: {error}');
 			}
 		},
 
@@ -2072,8 +2082,7 @@ export const App = {
 				}
 				await this.loadIncidents();
 			} catch (err) {
-				this.errorMessage = 'Failed to resolve incident: '
-					+ (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.resolveIncident', { error: err instanceof Error ? err.message : String(err) }, 'Failed to resolve incident: {error}');
 			}
 		},
 
@@ -2098,8 +2107,7 @@ export const App = {
 					this.selectedIncident.annotation = updated.annotation;
 				}
 			} catch (err) {
-				this.errorMessage = 'Failed to set annotation: '
-					+ (err instanceof Error ? err.message : String(err));
+				this.errorMessage = this.t('app.bpm-console.error.setAnnotation', { error: err instanceof Error ? err.message : String(err) }, 'Failed to set annotation: {error}');
 			}
 		},
 
@@ -2139,9 +2147,9 @@ export const App = {
 		},
 
 		incidentTypeLabel(type: IncidentType): string {
-			if (type === 'failedJob') return 'Failed Job';
-			if (type === 'failedExternalTask') return 'External Task';
-			return 'Custom';
+			if (type === 'failedJob') return this.t('app.bpm-console.incidentType.failedJob', undefined, 'Failed Job');
+			if (type === 'failedExternalTask') return this.t('app.bpm-console.incidentType.failedExternalTask', undefined, 'External Task');
+			return this.t('app.bpm-console.incidentType.custom', undefined, 'Custom');
 		},
 
 		// =====================================================================
