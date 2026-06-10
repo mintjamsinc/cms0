@@ -31,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +39,7 @@ import org.camunda.bpm.engine.ProcessEngine;
 import org.camunda.bpm.engine.ProcessEngineConfiguration;
 import org.camunda.bpm.engine.ProcessEngineException;
 import org.camunda.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
+import org.camunda.bpm.engine.impl.cfg.ProcessEnginePlugin;
 import org.camunda.bpm.engine.impl.scripting.ExecutableScript;
 import org.camunda.bpm.engine.impl.scripting.ScriptFactory;
 import org.camunda.bpm.engine.impl.scripting.engine.BeansResolverFactory;
@@ -48,6 +50,7 @@ import org.camunda.bpm.engine.impl.scripting.engine.ScriptingEngines;
 import org.camunda.bpm.engine.impl.scripting.engine.VariableScopeResolverFactory;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
+import org.mintjams.rt.cms.internal.bpm.event.EventAdminProcessEnginePlugin;
 import org.mintjams.rt.cms.internal.util.ResourceLoader;
 import org.mintjams.tools.collections.AdaptableList;
 import org.mintjams.tools.collections.AdaptableMap;
@@ -61,6 +64,19 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
 import org.snakeyaml.engine.v2.common.FlowStyle;
 
 public class WorkspaceProcessEngineProviderConfiguration {
+
+	/**
+	 * Camunda history levels supported for {@code bpm.yml#history}, including the
+	 * special {@code auto} value that lets the engine adopt the level already
+	 * recorded in the database. The deprecated {@code variable} level is
+	 * intentionally excluded.
+	 */
+	private static final List<String> SUPPORTED_HISTORY_LEVELS = Arrays.asList(
+			ProcessEngineConfiguration.HISTORY_NONE,
+			ProcessEngineConfiguration.HISTORY_ACTIVITY,
+			ProcessEngineConfiguration.HISTORY_AUDIT,
+			ProcessEngineConfiguration.HISTORY_FULL,
+			ProcessEngineConfiguration.HISTORY_AUTO);
 
 	private final String fWorkspaceName;
 	private Map<String, Object> fConfig;
@@ -83,6 +99,7 @@ public class WorkspaceProcessEngineProviderConfiguration {
 						.setDefaultFlowStyle(FlowStyle.BLOCK)
 						.build()).dumpToString(AdaptableMap.<String, Object>newBuilder()
 						.put("jdbcURL", "jdbc:h2:" + getDataPath().resolve("data").toAbsolutePath())
+						.put("history", ProcessEngineConfiguration.HISTORY_AUDIT)
 						.build());
 				out.append(yamlString);
 			}
@@ -107,8 +124,15 @@ public class WorkspaceProcessEngineProviderConfiguration {
 				.setScriptingEngines(scriptingEngines)
 				.setJobExecutorActivate(true);
 		config.setJobExecutorAcquireByPriority(true);
+		config.setHistory(getHistory());
 		config.setScriptFactory(new WorkspaceScriptFactory());
 		config.setIdentityProviderSessionFactory(new CmsIdentityProviderFactory());
+		List<ProcessEnginePlugin> plugins = config.getProcessEnginePlugins();
+		if (plugins == null) {
+			plugins = new ArrayList<>();
+			config.setProcessEnginePlugins(plugins);
+		}
+		plugins.add(new EventAdminProcessEnginePlugin(getWorkspaceName()));
 		return config.buildProcessEngine();
 	}
 
@@ -116,6 +140,38 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		String v = adapt(fConfig.get("jdbcURL"), String.class).trim();
 		v = Configuration.create(CmsService.getDefault().getBundleContext()).with(new VariableProviderImpl()).replaceVariables(v);
 		return v;
+	}
+
+	/**
+	 * Returns the configured Camunda history level for this workspace.
+	 *
+	 * <p>The level is read from {@code bpm.yml#history}. When the property is
+	 * absent or blank, the engine's documented default ({@code audit}) is used,
+	 * so existing workspaces keep behaving exactly as before this property was
+	 * introduced. An unknown value is rejected eagerly rather than silently
+	 * falling back, so a typo can never quietly disable history recording.
+	 *
+	 * <p>Note: Camunda persists the resolved level into the database on the
+	 * first engine bootstrap ({@code ACT_GE_PROPERTY#historyLevel}) and, on
+	 * subsequent boots, fails with a "historyLevel mismatch" exception if the
+	 * configured level no longer matches the stored one. Changing this value for
+	 * an existing workspace therefore requires a deliberate migration; see
+	 * {@code documents/bpm-configuration.md}.
+	 */
+	private String getHistory() {
+		Object value = (fConfig == null) ? null : fConfig.get("history");
+		String history = adapt(value, String.class);
+		if (history != null) {
+			history = history.trim().toLowerCase();
+		}
+		if (history == null || history.isEmpty()) {
+			return ProcessEngineConfiguration.HISTORY_DEFAULT;
+		}
+		if (!SUPPORTED_HISTORY_LEVELS.contains(history)) {
+			throw new ProcessEngineException("Unsupported BPM history level: \"" + history
+					+ "\". Supported levels are: " + SUPPORTED_HISTORY_LEVELS + ".");
+		}
+		return history;
 	}
 
 	public String getWorkspaceName() {

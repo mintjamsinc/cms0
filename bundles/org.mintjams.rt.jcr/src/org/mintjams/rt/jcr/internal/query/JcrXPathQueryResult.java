@@ -42,7 +42,6 @@ import javax.jcr.query.Row;
 import javax.jcr.query.RowIterator;
 
 import org.mintjams.jcr.security.EveryonePrincipal;
-import org.mintjams.rt.jcr.internal.JcrCache;
 import org.mintjams.rt.jcr.internal.JcrNode;
 import org.mintjams.rt.jcr.internal.JcrRepository;
 import org.mintjams.rt.jcr.internal.JcrSession;
@@ -101,6 +100,7 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 		private SearchIndex.QueryResult.Row fCurrentRow;
 		private boolean fFetchMore = true;
 		private int fFetchSize;
+		private long fFetchRevision;
 
 		private NodeIteratorImpl() {
 			if (fQuery.getOffset() != -1) {
@@ -189,10 +189,10 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 				try {
 					SearchIndex.QueryResult.Row row = fFetchList.remove(0);
 					AdaptableMap<String, Object> itemData = fFetchItems.remove(row.getIdentifier());
-					adaptTo(JcrCache.class).setNode(itemData);
+					adaptTo(WorkspaceQuery.class).cacheNode(itemData, fFetchRevision);
 					AdaptableMap<String, Object> contentItemData = fFetchItems.remove(itemData.getString("item_id") + "/" + JcrNode.JCR_CONTENT_NAME);
 					if (contentItemData != null) {
-						adaptTo(JcrCache.class).setNode(contentItemData);
+						adaptTo(WorkspaceQuery.class).cacheNode(contentItemData, fFetchRevision);
 					}
 					Node node = adaptTo(JcrSession.class).getNodeByIdentifier(itemData.getString("item_id"));
 					fNextNode = node;
@@ -206,6 +206,7 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 
 		private void fetch() {
 			fFetchMore = false;
+			fFetchRevision = adaptTo(WorkspaceQuery.class).getNodeCacheRevision();
 			List<String> identifiers = new ArrayList<>();
 			try {
 				SearchIndex.Query indexQuery = adaptTo(SearchIndex.class).createQuery(fQuery.getStatement(), "jcr:xpath")

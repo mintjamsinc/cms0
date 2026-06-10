@@ -58,7 +58,6 @@ import org.mintjams.jcr.UncheckedRepositoryException;
 import org.mintjams.jcr.security.Privilege;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.jcr.version.VersionManager;
-import org.mintjams.rt.jcr.internal.JcrCache;
 import org.mintjams.rt.jcr.internal.JcrNode;
 import org.mintjams.rt.jcr.internal.JcrProperty;
 import org.mintjams.rt.jcr.internal.JcrSession;
@@ -186,7 +185,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, new Value[0]);
 
 			workspace.getSession().save();
-			adaptTo(JcrCache.class).remove(item.getIdentifier());
 
 			return JcrNode.create(versionData, adaptTo(JcrSession.class)).adaptTo(Version.class);
 		} catch (IOException | SQLException ex) {
@@ -224,7 +222,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, item.getProperty(JcrProperty.JCR_BASE_VERSION).getValue()));
 
 			workspace.getSession().save();
-			adaptTo(JcrCache.class).remove(item.getIdentifier());
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
@@ -400,7 +397,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, version.getIdentifier()));
 
 			workspace.getSession().save();
-			adaptTo(JcrCache.class).remove(item.getIdentifier());
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
@@ -503,7 +499,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, new Value[0]);
 
 			workspace.getSession().save();
-			adaptTo(JcrCache.class).remove(item.getIdentifier());
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
@@ -558,7 +553,6 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, versionId));
 
 			workspace.getSession().save();
-			adaptTo(JcrCache.class).remove(item.getIdentifier());
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}

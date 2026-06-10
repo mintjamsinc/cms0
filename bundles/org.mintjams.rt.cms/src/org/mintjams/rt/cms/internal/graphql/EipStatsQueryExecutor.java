@@ -96,14 +96,50 @@ public class EipStatsQueryExecutor {
 
 	public Map<String, Object> executeRouteStatsQuery(GraphQLRequest request) throws Exception {
 		Map<String, Object> vars = request.getVariables();
-		Instant from = Instant.parse(requireString(vars, "from"));
-		Instant to = Instant.parse(requireString(vars, "to"));
 		List<String> routes = optStringList(vars, "routes");
 		String status = optString(vars, "status");
-		Interval interval = resolveInterval(optString(vars, "interval"), from, to);
+		String intervalLabel = optString(vars, "interval");
+
+		// Resolve the time window. Two modes:
+		//   anchor — a single {@code at} instant + {@code buckets} count. The
+		//            window's right edge is the fixed wall-clock bucket that
+		//            contains the anchor; we then walk back exactly {@code buckets}
+		//            whole intervals. Every bucket is a full interval (no partial
+		//            edges) and the window slides one bucket at a time as the
+		//            anchor advances. The live console uses this mode so that
+		//            between bucket boundaries only the right-edge bucket changes.
+		//   window — a legacy explicit [from, to) range, used when {@code buckets}
+		//            is omitted; the interval is auto-resolved from the span.
+		Instant anchor;
+		Instant from;
+		Instant to;
+		Interval interval;
+		Integer bucketCount = optBoxedInt(vars, "buckets");
+		if (bucketCount != null && bucketCount > 0) {
+			String at = optString(vars, "at");
+			anchor = (at != null && !at.isEmpty()) ? Instant.parse(at) : Instant.now();
+			interval = Interval.forLabel(intervalLabel);
+			if (interval == null) {
+				interval = Interval.FIVE_MINUTES;
+			}
+			Instant rightStart = interval.truncate(anchor);
+			to = interval.endOf(rightStart);
+			from = rightStart.minus((long) (bucketCount - 1) * interval.amount, interval.unit);
+		} else {
+			from = Instant.parse(requireString(vars, "from"));
+			to = Instant.parse(requireString(vars, "to"));
+			interval = resolveInterval(intervalLabel, from, to);
+			anchor = to;
+		}
 
 		// Build the list of time buckets (label = index, [start, end)).
 		List<Bucket> buckets = buildBuckets(from, to, interval);
+
+		// Elapsed band boundaries (ms, ascending). N boundaries => N+1 bands.
+		// The default mirrors the historical 3-band view (<1s, 1–5s, >=5s) so
+		// callers that omit the argument get the same chart as before.
+		List<Long> boundaries = sanitizeBoundaries(optLongList(vars, "elapsedBoundaries"));
+		int bandCount = boundaries.size() + 1;
 
 		// Base predicate: filters every band shares.
 		StringBuilder basePred = new StringBuilder("@mi:exchangeId");
@@ -111,30 +147,73 @@ public class EipStatsQueryExecutor {
 		appendRouteFilter(basePred, routes);
 		appendStatusFilter(basePred, status);
 
-		long[] under1s = runBandFacet(basePred, "@mi:elapsed < " + BAND_1S_MS, buckets);
-		long[] under5s = runBandFacet(basePred,
-				"@mi:elapsed >= " + BAND_1S_MS + " and @mi:elapsed < " + BAND_5S_MS, buckets);
-		long[] over5s = runBandFacet(basePred, "@mi:elapsed >= " + BAND_5S_MS, buckets);
+		// One facet-accumulate query per band; collect per-bucket counts.
+		long[][] bandCounts = new long[bandCount][];
+		for (int b = 0; b < bandCount; b++) {
+			bandCounts[b] = runBandFacet(basePred, elapsedBandPredicate(boundaries, b), buckets);
+		}
 
 		List<Map<String, Object>> points = new ArrayList<>(buckets.size());
 		for (int i = 0; i < buckets.size(); i++) {
 			Map<String, Object> point = new LinkedHashMap<>();
 			point.put("bucket", buckets.get(i).start.toString());
-			point.put("under1s", under1s[i]);
-			point.put("under5s", under5s[i]);
-			point.put("over5s", over5s[i]);
+			List<Long> bands = new ArrayList<>(bandCount);
+			for (int b = 0; b < bandCount; b++) {
+				bands.add(bandCounts[b][i]);
+			}
+			point.put("bands", bands);
 			points.add(point);
 		}
 
 		Map<String, Object> stats = new LinkedHashMap<>();
+		stats.put("anchor", anchor.toString());
 		stats.put("from", from.toString());
 		stats.put("to", to.toString());
 		stats.put("interval", interval.label);
+		stats.put("boundaries", boundaries);
 		stats.put("points", points);
 
 		Map<String, Object> data = new HashMap<>();
 		data.put("routeStats", stats);
 		return data;
+	}
+
+	/**
+	 * Normalise requested elapsed boundaries: drop non-positive / duplicate
+	 * values and sort ascending. An empty request falls back to the default
+	 * {@code {1000, 5000}} (the historical three-band view).
+	 */
+	private static List<Long> sanitizeBoundaries(List<Long> raw) {
+		java.util.TreeSet<Long> set = new java.util.TreeSet<>();
+		if (raw != null) {
+			for (Long v : raw) {
+				if (v != null && v > 0) {
+					set.add(v);
+				}
+			}
+		}
+		if (set.isEmpty()) {
+			set.add(BAND_1S_MS);
+			set.add(BAND_5S_MS);
+		}
+		return new ArrayList<>(set);
+	}
+
+	/**
+	 * Elapsed predicate for band index {@code b} given sorted boundaries.
+	 * Band 0 is {@code elapsed < boundaries[0]}, the last band is
+	 * {@code elapsed >= boundaries[last]}, and interior bands are half-open
+	 * {@code [boundaries[b-1], boundaries[b])}.
+	 */
+	private static String elapsedBandPredicate(List<Long> boundaries, int b) {
+		int n = boundaries.size();
+		if (b == 0) {
+			return "@mi:elapsed < " + boundaries.get(0);
+		}
+		if (b >= n) {
+			return "@mi:elapsed >= " + boundaries.get(n - 1);
+		}
+		return "@mi:elapsed >= " + boundaries.get(b - 1) + " and @mi:elapsed < " + boundaries.get(b);
 	}
 
 	/**
@@ -237,36 +316,37 @@ public class EipStatsQueryExecutor {
 		appendElapsedBandsFilter(basePred, elapsedBands);
 
 		// Cursor predicate: separate from basePred so totalCount stays stable
-		// across pages. Cursor encodes (createdAt, exchangeId) so we can resume
-		// deterministically even when two records share the same millisecond.
+		// across pages. The cursor encodes the full sort key (createdAt,
+		// exchangeId, routeId) so the keyset is a strict total order. Without
+		// the routeId tie-breaker, the two route-records of a multi-route
+		// exchange (identical createdAt AND exchangeId) would be
+		// indistinguishable at a page boundary and one would be silently
+		// dropped from the next page.
 		Cursor afterCursor = decodeCursor(after);
 		Cursor beforeCursor = decodeCursor(before);
 		StringBuilder cursorPred = new StringBuilder();
 		if (afterCursor != null) {
 			// Newer-first ordering: "after" means strictly older than the cursor.
-			cursorPred.append(" and (@mi:createdAt < xs:dateTime('")
-					.append(escapeLiteral(afterCursor.createdAt))
-					.append("') or (@mi:createdAt = xs:dateTime('")
-					.append(escapeLiteral(afterCursor.createdAt))
-					.append("') and @mi:exchangeId < '")
-					.append(escapeLiteral(afterCursor.exchangeId))
-					.append("'))");
+			appendKeysetPredicate(cursorPred, afterCursor, "<");
 		}
 		if (beforeCursor != null) {
-			cursorPred.append(" and (@mi:createdAt > xs:dateTime('")
-					.append(escapeLiteral(beforeCursor.createdAt))
-					.append("') or (@mi:createdAt = xs:dateTime('")
-					.append(escapeLiteral(beforeCursor.createdAt))
-					.append("') and @mi:exchangeId > '")
-					.append(escapeLiteral(beforeCursor.exchangeId))
-					.append("'))");
+			appendKeysetPredicate(cursorPred, beforeCursor, ">");
 		}
 
 		String order = backward ? "ascending" : "descending";
+		// @mi:createdAt is a DATE property (indexed with SortedNumericDocValues).
+		// The XPath sort type is resolved from the order-by expression: a bare
+		// @mi:createdAt resolves to a STRING sort (the field-type provider only
+		// knows deployed facets), which does not match the numeric doc-values and
+		// silently degrades to index (insertion) order — newest-first paging then
+		// returns the OLDEST page. Wrap it in xs:dateTime(...) so the engine sorts
+		// it numerically (chronologically). exchangeId/routeId are strings and sort
+		// correctly as-is.
 		String xpath = "/jcr:root" + HISTORY_BASE + "//element(*, nt:file)["
 				+ basePred + cursorPred + "]"
-				+ " order by @mi:createdAt " + order
-				+ ", @mi:exchangeId " + order;
+				+ " order by xs:dateTime(@mi:createdAt) " + order
+				+ ", @mi:exchangeId " + order
+				+ ", @mi:routeId " + order;
 
 		QueryManager qm = session.getWorkspace().getQueryManager();
 		Query q = qm.createQuery(xpath, Query.XPATH);
@@ -280,7 +360,8 @@ public class EipStatsQueryExecutor {
 			Map<String, Object> node = buildExchangeSummary(fileNode);
 			String createdAt = (String) node.get("createdAt");
 			String exchangeId = (String) node.get("exchangeId");
-			rows.add(new EdgeRow(node, createdAt, exchangeId));
+			String routeId = (String) node.get("routeId");
+			rows.add(new EdgeRow(node, createdAt, exchangeId, routeId));
 		}
 
 		boolean hasMore = rows.size() > pageSize;
@@ -295,7 +376,7 @@ public class EipStatsQueryExecutor {
 		for (EdgeRow r : rows) {
 			Map<String, Object> edge = new LinkedHashMap<>();
 			edge.put("node", r.node);
-			edge.put("cursor", encodeCursor(r.createdAt, r.exchangeId));
+			edge.put("cursor", encodeCursor(r.createdAt, r.exchangeId, r.routeId));
 			edges.add(edge);
 		}
 
@@ -326,23 +407,43 @@ public class EipStatsQueryExecutor {
 
 	public Map<String, Object> executeHistoryExchangeQuery(GraphQLRequest request) throws Exception {
 		Map<String, Object> vars = request.getVariables();
-		String exchangeId = requireString(vars, "exchangeId");
+		String path = optString(vars, "path");
 
-		String xpath = "/jcr:root" + HISTORY_BASE + "//element(*, nt:file)["
-				+ "@mi:exchangeId = '" + escapeLiteral(exchangeId) + "']";
+		Node fileNode;
+		if (path != null && !path.isEmpty()) {
+			// Address the exact record by its node path. A single exchange may
+			// have one record per route (same exchangeId), so resolving by
+			// exchangeId alone is ambiguous; the list passes the row's path.
+			// Constrain to the history subtree so the argument cannot be used to
+			// read arbitrary nodes.
+			if (!path.equals(HISTORY_BASE) && !path.startsWith(HISTORY_BASE + "/")) {
+				throw new IllegalArgumentException("path must be under " + HISTORY_BASE);
+			}
+			if (!session.nodeExists(path)) {
+				Map<String, Object> data = new HashMap<>();
+				data.put("historyExchange", null);
+				return data;
+			}
+			fileNode = session.getNode(path);
+		} else {
+			// Back-compat: resolve by exchangeId (first match).
+			String exchangeId = requireString(vars, "exchangeId");
+			String xpath = "/jcr:root" + HISTORY_BASE + "//element(*, nt:file)["
+					+ "@mi:exchangeId = '" + escapeLiteral(exchangeId) + "']";
 
-		QueryManager qm = session.getWorkspace().getQueryManager();
-		Query q = qm.createQuery(xpath, Query.XPATH);
-		q.setLimit(1);
-		QueryResult result = q.execute();
-		NodeIterator it = result.getNodes();
-		if (!it.hasNext()) {
-			Map<String, Object> data = new HashMap<>();
-			data.put("historyExchange", null);
-			return data;
+			QueryManager qm = session.getWorkspace().getQueryManager();
+			Query q = qm.createQuery(xpath, Query.XPATH);
+			q.setLimit(1);
+			QueryResult result = q.execute();
+			NodeIterator it = result.getNodes();
+			if (!it.hasNext()) {
+				Map<String, Object> data = new HashMap<>();
+				data.put("historyExchange", null);
+				return data;
+			}
+			fileNode = it.nextNode();
 		}
 
-		Node fileNode = it.nextNode();
 		Map<String, Object> detail = buildExchangeDetail(fileNode);
 
 		Map<String, Object> data = new HashMap<>();
@@ -556,11 +657,42 @@ public class EipStatsQueryExecutor {
 		return Math.min(requested, MAX_PAGE_SIZE);
 	}
 
-	private static String encodeCursor(String createdAt, String exchangeId) {
+	/**
+	 * Append a keyset (seek) predicate for the (createdAt, exchangeId, routeId)
+	 * sort key, comparing strictly in {@code cmp} direction ({@code "<"} for a
+	 * descending "after" page, {@code ">"} for "before"). The clause expands the
+	 * lexicographic tuple comparison:
+	 *
+	 * <pre>
+	 *   createdAt cmp C
+	 *   OR (createdAt = C AND exchangeId cmp X)
+	 *   OR (createdAt = C AND exchangeId = X AND routeId cmp R)
+	 * </pre>
+	 *
+	 * The routeId tier is only emitted when the cursor carries one (legacy
+	 * two-part cursors decode with a null routeId and degrade gracefully).
+	 */
+	private static void appendKeysetPredicate(StringBuilder pred, Cursor cursor, String cmp) {
+		String c = escapeLiteral(cursor.createdAt);
+		String x = escapeLiteral(cursor.exchangeId);
+		pred.append(" and (@mi:createdAt ").append(cmp).append(" xs:dateTime('").append(c).append("')")
+				.append(" or (@mi:createdAt = xs:dateTime('").append(c).append("') and @mi:exchangeId ")
+				.append(cmp).append(" '").append(x).append("')");
+		if (cursor.routeId != null) {
+			String r = escapeLiteral(cursor.routeId);
+			pred.append(" or (@mi:createdAt = xs:dateTime('").append(c).append("') and @mi:exchangeId = '")
+					.append(x).append("' and @mi:routeId ").append(cmp).append(" '").append(r).append("')");
+		}
+		pred.append(")");
+	}
+
+	private static String encodeCursor(String createdAt, String exchangeId, String routeId) {
 		if (createdAt == null || exchangeId == null) {
 			return null;
 		}
-		String raw = createdAt + "|" + exchangeId;
+		// routeId is part of the sort key; coalesce a missing one to "" so the
+		// cursor always carries all three components.
+		String raw = createdAt + "|" + exchangeId + "|" + (routeId == null ? "" : routeId);
 		return Base64.getUrlEncoder().withoutPadding()
 				.encodeToString(raw.getBytes(StandardCharsets.UTF_8));
 	}
@@ -571,11 +703,19 @@ public class EipStatsQueryExecutor {
 		}
 		try {
 			String raw = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
-			int sep = raw.indexOf('|');
-			if (sep <= 0 || sep >= raw.length() - 1) {
+			// Split on the first two separators only: createdAt (ISO) and
+			// exchangeId never contain '|', but a routeId might, so the third
+			// component is the unsplit remainder.
+			int sep1 = raw.indexOf('|');
+			if (sep1 <= 0 || sep1 >= raw.length() - 1) {
 				return null;
 			}
-			return new Cursor(raw.substring(0, sep), raw.substring(sep + 1));
+			int sep2 = raw.indexOf('|', sep1 + 1);
+			if (sep2 < 0) {
+				// Legacy two-part cursor (no routeId tier).
+				return new Cursor(raw.substring(0, sep1), raw.substring(sep1 + 1), null);
+			}
+			return new Cursor(raw.substring(0, sep1), raw.substring(sep1 + 1, sep2), raw.substring(sep2 + 1));
 		} catch (IllegalArgumentException ex) {
 			return null;
 		}
@@ -584,10 +724,12 @@ public class EipStatsQueryExecutor {
 	private static final class Cursor {
 		final String createdAt;
 		final String exchangeId;
+		final String routeId;
 
-		Cursor(String createdAt, String exchangeId) {
+		Cursor(String createdAt, String exchangeId, String routeId) {
 			this.createdAt = createdAt;
 			this.exchangeId = exchangeId;
+			this.routeId = routeId;
 		}
 	}
 
@@ -595,11 +737,13 @@ public class EipStatsQueryExecutor {
 		final Map<String, Object> node;
 		final String createdAt;
 		final String exchangeId;
+		final String routeId;
 
-		EdgeRow(Map<String, Object> node, String createdAt, String exchangeId) {
+		EdgeRow(Map<String, Object> node, String createdAt, String exchangeId, String routeId) {
 			this.node = node;
 			this.createdAt = createdAt;
 			this.exchangeId = exchangeId;
+			this.routeId = routeId;
 		}
 	}
 
@@ -609,6 +753,12 @@ public class EipStatsQueryExecutor {
 
 	private Map<String, Object> buildExchangeSummary(Node fileNode) throws Exception {
 		Map<String, Object> m = new LinkedHashMap<>();
+		// The JCR node path is the only stable, globally-unique identity of a
+		// history record. A single exchange that completes in more than one
+		// route yields one record per route — same exchangeId AND same
+		// createdAt (the exchange's creation time) — so exchangeId alone is not
+		// unique. Clients key list rows and open the inspector by this path.
+		m.put("path", fileNode.getPath());
 		m.put("exchangeId", propString(fileNode, "mi:exchangeId"));
 		m.put("routeId", propString(fileNode, "mi:routeId"));
 		m.put("status", propString(fileNode, "mi:status"));
@@ -625,6 +775,8 @@ public class EipStatsQueryExecutor {
 		Map<String, Object> record = (json == null || json.isEmpty())
 				? new LinkedHashMap<>() : mapper.readValue(json, MAP_TYPE);
 
+		// Stable unique identity (see buildExchangeSummary).
+		detail.put("path", fileNode.getPath());
 		detail.put("exchangeId", record.get("exchangeId"));
 		detail.put("routeId", record.get("routeId"));
 		detail.put("status", record.get("status"));
@@ -717,6 +869,46 @@ public class EipStatsQueryExecutor {
 		}
 		String s = v.toString();
 		return s.isEmpty() ? Collections.emptyList() : List.of(s);
+	}
+
+	@SuppressWarnings("unchecked")
+	private static List<Long> optLongList(Map<String, Object> vars, String key) {
+		List<Long> out = new ArrayList<>();
+		if (vars == null) {
+			return out;
+		}
+		Object v = vars.get(key);
+		if (v == null) {
+			return out;
+		}
+		if (v instanceof List) {
+			for (Object o : (List<Object>) v) {
+				Long n = toLong(o);
+				if (n != null) {
+					out.add(n);
+				}
+			}
+		} else {
+			Long n = toLong(v);
+			if (n != null) {
+				out.add(n);
+			}
+		}
+		return out;
+	}
+
+	private static Long toLong(Object o) {
+		if (o == null) {
+			return null;
+		}
+		if (o instanceof Number) {
+			return ((Number) o).longValue();
+		}
+		try {
+			return Long.parseLong(o.toString().trim());
+		} catch (NumberFormatException ex) {
+			return null;
+		}
 	}
 
 	private static String requireString(Map<String, Object> vars, String key) {

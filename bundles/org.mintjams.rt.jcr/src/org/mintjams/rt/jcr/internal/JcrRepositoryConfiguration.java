@@ -135,6 +135,22 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return value;
 	}
 
+	public int getWorkspaceNodeCacheSize() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		int value = Integer.parseInt(
+				Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.workspace.nodeCacheSize"), "8192"));
+		if (value < 64) {
+			value = 64;
+		}
+		return value;
+	}
+
+	public int getAccessControlStoreWarningThreshold() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		return Integer.parseInt(Strings.defaultIfEmpty(
+				bc.getProperty("org.mintjams.jcr.workspace.accessControlStoreWarningThreshold"), "100000"));
+	}
+
 	public void validate() {
 		Path repositoryPath = getRepositoryPath();
 		if (Files.exists(repositoryPath)) {

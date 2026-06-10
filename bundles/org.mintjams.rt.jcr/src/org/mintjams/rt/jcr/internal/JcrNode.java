@@ -957,11 +957,12 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	private Map<String, AdaptableMap<String, Object>> getCachedProperties() throws RepositoryException {
-		JcrCache jcrCache = adaptTo(JcrCache.class);
-		Map<String, AdaptableMap<String, Object>> properties = jcrCache.getProperties(getIdentifier());
+		WorkspaceQuery workspaceQuery = getWorkspaceQuery();
+		Map<String, AdaptableMap<String, Object>> properties = workspaceQuery.getCachedProperties(getIdentifier());
 		if (properties == null) {
+			long revision = workspaceQuery.getNodeCacheRevision();
 			properties = new HashMap<>();
-			try (Query.Result result = getWorkspaceQuery().items().listProperties(getIdentifier(), null, 0)) {
+			try (Query.Result result = workspaceQuery.items().listProperties(getIdentifier(), null, 0)) {
 				for (AdaptableMap<String, Object> itemData : result) {
 					if (itemData.getBoolean("is_deleted")) {
 						continue;
@@ -972,7 +973,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			} catch (IOException | SQLException ex) {
 				throw Cause.create(ex).wrap(RepositoryException.class);
 			}
-			jcrCache.setProperties(getIdentifier(), properties);
+			workspaceQuery.cacheProperties(getIdentifier(), properties, revision);
 		}
 		return properties;
 	}

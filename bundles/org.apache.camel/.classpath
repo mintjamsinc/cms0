@@ -6,12 +6,16 @@
 	<classpathentry exported="true" kind="lib" path="lib/camel-base-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-base-engine-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-bean-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-browse-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-cluster-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-controlbus-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-engine-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-languages-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-model-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-processor-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-core-reifier-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-dataformat-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-dataset-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-direct-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-dsl-support-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-file-4.18.1.jar"/>
@@ -19,12 +23,22 @@
 	<classpathentry exported="true" kind="lib" path="lib/camel-java-joor-dsl-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-joor-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-jsonpath-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-language-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-log-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-management-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-management-api-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-mock-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-ref-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-rest-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-saga-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-scheduler-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-seda-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-stub-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-support-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-timer-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-util-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-util-json-4.18.1.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/camel-validator-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-xml-io-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-xml-io-dsl-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-xml-io-util-4.18.1.jar"/>

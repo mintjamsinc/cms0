@@ -41,6 +41,7 @@ public class JcrPrivilege implements org.mintjams.jcr.security.Privilege, Adapta
 	private final JcrWorkspace fWorkspace;
 	private final List<JcrPrivilege> fAggregatePrivileges = new ArrayList<>();
 	private boolean fAbstract;
+	private long fBits;
 
 	private JcrPrivilege(String name, JcrWorkspace workspace) {
 		fName = name;
@@ -49,6 +50,28 @@ public class JcrPrivilege implements org.mintjams.jcr.security.Privilege, Adapta
 
 	public static JcrPrivilege create(String name, JcrWorkspace workspace) {
 		return new JcrPrivilege(name, workspace);
+	}
+
+	/**
+	 * Assigns the bit representing this privilege. Only non-aggregate (leaf) privileges
+	 * carry their own bit; aggregate privileges derive theirs from their constituents.
+	 */
+	public JcrPrivilege setBits(long bits) {
+		fBits = bits;
+		return this;
+	}
+
+	/**
+	 * Returns the bit set representing this privilege. For an aggregate privilege this
+	 * is the union of the bits of its constituent privileges, reflecting the JCR 2.0
+	 * principle that holding an aggregate is equivalent to holding all its constituents.
+	 */
+	public long getBits() {
+		long bits = fBits;
+		for (JcrPrivilege e : fAggregatePrivileges) {
+			bits |= e.getBits();
+		}
+		return bits;
 	}
 
 	@Override

@@ -72,6 +72,8 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 	private final JcrRepository fRepository;
 	private final Closer fCloser = Closer.create();
 	private ConnectionPool fConnectionPool;
+	private AccessControlStore fAccessControlStore;
+	private NodeCache fNodeCache;
 	private SearchIndex fSearchIndex;
 	private JournalObserver fJournalObserver;
 	private WorkspaceCleaner fWorkspaceCleaner;
@@ -126,6 +128,11 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		fConnectionPool.open();
 
 		prepareInitialData();
+
+		fAccessControlStore = fCloser.register(AccessControlStore.create(this));
+		fAccessControlStore.open();
+
+		fNodeCache = fCloser.register(NodeCache.create(this));
 
 		boolean needsBuildSearchIndex = false;
 		if (!Files.exists(getWorkspaceSearchPath())) {
@@ -551,6 +558,14 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 	@SuppressWarnings("unchecked")
 	@Override
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
+		if (adapterType.equals(AccessControlStore.class)) {
+			return (AdapterType) fAccessControlStore;
+		}
+
+		if (adapterType.equals(NodeCache.class)) {
+			return (AdapterType) fNodeCache;
+		}
+
 		if (adapterType.equals(SearchIndex.class)) {
 			return (AdapterType) fSearchIndex;
 		}

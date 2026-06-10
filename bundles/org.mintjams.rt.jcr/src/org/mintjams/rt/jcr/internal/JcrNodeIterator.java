@@ -54,6 +54,7 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 	private Node fNextNode;
 	private boolean fFetchMore = true;
 	private int fFetchSize;
+	private long fFetchRevision;
 
 	private JcrNodeIterator(JcrNode node, String[] nameGlobs) {
 		fNode = node;
@@ -129,10 +130,10 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 
 			try {
 				AdaptableMap<String, Object> itemData = fFetchList.remove(0);
-				adaptTo(JcrCache.class).setNode(itemData);
+				adaptTo(WorkspaceQuery.class).cacheNode(itemData, fFetchRevision);
 				AdaptableMap<String, Object> contentItemData = fFetchItems.remove(itemData.getString("item_id") + "/" + JcrNode.JCR_CONTENT_NAME);
 				if (contentItemData != null) {
-					adaptTo(JcrCache.class).setNode(contentItemData);
+					adaptTo(WorkspaceQuery.class).cacheNode(contentItemData, fFetchRevision);
 				}
 				Node node = fNode.getSession().getNodeByIdentifier(itemData.getString("item_id"));
 				fNextNode = node;
@@ -145,6 +146,7 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 
 	private void fetch() {
 		fFetchMore = false;
+		fFetchRevision = adaptTo(WorkspaceQuery.class).getNodeCacheRevision();
 		List<String> identifiers = new ArrayList<>();
 		if (fTotalHits == -1) {
 			try {

@@ -42,6 +42,13 @@ public class WorkspaceCamelContext extends DefaultCamelContext {
 		getManagementStrategy().addEventNotifier(
 				new ExchangeHistoryEventNotifier(config.getWorkspaceName()));
 
+		// Engine-wide bridge from Camel lifecycle events to the OSGi EventAdmin
+		// service, mirroring the BPM (Camunda) EventAdmin bridge. Cross-cutting:
+		// every route (including ones added or reloaded later) is covered without
+		// any route authoring. See documents/eip-eventadmin.md.
+		getManagementStrategy().addEventNotifier(
+				new EventAdminEventNotifier(config.getWorkspaceName()));
+
 		enableHealthChecks();
 	}
 

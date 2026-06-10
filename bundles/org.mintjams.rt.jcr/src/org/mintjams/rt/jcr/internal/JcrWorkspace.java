@@ -94,7 +94,6 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	private final JcrWorkspaceProvider fWorkspaceProvider;
 	private final SessionIdentifier fSessionIdentifier;
 	private final Closer fCloser = Closer.create();
-	private final JcrCache fCache;
 	private JcrSession fSession;
 	private JcrNamespaceRegistry fNamespaceRegistry;
 	private JcrNamespaceProvider fNamespaceProvider;
@@ -114,7 +113,6 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 		fUserPrincipal = principal;
 		fWorkspaceProvider = workspaceProvider;
 		fSessionIdentifier = SessionIdentifier.create(principal);
-		fCache = fCloser.register(JcrCache.create(this));
 	}
 
 	public static JcrWorkspace create(UserPrincipal principal, JcrWorkspaceProvider workspaceProvider) {
@@ -533,17 +531,20 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 
 	public Node getNode(String absPath) throws PathNotFoundException, RepositoryException {
 		absPath = JcrPath.valueOf(absPath).with(adaptTo(NamespaceProvider.class)).toString();
-		AdaptableMap<String, Object> itemData = fCache.getNode(absPath);
+		AdaptableMap<String, Object> itemData = fWorkspaceQuery.getCachedNode(absPath);
 		if (itemData == null) {
+			long revision = fWorkspaceQuery.getNodeCacheRevision();
 			try (Query.Result result = fWorkspaceQuery.items().collectNodes(absPath)) {
 				for (AdaptableMap<String, Object> data : result) {
-					fCache.setNode(data);
+					fWorkspaceQuery.cacheNode(data, revision);
+					if (data.getString("item_path").equals(absPath)) {
+						itemData = data;
+					}
 				}
 			} catch (IOException | SQLException ex) {
 				throw Cause.create(ex).wrap(RepositoryException.class);
 			}
 
-			itemData = fCache.getNode(absPath);
 			if (itemData == null) {
 				throw new PathNotFoundException(absPath);
 			}
@@ -553,17 +554,20 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	}
 
 	public Node getNodeByIdentifier(String id) throws ItemNotFoundException, RepositoryException {
-		AdaptableMap<String, Object> itemData = fCache.getNodeByIdentifier(id);
+		AdaptableMap<String, Object> itemData = fWorkspaceQuery.getCachedNodeByIdentifier(id);
 		if (itemData == null) {
+			long revision = fWorkspaceQuery.getNodeCacheRevision();
 			try (Query.Result result = fWorkspaceQuery.items().collectNodesByIdentifier(id)) {
 				for (AdaptableMap<String, Object> data : result) {
-					fCache.setNode(data);
+					fWorkspaceQuery.cacheNode(data, revision);
+					if (data.getString("item_id").equals(id)) {
+						itemData = data;
+					}
 				}
 			} catch (IOException | SQLException ex) {
 				throw Cause.create(ex).wrap(RepositoryException.class);
 			}
 
-			itemData = fCache.getNodeByIdentifier(id);
 			if (itemData == null) {
 				throw new ItemNotFoundException(id);
 			}
@@ -611,10 +615,6 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
 		if (adapterType.equals(SessionIdentifier.class)) {
 			return (AdapterType) fSessionIdentifier;
-		}
-
-		if (adapterType.equals(JcrCache.class)) {
-			return (AdapterType) fCache;
 		}
 
 		if (adapterType.equals(Connection.class)) {

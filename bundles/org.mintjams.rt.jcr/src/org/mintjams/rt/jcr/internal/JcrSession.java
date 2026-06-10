@@ -478,8 +478,6 @@ public class JcrSession implements Session, Adaptable {
 	public void refresh(boolean keepChanges) throws RepositoryException {
 		checkLive();
 
-		adaptTo(JcrCache.class).clear();
-
 		if (keepChanges) {
 			return;
 		}
@@ -529,7 +527,6 @@ public class JcrSession implements Session, Adaptable {
 		adaptTo(JournalObserver.class).comitted(sessionIdentifier.getTransactionIdentifier());
 		adaptTo(WorkspaceCleaner.class).comitted();
 		sessionIdentifier.nextTransaction();
-		adaptTo(JcrCache.class).clear();
 	}
 
 	private void validateNodeTypeConstraints() throws ConstraintViolationException, RepositoryException {

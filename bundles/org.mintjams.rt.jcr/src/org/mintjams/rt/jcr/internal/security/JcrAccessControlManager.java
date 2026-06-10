@@ -53,8 +53,8 @@ import org.mintjams.jcr.security.AccessControlManager;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UnknownPrincipal;
+import org.mintjams.rt.jcr.internal.AccessControlStore;
 import org.mintjams.rt.jcr.internal.Activator;
-import org.mintjams.rt.jcr.internal.JcrCache;
 import org.mintjams.rt.jcr.internal.JcrNode;
 import org.mintjams.rt.jcr.internal.JcrSession;
 import org.mintjams.rt.jcr.internal.JcrWorkspace;
@@ -69,6 +69,7 @@ import org.mintjams.tools.sql.Query;
 public class JcrAccessControlManager implements AccessControlManager, Adaptable {
 
 	private final Map<String, JcrPrivilege> fStandardPrivileges = new HashMap<>();
+	private final List<JcrPrivilege> fStandardPrivilegeList = new ArrayList<>();
 	private final JcrWorkspace fWorkspace;
 
 	private JcrAccessControlManager(JcrWorkspace workspace) {
@@ -80,23 +81,23 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 	}
 
 	public JcrAccessControlManager load() {
-		JcrPrivilege read = JcrPrivilege.create(Privilege.JCR_READ, fWorkspace);
-		JcrPrivilege modifyProperties = JcrPrivilege.create(Privilege.JCR_MODIFY_PROPERTIES, fWorkspace);
-		JcrPrivilege addChildNodes = JcrPrivilege.create(Privilege.JCR_ADD_CHILD_NODES, fWorkspace);
-		JcrPrivilege removeNode = JcrPrivilege.create(Privilege.JCR_REMOVE_NODE, fWorkspace);
-		JcrPrivilege removeChildNodes = JcrPrivilege.create(Privilege.JCR_REMOVE_CHILD_NODES, fWorkspace);
+		JcrPrivilege read = JcrPrivilege.create(Privilege.JCR_READ, fWorkspace).setBits(1L << 0);
+		JcrPrivilege modifyProperties = JcrPrivilege.create(Privilege.JCR_MODIFY_PROPERTIES, fWorkspace).setBits(1L << 1);
+		JcrPrivilege addChildNodes = JcrPrivilege.create(Privilege.JCR_ADD_CHILD_NODES, fWorkspace).setBits(1L << 2);
+		JcrPrivilege removeNode = JcrPrivilege.create(Privilege.JCR_REMOVE_NODE, fWorkspace).setBits(1L << 3);
+		JcrPrivilege removeChildNodes = JcrPrivilege.create(Privilege.JCR_REMOVE_CHILD_NODES, fWorkspace).setBits(1L << 4);
 		JcrPrivilege write = JcrPrivilege.create(Privilege.JCR_WRITE, fWorkspace)
 				.addAggregatePrivilege(modifyProperties)
 				.addAggregatePrivilege(addChildNodes)
 				.addAggregatePrivilege(removeNode)
 				.addAggregatePrivilege(removeChildNodes);
-		JcrPrivilege readAccessControl = JcrPrivilege.create(Privilege.JCR_READ_ACCESS_CONTROL, fWorkspace);
-		JcrPrivilege modifyAccessControl = JcrPrivilege.create(Privilege.JCR_MODIFY_ACCESS_CONTROL, fWorkspace);
-		JcrPrivilege lockManagement = JcrPrivilege.create(Privilege.JCR_LOCK_MANAGEMENT, fWorkspace);
-		JcrPrivilege versionManagement = JcrPrivilege.create(Privilege.JCR_VERSION_MANAGEMENT, fWorkspace);
-		JcrPrivilege nodeTypeManagement = JcrPrivilege.create(Privilege.JCR_NODE_TYPE_MANAGEMENT, fWorkspace);
-		JcrPrivilege retentionManagement = JcrPrivilege.create(Privilege.JCR_RETENTION_MANAGEMENT, fWorkspace);
-		JcrPrivilege lifeCycleManagement = JcrPrivilege.create(Privilege.JCR_LIFECYCLE_MANAGEMENT, fWorkspace);
+		JcrPrivilege readAccessControl = JcrPrivilege.create(Privilege.JCR_READ_ACCESS_CONTROL, fWorkspace).setBits(1L << 5);
+		JcrPrivilege modifyAccessControl = JcrPrivilege.create(Privilege.JCR_MODIFY_ACCESS_CONTROL, fWorkspace).setBits(1L << 6);
+		JcrPrivilege lockManagement = JcrPrivilege.create(Privilege.JCR_LOCK_MANAGEMENT, fWorkspace).setBits(1L << 7);
+		JcrPrivilege versionManagement = JcrPrivilege.create(Privilege.JCR_VERSION_MANAGEMENT, fWorkspace).setBits(1L << 8);
+		JcrPrivilege nodeTypeManagement = JcrPrivilege.create(Privilege.JCR_NODE_TYPE_MANAGEMENT, fWorkspace).setBits(1L << 9);
+		JcrPrivilege retentionManagement = JcrPrivilege.create(Privilege.JCR_RETENTION_MANAGEMENT, fWorkspace).setBits(1L << 10);
+		JcrPrivilege lifeCycleManagement = JcrPrivilege.create(Privilege.JCR_LIFECYCLE_MANAGEMENT, fWorkspace).setBits(1L << 11);
 		JcrPrivilege all = JcrPrivilege.create(Privilege.JCR_ALL, fWorkspace)
 				.addAggregatePrivilege(read)
 				.addAggregatePrivilege(write)
@@ -108,20 +109,12 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 				.addAggregatePrivilege(retentionManagement)
 				.addAggregatePrivilege(lifeCycleManagement);
 
-		fStandardPrivileges.put(read.getName(), read);
-		fStandardPrivileges.put(modifyProperties.getName(), modifyProperties);
-		fStandardPrivileges.put(addChildNodes.getName(), addChildNodes);
-		fStandardPrivileges.put(removeNode.getName(), removeNode);
-		fStandardPrivileges.put(removeChildNodes.getName(), removeChildNodes);
-		fStandardPrivileges.put(write.getName(), write);
-		fStandardPrivileges.put(readAccessControl.getName(), readAccessControl);
-		fStandardPrivileges.put(modifyAccessControl.getName(), modifyAccessControl);
-		fStandardPrivileges.put(lockManagement.getName(), lockManagement);
-		fStandardPrivileges.put(versionManagement.getName(), versionManagement);
-		fStandardPrivileges.put(nodeTypeManagement.getName(), nodeTypeManagement);
-		fStandardPrivileges.put(retentionManagement.getName(), retentionManagement);
-		fStandardPrivileges.put(lifeCycleManagement.getName(), lifeCycleManagement);
-		fStandardPrivileges.put(all.getName(), all);
+		for (JcrPrivilege privilege : new JcrPrivilege[] { read, modifyProperties, addChildNodes, removeNode,
+				removeChildNodes, write, readAccessControl, modifyAccessControl, lockManagement, versionManagement,
+				nodeTypeManagement, retentionManagement, lifeCycleManagement, all }) {
+			fStandardPrivileges.put(privilege.getName(), privilege);
+			fStandardPrivilegeList.add(privilege);
+		}
 		return this;
 	}
 
@@ -195,81 +188,160 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 
 	@Override
 	public Privilege[] getPrivileges(String absPath) throws PathNotFoundException, RepositoryException {
+		return toPrivileges(getPrivilegesMask(absPath));
+	}
+
+	/**
+	 * Evaluates the effective privileges at the given path as a bit set of leaf
+	 * privileges. Access control entries are applied from the root down to the path,
+	 * in definition order: an allow entry adds the privilege's bits, a deny entry
+	 * removes exactly those bits. This follows the JCR 2.0 principle that an aggregate
+	 * privilege is equivalent to the set of its constituents — denying a constituent
+	 * leaves the remaining constituents granted, and denying an aggregate revokes all
+	 * of its constituents however they were granted.
+	 */
+	private long getPrivilegesMask(String absPath) throws PathNotFoundException, RepositoryException {
 		JcrPath path = JcrPath.valueOf(absPath).with(adaptTo(NamespaceProvider.class));
 		JcrSession session = adaptTo(JcrSession.class);
 		if (session.isSystem()) {
-			return new Privilege[] { privilegeFromName(Privilege.JCR_ALL) };
+			return privilegeBits(Privilege.JCR_ALL);
 		}
 		if (absPath.equals("/" + JcrNode.JCR_SYSTEM_NAME)) {
-			return new Privilege[0];
+			return 0;
 		}
 		if (absPath.startsWith("/" + JcrNode.JCR_SYSTEM_NAME + "/")) {
-			return new Privilege[] { privilegeFromName(Privilege.JCR_READ) };
+			return privilegeBits(Privilege.JCR_READ);
 		}
 		if (session.isService() || session.isAdmin()) {
-			return new Privilege[] { privilegeFromName(Privilege.JCR_ALL) };
+			return privilegeBits(Privilege.JCR_ALL);
 		}
 		if (adaptTo(JcrWorkspaceProvider.class).getConfiguration().isPublicAccess(session, path)) {
-			return new Privilege[] { privilegeFromName(Privilege.JCR_READ) };
+			return privilegeBits(Privilege.JCR_READ);
 		}
 
-		Privilege[] privileges = adaptTo(JcrCache.class).getPrivileges(absPath);
-		if (privileges == null) {
-			List<Privilege> privilegeList = new ArrayList<>();
-			List<String> principals = new ArrayList<>();
-			principals.add(new EveryonePrincipal().getName());
-			principals.addAll(session.getGroups().stream().map(Principal::getName).collect(Collectors.toList()));
-			principals.add(session.getUserPrincipal().getName());
-			AccessControlPolicy[] policies = _effectivePolicies(path);
-			List<AccessControlPolicy> policyList = Arrays.asList(policies);
-			Collections.reverse(policyList);
-			for (AccessControlPolicy acp : policyList) {
-				for (AccessControlEntry ace : ((JcrAccessControlList) acp).getAccessControlEntries()) {
-					if (!principals.contains(ace.getPrincipal().getName())) {
+		List<String> principals = new ArrayList<>();
+		principals.add(new EveryonePrincipal().getName());
+		principals.addAll(session.getGroups().stream().map(Principal::getName).collect(Collectors.toList()));
+		principals.add(session.getUserPrincipal().getName());
+
+		long allowed = 0;
+
+		if (!getWorkspaceQuery().isAccessControlAffected()) {
+			// Evaluate against the workspace-wide access control store; no SQL involved.
+			AccessControlStore.Snapshot snapshot;
+			try {
+				snapshot = adaptTo(AccessControlStore.class).getSnapshot();
+			} catch (IOException ex) {
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
+
+			List<String> paths = new ArrayList<>();
+			for (JcrPath p = path; p != null; p = p.getParent()) {
+				paths.add(p.toString());
+			}
+			Collections.reverse(paths);
+
+			for (String p : paths) {
+				for (AccessControlStore.Entry entry : snapshot.getEntries(p)) {
+					if (!principals.contains(entry.getPrincipalName())) {
 						continue;
 					}
 
-					if (((JcrAccessControlEntry) ace).isAllow()) {
-						for (Privilege privilege : ace.getPrivileges()) {
-							if (!privilegeList.contains(privilege)) {
-								privilegeList.add(privilege);
-							}
-						}
+					long bits = 0;
+					for (String privilegeName : entry.getPrivilegeNames()) {
+						bits |= privilegeBits(privilegeName);
+					}
+					if (entry.isAllow()) {
+						allowed |= bits;
 					} else {
-						for (Privilege privilege : ace.getPrivileges()) {
-							for (Privilege allowed : privilegeList.toArray(Privilege[]::new)) {
-								if (allowed.equals(privilege) || ((JcrPrivilege) allowed).contains(privilege)) {
-									privilegeList.remove(allowed);
-								}
-							}
-						}
+						allowed &= ~bits;
 					}
 				}
 			}
-			privileges = privilegeList.toArray(Privilege[]::new);
-			adaptTo(JcrCache.class).setPrivileges(absPath, privileges);
+			return allowed;
 		}
-		return privileges;
+
+		// The transaction carries uncommitted access control changes; evaluate against it.
+		AccessControlPolicy[] policies = _effectivePolicies(path);
+		List<AccessControlPolicy> policyList = Arrays.asList(policies);
+		Collections.reverse(policyList);
+		for (AccessControlPolicy acp : policyList) {
+			for (AccessControlEntry ace : ((JcrAccessControlList) acp).getAccessControlEntries()) {
+				if (!principals.contains(ace.getPrincipal().getName())) {
+					continue;
+				}
+
+				long bits = 0;
+				for (Privilege privilege : ace.getPrivileges()) {
+					bits |= ((JcrPrivilege) privilege).getBits();
+				}
+				if (((JcrAccessControlEntry) ace).isAllow()) {
+					allowed |= bits;
+				} else {
+					allowed &= ~bits;
+				}
+			}
+		}
+		return allowed;
+	}
+
+	private long privilegeBits(String privilegeName) throws AccessControlException, RepositoryException {
+		return ((JcrPrivilege) privilegeFromName(privilegeName)).getBits();
+	}
+
+	/**
+	 * Returns the most compact privilege set for the given bits: a privilege is
+	 * reported when all of its bits are granted, and is omitted when another reported
+	 * privilege already covers it (e.g. all four constituents of jcr:write are
+	 * reported as jcr:write alone).
+	 */
+	private Privilege[] toPrivileges(long mask) {
+		List<JcrPrivilege> granted = new ArrayList<>();
+		for (JcrPrivilege privilege : fStandardPrivilegeList) {
+			long bits = privilege.getBits();
+			if (bits != 0 && (mask & bits) == bits) {
+				granted.add(privilege);
+			}
+		}
+
+		List<Privilege> l = new ArrayList<>();
+		for (JcrPrivilege candidate : granted) {
+			boolean covered = false;
+			for (JcrPrivilege other : granted) {
+				if (other == candidate) {
+					continue;
+				}
+				long candidateBits = candidate.getBits();
+				long otherBits = other.getBits();
+				if ((candidateBits & otherBits) == candidateBits && candidateBits != otherBits) {
+					covered = true;
+					break;
+				}
+			}
+			if (!covered) {
+				l.add(candidate);
+			}
+		}
+		return l.toArray(Privilege[]::new);
 	}
 
 	@Override
 	public Privilege[] getSupportedPrivileges(String absPath) throws PathNotFoundException, RepositoryException {
-		return fStandardPrivileges.values().toArray(Privilege[]::new);
+		return fStandardPrivilegeList.toArray(Privilege[]::new);
 	}
 
 	@Override
 	public boolean hasPrivileges(String absPath, Privilege[] privileges) throws PathNotFoundException, RepositoryException {
-		List<Privilege> checkList = new ArrayList<>(Arrays.asList(privileges));
-		List<Privilege> allowList = Arrays.asList(getPrivileges(absPath));
-		for (Privilege e : checkList.toArray(Privilege[]::new)) {
-			for (Privilege p : allowList) {
-				if (p.equals(e) || ((JcrPrivilege) p).contains(e)) {
-					checkList.remove(e);
-					break;
-				}
+		long required = 0;
+		for (Privilege e : privileges) {
+			try {
+				required |= privilegeBits(e.getName());
+			} catch (AccessControlException ignore) {
+				// An unknown privilege can never be held.
+				return false;
 			}
 		}
-		return checkList.isEmpty();
+		return (getPrivilegesMask(absPath) & required) == required;
 	}
 
 	@Override
@@ -325,11 +397,16 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 	@Override
 	public boolean hasPrivileges(String absPath, String... privileges)
 			throws PathNotFoundException, RepositoryException {
-		List<Privilege> l = new ArrayList<>();
+		long required = 0;
 		for (String privilege : privileges) {
-			l.add(JcrPrivilege.create(privilege, fWorkspace));
+			try {
+				required |= privilegeBits(privilege);
+			} catch (AccessControlException ignore) {
+				// An unknown privilege can never be held.
+				return false;
+			}
 		}
-		return hasPrivileges(absPath, l.toArray(Privilege[]::new));
+		return (getPrivilegesMask(absPath) & required) == required;
 	}
 
 	@Override

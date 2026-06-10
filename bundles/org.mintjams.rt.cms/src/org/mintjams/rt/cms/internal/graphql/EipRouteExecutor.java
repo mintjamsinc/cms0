@@ -46,7 +46,10 @@ import org.apache.camel.api.management.ManagedCamelContext;
 import org.apache.camel.api.management.mbean.ManagedRouteMBean;
 import org.apache.camel.health.HealthCheck;
 import org.apache.camel.health.HealthCheckHelper;
+import org.apache.camel.model.ModelCamelContext;
+import org.apache.camel.model.RouteDefinition;
 import org.apache.camel.spi.RuntimeEndpointRegistry;
+import org.apache.camel.support.PluginHelper;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
 
@@ -163,7 +166,7 @@ public class EipRouteExecutor {
 
 		List<Map<String, Object>> edges = new ArrayList<>(page.size());
 		for (RouteRef ref : page) {
-			Map<String, Object> node = buildRouteNode(ref, camelContext, managedContext);
+			Map<String, Object> node = buildRouteNode(ref, camelContext, managedContext, false);
 			Map<String, Object> edge = new LinkedHashMap<>();
 			edge.put("node", node);
 			edge.put("cursor", encodeCursor(ref.routeId));
@@ -214,7 +217,7 @@ public class EipRouteExecutor {
 			return data;
 		}
 
-		data.put("route", buildRouteNode(ref, camelContext, managedContext));
+		data.put("route", buildRouteNode(ref, camelContext, managedContext, true));
 		return data;
 	}
 
@@ -228,7 +231,7 @@ public class EipRouteExecutor {
 		WorkspaceIntegrationEngineProvider provider = requireProvider();
 		provider.getCamelContext().getRouteController().startRoute(id);
 		return Map.of("startRoute", buildRouteNode(requireRouteRef(provider, id),
-				provider.getCamelContext(), managedContext(provider)));
+				provider.getCamelContext(), managedContext(provider), true));
 	}
 
 	public Map<String, Object> executeStopRoute(GraphQLRequest request) throws Exception {
@@ -243,7 +246,7 @@ public class EipRouteExecutor {
 			provider.getCamelContext().getRouteController().stopRoute(id);
 		}
 		return Map.of("stopRoute", buildRouteNode(requireRouteRef(provider, id),
-				provider.getCamelContext(), managedContext(provider)));
+				provider.getCamelContext(), managedContext(provider), true));
 	}
 
 	public Map<String, Object> executeSuspendRoute(GraphQLRequest request) throws Exception {
@@ -258,7 +261,7 @@ public class EipRouteExecutor {
 			provider.getCamelContext().getRouteController().suspendRoute(id);
 		}
 		return Map.of("suspendRoute", buildRouteNode(requireRouteRef(provider, id),
-				provider.getCamelContext(), managedContext(provider)));
+				provider.getCamelContext(), managedContext(provider), true));
 	}
 
 	public Map<String, Object> executeResumeRoute(GraphQLRequest request) throws Exception {
@@ -267,7 +270,7 @@ public class EipRouteExecutor {
 		WorkspaceIntegrationEngineProvider provider = requireProvider();
 		provider.getCamelContext().getRouteController().resumeRoute(id);
 		return Map.of("resumeRoute", buildRouteNode(requireRouteRef(provider, id),
-				provider.getCamelContext(), managedContext(provider)));
+				provider.getCamelContext(), managedContext(provider), true));
 	}
 
 	// =========================================================================
@@ -326,7 +329,7 @@ public class EipRouteExecutor {
 	}
 
 	private Map<String, Object> buildRouteNode(RouteRef ref, CamelContext context,
-			ManagedCamelContext managedContext) {
+			ManagedCamelContext managedContext, boolean includeDefinition) {
 		Map<String, Object> node = new LinkedHashMap<>();
 		node.put("id", ref.routeId);
 		node.put("routeId", ref.routeId);
@@ -377,7 +380,60 @@ public class EipRouteExecutor {
 		ensureHealth(context);
 		node.put("health", healthByRoute.getOrDefault(ref.routeId, "UNKNOWN"));
 		node.put("endpoints", buildEndpoints(context, ref.routeId));
+		// Dumping the model to XML/YAML is comparatively expensive, so it is only
+		// done for single-route reads (Route.definition), never for the list — the
+		// routes connection deliberately doesn't select it.
+		if (includeDefinition) {
+			node.put("definition", buildDefinition(context, ref.routeId));
+		}
 		return node;
+	}
+
+	// =========================================================================
+	// Route.definition — the route's structured model, sourced from the live
+	// engine.
+	//
+	// The runtime CamelContext is the single source of truth: we look up the
+	// in-memory RouteDefinition for the route id and dump it back to its DSL
+	// representations via the engine's own dumpers. Both Camel DSL interchange
+	// formats are exposed so consumers can pick whichever they need —
+	//   - xml  : Camel XML DSL (used by the EIP modeler / read-only canvas to
+	//            render a faithful, auto-laid-out diagram)
+	//   - yaml : Camel YAML DSL (human-friendly export)
+	// They always reflect what is actually deployed, not any on-disk source
+	// that may have drifted since deployment.
+	// =========================================================================
+	private Map<String, Object> buildDefinition(CamelContext context, String routeId) {
+		if (context == null || !(context instanceof ModelCamelContext)) {
+			return null;
+		}
+		ModelCamelContext model = (ModelCamelContext) context;
+		RouteDefinition def = model.getRouteDefinition(routeId);
+		if (def == null) {
+			return null;
+		}
+
+		Map<String, Object> definition = new LinkedHashMap<>();
+		definition.put("id", routeId);
+		definition.put("xml", dumpModel(context, def, true));
+		definition.put("yaml", dumpModel(context, def, false));
+		return definition;
+	}
+
+	// Dump a single route's model to XML (asXml=true) or YAML (asXml=false)
+	// using the engine's registered dumper. Returns null on failure so a single
+	// unrenderable route never fails the whole query.
+	private String dumpModel(CamelContext context, RouteDefinition def, boolean asXml) {
+		try {
+			if (asXml) {
+				return PluginHelper.getModelToXMLDumper(context).dumpModelAsXml(context, def);
+			}
+			return PluginHelper.getModelToYAMLDumper(context).dumpModelAsYaml(context, def);
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn(
+					"Failed to dump route model as " + (asXml ? "XML" : "YAML") + ": " + def.getRouteId(), ex);
+			return null;
+		}
 	}
 
 	// =========================================================================

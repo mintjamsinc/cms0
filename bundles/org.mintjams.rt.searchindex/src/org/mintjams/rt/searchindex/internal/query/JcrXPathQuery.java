@@ -1446,6 +1446,15 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					return escape("0");
 				}
 
+				if (value instanceof String) {
+					// String properties are indexed as exact, untokenized terms
+					// (StringField + SortedDocValues), so a one-sided inequality
+					// maps to a half-open lexicographic TermRangeQuery. The open
+					// lower bound is the parser's '*' sentinel (must stay
+					// unescaped so it is not treated as a literal asterisk).
+					return "*";
+				}
+
 				throw new IllegalArgumentException("Could not get minimum value of " + value.getClass().getName() + ".");
 			}
 
@@ -1460,6 +1469,12 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 				if (value instanceof Boolean) {
 					return escape("1");
+				}
+
+				if (value instanceof String) {
+					// See toLuceneMinValue: open upper bound for lexicographic
+					// string ranges.
+					return "*";
 				}
 
 				throw new IllegalArgumentException("Could not get maximum value of " + value.getClass().getName() + ".");
@@ -1549,12 +1564,18 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					}
 				}
 				String fieldName = getFieldName(fieldAndDirection[0]);
-				String sortName = escape(fieldName);
+				// Sort/doc-values field names are literal Lucene field names and must
+				// NOT be escaped. escape() is only for embedding a name in the query
+				// STRING (where ':' etc. are syntax). Escaping here produced names
+				// like "mi\:createdAt" that match no indexed field, so the sort
+				// silently found no doc-values, tied every document, and fell back to
+				// index (insertion) order. Built-in fields (e.g. jcr:created ->
+				// "_created") have no special chars and were unaffected, masking this.
 				SortField.Type sortType = getFieldType(fieldAndDirection[0], fieldName);
 				if (sortType.equals(SortField.Type.STRING)) {
-					l.add(new SortField(sortName, sortType, !ascending));
+					l.add(new SortField(fieldName, sortType, !ascending));
 				} else {
-					l.add(new SortedNumericSortField(sortName, sortType, !ascending));
+					l.add(new SortedNumericSortField(fieldName, sortType, !ascending));
 				}
 			}
 			if (l.isEmpty()) {

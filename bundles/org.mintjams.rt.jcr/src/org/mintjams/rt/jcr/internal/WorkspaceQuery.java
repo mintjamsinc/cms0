@@ -40,7 +40,9 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -102,6 +104,10 @@ import org.mintjams.tools.sql.Update;
 public class WorkspaceQuery implements Adaptable {
 
 	private final JcrWorkspace fWorkspace;
+	private boolean fAccessControlAffected;
+	private final Set<String> fDirtyItems = new HashSet<>();
+	private final LinkedHashMap<String, OverlayEntry> fOverlay = new LinkedHashMap<>(16, 0.75f, true);
+	private final Map<String, String> fOverlayPaths = new HashMap<>();
 
 	private WorkspaceQuery(JcrWorkspace workspace) {
 		fWorkspace = workspace;
@@ -116,10 +122,159 @@ public class WorkspaceQuery implements Adaptable {
 		newUpdateBuilder("DELETE FROM jcr_properties WHERE is_deleted = TRUE").build().execute();
 
 		getConnection().commit();
+
+		if (!fDirtyItems.isEmpty()) {
+			adaptTo(NodeCache.class).invalidate(fDirtyItems);
+			fDirtyItems.clear();
+			fOverlay.clear();
+			fOverlayPaths.clear();
+		}
+
+		if (fAccessControlAffected) {
+			fAccessControlAffected = false;
+			AccessControlStore store = adaptTo(AccessControlStore.class);
+			try {
+				store.reload();
+			} catch (Throwable ex) {
+				store.markStale();
+				Activator.getDefault().getLogger(getClass())
+						.error("An error occurred while reloading the access control store.", ex);
+			}
+		}
 	}
 
 	public void rollback() throws SQLException {
 		getConnection().rollback();
+		fAccessControlAffected = false;
+		fDirtyItems.clear();
+		fOverlay.clear();
+		fOverlayPaths.clear();
+	}
+
+	/**
+	 * Returns whether this transaction carries uncommitted changes that affect access
+	 * control evaluation (access control lists, or paths of items that carry them).
+	 * While this returns {@code true}, privileges must be evaluated against the
+	 * transaction instead of the workspace-wide access control store.
+	 */
+	public boolean isAccessControlAffected() {
+		return fAccessControlAffected;
+	}
+
+	public void setAccessControlAffected() {
+		fAccessControlAffected = true;
+	}
+
+	/**
+	 * Marks an item as changed by this transaction. Dirty items bypass the
+	 * workspace-wide node cache — they are read through this transaction's own
+	 * connection and cached in the transaction-local overlay — and are invalidated
+	 * in the workspace-wide cache when the transaction commits.
+	 */
+	public void markDirty(String id) {
+		fDirtyItems.add(id);
+		removeOverlayEntry(id);
+	}
+
+	/**
+	 * Returns the node cache revision to capture before reading item data from the
+	 * database, for use with {@link #cacheNode(AdaptableMap, long)} and
+	 * {@link #cacheProperties(String, Map, long)}.
+	 */
+	public long getNodeCacheRevision() {
+		return adaptTo(NodeCache.class).getRevision();
+	}
+
+	public AdaptableMap<String, Object> getCachedNode(String absPath) {
+		String id = fOverlayPaths.get(absPath);
+		if (id != null) {
+			OverlayEntry entry = fOverlay.get(id);
+			if (entry != null && entry.fItemData != null) {
+				return entry.fItemData;
+			}
+		}
+		AdaptableMap<String, Object> itemData = adaptTo(NodeCache.class).getNode(absPath);
+		if (itemData != null && fDirtyItems.contains(itemData.getString("item_id"))) {
+			return null;
+		}
+		return itemData;
+	}
+
+	public AdaptableMap<String, Object> getCachedNodeByIdentifier(String id) {
+		if (fDirtyItems.contains(id)) {
+			OverlayEntry entry = fOverlay.get(id);
+			return (entry != null) ? entry.fItemData : null;
+		}
+		return adaptTo(NodeCache.class).getNodeByIdentifier(id);
+	}
+
+	public Map<String, AdaptableMap<String, Object>> getCachedProperties(String id) {
+		if (fDirtyItems.contains(id)) {
+			OverlayEntry entry = fOverlay.get(id);
+			return (entry != null) ? entry.fProperties : null;
+		}
+		return adaptTo(NodeCache.class).getProperties(id);
+	}
+
+	public void cacheNode(AdaptableMap<String, Object> itemData, long readRevision) {
+		String id = itemData.getString("item_id");
+		if (fDirtyItems.contains(id)) {
+			String path = itemData.getString("item_path");
+			OverlayEntry entry = fOverlay.get(id);
+			if (entry == null) {
+				entry = new OverlayEntry();
+				fOverlay.put(id, entry);
+			}
+			if (entry.fPath != null && !entry.fPath.equals(path) && id.equals(fOverlayPaths.get(entry.fPath))) {
+				fOverlayPaths.remove(entry.fPath);
+			}
+			entry.fItemData = itemData;
+			entry.fPath = path;
+			fOverlayPaths.put(path, id);
+			trimOverlay();
+			return;
+		}
+		adaptTo(NodeCache.class).setNode(itemData, readRevision);
+	}
+
+	public void cacheProperties(String id, Map<String, AdaptableMap<String, Object>> properties, long readRevision) {
+		if (fDirtyItems.contains(id)) {
+			OverlayEntry entry = fOverlay.get(id);
+			if (entry == null) {
+				entry = new OverlayEntry();
+				fOverlay.put(id, entry);
+			}
+			entry.fProperties = properties;
+			trimOverlay();
+			return;
+		}
+		adaptTo(NodeCache.class).setProperties(id, properties, readRevision);
+	}
+
+	private void removeOverlayEntry(String id) {
+		OverlayEntry entry = fOverlay.remove(id);
+		if (entry != null && entry.fPath != null && id.equals(fOverlayPaths.get(entry.fPath))) {
+			fOverlayPaths.remove(entry.fPath);
+		}
+	}
+
+	private void trimOverlay() {
+		int cacheSize = adaptTo(JcrRepository.class).getConfiguration().getNodeCacheSize();
+		while (fOverlay.size() > cacheSize) {
+			Iterator<Map.Entry<String, OverlayEntry>> i = fOverlay.entrySet().iterator();
+			Map.Entry<String, OverlayEntry> eldest = i.next();
+			i.remove();
+			OverlayEntry entry = eldest.getValue();
+			if (entry.fPath != null && eldest.getKey().equals(fOverlayPaths.get(entry.fPath))) {
+				fOverlayPaths.remove(entry.fPath);
+			}
+		}
+	}
+
+	private static class OverlayEntry {
+		private AdaptableMap<String, Object> fItemData;
+		private Map<String, AdaptableMap<String, Object>> fProperties;
+		private String fPath;
 	}
 
 	private final JournalQuery fJournalQuery = new JournalQuery();
@@ -521,6 +676,10 @@ public class WorkspaceQuery implements Adaptable {
 							.put("is_system", JCRs.isSystemPath(path))
 							.build())
 					.execute();
+
+			// The new item must never reach the workspace-wide cache before it is committed.
+			markDirty(id);
+
 			setProperty(id, JcrProperty.JCR_PRIMARY_TYPE, PropertyType.NAME,
 					createValue(PropertyType.NAME, primaryType));
 			if (!mixinTypes.isEmpty()) {
@@ -1301,6 +1460,10 @@ public class WorkspaceQuery implements Adaptable {
 
 			if (!el.getBoolean("options.leaveAccessControlPolicy")) {
 				removeAccessControlPolicy(id);
+			} else if (adaptTo(AccessControlStore.class).hasEntriesAt(path)) {
+				// The item disappears (or is recreated) while its access control entries
+				// are kept; the path-keyed store view changes on commit.
+				setAccessControlAffected();
 			}
 
 			try (Query.Result result = propertiesEntity()
@@ -1326,7 +1489,7 @@ public class WorkspaceQuery implements Adaptable {
 					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
 					.execute();
 
-			adaptTo(JcrCache.class).remove(id);
+			markDirty(id);
 
 			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.NODE_REMOVED).put("item_id", id).put("item_path", path)
@@ -1354,6 +1517,11 @@ public class WorkspaceQuery implements Adaptable {
 			AdaptableMap<String, Object> srcItem = getNode(srcPath.toString());
 			AdaptableMap<String, Object> destParentItem = getNode(destPath.getParent().toString());
 
+			if (adaptTo(AccessControlStore.class).hasEntriesUnder(srcPath.toString())) {
+				// Items carrying access control entries change their paths.
+				setAccessControlAffected();
+			}
+
 			if (!srcPath.getParent().toString().equals(destPath.getParent().toString())) {
 				itemsEntity().updateByPrimaryKey(
 						AdaptableMap.<String, Object>newBuilder().put("item_id", srcItem.getString("item_id"))
@@ -1368,7 +1536,7 @@ public class WorkspaceQuery implements Adaptable {
 						.put("item_path", destPath.toString()).build()).execute();
 			}
 
-			adaptTo(JcrCache.class).remove(srcItem.getString("item_id"));
+			markDirty(srcItem.getString("item_id"));
 			moveChildNodes(srcItem.getString("item_id"));
 
 			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
@@ -1395,7 +1563,7 @@ public class WorkspaceQuery implements Adaptable {
 									.put("item_name", name).put("item_path", path).build())
 							.execute();
 
-					adaptTo(JcrCache.class).remove(itemData.getString("item_id"));
+					markDirty(itemData.getString("item_id"));
 					moveChildNodes(itemData.getString("item_id"));
 				}
 			}
@@ -1477,7 +1645,7 @@ public class WorkspaceQuery implements Adaptable {
 						files().createFile(e.getKey(), e.getValue());
 					}
 
-					adaptTo(JcrCache.class).remove(id);
+					markDirty(id);
 
 					journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
 							.put("event_occurred", System.currentTimeMillis()).put("event_type", Event.PROPERTY_ADDED)
@@ -1499,7 +1667,7 @@ public class WorkspaceQuery implements Adaptable {
 						files().createFile(e.getKey(), e.getValue());
 					}
 
-					adaptTo(JcrCache.class).remove(id);
+					markDirty(id);
 
 					journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
 							.put("event_occurred", System.currentTimeMillis()).put("event_type", Event.PROPERTY_CHANGED)
@@ -1577,7 +1745,7 @@ public class WorkspaceQuery implements Adaptable {
 					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
 					.execute();
 
-			adaptTo(JcrCache.class).remove(id);
+			markDirty(id);
 
 			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.PROPERTY_REMOVED).put("item_id", id).put("item_path", getPath(id))
@@ -1729,6 +1897,8 @@ public class WorkspaceQuery implements Adaptable {
 				throw new AccessControlException("Access control entries must not be null.");
 			}
 
+			setAccessControlAffected();
+
 			newUpdateBuilder("DELETE FROM jcr_aces WHERE item_id = {{id}}").setVariable("id", id).build().execute();
 
 			int rowNo = 0;
@@ -1740,7 +1910,7 @@ public class WorkspaceQuery implements Adaptable {
 						.put("is_allow", ace.isAllow()).build()).execute();
 			}
 
-			adaptTo(JcrCache.class).remove(id);
+			markDirty(id);
 
 			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.ACCESS_CONTROL_POLICY_CHANGED).put("item_id", id)
@@ -1754,9 +1924,13 @@ public class WorkspaceQuery implements Adaptable {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
 
+			if (adaptTo(AccessControlStore.class).hasEntriesAt(getPath(id))) {
+				setAccessControlAffected();
+			}
+
 			newUpdateBuilder("DELETE FROM jcr_aces WHERE item_id = {{id}}").setVariable("id", id).build().execute();
 
-			adaptTo(JcrCache.class).remove(id);
+			markDirty(id);
 
 			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
 					.put("event_type", Event.ACCESS_CONTROL_POLICY_REMOVED).put("item_id", id)
