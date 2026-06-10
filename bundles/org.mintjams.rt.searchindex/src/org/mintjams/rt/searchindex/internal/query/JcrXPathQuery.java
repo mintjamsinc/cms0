@@ -245,6 +245,20 @@ public class JcrXPathQuery extends SearchIndexQuery {
 		return result;
 	}
 
+	@Override
+	public long count() throws IOException {
+		long startTime = System.currentTimeMillis();
+		try {
+			IndexSearcher documentSearcher = fSearchIndex.getDocumentReader().getIndexSearcher();
+			getCompiled(); // compile
+			long count = documentSearcher.count(getDocumentQuery());
+			Activator.getLogger(getClass()).debug("Count jcr:xpath query (" + (System.currentTimeMillis() - startTime) + "ms): " + fStatement);
+			return count;
+		} catch (IndexNotFoundException ignore) {
+			return 0;
+		}
+	}
+
 	private org.apache.lucene.search.Query getDocumentQuery() throws IOException {
 		try {
 			StandardQueryParser parser = new StandardQueryParser(fSearchIndex.getDocumentReader().getAnalyzer());

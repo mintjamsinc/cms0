@@ -166,6 +166,19 @@ public interface SearchIndex extends Closeable {
 		Query setAuthorizables(Principal... authorizables);
 
 		QueryResult execute() throws IOException;
+
+		/**
+		 * Returns the exact number of documents matching this query.
+		 *
+		 * <p>Unlike {@link QueryResult#getTotalHits()}, which is collected with a
+		 * bounded hit-count threshold and may therefore be a lower-bound
+		 * approximation on large result sets, this method counts every matching
+		 * document. It fetches no documents, applies no sort and computes no
+		 * facets, so it is cheap even when millions of documents match.
+		 * {@code offset} and {@code limit} do not affect the result;
+		 * authorizables set via {@link #setAuthorizables} are honoured.</p>
+		 */
+		long count() throws IOException;
 	}
 
 	interface QueryResult extends Iterable<QueryResult.Row> {

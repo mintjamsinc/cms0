@@ -127,6 +127,25 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 
 		@Override
 		public long getSize() {
+			// Exact match count, computed lazily on first call. The hit count
+			// reported by the fetch's TopDocs is collected with a bounded
+			// threshold and degrades to a lower-bound approximation on large
+			// result sets, so callers that surface totals (GraphQL totalCount,
+			// script Query.getTotal(), ...) would silently under-report. The
+			// dedicated count query fetches no documents, so it stays cheap
+			// regardless of how many documents match.
+			if (fTotalHits == -1) {
+				try {
+					SearchIndex.Query indexQuery = adaptTo(SearchIndex.class).createQuery(fQuery.getStatement(), "jcr:xpath");
+					if (!fAuthorizables.isEmpty()) {
+						indexQuery.setAuthorizables(fAuthorizables.toArray(Principal[]::new));
+					}
+					fTotalHits = indexQuery.count();
+				} catch (IOException ex) {
+					// JCR RangeIterator contract: -1 when the size is unknown.
+					return -1;
+				}
+			}
 			return fTotalHits;
 		}
 
@@ -215,7 +234,6 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 					indexQuery.setAuthorizables(fAuthorizables.toArray(Principal[]::new));
 				}
 				SearchIndex.QueryResult result = indexQuery.execute();
-				fTotalHits = result.getTotalHits();
 				for (SearchIndex.QueryResult.Row row : result) {
 					fFetchList.add(row);
 					identifiers.add(row.getIdentifier());

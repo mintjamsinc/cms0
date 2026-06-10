@@ -555,17 +555,22 @@ public class EipStatsQueryExecutor {
 				.append(")");
 	}
 
+	/**
+	 * Exact match count for {@code totalCount}. Executed with {@code limit=0}
+	 * so the query fetches no nodes at all; the count comes from the search
+	 * index via {@link NodeIterator#getSize()}, which counts every match
+	 * (uncapped) without materialising documents. Iterating nodes here would
+	 * scale with the match volume — a wide time window over a busy history
+	 * took a minute and capped the count — whereas the index count is
+	 * effectively constant-time.
+	 */
 	private long countQuery(String xpath) {
 		try {
 			QueryManager qm = session.getWorkspace().getQueryManager();
 			Query q = qm.createQuery(xpath, Query.XPATH);
-			q.setLimit(10_000);
+			q.setLimit(0);
 			QueryResult r = q.execute();
-			long n = 0;
-			for (NodeIterator it = r.getNodes(); it.hasNext(); it.nextNode()) {
-				n++;
-			}
-			return n;
+			return r.getNodes().getSize();
 		} catch (Exception ex) {
 			return -1L;
 		}
