@@ -1,0 +1,2467 @@
+# =============================================================================
+# CMS0 GraphQL Schema Definition Language (SDL)
+# =============================================================================
+# Version: 1.0.0
+# Last Updated: 2025-11
+#
+# This schema defines the complete GraphQL API for the CMS0 content management
+# system, including:
+# - Content Management (JCR-based)
+# - Business Process Management (Camunda BPM)
+# - Enterprise Integration Patterns (Apache Camel)
+# - Real-time Subscriptions (SSE-based)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Scalars
+# -----------------------------------------------------------------------------
+
+"""ISO-8601 formatted date-time string in UTC"""
+scalar DateTime
+
+"""64-bit integer"""
+scalar Long
+
+"""Arbitrary JSON object"""
+scalar JSON
+
+"""Base64 encoded binary data"""
+scalar Base64
+
+# -----------------------------------------------------------------------------
+# Common Types
+# -----------------------------------------------------------------------------
+
+"""Relay-style pagination info"""
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+"""Sort order direction"""
+enum SortOrder {
+  ASC
+  DESC
+}
+
+# -----------------------------------------------------------------------------
+# Error Handling
+# -----------------------------------------------------------------------------
+
+"""
+Error extensions providing additional context.
+The level of detail depends on the environment configuration:
+- Production: code, reason only
+- Development: includes details, stackTrace
+"""
+type ErrorExtensions {
+  """Machine-readable error code"""
+  code: String!
+
+  """High-level reason for the error"""
+  reason: String
+
+  """Affected resource identifier"""
+  resourceId: String
+
+  """Additional error details (development only)"""
+  details: JSON
+
+  """Stack trace (development only)"""
+  stackTrace: String
+}
+
+# =============================================================================
+# CONTENT MANAGEMENT (JCR)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Node Types
+# -----------------------------------------------------------------------------
+
+"""JCR Node representation"""
+type Node {
+  """Node path in the repository"""
+  path: String!
+
+  """Node name (last segment of path)"""
+  name: String!
+
+  """Primary node type (e.g., nt:file, nt:folder)"""
+  nodeType: String!
+
+  """UUID if node has mix:referenceable"""
+  uuid: String
+
+  # Timestamps
+  created: DateTime!
+  createdBy: String!
+  modified: DateTime!
+  modifiedBy: String!
+
+  # File-specific fields (nt:file)
+  """MIME type for file nodes"""
+  mimeType: String
+
+  """File size in bytes"""
+  size: Long
+
+  """Character encoding for text files"""
+  encoding: String
+
+  """Download URL path"""
+  downloadUrl: String
+
+  # Folder-specific fields (nt:folder)
+  """Whether folder has child nodes"""
+  hasChildren: Boolean
+
+  # Lock information
+  isLocked: Boolean
+  lockOwner: String
+  isDeep: Boolean
+  isSessionScoped: Boolean
+  isLockOwningSession: Boolean
+
+  # Properties
+  """All non-jcr: prefixed properties"""
+  properties: [Property!]!
+
+  # Search result score (only in search results)
+  """Relevance score (search results only)"""
+  score: Float
+
+  # Relations
+  """Child nodes with pagination"""
+  children(first: Int = 20, after: String): NodeConnection!
+
+  """Parent node"""
+  parent: Node
+
+  """Version history (if mix:versionable)"""
+  versionHistory: VersionHistory
+}
+
+"""Node property"""
+type Property {
+  name: String!
+  propertyValue: PropertyValue!
+}
+
+# -----------------------------------------------------------------------------
+# Property Value Types (Union)
+# -----------------------------------------------------------------------------
+
+union PropertyValue =
+  | StringPropertyValue
+  | StringPropertyValueArray
+  | LongPropertyValue
+  | LongPropertyValueArray
+  | DoublePropertyValue
+  | DoublePropertyValueArray
+  | DecimalPropertyValue
+  | DecimalPropertyValueArray
+  | BooleanPropertyValue
+  | BooleanPropertyValueArray
+  | DatePropertyValue
+  | DatePropertyValueArray
+  | BinaryPropertyValue
+  | BinaryPropertyValueArray
+  | NamePropertyValue
+  | NamePropertyValueArray
+  | PathPropertyValue
+  | PathPropertyValueArray
+  | ReferencePropertyValue
+  | ReferencePropertyValueArray
+  | WeakreferencePropertyValue
+  | WeakreferencePropertyValueArray
+  | UriPropertyValue
+  | UriPropertyValueArray
+
+type StringPropertyValue {
+  type: String!
+  value: String!
+}
+
+type StringPropertyValueArray {
+  type: String!
+  values: [String!]!
+}
+
+type LongPropertyValue {
+  type: String!
+  value: Long!
+}
+
+type LongPropertyValueArray {
+  type: String!
+  values: [Long!]!
+}
+
+type DoublePropertyValue {
+  type: String!
+  value: Float!
+}
+
+type DoublePropertyValueArray {
+  type: String!
+  values: [Float!]!
+}
+
+type DecimalPropertyValue {
+  type: String!
+  value: String!
+}
+
+type DecimalPropertyValueArray {
+  type: String!
+  values: [String!]!
+}
+
+type BooleanPropertyValue {
+  type: String!
+  value: Boolean!
+}
+
+type BooleanPropertyValueArray {
+  type: String!
+  values: [Boolean!]!
+}
+
+type DatePropertyValue {
+  type: String!
+  value: DateTime!
+}
+
+type DatePropertyValueArray {
+  type: String!
+  values: [DateTime!]!
+}
+
+type BinaryPropertyValue {
+  type: String!
+  mimeType: String
+  size: Long
+  value: Base64!
+}
+
+type BinaryPropertyValueArray {
+  type: String!
+  mimeTypes: [String]!
+  sizes: [Long]!
+}
+
+type NamePropertyValue {
+  type: String!
+  value: String!
+}
+
+type NamePropertyValueArray {
+  type: String!
+  values: [String!]!
+}
+
+type PathPropertyValue {
+  type: String!
+  value: String!
+}
+
+type PathPropertyValueArray {
+  type: String!
+  values: [String!]!
+}
+
+type ReferencePropertyValue {
+  type: String!
+  value: String!
+}
+
+type ReferencePropertyValueArray {
+  type: String!
+  values: [String!]!
+}
+
+type WeakreferencePropertyValue {
+  type: String!
+  value: String!
+}
+
+type WeakreferencePropertyValueArray {
+  type: String!
+  values: [String!]!
+}
+
+type UriPropertyValue {
+  type: String!
+  value: String!
+}
+
+type UriPropertyValueArray {
+  type: String!
+  values: [String!]!
+}
+
+# -----------------------------------------------------------------------------
+# Property Value Input
+# -----------------------------------------------------------------------------
+
+"""
+Input for a single item in a binary array property.
+Specify exactly ONE field: keepIndex to retain an existing server value, or uploadId for a new upload.
+"""
+input BinaryArrayItemInput {
+  """Index of the existing server value to retain"""
+  keepIndex: Int
+  """Upload ID of a newly uploaded file"""
+  uploadId: String
+}
+
+"""
+Input for setting property values.
+Specify exactly ONE field. Multiple fields will cause a validation error.
+"""
+input PropertyValueInput {
+  stringValue: String
+  stringArrayValue: [String!]
+  longValue: Long
+  longArrayValue: [Long!]
+  doubleValue: Float
+  doubleArrayValue: [Float!]
+  decimalValue: String
+  decimalArrayValue: [String!]
+  booleanValue: Boolean
+  booleanArrayValue: [Boolean!]
+  dateValue: DateTime
+  dateArrayValue: [DateTime!]
+  binaryValue: Base64
+  binaryUploadId: String
+  binaryArrayUploadIds: [String!]
+  binaryArrayItems: [BinaryArrayItemInput!]
+  nameValue: String
+  nameArrayValue: [String!]
+  pathValue: String
+  pathArrayValue: [String!]
+  referenceValue: String
+  referenceArrayValue: [String!]
+  weakReferenceValue: String
+  weakReferenceArrayValue: [String!]
+  uriValue: String
+  uriArrayValue: [String!]
+}
+
+"""Property input for setProperties mutation"""
+input PropertyInput {
+  name: String!
+  value: PropertyValueInput!
+}
+
+# -----------------------------------------------------------------------------
+# Node Connection (Relay-style)
+# -----------------------------------------------------------------------------
+
+type NodeConnection {
+  edges: [NodeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type NodeEdge {
+  node: Node!
+  cursor: String!
+}
+
+# -----------------------------------------------------------------------------
+# Webtop Applications
+# -----------------------------------------------------------------------------
+
+"""
+A Webtop application, derived from its `app.yml` descriptor (plus the sibling
+`icon.svg` / `index.html` resources). Returned by the `apps` query so the
+client can load the full app catalog in a single round trip.
+"""
+type App {
+  """Stable app id (the `identifier` field of app.yml)."""
+  identifier: String
+  """Directory name of the app under the apps root."""
+  name: String!
+  """Display title."""
+  title: String
+  """
+  Icon reference. The explicit `app.yml` `icon` value, or `"icon.svg"` when a
+  sibling icon.svg exists, otherwise null.
+  """
+  icon: String
+  """Absolute repository path of the app directory."""
+  path: String!
+  """Path of the app directory relative to the apps root."""
+  relPath: String!
+  """ISO-8601 last-modified time (from index.html, then the descriptor)."""
+  modified: String
+  """Whether the app can open content (acts as an editor)."""
+  editor: Boolean
+  """MIME-type patterns this app can open (e.g. "text/*")."""
+  contentTypes: [String!]
+  """Whether the app appears in the start menu (null = default visible)."""
+  enableStartMenu: Boolean
+  """Whether the app is only visible to administrators."""
+  isAdminOnly: Boolean
+  """Whether only a single instance may run at a time."""
+  singleton: Boolean
+  """Whether the app renders its own window controls."""
+  customWindowControls: Boolean
+  """Minimum window width in pixels."""
+  minimumWidth: Int
+  """Minimum window height in pixels."""
+  minimumHeight: Int
+  """Declared app actions."""
+  actions: [AppAction!]!
+}
+
+"""A named action declared in an app's `app.yml` `actions` map."""
+type AppAction {
+  """The action key from the actions map."""
+  identifier: String!
+  label: String
+  title: String
+  icon: String
+  handler: String
+}
+
+type AppConnection {
+  edges: [AppEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type AppEdge {
+  node: App!
+  cursor: String!
+}
+
+# -----------------------------------------------------------------------------
+# Version History
+# -----------------------------------------------------------------------------
+
+type VersionHistory {
+  """All versions of this node"""
+  versions: [Version!]!
+
+  """Current base version"""
+  baseVersion: Version
+
+  """UUID of the versionable node"""
+  versionableUuid: String!
+}
+
+type Version {
+  """Version name (e.g., "1.0", "1.1")"""
+  name: String!
+
+  """When this version was created"""
+  created: DateTime!
+
+  """Predecessor version names"""
+  predecessors: [String!]!
+
+  """Successor version names"""
+  successors: [String!]!
+
+  """Path to the frozen node snapshot"""
+  frozenNodePath: String!
+}
+
+# -----------------------------------------------------------------------------
+# Access Control
+# -----------------------------------------------------------------------------
+
+type AccessControl {
+  entries: [AccessControlEntry!]!
+}
+
+type Principal {
+  """Principal identifier (user or group name)"""
+  id: ID!
+
+  """Display name"""
+  displayName: String
+
+  """Whether this principal is a group"""
+  isGroup: Boolean!
+}
+
+type AccessControlEntry {
+  """Principal (user or group)"""
+  principal: Principal!
+
+  """Granted privileges (e.g., jcr:read, jcr:write)"""
+  privileges: [String!]!
+
+  """Whether access is allowed (MintJams extended ACL)"""
+  allow: Boolean!
+}
+
+input AccessControlEntryInput {
+  principal: String!
+  privileges: [String!]!
+  allow: Boolean = true
+}
+
+input DeleteNodeInput {
+  path: String!
+}
+
+input RenameNodeInput {
+  path: String!
+  name: String!
+}
+
+input UnlockNodeInput {
+  path: String!
+}
+
+input CheckinInput {
+  path: String!
+}
+
+input CheckoutInput {
+  path: String!
+}
+
+input RestoreVersionInput {
+  path: String!
+  versionName: String!
+}
+
+input CreateFolderInput {
+  path: String!
+  name: String!
+  nodeType: String = "nt:folder"
+}
+
+input CreateFileInput {
+  path: String!
+  name: String!
+  mimeType: String!
+  content: Base64!
+  nodeType: String = "nt:file"
+}
+
+input InitiateMultipartUploadInput {
+  "Reserved for future use"
+  _placeholder: String
+}
+
+input AppendMultipartUploadChunkInput {
+  uploadId: String!
+  data: Base64!
+}
+
+input CompleteMultipartUploadInput {
+  uploadId: String!
+  path: String!
+  name: String!
+  mimeType: String!
+  overwrite: Boolean = false
+}
+
+input AbortMultipartUploadInput {
+  uploadId: String!
+}
+
+# -----------------------------------------------------------------------------
+# Mutation Results
+# -----------------------------------------------------------------------------
+
+type SetPropertiesResult {
+  node: Node
+  errors: [PropertyError!]!
+}
+
+type PropertyError {
+  propertyName: String!
+  message: String!
+}
+
+"""Multipart upload session info"""
+type MultipartUploadInfo {
+  """Upload session ID"""
+  uploadId: String!
+  """Total bytes uploaded so far"""
+  totalSize: Long!
+}
+
+# =============================================================================
+# BUSINESS PROCESS MANAGEMENT (Camunda BPM)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Process Definition
+# -----------------------------------------------------------------------------
+
+"""BPMN Process Definition"""
+type ProcessDefinition {
+  id: ID!
+
+  """Process definition key (from BPMN)"""
+  key: String!
+
+  """Human-readable name"""
+  name: String
+
+  """Process description"""
+  description: String
+
+  """Version number (incremented on re-deployment)"""
+  version: Int!
+
+  """Deployment this definition belongs to"""
+  deploymentId: String!
+
+  """BPMN resource file name"""
+  resourceName: String
+
+  """Diagram resource file name (if available)"""
+  diagramResourceName: String
+
+  """Whether the definition is suspended"""
+  suspended: Boolean!
+
+  """Tenant identifier for multi-tenancy"""
+  tenantId: String
+
+  """Category for organizing definitions"""
+  category: String
+
+  """Form key for the start event (if defined)"""
+  startFormKey: String
+
+  # Relations
+  """Active/historical process instances"""
+  instances(
+    first: Int = 20
+    after: String
+    active: Boolean
+  ): ProcessInstanceConnection!
+}
+
+type ProcessDefinitionConnection {
+  edges: [ProcessDefinitionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProcessDefinitionEdge {
+  node: ProcessDefinition!
+  cursor: String!
+}
+
+# -----------------------------------------------------------------------------
+# Process Instance
+# -----------------------------------------------------------------------------
+
+"""Running or completed process instance"""
+type ProcessInstance {
+  id: ID!
+
+  """Process definition ID"""
+  definitionId: String!
+
+  """Process definition key"""
+  definitionKey: String!
+
+  """Business key for correlation"""
+  businessKey: String
+
+  """Related case instance ID (CMMN)"""
+  caseInstanceId: String
+
+  """Whether the instance is suspended"""
+  suspended: Boolean!
+
+  """Whether the instance has ended"""
+  ended: Boolean!
+
+  """Tenant identifier"""
+  tenantId: String
+
+  # Time information
+  """When the process was started"""
+  startTime: DateTime!
+
+  """When the process ended (if ended)"""
+  endTime: DateTime
+
+  """Total duration in milliseconds"""
+  durationInMillis: Long
+
+  # Relations
+  """Process definition"""
+  definition: ProcessDefinition!
+
+  """Process variables"""
+  variables: [ProcessVariable!]!
+
+  """Active and completed tasks"""
+  tasks(first: Int = 20, after: String): TaskConnection!
+
+  """Activity instance history"""
+  activityInstances: [ActivityInstance!]!
+
+  """Number of active incidents"""
+  incidentCount: Int!
+}
+
+type ProcessInstanceConnection {
+  edges: [ProcessInstanceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProcessInstanceEdge {
+  node: ProcessInstance!
+  cursor: String!
+}
+
+# -----------------------------------------------------------------------------
+# Incident
+# -----------------------------------------------------------------------------
+
+"""
+An incident raised by the BPM engine — typically a failed job, failed
+external task, or a custom incident created by application code.
+"""
+type Incident {
+  id: ID!
+
+  """Camunda incident type: "failedJob", "failedExternalTask", or a custom code"""
+  type: String!
+
+  """Human-readable error message"""
+  message: String
+
+  """When the incident was raised"""
+  incidentTimestamp: DateTime!
+
+  """Activity ID where the incident occurred (BPMN element ID)"""
+  activityId: String
+
+  """Activity display name resolved from the BPMN model (best effort)"""
+  activityName: String
+
+  """Execution ID where the incident occurred"""
+  executionId: String
+
+  """Owning process instance"""
+  processInstanceId: ID!
+
+  """Process definition that produced the incident"""
+  processDefinitionId: String!
+
+  """Process definition key for grouping"""
+  processDefinitionKey: String
+
+  """
+  Underlying Job ID for failedJob incidents (== incident.configuration).
+  Null for non-job incidents.
+  """
+  jobId: String
+
+  """Remaining retries on the underlying Job (0 for non-job incidents)"""
+  jobRetries: Int!
+
+  """Direct cause incident ID, if this is a chained incident"""
+  causeIncidentId: String
+
+  """Root cause incident ID for chained incidents"""
+  rootCauseIncidentId: String
+
+  """Raw configuration value (engine-defined; for failedJob this is the Job ID)"""
+  configuration: String
+
+  """Operator-set annotation describing intent or follow-up"""
+  annotation: String
+
+  """
+  Full exception stack trace from the underlying Job.
+  Only populated when explicitly requested (large payload).
+  """
+  stackTrace: String
+
+  """Tenant identifier"""
+  tenantId: String
+}
+
+type IncidentConnection {
+  edges: [IncidentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type IncidentEdge {
+  node: Incident!
+  cursor: String!
+}
+
+# -----------------------------------------------------------------------------
+# Task
+# -----------------------------------------------------------------------------
+
+"""User task requiring human interaction"""
+type Task {
+  id: ID!
+
+  """Task name from BPMN"""
+  name: String!
+
+  """Task description"""
+  description: String
+
+  """Assigned user ID"""
+  assignee: String
+
+  """Task owner (delegator)"""
+  owner: String
+
+  """When the task was created"""
+  created: DateTime!
+
+  """Due date"""
+  due: DateTime
+
+  """Follow-up date"""
+  followUp: DateTime
+
+  """Priority (higher = more important)"""
+  priority: Int!
+
+  """Whether the task is suspended"""
+  suspended: Boolean!
+
+  # Process context
+  processInstanceId: String!
+  processDefinitionId: String!
+  processDefinitionKey: String!
+  executionId: String!
+  taskDefinitionKey: String!
+
+  # Form (using formKey-only approach)
+  """Form key referencing external form in CMS"""
+  formKey: String
+
+  # Relations
+  """Parent process instance"""
+  processInstance: ProcessInstance!
+
+  """Process-scoped variables accessible to this task"""
+  variables: [ProcessVariable!]!
+
+  """Task-local variables"""
+  localVariables: [ProcessVariable!]!
+
+  """Users who can claim this task"""
+  candidateUsers: [String!]!
+
+  """Groups whose members can claim this task"""
+  candidateGroups: [String!]!
+
+  """Task comments"""
+  comments: [TaskComment!]!
+}
+
+type TaskConnection {
+  edges: [TaskEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TaskEdge {
+  node: Task!
+  cursor: String!
+}
+
+"""Task sort field options"""
+enum TaskSortField {
+  ID
+  NAME
+  ASSIGNEE
+  CREATED
+  DUE
+  FOLLOW_UP
+  PRIORITY
+  PROCESS_INSTANCE_ID
+}
+
+"""Task statistics summary"""
+type TaskCounts {
+  """Total tasks matching criteria"""
+  total: Int!
+
+  """Tasks without assignee"""
+  unassigned: Int!
+
+  """Tasks with assignee"""
+  assigned: Int!
+
+  """Tasks past due date"""
+  overdue: Int!
+
+  """Tasks due today"""
+  dueToday: Int!
+
+  """Tasks due within this week"""
+  dueThisWeek: Int!
+}
+
+# -----------------------------------------------------------------------------
+# Process Variable
+# -----------------------------------------------------------------------------
+
+"""Process or task variable"""
+type ProcessVariable {
+  """Variable name"""
+  name: String!
+
+  """Variable type (string, long, boolean, etc.)"""
+  type: String!
+
+  """Variable value"""
+  value: JSON
+
+  """Additional type information"""
+  valueInfo: JSON
+}
+
+input ProcessVariableInput {
+  name: String!
+  type: String
+  value: JSON!
+  valueInfo: JSON
+}
+
+# -----------------------------------------------------------------------------
+# Activity Instance
+# -----------------------------------------------------------------------------
+
+"""Executed activity in a process instance"""
+type ActivityInstance {
+  id: ID!
+
+  """Activity ID from BPMN"""
+  activityId: String!
+
+  """Activity name"""
+  activityName: String
+
+  """Activity type (userTask, serviceTask, etc.)"""
+  activityType: String!
+
+  """Start time"""
+  startTime: DateTime!
+
+  """End time (if completed)"""
+  endTime: DateTime
+
+  """Duration in milliseconds"""
+  durationInMillis: Long
+
+  """Whether the activity was canceled"""
+  canceled: Boolean!
+
+  """Whether scope was completed"""
+  completeScope: Boolean!
+}
+
+# -----------------------------------------------------------------------------
+# Task Comment
+# -----------------------------------------------------------------------------
+
+type TaskComment {
+  id: ID!
+  taskId: String!
+  userId: String!
+  time: DateTime!
+  message: String!
+}
+
+# -----------------------------------------------------------------------------
+# Deployment
+# -----------------------------------------------------------------------------
+
+type Deployment {
+  id: ID!
+  name: String
+  deploymentTime: DateTime!
+  source: String
+  tenantId: String
+}
+
+input DeploymentResourceInput {
+  """Resource file name"""
+  name: String!
+
+  """Resource content (BPMN XML or other)"""
+  content: String!
+}
+
+# -----------------------------------------------------------------------------
+# BPM Mutation Inputs
+# -----------------------------------------------------------------------------
+
+input StartProcessInput {
+  """Process definition key (preferred)"""
+  definitionKey: String
+
+  """Process definition ID (specific version)"""
+  definitionId: String
+
+  """Business key for correlation"""
+  businessKey: String
+
+  """Initial process variables"""
+  variables: [ProcessVariableInput!]
+}
+
+input CompleteTaskInput {
+  """Task ID to complete"""
+  taskId: ID!
+
+  """Variables to set on completion"""
+  variables: [ProcessVariableInput!]
+
+  """Whether to return updated variables"""
+  withVariablesInReturn: Boolean = false
+}
+
+input SetJobRetriesInput {
+  """Incident ID to retry. The backend resolves the underlying Job from the incident's configuration."""
+  incidentId: ID!
+
+  """New retry count. Must be >= 1; the Job Executor will pick the job back up."""
+  retries: Int!
+
+  """When true, also clears the incident annotation alongside the retry."""
+  clearAnnotation: Boolean = false
+}
+
+input SetIncidentAnnotationInput {
+  id: ID!
+  annotation: String
+}
+
+input DeployProcessInput {
+  """Deployment name"""
+  name: String!
+
+  """Deployment source identifier"""
+  source: String
+
+  """Resources to deploy"""
+  resources: [DeploymentResourceInput!]!
+
+  """Filter duplicate deployments"""
+  enableDuplicateFiltering: Boolean = false
+
+  """Only deploy if changed"""
+  deployChangedOnly: Boolean = false
+}
+
+# -----------------------------------------------------------------------------
+# Process Instance Migration
+# -----------------------------------------------------------------------------
+
+"""
+One activity-to-activity mapping inside a migration plan.
+
+Multi-instance activities can produce multiple source/target IDs per
+instruction; for the simple "map equal activities" case both arrays
+contain a single ID and they will be identical.
+"""
+type MigrationInstruction {
+  """Activity IDs in the source process definition."""
+  sourceActivityIds: [String!]!
+
+  """Activity IDs in the target process definition."""
+  targetActivityIds: [String!]!
+
+  """Whether the engine should refresh the event subscription/timer on migration."""
+  updateEventTrigger: Boolean!
+}
+
+"""
+A built (but not-yet-executed) migration plan. Returned by createMigrationPlan
+as a preview. The plan is not persisted on the engine until migrateProcessInstance
+is called.
+"""
+type MigrationPlan {
+  sourceProcessDefinitionId: ID!
+  targetProcessDefinitionId: ID!
+  instructions: [MigrationInstruction!]!
+}
+
+"""
+A handle to a queued background job that drives a long-running BPM operation
+(currently only process-instance migration).  The mutation that issues the
+job returns this descriptor immediately; live progress arrives via the
+generic `jobProgress(jobId: <id>)` subscription, and the JCR record lives at
+`/var/jobs/YYYY/MM/job-<id>` like every other JobManager job.
+"""
+type MigrationJob {
+  """
+  CMS-generated job id.  Use this as the argument to
+  `jobProgress(jobId: ...)` — it is NOT the Camunda batch id (the batch is
+  only created once the worker starts and is recorded on the job node for
+  traceability).
+  """
+  id: ID!
+
+  """JobManager job type — `migrate-instances` for this mutation."""
+  jobType: String!
+
+  """Initial job status — typically `queued` immediately after submission."""
+  status: String!
+
+  """
+  True when this job can be cancelled via an abort mutation.  For Camunda 7
+  migrations this is always false: the underlying batch cannot be safely
+  cancelled mid-flight, so the client must hide its Abort button.
+  """
+  abortable: Boolean!
+}
+
+input CreateMigrationPlanInput {
+  """Source process definition ID (the definition currently used by the instances)."""
+  sourceProcessDefinitionId: ID!
+
+  """Target process definition ID (the definition to migrate to)."""
+  targetProcessDefinitionId: ID!
+
+  """
+  Apply mapEqualActivities() so the engine auto-pairs activities by ID.
+  Defaults to true; the only automated strategy supported by this API today.
+  """
+  mapEqualActivities: Boolean = true
+
+  """
+  Apply updateEventTriggers() so event subscriptions/timers are refreshed
+  to point at the target definition's element configuration.
+  """
+  updateEventTriggers: Boolean = false
+}
+
+input MigrateProcessInstanceInput {
+  sourceProcessDefinitionId: ID!
+  targetProcessDefinitionId: ID!
+
+  """
+  Explicit list of process-instance IDs to migrate. Either this or
+  allActiveInstances must be supplied.
+  """
+  processInstanceIds: [ID!]
+
+  """
+  When true, migrate all currently-active instances of the source definition
+  (uses runtimeService.createProcessInstanceQuery().processDefinitionId(src).active()).
+  """
+  allActiveInstances: Boolean = false
+
+  mapEqualActivities: Boolean = true
+  updateEventTriggers: Boolean = false
+
+  """Skip custom execution listeners during migration."""
+  skipCustomListeners: Boolean = false
+
+  """Skip BPMN I/O mappings during migration."""
+  skipIoMappings: Boolean = false
+}
+
+# =============================================================================
+# ENTERPRISE INTEGRATION PATTERNS (Apache Camel)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Camel Context
+# -----------------------------------------------------------------------------
+
+"""Apache Camel context"""
+type CamelContext {
+  """Context name"""
+  name: String!
+
+  """Camel version"""
+  version: String!
+
+  """Current state"""
+  state: CamelContextState!
+
+  """Uptime as human-readable string"""
+  uptime: String!
+
+  """Uptime in milliseconds"""
+  uptimeMillis: Long!
+
+  # Statistics
+  """Total exchanges processed"""
+  exchangesTotal: Long!
+
+  """Successfully completed exchanges"""
+  exchangesCompleted: Long!
+
+  """Failed exchanges"""
+  exchangesFailed: Long!
+
+  """Currently processing exchanges"""
+  exchangesInflight: Int!
+
+  # Performance metrics
+  """Mean processing time (ms)"""
+  meanProcessingTime: Long
+
+  """Maximum processing time (ms)"""
+  maxProcessingTime: Long
+
+  """Minimum processing time (ms)"""
+  minProcessingTime: Long
+
+  """Total processing time (ms)"""
+  totalProcessingTime: Long
+
+  # Configuration
+  """Whether tracing is enabled"""
+  tracing: Boolean!
+
+  """Whether message history is enabled"""
+  messageHistory: Boolean!
+
+  """Whether sensitive data is masked in logs"""
+  logMask: Boolean!
+
+  # Relations
+  routes: [Route!]!
+  components: [Component!]!
+}
+
+enum CamelContextState {
+  STARTED
+  STOPPED
+  SUSPENDED
+  STARTING
+  STOPPING
+  SUSPENDING
+}
+
+# -----------------------------------------------------------------------------
+# Route
+# -----------------------------------------------------------------------------
+
+"""Camel route"""
+type Route {
+  id: ID!
+
+  """Route ID from definition"""
+  routeId: String!
+
+  """Route description"""
+  description: String
+
+  """Route group for organization"""
+  group: String
+
+  """Current state"""
+  status: RouteState!
+
+  """Uptime as human-readable string"""
+  uptime: String
+
+  """Uptime in milliseconds"""
+  uptimeMillis: Long
+
+  # Statistics
+  exchangesTotal: Long!
+  exchangesCompleted: Long!
+  exchangesFailed: Long!
+  exchangesInflight: Int!
+
+  # Performance
+  meanProcessingTime: Long
+  maxProcessingTime: Long
+  minProcessingTime: Long
+  lastProcessingTime: Long
+  totalProcessingTime: Long
+
+  # Error information
+  """Last error that occurred"""
+  lastError: RouteError
+
+  """First successful exchange time"""
+  firstExchangeCompletedTime: DateTime
+
+  """Last successful exchange time"""
+  lastExchangeCompletedTime: DateTime
+
+  """First failed exchange time"""
+  firstExchangeFailureTime: DateTime
+
+  """Last failed exchange time"""
+  lastExchangeFailureTime: DateTime
+
+  # Definition
+  """Route definition in YAML"""
+  definition: RouteDefinition!
+
+  # Endpoints
+  """All endpoints used by this route"""
+  endpoints: [Endpoint!]!
+
+  """Consumer endpoints (from)"""
+  consumers: [Endpoint!]!
+
+  """Producer endpoints (to)"""
+  producers: [Endpoint!]!
+}
+
+enum RouteState {
+  STARTED
+  STOPPED
+  SUSPENDED
+  STARTING
+  STOPPING
+  SUSPENDING
+}
+
+type RouteError {
+  """Exchange ID that caused the error"""
+  exchangeId: String
+
+  """When the error occurred"""
+  timestamp: DateTime!
+
+  """Error message"""
+  message: String!
+
+  """Stack trace (development only)"""
+  stackTrace: String
+
+  """Endpoint where error occurred"""
+  endpoint: String
+}
+
+type RouteConnection {
+  edges: [RouteEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type RouteEdge {
+  node: Route!
+  cursor: String!
+}
+
+# -----------------------------------------------------------------------------
+# Route Definition
+# -----------------------------------------------------------------------------
+
+"""Route definition structure"""
+"""
+A route's structured model, dumped from the live engine. Both Camel DSL
+interchange formats are provided so consumers can pick whichever they need; the
+running CamelContext is the single source of truth, so these always reflect what
+is actually deployed (not any on-disk source that may have drifted).
+"""
+type RouteDefinition {
+  """Route ID"""
+  id: String!
+
+  """
+  Camel XML DSL representation. Rendered by the shared read-only route canvas
+  (and the EIP modeler) into a faithful, auto-laid-out diagram. Null if the
+  engine could not produce an XML dump.
+  """
+  xml: String
+
+  """Camel YAML DSL representation. Null if the engine could not produce a YAML dump."""
+  yaml: String
+}
+
+# -----------------------------------------------------------------------------
+# Endpoint
+# -----------------------------------------------------------------------------
+
+type Endpoint {
+  """Endpoint URI"""
+  uri: String!
+
+  """Component name"""
+  component: String!
+
+  """Current state"""
+  state: EndpointState!
+
+  """Whether this is a remote endpoint"""
+  remote: Boolean!
+
+  """Whether this is a singleton endpoint"""
+  singleton: Boolean!
+
+  # Statistics (for active endpoints)
+  exchangesTotal: Long
+  exchangesCompleted: Long
+  exchangesFailed: Long
+}
+
+enum EndpointState {
+  STARTED
+  STOPPED
+  SUSPENDED
+}
+
+# -----------------------------------------------------------------------------
+# Component
+# -----------------------------------------------------------------------------
+
+"""Camel component"""
+type Component {
+  """Component name"""
+  name: String!
+
+  """Component state"""
+  state: String!
+
+  """Implementation class"""
+  class: String!
+
+  """Supported URI schemes"""
+  supportedSchemes: [String!]!
+}
+
+# -----------------------------------------------------------------------------
+# Route Template
+# -----------------------------------------------------------------------------
+
+"""Reusable route template"""
+type RouteTemplate {
+  id: ID!
+
+  """Template description"""
+  description: String
+
+  """Template parameters"""
+  parameters: [TemplateParameter!]!
+
+  """Route definition with placeholders"""
+  definition: RouteDefinition!
+}
+
+type TemplateParameter {
+  """Parameter name"""
+  name: String!
+
+  """Parameter description"""
+  description: String
+
+  """Whether the parameter is required"""
+  required: Boolean!
+
+  """Default value"""
+  defaultValue: String
+}
+
+# -----------------------------------------------------------------------------
+# Validation
+# -----------------------------------------------------------------------------
+
+type ValidationResult {
+  """Whether the definition is valid"""
+  valid: Boolean!
+
+  """Validation errors"""
+  errors: [ValidationError!]!
+
+  """Validation warnings"""
+  warnings: [ValidationWarning!]!
+}
+
+type ValidationError {
+  """Line number in source"""
+  line: Int
+
+  """Column number in source"""
+  column: Int
+
+  """Error message"""
+  message: String!
+
+  """Element that caused the error"""
+  element: String
+}
+
+type ValidationWarning {
+  line: Int
+  column: Int
+  message: String!
+  element: String
+}
+
+# -----------------------------------------------------------------------------
+# Exchange Result (for debugging)
+# -----------------------------------------------------------------------------
+
+type ExchangeResult {
+  """Generated exchange ID"""
+  exchangeId: String!
+
+  """Whether processing succeeded"""
+  success: Boolean!
+
+  """Response body"""
+  body: String
+
+  """Response headers"""
+  headers: JSON
+
+  """Exception message if failed"""
+  exception: String
+
+  """Processing time in milliseconds"""
+  processingTime: Long!
+}
+
+# -----------------------------------------------------------------------------
+# EIP Mutation Inputs
+# -----------------------------------------------------------------------------
+
+input CreateRouteInput {
+  """Unique route ID"""
+  routeId: String!
+
+  """Route description"""
+  description: String
+
+  """Route group"""
+  group: String
+
+  """Route definition in YAML"""
+  yaml: String!
+
+  """Whether to start immediately after creation"""
+  autoStart: Boolean = false
+}
+
+input UpdateRouteInput {
+  """Route ID to update"""
+  id: ID!
+
+  """New description"""
+  description: String
+
+  """New group"""
+  group: String
+
+  """New route definition in YAML"""
+  yaml: String
+}
+
+input SendToEndpointInput {
+  """Target endpoint URI"""
+  endpointUri: String!
+
+  """Message body"""
+  body: String
+
+  """Message headers"""
+  headers: JSON
+
+  """Exchange properties"""
+  properties: JSON
+}
+
+# ---- Route lifecycle (Input Object Pattern) --------------------------------
+
+input StartRouteInput {
+  """Route ID"""
+  id: ID!
+}
+
+input StopRouteInput {
+  """Route ID"""
+  id: ID!
+
+  """Stop timeout in seconds"""
+  timeout: Int
+}
+
+input SuspendRouteInput {
+  """Route ID"""
+  id: ID!
+
+  """Suspend timeout in seconds"""
+  timeout: Int
+}
+
+input ResumeRouteInput {
+  """Route ID"""
+  id: ID!
+}
+
+# =============================================================================
+# EIP CONSOLE — time-series stats & exchange history
+#
+# All list-style queries follow the Relay Cursor Connections pattern.
+# =============================================================================
+
+"""
+One time-series datapoint produced by routeStats. Counts are banded by
+exchange elapsed time so that the chart can stack/colourise the bars:
+
+* under1s — elapsed < 1000ms
+* under5s — 1000ms ≤ elapsed < 5000ms
+* over5s  — elapsed ≥ 5000ms
+"""
+type StatPoint {
+  """ISO-8601 bucket start instant"""
+  bucket: String!
+
+  """Exchanges that completed in under one second"""
+  under1s: Int!
+
+  """Exchanges between 1s and 5s"""
+  under5s: Int!
+
+  """Exchanges that took 5s or more"""
+  over5s: Int!
+}
+
+"""Three-band time-series produced by the EIP Console graph panel."""
+type RouteStats {
+  """ISO-8601 from instant"""
+  from: String!
+
+  """ISO-8601 to instant"""
+  to: String!
+
+  """Bucket interval actually used (auto-resolved if requested): 5min | 1h | 1d"""
+  interval: String!
+
+  """Datapoints ordered oldest-to-newest"""
+  points: [StatPoint!]!
+}
+
+"""Summary projection of an exchange used in list views."""
+type HistoryExchangeSummary {
+  exchangeId: String!
+  routeId: String
+  status: String
+  elapsed: Int
+  createdAt: String
+  businessKey: String
+  headers: JSON
+}
+
+type HistoryExchangeEdge {
+  node: HistoryExchangeSummary!
+  cursor: String!
+}
+
+type HistoryExchangeConnection {
+  edges: [HistoryExchangeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""One step of an exchange's recorded execution path."""
+type HistoryStep {
+  """DSL-assigned node id (preferred for labels)"""
+  id: String
+  """Endpoint URI (only meaningful for to/toD/from steps)"""
+  endpointUri: String
+  """Elapsed time in this step (millis)"""
+  timeTaken: Int
+  """Offset from exchange creation when the step finished (millis)"""
+  offsetFromStart: Int
+  """0-based sequence number"""
+  order: Int
+}
+
+"""Full detail of a single exchange (Inspector view)."""
+type HistoryExchange {
+  exchangeId: String!
+  routeId: String
+  status: String
+  elapsed: Int
+  createdAt: String
+  completedAt: String
+  exceptionType: String
+  exceptionMessage: String
+  businessKey: String
+  bodyType: String
+  bodySize: Int
+  headers: JSON
+  steps: [HistoryStep!]!
+}
+
+# =============================================================================
+# SUBSCRIPTIONS (SSE-based)
+# =============================================================================
+
+type Subscription {
+  # -------------------------------------------------------------------------
+  # Content Events
+  # -------------------------------------------------------------------------
+
+  """
+  Subscribe to node changes at a specific path.
+  Events are emitted when nodes are created, modified, deleted, etc.
+  """
+  nodeChanged(
+    """Path to watch"""
+    path: String!
+
+    """Whether to watch descendant nodes"""
+    deep: Boolean = false
+  ): NodeChangeEvent!
+
+  """
+  Subscribe to query result changes.
+  Events are emitted when the result set of a query changes.
+  """
+  queryChanged(
+    """JCR query statement"""
+    statement: String!
+
+    """Query language (JCR-SQL2, XPath, SQL)"""
+    language: String = "JCR-SQL2"
+  ): QueryChangeEvent!
+
+  # -------------------------------------------------------------------------
+  # BPM Events
+  # -------------------------------------------------------------------------
+
+  """Subscribe to task assignment events"""
+  taskAssigned(
+    """Filter by assignee (null for all)"""
+    assignee: String
+  ): TaskEvent!
+
+  """Subscribe to task completion events"""
+  taskCompleted(
+    """Filter by process instance ID (null for all)"""
+    processInstanceId: String
+  ): TaskEvent!
+
+  """Subscribe to process start events"""
+  processStarted(
+    """Filter by definition key (null for all)"""
+    definitionKey: String
+  ): ProcessEvent!
+
+  """Subscribe to process end events"""
+  processEnded(
+    """Filter by definition key (null for all)"""
+    definitionKey: String
+  ): ProcessEvent!
+
+  # -------------------------------------------------------------------------
+  # EIP Events
+  # -------------------------------------------------------------------------
+
+  """Subscribe to route state changes"""
+  routeStateChanged(
+    """Filter by route ID (null for all)"""
+    routeId: String
+  ): RouteStateEvent!
+
+  # -------------------------------------------------------------------------
+  # System Events
+  # -------------------------------------------------------------------------
+
+  """Subscribe to system notifications"""
+  systemNotification: SystemNotification!
+}
+
+# -----------------------------------------------------------------------------
+# Subscription Event Types
+# -----------------------------------------------------------------------------
+
+type NodeChangeEvent {
+  """Type of change"""
+  eventType: NodeEventType!
+
+  """Path of the affected node"""
+  path: String!
+
+  """The node after the change (null for DELETE)"""
+  node: Node
+
+  """When the event occurred"""
+  timestamp: DateTime!
+
+  """User who made the change"""
+  userId: String!
+}
+
+enum NodeEventType {
+  CREATED
+  MODIFIED
+  DELETED
+  MOVED
+  LOCKED
+  UNLOCKED
+  CHECKED_IN
+  CHECKED_OUT
+}
+
+type QueryChangeEvent {
+  """The query that was monitored"""
+  statement: String!
+
+  """Nodes added to the result set"""
+  addedNodes: [Node!]!
+
+  """Nodes removed from the result set"""
+  removedNodes: [Node!]!
+
+  """Nodes modified in the result set"""
+  modifiedNodes: [Node!]!
+
+  """When the event occurred"""
+  timestamp: DateTime!
+}
+
+type TaskEvent {
+  """Type of task event"""
+  eventType: TaskEventType!
+
+  """The affected task"""
+  task: Task
+
+  """When the event occurred"""
+  timestamp: DateTime!
+}
+
+enum TaskEventType {
+  CREATED
+  ASSIGNED
+  COMPLETED
+  DELETED
+}
+
+type ProcessEvent {
+  """Type of process event"""
+  eventType: ProcessEventType!
+
+  """The affected process instance"""
+  processInstance: ProcessInstance
+
+  """When the event occurred"""
+  timestamp: DateTime!
+}
+
+enum ProcessEventType {
+  STARTED
+  SUSPENDED
+  ACTIVATED
+  ENDED
+  CANCELLED
+}
+
+type RouteStateEvent {
+  """Route ID"""
+  routeId: String!
+
+  """Previous state (null if new)"""
+  previousState: RouteState
+
+  """Current state"""
+  currentState: RouteState!
+
+  """When the state changed"""
+  timestamp: DateTime!
+
+  """Error message if state change was due to error"""
+  error: String
+}
+
+type SystemNotification {
+  """Notification ID"""
+  id: ID!
+
+  """Notification type"""
+  type: NotificationType!
+
+  """Notification title"""
+  title: String!
+
+  """Notification message"""
+  message: String!
+
+  """Severity level"""
+  severity: Severity!
+
+  """When the notification was created"""
+  timestamp: DateTime!
+
+  """Additional data"""
+  data: JSON
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  ERROR
+  TASK
+  PROCESS
+  CONTENT
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+# =============================================================================
+# ROOT TYPES
+# =============================================================================
+
+type Query {
+  # -------------------------------------------------------------------------
+  # Content Management
+  # -------------------------------------------------------------------------
+
+  """Get a single node by path"""
+  node(path: String!): Node
+
+  """List children of a node"""
+  children(
+    path: String!
+    first: Int = 20
+    after: String
+  ): NodeConnection!
+
+  """Get nodes that reference a given node"""
+  references(
+    path: String!
+    first: Int = 20
+    after: String
+  ): NodeConnection!
+
+  """Get access control list for a node"""
+  accessControl(path: String!): AccessControl!
+
+  """Get version history for a node"""
+  versionHistory(path: String!): VersionHistory
+
+  """Execute an XPath query"""
+  xpath(
+    query: String!
+    first: Int = 20
+    after: String
+  ): NodeConnection!
+
+  """Full-text search (nt:file nodes only)"""
+  search(
+    text: String!
+    path: String = "/"
+    first: Int = 20
+    after: String
+  ): NodeConnection!
+
+  """Execute a JCR query (JCR-SQL2, XPath, or SQL)"""
+  query(
+    statement: String!
+    language: String = "JCR-SQL2"
+    first: Int = 20
+    after: String
+  ): NodeConnection!
+
+  # -------------------------------------------------------------------------
+  # Webtop Applications
+  # -------------------------------------------------------------------------
+
+  """
+  List Webtop applications under an apps root directory. Each app's metadata
+  is resolved server-side from its app.yml descriptor, so the whole catalog
+  loads in a single (paginated) request.
+  """
+  apps(
+    path: String!
+    first: Int = 100
+    after: String
+  ): AppConnection!
+
+  # -------------------------------------------------------------------------
+  # Business Process Management
+  # -------------------------------------------------------------------------
+
+  """Get a process definition by ID or key"""
+  processDefinition(
+    id: ID
+    key: String
+    version: Int
+  ): ProcessDefinition
+
+  """List process definitions"""
+  processDefinitions(
+    first: Int = 20
+    after: String
+    key: String
+    name: String
+    latestVersion: Boolean
+    suspended: Boolean
+  ): ProcessDefinitionConnection!
+
+  """Get a process instance by ID"""
+  processInstance(id: ID!): ProcessInstance
+
+  """List process instances"""
+  processInstances(
+    first: Int = 20
+    after: String
+    definitionKey: String
+    definitionId: String
+    businessKey: String
+    active: Boolean
+    suspended: Boolean
+    withIncidents: Boolean
+    startedBefore: DateTime
+    startedAfter: DateTime
+  ): ProcessInstanceConnection!
+
+  """Get a task by ID"""
+  task(id: ID!): Task
+
+  """List tasks"""
+  tasks(
+    first: Int = 20
+    after: String
+    assignee: String
+    assigneeIn: [String!]
+    candidateUser: String
+    candidateGroup: String
+    candidateGroups: [String!]
+    unassigned: Boolean
+    processInstanceId: String
+    processDefinitionKey: String
+    taskDefinitionKey: String
+    dueBefore: DateTime
+    dueAfter: DateTime
+    createdBefore: DateTime
+    createdAfter: DateTime
+    priority: Int
+    priorityHigherThanOrEquals: Int
+    priorityLowerThanOrEquals: Int
+    sortBy: TaskSortField
+    sortOrder: SortOrder
+  ): TaskConnection!
+
+  """Get task count statistics"""
+  taskCounts(
+    assignee: String
+    candidateUser: String
+    candidateGroups: [String!]
+  ): TaskCounts!
+
+  """Get a single incident by ID. Pass includeStackTrace=true to fetch the (potentially large) stack trace."""
+  incident(id: ID!, includeStackTrace: Boolean = true): Incident
+
+  """List incidents. Stack trace is omitted by default for list responses."""
+  incidents(
+    first: Int = 50
+    after: String
+    processInstanceId: ID
+    processDefinitionId: String
+    processDefinitionKey: String
+    incidentType: String
+    activityId: String
+    includeStackTrace: Boolean = false
+  ): IncidentConnection!
+
+  # -------------------------------------------------------------------------
+  # Enterprise Integration Patterns
+  # -------------------------------------------------------------------------
+
+  """Get the Camel context"""
+  camelContext: CamelContext!
+
+  """Get all Camel contexts (multi-context setup)"""
+  camelContexts: [CamelContext!]!
+
+  """Get a route by ID"""
+  route(id: ID!): Route
+
+  """List routes"""
+  routes(
+    first: Int = 20
+    after: String
+    status: RouteState
+    group: String
+    search: String
+  ): RouteConnection!
+
+  """Get a component by name"""
+  component(name: String!): Component
+
+  """List all components"""
+  components: [Component!]!
+
+  """List route templates"""
+  routeTemplates: [RouteTemplate!]!
+
+  """Get a route template by ID"""
+  routeTemplate(id: ID!): RouteTemplate
+
+  """List endpoints"""
+  endpoints(component: String): [Endpoint!]!
+
+  """Validate a route definition"""
+  validateRouteDefinition(yaml: String!): ValidationResult!
+
+  # -------------------------------------------------------------------------
+  # EIP Console — time-series stats & exchange history
+  # -------------------------------------------------------------------------
+
+  """
+  Three-band exchange-count time series for the EIP Console graph panel.
+  Counts are accumulated via a JCR XPath `facet accumulate` query with
+  `limit=0` (the content search is skipped) over the records under
+  /var/eip/history.
+  """
+  routeStats(
+    """Route IDs to include — empty / null means all routes"""
+    routes: [String!]
+
+    """ISO-8601 from instant (inclusive)"""
+    from: String!
+
+    """ISO-8601 to instant (exclusive)"""
+    to: String!
+
+    """Status filter: completed | failed | all (default all)"""
+    status: String
+
+    """Bucket interval: 5min | 1h | 1d (default auto-resolved from range)"""
+    interval: String
+  ): RouteStats!
+
+  """
+  Lucene-backed list query over /var/eip/history. Returns a Relay-style
+  cursor connection. Designed for at-most ~1000 rows fetched in pages of
+  up to 500 by the EIP Console.
+  """
+  historyExchanges(
+    first: Int
+    after: String
+    last: Int
+    before: String
+
+    """Filter by route IDs — empty / null means all routes"""
+    routes: [String!]
+
+    """Filter by status (completed | failed | all)"""
+    status: String
+
+    """ISO-8601 lower bound (inclusive) on createdAt"""
+    from: String
+
+    """ISO-8601 upper bound (exclusive) on createdAt"""
+    to: String
+
+    """Free-text filter — matches partially against businessKey, exchangeId or routeId"""
+    filter: String
+  ): HistoryExchangeConnection!
+
+  """Full detail of a single exchange (Inspector view)."""
+  historyExchange(exchangeId: String!): HistoryExchange
+}
+
+type Mutation {
+  # -------------------------------------------------------------------------
+  # Content Management
+  # -------------------------------------------------------------------------
+
+  """Create a new folder"""
+  createFolder(
+    path: String!
+    name: String!
+    nodeType: String = "nt:folder"
+  ): Node!
+
+  """Create a new file"""
+  createFile(
+    path: String!
+    name: String!
+    mimeType: String!
+    content: Base64!
+    nodeType: String = "nt:file"
+  ): Node!
+
+  """Delete a node"""
+  deleteNode(input: DeleteNodeInput!): Boolean!
+
+  """Rename a node"""
+  renameNode(input: RenameNodeInput!): Node!
+
+  """Lock a node"""
+  lockNode(
+    path: String!
+    isDeep: Boolean = false
+    isSessionScoped: Boolean = false
+  ): Node!
+
+  """Unlock a node"""
+  unlockNode(input: UnlockNodeInput!): Boolean!
+
+  """Set multiple properties on a node"""
+  setProperties(
+    path: String!
+    properties: [PropertyInput!]!
+  ): SetPropertiesResult!
+
+  """Add a mixin type to a node"""
+  addMixin(
+    path: String!
+    mixinType: String!
+  ): Node!
+
+  """Remove a mixin type from a node"""
+  deleteMixin(
+    path: String!
+    mixinType: String!
+  ): Node!
+
+  """Set access control entries"""
+  setAccessControl(
+    path: String!
+    principal: String
+    privileges: [String!]
+    allow: Boolean = true
+    entries: [AccessControlEntryInput!]
+  ): AccessControl!
+
+  """Delete an access control entry"""
+  deleteAccessControl(
+    path: String!
+    principal: String!
+  ): Boolean!
+
+  """Check in a versionable node"""
+  checkin(input: CheckinInput!): Version!
+
+  """Check out a versionable node"""
+  checkout(input: CheckoutInput!): Boolean!
+
+  """Restore a version"""
+  restoreVersion(input: RestoreVersionInput!): Node!
+
+  # -------------------------------------------------------------------------
+  # Multipart Upload
+  # -------------------------------------------------------------------------
+
+  """
+  Initiate a multipart upload session.
+  Returns an upload ID to be used for subsequent chunk uploads.
+  """
+  initiateMultipartUpload(input: InitiateMultipartUploadInput): MultipartUploadInfo!
+
+  """
+  Append a chunk of data to an existing multipart upload.
+  Data should be Base64 encoded. Chunks are typically 1MB.
+  """
+  appendMultipartUploadChunk(input: AppendMultipartUploadChunkInput!): MultipartUploadInfo!
+
+  """
+  Complete a multipart upload and create the file in the repository.
+  If overwrite is true, existing files will be replaced.
+  """
+  completeMultipartUpload(input: CompleteMultipartUploadInput!): Node!
+
+  """
+  Abort a multipart upload and clean up temporary data.
+  Should be called when upload is cancelled or fails.
+  """
+  abortMultipartUpload(input: AbortMultipartUploadInput!): Boolean!
+
+  # -------------------------------------------------------------------------
+  # Business Process Management
+  # -------------------------------------------------------------------------
+
+  """Start a new process instance"""
+  startProcess(input: StartProcessInput!): ProcessInstance!
+
+  """Suspend a process instance"""
+  suspendProcessInstance(id: ID!): ProcessInstance!
+
+  """Activate a suspended process instance"""
+  activateProcessInstance(id: ID!): ProcessInstance!
+
+  """Cancel a process instance"""
+  cancelProcessInstance(
+    id: ID!
+    reason: String
+  ): Boolean!
+
+  """Delete a process instance"""
+  deleteProcessInstance(
+    id: ID!
+    skipCustomListeners: Boolean = false
+  ): Boolean!
+
+  """Set variables on a process instance"""
+  setProcessVariables(
+    processInstanceId: ID!
+    variables: [ProcessVariableInput!]!
+  ): ProcessInstance!
+
+  """Claim a task for the current user"""
+  claimTask(taskId: ID!): Task!
+
+  """Release a claimed task"""
+  unclaimTask(taskId: ID!): Task!
+
+  """Assign a task to a specific user"""
+  assignTask(
+    taskId: ID!
+    assignee: String!
+  ): Task!
+
+  """Set task assignee (can be null to unassign)"""
+  setTaskAssignee(
+    taskId: ID!
+    assignee: String
+  ): Task!
+
+  """Delegate a task to another user"""
+  delegateTask(
+    taskId: ID!
+    assignee: String!
+  ): Task!
+
+  """Complete a task"""
+  completeTask(input: CompleteTaskInput!): Task
+
+  """Set variables on a task"""
+  setTaskVariables(
+    taskId: ID!
+    variables: [ProcessVariableInput!]!
+    local: Boolean = false
+  ): Task!
+
+  """Add a comment to a task"""
+  addTaskComment(
+    taskId: ID!
+    message: String!
+  ): TaskComment!
+
+  """Deploy a process definition"""
+  deployProcess(input: DeployProcessInput!): Deployment!
+
+  """Delete a deployment"""
+  deleteDeployment(
+    id: ID!
+    cascade: Boolean = false
+  ): Boolean!
+
+  """
+  Restore retries on the Job that produced a failed-job incident.
+  The Job Executor will re-run the job on its next cycle and, on success,
+  the incident is auto-resolved by the engine.
+  """
+  setJobRetries(input: SetJobRetriesInput!): Incident
+
+  """
+  Resolve a custom incident. The engine only allows direct resolution
+  for incidents created via runtimeService.createIncident; failed-job
+  incidents must instead be cleared by fixing/retrying the underlying job.
+  Returns true on success.
+  """
+  resolveIncident(id: ID!): Boolean!
+
+  """Attach an operator annotation to an incident (set null/empty to clear)."""
+  setIncidentAnnotation(input: SetIncidentAnnotationInput!): Incident
+
+  """
+  Build a migration plan from a source to a target process definition
+  and return it as a preview (instructions list). The plan is in-memory
+  and is not applied until migrateProcessInstance is invoked.
+  """
+  createMigrationPlan(input: CreateMigrationPlanInput!): MigrationPlan!
+
+  """
+  Migrate process instances of the source definition to the target
+  definition. Execution is always async — the server queues a CMS
+  JobManager job that, on its worker thread, seeds a Camunda batch and
+  republishes its progress through the generic `jobProgress(jobId)`
+  subscription. The mutation returns the CMS job id (not the Camunda
+  batch id) so the client can subscribe immediately, plus an
+  `abortable` flag so it can hide the Abort button when the underlying
+  engine cannot safely cancel the work (always false for Camunda 7).
+  """
+  migrateProcessInstance(input: MigrateProcessInstanceInput!): MigrationJob!
+
+  # -------------------------------------------------------------------------
+  # Enterprise Integration Patterns
+  # -------------------------------------------------------------------------
+
+  """Start a route"""
+  startRoute(input: StartRouteInput!): Route!
+
+  """Stop a route"""
+  stopRoute(input: StopRouteInput!): Route!
+
+  """Suspend a route"""
+  suspendRoute(input: SuspendRouteInput!): Route!
+
+  """Resume a suspended route"""
+  resumeRoute(input: ResumeRouteInput!): Route!
+
+  """Create a new route"""
+  createRoute(input: CreateRouteInput!): Route!
+
+  """Update an existing route"""
+  updateRoute(input: UpdateRouteInput!): Route!
+
+  """Delete a route"""
+  deleteRoute(id: ID!): Boolean!
+
+  """Create a route from a template"""
+  createRouteFromTemplate(
+    templateId: ID!
+    routeId: String!
+    parameters: JSON
+  ): Route!
+
+  """Start all routes"""
+  startAllRoutes: [Route!]!
+
+  """Stop all routes"""
+  stopAllRoutes(timeout: Int): [Route!]!
+
+  """Start the Camel context"""
+  startCamelContext: CamelContext!
+
+  """Stop the Camel context"""
+  stopCamelContext(timeout: Int): CamelContext!
+
+  """Suspend the Camel context"""
+  suspendCamelContext(timeout: Int): CamelContext!
+
+  """Resume the Camel context"""
+  resumeCamelContext: CamelContext!
+
+  """Reset statistics for a route"""
+  resetRouteStatistics(id: ID!): Route!
+
+  """Reset all statistics"""
+  resetAllStatistics: CamelContext!
+
+  """Send a test message to an endpoint (debugging)"""
+  sendToEndpoint(input: SendToEndpointInput!): ExchangeResult!
+
+  """Enable tracing"""
+  enableTracing: CamelContext!
+
+  """Disable tracing"""
+  disableTracing: CamelContext!
+}
