@@ -7,6 +7,7 @@ Automatic-Module-Name: org.mintjams.jcr
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Export-Package: org.mintjams.jcr;version="1.0.0",
+ org.mintjams.jcr.cluster;version="1.0.0",
  org.mintjams.jcr.lock;version="1.0.0",
  org.mintjams.jcr.nodetype;version="1.0.0",
  org.mintjams.jcr.observation;version="1.0.0",

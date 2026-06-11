@@ -29,6 +29,14 @@ public interface Repository extends javax.jcr.Repository {
 
 	String REPOSITORY_PATH = "repository.path";
 
+	/**
+	 * Descriptor key for this node's temporary directory. The directory is
+	 * node-local — in a clustered deployment every node has its own, even
+	 * when the repository directory itself lives on shared storage — and
+	 * its contents do not survive a restart.
+	 */
+	String REPOSITORY_TMP_PATH = "repository.tmp.path";
+
 	String[] getAvailableWorkspaceNames();
 
 	PrincipalProvider getPrincipalProvider();
