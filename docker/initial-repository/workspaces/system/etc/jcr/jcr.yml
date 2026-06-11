@@ -9,9 +9,35 @@ defaultNodes:
         privileges: jcr:all
         effect: deny
 
+# Workspace database. When omitted, the workspace uses an embedded H2
+# database under <workspace>/var/jcr/data. For a clustered deployment,
+# point every node at the same shared database (H2 server mode or
+# PostgreSQL; for PostgreSQL install the driver bundle and set
+# driverClassName). ${...} variables are substituted.
+# See documents/clustering.md.
+#
+#datasource:
+#    jdbcURL: jdbc:postgresql://db:5432/jcr_${workspace.name}
+#    username: jcr
+#    password: secret
+#    driverClassName: org.postgresql.Driver
+
+# Binary (blob) storage. When omitted, blobs are stored as files under
+# <workspace>/var/jcr/bin. For a clustered deployment, the directory must
+# resolve to storage shared by all nodes.
+#
+#blobstore:
+#    type: fs
+#    directory: ${workspace.home}/var/jcr/bin
+
 search:
     suggestion:
         propertyKeys: mi:suggestions
+    # The full-text search index is node-local: in a clustered deployment
+    # every node maintains its own index. When the workspace directory
+    # lives on shared storage and indexPath is not set, each node
+    # automatically uses <workspace>/var/search/nodes/<nodeId>.
+    #indexPath: /var/lib/cms/search/${workspace.name}
 
 security:
     filters: [

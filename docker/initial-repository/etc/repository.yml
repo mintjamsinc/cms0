@@ -1,3 +1,17 @@
+# Cluster mode. When enabled, this repository node expects to share every
+# workspace's database and blob storage with the other nodes:
+#   - configure a shared database in each workspace's etc/jcr/jcr.yml
+#     (datasource.jdbcURL), and
+#   - place the repository directory (or at least each workspace's blob
+#     directory, jcr.yml#blobstore.directory) on shared storage.
+# nodeId must be unique per node; it may also be supplied per node via the
+# framework property org.mintjams.jcr.cluster.nodeId or the environment
+# variable CMS_CLUSTER_NODE_ID; when omitted, the host name is used.
+# See documents/clustering.md.
+cluster:
+    enabled: false
+    #nodeId: node-1
+
 security:
     serviceCredentials:
       - org.mintjams.rt.cms.internal.security.CmsServiceCredentials
