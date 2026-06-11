@@ -212,6 +212,7 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 
 		// Extended
 		fDescriptors.put(Repository.REPOSITORY_PATH, fValueFactory.createValue(fConfiguration.getRepositoryPath().toAbsolutePath().toString()));
+		fDescriptors.put(Repository.REPOSITORY_TMP_PATH, fValueFactory.createValue(fConfiguration.getTmpPath().toAbsolutePath().toString()));
 	}
 
 	private void prepareWorkspaces() throws IOException {

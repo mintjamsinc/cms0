@@ -1,1 +1,31 @@
-{}
+# Cluster mode. When enabled, this repository node expects to share every
+# workspace's database and blob storage with the other nodes:
+#   - configure a shared database in each workspace's etc/jcr/jcr.yml
+#     (datasource.jdbcURL), and
+#   - place the repository directory (or at least each workspace's blob
+#     directory, jcr.yml#blobstore.directory) on shared storage.
+# The exclusive workspace lock file is replaced by database leases, and
+# maintenance tasks coordinate through the jcr_cluster_* tables so that
+# only one node runs them at a time.
+#
+# nodeId must be unique per node. It may also be supplied per node via the
+# framework property org.mintjams.jcr.cluster.nodeId or the environment
+# variable CMS_CLUSTER_NODE_ID; when omitted, the host name is used.
+cluster:
+  enabled: false
+  #nodeId: node-1
+
+# Security integration. serviceCredentials lists the credential classes
+# accepted for service logins; principalProviders / identityProviders list
+# the provider service classes consulted for principal and identity
+# resolution. The defaults wire up the CMS and IdP bundles; entries for
+# bundles that are not installed are simply never matched.
+security:
+    serviceCredentials:
+      - org.mintjams.rt.cms.internal.security.CmsServiceCredentials
+      - org.mintjams.idp.internal.security.IdpServiceCredentials
+    principalProviders:
+      - org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider
+      - org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider
+    identityProviders:
+      - org.mintjams.rt.cms.internal.security.DefaultIdentityProvider

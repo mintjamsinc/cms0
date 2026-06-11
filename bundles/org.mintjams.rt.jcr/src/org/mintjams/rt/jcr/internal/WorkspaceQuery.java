@@ -22,18 +22,17 @@
 
 package org.mintjams.rt.jcr.internal;
 
-import java.io.BufferedOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.Principal;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -85,16 +84,19 @@ import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.UnknownPrincipal;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.jcr.internal.blob.BlobStore;
+import org.mintjams.rt.jcr.internal.cluster.ClusterController;
+import org.mintjams.rt.jcr.internal.cluster.ClusterJournal;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlEntry;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlList;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
+import org.mintjams.rt.jcr.internal.sql.DatabaseDialect;
 import org.mintjams.rt.jcr.internal.version.JcrVersionManager;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.adapter.UnadaptableValueException;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.io.Closer;
-import org.mintjams.tools.io.IOs;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
 import org.mintjams.tools.sql.Entity;
@@ -105,6 +107,7 @@ public class WorkspaceQuery implements Adaptable {
 
 	private final JcrWorkspace fWorkspace;
 	private boolean fAccessControlAffected;
+	private boolean fJournalAffected;
 	private final Set<String> fDirtyItems = new HashSet<>();
 	private final LinkedHashMap<String, OverlayEntry> fOverlay = new LinkedHashMap<>(16, 0.75f, true);
 	private final Map<String, String> fOverlayPaths = new HashMap<>();
@@ -120,6 +123,19 @@ public class WorkspaceQuery implements Adaptable {
 	public void commit() throws SQLException {
 		newUpdateBuilder("DELETE FROM jcr_items WHERE is_deleted = TRUE").build().execute();
 		newUpdateBuilder("DELETE FROM jcr_properties WHERE is_deleted = TRUE").build().execute();
+
+		if (fJournalAffected) {
+			fJournalAffected = false;
+			// In a cluster, mark the transaction in the shared commit log so
+			// that the other nodes can replay its journal entries. Written
+			// within this transaction: the marker becomes visible if and only
+			// if the changes do.
+			ClusterController clusterController = adaptTo(ClusterController.class);
+			if (clusterController.isClusterEnabled()) {
+				ClusterJournal.writeCommitMarker(getConnection(),
+						getSessionIdentifier().getTransactionIdentifier(), clusterController.getNodeId());
+			}
+		}
 
 		getConnection().commit();
 
@@ -146,6 +162,7 @@ public class WorkspaceQuery implements Adaptable {
 	public void rollback() throws SQLException {
 		getConnection().rollback();
 		fAccessControlAffected = false;
+		fJournalAffected = false;
 		fDirtyItems.clear();
 		fOverlay.clear();
 		fOverlayPaths.clear();
@@ -403,10 +420,16 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public void writeJournal(Map<String, Object> data) throws SQLException {
+			fJournalAffected = true;
 			SessionIdentifier sessionIdentifier = getSessionIdentifier();
-			String journalId = MessageFormat.format("{0,number,00000000000000000000}-{1,number,00000000000000000000}",
-					sessionIdentifier.getCreated(), System.nanoTime());
+			boolean useSavepoint = adaptTo(DatabaseDialect.class).isTransactionAbortedOnError();
 			for (int i = 0;; i++) {
+				String journalId = MessageFormat.format("{0,number,00000000000000000000}-{1,number,00000000000000000000}",
+						sessionIdentifier.getCreated(), System.nanoTime());
+				// On databases that abort the transaction on a statement
+				// failure, a savepoint keeps a retryable insert failure from
+				// poisoning the caller's uncommitted changes.
+				Savepoint savepoint = useSavepoint ? getConnection().setSavepoint() : null;
 				try {
 					journalEntity().create(AdaptableMap.<String, Object>newBuilder().putAll(data)
 							.put("session_id", sessionIdentifier.toString())
@@ -414,6 +437,9 @@ public class WorkspaceQuery implements Adaptable {
 							.put("journal_id", journalId).build()).execute();
 					return;
 				} catch (SQLException ex) {
+					if (savepoint != null) {
+						getConnection().rollback(savepoint);
+					}
 					if (i == 0) {
 						continue;
 					}
@@ -461,16 +487,13 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public void createFile(String id, JcrBinary data) throws IOException, SQLException, RepositoryException {
-			Path path = getPath(id);
-			Files.createDirectories(path.getParent());
+			long size;
 			try (InputStream in = data.getStream()) {
-				try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
-					IOs.copy(in, out);
-				}
+				size = adaptTo(BlobStore.class).write(id, in);
 			}
 
 			filesEntity().create(AdaptableMap.<String, Object>newBuilder().put("file_id", id)
-					.put("file_size", Files.size(path)).build()).execute();
+					.put("file_size", size).build()).execute();
 		}
 
 		public void deleteFile(String id) throws SQLException {
@@ -495,13 +518,15 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public Path getPath(String id) {
-			return adaptTo(JcrWorkspaceProvider.class).getJcrBinPath().resolve(id.substring(0, 2))
-					.resolve(id.substring(2, 4)).resolve(id.substring(4, 6)).resolve(id.substring(6, 8)).resolve(id)
-					.toAbsolutePath();
+			try {
+				return adaptTo(BlobStore.class).getPath(id);
+			} catch (IOException ex) {
+				throw new UncheckedIOException(ex);
+			}
 		}
 
 		public InputStream getInputStream(String id) throws IOException {
-			return Files.newInputStream(getPath(id));
+			return adaptTo(BlobStore.class).read(id);
 		}
 
 		public void clean(QueryMonitor monitor) throws IOException, SQLException {
@@ -516,7 +541,7 @@ public class WorkspaceQuery implements Adaptable {
 						break;
 					}
 
-					Files.deleteIfExists(getPath(r.getString("file_id")));
+					adaptTo(BlobStore.class).delete(r.getString("file_id"));
 					filesEntity().deleteByPrimaryKey(r).execute();
 				}
 			}
@@ -1213,7 +1238,7 @@ public class WorkspaceQuery implements Adaptable {
 					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
 					.append(" AND jcr_items.is_system IS FALSE)")
 					.append(" WHERE property_type = {{type}}")
-					.append(" AND ARRAY_CONTAINS(property_value, {{value}})");
+					.append(" AND ").append(adaptTo(DatabaseDialect.class).arrayContains("property_value", "{{value}}"));
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
 					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
 					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();
@@ -1325,7 +1350,7 @@ public class WorkspaceQuery implements Adaptable {
 					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
 					.append(" AND jcr_items.is_system IS FALSE)")
 					.append(" WHERE property_type = {{type}}")
-					.append(" AND ARRAY_CONTAINS(property_value, {{value}})");
+					.append(" AND ").append(adaptTo(DatabaseDialect.class).arrayContains("property_value", "{{value}}"));
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
 					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
 					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();

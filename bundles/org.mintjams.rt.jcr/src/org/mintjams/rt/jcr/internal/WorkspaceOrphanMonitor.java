@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import org.mintjams.rt.jcr.internal.cluster.ClusterController;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
@@ -174,12 +175,18 @@ public class WorkspaceOrphanMonitor implements Closeable, Adaptable {
 					continue;
 				}
 
-				try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
-					WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
-					try {
+				try {
+					// One scan per cluster covers all nodes; skipping a run on
+					// the other nodes avoids duplicate orphan warnings.
+					ClusterController.Lease lease = adaptTo(ClusterController.class)
+							.tryLock("orphan-monitor", 600000L);
+					if (lease == null) {
+						continue;
+					}
+
+					try (lease; JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+						WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
 						workspaceQuery.items().checkOrphanNodes(fOrphanMonitor);
-					} catch (Throwable ex) {
-						throw ex;
 					}
 				} catch (Throwable ex) {
 					Activator.getDefault().getLogger(WorkspaceOrphanMonitor.class).error("An error occurred while processing the cleaning task.", ex);

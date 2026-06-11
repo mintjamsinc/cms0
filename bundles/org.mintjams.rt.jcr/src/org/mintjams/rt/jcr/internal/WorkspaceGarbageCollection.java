@@ -24,15 +24,23 @@ package org.mintjams.rt.jcr.internal;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.stream.Stream;
+import java.sql.Connection;
 
+import org.mintjams.rt.jcr.internal.blob.BlobStore;
+import org.mintjams.rt.jcr.internal.cluster.ClusterController;
+import org.mintjams.rt.jcr.internal.cluster.ClusterJournal;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 
 public class WorkspaceGarbageCollection implements Closeable, Adaptable {
+
+	/**
+	 * How long consumed cluster commit markers are kept before being purged.
+	 * A node that stays offline longer than this can no longer catch up by
+	 * replaying the journal and rebuilds its search index instead.
+	 */
+	private static final long COMMIT_MARKER_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000;
 
 	private final JcrWorkspaceProvider fWorkspaceProvider;
 	private Thread fThread;
@@ -87,8 +95,6 @@ public class WorkspaceGarbageCollection implements Closeable, Adaptable {
 	}
 
 	private class Task implements Runnable {
-		private WorkspaceQuery fWorkspaceQuery;
-
 		@Override
 		public void run() {
 			while (!fCloseRequested) {
@@ -106,61 +112,54 @@ public class WorkspaceGarbageCollection implements Closeable, Adaptable {
 					continue;
 				}
 
-				try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
-					fWorkspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
-					try {
-						perform(adaptTo(JcrWorkspaceProvider.class).getJcrBinPath());
-						fWorkspaceQuery.commit();
-					} catch (Throwable ex) {
+				try {
+					// All cluster nodes share the blob store, so only one node
+					// may collect at a time; the others simply skip this run.
+					ClusterController.Lease lease = adaptTo(ClusterController.class)
+							.tryLock("blob-garbage-collection", 3600000L);
+					if (lease == null) {
+						continue;
+					}
+
+					try (lease; JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+						WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
 						try {
-							fWorkspaceQuery.rollback();
-						} catch (Throwable ignore) {}
-						throw ex;
-					} finally {
-						fWorkspaceQuery = null;
+							adaptTo(BlobStore.class).collectGarbage(new BlobStore.GarbageCollectionContext() {
+								@Override
+								public boolean isCancelled() {
+									if (Thread.currentThread().isInterrupted()) {
+										fCloseRequested = true;
+									}
+									return fCloseRequested;
+								}
+
+								@Override
+								public boolean isReferenced(String id) throws IOException {
+									try {
+										return workspaceQuery.files().exists(id);
+									} catch (java.sql.SQLException ex) {
+										throw new IOException(ex);
+									}
+								}
+							});
+
+							if (adaptTo(ClusterController.class).isClusterEnabled() && !fCloseRequested) {
+								ClusterJournal.purgeCommitMarkers(
+										Adaptables.getAdapter(workspace, Connection.class),
+										COMMIT_MARKER_RETENTION_MILLIS);
+							}
+
+							workspaceQuery.commit();
+						} catch (Throwable ex) {
+							try {
+								workspaceQuery.rollback();
+							} catch (Throwable ignore) {}
+							throw ex;
+						}
 					}
 				} catch (Throwable ex) {
 					Activator.getDefault().getLogger(WorkspaceGarbageCollection.class).error("An error occurred while performing garbage collection.", ex);
 				}
-			}
-		}
-
-		private void perform(Path parentPath) throws IOException {
-			if (fCloseRequested) {
-				return;
-			}
-
-			if (Thread.interrupted()) {
-				fCloseRequested = true;
-				return;
-			}
-
-			try (Stream<Path> stream = Files.list(parentPath)) {
-				stream.forEach(path -> {
-					if (fCloseRequested || Thread.currentThread().isInterrupted()) {
-						fCloseRequested = true;
-						return;
-					}
-
-					try {
-						if (Files.isDirectory(path)) {
-							perform(path);
-							return;
-						}
-
-						if (Files.getLastModifiedTime(path).toMillis() >= (System.currentTimeMillis() - 86400000)) {
-							return;
-						}
-
-						if (fWorkspaceQuery.files().exists(path.getFileName().toString())) {
-							return;
-						}
-
-						Files.deleteIfExists(path);
-					} catch (Throwable ex) {
-						Activator.getDefault().getLogger(WorkspaceGarbageCollection.class).error("An error occurred while performing garbage collection.", ex);
-					}
-				});
 			}
 		}
 	}

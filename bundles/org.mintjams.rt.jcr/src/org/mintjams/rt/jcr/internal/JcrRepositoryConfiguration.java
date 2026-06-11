@@ -99,7 +99,23 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return getRepositoryPath().resolve("etc").normalize();
 	}
 
+	/**
+	 * Returns this node's temporary directory. The directory is wiped on
+	 * startup and must therefore never be shared between nodes: it can be
+	 * redirected per node via the framework property
+	 * {@code org.mintjams.jcr.repository.tmpdir} (e.g. to fast local disk),
+	 * and in cluster mode — where the repository directory itself usually
+	 * lives on shared storage — it defaults to a per-node subdirectory.
+	 */
 	public Path getTmpPath() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		String configured = bc.getProperty("org.mintjams.jcr.repository.tmpdir");
+		if (Strings.isNotEmpty(configured)) {
+			return Path.of(configured.trim()).normalize();
+		}
+		if (isClusterEnabled()) {
+			return getRepositoryPath().resolve("tmp/nodes").resolve(getClusterNodeId()).normalize();
+		}
 		return getRepositoryPath().resolve("tmp").normalize();
 	}
 
@@ -151,6 +167,66 @@ public class JcrRepositoryConfiguration implements Adaptable {
 				bc.getProperty("org.mintjams.jcr.workspace.accessControlStoreWarningThreshold"), "100000"));
 	}
 
+	/**
+	 * Returns whether this repository runs as part of a cluster of nodes
+	 * sharing the same workspace databases and blob storage. Resolved from
+	 * the framework property {@code org.mintjams.jcr.cluster.enabled} first,
+	 * then {@code repository.yml#cluster.enabled}; standalone is the default.
+	 */
+	public boolean isClusterEnabled() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		String value = bc.getProperty("org.mintjams.jcr.cluster.enabled");
+		if (Strings.isNotEmpty(value)) {
+			return Boolean.parseBoolean(value.trim());
+		}
+
+		try {
+			return ExpressionContext.create().setVariable("config", fConfig).getBoolean("config.cluster.enabled", false);
+		} catch (Throwable ignore) {}
+		return false;
+	}
+
+	private String fClusterNodeId;
+
+	/**
+	 * Returns the identifier under which this node appears in the cluster.
+	 * Resolved from the framework property
+	 * {@code org.mintjams.jcr.cluster.nodeId}, the environment variable
+	 * {@code CMS_CLUSTER_NODE_ID}, or {@code repository.yml#cluster.nodeId};
+	 * when none of these is set, the host name is used, with a random
+	 * identifier as the last resort. The identifier must be unique per node;
+	 * give every node an explicit identifier when host names are not unique.
+	 */
+	public synchronized String getClusterNodeId() {
+		if (fClusterNodeId != null) {
+			return fClusterNodeId;
+		}
+
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		String value = bc.getProperty("org.mintjams.jcr.cluster.nodeId");
+		if (Strings.isEmpty(value)) {
+			try {
+				value = System.getenv("CMS_CLUSTER_NODE_ID");
+			} catch (Throwable ignore) {}
+		}
+		if (Strings.isEmpty(value)) {
+			try {
+				value = ExpressionContext.create().setVariable("config", fConfig).defaultString("config.cluster.nodeId", null);
+			} catch (Throwable ignore) {}
+		}
+		if (Strings.isEmpty(value)) {
+			try {
+				value = java.net.InetAddress.getLocalHost().getHostName();
+			} catch (Throwable ignore) {}
+		}
+		if (Strings.isEmpty(value)) {
+			value = java.util.UUID.randomUUID().toString();
+		}
+
+		fClusterNodeId = value.trim();
+		return fClusterNodeId;
+	}
+
 	public void validate() {
 		Path repositoryPath = getRepositoryPath();
 		if (Files.exists(repositoryPath)) {
@@ -175,6 +251,12 @@ public class JcrRepositoryConfiguration implements Adaptable {
 			if (fServiceCredentials == null) {
 				ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
 				fServiceCredentials = (List<String>) el.evaluate("config.security.serviceCredentials");
+				if (fServiceCredentials == null) {
+					Activator.getDefault().getLogger(getClass())
+							.warn("repository.yml has no security.serviceCredentials entries;"
+									+ " all service logins will be rejected.");
+					fServiceCredentials = Collections.emptyList();
+				}
 			}
 
 			for (String name : fServiceCredentials) {
@@ -205,6 +287,9 @@ public class JcrRepositoryConfiguration implements Adaptable {
 			if (fPrincipalProviderServices == null) {
 				ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
 				fPrincipalProviderServices = (List<String>) el.evaluate("config.security.principalProviders");
+				if (fPrincipalProviderServices == null) {
+					fPrincipalProviderServices = Collections.emptyList();
+				}
 			}
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
@@ -219,6 +304,9 @@ public class JcrRepositoryConfiguration implements Adaptable {
 			if (fIdentityProviderServices == null) {
 				ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
 				fIdentityProviderServices = (List<String>) el.evaluate("config.security.identityProviders");
+				if (fIdentityProviderServices == null) {
+					fIdentityProviderServices = Collections.emptyList();
+				}
 			}
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);

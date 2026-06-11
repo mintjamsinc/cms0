@@ -46,15 +46,23 @@ import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.security.LoginTimedOutException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.jcr.internal.blob.BlobStore;
+import org.mintjams.rt.jcr.internal.blob.BlobStores;
+import org.mintjams.rt.jcr.internal.cluster.ClusterController;
+import org.mintjams.rt.jcr.internal.cluster.ClusterJournal;
 import org.mintjams.rt.jcr.internal.nodetype.JcrNodeType;
 import org.mintjams.rt.jcr.internal.observation.JournalObserver;
 import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
+import org.mintjams.rt.jcr.internal.sql.DatabaseDialect;
+import org.mintjams.rt.jcr.internal.sql.Dialects;
+import org.mintjams.rt.jcr.internal.sql.SimpleDriverDataSource;
 import org.mintjams.searchindex.SearchIndex;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.io.Closer;
+import org.mintjams.tools.io.IOs;
 import org.mintjams.tools.io.LockFile;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
@@ -72,6 +80,8 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 	private final JcrRepository fRepository;
 	private final Closer fCloser = Closer.create();
 	private ConnectionPool fConnectionPool;
+	private ClusterController fClusterController;
+	private BlobStore fBlobStore;
 	private AccessControlStore fAccessControlStore;
 	private NodeCache fNodeCache;
 	private SearchIndex fSearchIndex;
@@ -114,50 +124,88 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		return getWorkspacePath().resolve("etc").normalize();
 	}
 
+	/**
+	 * Returns the directory holding this node's search index. The index is
+	 * node-local: in a clustered deployment every node maintains its own
+	 * index, so the default location gains a per-node segment unless
+	 * {@code jcr.yml#search.indexPath} points somewhere else explicitly.
+	 */
 	public Path getWorkspaceSearchPath() {
+		Path configured = fConfig.getSearchIndexPath();
+		if (configured != null) {
+			return configured;
+		}
+		if (fRepository.getConfiguration().isClusterEnabled()) {
+			return getWorkspacePath().resolve("var/search/nodes")
+					.resolve(fRepository.getConfiguration().getClusterNodeId()).normalize();
+		}
 		return getWorkspacePath().resolve("var/search").normalize();
 	}
 
 	public synchronized JcrWorkspaceProvider open() throws IOException {
 		Activator.getDefault().getLogger(getClass()).info("Start the JCR workspace '" + getWorkspaceName() + "'.");
-		fCloser.add(LockFile.create(getWorkspaceLockPath()));
+
+		boolean clusterEnabled = fRepository.getConfiguration().isClusterEnabled();
+		if (!clusterEnabled) {
+			// In a cluster the workspace directory is shared by all nodes, so
+			// exclusive ownership of the directory must not be claimed; mutual
+			// exclusion is provided by database leases instead.
+			fCloser.add(LockFile.create(getWorkspaceLockPath()));
+		}
 
 		fConfig.load();
 
 		fConnectionPool = fCloser.register(new ConnectionPool());
 		fConnectionPool.open();
 
-		prepareInitialData();
+		fBlobStore = fCloser.register(BlobStores.create(fConfig.getBlobStoreType(),
+				fConfig.getBlobStoreDirectory(getJcrBinPath()),
+				ex -> Activator.getDefault().getLogger(BlobStore.class)
+						.error("An error occurred while accessing the blob store.", ex)));
 
-		fAccessControlStore = fCloser.register(AccessControlStore.create(this));
-		fAccessControlStore.open();
+		fClusterController = fCloser.register(ClusterController.create(getWorkspaceName(), clusterEnabled,
+				fRepository.getConfiguration().getClusterNodeId(),
+				() -> getConnection(new SystemPrincipal())));
+		fClusterController.open();
 
-		fNodeCache = fCloser.register(NodeCache.create(this));
+		boolean needsBuildSearchIndex;
 
-		boolean needsBuildSearchIndex = false;
-		if (!Files.exists(getWorkspaceSearchPath())) {
-			needsBuildSearchIndex = true;
+		// Schema preparation, migrations, default-node creation, and orphan
+		// removal mutate state shared by every cluster node, so they run under
+		// the workspace startup lease. Standalone mode grants it immediately.
+		try (ClusterController.Lease startupLease = fClusterController.lock("workspace-startup", 3600000L)) {
+			prepareInitialData();
+
+			fAccessControlStore = fCloser.register(AccessControlStore.create(this));
+			fAccessControlStore.open();
+
+			fNodeCache = fCloser.register(NodeCache.create(this));
+
+			if (clusterEnabled) {
+				discardStaleSearchIndex();
+			}
+			needsBuildSearchIndex = !Files.exists(getWorkspaceSearchPath());
+			fSearchIndex = fCloser.register(Activator.getDefault().getSearchIndexFactory().createSearchIndexConfiguration()
+					.setDataPath(getWorkspaceSearchPath()).setConfigPath(getWorkspaceEtcPath().resolve("search"))
+					.createSearchIndex());
+
+			fJournalObserver = fCloser.register(JournalObserver.create(this));
+			fJournalObserver.open();
+
+			prepareDefaultNodes();
+
+			fWorkspaceCleaner = fCloser.register(WorkspaceCleaner.create(this));
+			fWorkspaceCleaner.open();
+
+			WorkspaceGarbageCollection workspaceGarbageCollection = fCloser
+					.register(WorkspaceGarbageCollection.create(this));
+			workspaceGarbageCollection.open();
+
+			fWorkspaceOrphanMonitor = fCloser.register(WorkspaceOrphanMonitor.create(this));
+			fWorkspaceOrphanMonitor.open();
+
+			removeOrphanNodes();
 		}
-		fSearchIndex = fCloser.register(Activator.getDefault().getSearchIndexFactory().createSearchIndexConfiguration()
-				.setDataPath(getWorkspaceSearchPath()).setConfigPath(getWorkspaceEtcPath().resolve("search"))
-				.createSearchIndex());
-
-		fJournalObserver = fCloser.register(JournalObserver.create(this));
-		fJournalObserver.open();
-
-		prepareDefaultNodes();
-
-		fWorkspaceCleaner = fCloser.register(WorkspaceCleaner.create(this));
-		fWorkspaceCleaner.open();
-
-		WorkspaceGarbageCollection workspaceGarbageCollection = fCloser
-				.register(WorkspaceGarbageCollection.create(this));
-		workspaceGarbageCollection.open();
-
-		fWorkspaceOrphanMonitor = fCloser.register(WorkspaceOrphanMonitor.create(this));
-		fWorkspaceOrphanMonitor.open();
-
-		removeOrphanNodes();
 
 		if (needsBuildSearchIndex) {
 			Activator.getDefault().getLogger(getClass()).info("Creating the JCR search index.");
@@ -180,6 +228,41 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 	protected Connection getConnection(Principal principal) throws SQLException {
 		return fConnectionPool.getConnection(principal);
+	}
+
+	/**
+	 * Discards this node's search index when the node has been offline for
+	 * so long that the commit markers it would need to catch up on have
+	 * already been purged from the cluster journal. The index is then
+	 * rebuilt from the repository content and the node resumes consuming at
+	 * the current head.
+	 */
+	private void discardStaleSearchIndex() throws IOException {
+		try (Connection connection = getConnection(new SystemPrincipal())) {
+			try {
+				String nodeId = fRepository.getConfiguration().getClusterNodeId();
+				long consumed = ClusterJournal.getConsumedSeq(connection, nodeId);
+				long purged = ClusterJournal.getConsumedSeq(connection, ClusterJournal.PURGED_NODE_ID);
+				if (consumed < 0 || consumed >= purged) {
+					connection.rollback();
+					return;
+				}
+
+				Activator.getDefault().getLogger(getClass()).warn("The search index of cluster node '" + nodeId
+						+ "' is behind the purged cluster journal and will be rebuilt from the repository content.");
+				ClusterJournal.deleteConsumedSeq(connection, nodeId);
+				connection.commit();
+			} catch (Throwable ex) {
+				try {
+					connection.rollback();
+				} catch (Throwable ignore) {}
+				throw ex;
+			}
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+
+		IOs.deleteIfExists(getWorkspaceSearchPath());
 	}
 
 	private void prepareInitialData() throws IOException {
@@ -566,6 +649,19 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			return (AdapterType) fNodeCache;
 		}
 
+		if (adapterType.equals(DatabaseDialect.class)) {
+			return (AdapterType) fConnectionPool.getDialect();
+		}
+
+		if (adapterType.equals(BlobStore.class)) {
+			return (AdapterType) fBlobStore;
+		}
+
+		if (adapterType.equals(ClusterController.class)
+				|| adapterType.equals(org.mintjams.jcr.cluster.ClusterCoordinator.class)) {
+			return (AdapterType) fClusterController;
+		}
+
 		if (adapterType.equals(SearchIndex.class)) {
 			return (AdapterType) fSearchIndex;
 		}
@@ -614,8 +710,9 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		private HikariDataSource fUserDataSource;
 		private HikariDataSource fSystemDataSource;
 		private HikariDataSource fServiceDataSource;
+		private DatabaseDialect fDialect;
 
-		public ConnectionPool open() {
+		public ConnectionPool open() throws IOException {
 			if (fUserDataSource != null) {
 				return this;
 			}
@@ -628,52 +725,63 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				minIdle = numProcessors;
 			}
 
+			String jdbcUrl = fConfig.getDatasourceJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath()
+					+ ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
+			String username = fConfig.getDatasourceUsername("sa");
+			String password = fConfig.getDatasourcePassword("");
+			String driverClassName = fConfig.getDatasourceDriverClassName();
+
+			try {
+				fDialect = Dialects.of(jdbcUrl);
+			} catch (IllegalArgumentException ex) {
+				throw new IOException(ex.getMessage(), ex);
+			}
+
 			// User data source
-			{
-				HikariConfig config = new HikariConfig();
-				config.setJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
-				config.setUsername("sa");
-				config.setPassword("");
-				config.setMaximumPoolSize(maxPoolSize);
-				config.setMinimumIdle(minIdle);
-				config.setConnectionTimeout(30000);
-				config.setIdleTimeout(600000);
-				config.setMaxLifetime(1800000);
-				config.setAutoCommit(false);
-				fUserDataSource = new HikariDataSource(config);
-			}
-
+			fUserDataSource = createDataSource(jdbcUrl, username, password, driverClassName, maxPoolSize, minIdle);
 			// System data source
-			{
-				HikariConfig config = new HikariConfig();
-				config.setJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
-				config.setUsername("sa");
-				config.setPassword("");
-				config.setMaximumPoolSize(maxPoolSize);
-				config.setMinimumIdle(minIdle);
-				config.setConnectionTimeout(30000);
-				config.setIdleTimeout(600000);
-				config.setMaxLifetime(1800000);
-				config.setAutoCommit(false);
-				fSystemDataSource = new HikariDataSource(config);
-			}
-
+			fSystemDataSource = createDataSource(jdbcUrl, username, password, driverClassName, maxPoolSize, minIdle);
 			// Service data source
-			{
-				HikariConfig config = new HikariConfig();
-				config.setJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath() + ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
-				config.setUsername("sa");
-				config.setPassword("");
-				config.setMaximumPoolSize(maxPoolSize);
-				config.setMinimumIdle(minIdle);
-				config.setConnectionTimeout(30000);
-				config.setIdleTimeout(600000);
-				config.setMaxLifetime(1800000);
-				config.setAutoCommit(false);
-				fServiceDataSource = new HikariDataSource(config);
-			}
+			fServiceDataSource = createDataSource(jdbcUrl, username, password, driverClassName, maxPoolSize, minIdle);
 
 			return this;
+		}
+
+		private HikariDataSource createDataSource(String jdbcUrl, String username, String password,
+				String driverClassName, int maxPoolSize, int minIdle) throws IOException {
+			HikariConfig config = new HikariConfig();
+			if (Strings.isNotEmpty(driverClassName)) {
+				// Hand the pool a DataSource built around the driver instance:
+				// DriverManager-based resolution cannot see drivers that live
+				// in another OSGi bundle.
+				try {
+					config.setDataSource(SimpleDriverDataSource.create(driverClassName, jdbcUrl, username, password));
+				} catch (SQLException ex) {
+					throw Cause.create(ex).wrap(IOException.class);
+				}
+			} else {
+				config.setJdbcUrl(jdbcUrl);
+				config.setUsername(username);
+				config.setPassword(password);
+			}
+			config.setMaximumPoolSize(maxPoolSize);
+			config.setMinimumIdle(minIdle);
+			config.setConnectionTimeout(30000);
+			config.setIdleTimeout(600000);
+			config.setMaxLifetime(1800000);
+			config.setAutoCommit(false);
+
+			ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+			Thread.currentThread().setContextClassLoader(JcrWorkspaceProvider.class.getClassLoader());
+			try {
+				return new HikariDataSource(config);
+			} finally {
+				Thread.currentThread().setContextClassLoader(contextClassLoader);
+			}
+		}
+
+		public DatabaseDialect getDialect() {
+			return fDialect;
 		}
 
 		public Connection getConnection(Principal principal) throws SQLException {
@@ -691,7 +799,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			if (connection.getAutoCommit()) {
 				throw new SQLException("Auto-commit mode is not allowed for JCR workspace connections.");
 			}
-			return connection;
+			return fDialect.wrap(connection);
 		}
 
 		@Override

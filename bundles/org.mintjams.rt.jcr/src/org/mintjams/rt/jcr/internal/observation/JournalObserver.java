@@ -27,13 +27,19 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.spi.FileTypeDetector;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
@@ -56,13 +62,17 @@ import org.mintjams.jcr.observation.Event;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.jcr.internal.AccessControlStore;
 import org.mintjams.rt.jcr.internal.Activator;
 import org.mintjams.rt.jcr.internal.JcrNode;
+import org.mintjams.rt.jcr.internal.NodeCache;
 import org.mintjams.rt.jcr.internal.JcrProperty;
 import org.mintjams.rt.jcr.internal.JcrValue;
 import org.mintjams.rt.jcr.internal.JcrWorkspace;
 import org.mintjams.rt.jcr.internal.JcrWorkspaceProvider;
 import org.mintjams.rt.jcr.internal.WorkspaceQuery;
+import org.mintjams.rt.jcr.internal.cluster.ClusterController;
+import org.mintjams.rt.jcr.internal.cluster.ClusterJournal;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlEntry;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlList;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
@@ -80,8 +90,10 @@ public class JournalObserver implements Adaptable, Closeable {
 
 	private final JcrWorkspaceProvider fWorkspaceProvider;
 	private Thread fThread;
+	private Thread fRemoteThread;
 	private boolean fCloseRequested;
 	private final List<String> fTransactionIdentifiers = new ArrayList<>();
+	private final Object fRemoteLock = new Object();
 
 	private JournalObserver(JcrWorkspaceProvider workspaceProvider) {
 		fWorkspaceProvider = workspaceProvider;
@@ -99,6 +111,13 @@ public class JournalObserver implements Adaptable, Closeable {
 		fThread = new Thread(new Task());
 		fThread.setDaemon(true);
 		fThread.start();
+
+		ClusterController clusterController = adaptTo(ClusterController.class);
+		if (clusterController != null && clusterController.isClusterEnabled()) {
+			fRemoteThread = new Thread(new RemotePoller());
+			fRemoteThread.setDaemon(true);
+			fRemoteThread.start();
+		}
 
 		return this;
 	}
@@ -126,11 +145,21 @@ public class JournalObserver implements Adaptable, Closeable {
 		synchronized (fTransactionIdentifiers) {
 			fTransactionIdentifiers.notifyAll();
 		}
+		synchronized (fRemoteLock) {
+			fRemoteLock.notifyAll();
+		}
 		try {
 			fThread.interrupt();
 			fThread.join(10000);
 		} catch (InterruptedException ignore) {}
 		fThread = null;
+		if (fRemoteThread != null) {
+			try {
+				fRemoteThread.interrupt();
+				fRemoteThread.join(10000);
+			} catch (InterruptedException ignore) {}
+			fRemoteThread = null;
+		}
 		fCloseRequested = false;
 	}
 
@@ -708,6 +737,182 @@ public class JournalObserver implements Adaptable, Closeable {
 		return Adaptables.getAdapter(fWorkspaceProvider, adapterType);
 	}
 
+	/**
+	 * Applies one committed transaction to this node: aggregates its journal
+	 * entries into item-level events, posts them to the OSGi event bus, and
+	 * updates this node's search index. Shared by the local commit pipeline
+	 * and, in a cluster, the remote commit poller.
+	 */
+	private void processTransaction(JcrWorkspace workspace, String transactionId)
+			throws IOException, SQLException, RepositoryException {
+		WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
+		try (Query.Result result = workspaceQuery.journal().listJournal(transactionId)) {
+			Map<String, AdaptableMap<String, Object>> events = new LinkedHashMap<>();
+			for (AdaptableMap<String, Object> r : result) {
+				String id = r.getString("item_id");
+				String path = r.getString("item_path");
+				int eventType = r.getInteger("event_type");
+				String primaryType = r.getString("primary_type");
+				String userID = r.getString("user_id");
+
+				if (path.equals("/" + JcrNode.JCR_SYSTEM_NAME) || path.startsWith("/" + JcrNode.JCR_SYSTEM_NAME + "/")) {
+					continue;
+				}
+
+				if (eventType == Event.NODE_ADDED) {
+					do {
+						if (path.endsWith(JcrNode.JCR_CONTENT_NAME)) {
+							break;
+						}
+
+						events.put(id, AdaptableMap.<String, Object>newBuilder()
+								.put("item_id", id)
+								.put("item_path", path)
+								.put("primary_type", primaryType)
+								.put("event_type", eventType)
+								.put("user_id", userID)
+								.build());
+					} while (false);
+					continue;
+				}
+
+				if (eventType == Event.NODE_MOVED) {
+					do {
+						if (path.endsWith(JcrNode.JCR_CONTENT_NAME)) {
+							break;
+						}
+
+						AdaptableMap<String, Object> event = events.get(id);
+						Map<String, Object> eventInfo = Activator.getDefault().parseJSON(r.getString("event_info"));
+						if (event == null) {
+							events.put(id, AdaptableMap.<String, Object>newBuilder()
+									.put("item_id", id)
+									.put("item_path", path)
+									.put("primary_type", primaryType)
+									.put("event_type", eventType)
+									.put("source_path", eventInfo.get("source_path"))
+									.put("path", true)
+									.put("user_id", userID)
+									.build());
+						} else {
+							event.put("item_path", path);
+							if (event.getInteger("event_type") != Event.NODE_ADDED) {
+								event.put("event_type", Event.NODE_MOVED);
+							}
+							if (!event.containsKey("source_path")) {
+								event.put("source_path", eventInfo.get("source_path"));
+							}
+							event.put("path", true);
+						}
+					} while (false);
+					continue;
+				}
+
+				if (eventType == Event.NODE_REMOVED) {
+					do {
+						if (path.endsWith(JcrNode.JCR_CONTENT_NAME)) {
+							break;
+						}
+
+						AdaptableMap<String, Object> event = events.get(id);
+						if (event == null) {
+							events.put(id, AdaptableMap.<String, Object>newBuilder()
+									.put("item_id", id)
+									.put("item_path", path)
+									.put("primary_type", primaryType)
+									.put("event_type", eventType)
+									.put("user_id", userID)
+									.build());
+						} else {
+							if (event.getInteger("event_type") == Event.NODE_ADDED) {
+								events.remove(event.getString("item_id"));
+								break;
+							}
+
+							event.put("event_type", eventType);
+						}
+					} while (false);
+					continue;
+				}
+
+				if (eventType == Event.PROPERTY_ADDED
+						|| eventType == Event.PROPERTY_CHANGED
+						|| eventType == Event.PROPERTY_REMOVED) {
+					JcrPath itemPath = JcrPath.valueOf(path);
+					if (itemPath.getName().toString().equals(JcrNode.JCR_CONTENT_NAME)) {
+						itemPath = itemPath.getParent();
+					}
+
+					Node item;
+					try {
+						item = workspace.getSession().getNode(itemPath.toString());
+					} catch (ItemNotFoundException ignore) {
+						continue;
+					}
+
+					AdaptableMap<String, Object> event = events.get(item.getIdentifier());
+					if (event == null) {
+						List<String> properties = new ArrayList<>();
+						properties.add(r.getString("property_name"));
+						events.put(item.getIdentifier(), AdaptableMap.<String, Object>newBuilder()
+								.put("item_id", item.getIdentifier())
+								.put("item_path", itemPath.toString())
+								.put("primary_type", item.getPrimaryNodeType().getName())
+								.put("event_type", eventType)
+								.put("properties", properties)
+								.put("user_id", userID)
+								.build());
+					} else {
+						@SuppressWarnings("unchecked")
+						List<String> properties = (List<String>) event.get("properties");
+						if (properties == null) {
+							properties = new ArrayList<>();
+							event.put("properties", properties);
+						}
+						properties.add(r.getString("property_name"));
+					}
+					continue;
+				}
+
+				if (eventType == Event.ACCESS_CONTROL_POLICY_CHANGED
+						|| eventType == Event.ACCESS_CONTROL_POLICY_REMOVED) {
+					do {
+						if (path.endsWith(JcrNode.JCR_CONTENT_NAME)) {
+							break;
+						}
+
+						AdaptableMap<String, Object> event = events.get(id);
+						if (event == null) {
+							events.put(id, AdaptableMap.<String, Object>newBuilder()
+									.put("item_id", id)
+									.put("item_path", path)
+									.put("primary_type", primaryType)
+									.put("event_type", eventType)
+									.put("acl", true)
+									.put("user_id", userID)
+									.build());
+						} else {
+							event.put("acl", true);
+						}
+					} while (false);
+					continue;
+				}
+			}
+
+			for (String id : events.keySet()) {
+				AdaptableMap<String, Object> event = events.get(id);
+				postEvent(event);
+				try {
+					Node item = workspace.getSession().getNodeByIdentifier(id);
+					updateSearchIndex(event, item);
+				} catch (ItemNotFoundException ignore) {
+					removeSearchIndex(event, workspace);
+				}
+				workspace.getSession().refresh(true);
+			}
+		}
+	}
+
 	private class Task implements Runnable {
 		@Override
 		public void run() {
@@ -729,172 +934,7 @@ public class JournalObserver implements Adaptable, Closeable {
 				}
 
 				try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
-					WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
-					try (Query.Result result = workspaceQuery.journal().listJournal(transactionId)) {
-						Map<String, AdaptableMap<String, Object>> events = new LinkedHashMap<>();
-						for (AdaptableMap<String, Object> r : result) {
-							String id = r.getString("item_id");
-							String path = r.getString("item_path");
-							int eventType = r.getInteger("event_type");
-							String primaryType = r.getString("primary_type");
-							String userID = r.getString("user_id");
-
-							if (path.equals("/" + JcrNode.JCR_SYSTEM_NAME) || path.startsWith("/" + JcrNode.JCR_SYSTEM_NAME + "/")) {
-								continue;
-							}
-
-							if (eventType == Event.NODE_ADDED) {
-								do {
-									if (path.endsWith(JcrNode.JCR_CONTENT_NAME)) {
-										break;
-									}
-
-									events.put(id, AdaptableMap.<String, Object>newBuilder()
-											.put("item_id", id)
-											.put("item_path", path)
-											.put("primary_type", primaryType)
-											.put("event_type", eventType)
-											.put("user_id", userID)
-											.build());
-								} while (false);
-								continue;
-							}
-
-							if (eventType == Event.NODE_MOVED) {
-								do {
-									if (path.endsWith(JcrNode.JCR_CONTENT_NAME)) {
-										break;
-									}
-
-									AdaptableMap<String, Object> event = events.get(id);
-									Map<String, Object> eventInfo = Activator.getDefault().parseJSON(r.getString("event_info"));
-									if (event == null) {
-										events.put(id, AdaptableMap.<String, Object>newBuilder()
-												.put("item_id", id)
-												.put("item_path", path)
-												.put("primary_type", primaryType)
-												.put("event_type", eventType)
-												.put("source_path", eventInfo.get("source_path"))
-												.put("path", true)
-												.put("user_id", userID)
-												.build());
-									} else {
-										event.put("item_path", path);
-										if (event.getInteger("event_type") != Event.NODE_ADDED) {
-											event.put("event_type", Event.NODE_MOVED);
-										}
-										if (!event.containsKey("source_path")) {
-											event.put("source_path", eventInfo.get("source_path"));
-										}
-										event.put("path", true);
-									}
-								} while (false);
-								continue;
-							}
-
-							if (eventType == Event.NODE_REMOVED) {
-								do {
-									if (path.endsWith(JcrNode.JCR_CONTENT_NAME)) {
-										break;
-									}
-
-									AdaptableMap<String, Object> event = events.get(id);
-									if (event == null) {
-										events.put(id, AdaptableMap.<String, Object>newBuilder()
-												.put("item_id", id)
-												.put("item_path", path)
-												.put("primary_type", primaryType)
-												.put("event_type", eventType)
-												.put("user_id", userID)
-												.build());
-									} else {
-										if (event.getInteger("event_type") == Event.NODE_ADDED) {
-											events.remove(event.getString("item_id"));
-											break;
-										}
-
-										event.put("event_type", eventType);
-									}
-								} while (false);
-								continue;
-							}
-
-							if (eventType == Event.PROPERTY_ADDED
-									|| eventType == Event.PROPERTY_CHANGED
-									|| eventType == Event.PROPERTY_REMOVED) {
-								JcrPath itemPath = JcrPath.valueOf(path);
-								if (itemPath.getName().toString().equals(JcrNode.JCR_CONTENT_NAME)) {
-									itemPath = itemPath.getParent();
-								}
-
-								Node item;
-								try {
-									item = workspace.getSession().getNode(itemPath.toString());
-								} catch (ItemNotFoundException ignore) {
-									continue;
-								}
-
-								AdaptableMap<String, Object> event = events.get(item.getIdentifier());
-								if (event == null) {
-									List<String> properties = new ArrayList<>();
-									properties.add(r.getString("property_name"));
-									events.put(item.getIdentifier(), AdaptableMap.<String, Object>newBuilder()
-											.put("item_id", item.getIdentifier())
-											.put("item_path", itemPath.toString())
-											.put("primary_type", item.getPrimaryNodeType().getName())
-											.put("event_type", eventType)
-											.put("properties", properties)
-											.put("user_id", userID)
-											.build());
-								} else {
-									@SuppressWarnings("unchecked")
-									List<String> properties = (List<String>) event.get("properties");
-									if (properties == null) {
-										properties = new ArrayList<>();
-										event.put("properties", properties);
-									}
-									properties.add(r.getString("property_name"));
-								}
-								continue;
-							}
-
-							if (eventType == Event.ACCESS_CONTROL_POLICY_CHANGED
-									|| eventType == Event.ACCESS_CONTROL_POLICY_REMOVED) {
-								do {
-									if (path.endsWith(JcrNode.JCR_CONTENT_NAME)) {
-										break;
-									}
-
-									AdaptableMap<String, Object> event = events.get(id);
-									if (event == null) {
-										events.put(id, AdaptableMap.<String, Object>newBuilder()
-												.put("item_id", id)
-												.put("item_path", path)
-												.put("primary_type", primaryType)
-												.put("event_type", eventType)
-												.put("acl", true)
-												.put("user_id", userID)
-												.build());
-									} else {
-										event.put("acl", true);
-									}
-								} while (false);
-								continue;
-							}
-						}
-
-						for (String id : events.keySet()) {
-							AdaptableMap<String, Object> event = events.get(id);
-							postEvent(event);
-							try {
-								Node item = workspace.getSession().getNodeByIdentifier(id);
-								updateSearchIndex(event, item);
-							} catch (ItemNotFoundException ignore) {
-								removeSearchIndex(event, workspace);
-							}
-							workspace.getSession().refresh(true);
-						}
-					}
+					processTransaction(workspace, transactionId);
 				} catch (Throwable ex) {
 					Activator.getDefault().getLogger(JournalObserver.class).error("An error occurred while writing the journal: " + transactionId, ex);
 					if (!fCloseRequested) {
@@ -904,6 +944,176 @@ public class JournalObserver implements Adaptable, Closeable {
 					}
 					continue;
 				}
+			}
+		}
+	}
+
+	/**
+	 * Consumes the cluster commit log: transactions committed by other nodes
+	 * are replayed against this node's caches and search index, and their
+	 * events are posted locally, so a clustered node behaves as if the
+	 * remote commits had happened here. The consumed position is persisted
+	 * per node; a marker is only consumed past once it is old enough that no
+	 * concurrently committing transaction can still surface behind it, which
+	 * assumes the cluster nodes run with synchronized clocks.
+	 */
+	private class RemotePoller implements Runnable {
+		private static final long POLL_INTERVAL_MILLIS = 2000L;
+		private static final long STABILITY_GRACE_MILLIS = 10000L;
+		private static final int BATCH_LIMIT = 200;
+		private static final int PROCESSED_CACHE_SIZE = 4096;
+
+		private final Set<String> fProcessed = new LinkedHashSet<>();
+
+		@Override
+		public void run() {
+			String nodeId = adaptTo(ClusterController.class).getNodeId();
+			long consumed = -1;
+			while (!fCloseRequested) {
+				if (Thread.interrupted()) {
+					fCloseRequested = true;
+					break;
+				}
+				synchronized (fRemoteLock) {
+					try {
+						fRemoteLock.wait(POLL_INTERVAL_MILLIS);
+					} catch (InterruptedException ignore) {}
+				}
+
+				if (fCloseRequested) {
+					continue;
+				}
+
+				try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+					Connection connection = Adaptables.getAdapter(workspace, Connection.class);
+
+					if (consumed < 0) {
+						consumed = ClusterJournal.getConsumedSeq(connection, nodeId);
+						if (consumed < 0) {
+							// A node that has never consumed the journal starts at
+							// the current head: the history before it is covered
+							// by the node's initial search index build.
+							consumed = ClusterJournal.getMaxCommitSeq(connection);
+							ClusterJournal.setConsumedSeq(connection, nodeId, consumed);
+							connection.commit();
+						}
+					}
+
+					List<AdaptableMap<String, Object>> markers = new ArrayList<>();
+					try (Query.Result result = ClusterJournal.listCommittedTransactions(connection, consumed,
+							nodeId, BATCH_LIMIT)) {
+						for (AdaptableMap<String, Object> r : result) {
+							markers.add(r);
+						}
+					}
+					if (markers.isEmpty()) {
+						continue;
+					}
+
+					long stableCutoff = System.currentTimeMillis() - STABILITY_GRACE_MILLIS;
+					long newConsumed = consumed;
+					boolean stable = true;
+					for (AdaptableMap<String, Object> marker : markers) {
+						if (fCloseRequested) {
+							break;
+						}
+
+						String transactionId = marker.getString("transaction_id");
+						if (!fProcessed.contains(transactionId)) {
+							invalidate(workspace, transactionId);
+							processTransaction(workspace, transactionId);
+							fProcessed.add(transactionId);
+							while (fProcessed.size() > PROCESSED_CACHE_SIZE) {
+								Iterator<String> i = fProcessed.iterator();
+								i.next();
+								i.remove();
+							}
+						}
+
+						// Markers become visible when their transaction commits,
+						// which can be after later sequence numbers are already
+						// visible. Only consume past a marker once nothing can
+						// still surface behind it; until then, the processed set
+						// keeps re-reads from replaying the same transaction.
+						if (stable && marker.getLong("committed") <= stableCutoff) {
+							newConsumed = marker.getLong("commit_seq");
+						} else {
+							stable = false;
+						}
+					}
+
+					if (newConsumed != consumed) {
+						ClusterJournal.setConsumedSeq(connection, nodeId, newConsumed);
+						connection.commit();
+						consumed = newConsumed;
+					}
+				} catch (Throwable ex) {
+					Activator.getDefault().getLogger(JournalObserver.class)
+							.error("An error occurred while consuming the cluster journal.", ex);
+					if (!fCloseRequested) {
+						try {
+							Thread.sleep(5000);
+						} catch (InterruptedException ignore) {}
+					}
+					continue;
+				}
+			}
+		}
+
+		/**
+		 * Drops everything the remote transaction touched from this node's
+		 * caches before its journal entries are replayed, so that the replay
+		 * and all subsequent reads see the committed state.
+		 */
+		private void invalidate(JcrWorkspace workspace, String transactionId)
+				throws IOException, SQLException, RepositoryException {
+			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
+
+			Set<String> ids = new HashSet<>();
+			Set<String> subtreePaths = new HashSet<>();
+			boolean accessControlAffected = false;
+			try (Query.Result result = workspaceQuery.journal().listJournal(transactionId)) {
+				for (AdaptableMap<String, Object> r : result) {
+					ids.add(r.getString("item_id"));
+
+					int eventType = r.getInteger("event_type");
+					if (eventType == Event.NODE_MOVED || eventType == Event.NODE_REMOVED) {
+						// The journal carries only the subtree root; the cached
+						// paths of all of its descendants are affected.
+						subtreePaths.add(r.getString("item_path"));
+						if (eventType == Event.NODE_MOVED) {
+							Map<String, Object> eventInfo = Activator.getDefault().parseJSON(r.getString("event_info"));
+							Object sourcePath = (eventInfo == null) ? null : eventInfo.get("source_path");
+							if (sourcePath != null) {
+								subtreePaths.add(sourcePath.toString());
+							}
+						}
+						continue;
+					}
+
+					if (eventType == Event.ACCESS_CONTROL_POLICY_CHANGED
+							|| eventType == Event.ACCESS_CONTROL_POLICY_REMOVED) {
+						accessControlAffected = true;
+					}
+				}
+			}
+
+			NodeCache nodeCache = adaptTo(NodeCache.class);
+			nodeCache.invalidate(ids);
+
+			AccessControlStore accessControlStore = adaptTo(AccessControlStore.class);
+			for (String path : subtreePaths) {
+				nodeCache.invalidateDescendants(path);
+				// Moved or removed subtrees invalidate the path-keyed access
+				// control view when they carried entries.
+				if (!accessControlAffected
+						&& (accessControlStore.hasEntriesAt(path) || accessControlStore.hasEntriesUnder(path))) {
+					accessControlAffected = true;
+				}
+			}
+
+			if (accessControlAffected) {
+				accessControlStore.markStale();
 			}
 		}
 	}

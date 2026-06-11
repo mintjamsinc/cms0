@@ -25,6 +25,7 @@ package org.mintjams.rt.jcr.internal;
 import java.io.Closeable;
 import java.io.IOException;
 
+import org.mintjams.rt.jcr.internal.cluster.ClusterController;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
@@ -109,21 +110,32 @@ public class WorkspaceCleaner implements Closeable, Adaptable {
 					continue;
 				}
 
-				try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
-					WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
-					try {
-						workspaceQuery.files().clean(new WorkspaceQuery.QueryMonitor() {
-							@Override
-							public boolean isCancelled() {
-								return fCloseRequested;
-							}
-						});
-						workspaceQuery.commit();
-					} catch (Throwable ex) {
+				try {
+					// Deleted blobs are removed from storage shared by every
+					// cluster node, so only one node may clean at a time; a
+					// skipped run is picked up again on the next commit.
+					ClusterController.Lease lease = adaptTo(ClusterController.class)
+							.tryLock("blob-cleaner", 600000L);
+					if (lease == null) {
+						continue;
+					}
+
+					try (lease; JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+						WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
 						try {
-							workspaceQuery.rollback();
-						} catch (Throwable ignore) {}
-						throw ex;
+							workspaceQuery.files().clean(new WorkspaceQuery.QueryMonitor() {
+								@Override
+								public boolean isCancelled() {
+									return fCloseRequested;
+								}
+							});
+							workspaceQuery.commit();
+						} catch (Throwable ex) {
+							try {
+								workspaceQuery.rollback();
+							} catch (Throwable ignore) {}
+							throw ex;
+						}
 					}
 				} catch (Throwable ex) {
 					Activator.getDefault().getLogger(WorkspaceCleaner.class).error("An error occurred while processing the cleaning task.", ex);

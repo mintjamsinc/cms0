@@ -156,6 +156,29 @@ public class NodeCache implements Closeable, Adaptable {
 		}
 	}
 
+	/**
+	 * Drops the item at the given path and everything cached below it, and advances
+	 * the revision. Used when changes committed on another cluster node moved or
+	 * removed a subtree: the journal carries only the subtree root, but the cached
+	 * paths of all of its descendants are affected.
+	 */
+	public synchronized void invalidateDescendants(String absPath) {
+		fRevision++;
+		String prefix = absPath.endsWith("/") ? absPath : (absPath + "/");
+		Iterator<Map.Entry<String, Entry>> i = fEntries.entrySet().iterator();
+		while (i.hasNext()) {
+			Map.Entry<String, Entry> e = i.next();
+			Entry entry = e.getValue();
+			if (entry.fPath == null || !(entry.fPath.equals(absPath) || entry.fPath.startsWith(prefix))) {
+				continue;
+			}
+			i.remove();
+			if (e.getKey().equals(fPaths.get(entry.fPath))) {
+				fPaths.remove(entry.fPath);
+			}
+		}
+	}
+
 	private void trim() {
 		int cacheSize = adaptTo(JcrRepository.class).getConfiguration().getWorkspaceNodeCacheSize();
 		while (fEntries.size() > cacheSize) {
