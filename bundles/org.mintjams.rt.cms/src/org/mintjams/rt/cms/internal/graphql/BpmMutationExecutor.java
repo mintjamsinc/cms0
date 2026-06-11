@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.jcr.Node;
 import javax.jcr.Session;
 
 import org.camunda.bpm.engine.AuthorizationException;
@@ -696,7 +697,8 @@ public class BpmMutationExecutor {
 		Session mgmt = CmsService.getRepository().login(
 				new CmsServiceCredentials(userId), workspaceName);
 		try {
-			JobNodes.createJobNode(mgmt, jobId, MigrateInstancesJob.TYPE, userId, 0);
+			Node jobNode = JobNodes.createJobNode(mgmt, jobId, MigrateInstancesJob.TYPE, userId, 0);
+			JobNodes.setNodeId(mgmt, JobNodes.getContent(jobNode));
 			mgmt.save();
 		} catch (Throwable ex) {
 			try { mgmt.refresh(false); } catch (Throwable ignore) {}

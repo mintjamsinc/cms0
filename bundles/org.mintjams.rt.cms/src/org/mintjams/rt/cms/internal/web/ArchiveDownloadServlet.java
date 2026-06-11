@@ -164,11 +164,9 @@ public class ArchiveDownloadServlet extends HttpServlet {
 		if (credentials instanceof Credentials) {
 			return (Credentials) credentials;
 		}
-		if (request.getSession(false) != null) {
-			credentials = request.getSession().getAttribute(Credentials.class.getName());
-			if (credentials instanceof Credentials) {
-				return (Credentials) credentials;
-			}
+		credentials = Webs.getCredentials(request);
+		if (credentials instanceof Credentials) {
+			return (Credentials) credentials;
 		}
 		return new javax.jcr.GuestCredentials();
 	}

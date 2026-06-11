@@ -22,7 +22,6 @@
 
 package org.mintjams.rt.cms.internal.security;
 
-import javax.jcr.Credentials;
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -54,7 +53,7 @@ public class FelixWebConsoleSecurityProvider implements WebConsoleSecurityProvid
 			context.setAttribute("response", response);
 			context.setAttribute("session", request.getSession());
 			context.setAttribute("application", request.getServletContext());
-			context.setCredentials((Credentials) request.getSession().getAttribute(Credentials.class.getName()));
+			context.setCredentials(Webs.getCredentials(request));
 			request.getServletContext().setAttribute(ServletContext.TEMPDIR, CmsService.getTemporaryDirectoryPath().toFile());
 			Scripts.prepareAPIs(context);
 

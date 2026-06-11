@@ -382,12 +382,11 @@ public class DownloadServlet extends HttpServlet {
 			return (Credentials) credentials;
 		}
 
-		// Get credentials from session
-		if (request.getSession(false) != null) {
-			credentials = request.getSession().getAttribute(Credentials.class.getName());
-			if (credentials instanceof Credentials) {
-				return (Credentials) credentials;
-			}
+		// Get credentials from the session or the cluster-portable
+		// authentication token
+		credentials = Webs.getCredentials(request);
+		if (credentials instanceof Credentials) {
+			return (Credentials) credentials;
 		}
 
 		// Default is guest authentication

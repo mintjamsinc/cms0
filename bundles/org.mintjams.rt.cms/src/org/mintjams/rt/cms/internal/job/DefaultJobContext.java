@@ -24,6 +24,7 @@ package org.mintjams.rt.cms.internal.job;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.jcr.Node;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 
@@ -47,10 +48,19 @@ import org.osgi.service.log.Logger;
  */
 class DefaultJobContext implements JobContext {
 
+	/**
+	 * How often {@link #isAborted()} consults the persisted job status. The
+	 * in-memory flag only reaches jobs running on this node; an abort
+	 * requested on another cluster node arrives as the persisted ABORTING
+	 * status.
+	 */
+	private static final long STATUS_CHECK_INTERVAL_MILLIS = 5000L;
+
 	private final Job fJob;
 	private final AtomicBoolean fAbortFlag;
 	private Session fJobSession;
 	private Session fProgressSession;
+	private long fStatusChecked = System.currentTimeMillis();
 
 	DefaultJobContext(Job job, AtomicBoolean abortFlag) {
 		fJob = job;
@@ -83,8 +93,29 @@ class DefaultJobContext implements JobContext {
 	}
 
 	@Override
-	public boolean isAborted() {
-		return fAbortFlag.get();
+	public synchronized boolean isAborted() {
+		if (fAbortFlag.get()) {
+			return true;
+		}
+
+		// An abort requested on another cluster node is visible only as the
+		// persisted ABORTING status; poll it at a low rate.
+		if (System.currentTimeMillis() - fStatusChecked < STATUS_CHECK_INTERVAL_MILLIS) {
+			return false;
+		}
+		fStatusChecked = System.currentTimeMillis();
+		try {
+			Session session = getProgressSession();
+			session.refresh(true);
+			Node jobNode = JobNodes.getJobNode(session, fJob.getJobId());
+			if (jobNode != null && JobNodes.getStatus(JobNodes.getContent(jobNode)) == JobStatus.ABORTING) {
+				fAbortFlag.set(true);
+				return true;
+			}
+		} catch (Throwable ex) {
+			getLogger().warn("An error occurred while checking the persisted job status: " + fJob.getJobId(), ex);
+		}
+		return false;
 	}
 
 	@Override

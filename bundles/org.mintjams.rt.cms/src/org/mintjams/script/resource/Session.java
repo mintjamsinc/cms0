@@ -38,6 +38,7 @@ import javax.jcr.Property;
 import javax.jcr.RepositoryException;
 import javax.jcr.SimpleCredentials;
 
+import org.mintjams.jcr.cluster.ClusterCoordinator;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalProvider;
 import org.mintjams.jcr.security.UserPrincipal;
@@ -116,7 +117,7 @@ public class Session implements Closeable, Adaptable {
 			throw Cause.create(ex).wrap(IllegalStateException.class);
 		}
 
-		String authenticatedFactors = (String) Webs.getRequest(fContext).getSession().getAttribute("org.mintjams.cms.security.auth.AuthenticatedFactors");
+		String authenticatedFactors = (String) Webs.getRequest(fContext).getSession().getAttribute(Webs.AUTHENTICATED_FACTORS_ATTRIBUTE);
 		if (Strings.isEmpty(authenticatedFactors)) {
 			return false;
 		}
@@ -270,6 +271,16 @@ public class Session implements Closeable, Adaptable {
 	}
 
 	public void deploy() throws ResourceException, IOException {
+		// In a cluster every node deploys from the shared directory at
+		// startup; the lease serializes them so that two nodes never create
+		// or update the same resource concurrently. The second node then
+		// finds everything already up to date and walks through unchanged.
+		// In standalone mode the lease is granted immediately.
+		ClusterCoordinator.Lease lease = null;
+		ClusterCoordinator coordinator = Adaptables.getAdapter(fJcrSession, ClusterCoordinator.class);
+		if (coordinator != null) {
+			lease = coordinator.lock("content-deployment", 3600000L);
+		}
 		try {
 			Path jcrPath = CmsService.getWorkspacePath(fContext.getWorkspaceName()).resolve("etc/jcr");
 			// Provision identity and access control first so that the node
@@ -280,16 +291,22 @@ public class Session implements Closeable, Adaptable {
 			try (Provisioner provisioner = new Provisioner(this)) {
 				provisioner.provision(jcrPath.resolve("provisioning"));
 			}
-			deploy(jcrPath.resolve("deploy"), getRootFolder());
+			DeployProgress progress = new DeployProgress();
+			deploy(jcrPath.resolve("deploy"), getRootFolder(), progress);
+			CmsService.getLogger(getClass()).info("Content deployment finished: " + progress.summarize());
 		} catch (Throwable ex) {
 			try {
 				rollback();
 			} catch (Throwable ignore) {}
 			throw ex;
+		} finally {
+			if (lease != null) {
+				lease.close();
+			}
 		}
 	}
 
-	private void deploy(Path path, Resource resource) throws ResourceException, IOException {
+	private void deploy(Path path, Resource resource, DeployProgress progress) throws ResourceException, IOException {
 		if (!Files.exists(path)) {
 			return;
 		}
@@ -298,12 +315,13 @@ public class Session implements Closeable, Adaptable {
 			if (!resource.exists()) {
 				resource.createFolder();
 				commit();
+				progress.created();
 			}
 
 			try (Stream<Path> stream = Files.list(path)) {
 				stream.forEach(childPath -> {
 					try {
-						deploy(childPath, resource.getResource(childPath.getFileName().toString()));
+						deploy(childPath, resource.getResource(childPath.getFileName().toString()), progress);
 					} catch (Throwable ex) {
 						throw new UncheckedIOException(Cause.create(ex).wrap(IOException.class));
 					}
@@ -319,13 +337,61 @@ public class Session implements Closeable, Adaptable {
 			resource.createFile();
 			resource.write(path);
 			commit();
+			progress.created();
 		} else {
 			if (resource.getLastModified().getTime() < Files.getLastModifiedTime(path).toMillis()) {
 				CmsService.getLogger(getClass()).debug("Update content: " + path.toAbsolutePath().toString());
 				resource.write(path);
 				resource.setProperty(Property.JCR_LAST_MODIFIED, new java.util.Date(Files.getLastModifiedTime(path).toMillis()));
 				commit();
+				progress.updated();
+			} else {
+				progress.unchanged();
 			}
+		}
+	}
+
+	/**
+	 * Reports content deployment progress periodically. A full deployment
+	 * against a networked database can run for minutes, and without these
+	 * reports it is indistinguishable from a hung process.
+	 */
+	private class DeployProgress {
+		private static final long REPORT_INTERVAL_MILLIS = 10000L;
+
+		private final long fStarted = System.currentTimeMillis();
+		private long fLastReported = fStarted;
+		private long fCreated;
+		private long fUpdated;
+		private long fUnchanged;
+
+		private void created() {
+			fCreated++;
+			reportIfStale();
+		}
+
+		private void updated() {
+			fUpdated++;
+			reportIfStale();
+		}
+
+		private void unchanged() {
+			fUnchanged++;
+			reportIfStale();
+		}
+
+		private void reportIfStale() {
+			if (System.currentTimeMillis() - fLastReported < REPORT_INTERVAL_MILLIS) {
+				return;
+			}
+
+			fLastReported = System.currentTimeMillis();
+			CmsService.getLogger(Session.class).info("Content deployment in progress: " + summarize());
+		}
+
+		private String summarize() {
+			return fCreated + " created, " + fUpdated + " updated, " + fUnchanged + " unchanged ("
+					+ ((System.currentTimeMillis() - fStarted) / 1000) + " seconds).";
 		}
 	}
 

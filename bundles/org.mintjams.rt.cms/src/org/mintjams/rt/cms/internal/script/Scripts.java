@@ -100,6 +100,9 @@ public class Scripts {
 		ctx.setAttribute(EventAdminAPI.class.getSimpleName(), new EventAdminAPI(ctx));
 		ctx.setAttribute(CryptoAPI.class.getSimpleName(), new CryptoAPI());
 		ctx.setAttribute(SessionAPI.class.getSimpleName(), new SessionAPI(ctx));
+		ClusterAPI cluster = new ClusterAPI(ctx);
+		ctx.setAttribute("cluster", cluster);
+		ctx.setAttribute(ClusterAPI.class.getSimpleName(), cluster);
 		if (ctx.getAttribute("request") != null) {
 			ctx.setAttribute(WebAPI.class.getSimpleName(), new WebAPI(ctx));
 		}

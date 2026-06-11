@@ -32,6 +32,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Locale;
 
+import javax.jcr.Credentials;
 import javax.servlet.DispatcherType;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.http.HttpServletRequest;
@@ -41,6 +42,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.script.Scripts;
+import org.mintjams.rt.cms.internal.security.auth.AuthToken;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.script.YAML;
 import org.mintjams.script.resource.ResourceException;
@@ -56,7 +58,35 @@ public class Webs {
 	public static final String WEB_TEMPLATE = "web.template";
 	public static final String PREVIEW_CONTENT_TYPE = "application/vnd.cms.preview+json";
 
+	public static final String AUTHENTICATED_FACTORS_ATTRIBUTE = "org.mintjams.cms.security.auth.AuthenticatedFactors";
+
 	private Webs() {}
+
+	/**
+	 * Resolves the authenticated credentials of the request: from the HTTP
+	 * session when this node established the login, or from the
+	 * cluster-portable authentication token, which transparently
+	 * re-establishes the session on this node when the login happened on
+	 * another node (or before a restart). Returns {@code null} when the
+	 * request carries no authentication.
+	 */
+	public static Credentials getCredentials(HttpServletRequest request) {
+		if (request.getSession(false) != null) {
+			Object credentials = request.getSession().getAttribute(Credentials.class.getName());
+			if (credentials instanceof Credentials) {
+				return (Credentials) credentials;
+			}
+		}
+
+		AuthToken.Restored restored = AuthToken.restore(request);
+		if (restored == null) {
+			return null;
+		}
+
+		request.getSession().setAttribute(Credentials.class.getName(), restored.getCredentials());
+		request.getSession().setAttribute(AUTHENTICATED_FACTORS_ATTRIBUTE, restored.getAuthenticatedFactors());
+		return restored.getCredentials();
+	}
 
 	public static WorkspaceScriptContext newActionScriptContext(String workspaceName, HttpServletRequest request) {
 		WorkspaceScriptContext context = new WorkspaceScriptContext(workspaceName);

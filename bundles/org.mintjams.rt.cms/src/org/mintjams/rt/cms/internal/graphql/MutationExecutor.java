@@ -2041,6 +2041,7 @@ public class MutationExecutor {
 			}
 			priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
 
+			JobNodes.setNodeId(mgmt, content);
 			JobNodes.setStatus(content, JobStatus.QUEUED);
 			mgmt.save();
 		} catch (Exception ex) {
@@ -2116,7 +2117,17 @@ public class MutationExecutor {
 				mgmt.save();
 				return JobStatus.ABORTING.toExternalString();
 			}
-			// No active worker (init or queued before pickup). Finalise here.
+			if (current == JobStatus.RUNNING || current == JobStatus.QUEUED) {
+				// Not tracked on this node, so the job lives on another
+				// cluster node. Mark ABORTING: a running worker observes the
+				// persisted status and finalises, and a still-queued job is
+				// finalised at pickup. Never finalise it from here — the
+				// work is genuinely still in progress elsewhere.
+				JobNodes.setStatus(content, JobStatus.ABORTING);
+				mgmt.save();
+				return JobStatus.ABORTING.toExternalString();
+			}
+			// Never submitted anywhere (still INIT). Finalise here.
 			JobNodes.setStatus(content, JobStatus.ABORTED);
 			content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
 			mgmt.save();
@@ -2279,6 +2290,7 @@ public class MutationExecutor {
 			priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
 
 			content.setProperty(JobNodes.PROP_ARCHIVE_FILENAME, filename);
+			JobNodes.setNodeId(mgmt, content);
 			JobNodes.setStatus(content, JobStatus.QUEUED);
 			mgmt.save();
 		} catch (Exception ex) {

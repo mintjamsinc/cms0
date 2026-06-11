@@ -42,6 +42,17 @@ public class Saml2Credentials implements Credentials {
 		fAttributes.putAll(auth.getAttributes());
 	}
 
+	/**
+	 * Restores credentials from previously captured state (e.g. the
+	 * cluster-portable authentication token).
+	 */
+	public Saml2Credentials(String name, Map<String, List<String>> attributes) {
+		fName = name;
+		if (attributes != null) {
+			fAttributes.putAll(attributes);
+		}
+	}
+
 	public String getName() {
 		return fName;
 	}

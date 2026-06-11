@@ -24,6 +24,7 @@ package org.mintjams.rt.cms.internal.job;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Calendar;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.PriorityBlockingQueue;
@@ -32,6 +33,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
+import javax.jcr.Node;
+import javax.jcr.Session;
 
 import org.mintjams.rt.cms.internal.CmsService;
 
@@ -147,6 +151,9 @@ public class JobManager implements Closeable {
 							+ Thread.currentThread().getName());
 			DefaultJobContext context = new DefaultJobContext(fJob, fAbortFlag);
 			try {
+				if (!beginExecution(context)) {
+					return;
+				}
 				fJob.execute(context);
 				CmsService.getLogger(JobManager.class).info(
 						"Job " + fJob.getJobId() + " (" + fJob.getJobType() + ") finished");
@@ -160,6 +167,49 @@ public class JobManager implements Closeable {
 					fAbortFlags.remove(fJob.getJobId());
 				}
 			}
+		}
+
+		/**
+		 * Consults the persisted job status before executing: a job that was
+		 * aborted while still queued — possibly from another cluster node —
+		 * is finalised instead of run, and a job already in a terminal state
+		 * is skipped. Also records this node as the executor so a restart
+		 * can recover exactly the jobs that died with it. Bookkeeping
+		 * failures never block execution.
+		 */
+		private boolean beginExecution(DefaultJobContext context) {
+			try {
+				Session session = context.getProgressSession();
+				session.refresh(true);
+				Node jobNode = JobNodes.getJobNode(session, fJob.getJobId());
+				if (jobNode == null) {
+					return true;
+				}
+				Node content = JobNodes.getContent(jobNode);
+				JobStatus status = JobNodes.getStatus(content);
+
+				if (status == JobStatus.ABORTING) {
+					JobNodes.setStatus(content, JobStatus.ABORTED);
+					content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
+					session.save();
+					CmsService.getLogger(JobManager.class).info(
+							"Job " + fJob.getJobId() + " (" + fJob.getJobType() + ") was aborted before execution");
+					return false;
+				}
+				if (status != null && status.isTerminal()) {
+					CmsService.getLogger(JobManager.class).warn(
+							"Job " + fJob.getJobId() + " (" + fJob.getJobType() + ") is already " + status
+									+ " and will not be executed");
+					return false;
+				}
+
+				JobNodes.setNodeId(session, content);
+				session.save();
+			} catch (Throwable ex) {
+				CmsService.getLogger(JobManager.class).warn(
+						"An error occurred while preparing job " + fJob.getJobId() + "; executing anyway", ex);
+			}
+			return true;
 		}
 
 		@Override

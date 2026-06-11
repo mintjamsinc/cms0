@@ -29,6 +29,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Calendar;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -36,6 +37,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import javax.jcr.Node;
+import javax.jcr.NodeIterator;
 import javax.jcr.Repository;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
@@ -60,6 +62,8 @@ import org.mintjams.rt.cms.internal.bpm.WorkspaceProcessEngineProvider;
 import org.mintjams.rt.cms.internal.cms.event.WorkspaceCmsEventManager;
 import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
 import org.mintjams.rt.cms.internal.job.JobManager;
+import org.mintjams.rt.cms.internal.job.JobNodes;
+import org.mintjams.rt.cms.internal.job.JobStatus;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceFacetProvider;
@@ -210,6 +214,25 @@ public class CmsService {
 				.setBundleContext(getBundleContext())
 				.build());
 
+		// Finalise the jobs that died with this node's previous run, before
+		// anything starts accepting new submissions
+		try {
+			recoverJobs("system");
+		} catch (Throwable ex) {
+			fLoggerFactory.getLogger(getClass()).warn("An error occurred while recovering jobs: system", ex);
+		}
+		for (String workspaceName : getWorkspaceNames()) {
+			if (workspaceName.equals("system")) {
+				continue;
+			}
+
+			try {
+				recoverJobs(workspaceName);
+			} catch (Throwable ex) {
+				fLoggerFactory.getLogger(getClass()).warn("An error occurred while recovering jobs: " + workspaceName, ex);
+			}
+		}
+
 		// Load content for all workspaces
 		try {
 			loadContent("system");
@@ -351,6 +374,80 @@ public class CmsService {
 		cmsEventManager.open();
 	}
 
+	/**
+	 * Finalises the jobs that died with this node's previous run. Queues and
+	 * workers are in-memory, so a job that was QUEUED or RUNNING when the
+	 * node went down can never resume; without this it would stay "running"
+	 * in the UI forever. Jobs are matched by their recorded executing node —
+	 * in a cluster, the other nodes' live jobs are left strictly alone. Only
+	 * the current and previous month's job buckets are scanned: anything
+	 * older was already recovered by an earlier boot.
+	 */
+	private void recoverJobs(String workspaceName) throws RepositoryException {
+		Session session = fRepository.login(new CmsServiceCredentials(), workspaceName);
+		try {
+			String nodeId = JobNodes.getCurrentNodeId(session);
+			org.mintjams.jcr.cluster.ClusterCoordinator coordinator = Adaptables.getAdapter(session,
+					org.mintjams.jcr.cluster.ClusterCoordinator.class);
+			boolean clusterEnabled = (coordinator != null && coordinator.isClusterEnabled());
+
+			int recovered = 0;
+			java.time.YearMonth thisMonth = java.time.YearMonth.now(java.time.ZoneOffset.UTC);
+			for (java.time.YearMonth month : new java.time.YearMonth[] { thisMonth, thisMonth.minusMonths(1) }) {
+				String folderPath = JobNodes.JOBS_ROOT + "/" + month.getYear()
+						+ "/" + String.format("%02d", month.getMonthValue());
+				if (!session.nodeExists(folderPath)) {
+					continue;
+				}
+
+				for (NodeIterator i = session.getNode(folderPath).getNodes("job-*"); i.hasNext();) {
+					Node content = JobNodes.getContent(i.nextNode());
+					JobStatus status = JobNodes.getStatus(content);
+					if (status == null || status == JobStatus.INIT || status.isTerminal()) {
+						// INIT jobs were never queued; they can still be
+						// started and lose nothing in a restart.
+						continue;
+					}
+
+					if (clusterEnabled) {
+						// Only this node's jobs died with it; a job without a
+						// recorded node predates the attribution and cannot be
+						// claimed safely.
+						String owner = JobNodes.getString(content, JobNodes.PROP_NODE_ID, null);
+						if (owner == null || !owner.equals(nodeId)) {
+							continue;
+						}
+					}
+
+					if (status == JobStatus.ABORTING) {
+						JobNodes.setStatus(content, JobStatus.ABORTED);
+					} else {
+						JobNodes.setStatus(content, JobStatus.FAILED);
+						content.setProperty(JobNodes.PROP_ERROR_MESSAGE,
+								"The node restarted before the job finished.");
+					}
+					content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
+					recovered++;
+				}
+			}
+
+			if (recovered > 0) {
+				session.save();
+				fLoggerFactory.getLogger(getClass()).info("Recovered " + recovered
+						+ " job(s) that died with this node's previous run: " + workspaceName);
+			}
+		} catch (RepositoryException ex) {
+			try {
+				session.refresh(false);
+			} catch (Throwable ignore) {}
+			throw ex;
+		} finally {
+			try {
+				session.logout();
+			} catch (Throwable ignore) {}
+		}
+	}
+
 	private void loadContent(String workspaceName) throws ResourceException, IOException {
 		getLogger(getClass()).info("Content update has started.");
 		try (WorkspaceScriptContext context = new WorkspaceScriptContext(workspaceName)) {
@@ -459,6 +556,15 @@ public class CmsService {
 	}
 
 	public static Path getTemporaryDirectoryPath() {
+		// The repository decides where this node's temporary directory lives
+		// (per-node in a cluster); fall back to the legacy location when the
+		// descriptor is not available.
+		try {
+			String path = getRepository().getDescriptor(org.mintjams.jcr.Repository.REPOSITORY_TMP_PATH);
+			if (path != null && !path.isEmpty()) {
+				return Path.of(path);
+			}
+		} catch (Throwable ignore) {}
 		return getRepositoryPath().resolve("tmp");
 	}
 

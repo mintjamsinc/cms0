@@ -72,7 +72,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 
 	public WorkspaceClassLoaderProvider(String workspaceName) throws IOException {
 		fWorkspaceName = workspaceName;
-		fCachePath = Files.createTempDirectory(CmsService.getRepositoryPath().resolve("tmp"), "cld-");
+		fCachePath = Files.createTempDirectory(CmsService.getTemporaryDirectoryPath(), "cld-");
 	}
 
 	public synchronized void open() throws IOException, RepositoryException {

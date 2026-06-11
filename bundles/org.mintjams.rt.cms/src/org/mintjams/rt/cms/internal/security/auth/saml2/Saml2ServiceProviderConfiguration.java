@@ -50,6 +50,8 @@ import org.mintjams.cms.security.PasswordGenerator;
 import org.mintjams.cms.security.saml2.LocalIdentityProvider;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.security.auth.AuthToken;
+import org.mintjams.rt.cms.internal.web.Webs;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
@@ -320,6 +322,17 @@ public class Saml2ServiceProviderConfiguration {
 		return ExpressionContext.create().setVariable("config", fConfig);
 	}
 
+	/**
+	 * Returns the lifetime of the cluster-portable authentication token in
+	 * milliseconds ({@code saml2.yml#authToken.ttl}, in seconds). The token
+	 * is bearer-style with no server-side revocation, so the lifetime
+	 * should stay moderate; logins simply repeat the SAML flow afterwards.
+	 */
+	public long getAuthTokenTtlMillis() {
+		return getExpressionContext().getInt("config.authToken.ttl",
+				(int) (org.mintjams.rt.cms.internal.security.auth.AuthToken.DEFAULT_TTL_MILLIS / 1000)) * 1000L;
+	}
+
 	public SpKeyStoreManager getKeyStoreManager() {
 		return fKeyStoreManager;
 	}
@@ -492,8 +505,12 @@ public class Saml2ServiceProviderConfiguration {
 						}
 					}
 
-					request.getSession().setAttribute(Credentials.class.getName(), new Saml2Credentials(auth));
-					request.getSession().setAttribute("org.mintjams.cms.security.auth.AuthenticatedFactors", "saml2");
+					Saml2Credentials credentials = new Saml2Credentials(auth);
+					request.getSession().setAttribute(Credentials.class.getName(), credentials);
+					request.getSession().setAttribute(Webs.AUTHENTICATED_FACTORS_ATTRIBUTE, "saml2");
+					// Make the login portable across cluster nodes (and across
+					// restarts of this one).
+					AuthToken.issue(request, response, credentials, "saml2", fConfig.getAuthTokenTtlMillis());
 
 					String relayState = getRelayState(request);
 					if (Strings.isNotEmpty(relayState)) {
@@ -512,6 +529,11 @@ public class Saml2ServiceProviderConfiguration {
 					if (!errors.isEmpty()) {
 						throw new ServletException("An unexpected error occurred while processing your request: " + String.join(", ", errors));
 					}
+
+					AuthToken.clear(request, response);
+					try {
+						request.getSession().invalidate();
+					} catch (Throwable ignore) {}
 
 					String relayState = getRelayState(request);
 					if (relayState == null) {

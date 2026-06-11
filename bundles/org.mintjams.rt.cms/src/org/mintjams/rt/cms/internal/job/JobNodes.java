@@ -41,7 +41,9 @@ import javax.jcr.Session;
 
 import org.apache.commons.io.IOUtils;
 import org.mintjams.jcr.JcrPath;
+import org.mintjams.jcr.cluster.ClusterCoordinator;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.tools.adapter.Adaptables;
 
 /**
  * Utility for the JCR persistence of generic background jobs.
@@ -77,6 +79,12 @@ public final class JobNodes {
 	public static final String PROP_ARCHIVE_FILENAME = "jobArchiveFilename";
 	/** Set on completion by jobs whose result is a downloadable artifact (e.g. archive jobs). */
 	public static final String PROP_DOWNLOAD_URL = "jobDownloadUrl";
+	/**
+	 * The cluster node that queued/executes the job. Queues and workers are
+	 * node-local, so this is what lets a restarted node recover exactly its
+	 * own jobs and leave the other nodes' running jobs alone.
+	 */
+	public static final String PROP_NODE_ID = "jobNodeId";
 
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private static final DateTimeFormatter YEAR_FMT = DateTimeFormatter.ofPattern("yyyy").withZone(ZoneOffset.UTC);
@@ -197,6 +205,25 @@ public final class JobNodes {
 	public static void setStatus(Node content, JobStatus status) throws RepositoryException {
 		content.setProperty(PROP_JOB_STATUS, status.toExternalString());
 		content.setProperty("jcr:lastModified", Calendar.getInstance());
+	}
+
+	/**
+	 * Records this node as the owner of the job. Caller saves the session.
+	 */
+	public static void setNodeId(Session session, Node content) throws RepositoryException {
+		String nodeId = getCurrentNodeId(session);
+		if (nodeId != null) {
+			content.setProperty(PROP_NODE_ID, nodeId);
+		}
+	}
+
+	/**
+	 * Returns the identifier of the node this session runs on, or
+	 * {@code null} when the repository does not expose one.
+	 */
+	public static String getCurrentNodeId(Session session) {
+		ClusterCoordinator coordinator = Adaptables.getAdapter(session, ClusterCoordinator.class);
+		return (coordinator == null) ? null : coordinator.getNodeId();
 	}
 
 	/**

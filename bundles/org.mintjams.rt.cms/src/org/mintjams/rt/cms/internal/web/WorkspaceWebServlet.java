@@ -27,7 +27,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.jcr.Credentials;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -73,7 +72,7 @@ public class WorkspaceWebServlet extends HttpServlet {
 			context.setAttribute("response", response);
 			context.setAttribute("session", request.getSession());
 			context.setAttribute("application", request.getServletContext());
-			context.setCredentials((Credentials) request.getSession().getAttribute(Credentials.class.getName()));
+			context.setCredentials(Webs.getCredentials(request));
 			request.getServletContext().setAttribute(ServletContext.TEMPDIR, CmsService.getTemporaryDirectoryPath().toFile());
 			Scripts.prepareAPIs(context);
 

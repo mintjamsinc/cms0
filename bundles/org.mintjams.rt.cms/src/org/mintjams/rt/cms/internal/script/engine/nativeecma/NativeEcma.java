@@ -53,7 +53,7 @@ public class NativeEcma implements Closeable {
 	private Path fLibPath;
 	public Path getLibPath() throws IOException {
 		if (fLibPath == null) {
-			Path tmp = CmsService.getRepositoryPath().resolve("tmp");
+			Path tmp = CmsService.getTemporaryDirectoryPath();
 			fLibPath = Files.createTempDirectory(tmp, "native-").toAbsolutePath();
 		}
 		return fLibPath;
