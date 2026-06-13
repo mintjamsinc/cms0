@@ -2,9 +2,10 @@
 # Build (and optionally push) the MintJams CMS Docker image via buildx.
 #
 # Wraps `docker buildx build` with sensible defaults: derives OCI metadata
-# from git, targets linux/amd64 only (arm64 is blocked by a native bundle —
-# see docker/README.md), and bootstraps a docker-container buildx builder
-# so we are ready to add platforms later without reshaping the workflow.
+# from git, targets both linux/amd64 and linux/arm64 (each architecture's
+# native bundle ships its own JNI library — see docker/README.md), and
+# bootstraps a docker-container buildx builder so the multi-platform build
+# produces a single multi-arch manifest.
 #
 # Expects felix-dist/ to already exist in the repo root. Build that first
 # via your usual workflow (Eclipse PDE export + manual layout).
@@ -12,7 +13,7 @@
 set -euo pipefail
 
 IMAGE_NAME="${IMAGE_NAME:-mintjams/cms}"
-PLATFORMS="${PLATFORMS:-linux/amd64}"
+PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 BUILDER_NAME="${BUILDER_NAME:-cms-builder}"
 VERSION=""
 PUSH=false
@@ -29,8 +30,13 @@ Usage: $0 [options]
   -h, --help               Show this help.
 
 Examples:
-  $0 -v 1.0.0                       # local build for smoke testing
-  $0 -v 1.0.0 --latest --push       # release build, tag :1.0.0 + :latest, push
+  $0 -v 1.0.0 -p linux/amd64        # local smoke test (single arch, loads to daemon)
+  $0 -v 1.0.0 --latest --push       # release build, both arches, tag :1.0.0 + :latest, push
+
+Note: the default builds both linux/amd64 and linux/arm64. A multi-platform
+build cannot be loaded into the local daemon, so without --push it is written
+to cms-image.tar (OCI archive). For a quick local smoke test, pass a single
+platform (it loads into the local daemon automatically) as shown above.
 EOF
 }
 

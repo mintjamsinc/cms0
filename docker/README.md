@@ -66,17 +66,17 @@ from the repository root.
 **Linux / macOS (bash):**
 
 ```bash
-# Local build for smoke testing (loads into the local docker daemon).
-./scripts/docker-build.sh -v 1.0.0
+# Local smoke test: single arch, loaded into the local docker daemon.
+./scripts/docker-build.sh -v 1.0.0 -p linux/amd64
 
-# Release build: tag :1.0.0 + :latest and push to the configured registry.
+# Release build: both arches, tag :1.0.0 + :latest, push as one manifest.
 ./scripts/docker-build.sh -v 1.0.0 --latest --push
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-.\scripts\docker-build.ps1 -Version 1.0.0
+.\scripts\docker-build.ps1 -Version 1.0.0 -Platforms linux/amd64
 .\scripts\docker-build.ps1 -Version 1.0.0 -Latest -Push
 ```
 
@@ -85,36 +85,51 @@ Both wrappers call `docker buildx build` and:
 - Bootstrap a `docker-container` buildx builder named `cms-builder`.
 - Stamp the image with OCI metadata (`org.opencontainers.image.version`,
   `revision`, `created`) derived from git.
-- Target `linux/amd64` only — see "Platform support" below.
+- Target both `linux/amd64` and `linux/arm64` by default — see
+  "Platform support" below.
+
+A multi-platform build cannot be loaded into the local daemon. With `--push`
+the wrappers publish a single multi-arch manifest; without it, the build is
+written to `cms-image.tar` (OCI archive). For a quick local smoke test, pass
+a single platform — it loads into the local daemon automatically, as shown
+above.
 
 If you prefer to call `docker buildx` directly:
 
 ```bash
 docker buildx build \
-  --platform linux/amd64 \
+  --platform linux/amd64,linux/arm64 \
   --build-arg IMAGE_VERSION=1.0.0 \
   --build-arg IMAGE_REVISION="$(git rev-parse HEAD)" \
   --build-arg IMAGE_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -f docker/Dockerfile \
   -t mintjams/cms:1.0.0 \
-  --load \
+  --push \
   .
 ```
 
 ## Platform support
 
-The published image is **`linux/amd64` only**.
+The published image is a **multi-arch manifest covering `linux/amd64` and
+`linux/arm64`**. Docker automatically pulls the variant matching the host, so
+Apple Silicon and arm64 servers run natively — no emulation, no performance
+penalty.
 
-The bundle `org.mintjams.rt.cms.linux.x86_64` ships a Linux x86_64 native
-library (JNI-bound C++ in `bundles/org.mintjams.rt.cms.linux.x86_64/native/`).
-Until an aarch64 build of that library exists, the CMS will not run on
-`linux/arm64` and we deliberately do not publish an arm64 manifest.
+Native JavaScript support (V8 via JNI) is delivered by per-architecture
+fragment bundles attached to the `org.mintjams.rt.cms` host:
 
-Apple Silicon and other arm64 hosts can still run the image under emulation:
+- `org.mintjams.rt.cms.linux.x86_64` — ships `native/linux/x86_64/*.so`
+- `org.mintjams.rt.cms.linux.arm64`  — ships `native/linux/arm64/*.so`
 
-```bash
-docker run --platform linux/amd64 mintjams/cms:1.0.0
-```
+Both fragments must be present in `felix-dist/bundle/`. They carry only
+native libraries under distinct `native/linux/<arch>/` paths, so shipping both
+in one image is harmless: at runtime the host bundle loads the libraries for
+the running architecture (resolved from `os.arch`) and ignores the rest. This
+is why a single `felix-dist/` yields a working image for both architectures —
+the base image (`eclipse-temurin:17-jre`) is itself multi-arch, and `buildx`
+selects the matching JRE layer per platform.
 
-Expect a measurable performance hit from QEMU/Rosetta translation; this is
-not a supported production configuration.
+> Adding a new architecture is purely additive: build the matching
+> `org.mintjams.rt.cms.linux.<arch>` fragment, drop its jar into
+> `felix-dist/bundle/`, and append the platform to the `--platform` list. The
+> Dockerfile and the runtime loader need no changes.

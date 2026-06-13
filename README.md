@@ -125,18 +125,14 @@ the auto-generated defaults.
 
 ## Platform support
 
-The published image is **`linux/amd64` only**. The
-`org.mintjams.rt.cms.linux.x86_64` bundle ships a Linux x86_64 native
-library; an arm64 build of that library does not yet exist, so we do not
-publish an arm64 manifest.
-
-Apple Silicon and other arm64 hosts can still run the image under emulation:
-
-```bash
-docker run --platform linux/amd64 ... mintjams/cms:0.1.13-beta
-```
-
-This is fine for evaluation but not a supported production configuration.
+The published image is a **multi-arch manifest covering `linux/amd64` and
+`linux/arm64`**. Docker automatically pulls the variant matching the host, so
+Apple Silicon and arm64 servers run natively — no emulation required. Native
+JavaScript support (V8 via JNI) is delivered by per-architecture fragment
+bundles (`org.mintjams.rt.cms.linux.x86_64` and
+`org.mintjams.rt.cms.linux.arm64`); the runtime loads the libraries for the
+running architecture and ignores the rest. See
+[`docker/README.md`](docker/README.md#platform-support) for details.
 
 ---
 

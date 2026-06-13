@@ -4,9 +4,10 @@
 
 .DESCRIPTION
     Wraps `docker buildx build` with sensible defaults: derives OCI metadata
-    from git, targets linux/amd64 only (arm64 is blocked by a native bundle —
-    see docker/README.md), and bootstraps a docker-container buildx builder
-    so we are ready to add platforms later without reshaping the workflow.
+    from git, targets both linux/amd64 and linux/arm64 (each architecture's
+    native bundle ships its own JNI library — see docker/README.md), and
+    bootstraps a docker-container buildx builder so the multi-platform build
+    produces a single multi-arch manifest.
 
     The script expects felix-dist/ to already exist in the repo root. Build
     that first via your usual workflow (Eclipse PDE export + manual layout).
@@ -19,21 +20,24 @@
     Image name without tag. Defaults to "mintjams/cms".
 
 .PARAMETER Platforms
-    Comma-separated platform list. Defaults to "linux/amd64".
+    Comma-separated platform list. Defaults to "linux/amd64,linux/arm64".
 
 .PARAMETER Push
     Push the built image to its registry. Without this flag the image is
-    loaded into the local docker daemon (`--load`) for testing.
+    loaded into the local docker daemon (`--load`) for testing. A
+    multi-platform build cannot be loaded into the local daemon, so without
+    -Push it is written to cms-image.tar (OCI archive); pass a single
+    -Platforms value with the default load behaviour for a quick smoke test.
 
 .PARAMETER Latest
     Also tag the image as ":latest". Use only for clean release builds.
 
 .EXAMPLE
-    # Local build for smoke testing
-    .\scripts\docker-build.ps1 -Version 1.0.0
+    # Local smoke test (single arch, loads into the local daemon)
+    .\scripts\docker-build.ps1 -Version 1.0.0 -Platforms linux/amd64
 
 .EXAMPLE
-    # Release build: tag 1.0.0 + latest and push to DockerHub
+    # Release build: both arches, tag 1.0.0 + latest and push to DockerHub
     .\scripts\docker-build.ps1 -Version 1.0.0 -Latest -Push
 #>
 
@@ -41,7 +45,7 @@
 param(
     [string]$Version,
     [string]$ImageName = "mintjams/cms",
-    [string]$Platforms = "linux/amd64",
+    [string]$Platforms = "linux/amd64,linux/arm64",
     [switch]$Push,
     [switch]$Latest,
     [string]$BuilderName = "cms-builder"

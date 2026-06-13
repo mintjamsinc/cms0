@@ -207,6 +207,7 @@ top-level [`LICENSE`](../LICENSE). They are not third-party software.
 - `bundle/org.mintjams.jcr_1.0.0.jar`
 - `bundle/org.mintjams.rt.cms_1.0.0.jar`
 - `bundle/org.mintjams.rt.cms.linux.x86_64_1.0.0.jar` *(embeds third-party native libraries — see the next section)*
+- `bundle/org.mintjams.rt.cms.linux.arm64_1.0.0.jar` *(embeds third-party native libraries — see the next section)*
 - `bundle/org.mintjams.rt.jcr_1.0.0.jar`
 - `bundle/org.mintjams.rt.log_1.0.0.jar`
 - `bundle/org.mintjams.rt.log.file_1.0.0.jar`
@@ -217,13 +218,16 @@ top-level [`LICENSE`](../LICENSE). They are not third-party software.
 - `bundle/org.mintjams.tools_2.1.0.jar`
 - `bundle/slf4j-api-v2_2.0.17.jar` *(MintJams-authored OSGi packaging of upstream [SLF4J](https://www.slf4j.org/) 2.0.17 API; the embedded API itself is MIT-licensed)*
 
-### Native libraries embedded in `org.mintjams.rt.cms.linux.x86_64_1.0.0.jar`
+### Native libraries embedded in the `org.mintjams.rt.cms.linux.*` bundles
 
-The Linux/x86_64 native-support bundle ships the following shared
-objects under its `native/linux/` directory. `libnativeecma.so` is
-MintJams-authored JNI glue (governed by the top-level `LICENSE`); the
-remaining `.so` files are produced from a Chromium / V8 component build
-(`is_component_build=true`) and are redistributed under their
+The Linux native-support bundles ship the following shared objects under
+their `native/linux/<arch>/` directories — `native/linux/x86_64/` in
+`org.mintjams.rt.cms.linux.x86_64_1.0.0.jar` and `native/linux/arm64/` in
+`org.mintjams.rt.cms.linux.arm64_1.0.0.jar`. Both architectures carry the
+same set of libraries, compiled for their respective target.
+`libnativeecma.so` is MintJams-authored JNI glue (governed by the top-level
+`LICENSE`); the remaining `.so` files are produced from a Chromium / V8
+component build (`is_component_build=true`) and are redistributed under their
 respective upstream licenses.
 
 | File | Upstream Project | License |
@@ -237,15 +241,18 @@ respective upstream licenses.
 | `libc++.so` | [LLVM libc++](https://libcxx.llvm.org/) C++ standard library (shipped because V8 is built with `use_custom_libcxx=true`) | Apache License 2.0 with LLVM Exceptions (<https://github.com/llvm/llvm-project/blob/main/libcxx/LICENSE.TXT>) |
 
 Verbatim copies of the V8, Abseil, zlib, and libc++ upstream license
-texts are shipped inside
-`bundle/org.mintjams.rt.cms.linux.x86_64_1.0.0.jar`
+texts are shipped inside each native-support bundle
+(`bundle/org.mintjams.rt.cms.linux.x86_64_1.0.0.jar` and
+`bundle/org.mintjams.rt.cms.linux.arm64_1.0.0.jar`)
 under `native/linux/THIRD_PARTY_LICENSES/` so the binary `.so` files
 travel together with their attribution notices.
 
 The exact V8 commit and Abseil / zlib / libc++ revisions pulled in by
 `gclient sync` are recorded at build time in `V8_COMMIT.txt` and
 `out/shared/args.used.txt` per the build instructions in
-[`bundles/org.mintjams.rt.cms.linux.x86_64/README.md`](../bundles/org.mintjams.rt.cms.linux.x86_64/README.md).
+[`bundles/org.mintjams.rt.cms.linux.x86_64/README.md`](../bundles/org.mintjams.rt.cms.linux.x86_64/README.md)
+and
+[`bundles/org.mintjams.rt.cms.linux.arm64/README.md`](../bundles/org.mintjams.rt.cms.linux.arm64/README.md).
 Refer to the V8 source tree's top-level `LICENSE` and
 `LICENSE.v8`/`LICENSE.*` files for the authoritative attribution for
 each transitively-embedded component.
