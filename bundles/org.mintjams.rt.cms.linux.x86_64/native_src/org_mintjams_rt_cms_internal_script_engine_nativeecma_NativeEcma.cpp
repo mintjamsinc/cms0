@@ -1,6 +1,7 @@
 #include <string.h>
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <future>
 #include <memory>
@@ -86,6 +87,8 @@ namespace
 
 			code_cache_.clear();
 
+			// Isolate（ワークスペース単位の実行資源）のみを破棄する。
+			// V8 プラットフォーム自体はプロセスグローバルなので、ここでは触れない。
 			if (isolate_)
 			{
 				isolate_->Dispose();
@@ -305,19 +308,44 @@ namespace
 		v8::Global<v8::ObjectTemplate> global_tpl_;
 	};
 
-	class Engine
+	// ============================================================================
+	// V8 プラットフォーム（プロセスグローバル・一度だけ初期化・破棄しない）
+	//
+	// V8 のプラットフォーム寿命（InitializePlatform/Initialize/Dispose/DisposePlatform）
+	// はプロセス内で一度きり・不可逆である。特に DisposePlatform を呼ぶと起動状態が
+	// kPlatformDisposed に遷移し、以降の InitializePlatform は
+	//   Check failed: current_state != V8StartupState::kPlatformDisposed
+	// で abort してプロセスごと停止する。
+	//
+	// ワークスペースの追加/削除のたびにプラットフォームを初期化/破棄してはならない。
+	// ここでは std::call_once で一度だけ初期化し、プロセス終了まで破棄しない
+	// （プロセス終了時の解放は OS に委ねる：V8 の設計上これが安全）。
+	// ============================================================================
+	std::once_flag g_platform_once;
+	std::unique_ptr<v8::Platform> g_platform;
+
+	void ensurePlatformInitialized()
 	{
-	public:
-		void init(const char *exePath, int poolSize)
-		{
-			if (initialized_)
-				return;
+		std::call_once(g_platform_once, []
+					   {
 			//    v8::V8::InitializeICUDefaultLocation(exePath);
 			//    v8::V8::InitializeExternalStartupData(exePath);
-			platform_ = v8::platform::NewDefaultPlatform();
-			v8::V8::InitializePlatform(platform_.get());
-			v8::V8::Initialize();
+			g_platform = v8::platform::NewDefaultPlatform();
+			v8::V8::InitializePlatform(g_platform.get());
+			v8::V8::Initialize(); });
+	}
 
+	// ============================================================================
+	// IsolatePool（ワークスペース単位の実行資源）
+	//
+	// 1 ワークスペース = 1 プール。プールは Worker（=Isolate＋専用スレッド）の集合。
+	// ワークスペース削除時はこのプールだけを破棄し、プラットフォームには触れない。
+	// ============================================================================
+	class IsolatePool
+	{
+	public:
+		explicit IsolatePool(int poolSize)
+		{
 			if (poolSize <= 0)
 			{
 				unsigned hc = std::thread::hardware_concurrency();
@@ -327,26 +355,21 @@ namespace
 			{
 				workers_.push_back(std::make_unique<Worker>());
 			}
-			initialized_ = true;
 		}
 
-		void shutdown()
-		{
-			if (!initialized_)
-				return;
-			workers_.clear();
-			v8::V8::Dispose();
-			v8::V8::DisposePlatform();
-			platform_.reset();
-			initialized_ = false;
-		}
+		// デストラクタで全 Worker を停止・join し、各 Isolate を破棄する。
+		// 実行中のジョブがあれば join が完了を待つため、安全に解放できる。
+		~IsolatePool() { workers_.clear(); }
 
-		// JNIスレッド上で呼ばれ、ブロッキングで結果を返す
+		// 呼び出しスレッド上でブロッキングして結果を返す
 		EvalResult evalUTF8(JNIEnv *env, jobjectArray _sources)
 		{
 			EvalResult er;
-			if (!initialized_ || workers_.empty())
+			if (workers_.empty())
+			{
+				er.error = "Native ECMA isolate pool has no workers.";
 				return er;
+			}
 
 			auto job = std::make_shared<Job>();
 			jsize n = env->GetArrayLength(_sources);
@@ -371,13 +394,30 @@ namespace
 		}
 
 	private:
-		std::unique_ptr<v8::Platform> platform_;
 		std::vector<std::unique_ptr<Worker>> workers_;
 		std::atomic<size_t> rr_{0};
-		bool initialized_{false};
 	};
 
-	static std::unique_ptr<Engine> g_engine;
+	// ============================================================================
+	// プール・レジストリ（ハンドル <-> IsolatePool の対応）
+	//
+	// nativeCreatePool が返す jlong ハンドルでプールを参照する。
+	// eval はレジストリから shared_ptr をコピーして保持してから実行するため、
+	// 実行中に別スレッドが nativeDestroyPool でレジストリから外しても、
+	// 実行が終わるまでプールは生存する（use-after-free を防止）。
+	// ============================================================================
+	std::mutex g_pools_mu;
+	std::unordered_map<uint64_t, std::shared_ptr<IsolatePool>> g_pools;
+	std::atomic<uint64_t> g_next_handle{1};
+
+	std::shared_ptr<IsolatePool> findPool(uint64_t handle)
+	{
+		std::lock_guard<std::mutex> lk(g_pools_mu);
+		auto it = g_pools.find(handle);
+		if (it == g_pools.end())
+			return nullptr;
+		return it->second;
+	}
 
 } // namespace
 
@@ -386,29 +426,59 @@ namespace
 jint JNI_OnLoad(JavaVM *vm, void *reserved) { return JNI_VERSION_1_6; }
 void JNI_OnUnload(JavaVM *vm, void *reserved) {}
 
-JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeLoad(JNIEnv *env, jobject _this, jstring _executablePath, jint _poolSize)
+// V8 プラットフォームをプロセスで一度だけ初期化する（static / 冪等）。
+JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeInitPlatform(JNIEnv *env, jclass _clazz, jstring _directoryPath)
 {
-	const char *exe = env->GetStringUTFChars(_executablePath, nullptr);
-	if (!g_engine)
-		g_engine = std::make_unique<Engine>();
-	g_engine->init(exe, (int)_poolSize);
-	env->ReleaseStringUTFChars(_executablePath, exe);
+	// _directoryPath は将来の ICU/外部スタートアップデータ初期化のために受け取る
+	// （現在のビルドフラグでは未使用）。
+	(void)_directoryPath;
+	ensurePlatformInitialized();
 }
 
-JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeUnload(JNIEnv *env, jobject _this)
+// ワークスペース単位の Isolate プールを生成し、ハンドルを返す。
+JNIEXPORT jlong JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeCreatePool(JNIEnv *env, jobject _this, jint _poolSize)
 {
-	if (g_engine)
+	ensurePlatformInitialized();
+
+	auto pool = std::make_shared<IsolatePool>((int)_poolSize);
+	uint64_t handle = g_next_handle.fetch_add(1);
 	{
-		g_engine->shutdown();
-		g_engine.reset();
+		std::lock_guard<std::mutex> lk(g_pools_mu);
+		g_pools.emplace(handle, std::move(pool));
 	}
+	return (jlong)handle;
 }
 
-JNIEXPORT jstring JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeEval(JNIEnv *env, jobject _this, jobjectArray _sources)
+// ワークスペース単位の Isolate プールだけを破棄する（プラットフォームは破棄しない）。
+JNIEXPORT void JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeDestroyPool(JNIEnv *env, jobject _this, jlong _handle)
 {
-	if (!g_engine)
+	std::shared_ptr<IsolatePool> pool;
+	{
+		std::lock_guard<std::mutex> lk(g_pools_mu);
+		auto it = g_pools.find((uint64_t)_handle);
+		if (it == g_pools.end())
+			return;
+		pool = std::move(it->second);
+		g_pools.erase(it);
+	}
+	// レジストリのロック外でプールを破棄する（Worker の join がブロックし得るため）。
+	// 実行中の eval が同じ shared_ptr を保持していれば、その完了まで生存する。
+	pool.reset();
+}
+
+JNIEXPORT jstring JNICALL Java_org_mintjams_rt_cms_internal_script_engine_nativeecma_NativeEcma_nativeEval(JNIEnv *env, jobject _this, jlong _handle, jobjectArray _sources)
+{
+	std::shared_ptr<IsolatePool> pool = findPool((uint64_t)_handle);
+	if (!pool)
+	{
+		jclass exClass = env->FindClass("javax/script/ScriptException");
+		if (!exClass)
+			exClass = env->FindClass("java/lang/RuntimeException");
+		env->ThrowNew(exClass, "Native ECMA isolate pool is not available.");
 		return nullptr;
-	EvalResult er = g_engine->evalUTF8(env, _sources);
+	}
+
+	EvalResult er = pool->evalUTF8(env, _sources);
 
 	if (er.error.has_value())
 	{
