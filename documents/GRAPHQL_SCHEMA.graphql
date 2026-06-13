@@ -441,6 +441,175 @@ type AppEdge {
 }
 
 # -----------------------------------------------------------------------------
+# Workspaces
+# -----------------------------------------------------------------------------
+
+"""
+A repository workspace. Identity (users, groups, roles) always lives in
+the system workspace; content workspaces hold everything else, each with
+its own database, search index, schemas, process engine and integration
+engine.
+"""
+type Workspace {
+  """Workspace name; also the URL segment the workspace is served under"""
+  name: String!
+
+  """Whether this is the workspace the queried endpoint is bound to"""
+  current: Boolean!
+
+  """Whether this is the system workspace (the identity store)"""
+  system: Boolean!
+
+  """Lifecycle state of the workspace's CMS services on this node"""
+  state: WorkspaceState!
+
+  """
+  When `state` is FAILED, the reason the services failed to start (so the UI
+  can show why without a trip to the server log); null otherwise.
+  """
+  stateMessage: String
+
+  """State of the workspace's process engine (Camunda)"""
+  processEngine: WorkspaceEngine!
+
+  """State of the workspace's integration engine (Apache Camel)"""
+  integrationEngine: WorkspaceEngine!
+}
+
+"""
+Lifecycle state of a workspace's CMS services. The JCR workspace itself
+is open in either state — a workspace that is not open is not listed.
+"""
+enum WorkspaceState {
+  """The workspace's CMS services are running"""
+  ONLINE
+
+  """
+  The CMS services are not running yet: startup is still in progress — e.g.
+  a freshly created workspace, or one just discovered on another cluster
+  node
+  """
+  STARTING
+
+  """
+  The CMS services failed to start; the workspace will not come up without
+  intervention. `stateMessage` carries the reason. Cleared when the
+  workspace is (re)started or deleted.
+  """
+  FAILED
+}
+
+"""
+State of a per-workspace engine (process engine / integration engine).
+`enabled` is the configuration switch (bpm.yml / eip.yml), `running` is
+the actual state: enabled but not running means the engine failed to
+start. `enabled` is null while the workspace's services are not running
+(the configuration has not been read).
+"""
+type WorkspaceEngine {
+  enabled: Boolean
+  running: Boolean!
+}
+
+input CreateWorkspaceInput {
+  """
+  Workspace name: lowercase letters, digits, hyphens and underscores,
+  starting with a letter (max 64 characters)
+  """
+  name: String!
+}
+
+type WorkspaceMutationError {
+  field: String
+  message: String!
+  code: String!
+}
+
+"""
+Result of starting a workspace creation. Creation runs as a background job
+(provisioning and content deployment can take minutes and either step can
+fail), so the mutation returns a `jobId` to watch via `jobProgress(jobId)`
+for the `creating`/`starting` phases and the terminal COMPLETED/FAILED
+event. `errors` is non-null only for synchronous validation failures
+(privileges, name, already exists), in which case `jobId` is null.
+"""
+type CreateWorkspacePayload {
+  """Id of the background job performing the creation; null on validation error"""
+  jobId: String
+  """Initial job status (queued) when accepted; null on validation error"""
+  status: String
+  errors: [WorkspaceMutationError!]
+}
+
+input DeleteWorkspaceInput {
+  name: String!
+}
+
+"""
+Result of starting a workspace deletion. Deletion runs as a background job
+(it stops the workspace's services and waits for them to come fully down
+before removing the directory — the `stopping` then `deleting` phases), so
+the mutation returns a `jobId` to watch via `jobProgress(jobId)`. `errors`
+is non-null only for synchronous validation failures, in which case `jobId`
+is null.
+"""
+type DeleteWorkspacePayload {
+  """Id of the background job performing the deletion; null on validation error"""
+  jobId: String
+  """Initial job status (queued) when accepted; null on validation error"""
+  status: String
+  """The workspace being deleted; echoed back for the caller's convenience"""
+  name: String
+  errors: [WorkspaceMutationError!]
+}
+
+# -----------------------------------------------------------------------------
+# Cluster
+# -----------------------------------------------------------------------------
+
+"""
+Cluster topology of the queried workspace. In standalone deployments
+`enabled` is false and `members` is empty, so a client can state
+"running as a single node" instead of showing an empty cluster.
+"""
+type Cluster {
+  """Whether this node runs as part of a cluster"""
+  enabled: Boolean!
+
+  """Identifier of the node serving the request"""
+  nodeId: String
+
+  """Registered members; empty in standalone deployments"""
+  members: [ClusterMember!]!
+}
+
+"""A repository node registered in the cluster"""
+type ClusterMember {
+  """Identifier under which the node appears in the cluster"""
+  nodeId: String!
+
+  """Host name of the node, when it could be determined"""
+  hostName: String
+
+  """When the node joined, in milliseconds since the epoch"""
+  started: Long!
+
+  """The node's last heartbeat, in milliseconds since the epoch"""
+  lastHeartbeat: Long!
+
+  """
+  The cluster coordinator's heartbeat-freshness judgement: a member whose
+  heartbeat went stale is presumed dead (crashed, lost its database
+  connection, or partitioned away). Clients must not re-derive this from
+  lastHeartbeat — the staleness policy is owned by the server.
+  """
+  alive: Boolean!
+
+  """Whether this member is the node that served the request"""
+  self: Boolean!
+}
+
+# -----------------------------------------------------------------------------
 # Version History
 # -----------------------------------------------------------------------------
 
@@ -1992,6 +2161,25 @@ type Query {
   ): AppConnection!
 
   # -------------------------------------------------------------------------
+  # Workspaces
+  # -------------------------------------------------------------------------
+
+  """
+  List the workspaces available in the repository, the system workspace
+  (the identity store) first, the rest in alphabetical order. Each entry
+  carries its lifecycle state and the state of its per-workspace engines.
+  """
+  workspaces: [Workspace!]!
+
+  """
+  Report the cluster topology of the queried workspace: whether this node
+  runs as part of a cluster, the identifier of the node serving the
+  request, and every registered member with its heartbeat health.
+  Requires administrative privileges.
+  """
+  cluster: Cluster!
+
+  # -------------------------------------------------------------------------
   # Business Process Management
   # -------------------------------------------------------------------------
 
@@ -2254,6 +2442,28 @@ type Mutation {
 
   """Restore a version"""
   restoreVersion(input: RestoreVersionInput!): Node!
+
+  # -------------------------------------------------------------------------
+  # Workspace Management (administrators and service accounts only)
+  # -------------------------------------------------------------------------
+
+  """
+  Create a workspace. The mutation returns as soon as the JCR workspace
+  exists; its CMS services are brought online asynchronously (provisioning
+  and content deployment can take minutes), so the returned workspace is
+  normally in the STARTING state — poll the `workspaces` query until it
+  reports ONLINE. The workspace name appears in URLs and as a directory
+  name, so it is restricted to lowercase letters, digits, hyphens and
+  underscores, starting with a letter (max 64 characters).
+  """
+  createWorkspace(input: CreateWorkspaceInput!): CreateWorkspacePayload!
+
+  """
+  Delete a workspace including everything stored in it. The system
+  workspace (the identity store) and the workspace the session is bound
+  to cannot be deleted.
+  """
+  deleteWorkspace(input: DeleteWorkspaceInput!): DeleteWorkspacePayload!
 
   # -------------------------------------------------------------------------
   # Multipart Upload
