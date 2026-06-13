@@ -234,14 +234,16 @@ respective upstream licenses.
 | `libv8_libbase.so` | Google V8 (base library) | BSD 3-Clause |
 | `libthird_party_abseil-cpp_absl.so` | [Abseil C++ Common Libraries](https://abseil.io/) (embedded by V8) | Apache License 2.0 (<https://github.com/abseil/abseil-cpp/blob/master/LICENSE>) |
 | `libchrome_zlib.so` | [zlib](https://zlib.net/) (Chromium fork embedded by V8) | zlib License (<https://zlib.net/zlib_license.html>) |
+| `libc++.so` | [LLVM libc++](https://libcxx.llvm.org/) C++ standard library (shipped because V8 is built with `use_custom_libcxx=true`) | Apache License 2.0 with LLVM Exceptions (<https://github.com/llvm/llvm-project/blob/main/libcxx/LICENSE.TXT>) |
 
-Verbatim copies of the V8, Abseil, and zlib upstream license texts are
-shipped inside `bundle/org.mintjams.rt.cms.linux.x86_64_1.0.0.jar`
+Verbatim copies of the V8, Abseil, zlib, and libc++ upstream license
+texts are shipped inside
+`bundle/org.mintjams.rt.cms.linux.x86_64_1.0.0.jar`
 under `native/linux/THIRD_PARTY_LICENSES/` so the binary `.so` files
 travel together with their attribution notices.
 
-The exact V8 commit and Abseil / zlib revisions pulled in by `gclient
-sync` are recorded at build time in `V8_COMMIT.txt` and
+The exact V8 commit and Abseil / zlib / libc++ revisions pulled in by
+`gclient sync` are recorded at build time in `V8_COMMIT.txt` and
 `out/shared/args.used.txt` per the build instructions in
 [`bundles/org.mintjams.rt.cms.linux.x86_64/README.md`](../bundles/org.mintjams.rt.cms.linux.x86_64/README.md).
 Refer to the V8 source tree's top-level `LICENSE` and
