@@ -83,9 +83,18 @@ public class WorkspaceCmsEventManager implements Closeable {
 	}
 
 	public void open() {
+		// JCR node-change events for this workspace, plus the repository-wide
+		// workspace-changed signal. The latter is delivered to every workspace's
+		// manager (it carries no path, only the affected workspace name) so that
+		// any connected desktop, whichever workspace it is bound to, can refresh
+		// its workspace switcher and dashboard via the workspaceChanged
+		// subscription when another workspace starts, stops, or has its settings
+		// edited.
 		Registration.Builder<EventHandler> builder = Registration.newBuilder(EventHandler.class)
 				.setService(fEventHandler)
-				.setProperty(EventConstants.EVENT_TOPIC, Node.class.getName().replace(".", "/") + "/*")
+				.setProperty(EventConstants.EVENT_TOPIC, new String[] {
+						Node.class.getName().replace(".", "/") + "/*",
+						CmsService.TOPIC_WORKSPACE_CHANGED })
 				.setProperty(Constants.SERVICE_DESCRIPTION, "CMS Event Manager for workspace: " + fWorkspaceName)
 				.setProperty(Constants.SERVICE_VENDOR, BundleLocalization.create(CmsService.getDefault().getBundle()).getVendor())
 				.setBundleContext(CmsService.getDefault().getBundleContext());

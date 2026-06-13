@@ -71,6 +71,12 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 	public synchronized void open() throws IOException, RepositoryException {
 		fConfig.load();
 
+		if (!fConfig.isEnabled()) {
+			CmsService.getLogger(getClass())
+					.info("The integration engine is disabled for the workspace: " + getWorkspaceName());
+			return;
+		}
+
 		fCamelContext = new WorkspaceCamelContext(fConfig);
 		fCloser.register(new Closeable() {
 			@Override
@@ -107,11 +113,37 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		return fConfig.getWorkspaceName();
 	}
 
+	/**
+	 * Returns whether the integration engine is switched on for this
+	 * workspace ({@code eip.yml#enabled}). Together with
+	 * {@link #isAvailable()} this distinguishes a deliberately disabled
+	 * engine (a normal configuration choice) from one that is enabled but
+	 * failed to start (an operational problem).
+	 */
+	public boolean isEnabled() {
+		return fConfig.isEnabled();
+	}
+
+	/**
+	 * Returns whether the integration engine is running for this workspace.
+	 * The engine may be absent because it is disabled
+	 * ({@code eip.yml#enabled}) or because it failed to start.
+	 */
+	public boolean isAvailable() {
+		return fCamelContext != null;
+	}
+
 	public CamelContext getCamelContext() {
+		if (fCamelContext == null) {
+			throw new IllegalStateException("The integration engine is not available for the workspace: " + getWorkspaceName());
+		}
 		return fCamelContext;
 	}
 
 	public ProducerTemplate getProducerTemplate() {
+		if (fProducerTemplate == null) {
+			throw new IllegalStateException("The integration engine is not available for the workspace: " + getWorkspaceName());
+		}
 		return fProducerTemplate;
 	}
 

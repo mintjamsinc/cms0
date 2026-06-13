@@ -32,16 +32,16 @@ import org.mintjams.tools.io.Closer;
 
 public class WorkspaceWebServletProvider implements Closeable {
 
-	private final WorkspaceWebServletProviderConfiguration fConfig;
+	private final String fWorkspaceName;
 	private final Closer fCloser = Closer.create();
 	private HttpServlet fServlet;
 
 	public WorkspaceWebServletProvider(String workspaceName) {
-		fConfig = new WorkspaceWebServletProviderConfiguration(workspaceName);
+		fWorkspaceName = workspaceName;
 	}
 
 	public synchronized void open() throws IOException, RepositoryException {
-		fServlet = fConfig.createServlet();
+		fServlet = new WorkspaceWebServlet(fWorkspaceName);
 	}
 
 	@Override
@@ -50,15 +50,11 @@ public class WorkspaceWebServletProvider implements Closeable {
 	}
 
 	public String getWorkspaceName() {
-		return fConfig.getWorkspaceName();
+		return fWorkspaceName;
 	}
 
 	public HttpServlet getServlet() {
 		return fServlet;
-	}
-
-	public WorkspaceWebServletProviderConfiguration getConfiguration() {
-		return fConfig;
 	}
 
 }

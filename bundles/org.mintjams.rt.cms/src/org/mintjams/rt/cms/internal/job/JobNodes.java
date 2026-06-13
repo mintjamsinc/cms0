@@ -73,6 +73,22 @@ public final class JobNodes {
 	public static final String PROP_ITEMS_ARCHIVED = "jobItemsArchived";
 	public static final String PROP_CURRENT_PATH = "jobCurrentPath";
 	public static final String PROP_ERROR_MESSAGE = "jobErrorMessage";
+	/**
+	 * Coarse, human-meaningful phase of a multi-step job (e.g. workspace
+	 * lifecycle jobs publish {@code creating}/{@code starting}/{@code stopping}/
+	 * {@code deleting}). Unlike {@link #PROP_JOB_STATUS} — which is the generic
+	 * lifecycle (RUNNING/COMPLETED/FAILED/…) the manager and recovery reason
+	 * about — the phase is a job-type-specific label the UI maps to a localized
+	 * progress message. Absent on jobs that have no sub-phases.
+	 */
+	public static final String PROP_PHASE = "jobPhase";
+	/**
+	 * The workspace a lifecycle job acts upon. Distinct from the job's own
+	 * {@link #PROP_JOB_USER_ID owning} workspace (where the {@code /var/jobs}
+	 * record lives): a delete job's record must outlive the very workspace it
+	 * removes, so the two are never the same node's workspace.
+	 */
+	public static final String PROP_TARGET_WORKSPACE = "jobTargetWorkspace";
 	public static final String PROP_STARTED_AT = "jobStartedAt";
 	public static final String PROP_FINISHED_AT = "jobFinishedAt";
 	/** Archive jobs: file name to expose to the browser when the ZIP is downloaded. */

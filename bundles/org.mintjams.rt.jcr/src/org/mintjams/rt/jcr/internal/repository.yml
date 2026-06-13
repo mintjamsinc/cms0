@@ -1,3 +1,11 @@
+# The workspace used when a login does not specify one. Defaults to the
+# system workspace for backward compatibility. Once content lives in its
+# own workspaces, point this at the content workspace so unqualified
+# logins no longer land in the identity store. May also be supplied via
+# the framework property org.mintjams.jcr.workspace.default.
+#
+#defaultWorkspace: system
+
 # Cluster mode. When enabled, this repository node expects to share every
 # workspace's database and blob storage with the other nodes:
 #   - configure a shared database in each workspace's etc/jcr/jcr.yml

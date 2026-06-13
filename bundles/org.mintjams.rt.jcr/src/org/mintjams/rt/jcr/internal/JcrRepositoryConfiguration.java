@@ -119,6 +119,49 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return getRepositoryPath().resolve("tmp").normalize();
 	}
 
+	/**
+	 * Returns the workspace used when a login does not specify one. Resolved
+	 * from the framework property {@code org.mintjams.jcr.workspace.default}
+	 * first, then {@code repository.yml#defaultWorkspace}; the system
+	 * workspace is the default so existing deployments keep behaving exactly
+	 * as before this property was introduced. Once content lives in its own
+	 * workspaces, point this at the content workspace so unqualified logins
+	 * no longer land in the identity store.
+	 */
+	public String getDefaultWorkspaceName() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		String value = bc.getProperty("org.mintjams.jcr.workspace.default");
+		if (Strings.isNotEmpty(value)) {
+			return value.trim();
+		}
+
+		try {
+			String configured = ExpressionContext.create().setVariable("config", fConfig)
+					.defaultString("config.defaultWorkspace", null);
+			if (Strings.isNotEmpty(configured)) {
+				return configured.trim();
+			}
+		} catch (Throwable ignore) {}
+		return JcrWorkspaceProvider.SYSTEM_WORKSPACE_NAME;
+	}
+
+	/**
+	 * Returns the interval, in seconds, at which this node rescans the
+	 * workspace root for workspaces created or deleted by other cluster
+	 * nodes ({@code org.mintjams.jcr.workspace.discoveryInterval}). Only
+	 * used in cluster mode; standalone nodes manage workspaces locally and
+	 * need no discovery.
+	 */
+	public int getWorkspaceDiscoveryInterval() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		int value = Integer.parseInt(Strings.defaultIfEmpty(
+				bc.getProperty("org.mintjams.jcr.workspace.discoveryInterval"), "30"));
+		if (value < 5) {
+			value = 5;
+		}
+		return value;
+	}
+
 	public int getMaxSessions() {
 		BundleContext bc = Activator.getDefault().getBundleContext();
 		int value = Integer.parseInt(Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.workspace.maxSessions"), "32"));

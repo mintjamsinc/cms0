@@ -24,6 +24,7 @@ package org.mintjams.jcr.cluster;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Coordinates work across the repository nodes that share a workspace in a
@@ -71,6 +72,29 @@ public interface ClusterCoordinator {
 	List<Member> listMembers() throws IOException;
 
 	/**
+	 * Broadcasts a control-plane notification to the other nodes that share
+	 * this workspace in the cluster. Each receiving node re-emits it as a
+	 * local OSGi {@code EventAdmin} event under the given topic with the
+	 * given properties, so a node-local event handler sees a remote broadcast
+	 * exactly as it sees a local post. The publishing node does not receive
+	 * its own broadcast — it has already posted the event locally — so a
+	 * caller pairs a local post with this call to reach the whole cluster.
+	 *
+	 * <p>Intended for ephemeral notifications that tell live clients to
+	 * refresh (for example {@code workspaceChanged}), not for durable state:
+	 * a node that is down when a signal is published never sees it, and
+	 * signals are retained only briefly. Best-effort and a no-op in
+	 * standalone deployments, where there are no other nodes; a delivery
+	 * failure is logged and never propagated, so it can be called freely from
+	 * the operation that triggered it.
+	 *
+	 * @param topic      the OSGi event topic to re-emit on the receiving nodes
+	 * @param properties the event properties; values must be serializable as
+	 *                   simple scalars (strings, numbers, booleans)
+	 */
+	void publish(String topic, Map<String, Object> properties);
+
+	/**
 	 * A held lock. Closing the lease releases the lock; closing it more
 	 * than once has no effect.
 	 */
@@ -98,6 +122,15 @@ public interface ClusterCoordinator {
 		 * epoch.
 		 */
 		long getLastHeartbeat();
+
+		/**
+		 * Returns whether the node's heartbeat is fresh according to the
+		 * coordinator's staleness policy. A member that stopped sending
+		 * heartbeats (it crashed, lost its database connection, or was
+		 * partitioned away) is presumed dead; the judgement is made by the
+		 * coordinator so callers never hard-code the heartbeat interval.
+		 */
+		boolean isAlive();
 	}
 
 }

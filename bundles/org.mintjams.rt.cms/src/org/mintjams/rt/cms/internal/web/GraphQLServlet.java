@@ -35,6 +35,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.WorkspaceUserHomes;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequestParser;
@@ -104,6 +105,10 @@ public class GraphQLServlet extends HttpServlet {
 				sendError(response, "Authentication failed: " + e.getMessage());
 				return;
 			}
+
+			// Content workspaces hold the user's working area (Desktop); it is
+			// created on the user's first request to the workspace.
+			WorkspaceUserHomes.ensureUserHome(jcrSession);
 
 			// Parse GraphQL request
 			GraphQLRequest graphQLRequest;

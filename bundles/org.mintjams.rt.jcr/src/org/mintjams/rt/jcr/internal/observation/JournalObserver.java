@@ -846,7 +846,15 @@ public class JournalObserver implements Adaptable, Closeable {
 					Node item;
 					try {
 						item = workspace.getSession().getNode(itemPath.toString());
-					} catch (ItemNotFoundException ignore) {
+					} catch (PathNotFoundException | ItemNotFoundException ignore) {
+						// The node carrying this property no longer exists. When the
+						// remote commit poller replays a historical transaction, the
+						// node it touched may already have been removed by a later
+						// committed transaction; a path lookup then fails with
+						// PathNotFoundException (an id lookup with ItemNotFoundException).
+						// Either way the item is gone, so there is nothing to index or
+						// notify for it here: skip the event, consistent with the
+						// id-based lookup below.
 						continue;
 					}
 

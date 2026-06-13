@@ -31,7 +31,10 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.mintjams.jcr.cluster.ClusterCoordinator;
@@ -68,6 +71,7 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 	private final String fNodeId;
 	private final ConnectionFactory fConnections;
 	private Thread fThread;
+	private Thread fSignalThread;
 	private boolean fCloseRequested;
 	private final Object fLock = new Object();
 
@@ -120,6 +124,10 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 		fThread = new Thread(new HeartbeatTask());
 		fThread.setDaemon(true);
 		fThread.start();
+
+		fSignalThread = new Thread(new SignalPoller(), getClass().getSimpleName() + "-Signals");
+		fSignalThread.setDaemon(true);
+		fSignalThread.start();
 
 		Activator.getDefault().getLogger(getClass()).info("Cluster node '" + fNodeId
 				+ "' has joined the JCR workspace '" + fWorkspaceName + "'.");
@@ -187,14 +195,16 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 
 		try (Connection connection = fConnections.getConnection()) {
 			try {
+				long staleBefore = System.currentTimeMillis() - HEARTBEAT_STALE_MILLIS;
 				List<ClusterCoordinator.Member> members = new ArrayList<>();
 				try (Query.Result result = Query.newBuilder(connection)
 						.setStatement("SELECT node_id, host_name, node_started, last_heartbeat FROM jcr_cluster_nodes"
 								+ " ORDER BY node_id")
 						.build().setOffset(0).execute()) {
 					for (AdaptableMap<String, Object> r : result) {
+						long lastHeartbeat = r.getLong("last_heartbeat");
 						members.add(new MemberImpl(r.getString("node_id"), r.getString("host_name"),
-								r.getLong("node_started"), r.getLong("last_heartbeat")));
+								r.getLong("node_started"), lastHeartbeat, lastHeartbeat >= staleBefore));
 					}
 				}
 				connection.rollback();
@@ -212,17 +222,76 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 		}
 	}
 
+	@Override
+	public void publish(String topic, Map<String, Object> properties) {
+		if (!fClusterEnabled || Strings.isEmpty(topic)) {
+			return;
+		}
+
+		try (Connection connection = fConnections.getConnection()) {
+			try {
+				ClusterSignals.publish(connection, fNodeId, topic, serialize(properties));
+				connection.commit();
+			} catch (Throwable ex) {
+				try {
+					connection.rollback();
+				} catch (Throwable ignore) {}
+				throw ex;
+			}
+		} catch (Throwable ex) {
+			// Best-effort: a node that misses the broadcast falls back to its
+			// own polling or a client reload, so a publish failure must never
+			// derail the operation that triggered it.
+			Activator.getDefault().getLogger(getClass()).warn("An error occurred while publishing the cluster signal '"
+					+ topic + "' on workspace '" + fWorkspaceName + "'.", ex);
+		}
+	}
+
+	/**
+	 * Serializes event properties to the opaque JSON payload stored with a
+	 * signal, or {@code null} when there are none. Only simple scalar values
+	 * are expected.
+	 */
+	private static String serialize(Map<String, Object> properties) throws IOException {
+		if (properties == null || properties.isEmpty()) {
+			return null;
+		}
+		return Activator.getDefault().toJSON(properties);
+	}
+
+	/**
+	 * Reverses {@link #serialize(Map)} for a received signal. A null, empty or
+	 * malformed payload yields no properties rather than failing the delivery.
+	 */
+	private static Map<String, Object> deserialize(String payload) {
+		if (Strings.isEmpty(payload)) {
+			return Collections.emptyMap();
+		}
+		try {
+			Map<String, Object> properties = Activator.getDefault().parseJSON(payload);
+			if (properties != null) {
+				return properties;
+			}
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(ClusterController.class)
+					.warn("Could not parse a cluster signal payload: " + payload, ex);
+		}
+		return Collections.emptyMap();
+	}
+
 	private static class MemberImpl implements ClusterCoordinator.Member {
 		private final String fNodeId;
 		private final String fHostName;
 		private final long fStarted;
 		private final long fLastHeartbeat;
+		private final boolean fAlive;
 
-		private MemberImpl(String nodeId, String hostName, long started, long lastHeartbeat) {
+		private MemberImpl(String nodeId, String hostName, long started, long lastHeartbeat, boolean alive) {
 			fNodeId = nodeId;
 			fHostName = hostName;
 			fStarted = started;
 			fLastHeartbeat = lastHeartbeat;
+			fAlive = alive;
 		}
 
 		@Override
@@ -243,6 +312,11 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 		@Override
 		public long getLastHeartbeat() {
 			return fLastHeartbeat;
+		}
+
+		@Override
+		public boolean isAlive() {
+			return fAlive;
 		}
 	}
 
@@ -407,6 +481,13 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 		synchronized (fLock) {
 			fLock.notifyAll();
 		}
+		if (fSignalThread != null) {
+			try {
+				fSignalThread.interrupt();
+				fSignalThread.join(10000);
+			} catch (InterruptedException ignore) {}
+			fSignalThread = null;
+		}
 		if (fThread != null) {
 			try {
 				fThread.interrupt();
@@ -467,7 +548,6 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 		 */
 		private void checkMembers() {
 			try {
-				long staleBefore = System.currentTimeMillis() - HEARTBEAT_STALE_MILLIS;
 				Set<String> stale = new HashSet<>();
 				Set<String> present = new HashSet<>();
 				for (ClusterCoordinator.Member member : listMembers()) {
@@ -475,7 +555,7 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 						continue;
 					}
 					present.add(member.getNodeId());
-					if (member.getLastHeartbeat() < staleBefore) {
+					if (!member.isAlive()) {
 						stale.add(member.getNodeId());
 						if (fStaleReported.add(member.getNodeId())) {
 							Activator.getDefault().getLogger(ClusterController.class)
@@ -503,6 +583,164 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 				Activator.getDefault().getLogger(ClusterController.class)
 						.error("An error occurred while checking the cluster members.", ex);
 			}
+		}
+	}
+
+	/**
+	 * Consumes the cluster signal bus: notifications published by other nodes
+	 * are re-emitted as local OSGi events, so a node behaves as if the remote
+	 * post had happened here. Signals are emitted immediately for promptness;
+	 * the consumed position is only advanced past a signal once it is old
+	 * enough that no concurrently committing publish can still surface behind
+	 * it — assuming the cluster nodes run with synchronized clocks, as the
+	 * journal already requires — while a bounded set of recently emitted
+	 * sequences keeps the re-scan from emitting the same signal twice.
+	 *
+	 * <p>No durable per-node offset is kept: signals tell live clients to
+	 * refresh, so a node that was down had no client to notify and resumes at
+	 * the current head. Expired rows are purged under a short lease so a
+	 * single node does the cleanup.
+	 */
+	private class SignalPoller implements Runnable {
+		private static final long POLL_INTERVAL_MILLIS = 2000L;
+		private static final long STABILITY_GRACE_MILLIS = 10000L;
+		private static final long RETENTION_MILLIS = 300000L;
+		private static final long PURGE_INTERVAL_MILLIS = 60000L;
+		private static final int BATCH_LIMIT = 200;
+		private static final int PROCESSED_CACHE_SIZE = 4096;
+
+		private final Set<Long> fProcessed = new LinkedHashSet<>();
+		private long fConsumed = -1;
+		private long fLastPurge;
+
+		@Override
+		public void run() {
+			while (!fCloseRequested) {
+				if (Thread.interrupted()) {
+					fCloseRequested = true;
+					break;
+				}
+				synchronized (fLock) {
+					try {
+						fLock.wait(POLL_INTERVAL_MILLIS);
+					} catch (InterruptedException ignore) {}
+				}
+
+				if (fCloseRequested) {
+					continue;
+				}
+
+				try {
+					poll();
+				} catch (Throwable ex) {
+					Activator.getDefault().getLogger(ClusterController.class).warn(
+							"An error occurred while consuming cluster signals on workspace '" + fWorkspaceName + "'.",
+							ex);
+				}
+			}
+		}
+
+		private void poll() throws SQLException, IOException {
+			try (Connection connection = fConnections.getConnection()) {
+				try {
+					if (fConsumed < 0) {
+						// A node that has never consumed the bus starts at the
+						// current head: earlier signals were meant for the
+						// clients that were live when they were published.
+						fConsumed = ClusterSignals.getMaxSeq(connection);
+					}
+
+					List<AdaptableMap<String, Object>> signals = new ArrayList<>();
+					try (Query.Result result = ClusterSignals.list(connection, fConsumed, fNodeId, BATCH_LIMIT)) {
+						for (AdaptableMap<String, Object> r : result) {
+							signals.add(r);
+						}
+					}
+					// The read is the only DB work here; end its transaction
+					// before the per-signal emit so the connection is not held
+					// open across event delivery.
+					connection.rollback();
+
+					long stableCutoff = System.currentTimeMillis() - STABILITY_GRACE_MILLIS;
+					long newConsumed = fConsumed;
+					boolean stable = true;
+					for (AdaptableMap<String, Object> signal : signals) {
+						if (fCloseRequested) {
+							break;
+						}
+
+						long seq = signal.getLong("signal_seq");
+						if (!fProcessed.contains(seq)) {
+							emit(signal.getString("topic"), signal.getString("payload"));
+							fProcessed.add(seq);
+							while (fProcessed.size() > PROCESSED_CACHE_SIZE) {
+								Iterator<Long> i = fProcessed.iterator();
+								i.next();
+								i.remove();
+							}
+						}
+
+						// A row becomes visible when its INSERT commits, which can
+						// be after a higher sequence is already visible. Only
+						// consume past a signal once nothing can still surface
+						// behind it; until then the processed set keeps re-reads
+						// from emitting it twice.
+						if (stable && signal.getLong("created") <= stableCutoff) {
+							newConsumed = seq;
+						} else {
+							stable = false;
+						}
+					}
+					fConsumed = newConsumed;
+				} catch (Throwable ex) {
+					try {
+						connection.rollback();
+					} catch (Throwable ignore) {}
+					throw ex;
+				}
+			}
+
+			purgeExpired();
+		}
+
+		private void purgeExpired() {
+			long now = System.currentTimeMillis();
+			if (now - fLastPurge < PURGE_INTERVAL_MILLIS) {
+				return;
+			}
+			fLastPurge = now;
+
+			// One node is enough; a brief lease keeps every node from deleting
+			// the same rows at once. Losing the race simply means another node
+			// is already doing the cleanup. The lease is acquired before the
+			// purge connection is opened, so the two never overlap in the pool.
+			Lease lease = tryLock("cluster-signals-purge", PURGE_INTERVAL_MILLIS);
+			if (lease == null) {
+				return;
+			}
+			try (Connection connection = fConnections.getConnection()) {
+				try {
+					ClusterSignals.purge(connection, RETENTION_MILLIS);
+					connection.commit();
+				} catch (Throwable ex) {
+					try {
+						connection.rollback();
+					} catch (Throwable ignore) {}
+					throw ex;
+				}
+			} catch (Throwable ex) {
+				Activator.getDefault().getLogger(ClusterController.class).warn(
+						"An error occurred while purging cluster signals on workspace '" + fWorkspaceName + "'.", ex);
+			} finally {
+				lease.close();
+			}
+		}
+
+		private void emit(String topic, String payload) {
+			if (Strings.isEmpty(topic)) {
+				return;
+			}
+			Activator.getDefault().postEvent(topic, deserialize(payload));
 		}
 	}
 

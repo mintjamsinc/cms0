@@ -63,6 +63,12 @@ public class WorkspaceProcessEngineProvider implements Closeable {
 	public synchronized void open() throws IOException, RepositoryException {
 		fConfig.load();
 
+		if (!fConfig.isEnabled()) {
+			CmsService.getLogger(getClass())
+					.info("The process engine is disabled for the workspace: " + getWorkspaceName());
+			return;
+		}
+
 		fProcessEngine = fConfig.createProcessEngine();
 		fCloser.add(new Closeable() {
 			@Override
@@ -86,7 +92,30 @@ public class WorkspaceProcessEngineProvider implements Closeable {
 		return fConfig.getWorkspaceName();
 	}
 
+	/**
+	 * Returns whether the process engine is switched on for this workspace
+	 * ({@code bpm.yml#enabled}). Together with {@link #isAvailable()} this
+	 * distinguishes a deliberately disabled engine (a normal configuration
+	 * choice) from one that is enabled but failed to start (an operational
+	 * problem).
+	 */
+	public boolean isEnabled() {
+		return fConfig.isEnabled();
+	}
+
+	/**
+	 * Returns whether the process engine is running for this workspace. The
+	 * engine may be absent because it is disabled ({@code bpm.yml#enabled})
+	 * or because it failed to start.
+	 */
+	public boolean isAvailable() {
+		return fProcessEngine != null;
+	}
+
 	public ProcessEngine getProcessEngine() {
+		if (fProcessEngine == null) {
+			throw new IllegalStateException("The process engine is not available for the workspace: " + getWorkspaceName());
+		}
 		return fProcessEngine;
 	}
 

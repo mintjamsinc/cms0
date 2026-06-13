@@ -216,6 +216,8 @@ public class GraphQLStreamHandler {
 						sendAvatarChangedEvent(matcher, event);
 					} else if ("jobProgress".equals(matcher.getType())) {
 						sendJobProgressEvent(matcher, event);
+					} else if ("workspaceChanged".equals(matcher.getType())) {
+						sendWorkspaceChangedEvent(matcher, event);
 					} else {
 						sendEvent(matcher.getSubscriptionString(), event);
 					}
@@ -341,6 +343,16 @@ public class GraphQLStreamHandler {
 					if (errorMessage != null) {
 						eventData.put("errorMessage", errorMessage);
 					}
+					// Multi-step jobs (e.g. workspace lifecycle) publish a coarse
+					// phase the UI turns into a localized progress message.
+					String phase = JobNodes.getString(content, JobNodes.PROP_PHASE, null);
+					if (phase != null) {
+						eventData.put("phase", phase);
+					}
+					String targetWorkspace = JobNodes.getString(content, JobNodes.PROP_TARGET_WORKSPACE, null);
+					if (targetWorkspace != null) {
+						eventData.put("targetWorkspace", targetWorkspace);
+					}
 					// Set by jobs whose result is a downloadable artifact (archive jobs);
 					// absent for delete jobs.
 					String downloadUrl = JobNodes.getString(content, JobNodes.PROP_DOWNLOAD_URL, null);
@@ -374,6 +386,43 @@ public class GraphQLStreamHandler {
 				if (jcrSession != null) {
 					try { jcrSession.logout(); } catch (Exception ignore) {}
 				}
+			}
+		}
+
+		/**
+		 * Send a workspaceChanged SSE event.
+		 *
+		 * Fired when any workspace's runtime state changes (started or stopped)
+		 * anywhere in the repository. The payload carries the affected workspace
+		 * name; the client refreshes its workspace list — the live source of
+		 * truth for which workspaces are selectable — rather than trusting a
+		 * state snapshot in the event.
+		 */
+		private void sendWorkspaceChangedEvent(SubscriptionMatcher matcher, CmsEvent event) {
+			if (closed) return;
+
+			try {
+				Map<String, Object> eventData = new LinkedHashMap<>();
+				eventData.put("workspace", event.getWorkspaceName());
+				eventData.put("timestamp", Instant.now().toString());
+
+				Map<String, Object> message = new LinkedHashMap<>();
+				message.put("subscription", matcher.getSubscriptionString());
+				message.put("data", eventData);
+
+				String json = GSON.toJson(message);
+
+				PrintWriter writer = asyncContext.getResponse().getWriter();
+				synchronized (writer) {
+					writer.write("data: " + json + "\n\n");
+					writer.flush();
+				}
+			} catch (IOException e) {
+				CmsService.getLogger(getClass()).debug("SSE write failed, closing stream", e);
+				cleanup();
+				try {
+					asyncContext.complete();
+				} catch (Exception ignore) {}
 			}
 		}
 

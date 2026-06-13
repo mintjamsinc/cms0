@@ -83,8 +83,11 @@ public class ClusterAPI {
 
 	/**
 	 * Returns the nodes currently registered for this workspace, as maps
-	 * with {@code nodeId}, {@code hostName}, {@code started}, and
-	 * {@code lastHeartbeat} entries. Empty in standalone deployments.
+	 * with {@code nodeId}, {@code hostName}, {@code started},
+	 * {@code lastHeartbeat}, and {@code alive} entries ({@code alive} is
+	 * the coordinator's heartbeat-freshness judgement; a member whose
+	 * heartbeat went stale is presumed dead). Empty in standalone
+	 * deployments.
 	 */
 	public List<Map<String, Object>> listMembers() throws IOException {
 		ClusterCoordinator coordinator = getCoordinator();
@@ -98,6 +101,7 @@ public class ClusterAPI {
 			e.put("hostName", member.getHostName());
 			e.put("started", member.getStarted());
 			e.put("lastHeartbeat", member.getLastHeartbeat());
+			e.put("alive", member.isAlive());
 			members.add(e);
 		}
 		return members;

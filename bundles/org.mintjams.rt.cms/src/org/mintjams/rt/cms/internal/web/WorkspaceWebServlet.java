@@ -45,10 +45,10 @@ import org.mintjams.tools.util.SimpleActionChain;
 public class WorkspaceWebServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
 
-	private final WorkspaceWebServletProviderConfiguration fConfig;
+	private final String fWorkspaceName;
 
-	protected WorkspaceWebServlet(WorkspaceWebServletProviderConfiguration config) {
-		fConfig = config;
+	protected WorkspaceWebServlet(String workspaceName) {
+		fWorkspaceName = workspaceName;
 	}
 
 	@Override
@@ -67,7 +67,7 @@ public class WorkspaceWebServlet extends HttpServlet {
 			return;
 		}
 
-		try (WorkspaceScriptContext context = Webs.newActionScriptContext(fConfig.getWorkspaceName(), request)) {
+		try (WorkspaceScriptContext context = Webs.newActionScriptContext(fWorkspaceName, request)) {
 			context.setAttribute("request", request);
 			context.setAttribute("response", response);
 			context.setAttribute("session", request.getSession());

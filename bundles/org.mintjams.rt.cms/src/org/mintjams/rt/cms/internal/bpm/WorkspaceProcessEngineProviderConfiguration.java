@@ -111,6 +111,101 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		}
 	}
 
+	/**
+	 * Returns whether the process engine runs for this workspace
+	 * ({@code bpm.yml#enabled}). Enabled by default, so existing workspaces
+	 * keep behaving exactly as before this property was introduced; disable
+	 * it for workspaces that run no processes (e.g. the system workspace
+	 * when identity workflows are not used) to save the engine's database
+	 * and job-executor resources.
+	 */
+	public boolean isEnabled() {
+		if (fConfig == null) {
+			return true;
+		}
+		Object v = fConfig.get("enabled");
+		if (v instanceof Boolean) {
+			return (Boolean) v;
+		}
+		if (v instanceof String) {
+			return Boolean.parseBoolean(((String) v).trim());
+		}
+		return true;
+	}
+
+	/**
+	 * Reads the persisted {@code bpm.yml#enabled} switch for
+	 * {@code workspaceName} without starting the engine or generating the
+	 * default file. Returns the configured intent regardless of whether the
+	 * workspace's services are running, which is what lets the Workspace Manager
+	 * show and edit the switch for a stopped workspace. Defaults to {@code true}
+	 * when the file is absent or unreadable, matching {@link #isEnabled()}.
+	 */
+	@SuppressWarnings("unchecked")
+	public static boolean isEnabledOnDisk(String workspaceName) {
+		Path bpmPath = new WorkspaceProcessEngineProviderConfiguration(workspaceName)
+				.getConfigPath().resolve("bpm.yml");
+		if (!Files.exists(bpmPath)) {
+			return true;
+		}
+		try (InputStream in = new BufferedInputStream(Files.newInputStream(bpmPath))) {
+			Object loaded = new Load(LoadSettings.builder().build()).loadFromInputStream(in);
+			if (!(loaded instanceof Map)) {
+				return true;
+			}
+			Object v = ((Map<String, Object>) loaded).get("enabled");
+			if (v instanceof Boolean) {
+				return (Boolean) v;
+			}
+			if (v instanceof String) {
+				return Boolean.parseBoolean(((String) v).trim());
+			}
+			return true;
+		} catch (IOException ex) {
+			CmsService.getLogger(WorkspaceProcessEngineProviderConfiguration.class)
+					.warn("Could not read bpm.yml for workspace: " + workspaceName, ex);
+			return true;
+		}
+	}
+
+	/**
+	 * Switches the process engine on or off for {@code workspaceName} by
+	 * persisting {@code bpm.yml#enabled}, preserving every other key in the
+	 * file. The change is a configuration edit only: it takes effect the next
+	 * time the workspace's services start (the provider reads {@code enabled}
+	 * in {@link WorkspaceProcessEngineProvider#open()}), so callers restart the
+	 * workspace to apply it.
+	 */
+	public static void setEnabled(String workspaceName, boolean enabled) throws IOException {
+		WorkspaceProcessEngineProviderConfiguration config = new WorkspaceProcessEngineProviderConfiguration(workspaceName);
+		config.load();
+		if (config.fConfig == null) {
+			config.fConfig = new java.util.LinkedHashMap<>();
+		}
+		config.fConfig.put("enabled", enabled);
+		config.save();
+	}
+
+	/**
+	 * Writes the in-memory configuration back to {@code bpm.yml}, using the
+	 * same block style {@link #load()} generates the default file in.
+	 */
+	public void save() throws IOException {
+		Path configPath = getConfigPath();
+		if (!Files.exists(configPath)) {
+			Files.createDirectories(configPath);
+		}
+		Path bpmPath = configPath.resolve("bpm.yml");
+		String yamlString = new Dump(DumpSettings.builder()
+				.setIndent(4)
+				.setIndicatorIndent(2)
+				.setDefaultFlowStyle(FlowStyle.BLOCK)
+				.build()).dumpToString(fConfig);
+		try (Writer out = Files.newBufferedWriter(bpmPath, StandardCharsets.UTF_8)) {
+			out.append(yamlString);
+		}
+	}
+
 	public ProcessEngine createProcessEngine() {
 		ScriptingEngines scriptingEngines = new ScriptingEngines(new DefaultScriptEngineResolver(CmsService.getWorkspaceScriptEngineManager(getWorkspaceName())));
 		List<ResolverFactory> resolverFactories = new ArrayList<>();

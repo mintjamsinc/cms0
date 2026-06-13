@@ -348,13 +348,33 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 	@Override
 	public void createWorkspace(String name, String srcWorkspace) throws AccessDeniedException,
 			UnsupportedRepositoryOperationException, NoSuchWorkspaceException, RepositoryException {
-		throw new UnsupportedRepositoryOperationException("Creating a workspace is not supported.");
+		if (srcWorkspace != null) {
+			throw new UnsupportedRepositoryOperationException("Creating a workspace from a source workspace is not supported.");
+		}
+
+		checkWorkspaceManagementPermission();
+		adaptTo(JcrRepository.class).createWorkspace(name);
 	}
 
 	@Override
 	public void deleteWorkspace(String name) throws AccessDeniedException, UnsupportedRepositoryOperationException,
 			NoSuchWorkspaceException, RepositoryException {
-		throw new UnsupportedRepositoryOperationException("Deleting a workspace is not supported.");
+		checkWorkspaceManagementPermission();
+		adaptTo(JcrRepository.class).deleteWorkspace(name);
+	}
+
+	/**
+	 * Workspace management is a repository-wide operation, so it is not
+	 * governed by any node's ACL: it is reserved for administrative
+	 * sessions — admin, system, and service principals — which the access
+	 * control manager already trusts with full privileges everywhere.
+	 */
+	private void checkWorkspaceManagementPermission() throws AccessDeniedException {
+		if (fSession.isAdmin() || fSession.isSystem() || fSession.isService()) {
+			return;
+		}
+
+		throw new AccessDeniedException("Workspace management requires administrative privileges.");
 	}
 
 	@Override

@@ -102,6 +102,8 @@ import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.osgi.service.component.annotations.ReferencePolicy;
 import org.osgi.service.event.Event;
 import org.osgi.service.event.EventAdmin;
+import org.osgi.service.event.EventConstants;
+import org.osgi.service.event.EventHandler;
 import org.osgi.service.log.Logger;
 import org.osgi.service.log.LoggerFactory;
 
@@ -134,11 +136,46 @@ public class CmsService {
 	private final Map<String, WorkspaceIntegrationEngineProvider> fWorkspaceIntegrationEngineProviders = new HashMap<>();
 	private final Map<String, WorkspaceWebServletProvider> fWorkspaceServletProviders = new HashMap<>();
 	private final Map<String, WorkspaceCmsEventManager> fWorkspaceCmsEventManagers = new HashMap<>();
+	/**
+	 * The last service-start failure per workspace, keyed by name. A workspace
+	 * whose start threw is neither online (no servlet provider) nor merely
+	 * still starting — it is FAILED, and this is what lets the Dashboard and
+	 * Workspace Manager say so (and show why) instead of leaving the user
+	 * waiting on a workspace that will never come up. Entries are cleared when
+	 * a (re)start begins or the workspace is stopped, so the map only ever
+	 * holds genuinely-failed workspaces. Node-local, like the runtime state it
+	 * complements.
+	 */
+	private final Map<String, String> fWorkspaceStartErrors = new java.util.concurrent.ConcurrentHashMap<>();
+	/**
+	 * Workspaces that are deliberately not running on this node: either their
+	 * {@code workspace.yml#autoStart} was false at boot, or they were stopped
+	 * by an operator at runtime. This is what distinguishes a STOPPED workspace
+	 * (idle on purpose — the operator must start it) from one that is merely
+	 * STARTING (start in progress) or FAILED (start threw). An entry is added
+	 * when services stop and removed when they (re)start. Node-local, like the
+	 * runtime state it complements.
+	 */
+	private final java.util.Set<String> fStoppedWorkspaces = java.util.concurrent.ConcurrentHashMap.newKeySet();
 	private final Closer fCloser = Closer.create();
 	private SecretKeyProvider fSecretKeyProvider;
 	private Encryptor fEncryptor;
 	private JobManager fJobManager;
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
+
+	/**
+	 * EventAdmin topic posted whenever a workspace changes in a way a connected
+	 * desktop should reflect: its runtime state changes on this node (services
+	 * started or stopped) <em>or</em> its settings are edited (display name,
+	 * auto-start, engine switches). Unlike the JCR node-change events, this
+	 * carries no path — only the {@code workspace} property — and is delivered
+	 * to every workspace's event manager so that any connected desktop,
+	 * regardless of which workspace it is bound to, can refresh its workspace
+	 * switcher and dashboard live via the {@code workspaceChanged} subscription.
+	 * Subscribers re-read the workspace list rather than trust the payload, so a
+	 * single topic correctly serves both state and settings changes.
+	 */
+	public static final String TOPIC_WORKSPACE_CHANGED = "org/mintjams/rt/cms/workspace/CHANGED";
 
 	@Activate
 	void activate(ComponentContext cc, BundleContext bc, Map<String, Object> config) {
@@ -225,6 +262,15 @@ public class CmsService {
 			if (workspaceName.equals("system")) {
 				continue;
 			}
+			// Honour the per-workspace auto-start policy: a workspace whose
+			// workspace.yml#autoStart is false stays stopped at boot until an
+			// operator starts it, so skip every start step for it and record it
+			// as deliberately stopped (not STARTING, not FAILED).
+			if (!org.mintjams.rt.cms.internal.workspace.WorkspaceSettings.isAutoStartOf(workspaceName)) {
+				fStoppedWorkspaces.add(workspaceName);
+				fLoggerFactory.getLogger(getClass()).info("Auto-start is disabled; leaving the workspace stopped: " + workspaceName);
+				continue;
+			}
 
 			try {
 				recoverJobs(workspaceName);
@@ -243,11 +289,15 @@ public class CmsService {
 			if (workspaceName.equals("system")) {
 				continue;
 			}
+			if (fStoppedWorkspaces.contains(workspaceName)) {
+				continue;
+			}
 
 			try {
 				loadContent(workspaceName);
 			} catch (Throwable ex) {
 				fLoggerFactory.getLogger(getClass()).warn("An error occurred while loading workspace content: " + workspaceName, ex);
+				fWorkspaceStartErrors.put(workspaceName, startErrorMessage(ex));
 			}
 		}
 
@@ -257,13 +307,28 @@ public class CmsService {
 			if (workspaceName.equals("system")) {
 				continue;
 			}
+			if (fStoppedWorkspaces.contains(workspaceName)) {
+				continue;
+			}
 
 			try {
 				prepareServices(workspaceName);
 			} catch (Throwable ex) {
 				fLoggerFactory.getLogger(getClass()).error("An error occurred while starting the workspace service: " + workspaceName, ex);
+				fWorkspaceStartErrors.put(workspaceName, startErrorMessage(ex));
 			}
 		}
+
+		// The workspace lifecycle listener: starts and stops per-workspace
+		// services when workspaces are created or deleted at runtime (on this
+		// node via the management API, or on another cluster node via
+		// workspace discovery).
+		fCloser.register(Registration.newBuilder(EventHandler.class)
+				.setService(new WorkspaceLifecycleListener())
+				.setProperty(EventConstants.EVENT_TOPIC,
+						org.mintjams.jcr.Workspace.class.getName().replace(".", "/") + "/*")
+				.setBundleContext(getBundleContext())
+				.build());
 
 		// The web console security provider
 		fCloser.register(Registration.newBuilder(WebConsoleSecurityProvider.class)
@@ -287,40 +352,44 @@ public class CmsService {
 
 	private void prepareStandardFolders() throws IOException, RepositoryException {
 		for (String workspaceName : getWorkspaceNames()) {
-			Session session = null;
-			try {
-				session = fRepository.login(new CmsServiceCredentials(), workspaceName);
-				Node root = session.getRootNode();
-				if (!JCRs.exists(root, "content")) {
-					Node content = JCRs.createFolder(root, "content");
-					AccessControlManager acm = Adaptables.getAdapter(content.getSession().getAccessControlManager(), AccessControlManager.class);
-					AccessControlList acl = (AccessControlList) acm.getPolicies(content.getPath())[0];
-					acl.addAccessControlEntry(new GuestPrincipal(), true, Privilege.JCR_READ);
-					acm.setPolicy(content.getPath(), acl);
-				}
-				JCRs.getOrCreateFolder(root, "etc");
-				JCRs.getOrCreateFolder(root, "lib");
-				JCRs.getOrCreateFolder(root, "opt");
-				Node usrFolder = JCRs.getOrCreateFolder(root, "usr");
-				JCRs.getOrCreateFolder(usrFolder, "local");
-				JCRs.getOrCreateFolder(usrFolder, "classes");
-				JCRs.getOrCreateFolder(usrFolder, "lib");
-				if (workspaceName.equals("system")) {
-					Node shareFolder = JCRs.getOrCreateFolder(usrFolder, "share");
-					JCRs.getOrCreateFolder(shareFolder, "classes");
-					JCRs.getOrCreateFolder(shareFolder, "lib");
-				}
-				session.save();
-			} catch (Throwable ex) {
-				try {
-					session.refresh(false);
-				} catch (Throwable ignore) {}
-				throw Cause.create(ex).wrap(IOException.class);
-			} finally {
-				try {
-					session.logout();
-				} catch (Throwable ignore) {}
+			prepareStandardFolders(workspaceName);
+		}
+	}
+
+	private void prepareStandardFolders(String workspaceName) throws IOException, RepositoryException {
+		Session session = null;
+		try {
+			session = fRepository.login(new CmsServiceCredentials(), workspaceName);
+			Node root = session.getRootNode();
+			if (!JCRs.exists(root, "content")) {
+				Node content = JCRs.createFolder(root, "content");
+				AccessControlManager acm = Adaptables.getAdapter(content.getSession().getAccessControlManager(), AccessControlManager.class);
+				AccessControlList acl = (AccessControlList) acm.getPolicies(content.getPath())[0];
+				acl.addAccessControlEntry(new GuestPrincipal(), true, Privilege.JCR_READ);
+				acm.setPolicy(content.getPath(), acl);
 			}
+			JCRs.getOrCreateFolder(root, "etc");
+			JCRs.getOrCreateFolder(root, "lib");
+			JCRs.getOrCreateFolder(root, "opt");
+			Node usrFolder = JCRs.getOrCreateFolder(root, "usr");
+			JCRs.getOrCreateFolder(usrFolder, "local");
+			JCRs.getOrCreateFolder(usrFolder, "classes");
+			JCRs.getOrCreateFolder(usrFolder, "lib");
+			if (workspaceName.equals("system")) {
+				Node shareFolder = JCRs.getOrCreateFolder(usrFolder, "share");
+				JCRs.getOrCreateFolder(shareFolder, "classes");
+				JCRs.getOrCreateFolder(shareFolder, "lib");
+			}
+			session.save();
+		} catch (Throwable ex) {
+			try {
+				session.refresh(false);
+			} catch (Throwable ignore) {}
+			throw Cause.create(ex).wrap(IOException.class);
+		} finally {
+			try {
+				session.logout();
+			} catch (Throwable ignore) {}
 		}
 	}
 
@@ -333,6 +402,206 @@ public class CmsService {
 			try {
 				session.logout();
 			} catch (Throwable ignore) {}
+		}
+	}
+
+	/**
+	 * Brings a workspace fully online: standard folders, provisioning and
+	 * content deployment, then the per-workspace services (script engines,
+	 * process engine, integration engine, servlets, events). This can take
+	 * minutes for a freshly created workspace, which is why runtime creation
+	 * reaches this method only through the asynchronous workspace-lifecycle
+	 * event — never on a request thread. Idempotent — a workspace whose
+	 * services are already running is left untouched — so repeated lifecycle
+	 * events (runtime creation, cluster discovery) can race safely.
+	 */
+	public synchronized void startWorkspaceServices(String workspaceName) throws IOException, RepositoryException {
+		if (fWorkspaceServletProviders.containsKey(workspaceName)) {
+			return;
+		}
+
+		// A fresh start attempt supersedes any previous failure record, and the
+		// workspace is no longer deliberately stopped.
+		fWorkspaceStartErrors.remove(workspaceName);
+		fStoppedWorkspaces.remove(workspaceName);
+		getLogger(getClass()).info("Starting the workspace services: " + workspaceName);
+		try {
+			prepareStandardFolders(workspaceName);
+			try {
+				recoverJobs(workspaceName);
+			} catch (Throwable ex) {
+				getLogger(getClass()).warn("An error occurred while recovering jobs: " + workspaceName, ex);
+			}
+			try {
+				loadContent(workspaceName);
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(IOException.class);
+			}
+			prepareServices(workspaceName);
+		} catch (Throwable ex) {
+			// Roll back whatever services did come up so a retry starts from a
+			// clean slate, then record the failure so the workspace reports
+			// FAILED (not an eternal STARTING). stopWorkspaceServices clears the
+			// error map, so the record is written afterwards.
+			stopWorkspaceServices(workspaceName);
+			fWorkspaceStartErrors.put(workspaceName, startErrorMessage(ex));
+			if (ex instanceof IOException) {
+				throw (IOException) ex;
+			}
+			if (ex instanceof RepositoryException) {
+				throw (RepositoryException) ex;
+			}
+			if (ex instanceof RuntimeException) {
+				throw (RuntimeException) ex;
+			}
+			if (ex instanceof Error) {
+				throw (Error) ex;
+			}
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+		getLogger(getClass()).info("Workspace services have been started: " + workspaceName);
+		postWorkspaceChanged(workspaceName);
+	}
+
+	/** First non-blank message walking the cause chain, for the FAILED reason. */
+	private static String startErrorMessage(Throwable ex) {
+		for (Throwable t = ex; t != null; t = t.getCause()) {
+			if (t.getMessage() != null && !t.getMessage().isBlank()) {
+				return t.getMessage();
+			}
+		}
+		return ex.getClass().getSimpleName();
+	}
+
+	/**
+	 * Stops and discards a workspace's services. The reverse of
+	 * {@link #startWorkspaceServices(String)}, in reverse start order.
+	 * Idempotent: stopping a workspace without running services is a no-op.
+	 */
+	public synchronized void stopWorkspaceServices(String workspaceName) {
+		getLogger(getClass()).info("Stopping the workspace services: " + workspaceName);
+		// A stopped workspace is not a failed one; drop any stale failure record
+		// so a later restart is judged on its own merits. Mark it as deliberately
+		// stopped so it reports STOPPED rather than an eternal STARTING.
+		fWorkspaceStartErrors.remove(workspaceName);
+		fStoppedWorkspaces.add(workspaceName);
+		WorkspaceUserHomes.invalidateWorkspace(workspaceName);
+		closeWorkspaceService(fWorkspaceCmsEventManagers.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceServletProviders.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceIntegrationEngineProviders.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceProcessEngineProviders.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceFacetProviders.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceScriptEngineManagers.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceClassLoaderProviders.remove(workspaceName));
+		getLogger(getClass()).info("Workspace services have been stopped: " + workspaceName);
+		postWorkspaceChanged(workspaceName);
+	}
+
+	/**
+	 * The {@code STOPPED} half of the workspace's runtime state: {@code true}
+	 * when the workspace is deliberately not running on this node (auto-start
+	 * was off at boot, or an operator stopped it), as opposed to still starting
+	 * or failed. Node-local, mirroring {@link #getWorkspaceServletProvider} and
+	 * {@link #getWorkspaceStartError}.
+	 */
+	public static boolean isWorkspaceStopped(String workspaceName) {
+		CmsService self = fCmsService;
+		return self != null && self.fStoppedWorkspaces.contains(workspaceName);
+	}
+
+	/**
+	 * Announces that a workspace changed — its runtime state (start/stop) or its
+	 * settings (display name, auto-start, engine switches) — to every connected
+	 * desktop so its workspace switcher and dashboard can refresh live.
+	 * Best-effort: a delivery failure must never derail the operation that
+	 * triggered it.
+	 *
+	 * <p>The notification reaches the whole cluster, not just this node: it is
+	 * posted locally for the desktops connected here, and broadcast over the
+	 * cluster signal bus so the desktops connected to the other nodes refresh
+	 * too. In a standalone deployment the broadcast is a no-op.
+	 */
+	public static void postWorkspaceChanged(String workspaceName) {
+		Map<String, Object> properties = new HashMap<>();
+		properties.put("workspace", workspaceName);
+		try {
+			postEvent(TOPIC_WORKSPACE_CHANGED, properties);
+		} catch (Throwable ex) {
+			getLogger(CmsService.class).warn("Could not post workspace-changed event: " + workspaceName, ex);
+		}
+		broadcastWorkspaceChangedToCluster(workspaceName, properties);
+	}
+
+	/**
+	 * Fans a workspace-changed notification out to the other cluster nodes so
+	 * the desktops connected to them refresh alongside this node's. The system
+	 * workspace is the repository-wide channel: it runs on every node, so its
+	 * signal bus reaches them all regardless of which workspaces each node
+	 * happens to be running. Each receiving node re-emits the notification as a
+	 * local {@code workspaceChanged} event, indistinguishable from a local
+	 * post, so the existing subscription machinery delivers it unchanged.
+	 * Best-effort, like {@link #postWorkspaceChanged(String)} itself, and a
+	 * no-op outside a cluster.
+	 */
+	private static void broadcastWorkspaceChangedToCluster(String workspaceName, Map<String, Object> properties) {
+		Session session = null;
+		try {
+			session = getRepository().login(new CmsServiceCredentials(), "system");
+			org.mintjams.jcr.cluster.ClusterCoordinator coordinator = Adaptables.getAdapter(session,
+					org.mintjams.jcr.cluster.ClusterCoordinator.class);
+			if (coordinator != null && coordinator.isClusterEnabled()) {
+				coordinator.publish(TOPIC_WORKSPACE_CHANGED, properties);
+			}
+		} catch (Throwable ex) {
+			getLogger(CmsService.class).warn("Could not broadcast workspace-changed to the cluster: " + workspaceName, ex);
+		} finally {
+			if (session != null) {
+				try {
+					session.logout();
+				} catch (Throwable ignore) {}
+			}
+		}
+	}
+
+	private void closeWorkspaceService(java.io.Closeable service) {
+		if (service == null) {
+			return;
+		}
+
+		try {
+			fCloser.unregister(service);
+		} catch (Throwable ignore) {}
+		try {
+			service.close();
+		} catch (Throwable ex) {
+			getLogger(getClass()).warn("An error occurred while stopping the workspace service.", ex);
+		}
+	}
+
+	private class WorkspaceLifecycleListener implements EventHandler {
+		@Override
+		public void handleEvent(Event event) {
+			String workspaceName = (String) event.getProperty("workspace");
+			if (Strings.isEmpty(workspaceName)) {
+				return;
+			}
+
+			if (event.getTopic().endsWith("/CREATED")) {
+				try {
+					startWorkspaceServices(workspaceName);
+				} catch (Throwable ex) {
+					getLogger(getClass()).error("An error occurred while starting the workspace service: " + workspaceName, ex);
+				}
+				return;
+			}
+
+			if (event.getTopic().endsWith("/DELETED")) {
+				try {
+					stopWorkspaceServices(workspaceName);
+				} catch (Throwable ex) {
+					getLogger(getClass()).error("An error occurred while stopping the workspace service: " + workspaceName, ex);
+				}
+			}
 		}
 	}
 
@@ -537,6 +806,16 @@ public class CmsService {
 
 	public static WorkspaceCmsEventManager getWorkspaceCmsEventManager(String workspaceName) {
 		return getDefault().fWorkspaceCmsEventManagers.get(workspaceName);
+	}
+
+	/**
+	 * The reason a workspace's services failed to start on this node, or
+	 * {@code null} if the last start attempt succeeded or none has failed.
+	 * A non-null value with no servlet provider is the platform's definition
+	 * of a FAILED workspace.
+	 */
+	public static String getWorkspaceStartError(String workspaceName) {
+		return getDefault().fWorkspaceStartErrors.get(workspaceName);
 	}
 
 	public static SecretKeyProvider getSecretKeyProvider() {

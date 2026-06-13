@@ -29,7 +29,7 @@ import java.util.Collections;
 public class Systems {
 
 	private static final Collection<String> STANDARD_ARCHS = Collections.unmodifiableCollection(Arrays.asList(
-			new String[] { "x86_64" }));
+			new String[] { "x86_64", "arm64" }));
 
 	public static boolean isOSMatch(String osName) {
 		return System.getProperty("os.name").toLowerCase().startsWith(osName.toLowerCase());
@@ -57,6 +57,9 @@ public class Systems {
 		String arch = System.getProperty("os.arch").toLowerCase();
 		if (arch.equals("amd64")) {
 			arch = "x86_64";
+		}
+		if (arch.equals("aarch64")) {
+			arch = "arm64";
 		}
 		if (!STANDARD_ARCHS.contains(arch)) {
 			throw new IllegalStateException(System.getProperty("os.arch"));

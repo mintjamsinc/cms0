@@ -41,6 +41,9 @@ public class GraphQLExecutor {
 	private final IdpMutationExecutor idpMutationExecutor;
 	private final BpmQueryExecutor bpmQueryExecutor;
 	private final BpmMutationExecutor bpmMutationExecutor;
+	private final WorkspaceQueryExecutor workspaceQueryExecutor;
+	private final WorkspaceMutationExecutor workspaceMutationExecutor;
+	private final ClusterQueryExecutor clusterQueryExecutor;
 
 	public GraphQLExecutor(Session session) {
 		this.session = session;
@@ -53,6 +56,9 @@ public class GraphQLExecutor {
 		this.idpMutationExecutor = new IdpMutationExecutor(session);
 		this.bpmQueryExecutor = new BpmQueryExecutor(session);
 		this.bpmMutationExecutor = new BpmMutationExecutor(session);
+		this.workspaceQueryExecutor = new WorkspaceQueryExecutor(session);
+		this.workspaceMutationExecutor = new WorkspaceMutationExecutor(session);
+		this.clusterQueryExecutor = new ClusterQueryExecutor(session);
 	}
 
 	/**
@@ -119,6 +125,10 @@ public class GraphQLExecutor {
 				response.setData(queryExecutor.executeSearchQuery(request));
 			} else if (query.contains("query(") && query.contains("statement:")) {
 				response.setData(queryExecutor.executeGenericQuery(request));
+			} else if (query.contains("workspaces(") || query.contains("workspaces {") || query.contains("workspaces{")) {
+				response.setData(workspaceQueryExecutor.executeWorkspacesQuery(request));
+			} else if (query.contains("cluster {") || query.contains("cluster{") || query.contains("cluster(")) {
+				response.setData(clusterQueryExecutor.executeClusterQuery(request));
 			} else if (query.contains("camelContext")) {
 				response.setData(camelQueryExecutor.executeCamelContextQuery(request));
 			// EIP stats / history queries — check multi-word names before single-word names
@@ -342,6 +352,20 @@ public class GraphQLExecutor {
 				response.setData(bpmMutationExecutor.executeCreateMigrationPlan(request));
 			} else if (query.contains("migrateProcessInstance(")) {
 				response.setData(bpmMutationExecutor.executeMigrateProcessInstance(request));
+			// Workspace management mutations — check restartWorkspace before
+			// startWorkspace (the former contains the latter as a substring).
+			} else if (query.contains("createWorkspace(")) {
+				response.setData(workspaceMutationExecutor.executeCreateWorkspace(request));
+			} else if (query.contains("deleteWorkspace(")) {
+				response.setData(workspaceMutationExecutor.executeDeleteWorkspace(request));
+			} else if (query.contains("updateWorkspace(")) {
+				response.setData(workspaceMutationExecutor.executeUpdateWorkspace(request));
+			} else if (query.contains("restartWorkspace(")) {
+				response.setData(workspaceMutationExecutor.executeRestartWorkspace(request));
+			} else if (query.contains("stopWorkspace(")) {
+				response.setData(workspaceMutationExecutor.executeStopWorkspace(request));
+			} else if (query.contains("startWorkspace(")) {
+				response.setData(workspaceMutationExecutor.executeStartWorkspace(request));
 			// EIP route control mutations (Input Object Pattern)
 			} else if (query.contains("startRoute(")) {
 				response.setData(eipRouteExecutor.executeStartRoute(request));

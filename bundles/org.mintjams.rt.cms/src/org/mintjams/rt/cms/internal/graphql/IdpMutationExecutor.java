@@ -46,6 +46,9 @@ import org.mintjams.cms.security.BCrypt;
 import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.WorkspaceUserHomes;
+import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 
 /**
  * GraphQL Mutation executor for IdP user/group/role management.
@@ -190,10 +193,45 @@ public class IdpMutationExecutor {
 		session.getNode(userFolderPath).remove();
 		session.save();
 
+		// The identity home above lives in the system workspace; each content
+		// workspace additionally holds the user's working area (Desktop),
+		// created lazily on first access. Remove those too — the ACL check
+		// already passed on the identity removal, and leaving them behind
+		// would orphan the user's personal data.
+		removeWorkspaceHomes(username);
+
 		Map<String, Object> result = new HashMap<>();
 		result.put("username", username);
 		result.put("errors", null);
 		return wrap("deleteUser", result);
+	}
+
+	private void removeWorkspaceHomes(String username) throws Exception {
+		for (String workspaceName : session.getWorkspace().getAccessibleWorkspaceNames()) {
+			if ("system".equals(workspaceName)) {
+				continue;
+			}
+
+			try {
+				Session workspaceSession = CmsService.getRepository()
+						.login(new CmsServiceCredentials(), workspaceName);
+				try {
+					String path = IdpQueryExecutor.USERS_ROOT + "/" + username;
+					if (workspaceSession.nodeExists(path)) {
+						workspaceSession.getNode(path).remove();
+						workspaceSession.save();
+					}
+				} finally {
+					try {
+						workspaceSession.logout();
+					} catch (Throwable ignore) {}
+				}
+			} catch (Throwable ex) {
+				CmsService.getLogger(getClass()).warn(
+						"An error occurred while removing the user home directory: " + username + " (" + workspaceName + ")", ex);
+			}
+		}
+		WorkspaceUserHomes.invalidateUser(username);
 	}
 
 	public Map<String, Object> executeChangePassword(GraphQLRequest request) throws Exception {

@@ -71,6 +71,101 @@ public class WorkspaceIntegrationEngineProviderConfiguration {
 		}
 	}
 
+	/**
+	 * Returns whether the integration engine runs for this workspace
+	 * ({@code eip.yml#enabled}). Enabled by default, so existing workspaces
+	 * keep behaving exactly as before this property was introduced; disable
+	 * it for workspaces that run no routes to save the Camel context's
+	 * resources.
+	 */
+	public boolean isEnabled() {
+		if (fConfig == null) {
+			// A freshly generated eip.yml is empty and parses to null.
+			return true;
+		}
+		Object v = fConfig.get("enabled");
+		if (v instanceof Boolean) {
+			return (Boolean) v;
+		}
+		if (v instanceof String) {
+			return Boolean.parseBoolean(((String) v).trim());
+		}
+		return true;
+	}
+
+	/**
+	 * Reads the persisted {@code eip.yml#enabled} switch for
+	 * {@code workspaceName} without starting the engine or generating the
+	 * default file. Returns the configured intent regardless of whether the
+	 * workspace's services are running, which is what lets the Workspace Manager
+	 * show and edit the switch for a stopped workspace. Defaults to {@code true}
+	 * when the file is absent or unreadable, matching {@link #isEnabled()}.
+	 */
+	@SuppressWarnings("unchecked")
+	public static boolean isEnabledOnDisk(String workspaceName) {
+		Path eipPath = new WorkspaceIntegrationEngineProviderConfiguration(workspaceName)
+				.getConfigPath().resolve("eip.yml");
+		if (!Files.exists(eipPath)) {
+			return true;
+		}
+		try (InputStream in = new BufferedInputStream(Files.newInputStream(eipPath))) {
+			Object loaded = new Load(LoadSettings.builder().build()).loadFromInputStream(in);
+			if (!(loaded instanceof Map)) {
+				return true;
+			}
+			Object v = ((Map<String, Object>) loaded).get("enabled");
+			if (v instanceof Boolean) {
+				return (Boolean) v;
+			}
+			if (v instanceof String) {
+				return Boolean.parseBoolean(((String) v).trim());
+			}
+			return true;
+		} catch (IOException ex) {
+			CmsService.getLogger(WorkspaceIntegrationEngineProviderConfiguration.class)
+					.warn("Could not read eip.yml for workspace: " + workspaceName, ex);
+			return true;
+		}
+	}
+
+	/**
+	 * Switches the integration engine on or off for {@code workspaceName} by
+	 * persisting {@code eip.yml#enabled}, preserving every other key in the
+	 * file. The change is a configuration edit only: it takes effect the next
+	 * time the workspace's services start (the provider reads {@code enabled}
+	 * in {@link WorkspaceIntegrationEngineProvider#open()}), so callers restart
+	 * the workspace to apply it.
+	 */
+	public static void setEnabled(String workspaceName, boolean enabled) throws IOException {
+		WorkspaceIntegrationEngineProviderConfiguration config = new WorkspaceIntegrationEngineProviderConfiguration(workspaceName);
+		config.load();
+		if (config.fConfig == null) {
+			config.fConfig = new java.util.LinkedHashMap<>();
+		}
+		config.fConfig.put("enabled", enabled);
+		config.save();
+	}
+
+	/**
+	 * Writes the in-memory configuration back to {@code eip.yml}, using the
+	 * same block style {@link #load()} generates the default file in.
+	 */
+	public void save() throws IOException {
+		Path configPath = getConfigPath();
+		if (!Files.exists(configPath)) {
+			Files.createDirectories(configPath);
+		}
+		Path eipPath = configPath.resolve("eip.yml");
+		String yamlString = new Dump(DumpSettings.builder()
+				.setIndent(4)
+				.setIndicatorIndent(2)
+				.setDefaultFlowStyle(FlowStyle.BLOCK)
+				.build()).dumpToString(fConfig);
+		try (Writer out = Files.newBufferedWriter(eipPath, StandardCharsets.UTF_8)) {
+			out.append(yamlString);
+		}
+	}
+
 	public String getWorkspaceName() {
 		return fWorkspaceName;
 	}

@@ -120,8 +120,23 @@ public class SubscriptionMatcher {
 		if ("jobProgress".equals(type)) {
 			return matchesJobProgress(event);
 		}
+		if ("workspaceChanged".equals(type)) {
+			return matchesWorkspaceChanged(event);
+		}
 		// Other subscription types can be added here
 		return false;
+	}
+
+	/**
+	 * Match the parameterless {@code workspaceChanged} subscription against the
+	 * repository-wide workspace-changed signal. Unlike the node-keyed
+	 * subscriptions this matches on the event topic alone — the signal carries
+	 * no path — so any workspace starting, stopping, or having its settings
+	 * edited notifies every subscriber regardless of which workspace its stream
+	 * is bound to.
+	 */
+	private boolean matchesWorkspaceChanged(CmsEvent event) {
+		return org.mintjams.rt.cms.internal.CmsService.TOPIC_WORKSPACE_CHANGED.equals(event.getTopic());
 	}
 
 	/**
