@@ -1,4 +1,6 @@
-welcomeFiles: ["index.html", "index.gsp"]
+welcomeFiles:
+  - index.html
+  - index.gsp
 defaultResponseHeaders:
     Content-Type: "text/html; charset=utf-8"
 filters: []

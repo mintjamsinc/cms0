@@ -1,1 +1,2 @@
-{jdbcURL: 'jdbc:h2:${workspace.home}/var/bpm/data'}
+enabled: true
+jdbcURL: jdbc:h2:${workspace.home}/var/bpm/data
