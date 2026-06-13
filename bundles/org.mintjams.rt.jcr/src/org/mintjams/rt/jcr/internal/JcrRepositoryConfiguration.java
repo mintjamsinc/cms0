@@ -171,9 +171,43 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return value;
 	}
 
-	public int getCacheSize() {
+	/**
+	 * Returns the target size of the workspace database page cache, in
+	 * <strong>megabytes</strong> ({@code org.mintjams.jcr.workspace.cacheSizeMB};
+	 * default 256).
+	 * <p>
+	 * Operators configure the cache in MB; each backend boundary converts to
+	 * the unit it expects (for example H2's {@code CACHE_SIZE}, which is in KB).
+	 * Keeping the operator-facing unit fixed at MB avoids the byte/KB confusion
+	 * that previously sized the cache ~1000x too large and exhausted the heap.
+	 * <p>
+	 * For backward compatibility the deprecated byte-valued property
+	 * {@code org.mintjams.jcr.workspace.cacheSize} is still honoured when the MB
+	 * property is not set; its value is converted from bytes to MB and a warning
+	 * is logged. The MB property takes precedence when both are set.
+	 */
+	public int getCacheSizeMB() {
 		BundleContext bc = Activator.getDefault().getBundleContext();
-		return Integer.parseInt(Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.workspace.cacheSize"), "268435456"));
+		int value;
+		String configured = bc.getProperty("org.mintjams.jcr.workspace.cacheSizeMB");
+		if (Strings.isNotEmpty(configured)) {
+			value = Integer.parseInt(configured.trim());
+		} else {
+			String legacyBytes = bc.getProperty("org.mintjams.jcr.workspace.cacheSize");
+			if (Strings.isNotEmpty(legacyBytes)) {
+				value = (int) Math.min(Long.parseLong(legacyBytes.trim()) / (1024L * 1024L), Integer.MAX_VALUE);
+				Activator.getDefault().getLogger(getClass()).warn(
+						"Property 'org.mintjams.jcr.workspace.cacheSize' (bytes) is deprecated; "
+						+ "use 'org.mintjams.jcr.workspace.cacheSizeMB' (megabytes) instead.");
+			} else {
+				value = 256;
+			}
+		}
+		// Clamp to a sane floor so caching is never effectively disabled.
+		if (value < 1) {
+			value = 1;
+		}
+		return value;
 	}
 
 	public int getNodeCacheSize() {

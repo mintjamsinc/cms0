@@ -718,7 +718,14 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			}
 
 			int numProcessors = Runtime.getRuntime().availableProcessors();
-			int cacheSize = fRepository.getConfiguration().getCacheSize();
+			int cacheSizeMB = fRepository.getConfiguration().getCacheSizeMB();
+			// H2's CACHE_SIZE is specified in KB, but the cache is configured in
+			// MB; convert here so we cap the MVStore page cache at the intended
+			// size. Sizing it ~1000x too large would stop eviction from ever
+			// firing and let the first compaction after a bulk delete fill the
+			// heap (OutOfMemoryError in the MVStore background writer's
+			// rewriteChunks).
+			int cacheSizeKb = (int) Math.min((long) cacheSizeMB * 1024L, Integer.MAX_VALUE);
 			int maxPoolSize = fRepository.getConfiguration().getMaxSessions();
 			int minIdle = maxPoolSize / 2;
 			if (minIdle > numProcessors) {
@@ -726,7 +733,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			}
 
 			String jdbcUrl = fConfig.getDatasourceJdbcUrl("jdbc:h2:" + getJcrDataPath().resolve("data").toAbsolutePath()
-					+ ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSize);
+					+ ";DB_CLOSE_DELAY=-1;CACHE_SIZE=" + cacheSizeKb);
 			String username = fConfig.getDatasourceUsername("sa");
 			String password = fConfig.getDatasourcePassword("");
 			String driverClassName = fConfig.getDatasourceDriverClassName();
