@@ -266,12 +266,14 @@ their respective upstream licenses.
 | `libv8_libbase.so` | Google V8 (base library) | BSD 3-Clause |
 | `libthird_party_abseil-cpp_absl.so` | [Abseil C++ Common Libraries](https://abseil.io/) (embedded by V8) | Apache License 2.0 |
 | `libchrome_zlib.so` | [zlib](https://zlib.net/) (Chromium fork embedded by V8) | zlib License |
+| `libc++.so` | [LLVM libc++](https://libcxx.llvm.org/) C++ standard library (shipped because V8 is built with `use_custom_libcxx=true`) | Apache License 2.0 with LLVM Exceptions |
 
 - V8 license: <https://chromium.googlesource.com/v8/v8/+/refs/heads/main/LICENSE>
 - Abseil license: <https://github.com/abseil/abseil-cpp/blob/master/LICENSE>
 - zlib license: <https://zlib.net/zlib_license.html>
+- libc++ (LLVM) license: <https://github.com/llvm/llvm-project/blob/main/libcxx/LICENSE.TXT>
 
-Verbatim copies of these three upstream license texts are shipped
+Verbatim copies of these four upstream license texts are shipped
 inside the bundle under
 [`org.mintjams.rt.cms.linux.x86_64/native/linux/THIRD_PARTY_LICENSES/`](org.mintjams.rt.cms.linux.x86_64/native/linux/THIRD_PARTY_LICENSES/)
 so the binary `.so` files travel together with their attribution
@@ -283,6 +285,38 @@ the bundle's `README.md` (`V8_COMMIT.txt` and
 `out/shared/args.used.txt`). Refer to the V8 source tree's top-level
 `LICENSE` and `LICENSE.*` files for the authoritative attribution for
 each transitively-embedded component.
+
+---
+
+## bundles/org.mintjams.rt.cms.linux.arm64
+
+- **Upstream project (host bundle):** MintJams CMS native runtime support
+  for Linux/arm64 (aarch64) — first-party MintJams code (JNI bridge to V8).
+- **Primary license:** Covered by the repository's top-level
+  [`LICENSE`](../LICENSE).
+
+The arm64 counterpart of `org.mintjams.rt.cms.linux.x86_64`. It ships the same
+native engine cross-compiled for arm64 under `native/linux/arm64/`. The C++
+source and build scripts are **not** duplicated; they live in the x86_64 bundle
+and are reused with `TARGET_ARCH=arm64` (see that bundle's `README.md`). The
+shipped shared objects carry the same upstream licenses as the x86_64 build.
+
+| File | Upstream Project | License |
+| --- | --- | --- |
+| `libnativeecma.so` | MintJams JNI bridge for V8 (first-party) | Covered by the top-level [`LICENSE`](../LICENSE) |
+| `libv8.so` | [Google V8 JavaScript Engine](https://v8.dev/) | BSD 3-Clause |
+| `libv8_libplatform.so` | Google V8 (platform abstraction) | BSD 3-Clause |
+| `libv8_libbase.so` | Google V8 (base library) | BSD 3-Clause |
+| `libthird_party_abseil-cpp_absl.so` | [Abseil C++ Common Libraries](https://abseil.io/) (embedded by V8) | Apache License 2.0 |
+| `libchrome_zlib.so` | [zlib](https://zlib.net/) (Chromium fork embedded by V8) | zlib License |
+| `libc++.so` | [LLVM libc++](https://libcxx.llvm.org/) C++ standard library (shipped because V8 is built with `use_custom_libcxx=true`) | Apache License 2.0 with LLVM Exceptions |
+
+Verbatim copies of these upstream license texts are shipped inside the bundle
+under
+[`org.mintjams.rt.cms.linux.arm64/native/linux/THIRD_PARTY_LICENSES/`](org.mintjams.rt.cms.linux.arm64/native/linux/THIRD_PARTY_LICENSES/)
+so the binary `.so` files travel together with their attribution notices. The
+exact arm64 dependency set must be re-confirmed with `readelf -d` on the
+arm64 binaries (it mirrors the x86_64 set in practice).
 
 ---
 
