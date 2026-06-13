@@ -91,6 +91,8 @@ use):
   `lock_expires`). A lease names its owning node and an expiry, so a
   crashed node never blocks the cluster for longer than the lease's
   time-to-live.
+- `jcr_cluster_signals` — the signal bus for short-lived control-plane
+  notifications (see *Cluster signal bus* below).
 
 The controller serializes the work that must not run on two nodes at
 once:
@@ -101,6 +103,7 @@ once:
 | `blob-cleaner` | `WorkspaceCleaner` | Removing deleted blobs from shared storage |
 | `blob-garbage-collection` | `WorkspaceGarbageCollection` | Sweeping unreferenced blobs |
 | `orphan-monitor` | `WorkspaceOrphanMonitor` | Orphan scan (avoids duplicate warnings) |
+| `cluster-signals-purge` | `ClusterController.SignalPoller` | Removing expired signal-bus rows |
 
 In standalone mode the controller is a complete no-op: no tables, no
 threads, and every lock is granted immediately. The exclusive workspace
@@ -223,6 +226,49 @@ Delivery semantics and operational notes:
   (content itself) are always immediately consistent — they go to the
   shared database.
 
+### Cluster signal bus (Phase 3)
+
+The journal carries the events that ride a JCR transaction. Some
+notifications do not: they announce a change that is not itself a
+repository write — for example `workspaceChanged`, which fires when a
+workspace's runtime state (start/stop) or its settings (display name,
+auto-start, engine switches) change. These would otherwise stay
+node-local, so a desktop connected to another node would not refresh
+until its next poll or reload.
+
+The **signal bus** propagates them. `ClusterCoordinator.publish(topic,
+properties)` inserts a row into `jcr_cluster_signals` (publishing node,
+OSGi topic, JSON payload); each node's `ClusterController.SignalPoller`
+(every 2 seconds) reads the rows written by the *other* nodes and
+re-emits each as a **local OSGi event** under the recorded topic and
+properties — indistinguishable from a local post, so the existing
+event-driven layers (CMS events, SSE/GraphQL subscriptions) deliver it
+unchanged. The publishing node does not receive its own signal; a caller
+that wants the whole cluster posts the event locally *and* publishes it,
+which is exactly what `CmsService.postWorkspaceChanged` does, fanning the
+notification out over the **system** workspace's bus (the one workspace
+running on every node, hence the repository-wide channel).
+
+Delivery semantics and operational notes:
+
+- **Ephemeral, not durable.** Signals tell *live* clients to refresh, so
+  a node that was down when one was published had no client to notify
+  and loses nothing — there is no per-node consumed offset, and a node
+  simply begins at the current head when it joins. This is the
+  deliberate difference from the journal, whose replay must be
+  exactly-once for index correctness.
+- **Ordering/stability.** Like the journal, the bus uses a
+  database-generated sequence and the same 10-second stability window:
+  signals are emitted immediately and deduplicated in memory, but the
+  consumed position only advances past a signal once nothing can still
+  surface behind it. The same clock-synchronization note applies.
+- **Retention.** Rows are purged after 5 minutes — long enough for every
+  live node to observe them — by whichever node holds the
+  `cluster-signals-purge` lease.
+- **Standalone.** `publish` is a no-op and the poller does not run; there
+  are no other nodes to notify, and the local post already reaches the
+  local desktops.
+
 ## Identity files (`repository/etc`, secrets)
 
 The following files are the **cluster's** identity, not a node's: every
@@ -298,6 +344,33 @@ the `jcr_*` tables; the schema is identical apart from the array
 columns, which H2's `SCRIPT`/CSV tooling and PostgreSQL's `COPY` both
 represent portably as text.
 
+### Workspace databases are provisioned and removed by the operator
+
+The "one database per workspace" rule of step 1 is not only an
+initial-setup concern — it governs the **runtime** workspace lifecycle too
+(the Workspace Manager app, the `createWorkspace` / `deleteWorkspace`
+mutations). Unlike the standalone embedded-H2 case, where a workspace's
+whole state lives under its directory, a clustered workspace keeps its
+durable content in the shared datasource (`jcr.yml#datasource`, and
+`bpm.yml#jdbcURL` if BPM is used) and optionally in shared blob storage
+(`jcr.yml#blobstore.directory`). The platform never creates or drops those
+external resources by itself:
+
+- **Creating** a workspace requires its database(s) to **already exist**.
+  The platform creates the *schema* (its tables) on first start under the
+  `workspace-startup` lease, but not the database/schema container — create
+  it (and grant the datasource user rights on it) beforehand, exactly as in
+  step 1.
+- **Deleting** a workspace removes its directory and node-local search
+  index; the shared **database is not dropped** and shared blob storage is
+  not removed. Clean both up manually afterwards.
+- Because schema creation is "create if missing", **recreating a workspace
+  of the same name against a database that still holds the old tables
+  resurrects the old content.** Drop or empty the database before reusing
+  the name.
+
+See `documents/workspaces.md` for the full workspace lifecycle.
+
 ## Authentication across nodes (Phase 3)
 
 A successful SAML login issues, next to the usual session attributes, an
@@ -341,8 +414,8 @@ if (lease != null) {
 
 `cluster.lock(name, ttl)` waits instead of skipping;
 `cluster.isClusterEnabled()`, `cluster.nodeId`, and
-`cluster.listMembers()` (node id, host name, started, last heartbeat)
-expose the cluster state, e.g. for an operations dashboard. In
+`cluster.listMembers()` (node id, host name, started, last heartbeat,
+alive) expose the cluster state, e.g. for an operations dashboard. In
 standalone deployments locks are granted immediately and the member list
 is empty, so the same code runs unchanged. Application locks live in
 their own namespace and cannot collide with the platform's internal
@@ -352,6 +425,26 @@ locks. The same coordination is available to Java code through
 Each node also watches the other members' heartbeats and logs a warning
 when a node goes silent for three heartbeat intervals (and a notice when
 it recovers) — the operational signal for a dead or partitioned node.
+The same judgement is exposed as `Member.isAlive()` (and as the `alive`
+entry of `cluster.listMembers()`), so consumers never hard-code the
+heartbeat interval.
+
+### Operational visibility
+
+The cluster state is part of the operations surface:
+
+- **GraphQL** — the `cluster` query (administrators only) reports
+  `enabled`, the `nodeId` serving the request, and every registered
+  member with `nodeId`, `hostName`, `started`, `lastHeartbeat`, `alive`,
+  and `self`. In standalone deployments `enabled` is `false` and
+  `members` is empty. See `documents/GRAPHQL_SCHEMA.graphql`.
+- **Webtop dashboard** — the Dashboard app's Operations section
+  (administrators only) shows a Cluster card listing every member with
+  its heartbeat health, plus a cluster KPI in the "Are operations
+  healthy?" hero; a member with a stale heartbeat turns the overall
+  status to "Issues". A standalone deployment is reported explicitly as
+  a single-node configuration — a normal, healthy state, not a degraded
+  cluster.
 
 ### Built-in background jobs
 
