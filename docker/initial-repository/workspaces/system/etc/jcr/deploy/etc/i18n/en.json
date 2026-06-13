@@ -54,5 +54,6 @@
 	"webtop.contextMenu.rename": "Rename",
 	"webtop.contextMenu.refresh": "Refresh",
 	"webtop.contextMenu.openInContentBrowser": "Open in Content Browser",
-	"webtop.window.launchFailed": "The application could not be started."
+	"webtop.window.launchFailed": "The application could not be started.",
+	"webtop.workspace.switch": "Switch workspace"
 }

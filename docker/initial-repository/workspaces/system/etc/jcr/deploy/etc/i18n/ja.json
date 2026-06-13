@@ -54,5 +54,6 @@
 	"webtop.contextMenu.rename": "名前の変更",
 	"webtop.contextMenu.refresh": "更新",
 	"webtop.contextMenu.openInContentBrowser": "コンテンツブラウザーで開く",
-	"webtop.window.launchFailed": "アプリケーションを起動できませんでした。"
+	"webtop.window.launchFailed": "アプリケーションを起動できませんでした。",
+	"webtop.workspace.switch": "ワークスペースの切り替え"
 }
