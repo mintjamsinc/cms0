@@ -1,0 +1,457 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Workspace Manager — design tokens & layout
+ *
+ * Theme tokens / shared components live in webtop-app.css. This file adds
+ * the single-pane translucent-window layout and the workspace list rows.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--statusbar-height: 1.75rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Layout — top toolbar, content body, status bar
+ * -------------------------------------------------------------------------- */
+
+[v-cloak] {
+	display: none;
+}
+
+#app {
+	height: 100%;
+}
+
+/* .nav-bar / .nav-spacer: see shared webtop-app.css */
+
+/* Content body — 2 panes (list / detail) */
+.content-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	position: relative;
+	gap: 0.25rem;
+}
+
+/* Sidebar (left pane: list) */
+.sidebar-panel {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	flex-shrink: 0;
+	min-width: 14rem;
+}
+
+.sidebar-resize-handle {
+	width: 4px;
+	cursor: col-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 2;
+	transition: background-color 0.15s;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+	background-color: var(--primary-color);
+}
+
+/* Right pane */
+.content-main {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* Bottom status bar (translucent, extends to window edges) */
+.status-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: var(--statusbar-height);
+	margin-bottom: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 0 1rem;
+	color: var(--navbar-color);
+	font-size: 11px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.status-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.status-item {
+	padding: 0 0.5rem;
+}
+
+.status-divider {
+	width: 1px;
+	height: 0.875rem;
+	background-color: var(--text-muted-color);
+	opacity: 0.5;
+}
+
+/* ----------------------------------------------------------------------------
+ * Workspace list
+ * -------------------------------------------------------------------------- */
+
+.list-filter {
+	flex-shrink: 0;
+	padding: 1rem;
+	padding-bottom: 0.5rem;
+}
+
+.list-body {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: 0.5rem;
+}
+
+.list-item {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.375rem 0.5rem;
+	cursor: pointer;
+	border-radius: 0.375rem;
+	user-select: none;
+	transition: background-color 0.15s;
+}
+
+.list-item:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.list-item.selected {
+	background-color: var(--item-selected-bg);
+}
+
+.list-item-icon {
+	font-size: 1rem;
+	flex-shrink: 0;
+}
+
+.list-item-info {
+	flex: 1;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	gap: 0.05rem;
+	min-width: 0;
+}
+
+.list-item-key {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.list-item-sub {
+	color: var(--text-muted-color);
+	font-size: 11px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.list-empty-message {
+	padding: 1rem 0.5rem;
+	text-align: center;
+	color: var(--text-muted-color);
+	font-size: 12px;
+}
+
+.service-badge {
+	flex-shrink: 0;
+	font-size: 10px;
+	padding: 0 0.5em;
+	border-radius: 9999px;
+	background-color: rgba(from var(--primary-color) r g b / 0.15);
+	color: var(--primary-color);
+}
+
+/* Workspace whose services are not (yet) online (state STARTING). */
+.service-badge-starting {
+	background-color: rgba(from var(--warning-color) r g b / 0.15);
+	color: var(--warning-color);
+}
+
+/* Workspace whose services failed to start (state FAILED); hover for the reason. */
+.service-badge-failed {
+	background-color: rgba(from var(--danger-color) r g b / 0.15);
+	color: var(--danger-color);
+	cursor: help;
+}
+
+/* ----------------------------------------------------------------------------
+ * Detail pane — header (title tab) + body (form)
+ * -------------------------------------------------------------------------- */
+
+/* Detail header — borrows the file-tabs-bar look from text-editor */
+.detail-tabs-bar {
+	flex-shrink: 0;
+	height: var(--navbar-height);
+	background-color: var(--navbar-bg);
+	border-bottom: 1px solid var(--navbar-border-color);
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+}
+
+.detail-tabs {
+	display: flex;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	padding: 0 0.5rem;
+	gap: 0.25rem;
+}
+
+.detail-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+.detail-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.125rem 0.75rem;
+	border: 1px solid transparent;
+	border-radius: 9999px;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	white-space: nowrap;
+	user-select: none;
+	background-color: transparent;
+	transition: background-color 0.15s, color 0.15s;
+}
+
+.detail-tab:not(.active):hover {
+	background-color: var(--item-hover-bg);
+	color: var(--text-color);
+}
+
+.detail-tab.active {
+	color: var(--nav-current-color);
+	background-color: var(--nav-current-bg);
+	border-color: var(--nav-current-border-color);
+}
+
+/* Detail body — empty state */
+.content-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	flex: 1;
+	color: var(--text-muted-color);
+	gap: 0.5rem;
+}
+
+.content-empty i {
+	font-size: 2rem;
+	opacity: 0.4;
+}
+
+/* Detail body — form area */
+.content-form {
+	display: flex;
+	flex-direction: column;
+	gap: 2rem;
+	overflow-y: auto;
+	padding: 1rem;
+	flex: 1;
+	min-height: 0;
+}
+
+/* Property group (form section) */
+.property-group {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.property-group-title {
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0;
+	color: var(--text-soft-color);
+	padding-bottom: 0.25rem;
+	border-bottom: 1px solid var(--navbar-border-color);
+}
+
+.property-row {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+}
+
+.property-row.half {
+	flex: 0 0 calc(50% - 0.375rem);
+}
+
+.property-label {
+	display: block;
+	font-size: 12px;
+	color: var(--text-soft-color);
+	margin-bottom: 0.125rem;
+	padding-left: 0.125rem;
+}
+
+.property-hint {
+	display: block;
+	margin-top: 0.25rem;
+	font-size: 11px;
+	color: var(--text-muted-color);
+}
+
+.form-row {
+	display: flex;
+	gap: 0.75rem;
+}
+
+.form-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+}
+
+/* Checkbox / radio rows */
+.wt-checkbox-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	flex-grow: 1;
+	cursor: pointer;
+	user-select: none;
+}
+
+/* Inline note (failure detail / engine restart hint) */
+.service-note {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin-bottom: 0.75rem;
+	padding: 0.5rem 0.75rem;
+	border-radius: var(--radius, 6px);
+	font-size: 12px;
+	background-color: rgba(from var(--primary-color) r g b / 0.1);
+	color: var(--text-muted-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Loading / progress overlays
+ * Same look as Content Browser's upload-overlay. The progress overlay
+ * covers any open dialog (z-index above .dialog-overlay) while a
+ * long-running operation — workspace creation — runs to completion.
+ * -------------------------------------------------------------------------- */
+
+.loading-overlay,
+.progress-overlay {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	position: absolute;
+	inset: 1rem;
+	background-color: var(--body-bg);
+	border-radius: 1rem;
+	box-shadow: var(--island-shadow);
+	z-index: 1000;
+	color: var(--text-color);
+	gap: 0.75rem;
+}
+
+.progress-overlay {
+	z-index: 1100;
+}
+
+.progress-message {
+	max-width: 32rem;
+	padding: 0 1.5rem;
+	overflow-wrap: break-word;
+}
+
+/* Indicator — same as Content Browser's loader */
+.loader {
+	transform: rotateZ(45deg);
+	perspective: 1000px;
+	border-radius: 50%;
+	width: 48px;
+	height: 48px;
+	color: var(--boot-loader-secondary);
+}
+
+.loader:before,
+.loader:after {
+	content: '';
+	display: block;
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: inherit;
+	height: inherit;
+	border-radius: 50%;
+	transform: rotateX(70deg);
+	animation: 1s spin linear infinite;
+}
+
+.loader:after {
+	color: var(--boot-loader-primary);
+	transform: rotateY(70deg);
+	animation-delay: .4s;
+}
+
+@keyframes spin {
+
+	0%,
+	100% {
+		box-shadow: .2em 0px 0 0px currentcolor;
+	}
+
+	12% {
+		box-shadow: .2em .2em 0 0 currentcolor;
+	}
+
+	25% {
+		box-shadow: 0 .2em 0 0px currentcolor;
+	}
+
+	37% {
+		box-shadow: -.2em .2em 0 0 currentcolor;
+	}
+
+	50% {
+		box-shadow: -.2em 0 0 0 currentcolor;
+	}
+
+	62% {
+		box-shadow: -.2em -.2em 0 0 currentcolor;
+	}
+
+	75% {
+		box-shadow: 0px -.2em 0 0 currentcolor;
+	}
+
+	87% {
+		box-shadow: .2em -.2em 0 0 currentcolor;
+	}
+}

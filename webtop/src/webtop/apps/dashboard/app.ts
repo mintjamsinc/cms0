@@ -10,8 +10,12 @@
 //   • "Operations" (system perspective) is shown only to ADMINISTRATORS and
 //     answers "is the business running, and what's broken?" — deployed vs
 //     suspended process definitions, running instances, open incidents, route
-//     health & throughput, and whether the external systems we integrate with
-//     are reachable.
+//     health & throughput, whether the external systems we integrate with
+//     are reachable, the health of every repository workspace (lifecycle
+//     state plus per-workspace engine health), and the cluster topology
+//     (every registered node with its heartbeat health — or the fact that
+//     this is a single-node deployment, so an operator never wonders
+//     whether a cluster card is simply missing).
 //
 // Every panel carries an internal `audience` ("user" | "admin") so role drives
 // what renders; the two heroes intentionally differ in viewpoint rather than
@@ -28,6 +32,7 @@ import { VDOM } from '@mintjamsinc/ichigojs';
 import { createGraphQLClient } from '../../graphql/client.js';
 import { BpmServiceGraphQL } from '../../services/bpm-service-graphql.js';
 import { EipServiceGraphQL } from '../../services/eip-service-graphql.js';
+import { WebtopServiceGraphQL } from '../../services/webtop-service-graphql.js';
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -52,6 +57,7 @@ type AnyInstance = any;
 const TASKS_APP_ID = '9c2f0e8a-7b1d-4f9a-bc28-3e51d8a9f421';
 const BPM_CONSOLE_APP_ID = '29a261c2-abb3-4214-ab1f-d1796524d391';
 const EIP_CONSOLE_APP_ID = '8ad27e16-2c83-4eb5-9e15-7d8a4f7d9c1a';
+const WORKSPACE_MANAGER_APP_ID = '3f6a9c1e-58d2-4b7a-9e04-c7b51a2d8f63';
 
 const POLL_INTERVAL_MS = 60000;
 // How many rows the ranked "top N" lists show (task bottlenecks, top incident
@@ -128,6 +134,18 @@ const EMPTY_MODEL = () => ({
 	routes: { total: 0, started: 0, stopped: 0, suspended: 0, contextState: '—', contextStateRaw: '', uptime: '' },
 	throughput: { total: 0, completed: 0, failed: 0, inflight: 0, meanLatency: '—', failing: [] as any[] },
 	connections: { remoteTotal: 0, down: 0, problems: [] as any[] },
+	// `enabled` distinguishes "single-node deployment" (a normal, healthy
+	// state worth saying out loud) from "cluster with members". `stale`
+	// counts members whose heartbeat the SERVER judged stale — a presumed
+	// dead or partitioned node, which is an operational incident.
+	cluster: { enabled: false, nodeId: '', total: 0, alive: 0, stale: 0, members: [] as any[] },
+	// Repository-wide workspace health. `starting` counts workspaces whose
+	// CMS services are still coming up; `failed` counts workspaces whose
+	// services failed to start (an outage needing intervention, not a wait);
+	// `engineIssues` counts workspaces with an engine that is enabled but not
+	// running — a failed engine start, an outage for that workspace's
+	// processes or routes.
+	workspaces: { total: 0, online: 0, starting: 0, failed: 0, engineIssues: 0, list: [] as any[] },
 });
 
 const App = {
@@ -155,12 +173,24 @@ const App = {
 			userId: '' as string,
 			userDisplay: '' as string,
 			userGroups: [] as string[],
+			// Whether the Workspace Manager app is deployed in this workspace.
+			// The Workspaces card only links into it when it is actually
+			// present here (it can be deployed to the system workspace only),
+			// so the link is never a dead end. Optimistic by default: only a
+			// positive "absent" result hides the link, so a transient app-list
+			// failure never hides a working link.
+			workspaceManagerAvailable: true,
 
 			_workspace: '' as string,
 			_bpm: null as BpmServiceGraphQL | null,
 			_eip: null as EipServiceGraphQL | null,
+			_webtop: null as WebtopServiceGraphQL | null,
 			_pollTimer: null as any,
 			_messageListener: null as any,
+			// Live workspace updates: refresh promptly when any workspace starts,
+			// stops, or has its settings (e.g. display name) edited, rather than
+			// waiting for the next poll. Unsubscribe handle, cleared on unmount.
+			_workspacesUnsub: null as null | (() => void),
 		};
 	},
 
@@ -216,12 +246,27 @@ const App = {
 			return { ...c, healthyLabel: `${this.fmtNum(Math.max(0, c.remoteTotal - c.down))}/${this.fmtNum(c.remoteTotal)}` };
 		},
 
+		cluster(): any {
+			return this.model.cluster;
+		},
+
+		workspaces(): any {
+			return this.model.workspaces;
+		},
+
 		ops(): any {
 			const m = this.model;
 			const failed = m.throughput.failed;
-			const overall = (m.incidents.total > 0 || m.connections.down > 0)
+			// Outage tier: a stale cluster member is a presumed dead node, an
+			// engine that is enabled but not running means a workspace's
+			// processes or routes are down, and a workspace whose services
+			// FAILED to start will not come up on its own — all same tier as
+			// incidents. A workspace merely STARTING is only the attention
+			// tier: right after creation or cluster discovery it resolves by
+			// itself.
+			const overall = (m.incidents.total > 0 || m.connections.down > 0 || m.cluster.stale > 0 || m.workspaces.engineIssues > 0 || m.workspaces.failed > 0)
 				? { cls: 'danger', label: this.t('app.dashboard.ops.overall.issues', undefined, 'Issues') }
-				: (failed > 0 || m.running.suspended > 0 || m.routes.stopped > 0)
+				: (failed > 0 || m.running.suspended > 0 || m.routes.stopped > 0 || m.workspaces.starting > 0)
 					? { cls: 'warn', label: this.t('app.dashboard.ops.overall.attention', undefined, 'Attention') }
 					: { cls: 'ok', label: this.t('app.dashboard.ops.overall.healthy', undefined, 'Healthy') };
 			return {
@@ -296,9 +341,20 @@ const App = {
 				vm.resolveUser();
 				vm._workspace = (() => { try { return instance.api.workspace as string; } catch (_) { return ''; } })();
 				vm.initServices();
+				vm.detectWorkspaceManager();
 
 				await vm.load();
 				vm.setupRealtime();
+
+				// Keep the Workspaces card live: a workspace started/stopped or
+				// renamed elsewhere should reflect here without waiting for the poll.
+				// The snapshot is rebuilt wholesale (the model is markRaw and only
+				// re-renders on reassignment), so a full refresh is the right hook.
+				try {
+					vm._workspacesUnsub = instance.api?.eventHub?.watchWorkspaces(() => vm.refresh()) || null;
+				} catch (err) {
+					console.warn('[Dashboard] Failed to subscribe to workspace changes:', err);
+				}
 
 				vm.$nextTick(() => { try { instance.notifyLaunched(); } catch (_) {} });
 			};
@@ -307,6 +363,10 @@ const App = {
 		onUnmount() {
 			if (this._messageListener) window.removeEventListener('message', this._messageListener);
 			if (this._pollTimer) clearInterval(this._pollTimer);
+			if (this._workspacesUnsub) {
+				try { this._workspacesUnsub(); } catch { /* noop */ }
+				this._workspacesUnsub = null;
+			}
 		},
 
 		// ---- Identity --------------------------------------------------------
@@ -331,6 +391,23 @@ const App = {
 			const client = createGraphQLClient(this._workspace);
 			this._bpm = this.$markRaw(new BpmServiceGraphQL(client));
 			this._eip = this.$markRaw(new EipServiceGraphQL(client));
+			this._webtop = this.$markRaw(new WebtopServiceGraphQL(client, { isAdmin: this.isAdmin }));
+		},
+
+		// Resolve once whether the Workspace Manager app is deployed in this
+		// workspace, so the Workspaces card hides its drill-in link when it
+		// is not (e.g. the app is installed in the system workspace only).
+		// Only relevant for admins — the Operations section that carries the
+		// link is admin-only — and the admin-mode app list includes admin-only
+		// apps. On any failure the optimistic default (available) stands, so a
+		// transient error never hides a link that does work.
+		async detectWorkspaceManager() {
+			if (!this.isAdmin || !this._webtop) return;
+			try {
+				const result = await this._webtop.listApps();
+				this.workspaceManagerAvailable = result.apps.some(
+					(a) => a.id === WORKSPACE_MANAGER_APP_ID);
+			} catch (_) { /* keep the optimistic default */ }
 		},
 
 		// ---- Window controls -------------------------------------------------
@@ -350,6 +427,12 @@ const App = {
 		openTasks(options?: Record<string, any>) { this.openApp(TASKS_APP_ID, options); },
 		openBpm(options?: Record<string, any>) { this.openApp(BPM_CONSOLE_APP_ID, options); },
 		openEip(options?: Record<string, any>) { this.openApp(EIP_CONSOLE_APP_ID, options); },
+		openWorkspaceManager() {
+			// Never open a dead end: the link/rows are already hidden or made
+			// static when the app is absent, but guard here too.
+			if (!this.workspaceManagerAvailable) return;
+			this.openApp(WORKSPACE_MANAGER_APP_ID);
+		},
 
 		// ---- Data ------------------------------------------------------------
 		async load() {
@@ -416,6 +499,8 @@ const App = {
 				await Promise.all([
 					this.buildBpmOps(bpm, model, nameFor),
 					this.buildEipOps(eip, model),
+					this.buildClusterOps(model, now),
+					this.buildWorkspaceOps(model),
 				]);
 			}
 
@@ -678,6 +763,117 @@ const App = {
 				model.throughput.inflight = ctx.exchangesInflight || 0;
 				if (mean === 0) model.throughput.meanLatency = formatLatency(ctx.meanProcessingTime);
 			}
+		},
+
+		// Cluster topology: which repository nodes are registered for this
+		// workspace, and whether each one's heartbeat is fresh. `alive` is
+		// the SERVER's judgement (the coordinator owns the staleness policy),
+		// never re-derived client-side from the heartbeat timestamp. In a
+		// standalone deployment `enabled` is false and the member list is
+		// empty — the card then says "single node" explicitly instead of
+		// pretending a one-member cluster.
+		async buildClusterOps(model: any, now: number) {
+			const webtop = this._webtop;
+			if (!webtop) return;
+			try {
+				const info = await webtop.getCluster();
+				model.cluster.enabled = !!info.enabled;
+				model.cluster.nodeId = info.nodeId || '';
+				const members = (info.members || []).map((m) => ({
+					nodeId: m.nodeId,
+					// The node id is the stable identity; the host name is the
+					// human-friendly headline when the node could resolve one.
+					name: m.hostName || m.nodeId,
+					self: !!m.self,
+					alive: !!m.alive,
+					started: m.started,
+					lastHeartbeat: m.lastHeartbeat,
+					heartbeatAge: ageLabel(m.lastHeartbeat, now),
+				}));
+				model.cluster.members = members;
+				model.cluster.total = members.length;
+				model.cluster.alive = members.filter((m) => m.alive).length;
+				model.cluster.stale = members.length - model.cluster.alive;
+			} catch (_) { /* keep defaults (treated as standalone view) */ }
+		},
+
+		// Workspace health across the whole repository. The server reports a
+		// lifecycle state per workspace (ONLINE / STARTING) plus the state of
+		// its engines; "enabled but not running" is a failed engine start —
+		// an outage for that workspace — and is surfaced as a degraded
+		// workspace even though the workspace itself is online.
+		async buildWorkspaceOps(model: any) {
+			const webtop = this._webtop;
+			if (!webtop) return;
+			try {
+				const list = await webtop.listWorkspaces();
+				const rows = list.map((w) => {
+					const online = w.state === 'ONLINE';
+					const failed = w.state === 'FAILED';
+					const stopped = w.state === 'STOPPED';
+					const bpm = this.engineStatus(w.processEngine, online);
+					const eip = this.engineStatus(w.integrationEngine, online);
+					const degraded = online && (bpm.failed || eip.failed);
+					return {
+						name: w.name,
+						// Human-friendly label shown in the list; falls back to the
+						// name when no display name is configured. The name itself is
+						// kept (and surfaced as the row tooltip) so the underlying
+						// workspace remains identifiable.
+						displayName: w.displayName || '',
+						current: !!w.current,
+						system: !!w.system,
+						online,
+						failed,
+						degraded,
+						// The FAILED reason, surfaced as a tooltip on the pill.
+						stateMessage: w.stateMessage || '',
+						enginesLabel: this.t('app.dashboard.workspaces.engines',
+							{ bpm: bpm.label, eip: eip.label }, `BPM ${bpm.label} · EIP ${eip.label}`),
+						pillClass: failed ? 'danger' : stopped ? 'neutral' : !online ? 'warn' : degraded ? 'danger' : 'ok',
+						pillLabel: failed
+							? this.t('app.dashboard.workspaces.pill.failed', undefined, 'Failed')
+							: stopped
+								? this.t('app.dashboard.workspaces.pill.stopped', undefined, 'Stopped')
+								: !online
+									? this.t('app.dashboard.workspaces.pill.starting', undefined, 'Starting')
+									: degraded
+										? this.t('app.dashboard.workspaces.pill.degraded', undefined, 'Degraded')
+										: this.t('app.dashboard.workspaces.pill.online', undefined, 'Online'),
+					};
+				});
+				model.workspaces.list = rows;
+				model.workspaces.total = rows.length;
+				model.workspaces.online = rows.filter((w) => w.online).length;
+				model.workspaces.failed = rows.filter((w) => w.failed).length;
+				model.workspaces.starting = rows.filter((w) => !w.online && !w.failed).length;
+				model.workspaces.engineIssues = rows.filter((w) => w.degraded).length;
+			} catch (_) { /* keep zeros */ }
+		},
+
+		// Classify one engine report. `enabled` is the configuration switch,
+		// `running` the actual state; enabled-but-not-running is a failed
+		// start (prepareServices logs the error and keeps the workspace up).
+		// `enabled` is null while the workspace's services are not running.
+		// `enabled` is the engine's configured intent (read from bpm.yml/eip.yml,
+		// so it is known even while the workspace is stopped); `running` is its
+		// live state. An engine only counts as "failed" when its workspace is
+		// online but the (enabled) engine isn't running — while the workspace
+		// itself is down its engine runtime is not applicable, shown as "—".
+		engineStatus(e: { enabled: boolean | null; running: boolean } | null | undefined, online: boolean): { label: string; failed: boolean } {
+			if (e && e.running) {
+				return { label: this.t('app.dashboard.workspaces.engine.running', undefined, 'running'), failed: false };
+			}
+			if (!online) {
+				return { label: '—', failed: false };
+			}
+			if (e && e.enabled === false) {
+				return { label: this.t('app.dashboard.workspaces.engine.disabled', undefined, 'off'), failed: false };
+			}
+			if (e && e.enabled === true) {
+				return { label: this.t('app.dashboard.workspaces.engine.failed', undefined, 'failed'), failed: true };
+			}
+			return { label: '—', failed: false };
 		},
 
 		// Map a Camel context state to a localized label. Known lifecycle

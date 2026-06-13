@@ -1,0 +1,12 @@
+identifier: 3f6a9c1e-58d2-4b7a-9e04-c7b51a2d8f63
+title: Workspace Manager
+icon: assets/icons/icon.svg
+isAdminOnly: true
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 880
+minimumHeight: 480
+customWindowControls: true
+singleton: true

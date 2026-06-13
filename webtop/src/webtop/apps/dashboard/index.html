@@ -244,6 +244,15 @@
 								<span class="dash-kpi-value" :class="{ 'dash-value-danger': ops.extIssues > 0 }">{{ ops.extIssues }}</span>
 								<span class="dash-kpi-label">{{ t('app.dashboard.ops.connectionIssues', undefined, 'Connection issues') }}</span>
 							</div>
+							<div class="dash-kpi" :class="{ 'is-link': workspaceManagerAvailable }" @click="openWorkspaceManager()" :title="t('app.dashboard.ops.workspaces.hint', undefined, 'Workspaces online / total')">
+								<span class="dash-kpi-value" :class="{ 'dash-value-warn': workspaces.starting > 0, 'dash-value-danger': workspaces.failed > 0 || workspaces.engineIssues > 0 }">{{ workspaces.online }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ workspaces.total }}</span></span>
+								<span class="dash-kpi-label">{{ t('app.dashboard.workspaces.title', undefined, 'Workspaces') }}</span>
+							</div>
+							<div class="dash-kpi" :title="cluster.enabled ? t('app.dashboard.cluster.hint', undefined, 'Nodes with a fresh heartbeat / registered nodes') : t('app.dashboard.cluster.singleHint', undefined, 'Running as a single node without clustering')">
+								<span class="dash-kpi-value" v-if="cluster.enabled" :class="{ 'dash-value-danger': cluster.stale > 0 }">{{ cluster.alive }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ cluster.total }}</span></span>
+								<span class="dash-kpi-value" v-else><span class="dash-pill neutral">{{ t('app.dashboard.cluster.single', undefined, 'Single') }}</span></span>
+								<span class="dash-kpi-label">{{ t('app.dashboard.cluster.title', undefined, 'Cluster') }}</span>
+							</div>
 							<div class="dash-kpi text-center">
 								<span class="dash-kpi-value"><span class="dash-pill" :class="ops.overall.cls">{{ ops.overall.label }}</span></span>
 								<span class="dash-kpi-label">{{ t('app.dashboard.ops.overall', undefined, 'Overall') }}</span>
@@ -430,6 +439,75 @@
 						</div>
 						<div class="dash-list-empty" v-else>
 							{{ connections.remoteTotal > 0 ? t('app.dashboard.connections.allReachable', undefined, 'All external systems are reachable.') : t('app.dashboard.connections.none', undefined, 'No external connections in use.') }}
+						</div>
+					</div>
+
+					<!-- Workspaces -->
+					<div class="island dash-card">
+						<div class="dash-card-head" :class="{ 'has-link': workspaceManagerAvailable }">
+							<span class="head-title"><i class="bi bi-collection"></i>{{ t('app.dashboard.workspaces.title', undefined, 'Workspaces') }}</span>
+							<button v-if="workspaceManagerAvailable" class="dash-card-link" :title="t('app.dashboard.action.openWorkspaceManager', undefined, 'Open Workspace Manager')" @click="openWorkspaceManager()">
+								<i class="bi bi-box-arrow-up-right"></i>
+							</button>
+						</div>
+						<div class="dash-metric">
+							<span class="dash-metric-value" :class="{ 'dash-value-warn': workspaces.starting > 0, 'dash-value-danger': workspaces.engineIssues > 0 || workspaces.failed > 0 }">{{ workspaces.online }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ workspaces.total }}</span></span>
+							<span class="dash-metric-unit">{{ t('app.dashboard.workspaces.online', undefined, 'online') }}</span>
+						</div>
+						<div class="dash-list">
+							<button class="dash-list-row" :class="{ 'is-static': !workspaceManagerAvailable }" v-for="w in workspaces.list" :key="w.name"
+								@click="openWorkspaceManager()" :title="w.name">
+								<span class="dash-list-rank"><i class="bi bi-collection"></i></span>
+								<span class="dash-list-main">
+									<span class="dash-list-title">{{ w.displayName || w.name }}<span class="dash-pill neutral" style="margin-left: 0.4rem;" v-if="w.system">{{ t('app.dashboard.workspaces.system', undefined, 'System') }}</span><span class="dash-pill neutral" style="margin-left: 0.4rem;" v-if="w.current">{{ t('app.dashboard.workspaces.current', undefined, 'Current') }}</span></span>
+									<span class="dash-list-sub">{{ w.enginesLabel }}</span>
+								</span>
+								<span class="dash-pill" :class="w.pillClass" :title="w.stateMessage">{{ w.pillLabel }}</span>
+							</button>
+							<div class="dash-list-empty" v-if="workspaces.list.length === 0">
+								{{ t('app.dashboard.workspaces.empty', undefined, 'No workspace information available.') }}
+							</div>
+						</div>
+					</div>
+
+					<!-- Cluster -->
+					<div class="island dash-card">
+						<div class="dash-card-head">
+							<span class="head-title"><i class="bi bi-hdd-rack"></i>{{ t('app.dashboard.cluster.title', undefined, 'Cluster') }}</span>
+						</div>
+
+						<!-- Clustered: every registered node with its heartbeat health -->
+						<div v-if="cluster.enabled">
+							<div class="dash-metric">
+								<span class="dash-metric-value" :class="{ 'dash-value-danger': cluster.stale > 0 }">{{ cluster.alive }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ cluster.total }}</span></span>
+								<span class="dash-metric-unit">{{ t('app.dashboard.cluster.nodesAlive', undefined, 'nodes alive') }}</span>
+							</div>
+							<div class="dash-list">
+								<div class="dash-list-row is-static" v-for="m in cluster.members" :key="m.nodeId" :title="m.nodeId">
+									<span class="dash-list-rank"><i class="bi bi-hdd-network"></i></span>
+									<span class="dash-list-main">
+										<span class="dash-list-title">{{ m.name }}<span class="dash-pill neutral" style="margin-left: 0.4rem;" v-if="m.self">{{ t('app.dashboard.cluster.thisNode', undefined, 'This node') }}</span></span>
+										<span class="dash-list-sub">{{ m.nodeId }} · {{ t('app.dashboard.cluster.heartbeatAge', { age: m.heartbeatAge }, 'heartbeat ' + m.heartbeatAge + ' ago') }}</span>
+									</span>
+									<span class="dash-pill" :class="m.alive ? 'ok' : 'danger'">{{ m.alive ? t('app.dashboard.cluster.alive', undefined, 'Alive') : t('app.dashboard.cluster.stale', undefined, 'Stale') }}</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- Standalone: say so explicitly — a single node is a normal,
+						     healthy deployment, not a degraded cluster. -->
+						<div v-else>
+							<div class="dash-metric">
+								<span class="dash-metric-value">1</span>
+								<span class="dash-metric-unit">{{ t('app.dashboard.cluster.singleNodeUnit', undefined, 'node (single)') }}</span>
+							</div>
+							<div class="dash-list-empty">{{ t('app.dashboard.cluster.standalone', undefined, 'Clustering is not configured; this workspace runs on a single node.') }}</div>
+							<div class="dash-rows" v-if="cluster.nodeId">
+								<div class="dash-row">
+									<span class="dash-row-label"><i class="bi bi-hdd-network"></i>{{ t('app.dashboard.cluster.thisNode', undefined, 'This node') }}</span>
+									<span class="dash-row-value" style="font-weight: 400;">{{ cluster.nodeId }}</span>
+								</div>
+							</div>
 						</div>
 					</div>
 

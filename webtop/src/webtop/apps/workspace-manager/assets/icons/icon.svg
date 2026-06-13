@@ -1,0 +1,24 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="workspaces">
+  <defs>
+    <clipPath id="clip-workspaces"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-workspaces" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <defs><linearGradient id="bg-workspaces" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#2dd4bf"/>
+    <stop offset="100%" stop-color="#0f766e"/>
+  </linearGradient></defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-workspaces)"/>
+  <g clip-path="url(#clip-workspaces)" fill="white">
+    <path d="M 90 38 L 146 66 L 90 94 L 34 66 Z"/>
+    <path d="M 46 84 L 34 90 L 90 118 L 146 90 L 134 84 L 90 106 Z" fill-opacity="0.75"/>
+    <path d="M 46 108 L 34 114 L 90 142 L 146 114 L 134 108 L 90 130 Z" fill-opacity="0.5"/>
+  </g>
+  <g clip-path="url(#clip-workspaces)">
+    <rect x="0" y="0" width="180" height="180" fill="url(#hl-workspaces)"/>
+    <rect x="0.5" y="0.5" width="179" height="179" rx="41.5" ry="41.5"
+          fill="none" stroke="white" stroke-opacity="0.18" stroke-width="1"/>
+  </g>
+</svg>

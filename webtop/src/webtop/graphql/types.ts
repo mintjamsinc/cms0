@@ -885,6 +885,25 @@ export interface JobProgressEvent {
   errorMessage?: string;
   /** Set on the terminal event of jobs that produce a downloadable artifact (archive jobs). */
   downloadUrl?: string;
+  /**
+   * Coarse phase of a multi-step job, mapped by the UI to a localized progress
+   * message. Workspace lifecycle jobs publish `creating`/`starting` (create)
+   * and `stopping`/`deleting` (delete); absent on jobs with no sub-phases.
+   */
+  phase?: string;
+  /** Workspace a lifecycle job acts upon; absent on other job types. */
+  targetWorkspace?: string;
+  timestamp: string;
+}
+
+/**
+ * Emitted when any workspace's runtime state changes (started or stopped)
+ * anywhere in the repository. Carries the affected workspace name; subscribers
+ * re-read the workspace list — the live source of truth for which workspaces
+ * are selectable — rather than trusting a state snapshot in the event.
+ */
+export interface WorkspaceChangeEvent {
+  workspace: string;
   timestamp: string;
 }
 

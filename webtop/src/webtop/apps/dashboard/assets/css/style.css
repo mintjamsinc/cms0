@@ -285,6 +285,15 @@
 	background: color-mix(in srgb, var(--primary-color) 10%, transparent);
 }
 
+/* Informational rows (cluster members) that have no drill-down target. */
+.dash-list-row.is-static {
+	cursor: default;
+}
+
+.dash-list-row.is-static:hover {
+	background: transparent;
+}
+
 .dash-list-rank {
 	flex: 0 0 auto;
 	width: 1.4rem;

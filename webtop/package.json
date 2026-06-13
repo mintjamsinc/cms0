@@ -33,6 +33,8 @@
 		"build:text-editor:prod": "cross-env BUILD=production TARGETS=text-editor rollup -c",
 		"build:text-editor-preview": "cross-env BUILD=development TARGETS=text-editor-preview rollup -c",
 		"build:text-editor-preview:prod": "cross-env BUILD=production TARGETS=text-editor-preview rollup -c",
+		"build:workspace-manager": "cross-env BUILD=development TARGETS=workspace-manager rollup -c",
+		"build:workspace-manager:prod": "cross-env BUILD=production TARGETS=workspace-manager rollup -c",
 		"prepare": "npm run build",
 		"test": "npm run build && node --test"
 	},

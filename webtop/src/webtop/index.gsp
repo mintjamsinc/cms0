@@ -27,6 +27,9 @@
 				</div>
 				<div class="active-app-name px-2" v-if="activeAppName">{{activeAppName}}</div>
 				<div class="flex-grow-1 d-flex justify-content-center align-items-center"><!-- spacer --></div>
+				<div class="mx-2 px-2 d-flex justify-content-center align-items-center c-pointer menu-on-hover" :title="t('webtop.workspace.switch')" @click="openWorkspaceMenu(event)">
+					<i class="bi bi-hdd-stack"></i><span class="text ms-2">{{workspaceName}}</span><i class="bi bi-chevron-down ms-1 fs-small"></i>
+				</div>
 				<div class="mx-4 d-flex justify-content-center align-items-center">
 					<span class="user-avatar" :style="{backgroundImage: avatarURL}"><!-- avatar --></span><span class="text ms-2">{{username}}</span>
 				</div>

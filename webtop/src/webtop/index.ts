@@ -85,6 +85,17 @@ const WtDesktop = {
 			avatarURL: null,
 			isMenuOpen: false,
 			logoURL: null,
+			// The workspace this desktop is bound to. The shell and every app
+			// are served from the workspace they operate on, so switching is a
+			// navigation to the target workspace's webtop, not an in-place
+			// endpoint swap. The label shows the workspace's display name when
+			// one is configured, falling back to its (immutable) name.
+			workspaceName: '',
+			// Cached workspace list backing the switcher, kept live by the
+			// `workspaceChanged` subscription so stopped workspaces drop out and
+			// freshly started ones appear without a manual refresh.
+			workspaceList: [] as any[],
+			workspaceListUnsub: null as null | (() => void),
 			displayDate: null,
 			displayTime: null,
 			sortedApps: null,
@@ -296,11 +307,37 @@ const WtDesktop = {
 			}
 
 			vm.username = window.Webtop.currentUser.fullName || window.Webtop.currentUser.id;
+			vm.workspaceName = window.Webtop.api.workspace;
+
+			// Seed the switcher's workspace list and keep it live: when any
+			// workspace starts or stops anywhere in the repository, re-read the
+			// list so the switcher only ever offers selectable (running)
+			// workspaces and shows the current one's display name.
+			vm.refreshWorkspaceList();
+			try {
+				vm.workspaceListUnsub = window.Webtop.api.eventHub?.watchWorkspaces(() => vm.refreshWorkspaceList()) || null;
+			} catch (err) {
+				console.warn('[Webtop] Failed to subscribe to workspace changes:', err);
+			}
 
 			// Seed the shell's localization snapshot now that the API (and with it
 			// LocalizationManager) is initialized. `window.Webtop` acts as the
 			// context: its `api.localization` / `api.i18n` back the helpers.
 			refreshLocalization(vm.localization, window.Webtop);
+
+			// I18n バンドルキャッシュの初期化を開始。残りの起動処理（アバター、
+			// テーマ、アプリ一覧など）と並行して読み込み、boot indicator を消す
+			// 直前に完了を待つ（下記参照）。これにより、デスクトップの初回描画が
+			// 最初から利用者の表示言語で行われ、起動後に言語が切り替わって見える
+			// ことがなくなる。
+			const i18nReady = window.Webtop.initI18n().then(() => {
+				// Bundles loaded — bump the snapshot revision so every t() binding
+				// resolves against the loaded bundles on the desktop's first paint.
+				handleLocalizationMessage('i18n-bundles-updated', vm.localization, window.Webtop);
+			}).catch((err: any) => {
+				// 読み込みに失敗しても起動は継続する（フォールバック表示）。
+				console.warn('[Webtop] Failed to initialize i18n bundles cache:', err);
+			});
 
 			// Load avatar: system workspace takes priority over Identicon
 			try {
@@ -339,14 +376,6 @@ const WtDesktop = {
 			// メタデータ定義キャッシュを初期化（バックグラウンド）
 			window.Webtop.initMetadataDefinitions().catch((err: any) => {
 				console.warn('[Webtop] Failed to initialize metadata definitions cache:', err);
-			});
-			// I18n バンドルキャッシュを初期化（バックグラウンド）
-			window.Webtop.initI18n().then(() => {
-				// Bundles loaded — repaint any t() bindings that rendered during
-				// boot (e.g. the startup session picker) before they were ready.
-				handleLocalizationMessage('i18n-bundles-updated', vm.localization, window.Webtop);
-			}).catch((err: any) => {
-				console.warn('[Webtop] Failed to initialize i18n bundles cache:', err);
 			});
 			// onTimer内で初回必ず commit される
 
@@ -547,6 +576,11 @@ const WtDesktop = {
 				}
 			});
 
+			// 多言語バンドルの読み込み完了（とスナップショットへの反映）を待って
+			// から起動完了とする。boot indicator はこの後の初回描画後に消えるため、
+			// 表示言語が切り替わる瞬間を利用者に見せない。
+			await i18nReady;
+
 			// 起動完了
 			vm.isReady = true;
 
@@ -610,6 +644,57 @@ const WtDesktop = {
 		toggleMenu() {
 			const vm = this;
 			vm.isMenuOpen = !vm.isMenuOpen;
+		},
+		// Workspace switcher (menubar). Lists every workspace in the repository
+		// and navigates to the selected workspace's webtop — the desktop is
+		// served from the workspace it operates on, so switching reloads the
+		// whole shell rather than swapping endpoints in place.
+		// Re-read the workspace list backing the switcher and refresh the
+		// menubar label. Driven once at startup and then by the
+		// workspaceChanged subscription. Failures are non-fatal — the switcher
+		// just keeps its last known list.
+		async refreshWorkspaceList() {
+			const vm = this;
+			try {
+				const list = await window.Webtop.api.webtop.listWorkspaces();
+				vm.workspaceList = list;
+				const current = list.find((w: any) => w.current);
+				if (current) {
+					vm.workspaceName = current.displayName || current.name;
+				}
+			} catch (err) {
+				console.error('[Webtop] Failed to list workspaces:', err);
+			}
+		},
+		async openWorkspaceMenu(event: MouseEvent) {
+			const vm = this;
+			const anchor = (event.currentTarget as HTMLElement).getBoundingClientRect();
+
+			// Offer only workspaces the user can switch to: those that are
+			// running (ONLINE), plus the current one. Stopped workspaces are
+			// hidden — there is nothing to switch to. The list is kept live by
+			// the workspaceChanged subscription.
+			const selectable = (vm.workspaceList || [])
+				.filter((ws: any) => ws.state === 'ONLINE' || ws.current);
+
+			vm.showContextMenu({
+				x: anchor.left,
+				y: anchor.bottom + 4,
+				items: selectable.map((ws: any) => ({
+					id: ws.name,
+					label: ws.displayName || ws.name,
+					icon: ws.system ? 'bi-shield-lock' : 'bi-hdd-stack',
+					selected: ws.current,
+				})),
+				onAction: (id: string) => vm.switchToWorkspace(id),
+			});
+		},
+		switchToWorkspace(workspace: string) {
+			if (!workspace || workspace === window.Webtop.api.workspace) {
+				return;
+			}
+			const urlInfo = UrlUtils.getUrlInfo();
+			window.location.href = `${urlInfo.cmsBasePath}/${workspace}/content/webtop/index.gsp`;
 		},
 		iconURL(app: Application) {
 			if (!app?.icon) {

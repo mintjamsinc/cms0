@@ -18,6 +18,7 @@ import type {
   RouteStateEvent,
   SystemNotification,
   JobProgressEvent,
+  WorkspaceChangeEvent,
 } from '../graphql/types.js';
 
 export type EventHandler<T = unknown> = (data: T) => void;
@@ -205,6 +206,22 @@ export class EventHub {
     handler: EventHandler<JobProgressEvent>
   ): () => void {
     const subscription = `jobProgress(jobId: "${jobId}")`;
+    return this.#client.subscribe(subscription, handler);
+  }
+
+  /**
+   * Subscribe to workspace runtime-state changes across the repository.
+   *
+   * Fires whenever any workspace's services start or stop, so the desktop's
+   * workspace switcher can stay in sync — newly started workspaces appear and
+   * stopped ones disappear without a manual refresh. The handler should
+   * re-read the workspace list rather than trust the event payload, which only
+   * names the workspace that changed.
+   *
+   * Subscription: workspaceChanged
+   */
+  watchWorkspaces(handler: EventHandler<WorkspaceChangeEvent>): () => void {
+    const subscription = 'workspaceChanged';
     return this.#client.subscribe(subscription, handler);
   }
 

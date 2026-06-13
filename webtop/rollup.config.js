@@ -218,4 +218,5 @@ export default [
   makeAppConfig('tasks'),
   makeAppConfig('osgi-console'),
   makeAppConfig('dashboard'),
+  makeAppConfig('workspace-manager'),
 ].filter(Boolean);

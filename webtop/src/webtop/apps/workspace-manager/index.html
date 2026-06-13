@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Workspace Manager</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: actions (New / Refresh) -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="showCreateDialog" :title="t('app.workspace-manager.action.create', undefined, 'New Workspace')">
+					<i class="bi bi-plus-lg"></i>
+				</button>
+				<button class="btn-icon" @click="refresh" :title="t('app.workspace-manager.action.refresh', undefined, 'Refresh')">
+					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Content body (2-pane) -->
+		<div class="content-body">
+
+			<!-- Left pane: filter + workspace list -->
+			<div class="sidebar-panel island p-0" :style="{ width: sidebarPanelWidth + 'px' }">
+
+				<!-- Filter -->
+				<div class="list-filter">
+					<div class="input-group">
+						<input type="text" class="wt"
+							v-model="searchQuery"
+							@input="onSearchInput"
+							:placeholder="t('app.workspace-manager.search.placeholder', undefined, 'Search workspaces...')">
+						<div v-if="searchQuery" class="input-group-actions">
+							<button class="input-group-btn" @click="clearSearch" :title="t('app.workspace-manager.action.clear', undefined, 'Clear')">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<!-- List -->
+				<div class="list-body">
+					<div v-for="ws in displayedWorkspaces" :key="ws.name" class="list-item"
+						:class="{ selected: selectedName === ws.name }"
+						@click="selectWorkspace(ws)">
+						<i :class="ws.system ? 'bi bi-shield-lock list-item-icon' : 'bi bi-hdd-stack list-item-icon'"></i>
+						<div class="list-item-info">
+							<div class="list-item-key">{{ ws.displayName || ws.name }}</div>
+							<div class="list-item-sub">{{ ws.name }}</div>
+						</div>
+						<span v-if="ws.current" class="service-badge">{{ t('app.workspace-manager.badge.current', undefined, 'Current') }}</span>
+						<span :class="stateBadgeClass(ws)" :title="ws.stateMessage || ''">{{ stateLabel(ws) }}</span>
+					</div>
+					<div v-if="!isLoading && displayedWorkspaces.length === 0" class="list-empty-message">
+						{{ t('app.workspace-manager.empty', undefined, 'No workspaces found') }}
+					</div>
+				</div>
+			</div>
+
+			<!-- Sidebar resize handle -->
+			<div class="sidebar-resize-handle" @mousedown="onSidebarResizeStart"></div>
+
+			<!-- Right pane: editor -->
+			<div class="content-main island p-0">
+				<template v-if="selectedWorkspace">
+
+					<!-- Detail header: name + live state -->
+					<div class="detail-tabs-bar">
+						<div class="detail-tabs">
+							<div class="detail-tab active">
+								<i :class="selectedWorkspace.system ? 'bi bi-shield-lock' : 'bi bi-hdd-stack'"></i>
+								<span>{{ selectedWorkspace.displayName || selectedWorkspace.name }}</span>
+							</div>
+						</div>
+						<span class="nav-spacer"></span>
+						<span :class="stateBadgeClass(selectedWorkspace)" :title="selectedWorkspace.stateMessage || ''" class="me-3">{{ stateLabel(selectedWorkspace) }}</span>
+					</div>
+
+					<!-- Body -->
+					<div class="content-form">
+
+						<!-- Failure detail -->
+						<div v-if="selectedWorkspace.state === 'FAILED' && selectedWorkspace.stateMessage" class="service-note mb-2">
+							<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>{{ selectedWorkspace.stateMessage }}
+						</div>
+
+						<!-- General -->
+						<div class="property-group">
+							<div class="property-group-title">{{ t('app.workspace-manager.section.general', undefined, 'General') }}</div>
+							<div class="form-row">
+								<div class="property-row half">
+									<label class="property-label">{{ t('app.workspace-manager.field.displayName', undefined, 'Display Name') }}</label>
+									<input type="text" class="wt w-100" v-model="editForm.displayName"
+										:placeholder="selectedWorkspace.name">
+								</div>
+								<div class="property-row half">
+									<label class="property-label">{{ t('app.workspace-manager.field.name', undefined, 'Name') }}</label>
+									<input type="text" class="wt w-100" :value="selectedWorkspace.name" disabled>
+								</div>
+							</div>
+							<div class="property-row" v-if="!selectedWorkspace.system">
+								<label class="wt-checkbox-label">
+									<input type="checkbox" class="wt" v-model="editForm.autoStart">
+									<span>{{ t('app.workspace-manager.field.autoStart', undefined, 'Start automatically when the node boots') }}</span>
+								</label>
+								<small class="property-hint">{{ t('app.workspace-manager.field.autoStartHint', undefined, 'When off, the workspace stays stopped at boot until you start it here.') }}</small>
+							</div>
+						</div>
+
+						<!-- Engines -->
+						<div class="property-group">
+							<div class="property-group-title">{{ t('app.workspace-manager.section.engines', undefined, 'Engines') }}</div>
+							<div class="property-row">
+								<label class="wt-checkbox-label">
+									<input type="checkbox" class="wt" v-model="editForm.bpmEnabled">
+									<span>{{ t('app.workspace-manager.field.bpm', undefined, 'BPM — Process engine') }}</span>
+								</label>
+							</div>
+							<div class="property-row">
+								<label class="wt-checkbox-label">
+									<input type="checkbox" class="wt" v-model="editForm.eipEnabled">
+									<span>{{ t('app.workspace-manager.field.eip', undefined, 'EIP — Integration engine') }}</span>
+								</label>
+							</div>
+							<div class="service-note mt-2">
+								<i class="bi bi-info-circle me-1"></i>{{ t('app.workspace-manager.engines.restartNote', undefined, 'Engine changes take effect after the workspace is restarted.') }}
+							</div>
+							<div v-if="engineChangePending" class="text-warning mt-2">
+								<i class="bi bi-exclamation-circle me-1"></i>{{ t('app.workspace-manager.engines.pendingNote', undefined, 'Saved engine settings differ from what is running. Restart to apply.') }}
+							</div>
+						</div>
+
+						<!-- Actions -->
+						<div class="property-group">
+							<div class="property-group-title">{{ t('app.workspace-manager.section.actions', undefined, 'Actions') }}</div>
+							<div class="form-actions">
+								<button class="wt wt-primary" @click="saveWorkspace" :disabled="isSaving">
+									<span v-if="isSaving" class="spinner-border spinner-border-sm me-1"></span>
+									<i v-else class="bi bi-check-lg me-1"></i>{{ t('app.workspace-manager.action.save', undefined, 'Save') }}
+								</button>
+								<button v-if="canStart(selectedWorkspace)" class="wt" @click="startSelected">
+									<i class="bi bi-play-fill me-1"></i>{{ t('app.workspace-manager.action.start', undefined, 'Start') }}
+								</button>
+								<button v-if="canStop(selectedWorkspace)" class="wt" @click="stopSelected">
+									<i class="bi bi-stop-fill me-1"></i>{{ t('app.workspace-manager.action.stop', undefined, 'Stop') }}
+								</button>
+								<button v-if="canRestart(selectedWorkspace)" class="wt" @click="restartSelected">
+									<i class="bi bi-arrow-repeat me-1"></i>{{ t('app.workspace-manager.action.restart', undefined, 'Restart') }}
+								</button>
+								<button v-if="canDelete(selectedWorkspace)" class="wt wt-danger wt-outlined" @click="showDeleteDialog">
+									<i class="bi bi-trash me-1"></i>{{ t('app.workspace-manager.action.delete', undefined, 'Delete') }}
+								</button>
+							</div>
+						</div>
+					</div>
+				</template>
+
+				<div v-else class="content-empty">
+					<i class="bi bi-hdd-stack"></i>
+					<span>{{ t('app.workspace-manager.empty.select', undefined, 'Select a workspace to view its settings') }}</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region" v-if="!operation">
+			<div class="status-group">
+				<span class="status-item">{{ listStatusText }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+		</div>
+
+		<!-- Loading overlay -->
+		<div v-if="isLoading && !operation" class="loading-overlay">
+			<span class="loader"></span>
+		</div>
+
+		<!-- Lifecycle progress overlay (create/delete/start/stop/restart). While
+		     the job runs it is the same non-cancellable indicator the Content
+		     Browser uses for long operations; on failure it switches to an error
+		     the user can read and dismiss, so the workspace is never left behind
+		     a spinner that never stops. -->
+		<div v-if="operation" class="progress-overlay flex-column text-center">
+			<template v-if="operation.status !== 'failed'">
+				<span class="loader"></span>
+				<span class="progress-message mt-5">{{ operationMessage() }}</span>
+			</template>
+			<template v-else>
+				<i class="bi bi-exclamation-triangle-fill text-warning" style="font-size: 2.5rem;"></i>
+				<span class="progress-message mt-4 fw-bold">{{ operationErrorTitle() }}</span>
+				<span class="progress-message mt-2 text-break" style="max-width: 32rem;">{{ operation.errorMessage }}</span>
+				<button class="wt wt-primary mt-4" @click="dismissOperation">{{ t('common.close') }}</button>
+			</template>
+		</div>
+
+		<!-- Notice dialog -->
+		<div v-if="errorMessage" class="dialog-overlay dialog-overlay-message">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.workspace-manager.dialog.noticeTitle', undefined, 'Notice') }}</h3>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<div class="text-break">{{ errorMessage }}</div>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt wt-primary" @click="errorMessage = ''">{{ t('common.ok') }}</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Create dialog -->
+		<div v-if="dialog.type === 'create'" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3>{{ t('app.workspace-manager.dialog.createTitle', undefined, 'New Workspace') }}</h3>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<div class="mb-3">{{ t('app.workspace-manager.dialog.createDesc', undefined, 'Creates a new workspace and starts its services. The workspace name appears in URLs and cannot be changed later.') }}</div>
+						<label class="property-label">{{ t('app.workspace-manager.field.name', undefined, 'Name') }} <span class="text-danger">*</span></label>
+						<input type="text" class="wt w-100" v-model="dialog.name"
+							:placeholder="t('app.workspace-manager.field.namePlaceholder', undefined, 'e.g. web, commerce, hr')"
+							@keydown="onCreateKeydown" :disabled="dialog.isLoading">
+						<div class="mt-2 text-muted fs-small">{{ t('app.workspace-manager.field.nameHint', undefined, 'Lowercase letters, digits, hyphens and underscores, starting with a letter.') }}</div>
+						<div v-if="dialog.errorMessage" class="text-danger mt-2">
+							<i class="bi bi-exclamation-circle me-1"></i>{{ dialog.errorMessage }}
+						</div>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt" @click="closeDialog" :disabled="dialog.isLoading">{{ t('common.cancel') }}</button>
+						<button class="wt wt-primary" @click="submitCreate" :disabled="dialog.isLoading || !isValidName(dialog.name)">
+							<span v-if="dialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
+							{{ t('app.workspace-manager.dialog.createConfirm', undefined, 'Create') }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Delete confirmation dialog (single step — no name re-typing) -->
+		<div v-if="dialog.type === 'delete'" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.workspace-manager.dialog.deleteTitle', undefined, 'Delete Workspace') }}</h3>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<div>{{ t('app.workspace-manager.dialog.deleteDesc', { name: dialog.name }, 'The workspace "{name}" and everything stored in it will be permanently deleted. This cannot be undone.') }}</div>
+						<div v-if="dialog.errorMessage" class="text-danger mt-2">
+							<i class="bi bi-exclamation-circle me-1"></i>{{ dialog.errorMessage }}
+						</div>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt" @click="closeDialog" :disabled="dialog.isLoading">{{ t('common.cancel') }}</button>
+						<button class="wt wt-danger" @click="submitDelete" :disabled="dialog.isLoading">
+							<span v-if="dialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
+							{{ t('common.delete') }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+</html>
