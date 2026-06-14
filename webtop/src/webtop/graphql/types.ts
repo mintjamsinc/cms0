@@ -80,6 +80,13 @@ export interface WebRender {
   source?: string | null;
   /** Allowed output extensions (e.g. `["html", "rss"]`); empty means any. */
   outputs: string[];
+  /**
+   * Nearest ancestor site document root path (e.g. `/content/public`), or null
+   * when no ancestor folder declares one via `.web.yml` (`site.root: true`).
+   * The folder the public site is mounted at; clients rewrite site-root-absolute
+   * references (e.g. `/docs/css/docs.css`) beneath it for the active mount point.
+   */
+  documentRoot?: string | null;
 }
 
 /**

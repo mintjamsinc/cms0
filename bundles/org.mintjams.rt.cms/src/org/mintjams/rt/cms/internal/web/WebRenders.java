@@ -154,8 +154,9 @@ public final class WebRenders {
 	 * Server-authoritative description of how {@code node} is rendered, suitable
 	 * for exposing to clients (e.g. the text editor's preview). Keys:
 	 * {@code templated}, {@code fromDescriptor}, {@code source} (matched source
-	 * extension or {@code null}) and {@code outputs} (allowed output extensions;
-	 * empty means any).
+	 * extension or {@code null}), {@code outputs} (allowed output extensions;
+	 * empty means any) and {@code documentRoot} (the nearest ancestor site
+	 * document root path, or {@code null}; see {@link #resolveDocumentRoot}).
 	 */
 	public static Map<String, Object> describe(Node node) throws RepositoryException {
 		Map<String, Object> result = new LinkedHashMap<>();
@@ -164,40 +165,117 @@ public final class WebRenders {
 		result.put("fromDescriptor", binding != null && binding.isFromDescriptor());
 		result.put("source", matchedSourceExtension(node.getName(), getSourceExtensions(node.getSession())));
 		result.put("outputs", binding != null ? binding.getOutputs() : Collections.emptyList());
+		result.put("documentRoot", resolveDocumentRoot(node));
 		return result;
+	}
+
+	/**
+	 * Nearest ancestor folder declared as a site document root, or {@code null}
+	 * when none is declared. A folder becomes a document root by carrying a
+	 * {@value Webs#WEB_DESCRIPTOR_NAME} descriptor with {@code site.root: true}.
+	 *
+	 * <p>The document root is the folder the public site is mounted at, so that
+	 * site-root-absolute references inside its content (e.g.
+	 * {@code /docs/css/docs.css}) resolve beneath it rather than against the
+	 * serving origin's root. The same content is served at different mount points
+	 * &mdash; the public site at the origin root, the webtop text-editor preview
+	 * under {@code /bin/cms.cgi/{workspace}{documentRoot}} &mdash; and clients use
+	 * this value to rewrite those absolute references to the active mount.</p>
+	 *
+	 * <p>The returned value is the JCR path of that folder (e.g.
+	 * {@code /content/public}). The walk starts at {@code node} itself when it is
+	 * a folder, otherwise at its parent, and stops at {@code /content}.</p>
+	 */
+	public static String resolveDocumentRoot(Node node) throws RepositoryException {
+		Node folder;
+		try {
+			folder = node.isNodeType(NodeType.NT_FILE) ? node.getParent() : node;
+		} catch (RepositoryException ignore) {
+			return null;
+		}
+		for (;;) {
+			String path;
+			try {
+				path = folder.getPath();
+			} catch (RepositoryException ignore) {
+				return null;
+			}
+			if (!isWithinContent(path)) {
+				return null;
+			}
+			if (isDocumentRoot(folder)) {
+				return path;
+			}
+			if (path.equals(Webs.CONTENT_PATH)) {
+				return null;
+			}
+			try {
+				folder = folder.getParent();
+			} catch (RepositoryException ignore) {
+				return null;
+			}
+		}
 	}
 
 	private static boolean isWithinContent(String path) {
 		return path.equals(Webs.CONTENT_PATH) || path.startsWith(Webs.CONTENT_PATH + "/");
 	}
 
-	private static List<Rule> getRules(Node folder) {
+	/** Whether {@code folder}'s descriptor declares it a site document root. */
+	private static boolean isDocumentRoot(Node folder) {
+		Map<?, ?> descriptor = readDescriptor(folder);
+		if (descriptor == null) {
+			return false;
+		}
+		Object site = descriptor.get("site");
+		if (!(site instanceof Map)) {
+			return false;
+		}
+		return isTrue(((Map<?, ?>) site).get("root"));
+	}
+
+	private static boolean isTrue(Object value) {
+		if (value instanceof Boolean) {
+			return (Boolean) value;
+		}
+		return value != null && "true".equalsIgnoreCase(value.toString().trim());
+	}
+
+	/**
+	 * Parses {@code folder}'s {@value Webs#WEB_DESCRIPTOR_NAME} descriptor into a
+	 * map, or {@code null} when the folder has no descriptor, it is not a file, or
+	 * it cannot be parsed. A malformed descriptor must never break content
+	 * serving, so all failures are swallowed and reported as "no descriptor".
+	 */
+	private static Map<?, ?> readDescriptor(Node folder) {
 		Node descriptor;
 		try {
 			if (!folder.hasNode(Webs.WEB_DESCRIPTOR_NAME)) {
-				return Collections.emptyList();
+				return null;
 			}
 			descriptor = folder.getNode(Webs.WEB_DESCRIPTOR_NAME);
 			if (!descriptor.isNodeType(NodeType.NT_FILE)) {
-				return Collections.emptyList();
+				return null;
 			}
 		} catch (RepositoryException ignore) {
-			return Collections.emptyList();
+			return null;
 		}
 
 		Object parsed;
 		try (Reader in = JCRs.getContentAsReader(descriptor)) {
 			parsed = new Load(LoadSettings.builder().build()).loadFromReader(in);
 		} catch (Throwable ignore) {
-			// A malformed descriptor must not break content serving; it simply
-			// binds nothing.
-			return Collections.emptyList();
+			return null;
 		}
+		return (parsed instanceof Map) ? (Map<?, ?>) parsed : null;
+	}
 
-		if (!(parsed instanceof Map)) {
+	private static List<Rule> getRules(Node folder) {
+		Map<?, ?> parsed = readDescriptor(folder);
+		if (parsed == null) {
 			return Collections.emptyList();
 		}
-		Object render = ((Map<?, ?>) parsed).get("render");
+		Object render = parsed.get("render");
 		if (!(render instanceof List)) {
 			return Collections.emptyList();
 		}

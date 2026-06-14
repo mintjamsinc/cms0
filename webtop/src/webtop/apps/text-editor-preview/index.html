@@ -121,13 +121,25 @@
 					<!-- Markdown -->
 					<div v-else-if="isMarkdown" class="markdown-body" v-html="previewHtml"></div>
 
-					<!-- Plain HTML (real-time client-side preview) -->
-					<iframe v-else-if="isHtml"
-						class="preview-iframe"
-						:srcdoc="previewSrcDoc"
-						@load="onIframeLoad"
-						sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-						referrerpolicy="no-referrer"></iframe>
+					<!-- Plain HTML (real-time client-side preview). When the service
+					     worker serves the document (previewIframeUrl set) the iframe
+					     loads a real same-origin URL so site-root-absolute assets
+					     resolve; otherwise it falls back to srcdoc, which still
+					     resolves relative assets via the injected <base>. -->
+					<template v-else-if="isHtml">
+						<iframe v-if="previewIframeUrl"
+							class="preview-iframe"
+							:src="previewIframeUrl"
+							@load="onIframeLoad"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+						<iframe v-else
+							class="preview-iframe"
+							:srcdoc="previewSrcDoc"
+							@load="onIframeLoad"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+					</template>
 
 					<!-- Unsupported -->
 					<div v-else class="detail-panel-empty">

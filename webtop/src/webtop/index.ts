@@ -306,6 +306,19 @@ const WtDesktop = {
 				return;
 			}
 
+			// Register the webtop service worker (best-effort). It lets the
+			// text-editor preview reproduce published pages by rewriting their
+			// site-root-absolute asset URLs to the preview mount; all other
+			// traffic is passed through untouched. './sw.js' resolves to the
+			// webtop root so its scope covers every app iframe. Requires a secure
+			// context — when unavailable the preview falls back to its base-tag
+			// relative-path rendering, so registration failure is non-fatal.
+			if ('serviceWorker' in navigator) {
+				navigator.serviceWorker.register('./sw.js').catch((err) => {
+					console.warn('[webtop] Service worker registration failed:', err);
+				});
+			}
+
 			vm.username = window.Webtop.currentUser.fullName || window.Webtop.currentUser.id;
 			vm.workspaceName = window.Webtop.api.workspace;
 

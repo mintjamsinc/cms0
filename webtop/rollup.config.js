@@ -170,6 +170,9 @@ const webtopCoreConfig = makeConfig({
   outputExtra: { inlineDynamicImports: true },
   copyTargets: [
     { src: 'src/webtop/index.gsp', dest: 'dist/webtop', transform: stampVersion },
+    // Service worker. Must sit at the webtop root so its registration scope
+    // covers every app iframe (including the text-editor preview frame).
+    { src: 'src/webtop/sw.js', dest: 'dist/webtop' },
     { src: 'src/webtop/assets', dest: 'dist/webtop' },
     { src: 'src/webtop/components/*.html', dest: 'dist/webtop/components' },
     { src: 'src/webtop/components/*.css', dest: 'dist/webtop/components' },

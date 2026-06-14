@@ -89,6 +89,86 @@ interface LaunchOptions {
 // a ping every 2s while alive; we treat 8s of silence as a closure.
 const EDITOR_PING_TIMEOUT_MS = 8000;
 
+// -----------------------------------------------------------------------------
+// Service-worker-backed rendering.
+//
+// Published content uses site-root-absolute asset URLs (e.g. /docs/css/...)
+// that an HTML <base> cannot remap. To reproduce a page faithfully the preview
+// hands the rendered HTML to the webtop service worker, which serves it for a
+// synthetic in-scope URL and rewrites the document's root-absolute subresource
+// requests to the preview mount. The iframe must load a REAL same-origin URL
+// (blob:/srcdoc documents are not SW-controlled, so their subresources can't be
+// intercepted). When no service worker controls this window, every call here
+// returns null and the caller falls back to blob:/srcdoc rendering.
+// -----------------------------------------------------------------------------
+
+// Path segment marking the synthetic preview document (kept in sync with sw.js).
+const SW_PREVIEW_PATH = '__sw-preview__';
+let swFrameSeq = 0;
+
+// Absolute synthetic document URL for a preview key, under this app's path so it
+// falls within the service worker's scope. Stable per key (content is replaced
+// in place on each render); the query only carries the mount base and a
+// cache-busting sequence.
+function swDocumentUrl(previewKey: string): string {
+	return new URL(`./${SW_PREVIEW_PATH}/${encodeURIComponent(previewKey || 'preview')}`, window.location.href).href;
+}
+
+// Stores `html` in the service worker under the synthetic URL for `previewKey`
+// and returns the iframe URL to load (carrying the mount `base` and a fresh
+// sequence), or null when no controller is available or the worker doesn't
+// acknowledge in time. `base` is the preview mount prefix, e.g.
+// `/bin/cms.cgi/{workspace}/content/public`.
+async function swRenderFrame(previewKey: string, html: string, base: string): Promise<string | null> {
+	const sw = navigator.serviceWorker;
+	const controller = sw && sw.controller;
+	if (!controller || !base) {
+		return null;
+	}
+	const docUrl = swDocumentUrl(previewKey);
+	const acked = await new Promise<boolean>((resolve) => {
+		let settled = false;
+		const finish = (ok: boolean) => {
+			if (settled) return;
+			settled = true;
+			sw.removeEventListener('message', onMessage);
+			resolve(ok);
+		};
+		const onMessage = (event: MessageEvent) => {
+			const data = event.data || {};
+			if (data.type === 'sw-preview-ack' && data.key === previewKey) {
+				finish(true);
+			}
+		};
+		sw.addEventListener('message', onMessage);
+		try {
+			controller.postMessage({ type: 'sw-preview-put', key: previewKey, url: docUrl, html });
+		} catch {
+			finish(false);
+			return;
+		}
+		// Don't hang the preview if the worker never acknowledges.
+		setTimeout(() => finish(false), 3000);
+	});
+	if (!acked) {
+		return null;
+	}
+	const seq = ++swFrameSeq;
+	return `${docUrl}?base=${encodeURIComponent(base)}&seq=${seq}`;
+}
+
+// Asks the service worker to drop a preview's stored document (on close).
+function swDropFrame(previewKey: string): void {
+	const sw = navigator.serviceWorker;
+	const controller = sw && sw.controller;
+	if (!controller) return;
+	try {
+		controller.postMessage({ type: 'sw-preview-del', key: previewKey, url: swDocumentUrl(previewKey) });
+	} catch {
+		/* ignore */
+	}
+}
+
 // Native objects with privileged internal slots (BroadcastChannel,
 // EditorView, ...) must NOT be stored in ichigojs's reactive data(). Even
 // $markRaw isn't enough: reads still pass through the parent data Proxy and
@@ -102,6 +182,10 @@ let previewChannel: BroadcastChannel | null = null;
 // previous one and a monotonic token lets late responses be discarded.
 let previewAbort: AbortController | null = null;
 let renderSeq = 0;
+// Supersession token for the client-side HTML (isHtml) path, whose
+// service-worker frame is produced asynchronously; a newer settled edit must
+// win over a slow worker acknowledgement.
+let htmlRenderSeq = 0;
 
 // Scroll preservation across preview refreshes. A live edit re-renders the
 // whole preview (markdown re-parsed, iframe reloaded), which would otherwise
@@ -136,6 +220,11 @@ export const App = {
 			content: '',
 			filePath: '',
 			workspace: '',
+			// Server-resolved site document root (e.g. '/content/public') for the
+			// active file, from the editor's preview-state. Combined with the
+			// workspace it yields the preview mount prefix the service worker uses
+			// to rewrite site-root-absolute asset URLs.
+			documentRoot: '',
 			isMarkdown: false,
 			isHtml: false,
 			isTemplated: false,
@@ -243,6 +332,8 @@ export const App = {
 				try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
 				vm.previewIframeUrl = '';
 			}
+			// Drop this preview's document from the service-worker cache.
+			swDropFrame(vm.previewKey);
 		},
 		// ---- Window controls ----
 		onMinimizeWindow() {
@@ -388,6 +479,7 @@ export const App = {
 			vm.content = msg.content || '';
 			vm.filePath = msg.filePath || '';
 			vm.workspace = msg.workspace || '';
+			vm.documentRoot = msg.documentRoot || '';
 			vm.isMarkdown = !!msg.isMarkdown;
 			vm.isHtml = !!msg.isHtml;
 			vm.isTemplated = !!msg.isTemplated;
@@ -575,17 +667,42 @@ export const App = {
 				// Resolve relative paths against the file's CMS location. The
 				// file is unsaved when filePath/workspace are missing, so there
 				// is no meaningful base to point at — leave content untouched.
-				if (content && vm.filePath && vm.workspace) {
-					const fileUrl = new URL(
-						`/bin/cms.cgi/${vm.workspace}${vm.filePath}`,
-						window.location.href,
-					).href;
-					vm.previewSrcDoc = injectBaseTag(content, fileUrl);
-				} else {
-					vm.previewSrcDoc = content;
+				const hasBase = !!(content && vm.filePath && vm.workspace);
+				const patched = hasBase
+					? injectBaseTag(content, new URL(`/bin/cms.cgi/${vm.workspace}${vm.filePath}`, window.location.href).href)
+					: content;
+				const mountBase = vm.previewMountBase();
+				// With a known document root and an active service worker, render
+				// through the worker frame so site-root-absolute assets resolve;
+				// otherwise (or if the worker declines) fall back to srcdoc, which
+				// still resolves relative assets via the injected <base>.
+				if (hasBase && mountBase) {
+					const seq = ++htmlRenderSeq;
+					swRenderFrame(vm.previewKey, patched, mountBase).then((frameUrl) => {
+						if (seq !== htmlRenderSeq) return; // superseded by a newer edit
+						if (frameUrl) {
+							vm.previewSrcDoc = '';
+							vm.previewIframeUrl = frameUrl;
+						} else {
+							vm.previewIframeUrl = '';
+							vm.previewSrcDoc = patched;
+						}
+					});
+					return;
 				}
+				vm.previewIframeUrl = '';
+				vm.previewSrcDoc = patched;
 				return;
 			}
+		},
+		// Preview mount prefix for the active file, e.g.
+		// `/bin/cms.cgi/{workspace}/content/public`. Empty when the document root
+		// is unknown (older server, or a file outside any declared site root), in
+		// which case service-worker rewriting is skipped and only relative assets
+		// resolve.
+		previewMountBase(): string {
+			if (!this.documentRoot || !this.workspace) return '';
+			return `/bin/cms.cgi/${this.workspace}${this.documentRoot}`;
 		},
 		refreshServerPreview() {
 			const vm = this;
@@ -657,19 +774,33 @@ export const App = {
 				}
 				const contentType = resp.headers.get('content-type') || '';
 				const isHtml = /\b(text\/html|application\/xhtml\+xml)\b/i.test(contentType);
-				let blob: Blob;
 				if (isHtml) {
 					const html = await resp.text();
 					const absoluteBase = new URL(url, window.location.href).href;
 					const patched = injectBaseTag(html, absoluteBase);
-					blob = new Blob([patched], { type: contentType || 'text/html; charset=UTF-8' });
-				} else {
-					blob = await resp.blob();
+					if (seq !== renderSeq) return;
+					// Prefer the service-worker frame so the rendered page's
+					// site-root-absolute assets (CSS, images, scripts, runtime
+					// fetches) resolve to the preview mount exactly as published.
+					const frameUrl = await swRenderFrame(vm.previewKey, patched, vm.previewMountBase());
+					if (seq !== renderSeq) return;
+					if (vm.previewIframeUrl && vm.previewIframeUrl.startsWith('blob:')) {
+						try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
+					}
+					// Fall back to a blob: document when no worker controls us;
+					// relative assets still resolve via the injected <base>.
+					vm.previewIframeUrl = frameUrl
+						|| URL.createObjectURL(new Blob([patched], { type: contentType || 'text/html; charset=UTF-8' }));
+					vm.renderedFilePath = targetPath;
+					vm.previewError = '';
+					return;
 				}
+				// Non-HTML output (e.g. .rss/.json) has no subresources to rewrite.
+				const blob = await resp.blob();
 				// A newer render started while we awaited the response — discard
 				// this one so the preview reflects the latest content.
 				if (seq !== renderSeq) return;
-				if (vm.previewIframeUrl) {
+				if (vm.previewIframeUrl && vm.previewIframeUrl.startsWith('blob:')) {
 					try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
 				}
 				vm.previewIframeUrl = URL.createObjectURL(blob);

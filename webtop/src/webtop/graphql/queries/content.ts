@@ -101,6 +101,7 @@ export const CONTENT_QUERIES = {
           fromDescriptor
           source
           outputs
+          documentRoot
         }
         hasChildren
         isLocked

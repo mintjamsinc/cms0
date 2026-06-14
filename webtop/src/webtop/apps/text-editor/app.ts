@@ -391,6 +391,10 @@ export const App = {
 			previewReady: false,
 			previewPingTimer: null as number | null,
 			previewExtensionByTab: {} as Record<string, string>,
+			// Server-resolved site document root (e.g. '/content/public') per tab,
+			// from node.webRender.documentRoot. Forwarded in preview-state so the
+			// preview can rewrite site-root-absolute asset URLs to the preview mount.
+			documentRootByTab: {} as Record<string, string>,
 			// Search/replace state (lives in the sidebar)
 			searchTerm: '',
 			replaceTerm: '',
@@ -1394,6 +1398,11 @@ export const App = {
 				if (node.webRender?.outputs?.length) {
 					vm.previewExtensionByTab[newFile.id] = node.webRender.outputs[0];
 				}
+				// Remember the server-resolved document root so the preview can
+				// rewrite site-root-absolute references for its mount point.
+				if (node.webRender?.documentRoot) {
+					vm.documentRootByTab[newFile.id] = node.webRender.documentRoot;
+				}
 				vm.currentFileIndex = vm.files.length - 1;
 				vm.restoreFileState(vm.currentFileIndex);
 
@@ -1742,6 +1751,7 @@ export const App = {
 				isTemplated: vm.isTemplated,
 				isScriptable: vm.isScriptable,
 				previewExtension,
+				documentRoot: vm.documentRootByTab[tabId] || '',
 			});
 		},
 		dismissError() {
