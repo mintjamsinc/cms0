@@ -50,6 +50,7 @@ import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
+import org.mintjams.rt.cms.internal.web.WebRenders;
 import org.mintjams.rt.cms.internal.web.Webs;
 
 /**
@@ -232,6 +233,17 @@ public class NodeMapper {
 		// rendering instead of displaying the raw, unevaluated source.
 		if (includeAll || selectionSet.hasField("scriptable")) {
 			result.put("scriptable", isScriptable(node));
+		}
+
+		// Server-authoritative rendering descriptor: whether the file is bound to
+		// a template (via its own web.template property or a folder
+		// .web.yml descriptor), the source extension it carries, and the output
+		// extensions it may be rendered to. Clients (e.g. the text editor's
+		// preview) rely on this instead of re-deriving the binding, which they
+		// cannot see when it comes from a folder descriptor rather than a
+		// per-file property.
+		if (includeAll || selectionSet.hasField("webRender")) {
+			result.put("webRender", WebRenders.describe(node));
 		}
 	}
 

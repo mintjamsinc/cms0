@@ -96,6 +96,12 @@ export const CONTENT_QUERIES = {
         encoding
         downloadUrl
         scriptable
+        webRender {
+          templated
+          fromDescriptor
+          source
+          outputs
+        }
         hasChildren
         isLocked
         lockInfo {

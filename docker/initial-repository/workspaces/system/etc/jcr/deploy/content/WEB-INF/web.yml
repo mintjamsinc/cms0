@@ -1,6 +1,13 @@
 welcomeFiles:
   - index.html
   - index.gsp
+# Natural-extension sources for templated content. A request for an output
+# representation (e.g. index.html) also resolves a stored source named with one
+# of these extensions (e.g. index.md). The raw source is not served directly;
+# only its templated output is. The legacy extension-less convention (a node
+# named "index") keeps working regardless of this setting.
+sourceExtensions:
+  - md
 defaultResponseHeaders:
     Content-Type: "text/html; charset=utf-8"
 filters: []

@@ -27,6 +27,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import javax.jcr.AccessDeniedException;
@@ -58,6 +60,16 @@ public class WebResourceResolver {
 	public ResolveResult resolve(String absPath) throws RepositoryException {
 		try {
 			Node node = Scripts.getJcrSession(fContext).getNode(absPath);
+			// A templated source kept under its natural name (e.g. "index.md"
+			// bound to a template) is authoring input, not a public
+			// representation: its rendered output is served at the output
+			// extension (e.g. "index.html"), and the raw source itself is not
+			// web-exposed. A plain file that merely carries a source extension
+			// but has no template binding (e.g. a downloadable "readme.md")
+			// keeps being served as-is.
+			if (isHiddenSource(node)) {
+				return new ResolveResult(new PathNotFoundException(absPath));
+			}
 			return new ResolveResult(node);
 		} catch (PathNotFoundException ignore) {
 		} catch (AccessDeniedException ex) {
@@ -70,18 +82,29 @@ public class WebResourceResolver {
 		String basename = filename;
 		String suffix = "";
 		for (;;) {
+			// Natural-extension sources first (e.g. a request for "index.html"
+			// resolves the stored "index.md" source). This is strictly additive
+			// to the legacy lookup below and never alters its behavior.
+			for (String sourceExtension : getSourceExtensions()) {
+				ResolveResult result = resolveTemplatedSource(parentPath + basename + "." + sourceExtension, suffix);
+				if (result != null) {
+					return result;
+				}
+			}
+
+			// Legacy extension-less convention: the source node is named exactly
+			// "index" (no extension) and the output extension lives only on the
+			// request. Folder descriptors are honored here too, but otherwise the
+			// original "base exists but is not templatable -> stop" behavior is
+			// preserved.
 			try {
 				Node baseNode = Scripts.getJcrSession(fContext).getNode(parentPath + basename);
-				if (!baseNode.isNodeType(NodeType.NT_FILE)) {
+				WebRenders.Binding binding = WebRenders.resolveBinding(baseNode);
+				if (binding == null || !binding.allowsOutput(suffix)) {
 					break;
 				}
 
-				String templatePath = baseNode.getNode(Node.JCR_CONTENT).getProperty(Webs.WEB_TEMPLATE).getString();
-				if (Strings.isEmpty(templatePath)) {
-					break;
-				}
-
-				Template template = getTemplate(templatePath + suffix);
+				Template template = getTemplate(binding.getTemplatePath() + suffix);
 				if (template == null) {
 					break;
 				}
@@ -101,6 +124,61 @@ public class WebResourceResolver {
 		}
 
 		return new ResolveResult(new PathNotFoundException(absPath));
+	}
+
+	/**
+	 * Attempts to resolve a stored source node at {@code nodePath} as a templated
+	 * resource for the given output {@code suffix} (e.g. ".html"). Returns the
+	 * templated {@link ResolveResult} on success, an access-denied result when
+	 * the source exists but is not readable, or {@code null} when the node does
+	 * not exist or is not a usable templated source (so the caller can keep
+	 * trying other candidates).
+	 */
+	private ResolveResult resolveTemplatedSource(String nodePath, String suffix) throws RepositoryException {
+		Node node;
+		try {
+			node = Scripts.getJcrSession(fContext).getNode(nodePath);
+		} catch (PathNotFoundException ignore) {
+			return null;
+		} catch (AccessDeniedException ex) {
+			return new ResolveResult(ex);
+		}
+
+		WebRenders.Binding binding = WebRenders.resolveBinding(node);
+		if (binding == null || !binding.allowsOutput(suffix)) {
+			return null;
+		}
+
+		Template template = getTemplate(binding.getTemplatePath() + suffix);
+		if (template == null) {
+			return null;
+		}
+
+		return new ResolveResult(node, template);
+	}
+
+	/**
+	 * Whether the given node is a templated source that must not be served as a
+	 * raw representation: an {@code nt:file} whose name carries one of the
+	 * configured source extensions and which is bound to a template. The rendered
+	 * output is reachable at the output extension instead.
+	 */
+	private boolean isHiddenSource(Node node) throws RepositoryException {
+		if (!node.isNodeType(NodeType.NT_FILE)) {
+			return false;
+		}
+		if (!WebRenders.hasSourceExtension(node.getName(), getSourceExtensions())) {
+			return false;
+		}
+		return WebRenders.resolveBinding(node) != null;
+	}
+
+	private List<String> _sourceExtensions;
+	private List<String> getSourceExtensions() {
+		if (_sourceExtensions == null) {
+			_sourceExtensions = WebRenders.normalizeExtensions(Arrays.asList(Webs.getSourceExtensions(fContext)));
+		}
+		return _sourceExtensions;
 	}
 
 	public Template getTemplate(String templatePath) throws RepositoryException {

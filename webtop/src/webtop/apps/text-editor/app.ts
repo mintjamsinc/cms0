@@ -1,5 +1,5 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import type { Node } from "../../graphql/types.js";
+import type { Node, Property } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
 import {
@@ -200,6 +200,21 @@ function guessExtensionFromMime(mimeType: string): string {
 	if (!mimeType) return 'html';
 	const ext = MIME_TO_EXTENSION[mimeType.toLowerCase()];
 	return ext || 'html';
+}
+
+// Whether a node is a templated source — i.e. the CMS serves it as rendered
+// output rather than raw bytes, so its preview must be server-rendered. The
+// server resolves this from the file's own `web.template` property OR a folder
+// `.web.yml` descriptor and reports the result via `node.webRender`; only the
+// server can see a folder-descriptor binding, so prefer it. Fall back to the
+// raw property for older servers that don't return `webRender`.
+function nodeIsTemplated(node: Node | null | undefined): boolean {
+	if (node?.webRender && typeof node.webRender.templated === 'boolean') {
+		return node.webRender.templated;
+	}
+	return !!(node?.properties || []).find(
+		(p: Property) => p && p.name === 'web.template',
+	);
 }
 
 // EditorStates are kept outside of reactive data because ichigo.js wraps
@@ -808,9 +823,7 @@ export const App = {
 			const nextModified = node.modified || '';
 			const contentMayHaveChanged = !!prevModified && !!nextModified
 				&& prevModified !== nextModified;
-			const hasWebTemplate = !!(node.properties || []).find(
-				(p: any) => p && p.name === 'web.template'
-			);
+			const hasWebTemplate = nodeIsTemplated(node);
 			file.mimeType = node.mimeType || 'text/plain';
 			file.encoding = node.encoding || 'UTF-8';
 			file.isVersionable = node.isVersionable || false;
@@ -1352,9 +1365,7 @@ export const App = {
 					extensions: buildEditorExtensions(vm.createUpdateListener(), languageExt, vm.lineWrap),
 				});
 
-				const hasWebTemplate = !!(node.properties || []).find(
-					(p: any) => p && p.name === 'web.template'
-				);
+				const hasWebTemplate = nodeIsTemplated(node);
 
 				const newFile: TextFile = {
 					id: vm.generateFileID(),
@@ -1377,6 +1388,12 @@ export const App = {
 
 				editorStates.set(newFile.id, editorState);
 				vm.files.push(newFile);
+				// Seed the preview output extension from the server's binding so a
+				// templated source (e.g. index.md bound to html) previews at the
+				// right representation without the user having to choose one.
+				if (node.webRender?.outputs?.length) {
+					vm.previewExtensionByTab[newFile.id] = node.webRender.outputs[0];
+				}
 				vm.currentFileIndex = vm.files.length - 1;
 				vm.restoreFileState(vm.currentFileIndex);
 

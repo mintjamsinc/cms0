@@ -56,6 +56,19 @@ public class Webs {
 	public static final String DEFAULT_WEB_TEMPLATE_PATH = "/content/WEB-INF/templates";
 	public static final String DEFAULT_WEB_YML_PATH = "/content/WEB-INF/web.yml";
 	public static final String WEB_TEMPLATE = "web.template";
+	/**
+	 * Reserved name of the per-folder rendering descriptor. A file with this
+	 * name declares how the files in its folder (and descendants) are rendered,
+	 * so that content can be bound to a template without setting the
+	 * {@link #WEB_TEMPLATE} property on every file. It is a configuration file,
+	 * never served over the web (see {@code CheckProtectedAction}).
+	 *
+	 * <p>Note: hidden-from-the-web status is decided by this explicit reserved
+	 * name, not by a "leading dot" rule. Dot-prefixed paths such as
+	 * {@code /.well-known/} (used by ACME / Let's Encrypt) remain publicly
+	 * served.</p>
+	 */
+	public static final String WEB_DESCRIPTOR_NAME = ".web.yml";
 	public static final String PREVIEW_CONTENT_TYPE = "application/vnd.cms.preview+json";
 
 	public static final String AUTHENTICATED_FACTORS_ATTRIBUTE = "org.mintjams.cms.security.auth.AuthenticatedFactors";
@@ -122,6 +135,23 @@ public class Webs {
 		String[] a = Scripts.asStringArray(getWebConfig(context).get("welcomeFiles"));
 		if (a.length == 0) {
 			return new String[] { "index.html", "index.gsp" };
+		}
+		return a;
+	}
+
+	/**
+	 * Source extensions that a templated content node may carry in its natural
+	 * file name (e.g. {@code index.md}). When a request for an output
+	 * representation (e.g. {@code index.html}) cannot be matched directly, the
+	 * resolver also looks for a stored source whose name is the same base name
+	 * with one of these extensions. The legacy extension-less convention
+	 * (a node literally named {@code index}) keeps working regardless of this
+	 * setting. Defaults to {@code md}.
+	 */
+	public static String[] getSourceExtensions(ActionContext context) {
+		String[] a = Scripts.asStringArray(getWebConfig(context).get("sourceExtensions"));
+		if (a.length == 0) {
+			return new String[] { "md" };
 		}
 		return a;
 	}

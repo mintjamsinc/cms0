@@ -114,6 +114,12 @@ type Node {
   """Download URL path"""
   downloadUrl: String
 
+  """Whether the server evaluates this file through a script engine when served (e.g. .gsp)"""
+  scriptable: Boolean
+
+  """How this file is rendered when served over the web (template binding, source/output extensions)"""
+  webRender: WebRender
+
   # Folder-specific fields (nt:folder)
   """Whether folder has child nodes"""
   hasChildren: Boolean
@@ -148,6 +154,25 @@ type Node {
 type Property {
   name: String!
   propertyValue: PropertyValue!
+}
+
+"""
+How a file node is rendered when served over the web. The server resolves the
+template binding from the file's own web.template property or, failing that, the
+nearest ancestor folder's .web.yml descriptor, so clients do not have to.
+"""
+type WebRender {
+  """Whether the file is bound to a template and is therefore served as rendered output"""
+  templated: Boolean!
+
+  """Whether the binding comes from a folder .web.yml descriptor rather than a per-file web.template property"""
+  fromDescriptor: Boolean!
+
+  """The source extension the file name carries (e.g. "md"), or null if it carries none"""
+  source: String
+
+  """Allowed output extensions (e.g. ["html", "rss"]); empty means any"""
+  outputs: [String!]!
 }
 
 # -----------------------------------------------------------------------------

@@ -48,6 +48,7 @@ export interface Node {
   encoding?: string;
   downloadUrl?: string;
   scriptable?: boolean;
+  webRender?: WebRender;
   hasChildren?: boolean;
   isLocked?: boolean;
   lockInfo?: LockInfo;
@@ -61,6 +62,24 @@ export interface Node {
 export interface Property {
   name: string;
   propertyValue: PropertyValue;
+}
+
+/**
+ * How a file node is rendered when served over the web. The server resolves the
+ * template binding from the file's own `web.template` property or, failing that,
+ * the nearest ancestor folder's `.web.yml` descriptor, so clients do not have to
+ * re-derive it (and could not, when the binding lives in a folder descriptor
+ * rather than a per-file property).
+ */
+export interface WebRender {
+  /** Whether the file is bound to a template and is therefore served as rendered output. */
+  templated: boolean;
+  /** Whether the binding comes from a folder `.web.yml` descriptor rather than a per-file property. */
+  fromDescriptor: boolean;
+  /** The source extension the file name carries (e.g. `md`), or null if it carries none. */
+  source?: string | null;
+  /** Allowed output extensions (e.g. `["html", "rss"]`); empty means any. */
+  outputs: string[];
 }
 
 /**
