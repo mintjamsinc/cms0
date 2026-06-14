@@ -87,6 +87,7 @@ defineComponent('wt-window', {
 				mouseUpHandler: null as ((e: MouseEvent) => void) | null,
 				loadListener: null as (() => void) | null,
 				focusInListener: null as (() => void) | null,
+				windowFocusInListener: null as ((e: FocusEvent) => void) | null,
 				iframeDragMouseDownListener: null as ((e: MouseEvent) => void) | null,
 				iframeDragDblClickListener: null as ((e: MouseEvent) => void) | null,
 			}),
@@ -308,6 +309,26 @@ defineComponent('wt-window', {
 			const frame = ($ctx.element as HTMLElement).querySelector('iframe') as HTMLIFrameElement | null;
 			vm._.frame = frame;
 			if (frame) {
+				// Universal "click the app area to bring the window to front".
+				//
+				// The parent `.window`'s @mousedown only fires for the window chrome
+				// (border, title bar). Clicks landing inside the app iframe never reach
+				// it. The same-origin `focusInListener` below covers a direct app
+				// document, but it cannot see clicks inside a NESTED iframe (e.g. the
+				// OSGi Console's /system/console frame, the text-editor preview, task
+				// forms) nor any cross-origin frame, because we can't attach listeners
+				// across those boundaries.
+				//
+				// Focus, however, always crosses boundaries: clicking anywhere inside
+				// this window's iframe tree moves the parent document's activeElement to
+				// our top-level `.content-frame`, firing a `focusin` that bubbles up to
+				// the parent document — regardless of frame depth or origin. Detecting
+				// that here lets us activate the window for every app uniformly.
+				vm._.windowFocusInListener = (e: FocusEvent) => {
+					if (e.target === frame) { vm.activate(); }
+				};
+				document.addEventListener('focusin', vm._.windowFocusInListener, true);
+
 				vm._.focusInListener = () => { vm.activate(); };
 
 				let frameLoadHandled = false;
@@ -321,6 +342,7 @@ defineComponent('wt-window', {
 						if (typeof func !== 'function') {
 							if (--retries <= 0) {
 								console.error('appLaunch not found after waiting. The application could not be started.');
+								vm.isLaunchFailed = true;
 								return;
 							}
 							setTimeout(callLaunch, 100);
@@ -408,7 +430,21 @@ defineComponent('wt-window', {
 						} catch (_) { /* cross-origin */ }
 
 						const launchOptions = (vm._.originalAppInstance as any).launchOptions;
-						func(vm._.originalAppInstance, launchOptions);
+						// appLaunch is async across all apps. Surface both a synchronous
+						// throw and a rejected promise as a launch failure so the window
+						// shows the failed state instead of spinning on the loader forever.
+						try {
+							const result: any = func(vm._.originalAppInstance, launchOptions);
+							if (result && typeof result.then === 'function') {
+								result.catch((err: any) => {
+									console.error('appLaunch failed. The application could not be started.', err);
+									vm.isLaunchFailed = true;
+								});
+							}
+						} catch (err) {
+							console.error('appLaunch threw. The application could not be started.', err);
+							vm.isLaunchFailed = true;
+						}
 					};
 					callLaunch();
 				};
@@ -475,6 +511,10 @@ defineComponent('wt-window', {
 		},
 		onUnmount($ctx: any) {
 			const vm = this as any;
+			if (vm._.windowFocusInListener) {
+				document.removeEventListener('focusin', vm._.windowFocusInListener, true);
+				vm._.windowFocusInListener = null;
+			}
 			const frame = ($ctx.element as HTMLElement).querySelector('iframe') as HTMLIFrameElement | null;
 			if (frame) {
 				if (vm._.loadListener) {
