@@ -60,6 +60,24 @@ function guessExtensionFromMime(mimeType: string): string {
 	return ext || 'html';
 }
 
+// A <base href> (needed so relative assets resolve to the file's CMS mount)
+// also makes same-document fragment links — e.g. an on-this-page TOC entry
+// "#section" — resolve against the base URL instead of this document, turning
+// an in-page jump into a full navigation to the mount, out of the preview's
+// service-worker scope (where the page's root-absolute CSS/JS no longer get
+// rewritten, so the followed document loads unstyled). Restore in-document
+// behavior by intercepting fragment-link clicks and scrolling instead, mirroring
+// how the published page (which has no <base>) behaves. Cross-page links are
+// left untouched. Runs for both the srcdoc and service-worker iframes.
+const FRAGMENT_LINK_SHIM = '<script>(function(){document.addEventListener("click",function(e){' +
+	'if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;' +
+	'var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;' +
+	'var href=a.getAttribute("href");if(!href||href.charAt(0)!=="#")return;e.preventDefault();' +
+	'var id=decodeURIComponent(href.slice(1));var t=id?document.getElementById(id):document.body;' +
+	'if(t)t.scrollIntoView();' +
+	'try{history.replaceState(null,"",location.pathname+location.search+href);}catch(_){}' +
+	'},true);})();<\/script>';
+
 // Inject a <base href> so relative links/assets in the preview resolve
 // against the file's real CMS location instead of the webtop app URL.
 // Both the srcdoc (plain HTML) and blob: (templated) iframes otherwise
@@ -67,14 +85,15 @@ function guessExtensionFromMime(mimeType: string): string {
 // Any existing <base> in the source is stripped so ours always wins.
 function injectBaseTag(html: string, absoluteBaseUrl: string): string {
 	const baseTag = `<base href="${absoluteBaseUrl.replace(/"/g, '&quot;')}">`;
+	const head = baseTag + FRAGMENT_LINK_SHIM;
 	const stripped = html.replace(/<base\b[^>]*\/?>/gi, '');
 	if (/<head\b[^>]*>/i.test(stripped)) {
-		return stripped.replace(/<head\b[^>]*>/i, (m) => m + baseTag);
+		return stripped.replace(/<head\b[^>]*>/i, (m) => m + head);
 	}
 	if (/<html\b[^>]*>/i.test(stripped)) {
-		return stripped.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${baseTag}</head>`);
+		return stripped.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${head}</head>`);
 	}
-	return `<head>${baseTag}</head>${stripped}`;
+	return `<head>${head}</head>${stripped}`;
 }
 
 // Index signature so this is assignable to the global appLaunch signature
