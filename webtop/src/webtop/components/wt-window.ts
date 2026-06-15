@@ -87,6 +87,7 @@ defineComponent('wt-window', {
 				mouseUpHandler: null as ((e: MouseEvent) => void) | null,
 				loadListener: null as (() => void) | null,
 				focusInListener: null as (() => void) | null,
+				frameTreeTeardown: null as (() => void) | null,
 				windowFocusInListener: null as ((e: FocusEvent) => void) | null,
 				iframeDragMouseDownListener: null as ((e: MouseEvent) => void) | null,
 				iframeDragDblClickListener: null as ((e: MouseEvent) => void) | null,
@@ -351,8 +352,91 @@ defineComponent('wt-window', {
 						frame.removeEventListener('load', vm._.loadListener);
 						vm._.loadListener = null;
 
+						// Click-to-activate across the whole same-origin iframe subtree.
+						//
+						// `focusInListener` (mousedown) only reaches the app's own
+						// document, and the `windowFocusInListener` (focusin) path above
+						// only fires when a click moves focus to a focusable element. An
+						// app that renders READ-ONLY content into a nested iframe — the
+						// text-editor preview's HTML/templated/server-rendered output —
+						// satisfies neither: the click never reaches this document, and
+						// non-focusable content transfers no focus. So the window stays
+						// behind unless its chrome is clicked.
+						//
+						// Walk the same-origin frame tree and attach the same
+						// activate-on-mousedown listener to every reachable document,
+						// re-attaching as nested iframes load, are recreated (the preview
+						// rebuilds its iframe per file/type), or are removed. Cross-origin
+						// frames are skipped — their interactive content still activates
+						// via the focusin path, and their documents are inaccessible.
+						const attachedDocs = new WeakSet<Document>();
+
+						// Returns a teardown for everything attached to `doc` and its
+						// same-origin descendants, or null if the document is missing,
+						// cross-origin, or already attached.
+						const attachToDoc = (doc: Document | null | undefined): (() => void) | null => {
+							if (!doc) return null;
+							try {
+								// Accessing documentElement throws for cross-origin docs.
+								if (!doc.documentElement) return null;
+							} catch (_) { return null; }
+							if (attachedDocs.has(doc)) return null;
+							attachedDocs.add(doc);
+
+							doc.addEventListener('mousedown', vm._.focusInListener, true);
+
+							// Each tracked nested iframe owns a teardown that detaches its
+							// load listener and tears down its current nested-doc subtree.
+							const frameTeardowns = new Map<HTMLIFrameElement, () => void>();
+							const trackIframe = (el: HTMLIFrameElement) => {
+								if (frameTeardowns.has(el)) return;
+								let docTeardown = attachToDoc(el.contentDocument);
+								const onLoad = () => {
+									if (docTeardown) { docTeardown(); }
+									docTeardown = attachToDoc(el.contentDocument);
+								};
+								el.addEventListener('load', onLoad);
+								frameTeardowns.set(el, () => {
+									el.removeEventListener('load', onLoad);
+									if (docTeardown) { docTeardown(); docTeardown = null; }
+								});
+							};
+							const untrackIframe = (el: HTMLIFrameElement) => {
+								const t = frameTeardowns.get(el);
+								if (t) { t(); frameTeardowns.delete(el); }
+							};
+
+							doc.querySelectorAll('iframe').forEach((el) => trackIframe(el as HTMLIFrameElement));
+
+							// `instanceof` is unsafe here: nodes added inside a nested
+							// iframe document come from that document's realm, whose
+							// HTMLIFrameElement/Element constructors differ from ours, so
+							// instanceof would be false. Match on nodeType/tagName instead.
+							const eachIframe = (n: Node, fn: (el: HTMLIFrameElement) => void) => {
+								if (n.nodeType !== 1) return;
+								const el = n as Element;
+								if (el.tagName === 'IFRAME') { fn(el as HTMLIFrameElement); }
+								else { el.querySelectorAll('iframe').forEach((f) => fn(f as HTMLIFrameElement)); }
+							};
+							const obs = new MutationObserver((mutations) => {
+								for (const m of mutations) {
+									m.addedNodes.forEach((n) => eachIframe(n, trackIframe));
+									m.removedNodes.forEach((n) => eachIframe(n, untrackIframe));
+								}
+							});
+							obs.observe(doc, { childList: true, subtree: true });
+
+							return () => {
+								try { obs.disconnect(); } catch (_) { /* ignore */ }
+								try { doc.removeEventListener('mousedown', vm._.focusInListener, true); } catch (_) { /* ignore */ }
+								frameTeardowns.forEach((t) => { try { t(); } catch (_) { /* ignore */ } });
+								frameTeardowns.clear();
+								attachedDocs.delete(doc);
+							};
+						};
+
 						try {
-							frame.contentDocument?.addEventListener('mousedown', vm._.focusInListener, true);
+							vm._.frameTreeTeardown = attachToDoc(frame.contentDocument);
 						} catch (_) { /* cross-origin */ }
 
 						// Drag region support: any element with `.window-drag-region` inside
@@ -486,6 +570,12 @@ defineComponent('wt-window', {
 			const vm = this as any;
 			if (e.detail?.id !== vm._.appInstanceId) return;
 			switch (e.detail.action) {
+				case 'activate':
+					// Raise an already-visible window to the front. Used when an
+					// app's cross-origin/opaque iframe content (e.g. a task form)
+					// forwards a click the shell could not observe directly.
+					if (!vm.minimized) { vm.activate(); }
+					break;
 				case 'maximize':
 					if (!vm.maximized) { vm.toggleMaximize(); }
 					break;
@@ -521,12 +611,11 @@ defineComponent('wt-window', {
 					frame.removeEventListener('load', vm._.loadListener);
 					vm._.loadListener = null;
 				}
-				if (vm._.focusInListener) {
-					try {
-						frame.contentDocument?.removeEventListener('mousedown', vm._.focusInListener, true);
-					} catch (_) { /* cross-origin */ }
-					vm._.focusInListener = null;
+				if (vm._.frameTreeTeardown) {
+					try { vm._.frameTreeTeardown(); } catch (_) { /* ignore */ }
+					vm._.frameTreeTeardown = null;
 				}
+				vm._.focusInListener = null;
 				if (vm._.iframeDragMouseDownListener) {
 					try {
 						frame.contentDocument?.removeEventListener('mousedown', vm._.iframeDragMouseDownListener, true);

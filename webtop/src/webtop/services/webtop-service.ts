@@ -275,6 +275,22 @@ export class ApplicationInstance {
 		}));
 	}
 
+	/**
+	 * Bring this window to the front (raise it above the others) without
+	 * otherwise changing its state. Unlike `restore()`, this does not
+	 * un-minimize the window — it only re-stacks an already-visible window.
+	 *
+	 * Apps embedding their content in a cross-origin / opaque sandboxed iframe
+	 * (e.g. user-authored task forms) need this: clicks inside such a frame
+	 * never reach the shell, so the shell cannot raise the window on its own.
+	 * The framed content forwards the click to its host app, which calls this.
+	 */
+	activate(): void {
+		document.dispatchEvent(new CustomEvent('window-control', {
+			detail: { id: this.#id, action: 'activate' },
+		}));
+	}
+
 	maximize(): void {
 		document.dispatchEvent(new CustomEvent('window-control', {
 			detail: { id: this.#id, action: 'maximize' },

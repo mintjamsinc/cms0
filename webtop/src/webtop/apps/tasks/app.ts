@@ -895,6 +895,14 @@ export const App = {
 			// Form iframe messages.
 			if (data && typeof data === 'object' && data.__tasksRpc) {
 				if (!this.isFromFormFrame(event)) return;
+				if (data.__tasksRpc === 'activate') {
+					// The form lives in an opaque sandboxed iframe, so clicks
+					// inside it never reach the shell and can't raise this window
+					// on their own. The SDK forwards them here; re-stack the
+					// window via the host (which knows this instance's id).
+					this.instance?.activate();
+					return;
+				}
 				if (data.__tasksRpc === 'ready') {
 					this.formReady = true;
 					// pushContextToFrame includes the current theme in its
