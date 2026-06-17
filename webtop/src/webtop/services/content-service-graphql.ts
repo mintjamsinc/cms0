@@ -6,6 +6,7 @@
 
 import { GraphQLClient } from '../graphql/client.js';
 import { CONTENT_QUERIES, CONTENT_MUTATIONS } from '../graphql/queries/content.js';
+import { resolveLocale } from './webtop-i18n-service.js';
 import type {
   Node,
   NodeConnection,
@@ -27,6 +28,10 @@ import type {
   AppendDownloadArchiveResult,
   StartDownloadArchiveResult,
   AbortDownloadArchiveResult,
+  InitImportArchiveResult,
+  StartImportArchiveResult,
+  AbortImportArchiveResult,
+  ImportArchiveOptions,
 } from '../graphql/types.js';
 
 /** Server-side cap on paths per append call (shared by delete and archive jobs). */
@@ -415,10 +420,19 @@ export class ContentServiceGraphQL {
    * the mutation returns immediately. Subscribe to {@code jobProgress(jobId)}
    * for live updates and the terminal downloadUrl.
    */
-  async startDownloadArchive(jobId: string, filename: string): Promise<StartDownloadArchiveResult> {
+  async startDownloadArchive(
+    jobId: string,
+    filename: string,
+    options: { includeMetadata?: boolean; includeAcl?: boolean } = {},
+  ): Promise<StartDownloadArchiveResult> {
+    const input: Record<string, unknown> = { jobId, filename };
+    // Defaults are applied server-side (metadata on, ACL off); only send the
+    // flags when the caller overrides them.
+    if (options.includeMetadata !== undefined) input.includeMetadata = options.includeMetadata;
+    if (options.includeAcl !== undefined) input.includeAcl = options.includeAcl;
     const data = await this.#client.mutation<{ startDownloadArchive: StartDownloadArchiveResult }>(
       CONTENT_MUTATIONS.START_DOWNLOAD_ARCHIVE,
-      { input: { jobId, filename } }
+      { input }
     );
     return data.startDownloadArchive;
   }
@@ -433,6 +447,58 @@ export class ContentServiceGraphQL {
       { input: { jobId } }
     );
     return data.abortDownloadArchive;
+  }
+
+  /**
+   * Async archive restore (import) job — step 1.
+   * Allocates a job record on the server and returns its id.
+   */
+  async initImportArchive(): Promise<InitImportArchiveResult> {
+    const data = await this.#client.mutation<{ initImportArchive: InitImportArchiveResult }>(
+      CONTENT_MUTATIONS.INIT_IMPORT_ARCHIVE,
+      { input: {} }
+    );
+    return data.initImportArchive;
+  }
+
+  /**
+   * Async archive restore (import) job — step 2.
+   * Records the restore options and hands the job to the background worker;
+   * subscribe to {@code jobProgress(jobId)} for live updates.
+   */
+  async startImportArchive(jobId: string, options: ImportArchiveOptions): Promise<StartImportArchiveResult> {
+    const input: Record<string, unknown> = {
+      jobId,
+      archivePath: options.archivePath,
+      destinationPath: options.destinationPath,
+      // The report CSV is generated server-side at run time; tell the job which
+      // locale to write its own strings (the "処理" column and its error
+      // messages) in, so they match the UI language the user ran the import in.
+      locale: resolveLocale(),
+    };
+    if (options.filename !== undefined) input.filename = options.filename;
+    if (options.uuidBehavior !== undefined) input.uuidBehavior = options.uuidBehavior;
+    if (options.pathBehavior !== undefined) input.pathBehavior = options.pathBehavior;
+    if (options.restoreAcl !== undefined) input.restoreAcl = options.restoreAcl;
+    if (options.preserveTimestamps !== undefined) input.preserveTimestamps = options.preserveTimestamps;
+    if (options.dryRun !== undefined) input.dryRun = options.dryRun;
+    const data = await this.#client.mutation<{ startImportArchive: StartImportArchiveResult }>(
+      CONTENT_MUTATIONS.START_IMPORT_ARCHIVE,
+      { input }
+    );
+    return data.startImportArchive;
+  }
+
+  /**
+   * Async archive restore (import) job — request abort.
+   * The worker stops at its next safe point (between nodes).
+   */
+  async abortImportArchive(jobId: string): Promise<AbortImportArchiveResult> {
+    const data = await this.#client.mutation<{ abortImportArchive: AbortImportArchiveResult }>(
+      CONTENT_MUTATIONS.ABORT_IMPORT_ARCHIVE,
+      { input: { jobId } }
+    );
+    return data.abortImportArchive;
   }
 
   /**

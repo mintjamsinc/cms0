@@ -99,7 +99,12 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			throw new UnsupportedRepositoryOperationException("Node '" + absPath + "' is not " + NodeType.MIX_VERSIONABLE);
 		}
 		adaptTo(Session.class).checkPrivileges(item.getPath(), Privilege.JCR_VERSION_MANAGEMENT);
-		checkItemState(item);
+		// In an import scope the item is mid-import and deliberately carries
+		// unsaved changes (the new body/properties being checked in), so skip the
+		// no-unsaved-changes guard that a normal checkin enforces.
+		if (!isImportScope()) {
+			checkItemState(item);
+		}
 		JcrLock lock = null;
 		try {
 			lock = (JcrLock) adaptTo(JcrLockManager.class).getLock(absPath);
@@ -114,14 +119,43 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			return getBaseVersion(absPath);
 		}
 
-		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
-			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
+		// In an import scope the version history is written into this very
+		// session's transient space and committed by the import's single
+		// save() (or discarded by its refresh()); otherwise it is written and
+		// committed atomically through a separate system session.
+		if (isImportScope()) {
+			try {
+				return doCheckin(item, fWorkspace);
+			} catch (IOException | SQLException ex) {
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
+		}
 
+		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
 			for (String lockToken : fWorkspace.getLockManager().getLockTokens()) {
 				workspace.getLockManager().addLockToken(lockToken);
 			}
 
-			JcrPath versionHistoryPath = workspaceQuery.items().getVersionHistoryPath(item.getIdentifier());
+			Version version = doCheckin(item, workspace);
+			workspace.getSession().save();
+			return version;
+		} catch (IOException | SQLException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+	}
+
+	/**
+	 * Write a new version into {@code versionWorkspace}'s transient space for the
+	 * given (checked-out) item and flip it to checked-in, returning the created
+	 * version. The caller decides the transactional boundary: a normal checkin
+	 * saves the dedicated system session here; an import checkin leaves the
+	 * changes staged for the import's single terminal save.
+	 */
+	private Version doCheckin(Node item, JcrWorkspace versionWorkspace)
+			throws IOException, SQLException, RepositoryException {
+		WorkspaceQuery workspaceQuery = Adaptables.getAdapter(versionWorkspace, WorkspaceQuery.class);
+
+		JcrPath versionHistoryPath = workspaceQuery.items().getVersionHistoryPath(item.getIdentifier());
 			String baseVersionId = item.getProperty(JcrProperty.JCR_BASE_VERSION).getString();
 			AdaptableMap<String,Object> baseVersionData = workspaceQuery.items().getNodeByIdentifier(baseVersionId);
 			String baseVersionName = workspaceQuery.getResolved(baseVersionData.getString("item_name"));
@@ -162,7 +196,7 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(versionId, JcrProperty.JCR_CREATED_BY, PropertyType.STRING, workspaceQuery.createValue(PropertyType.STRING, fWorkspace.getSession().getUserID()));
 
 			for (Value v : item.getProperty(JcrProperty.JCR_PREDECESSORS).getValues()) {
-				Node predecessor = workspace.getSession().getNodeByIdentifier(v.getString());
+				Node predecessor = versionWorkspace.getSession().getNodeByIdentifier(v.getString());
 				if (predecessor.hasProperty(JcrProperty.JCR_SUCCESSORS) && predecessor.getProperty(JcrProperty.JCR_SUCCESSORS).getValues().length > 0) {
 					List<Value> l = new ArrayList<>();
 					l.addAll(Arrays.asList(predecessor.getProperty(JcrProperty.JCR_SUCCESSORS).getValues()));
@@ -184,12 +218,7 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_BASE_VERSION, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, versionId));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, new Value[0]);
 
-			workspace.getSession().save();
-
-			return JcrNode.create(versionData, adaptTo(JcrSession.class)).adaptTo(Version.class);
-		} catch (IOException | SQLException ex) {
-			throw Cause.create(ex).wrap(RepositoryException.class);
-		}
+		return JcrNode.create(versionData, adaptTo(JcrSession.class)).adaptTo(Version.class);
 	}
 
 	@Override
@@ -211,20 +240,45 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			return;
 		}
 
-		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
-			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
+		// In an import scope, stage the checkout in this session and let the
+		// import's single save()/refresh() commit or discard it; otherwise commit
+		// it atomically through a separate system session.
+		if (isImportScope()) {
+			try {
+				doCheckout(item, fWorkspace);
+			} catch (IOException | SQLException ex) {
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
+			return;
+		}
 
+		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
 			for (String lockToken : fWorkspace.getLockManager().getLockTokens()) {
 				workspace.getLockManager().addLockToken(lockToken);
 			}
 
-			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, true));
-			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, item.getProperty(JcrProperty.JCR_BASE_VERSION).getValue()));
-
+			doCheckout(item, workspace);
 			workspace.getSession().save();
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
+	}
+
+	/**
+	 * Flip the given item to checked-out in {@code versionWorkspace}'s transient
+	 * space (predecessors reset to the current base version). The caller decides
+	 * whether to save now (normal checkout) or leave it staged for an import's
+	 * single terminal save.
+	 */
+	private void doCheckout(Node item, JcrWorkspace versionWorkspace)
+			throws IOException, SQLException, RepositoryException {
+		WorkspaceQuery workspaceQuery = Adaptables.getAdapter(versionWorkspace, WorkspaceQuery.class);
+		workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_IS_CHECKED_OUT, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, true));
+		workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, workspaceQuery.createValues(PropertyType.REFERENCE, item.getProperty(JcrProperty.JCR_BASE_VERSION).getValue()));
+	}
+
+	private boolean isImportScope() {
+		return adaptTo(JcrSession.class).isImportScope();
 	}
 
 	@Override

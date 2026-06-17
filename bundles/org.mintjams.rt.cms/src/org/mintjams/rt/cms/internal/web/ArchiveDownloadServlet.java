@@ -106,6 +106,38 @@ public class ArchiveDownloadServlet extends HttpServlet {
 			}
 
 			JobStatus status = JobNodes.getStatus(jobContent);
+
+			// A third "report" segment requests the import job's CSV outcome report
+			// instead of the archive ZIP. A report is meaningful for a finished job
+			// whatever its terminal status (a failed/aborted import still reports up
+			// to the failure point), so it is not gated on COMPLETED.
+			boolean reportMode = segments.length >= 3 && "report".equals(segments[2]);
+			if (reportMode) {
+				if (status != JobStatus.COMPLETED && status != JobStatus.FAILED && status != JobStatus.ABORTED) {
+					response.sendError(HttpServletResponse.SC_NOT_FOUND, "Report is not ready");
+					return;
+				}
+				String reportPath = JobNodes.reportNodePath(jobId);
+				if (!privilegedSession.nodeExists(reportPath)) {
+					response.sendError(HttpServletResponse.SC_NOT_FOUND, "Report not found");
+					return;
+				}
+				Node reportNode = privilegedSession.getNode(reportPath);
+
+				response.setContentType("text/csv; charset=UTF-8");
+				response.setContentLengthLong(JCRs.getContentLength(reportNode));
+				response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+				response.setHeader("Expires", "0");
+				response.setHeader("Pragma", "no-cache");
+				response.setHeader("Content-Disposition",
+						createContentDisposition("import-report-" + jobId + ".csv", request.getHeader("User-Agent")));
+
+				try (InputStream in = JCRs.getContentAsStream(reportNode)) {
+					IOs.copy(in, response.getOutputStream());
+				}
+				return;
+			}
+
 			if (status != JobStatus.COMPLETED) {
 				response.sendError(HttpServletResponse.SC_NOT_FOUND, "Archive is not ready");
 				return;

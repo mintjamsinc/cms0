@@ -93,6 +93,98 @@ public final class JobNodes {
 	public static final String PROP_FINISHED_AT = "jobFinishedAt";
 	/** Archive jobs: file name to expose to the browser when the ZIP is downloaded. */
 	public static final String PROP_ARCHIVE_FILENAME = "jobArchiveFilename";
+	/**
+	 * Archive jobs: when true (the default), the ZIP also carries the
+	 * {@code .cms-archive/} restore sidecar (properties, mixins, references,
+	 * binaries) so the download doubles as a backup. Set false for a bare
+	 * file-only ZIP.
+	 */
+	public static final String PROP_INCLUDE_METADATA = "jobIncludeMetadata";
+	/**
+	 * Archive jobs: when true, the sidecar also carries {@code acl.ndjson} so a
+	 * restore can reinstate access control. Off by default. Implies
+	 * {@link #PROP_INCLUDE_METADATA}.
+	 */
+	public static final String PROP_INCLUDE_ACL = "jobIncludeAcl";
+
+	// Import/restore jobs ----------------------------------------------------
+	/** Repository path of the uploaded CMS Archive ({@code nt:file}) to restore. */
+	public static final String PROP_ARCHIVE_PATH = "jobArchivePath";
+	/** Destination path the archive is restored under. */
+	public static final String PROP_DEST_PATH = "jobDestPath";
+	/** {@code preserve} (keep original UUIDs) or {@code new} (allocate fresh). */
+	public static final String PROP_IDENTITY = "jobIdentity";
+	/** When identity is {@code preserve}: {@code throw}/{@code replace}/{@code remove}. */
+	public static final String PROP_UUID_COLLISION = "jobUuidCollision";
+	/** Path conflict policy: {@code skip}/{@code overwrite}/{@code merge}/{@code rename}. */
+	public static final String PROP_PATH_CONFLICT = "jobPathConflict";
+	/**
+	 * Identifier-conflict behaviour, as the integer codes of
+	 * {@link org.mintjams.jcr.ImportContentHandler} ({@code 0} throw on collision,
+	 * {@code 1} new on collision, {@code 2} always new). Supersedes the older
+	 * {@link #PROP_IDENTITY}/{@link #PROP_UUID_COLLISION} pair.
+	 */
+	public static final String PROP_UUID_BEHAVIOR = "jobUuidBehavior";
+	/**
+	 * Path-conflict behaviour, as the integer codes of
+	 * {@link org.mintjams.jcr.ImportContentHandler} ({@code 0} throw on conflict,
+	 * {@code 1} skip, {@code 2} overwrite). Supersedes the older
+	 * {@link #PROP_PATH_CONFLICT}.
+	 */
+	public static final String PROP_PATH_BEHAVIOR = "jobPathBehavior";
+	/** Restore access control lists carried by the archive. */
+	public static final String PROP_RESTORE_ACL = "jobRestoreAcl";
+	/**
+	 * Carry over each node's original {@code jcr:created}/{@code jcr:lastModified}
+	 * from the archive (default true). When false the repository stamps the import
+	 * time. {@code jcr:createdBy}/{@code jcr:lastModifiedBy} are always the
+	 * importing user regardless.
+	 */
+	public static final String PROP_PRESERVE_TIMESTAMPS = "jobPreserveTimestamps";
+	/** Validate and report only; make no changes. */
+	public static final String PROP_DRY_RUN = "jobDryRun";
+	/**
+	 * Dry run result: {@code true} when the rehearsal hit a problem that would
+	 * make the real restore fail (e.g. a UUID collision under the {@code throw}
+	 * policy, an unknown node type). The job still completes — the finding is
+	 * reported, not raised as a system failure. Absent on real (non-dry) runs.
+	 */
+	public static final String PROP_DRY_RUN_HAS_ERRORS = "jobDryRunHasErrors";
+	/** Dry run result: human-readable detail of the blocking problem, when {@link #PROP_DRY_RUN_HAS_ERRORS} is true. */
+	public static final String PROP_DRY_RUN_DETAIL = "jobDryRunDetail";
+	/** Dry run result: number of nodes the archive would restore (from the manifest). */
+	public static final String PROP_DRY_RUN_NODE_COUNT = "jobDryRunNodeCount";
+	/** Dry run result: number of binaries the archive carries (from the manifest). */
+	public static final String PROP_DRY_RUN_BINARY_COUNT = "jobDryRunBinaryCount";
+	/** Import jobs: running count of nodes created/updated. */
+	public static final String PROP_ITEMS_RESTORED = "jobItemsRestored";
+	/**
+	 * Import jobs: per-file outcome counts. The unit is the file the user sees —
+	 * each {@code nt:file} in the archive falls into exactly one bucket, so the
+	 * four always sum to the number of files in the archive. "Overwrite" counts
+	 * the files the policy directed to be overwritten whether or not their bytes
+	 * actually changed; "error" never double-counts a file already counted as
+	 * new or overwrite.
+	 */
+	public static final String PROP_ITEMS_NEW = "jobItemsNew";
+	public static final String PROP_ITEMS_OVERWRITTEN = "jobItemsOverwritten";
+	public static final String PROP_ITEMS_SKIPPED = "jobItemsSkipped";
+	public static final String PROP_ITEMS_ERROR = "jobItemsError";
+	/**
+	 * Import jobs: up to the first 20 errors, for display on the completion
+	 * screen. Multi-valued; each value is {@code path + '\t' + message}. The full
+	 * set is in the downloadable CSV report (see {@link #PROP_DOWNLOAD_URL}).
+	 */
+	public static final String PROP_ERROR_SAMPLES = "jobErrorSamples";
+	/** Import jobs: the original file name of the uploaded archive. */
+	public static final String PROP_IMPORT_FILENAME = "jobImportFilename";
+	/**
+	 * Import jobs: the requester's UI locale at submit time (e.g. {@code "ja"},
+	 * {@code "en"}, {@code "ja-jp"}). Used to localize the strings the job itself
+	 * produces in the CSV report — the {@code 処理} column labels and its own error
+	 * messages. Empty/absent falls back to English.
+	 */
+	public static final String PROP_REPORT_LOCALE = "jobReportLocale";
 	/** Set on completion by jobs whose result is a downloadable artifact (e.g. archive jobs). */
 	public static final String PROP_DOWNLOAD_URL = "jobDownloadUrl";
 	/**
@@ -145,6 +237,19 @@ public final class JobNodes {
 		String jobNodePath = jobNodePath(jobId);
 		String parentPath = jobNodePath.substring(0, jobNodePath.lastIndexOf('/'));
 		return parentPath + "/archive-" + jobId;
+	}
+
+	/**
+	 * Resolve the absolute path of the CSV outcome report produced by an import
+	 * job. Like {@link #archiveNodePath(String)} it is an {@code nt:file} sibling
+	 * of the job node (prefix {@code report-}), so it shares the YYYY/MM bucket
+	 * but never matches {@link #isJobPath(String, String)} and so stays out of the
+	 * {@code jobProgress} event stream.
+	 */
+	public static String reportNodePath(String jobId) {
+		String jobNodePath = jobNodePath(jobId);
+		String parentPath = jobNodePath.substring(0, jobNodePath.lastIndexOf('/'));
+		return parentPath + "/report-" + jobId;
 	}
 
 	private static long parseMillis(String jobId) {
@@ -309,6 +414,13 @@ public final class JobNodes {
 			return defaultValue;
 		}
 		return content.getProperty(name).getString();
+	}
+
+	public static boolean getBoolean(Node content, String name, boolean defaultValue) throws RepositoryException {
+		if (!content.hasProperty(name)) {
+			return defaultValue;
+		}
+		return content.getProperty(name).getBoolean();
 	}
 
 	/**

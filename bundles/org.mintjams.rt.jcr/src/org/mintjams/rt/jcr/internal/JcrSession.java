@@ -63,6 +63,7 @@ import javax.jcr.security.AccessControlManager;
 import javax.jcr.security.Privilege;
 import javax.jcr.version.VersionException;
 
+import org.mintjams.jcr.ImportContentHandler;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.NamespaceProvider;
 import org.mintjams.jcr.Session;
@@ -93,6 +94,15 @@ public class JcrSession implements Session, Adaptable {
 	private Collection<GroupPrincipal> fGroups = null;
 	private final JcrWorkspace fWorkspace;
 	private final Map<String, String> fNamespaces = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+	/**
+	 * Re-entrant depth of the open import scopes on this session (see
+	 * {@link ImportContentHandler}). While greater than zero the version manager
+	 * runs checkout/checkin in this session's transient space and skips the
+	 * unsaved-changes guard. A counter (rather than a boolean) keeps nested
+	 * handlers honest; {@link #endImportScope()} only restores normal behaviour
+	 * once the outermost scope closes.
+	 */
+	private int fImportScopeDepth = 0;
 
 	private JcrSession(UserPrincipal principal, JcrWorkspace workspace) {
 		fPrincipal = principal;
@@ -164,6 +174,32 @@ public class JcrSession implements Session, Adaptable {
 	public ContentHandler getImportContentHandler(String parentAbsPath, int uuidBehavior) throws PathNotFoundException,
 			ConstraintViolationException, VersionException, LockException, RepositoryException {
 		throw new UnsupportedRepositoryOperationException("getImportContentHandler is not supported");
+	}
+
+	@Override
+	public ImportContentHandler getImportContentHandler(int uuidBehavior, int pathBehavior) throws RepositoryException {
+		checkLive();
+		return JcrImportContentHandler.create(this, uuidBehavior, pathBehavior);
+	}
+
+	/**
+	 * Enter an import scope (see {@link ImportContentHandler}). Balanced by
+	 * {@link #endImportScope()}; calls nest.
+	 */
+	public void beginImportScope() {
+		fImportScopeDepth++;
+	}
+
+	/** Leave an import scope; restores normal version-control behaviour once the outermost scope closes. */
+	public void endImportScope() {
+		if (fImportScopeDepth > 0) {
+			fImportScopeDepth--;
+		}
+	}
+
+	/** Whether this session is currently in an import scope. */
+	public boolean isImportScope() {
+		return fImportScopeDepth > 0;
 	}
 
 	@Override

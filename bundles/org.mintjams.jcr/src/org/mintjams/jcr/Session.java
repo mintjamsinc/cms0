@@ -49,4 +49,25 @@ public interface Session extends javax.jcr.Session {
 
 	boolean isSystem();
 
+	/**
+	 * Returns a content-import handler bound to this session, configured with the
+	 * given identifier- and path-conflict behaviours.
+	 *
+	 * <p>Unlike {@link javax.jcr.Session#getImportContentHandler(String, int)},
+	 * this is <em>not</em> a SAX handler for system/document-view XML: the caller
+	 * drives it node by node (see {@link ImportContentHandler}). While the
+	 * returned handler is open the session runs in an import scope where
+	 * version-control operations stay in this session's transient space and the
+	 * unsaved-changes guard is bypassed, so the whole import can be committed by a
+	 * single {@code save()} or discarded by a single {@code refresh(false)}.
+	 *
+	 * @param uuidBehavior one of {@link ImportContentHandler#IMPORT_UUID_THROW_ON_COLLISION},
+	 *                     {@link ImportContentHandler#IMPORT_UUID_NEW_ON_COLLISION},
+	 *                     {@link ImportContentHandler#IMPORT_UUID_ALWAYS_NEW}.
+	 * @param pathBehavior one of {@link ImportContentHandler#IMPORT_PATH_THROW_ON_CONFLICT},
+	 *                     {@link ImportContentHandler#IMPORT_PATH_SKIP},
+	 *                     {@link ImportContentHandler#IMPORT_PATH_OVERWRITE}.
+	 */
+	ImportContentHandler getImportContentHandler(int uuidBehavior, int pathBehavior) throws RepositoryException;
+
 }

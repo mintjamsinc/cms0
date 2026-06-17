@@ -296,6 +296,63 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	}
 
 	@Override
+	public Node addNode(String relPath, String primaryNodeTypeName, String identifier)
+			throws ItemExistsException, PathNotFoundException, NoSuchNodeTypeException, LockException, VersionException,
+			ConstraintViolationException, RepositoryException {
+		return addNode(relPath, primaryNodeTypeName, identifier, null);
+	}
+
+	@Override
+	public Node addNode(String relPath, String primaryNodeTypeName, String identifier, java.util.Calendar created)
+			throws ItemExistsException, PathNotFoundException, NoSuchNodeTypeException, LockException, VersionException,
+			ConstraintViolationException, RepositoryException {
+		if (Strings.isEmpty(identifier) && created == null) {
+			// Neither identity nor a creation timestamp requested: identical to the
+			// standard addNode.
+			return addNode(relPath, primaryNodeTypeName);
+		}
+		fSession.checkPrivileges(getPath(), Privilege.JCR_ADD_CHILD_NODES);
+		checkCanAddNode();
+		JcrPath path = JcrPath.valueOf(getPath()).resolve(relPath);
+		validateNamePrefixRegistered(path.getName().toString());
+		if (adaptTo(JcrNodeTypeManager.class).isProtectedNode(path.getName().toString())) {
+			throw new ConstraintViolationException("The node '" + path.getName().toString() + "' is protected.");
+		}
+		if (!Strings.isEmpty(identifier)) {
+			// The identifier must be free. Overwriting existing data is the caller's
+			// decision (restore removes the colliding node first), never an implicit
+			// side effect of preserving identity.
+			try {
+				fSession.getNodeByIdentifier(identifier);
+				throw new ItemExistsException("A node with this identifier already exists: " + identifier);
+			} catch (ItemNotFoundException notFound) {
+				// free to use
+			}
+		}
+		try {
+			Map<String, Object> definition = new HashMap<>();
+			definition.put("path", path.toString());
+			definition.put("primaryType", primaryNodeTypeName);
+			definition.put("mixinTypes", null);
+			if (!Strings.isEmpty(identifier)) {
+				definition.put("identifier", identifier);
+			}
+			if (created != null) {
+				// Honoured for the protected jcr:created when the node carries
+				// mix:created; ignored otherwise (the property would not exist).
+				definition.put("created", created);
+			}
+			Node node = JcrNode.create(getWorkspaceQuery().items().createNode(definition), fSession);
+			if (primaryNodeTypeName != null) {
+				fSession.checkPrivileges(node.getPath(), Privilege.JCR_NODE_TYPE_MANAGEMENT);
+			}
+			return node;
+		} catch (IOException | SQLException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+	}
+
+	@Override
 	public boolean canAddMixin(String mixinName) throws NoSuchNodeTypeException, RepositoryException {
 		try {
 			checkWritable();

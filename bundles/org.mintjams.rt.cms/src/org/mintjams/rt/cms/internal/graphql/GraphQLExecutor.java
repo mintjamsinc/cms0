@@ -267,6 +267,13 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeStartDownloadArchive(request));
 			} else if (query.contains("abortDownloadArchive(")) {
 				response.setData(mutationExecutor.executeAbortDownloadArchive(request));
+			// Async archive restore (import) job mutations
+			} else if (query.contains("initImportArchive(")) {
+				response.setData(mutationExecutor.executeInitImportArchive(request));
+			} else if (query.contains("startImportArchive(")) {
+				response.setData(mutationExecutor.executeStartImportArchive(request));
+			} else if (query.contains("abortImportArchive(")) {
+				response.setData(mutationExecutor.executeAbortImportArchive(request));
 			// IdP user mutations
 			} else if (query.contains("changePassword(")) {
 				response.setData(idpMutationExecutor.executeChangePassword(request));

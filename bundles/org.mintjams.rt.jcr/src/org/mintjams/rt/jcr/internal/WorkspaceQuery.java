@@ -832,7 +832,7 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 			for (PropertyDefinition e : propertyDefinitions.values()) {
-				JcrValue[] defaultValues = createDefaultValues(e, node);
+				JcrValue[] defaultValues = createDefaultValues(e, node, definition);
 				if (defaultValues != null) {
 					if (e.isMultiple()) {
 						setProperty(node.getIdentifier(), e.getName(), e.getRequiredType(), defaultValues);
@@ -899,11 +899,20 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		private JcrValue[] createDefaultValues(PropertyDefinition propertyDefinition, Node node)
-				throws IOException, RepositoryException {
+		private JcrValue[] createDefaultValues(PropertyDefinition propertyDefinition, Node node,
+				Map<String, Object> definition) throws IOException, RepositoryException {
 			Value[] defaults = propertyDefinition.getDefaultValues();
 			if (defaults != null) {
 				return Stream.of(defaults).toArray(JcrValue[]::new);
+			}
+
+			// A caller-supplied creation timestamp (trusted restore/import tooling)
+			// seeds the protected jcr:created instead of "now"; every other auto-
+			// created DATE still defaults to the current time. The definition is
+			// absent when seeding a mixin's defaults on an existing node.
+			if (propertyDefinition.getName().equals(JcrProperty.JCR_CREATED_NAME)
+					&& definition != null && definition.get("created") instanceof Calendar) {
+				return createValues(PropertyType.DATE, (Calendar) definition.get("created"));
 			}
 
 			if (propertyDefinition.getRequiredType() == PropertyType.DATE) {
@@ -987,7 +996,7 @@ public class WorkspaceQuery implements Adaptable {
 						continue;
 					}
 
-					JcrValue[] defaultValues = createDefaultValues(e, node);
+					JcrValue[] defaultValues = createDefaultValues(e, node, null);
 					if (defaultValues != null) {
 						if (e.isMultiple()) {
 							setProperty(node.getIdentifier(), e.getName(), e.getRequiredType(), defaultValues);

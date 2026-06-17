@@ -22,7 +22,9 @@
 
 package org.mintjams.jcr.security;
 
-public class PrincipalNotFoundException extends Exception {
+import javax.jcr.RepositoryException;
+
+public class PrincipalNotFoundException extends RepositoryException {
 
 	private static final long serialVersionUID = 1L;
 

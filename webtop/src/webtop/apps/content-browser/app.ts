@@ -1,10 +1,11 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { type Node, type JobStatus } from "../../graphql/types.js";
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from "../../services/content-delete.js";
-import { downloadContentAsZip, type ArchiveJobHandle, type ArchiveJobProgress } from "../../services/content-archive.js";
+import { downloadContentAsZip, restoreContentArchive, type ArchiveJobHandle, type ArchiveJobProgress, type RestoreArchiveProgress } from "../../services/content-archive.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
+import { readArchiveManifest } from "./archive-manifest.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -297,6 +298,71 @@ export const App = {
 				errorMessage: string;
 				isFinished: boolean;
 				isAborting: boolean;
+			},
+			// Restore-from-archive: options dialog for a chosen CMS Archive file.
+			restoreDialog: {
+				visible: false,
+				file: null as File | null,
+				fileName: '',
+				// Reference info read from the archive's manifest (the path(s) the
+				// content was exported from). Empty until/unless the manifest is
+				// readable; shown read-only with a copy button.
+				exportSource: '',
+				destinationPath: '',
+				// Identifier behaviour (uuidBehavior): 0 throw on collision, 1 new on
+				// collision, 2 always new. Path behaviour (pathBehavior): 0 throw on
+				// conflict, 1 skip, 2 overwrite. Integer codes of ImportContentHandler.
+				uuidBehavior: 0 as 0 | 1 | 2,
+				pathBehavior: 0 as 0 | 1 | 2,
+				restoreAcl: false,
+				// Carry over each node's original jcr:created/jcr:lastModified.
+				// On by default — copying/migrating content normally means to keep
+				// its history; jcr:createdBy/jcr:lastModifiedBy still become the
+				// importing user either way.
+				preserveTimestamps: true,
+				dryRun: true,
+				isLoading: false,
+				errorMessage: '',
+			},
+			// Restore-from-archive: live progress of the running import job.
+			restoreMonitor: null as null | {
+				jobId: string;
+				handle: ArchiveJobHandle;
+				dryRun: boolean;
+				itemsTotal: number;
+				itemsRestored: number;
+				// Per-file outcome counts (the four sum to itemsTotal).
+				itemsNew: number;
+				itemsOverwritten: number;
+				itemsSkipped: number;
+				itemsError: number;
+				// First errors (up to 20) for display; full set in the CSV report.
+				errorSamples: Array<{ path: string; message: string }>;
+				// Set on the terminal event when a downloadable CSV report exists.
+				downloadUrl: string;
+				currentPath: string;
+				status: JobStatus;
+				phase: string;
+				errorMessage: string;
+				isFinished: boolean;
+				isAborting: boolean;
+				// Dry-run verdict, filled from the terminal event of a rehearsal.
+				dryRunHasErrors: boolean;
+				dryRunNodeCount: number;
+				dryRunBinaryCount: number;
+				dryRunDetail: string;
+				// The chosen archive File and the options it ran with, retained after a
+				// dry run so the verdict screen can run it for real or reopen the
+				// settings. Cleared once consumed or closed.
+				file: File | null;
+				fileName: string;
+				options: {
+					destinationPath: string;
+					uuidBehavior: 0 | 1 | 2;
+					pathBehavior: 0 | 1 | 2;
+					restoreAcl: boolean;
+					preserveTimestamps: boolean;
+				};
 			},
 			newFolderDialog: {
 				visible: false,
@@ -1992,6 +2058,10 @@ export const App = {
 			menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
 			menuItems.push({ id: 'upload-files', label: vm.t('app.content-browser.menu.uploadFiles', undefined, 'Upload Files'), icon: 'bi-upload' });
 			menuItems.push({ id: 'upload-folder', label: vm.t('app.content-browser.menu.uploadFolder', undefined, 'Upload Folder'), icon: 'bi-folder-symlink' });
+			// Import brings a CMS Archive into the current folder, mirroring the
+			// upload actions above; it is offered regardless of selection so it is
+			// reachable whether the user right-clicks an item or empty space.
+			menuItems.push({ id: 'restore-archive', label: vm.t('app.content-browser.menu.import', undefined, 'Import…'), icon: 'bi-box-arrow-in-down' });
 			menuItems.push({ type: 'separator', id: '', label: '' });
 
 			if (isSingleSelection && hasFolder) {
@@ -1999,8 +2069,12 @@ export const App = {
 			}
 			// Download is available for any selection: a single plain file streams
 			// directly, while folders and multi-selections are bundled into a ZIP.
+			// Export sits beside it as the counterpart of "Import…": it always
+			// produces a ZIP carrying the restorable metadata sidecar, whereas a
+			// plain Download is just the files.
 			if (hasFile || hasFolder) {
 				menuItems.push({ id: 'download', label: vm.t('app.content-browser.menu.download', undefined, 'Download'), icon: 'bi-download' });
+				menuItems.push({ id: 'export', label: vm.t('app.content-browser.menu.export', undefined, 'Export'), icon: 'bi-box-arrow-up' });
 			}
 			menuItems.push({ type: 'separator', id: '', label: '' });
 			menuItems.push({ id: 'copy', label: vm.t('app.content-browser.menu.copy', undefined, 'Copy'), icon: 'bi-clipboard' });
@@ -2085,6 +2159,7 @@ export const App = {
 			menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
 			menuItems.push({ id: 'upload-files', label: vm.t('app.content-browser.menu.uploadFiles', undefined, 'Upload Files'), icon: 'bi-upload' });
 			menuItems.push({ id: 'upload-folder', label: vm.t('app.content-browser.menu.uploadFolder', undefined, 'Upload Folder'), icon: 'bi-folder-symlink' });
+			menuItems.push({ id: 'restore-archive', label: vm.t('app.content-browser.menu.import', undefined, 'Import…'), icon: 'bi-box-arrow-in-down' });
 			if (vm.clipboardHasItems()) {
 				menuItems.push({ type: 'separator', id: '', label: '' });
 				menuItems.push({ id: 'paste', label: vm.t('app.content-browser.menu.paste', undefined, 'Paste'), icon: 'bi-clipboard-check' });
@@ -2118,6 +2193,9 @@ export const App = {
 				case 'upload-folder':
 					vm.triggerFolderUpload();
 					break;
+				case 'restore-archive':
+					vm.openRestorePicker();
+					break;
 				case 'copy':
 					vm.clipboardCopy();
 					break;
@@ -2133,13 +2211,24 @@ export const App = {
 					}
 					break;
 				case 'download':
-					// A single plain file streams directly; folders and any
-					// multi-selection are bundled server-side into a ZIP.
+					// Plain download: no `.cms-archive/` metadata sidecar, so the
+					// result is exactly the user's files. A single plain file streams
+					// directly; folders and any multi-selection are bundled into a ZIP.
 					if (selectedItemObjects.length === 1 && !selectedItemObjects[0].isCollection) {
 						const only = selectedItemObjects[0];
 						if (only.downloadURL) vm.downloadFile(only.downloadURL, only.name);
 					} else if (selectedItemObjects.length > 0) {
-						vm.startZipDownload(selectedItemObjects);
+						vm.startZipDownload(selectedItemObjects, { includeMetadata: false });
+					}
+					break;
+				case 'export':
+					// Export = full-fidelity archive: always a ZIP carrying the
+					// restorable `.cms-archive/` metadata sidecar *including* node
+					// ACLs, so an import can faithfully reinstate permissions (the
+					// counterpart of "Import…"). Even a single file is archived
+					// rather than streamed directly, so its metadata travels with it.
+					if (selectedItemObjects.length > 0) {
+						vm.startZipDownload(selectedItemObjects, { includeMetadata: true, includeAcl: true });
 					}
 					break;
 				case 'rename':
@@ -2942,7 +3031,7 @@ export const App = {
 		},
 		// ZIP-archive download: bundle a folder or multi-selection server-side
 		// and download the resulting ZIP once it's ready.
-		async startZipDownload(items: ContentItem[]) {
+		async startZipDownload(items: ContentItem[], archiveOptions: { includeMetadata?: boolean; includeAcl?: boolean } = {}) {
 			const vm = this;
 			if (!items || items.length === 0) return;
 
@@ -2957,6 +3046,8 @@ export const App = {
 					items.map((it: ContentItem) => ({ path: it.path })),
 					filename,
 					{
+						includeMetadata: archiveOptions.includeMetadata,
+						includeAcl: archiveOptions.includeAcl,
 						onStart: (handle: ArchiveJobHandle) => {
 							vm.archiveMonitor = {
 								jobId: handle.jobId,
@@ -3030,6 +3121,284 @@ export const App = {
 				try { vm.archiveMonitor.handle.release(); } catch { /* noop */ }
 			}
 			vm.archiveMonitor = null;
+		},
+		// Restore from a CMS Archive: open the OS file chooser. The hidden
+		// <input accept=".zip"> lives in index.html.
+		openRestorePicker() {
+			const el = document.getElementById('cb-restore-archive-input') as HTMLInputElement | null;
+			if (el) el.click();
+		},
+		onRestoreInputChange(event: Event) {
+			const vm = this;
+			const input = event.target as HTMLInputElement;
+			const file = input.files && input.files[0];
+			// Reset so the same file can be re-picked consecutively.
+			input.value = '';
+			if (!file) return;
+			vm.restoreDialog.file = file;
+			vm.restoreDialog.fileName = file.name;
+			vm.restoreDialog.exportSource = '';
+			vm.restoreDialog.destinationPath = vm.currentPath;
+			vm.restoreDialog.uuidBehavior = 0;
+			vm.restoreDialog.pathBehavior = 0;
+			vm.restoreDialog.restoreAcl = false;
+			vm.restoreDialog.preserveTimestamps = true;
+			vm.restoreDialog.dryRun = true;
+			vm.restoreDialog.errorMessage = '';
+			vm.restoreDialog.isLoading = false;
+			vm.restoreDialog.visible = true;
+			// Read the archive's manifest (client-side, no upload) to show where
+			// the content was exported from. Purely informational: if it can't be
+			// read, the field stays hidden. Guard against a newer pick racing in.
+			void readArchiveManifest(file).then((info) => {
+				if (!info || vm.restoreDialog.file !== file) return;
+				vm.restoreDialog.exportSource = info.roots.join('\n');
+			}).catch(() => { /* informational only */ });
+		},
+		closeRestoreDialog() {
+			const vm = this;
+			if (vm.restoreDialog.isLoading) return;
+			vm.restoreDialog.visible = false;
+			vm.restoreDialog.file = null;
+		},
+		// Upload the chosen archive to a transient staging file and run the import
+		// (or dry-run) job. The server relocates the upload next to the job record,
+		// so a dry-run verdict re-uploads the retained File to run for real.
+		async confirmRestore() {
+			const vm = this;
+			const dlg = vm.restoreDialog;
+			if (dlg.isLoading || !dlg.file) return;
+			const file = dlg.file;
+			const dryRun = dlg.dryRun;
+			const fileName = dlg.fileName;
+			const options = {
+				destinationPath: dlg.destinationPath || vm.currentPath,
+				uuidBehavior: dlg.uuidBehavior,
+				pathBehavior: dlg.pathBehavior,
+				restoreAcl: dlg.restoreAcl,
+				preserveTimestamps: dlg.preserveTimestamps,
+			};
+			dlg.visible = false;
+			dlg.isLoading = false;
+			await vm._runRestoreJob(file, options, dryRun, fileName);
+		},
+		// Shared restore runner: uploads the chosen archive to a transient staging
+		// file, then starts the import (or dry-run) job. The monitor retains the
+		// File and options so a dry-run verdict can run it for real (re-uploading)
+		// or reopen the settings.
+		async _runRestoreJob(
+			file: File,
+			options: { destinationPath: string; uuidBehavior: 0 | 1 | 2; pathBehavior: 0 | 1 | 2; restoreAcl: boolean; preserveTimestamps: boolean },
+			dryRun: boolean,
+			fileName: string,
+		) {
+			const vm = this;
+			const contentService = vm.instance.api.content;
+			const eventHub = vm.instance?.api?.eventHub;
+			let stagingPath = '';
+			try {
+				// Stage the upload alongside the current folder under a hidden name;
+				// the server moves it next to the job record on start.
+				const stagingName = '.cms-restore-' + Date.now() + '.zip';
+				stagingPath = await vm.uploadArchiveFile(file, vm.currentPath, stagingName);
+			} catch (error: any) {
+				vm.restoreMonitor = vm._newRestoreMonitor(null, dryRun, fileName, file, options);
+				vm.restoreMonitor.errorMessage = error?.message || vm.t('app.content-browser.error.uploadFailed', undefined, 'Upload failed');
+				vm.restoreMonitor.isFinished = true;
+				vm.restoreMonitor.status = 'failed' as JobStatus;
+				return;
+			}
+			try {
+				await restoreContentArchive(
+					contentService,
+					eventHub,
+					{ archivePath: stagingPath, filename: fileName, ...options, dryRun },
+					{
+						onStart: (handle: ArchiveJobHandle) => {
+							vm.restoreMonitor = vm._newRestoreMonitor(handle, dryRun, fileName, file, options);
+						},
+						onProgress: (progress: RestoreArchiveProgress) => {
+							vm.handleRestoreProgress(progress);
+						},
+					},
+				);
+			} catch (error: any) {
+				if (vm.restoreMonitor) {
+					vm.restoreMonitor.errorMessage = error?.message || vm.t('app.content-browser.error.importFailed', undefined, 'Failed to import archive');
+					vm.restoreMonitor.isFinished = true;
+					vm.restoreMonitor.status = 'failed' as JobStatus;
+				}
+				// The job never started, so the server never relocated the upload;
+				// don't leave it orphaned in the content tree.
+				await vm._deleteRestoreStaging(stagingPath);
+			}
+		},
+		// Build a fresh restore monitor. handle is null only for an upload that
+		// failed before the job started (so the failure has somewhere to show).
+		_newRestoreMonitor(
+			handle: ArchiveJobHandle | null,
+			dryRun: boolean,
+			fileName: string,
+			file: File | null,
+			options: { destinationPath: string; uuidBehavior: 0 | 1 | 2; pathBehavior: 0 | 1 | 2; restoreAcl: boolean; preserveTimestamps: boolean },
+		) {
+			return {
+				jobId: handle ? handle.jobId : '',
+				handle: handle as ArchiveJobHandle,
+				dryRun,
+				itemsTotal: 0,
+				itemsRestored: 0,
+				itemsNew: 0,
+				itemsOverwritten: 0,
+				itemsSkipped: 0,
+				itemsError: 0,
+				errorSamples: [] as Array<{ path: string; message: string }>,
+				downloadUrl: '',
+				currentPath: '',
+				status: 'init' as JobStatus,
+				phase: '',
+				errorMessage: '',
+				isFinished: false,
+				isAborting: false,
+				dryRunHasErrors: false,
+				dryRunNodeCount: 0,
+				dryRunBinaryCount: 0,
+				dryRunDetail: '',
+				file,
+				fileName,
+				options,
+			};
+		},
+		handleRestoreProgress(progress: RestoreArchiveProgress) {
+			const vm = this;
+			const m = vm.restoreMonitor;
+			if (!m || m.jobId !== progress.jobId) return;
+			m.status = progress.status;
+			m.itemsTotal = progress.itemsTotal;
+			m.itemsRestored = progress.itemsRestored;
+			if (typeof progress.itemsNew === 'number') m.itemsNew = progress.itemsNew;
+			if (typeof progress.itemsOverwritten === 'number') m.itemsOverwritten = progress.itemsOverwritten;
+			if (typeof progress.itemsSkipped === 'number') m.itemsSkipped = progress.itemsSkipped;
+			if (typeof progress.itemsError === 'number') m.itemsError = progress.itemsError;
+			if (progress.errorSamples) {
+				m.errorSamples = progress.errorSamples.map((s) => {
+					const tab = s.indexOf('\t');
+					return tab >= 0 ? { path: s.slice(0, tab), message: s.slice(tab + 1) } : { path: '', message: s };
+				});
+			}
+			if (progress.downloadUrl) m.downloadUrl = progress.downloadUrl;
+			if (progress.currentPath) m.currentPath = progress.currentPath;
+			if (progress.errorMessage) m.errorMessage = progress.errorMessage;
+			if (progress.status === 'aborting') m.isAborting = true;
+			// The dry-run verdict rides the terminal event; capture it so the
+			// monitor can switch from "validating" to the rehearsal summary.
+			if (typeof progress.dryRunHasErrors === 'boolean') m.dryRunHasErrors = progress.dryRunHasErrors;
+			if (typeof progress.dryRunNodeCount === 'number') m.dryRunNodeCount = progress.dryRunNodeCount;
+			if (typeof progress.dryRunBinaryCount === 'number') m.dryRunBinaryCount = progress.dryRunBinaryCount;
+			if (progress.dryRunDetail) m.dryRunDetail = progress.dryRunDetail;
+
+			if (progress.status === 'completed' || progress.status === 'aborted' || progress.status === 'failed') {
+				m.isFinished = true;
+				m.isAborting = false;
+				// On a real success, refresh the tree to show the restored content.
+				if (!m.dryRun && progress.status === 'completed') {
+					try { void vm.load(vm.currentPath); } catch { /* noop */ }
+				}
+			}
+		},
+		// Run the just-rehearsed archive for real, re-uploading the retained File
+		// with the same options. Offered from a clean dry-run verdict.
+		async confirmRealRestore() {
+			const vm = this;
+			const m = vm.restoreMonitor;
+			if (!m || !m.file || m.dryRunHasErrors) return;
+			await vm._runRestoreJob(m.file, m.options, false, m.fileName);
+		},
+		// Reopen the options dialog to change settings after a dry run found a
+		// problem, keeping the chosen File so it can be re-uploaded on confirm.
+		reopenRestoreSettings() {
+			const vm = this;
+			const m = vm.restoreMonitor;
+			if (!m || !m.file) return;
+			const dlg = vm.restoreDialog;
+			dlg.file = m.file;
+			dlg.fileName = m.fileName;
+			dlg.destinationPath = m.options.destinationPath;
+			dlg.uuidBehavior = m.options.uuidBehavior;
+			dlg.pathBehavior = m.options.pathBehavior;
+			dlg.restoreAcl = m.options.restoreAcl;
+			dlg.preserveTimestamps = m.options.preserveTimestamps;
+			dlg.dryRun = true;
+			dlg.errorMessage = '';
+			dlg.isLoading = false;
+			dlg.visible = true;
+			vm.restoreMonitor = null;
+		},
+		requestRestoreAbort() {
+			const vm = this;
+			const m = vm.restoreMonitor;
+			if (!m || m.isFinished || m.isAborting) return;
+			m.isAborting = true;
+			m.handle.abort();
+		},
+		async _deleteRestoreStaging(stagingPath: string) {
+			const vm = this;
+			if (!stagingPath) return;
+			try { await vm.instance.api.content.deleteNode(stagingPath); } catch { /* best effort */ }
+		},
+		closeRestoreMonitor() {
+			const vm = this;
+			const m = vm.restoreMonitor;
+			if (m && m.handle) {
+				try { m.handle.release(); } catch { /* noop */ }
+			}
+			vm.restoreMonitor = null;
+		},
+		// Download the CSV outcome report for the finished import/dry-run job.
+		downloadRestoreReport() {
+			const vm = this;
+			const m = vm.restoreMonitor;
+			if (!m || !m.downloadUrl) return;
+			try {
+				const a = document.createElement('a');
+				a.href = m.downloadUrl;
+				a.rel = 'noopener';
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+			} catch { /* best effort */ }
+		},
+		// Chunked multipart upload of a single File to parentPath/name; returns
+		// the created node's absolute path. Mirrors the PC-upload runner.
+		async uploadArchiveFile(file: File, parentPath: string, name: string): Promise<string> {
+			const vm = this;
+			const contentService = vm.instance.api.content;
+			const chunkSize = 1024 * 1024;
+			const uploadInfo = await contentService.initiateMultipartUpload();
+			const uploadId = uploadInfo.uploadId;
+			try {
+				const totalSize = file.size;
+				let offset = 0;
+				while (offset < totalSize) {
+					const blob = file.slice(offset, offset + chunkSize);
+					const encoded = await new Promise<string>((resolve) => {
+						const reader = new FileReader();
+						reader.onloadend = (e) => {
+							const result = (e.target as FileReader).result as string;
+							resolve(result.substring(result.indexOf(';base64,') + 8));
+						};
+						reader.readAsDataURL(blob);
+					});
+					await contentService.appendMultipartUploadChunk(uploadId, encoded);
+					offset += chunkSize;
+				}
+				await contentService.completeMultipartUpload(uploadId, parentPath, name, 'application/zip', true);
+			} catch (error) {
+				try { await contentService.abortMultipartUpload(uploadId); } catch { /* ignore */ }
+				throw error;
+			}
+			const sep = parentPath.endsWith('/') ? '' : '/';
+			return parentPath + sep + name;
 		},
 		// Derive the ZIP file name from the first selected item's name, as
 		// requested: a folder keeps its name ("docs" -> "docs.zip"); a file
@@ -3702,6 +4071,36 @@ export const App = {
 		newFileTypeLabel(): string {
 			const o = (this.fileTypeOptions as any[]).find((x: any) => x.id === this.newFileDialog.fileType);
 			return o ? `${this.fileTypeLabel(o)} (${o.extension})` : '';
+		},
+		// Copy the archive's export-source path(s) to the clipboard, with the same
+		// icon-swap feedback the inspector's path-copy uses.
+		async copyExportSource(event?: MouseEvent) {
+			const vm = this;
+			const text = vm.restoreDialog.exportSource;
+			if (!text) return;
+			try {
+				await navigator.clipboard.writeText(text);
+			} catch {
+				const textarea = document.createElement('textarea');
+				textarea.value = text;
+				document.body.appendChild(textarea);
+				textarea.select();
+				document.execCommand('copy');
+				document.body.removeChild(textarea);
+			}
+			if (event) {
+				const btn = (event.target as HTMLElement).closest('button');
+				const icon = btn?.querySelector('i');
+				if (btn && icon) {
+					const original = icon.className;
+					icon.className = 'bi bi-check-lg';
+					btn.classList.add('copied');
+					setTimeout(() => {
+						icon.className = original;
+						btn.classList.remove('copied');
+					}, 1500);
+				}
+			}
 		},
 		// Client-side filter methods
 		clearAllFilters() {

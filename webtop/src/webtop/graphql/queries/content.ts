@@ -567,6 +567,48 @@ export const CONTENT_MUTATIONS = {
     }
   `,
 
+  /**
+   * Async archive restore (import) job — step 1.
+   * Allocates a job record; returns its id. The archive ZIP is uploaded
+   * separately via the multipart-upload mutations before the job is started.
+   */
+  INIT_IMPORT_ARCHIVE: `
+    mutation InitImportArchive($input: InitImportArchiveInput!) {
+      initImportArchive(input: $input) {
+        jobId
+        status
+      }
+    }
+  `,
+
+  /**
+   * Async archive restore (import) job — step 2.
+   * Records the restore options (destination, identity, conflict/collision
+   * policy, dry run) and hands the job to the background worker. Progress
+   * arrives via the jobProgress(jobId) subscription.
+   */
+  START_IMPORT_ARCHIVE: `
+    mutation StartImportArchive($input: StartImportArchiveInput!) {
+      startImportArchive(input: $input) {
+        jobId
+        status
+      }
+    }
+  `,
+
+  /**
+   * Async archive restore (import) job — abort.
+   * Signals the worker to stop at its next safe point (between nodes).
+   */
+  ABORT_IMPORT_ARCHIVE: `
+    mutation AbortImportArchive($input: AbortImportArchiveInput!) {
+      abortImportArchive(input: $input) {
+        jobId
+        status
+      }
+    }
+  `,
+
   /** Rename a node */
   RENAME_NODE: `
     mutation RenameNode($input: RenameNodeInput!) {

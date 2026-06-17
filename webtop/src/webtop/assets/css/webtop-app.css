@@ -530,8 +530,7 @@ html {
 		}
 
 		&:disabled {
-			opacity: 0.5;
-			cursor: not-allowed;
+			color: var(--text-muted-color);
 		}
 	}
 

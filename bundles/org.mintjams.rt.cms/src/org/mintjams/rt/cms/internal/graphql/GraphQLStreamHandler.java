@@ -25,6 +25,7 @@ package org.mintjams.rt.cms.internal.graphql;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -335,6 +336,42 @@ public class GraphQLStreamHandler {
 					if (content.hasProperty(JobNodes.PROP_ITEMS_ARCHIVED)) {
 						eventData.put("itemsArchived", JobNodes.getLong(content, JobNodes.PROP_ITEMS_ARCHIVED, 0L));
 					}
+						if (content.hasProperty(JobNodes.PROP_ITEMS_RESTORED)) {
+							eventData.put("itemsRestored", JobNodes.getLong(content, JobNodes.PROP_ITEMS_RESTORED, 0L));
+						}
+						// Import per-file outcome counts (the unit the user sees). Present
+						// once the importer has written them; the four sum to the number
+						// of files in the archive.
+						if (content.hasProperty(JobNodes.PROP_ITEMS_NEW)) {
+							eventData.put("itemsNew", JobNodes.getLong(content, JobNodes.PROP_ITEMS_NEW, 0L));
+							eventData.put("itemsOverwritten", JobNodes.getLong(content, JobNodes.PROP_ITEMS_OVERWRITTEN, 0L));
+							eventData.put("itemsSkipped", JobNodes.getLong(content, JobNodes.PROP_ITEMS_SKIPPED, 0L));
+							eventData.put("itemsError", JobNodes.getLong(content, JobNodes.PROP_ITEMS_ERROR, 0L));
+						}
+						// Import: the first errors, for the completion screen (the rest are
+						// in the downloadable CSV report). Each value is "path\tmessage".
+						if (content.hasProperty(JobNodes.PROP_ERROR_SAMPLES)) {
+							List<String> samples = new ArrayList<>();
+							for (javax.jcr.Value v : content.getProperty(JobNodes.PROP_ERROR_SAMPLES).getValues()) {
+								samples.add(v.getString());
+							}
+							eventData.put("errorSamples", samples);
+						}
+						// Import dry-run verdict: present only on the terminal event of a
+						// dry run, so the client can render the rehearsal summary
+						// (scope counts) and any blocking problem it found.
+						if (content.hasProperty(JobNodes.PROP_DRY_RUN_HAS_ERRORS)) {
+							eventData.put("dryRunHasErrors",
+									JobNodes.getBoolean(content, JobNodes.PROP_DRY_RUN_HAS_ERRORS, false));
+							eventData.put("dryRunNodeCount",
+									JobNodes.getLong(content, JobNodes.PROP_DRY_RUN_NODE_COUNT, 0L));
+							eventData.put("dryRunBinaryCount",
+									JobNodes.getLong(content, JobNodes.PROP_DRY_RUN_BINARY_COUNT, 0L));
+							String dryRunDetail = JobNodes.getString(content, JobNodes.PROP_DRY_RUN_DETAIL, null);
+							if (dryRunDetail != null) {
+								eventData.put("dryRunDetail", dryRunDetail);
+							}
+						}
 					String currentPath = JobNodes.getString(content, JobNodes.PROP_CURRENT_PATH, null);
 					if (currentPath != null) {
 						eventData.put("currentPath", currentPath);

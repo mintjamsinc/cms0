@@ -123,12 +123,19 @@ nodeTypes:
   - name: "mix:created"
     attributes: [mixin]
     propertyDefinitions:
+      # jcr:created / jcr:createdBy are creation-time identity: the repository
+      # sets them when the node is first persisted and they never change
+      # afterwards, so they are protected (cannot be written through the public
+      # setProperty API). The creation timestamp can still be supplied
+      # intentionally at create time by trusted backup/restore tooling through
+      # org.mintjams.jcr.Node#addNode(relPath, primaryType, identifier, created);
+      # jcr:createdBy is always the creating (on restore, the importing) user.
       - name: "jcr:created"
         type: "DATE"
-        attributes: [autocreated, "protected?", "OPV?"]
+        attributes: [autocreated, protected, "OPV?"]
       - name: "jcr:createdBy"
         type: "STRING"
-        attributes: [autocreated, "protected?", "OPV?"]
+        attributes: [autocreated, protected, "OPV?"]
 
   #
   # This mixin node type can be used to provide standardized modification

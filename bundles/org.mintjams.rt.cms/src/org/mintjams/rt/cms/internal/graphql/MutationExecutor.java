@@ -54,6 +54,7 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
 import org.mintjams.rt.cms.internal.job.archive.ArchiveJob;
+import org.mintjams.rt.cms.internal.job.archive.ImportArchiveJob;
 import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 
@@ -2266,6 +2267,11 @@ public class MutationExecutor {
 			throw new IllegalArgumentException("jobId is required");
 		}
 		String filename = sanitizeArchiveFilename((String) input.get("filename"));
+		// Defaults to true: a download doubles as a restorable backup unless the
+		// caller explicitly opts out of the .cms-archive/ sidecar.
+		boolean includeMetadata = !Boolean.FALSE.equals(input.get("includeMetadata"));
+		// Off by default: ACL is only meaningful to privileged operators.
+		boolean includeAcl = Boolean.TRUE.equals(input.get("includeAcl"));
 
 		String workspaceName = session.getWorkspace().getName();
 		String userId = session.getUserID();
@@ -2290,6 +2296,8 @@ public class MutationExecutor {
 			priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
 
 			content.setProperty(JobNodes.PROP_ARCHIVE_FILENAME, filename);
+			content.setProperty(JobNodes.PROP_INCLUDE_METADATA, includeMetadata);
+			content.setProperty(JobNodes.PROP_INCLUDE_ACL, includeAcl);
 			JobNodes.setNodeId(mgmt, content);
 			JobNodes.setStatus(content, JobStatus.QUEUED);
 			mgmt.save();
@@ -2334,6 +2342,191 @@ public class MutationExecutor {
 		Map<String, Object> result = new HashMap<>();
 		result.put("abortDownloadArchive", data);
 		return result;
+	}
+
+	// =========================================================================
+	// Async archive restore (import) jobs. Mirrors the download lifecycle:
+	//
+	// Lifecycle: (client uploads the ZIP via the multipart-upload mutations)
+	//            initImportArchive -> startImportArchive (records the options,
+	//            queues the job) -> JobManager runs ImportArchiveJob in the
+	//            background -> client tracks via jobProgress(jobId).
+	//            abortImportArchive can stop the worker between nodes.
+	// =========================================================================
+
+	/**
+	 * Execute initImportArchive mutation.
+	 * Creates the job node in INIT status and returns its jobId.
+	 * Example: mutation { initImportArchive(input: {}) { jobId status } }
+	 */
+	public Map<String, Object> executeInitImportArchive(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		int priority = 0;
+		if (input.containsKey("priority") && input.get("priority") instanceof Number) {
+			priority = ((Number) input.get("priority")).intValue();
+		}
+
+		String jobId = JobNodes.newJobId();
+		Session mgmt = openManagementSession();
+		try {
+			JobNodes.createJobNode(mgmt, jobId, ImportArchiveJob.TYPE, mgmt.getUserID(), priority);
+			mgmt.save();
+		} catch (Exception ex) {
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
+		}
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", JobStatus.INIT.toExternalString());
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("initImportArchive", data);
+		return result;
+	}
+
+	/**
+	 * Execute startImportArchive mutation.
+	 * Records the restore options, transitions the job to QUEUED and hands it to
+	 * the JobManager. Progress flows to the client via jobProgress(jobId).
+	 * Example: mutation { startImportArchive(input: { jobId: "...", archivePath: "/tmp/x.zip",
+	 *          destinationPath: "/content", identity: "preserve", onUuidCollision: "throw",
+	 *          onPathConflict: "merge", dryRun: false }) { jobId status } }
+	 */
+	public Map<String, Object> executeStartImportArchive(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String jobId = (String) input.get("jobId");
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+		String archivePath = (String) input.get("archivePath");
+		String destinationPath = (String) input.get("destinationPath");
+		if (archivePath == null || archivePath.trim().isEmpty()) {
+			throw new IllegalArgumentException("archivePath is required");
+		}
+		if (destinationPath == null || destinationPath.trim().isEmpty()) {
+			throw new IllegalArgumentException("destinationPath is required");
+		}
+		// Conflict behaviours as the integer codes of ImportContentHandler.
+		int uuidBehavior = intOr(input.get("uuidBehavior"), 0);
+		int pathBehavior = intOr(input.get("pathBehavior"), 0);
+		String filename = stringOr(input.get("filename"), "archive.zip");
+		boolean restoreAcl = Boolean.TRUE.equals(input.get("restoreAcl"));
+		// Preserve the archived jcr:created/jcr:lastModified by default; only an
+		// explicit false opts out.
+		boolean preserveTimestamps = !Boolean.FALSE.equals(input.get("preserveTimestamps"));
+		boolean dryRun = Boolean.TRUE.equals(input.get("dryRun"));
+		// The requester's UI locale, used only to localize the strings the report
+		// itself produces (the "処理" column and the job's own error messages).
+		String reportLocale = stringOr(input.get("locale"), "");
+
+		String workspaceName = session.getWorkspace().getName();
+		String userId = session.getUserID();
+		long priority;
+
+		Session mgmt = openManagementSession();
+		try {
+			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
+			if (jobNode == null) {
+				throw new IllegalArgumentException("Unknown jobId: " + jobId);
+			}
+			Node content = JobNodes.getContent(jobNode);
+			JobStatus current = JobNodes.getStatus(content);
+			if (current != JobStatus.INIT) {
+				throw new IllegalStateException("Cannot start job in status: " + current);
+			}
+			priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
+
+			// Relocate the uploaded archive next to the job record (like the
+			// download artifact) using the privileged session, so it does not
+			// linger in the user's content tree. The job reads it from there.
+			String effectiveArchivePath = archivePath;
+			String siblingPath = JobNodes.archiveNodePath(jobId);
+			if (!archivePath.equals(siblingPath) && mgmt.nodeExists(archivePath)) {
+				if (mgmt.nodeExists(siblingPath)) {
+					mgmt.getNode(siblingPath).remove();
+					mgmt.save();
+				}
+				mgmt.getWorkspace().move(archivePath, siblingPath);
+				effectiveArchivePath = siblingPath;
+			}
+
+			content.setProperty(JobNodes.PROP_ARCHIVE_PATH, effectiveArchivePath);
+			content.setProperty(JobNodes.PROP_IMPORT_FILENAME, filename);
+			content.setProperty(JobNodes.PROP_DEST_PATH, destinationPath);
+			content.setProperty(JobNodes.PROP_UUID_BEHAVIOR, (long) uuidBehavior);
+			content.setProperty(JobNodes.PROP_PATH_BEHAVIOR, (long) pathBehavior);
+			content.setProperty(JobNodes.PROP_RESTORE_ACL, restoreAcl);
+			content.setProperty(JobNodes.PROP_PRESERVE_TIMESTAMPS, preserveTimestamps);
+			content.setProperty(JobNodes.PROP_DRY_RUN, dryRun);
+			content.setProperty(JobNodes.PROP_REPORT_LOCALE, reportLocale);
+			JobNodes.setNodeId(mgmt, content);
+			JobNodes.setStatus(content, JobStatus.QUEUED);
+			mgmt.save();
+		} catch (Exception ex) {
+			try { mgmt.refresh(false); } catch (Throwable ignore) {}
+			throw ex;
+		} finally {
+			try { mgmt.logout(); } catch (Throwable ignore) {}
+		}
+
+		CmsService.getJobManager().submit(new ImportArchiveJob(jobId, workspaceName, userId, (int) priority));
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", JobStatus.QUEUED.toExternalString());
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("startImportArchive", data);
+		return result;
+	}
+
+	/**
+	 * Execute abortImportArchive mutation.
+	 * Signals the running worker to stop at its next safe point (between nodes).
+	 * Example: mutation { abortImportArchive(input: { jobId: "..." }) { jobId status } }
+	 */
+	public Map<String, Object> executeAbortImportArchive(GraphQLRequest request) throws Exception {
+		Map<String, Object> input = extractInput(request);
+
+		String jobId = (String) input.get("jobId");
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+
+		String resultStatus = abortJob(jobId);
+
+		Map<String, Object> data = new HashMap<>();
+		data.put("jobId", jobId);
+		data.put("status", resultStatus);
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("abortImportArchive", data);
+		return result;
+	}
+
+	private static String stringOr(Object value, String fallback) {
+		if (value == null) {
+			return fallback;
+		}
+		String s = String.valueOf(value).trim();
+		return s.isEmpty() ? fallback : s;
+	}
+
+	private static int intOr(Object value, int fallback) {
+		if (value instanceof Number) {
+			return ((Number) value).intValue();
+		}
+		if (value != null) {
+			try {
+				return Integer.parseInt(String.valueOf(value).trim());
+			} catch (NumberFormatException ignore) {}
+		}
+		return fallback;
 	}
 
 	/**

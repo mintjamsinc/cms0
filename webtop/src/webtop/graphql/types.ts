@@ -898,6 +898,56 @@ export interface AbortDownloadArchiveResult {
   status: JobStatus;
 }
 
+export interface InitImportArchiveResult {
+  jobId: string;
+  status: JobStatus;
+}
+
+export interface StartImportArchiveResult {
+  jobId: string;
+  status: JobStatus;
+}
+
+export interface AbortImportArchiveResult {
+  jobId: string;
+  status: JobStatus;
+}
+
+/**
+ * Identifier-conflict behaviour, as the integer codes of the server's
+ * ImportContentHandler: 0 throw on collision, 1 new identifier on collision,
+ * 2 always a new identifier.
+ */
+export type ImportUuidBehavior = 0 | 1 | 2;
+/**
+ * Path-conflict behaviour, as the integer codes of the server's
+ * ImportContentHandler: 0 throw on conflict, 1 skip, 2 overwrite.
+ */
+export type ImportPathBehavior = 0 | 1 | 2;
+
+export interface ImportArchiveOptions {
+  /** Repository path of the uploaded CMS Archive (nt:file). */
+  archivePath: string;
+  /** Original file name of the uploaded archive (recorded on the job). */
+  filename?: string;
+  /** Destination the archive is restored under. */
+  destinationPath: string;
+  /** Identifier-conflict behaviour. Default 0 (throw on collision). */
+  uuidBehavior?: ImportUuidBehavior;
+  /** Path-conflict behaviour. Default 0 (throw on conflict). */
+  pathBehavior?: ImportPathBehavior;
+  /** Reinstate access control carried by the archive. Default false. */
+  restoreAcl?: boolean;
+  /**
+   * Carry over each node's original `jcr:created`/`jcr:lastModified` from the
+   * archive. Default true. When false the repository stamps the import time.
+   * `jcr:createdBy`/`jcr:lastModifiedBy` are always the importing user regardless.
+   */
+  preserveTimestamps?: boolean;
+  /** Validate and report only; make no changes. Default false. */
+  dryRun?: boolean;
+}
+
 export interface JobProgressEvent {
   jobId: string;
   status: JobStatus;
@@ -907,6 +957,26 @@ export interface JobProgressEvent {
   itemsDeleted?: number;
   /** Archive jobs only: number of files written into the ZIP. */
   itemsArchived?: number;
+  /** Import/restore jobs only: number of nodes created/updated. */
+  itemsRestored?: number;
+  /** Import jobs only: per-file outcome counts (the four sum to itemsTotal). */
+  itemsNew?: number;
+  itemsOverwritten?: number;
+  itemsSkipped?: number;
+  itemsError?: number;
+  /** Import jobs only: first errors (up to 20), each `path\tmessage`. */
+  errorSamples?: string[];
+  /**
+   * Import dry-run verdict (present only on a dry run's terminal event): whether
+   * the rehearsal hit a problem that would make the real restore fail.
+   */
+  dryRunHasErrors?: boolean;
+  /** Import dry run: number of nodes the archive would restore (manifest count). */
+  dryRunNodeCount?: number;
+  /** Import dry run: number of binaries the archive carries (manifest count). */
+  dryRunBinaryCount?: number;
+  /** Import dry run: human-readable detail of the blocking problem, when `dryRunHasErrors`. */
+  dryRunDetail?: string;
   currentPath?: string;
   errorMessage?: string;
   /** Set on the terminal event of jobs that produce a downloadable artifact (archive jobs). */

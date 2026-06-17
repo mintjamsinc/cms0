@@ -34,6 +34,65 @@ public interface Node extends javax.jcr.Node {
 
 	String[] getPropertyKeys() throws RepositoryException;
 
+	/**
+	 * Add a child node with a caller-supplied identifier (UUID), preserving node
+	 * identity across an export/import round-trip so that references — which are
+	 * stored as the target's identifier — keep resolving after a restore. This
+	 * is the identity-preserving counterpart of
+	 * {@link javax.jcr.Node#addNode(String, String)}, which always mints a fresh
+	 * identifier.
+	 *
+	 * <p>The identifier must be free: if a node with it already exists anywhere
+	 * in the workspace, {@link javax.jcr.ItemExistsException} is thrown. A
+	 * restore that means to overwrite existing data removes the colliding node
+	 * first; a clone/copy omits the identifier (using the standard
+	 * {@code addNode}) so a new one is allocated. An empty or {@code null}
+	 * identifier behaves exactly like {@code addNode(relPath, primaryNodeTypeName)}.
+	 *
+	 * <p>Intended for trusted backup/restore tooling; ordinary content editing
+	 * uses the standard {@code addNode}.
+	 *
+	 * @param relPath              the path of the new node, relative to this node.
+	 * @param primaryNodeTypeName  the primary node type, or {@code null} to let
+	 *                             the parent's child-node definitions decide.
+	 * @param identifier           the identifier (UUID) to assign to the new node.
+	 */
+	javax.jcr.Node addNode(String relPath, String primaryNodeTypeName, String identifier) throws RepositoryException;
+
+	/**
+	 * Add a child node with a caller-supplied identifier (UUID) <em>and</em>
+	 * creation timestamp, so an export/import round-trip can bring a node back as
+	 * the same node with its original {@code jcr:created} preserved.
+	 *
+	 * <p>{@code jcr:created} is a protected property: once the repository sets it
+	 * on first persist it can never be written again through {@code setProperty}.
+	 * The only principled way to carry the original value across a restore is to
+	 * supply it at creation time, which is what this method does. When
+	 * {@code created} is {@code null} the repository assigns the current time,
+	 * exactly as the standard creation path does.
+	 *
+	 * <p>{@code jcr:createdBy} is intentionally <em>not</em> caller-supplied: it
+	 * always records the user performing the creation (on restore, the importing
+	 * user), so provenance of who introduced the node into this repository is
+	 * never falsified.
+	 *
+	 * <p>Identifier semantics are identical to
+	 * {@link #addNode(String, String, String)}: a non-empty identifier must be
+	 * free or {@link javax.jcr.ItemExistsException} is thrown; an empty or
+	 * {@code null} identifier allocates a fresh one. Intended for trusted
+	 * backup/restore tooling; ordinary content editing uses the standard
+	 * {@code addNode}.
+	 *
+	 * @param relPath              the path of the new node, relative to this node.
+	 * @param primaryNodeTypeName  the primary node type, or {@code null} to let
+	 *                             the parent's child-node definitions decide.
+	 * @param identifier           the identifier (UUID) to assign, or {@code null}
+	 *                             to allocate a fresh one.
+	 * @param created              the {@code jcr:created} timestamp to assign, or
+	 *                             {@code null} to use the current time.
+	 */
+	javax.jcr.Node addNode(String relPath, String primaryNodeTypeName, String identifier, java.util.Calendar created) throws RepositoryException;
+
 //	AccessControlPolicy[] getPolicies() throws PathNotFoundException, AccessDeniedException, RepositoryException;
 
 }
