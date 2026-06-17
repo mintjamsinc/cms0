@@ -568,7 +568,7 @@ export const CONTENT_MUTATIONS = {
   `,
 
   /**
-   * Async archive restore (import) job — step 1.
+   * Async archive import job — step 1.
    * Allocates a job record; returns its id. The archive ZIP is uploaded
    * separately via the multipart-upload mutations before the job is started.
    */
@@ -582,8 +582,8 @@ export const CONTENT_MUTATIONS = {
   `,
 
   /**
-   * Async archive restore (import) job — step 2.
-   * Records the restore options (destination, identity, conflict/collision
+   * Async archive import job — step 2.
+   * Records the import options (destination, identity, conflict/collision
    * policy, dry run) and hands the job to the background worker. Progress
    * arrives via the jobProgress(jobId) subscription.
    */
@@ -597,7 +597,7 @@ export const CONTENT_MUTATIONS = {
   `,
 
   /**
-   * Async archive restore (import) job — abort.
+   * Async archive import job — abort.
    * Signals the worker to stop at its next safe point (between nodes).
    */
   ABORT_IMPORT_ARCHIVE: `

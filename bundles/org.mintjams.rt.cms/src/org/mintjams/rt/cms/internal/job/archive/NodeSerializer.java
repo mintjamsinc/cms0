@@ -53,8 +53,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Serialises a JCR node to one line of the {@code .cms-archive/nodes.ndjson}
- * sidecar that turns a plain ZIP download into a restorable CMS Archive. See
- * {@code documents/cms-archive-backup-restore.md} for the format.
+ * sidecar that turns a plain ZIP download into an importable CMS Archive. See
+ * {@code documents/cms-archive-export-import.md} for the format.
  *
  * <p>Each node becomes a single JSON object carrying its primary type, mixins,
  * identity (UUID, when {@code mix:referenceable}) and every non-structural
@@ -62,7 +62,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * properties the repository manages itself ({@code jcr:primaryType},
  * {@code jcr:mixinTypes}, {@code jcr:uuid}) and other protected/auto-created
  * properties are not emitted as ordinary properties — they are represented by
- * the dedicated fields above or re-derived on restore.
+ * the dedicated fields above or re-derived on import.
  *
  * <p>Binaries are never inlined as Base64. A file's body (the {@code jcr:data}
  * of an {@code nt:file}'s {@code jcr:content}) is carried by the ordinary file
@@ -195,7 +195,7 @@ public final class NodeSerializer {
 		// Audit timestamps travel as dedicated fields (not ordinary properties):
 		// jcr:created is protected and re-applied only at creation time, and both
 		// are gated by the importer's preserve-timestamps option. The matching
-		// *By properties are deliberately omitted — on restore they become the
+		// *By properties are deliberately omitted — on import they become the
 		// importing user, never the original author.
 		if (node.hasProperty(JCR_CREATED)) {
 			out.put("created", formatDate(node.getProperty(JCR_CREATED).getDate()));

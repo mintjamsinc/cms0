@@ -1738,18 +1738,18 @@
    the body scrolls instead of the header/footer being clipped in a short window.
    (.dialog-body already carries flex:1 / overflow-y:auto; the min-height:0 here
    lets these flex children actually shrink below their content height.) */
-.restore-dialog .dialog-frame {
+.import-dialog .dialog-frame {
 	max-height: 90%;
 	display: flex;
 	flex-direction: column;
 }
-.restore-dialog .dialog-frame > .island {
+.import-dialog .dialog-frame > .island {
 	flex: 1 1 auto;
 	min-height: 0;
 	display: flex;
 	flex-direction: column;
 }
-.restore-dialog .dialog-body {
+.import-dialog .dialog-body {
 	min-height: 0;
 }
 
@@ -1824,21 +1824,21 @@
 /* Dry-run error list — one row per failed item, laid out like the sidebar
    favorites / smart folders: a leading icon, then the message stacked over the
    muted path. */
-.restore-error-list {
+.import-error-list {
 	display: flex;
 	flex-direction: column;
 }
-.restore-error-item {
+.import-error-item {
 	display: flex;
 	align-items: flex-start;
 	gap: 0.5rem;
 	padding: 0.25rem 0.5rem;
 	border-radius: 0.5rem;
 }
-.restore-error-item:hover {
+.import-error-item:hover {
 	background-color: var(--item-hover-bg);
 }
-.restore-error-icon {
+.import-error-icon {
 	flex-shrink: 0;
 	font-size: 1rem;
 	padding-left: 0.25rem;
@@ -1846,16 +1846,16 @@
 	/* Nudge the icon down to sit on the first line of text. */
 	line-height: 1.4;
 }
-.restore-error-content {
+.import-error-content {
 	flex: 1;
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
 }
-.restore-error-message {
+.import-error-message {
 	word-break: break-all;
 }
-.restore-error-path {
+.import-error-path {
 	font-size: 11px;
 	color: var(--text-muted-color);
 	word-break: break-all;

@@ -476,8 +476,8 @@
 			@change="onUploadInputChange" />
 		<input type="file" id="cb-upload-folder-input" webkitdirectory multiple class="cb-upload-input"
 			@change="onUploadInputChange" />
-		<input type="file" id="cb-restore-archive-input" accept=".zip,application/zip" class="cb-upload-input"
-			@change="onRestoreInputChange" />
+		<input type="file" id="cb-import-archive-input" accept=".zip,application/zip" class="cb-upload-input"
+			@change="onImportInputChange" />
 
 		<div class="content-list" @mousedown="onContentMouseDown" @contextmenu="onBackgroundContextMenu">
 			<div v-if="currentFolderDeleted" class="folder-deleted-notice">
@@ -698,9 +698,9 @@
 			</span>
 		</div>
 
-		<!-- Restore from a CMS Archive: options for the chosen .zip before the
+		<!-- Import from a CMS Archive: options for the chosen .zip before the
 		     import job runs. A dry run validates without writing. -->
-		<div v-if="restoreDialog.visible" class="dialog-overlay restore-dialog">
+		<div v-if="importDialog.visible" class="dialog-overlay import-dialog">
 			<div class="dialog-frame" style="max-width: 34rem;">
 				<div class="island p-2">
 					<div class="dialog-header">
@@ -712,15 +712,15 @@
 								<div class="property-row">
 									<label class="property-label">{{ t('app.content-browser.dialog.importArchiveFile', undefined, 'Archive') }}</label>
 									<div class="import-readonly">
-											<span class="import-readonly-value">{{ restoreDialog.fileName }}</span>
+											<span class="import-readonly-value">{{ importDialog.fileName }}</span>
 										</div>
 								</div>
 							</div>
-							<div v-if="restoreDialog.exportSource" class="form-row">
+							<div v-if="importDialog.exportSource" class="form-row">
 								<div class="property-row">
 									<label class="property-label">{{ t('app.content-browser.dialog.importExportSource', undefined, 'Exported from') }}</label>
 									<div class="import-readonly">
-										<span class="import-readonly-value">{{ restoreDialog.exportSource }}</span>
+										<span class="import-readonly-value">{{ importDialog.exportSource }}</span>
 										<button type="button" class="import-copy-btn" @click="copyExportSource(event)" :title="t('app.content-browser.dialog.importCopyExportSource', undefined, 'Copy source path')">
 											<i class="bi bi-clipboard"></i>
 										</button>
@@ -731,7 +731,7 @@
 								<div class="property-row">
 									<label class="property-label">{{ t('app.content-browser.dialog.importDestination', undefined, 'Destination') }}</label>
 									<div class="import-readonly">
-											<span class="import-readonly-value">{{ restoreDialog.destinationPath }}</span>
+											<span class="import-readonly-value">{{ importDialog.destinationPath }}</span>
 										</div>
 								</div>
 							</div>
@@ -740,15 +740,15 @@
 									<label class="property-label">{{ t('app.content-browser.dialog.importUuidBehavior', undefined, 'Identifier') }}</label>
 									<div class="import-radio-group">
 										<label class="d-flex align-items-center" style="gap: 0.5rem;">
-											<input type="radio" class="wt ms-1" name="importUuidBehavior" v-model.number="restoreDialog.uuidBehavior" :value="0" :disabled="restoreDialog.isLoading" />
+											<input type="radio" class="wt ms-1" name="importUuidBehavior" v-model.number="importDialog.uuidBehavior" :value="0" :disabled="importDialog.isLoading" />
 											<span>{{ t('app.content-browser.dialog.importUuidThrow', undefined, 'Stop without further processing if the same identifier already exists') }}</span>
 										</label>
 										<label class="d-flex align-items-center" style="gap: 0.5rem;">
-											<input type="radio" class="wt ms-1" name="importUuidBehavior" v-model.number="restoreDialog.uuidBehavior" :value="1" :disabled="restoreDialog.isLoading" />
+											<input type="radio" class="wt ms-1" name="importUuidBehavior" v-model.number="importDialog.uuidBehavior" :value="1" :disabled="importDialog.isLoading" />
 											<span>{{ t('app.content-browser.dialog.importUuidNewOnCollision', undefined, 'Assign a new identifier if the same identifier already exists') }}</span>
 										</label>
 										<label class="d-flex align-items-center" style="gap: 0.5rem;">
-											<input type="radio" class="wt ms-1" name="importUuidBehavior" v-model.number="restoreDialog.uuidBehavior" :value="2" :disabled="restoreDialog.isLoading" />
+											<input type="radio" class="wt ms-1" name="importUuidBehavior" v-model.number="importDialog.uuidBehavior" :value="2" :disabled="importDialog.isLoading" />
 											<span>{{ t('app.content-browser.dialog.importUuidAlwaysNew', undefined, 'Always assign a new identifier') }}</span>
 										</label>
 									</div>
@@ -759,74 +759,74 @@
 									<label class="property-label">{{ t('app.content-browser.dialog.importPathBehavior', undefined, 'Path') }}</label>
 									<div class="import-radio-group">
 										<label class="d-flex align-items-center" style="gap: 0.5rem;">
-											<input type="radio" class="wt ms-1" name="importPathBehavior" v-model.number="restoreDialog.pathBehavior" :value="0" :disabled="restoreDialog.isLoading" />
+											<input type="radio" class="wt ms-1" name="importPathBehavior" v-model.number="importDialog.pathBehavior" :value="0" :disabled="importDialog.isLoading" />
 											<span>{{ t('app.content-browser.dialog.importPathThrow', undefined, 'Stop without further processing if a file already exists') }}</span>
 										</label>
 										<label class="d-flex align-items-center" style="gap: 0.5rem;">
-											<input type="radio" class="wt ms-1" name="importPathBehavior" v-model.number="restoreDialog.pathBehavior" :value="1" :disabled="restoreDialog.isLoading" />
+											<input type="radio" class="wt ms-1" name="importPathBehavior" v-model.number="importDialog.pathBehavior" :value="1" :disabled="importDialog.isLoading" />
 											<span>{{ t('app.content-browser.dialog.importPathSkip', undefined, 'Keep the existing file without overwriting') }}</span>
 										</label>
 										<label class="d-flex align-items-center" style="gap: 0.5rem;">
-											<input type="radio" class="wt ms-1" name="importPathBehavior" v-model.number="restoreDialog.pathBehavior" :value="2" :disabled="restoreDialog.isLoading" />
+											<input type="radio" class="wt ms-1" name="importPathBehavior" v-model.number="importDialog.pathBehavior" :value="2" :disabled="importDialog.isLoading" />
 											<span>{{ t('app.content-browser.dialog.importPathOverwrite', undefined, 'Overwrite the existing file') }}</span>
 										</label>
 									</div>
 								</div>
 							</div>
 							<label class="d-flex align-items-center" style="gap: 0.5rem;">
-								<input type="checkbox" class="wt ms-1" v-model="restoreDialog.preserveTimestamps" :disabled="restoreDialog.isLoading" />
+								<input type="checkbox" class="wt ms-1" v-model="importDialog.preserveTimestamps" :disabled="importDialog.isLoading" />
 								<span>{{ t('app.content-browser.dialog.importPreserveTimestamps', undefined, 'Keep original created/modified dates') }}</span>
 							</label>
 							<label class="d-flex align-items-center" style="gap: 0.5rem;">
-								<input type="checkbox" class="wt ms-1" v-model="restoreDialog.restoreAcl" :disabled="restoreDialog.isLoading" />
+								<input type="checkbox" class="wt ms-1" v-model="importDialog.importAcl" :disabled="importDialog.isLoading" />
 								<span>{{ t('app.content-browser.dialog.importAcl', undefined, 'Import permissions (ACL)') }}</span>
 							</label>
 							<label class="d-flex align-items-center" style="gap: 0.5rem;">
-								<input type="checkbox" class="wt ms-1" v-model="restoreDialog.dryRun" :disabled="restoreDialog.isLoading" />
+								<input type="checkbox" class="wt ms-1" v-model="importDialog.dryRun" :disabled="importDialog.isLoading" />
 								<span>{{ t('app.content-browser.dialog.importDryRun', undefined, 'Dry run (validate only, make no changes)') }}</span>
 							</label>
-							<div v-if="restoreDialog.errorMessage" class="text-danger">
-								<i class="bi bi-exclamation-circle me-1"></i>{{ restoreDialog.errorMessage }}
+							<div v-if="importDialog.errorMessage" class="text-danger">
+								<i class="bi bi-exclamation-circle me-1"></i>{{ importDialog.errorMessage }}
 							</div>
 						</div>
 					</div>
 					<div class="dialog-footer">
-						<button class="wt" @click="closeRestoreDialog" :disabled="restoreDialog.isLoading">{{ t('app.content-browser.dialog.cancel') }}</button>
-						<button class="wt wt-primary" @click="confirmRestore" :disabled="restoreDialog.isLoading || !restoreDialog.destinationPath.trim()">
-							<span v-if="restoreDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
-							{{ restoreDialog.dryRun ? t('app.content-browser.dialog.importDryRunStart', undefined, 'Dry Run') : t('app.content-browser.dialog.importStart', undefined, 'Import') }}
+						<button class="wt" @click="closeImportDialog" :disabled="importDialog.isLoading">{{ t('app.content-browser.dialog.cancel') }}</button>
+						<button class="wt wt-primary" @click="confirmImport" :disabled="importDialog.isLoading || !importDialog.destinationPath.trim()">
+							<span v-if="importDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
+							{{ importDialog.dryRun ? t('app.content-browser.dialog.importDryRunStart', undefined, 'Dry Run') : t('app.content-browser.dialog.importStart', undefined, 'Import') }}
 						</button>
 					</div>
 				</div>
 			</div>
 		</div>
 
-		<!-- Restore progress, then a dry-run verdict or restore result. -->
-		<div v-if="restoreMonitor" class="upload-overlay flex-column text-center">
-			<span v-if="!restoreMonitor.isFinished" class="loader"></span>
+		<!-- Import progress, then a dry-run verdict or import result. -->
+		<div v-if="importMonitor" class="upload-overlay flex-column text-center">
+			<span v-if="!importMonitor.isFinished" class="loader"></span>
 
 			<!-- Running: validating (dry run) or restoring (real). -->
-			<template v-if="!restoreMonitor.isFinished">
-				<span class="mt-5 text-break">{{ restoreMonitor.dryRun ? t('app.content-browser.progress.validating', undefined, 'Validating…') : t('app.content-browser.progress.importing', undefined, 'Importing…') }}</span>
-				<div v-if="restoreMonitor.currentPath" class="mt-2 text-muted text-break small">{{ restoreMonitor.currentPath }}</div>
-				<div v-if="!restoreMonitor.dryRun" class="mt-2">
-					<span>{{ restoreMonitor.itemsRestored }} {{ t('app.content-browser.progress.importedCount', undefined, 'imported') }}</span>
+			<template v-if="!importMonitor.isFinished">
+				<span class="mt-5 text-break">{{ importMonitor.dryRun ? t('app.content-browser.progress.validating', undefined, 'Validating…') : t('app.content-browser.progress.importing', undefined, 'Importing…') }}</span>
+				<div v-if="importMonitor.currentPath" class="mt-2 text-muted text-break small">{{ importMonitor.currentPath }}</div>
+				<div v-if="!importMonitor.dryRun" class="mt-2">
+					<span>{{ importMonitor.itemsImported }} {{ t('app.content-browser.progress.importedCount', undefined, 'imported') }}</span>
 				</div>
 			</template>
 
 			<!-- Finished. -->
 			<template v-else>
 				<!-- Headline. -->
-				<template v-if="restoreMonitor.dryRun && restoreMonitor.status === 'completed' && !restoreMonitor.dryRunHasErrors">
+				<template v-if="importMonitor.dryRun && importMonitor.status === 'completed' && !importMonitor.dryRunHasErrors">
 					<span class="mt-5"><i class="bi bi-check-circle-fill text-success me-1"></i>{{ t('app.content-browser.progress.importDryRunDoneOk', undefined, 'Dry run complete') }}</span>
 				</template>
-				<template v-else-if="restoreMonitor.dryRun && restoreMonitor.status === 'completed'">
+				<template v-else-if="importMonitor.dryRun && importMonitor.status === 'completed'">
 					<span class="mt-5"><i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>{{ t('app.content-browser.progress.importDryRunDoneErr', undefined, 'Dry run complete') }}</span>
 				</template>
-				<template v-else-if="restoreMonitor.status === 'completed'">
+				<template v-else-if="importMonitor.status === 'completed'">
 					<span class="mt-5"><i class="bi bi-check-circle-fill text-success me-1"></i>{{ t('app.content-browser.progress.importDone', undefined, 'Import complete') }}</span>
 				</template>
-				<template v-else-if="restoreMonitor.status === 'aborted'">
+				<template v-else-if="importMonitor.status === 'aborted'">
 					<span class="mt-5"><i class="bi bi-slash-circle text-muted me-1"></i>{{ t('app.content-browser.progress.importAborted', undefined, 'Import aborted') }}</span>
 				</template>
 				<template v-else>
@@ -834,45 +834,45 @@
 				</template>
 
 				<!-- Per-file outcome counts (the four sum to the number of files). -->
-				<div class="mt-3">{{ t('app.content-browser.progress.importTotal', { n: restoreMonitor.itemsTotal }, '{n} items total') }}</div>
+				<div class="mt-3">{{ t('app.content-browser.progress.importTotal', { n: importMonitor.itemsTotal }, '{n} items total') }}</div>
 				<div class="mt-1 text-muted">
-					{{ t('app.content-browser.progress.importNew', { n: restoreMonitor.itemsNew }, 'New {n}') }}
-					/ {{ t('app.content-browser.progress.importOverwrite', { n: restoreMonitor.itemsOverwritten }, 'Overwritten {n}') }}
-					/ {{ t('app.content-browser.progress.importSkip', { n: restoreMonitor.itemsSkipped }, 'Skipped {n}') }}
-					/ {{ t('app.content-browser.progress.importError', { n: restoreMonitor.itemsError }, 'Errors {n}') }}
+					{{ t('app.content-browser.progress.importNew', { n: importMonitor.itemsNew }, 'New {n}') }}
+					/ {{ t('app.content-browser.progress.importOverwrite', { n: importMonitor.itemsOverwritten }, 'Overwritten {n}') }}
+					/ {{ t('app.content-browser.progress.importSkip', { n: importMonitor.itemsSkipped }, 'Skipped {n}') }}
+					/ {{ t('app.content-browser.progress.importError', { n: importMonitor.itemsError }, 'Errors {n}') }}
 				</div>
 
 				<!-- Clean dry-run verdict: spell out that nothing went wrong. -->
-				<div v-if="restoreMonitor.dryRun && restoreMonitor.status === 'completed' && !restoreMonitor.dryRunHasErrors" class="mt-2">{{ t('app.content-browser.progress.importNoErrors', undefined, 'No errors.') }}</div>
+				<div v-if="importMonitor.dryRun && importMonitor.status === 'completed' && !importMonitor.dryRunHasErrors" class="mt-2">{{ t('app.content-browser.progress.importNoErrors', undefined, 'No errors.') }}</div>
 
 				<!-- First errors (up to 20); the rest are in the CSV report. -->
-				<div v-if="restoreMonitor.errorSamples && restoreMonitor.errorSamples.length" class="mt-3 text-start" style="max-width: 30rem; max-height: 12rem; overflow:auto;">
-					<div class="text-danger small">{{ restoreMonitor.itemsError > 20 ? t('app.content-browser.progress.importErrorsHeadTruncated', { n: restoreMonitor.itemsError }, '{n} errors (first 20)') : t('app.content-browser.progress.importErrorsHead', { n: restoreMonitor.itemsError }, '{n} errors') }}</div>
-					<div class="restore-error-list">
-						<div v-for="(e, i) in restoreMonitor.errorSamples" :key="i" class="restore-error-item">
-							<i class="bi bi-exclamation-circle-fill text-danger restore-error-icon"></i>
-							<div class="restore-error-content">
-								<span class="restore-error-message">{{ e.message }}</span>
-								<span v-if="e.path" class="restore-error-path">{{ e.path }}</span>
+				<div v-if="importMonitor.errorSamples && importMonitor.errorSamples.length" class="mt-3 text-start" style="max-width: 30rem; max-height: 12rem; overflow:auto;">
+					<div class="text-danger small">{{ importMonitor.itemsError > 20 ? t('app.content-browser.progress.importErrorsHeadTruncated', { n: importMonitor.itemsError }, '{n} errors (first 20)') : t('app.content-browser.progress.importErrorsHead', { n: importMonitor.itemsError }, '{n} errors') }}</div>
+					<div class="import-error-list">
+						<div v-for="(e, i) in importMonitor.errorSamples" :key="i" class="import-error-item">
+							<i class="bi bi-exclamation-circle-fill text-danger import-error-icon"></i>
+							<div class="import-error-content">
+								<span class="import-error-message">{{ e.message }}</span>
+								<span v-if="e.path" class="import-error-path">{{ e.path }}</span>
 							</div>
 						</div>
 					</div>
 				</div>
 
-				<div v-if="restoreMonitor.errorMessage" class="mt-3 text-danger text-break">
-					<i class="bi bi-exclamation-circle me-1"></i>{{ restoreMonitor.errorMessage }}
+				<div v-if="importMonitor.errorMessage" class="mt-3 text-danger text-break">
+					<i class="bi bi-exclamation-circle me-1"></i>{{ importMonitor.errorMessage }}
 				</div>
 			</template>
 
 			<!-- Actions. -->
 			<span class="mt-3 d-flex" style="gap: 0.5rem;">
-				<template v-if="restoreMonitor.isFinished">
-					<button type="button" class="wt" @click="closeRestoreMonitor">{{ t('app.content-browser.dialog.close') }}</button>
-					<button v-if="restoreMonitor.downloadUrl" type="button" class="wt" @click="downloadRestoreReport">{{ t('app.content-browser.progress.downloadReport', undefined, 'Download report') }}</button>
-					<button v-if="restoreMonitor.dryRun && restoreMonitor.status === 'completed' && !restoreMonitor.dryRunHasErrors" type="button" class="wt wt-primary" @click="confirmRealRestore">{{ t('app.content-browser.progress.runRealImport', undefined, 'Run import') }}</button>
-					<button v-if="restoreMonitor.dryRun && restoreMonitor.status === 'completed' && restoreMonitor.dryRunHasErrors" type="button" class="wt wt-primary" @click="reopenRestoreSettings">{{ t('app.content-browser.progress.changeSettings', undefined, 'Change import settings') }}</button>
+				<template v-if="importMonitor.isFinished">
+					<button type="button" class="wt" @click="closeImportMonitor">{{ t('app.content-browser.dialog.close') }}</button>
+					<button v-if="importMonitor.downloadUrl" type="button" class="wt" @click="downloadImportReport">{{ t('app.content-browser.progress.downloadReport', undefined, 'Download report') }}</button>
+					<button v-if="importMonitor.dryRun && importMonitor.status === 'completed' && !importMonitor.dryRunHasErrors" type="button" class="wt wt-primary" @click="confirmRealImport">{{ t('app.content-browser.progress.runRealImport', undefined, 'Run import') }}</button>
+					<button v-if="importMonitor.dryRun && importMonitor.status === 'completed' && importMonitor.dryRunHasErrors" type="button" class="wt wt-primary" @click="reopenImportSettings">{{ t('app.content-browser.progress.changeSettings', undefined, 'Change import settings') }}</button>
 				</template>
-				<button v-else type="button" class="wt" :disabled="restoreMonitor.isAborting" @click="requestRestoreAbort">{{ restoreMonitor.isAborting ? t('app.content-browser.progress.stopping') : t('app.content-browser.progress.stop') }}</button>
+				<button v-else type="button" class="wt" :disabled="importMonitor.isAborting" @click="requestImportAbort">{{ importMonitor.isAborting ? t('app.content-browser.progress.stopping') : t('app.content-browser.progress.stop') }}</button>
 			</span>
 		</div>
 

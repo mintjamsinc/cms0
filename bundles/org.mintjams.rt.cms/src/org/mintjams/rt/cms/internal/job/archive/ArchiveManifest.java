@@ -34,9 +34,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * The {@code .cms-archive/manifest.json} header of a CMS Archive — read first
- * on restore to identify the producer and declare which optional sections the
+ * on import to identify the producer and declare which optional sections the
  * archive contains, so the importer can validate before touching anything. See
- * {@code documents/cms-archive-backup-restore.md}.
+ * {@code documents/cms-archive-export-import.md}.
  */
 public final class ArchiveManifest {
 
@@ -45,7 +45,7 @@ public final class ArchiveManifest {
 	/** Current format version. The importer refuses versions it does not know. */
 	public static final int VERSION = 1;
 
-	/** Reserved directory holding the restore metadata inside the ZIP. */
+	/** Reserved directory holding the import metadata inside the ZIP. */
 	public static final String DIR = ".cms-archive";
 	public static final String MANIFEST_ENTRY = DIR + "/manifest.json";
 	public static final String NODES_ENTRY = DIR + "/nodes.ndjson";

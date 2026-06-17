@@ -336,8 +336,8 @@ public class GraphQLStreamHandler {
 					if (content.hasProperty(JobNodes.PROP_ITEMS_ARCHIVED)) {
 						eventData.put("itemsArchived", JobNodes.getLong(content, JobNodes.PROP_ITEMS_ARCHIVED, 0L));
 					}
-						if (content.hasProperty(JobNodes.PROP_ITEMS_RESTORED)) {
-							eventData.put("itemsRestored", JobNodes.getLong(content, JobNodes.PROP_ITEMS_RESTORED, 0L));
+						if (content.hasProperty(JobNodes.PROP_ITEMS_IMPORTED)) {
+							eventData.put("itemsImported", JobNodes.getLong(content, JobNodes.PROP_ITEMS_IMPORTED, 0L));
 						}
 						// Import per-file outcome counts (the unit the user sees). Present
 						// once the importer has written them; the four sum to the number

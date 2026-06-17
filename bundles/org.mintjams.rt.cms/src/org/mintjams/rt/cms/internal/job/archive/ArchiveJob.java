@@ -98,14 +98,14 @@ public class ArchiveJob implements Job {
 
 	/**
 	 * When true (the default), the ZIP also carries the {@code .cms-archive/}
-	 * sidecar that makes it a restorable backup rather than a bare file dump.
+	 * sidecar that makes it a re-importable export rather than a bare file dump.
 	 * The content tree is written identically either way, so a plain download
 	 * still opens as ordinary files.
 	 */
 	private boolean fIncludeMetadata;
 	/**
 	 * When true, the sidecar also carries {@code acl.ndjson} — each node's
-	 * explicit access control list — so a restore can reinstate permissions.
+	 * explicit access control list — so an import can reinstate permissions.
 	 * Off by default; ACL is only meaningful to privileged operators.
 	 */
 	private boolean fIncludeAcl;
@@ -229,8 +229,8 @@ public class ArchiveJob implements Job {
 						writeProgress(progressContent, progressSession, null, true);
 					}
 
-					// Fold the restore sidecar into the same ZIP. Skipped on abort
-					// so a cancelled archive never advertises itself as restorable.
+					// Fold the metadata sidecar into the same ZIP. Skipped on abort
+					// so a cancelled archive never advertises itself as importable.
 					if (fIncludeMetadata && !aborted) {
 						writeMetadataEntries(zos, paths);
 					}
@@ -338,8 +338,8 @@ public class ArchiveJob implements Job {
 		fWorkDir = Files.createTempDirectory("cms-archive-meta-" + fJobId + "-");
 		fNodesWriter = new BufferedWriter(new java.io.OutputStreamWriter(
 				Files.newOutputStream(fWorkDir.resolve("nodes.ndjson")), StandardCharsets.UTF_8));
-		// The serializer omits exactly what the repository protects by name, so a
-		// restore can set back everything it writes (see NodeSerializer).
+		// The serializer omits exactly what the repository protects by name, so an
+		// import can set back everything it writes (see NodeSerializer).
 		fSerializer = new NodeSerializer(fWorkDir.resolve("blobs"),
 				NodeSerializer.collectProtectedPropertyNames(session));
 		if (fIncludeAcl) {

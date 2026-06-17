@@ -450,7 +450,7 @@ export class ContentServiceGraphQL {
   }
 
   /**
-   * Async archive restore (import) job — step 1.
+   * Async archive import job — step 1.
    * Allocates a job record on the server and returns its id.
    */
   async initImportArchive(): Promise<InitImportArchiveResult> {
@@ -462,8 +462,8 @@ export class ContentServiceGraphQL {
   }
 
   /**
-   * Async archive restore (import) job — step 2.
-   * Records the restore options and hands the job to the background worker;
+   * Async archive import job — step 2.
+   * Records the import options and hands the job to the background worker;
    * subscribe to {@code jobProgress(jobId)} for live updates.
    */
   async startImportArchive(jobId: string, options: ImportArchiveOptions): Promise<StartImportArchiveResult> {
@@ -479,7 +479,7 @@ export class ContentServiceGraphQL {
     if (options.filename !== undefined) input.filename = options.filename;
     if (options.uuidBehavior !== undefined) input.uuidBehavior = options.uuidBehavior;
     if (options.pathBehavior !== undefined) input.pathBehavior = options.pathBehavior;
-    if (options.restoreAcl !== undefined) input.restoreAcl = options.restoreAcl;
+    if (options.importAcl !== undefined) input.importAcl = options.importAcl;
     if (options.preserveTimestamps !== undefined) input.preserveTimestamps = options.preserveTimestamps;
     if (options.dryRun !== undefined) input.dryRun = options.dryRun;
     const data = await this.#client.mutation<{ startImportArchive: StartImportArchiveResult }>(
@@ -490,7 +490,7 @@ export class ContentServiceGraphQL {
   }
 
   /**
-   * Async archive restore (import) job — request abort.
+   * Async archive import job — request abort.
    * The worker stops at its next safe point (between nodes).
    */
   async abortImportArchive(jobId: string): Promise<AbortImportArchiveResult> {

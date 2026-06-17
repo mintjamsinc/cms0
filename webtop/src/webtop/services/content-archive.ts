@@ -58,10 +58,10 @@ export interface DownloadArchiveOptions {
 	/** Forwarded job progress events. */
 	onProgress?: (event: ArchiveJobProgress) => void;
 	/**
-	 * Whether to embed the restorable `.cms-archive/` metadata sidecar in the ZIP.
+	 * Whether to embed the `.cms-archive/` metadata sidecar in the ZIP.
 	 * This is what separates a plain *download* (`false` — just the files) from an
-	 * *export* (`true` — a backup that can be restored via the import job). When
-	 * omitted the server default applies (currently metadata on).
+	 * *export* (`true` — an archive that can be brought back via the import job).
+	 * When omitted the server default applies (currently metadata on).
 	 */
 	includeMetadata?: boolean;
 	/**
@@ -161,12 +161,12 @@ export async function downloadContentAsZip(
 	return handle;
 }
 
-export interface RestoreArchiveProgress {
+export interface ImportArchiveProgress {
 	jobId: string;
 	status: JobStatus;
 	itemsTotal: number;
 	/** Number of nodes created/updated so far. */
-	itemsRestored: number;
+	itemsImported: number;
 	/** Per-file outcome counts (the four sum to itemsTotal). */
 	itemsNew?: number;
 	itemsOverwritten?: number;
@@ -176,14 +176,14 @@ export interface RestoreArchiveProgress {
 	errorSamples?: string[];
 	/** Set on the terminal event when a downloadable CSV report exists. */
 	downloadUrl?: string;
-	/** Absolute path of the node currently being restored. */
+	/** Absolute path of the node currently being imported. */
 	currentPath: string;
 	errorMessage?: string;
 	/**
 	 * Dry-run verdict, present only on a dry run's terminal event. When defined,
 	 * the run was a rehearsal: `dryRunHasErrors` says whether it found a problem
-	 * that would make the real restore fail, `dryRunDetail` describes it, and the
-	 * counts report the scope the archive would restore.
+	 * that would make the real import fail, `dryRunDetail` describes it, and the
+	 * counts report the scope the archive would import.
 	 */
 	dryRunHasErrors?: boolean;
 	dryRunNodeCount?: number;
@@ -191,18 +191,18 @@ export interface RestoreArchiveProgress {
 	dryRunDetail?: string;
 }
 
-export interface RestoreArchiveCallbacks {
+export interface ImportArchiveCallbacks {
 	/**
 	 * Called once right after the job is allocated (after `initImportArchive`,
 	 * before `startImportArchive`) so the progress UI is ready before the first
 	 * server-emitted event arrives.
 	 */
 	onStart?: (handle: ArchiveJobHandle) => void;
-	onProgress?: (event: RestoreArchiveProgress) => void;
+	onProgress?: (event: ImportArchiveProgress) => void;
 }
 
 /**
- * Restore a previously-uploaded CMS Archive back into the repository and stream
+ * Import a previously-uploaded CMS Archive into the repository and stream
  * progress. The archive ZIP must already exist at `options.archivePath` (upload
  * it via the multipart-upload service first). Mirrors {@link downloadContentAsZip}:
  * the handle is handed to the caller through `onStart` before the worker starts,
@@ -211,11 +211,11 @@ export interface RestoreArchiveCallbacks {
  * Use `options.dryRun` to validate (counts, conflicts, dangling references)
  * without writing anything.
  */
-export async function restoreContentArchive(
+export async function importContentArchive(
 	contentService: ContentServiceGraphQL,
 	eventHub: EventHub | null | undefined,
 	options: ImportArchiveOptions,
-	callbacks: RestoreArchiveCallbacks = {},
+	callbacks: ImportArchiveCallbacks = {},
 ): Promise<ArchiveJobHandle> {
 	const init = await contentService.initImportArchive();
 	const jobId = init.jobId;
@@ -249,7 +249,7 @@ export async function restoreContentArchive(
 				jobId,
 				status: event.status,
 				itemsTotal: typeof event.itemsTotal === 'number' ? event.itemsTotal : 0,
-				itemsRestored: typeof event.itemsRestored === 'number' ? event.itemsRestored : 0,
+				itemsImported: typeof event.itemsImported === 'number' ? event.itemsImported : 0,
 				itemsNew: event.itemsNew,
 				itemsOverwritten: event.itemsOverwritten,
 				itemsSkipped: event.itemsSkipped,
@@ -273,7 +273,7 @@ export async function restoreContentArchive(
 			jobId,
 			status: started.status,
 			itemsTotal: 0,
-			itemsRestored: 0,
+			itemsImported: 0,
 			currentPath: '',
 		});
 	} catch (err) {

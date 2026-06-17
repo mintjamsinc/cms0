@@ -43,9 +43,9 @@ import javax.jcr.ValueFactory;
  * Applies the per-node records written by {@link NodeSerializer} back onto the
  * repository — the read half of the CMS Archive format, kept beside the writer
  * so the two can never silently drift. See
- * {@code documents/cms-archive-backup-restore.md}.
+ * {@code documents/cms-archive-export-import.md}.
  *
- * <p>Every property is restored with its original JCR type. Reference and
+ * <p>Every property is imported with its original JCR type. Reference and
  * weak-reference properties are <em>not</em> set here: their targets may not
  * exist yet, so they are collected as {@link DeferredRef}s for the importer to
  * resolve in a second pass once all nodes (and thus all identities) exist.
@@ -94,7 +94,7 @@ public final class NodeDeserializer {
 	}
 
 	/**
-	 * Restore every property of {@code node} from its archive record, deferring
+	 * Import every property of {@code node} from its archive record, deferring
 	 * references into {@code deferred}.
 	 *
 	 * @param node      the freshly created (or merged) target node.

@@ -41,8 +41,8 @@ import org.mintjams.jcr.util.JCRs;
 /**
  * Reads and writes the {@code .cms-archive/acl.ndjson} section of a CMS Archive
  * — one node's access control list per line, captured on export and reapplied
- * on restore (when the operator opts in). See
- * {@code documents/cms-archive-backup-restore.md}.
+ * on import (when the operator opts in). See
+ * {@code documents/cms-archive-export-import.md}.
  *
  * <p>Each entry records a principal, the allow/deny flag and the privilege
  * names, mapping directly onto the repository's

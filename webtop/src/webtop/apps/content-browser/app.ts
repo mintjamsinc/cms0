@@ -1,7 +1,7 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { type Node, type JobStatus } from "../../graphql/types.js";
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from "../../services/content-delete.js";
-import { downloadContentAsZip, restoreContentArchive, type ArchiveJobHandle, type ArchiveJobProgress, type RestoreArchiveProgress } from "../../services/content-archive.js";
+import { downloadContentAsZip, importContentArchive, type ArchiveJobHandle, type ArchiveJobProgress, type ImportArchiveProgress } from "../../services/content-archive.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
@@ -299,8 +299,8 @@ export const App = {
 				isFinished: boolean;
 				isAborting: boolean;
 			},
-			// Restore-from-archive: options dialog for a chosen CMS Archive file.
-			restoreDialog: {
+			// Import-from-archive: options dialog for a chosen CMS Archive file.
+			importDialog: {
 				visible: false,
 				file: null as File | null,
 				fileName: '',
@@ -314,7 +314,7 @@ export const App = {
 				// conflict, 1 skip, 2 overwrite. Integer codes of ImportContentHandler.
 				uuidBehavior: 0 as 0 | 1 | 2,
 				pathBehavior: 0 as 0 | 1 | 2,
-				restoreAcl: false,
+				importAcl: false,
 				// Carry over each node's original jcr:created/jcr:lastModified.
 				// On by default — copying/migrating content normally means to keep
 				// its history; jcr:createdBy/jcr:lastModifiedBy still become the
@@ -324,13 +324,13 @@ export const App = {
 				isLoading: false,
 				errorMessage: '',
 			},
-			// Restore-from-archive: live progress of the running import job.
-			restoreMonitor: null as null | {
+			// Import-from-archive: live progress of the running import job.
+			importMonitor: null as null | {
 				jobId: string;
 				handle: ArchiveJobHandle;
 				dryRun: boolean;
 				itemsTotal: number;
-				itemsRestored: number;
+				itemsImported: number;
 				// Per-file outcome counts (the four sum to itemsTotal).
 				itemsNew: number;
 				itemsOverwritten: number;
@@ -360,7 +360,7 @@ export const App = {
 					destinationPath: string;
 					uuidBehavior: 0 | 1 | 2;
 					pathBehavior: 0 | 1 | 2;
-					restoreAcl: boolean;
+					importAcl: boolean;
 					preserveTimestamps: boolean;
 				};
 			},
@@ -2061,7 +2061,7 @@ export const App = {
 			// Import brings a CMS Archive into the current folder, mirroring the
 			// upload actions above; it is offered regardless of selection so it is
 			// reachable whether the user right-clicks an item or empty space.
-			menuItems.push({ id: 'restore-archive', label: vm.t('app.content-browser.menu.import', undefined, 'Import…'), icon: 'bi-box-arrow-in-down' });
+			menuItems.push({ id: 'import-archive', label: vm.t('app.content-browser.menu.import', undefined, 'Import…'), icon: 'bi-box-arrow-in-down' });
 			menuItems.push({ type: 'separator', id: '', label: '' });
 
 			if (isSingleSelection && hasFolder) {
@@ -2159,7 +2159,7 @@ export const App = {
 			menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
 			menuItems.push({ id: 'upload-files', label: vm.t('app.content-browser.menu.uploadFiles', undefined, 'Upload Files'), icon: 'bi-upload' });
 			menuItems.push({ id: 'upload-folder', label: vm.t('app.content-browser.menu.uploadFolder', undefined, 'Upload Folder'), icon: 'bi-folder-symlink' });
-			menuItems.push({ id: 'restore-archive', label: vm.t('app.content-browser.menu.import', undefined, 'Import…'), icon: 'bi-box-arrow-in-down' });
+			menuItems.push({ id: 'import-archive', label: vm.t('app.content-browser.menu.import', undefined, 'Import…'), icon: 'bi-box-arrow-in-down' });
 			if (vm.clipboardHasItems()) {
 				menuItems.push({ type: 'separator', id: '', label: '' });
 				menuItems.push({ id: 'paste', label: vm.t('app.content-browser.menu.paste', undefined, 'Paste'), icon: 'bi-clipboard-check' });
@@ -2193,8 +2193,8 @@ export const App = {
 				case 'upload-folder':
 					vm.triggerFolderUpload();
 					break;
-				case 'restore-archive':
-					vm.openRestorePicker();
+				case 'import-archive':
+					vm.openImportPicker();
 					break;
 				case 'copy':
 					vm.clipboardCopy();
@@ -3122,51 +3122,51 @@ export const App = {
 			}
 			vm.archiveMonitor = null;
 		},
-		// Restore from a CMS Archive: open the OS file chooser. The hidden
+		// Import from a CMS Archive: open the OS file chooser. The hidden
 		// <input accept=".zip"> lives in index.html.
-		openRestorePicker() {
-			const el = document.getElementById('cb-restore-archive-input') as HTMLInputElement | null;
+		openImportPicker() {
+			const el = document.getElementById('cb-import-archive-input') as HTMLInputElement | null;
 			if (el) el.click();
 		},
-		onRestoreInputChange(event: Event) {
+		onImportInputChange(event: Event) {
 			const vm = this;
 			const input = event.target as HTMLInputElement;
 			const file = input.files && input.files[0];
 			// Reset so the same file can be re-picked consecutively.
 			input.value = '';
 			if (!file) return;
-			vm.restoreDialog.file = file;
-			vm.restoreDialog.fileName = file.name;
-			vm.restoreDialog.exportSource = '';
-			vm.restoreDialog.destinationPath = vm.currentPath;
-			vm.restoreDialog.uuidBehavior = 0;
-			vm.restoreDialog.pathBehavior = 0;
-			vm.restoreDialog.restoreAcl = false;
-			vm.restoreDialog.preserveTimestamps = true;
-			vm.restoreDialog.dryRun = true;
-			vm.restoreDialog.errorMessage = '';
-			vm.restoreDialog.isLoading = false;
-			vm.restoreDialog.visible = true;
+			vm.importDialog.file = file;
+			vm.importDialog.fileName = file.name;
+			vm.importDialog.exportSource = '';
+			vm.importDialog.destinationPath = vm.currentPath;
+			vm.importDialog.uuidBehavior = 0;
+			vm.importDialog.pathBehavior = 0;
+			vm.importDialog.importAcl = false;
+			vm.importDialog.preserveTimestamps = true;
+			vm.importDialog.dryRun = true;
+			vm.importDialog.errorMessage = '';
+			vm.importDialog.isLoading = false;
+			vm.importDialog.visible = true;
 			// Read the archive's manifest (client-side, no upload) to show where
 			// the content was exported from. Purely informational: if it can't be
 			// read, the field stays hidden. Guard against a newer pick racing in.
 			void readArchiveManifest(file).then((info) => {
-				if (!info || vm.restoreDialog.file !== file) return;
-				vm.restoreDialog.exportSource = info.roots.join('\n');
+				if (!info || vm.importDialog.file !== file) return;
+				vm.importDialog.exportSource = info.roots.join('\n');
 			}).catch(() => { /* informational only */ });
 		},
-		closeRestoreDialog() {
+		closeImportDialog() {
 			const vm = this;
-			if (vm.restoreDialog.isLoading) return;
-			vm.restoreDialog.visible = false;
-			vm.restoreDialog.file = null;
+			if (vm.importDialog.isLoading) return;
+			vm.importDialog.visible = false;
+			vm.importDialog.file = null;
 		},
 		// Upload the chosen archive to a transient staging file and run the import
 		// (or dry-run) job. The server relocates the upload next to the job record,
 		// so a dry-run verdict re-uploads the retained File to run for real.
-		async confirmRestore() {
+		async confirmImport() {
 			const vm = this;
-			const dlg = vm.restoreDialog;
+			const dlg = vm.importDialog;
 			if (dlg.isLoading || !dlg.file) return;
 			const file = dlg.file;
 			const dryRun = dlg.dryRun;
@@ -3175,20 +3175,20 @@ export const App = {
 				destinationPath: dlg.destinationPath || vm.currentPath,
 				uuidBehavior: dlg.uuidBehavior,
 				pathBehavior: dlg.pathBehavior,
-				restoreAcl: dlg.restoreAcl,
+				importAcl: dlg.importAcl,
 				preserveTimestamps: dlg.preserveTimestamps,
 			};
 			dlg.visible = false;
 			dlg.isLoading = false;
-			await vm._runRestoreJob(file, options, dryRun, fileName);
+			await vm._runImportJob(file, options, dryRun, fileName);
 		},
-		// Shared restore runner: uploads the chosen archive to a transient staging
+		// Shared import runner: uploads the chosen archive to a transient staging
 		// file, then starts the import (or dry-run) job. The monitor retains the
 		// File and options so a dry-run verdict can run it for real (re-uploading)
 		// or reopen the settings.
-		async _runRestoreJob(
+		async _runImportJob(
 			file: File,
-			options: { destinationPath: string; uuidBehavior: 0 | 1 | 2; pathBehavior: 0 | 1 | 2; restoreAcl: boolean; preserveTimestamps: boolean },
+			options: { destinationPath: string; uuidBehavior: 0 | 1 | 2; pathBehavior: 0 | 1 | 2; importAcl: boolean; preserveTimestamps: boolean },
 			dryRun: boolean,
 			fileName: string,
 		) {
@@ -3199,55 +3199,55 @@ export const App = {
 			try {
 				// Stage the upload alongside the current folder under a hidden name;
 				// the server moves it next to the job record on start.
-				const stagingName = '.cms-restore-' + Date.now() + '.zip';
+				const stagingName = '.cms-import-' + Date.now() + '.zip';
 				stagingPath = await vm.uploadArchiveFile(file, vm.currentPath, stagingName);
 			} catch (error: any) {
-				vm.restoreMonitor = vm._newRestoreMonitor(null, dryRun, fileName, file, options);
-				vm.restoreMonitor.errorMessage = error?.message || vm.t('app.content-browser.error.uploadFailed', undefined, 'Upload failed');
-				vm.restoreMonitor.isFinished = true;
-				vm.restoreMonitor.status = 'failed' as JobStatus;
+				vm.importMonitor = vm._newImportMonitor(null, dryRun, fileName, file, options);
+				vm.importMonitor.errorMessage = error?.message || vm.t('app.content-browser.error.uploadFailed', undefined, 'Upload failed');
+				vm.importMonitor.isFinished = true;
+				vm.importMonitor.status = 'failed' as JobStatus;
 				return;
 			}
 			try {
-				await restoreContentArchive(
+				await importContentArchive(
 					contentService,
 					eventHub,
 					{ archivePath: stagingPath, filename: fileName, ...options, dryRun },
 					{
 						onStart: (handle: ArchiveJobHandle) => {
-							vm.restoreMonitor = vm._newRestoreMonitor(handle, dryRun, fileName, file, options);
+							vm.importMonitor = vm._newImportMonitor(handle, dryRun, fileName, file, options);
 						},
-						onProgress: (progress: RestoreArchiveProgress) => {
-							vm.handleRestoreProgress(progress);
+						onProgress: (progress: ImportArchiveProgress) => {
+							vm.handleImportProgress(progress);
 						},
 					},
 				);
 			} catch (error: any) {
-				if (vm.restoreMonitor) {
-					vm.restoreMonitor.errorMessage = error?.message || vm.t('app.content-browser.error.importFailed', undefined, 'Failed to import archive');
-					vm.restoreMonitor.isFinished = true;
-					vm.restoreMonitor.status = 'failed' as JobStatus;
+				if (vm.importMonitor) {
+					vm.importMonitor.errorMessage = error?.message || vm.t('app.content-browser.error.importFailed', undefined, 'Failed to import archive');
+					vm.importMonitor.isFinished = true;
+					vm.importMonitor.status = 'failed' as JobStatus;
 				}
 				// The job never started, so the server never relocated the upload;
 				// don't leave it orphaned in the content tree.
-				await vm._deleteRestoreStaging(stagingPath);
+				await vm._deleteImportStaging(stagingPath);
 			}
 		},
-		// Build a fresh restore monitor. handle is null only for an upload that
+		// Build a fresh import monitor. handle is null only for an upload that
 		// failed before the job started (so the failure has somewhere to show).
-		_newRestoreMonitor(
+		_newImportMonitor(
 			handle: ArchiveJobHandle | null,
 			dryRun: boolean,
 			fileName: string,
 			file: File | null,
-			options: { destinationPath: string; uuidBehavior: 0 | 1 | 2; pathBehavior: 0 | 1 | 2; restoreAcl: boolean; preserveTimestamps: boolean },
+			options: { destinationPath: string; uuidBehavior: 0 | 1 | 2; pathBehavior: 0 | 1 | 2; importAcl: boolean; preserveTimestamps: boolean },
 		) {
 			return {
 				jobId: handle ? handle.jobId : '',
 				handle: handle as ArchiveJobHandle,
 				dryRun,
 				itemsTotal: 0,
-				itemsRestored: 0,
+				itemsImported: 0,
 				itemsNew: 0,
 				itemsOverwritten: 0,
 				itemsSkipped: 0,
@@ -3269,13 +3269,13 @@ export const App = {
 				options,
 			};
 		},
-		handleRestoreProgress(progress: RestoreArchiveProgress) {
+		handleImportProgress(progress: ImportArchiveProgress) {
 			const vm = this;
-			const m = vm.restoreMonitor;
+			const m = vm.importMonitor;
 			if (!m || m.jobId !== progress.jobId) return;
 			m.status = progress.status;
 			m.itemsTotal = progress.itemsTotal;
-			m.itemsRestored = progress.itemsRestored;
+			m.itemsImported = progress.itemsImported;
 			if (typeof progress.itemsNew === 'number') m.itemsNew = progress.itemsNew;
 			if (typeof progress.itemsOverwritten === 'number') m.itemsOverwritten = progress.itemsOverwritten;
 			if (typeof progress.itemsSkipped === 'number') m.itemsSkipped = progress.itemsSkipped;
@@ -3300,7 +3300,7 @@ export const App = {
 			if (progress.status === 'completed' || progress.status === 'aborted' || progress.status === 'failed') {
 				m.isFinished = true;
 				m.isAborting = false;
-				// On a real success, refresh the tree to show the restored content.
+				// On a real success, refresh the tree to show the imported content.
 				if (!m.dryRun && progress.status === 'completed') {
 					try { void vm.load(vm.currentPath); } catch { /* noop */ }
 				}
@@ -3308,56 +3308,56 @@ export const App = {
 		},
 		// Run the just-rehearsed archive for real, re-uploading the retained File
 		// with the same options. Offered from a clean dry-run verdict.
-		async confirmRealRestore() {
+		async confirmRealImport() {
 			const vm = this;
-			const m = vm.restoreMonitor;
+			const m = vm.importMonitor;
 			if (!m || !m.file || m.dryRunHasErrors) return;
-			await vm._runRestoreJob(m.file, m.options, false, m.fileName);
+			await vm._runImportJob(m.file, m.options, false, m.fileName);
 		},
 		// Reopen the options dialog to change settings after a dry run found a
 		// problem, keeping the chosen File so it can be re-uploaded on confirm.
-		reopenRestoreSettings() {
+		reopenImportSettings() {
 			const vm = this;
-			const m = vm.restoreMonitor;
+			const m = vm.importMonitor;
 			if (!m || !m.file) return;
-			const dlg = vm.restoreDialog;
+			const dlg = vm.importDialog;
 			dlg.file = m.file;
 			dlg.fileName = m.fileName;
 			dlg.destinationPath = m.options.destinationPath;
 			dlg.uuidBehavior = m.options.uuidBehavior;
 			dlg.pathBehavior = m.options.pathBehavior;
-			dlg.restoreAcl = m.options.restoreAcl;
+			dlg.importAcl = m.options.importAcl;
 			dlg.preserveTimestamps = m.options.preserveTimestamps;
 			dlg.dryRun = true;
 			dlg.errorMessage = '';
 			dlg.isLoading = false;
 			dlg.visible = true;
-			vm.restoreMonitor = null;
+			vm.importMonitor = null;
 		},
-		requestRestoreAbort() {
+		requestImportAbort() {
 			const vm = this;
-			const m = vm.restoreMonitor;
+			const m = vm.importMonitor;
 			if (!m || m.isFinished || m.isAborting) return;
 			m.isAborting = true;
 			m.handle.abort();
 		},
-		async _deleteRestoreStaging(stagingPath: string) {
+		async _deleteImportStaging(stagingPath: string) {
 			const vm = this;
 			if (!stagingPath) return;
 			try { await vm.instance.api.content.deleteNode(stagingPath); } catch { /* best effort */ }
 		},
-		closeRestoreMonitor() {
+		closeImportMonitor() {
 			const vm = this;
-			const m = vm.restoreMonitor;
+			const m = vm.importMonitor;
 			if (m && m.handle) {
 				try { m.handle.release(); } catch { /* noop */ }
 			}
-			vm.restoreMonitor = null;
+			vm.importMonitor = null;
 		},
 		// Download the CSV outcome report for the finished import/dry-run job.
-		downloadRestoreReport() {
+		downloadImportReport() {
 			const vm = this;
-			const m = vm.restoreMonitor;
+			const m = vm.importMonitor;
 			if (!m || !m.downloadUrl) return;
 			try {
 				const a = document.createElement('a');
@@ -4076,7 +4076,7 @@ export const App = {
 		// icon-swap feedback the inspector's path-copy uses.
 		async copyExportSource(event?: MouseEvent) {
 			const vm = this;
-			const text = vm.restoreDialog.exportSource;
+			const text = vm.importDialog.exportSource;
 			if (!text) return;
 			try {
 				await navigator.clipboard.writeText(text);

@@ -95,22 +95,22 @@ public final class JobNodes {
 	public static final String PROP_ARCHIVE_FILENAME = "jobArchiveFilename";
 	/**
 	 * Archive jobs: when true (the default), the ZIP also carries the
-	 * {@code .cms-archive/} restore sidecar (properties, mixins, references,
-	 * binaries) so the download doubles as a backup. Set false for a bare
-	 * file-only ZIP.
+	 * {@code .cms-archive/} metadata sidecar (properties, mixins, references,
+	 * binaries) so the download doubles as a re-importable export. Set false for
+	 * a bare file-only ZIP.
 	 */
 	public static final String PROP_INCLUDE_METADATA = "jobIncludeMetadata";
 	/**
-	 * Archive jobs: when true, the sidecar also carries {@code acl.ndjson} so a
-	 * restore can reinstate access control. Off by default. Implies
+	 * Archive jobs: when true, the sidecar also carries {@code acl.ndjson} so an
+	 * import can reinstate access control. Off by default. Implies
 	 * {@link #PROP_INCLUDE_METADATA}.
 	 */
 	public static final String PROP_INCLUDE_ACL = "jobIncludeAcl";
 
-	// Import/restore jobs ----------------------------------------------------
-	/** Repository path of the uploaded CMS Archive ({@code nt:file}) to restore. */
+	// Import jobs ------------------------------------------------------------
+	/** Repository path of the uploaded CMS Archive ({@code nt:file}) to import. */
 	public static final String PROP_ARCHIVE_PATH = "jobArchivePath";
-	/** Destination path the archive is restored under. */
+	/** Destination path the archive is imported under. */
 	public static final String PROP_DEST_PATH = "jobDestPath";
 	/** {@code preserve} (keep original UUIDs) or {@code new} (allocate fresh). */
 	public static final String PROP_IDENTITY = "jobIdentity";
@@ -132,8 +132,8 @@ public final class JobNodes {
 	 * {@link #PROP_PATH_CONFLICT}.
 	 */
 	public static final String PROP_PATH_BEHAVIOR = "jobPathBehavior";
-	/** Restore access control lists carried by the archive. */
-	public static final String PROP_RESTORE_ACL = "jobRestoreAcl";
+	/** Import access control lists carried by the archive. */
+	public static final String PROP_IMPORT_ACL = "jobImportAcl";
 	/**
 	 * Carry over each node's original {@code jcr:created}/{@code jcr:lastModified}
 	 * from the archive (default true). When false the repository stamps the import
@@ -145,19 +145,19 @@ public final class JobNodes {
 	public static final String PROP_DRY_RUN = "jobDryRun";
 	/**
 	 * Dry run result: {@code true} when the rehearsal hit a problem that would
-	 * make the real restore fail (e.g. a UUID collision under the {@code throw}
+	 * make the real import fail (e.g. a UUID collision under the {@code throw}
 	 * policy, an unknown node type). The job still completes — the finding is
 	 * reported, not raised as a system failure. Absent on real (non-dry) runs.
 	 */
 	public static final String PROP_DRY_RUN_HAS_ERRORS = "jobDryRunHasErrors";
 	/** Dry run result: human-readable detail of the blocking problem, when {@link #PROP_DRY_RUN_HAS_ERRORS} is true. */
 	public static final String PROP_DRY_RUN_DETAIL = "jobDryRunDetail";
-	/** Dry run result: number of nodes the archive would restore (from the manifest). */
+	/** Dry run result: number of nodes the archive would import (from the manifest). */
 	public static final String PROP_DRY_RUN_NODE_COUNT = "jobDryRunNodeCount";
 	/** Dry run result: number of binaries the archive carries (from the manifest). */
 	public static final String PROP_DRY_RUN_BINARY_COUNT = "jobDryRunBinaryCount";
 	/** Import jobs: running count of nodes created/updated. */
-	public static final String PROP_ITEMS_RESTORED = "jobItemsRestored";
+	public static final String PROP_ITEMS_IMPORTED = "jobItemsImported";
 	/**
 	 * Import jobs: per-file outcome counts. The unit is the file the user sees —
 	 * each {@code nt:file} in the archive falls into exactly one bucket, so the

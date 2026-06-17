@@ -2267,7 +2267,7 @@ public class MutationExecutor {
 			throw new IllegalArgumentException("jobId is required");
 		}
 		String filename = sanitizeArchiveFilename((String) input.get("filename"));
-		// Defaults to true: a download doubles as a restorable backup unless the
+		// Defaults to true: a download doubles as a re-importable export unless the
 		// caller explicitly opts out of the .cms-archive/ sidecar.
 		boolean includeMetadata = !Boolean.FALSE.equals(input.get("includeMetadata"));
 		// Off by default: ACL is only meaningful to privileged operators.
@@ -2345,7 +2345,7 @@ public class MutationExecutor {
 	}
 
 	// =========================================================================
-	// Async archive restore (import) jobs. Mirrors the download lifecycle:
+	// Async archive import jobs. Mirrors the download lifecycle:
 	//
 	// Lifecycle: (client uploads the ZIP via the multipart-upload mutations)
 	//            initImportArchive -> startImportArchive (records the options,
@@ -2390,7 +2390,7 @@ public class MutationExecutor {
 
 	/**
 	 * Execute startImportArchive mutation.
-	 * Records the restore options, transitions the job to QUEUED and hands it to
+	 * Records the import options, transitions the job to QUEUED and hands it to
 	 * the JobManager. Progress flows to the client via jobProgress(jobId).
 	 * Example: mutation { startImportArchive(input: { jobId: "...", archivePath: "/tmp/x.zip",
 	 *          destinationPath: "/content", identity: "preserve", onUuidCollision: "throw",
@@ -2415,7 +2415,7 @@ public class MutationExecutor {
 		int uuidBehavior = intOr(input.get("uuidBehavior"), 0);
 		int pathBehavior = intOr(input.get("pathBehavior"), 0);
 		String filename = stringOr(input.get("filename"), "archive.zip");
-		boolean restoreAcl = Boolean.TRUE.equals(input.get("restoreAcl"));
+		boolean importAcl = Boolean.TRUE.equals(input.get("importAcl"));
 		// Preserve the archived jcr:created/jcr:lastModified by default; only an
 		// explicit false opts out.
 		boolean preserveTimestamps = !Boolean.FALSE.equals(input.get("preserveTimestamps"));
@@ -2460,7 +2460,7 @@ public class MutationExecutor {
 			content.setProperty(JobNodes.PROP_DEST_PATH, destinationPath);
 			content.setProperty(JobNodes.PROP_UUID_BEHAVIOR, (long) uuidBehavior);
 			content.setProperty(JobNodes.PROP_PATH_BEHAVIOR, (long) pathBehavior);
-			content.setProperty(JobNodes.PROP_RESTORE_ACL, restoreAcl);
+			content.setProperty(JobNodes.PROP_IMPORT_ACL, importAcl);
 			content.setProperty(JobNodes.PROP_PRESERVE_TIMESTAMPS, preserveTimestamps);
 			content.setProperty(JobNodes.PROP_DRY_RUN, dryRun);
 			content.setProperty(JobNodes.PROP_REPORT_LOCALE, reportLocale);

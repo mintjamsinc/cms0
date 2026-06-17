@@ -62,8 +62,8 @@ import org.mintjams.rt.cms.internal.web.Webs;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Restores a CMS Archive (see {@link ArchiveJob} and
- * {@code documents/cms-archive-backup-restore.md}) back into the repository —
+ * Imports a CMS Archive (see {@link ArchiveJob} and
+ * {@code documents/cms-archive-export-import.md}) into the repository —
  * the symmetric counterpart of the download/export job.
  *
  * <p>The whole import runs in one session against an
@@ -98,12 +98,12 @@ public class ImportArchiveJob implements Job {
 
 	private final ObjectMapper fMapper = new ObjectMapper();
 
-	// Restore options, read from the job node.
+	// Import options, read from the job node.
 	private String fArchivePath;
 	private String fDestPath;
 	private int fUuidBehavior;
 	private int fPathBehavior;
-	private boolean fRestoreAcl;
+	private boolean fImportAcl;
 	/**
 	 * When true (the default), each node's original {@code jcr:created} and
 	 * {@code jcr:lastModified} are carried over from the archive; otherwise the
@@ -214,7 +214,7 @@ public class ImportArchiveJob implements Job {
 					ImportContentHandler.IMPORT_UUID_THROW_ON_COLLISION);
 			fPathBehavior = (int) JobNodes.getLong(progressContent, JobNodes.PROP_PATH_BEHAVIOR,
 					ImportContentHandler.IMPORT_PATH_THROW_ON_CONFLICT);
-			fRestoreAcl = JobNodes.getBoolean(progressContent, JobNodes.PROP_RESTORE_ACL, false);
+			fImportAcl = JobNodes.getBoolean(progressContent, JobNodes.PROP_IMPORT_ACL, false);
 			fPreserveTimestamps = JobNodes.getBoolean(progressContent, JobNodes.PROP_PRESERVE_TIMESTAMPS, true);
 			fDryRun = JobNodes.getBoolean(progressContent, JobNodes.PROP_DRY_RUN, false);
 			fReportLocale = JobNodes.getString(progressContent, JobNodes.PROP_REPORT_LOCALE, "");
@@ -225,7 +225,7 @@ public class ImportArchiveJob implements Job {
 
 			JobNodes.setStatus(progressContent, JobStatus.RUNNING);
 			progressContent.setProperty(JobNodes.PROP_STARTED_AT, Calendar.getInstance());
-			progressContent.setProperty(JobNodes.PROP_ITEMS_RESTORED, 0L);
+			progressContent.setProperty(JobNodes.PROP_ITEMS_IMPORTED, 0L);
 			progressSession.save();
 		} catch (Throwable ex) {
 			initError = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
@@ -251,7 +251,7 @@ public class ImportArchiveJob implements Job {
 				String detail = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
 				try { jobSession.refresh(false); } catch (Throwable ignore) {}
 				if (fDryRun) {
-					// The rehearsal hit exactly what the real restore would hit (a
+					// The rehearsal hit exactly what the real import would hit (a
 					// throw-policy conflict, a missing ACL principal, an unknown node
 					// type). Report it as a finding the user can act on; the job still
 					// completes.
@@ -323,7 +323,7 @@ public class ImportArchiveJob implements Job {
 	}
 
 	// =========================================================================
-	// Restore
+	// Import
 	// =========================================================================
 
 	/**
@@ -379,7 +379,7 @@ public class ImportArchiveJob implements Job {
 			}
 
 			// Pass 3 — access control (opt-in; a missing principal aborts).
-			if (fRestoreAcl) {
+			if (fImportAcl) {
 				applyAcls(session, zip, context);
 			}
 
@@ -487,7 +487,7 @@ public class ImportArchiveJob implements Job {
 			return;
 		}
 		for (String mixin : mixins) {
-			// Version-control mixins are intentionally not restored: the archive
+			// Version-control mixins are intentionally not imported: the archive
 			// carries no version history, so re-adding mix:versionable would place
 			// imported content under version control with an empty history. Version
 			// control, if wanted, is enabled per file after import.
@@ -501,7 +501,7 @@ public class ImportArchiveJob implements Job {
 	}
 
 	/**
-	 * Reapply the access control lists from {@code acl.ndjson} onto the restored
+	 * Reapply the access control lists from {@code acl.ndjson} onto the imported
 	 * nodes, mapping each archived source path to where it actually landed. A
 	 * principal that cannot be resolved aborts the import (ACL import is opt-in,
 	 * so a missing principal is a configuration problem the operator must see).
@@ -528,7 +528,7 @@ public class ImportArchiveJob implements Job {
 				String srcPath = (String) record.get("path");
 				String tgtPath = fPathMap.get(srcPath);
 				if (tgtPath == null || !session.nodeExists(tgtPath)) {
-					continue; // node was skipped or not restored
+					continue; // node was skipped or not imported
 				}
 				AclCodec.apply(session.getNode(tgtPath),
 						(List<Map<String, Object>>) record.get("entries"), principals, fWarnings, true);
@@ -633,7 +633,7 @@ public class ImportArchiveJob implements Job {
 	private void writeOutcome(Node content) throws Exception {
 		long total = fNew + fOverwritten + fSkipped + fError;
 		content.setProperty(JobNodes.PROP_ITEMS_TOTAL, total);
-		content.setProperty(JobNodes.PROP_ITEMS_RESTORED, fNew + fOverwritten);
+		content.setProperty(JobNodes.PROP_ITEMS_IMPORTED, fNew + fOverwritten);
 		content.setProperty(JobNodes.PROP_ITEMS_NEW, fNew);
 		content.setProperty(JobNodes.PROP_ITEMS_OVERWRITTEN, fOverwritten);
 		content.setProperty(JobNodes.PROP_ITEMS_SKIPPED, fSkipped);
@@ -775,7 +775,7 @@ public class ImportArchiveJob implements Job {
 		}
 
 		// Counts are advisory, recorded at export time; surfaced in the dry-run
-		// summary so the user sees the scope before committing to a real restore.
+		// summary so the user sees the scope before committing to a real import.
 		Object countsObj = manifest.get("counts");
 		if (countsObj instanceof Map) {
 			Map<?, ?> counts = (Map<?, ?>) countsObj;
@@ -844,12 +844,12 @@ public class ImportArchiveJob implements Job {
 		long now = System.currentTimeMillis();
 		long processed = fNew + fOverwritten + fSkipped + fError;
 		boolean shouldWrite = force
-				|| (processed - JobNodes.getLong(content, JobNodes.PROP_ITEMS_RESTORED, 0L)) >= PROGRESS_THROTTLE_ITEMS
+				|| (processed - JobNodes.getLong(content, JobNodes.PROP_ITEMS_IMPORTED, 0L)) >= PROGRESS_THROTTLE_ITEMS
 				|| (now - fLastWriteAt) >= PROGRESS_THROTTLE_MILLIS;
 		if (!shouldWrite) {
 			return;
 		}
-		content.setProperty(JobNodes.PROP_ITEMS_RESTORED, processed);
+		content.setProperty(JobNodes.PROP_ITEMS_IMPORTED, processed);
 		if (currentPath != null) {
 			content.setProperty(JobNodes.PROP_CURRENT_PATH, currentPath);
 		}

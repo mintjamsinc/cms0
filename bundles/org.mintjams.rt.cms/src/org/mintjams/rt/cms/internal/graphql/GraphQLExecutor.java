@@ -267,7 +267,7 @@ public class GraphQLExecutor {
 				response.setData(mutationExecutor.executeStartDownloadArchive(request));
 			} else if (query.contains("abortDownloadArchive(")) {
 				response.setData(mutationExecutor.executeAbortDownloadArchive(request));
-			// Async archive restore (import) job mutations
+			// Async archive import job mutations
 			} else if (query.contains("initImportArchive(")) {
 				response.setData(mutationExecutor.executeInitImportArchive(request));
 			} else if (query.contains("startImportArchive(")) {
