@@ -3373,7 +3373,12 @@ export const App = {
 		async uploadArchiveFile(file: File, parentPath: string, name: string): Promise<string> {
 			const vm = this;
 			const contentService = vm.instance.api.content;
-			const chunkSize = 1024 * 1024;
+			// Match the PC-upload chunk size (see uploadFiles). 512KB raw becomes
+			// ~700KB once Base64-encoded and wrapped in the GraphQL mutation body,
+			// staying under NGINX's default client_max_body_size of 1MB. A larger
+			// chunk (e.g. 1MB -> ~1.37MB encoded) overflows that limit and the
+			// append request is rejected with HTTP 413.
+			const chunkSize = 524288; // 512KB chunks (Base64 encoded ~700KB)
 			const uploadInfo = await contentService.initiateMultipartUpload();
 			const uploadId = uploadInfo.uploadId;
 			try {
