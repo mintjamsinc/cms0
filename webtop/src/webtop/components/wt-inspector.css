@@ -1697,9 +1697,16 @@ wt-inspector {
 }
 
 /* --- CodeMirror expanded view --- */
-/* Expanded overlay */
+/* Expanded (maximized) overlay. Uses position: fixed — NOT absolute — and is
+ * rendered OUTSIDE the .detail-panel-frame .island (see wt-inspector.html), as a
+ * sibling of the confirmation dialogs. The island's backdrop-filter establishes
+ * a containing block that would otherwise trap the overlay inside the narrow
+ * inspector pane; placing it outside + position: fixed lets it fill the whole
+ * host app window (content-browser AND text-editor), inset by 1rem, exactly as
+ * it did before the inspector was extracted from content-browser. Mirrors the
+ * confirmation-dialog escape pattern documented in this file and the template. */
 .cm-expanded-overlay {
-	position: absolute;
+	position: fixed;
 	inset: 1rem;
 	border-radius: 0.75rem;
 	overflow: hidden;
