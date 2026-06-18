@@ -61,6 +61,14 @@
 
 			<span class="nav-spacer"></span>
 
+			<!-- Right: Preview toggle (own group) -->
+			<div class="pane-toggles">
+				<button class="btn-icon pane-toggle-btn" :class="{active: previewOpen}"
+					@click="togglePreviewPanel" :title="t('app.text-editor.toolbar.openPreview', undefined, 'Open Preview Window')">
+					<i class="bi bi-window"></i>
+				</button>
+			</div>
+
 			<!-- Right: Pane Toggles -->
 			<div class="pane-toggles">
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
@@ -70,10 +78,6 @@
 				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
 					@click="toggleDetailPanel" :title="t('app.text-editor.toolbar.toggleInspector', undefined, 'Toggle Inspector (Ctrl+I)')">
 					<i class="bi bi-layout-sidebar-inset-reverse"></i>
-				</button>
-				<button class="btn-icon pane-toggle-btn" :class="{active: previewOpen}"
-					@click="togglePreviewPanel" :title="t('app.text-editor.toolbar.openPreview', undefined, 'Open Preview Window')">
-					<i class="bi bi-window"></i>
 				</button>
 			</div>
 
