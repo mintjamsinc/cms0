@@ -389,6 +389,18 @@
 	opacity: 0.5;
 }
 
+/* While the Inspector's property "Text Editor" is maximized, its overlay
+   (.cm-expanded-overlay, position: fixed; inset: 1rem — see wt-inspector.css)
+   blankets the window, so the status text would peek through the bottom 1rem
+   gutter. Hide the bar's contents (the inspector renders into light DOM, so
+   #app :has() can observe its overlay). The .status-bar element itself stays
+   in flow — transparent, full height, and still a .window-drag-region — so the
+   exposed bottom strip keeps dragging the window. visibility (not display)
+   lets mousedowns fall through the hidden children to the draggable bar. */
+#app:has(.cm-expanded-overlay) .status-bar > * {
+	visibility: hidden;
+}
+
 /* ----------------------------------------------------------------------------
  * CodeMirror — colors come from CSS variables so the editor follows the
  * app's light/dark theme automatically (variables defined above).
