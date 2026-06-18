@@ -13,6 +13,41 @@
 	--statusbar-height: 1.75rem;
 }
 
+/* CodeMirror syntax colors for the property-form script / structured-text
+ * editors (既定値 / 検証 / 表示形式). Same palette as the Text Editor app and
+ * wt-inspector so highlighting is consistent across webtop. */
+:root[data-theme="light"] {
+	/* VSCode Light+ inspired */
+	--cm-keyword: #af00db;
+	--cm-string: #a31515;
+	--cm-comment: var(--text-soft-color);
+	--cm-number: #098658;
+	--cm-function: #795e26;
+	--cm-class: #267f99;
+	--cm-property: #001080;
+	--cm-tag: #800000;
+	--cm-operator: var(--body-color);
+	--cm-punctuation: var(--text-soft-color);
+	--cm-meta: #4078f2;
+	--cm-invalid: var(--danger-color);
+}
+
+:root[data-theme="dark"] {
+	/* VSCode Dark+ inspired */
+	--cm-keyword: #c586c0;
+	--cm-string: #ce9178;
+	--cm-comment: var(--text-soft-color);
+	--cm-number: #b5cea8;
+	--cm-function: #dcdcaa;
+	--cm-class: #4ec9b0;
+	--cm-property: #9cdcfe;
+	--cm-tag: #569cd6;
+	--cm-operator: var(--body-color);
+	--cm-punctuation: var(--text-soft-color);
+	--cm-meta: #8ab4f8;
+	--cm-invalid: var(--danger-color);
+}
+
 /* ----------------------------------------------------------------------------
  * Layout — top toolbar, content body (2-pane), status bar
  * -------------------------------------------------------------------------- */
@@ -1123,4 +1158,112 @@ input.wt.is-invalid,
 
 [v-cloak] {
 	display: none !important;
+}
+
+/* ----------------------------------------------------------------------------
+ * CodeMirror property-form editors (動作>既定値・検証 / UIヒント>表示形式)
+ * Ported from wt-inspector.css so the inline + maximized editors look identical.
+ * Colors come from the --cm-* tokens above; --body-bg / --window-bg / etc. are
+ * shared tokens from webtop-app.css.
+ * -------------------------------------------------------------------------- */
+
+/* Inline editor */
+.cm-inline-wrap {
+	position: relative;
+	border: 2px solid var(--input-border-color);
+	border-radius: 0.5rem;
+}
+.cm-editor-inline {
+	border: 1px solid var(--navbar-border-color);
+	border-radius: 0.25rem;
+	overflow: hidden;
+}
+.cm-editor-inline .cm-editor {
+	height: 100%;
+}
+.cm-editor-inline .cm-scroller {
+	overflow: auto;
+}
+.cm-inline-actions {
+	position: absolute;
+	top: 0.25rem;
+	right: 0.25rem;
+	display: flex;
+	gap: 0.25rem;
+	z-index: 5;
+}
+
+/* Maximized overlay. position: fixed + rendered at #app level (outside every
+ * .island) so it fills the whole window, inset by 1rem — matching wt-inspector
+ * and the Text Editor app. */
+.cm-expanded-overlay {
+	position: fixed;
+	inset: 1rem;
+	border-radius: 0.75rem;
+	overflow: hidden;
+	z-index: 1000;
+	display: flex;
+	flex-direction: column;
+	background: var(--window-bg);
+}
+.cm-expanded-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.5rem 1rem;
+	background: var(--body-bg);
+	border-bottom: 1px solid var(--navbar-border-color);
+	flex-shrink: 0;
+}
+.cm-expanded-actions {
+	display: flex;
+	gap: 0.35rem;
+}
+.cm-expanded-body {
+	flex: 1;
+	display: flex;
+	min-height: 0;
+	overflow: hidden;
+}
+.cm-editor-expanded {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+}
+.cm-editor-expanded .cm-editor {
+	height: 100%;
+}
+
+/* Find / Replace bar */
+.cm-search-bar {
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+	padding: 0.5rem 0.75rem;
+	background-color: var(--body-bg);
+	border-bottom: 1px solid var(--input-border-color);
+}
+.cm-search-row {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+}
+.cm-search-input-group {
+	flex: 1;
+}
+.cm-search-input-group .input-group-btn.active {
+	color: var(--primary-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.1);
+	font-weight: 700;
+}
+.cm-search-bar.cm-search-not-found .cm-search-row:first-child .input-group {
+	border-color: var(--danger-color);
+}
+
+/* While a property field is maximized, hide the status bar contents (the
+ * overlay blankets the window but the bar's 1rem bottom gutter would peek
+ * through). Mirrors the Text Editor app's rule; the bar stays in flow and
+ * draggable. */
+#app:has(.cm-expanded-overlay) .status-bar > * {
+	visibility: hidden;
 }

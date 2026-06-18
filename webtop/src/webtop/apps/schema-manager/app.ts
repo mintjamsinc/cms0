@@ -5,6 +5,21 @@ import {
 	handleLocalizationMessage,
 	translate,
 } from "../../composables/use-localization.js";
+// CodeMirror — script & structured-text property fields (既定値 / 検証 / 表示形式).
+// The stateless theme, highlight palette, structured-text formatter and language
+// resolution are shared with wt-inspector (lib/codemirror-helpers).
+import { EditorState, Compartment } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection } from '@codemirror/view';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { syntaxHighlighting, bracketMatching, indentOnInput } from '@codemirror/language';
+import { search, findNext, findPrevious, replaceNext, replaceAll, setSearchQuery, SearchQuery } from '@codemirror/search';
+import { lintGutter } from '@codemirror/lint';
+import {
+	cmTheme,
+	cmHighlight,
+	formatStructuredText,
+	getLanguageExtensionForEditorType,
+} from '../../lib/codemirror-helpers.js';
 
 // Constants
 const SCHEMAS_PATH = '/etc/metadata/schemas';
@@ -595,6 +610,25 @@ export const App = {
 				// in the new mixin (which uses Set semantics on key only).
 				selectedPropertyIDs: [] as string[],
 			},
+			// ── CodeMirror (script & structured-text property fields) ──
+			// Inline editors keyed by field id: 'default' | 'validation' | 'displayFormat'.
+			// EditorView / Compartment instances are kept un-Proxied via $markRaw.
+			cmEditors: {} as Record<string, EditorView>,
+			cmLangCompartments: {} as Record<string, Compartment>,
+			// Maximize overlay — at most one field expanded at a time.
+			cmExpandedField: null as string | null,
+			cmExpandedEditor: null as EditorView | null,
+			cmExpandedLangCompartment: null as Compartment | null,
+			cmExpandedEditorType: '' as string,
+			cmEscHandler: null as ((e: KeyboardEvent) => void) | null,
+			// Find / replace inside the maximized overlay.
+			cmSearchVisible: false,
+			cmSearchTerm: '',
+			cmReplaceTerm: '',
+			cmSearchCaseSensitive: false,
+			cmSearchRegex: false,
+			cmSearchWholeWord: false,
+			cmSearchNotFound: false,
 		};
 	},
 	computed: {
@@ -678,6 +712,15 @@ export const App = {
 			if (!prop || prop.behavior.calculated.enabled || prop.uiHint.readOnly) return false;
 			if (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE' || prop.type === 'BINARY') return false;
 			return prop.constraints.choices.length === 0;
+		},
+		// Whether the 既定値 (default value) field should render as CodeMirror:
+		// CALCULATED is always a script; STATIC uses CodeMirror only for STRING
+		// (non-STRING STATIC keeps the plain typed <input>).
+		defaultValueUsesCm(): boolean {
+			const prop = this.selectedProperty;
+			if (!prop || prop.behavior.calculated.enabled) return false;
+			if (prop.behavior.defaultValue.type === 'CALCULATED') return true;
+			return prop.type === 'STRING';
 		},
 		// Path-bar label for the currently selected schema
 		schemaPathLabel(): string {
@@ -835,6 +878,7 @@ export const App = {
 
 		async onUnmount() {
 			const vm = this;
+			vm.destroyAllCmFields();
 			if (vm.messageListener) {
 				window.removeEventListener('message', vm.messageListener);
 				vm.messageListener = null;
@@ -939,6 +983,9 @@ export const App = {
 			if (result == null) return;
 			prop.uiHint.editorType = result === '__auto__' ? '' : String(result);
 			vm.onPropertyFieldChange();
+			// A STATIC+STRING default value follows the UI-hint editor type for
+			// JSON/XML/HTML highlighting — refresh its language in place.
+			vm.refreshCmFieldLanguage('default');
 		},
 
 		async openScanRowTypeDropdown(event: MouseEvent, index: number) {
@@ -1121,6 +1168,10 @@ export const App = {
 		selectProperty(schemaID: string, propertyID: string) {
 			this.selection = { schemaID, propertyID };
 			this.validationErrors = {};
+			// If a property field was maximized, drop the overlay before swapping
+			// the selection out from under it.
+			if ((this as any).cmExpandedField) (this as any).collapseCmField();
+			(this as any).remountVisibleCmFields();
 		},
 
 		// Toggle schema expansion
@@ -1627,6 +1678,335 @@ export const App = {
 			}
 		},
 
+		// ──────────────────────────────────────────────────────────────────
+		// CodeMirror property-field editors (動作>既定値・検証 / UIヒント>表示形式)
+		//
+		// Each script / structured-text field is backed by a CodeMirror instance
+		// keyed by a stable field id ('default' | 'validation' | 'displayFormat').
+		// Highlighting matches wt-inspector (shared theme + palette). 検証 and
+		// 表示形式 are always ECMAScript; 既定値 follows type/mode (see
+		// cmEditorTypeForField). Any field can be maximized into a full-window
+		// overlay (find/replace + format); while expanded the status bar is hidden
+		// via CSS (#app:has(.cm-expanded-overlay) — see style.css).
+		//
+		// Inline editors are created/destroyed by the container's @mounted /
+		// @unmount hooks, so they follow the form's v-if rendering automatically.
+		// In-place language changes (STATIC↔CALCULATED, UI-hint editor type) that
+		// do NOT remount the container are handled by refreshCmFieldLanguage().
+		// ──────────────────────────────────────────────────────────────────
+
+		// Resolve the editor-type token (drives syntax highlighting) for a field.
+		cmEditorTypeForField(this: any, fieldKey: string): string {
+			const prop = this.selectedProperty;
+			if (!prop) return '';
+			if (fieldKey === 'validation' || fieldKey === 'displayFormat') return 'ECMAScript';
+			// fieldKey === 'default'
+			if (prop.behavior.defaultValue.type === 'CALCULATED') return 'ECMAScript';
+			// STATIC + STRING: follow the UI-hint editor type for JSON/XML/HTML,
+			// otherwise plain text (no language).
+			const et = prop.uiHint.editorType;
+			return (et === 'JSON' || et === 'XML' || et === 'HTML') ? et : '';
+		},
+
+		// Read / write the model value behind a field.
+		cmFieldGet(this: any, fieldKey: string): string {
+			const prop = this.selectedProperty;
+			if (!prop) return '';
+			if (fieldKey === 'validation') return prop.uiHint.validation || '';
+			if (fieldKey === 'displayFormat') return prop.uiHint.displayFormat || '';
+			return prop.behavior.defaultValue.value || '';
+		},
+		cmFieldSet(this: any, fieldKey: string, value: string): void {
+			const prop = this.selectedProperty;
+			if (!prop) return;
+			if (fieldKey === 'validation') prop.uiHint.validation = value;
+			else if (fieldKey === 'displayFormat') prop.uiHint.displayFormat = value;
+			else prop.behavior.defaultValue.value = value;
+			this.onPropertyFieldChange();
+		},
+
+		// Build a CodeMirror EditorState for a field (inline or maximized).
+		_buildCmState(this: any, fieldKey: string, editorType: string, value: string, compartment: Compartment, expanded: boolean) {
+			const vm = this;
+			const updateListener = EditorView.updateListener.of((update: any) => {
+				if (update.docChanged) {
+					vm.cmFieldSet(fieldKey, update.state.doc.toString());
+				}
+			});
+			const searchKeyBindings = expanded ? [
+				{ key: 'Mod-f', run: () => { vm.openCmSearch(); return true; } },
+				{ key: 'Mod-h', run: () => { vm.openCmSearch(); return true; } },
+				{ key: 'F3', run: (view: EditorView) => findNext(view) },
+				{ key: 'Shift-F3', run: (view: EditorView) => findPrevious(view) },
+			] : [];
+			const searchExtension = expanded ? [
+				search({ top: true, createPanel: () => ({ dom: document.createElement('div') }) }),
+			] : [];
+			return EditorState.create({
+				doc: value,
+				extensions: [
+					lineNumbers(),
+					highlightActiveLine(),
+					history(),
+					drawSelection(),
+					bracketMatching(),
+					indentOnInput(),
+					syntaxHighlighting(cmHighlight, { fallback: true }),
+					...searchExtension,
+					keymap.of([...searchKeyBindings, ...defaultKeymap, ...historyKeymap]),
+					cmTheme,
+					compartment.of(getLanguageExtensionForEditorType(editorType)),
+					expanded ? lintGutter() : [],
+					updateListener,
+				],
+			});
+		},
+
+		// Mount the inline editor for a field (called from the container's @mounted).
+		mountCmField(this: any, fieldKey: string) {
+			const vm = this;
+			const containerId = 'cm-' + fieldKey;
+			const editorType = vm.cmEditorTypeForField(fieldKey);
+			const init = (attempts = 0) => {
+				const container = document.getElementById(containerId);
+				if (!container) {
+					if (attempts < 20) requestAnimationFrame(() => init(attempts + 1));
+					return;
+				}
+				vm.destroyCmField(fieldKey);
+				const compartment = vm.$markRaw(new Compartment());
+				const state = vm._buildCmState(fieldKey, editorType, vm.cmFieldGet(fieldKey), compartment, false);
+				vm.cmEditors[fieldKey] = vm.$markRaw(new EditorView({ state, parent: container }));
+				vm.cmLangCompartments[fieldKey] = compartment;
+			};
+			vm.$nextTick(() => init());
+		},
+
+		destroyCmField(this: any, fieldKey: string) {
+			const vm = this;
+			const view = vm.cmEditors[fieldKey];
+			if (view) {
+				view.destroy();
+				delete vm.cmEditors[fieldKey];
+			}
+			delete vm.cmLangCompartments[fieldKey];
+		},
+
+		// Re-sync every inline editor with the current selection. The container
+		// @mounted/@unmount hooks handle fields that are added/removed from the
+		// DOM, but when the property form is reused across selections (same
+		// elements, new model) those hooks do NOT re-fire — so on selection
+		// change we explicitly rebuild each present editor (mountCmField is
+		// idempotent: it destroys any stale instance first) and drop absent ones.
+		remountVisibleCmFields(this: any) {
+			const vm = this;
+			vm.$nextTick(() => {
+				for (const fieldKey of ['default', 'validation', 'displayFormat']) {
+					if (document.getElementById('cm-' + fieldKey)) {
+						vm.mountCmField(fieldKey);
+					} else {
+						vm.destroyCmField(fieldKey);
+					}
+				}
+			});
+		},
+
+		destroyAllCmFields(this: any) {
+			const vm = this;
+			for (const k of Object.keys(vm.cmEditors)) vm.destroyCmField(k);
+			if (vm.cmExpandedEditor) { vm.cmExpandedEditor.destroy(); vm.cmExpandedEditor = null; }
+			vm.cmExpandedLangCompartment = null;
+			vm.cmExpandedField = null;
+			vm.cmExpandedEditorType = '';
+			if (vm.cmEscHandler) { document.removeEventListener('keydown', vm.cmEscHandler, true); vm.cmEscHandler = null; }
+		},
+
+		// Reconfigure a field's language compartment in place — used when the
+		// container is NOT remounted (STATIC↔CALCULATED toggle on a STRING type,
+		// or a UI-hint editor-type change for a STATIC+STRING default value).
+		refreshCmFieldLanguage(this: any, fieldKey: string) {
+			const vm = this;
+			const editorType = vm.cmEditorTypeForField(fieldKey);
+			const lang = getLanguageExtensionForEditorType(editorType);
+			const inline = vm.cmEditors[fieldKey];
+			if (inline && vm.cmLangCompartments[fieldKey]) {
+				inline.dispatch({ effects: vm.cmLangCompartments[fieldKey].reconfigure(lang) });
+			}
+			if (vm.cmExpandedField === fieldKey && vm.cmExpandedEditor && vm.cmExpandedLangCompartment) {
+				vm.cmExpandedEditorType = editorType;
+				vm.cmExpandedEditor.dispatch({ effects: vm.cmExpandedLangCompartment.reconfigure(lang) });
+			}
+		},
+
+		// Default-value mode (固定/計算) toggle: track change + switch highlight.
+		onDefaultValueModeChange(this: any) {
+			this.onPropertyFieldChange();
+			this.refreshCmFieldLanguage('default');
+		},
+
+		// ── Maximize overlay ──
+		toggleCmFieldExpanded(this: any, fieldKey: string) {
+			const vm = this;
+			if (vm.cmExpandedField === fieldKey) {
+				vm.collapseCmField();
+				return;
+			}
+			const editorType = vm.cmEditorTypeForField(fieldKey);
+			// Capture the latest text from the inline editor (or the model).
+			const value = vm.cmEditors[fieldKey]
+				? vm.cmEditors[fieldKey].state.doc.toString()
+				: vm.cmFieldGet(fieldKey);
+			vm.cmExpandedField = fieldKey;
+			vm.cmExpandedEditorType = editorType;
+			vm.cmSearchVisible = false;
+			vm.cmSearchNotFound = false;
+			// Setting cmExpandedField hides the inline container (v-if) — its
+			// @unmount tears down the inline editor — and reveals the overlay.
+			const init = (attempts = 0) => {
+				const container = document.getElementById('cm-editor-expanded');
+				if (!container) {
+					if (attempts < 20) requestAnimationFrame(() => init(attempts + 1));
+					return;
+				}
+				if (vm.cmExpandedEditor) { vm.cmExpandedEditor.destroy(); vm.cmExpandedEditor = null; }
+				const compartment = vm.$markRaw(new Compartment());
+				const state = vm._buildCmState(fieldKey, editorType, value, compartment, true);
+				vm.cmExpandedEditor = vm.$markRaw(new EditorView({ state, parent: container }));
+				vm.cmExpandedLangCompartment = compartment;
+				vm.cmExpandedEditor.focus();
+			};
+			vm.$nextTick(() => init());
+			// Esc closes the find bar first, then the overlay.
+			vm.cmEscHandler = (e: KeyboardEvent) => {
+				if (e.key !== 'Escape') return;
+				if (vm.cmSearchVisible) {
+					e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+					vm.closeCmSearch();
+					return;
+				}
+				e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+				vm.collapseCmField();
+			};
+			document.addEventListener('keydown', vm.cmEscHandler, true);
+		},
+
+		collapseCmField(this: any) {
+			const vm = this;
+			if (vm.cmExpandedEditor) {
+				// Flush the latest value before teardown (the inline editor will be
+				// recreated from the model when the container reappears).
+				vm.cmFieldSet(vm.cmExpandedField, vm.cmExpandedEditor.state.doc.toString());
+				vm.cmExpandedEditor.destroy();
+				vm.cmExpandedEditor = null;
+			}
+			vm.cmExpandedLangCompartment = null;
+			vm.cmExpandedField = null;
+			vm.cmExpandedEditorType = '';
+			vm.cmSearchVisible = false;
+			vm.cmSearchNotFound = false;
+			if (vm.cmEscHandler) { document.removeEventListener('keydown', vm.cmEscHandler, true); vm.cmEscHandler = null; }
+		},
+
+		// ── Find / replace inside the maximized overlay (operates on the
+		//    currently-expanded editor) ──
+		openCmSearch(this: any) {
+			const vm = this;
+			if (!vm.cmExpandedEditor) return;
+			vm.cmSearchVisible = true;
+			vm.cmSearchNotFound = false;
+			vm.applyCmSearchQuery();
+			vm.$nextTick(() => {
+				const el = document.getElementById('cm-sm-search-input') as HTMLInputElement | null;
+				if (el) { el.focus(); el.select(); }
+			});
+		},
+		closeCmSearch(this: any) {
+			const vm = this;
+			vm.cmSearchVisible = false;
+			vm.cmSearchNotFound = false;
+			if (vm.cmExpandedEditor) vm.cmExpandedEditor.focus();
+		},
+		applyCmSearchQuery(this: any) {
+			const vm = this;
+			if (!vm.cmExpandedEditor) return;
+			const query = new SearchQuery({
+				search: vm.cmSearchTerm,
+				caseSensitive: vm.cmSearchCaseSensitive,
+				regexp: vm.cmSearchRegex,
+				wholeWord: vm.cmSearchWholeWord,
+				replace: vm.cmReplaceTerm,
+			});
+			vm.cmExpandedEditor.dispatch({ effects: setSearchQuery.of(query) });
+		},
+		onCmSearchInput(this: any) {
+			this.cmSearchNotFound = false;
+			this.applyCmSearchQuery();
+		},
+		cmFindNext(this: any) {
+			const vm = this;
+			if (!vm.cmExpandedEditor || !vm.cmSearchTerm) return;
+			vm.applyCmSearchQuery();
+			vm.cmSearchNotFound = !findNext(vm.cmExpandedEditor);
+		},
+		cmFindPrev(this: any) {
+			const vm = this;
+			if (!vm.cmExpandedEditor || !vm.cmSearchTerm) return;
+			vm.applyCmSearchQuery();
+			vm.cmSearchNotFound = !findPrevious(vm.cmExpandedEditor);
+		},
+		cmReplaceNext(this: any) {
+			const vm = this;
+			if (!vm.cmExpandedEditor || !vm.cmSearchTerm) return;
+			vm.applyCmSearchQuery();
+			vm.cmSearchNotFound = !replaceNext(vm.cmExpandedEditor);
+		},
+		cmReplaceAll(this: any) {
+			const vm = this;
+			if (!vm.cmExpandedEditor || !vm.cmSearchTerm) return;
+			vm.applyCmSearchQuery();
+			vm.cmSearchNotFound = !replaceAll(vm.cmExpandedEditor);
+		},
+		toggleCmSearchCaseSensitive(this: any) {
+			this.cmSearchCaseSensitive = !this.cmSearchCaseSensitive;
+			this.applyCmSearchQuery();
+		},
+		toggleCmSearchRegex(this: any) {
+			this.cmSearchRegex = !this.cmSearchRegex;
+			this.applyCmSearchQuery();
+		},
+		toggleCmSearchWholeWord(this: any) {
+			this.cmSearchWholeWord = !this.cmSearchWholeWord;
+			this.applyCmSearchQuery();
+		},
+		onCmSearchKeydown(this: any, event: KeyboardEvent) {
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				if (event.shiftKey) this.cmFindPrev(); else this.cmFindNext();
+			} else if (event.key === 'Escape') {
+				event.preventDefault();
+				this.closeCmSearch();
+			}
+		},
+		onCmReplaceKeydown(this: any, event: KeyboardEvent) {
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				if (event.ctrlKey || event.metaKey) this.cmReplaceAll(); else this.cmReplaceNext();
+			} else if (event.key === 'Escape') {
+				event.preventDefault();
+				this.closeCmSearch();
+			}
+		},
+		formatCmContent(this: any) {
+			const vm = this;
+			if (!vm.cmExpandedEditor) return;
+			const current = vm.cmExpandedEditor.state.doc.toString();
+			const formatted = formatStructuredText(current, vm.cmExpandedEditorType);
+			if (formatted === current) return;
+			vm.cmExpandedEditor.dispatch({
+				changes: { from: 0, to: current.length, insert: formatted },
+			});
+		},
+
 		onSchemaFieldChange() {
 			// Modification is tracked via schemaToJSON comparison
 		},
@@ -1652,6 +2032,13 @@ export const App = {
 				prop.constraints.maxValue = undefined;
 				prop.constraints.decimalPlaces = undefined;
 			}
+
+			// The type drives whether 既定値[固定] is CodeMirror (STRING) or a plain
+			// input, and a STATIC+STRING default's highlight follows the editor type
+			// (which may have just been reset above). Rebuild visible editors and
+			// refresh the default field's language.
+			(this as any).refreshCmFieldLanguage('default');
+			(this as any).remountVisibleCmFields();
 		},
 
 		isNumericType(jcrType: string): boolean {

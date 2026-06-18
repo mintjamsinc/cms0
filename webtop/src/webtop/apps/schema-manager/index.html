@@ -679,22 +679,29 @@
 									<div class="wt-radio-row">
 										<label class="wt-radio-label">
 											<input type="radio" class="wt" v-model="selectedProperty.behavior.defaultValue.type"
-												value="STATIC" @change="onPropertyFieldChange">
+												value="STATIC" @change="onDefaultValueModeChange">
 											{{ t('app.schema-manager.property.static') }}
 										</label>
 										<label class="wt-radio-label">
 											<input type="radio" class="wt" v-model="selectedProperty.behavior.defaultValue.type"
-												value="CALCULATED" @change="onPropertyFieldChange">
+												value="CALCULATED" @change="onDefaultValueModeChange">
 											{{ t('app.schema-manager.property.calculated') }}
 										</label>
 									</div>
-									<input v-if="selectedProperty.behavior.defaultValue.type === 'STATIC'"
+									<!-- STATIC + non-STRING: plain typed input -->
+									<input v-if="selectedProperty.behavior.defaultValue.type === 'STATIC' && selectedProperty.type !== 'STRING'"
 										type="text" class="wt w-100" v-model="selectedProperty.behavior.defaultValue.value"
 										:placeholder="t('app.schema-manager.property.defaultValuePlaceholder')" @input="onPropertyFieldChange">
-									<textarea v-else
-										class="wt w-100" v-model="selectedProperty.behavior.defaultValue.value"
-										placeholder="return ctx.item.name;" rows="3"
-										@input="onPropertyFieldChange"></textarea>
+									<!-- STATIC+STRING or CALCULATED: CodeMirror (highlight follows mode / UI-hint editor type) -->
+									<div v-if="defaultValueUsesCm" class="cm-inline-wrap">
+										<div v-if="cmExpandedField !== 'default'" id="cm-default" class="cm-editor-inline" style="height: calc(3lh + 2px);"
+											@mounted="mountCmField('default')" @unmount="destroyCmField('default')"></div>
+										<div v-if="cmExpandedField !== 'default'" class="cm-inline-actions">
+											<button class="wt wt-square fs-small" @click="toggleCmFieldExpanded('default')" :title="t('app.schema-manager.cm.expand')">
+												<i class="bi bi-arrows-fullscreen"></i>
+											</button>
+										</div>
+									</div>
 								</div>
 								<div v-if="selectedProperty.behavior.calculated.enabled" class="property-row">
 									<label class="property-label">{{ t('app.schema-manager.property.formula') }}
@@ -708,14 +715,15 @@
 								</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.schema-manager.property.validation') }}</label>
-									<div class="field-help">
-										Return <code>{ valid: true }</code> or
-										<code>{ valid: false, errors: [{ messageId, severity?, params?, ruleId?, fallbackMessage? }, ...] }</code>.<br>
-										<strong>ctx</strong>: <code>item</code> (<code>item.name</code>, <code>item.path</code>, <code>item.mimeType</code>, …), <code>propertyName</code>, <code>value</code>, <code>values</code>, <code>isArray</code>, <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>, <code>formatCurrency(amount, currencyCodeOrOptions?)</code> (options: <code>{ currency?, locale? }</code>), <code>formatDate(date, optionsOrPattern?)</code> (options: <code>{ pattern?, locale?, timeZone? }</code>). On the browser, <code>locale</code> / <code>timeZone</code> default to Preferences &gt; Localization; on the server they default to the JVM and must be set explicitly.
+									<div class="cm-inline-wrap">
+										<div v-if="cmExpandedField !== 'validation'" id="cm-validation" class="cm-editor-inline" style="height: calc(8lh + 2px);"
+											@mounted="mountCmField('validation')" @unmount="destroyCmField('validation')"></div>
+										<div v-if="cmExpandedField !== 'validation'" class="cm-inline-actions">
+											<button class="wt wt-square fs-small" @click="toggleCmFieldExpanded('validation')" :title="t('app.schema-manager.cm.expand')">
+												<i class="bi bi-arrows-fullscreen"></i>
+											</button>
+										</div>
 									</div>
-									<textarea class="wt w-100" v-model="selectedProperty.uiHint.validation"
-										:placeholder="validationPlaceholder" rows="8"
-										@input="onPropertyFieldChange"></textarea>
 								</div>
 							</template>
 						</div>
@@ -877,13 +885,15 @@
 							<div v-if="selectedProperty.type !== 'REFERENCE' && selectedProperty.type !== 'WEAKREFERENCE' && selectedProperty.type !== 'BINARY'"
 								class="property-row">
 								<label class="property-label">{{ t('app.schema-manager.property.displayFormat') }}</label>
-								<div class="field-help">
-									Return the display string.
-									<strong>ctx</strong>: <code>value</code>, <code>values</code>, <code>item</code> (<code>item.name</code>, <code>item.path</code>, …), <code>get(name)</code>, <code>getString(name)</code>, <code>getNumber(name)</code>, <code>getValues(name)</code>, <code>formatCurrency(amount, currencyCodeOrOptions?)</code> (options: <code>{ currency?, locale? }</code>), <code>formatDate(date, optionsOrPattern?)</code> (options: <code>{ pattern?, locale?, timeZone? }</code>). On the browser, <code>locale</code> / <code>timeZone</code> default to Preferences &gt; Localization; on the server they default to the JVM and must be set explicitly.
+								<div class="cm-inline-wrap">
+									<div v-if="cmExpandedField !== 'displayFormat'" id="cm-displayFormat" class="cm-editor-inline" style="height: calc(3lh + 2px);"
+										@mounted="mountCmField('displayFormat')" @unmount="destroyCmField('displayFormat')"></div>
+									<div v-if="cmExpandedField !== 'displayFormat'" class="cm-inline-actions">
+										<button class="wt wt-square fs-small" @click="toggleCmFieldExpanded('displayFormat')" :title="t('app.schema-manager.cm.expand')">
+											<i class="bi bi-arrows-fullscreen"></i>
+										</button>
+									</div>
 								</div>
-								<textarea class="wt w-100" v-model="selectedProperty.uiHint.displayFormat"
-									placeholder="return ctx.value;" rows="3"
-									@input="onPropertyFieldChange"></textarea>
 							</div>
 						</div>
 
@@ -1103,6 +1113,59 @@
 						<button class="wt wt-primary" @click="errorMessage = ''">{{ t('app.schema-manager.action.ok') }}</button>
 					</div>
 				</div>
+			</div>
+		</div>
+		<!-- CodeMirror maximized overlay (動作>既定値・検証 / UIヒント>表示形式).
+		     Rendered at #app level (sibling of the dialogs, OUTSIDE every .island)
+		     so its position: fixed fills the whole window. While it is open the
+		     status bar is hidden via #app:has(.cm-expanded-overlay) (see style.css). -->
+		<div v-if="cmExpandedField" class="cm-expanded-overlay">
+			<div class="cm-expanded-toolbar">
+				<span class="cm-expanded-title">{{ t('app.schema-manager.cm.editorTitle') }}</span>
+				<div class="cm-expanded-actions">
+					<button class="wt wt-outlined wt-slim fs-small" @click="openCmSearch" :title="t('app.schema-manager.cm.find')">
+						<i class="bi bi-search me-1"></i><span>{{ t('app.schema-manager.cm.find') }}</span>
+					</button>
+					<button v-if="cmExpandedEditorType === 'JSON' || cmExpandedEditorType === 'XML' || cmExpandedEditorType === 'HTML'"
+						class="wt wt-outlined wt-slim fs-small" @click="formatCmContent" :title="t('app.schema-manager.cm.format')">
+						<i class="bi bi-magic me-1"></i><span>{{ t('app.schema-manager.cm.format') }}</span>
+					</button>
+					<button class="wt wt-outlined wt-slim fs-small" @click="collapseCmField" :title="t('app.schema-manager.cm.collapse')">
+						<i class="bi bi-fullscreen-exit me-1"></i><span>{{ t('app.schema-manager.cm.collapse') }}</span>
+					</button>
+				</div>
+			</div>
+			<!-- Find / Replace bar -->
+			<div v-if="cmSearchVisible" class="cm-search-bar" :class="{ 'cm-search-not-found': cmSearchNotFound }">
+				<div class="cm-search-row">
+					<div class="input-group cm-search-input-group">
+						<input id="cm-sm-search-input" type="text" v-model="cmSearchTerm"
+							@input="onCmSearchInput" @keydown="onCmSearchKeydown"
+							:placeholder="t('app.schema-manager.cm.findPlaceholder')" spellcheck="false">
+						<div class="input-group-actions">
+							<button class="input-group-btn" :class="{ active: cmSearchCaseSensitive }"
+								@click="toggleCmSearchCaseSensitive" :title="t('app.schema-manager.cm.matchCase')">Aa</button>
+							<button class="input-group-btn" :class="{ active: cmSearchWholeWord }"
+								@click="toggleCmSearchWholeWord" :title="t('app.schema-manager.cm.wholeWord')">ab</button>
+							<button class="input-group-btn" :class="{ active: cmSearchRegex }"
+								@click="toggleCmSearchRegex" :title="t('app.schema-manager.cm.regex')">.*</button>
+						</div>
+					</div>
+					<button class="btn-icon" @click="cmFindPrev" :title="t('app.schema-manager.cm.prev')"><i class="bi bi-chevron-up"></i></button>
+					<button class="btn-icon" @click="cmFindNext" :title="t('app.schema-manager.cm.next')"><i class="bi bi-chevron-down"></i></button>
+					<button class="btn-icon ms-auto" @click="closeCmSearch" :title="t('app.schema-manager.cm.close')"><i class="bi bi-x-lg"></i></button>
+				</div>
+				<div class="cm-search-row">
+					<div class="input-group cm-search-input-group">
+						<input type="text" v-model="cmReplaceTerm" @keydown="onCmReplaceKeydown"
+							:placeholder="t('app.schema-manager.cm.replacePlaceholder')" spellcheck="false">
+					</div>
+					<button class="wt wt-outlined wt-slim" @click="cmReplaceNext">{{ t('app.schema-manager.cm.replace') }}</button>
+					<button class="wt wt-outlined wt-slim" @click="cmReplaceAll">{{ t('app.schema-manager.cm.replaceAll') }}</button>
+				</div>
+			</div>
+			<div class="cm-expanded-body">
+				<div id="cm-editor-expanded" class="cm-editor-expanded"></div>
 			</div>
 		</div>
 	</div>
