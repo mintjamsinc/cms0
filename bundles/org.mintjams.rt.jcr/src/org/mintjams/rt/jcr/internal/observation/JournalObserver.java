@@ -65,6 +65,8 @@ import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.AccessControlStore;
 import org.mintjams.rt.jcr.internal.Activator;
 import org.mintjams.rt.jcr.internal.JcrNode;
+import org.mintjams.rt.jcr.internal.JcrRepository;
+import org.mintjams.rt.jcr.internal.JcrRepositoryConfiguration;
 import org.mintjams.rt.jcr.internal.NodeCache;
 import org.mintjams.rt.jcr.internal.JcrProperty;
 import org.mintjams.rt.jcr.internal.JcrValue;
@@ -966,7 +968,9 @@ public class JournalObserver implements Adaptable, Closeable {
 	 * assumes the cluster nodes run with synchronized clocks.
 	 */
 	private class RemotePoller implements Runnable {
-		private static final long POLL_INTERVAL_MILLIS = 2000L;
+		// Poll cadence is adaptive and configurable; see
+		// JcrRepositoryConfiguration#getClusterPollIntervalMillis (floor) and
+		// #getClusterPollMaxIntervalMillis (idle ceiling).
 		private static final long STABILITY_GRACE_MILLIS = 10000L;
 		private static final int BATCH_LIMIT = 200;
 		private static final int PROCESSED_CACHE_SIZE = 4096;
@@ -977,14 +981,37 @@ public class JournalObserver implements Adaptable, Closeable {
 		public void run() {
 			String nodeId = adaptTo(ClusterController.class).getNodeId();
 			long consumed = -1;
+			long pollInterval = -1;
+			boolean appliedRemoteChange = false;
 			while (!fCloseRequested) {
 				if (Thread.interrupted()) {
 					fCloseRequested = true;
 					break;
 				}
+
+				// Adaptive cadence, read live each cycle so it retunes without a
+				// restart: poll at the floor while remote commits keep arriving and
+				// back off geometrically toward the ceiling while idle, so a quiet
+				// cluster costs little while a busy one stays sub-second. The
+				// previous cycle's outcome chooses this cycle's wait.
+				JcrRepositoryConfiguration config = adaptTo(JcrRepository.class).getConfiguration();
+				long floor = config.getClusterPollIntervalMillis();
+				long ceiling = config.getClusterPollMaxIntervalMillis();
+				if (pollInterval < 0 || appliedRemoteChange) {
+					pollInterval = floor;
+				} else if (pollInterval < ceiling) {
+					pollInterval = Math.min(ceiling, pollInterval * 2);
+				}
+				if (pollInterval < floor) {
+					pollInterval = floor;
+				} else if (pollInterval > ceiling) {
+					pollInterval = ceiling;
+				}
+				appliedRemoteChange = false;
+
 				synchronized (fRemoteLock) {
 					try {
-						fRemoteLock.wait(POLL_INTERVAL_MILLIS);
+						fRemoteLock.wait(pollInterval);
 					} catch (InterruptedException ignore) {}
 				}
 
@@ -1031,6 +1058,8 @@ public class JournalObserver implements Adaptable, Closeable {
 							invalidate(workspace, transactionId);
 							processTransaction(workspace, transactionId);
 							fProcessed.add(transactionId);
+							// Real remote activity this cycle: keep polling at the floor.
+							appliedRemoteChange = true;
 							while (fProcessed.size() > PROCESSED_CACHE_SIZE) {
 								Iterator<String> i = fProcessed.iterator();
 								i.next();

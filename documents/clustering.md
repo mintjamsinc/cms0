@@ -134,6 +134,26 @@ normally have unique host names), with a random identifier as the last
 resort. `cluster.enabled` can likewise be forced per node with the
 framework property `org.mintjams.jcr.cluster.enabled`.
 
+The cross-node propagation latency is tunable. Each node polls the cluster
+journal to invalidate its caches for changes committed on other nodes, and
+the cadence is **adaptive**: it polls at a floor while remote commits keep
+arriving and backs off geometrically (doubling) toward a ceiling while the
+cluster is idle, so a quiet cluster costs little while a busy one stays
+fast. The first remote commit seen after a quiet period snaps the cadence
+back to the floor. Two framework properties control it (milliseconds):
+
+- `org.mintjams.jcr.cluster.pollIntervalMillis` — the floor (active cadence;
+  sub-second by default, floored at 50). Lower it to tighten cross-node
+  read-after-write under load at the cost of more (cheap, indexed) queries.
+- `org.mintjams.jcr.cluster.pollMaxIntervalMillis` — the idle ceiling
+  (defaults to the historical fixed cadence, never below the floor). Raise
+  it to make an idle cluster cheaper at the cost of a longer first-event
+  latency after a quiet period; set it equal to the floor to disable the
+  back-off and poll at a fixed rate.
+
+Both are read live, so they can be retuned without a restart, and have no
+effect on a standalone node (the poller does not run).
+
 ### `<workspace>/etc/jcr/jcr.yml` (per workspace)
 
 ```yaml
@@ -188,9 +208,10 @@ Every transaction already records its events in the workspace's
 `jcr_journal` table; in cluster mode the commit additionally writes a
 marker into `jcr_journal_commits` (within the same transaction, so the
 marker is visible if and only if the changes are). Each node runs a
-poller (`JournalObserver.RemotePoller`, every 2 seconds) that reads the
-markers written by the other nodes, replays the referenced journal
-entries, and persists its consumed position in `jcr_journal_offsets`.
+poller (`JournalObserver.RemotePoller`, at an adaptive interval — see the
+cluster configuration above) that reads the markers written by the other
+nodes, replays the referenced journal entries, and persists its consumed
+position in `jcr_journal_offsets`.
 Replaying a remote transaction on a node:
 
 1. drops everything the transaction touched from the node cache (for
@@ -222,9 +243,22 @@ Delivery semantics and operational notes:
   replay; it detects this at startup, discards its search index, and
   rebuilds it from the repository content automatically.
 - **Lag.** Cross-node visibility of search results, caches, and events
-  is the polling interval (2 seconds) plus indexing time. Database reads
-  (content itself) are always immediately consistent — they go to the
-  shared database.
+  is the current adaptive poll interval (the floor while the cluster is
+  active — sub-second by default — backing off toward the ceiling while
+  idle; see the cluster configuration above) plus, for search, indexing
+  time. A burst's first event after a quiet period pays the backed-off
+  interval; once it lands the cadence snaps to the floor for the rest of
+  the burst. Content reads go
+  through the shared database, but in front of it sits the per-node node
+  cache: the committing node invalidates its own caches synchronously, so
+  read-after-write on that node is immediate, while other nodes keep
+  serving a cached node/property until the poller invalidates it — after
+  which their reads reload from the shared database. Reads that do not hit
+  a cached entry (a newly created node, child listings and
+  `getWeakReferences()` which query SQL directly) are current on every
+  node immediately. For a hard cross-node read-your-writes guarantee,
+  route a user's requests to one node (sticky sessions) so their own reads
+  ride the synchronous local invalidation.
 
 ### Cluster signal bus (Phase 3)
 

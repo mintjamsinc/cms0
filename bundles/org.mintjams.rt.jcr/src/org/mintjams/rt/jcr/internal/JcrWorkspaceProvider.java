@@ -426,6 +426,114 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				Activator.getDefault().getLogger(getClass())
 						.info("Version storage node type migration has been completed.");
 			} while (false);
+
+			// Enforce unique live node paths.
+			// Historically two concurrent sessions could each pass the in-memory
+			// "does this path already exist?" check and then both insert a row with
+			// the same item_path, because nothing at the database level prevented it.
+			// We add an 'active_path' column (the live path, NULL once the node is
+			// removed) and a UNIQUE index on it, turning that best-effort check into a
+			// hard guarantee that holds under concurrency. NULLs are exempt from
+			// uniqueness on every supported database, so a removed node and its
+			// same-path replacement may coexist within a transaction.
+			do {
+				// Ensure the column exists on workspaces created before it was
+				// introduced (a no-op on freshly created ones).
+				try {
+					Update.newBuilder(connection)
+							.setStatement("ALTER TABLE jcr_items ADD COLUMN IF NOT EXISTS active_path VARCHAR")
+							.build().execute();
+					connection.commit();
+				} catch (Throwable ex) {
+					try {
+						connection.rollback();
+					} catch (Throwable ignore) {
+					}
+					throw ex;
+				}
+
+				// Populate the column for existing rows once. New rows maintain it
+				// themselves, so a live row with a NULL active_path can only occur
+				// before this backfill has run.
+				boolean needsBackfill;
+				try (Query.Result result = Query.newBuilder(connection)
+						.setStatement("SELECT COUNT(*) AS c FROM jcr_items WHERE is_deleted = FALSE AND active_path IS NULL")
+						.build().setOffset(0).setLimit(1).execute()) {
+					needsBackfill = result.iterator().next().getLong("c") > 0;
+				}
+
+				if (needsBackfill) {
+					try {
+						Update.newBuilder(connection)
+								.setStatement("UPDATE jcr_items SET active_path = item_path"
+										+ " WHERE is_deleted = FALSE AND active_path IS NULL")
+								.build().execute();
+
+						// Repair any duplicates left behind by the historical race so the
+						// unique index can be created. Non-destructive: the losing rows
+						// keep their data and item_path; only their (otherwise duplicate)
+						// active_path is moved aside under a unique sentinel.
+						List<String> duplicatePaths = new ArrayList<>();
+						try (Query.Result result = Query.newBuilder(connection)
+								.setStatement("SELECT item_path FROM jcr_items"
+										+ " WHERE is_deleted = FALSE GROUP BY item_path HAVING COUNT(*) > 1")
+								.build().setOffset(0).execute()) {
+							for (AdaptableMap<String, Object> row : result) {
+								duplicatePaths.add(row.getString("item_path"));
+							}
+						}
+						for (String duplicatePath : duplicatePaths) {
+							List<String> itemIds = new ArrayList<>();
+							try (Query.Result result = Query.newBuilder(connection)
+									.setStatement("SELECT item_id FROM jcr_items"
+											+ " WHERE is_deleted = FALSE AND item_path = {{path}} ORDER BY item_id")
+									.setVariable("path", duplicatePath)
+									.build().setOffset(0).execute()) {
+								for (AdaptableMap<String, Object> row : result) {
+									itemIds.add(row.getString("item_id"));
+								}
+							}
+							// Keep the first row at the real path; quarantine the rest.
+							for (int i = 1; i < itemIds.size(); i++) {
+								Update.newBuilder(connection)
+										.setStatement("UPDATE jcr_items"
+												+ " SET active_path = COALESCE(item_path, '') || '#__duplicate__#' || item_id"
+												+ " WHERE item_id = {{id}}")
+										.setVariable("id", itemIds.get(i))
+										.build().execute();
+							}
+							Activator.getDefault().getLogger(getClass()).warn(
+									"Workspace '" + getWorkspaceName() + "': found " + itemIds.size()
+									+ " live nodes sharing the path '" + duplicatePath
+									+ "'. Kept '" + (itemIds.isEmpty() ? "" : itemIds.get(0))
+									+ "'; the rest were quarantined (their data is preserved and still"
+									+ " reachable by identifier) and need manual resolution.");
+						}
+
+						connection.commit();
+					} catch (Throwable ex) {
+						try {
+							connection.rollback();
+						} catch (Throwable ignore) {
+						}
+						throw ex;
+					}
+				}
+
+				// Create the guarantee. IF NOT EXISTS keeps this idempotent across restarts.
+				try {
+					Update.newBuilder(connection)
+							.setStatement("CREATE UNIQUE INDEX IF NOT EXISTS jcr_items_active_path ON jcr_items (active_path)")
+							.build().execute();
+					connection.commit();
+				} catch (Throwable ex) {
+					try {
+						connection.rollback();
+					} catch (Throwable ignore) {
+					}
+					throw ex;
+				}
+			} while (false);
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}

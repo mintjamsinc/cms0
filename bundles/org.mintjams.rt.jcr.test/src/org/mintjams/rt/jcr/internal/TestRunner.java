@@ -56,7 +56,8 @@ public class TestRunner {
 			JcrSessionTest.class,
 			JcrRepositoryTest.class,
 			JcrNamespaceRegistryTest.class,
-			NamespaceRegistrationValidationTest.class
+			NamespaceRegistrationValidationTest.class,
+			JcrConcurrentNodeCreationTest.class
 		};
 
 		// Run tests

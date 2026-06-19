@@ -391,6 +391,21 @@ public class WorkspaceQuery implements Adaptable {
 		return Update.newBuilder(getConnection()).setStatement(statement);
 	}
 
+	/**
+	 * Recomputes {@code active_path} for the given item from its current
+	 * {@code item_path} and {@code is_deleted} state: the live path while the node
+	 * exists, {@code NULL} once it is removed. Call this after any change to either
+	 * column (a move that rewrites the path, or a soft delete) so the unique index
+	 * that guards path uniqueness stays in step. Inserts set {@code active_path}
+	 * directly and do not need this.
+	 */
+	private void syncActivePath(String id) throws SQLException {
+		newUpdateBuilder(
+				"UPDATE jcr_items SET active_path = CASE WHEN is_deleted THEN NULL ELSE item_path END"
+				+ " WHERE item_id = {{id}}")
+				.setVariable("id", id).build().execute();
+	}
+
 	@Override
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
 		return Adaptables.getAdapter(fWorkspace, adapterType);
@@ -681,10 +696,6 @@ public class WorkspaceQuery implements Adaptable {
 				id = UUID.randomUUID().toString();
 			}
 
-			newUpdateBuilder("DELETE FROM jcr_items WHERE item_id = {{id}}").setVariable("id", id).build().execute();
-			newUpdateBuilder("DELETE FROM jcr_properties WHERE parent_item_id = {{id}}").setVariable("id", id).build()
-					.execute();
-
 			String path = "/" + getResolved(Strings.defaultString(itemName));
 			if (parentItemData != null) {
 				if (!JcrPath.valueOf(parentItemData.getString("item_path")).isRoot()) {
@@ -692,15 +703,41 @@ public class WorkspaceQuery implements Adaptable {
 				}
 			}
 
-			itemsEntity()
-					.create(AdaptableMap.<String, Object>newBuilder()
-							.put("item_id", id)
-							.put("item_name", JcrPath.valueOf(path).getName().toString())
-							.put("item_path", path)
-							.put("parent_item_id", (parentItemData == null) ? null : parentItemData.getString("item_id"))
-							.put("is_system", JCRs.isSystemPath(path))
-							.build())
-					.execute();
+			// active_path mirrors item_path while the node is live; a UNIQUE index on
+			// it makes path uniqueness a hard guarantee. The getNode() check above is
+			// still useful (it gives a clean error in the common, uncontended case
+			// without a database round-trip), but it cannot see a sibling transaction's
+			// uncommitted insert. If two sessions race, the loser's insert violates the
+			// unique index; we translate that into the same ItemExistsException the
+			// check would have thrown. The savepoint lets the caller's transaction
+			// survive that expected failure on databases that abort on error.
+			boolean useSavepoint = adaptTo(DatabaseDialect.class).isTransactionAbortedOnError();
+			Savepoint savepoint = useSavepoint ? getConnection().setSavepoint() : null;
+			try {
+				newUpdateBuilder("DELETE FROM jcr_items WHERE item_id = {{id}}").setVariable("id", id).build().execute();
+				newUpdateBuilder("DELETE FROM jcr_properties WHERE parent_item_id = {{id}}").setVariable("id", id).build()
+						.execute();
+
+				itemsEntity()
+						.create(AdaptableMap.<String, Object>newBuilder()
+								.put("item_id", id)
+								.put("item_name", JcrPath.valueOf(path).getName().toString())
+								.put("item_path", path)
+								.put("active_path", path)
+								.put("parent_item_id", (parentItemData == null) ? null : parentItemData.getString("item_id"))
+								.put("is_system", JCRs.isSystemPath(path))
+								.build())
+						.execute();
+			} catch (SQLException ex) {
+				if (savepoint != null) {
+					// Undo the failed attempt so the caller's transaction stays usable.
+					getConnection().rollback(savepoint);
+				}
+				if (adaptTo(DatabaseDialect.class).isUniqueConstraintViolation(ex)) {
+					throw new ItemExistsException("Node already exists: " + itemPath.toString());
+				}
+				throw ex;
+			}
 
 			// The new item must never reach the workspace-wide cache before it is committed.
 			markDirty(id);
@@ -1522,6 +1559,9 @@ public class WorkspaceQuery implements Adaptable {
 			itemsEntity().updateByPrimaryKey(
 					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
 					.execute();
+			// Release the path so a same-path replacement may be created in this same
+			// transaction (delete-then-recreate).
+			syncActivePath(id);
 
 			markDirty(id);
 
@@ -1569,6 +1609,8 @@ public class WorkspaceQuery implements Adaptable {
 						.put("item_id", srcItem.getString("item_id")).put("item_name", destPath.getName().toString())
 						.put("item_path", destPath.toString()).build()).execute();
 			}
+			// Keep the path-uniqueness key in step with the new path.
+			syncActivePath(srcItem.getString("item_id"));
 
 			markDirty(srcItem.getString("item_id"));
 			moveChildNodes(srcItem.getString("item_id"));
@@ -1596,6 +1638,10 @@ public class WorkspaceQuery implements Adaptable {
 							AdaptableMap.<String, Object>newBuilder().put("item_id", itemData.getString("item_id"))
 									.put("item_name", name).put("item_path", path).build())
 							.execute();
+					// Keep the path-uniqueness key in step with the new path. listNodes
+					// also returns rows soft-deleted earlier in this transaction; the
+					// recompute leaves their active_path NULL.
+					syncActivePath(itemData.getString("item_id"));
 
 					markDirty(itemData.getString("item_id"));
 					moveChildNodes(itemData.getString("item_id"));

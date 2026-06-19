@@ -51,6 +51,12 @@ public class PostgreSqlDialect implements DatabaseDialect {
 	}
 
 	@Override
+	public boolean isUniqueConstraintViolation(SQLException ex) {
+		// PostgreSQL reports unique_violation as SQLSTATE 23505.
+		return DatabaseDialect.hasSqlState(ex, "23505");
+	}
+
+	@Override
 	public Connection wrap(Connection connection) throws SQLException {
 		return JdbcArrayAdapter.wrap(connection);
 	}

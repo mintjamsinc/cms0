@@ -5,6 +5,15 @@ CREATE TABLE IF NOT EXISTS jcr_items (
 	parent_item_id VARCHAR,
 	is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
 	is_system BOOLEAN NOT NULL DEFAULT FALSE,
+	-- Mirrors item_path while the node is live, and is NULL once the node is
+	-- removed (is_deleted = TRUE). A UNIQUE index on this column makes "no two
+	-- live nodes share a path" a hard, concurrency-safe guarantee instead of a
+	-- best-effort check, while letting a removed node and its same-path
+	-- replacement coexist within a transaction (both NULL / one NULL).
+	-- The unique index itself is created by the migration step in
+	-- JcrWorkspaceProvider#prepareInitialData so that it is added only after the
+	-- column exists on databases created before this column was introduced.
+	active_path VARCHAR,
 	PRIMARY KEY (item_id)
 );
 CREATE INDEX IF NOT EXISTS jcr_items_index1 ON jcr_items (parent_item_id, item_name);

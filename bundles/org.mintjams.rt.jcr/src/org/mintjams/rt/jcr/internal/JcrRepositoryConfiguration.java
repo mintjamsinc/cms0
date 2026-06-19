@@ -172,6 +172,50 @@ public class JcrRepositoryConfiguration implements Adaptable {
 	}
 
 	/**
+	 * Returns how often, in milliseconds, each node polls the cluster journal to
+	 * invalidate its caches for changes committed on <em>other</em> nodes — i.e.
+	 * the cross-node read-after-write window. A local commit already invalidates
+	 * the committing node's own caches synchronously; this only governs how
+	 * quickly other nodes notice. Lower values tighten cross-node visibility at
+	 * the cost of more (cheap, indexed) polling queries. Configured via
+	 * {@code org.mintjams.jcr.cluster.pollIntervalMillis}; defaults to sub-second.
+	 * Single-node deployments are unaffected (the consumer only runs under
+	 * clustering).
+	 */
+	public long getClusterPollIntervalMillis() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		long value = Long.parseLong(
+				Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.cluster.pollIntervalMillis"), "500"));
+		if (value < 50) {
+			value = 50;
+		}
+		return value;
+	}
+
+	/**
+	 * Returns the upper bound, in milliseconds, of the <em>adaptive</em>
+	 * cluster-journal poll interval. While a node keeps finding remote commits it
+	 * polls at the floor ({@link #getClusterPollIntervalMillis()}); while it finds
+	 * none it backs the interval off geometrically toward this ceiling so a quiet
+	 * cluster costs little, and the next remote commit it sees snaps the cadence
+	 * straight back to the floor. Raise it to make an idle cluster cheaper (at the
+	 * cost of a longer first-event latency after a quiet period); set it equal to
+	 * the floor to disable the back-off and poll at a fixed rate. Configured via
+	 * {@code org.mintjams.jcr.cluster.pollMaxIntervalMillis}; defaults to the
+	 * historical fixed cadence and is never less than the floor.
+	 */
+	public long getClusterPollMaxIntervalMillis() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		long value = Long.parseLong(
+				Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.cluster.pollMaxIntervalMillis"), "2000"));
+		long floor = getClusterPollIntervalMillis();
+		if (value < floor) {
+			value = floor;
+		}
+		return value;
+	}
+
+	/**
 	 * Returns the target size of the workspace database page cache, in
 	 * <strong>megabytes</strong> ({@code org.mintjams.jcr.workspace.cacheSizeMB};
 	 * default 256).

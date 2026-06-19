@@ -61,6 +61,33 @@ public interface DatabaseDialect {
 	boolean isTransactionAbortedOnError();
 
 	/**
+	 * Returns whether the given exception reports a unique-constraint (or
+	 * unique-index) violation. Used to translate a losing concurrent insert of an
+	 * already-taken node path into an {@code ItemExistsException} rather than a
+	 * generic failure.
+	 */
+	boolean isUniqueConstraintViolation(SQLException ex);
+
+	/**
+	 * Returns whether {@code ex}, or any exception reachable from it through the
+	 * {@link Throwable#getCause() cause} chain or the
+	 * {@link SQLException#getNextException() SQL exception} chain, carries the
+	 * given {@code SQLSTATE}. Helper for {@link #isUniqueConstraintViolation}.
+	 */
+	static boolean hasSqlState(SQLException ex, String sqlState) {
+		for (Throwable t = ex; t != null; t = t.getCause()) {
+			if (t instanceof SQLException) {
+				for (SQLException e = (SQLException) t; e != null; e = e.getNextException()) {
+					if (sqlState.equals(e.getSQLState())) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Wraps a physical connection with whatever JDBC-level adaptation this
 	 * dialect needs (e.g. translating Java arrays to {@code java.sql.Array}
 	 * values and back). Dialects that need no adaptation return the

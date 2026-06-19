@@ -23,6 +23,7 @@
 package org.mintjams.rt.jcr.internal.sql;
 
 import java.sql.Connection;
+import java.sql.SQLException;
 
 /**
  * Dialect for H2, both embedded (the standalone default) and server mode.
@@ -46,6 +47,12 @@ public class H2Dialect implements DatabaseDialect {
 	@Override
 	public boolean isTransactionAbortedOnError() {
 		return false;
+	}
+
+	@Override
+	public boolean isUniqueConstraintViolation(SQLException ex) {
+		// H2 reports a duplicate key / unique index violation as SQLSTATE 23505.
+		return DatabaseDialect.hasSqlState(ex, "23505");
 	}
 
 	@Override
