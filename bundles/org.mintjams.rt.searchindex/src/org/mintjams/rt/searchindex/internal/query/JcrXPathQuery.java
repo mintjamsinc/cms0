@@ -85,6 +85,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			.put("jcr:createdBy", "_createdBy")
 			.put("jcr:lastModified", "_lastModified")
 			.put("jcr:lastModifiedBy", "_lastModifiedBy")
+			.put("jcr:score", "_score")
 			.build();
 	private static final Map<String, SortField.Type> SORT_TYPES = AdaptableMap.<String, SortField.Type>newBuilder()
 			.put("_identifier", SortField.Type.STRING)
@@ -99,6 +100,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			.put("_createdBy", SortField.Type.STRING)
 			.put("_lastModified", SortField.Type.LONG)
 			.put("_lastModifiedBy", SortField.Type.STRING)
+			.put("_score", SortField.Type.SCORE)
 			.build();
 
 	private final String fStatement;
@@ -1578,6 +1580,19 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					}
 				}
 				String fieldName = getFieldName(fieldAndDirection[0]);
+				// Relevance score (jcr:score -> _score via JCR_FIELDS) is computed per
+				// query and has no doc-values field, so it cannot use the SortField /
+				// SortedNumericSortField paths below. Use the dedicated SCORE sort, which
+				// is highest-first by default: "descending" maps to FIELD_SCORE and
+				// "ascending" reverses it.
+				if ("_score".equals(fieldName)) {
+					SortField.Type sortType = getFieldType(fieldAndDirection[0], fieldName);
+					// SortField.FIELD_SCORE is a singleton, so we can use it for descending order
+					// instead of creating a new SortField instance. For ascending order, we create
+					// a new SortField with the ascending flag set to true.
+					l.add(ascending ? new SortField(null, sortType, ascending) : SortField.FIELD_SCORE);
+					continue;
+				}
 				// Sort/doc-values field names are literal Lucene field names and must
 				// NOT be escaped. escape() is only for embedding a name in the query
 				// STRING (where ':' etc. are syntax). Escaping here produced names
