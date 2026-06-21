@@ -208,6 +208,13 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 				try {
 					SearchIndex.QueryResult.Row row = fFetchList.remove(0);
 					AdaptableMap<String, Object> itemData = fFetchItems.remove(row.getIdentifier());
+					if (itemData == null) {
+						// The search index is eventually consistent and can still
+						// list a node that no longer exists in the repository (e.g.
+						// one just deleted). Skip the stale hit instead of NPE-ing
+						// on it, matching how inaccessible rows are skipped below.
+						continue;
+					}
 					adaptTo(WorkspaceQuery.class).cacheNode(itemData, fFetchRevision);
 					AdaptableMap<String, Object> contentItemData = fFetchItems.remove(itemData.getString("item_id") + "/" + JcrNode.JCR_CONTENT_NAME);
 					if (contentItemData != null) {
