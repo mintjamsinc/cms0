@@ -64,8 +64,8 @@ html {
 		--button-warning-color: rgb(255 255 255 / 1);
 		--button-danger-color: rgb(255 255 255 / 1);
 		--badge-bg: rgb(241 240 245 / 1);
-		--island-bg: rgb(255 255 255 / 0.99);
-		--island-border-color: rgb(241 240 245 / 0.1);
+		--island-bg: rgb(251 250 255 / 0.99);
+		--island-border-color: rgb(26 27 31 / 0.05);
 		--list-header-bg: rgb(241 240 245 / 1);
 		--list-header-color: var(--text-soft-color);
 		--section-header-bg: var(--list-header-bg);
