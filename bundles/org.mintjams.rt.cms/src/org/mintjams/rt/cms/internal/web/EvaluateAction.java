@@ -94,11 +94,15 @@ public class EvaluateAction implements Action {
 					RangeHeader rangeHeader = null;
 
 					if (Webs.isNormalRequest(context)) {
-						String eTag = "" + result.getLastModified().getTime();
-						response.addDateHeader("Last-Modified", result.getLastModified().getTime());
-						response.setHeader("ETag", eTag);
+						long lastModified = result.getLastModified().getTime();
+						String eTag = HttpCaching.toETag(lastModified);
+						// Raw files are revalidated, not cached for a fixed term: the
+						// browser may keep a copy but must check back, so overwriting a
+						// file is reflected on the next request (304 when unchanged).
+						if (HttpCaching.applyAndCheckNotModified(request, response, lastModified)) {
+							return;
+						}
 						response.setContentType(result.getMimeType());
-						setCacheHeader(response);
 
 						if (RangeHeader.isRangeRequest(request)) {
 							try {
@@ -193,12 +197,6 @@ public class EvaluateAction implements Action {
 		response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
 		response.setHeader("Expires", "0");
 		response.setHeader("Pragma", "no-cache");
-	}
-
-	public void setCacheHeader(HttpServletResponse response) {
-		response.setHeader("Cache-Control", "public, max-age=31536000");
-		response.setHeader("Expires", "");
-		response.setHeader("Pragma", "");
 	}
 
 }

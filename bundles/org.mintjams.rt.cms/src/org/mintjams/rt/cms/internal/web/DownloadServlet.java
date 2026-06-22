@@ -134,9 +134,13 @@ public class DownloadServlet extends HttpServlet {
 			RangeHeader rangeHeader = null;
 			if (Webs.isNormalRequest(request)) {
 				long lastModified = getLastModified(node).getTime();
-				String eTag = "" + lastModified;
-				response.addDateHeader("Last-Modified", lastModified);
-				response.setHeader("ETag", eTag);
+				String eTag = HttpCaching.toETag(lastModified);
+				// Revalidate rather than cache for a fixed term, so an overwritten
+				// file is served fresh on the next request (304 when unchanged).
+				if (HttpCaching.applyAndCheckNotModified(request, response, lastModified)) {
+					return;
+				}
+
 				String contentType = JCRs.getMimeType(node);
 				if (StringUtils.isNotEmpty(contentType)) {
 					response.setContentType(contentType);
@@ -145,9 +149,7 @@ public class DownloadServlet extends HttpServlet {
 						response.setCharacterEncoding(encoding);
 					}
 				}
-				response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-				response.setHeader("Expires", "0");
-				response.setHeader("Pragma", "no-cache");
+
 				boolean isAttachment;
 				if (request.getParameterMap().containsKey("attachment")) {
 					isAttachment = Boolean.parseBoolean(StringUtils.defaultIfEmpty(
@@ -241,6 +243,15 @@ public class DownloadServlet extends HttpServlet {
 				return;
 			}
 
+			// Revalidate property binaries the same way as raw files: the owning
+			// file node's last-modified time validates the cached copy, so an edit
+			// is reflected on the next request (304 when unchanged). Checked before
+			// reading the binary so an unchanged value need not be re-detected.
+			if (Webs.isNormalRequest(request)
+					&& HttpCaching.applyAndCheckNotModified(request, response, getLastModified(node).getTime())) {
+				return;
+			}
+
 			Binary binary;
 			if (prop.isMultiple()) {
 				String indexParam = request.getParameter("index");
@@ -277,9 +288,7 @@ public class DownloadServlet extends HttpServlet {
 
 				response.setContentType(contentType);
 				response.setContentLengthLong(size);
-				response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-				response.setHeader("Expires", "0");
-				response.setHeader("Pragma", "no-cache");
+				// Cache-Control/ETag/Last-Modified were already set by HttpCaching above.
 
 				boolean isAttachment;
 				if (request.getParameterMap().containsKey("attachment")) {

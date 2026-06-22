@@ -618,7 +618,13 @@ defineComponent('wt-inspector', {
 		selectedItemPreviewURL(this: any): string {
 			const item = this.singleTarget;
 			if (!item || !item.downloadURL) return '';
-			return item.downloadURL.replace(/[?&]attachment$/, '');
+			const base = item.downloadURL.replace(/[?&]attachment$/, '');
+			// Pin the preview to the file's last-modified time so overwriting it
+			// yields a new URL: the <img> reliably reloads instead of reusing the
+			// browser's per-URL in-memory copy. The server also revalidates this
+			// URL (ETag / 304), so an unchanged file is not re-downloaded.
+			const v = item.lastModified ? new Date(item.lastModified).getTime() : Date.now();
+			return base + (base.includes('?') ? '&' : '?') + 'v=' + v;
 		},
 		selectedFolderCount(this: any): number {
 			return this.multiTargets.filter((i: any) => i.isCollection).length;
