@@ -959,7 +959,7 @@ export const App = {
 			}
 			vm.sidebarPanelVisible = true;
 			vm.$nextTick(() => {
-				const input = document.getElementById('find-input') as HTMLInputElement | null;
+				const input = vm.$refs.findInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 					input.select();
@@ -1027,7 +1027,7 @@ export const App = {
 		},
 		initEditor() {
 			const vm = this;
-			const container = document.getElementById('editor-container');
+			const container = vm.$refs.editorContainer as HTMLElement | undefined;
 			if (!container) return;
 			const updateListener = vm.createUpdateListener();
 			const state = EditorState.create({

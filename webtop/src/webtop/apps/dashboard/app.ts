@@ -47,7 +47,6 @@ import type {
 	Incident,
 	Route,
 	Endpoint,
-	CamelContext,
 } from '../../graphql/types.js';
 
 // Type-only: the shell passes a fully-featured ApplicationInstance at launch.
@@ -661,9 +660,9 @@ const App = {
 			// The route list is the reliable source: a route's `status` comes
 			// from the Camel RouteController (available even when JMX is off),
 			// and the per-route exchange stats — when JMX is on — let us derive
-			// the context-level throughput by summation. We deliberately do NOT
-			// depend on getCamelContext() for the headline numbers; it is used
-			// only as an optional enhancement for uptime / mean latency.
+			// the context-level throughput by summation. The platform engine does
+			// not expose an aggregate context object, so the route list is the only
+			// source for the context-state card.
 			let routes = [];
 			try { routes = await eip.getDashboardRoutes(1000); } catch (_) { routes = []; }
 
@@ -736,33 +735,15 @@ const App = {
 			model.connections.down = down;
 			model.connections.problems = problems.slice(0, 6);
 
-			// Context state / uptime: prefer the engine's own report, but fall
-			// back to what the routes tell us so the card never shows a bogus
-			// "—" / "Stopped" while routes are plainly running.
-			let ctx = null;
-			try { ctx = await eip.getCamelContext(); } catch (_) { ctx = null; }
-			const ctxState = ctx && ctx.state ? String(ctx.state) : '';
-			// Keep the raw lifecycle state for severity bucketing; the display
-			// string below is localized.
-			model.routes.contextStateRaw = ctxState || (started > 0 ? 'Started' : routes.length > 0 ? 'Stopped' : '');
-			model.routes.contextState = ctxState
-				? this.localizeContextState(ctxState)
-				: (started > 0
-					? this.t('app.dashboard.context.started', undefined, 'Started')
-					: routes.length > 0
-						? this.t('app.dashboard.context.stopped', undefined, 'Stopped')
-						: '—');
-			model.routes.uptime = (ctx && ctx.uptime) ? ctx.uptime : '';
-
-			// If JMX gave us nothing per route but the engine exposes aggregate
-			// throughput, surface that instead of a misleading zero.
-			if (exTotal === 0 && ctx && (ctx.exchangesTotal || 0) > 0) {
-				model.throughput.total = ctx.exchangesTotal || 0;
-				model.throughput.completed = ctx.exchangesCompleted || 0;
-				model.throughput.failed = ctx.exchangesFailed || 0;
-				model.throughput.inflight = ctx.exchangesInflight || 0;
-				if (mean === 0) model.throughput.meanLatency = formatLatency(ctx.meanProcessingTime);
-			}
+			// Context state: the platform engine exposes per-route status, not an
+			// aggregate context object, so derive the card's state from the routes.
+			model.routes.contextStateRaw = started > 0 ? 'Started' : routes.length > 0 ? 'Stopped' : '';
+			model.routes.contextState = started > 0
+				? this.t('app.dashboard.context.started', undefined, 'Started')
+				: routes.length > 0
+					? this.t('app.dashboard.context.stopped', undefined, 'Stopped')
+					: '—';
+			model.routes.uptime = '';
 		},
 
 		// Cluster topology: which repository nodes are registered for this
@@ -874,17 +855,6 @@ const App = {
 				return { label: this.t('app.dashboard.workspaces.engine.failed', undefined, 'failed'), failed: true };
 			}
 			return { label: '—', failed: false };
-		},
-
-		// Map a Camel context state to a localized label. Known lifecycle
-		// states get a translated string; anything unexpected degrades to a
-		// humanized version of the raw value so the pill is never blank.
-		localizeContextState(state: string): string {
-			const s = String(state || '').toLowerCase();
-			if (s.startsWith('start')) return this.t('app.dashboard.context.started', undefined, 'Started');
-			if (s.startsWith('suspend')) return this.t('app.dashboard.context.suspended', undefined, 'Suspended');
-			if (s.startsWith('stop')) return this.t('app.dashboard.context.stopped', undefined, 'Stopped');
-			return humanizeKey(state);
 		},
 
 		// ---- Real-time -------------------------------------------------------

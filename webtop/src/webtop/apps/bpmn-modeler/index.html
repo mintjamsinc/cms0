@@ -326,7 +326,7 @@
 					 @mousemove="onCanvasMouseMove"
 					 @mouseup="onCanvasMouseUp"
 					 @wheel="onCanvasWheel">
-				<svg id="bpmn-canvas" class="canvas-svg">
+				<svg ref="bpmnCanvas" class="canvas-svg">
 					<defs>
 						<!-- Grid Pattern -->
 						<pattern id="grid-small" width="10" height="10" patternUnits="userSpaceOnUse">
@@ -1369,7 +1369,7 @@
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
@@ -1508,7 +1508,7 @@
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
@@ -1547,7 +1547,7 @@
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
@@ -1572,7 +1572,7 @@
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
@@ -1816,7 +1816,7 @@
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
@@ -1841,7 +1841,7 @@
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
@@ -1866,7 +1866,7 @@
 										 :class="{placeholder: !selectedElement.escalationRef}"
 										 @click="startRefEdit('escalation')">{{ refDisplayLabel('escalation') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.escalation.placeholder')">
@@ -1896,7 +1896,7 @@
 										 :class="{placeholder: !selectedElement.escalationRef}"
 										 @click="startRefEdit('escalation')">{{ refDisplayLabel('escalation') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.escalation.placeholder')">
@@ -1983,7 +1983,7 @@
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
@@ -2037,7 +2037,7 @@
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
@@ -2062,7 +2062,7 @@
 										 :class="{placeholder: !selectedElement.errorRef}"
 										 @click="startRefEdit('error')">{{ refDisplayLabel('error') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.error.placeholder')">
@@ -2092,7 +2092,7 @@
 										 :class="{placeholder: !selectedElement.escalationRef}"
 										 @click="startRefEdit('escalation')">{{ refDisplayLabel('escalation') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.escalation.placeholder')">
@@ -2156,7 +2156,7 @@
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">
@@ -2346,7 +2346,7 @@
 										 :class="{placeholder: !selectedElement.errorRef}"
 										 @click="startRefEdit('error')">{{ refDisplayLabel('error') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.error.placeholder')">
@@ -2380,7 +2380,7 @@
 										 :class="{placeholder: !selectedElement.escalationRef}"
 										 @click="startRefEdit('escalation')">{{ refDisplayLabel('escalation') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.escalation.placeholder')">
@@ -2414,7 +2414,7 @@
 										 :class="{placeholder: !selectedElement.signalRef}"
 										 @click="startRefEdit('signal')">{{ refDisplayLabel('signal') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.signal.placeholder')">
@@ -2660,7 +2660,7 @@
 										 :class="{placeholder: !selectedElement.messageRef}"
 										 @click="startRefEdit('message')">{{ refDisplayLabel('message') }}</div>
 									<div v-else class="input-group">
-										<input type="text" class="wt wt-ref-input" v-model="refEditInput"
+										<input type="text" class="wt" ref="refInput" v-model="refEditInput"
 											   @input="onRefInputChange"
 											   @keydown="onRefKeydown(event)"
 											   :placeholder="t('app.bpmn-modeler.properties.message.placeholder')">

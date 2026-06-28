@@ -36,6 +36,9 @@ export interface Node {
   path: string;
   name: string;
   nodeType: string;
+  // Stable JCR identifier, present for EVERY node (unlike uuid, which is set only
+  // for mix:referenceable nodes). Prefer this as the durable identity key.
+  id: string;
   uuid?: string;
   created: string;
   createdBy: string;
@@ -596,35 +599,6 @@ export interface MigrateProcessInstanceInput {
 // Enterprise Integration Patterns (Apache Camel)
 // =============================================================================
 
-export type CamelContextState =
-  | 'STARTED'
-  | 'STOPPED'
-  | 'SUSPENDED'
-  | 'STARTING'
-  | 'STOPPING'
-  | 'SUSPENDING';
-
-export interface CamelContext {
-  name: string;
-  version: string;
-  state: CamelContextState;
-  uptime: string;
-  uptimeMillis: number;
-  exchangesTotal: number;
-  exchangesCompleted: number;
-  exchangesFailed: number;
-  exchangesInflight: number;
-  meanProcessingTime?: number;
-  maxProcessingTime?: number;
-  minProcessingTime?: number;
-  totalProcessingTime?: number;
-  tracing: boolean;
-  messageHistory: boolean;
-  logMask: boolean;
-  routes: Route[];
-  components: Component[];
-}
-
 // Mirrors Camel's org.apache.camel.ServiceStatus enum constant names
 // (PascalCase), as returned by the server (ServiceStatus.name()); 'Unknown'
 // is the server's fallback when the status is unavailable.
@@ -721,78 +695,6 @@ export interface Endpoint {
   health?: HealthState | null;
 }
 
-export interface Component {
-  name: string;
-  state: string;
-  class: string;
-  supportedSchemes: string[];
-}
-
-export interface RouteTemplate {
-  id: string;
-  description?: string;
-  parameters: TemplateParameter[];
-  definition: RouteDefinition;
-}
-
-export interface TemplateParameter {
-  name: string;
-  description?: string;
-  required: boolean;
-  defaultValue?: string;
-}
-
-export interface ValidationResult {
-  valid: boolean;
-  errors: ValidationError[];
-  warnings: ValidationWarning[];
-}
-
-export interface ValidationError {
-  line?: number;
-  column?: number;
-  message: string;
-  element?: string;
-}
-
-export interface ValidationWarning {
-  line?: number;
-  column?: number;
-  message: string;
-  element?: string;
-}
-
-export interface ExchangeResult {
-  exchangeId: string;
-  success: boolean;
-  body?: string;
-  headers?: unknown;
-  exception?: string;
-  processingTime: number;
-}
-
-export interface CreateRouteInput {
-  routeId: string;
-  description?: string;
-  group?: string;
-  yaml: string;
-  autoStart?: boolean;
-}
-
-export interface UpdateRouteInput {
-  id: string;
-  description?: string;
-  group?: string;
-  yaml?: string;
-}
-
-export interface SendToEndpointInput {
-  endpointUri: string;
-  body?: string;
-  headers?: unknown;
-  properties?: unknown;
-}
-
 export interface StartRouteInput {
   id: string;
 }
@@ -827,18 +729,16 @@ export type NodeEventType =
 
 export interface NodeChangeEvent {
   eventType: NodeEventType;
-  path: string;
+  // Absent on a DELETED drop signal for a node the subscriber cannot read: the
+  // server withholds the path/name and the client drops the item by `identifier`.
+  path?: string;
+  // JCR identifier (UUID for referenceable nodes); the drop key for DELETED.
+  identifier?: string;
+  // Original path for MOVED events.
+  sourcePath?: string;
   node?: Node;
   timestamp: string;
   userId: string;
-}
-
-export interface QueryChangeEvent {
-  statement: string;
-  addedNodes: Node[];
-  removedNodes: Node[];
-  modifiedNodes: Node[];
-  timestamp: string;
 }
 
 // =============================================================================
@@ -1030,26 +930,6 @@ export interface RouteStateEvent {
   currentState: RouteState;
   timestamp: string;
   error?: string;
-}
-
-export type NotificationType =
-  | 'INFO'
-  | 'WARNING'
-  | 'ERROR'
-  | 'TASK'
-  | 'PROCESS'
-  | 'CONTENT';
-
-export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-
-export interface SystemNotification {
-  id: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  severity: Severity;
-  timestamp: string;
-  data?: unknown;
 }
 
 // =============================================================================

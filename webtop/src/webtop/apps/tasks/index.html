@@ -498,7 +498,7 @@
 					<p class="mt-0">{{ t('app.tasks.dialog.assign.intro', { taskName: dialog.data.taskName }, 'Reassign "{taskName}" to another user. Search by username, display name, or email — any user can be selected.') }}</p>
 					<label class="dialog-label">{{ t('app.tasks.dialog.assign.userLabel', undefined, 'User') }}</label>
 					<div class="position-relative">
-						<input class="wt w-100 tasks-assignee-input" type="text"
+						<input class="wt w-100" type="text" ref="assigneeInput"
 							v-model="dialog.data.assignee"
 							@input="onAssigneeSearchInput"
 							@focus="onAssigneeSearchFocus"

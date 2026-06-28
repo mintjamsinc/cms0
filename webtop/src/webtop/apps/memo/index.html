@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Memo</title>
+	<!-- The document <title> is intentionally left as a static literal: it is
+	     the browser/tab title, not app chrome, and is replaced by the shell. -->
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link rel="stylesheet" href="../../components/wt-inspector.css?v=__BUILD_VERSION__">
+</head>
+
+<body>
+	<div id="app" class="d-flex flex-column"
+		:class="{ 'is-resizing': sidebarResizing }"
+		@mounted="onMounted" @unmount="onUnmount"
+		@dragover.prevent="onAppDragOver" @drop.prevent>
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: file actions -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="saveFile"
+					:disabled="!currentFile.path || !currentFile.isModified || isSaving"
+					:title="t('app.memo.toolbar.save', undefined, 'Save (Ctrl+S)')">
+					<i class="bi bi-floppy"></i>
+				</button>
+				<button class="btn-icon" @click="openSaveAsDialog" :disabled="isSaving"
+					:title="t('app.memo.toolbar.saveAs', undefined, 'Save As...')">
+					<i class="bi bi-floppy2"></i>
+				</button>
+			</div>
+
+			<!-- Left: undo/redo -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="undo" :disabled="!canUndo"
+					:title="t('app.memo.toolbar.undo', undefined, 'Undo (Ctrl+Z)')">
+					<i class="bi bi-arrow-counterclockwise"></i>
+				</button>
+				<button class="btn-icon" @click="redo" :disabled="!canRedo"
+					:title="t('app.memo.toolbar.redo', undefined, 'Redo (Ctrl+Y)')">
+					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Pane Toggles -->
+			<div class="pane-toggles">
+				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
+					@click="toggleSidebarPanel" :title="t('app.memo.toolbar.toggleSearch', undefined, 'Find & Replace (Ctrl+F)')">
+					<i class="bi bi-search"></i>
+				</button>
+				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
+					@click="toggleDetailPanel" :title="t('app.memo.toolbar.toggleInspector', undefined, 'Toggle Inspector (Ctrl+I)')">
+					<i class="bi bi-layout-sidebar-inset-reverse"></i>
+				</button>
+			</div>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize', undefined, 'Minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize', undefined, 'Maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close', undefined, 'Close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Content body (3-pane: search + editor + inspector) -->
+		<div class="content-body">
+
+			<!-- Left pane: find / replace -->
+			<div v-if="sidebarPanelVisible" class="sidebar-panel island"
+				:style="{ width: sidebarPanelWidth + 'px' }"
+				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+				<div class="sidebar-panel-content">
+					<div class="sidebar-section">
+						<div class="sidebar-section-body px-2">
+
+							<!-- Find -->
+							<div class="filter-group">
+								<label class="filter-label">{{ t('app.memo.find.find', undefined, 'Find') }}</label>
+								<div class="filter-input-wrapper">
+									<input ref="findInput" type="text" class="wt w-100" v-model="searchTerm"
+										:placeholder="t('app.memo.find.findPlaceholder', undefined, 'Find...')" spellcheck="false"
+										@input="onSearchTermInput" @keydown="onSearchTermKeydown">
+									<button v-if="searchTerm" class="filter-input-clear"
+										@click="clearSearchTerm" :title="t('app.memo.find.clear', undefined, 'Clear')">
+										<i class="bi bi-x"></i>
+									</button>
+								</div>
+								<div class="search-toolbar">
+									<button class="search-toggle-btn" :class="{active: searchCaseSensitive}"
+										@click="toggleSearchCaseSensitive" :title="t('app.memo.find.matchCase', undefined, 'Match case')">Aa</button>
+									<button class="search-toggle-btn" :class="{active: searchWholeWord}"
+										@click="toggleSearchWholeWord" :title="t('app.memo.find.wholeWord', undefined, 'Whole word')">ab</button>
+									<button class="search-toggle-btn" :class="{active: searchRegex}"
+										@click="toggleSearchRegex" :title="t('app.memo.find.regex', undefined, 'Regular expression')">.*</button>
+									<span class="spacer"></span>
+									<button class="btn-icon" @click="findPrev" :title="t('app.memo.find.previous', undefined, 'Previous (Shift+Enter)')">
+										<i class="bi bi-chevron-up"></i>
+									</button>
+									<button class="btn-icon" @click="findNextMatch" :title="t('app.memo.find.next', undefined, 'Next (Enter)')">
+										<i class="bi bi-chevron-down"></i>
+									</button>
+								</div>
+							</div>
+
+							<!-- Replace -->
+							<div class="filter-group">
+								<label class="filter-label">{{ t('app.memo.find.replace', undefined, 'Replace') }}</label>
+								<div class="filter-input-wrapper">
+									<input type="text" class="wt w-100" v-model="replaceTerm"
+										:placeholder="t('app.memo.find.replacePlaceholder', undefined, 'Replace...')" spellcheck="false"
+										@keydown="onReplaceTermKeydown">
+									<button v-if="replaceTerm" class="filter-input-clear"
+										@click="replaceTerm = ''" :title="t('app.memo.find.clear', undefined, 'Clear')">
+										<i class="bi bi-x"></i>
+									</button>
+								</div>
+								<div class="search-actions">
+									<button class="wt wt-primary wt-outlined wt-slim fs-small"
+										@click="replaceCurrent" :disabled="!searchTerm">{{ t('app.memo.find.replace', undefined, 'Replace') }}</button>
+									<button class="wt wt-primary wt-outlined wt-slim fs-small"
+										@click="replaceAllInDoc" :disabled="!searchTerm">{{ t('app.memo.find.replaceAll', undefined, 'All') }}</button>
+								</div>
+							</div>
+
+							<!-- Status -->
+							<div class="filter-status">
+								<span v-if="searchNotFound" class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>{{ t('app.memo.find.noMatches', undefined, 'No matches') }}</span>
+								<span v-else-if="searchMatchCurrent > 0">{{ t('app.memo.find.count', { current: searchMatchCurrent, total: searchMatchCount }, '{current} / {total}') }}</span>
+								<span v-else-if="searchMatchCount > 0">{{ t('app.memo.find.total', { total: searchMatchCount }, '{total} matches') }}</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Sidebar resize handle -->
+			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
+				@mousedown="onSidebarResizeStart"></div>
+
+			<!-- Center pane: editor -->
+			<div class="content-main island p-0"
+				@dragover.prevent.stop="onCenterPaneDragOver" @drop.capture="onCenterPaneDrop">
+
+				<!-- Header: file tabs -->
+				<div class="file-tabs-bar">
+					<div class="file-tabs">
+						<div v-for="(file, index) in files" :key="file.id"
+							class="file-tab"
+							:class="{active: currentFileIndex === index, modified: file.isModified}"
+							@click="selectTab(index)" :title="file.path || file.name">
+							<span class="file-tab-name">{{ file.name }}</span>
+							<span v-if="file.isModified" class="modified-dot">●</span>
+							<button class="file-tab-close" @click.stop="closeFile(index)" :title="t('common.close', undefined, 'Close')">
+								<i class="bi bi-x"></i>
+							</button>
+						</div>
+						<button class="file-tab-add" @click="newFile" :title="t('app.memo.tabs.newMemo', undefined, 'New memo')">
+							<i class="bi bi-plus-lg"></i>
+						</button>
+					</div>
+				</div>
+
+				<!-- Formatting toolbar (Notion-like decorations). Lives at the top of
+				     the editor pane body so it scopes to the document, not the
+				     inspector. -->
+				<div class="format-bar">
+					<!-- Block type -->
+					<div class="format-group">
+						<button class="fmt-btn" :class="{active: active.paragraph}" @mousedown.prevent="setParagraph"
+							:title="t('app.memo.format.paragraph', undefined, 'Text')"><i class="bi bi-text-paragraph"></i></button>
+						<button class="fmt-btn" :class="{active: active.h1}" @mousedown.prevent="toggleHeading(1)"
+							:title="t('app.memo.format.h1', undefined, 'Heading 1')"><i class="bi bi-type-h1"></i></button>
+						<button class="fmt-btn" :class="{active: active.h2}" @mousedown.prevent="toggleHeading(2)"
+							:title="t('app.memo.format.h2', undefined, 'Heading 2')"><i class="bi bi-type-h2"></i></button>
+						<button class="fmt-btn" :class="{active: active.h3}" @mousedown.prevent="toggleHeading(3)"
+							:title="t('app.memo.format.h3', undefined, 'Heading 3')"><i class="bi bi-type-h3"></i></button>
+					</div>
+
+					<span class="format-divider"></span>
+
+					<!-- Inline marks -->
+					<div class="format-group">
+						<button class="fmt-btn" :class="{active: active.bold}" @mousedown.prevent="toggleBold"
+							:title="t('app.memo.format.bold', undefined, 'Bold (Ctrl+B)')"><i class="bi bi-type-bold"></i></button>
+						<button class="fmt-btn" :class="{active: active.italic}" @mousedown.prevent="toggleItalic"
+							:title="t('app.memo.format.italic', undefined, 'Italic (Ctrl+I)')"><i class="bi bi-type-italic"></i></button>
+						<button class="fmt-btn" :class="{active: active.underline}" @mousedown.prevent="toggleUnderline"
+							:title="t('app.memo.format.underline', undefined, 'Underline (Ctrl+U)')"><i class="bi bi-type-underline"></i></button>
+						<button class="fmt-btn" :class="{active: active.strike}" @mousedown.prevent="toggleStrike"
+							:title="t('app.memo.format.strike', undefined, 'Strikethrough')"><i class="bi bi-type-strikethrough"></i></button>
+						<button class="fmt-btn" :class="{active: active.code}" @mousedown.prevent="toggleCode"
+							:title="t('app.memo.format.code', undefined, 'Inline code')"><i class="bi bi-code"></i></button>
+						<button class="fmt-btn" :class="{active: active.highlight}" @mousedown.prevent="openHighlightMenu"
+							:title="t('app.memo.format.highlight', undefined, 'Highlight color')"><i class="bi bi-highlighter"></i></button>
+						<button class="fmt-btn" @mousedown.prevent="openColorMenu"
+							:title="t('app.memo.format.color', undefined, 'Text color')"><i class="bi bi-palette"></i></button>
+						<button class="fmt-btn" :class="{active: active.link}" @mousedown.prevent="promptLink"
+							:title="t('app.memo.format.link', undefined, 'Link')"><i class="bi bi-link-45deg"></i></button>
+					</div>
+
+					<span class="format-divider"></span>
+
+					<!-- Lists / blocks -->
+					<div class="format-group">
+						<button class="fmt-btn" :class="{active: active.bulletList}" @mousedown.prevent="toggleBulletList"
+							:title="t('app.memo.format.bulletList', undefined, 'Bullet list')"><i class="bi bi-list-ul"></i></button>
+						<button class="fmt-btn" :class="{active: active.orderedList}" @mousedown.prevent="toggleOrderedList"
+							:title="t('app.memo.format.orderedList', undefined, 'Numbered list')"><i class="bi bi-list-ol"></i></button>
+						<button class="fmt-btn" :class="{active: active.taskList}" @mousedown.prevent="toggleTaskList"
+							:title="t('app.memo.format.taskList', undefined, 'Task list')"><i class="bi bi-list-check"></i></button>
+						<button class="fmt-btn" :class="{active: active.blockquote}" @mousedown.prevent="toggleBlockquote"
+							:title="t('app.memo.format.blockquote', undefined, 'Quote')"><i class="bi bi-quote"></i></button>
+						<button class="fmt-btn" :class="{active: active.codeBlock}" @mousedown.prevent="toggleCodeBlock"
+							:title="t('app.memo.format.codeBlock', undefined, 'Code block')"><i class="bi bi-code-square"></i></button>
+					</div>
+
+					<span class="format-divider"></span>
+
+					<!-- Alignment -->
+					<div class="format-group">
+						<button class="fmt-btn" :class="{active: active.alignLeft}" @mousedown.prevent="setAlign('left')"
+							:title="t('app.memo.format.alignLeft', undefined, 'Align left')"><i class="bi bi-text-left"></i></button>
+						<button class="fmt-btn" :class="{active: active.alignCenter}" @mousedown.prevent="setAlign('center')"
+							:title="t('app.memo.format.alignCenter', undefined, 'Align center')"><i class="bi bi-text-center"></i></button>
+						<button class="fmt-btn" :class="{active: active.alignRight}" @mousedown.prevent="setAlign('right')"
+							:title="t('app.memo.format.alignRight', undefined, 'Align right')"><i class="bi bi-text-right"></i></button>
+					</div>
+
+					<span class="format-divider"></span>
+
+					<!-- Insert -->
+					<div class="format-group">
+						<button class="fmt-btn" @mousedown.prevent="insertTable"
+							:title="t('app.memo.format.table', undefined, 'Insert table')"><i class="bi bi-table"></i></button>
+						<button class="fmt-btn" @mousedown.prevent="insertHorizontalRule"
+							:title="t('app.memo.format.divider', undefined, 'Divider')"><i class="bi bi-dash-lg"></i></button>
+					</div>
+
+					<!-- Table editing (contextual) -->
+					<template v-if="active.table">
+						<span class="format-divider"></span>
+						<div class="format-group">
+							<button class="fmt-btn" @mousedown.prevent="addColumnAfter"
+								:title="t('app.memo.table.addColumn', undefined, 'Add column')"><i class="bi bi-layout-three-columns"></i><i class="bi bi-plus-lg fmt-badge"></i></button>
+							<button class="fmt-btn" @mousedown.prevent="addRowAfter"
+								:title="t('app.memo.table.addRow', undefined, 'Add row')"><i class="bi bi-list-ul"></i><i class="bi bi-plus-lg fmt-badge"></i></button>
+							<button class="fmt-btn" @mousedown.prevent="deleteColumn"
+								:title="t('app.memo.table.deleteColumn', undefined, 'Delete column')"><i class="bi bi-layout-three-columns"></i><i class="bi bi-dash-lg fmt-badge"></i></button>
+							<button class="fmt-btn" @mousedown.prevent="deleteRow"
+								:title="t('app.memo.table.deleteRow', undefined, 'Delete row')"><i class="bi bi-list-ul"></i><i class="bi bi-dash-lg fmt-badge"></i></button>
+							<button class="fmt-btn" @mousedown.prevent="toggleHeaderRow"
+								:title="t('app.memo.table.headerRow', undefined, 'Toggle header row')"><i class="bi bi-table"></i></button>
+							<button class="fmt-btn fmt-btn-danger" @mousedown.prevent="deleteTable"
+								:title="t('app.memo.table.deleteTable', undefined, 'Delete table')"><i class="bi bi-trash"></i></button>
+						</div>
+					</template>
+				</div>
+
+				<!-- Body: editor host. Per-tab Tiptap editors are mounted here by
+				     app.ts; the framework leaves this subtree alone (no child
+				     bindings), exactly as the Text Editor does for CodeMirror. -->
+				<div class="editor-area">
+					<div id="editor-host" ref="editorHost"></div>
+				</div>
+			</div>
+
+			<!-- Detail Resize Handle -->
+			<div v-if="detailPanelVisible" class="detail-resize-handle"
+				@mousedown="onDetailResizeStart"></div>
+
+			<!-- Inspector Panel — wt-inspector custom element, same contract as the
+			     Text Editor. Targets the active tab's backing node. -->
+			<wt-inspector v-if="detailPanelVisible"
+				:target="inspectorTarget"
+				:api="inspectorApi"
+				:view-options="inspectorOptions"
+				:width="detailPanelWidth"
+				:localization="localization"
+				@reveal-item="onInspectorRevealItem($event.detail)"
+				@overlay-changed="onInspectorOverlayChanged($event.detail)"
+				@content-reverted="onInspectorContentReverted($event.detail)"></wt-inspector>
+
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ t('app.memo.statusbar.words', { count: wordCount }, '{count} words') }}</span>
+				<span class="status-divider"></span>
+				<span class="status-item">{{ t('app.memo.statusbar.chars', { count: charCount }, '{count} characters') }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group">
+				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.memo.statusbar.saving', undefined, 'Saving...') }}</span>
+				<span v-else-if="currentFile.isModified" class="status-item">{{ t('app.memo.statusbar.modified', undefined, 'Modified') }}</span>
+				<span v-else class="status-item">{{ t('app.memo.statusbar.saved', undefined, 'Saved') }}</span>
+			</div>
+		</div>
+
+		<!-- Save As Dialog -->
+		<div v-if="saveAsDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3>{{ t('app.memo.saveAs.title', undefined, 'Save As') }}</h3>
+							<button class="btn-icon" @click="closeSaveAsDialog" :title="t('common.close', undefined, 'Close')">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<label class="dialog-label">{{ t('app.memo.saveAs.fileName', undefined, 'File Name') }}</label>
+						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
+							placeholder="untitled.memo" @keydown.enter="closeSaveAsDialog" />
+						<div class="save-as-chip-area mt-3"
+							@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+							<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
+								<i class="bi bi-file-earmark-text me-1"></i>
+								<span>{{ saveAsDialog.fileName || 'untitled.memo' }}</span>
+							</div>
+							<p class="text-muted fs-small mt-2 mb-0">
+								{{ t('app.memo.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
+							</p>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Link Dialog — standard webtop dialog format, replaces window.prompt. -->
+		<div v-if="linkDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 28rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><i class="bi bi-link-45deg me-2"></i>{{ t('app.memo.link.title', undefined, 'Link') }}</h3>
+							<button class="btn-icon" @click="cancelLinkDialog" :title="t('common.close', undefined, 'Close')">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body">
+						<label class="dialog-label">{{ t('app.memo.link.url', undefined, 'URL') }}</label>
+						<input type="text" class="wt w-100" ref="linkInput" v-model="linkDialog.url"
+							placeholder="https://example.com"
+							@keydown.enter="confirmLinkDialog" @keydown.esc="cancelLinkDialog" />
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="cancelLinkDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+						<button v-if="linkDialog.hasExisting" class="wt wt-danger" @click="removeLinkDialog">
+							<i class="bi bi-link-45deg me-1"></i>{{ t('app.memo.link.remove', undefined, 'Remove link') }}
+						</button>
+						<button class="wt wt-primary" @click="confirmLinkDialog">
+							<i class="bi bi-check-lg me-1"></i>{{ t('common.ok', undefined, 'OK') }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Loading Overlay -->
+		<div v-if="currentFile.isLoading" class="loading-overlay flex-column text-center">
+			<span class="loader"></span>
+			<span class="mt-5">{{ t('app.memo.loadingFile', undefined, 'Loading memo...') }}</span>
+		</div>
+
+		<!-- Error Overlay -->
+		<div v-if="errorMessage && !currentFile.isLoading" class="error-overlay flex-column text-center">
+			<i class="bi bi-exclamation-triangle-fill text-warning fs-2 mb-3"></i>
+			<span class="mb-3">{{ errorMessage }}</span>
+			<button type="button" class="wt" @click="dismissError">{{ t('common.close', undefined, 'Close') }}</button>
+		</div>
+
+		<!-- Checkout Confirmation Dialog -->
+		<div v-if="checkoutDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-box-arrow-up-right me-2"></i>{{ t('app.memo.checkout.title', undefined, 'Checkout Required') }}</h3>
+					</div>
+					<div class="dialog-body">
+						<p>{{ t('app.memo.checkout.message', undefined, 'This memo is under version control and needs to be checked out before editing.') }}</p>
+						<p class="text-muted fs-small mb-0">{{ t('app.memo.checkout.version', { version: currentFile.baseVersionName }, 'Version: {version}') }}</p>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="onCheckoutDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+						<button class="wt wt-primary wt-outlined" @click="onCheckoutDialogAction('checkout')">
+							<i class="bi bi-box-arrow-up-right me-1"></i>{{ t('app.memo.checkout.checkout', undefined, 'Checkout') }}
+						</button>
+						<button class="wt wt-primary" @click="onCheckoutDialogAction('checkoutAndCheckin')">
+							<i class="bi bi-check2-circle me-1"></i>{{ t('app.memo.checkout.checkoutAndCheckin', undefined, 'Checkout & Checkin after Save') }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Checkin Dialog -->
+		<div v-if="checkinDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-floppy-fill me-2"></i>{{ t('app.memo.checkin.title', undefined, 'Memo Saved') }}</h3>
+					</div>
+					<div class="dialog-body">
+						<p>{{ t('app.memo.checkin.message', undefined, 'The memo has been saved successfully. Would you like to create a new version?') }}</p>
+						<p class="text-muted fs-small mb-0">{{ t('app.memo.checkin.currentVersion', { version: currentFile.baseVersionName }, 'Current version: {version}') }}</p>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="closeCheckinDialog" :disabled="checkinDialog.isLoading">{{ t('app.memo.checkin.keepEditing', undefined, 'Keep Editing') }}</button>
+						<button class="wt wt-primary wt-outlined" @click="submitCheckpoint" :disabled="checkinDialog.isLoading">
+							<i class="bi bi-save me-1"></i>{{ t('app.memo.checkin.checkpoint', undefined, 'Checkpoint') }}
+						</button>
+						<button class="wt wt-primary" @click="submitCheckin" :disabled="checkinDialog.isLoading">
+							<i class="bi bi-box-arrow-in-down-left me-1"></i>{{ t('app.memo.checkin.checkin', undefined, 'Checkin') }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Close Confirmation Dialog -->
+		<div v-if="closeConfirmDialog.visible" class="dialog-overlay">
+			<div class="dialog-frame" style="max-width: 32rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.memo.unsaved.title', undefined, 'Unsaved Changes') }}</h3>
+					</div>
+					<div class="dialog-body">
+						<p class="mt-0">{{ t('app.memo.unsaved.hasChanges', { name: currentFile.name }, 'The memo "{name}" has unsaved changes.') }}</p>
+						<p>{{ t('app.memo.unsaved.prompt', undefined, 'Do you want to save your changes before closing?') }}</p>
+					</div>
+					<div class="dialog-footer flex-wrap">
+						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
+							<i class="bi bi-trash me-1"></i>{{ t('app.memo.unsaved.dontSave', undefined, "Don't Save") }}
+						</button>
+						<button v-if="currentFile.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
+							<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

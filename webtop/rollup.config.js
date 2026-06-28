@@ -209,6 +209,7 @@ const webtopCoreConfig = makeConfig({
 export default [
   webtopCoreConfig,
   makeAppConfig('content-browser'),
+  makeAppConfig('memo'),
   makeAppConfig('text-editor'),
   makeAppConfig('text-editor-preview'),
   makeAppConfig('bpmn-modeler'),

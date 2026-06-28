@@ -1,0 +1,440 @@
+# =============================================================================
+# Platform IdP (identity provider) GraphQL schema — preview / side-by-side
+# =============================================================================
+# Contributed by PlatformIdpWiringContributor, merged into the same graphql-java
+# schema as the core platform SDL (platform-schema.graphqls). It `extend`s the
+# core Query/Mutation roots and reuses the core scalars (DateTime) and PageInfo.
+#
+# This is the graphql-java migration target of the handmade IdpQueryExecutor /
+# IdpMutationExecutor (users/groups/roles under /home in the system workspace),
+# served at /bin/graphql.cgi.
+#
+# Coverage:
+#   Reads: user, me, users (IDP-1a); role, roles, roleTree (IDP-1b);
+#     group, groups, groupTree (IDP-1c). The User/Role/Group object types are
+#     defined here (User references Role/Group).
+#   Mutations: user — createUser, updateUser, deleteUser, changePassword,
+#     resetPassword (IDP-2a); role assignment — assignRoles, revokeRoles
+#     (IDP-2b); role CRUD — createRole, updateRole, deleteRole (IDP-2c);
+#     group CRUD/move — createGroup, updateGroup, deleteGroup, moveGroup
+#     (IDP-2d); group membership — addGroupMembers, removeGroupMembers, and
+#     updatePreferences (IDP-2e/2f). IdP migration complete.
+#
+# Reconciliation: the `users` query accepts last/before/orderBy/orderDirection
+# for wire-compat with the Webtop, but — exactly as the handmade engine — only
+# first/after/query/roleId/groupId/includeDescendants are applied (forward
+# pagination, no server-side ordering). Role/Group references embedded in a User
+# (roles, memberOf, effectiveGroups) are basic projections; their members /
+# parent / ancestors connections are populated only when read via the top-level
+# role/group queries (a User never selects them).
+# =============================================================================
+
+extend type Query {
+  """A single user by username (with roles, group memberships and effective groups)."""
+  user(username: String!): User
+
+  """The calling user's own profile (same shape as `user`)."""
+  me: User
+
+  """Users (Relay connection) with text/role/group filters. orderBy/orderDirection/last/before are accepted but not applied (handmade parity)."""
+  users(first: Int = 20, after: String, last: Int, before: String, query: String, roleId: String, groupId: String, includeDescendants: Boolean = false, orderBy: UserOrderField, orderDirection: OrderDirection): UserConnection!
+}
+
+"""A directory user (/home/users/<username>/profile). `enabled` defaults true, `isService` false when unset."""
+type User {
+  username: String!
+  sn: String
+  givenName: String
+  displayName: String
+  mail: String
+  enabled: Boolean!
+  """A non-interactive service account (no password, never signs in)."""
+  isService: Boolean!
+  hasAvatar: Boolean!
+  avatarUrl: String
+  lastLogin: DateTime
+  created: DateTime
+  lastModified: DateTime
+  """The user's directly-assigned roles."""
+  roles: [Role!]!
+  """The groups the user is a direct member of."""
+  memberOf: [Group!]!
+  """memberOf plus all ancestor groups (deduplicated)."""
+  effectiveGroups: [Group!]!
+}
+
+"""A role (/home/roles/...; roleId is the slash-separated path under the roles root). `depth` is the number of path segments above the root."""
+type Role {
+  roleId: String!
+  name: String!
+  displayName: String
+  description: String
+  depth: Int!
+  hasChildren: Boolean!
+  descendantCount: Int!
+  """The immediate parent role (null for a top-level role)."""
+  parent: Role
+  """All ancestor roles from the root down to the parent."""
+  ancestors: [Role!]!
+  """Users holding this role (populated only via the top-level role query)."""
+  members: UserConnection!
+  created: DateTime
+  lastModified: DateTime
+}
+
+"""A group (/home/groups/...; groupId is the slash-separated path under the groups root)."""
+type Group {
+  groupId: String!
+  name: String!
+  displayName: String
+  description: String
+  depth: Int!
+  hasChildren: Boolean!
+  descendantCount: Int!
+  """The immediate parent group (null for a top-level group)."""
+  parent: Group
+  """All ancestor groups from the root down to the parent."""
+  ancestors: [Group!]!
+  """Direct members (populated only via the top-level group query)."""
+  members: UserConnection!
+  """Direct members plus members of descendant groups (top-level group query only)."""
+  effectiveMembers: UserConnection!
+  created: DateTime
+  lastModified: DateTime
+}
+
+type UserConnection {
+  edges: [UserEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type UserEdge {
+  node: User!
+  cursor: String!
+}
+
+enum UserOrderField {
+  USERNAME
+  DISPLAY_NAME
+  MAIL
+  CREATED
+  LAST_LOGIN
+}
+
+enum OrderDirection {
+  ASC
+  DESC
+}
+
+extend type Query {
+  """A single role by roleId (slash-separated path under the roles root), with parent and ancestors."""
+  role(roleId: String!): Role
+
+  """Roles (Relay connection) with an optional text filter on roleId/displayName. orderBy/orderDirection are accepted but not applied (handmade parity)."""
+  roles(first: Int = 100, after: String, query: String, orderBy: RoleOrderField, orderDirection: OrderDirection): RoleConnection!
+
+  """The role hierarchy as a tree (optionally rooted at rootRoleId, limited to maxDepth)."""
+  roleTree(rootRoleId: String, maxDepth: Int): [RoleTreeNode!]!
+}
+
+type RoleConnection {
+  edges: [RoleEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type RoleEdge {
+  node: Role!
+  cursor: String!
+}
+
+"""A node in the role hierarchy tree (a lighter projection than Role; children are nested)."""
+type RoleTreeNode {
+  roleId: String!
+  name: String!
+  displayName: String
+  depth: Int!
+  hasChildren: Boolean!
+  children: [RoleTreeNode!]!
+}
+
+enum RoleOrderField {
+  ROLE_ID
+  DISPLAY_NAME
+  CREATED
+}
+
+extend type Query {
+  """A single group by groupId (slash-separated path under the groups root), with parent and ancestors."""
+  group(groupId: String!): Group
+
+  """Top-level groups (Relay connection) with an optional text filter on groupId/displayName. orderBy/orderDirection are accepted but not applied (handmade parity)."""
+  groups(first: Int = 50, after: String, query: String, orderBy: GroupOrderField, orderDirection: OrderDirection): GroupConnection!
+
+  """The group hierarchy as a tree (optionally rooted at rootGroupId, limited to maxDepth)."""
+  groupTree(rootGroupId: String, maxDepth: Int): [GroupTreeNode!]!
+}
+
+type GroupConnection {
+  edges: [GroupEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type GroupEdge {
+  node: Group!
+  cursor: String!
+}
+
+"""A node in the group hierarchy tree. `memberCount` is 0 in the tree view (computing it is an expensive full scan; use the group query for members)."""
+type GroupTreeNode {
+  groupId: String!
+  name: String!
+  displayName: String
+  depth: Int!
+  hasChildren: Boolean!
+  memberCount: Int!
+  children: [GroupTreeNode!]!
+}
+
+enum GroupOrderField {
+  GROUP_ID
+  DISPLAY_NAME
+  CREATED
+}
+
+# -----------------------------------------------------------------------------
+# Mutations (mirror IdpMutationExecutor)
+#
+# IdP management writes to /home in the system workspace under the caller's JCR
+# session. Validation failures are returned in-band as an `errors` list
+# (field/message/code), not as GraphQL errors; on success `errors` is null.
+# -----------------------------------------------------------------------------
+
+extend type Mutation {
+  """Create a user (service accounts need no password). Assigns roles/memberOf and grants the user JCR_ALL on their own home."""
+  createUser(input: CreateUserInput!): UserMutationPayload!
+
+  """Update a user's editable profile fields (only the fields present are written)."""
+  updateUser(input: UpdateUserInput!): UserMutationPayload!
+
+  """Delete a user (identity home plus per-workspace working areas)."""
+  deleteUser(input: DeleteUserInput!): DeleteUserPayload!
+
+  """Change a user's password (verifies currentPassword when supplied)."""
+  changePassword(input: ChangePasswordInput!): UserMutationPayload!
+
+  """Reset a user's password without the current one (admin)."""
+  resetPassword(input: ResetPasswordInput!): UserMutationPayload!
+}
+
+input CreateUserInput {
+  username: String!
+  """Required for interactive users; omit for service accounts (service: true)."""
+  password: String
+  sn: String
+  givenName: String
+  displayName: String
+  mail: String
+  enabled: Boolean
+  """Create a non-interactive service account (no password); defaults false."""
+  service: Boolean
+  roles: [String!]
+  memberOf: [String!]
+}
+
+input UpdateUserInput {
+  username: String!
+  sn: String
+  givenName: String
+  displayName: String
+  mail: String
+  enabled: Boolean
+}
+
+input DeleteUserInput {
+  username: String!
+}
+
+input ChangePasswordInput {
+  username: String!
+  currentPassword: String
+  newPassword: String!
+}
+
+input ResetPasswordInput {
+  username: String!
+  newPassword: String!
+}
+
+"""An in-band IdP-mutation validation error."""
+type IdpMutationError {
+  field: String
+  message: String!
+  code: String!
+}
+
+"""Result of a user mutation; `user` is the refreshed user (null on validation error)."""
+type UserMutationPayload {
+  user: User
+  errors: [IdpMutationError!]
+}
+
+"""Result of deleting a user; `username` is echoed back."""
+type DeleteUserPayload {
+  username: String
+  errors: [IdpMutationError!]
+}
+
+extend type Mutation {
+  """Assign roles to a user (additive — roles already held are kept)."""
+  assignRoles(input: AssignRolesInput!): UserMutationPayload!
+
+  """Revoke roles from a user."""
+  revokeRoles(input: RevokeRolesInput!): UserMutationPayload!
+}
+
+input AssignRolesInput {
+  username: String!
+  roles: [String!]!
+}
+
+input RevokeRolesInput {
+  username: String!
+  roles: [String!]!
+}
+
+extend type Mutation {
+  """Create a role (optionally under parentRoleId)."""
+  createRole(input: CreateRoleInput!): RoleMutationPayload!
+
+  """Update a role's displayName/description."""
+  updateRole(input: UpdateRoleInput!): RoleMutationPayload!
+
+  """Delete a role. recursive=true is required when it has children; removeFromUsers strips it (and its subtree) from all users first."""
+  deleteRole(input: DeleteRoleInput!): DeleteRolePayload!
+}
+
+input CreateRoleInput {
+  name: String!
+  parentRoleId: String
+  displayName: String
+  description: String
+}
+
+input UpdateRoleInput {
+  roleId: String!
+  displayName: String
+  description: String
+}
+
+input DeleteRoleInput {
+  roleId: String!
+  removeFromUsers: Boolean
+  recursive: Boolean
+}
+
+"""Result of a role create/update; `role` is the refreshed role (null on validation error)."""
+type RoleMutationPayload {
+  role: Role
+  errors: [IdpMutationError!]
+}
+
+"""Result of deleting a role; `roleId` is echoed back."""
+type DeleteRolePayload {
+  roleId: String
+  errors: [IdpMutationError!]
+}
+
+extend type Mutation {
+  """Create a group (optionally under parentGroupId)."""
+  createGroup(input: CreateGroupInput!): GroupMutationPayload!
+
+  """Update a group's displayName/description."""
+  updateGroup(input: UpdateGroupInput!): GroupMutationPayload!
+
+  """Delete a group. recursive=true is required when it has children."""
+  deleteGroup(input: DeleteGroupInput!): DeleteGroupPayload!
+
+  """Move and/or rename a group (to a new parent and/or a new name); returns the moved group and its previous id."""
+  moveGroup(input: MoveGroupInput!): MoveGroupPayload!
+}
+
+input CreateGroupInput {
+  parentGroupId: String
+  name: String!
+  displayName: String
+  description: String
+}
+
+input UpdateGroupInput {
+  groupId: String!
+  displayName: String
+  description: String
+}
+
+input DeleteGroupInput {
+  groupId: String!
+  recursive: Boolean
+}
+
+input MoveGroupInput {
+  groupId: String!
+  newParentGroupId: String
+  newName: String
+}
+
+"""Result of a group create/update/move; `group` is the refreshed group (null on validation error)."""
+type GroupMutationPayload {
+  group: Group
+  errors: [IdpMutationError!]
+}
+
+"""Result of deleting a group; `groupId` is echoed back."""
+type DeleteGroupPayload {
+  groupId: String
+  errors: [IdpMutationError!]
+}
+
+"""Result of moving a group; `group` is the moved group and `previousGroupId` its id before the move."""
+type MoveGroupPayload {
+  group: Group
+  previousGroupId: String
+  errors: [IdpMutationError!]
+}
+
+extend type Mutation {
+  """Add users to a group (additive — members already in the group are kept)."""
+  addGroupMembers(input: AddGroupMembersInput!): GroupMutationPayload!
+
+  """Remove users from a group."""
+  removeGroupMembers(input: RemoveGroupMembersInput!): GroupMutationPayload!
+
+  """Create or update a user's preference category; returns the saved category and its data."""
+  updatePreferences(input: UpdatePreferencesInput!): UpdatePreferencesPayload!
+}
+
+input AddGroupMembersInput {
+  groupId: String!
+  usernames: [String!]!
+}
+
+input RemoveGroupMembersInput {
+  groupId: String!
+  usernames: [String!]!
+}
+
+input UpdatePreferencesInput {
+  username: String!
+  """Category name; must match [a-z][a-z0-9-]* (path-traversal guard)."""
+  category: String!
+  data: JSON!
+}
+
+"""Result of updating a preference category; `data` is the saved (read-back) properties."""
+type UpdatePreferencesPayload {
+  category: String
+  data: JSON
+  errors: [IdpMutationError!]
+}

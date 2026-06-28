@@ -29,7 +29,11 @@ export interface InspectorTarget {
 
 export function nodeToInspectorTarget(node: Node): InspectorTarget {
 	return {
-		id: node.uuid || node.path,
+		// Prefer the always-present stable JCR identifier; fall back to uuid/path only
+		// for nodes fetched by a query that does not yet select `id`. Using the stable
+		// identifier lets the Content Browser drop an item on a path-free nodeChanged
+		// DELETE signal (a node that became unreadable) regardless of referenceability.
+		id: node.id || node.uuid || node.path,
 		name: node.name,
 		path: node.path,
 		isCollection: isFolderNode(node),

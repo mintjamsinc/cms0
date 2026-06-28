@@ -23,6 +23,7 @@
 
 import type { ContentServiceGraphQL } from './content-service-graphql.js';
 import type { EventHub } from '../realtime/event-hub.js';
+import { withContentVersion } from '../utils/content-version.js';
 
 export interface SchemaDefinitionFile {
 	key: string;
@@ -133,7 +134,10 @@ export class MetadataDefinitionCache {
 					if (!node.downloadUrl) continue;
 
 					try {
-						const response = await fetch(node.downloadUrl);
+						// Version-stamp with the file's last-modified time so an unchanged schema/mixin
+						// is served from the browser's immutable cache on the next boot instead of a
+						// revalidation round-trip (see withContentVersion).
+						const response = await fetch(withContentVersion(node.downloadUrl, node.modified));
 						if (!response.ok) continue;
 
 						const text = await response.text();

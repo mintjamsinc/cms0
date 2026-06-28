@@ -538,10 +538,10 @@ export const App = {
 		},
 		// ---- Scroll preservation ----
 		getScrollContainer(): HTMLElement | null {
-			return document.querySelector('.preview-body') as HTMLElement | null;
+			return (this.$refs.previewBody as HTMLElement) ?? null;
 		},
 		getPreviewIframe(): HTMLIFrameElement | null {
-			return document.querySelector('.preview-iframe') as HTMLIFrameElement | null;
+			return (this.$refs.previewIframe as HTMLIFrameElement) ?? null;
 		},
 		// Snapshot the current scroll position of whichever preview is on
 		// screen. Reads the live DOM so it reflects the actual rendered
@@ -841,7 +841,7 @@ export const App = {
 			vm.extInput = vm.previewExtension || '';
 			vm.extEditing = true;
 			vm.$nextTick(() => {
-				const input = document.querySelector('.preview-ext-editor-input') as HTMLInputElement | null;
+				const input = vm.$refs.extEditorInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 					input.select();

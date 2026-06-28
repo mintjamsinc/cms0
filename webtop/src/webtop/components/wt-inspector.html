@@ -8,7 +8,7 @@
 	  own @drop.stop + @dragover.stop, so those inner drops bypass the
 	  panel-level forbidden handler via bubble-phase stopPropagation.
 	-->
-	<div class="detail-panel"
+	<div class="detail-panel" ref="detailPanel"
 		:style="width ? { width: width + 'px' } : null"
 		@mounted.stop="onMounted"
 		@unmount.stop="onUnmount"
@@ -75,7 +75,7 @@
 					<!-- MIME type inline editor (suggestions popup is shown by the shell) -->
 					<div v-if="mimeTypeEditing" class="mime-type-editor">
 						<div class="input-group">
-							<input type="text" v-model="mimeTypeInput" class="mime-type-editor-input"
+							<input type="text" v-model="mimeTypeInput" ref="mimeTypeInput"
 								@input="updateMimeTypeSuggestions"
 								@keydown="handleMimeTypeKeydown"
 								:disabled="mimeTypeSaving"
@@ -107,7 +107,7 @@
 					<!-- Encoding inline editor (suggestions popup is shown by the shell) -->
 					<div v-if="encodingEditing" class="mime-type-editor">
 						<div class="input-group">
-							<input type="text" v-model="encodingInput" class="mime-type-editor-input encoding-editor-input"
+							<input type="text" v-model="encodingInput" ref="encodingInput"
 								@input="updateEncodingSuggestions"
 								@keydown="handleEncodingKeydown"
 								:disabled="encodingSaving"
@@ -673,7 +673,7 @@
 									@focus="onAclSearchFocus"
 									:placeholder="t('webtop.inspector.acl.searchPlaceholder')"
 									autocomplete="off"
-									class="wt w-100 acl-principal-input">
+									class="wt w-100" ref="aclPrincipalInput">
 								<div v-if="aclDialog.addEntry.isSearching" class="input-group-actions">
 									<span class="spinner-border spinner-border-sm"></span>
 								</div>
@@ -1337,7 +1337,7 @@
 			<div v-if="cmSearchVisible" class="cm-search-bar" :class="{ 'cm-search-not-found': cmSearchNotFound }">
 				<div class="cm-search-row">
 					<div class="input-group cm-search-input-group">
-						<input id="cm-search-input" type="text" v-model="cmSearchTerm"
+						<input ref="cmSearchInput" type="text" v-model="cmSearchTerm"
 							@input="onCmSearchInput" @keydown="onCmSearchKeydown"
 							:placeholder="t('webtop.inspector.cm.findPlaceholder')" spellcheck="false">
 						<div class="input-group-actions">

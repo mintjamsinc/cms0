@@ -215,10 +215,27 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return value;
 	}
 
+	/** Fraction of the JVM max heap used for the page cache when unconfigured. */
+	private static final int DEFAULT_CACHE_HEAP_PERCENT = 15;
+
+	/** Lower bound for the heap-derived default cache size, in MB. */
+	private static final int MIN_DEFAULT_CACHE_SIZE_MB = 16;
+
+	/** Upper bound (historical ceiling) for the heap-derived default, in MB. */
+	private static final int MAX_DEFAULT_CACHE_SIZE_MB = 256;
+
 	/**
 	 * Returns the target size of the workspace database page cache, in
-	 * <strong>megabytes</strong> ({@code org.mintjams.jcr.workspace.cacheSizeMB};
-	 * default 256).
+	 * <strong>megabytes</strong> ({@code org.mintjams.jcr.workspace.cacheSizeMB}).
+	 * <p>
+	 * When the property is not set the default is derived from the JVM max heap
+	 * ({@code -Xmx}): {@value #DEFAULT_CACHE_HEAP_PERCENT}% of the heap, clamped
+	 * to [{@value #MIN_DEFAULT_CACHE_SIZE_MB}, {@value #MAX_DEFAULT_CACHE_SIZE_MB}]
+	 * MB. A fixed default sized near the heap (e.g. 256 MB on a 512 MB heap) let
+	 * the first compaction after a bulk delete fill the heap and OOM the MVStore
+	 * background writer in {@code rewriteChunks}; scaling with the heap keeps the
+	 * cache a safe fraction of available memory on small deployments while still
+	 * reaching the historical ceiling on large ones.
 	 * <p>
 	 * Operators configure the cache in MB; each backend boundary converts to
 	 * the unit it expects (for example H2's {@code CACHE_SIZE}, which is in KB).
@@ -244,7 +261,13 @@ public class JcrRepositoryConfiguration implements Adaptable {
 						"Property 'org.mintjams.jcr.workspace.cacheSize' (bytes) is deprecated; "
 						+ "use 'org.mintjams.jcr.workspace.cacheSizeMB' (megabytes) instead.");
 			} else {
-				value = 256;
+				// No explicit configuration: scale the default with the JVM max
+				// heap (-Xmx) instead of using a fixed size. A fixed default near
+				// the heap (256 MB on a 512 MB heap) let a compaction's
+				// rewriteChunks exhaust the heap and OOM the background writer.
+				long maxHeapMB = Runtime.getRuntime().maxMemory() / (1024L * 1024L);
+				long scaled = maxHeapMB * DEFAULT_CACHE_HEAP_PERCENT / 100L;
+				value = (int) Math.min(Math.max(scaled, MIN_DEFAULT_CACHE_SIZE_MB), MAX_DEFAULT_CACHE_SIZE_MB);
 			}
 		}
 		// Clamp to a sane floor so caching is never effectively disabled.

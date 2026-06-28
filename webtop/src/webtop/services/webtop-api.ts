@@ -305,6 +305,9 @@ export class WebtopAPI {
 	 */
 	switchWorkspace(workspace: string): void {
 		this.#workspace = workspace;
+		// Endpoint cutover (#7b): /bin/graphql.cgi is served by the platform
+		// (graphql-java) engine. Rollback = point this at /bin/graphql-legacy.cgi
+		// (the retired handmade engine) and redeploy.
 		this.#graphqlClient.setEndpoint(`/bin/graphql.cgi/${workspace}`);
 		this.#eventHub.dispose();
 		this.#eventHub = createEventHub(workspace);

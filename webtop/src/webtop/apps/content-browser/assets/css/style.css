@@ -1571,7 +1571,6 @@
 	height: 0.5rem;
 }
 
-.loading-overlay,
 .upload-overlay,
 .conflict-dialog-overlay {
 	position: absolute;
@@ -1584,6 +1583,34 @@
 	border-radius: 1rem;
 	box-shadow: var(--island-shadow);
 	z-index: 1000;
+}
+
+/* Folder-navigation busy shield. Transparent layer over the content area
+   (list, breadcrumb, sidebar, inspector) while a folder is loading, so clicks
+   and right-clicks cannot operate anything mid-move. It is invisible by design
+   — the cleared list shows through and fast loads repaint with no flicker —
+   yet it still captures pointer events so nothing underneath is reachable. */
+.nav-busy-shield {
+	position: absolute;
+	inset: 0;
+	z-index: 1000;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	background: transparent;
+	cursor: progress;
+}
+
+/* Spinner shown inside the shield, revealed (navSpinnerVisible) only after a
+   short delay so it appears for slow loads but never flashes on quick ones.
+   It fades in gently so even a slow load's spinner does not pop in harshly. */
+.nav-busy-spinner {
+	animation: nav-busy-fade-in 0.2s ease-in both;
+}
+
+@keyframes nav-busy-fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
 }
 
 .upload-overlay .progress {
@@ -1731,6 +1758,26 @@
 .folder-deleted-notice-detail code {
 	background: transparent;
 	padding: 0;
+}
+
+/* Inline notice for a failed folder load. Mirrors the deleted-folder notice
+   layout (and reuses its -text / -title / -detail children) but in the danger
+   palette, since a load failure is an error rather than a warning. */
+.folder-load-error-notice {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin: 1rem;
+	padding: 0.75rem 1rem;
+	border: 1px solid var(--danger-color);
+	border-radius: 0.35rem;
+	background: rgb(from var(--danger-color) r g b / 0.12);
+	color: var(--danger-color);
+}
+.folder-load-error-notice > .bi {
+	font-size: 1.5rem;
+	color: var(--danger-color);
+	flex-shrink: 0;
 }
 
 /* Keep the import dialog inside the content-browser viewport: cap the frame at

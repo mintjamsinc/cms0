@@ -239,6 +239,14 @@ function compileFullTextSearch(input: string): { predicate: string | null; error
 	}
 }
 
+// Delay before the folder-navigation spinner becomes visible. A folder load
+// clears the list and fetches the destination's children; most loads finish
+// well within this window, so the list simply repaints with no spinner. Only a
+// genuinely slow load keeps running past the delay and reveals the spinner —
+// avoiding the eye-strain flicker of an indicator that appears and vanishes
+// within a few frames.
+const NAV_SPINNER_DELAY_MS = 300;
+
 export const App = {
 	data() {
 		return {
@@ -246,7 +254,21 @@ export const App = {
 			idp: null as IdpServiceGraphQL | null,
 			currentPath: '/content',
 			items: [] as any[],
-			loadingMonitor: null,
+			// Folder-navigation busy state. While a folder list is being
+			// (re)loaded, `isNavigating` drives a transparent shield that
+			// swallows clicks / right-clicks so nothing can be operated
+			// mid-move — without the opaque full-screen overlay that used to
+			// flicker on fast loads. `navSpinnerVisible` is revealed only once
+			// the load has run past NAV_SPINNER_DELAY_MS, so a subtle spinner
+			// appears for genuinely slow loads but never flashes on quick ones.
+			isNavigating: false,
+			navSpinnerVisible: false,
+			// Inline message shown in the list area when a folder fails to load.
+			loadError: '',
+			// Monotonic load id + delayed-spinner timer handle, so overlapping
+			// loads never tear down each other's busy state.
+			_navSeq: 0,
+			_navSpinnerTimer: null as number | null,
 			sortColumn: 'name' as string,
 			sortDirection: 'asc' as 'asc' | 'desc',
 			uploadMonitor: null as any,
@@ -539,7 +561,10 @@ export const App = {
 			// Node watch subscription for real-time updates
 			_nodeWatchUnsubscribe: null as (() => void) | null,
 			_parentWatchUnsubscribe: null as (() => void) | null,
-			_pendingNodeEvents: [] as { eventType: string; path: string; sourcePath?: string }[],
+			_pendingNodeEvents: [] as { eventType: string; path?: string; identifier?: string; sourcePath?: string }[],
+			// Identifier of the current folder (when referenceable), so the parent watch can
+			// recognise a path-free DELETED drop signal for the folder we are viewing.
+			_currentFolderId: null as string | null,
 			flashingItems: [] as string[],
 			// Set when the currently displayed folder has been deleted out from
 			// under us (by another user/process). The list area shows a notice
@@ -1030,6 +1055,7 @@ export const App = {
 		async load(path: string, skipStack: boolean = false) {
 			const vm = this;
 			vm.errorMessage = '';
+			vm.loadError = '';
 			vm.currentFolderDeleted = false;
 			vm.currentPath = path;
 			vm.addToPathHistory(path);
@@ -1048,7 +1074,21 @@ export const App = {
 			}
 			vm.clearSelection();
 			vm.items = [];
-			vm.loadingMonitor = { loading: true };
+
+			// Enter the navigating state. A transparent shield (rendered while
+			// isNavigating is true) now blocks clicks / right-clicks on the
+			// list, breadcrumb and sidebar; we deliberately do NOT show an
+			// opaque overlay, so the cleared list stays visible and fast loads
+			// repaint without any flicker. The spinner is revealed only if this
+			// load is still running after NAV_SPINNER_DELAY_MS.
+			const seq = ++vm._navSeq;
+			vm.isNavigating = true;
+			vm.navSpinnerVisible = false;
+			if (vm._navSpinnerTimer !== null) clearTimeout(vm._navSpinnerTimer);
+			vm._navSpinnerTimer = window.setTimeout(() => {
+				vm._navSpinnerTimer = null;
+				if (vm._navSeq === seq && vm.isNavigating) vm.navSpinnerVisible = true;
+			}, NAV_SPINNER_DELAY_MS);
 
 			try {
 				// Use GraphQL API to fetch content
@@ -1059,6 +1099,10 @@ export const App = {
 				if (!parentNode) {
 					throw new Error(`The item with path "${path}" does not exist.`);
 				}
+				// Remember the folder's stable identifier (present for every node) so the
+				// parent watch can recognise a path-free DELETED drop signal for this folder
+				// even when the folder is not mix:referenceable.
+				vm._currentFolderId = (parentNode as any).id || (parentNode as any).uuid || null;
 
 				// Fetch all children using auto-pagination
 				const items: ContentItem[] = [];
@@ -1073,9 +1117,23 @@ export const App = {
 				vm.items = items;
 				vm.sortItems(vm.sortColumn, vm.sortDirection);
 			} catch (error: any) {
-				vm.errorMessage = error?.message || String(error) || vm.t('app.content-browser.error.fetchFailed', undefined, 'Failed to fetch data');
+				const message = error?.message || String(error) || vm.t('app.content-browser.error.fetchFailed', undefined, 'Failed to fetch data');
+				vm.errorMessage = message;
+				// Surface the failure inline in the (now empty) list area; the
+				// old overlay that used to show it is gone.
+				vm.loadError = message;
 			} finally {
-				vm.loadingMonitor = null;
+				// Only the most recent load clears the shared busy state, so a
+				// slow earlier load resolving late cannot unblock the UI while a
+				// newer navigation is still in flight.
+				if (vm._navSeq === seq) {
+					if (vm._navSpinnerTimer !== null) {
+						clearTimeout(vm._navSpinnerTimer);
+						vm._navSpinnerTimer = null;
+					}
+					vm.isNavigating = false;
+					vm.navSpinnerVisible = false;
+				}
 			}
 
 			// Update node watch subscription for new path
@@ -1106,10 +1164,12 @@ export const App = {
 			vm._nodeWatchUnsubscribe = eventHub.watchNode(
 				vm.currentPath,
 				(event: any) => {
-					// Accumulate events during debounce window
+					// Accumulate events during debounce window. identifier is the drop key
+					// for a path-free DELETED (a node that became unreadable / was removed).
 					vm._pendingNodeEvents.push({
 						eventType: event.eventType,
 						path: event.path,
+						identifier: event.identifier,
 						sourcePath: event.sourcePath,
 					});
 					if (debounceTimer) clearTimeout(debounceTimer);
@@ -1134,7 +1194,12 @@ export const App = {
 				vm._parentWatchUnsubscribe = eventHub.watchNode(
 					parentPath,
 					(event: any) => {
-						if (event.path !== watchedPath) return;
+						// The folder we are viewing may be identified by path (a delete, or a
+						// move whose vacated path the server still discloses) or — when the
+						// folder's read access is revoked in place — only by its identifier.
+						const isWatchedFolder = event.path === watchedPath
+							|| (!!event.identifier && event.identifier === vm._currentFolderId);
+						if (!isWatchedFolder) return;
 						if (event.eventType === 'DELETED'
 							|| (event.eventType === 'MOVED' && event.sourcePath === watchedPath)) {
 							vm._handleCurrentFolderRemoved();
@@ -1195,21 +1260,25 @@ export const App = {
 		 * Process accumulated node change events incrementally.
 		 * Fetches only changed nodes instead of reloading the entire list.
 		 */
-		async _processNodeEvents(events: { eventType: string; path: string; sourcePath?: string }[]) {
+		async _processNodeEvents(events: { eventType: string; path?: string; identifier?: string; sourcePath?: string }[]) {
 			const vm = this;
 			const contentService = vm.instance?.api?.content;
 			if (!contentService) return;
 
-			// Deduplicate by path — keep the latest event for each path
-			const deduplicated: { eventType: string; path: string; sourcePath?: string }[] = [];
+			// Deduplicate by a stable key (identifier when present, else path) — keep the
+			// latest event per node. A path-free DELETED drop signal (a node that became
+			// unreadable / was removed) dedups by identifier, so it correctly supersedes an
+			// earlier CREATED/MODIFIED for the same node.
+			const deduplicated: { eventType: string; path?: string; identifier?: string; sourcePath?: string }[] = [];
 			const seen = new Map<string, number>();
 			for (let i = 0; i < events.length; i++) {
 				const e = events[i];
-				const prevIdx = seen.get(e.path);
+				const key = e.identifier || e.path || '';
+				const prevIdx = seen.get(key);
 				if (prevIdx !== undefined) {
 					deduplicated[prevIdx] = e;
 				} else {
-					seen.set(e.path, deduplicated.length);
+					seen.set(key, deduplicated.length);
 					deduplicated.push(e);
 				}
 			}
@@ -1220,6 +1289,7 @@ export const App = {
 				const path = evt.path;
 				const eventType = evt.eventType;
 				const sourcePath = evt.sourcePath;
+				const identifier = evt.identifier;
 
 				try {
 					// For MOVED events, remove the source item if it is in the current directory
@@ -1233,14 +1303,17 @@ export const App = {
 					}
 
 					if (eventType === 'DELETED') {
-						// Remove item from list
-						const idx = vm.items.findIndex((i: any) => i.path === path);
+						// Remove the item. A DELETED is either a real delete (carries path) or a
+						// path-free drop signal for a node that became unreadable (identifier
+						// only, path withheld by the server) — match on either key.
+						const idx = vm.items.findIndex((i: any) =>
+							(identifier && i.id === identifier) || (path && i.path === path));
 						if (idx !== -1) {
 							const removedId = vm.items[idx].id;
 							vm.items.splice(idx, 1);
 							vm.selectedItems = vm.selectedItems.filter((id: string) => id !== removedId);
 						}
-					} else {
+					} else if (path) {
 						// For CREATED, MODIFIED, MOVED, etc. — check if path is a direct child
 						const parentPath = path.substring(0, path.lastIndexOf('/'));
 						if (parentPath !== vm.currentPath) {
@@ -1272,9 +1345,11 @@ export const App = {
 					}
 				} catch (error) {
 					// Node fetch failed (e.g., deleted between event and fetch) — remove it
-					const idx = vm.items.findIndex((i: any) => i.path === path);
-					if (idx !== -1) {
-						vm.items.splice(idx, 1);
+					if (path) {
+						const idx = vm.items.findIndex((i: any) => i.path === path);
+						if (idx !== -1) {
+							vm.items.splice(idx, 1);
+						}
 					}
 				}
 			}
@@ -1291,9 +1366,6 @@ export const App = {
 			// its own target.path through eventHub.watchNode and reloads
 			// properties / ACL / version listings when MODIFIED events arrive.
 			// The host no longer needs to relay anything.
-		},
-		async closeLoading() {
-			this.loadingMonitor = null;
 		},
 		async openItem(item: any) {
 			if (item.isCollection) {
@@ -1524,12 +1596,12 @@ export const App = {
 		// change event is handled by onUploadInputChange.
 		triggerFileUpload() {
 			if (this.currentFolderDeleted) return;
-			const el = document.getElementById('cb-upload-file-input') as HTMLInputElement | null;
+			const el = this.$refs.uploadFileInput as HTMLInputElement | undefined;
 			el?.click();
 		},
 		triggerFolderUpload() {
 			if (this.currentFolderDeleted) return;
-			const el = document.getElementById('cb-upload-folder-input') as HTMLInputElement | null;
+			const el = this.$refs.uploadFolderInput as HTMLInputElement | undefined;
 			el?.click();
 		},
 		async onUploadInputChange(event: Event) {
@@ -2850,7 +2922,7 @@ export const App = {
 			vm.renameDialog.visible = true;
 			// Focus input after dialog is shown
 			vm.$nextTick(() => {
-				const input = document.querySelector('.rename-dialog input') as HTMLInputElement;
+				const input = vm.$refs.renameInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 					// Select filename without extension
@@ -3125,7 +3197,7 @@ export const App = {
 		// Import from a CMS Archive: open the OS file chooser. The hidden
 		// <input accept=".zip"> lives in index.html.
 		openImportPicker() {
-			const el = document.getElementById('cb-import-archive-input') as HTMLInputElement | null;
+			const el = this.$refs.importArchiveInput as HTMLInputElement | undefined;
 			if (el) el.click();
 		},
 		onImportInputChange(event: Event) {
@@ -3436,7 +3508,7 @@ export const App = {
 			vm.newFolderDialog.visible = true;
 			// Focus input after dialog is shown
 			vm.$nextTick(() => {
-				const input = document.querySelector('.new-folder-dialog input') as HTMLInputElement;
+				const input = vm.$refs.newFolderInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 				}
@@ -3496,7 +3568,7 @@ export const App = {
 			vm.newFileDialog.visible = true;
 			// Focus input after dialog is shown
 			vm.$nextTick(() => {
-				const input = document.querySelector('.new-file-dialog input[type="text"]') as HTMLInputElement;
+				const input = vm.$refs.newFileInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 				}
@@ -3625,7 +3697,7 @@ export const App = {
 			this.navEditMode = true;
 			this.ellipsisDropdownOpen = false;
 			this.$nextTick(() => {
-				const input = document.querySelector('.nav-path-input') as HTMLInputElement;
+				const input = this.$refs.navPathInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 					input.select();
@@ -4595,12 +4667,14 @@ export const App = {
 				return;
 			}
 
-			// Ignore keydown events when a dialog or nav edit mode is open, or
-			// when the inspector has an overlay open (tracked via its
-			// overlay-changed event).
+			// Ignore keydown events when a dialog or nav edit mode is open, when
+			// the inspector has an overlay open (tracked via its overlay-changed
+			// event), or while a folder is loading — the navigating shield
+			// blocks pointer input, so action keys (paste / back / forward) are
+			// suppressed here too for parity.
 			if (vm.navEditMode || vm.fullHistoryPanelOpen || vm.renameDialog.visible || vm.deleteDialog.visible ||
 				vm.newFolderDialog.visible || vm.newFileDialog.visible || vm.conflictDialog.visible ||
-				vm.inspectorOverlayOpen) {
+				vm.inspectorOverlayOpen || vm.isNavigating) {
 				return;
 			}
 

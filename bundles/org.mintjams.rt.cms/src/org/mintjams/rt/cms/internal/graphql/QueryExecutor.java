@@ -62,6 +62,8 @@ import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
 import org.mintjams.tools.lang.Strings;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
+import org.mintjams.rt.cms.internal.graphql.type.NodeMapper;
+import org.mintjams.rt.cms.internal.graphql.type.PrincipalDisplayNameResolver;
 
 /**
  * Class for executing GraphQL Query operations with advanced parsing and field selection optimization
@@ -1555,14 +1557,6 @@ public class QueryExecutor {
 		result.put("search", connection);
 
 		return result;
-	}
-
-	/**
-	 * Escape SQL special characters for CONTAINS clause
-	 */
-	private String escapeSql(String text) {
-		// Escape single quotes for JCR-SQL2
-		return text.replace("'", "''");
 	}
 
 	/**

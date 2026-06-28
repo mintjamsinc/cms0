@@ -1,0 +1,700 @@
+/*
+ * Copyright (c) 2022 MintJams Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+package org.mintjams.rt.cms.internal.graphql.type;
+
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import javax.jcr.Binary;
+import javax.jcr.Node;
+import javax.jcr.Property;
+import javax.jcr.PropertyIterator;
+import javax.jcr.PropertyType;
+import javax.jcr.RepositoryException;
+import javax.jcr.lock.Lock;
+import javax.jcr.lock.LockManager;
+import javax.jcr.version.VersionManager;
+import javax.script.ScriptEngineFactory;
+
+import org.apache.tika.Tika;
+import org.mintjams.jcr.Workspace;
+import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.rt.cms.internal.CmsConfiguration;
+import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
+import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
+import org.mintjams.rt.cms.internal.web.WebRenders;
+import org.mintjams.rt.cms.internal.web.Webs;
+
+/**
+ * Mapper to convert JCR nodes to GraphQL format with field selection optimization
+ */
+public class NodeMapper {
+
+	private static final Tika TIKA = new Tika();
+	private static final int MIME_DETECT_BUFFER_SIZE = 2048;
+
+	private static final DateTimeFormatter ISO8601_FORMAT;
+	static {
+		ISO8601_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC);
+	}
+
+	/**
+	 * Convert JCR node to GraphQL format Map (backward compatibility)
+	 */
+	public static Map<String, Object> toGraphQL(Node node) throws RepositoryException {
+		return toGraphQL(node, null, null);
+	}
+
+	/**
+	 * Convert JCR node to GraphQL format Map with field selection optimization
+	 * Only requested fields are included in the result
+	 */
+	public static Map<String, Object> toGraphQL(Node node, SelectionSet selectionSet) throws RepositoryException {
+		return toGraphQL(node, selectionSet, null);
+	}
+
+	/**
+	 * Convert JCR node to GraphQL format Map with field selection optimization.
+	 * When {@code resolver} is non-null, {@code createdByDisplayName} and
+	 * {@code modifiedByDisplayName} are populated when the corresponding
+	 * fields are selected; resolver lookups are cached across calls so the
+	 * same caller can reuse the resolver for many nodes.
+	 */
+	public static Map<String, Object> toGraphQL(Node node, SelectionSet selectionSet, PrincipalDisplayNameResolver resolver) throws RepositoryException {
+		if (node == null) {
+			return null;
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		String nodeType = node.getPrimaryNodeType().getName();
+
+		// If no selection set provided, include all fields (backward compatibility)
+		boolean includeAll = (selectionSet == null);
+
+		// Common properties (only include if selected or includeAll)
+		if (includeAll || selectionSet.hasField("path")) {
+			result.put("path", node.getPath());
+		}
+		if (includeAll || selectionSet.hasField("name")) {
+			result.put("name", node.getName());
+		}
+		if (includeAll || selectionSet.hasField("nodeType")) {
+			result.put("nodeType", nodeType);
+		}
+
+		// Creation date/time and creator
+		if (includeAll || selectionSet.hasField("created")) {
+			if (node.hasProperty("jcr:created")) {
+				result.put("created", formatDate(node.getProperty("jcr:created").getDate()));
+			}
+		}
+		String createdBy = null;
+		if (includeAll || selectionSet.hasField("createdBy") || selectionSet.hasField("createdByDisplayName")) {
+			if (node.hasProperty("jcr:createdBy")) {
+				createdBy = node.getProperty("jcr:createdBy").getString();
+				if (includeAll || selectionSet.hasField("createdBy")) {
+					result.put("createdBy", createdBy);
+				}
+			}
+		}
+		if (resolver != null && createdBy != null && (includeAll || selectionSet.hasField("createdByDisplayName"))) {
+			result.put("createdByDisplayName", resolver.resolve(createdBy, false));
+		}
+
+		// Stable identifier — present for EVERY node (not only mix:referenceable ones),
+		// unlike uuid below which is null for non-referenceable nodes. Lets clients use a
+		// durable identity key (e.g. drop-by-id on a path-free nodeChanged DELETE signal).
+		if (includeAll || selectionSet.hasField("id")) {
+			result.put("id", node.getIdentifier());
+		}
+
+		// UUID for referenceable nodes
+		if (includeAll || selectionSet.hasField("uuid")) {
+			if (node.isNodeType("mix:referenceable")) {
+				result.put("uuid", node.getIdentifier());
+			} else {
+				result.put("uuid", null);
+			}
+		}
+
+		// Lock information (expensive operation, only if requested)
+		if (includeAll || selectionSet.hasField("isLocked") || selectionSet.hasField("lockInfo")) {
+			addLockInfo(node, result, selectionSet, includeAll, resolver);
+		}
+
+		// Version information (only if requested)
+		if (includeAll || selectionSet.hasField("isVersionable") || selectionSet.hasField("isCheckedOut") || selectionSet.hasField("baseVersionName")) {
+			addVersionInfo(node, result, selectionSet, includeAll);
+		}
+
+		// Properties list (expensive operation, only if requested)
+		if (includeAll || selectionSet.hasField("properties")) {
+			SelectionSet propertiesSelection = selectionSet != null ? selectionSet.getNestedSelectionSet("properties") : null;
+			addProperties(node, result, propertiesSelection, includeAll);
+		}
+
+		// Processing based on node type
+		if ("nt:file".equals(nodeType)) {
+			mapFileNode(node, result, selectionSet, includeAll, resolver);
+		} else if ("nt:folder".equals(nodeType)) {
+			mapFolderNode(node, result, selectionSet, includeAll, resolver);
+		} else {
+			// Other node types: generic processing
+			mapGenericNode(node, result, selectionSet, includeAll, resolver);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Mapping for nt:file node
+	 */
+	private static void mapFileNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll, PrincipalDisplayNameResolver resolver) throws RepositoryException {
+		if (node.hasNode("jcr:content")) {
+			Node contentNode = node.getNode("jcr:content");
+
+			// Last modified date/time and modifier (properties of jcr:content)
+			if (includeAll || selectionSet.hasField("modified")) {
+				if (contentNode.hasProperty("jcr:lastModified")) {
+					result.put("modified", formatDate(contentNode.getProperty("jcr:lastModified").getDate()));
+				}
+			}
+			String modifiedBy = null;
+			if (includeAll || selectionSet.hasField("modifiedBy") || selectionSet.hasField("modifiedByDisplayName")) {
+				if (contentNode.hasProperty("jcr:lastModifiedBy")) {
+					modifiedBy = contentNode.getProperty("jcr:lastModifiedBy").getString();
+					if (includeAll || selectionSet.hasField("modifiedBy")) {
+						result.put("modifiedBy", modifiedBy);
+					}
+				}
+			}
+			if (resolver != null && modifiedBy != null && (includeAll || selectionSet.hasField("modifiedByDisplayName"))) {
+				result.put("modifiedByDisplayName", resolver.resolve(modifiedBy, false));
+			}
+
+			// MIME type
+			if (includeAll || selectionSet.hasField("mimeType")) {
+				if (contentNode.hasProperty("jcr:mimeType")) {
+					result.put("mimeType", contentNode.getProperty("jcr:mimeType").getString());
+				}
+			}
+
+			// File size
+			if (includeAll || selectionSet.hasField("size")) {
+				if (contentNode.hasProperty("jcr:data")) {
+					result.put("size", contentNode.getProperty("jcr:data").getLength());
+				}
+			}
+
+			// Encoding (optional)
+			if (includeAll || selectionSet.hasField("encoding")) {
+				if (contentNode.hasProperty("jcr:encoding")) {
+					result.put("encoding", contentNode.getProperty("jcr:encoding").getString());
+				}
+			}
+		}
+
+		// Download URL (relative path)
+		if (includeAll || selectionSet.hasField("downloadUrl")) {
+			String url;
+			try {
+				url = CmsConfiguration.DOWNLOAD_CGI_PATH + Webs.encodePath("/" + node.getSession().getWorkspace().getName() + node.getPath());
+			} catch (IOException ex) {
+				throw new RepositoryException("Failed to encode download URL", ex);
+			}
+			result.put("downloadUrl", url);
+		}
+
+		// Whether the server evaluates this file through a script engine when
+		// served (e.g. ".gsp"). Mirrors WebResourceResolver.isScriptable(): a
+		// file is scriptable when its name ends with a registered script
+		// extension. Clients use this to route previews through server-side
+		// rendering instead of displaying the raw, unevaluated source.
+		if (includeAll || selectionSet.hasField("scriptable")) {
+			result.put("scriptable", isScriptable(node));
+		}
+
+		// Server-authoritative rendering descriptor: whether the file is bound to
+		// a template (via its own web.template property or a folder
+		// .web.yml descriptor), the source extension it carries, and the output
+		// extensions it may be rendered to. Clients (e.g. the text editor's
+		// preview) rely on this instead of re-deriving the binding, which they
+		// cannot see when it comes from a folder descriptor rather than a
+		// per-file property.
+		if (includeAll || selectionSet.hasField("webRender")) {
+			result.put("webRender", WebRenders.describe(node));
+		}
+	}
+
+	/**
+	 * Returns {@code true} when the node's name ends with one of the workspace's
+	 * registered script extensions, matching the server-side decision in
+	 * {@code WebResourceResolver.isScriptable()}.
+	 */
+	private static boolean isScriptable(Node node) throws RepositoryException {
+		WorkspaceScriptEngineManager manager =
+				CmsService.getWorkspaceScriptEngineManager(node.getSession().getWorkspace().getName());
+		if (manager == null) {
+			return false;
+		}
+		String name = node.getName();
+		for (ScriptEngineFactory factory : manager.getEngineFactories()) {
+			List<String> extensions;
+			try {
+				extensions = factory.getExtensions();
+			} catch (Throwable ignore) {
+				continue;
+			}
+			if (extensions == null) {
+				continue;
+			}
+			for (String extension : extensions) {
+				if (name.endsWith("." + extension)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Mapping for nt:folder node
+	 */
+	private static void mapFolderNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll, PrincipalDisplayNameResolver resolver) throws RepositoryException {
+		// Folder last modified date/time (node's own property, or fallback to creation date/time)
+		if (includeAll || selectionSet.hasField("modified")) {
+			if (node.hasProperty("jcr:lastModified")) {
+				result.put("modified", formatDate(node.getProperty("jcr:lastModified").getDate()));
+			} else if (node.hasProperty("jcr:created")) {
+				result.put("modified", formatDate(node.getProperty("jcr:created").getDate()));
+			}
+		}
+
+		// Modifier (or fallback to creator)
+		String modifiedBy = null;
+		if (includeAll || selectionSet.hasField("modifiedBy") || selectionSet.hasField("modifiedByDisplayName")) {
+			if (node.hasProperty("jcr:lastModifiedBy")) {
+				modifiedBy = node.getProperty("jcr:lastModifiedBy").getString();
+			} else if (node.hasProperty("jcr:createdBy")) {
+				modifiedBy = node.getProperty("jcr:createdBy").getString();
+			}
+			if (modifiedBy != null && (includeAll || selectionSet.hasField("modifiedBy"))) {
+				result.put("modifiedBy", modifiedBy);
+			}
+		}
+		if (resolver != null && modifiedBy != null && (includeAll || selectionSet.hasField("modifiedByDisplayName"))) {
+			result.put("modifiedByDisplayName", resolver.resolve(modifiedBy, false));
+		}
+
+		// Check if has child nodes (potentially expensive for large folders)
+		if (includeAll || selectionSet.hasField("hasChildren")) {
+			result.put("hasChildren", node.hasNodes());
+		}
+	}
+
+	/**
+	 * Generic mapping for other node types
+	 */
+	private static void mapGenericNode(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll, PrincipalDisplayNameResolver resolver) throws RepositoryException {
+		// First check the node itself
+		if (includeAll || selectionSet.hasField("modified")) {
+			if (node.hasProperty("jcr:lastModified")) {
+				result.put("modified", formatDate(node.getProperty("jcr:lastModified").getDate()));
+			} else if (node.hasNode("jcr:content")) {
+				// If jcr:content exists, check that too
+				Node contentNode = node.getNode("jcr:content");
+				if (contentNode.hasProperty("jcr:lastModified")) {
+					result.put("modified", formatDate(contentNode.getProperty("jcr:lastModified").getDate()));
+				}
+			} else if (node.hasProperty("jcr:created")) {
+				// If neither exists, fallback to creation date/time
+				result.put("modified", formatDate(node.getProperty("jcr:created").getDate()));
+			}
+		}
+
+		// Same for modifier
+		String modifiedBy = null;
+		if (includeAll || selectionSet.hasField("modifiedBy") || selectionSet.hasField("modifiedByDisplayName")) {
+			if (node.hasProperty("jcr:lastModifiedBy")) {
+				modifiedBy = node.getProperty("jcr:lastModifiedBy").getString();
+			} else if (node.hasNode("jcr:content")) {
+				Node contentNode = node.getNode("jcr:content");
+				if (contentNode.hasProperty("jcr:lastModifiedBy")) {
+					modifiedBy = contentNode.getProperty("jcr:lastModifiedBy").getString();
+				}
+			} else if (node.hasProperty("jcr:createdBy")) {
+				modifiedBy = node.getProperty("jcr:createdBy").getString();
+			}
+			if (modifiedBy != null && (includeAll || selectionSet.hasField("modifiedBy"))) {
+				result.put("modifiedBy", modifiedBy);
+			}
+		}
+		if (resolver != null && modifiedBy != null && (includeAll || selectionSet.hasField("modifiedByDisplayName"))) {
+			try {
+				boolean isGroup = (Workspace.class.cast(node.getSession().getWorkspace())
+						.getPrincipalProvider()
+						.getPrincipal(modifiedBy) instanceof org.mintjams.jcr.security.GroupPrincipal);
+				result.put("modifiedByDisplayName", resolver.resolve(modifiedBy, isGroup));
+			} catch (PrincipalNotFoundException ignore) {}
+		}
+	}
+
+	/**
+	 * Add properties list to result with field selection optimization
+	 * Returns properties in Union type format (PropertyValue)
+	 */
+	private static void addProperties(Node node, Map<String, Object> result, SelectionSet propertiesSelection, boolean includeAll) throws RepositoryException {
+		try {
+			List<Map<String, Object>> properties = new ArrayList<>();
+			if (node.hasNode("jcr:content")) {
+				PropertyIterator propIterator = node.getNode("jcr:content").getProperties();
+
+				while (propIterator.hasNext()) {
+					Property prop = propIterator.nextProperty();
+
+					// Skip system properties (starting with jcr:)
+					String propName = prop.getName();
+					if (propName.startsWith("jcr:")) {
+						continue;
+					}
+
+					Map<String, Object> nodeProperty = new HashMap<>();
+
+					// Always include name
+					if (includeAll || propertiesSelection == null || propertiesSelection.hasField("name")) {
+						nodeProperty.put("name", propName);
+					}
+
+					// Get propertyValue as Union type
+					if (includeAll || propertiesSelection == null || propertiesSelection.hasField("propertyValue")) {
+						if (prop.getType() == PropertyType.BINARY) {
+							// For Binary properties, omit the full value.
+							// Detect MIME type from content header and include size.
+							nodeProperty.put("propertyValue", prop.isMultiple()
+									? getBinaryArrayPropertyMetadata(prop)
+									: getBinaryPropertyMetadata(prop));
+						} else if (prop.getType() == PropertyType.REFERENCE || prop.getType() == PropertyType.WEAKREFERENCE) {
+							// For Reference properties, resolve UUID to path alongside the UUID value.
+							nodeProperty.put("propertyValue", getReferencePropertyMetadata(prop));
+						} else if (prop.isMultiple()) {
+							// Multiple values
+							String typeName = PropertyType.nameFromValue(prop.getType());
+							List<Object> values = new ArrayList<>();
+							for (javax.jcr.Value jcrValue : prop.getValues()) {
+								values.add(getPropertyValue(jcrValue));
+							}
+							nodeProperty.put("propertyValue", PropertyValue.toGraphQL(typeName, values, true));
+						} else {
+							// Single value
+							String typeName = PropertyType.nameFromValue(prop.getType());
+							Object value = getPropertyValue(prop.getValue());
+							nodeProperty.put("propertyValue", PropertyValue.toGraphQL(typeName, value, false));
+						}
+					}
+
+					properties.add(nodeProperty);
+				}
+			}
+			result.put("properties", properties);
+		} catch (Throwable ex) {
+			result.put("properties", new ArrayList<>());
+		}
+	}
+
+	/**
+	 * Get property value as typed Object for Union type representation
+	 */
+	private static Object getPropertyValue(javax.jcr.Value value) {
+		try {
+			int type = value.getType();
+			switch (type) {
+			case PropertyType.STRING:
+			case PropertyType.NAME:
+			case PropertyType.PATH:
+			case PropertyType.URI:
+			case PropertyType.REFERENCE:
+			case PropertyType.WEAKREFERENCE:
+				return value.getString();
+			case PropertyType.BOOLEAN:
+				return value.getBoolean();
+			case PropertyType.LONG:
+				return value.getLong();
+			case PropertyType.DOUBLE:
+			case PropertyType.DECIMAL:
+				return value.getDouble();
+			case PropertyType.DATE:
+				return formatDate(value.getDate());
+			case PropertyType.BINARY:
+				// Binary values are handled separately by getBinaryPropertyMetadata
+				return null;
+			default:
+				return value.getString();
+			}
+		} catch (Throwable ex) {
+			return "[Error]";
+		}
+	}
+
+	/**
+	 * Build metadata map for a BINARY property.
+	 * Reads up to MIME_DETECT_BUFFER_SIZE bytes to detect the MIME type via Tika,
+	 * and includes the binary size. The full value is omitted.
+	 */
+	private static Map<String, Object> getBinaryPropertyMetadata(Property prop) {
+		Map<String, Object> result = new HashMap<>();
+		result.put("__typename", "BinaryPropertyValue");
+		result.put("type", "BINARY");
+		result.put("value", null);
+
+		try {
+			Binary binary = prop.getBinary();
+			try {
+				result.put("size", binary.getSize());
+
+				// Read a small header to detect MIME type
+				try (InputStream in = new BufferedInputStream(binary.getStream())) {
+					byte[] header = new byte[MIME_DETECT_BUFFER_SIZE];
+					int bytesRead = 0;
+					int read;
+					while (bytesRead < header.length && (read = in.read(header, bytesRead, header.length - bytesRead)) != -1) {
+						bytesRead += read;
+					}
+					if (bytesRead > 0) {
+						byte[] buf = (bytesRead == header.length) ? header : java.util.Arrays.copyOf(header, bytesRead);
+						String mimeType = TIKA.detect(buf);
+						result.put("mimeType", mimeType);
+					}
+				}
+			} finally {
+				binary.dispose();
+			}
+		} catch (Throwable ex) {
+			// If detection fails, return without mimeType/size
+		}
+
+		return result;
+	}
+
+	/**
+	 * Build metadata map for a multi-valued BINARY property.
+	 * Iterates each binary value to detect MIME type and collect size.
+	 */
+	private static Map<String, Object> getBinaryArrayPropertyMetadata(Property prop) {
+		List<Object> mimeTypes = new ArrayList<>();
+		List<Object> sizes = new ArrayList<>();
+
+		try {
+			for (javax.jcr.Value jcrValue : prop.getValues()) {
+				Binary binary = jcrValue.getBinary();
+				try {
+					sizes.add(binary.getSize());
+					try (InputStream in = new BufferedInputStream(binary.getStream())) {
+						byte[] header = new byte[MIME_DETECT_BUFFER_SIZE];
+						int bytesRead = 0;
+						int read;
+						while (bytesRead < header.length && (read = in.read(header, bytesRead, header.length - bytesRead)) != -1) {
+							bytesRead += read;
+						}
+						if (bytesRead > 0) {
+							byte[] buf = (bytesRead == header.length) ? header : java.util.Arrays.copyOf(header, bytesRead);
+							mimeTypes.add(TIKA.detect(buf));
+						} else {
+							mimeTypes.add(null);
+						}
+					}
+				} finally {
+					binary.dispose();
+				}
+			}
+		} catch (Throwable ex) {
+			// If detection fails, return what we have so far
+		}
+
+		Map<String, Object> result = new HashMap<>();
+		result.put("__typename", "BinaryPropertyValueArray");
+		result.put("type", "BINARY");
+		result.put("mimeTypes", mimeTypes);
+		result.put("sizes", sizes);
+		return result;
+	}
+
+	/**
+	 * Build metadata map for a REFERENCE or WEAKREFERENCE property.
+	 * Includes the UUID as value and resolves the path from the repository.
+	 */
+	private static Map<String, Object> getReferencePropertyMetadata(Property prop) throws RepositoryException {
+		String typeName = PropertyType.nameFromValue(prop.getType());
+		String baseName = typeName.substring(0, 1).toUpperCase() + typeName.substring(1).toLowerCase();
+		Map<String, Object> result = new HashMap<>();
+		result.put("type", typeName);
+		if (prop.isMultiple()) {
+			result.put("__typename", baseName + "PropertyValueArray");
+			List<String> uuids = new ArrayList<>();
+			List<String> paths = new ArrayList<>();
+			for (javax.jcr.Value v : prop.getValues()) {
+				String uuid = v.getString();
+				uuids.add(uuid);
+				paths.add(resolveUuidToPath(uuid, prop));
+			}
+			result.put("values", uuids);
+			result.put("paths", paths);
+		} else {
+			result.put("__typename", baseName + "PropertyValue");
+			String uuid = prop.getString();
+			result.put("value", uuid);
+			result.put("path", resolveUuidToPath(uuid, prop));
+		}
+		return result;
+	}
+
+	/**
+	 * Resolve a JCR node UUID to its repository path.
+	 * Returns null if the node cannot be found.
+	 */
+	private static String resolveUuidToPath(String uuid, Property prop) {
+		try {
+			return prop.getSession().getNodeByIdentifier(uuid).getPath();
+		} catch (Throwable ex) {
+			return null;
+		}
+	}
+
+	/**
+	 * Add lock information to result with field selection optimization
+	 * Returns isLocked as boolean and lockInfo as object (only when locked)
+	 */
+	private static void addLockInfo(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll, PrincipalDisplayNameResolver resolver) throws RepositoryException {
+		try {
+			LockManager lockManager = node.getSession().getWorkspace().getLockManager();
+
+			// Check if node is locked
+			boolean isLocked = lockManager.isLocked(node.getPath());
+
+			if (includeAll || selectionSet.hasField("isLocked")) {
+				result.put("isLocked", isLocked);
+			}
+
+			// Build lockInfo object only when locked and requested
+			if (includeAll || selectionSet.hasField("lockInfo")) {
+				if (isLocked) {
+					Lock lock = lockManager.getLock(node.getPath());
+					Map<String, Object> lockInfo = new HashMap<>();
+					String lockOwner = lock.getLockOwner();
+					lockInfo.put("lockOwner", lockOwner);
+					lockInfo.put("isDeep", lock.isDeep());
+					lockInfo.put("isSessionScoped", lock.isSessionScoped());
+					lockInfo.put("isLockOwningSession", lock.isLockOwningSession());
+					// Authoritative "is this lock held by the current user" check.
+					// Unlike isLockOwningSession (which only matches the very session
+					// that created the lock), isLockOwner also matches open-scoped
+					// locks held by the same principal across sessions — e.g. a lock
+					// taken from the content browser in an earlier request.
+					if (lock instanceof org.mintjams.jcr.lock.Lock) {
+						lockInfo.put("isLockOwner", ((org.mintjams.jcr.lock.Lock) lock).isLockOwner());
+					}
+					if (resolver != null && lockOwner != null) {
+						lockInfo.put("lockOwnerDisplayName", resolver.resolve(lockOwner, false));
+					}
+					result.put("lockInfo", lockInfo);
+				} else {
+					result.put("lockInfo", null);
+				}
+			}
+		} catch (Throwable ex) {
+			// If lock info retrieval fails, set default values only for requested fields
+			if (includeAll || selectionSet.hasField("isLocked")) {
+				result.put("isLocked", false);
+			}
+			if (includeAll || selectionSet.hasField("lockInfo")) {
+				result.put("lockInfo", null);
+			}
+		}
+	}
+
+	/**
+	 * Add version information to result with field selection optimization
+	 * Returns isVersionable, isCheckedOut booleans, and baseVersionName string
+	 */
+	private static void addVersionInfo(Node node, Map<String, Object> result, SelectionSet selectionSet, boolean includeAll) throws RepositoryException {
+		try {
+			// Check if node is versionable
+			boolean isVersionable = node.isNodeType("mix:versionable");
+
+			if (includeAll || selectionSet.hasField("isVersionable")) {
+				result.put("isVersionable", isVersionable);
+			}
+
+			VersionManager versionManager = null;
+			if (isVersionable) {
+				versionManager = node.getSession().getWorkspace().getVersionManager();
+			}
+
+			// Check if node is checked out (only meaningful for versionable nodes)
+			if (includeAll || selectionSet.hasField("isCheckedOut")) {
+				if (isVersionable && versionManager != null) {
+					result.put("isCheckedOut", versionManager.isCheckedOut(node.getPath()));
+				} else {
+					result.put("isCheckedOut", false);
+				}
+			}
+
+			// Get base version name (only meaningful for versionable nodes)
+			if (includeAll || selectionSet.hasField("baseVersionName")) {
+				if (isVersionable && versionManager != null) {
+					result.put("baseVersionName", versionManager.getBaseVersion(node.getPath()).getName());
+				} else {
+					result.put("baseVersionName", null);
+				}
+			}
+		} catch (Throwable ex) {
+			// If version info retrieval fails, set default values only for requested fields
+			if (includeAll || selectionSet.hasField("isVersionable")) {
+				result.put("isVersionable", false);
+			}
+			if (includeAll || selectionSet.hasField("isCheckedOut")) {
+				result.put("isCheckedOut", false);
+			}
+			if (includeAll || selectionSet.hasField("baseVersionName")) {
+				result.put("baseVersionName", null);
+			}
+		}
+	}
+
+	/**
+	 * Convert Calendar to ISO8601 format string
+	 */
+	private static String formatDate(java.util.Calendar calendar) {
+		if (calendar == null) {
+			return null;
+		}
+		return ISO8601_FORMAT.format(calendar.toInstant());
+	}
+}

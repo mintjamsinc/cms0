@@ -31,6 +31,7 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { EipServiceGraphQL } from "../../services/eip-service-graphql.js";
 import { createGraphQLClient } from "../../graphql/client.js";
+import { SWATCH_COLORS, SWATCH_COLOR_MAP } from "../../lib/color-palette.js";
 import "../../components/eip-canvas.js";
 import {
 	createLocalizationSnapshot,
@@ -168,23 +169,10 @@ const STATUS_OPTIONS: { key: ExchangeStatusKey; label: string }[] = [
 
 const ALL_STATUS_KEYS: ExchangeStatusKey[] = STATUS_OPTIONS.map(o => o.key);
 
-// Elapsed band colour palette — the 11 Google-Calendar-style swatches, in the
-// order shown in the picker popup (Tomato … Graphite).
-const ELAPSED_COLORS: { key: string; label: string; value: string }[] = [
-	{ key: 'tomato',    label: 'Tomato',    value: '#D50000' },
-	{ key: 'tangerine', label: 'Tangerine', value: '#F4511E' },
-	{ key: 'banana',    label: 'Banana',    value: '#F6BF26' },
-	{ key: 'basil',     label: 'Basil',     value: '#0B8043' },
-	{ key: 'sage',      label: 'Sage',      value: '#33B679' },
-	{ key: 'peacock',   label: 'Peacock',   value: '#039BE5' },
-	{ key: 'blueberry', label: 'Blueberry', value: '#3F51B5' },
-	{ key: 'lavender',  label: 'Lavender',  value: '#7986CB' },
-	{ key: 'grape',     label: 'Grape',     value: '#8E24AA' },
-	{ key: 'flamingo',  label: 'Flamingo',  value: '#E67C73' },
-	{ key: 'graphite',  label: 'Graphite',  value: '#616161' },
-];
-const ELAPSED_COLOR_MAP: Record<string, string> =
-	ELAPSED_COLORS.reduce((m, c) => { m[c.key] = c.value; return m; }, {} as Record<string, string>);
+// Elapsed band colour palette — the 11 Google-Calendar-style swatches (Tomato …
+// Graphite), shared with the Memo app's colour menus via lib/color-palette.
+const ELAPSED_COLORS = SWATCH_COLORS;
+const ELAPSED_COLOR_MAP = SWATCH_COLOR_MAP;
 
 // Elapsed slider — the visible track spans 0..ELAPSED_MAX_MS; the last band runs
 // to infinity ("10s+"). Boundaries are kept strictly inside the track.
@@ -261,7 +249,9 @@ export const App = {
 			// kept as a reactive map for O(1) per-row lookup in the template.
 			flashIds: {} as Record<string, boolean>,
 			_liveUnsub: null as null | (() => void),
+			_routeStateUnsub: null as null | (() => void),
 			_liveDebounceTimer: null as number | null,
+			_routeReloadTimer: null as number | null,
 			// Public (template-bound) flag for the Refresh button spinner.
 			refreshing: false,
 
@@ -1106,6 +1096,18 @@ export const App = {
 			} catch {
 				vm.liveConnected = false;
 			}
+			// Live route lifecycle (routeStateChanged): reflect start/stop/suspend/
+			// resume in the route list the instant Camel transitions. The
+			// post-mutation reloadRoutes() can race the asynchronous transition (and
+			// misses routes changed elsewhere), so this is the authoritative live
+			// signal for route status.
+			if (typeof eventHub.watchAllRoutes === 'function') {
+				try {
+					vm._routeStateUnsub = eventHub.watchAllRoutes((event: any) => {
+						vm.onRouteStateEvent(event);
+					});
+				} catch { /* noop */ }
+			}
 		},
 
 		teardownLiveUpdates() {
@@ -1114,12 +1116,67 @@ export const App = {
 				window.clearTimeout(vm._liveDebounceTimer);
 				vm._liveDebounceTimer = null;
 			}
+			if (vm._routeReloadTimer != null) {
+				window.clearTimeout(vm._routeReloadTimer);
+				vm._routeReloadTimer = null;
+			}
 			if (vm._liveUnsub) {
 				try { vm._liveUnsub(); } catch { /* noop */ }
 				vm._liveUnsub = null;
 			}
+			if (vm._routeStateUnsub) {
+				try { vm._routeStateUnsub(); } catch { /* noop */ }
+				vm._routeStateUnsub = null;
+			}
 			if (vm._livePendingPaths) vm._livePendingPaths.clear();
 			vm.liveConnected = false;
+		},
+
+		/**
+		 * A route's lifecycle state changed (routeStateChanged subscription).
+		 * Update the matching route's status in place so the list reflects
+		 * start/stop/suspend/resume live. Reassigns the array (and managedRoute)
+		 * so the reactive view re-renders.
+		 */
+		onRouteStateEvent(event: any) {
+			const vm = this as any;
+			const routeId = event && typeof event.routeId === 'string' ? event.routeId : '';
+			const state = event && typeof event.currentState === 'string' ? event.currentState : '';
+			if (!routeId || !state) return;
+			const routes = vm.routes as Route[];
+			const idx = routes.findIndex((r) => r.routeId === routeId);
+			// Existing route: reflect the new status in place for instant feedback.
+			if (idx !== -1 && routes[idx].status !== state) {
+				const updated = { ...routes[idx], status: state as Route['status'] };
+				const next = routes.slice();
+				next[idx] = updated;
+				vm.routes = next;
+				if (vm.managedRoute && vm.managedRoute.routeId === routeId) {
+					vm.managedRoute = updated;
+				}
+			}
+			// routeStateChanged carries only state transitions of existing routes;
+			// route ADDED/REMOVED (topology) is filtered out server-side. So a route we
+			// don't have yet (idx === -1) was just deployed, and a route that stopped
+			// may next be removed — reconcile the list (debounced) to pick up additions
+			// and drop removals.
+			vm.scheduleRouteReload();
+		},
+
+		/**
+		 * Debounced full reload of the route list. routeStateChanged delivers only
+		 * status transitions of existing routes (ADDED/REMOVED topology is filtered
+		 * out server-side), so after a live state event we reconcile the list to pick
+		 * up newly-deployed routes and drop removed ones. Bursts (e.g. Starting then
+		 * Started) coalesce into a single query.
+		 */
+		scheduleRouteReload() {
+			const vm = this as any;
+			if (vm._routeReloadTimer != null) window.clearTimeout(vm._routeReloadTimer);
+			vm._routeReloadTimer = window.setTimeout(() => {
+				vm._routeReloadTimer = null;
+				void vm.loadRoutes();
+			}, LIVE_DEBOUNCE_MS);
 		},
 
 		/**
@@ -2040,7 +2097,7 @@ export const App = {
 			const initialValue = vm.formatJson(vm.selectedExchange);
 			vm.$nextTick(() => {
 				const tryInit = (attempts = 0) => {
-					const container = document.getElementById('cm-editor-expanded');
+					const container = vm.$refs.cmEditorExpanded as HTMLElement | undefined;
 					if (container) {
 						vm._initRawJsonEditor(container, initialValue);
 					} else if (attempts < 20) {
@@ -2140,7 +2197,7 @@ export const App = {
 			vm.cmSearchNotFound = false;
 			vm.applyCmSearchQuery();
 			vm.$nextTick(() => {
-				const el = document.getElementById('cm-search-input') as HTMLInputElement | null;
+				const el = vm.$refs.cmSearchInput as HTMLInputElement | undefined;
 				if (el) { el.focus(); el.select(); }
 			});
 		},

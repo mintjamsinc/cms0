@@ -49,7 +49,7 @@
 				<div v-if="extEditing" class="preview-ext-editor">
 					<div class="input-group">
 						<input type="text" v-model="extInput"
-							class="preview-ext-editor-input"
+							class="preview-ext-editor-input" ref="extEditorInput"
 							placeholder="html"
 							spellcheck="false"
 							@keydown="handleExtKeydown" />
@@ -92,7 +92,7 @@
 		<!-- Body -->
 		<div class="content-body">
 			<div class="preview-main island p-0">
-				<div class="preview-body" :class="{ 'preview-body-iframe': isHtml || isServerRendered }">
+				<div class="preview-body" ref="previewBody" :class="{ 'preview-body-iframe': isHtml || isServerRendered }">
 
 					<!-- Disconnected state (editor closed or tab closed) -->
 					<div v-if="disconnected" class="detail-panel-empty">
@@ -107,7 +107,7 @@
 							<span>{{ previewError }}</span>
 						</div>
 						<iframe v-else-if="previewIframeUrl"
-							class="preview-iframe"
+							class="preview-iframe" ref="previewIframe"
 							:src="previewIframeUrl"
 							@load="onIframeLoad"
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
@@ -128,13 +128,13 @@
 					     resolves relative assets via the injected <base>. -->
 					<template v-else-if="isHtml">
 						<iframe v-if="previewIframeUrl"
-							class="preview-iframe"
+							class="preview-iframe" ref="previewIframe"
 							:src="previewIframeUrl"
 							@load="onIframeLoad"
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
 							referrerpolicy="no-referrer"></iframe>
 						<iframe v-else
-							class="preview-iframe"
+							class="preview-iframe" ref="previewIframe"
 							:srcdoc="previewSrcDoc"
 							@load="onIframeLoad"
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"

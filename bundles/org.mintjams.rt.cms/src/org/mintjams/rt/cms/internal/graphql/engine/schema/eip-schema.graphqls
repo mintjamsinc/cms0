@@ -1,0 +1,372 @@
+# =============================================================================
+# Platform EIP (Apache Camel integration) GraphQL schema — preview / side-by-side
+# =============================================================================
+# Contributed by PlatformEipWiringContributor, merged into the same graphql-java
+# schema as the core platform SDL (platform-schema.graphqls). It `extend`s the
+# core Query/Mutation roots and reuses the core scalars (Long, DateTime) and
+# PageInfo type.
+#
+# This is the graphql-java migration target of the handmade EipRouteExecutor /
+# EipStatsQueryExecutor / CamelQueryExecutor, served at
+# /bin/graphql.cgi. Routes are sourced from the deployed Camel context for the
+# request's workspace (CmsService.getWorkspaceIntegrationEngineProvider(ws)).
+# (cluster is served by the core platform contributor, not here.)
+#
+# Coverage:
+#   Reads: routes (Relay cursor connection), route (single) — EIP-1a;
+#     camelContext (deployed contexts grouped per source file) — EIP-1b;
+#     historyExchanges + historyExchange (exchange history) — EIP-1c;
+#     routeStats (banded exchange-count time series) — EIP-1d.
+#   Mutations: startRoute / stopRoute / suspendRoute / resumeRoute — EIP-2.
+#   (cluster is served by the core platform contributor, not here.)
+#
+# camelContext reconciliation vs documents/GRAPHQL_SCHEMA.graphql + Webtop (both
+# stale here):
+#   - The handmade camelContext returns a LIST, one entry per deployed
+#     integration source file (name/state/sourceFile + that file's routes),
+#     NOT the doc's single rich `CamelContext!` (version/uptime/components/…).
+#     The Webtop's GraphQL client expects the doc's single object; that drift is
+#     intentional — this engine mirrors the handmade for side-by-side comparison.
+#     `camelContexts` and the start/stop/suspend/resume context mutations are
+#     doc/Webtop-only (no handmade equivalent) and are out of scope.
+#   - The per-entry `state` and per-route `status` reuse RouteState: Camel's
+#     ServiceStatus.name() is the same value space as a route's; the doc's
+#     separate UPPERCASE CamelContextState enum is stale.
+#
+# Reconciliation vs documents/GRAPHQL_SCHEMA.graphql (stale here):
+#   - RouteState is the PascalCase set Camel's ServiceStatus.name() actually
+#     yields, plus Unknown (the engine default) — NOT the doc's UPPERCASE enum.
+#     The Webtop's RouteState type and its `status === 'Started'` checks agree.
+#   - Endpoint.state is a plain String (the handmade returns the raw
+#     ServiceStatus name / "Unknown", which the doc's 3-value EndpointState enum
+#     cannot represent).
+#   - Route.health / Endpoint.health are exposed (the handmade sets them though
+#     the doc omits them).
+#   - The fields the handmade buildRouteNode never populates (max/min/total
+#     ProcessingTime, lastError, the first/last exchange times, consumers,
+#     producers) and the conditionally-null definition are nullable, so they
+#     resolve to null exactly as the handmade engine returns them.
+# =============================================================================
+
+extend type Query {
+  """A single route by id (full projection — definition + endpoints), or null if unknown."""
+  route(id: ID!): Route
+
+  """Deployed routes (Relay cursor connection) with status/group/search filters."""
+  routes(first: Int, after: String, last: Int, before: String, status: RouteState, group: String, search: String): RouteConnection!
+
+  """Deployed Camel contexts grouped per integration source file (handmade parity: a list, one entry per deployed source file — NOT the doc's single rich CamelContext)."""
+  camelContext: [CamelContextInfo!]!
+
+  """Exchange-history search (Relay cursor connection) over /var/eip/history for the request's workspace, with route/status/time/text/elapsed-band filters."""
+  historyExchanges(first: Int, after: String, last: Int, before: String, routes: [String!], status: String, from: String, to: String, filter: String, elapsedBands: [String!]): HistoryExchangeConnection!
+
+  """Full detail of one history record, addressed by node path (preferred) or exchangeId (back-compat, first match); null if not found."""
+  historyExchange(path: String, exchangeId: String): HistoryExchange
+
+  """Banded exchange-count time series for the EIP Console chart (configurable elapsed bands). Two window modes: anchor (`at` + `buckets`, sliding) or explicit `from`/`to` (interval auto-resolved)."""
+  routeStats(routes: [String!], at: String, buckets: Int, from: String, to: String, status: String, interval: String, elapsedBoundaries: [Int!]): RouteStats!
+}
+
+"""A deployed Camel route and its live runtime state for the request's workspace."""
+type Route {
+  id: ID!
+  routeId: String!
+  description: String
+  group: String
+  """Lifecycle state (Camel ServiceStatus name), or Unknown when the engine is unavailable."""
+  status: RouteState!
+  uptime: String
+  uptimeMillis: Long
+  exchangesTotal: Long!
+  exchangesCompleted: Long!
+  exchangesFailed: Long!
+  exchangesInflight: Int!
+  meanProcessingTime: Long
+  """Not populated by the route read (sourced from routeStats); null here."""
+  maxProcessingTime: Long
+  """Not populated by the route read (sourced from routeStats); null here."""
+  minProcessingTime: Long
+  lastProcessingTime: Long
+  """Not populated by the route read (sourced from routeStats); null here."""
+  totalProcessingTime: Long
+  """Not populated by the route read (sourced from routeStats); null here."""
+  lastError: RouteError
+  firstExchangeCompletedTime: DateTime
+  lastExchangeCompletedTime: DateTime
+  firstExchangeFailureTime: DateTime
+  lastExchangeFailureTime: DateTime
+  """Readiness from Camel Health Checks: UP / DOWN / UNKNOWN."""
+  health: String
+  """The route's structured model (Camel XML/YAML DSL); only populated for the single-route read, null otherwise or if the engine cannot dump it."""
+  definition: RouteDefinition
+  """All endpoints the route talks to (consumers + producers), with lifecycle and health."""
+  endpoints: [Endpoint!]!
+  """Consumer endpoints — not populated by the route read; null here (handmade parity)."""
+  consumers: [Endpoint!]
+  """Producer endpoints — not populated by the route read; null here (handmade parity)."""
+  producers: [Endpoint!]
+}
+
+"""Lifecycle state of a route — Camel ServiceStatus names, plus Unknown."""
+enum RouteState {
+  Started
+  Stopped
+  Suspended
+  Starting
+  Stopping
+  Suspending
+  Unknown
+}
+
+"""
+A route's lifecycle state change, bridged from Camel Route lifecycle events on
+EventAdmin. `currentState` is the state the route entered; `previousState` is not
+carried by the Camel event and is therefore always null. `error` carries the
+cause message when the transition was a failure.
+"""
+type RouteStateEvent {
+  routeId: String!
+  previousState: RouteState
+  currentState: RouteState!
+  timestamp: DateTime!
+  error: String
+}
+
+type RouteError {
+  exchangeId: String
+  timestamp: DateTime!
+  message: String!
+  stackTrace: String
+  endpoint: String
+}
+
+"""An endpoint a route talks to. `state` is the raw Camel lifecycle name (or Unknown); `health` is UP/DOWN/UNKNOWN readiness."""
+type Endpoint {
+  uri: String!
+  component: String!
+  state: String!
+  remote: Boolean!
+  singleton: Boolean!
+  health: String
+  exchangesTotal: Long
+  exchangesCompleted: Long
+  exchangesFailed: Long
+}
+
+"""A route's structured model, dumped from the live engine (both Camel DSL formats)."""
+type RouteDefinition {
+  id: String!
+  """Camel XML DSL (null if the engine could not produce an XML dump)."""
+  xml: String
+  """Camel YAML DSL (null if the engine could not produce a YAML dump)."""
+  yaml: String
+}
+
+type RouteConnection {
+  edges: [RouteEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type RouteEdge {
+  node: Route!
+  cursor: String!
+}
+
+"""
+A deployed Camel context as seen through one integration source file. The
+handmade camelContext returns one of these per deployed source file, so the
+same underlying context (its `name`/`state`) is repeated across entries that
+differ only by `sourceFile` and the subset of `routes` that file contributed.
+"""
+type CamelContextInfo {
+  """The Camel context name (shared across all entries)."""
+  name: String!
+  """The context lifecycle state (Camel ServiceStatus name), or Unknown if unavailable."""
+  state: RouteState!
+  """The integration source file this entry's routes were deployed from."""
+  sourceFile: String!
+  """The routes this source file contributed, with status and total throughput."""
+  routes: [CamelContextRoute!]!
+}
+
+"""A route's minimal summary within a camelContext entry (id + live status + throughput)."""
+type CamelContextRoute {
+  id: ID!
+  """Route lifecycle state (Camel ServiceStatus name), or Unknown if unavailable."""
+  status: RouteState!
+  """Total exchanges processed (0 when JMX/managed statistics are unavailable)."""
+  exchangesTotal: Long!
+}
+
+# -----------------------------------------------------------------------------
+# Exchange history (EIP-1c → mirror of EipStatsQueryExecutor's list + detail).
+#
+# Reconciliation vs documents/GRAPHQL_SCHEMA.graphql + Webtop (doc stale):
+#   - Both projections carry `path` (the JCR node path), the record's only
+#     stable identity: a single exchange that completes in N routes yields one
+#     record per route (same exchangeId), so exchangeId alone is ambiguous. The
+#     doc's HistoryExchangeSummary/HistoryExchange omit `path`; the Webtop queries
+#     it and addresses historyExchange by it. historyExchange therefore takes
+#     `path` (preferred) OR `exchangeId` (back-compat first match) — the doc's
+#     `exchangeId`-only argument is stale.
+#   - Numeric fields are Long (ms / byte counts can exceed Int); the doc's Int is
+#     stale. `headers` is the JSON scalar; `createdAt`/`completedAt` are ISO-8601
+#     strings (plain String, as the handmade returns — not the DateTime scalar).
+# -----------------------------------------------------------------------------
+
+type HistoryExchangeConnection {
+  edges: [HistoryExchangeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type HistoryExchangeEdge {
+  node: HistoryExchangeSummary!
+  cursor: String!
+}
+
+"""Summary projection of one exchange-history record (list view)."""
+type HistoryExchangeSummary {
+  """JCR node path — the record's stable, globally-unique identity (one record per route an exchange completed in)."""
+  path: String!
+  exchangeId: String
+  routeId: String
+  status: String
+  """Elapsed processing time in milliseconds."""
+  elapsed: Long
+  """ISO-8601 creation instant (UTC)."""
+  createdAt: String
+  businessKey: String
+}
+
+"""Full detail of one exchange-history record (inspector view)."""
+type HistoryExchange {
+  """JCR node path — the record's stable, globally-unique identity."""
+  path: String!
+  exchangeId: String
+  routeId: String
+  status: String
+  """Elapsed processing time in milliseconds."""
+  elapsed: Long
+  """ISO-8601 creation instant."""
+  createdAt: String
+  """ISO-8601 completion instant."""
+  completedAt: String
+  exceptionType: String
+  exceptionMessage: String
+  businessKey: String
+  bodyType: String
+  """Recorded body size in bytes."""
+  bodySize: Long
+  """Recorded message headers (arbitrary JSON object)."""
+  headers: JSON
+  """The exchange's recorded execution path, in order."""
+  steps: [HistoryStep!]!
+}
+
+"""One step of an exchange's recorded execution path."""
+type HistoryStep {
+  """DSL-assigned node id (preferred for labels)."""
+  id: String
+  """Endpoint URI (only meaningful for to/toD/from steps)."""
+  endpointUri: String
+  """Elapsed time in this step (milliseconds)."""
+  timeTaken: Long
+  """Offset from exchange creation when the step finished (milliseconds)."""
+  offsetFromStart: Long
+  """0-based sequence number."""
+  order: Int
+}
+
+# -----------------------------------------------------------------------------
+# routeStats (EIP-1d → mirror of EipStatsQueryExecutor's facet time-series).
+#
+# Reconciliation vs documents/GRAPHQL_SCHEMA.graphql + Webtop (doc stale):
+#   - The handmade generalised the doc's fixed under1s/under5s/over5s model into
+#     configurable `boundaries` (elapsed-ms split points, default {1000,5000}) +
+#     per-point `bands` (one count per band). It also adds `anchor`. The Webtop
+#     queries anchor/boundaries/points{bucket,bands}; the doc's StatPoint (named
+#     under1s/under5s/over5s) and RouteStats (no anchor/boundaries) are stale.
+#   - Counts/boundaries are Long; bucket/anchor/from/to are ISO-8601 strings.
+# -----------------------------------------------------------------------------
+
+"""
+Banded exchange-count time series for the EIP Console chart. Generalises the
+fixed three-band model: `boundaries` are the elapsed-ms split points and each
+point's `bands` carries one count per band (boundaries.length + 1 bands).
+"""
+type RouteStats {
+  """ISO-8601 anchor instant the window's right edge was derived from."""
+  anchor: String!
+  """ISO-8601 window start (inclusive)."""
+  from: String!
+  """ISO-8601 window end (exclusive)."""
+  to: String!
+  """Bucket interval actually used: 5min | 1h | 1d."""
+  interval: String!
+  """Elapsed-ms band split points, ascending; each point's bands.length == boundaries.length + 1."""
+  boundaries: [Long!]!
+  """Datapoints, oldest-to-newest."""
+  points: [StatPoint!]!
+}
+
+"""One time-series datapoint: a bucket start plus one exchange count per elapsed band."""
+type StatPoint {
+  """ISO-8601 bucket start instant."""
+  bucket: String!
+  """Exchange counts, one per band (aligned with RouteStats.boundaries)."""
+  bands: [Long!]!
+}
+
+# -----------------------------------------------------------------------------
+# Route control mutations (EIP-2 → mirror of EipRouteExecutor's write half).
+# Operate on the deployed Camel route controller for the request's workspace
+# (no JCR writes); each returns the route's full projection after the operation.
+# Handmade parity: no extra authorization beyond the authenticated endpoint.
+# -----------------------------------------------------------------------------
+
+extend type Mutation {
+  """Start a stopped route; returns the route after the operation."""
+  startRoute(input: StartRouteInput!): Route!
+  """Stop a running route (optional graceful timeout, seconds); returns the route after the operation."""
+  stopRoute(input: StopRouteInput!): Route!
+  """Suspend a running route (optional graceful timeout, seconds); returns the route after the operation."""
+  suspendRoute(input: SuspendRouteInput!): Route!
+  """Resume a suspended route; returns the route after the operation."""
+  resumeRoute(input: ResumeRouteInput!): Route!
+}
+
+extend type Subscription {
+  """
+  A route's lifecycle state changed (started / stopped / starting / stopping /
+  suspending / suspended). Bridged from Camel Route lifecycle events on
+  EventAdmin; `routeId` filters to a single route (omit for all routes).
+  """
+  routeStateChanged(routeId: String): RouteStateEvent!
+}
+
+input StartRouteInput {
+  """The route id to start."""
+  id: ID!
+}
+
+input StopRouteInput {
+  """The route id to stop."""
+  id: ID!
+  """Graceful shutdown timeout in seconds; omit for the engine default."""
+  timeout: Int
+}
+
+input SuspendRouteInput {
+  """The route id to suspend."""
+  id: ID!
+  """Graceful suspend timeout in seconds; omit for the engine default."""
+  timeout: Int
+}
+
+input ResumeRouteInput {
+  """The route id to resume."""
+  id: ID!
+}

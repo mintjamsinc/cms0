@@ -125,7 +125,8 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 		// committed atomically through a separate system session.
 		if (isImportScope()) {
 			try {
-				return doCheckin(item, fWorkspace);
+				AdaptableMap<String, Object> versionData = doCheckin(item, fWorkspace);
+				return JcrNode.create(versionData, adaptTo(JcrSession.class)).adaptTo(Version.class);
 			} catch (IOException | SQLException ex) {
 				throw Cause.create(ex).wrap(RepositoryException.class);
 			}
@@ -136,9 +137,12 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 				workspace.getLockManager().addLockToken(lockToken);
 			}
 
-			Version version = doCheckin(item, workspace);
+			AdaptableMap<String, Object> versionData = doCheckin(item, workspace);
 			workspace.getSession().save();
-			return version;
+			// Build the Version wrapper only after the save: it reads the new
+			// version node's jcr:primaryType through the user session, which cannot
+			// see the node while it lives in the system session's transient space.
+			return JcrNode.create(versionData, adaptTo(JcrSession.class)).adaptTo(Version.class);
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
@@ -146,12 +150,15 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 
 	/**
 	 * Write a new version into {@code versionWorkspace}'s transient space for the
-	 * given (checked-out) item and flip it to checked-in, returning the created
-	 * version. The caller decides the transactional boundary: a normal checkin
-	 * saves the dedicated system session here; an import checkin leaves the
-	 * changes staged for the import's single terminal save.
+	 * given (checked-out) item and flip it to checked-in, returning the raw
+	 * version-node data. The caller decides the transactional boundary and, once
+	 * the new node is visible, wraps the data into a {@link Version}: a normal
+	 * checkin saves the dedicated system session first, while an import checkin
+	 * reads it straight from the shared session's transient space. Wrapping here
+	 * would read the version node's jcr:primaryType through the user session
+	 * before the system session's save, when the node does not yet exist there.
 	 */
-	private Version doCheckin(Node item, JcrWorkspace versionWorkspace)
+	private AdaptableMap<String, Object> doCheckin(Node item, JcrWorkspace versionWorkspace)
 			throws IOException, SQLException, RepositoryException {
 		WorkspaceQuery workspaceQuery = Adaptables.getAdapter(versionWorkspace, WorkspaceQuery.class);
 
@@ -218,7 +225,7 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_BASE_VERSION, PropertyType.REFERENCE, workspaceQuery.createValue(PropertyType.REFERENCE, versionId));
 			workspaceQuery.items().setProperty(item.getIdentifier(), JcrProperty.JCR_PREDECESSORS, PropertyType.REFERENCE, new Value[0]);
 
-		return JcrNode.create(versionData, adaptTo(JcrSession.class)).adaptTo(Version.class);
+		return versionData;
 	}
 
 	@Override

@@ -99,7 +99,11 @@ public class EvaluateAction implements Action {
 						// Raw files are revalidated, not cached for a fixed term: the
 						// browser may keep a copy but must check back, so overwriting a
 						// file is reflected on the next request (304 when unchanged).
-						if (HttpCaching.applyAndCheckNotModified(request, response, lastModified)) {
+						// A version-stamped request (?v=<build>) is the exception: its
+						// URL is content-addressed, so it opts in to immutable caching
+						// (allowImmutable=true) and is reused without revalidation —
+						// the Webtop bundle assets that carry ?v=__BUILD_VERSION__.
+						if (HttpCaching.applyAndCheckNotModified(request, response, lastModified, true)) {
 							return;
 						}
 						response.setContentType(result.getMimeType());

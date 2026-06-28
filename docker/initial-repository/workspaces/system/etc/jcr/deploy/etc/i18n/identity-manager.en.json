@@ -57,6 +57,7 @@
 	"app.identity-manager.user.tab.membership": "Membership",
 	"app.identity-manager.user.infoTitle": "User Information",
 	"app.identity-manager.user.serviceNote": "Service account — a non-interactive identity used by integrations (via runAs). It has no password and can never sign in.",
+	"app.identity-manager.user.selfNote": "This is your own account. You cannot disable it or change its roles here — manage your own profile from your account settings.",
 	"app.identity-manager.user.rolesTitle": "Roles",
 	"app.identity-manager.user.saveRoleChanges": "Save Role Changes",
 	"app.identity-manager.user.directMemberships": "Direct Group Memberships",
@@ -98,5 +99,6 @@
 	"app.identity-manager.dialog.roleNamePlaceholder": "e.g. editor",
 	"app.identity-manager.error.loadUsers": "Failed to load users: {error}",
 	"app.identity-manager.error.loadGroups": "Failed to load groups: {error}",
-	"app.identity-manager.error.loadRoles": "Failed to load roles: {error}"
+	"app.identity-manager.error.loadRoles": "Failed to load roles: {error}",
+	"app.identity-manager.error.selfEdit": "You cannot edit your own account here."
 }

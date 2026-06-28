@@ -61,21 +61,12 @@ export {
 export {
   useRoute,
   useRouteList,
-  useCamelContext,
-  useCamelContextList,
   useRouteStatistics,
-  useRouteMutations,
-  useRouteEditor,
   type UseRouteOptions,
   type UseRouteReturn,
   type UseRouteListOptions,
   type UseRouteListReturn,
-  type UseCamelContextOptions,
-  type UseCamelContextReturn,
-  type UseCamelContextListReturn,
   type UseRouteStatisticsReturn,
-  type UseRouteMutationsReturn,
-  type UseRouteEditorReturn,
 } from './use-eip.js';
 
 // Localization composable

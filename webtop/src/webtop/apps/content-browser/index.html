@@ -452,7 +452,7 @@
 			<!-- Edit Path View -->
 			<div v-if="navEditMode && !xpathSearchActive" class="nav-edit">
 				<div class="input-group nav-history-wrapper">
-					<input type="text" v-model="editPathValue"
+					<input type="text" ref="navPathInput" v-model="editPathValue"
 						@keydown="onEditPathKeydown" spellcheck="false" />
 					<div class="input-group-actions">
 						<button class="input-group-btn" @click="toggleHistoryDropdown(event)" :title="t('app.content-browser.toolbar.recentLocations')">
@@ -472,11 +472,11 @@
 
 		<!-- Hidden file inputs driving the "Upload from PC" actions. Resetting
 		     value on change lets the same path be picked again consecutively. -->
-		<input type="file" id="cb-upload-file-input" multiple class="cb-upload-input"
+		<input type="file" ref="uploadFileInput" multiple class="cb-upload-input"
 			@change="onUploadInputChange" />
-		<input type="file" id="cb-upload-folder-input" webkitdirectory multiple class="cb-upload-input"
+		<input type="file" ref="uploadFolderInput" webkitdirectory multiple class="cb-upload-input"
 			@change="onUploadInputChange" />
-		<input type="file" id="cb-import-archive-input" accept=".zip,application/zip" class="cb-upload-input"
+		<input type="file" ref="importArchiveInput" accept=".zip,application/zip" class="cb-upload-input"
 			@change="onImportInputChange" />
 
 		<div class="content-list" @mousedown="onContentMouseDown" @contextmenu="onBackgroundContextMenu">
@@ -490,6 +490,19 @@
 				</div>
 				<button type="button" class="wt wt-primary" @click="navigateToNearestExistingAncestor">
 					<i class="bi bi-arrow-up me-1"></i>{{ t('app.content-browser.toolbar.goToParent') }}
+				</button>
+			</div>
+			<!-- Inline notice shown when the destination folder fails to load.
+			     Surfaces the error (the old overlay that used to show it is gone)
+			     and offers a one-click retry of the same path. -->
+			<div v-if="loadError && !currentFolderDeleted" class="folder-load-error-notice">
+				<i class="bi bi-exclamation-octagon"></i>
+				<div class="folder-deleted-notice-text">
+					<div class="folder-deleted-notice-title">{{ t('app.content-browser.list.loadFailedTitle', undefined, 'Failed to open this folder.') }}</div>
+					<div class="folder-deleted-notice-detail">{{ loadError }}</div>
+				</div>
+				<button type="button" class="wt wt-primary" @click="load(currentPath)">
+					<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.content-browser.list.retry', undefined, 'Retry') }}
 				</button>
 			</div>
 			<table v-if="!currentFolderDeleted" class="wt w-100">
@@ -615,24 +628,23 @@
 			@navigate-path="onInspectorNavigatePath($event.detail)"
 			@reveal-item="onInspectorRevealItem($event.detail)"
 			@overlay-changed="onInspectorOverlayChanged($event.detail)"></wt-inspector>
+
+		<!-- Folder-navigation busy shield. While the folder list is (re)loading
+		     this transparent layer covers the content area (list, breadcrumb,
+		     sidebar, inspector) and swallows clicks / right-clicks so nothing
+		     can be operated mid-move. It replaces the old full-screen indicator,
+		     which flickered on fast loads. A subtle spinner fades in only when a
+		     load is slow enough to need feedback (navSpinnerVisible). The window
+		     controls in the top bar stay usable. -->
+		<div v-if="isNavigating" class="nav-busy-shield"
+			@mousedown.stop.prevent @click.stop.prevent
+			@dblclick.stop.prevent @contextmenu.stop.prevent>
+			<span v-if="navSpinnerVisible" class="loader nav-busy-spinner"></span>
 		</div>
+		</div> <!-- /.content-body -->
 
 		<!-- Bottom Status Bar (translucent, empty — same shape as editor apps) -->
 		<div class="status-bar window-drag-region"></div>
-
-		<div v-if="loadingMonitor" class="loading-overlay flex-column text-center">
-			<span class="loader"></span>
-			<span class="text-center mt-5"></span>
-			<span>
-				<span v-if="!loadingMonitor.isCanceled">{{ t('app.content-browser.list.fetching') }}<span v-if="loadingMonitor.retrievedCount > 0"> {{ t('app.content-browser.list.fetchingFound', { count: loadingMonitor.retrievedCount }) }}</span></span>
-				<span v-else>{{ t('app.content-browser.list.canceling') }}</span>
-			</span>
-			<span v-if="errorMessage" class="mt-3 text-danger"><i class="bi bi-exclamation-circle mr-2"></i>{{ errorMessage }}</span>
-			<span class="mt-3">
-				<button v-if="errorMessage" type="button" class="wt" :class="{ disabled: loadingMonitor.isCanceled }" @click="loadingMonitor.cancel()">{{ t('app.content-browser.dialog.cancel') }}</button>
-				<button v-else type="button" class="wt" @click="closeLoading">{{ t('app.content-browser.dialog.close') }}</button>
-			</span>
-		</div>
 
 		<div v-if="uploadMonitor && !conflictDialog.visible" class="upload-overlay flex-column text-center">
 			<span class="loader"></span>
@@ -883,7 +895,7 @@
 						<h3>{{ t('app.content-browser.dialog.rename') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<input type="text" class="wt w-100" v-model="renameDialog.newName" @keydown="onRenameKeydown" :disabled="renameDialog.isLoading" />
+						<input type="text" ref="renameInput" class="wt w-100" v-model="renameDialog.newName" @keydown="onRenameKeydown" :disabled="renameDialog.isLoading" />
 						<div v-if="renameDialog.errorMessage" class="text-danger mt-2">
 							<i class="bi bi-exclamation-circle me-1"></i>{{ renameDialog.errorMessage }}
 						</div>
@@ -943,7 +955,7 @@
 						<h3><i class="bi bi-folder-plus me-2"></i>{{ t('app.content-browser.dialog.newFolderTitle') }}</h3>
 					</div>
 					<div class="dialog-body">
-						<input type="text" class="wt w-100" v-model="newFolderDialog.name" @keydown="onNewFolderKeydown" :disabled="newFolderDialog.isLoading" :placeholder="t('app.content-browser.dialog.folderName')" />
+						<input type="text" ref="newFolderInput" class="wt w-100" v-model="newFolderDialog.name" @keydown="onNewFolderKeydown" :disabled="newFolderDialog.isLoading" :placeholder="t('app.content-browser.dialog.folderName')" />
 						<div v-if="newFolderNameExists" class="text-danger mt-2">{{ t('app.content-browser.dialog.folderNameExists') }}</div>
 						<div v-if="newFolderDialog.errorMessage" class="text-danger mt-2">
 							<i class="bi bi-exclamation-circle me-1"></i>{{ newFolderDialog.errorMessage }}
@@ -969,7 +981,7 @@
 					<div class="dialog-body">
 						<div class="mb-3">
 							<label class="dialog-label">{{ t('app.content-browser.dialog.fileName') }}</label>
-							<input type="text" class="wt w-100" v-model="newFileDialog.name" @keydown="onNewFileKeydown" :disabled="newFileDialog.isLoading" :placeholder="t('app.content-browser.dialog.enterFileName')" />
+							<input type="text" ref="newFileInput" class="wt w-100" v-model="newFileDialog.name" @keydown="onNewFileKeydown" :disabled="newFileDialog.isLoading" :placeholder="t('app.content-browser.dialog.enterFileName')" />
 							<div v-if="newFileNameExists" class="text-danger mt-1">{{ t('app.content-browser.dialog.fileNameExists') }}</div>
 						</div>
 						<div>

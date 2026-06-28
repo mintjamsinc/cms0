@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 MintJams Inc.
+ * Copyright (c) 2026 MintJams Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,9 +24,10 @@ package org.mintjams.rt.cms.internal.web;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.List;
+import java.util.Map;
 
 import javax.jcr.Credentials;
-import javax.jcr.Session;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -35,12 +36,9 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
-import org.mintjams.rt.cms.internal.WorkspaceUserHomes;
-import org.mintjams.rt.cms.internal.graphql.GraphQLExecutor;
+import org.mintjams.rt.cms.internal.graphql.engine.WorkspaceGraphQLEngineProvider;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequestParser;
-import org.mintjams.rt.cms.internal.graphql.GraphQLResponse;
-import org.mintjams.rt.cms.internal.graphql.GraphQLStreamHandler;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.http.whiteboard.HttpWhiteboardConstants;
 
@@ -48,7 +46,21 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 /**
- * Servlet for GraphQL API Endpoint: /bin/graphql.cgi/{workspace}
+ * Servlet for the unified GraphQL API on graphql-java. Sole endpoint:
+ * {@code /bin/graphql.cgi/{workspace}}.
+ *
+ * <p>It serves the per-workspace schema compiled by
+ * {@link WorkspaceGraphQLEngineProvider}, which merges the platform's built-in
+ * schema (Java resolvers) with the workspace's application-defined SDL/Groovy
+ * resolvers — so a single endpoint exposes both. This consolidates the former
+ * {@code /bin/pgraphql.cgi} (platform) and {@code /bin/appql.cgi} (application)
+ * endpoints, both now removed; the handmade engine remains retired to
+ * {@code /bin/graphql-legacy.cgi} for rollback.
+ *
+ * <p>Requests carry the standard GraphQL-over-HTTP JSON envelope and the response
+ * is the GraphQL-spec {@code data}/{@code errors} map; authorization is delegated
+ * to the resolvers and JCR ACLs. Subscriptions use the SSE transport at
+ * {@code /bin/graphql.cgi/{workspace}/stream} (see {@link GraphQLStreamHandler}).
  */
 @Component(service = Servlet.class, property = {
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=" + CmsConfiguration.GRAPHQL_CGI_PATH + "/*",
@@ -57,10 +69,8 @@ import com.google.gson.GsonBuilder;
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true" })
 public class GraphQLServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
-	// serializeNulls(): preserve explicit nulls in the response so clients can
-	// reliably observe nullable fields transitioning to null (e.g. Task.assignee
-	// after unclaimTask). Without this, Gson silently drops null entries and the
-	// client merge `{...prev, ...updated}` can't overwrite the previous value.
+	// serializeNulls(): preserve explicit nulls so clients can observe nullable
+	// fields transitioning to null (matches the built-in GraphQLServlet).
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
 	@Override
@@ -72,187 +82,139 @@ public class GraphQLServlet extends HttpServlet {
 	@Override
 	protected void doGet(HttpServletRequest request, HttpServletResponse response)
 			throws ServletException, IOException {
-		// Also support GET requests (for development/debugging)
+		handleRequest(request, response);
+	}
+
+	@Override
+	protected void doPut(HttpServletRequest request, HttpServletResponse response)
+			throws ServletException, IOException {
+		handleRequest(request, response);
+	}
+
+	@Override
+	protected void doDelete(HttpServletRequest request, HttpServletResponse response)
+			throws ServletException, IOException {
 		handleRequest(request, response);
 	}
 
 	private void handleRequest(HttpServletRequest request, HttpServletResponse response)
 			throws ServletException, IOException {
-		// Check for SSE stream request: /bin/graphql.cgi/{workspace}/stream
-		if (isStreamRequest(request)) {
-			handleStream(request, response);
-			return;
-		}
-
-		Session jcrSession = null;
-
 		try {
-			// Get workspace name
 			String workspaceName = getWorkspaceName(request);
 			if (workspaceName == null || workspaceName.isEmpty()) {
 				sendError(response, "Workspace name must be specified");
 				return;
 			}
 
-			// Get credentials
-			Credentials credentials = getCredentials(request);
-
-			// Get JCR session
-			try {
-				jcrSession = CmsService.getRepository().login(credentials, workspaceName);
-			} catch (Throwable e) {
-				CmsService.getLogger(getClass()).error("Failed to create JCR session", e);
-				sendError(response, "Authentication failed: " + e.getMessage());
+			// Subscriptions: /bin/graphql.cgi/{workspace}/stream speaks graphql-sse in
+			// single connection mode — one SSE multiplexes all of a client's operations.
+			// PUT reserves a token, GET (EventSource) opens the one stream, POST adds an
+			// operation, DELETE stops one. The subscriber's session is not held; payload
+			// mappers read JCR on demand.
+			if (isStreamRequest(request)) {
+				new GraphQLStreamHandler(workspaceName).handle(request, response, getCredentials(request));
 				return;
 			}
 
-			// Content workspaces hold the user's working area (Desktop); it is
-			// created on the user's first request to the workspace.
-			WorkspaceUserHomes.ensureUserHome(jcrSession);
+			// Non-stream requests are GraphQL query/mutation over HTTP (GET/POST only).
+			String method = request.getMethod();
+			if (!"GET".equalsIgnoreCase(method) && !"POST".equalsIgnoreCase(method)) {
+				sendError(response, HttpServletResponse.SC_METHOD_NOT_ALLOWED,
+						"Method not allowed");
+				return;
+			}
 
-			// Parse GraphQL request
+			WorkspaceGraphQLEngineProvider engine = CmsService.getWorkspaceGraphQLEngineProvider(workspaceName);
+			if (engine == null) {
+				sendError(response, "Unknown or stopped workspace: " + workspaceName);
+				return;
+			}
+			if (!engine.isAvailable()) {
+				sendError(response, "The GraphQL schema is not available for the workspace: " + workspaceName);
+				return;
+			}
+
 			GraphQLRequest graphQLRequest;
 			if ("POST".equalsIgnoreCase(request.getMethod())) {
 				graphQLRequest = GraphQLRequestParser.parse(request.getInputStream());
 			} else {
-				// For GET requests
 				String query = request.getParameter("query");
 				String operationName = request.getParameter("operationName");
 				String variables = request.getParameter("variables");
 				graphQLRequest = GraphQLRequestParser.parseFromQueryParams(query, operationName, variables);
+
+				// GraphQL-over-HTTP: GET is for queries only — mutations must use POST,
+				// so a mutation cannot be triggered by a plain link / cross-site GET.
+				if (engine.isMutationOperation(graphQLRequest)) {
+					sendError(response, HttpServletResponse.SC_METHOD_NOT_ALLOWED,
+							"Mutations must be sent via HTTP POST");
+					return;
+				}
 			}
 
-			// Execute GraphQL
-			GraphQLExecutor executor = new GraphQLExecutor(jcrSession);
-			GraphQLResponse graphQLResponse = executor.execute(graphQLRequest);
-
-			// Send response
-			sendResponse(response, graphQLResponse);
+			Credentials credentials = getCredentials(request);
+			Map<String, Object> result = engine.execute(graphQLRequest, credentials);
+			sendResponse(response, result);
 		} catch (Throwable e) {
-			CmsService.getLogger(getClass()).error("GraphQL execution failed", e);
+			CmsService.getLogger(getClass()).error("Platform GraphQL execution failed", e);
 			sendError(response, "Internal server error: " + e.getMessage());
-		} finally {
-			if (jcrSession != null && jcrSession.isLive()) {
-				try {
-					jcrSession.refresh(false);
-				} catch (Throwable ignore) {}
-				jcrSession.logout();
-			}
 		}
 	}
 
 	/**
-	 * Extract workspace name from URL Example: /bin/graphql.cgi/system → "system"
+	 * Extract workspace name from URL. Example: {@code /bin/graphql.cgi/web} →
+	 * "web".
 	 */
+	/** Whether this request targets the SSE subscription stream ({@code …/stream}). */
+	private boolean isStreamRequest(HttpServletRequest request) {
+		String pathInfo = Webs.getEffectivePathInfo(request);
+		return pathInfo != null && pathInfo.endsWith("/stream");
+	}
+
 	private String getWorkspaceName(HttpServletRequest request) {
 		String pathInfo = Webs.getEffectivePathInfo(request);
 		if (pathInfo == null || pathInfo.isEmpty()) {
 			return null;
 		}
-
 		if (pathInfo.startsWith("/")) {
 			pathInfo = pathInfo.substring(1);
 		}
-
 		String[] segments = pathInfo.split("/");
 		return segments.length > 0 ? segments[0] : null;
 	}
 
-	/**
-	 * Get authentication credentials
-	 */
 	private Credentials getCredentials(HttpServletRequest request) {
-		// Get credentials from HttpServletRequest
-		// Use cms0's existing authentication mechanism
 		Object credentials = request.getAttribute(Credentials.class.getName());
 		if (credentials instanceof Credentials) {
 			return (Credentials) credentials;
 		}
-
-		// Get credentials from the session or the cluster-portable
-		// authentication token
 		credentials = Webs.getCredentials(request);
 		if (credentials instanceof Credentials) {
 			return (Credentials) credentials;
 		}
-
-		// Default is guest authentication
 		return new javax.jcr.GuestCredentials();
 	}
 
-	/**
-	 * Send GraphQL response
-	 */
-	private void sendResponse(HttpServletResponse response, GraphQLResponse graphQLResponse) throws IOException {
+	private void sendResponse(HttpServletResponse response, Map<String, Object> result) throws IOException {
 		response.setContentType("application/json");
 		response.setCharacterEncoding("UTF-8");
 		response.setStatus(HttpServletResponse.SC_OK);
-
-		String json = GSON.toJson(graphQLResponse.toMap());
 		PrintWriter writer = response.getWriter();
-		writer.write(json);
+		writer.write(GSON.toJson(result));
 		writer.flush();
 	}
 
-	/**
-	 * Send error response
-	 */
 	private void sendError(HttpServletResponse response, String message) throws IOException {
+		sendError(response, HttpServletResponse.SC_BAD_REQUEST, message);
+	}
+
+	private void sendError(HttpServletResponse response, int status, String message) throws IOException {
 		response.setContentType("application/json");
 		response.setCharacterEncoding("UTF-8");
-		response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-
-		GraphQLResponse errorResponse = new GraphQLResponse();
-		errorResponse.addError(message);
-
-		String json = GSON.toJson(errorResponse.toMap());
+		response.setStatus(status);
+		Map<String, Object> error = Map.<String, Object>of("errors", List.of(Map.of("message", message)));
 		PrintWriter writer = response.getWriter();
-		writer.write(json);
+		writer.write(GSON.toJson(error));
 		writer.flush();
-	}
-
-	/**
-	 * Check if this is an SSE stream request (path ends with /stream)
-	 */
-	private boolean isStreamRequest(HttpServletRequest request) {
-		String pathInfo = Webs.getEffectivePathInfo(request);
-		if (pathInfo == null) {
-			return false;
-		}
-		// Path format: /{workspace}/stream
-		return pathInfo.endsWith("/stream");
-	}
-
-	/**
-	 * Handle SSE stream request for GraphQL subscriptions
-	 */
-	private void handleStream(HttpServletRequest request, HttpServletResponse response)
-			throws ServletException, IOException {
-		// Get workspace name
-		String workspaceName = getWorkspaceName(request);
-		if (workspaceName == null || workspaceName.isEmpty()) {
-			sendError(response, "Workspace name must be specified");
-			return;
-		}
-
-		// Get credentials and create session to verify authentication
-		Credentials credentials = getCredentials(request);
-		Session jcrSession = null;
-		try {
-			jcrSession = CmsService.getRepository().login(credentials, workspaceName);
-		} catch (Throwable e) {
-			CmsService.getLogger(getClass()).error("Failed to create JCR session for stream", e);
-			sendError(response, "Authentication failed: " + e.getMessage());
-			return;
-		} finally {
-			// Release JCR session — the stream handler doesn't need it
-			if (jcrSession != null && jcrSession.isLive()) {
-				jcrSession.logout();
-			}
-		}
-
-		// Delegate to stream handler
-		GraphQLStreamHandler streamHandler = new GraphQLStreamHandler(workspaceName);
-		streamHandler.handle(request, response);
 	}
 }

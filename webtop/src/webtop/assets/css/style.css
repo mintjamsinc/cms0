@@ -305,6 +305,14 @@ body {
 	box-shadow: 0 0 0 2px var(--body-bg), 0 0 0 4px var(--primary-color, #039BE5);
 }
 
+/* "Default / none" cell — no fill, shows an icon (e.g. an X) in the body
+   colour. Lets a swatch-grid offer a clear-colour choice. */
+.context-menu-swatch.clear {
+	background: transparent;
+	color: var(--text-muted-color);
+	border-style: dashed;
+}
+
 /* App popup — iframe-escaping dropdown / menu rendered by the shell. */
 #app-popup-overlay {
 	position: fixed;

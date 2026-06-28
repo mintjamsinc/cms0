@@ -1525,7 +1525,7 @@ defineComponent('wt-inspector', {
 			vm.mimeTypeSaving = false;
 			vm.mimeTypeHighlightIndex = -1;
 			vm.$nextTick(() => {
-				const input = document.querySelector('.mime-type-editor-input') as HTMLInputElement | null;
+				const input = vm.$refs.mimeTypeInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 					input.select();
@@ -1577,7 +1577,7 @@ defineComponent('wt-inspector', {
 				mimeTypePopupHandle.update(items);
 				return;
 			}
-			const input = document.querySelector('.mime-type-editor-input') as HTMLInputElement | null;
+			const input = vm.$refs.mimeTypeInput as HTMLInputElement | undefined;
 			const popup = vm.api?.popup;
 			if (!input || !popup) return;
 			const rect = input.getBoundingClientRect();
@@ -1594,7 +1594,7 @@ defineComponent('wt-inspector', {
 				vm.mimeTypeInput = String(picked);
 				vm.mimeTypeSuggestions = [];
 				vm.mimeTypeHighlightIndex = -1;
-				const inp = document.querySelector('.mime-type-editor-input') as HTMLInputElement | null;
+				const inp = vm.$refs.mimeTypeInput as HTMLInputElement | undefined;
 				inp?.focus();
 			});
 		},
@@ -1674,7 +1674,7 @@ defineComponent('wt-inspector', {
 			vm.encodingSaving = false;
 			vm.encodingHighlightIndex = -1;
 			vm.$nextTick(() => {
-				const input = document.querySelector('.encoding-editor-input') as HTMLInputElement | null;
+				const input = vm.$refs.encodingInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 					input.select();
@@ -1720,7 +1720,7 @@ defineComponent('wt-inspector', {
 				encodingPopupHandle.update(items);
 				return;
 			}
-			const input = document.querySelector('.encoding-editor-input') as HTMLInputElement | null;
+			const input = vm.$refs.encodingInput as HTMLInputElement | undefined;
 			const popup = vm.api?.popup;
 			if (!input || !popup) return;
 			const rect = input.getBoundingClientRect();
@@ -1737,7 +1737,7 @@ defineComponent('wt-inspector', {
 				vm.encodingInput = String(picked);
 				vm.encodingSuggestions = [];
 				vm.encodingHighlightIndex = -1;
-				const inp = document.querySelector('.encoding-editor-input') as HTMLInputElement | null;
+				const inp = vm.$refs.encodingInput as HTMLInputElement | undefined;
 				inp?.focus();
 			});
 		},
@@ -2023,7 +2023,7 @@ defineComponent('wt-inspector', {
 			if (vm.detailACLEditorVisible) {
 				vm.detailACLEditorVisible = false;
 			}
-			const panel = document.querySelector('.detail-panel') as HTMLElement;
+			const panel = vm.$refs.detailPanel as HTMLElement | undefined;
 			if (panel) panel.scrollTop = 0;
 			vm.detailVersionHistoryVisible = true;
 			vm.versionHistoryDialog.item = item;
@@ -2194,7 +2194,7 @@ defineComponent('wt-inspector', {
 			if (vm.detailVersionHistoryVisible) {
 				vm.detailVersionHistoryVisible = false;
 			}
-			const panel = document.querySelector('.detail-panel') as HTMLElement;
+			const panel = vm.$refs.detailPanel as HTMLElement | undefined;
 			if (panel) panel.scrollTop = 0;
 			vm.detailACLEditorVisible = true;
 			vm.aclDialog.item = item;
@@ -2347,7 +2347,7 @@ defineComponent('wt-inspector', {
 				principalPopupHandle.update(items);
 				return;
 			}
-			const input = document.querySelector('.acl-principal-input') as HTMLInputElement | null;
+			const input = vm.$refs.aclPrincipalInput as HTMLInputElement | undefined;
 			const popup = vm.api?.popup;
 			if (!input || !popup) return;
 			const rect = input.getBoundingClientRect();
@@ -2465,7 +2465,7 @@ defineComponent('wt-inspector', {
 			if (vm.detailACLEditorVisible) {
 				vm.detailACLEditorVisible = false;
 			}
-			const panel = document.querySelector('.detail-panel') as HTMLElement;
+			const panel = vm.$refs.detailPanel as HTMLElement | undefined;
 			if (panel) panel.scrollTop = 0;
 			vm.detailPropertyEditorVisible = true;
 			vm.propEditorSchemaKey = vm.selectedSchemaKey || '';
@@ -3174,7 +3174,7 @@ defineComponent('wt-inspector', {
 			vm.cmSearchNotFound = false;
 			vm.applyCmSearchQuery();
 			vm.$nextTick(() => {
-				const el = document.getElementById('cm-search-input') as HTMLInputElement | null;
+				const el = vm.$refs.cmSearchInput as HTMLInputElement | undefined;
 				if (el) { el.focus(); el.select(); }
 			});
 		},

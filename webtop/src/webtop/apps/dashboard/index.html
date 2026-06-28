@@ -108,14 +108,14 @@
 							<div>
 								<div class="dash-card-head" style="margin-bottom: 0.5rem;">{{ t('app.dashboard.myDay.nextUp', undefined, 'Next up') }}</div>
 								<div class="dash-list">
-									<button class="dash-list-row" v-for="(t, i) in work.next" :key="t.id"
-										@click="openTasks({ scope: 'assigned', taskId: t.id })" :title="t.title">
+									<button class="dash-list-row" v-for="(task, i) in work.next" :key="task.id"
+										@click="openTasks({ scope: 'assigned', taskId: task.id })" :title="task.title">
 										<span class="dash-list-rank">{{ i + 1 }}</span>
 										<span class="dash-list-main">
-											<span class="dash-list-title">{{ t.title }}</span>
-											<span class="dash-list-sub">{{ t.sub }}</span>
+											<span class="dash-list-title">{{ task.title }}</span>
+											<span class="dash-list-sub">{{ task.sub }}</span>
 										</span>
-										<span class="dash-pill" :class="t.pillClass" v-if="t.pill">{{ t.pill }}</span>
+										<span class="dash-pill" :class="task.pillClass" v-if="task.pill">{{ task.pill }}</span>
 									</button>
 									<div class="dash-list-empty" v-if="work.next.length === 0">
 										{{ t('app.dashboard.myDay.empty', undefined, 'Nothing assigned to you right now. Nice and clear.') }}

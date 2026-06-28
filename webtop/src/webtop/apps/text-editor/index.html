@@ -110,7 +110,7 @@
 							<div class="filter-group">
 								<label class="filter-label">{{ t('app.text-editor.find.find', undefined, 'Find') }}</label>
 								<div class="filter-input-wrapper">
-									<input id="find-input" type="text" class="wt w-100" v-model="searchTerm"
+									<input ref="findInput" type="text" class="wt w-100" v-model="searchTerm"
 										:placeholder="t('app.text-editor.find.findPlaceholder', undefined, 'Find...')" spellcheck="false"
 										@input="onSearchTermInput" @keydown="onSearchTermKeydown">
 									<button v-if="searchTerm" class="filter-input-clear"
@@ -195,7 +195,7 @@
 
 				<!-- Body: editor -->
 				<div class="editor-area">
-					<div id="editor-container"></div>
+					<div id="editor-container" ref="editorContainer"></div>
 				</div>
 			</div>
 

@@ -51,6 +51,7 @@ public class CmsConfiguration {
 	public static final String DOWNLOAD_CGI_PATH = "/bin/download.cgi";
 	public static final String DOWNLOAD_ARCHIVE_CGI_PATH = "/bin/download-archive.cgi";
 	public static final String GRAPHQL_CGI_PATH = "/bin/graphql.cgi";
+	public static final String GRAPHQL_LEGACY_CGI_PATH = "/bin/graphql-legacy.cgi";
 	public static final String DEFAULT_START_WEB_URI = CMS_CGI_PATH + "/system/content/webtop/";
 	public static final int DEFAULT_MAX_SCRIPT_CACHE_PER_SCRIPT_ENGINE = 32;
 	public static final int DEFAULT_NATIVE_ECMA_POOL_SIZE_PER_SCRIPT_ENGINE = 2;

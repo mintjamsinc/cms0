@@ -1147,7 +1147,7 @@ export const App = {
 		},
 
 		zoomIn() {
-			const container = document.querySelector('.bpm-diagram-container') as HTMLElement;
+			const container = this.$refs.bpmDiagramContainer as HTMLElement | undefined;
 			if (!container) return;
 			const rect = container.getBoundingClientRect();
 			const cx = rect.width / 2;
@@ -1159,7 +1159,7 @@ export const App = {
 		},
 
 		zoomOut() {
-			const container = document.querySelector('.bpm-diagram-container') as HTMLElement;
+			const container = this.$refs.bpmDiagramContainer as HTMLElement | undefined;
 			if (!container) return;
 			const rect = container.getBoundingClientRect();
 			const cx = rect.width / 2;
@@ -1172,7 +1172,7 @@ export const App = {
 
 		zoomFit() {
 			if (!this.bpmnModel) return;
-			const container = document.querySelector('.bpm-diagram-container') as HTMLElement;
+			const container = this.$refs.bpmDiagramContainer as HTMLElement | undefined;
 			if (!container) return;
 			const cw = container.clientWidth;
 			const ch = container.clientHeight;

@@ -1,0 +1,439 @@
+# =============================================================================
+# Platform BPM (Camunda 7) GraphQL schema — preview / side-by-side
+# =============================================================================
+# Contributed by PlatformBpmWiringContributor, merged into the same graphql-java
+# schema as the core platform SDL (platform-schema.graphqls). It `extend`s the
+# core Query/Mutation/Subscription roots and reuses the core scalars (Long,
+# DateTime, JSON) and PageInfo type.
+#
+# This is the graphql-java migration target of the handmade BpmQueryExecutor /
+# BpmMutationExecutor (Camunda 7), served at /bin/graphql.cgi. The
+# per-workspace Camunda ProcessEngine is obtained exactly as the handmade engine
+# does (CmsService.getWorkspaceProcessEngineProvider(ws).getProcessEngine()).
+#
+# Coverage:
+#   Reads (complete): processDefinition(s), processDefinitionXml,
+#     processInstance(s), activityHistory, task(s), taskCounts, incident(s).
+#   Mutations: process instances — startProcess, suspend/activate/cancel/delete
+#     ProcessInstance, setProcessVariables (BPM-2a); tasks — claim/unclaim/
+#     assign/setAssignee/delegate/complete/setVariables/addComment (BPM-2b);
+#     deployments/definitions — deployProcess, deleteDeployment, suspend/
+#     activateProcessDefinition (BPM-2c); incidents — setJobRetries,
+#     resolveIncident, setIncidentAnnotation (BPM-2d); migration —
+#     createMigrationPlan, migrateProcessInstance (BPM-2e, async job).
+#   Subscriptions: the platform-schema TaskEvent.task / ProcessEvent.
+#     processInstance payloads are the typed Task / ProcessInstance (BPM-3).
+# The BPM domain is complete (reads + mutations + typed subscription payloads).
+#
+# Reconciliation vs documents/GRAPHQL_SCHEMA.graphql: the heavy nested relations
+# the Webtop never selects (ProcessDefinition.instances, ProcessInstance.
+# definition/tasks/activityInstances) are omitted; startTime is nullable
+# (formatDate may yield null) though the doc marks it non-null.
+# =============================================================================
+
+extend type Query {
+  """A single process definition by id, or by key (latest, or a specific version)."""
+  processDefinition(id: ID, key: String, version: Int): ProcessDefinition
+
+  """Deployed process definitions (Relay connection)."""
+  processDefinitions(first: Int = 100, after: String, key: String, name: String, latestVersion: Boolean, suspended: Boolean): ProcessDefinitionConnection!
+
+  """The raw BPMN 2.0 XML of a process definition."""
+  processDefinitionXml(id: ID!): String
+
+  """A single process instance (active or historic) by id, with its variables."""
+  processInstance(id: ID!): ProcessInstance
+
+  """Process instances (active + historic; Relay connection)."""
+  processInstances(first: Int = 20, after: String, definitionKey: String, definitionId: String, businessKey: String, active: Boolean, suspended: Boolean, withIncidents: Boolean, startedBefore: DateTime, startedAfter: DateTime): ProcessInstanceConnection!
+
+  """Historic activity instances of a process instance, in start-time order."""
+  activityHistory(processInstanceId: ID!): [ActivityInstance!]!
+}
+
+extend type Query {
+  """A single task by id (with candidate users/groups and variables)."""
+  task(id: ID!): Task
+
+  """Tasks (Relay connection), with extensive filtering and sorting."""
+  tasks(first: Int = 20, after: String, assignee: String, assigneeIn: [String!], candidateUser: String, candidateGroup: String, candidateGroups: [String!], unassigned: Boolean, processInstanceId: String, processDefinitionId: String, processDefinitionKey: String, taskDefinitionKey: String, dueBefore: DateTime, dueAfter: DateTime, createdBefore: DateTime, createdAfter: DateTime, priority: Int, priorityHigherThanOrEquals: Int, priorityLowerThanOrEquals: Int, sortBy: TaskSortField, sortOrder: SortOrder): TaskConnection!
+
+  """Aggregate task counts for a dashboard (assignee or candidate scope)."""
+  taskCounts(assignee: String, candidateUser: String, candidateGroups: [String!]): TaskCounts!
+}
+
+"""
+Sort key for the `tasks` query. The resolver receives the enum constant name
+(the same string the handmade engine accepted), so these map 1:1 to its Camunda
+task-sort terms.
+"""
+enum TaskSortField {
+  ID
+  NAME
+  ASSIGNEE
+  CREATED
+  DUE
+  FOLLOW_UP
+  PRIORITY
+  PROCESS_INSTANCE_ID
+}
+
+"""Sort direction (ascending / descending)."""
+enum SortOrder {
+  ASC
+  DESC
+}
+
+"""A Camunda user task. `name` is nullable (Camunda permits unnamed tasks)."""
+type Task {
+  id: ID!
+  name: String
+  description: String
+  assignee: String
+  owner: String
+  created: DateTime
+  due: DateTime
+  followUp: DateTime
+  priority: Int!
+  suspended: Boolean!
+  processInstanceId: String!
+  processDefinitionId: String!
+  processDefinitionKey: String
+  executionId: String!
+  taskDefinitionKey: String!
+  formKey: String
+  """Parent process instance (embedded; businessKey is resolved via history)."""
+  processInstance: ProcessInstance!
+  candidateUsers: [String!]!
+  candidateGroups: [String!]!
+  variables: [ProcessVariable!]!
+  localVariables: [ProcessVariable!]!
+}
+
+type TaskConnection {
+  edges: [TaskEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TaskEdge {
+  node: Task!
+  cursor: String!
+}
+
+type TaskCounts {
+  total: Int!
+  unassigned: Int!
+  assigned: Int!
+  overdue: Int!
+  dueToday: Int!
+  dueThisWeek: Int!
+}
+
+extend type Query {
+  """A single incident by id (stack trace included by default)."""
+  incident(id: ID!, includeStackTrace: Boolean = true): Incident
+
+  """Incidents (Relay connection); stack traces omitted unless requested."""
+  incidents(first: Int = 50, after: String, processInstanceId: ID, processDefinitionId: String, processDefinitionKey: String, incidentType: String, activityId: String, includeStackTrace: Boolean = false): IncidentConnection!
+}
+
+"""A Camunda runtime incident. Most fields are nullable (incident kinds vary); jobId/jobRetries/stackTrace are populated for failedJob incidents."""
+type Incident {
+  id: ID!
+  type: String!
+  message: String
+  incidentTimestamp: DateTime
+  activityId: String
+  """Falls back to activityId (display names are resolved client-side from the BPMN model)."""
+  activityName: String
+  executionId: String
+  processInstanceId: String
+  processDefinitionId: String
+  processDefinitionKey: String
+  jobId: String
+  jobRetries: Int!
+  causeIncidentId: String
+  rootCauseIncidentId: String
+  configuration: String
+  annotation: String
+  stackTrace: String
+  tenantId: String
+}
+
+type IncidentConnection {
+  edges: [IncidentEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type IncidentEdge {
+  node: Incident!
+  cursor: String!
+}
+
+# -----------------------------------------------------------------------------
+# Mutations
+# -----------------------------------------------------------------------------
+
+extend type Mutation {
+  """Start a process instance by definitionKey or definitionId, with variables."""
+  startProcess(input: StartProcessInput!): ProcessInstance!
+
+  """Suspend a process instance; returns the (historic) instance."""
+  suspendProcessInstance(id: ID!): ProcessInstance
+
+  """Activate a suspended process instance; returns the (historic) instance."""
+  activateProcessInstance(id: ID!): ProcessInstance
+
+  """Cancel (delete) a running process instance; returns true."""
+  cancelProcessInstance(id: ID!, reason: String): Boolean!
+
+  """Delete a process instance (optionally skipping custom listeners); returns true."""
+  deleteProcessInstance(id: ID!, skipCustomListeners: Boolean): Boolean!
+
+  """Replace a process instance's variables (REPLACE semantics: omitted names are removed)."""
+  setProcessVariables(processInstanceId: ID!, variables: [ProcessVariableInput!]!): ProcessInstance
+}
+
+extend type Mutation {
+  """Claim a task for the current (caller) user."""
+  claimTask(taskId: ID!): Task!
+
+  """Release a claimed task (clears the assignee)."""
+  unclaimTask(taskId: ID!): Task!
+
+  """Assign a task to a specific user."""
+  assignTask(taskId: ID!, assignee: String!): Task!
+
+  """Set a task's assignee (null to unassign). Authorized for Admin, Supervisor, or the task's current assignee."""
+  setTaskAssignee(taskId: ID!, assignee: String): Task!
+
+  """Delegate a task to another user."""
+  delegateTask(taskId: ID!, assignee: String!): Task!
+
+  """Complete a task with optional variables. Returns minimal info (the task is gone after completion)."""
+  completeTask(input: CompleteTaskInput!): Task
+
+  """Set variables on a task (local or process-scoped)."""
+  setTaskVariables(taskId: ID!, variables: [ProcessVariableInput!]!, local: Boolean = false): Task!
+
+  """Add a comment to a task; returns the created comment."""
+  addTaskComment(taskId: ID!, message: String!): TaskComment!
+}
+
+input CompleteTaskInput {
+  taskId: ID!
+  variables: [ProcessVariableInput!]
+  """Reserved (handmade parity): mutation-response variables are always empty; clients re-query the task."""
+  withVariablesInReturn: Boolean = false
+}
+
+"""A task comment (Camunda createComment)."""
+type TaskComment {
+  id: ID!
+  taskId: String!
+  userId: String!
+  time: DateTime!
+  message: String!
+}
+
+extend type Mutation {
+  """Deploy a process definition from one or more resources (BPMN XML, etc.)."""
+  deployProcess(input: DeployProcessInput!): Deployment!
+
+  """Delete a deployment (cascade removes its process instances and history)."""
+  deleteDeployment(id: ID!, cascade: Boolean = false): Boolean!
+
+  """Suspend a process definition (optionally its running instances); returns the updated definition."""
+  suspendProcessDefinition(id: ID!, includeInstances: Boolean): ProcessDefinition
+
+  """Activate a suspended process definition (optionally its instances); returns the updated definition."""
+  activateProcessDefinition(id: ID!, includeInstances: Boolean): ProcessDefinition
+}
+
+type Deployment {
+  id: ID!
+  name: String
+  deploymentTime: DateTime!
+  source: String
+  tenantId: String
+}
+
+input DeployProcessInput {
+  name: String!
+  source: String
+  resources: [DeploymentResourceInput!]!
+  """Accepted for schema compatibility; not applied (handmade parity)."""
+  enableDuplicateFiltering: Boolean = false
+  """Accepted for schema compatibility; not applied (handmade parity)."""
+  deployChangedOnly: Boolean = false
+}
+
+input DeploymentResourceInput {
+  name: String!
+  content: String!
+}
+
+extend type Mutation {
+  """Restore retries on the Job behind a failedJob incident (re-run on next executor cycle). Returns the refreshed incident."""
+  setJobRetries(input: SetJobRetriesInput!): Incident
+
+  """Resolve a custom incident (the engine rejects failedJob/failedExternalTask — use setJobRetries for those). Returns true."""
+  resolveIncident(id: ID!): Boolean!
+
+  """Set or clear (null/empty) an incident's operator annotation; returns the refreshed incident."""
+  setIncidentAnnotation(input: SetIncidentAnnotationInput!): Incident
+}
+
+input SetJobRetriesInput {
+  incidentId: ID!
+  """Must be >= 1."""
+  retries: Int!
+  clearAnnotation: Boolean = false
+}
+
+input SetIncidentAnnotationInput {
+  id: ID!
+  annotation: String
+}
+
+extend type Mutation {
+  """Build a migration plan preview (mapEqualActivities by default). The plan is not persisted until migrateProcessInstance runs."""
+  createMigrationPlan(input: CreateMigrationPlanInput!): MigrationPlan!
+
+  """Queue a process-instance migration as a CMS JobManager job; returns the job handle (subscribe to jobProgress(jobId))."""
+  migrateProcessInstance(input: MigrateProcessInstanceInput!): MigrationJob!
+}
+
+"""A single source→target activity mapping in a migration plan."""
+type MigrationInstruction {
+  sourceActivityIds: [String!]!
+  targetActivityIds: [String!]!
+  updateEventTrigger: Boolean!
+}
+
+"""A built (not-yet-executed) migration plan preview."""
+type MigrationPlan {
+  sourceProcessDefinitionId: ID!
+  targetProcessDefinitionId: ID!
+  instructions: [MigrationInstruction!]!
+}
+
+"""A handle to a queued migration job; live progress arrives via jobProgress(jobId)."""
+type MigrationJob {
+  """CMS job id (NOT the Camunda batch id) — use as jobProgress(jobId:...)."""
+  id: ID!
+  """JobManager job type — `migrate-instances`."""
+  jobType: String!
+  """Initial job status (typically `queued`)."""
+  status: String!
+  """Always false for Camunda 7 (the batch cannot be safely cancelled mid-flight)."""
+  abortable: Boolean!
+}
+
+input CreateMigrationPlanInput {
+  sourceProcessDefinitionId: ID!
+  targetProcessDefinitionId: ID!
+  mapEqualActivities: Boolean = true
+  updateEventTriggers: Boolean = false
+}
+
+input MigrateProcessInstanceInput {
+  sourceProcessDefinitionId: ID!
+  targetProcessDefinitionId: ID!
+  """Either this or allActiveInstances must be supplied."""
+  processInstanceIds: [ID!]
+  allActiveInstances: Boolean = false
+  mapEqualActivities: Boolean = true
+  updateEventTriggers: Boolean = false
+  skipCustomListeners: Boolean = false
+  skipIoMappings: Boolean = false
+}
+
+"""A process/task variable to set. `value` is coerced to a Camunda typed value per `type` (String/Long/Integer/Double/Boolean/Date); a null/unparseable value yields a typed null."""
+input ProcessVariableInput {
+  name: String!
+  type: String
+  value: JSON!
+  valueInfo: JSON
+}
+
+input StartProcessInput {
+  definitionKey: String
+  definitionId: String
+  businessKey: String
+  variables: [ProcessVariableInput!]
+}
+
+type ProcessDefinition {
+  id: ID!
+  key: String!
+  name: String
+  description: String
+  version: Int!
+  deploymentId: String!
+  deploymentName: String
+  resourceName: String
+  diagramResourceName: String
+  suspended: Boolean!
+  category: String
+  startFormKey: String
+}
+
+type ProcessInstance {
+  id: ID!
+  definitionId: String!
+  definitionKey: String!
+  businessKey: String
+  suspended: Boolean!
+  ended: Boolean!
+  startTime: DateTime
+  endTime: DateTime
+  durationInMillis: Long
+  incidentCount: Int!
+  variables: [ProcessVariable!]!
+}
+
+"""A Camunda process/task variable. `value` is the variable's value (Date as ISO-8601, otherwise toString); `valueInfo` is reserved."""
+type ProcessVariable {
+  name: String!
+  type: String!
+  value: JSON
+  valueInfo: JSON
+}
+
+type ActivityInstance {
+  id: ID!
+  activityId: String!
+  activityName: String
+  activityType: String!
+  processInstanceId: String!
+  startTime: DateTime
+  endTime: DateTime
+  durationInMillis: Long
+  canceled: Boolean!
+  completeScope: Boolean!
+}
+
+type ProcessDefinitionConnection {
+  edges: [ProcessDefinitionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProcessDefinitionEdge {
+  node: ProcessDefinition!
+  cursor: String!
+}
+
+type ProcessInstanceConnection {
+  edges: [ProcessInstanceEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProcessInstanceEdge {
+  node: ProcessInstance!
+  cursor: String!
+}

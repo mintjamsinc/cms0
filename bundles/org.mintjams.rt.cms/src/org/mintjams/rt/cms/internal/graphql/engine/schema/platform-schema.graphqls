@@ -1,0 +1,1005 @@
+# =============================================================================
+# Platform built-in GraphQL schema
+# =============================================================================
+# This is the graphql-java replacement for the handmade /bin/graphql.cgi API.
+# It is contributed via the WiringContributor hook and merged, per workspace,
+# with the application-defined SDL/Groovy schema into the unified engine
+# (WorkspaceGraphQLEngineProvider) that serves the production /bin/graphql.cgi
+# endpoint. The handmade engine is retired to /bin/graphql-legacy.cgi for
+# rollback.
+#
+# It is the single, executable source of truth for the platform schema,
+# superseding documents/GRAPHQL_SCHEMA.graphql (a human-readable reference).
+#
+# Current coverage:
+#   - cluster (Workspace/cluster topology)
+#   - JCR content reads: node, children, references, xpath, query, search,
+#     accessControl, versionHistory, apps — scalar fields, the PropertyValue
+#     union `properties`, lock/version detail and webRender.
+#   - Content mutations: createFolder, createFile, renameNode, moveNode,
+#     deleteNode, setProperties (all property types, including upload-backed
+#     binaries via binaryUploadId / binaryArrayUploadIds / binaryArrayItems,
+#     plus inline binaryValue Base64). Run under the caller session; atomic
+#     save() on success.
+#   - Multipart upload lifecycle: initiateMultipartUpload,
+#     appendMultipartUploadChunk, completeMultipartUpload, abortMultipartUpload.
+#   - Node operations: copyNode; lockNode/unlockNode; addMixin/deleteMixin;
+#     setAccessControl/deleteAccessControl; addVersionControl/checkin/checkout/
+#     uncheckout/checkpoint/restoreVersion.
+#   - Async jobs (lifecycle only; progress via jobProgress subscription):
+#     deleteNodes, downloadArchive (init/append/start/abort) and importArchive
+#     (init/start/abort). Job records written under a privileged management
+#     session running as the caller.
+#   - Subscriptions (live SSE at /bin/graphql.cgi/{ws}/stream, legacy envelope):
+#     jobProgress, nodeChanged, preferenceChanged, wallpaperChanged,
+#     avatarChanged, workspaceChanged. preference/wallpaper/avatar resolve the
+#     user from the session (the userId arg is ignored). nodeChanged is a
+#     metadata-only re-check signal (handmade parity); content is ACL-protected
+#     at the client's re-query, so an item is auto-dropped when it becomes
+#     unreadable. (Hardening nodeChanged's path-level metadata for unreadable
+#     nodes is a separate, Webtop-coordinated task.)
+#     BPM: taskAssigned/taskCompleted/taskUpdated/processStarted/processEnded —
+#     bridged from the Camunda EventAdmin topics; task/processInstance payloads
+#     are the typed Task/ProcessInstance (partial projections from the event).
+#     EIP: routeStateChanged — bridged from the Camel Route EventAdmin topics
+#     (declared in eip-schema.graphqls / wired in PlatformEipWiringContributor).
+#   (Removed: queryChanged and systemNotification — dead declarations with no
+#    event source and no live client consumer; to be redesigned if a concrete
+#    need arises. Deferred: nested Node relations — parent, node-level
+#    children/versionHistory.)
+#
+# Reconciliation note: NodeMapper omits created/createdBy/modified/modifiedBy
+# when the underlying JCR property is absent, so these are nullable here even
+# though documents/GRAPHQL_SCHEMA.graphql (drifted) marks some non-null.
+# =============================================================================
+
+"""64-bit integer, serialised as a JSON number."""
+scalar Long
+
+"""ISO-8601 date-time string in UTC."""
+scalar DateTime
+
+"""Base64-encoded binary data."""
+scalar Base64
+
+"""Arbitrary JSON value (object/array/scalar), passed through as-is."""
+scalar JSON
+
+type Query {
+  """Deployment topology (clustering) of the workspace serving the request. Requires administrative privileges."""
+  cluster: Cluster
+
+  """A single node by absolute path, or null when it does not exist."""
+  node(path: String!): Node
+
+  """Child nodes of the node at the given path (Relay connection)."""
+  children(path: String!, first: Int = 20, after: String): NodeConnection!
+
+  """Nodes that reference the node at the given path (strong + weak; Relay connection)."""
+  references(path: String!, first: Int = 20, after: String): NodeConnection!
+
+  """Execute a JCR XPath query (Relay connection of result nodes)."""
+  xpath(query: String!, first: Int = 20, after: String): NodeConnection!
+
+  """Execute a JCR query in the given language (Relay connection of result nodes)."""
+  query(statement: String!, language: String = "JCR-SQL2", first: Int = 20, after: String): NodeConnection!
+
+  """Full-text search over nt:file nodes (Relay connection; node.score carries relevance)."""
+  search(text: String!, path: String = "/", first: Int = 20, after: String): NodeConnection!
+
+  """Access control list (entries) for the node at the given path."""
+  accessControl(path: String!): AccessControl!
+
+  """Version history of a versionable node (null when the node is not versionable)."""
+  versionHistory(path: String!): VersionHistory
+
+  """List Webtop applications (app.yml descriptors) under an apps root (Relay connection)."""
+  apps(path: String!, first: Int = 100, after: String): AppConnection!
+
+  """Effective access control for the node: its own ACL plus every ancestor policy that applies (current + inherited)."""
+  effectiveAccessControl(path: String!): [EffectiveAccessControlPolicy!]!
+
+  """Search identity-store principals (users/groups) by keyword. Runs under privilege against the system workspace as the caller (matches the handmade engine; a plain caller session cannot resolve the lookup)."""
+  searchPrincipals(keyword: String, offset: Int = 0, limit: Int = 20): [PrincipalSearchResult!]!
+}
+
+# -----------------------------------------------------------------------------
+# Mutations (content CRUD — Phase 2a). Inputs are wrapped in an `input:` object
+# to match the running handmade engine (which requires an input wrapper); the
+# contract doc declares createFolder/createFile with inline args (drift).
+# createParents and moveNode/MoveNodeInput are present in the code but absent
+# from the doc — added here.
+# -----------------------------------------------------------------------------
+
+type Mutation {
+  """Create a folder (creating intermediate parents when createParents is true)."""
+  createFolder(input: CreateFolderInput!): Node!
+
+  """Create a file with Base64 content (creates jcr:content/nt:resource)."""
+  createFile(input: CreateFileInput!): Node!
+
+  """Rename a node (move within its parent)."""
+  renameNode(input: RenameNodeInput!): Node!
+
+  """Move a node into a destination parent folder (optionally renaming)."""
+  moveNode(input: MoveNodeInput!): Node!
+
+  """Delete a node; returns false (no-op) when it does not exist."""
+  deleteNode(input: DeleteNodeInput!): Boolean!
+
+  """Set (or delete, when value is null) properties on a node's jcr:content, atomically."""
+  setProperties(input: SetPropertiesInput!): SetPropertiesResult!
+
+  """Begin a chunked (multipart) upload; returns an uploadId for subsequent chunks."""
+  initiateMultipartUpload(input: InitiateMultipartUploadInput): MultipartUploadInfo!
+
+  """Append a Base64 chunk to an upload session."""
+  appendMultipartUploadChunk(input: AppendMultipartUploadChunkInput!): MultipartUploadInfo!
+
+  """Finish an upload, writing the accumulated bytes to a new (or overwritten) nt:file."""
+  completeMultipartUpload(input: CompleteMultipartUploadInput!): Node!
+
+  """Cancel an upload session and discard its temporary data."""
+  abortMultipartUpload(input: AbortMultipartUploadInput!): Boolean!
+
+  """Copy a node (deep copy) under destPath, optionally renaming. Version mixins are stripped by the copy."""
+  copyNode(input: CopyNodeInput!): Node!
+
+  """Lock a node (adds mix:lockable if needed). Open-scoped by default so the lock persists across requests."""
+  lockNode(input: LockNodeInput!): Node!
+
+  """Unlock a node; returns true."""
+  unlockNode(input: UnlockNodeInput!): Boolean!
+
+  """Add a mixin node type (no-op if already present); returns the node."""
+  addMixin(input: AddMixinInput!): Node!
+
+  """Remove a mixin node type (no-op if absent); returns the node."""
+  deleteMixin(input: DeleteMixinInput!): Node!
+
+  """Set ACL entries on a node. `entries` (batch) replaces the whole list; a single principal/privileges/allow upserts one entry."""
+  setAccessControl(input: SetAccessControlInput!): SetAccessControlResult!
+
+  """Remove the ACL entry for a principal; errors when none exists. Returns true."""
+  deleteAccessControl(input: DeleteAccessControlInput!): Boolean!
+
+  """Make a node versionable (mix:versionable) and create its initial version; returns the node."""
+  addVersionControl(input: AddVersionControlInput!): Node!
+
+  """Check in a versionable, checked-out node; returns the created Version."""
+  checkin(input: CheckinInput!): Version!
+
+  """Check out a versionable node for editing; returns true."""
+  checkout(input: CheckoutInput!): Boolean!
+
+  """Cancel a checkout, discarding changes since checkout; returns true."""
+  uncheckout(input: UncheckoutInput!): Boolean!
+
+  """Create a version and keep the node checked out; returns the created Version."""
+  checkpoint(input: CheckpointInput!): Version!
+
+  """Restore a versionable node to a named version; returns the node."""
+  restoreVersion(input: RestoreVersionInput!): Node!
+
+  # Async jobs — kick off background work; live progress is delivered via the
+  # jobProgress(jobId) subscription (Phase 3). Job records are written under a
+  # privileged management session running as the caller (audit identity kept).
+  """Allocate an async node-deletion job (INIT); append paths, then start."""
+  initDeleteNodes(input: InitDeleteNodesInput!): JobRef!
+  """Append up to 100 paths to a deletion job still in INIT."""
+  appendDeleteNodes(input: AppendDeleteNodesInput!): JobRef!
+  """Queue a deletion job and hand it to the background worker."""
+  startDeleteNodes(input: StartDeleteNodesInput!): JobRef!
+  """Signal a deletion job to abort (or finalise it if not yet running)."""
+  abortDeleteNodes(input: AbortDeleteNodesInput!): JobRef!
+
+  """Allocate an async ZIP-archive download job (INIT)."""
+  initDownloadArchive(input: InitDownloadArchiveInput!): JobRef!
+  """Append up to 100 top-level paths to a download-archive job still in INIT."""
+  appendDownloadArchive(input: AppendDownloadArchiveInput!): JobRef!
+  """Queue a download-archive job; the terminal downloadUrl arrives via jobProgress."""
+  startDownloadArchive(input: StartDownloadArchiveInput!): JobRef!
+  """Signal a download-archive job to abort."""
+  abortDownloadArchive(input: AbortDownloadArchiveInput!): JobRef!
+
+  """Allocate an async archive-import job (INIT); upload the ZIP, then start."""
+  initImportArchive(input: InitImportArchiveInput!): JobRef!
+  """Queue an archive-import job with its options."""
+  startImportArchive(input: StartImportArchiveInput!): JobRef!
+  """Signal an archive-import job to abort."""
+  abortImportArchive(input: AbortImportArchiveInput!): JobRef!
+}
+
+# =============================================================================
+# Subscriptions (Phase 3). Each field resolves to a Publisher bridged from the
+# workspace CmsEvent feed; events run under the subscriber's stream-lifetime
+# session. Served over the legacy SSE envelope at /bin/graphql.cgi/{ws}/stream
+# (compat: ?subscriptions=[...] -> data: {subscription, data}); graphql-sse is a
+# later, separate transport swap.
+# =============================================================================
+type Subscription {
+  """Live progress of an async job (delete / downloadArchive / importArchive). Emits whenever the job record is updated by its worker; the terminal event carries downloadUrl (archive) or the dry-run verdict (import)."""
+  jobProgress(jobId: String!): JobProgressEvent!
+
+  """JCR node changes under a path (`deep` extends beyond direct children). A metadata-only "re-check" signal — node content is not included; the client re-queries under its own session, where JCR ACLs apply. This is what lets a client drop an item the instant it becomes unreadable (the MODIFIED event still arrives, the re-query then returns nothing)."""
+  nodeChanged(path: String = "/", deep: Boolean = false): NodeChangeEvent!
+
+  """Changes to the signed-in user's preferences. The `userId` argument is accepted for wire-compat but ignored — the subscriber is resolved from the session."""
+  preferenceChanged(userId: String): PreferenceChangedEvent!
+
+  """Changes to the signed-in user's wallpapers. `userId` is accepted but ignored (resolved from the session)."""
+  wallpaperChanged(userId: String): WallpaperChangedEvent!
+
+  """Changes to the signed-in user's avatar. `userId` is accepted but ignored (resolved from the session)."""
+  avatarChanged(userId: String): AvatarChangedEvent!
+
+  """Repository-wide signal that some workspace started, stopped, or had its settings changed."""
+  workspaceChanged: WorkspaceChangedEvent!
+
+  """A task was assigned (Camunda Task/ASSIGNED). Filter by `assignee`. `candidateGroup` is accepted for wire-compat but not yet filterable from the event (claimable-group live updates need BPM-domain candidate-group resolution)."""
+  taskAssigned(assignee: String, candidateGroup: String): TaskEvent!
+
+  """A task was completed (Camunda Task/COMPLETED), optionally scoped to a process instance."""
+  taskCompleted(processInstanceId: String): TaskEvent!
+
+  """Any lifecycle change of a specific task (Camunda Task/*), used to track a single task by id."""
+  taskUpdated(taskId: String): TaskEvent!
+
+  """A process instance started (Camunda ProcessInstance/STARTED). `definitionKey` is derived from the process definition id."""
+  processStarted(definitionKey: String): ProcessEvent!
+
+  """A process instance ended (Camunda ProcessInstance/ENDED)."""
+  processEnded(definitionKey: String): ProcessEvent!
+}
+
+"""A BPM task lifecycle event. `task` is the typed Task (a partial projection — id/name/assignee/taskDefinitionKey/processInstanceId/processDefinitionId — built from the engine event; clients re-query for the rest)."""
+type TaskEvent {
+  """CREATED / ASSIGNED / COMPLETED / UPDATED / DELETED (the Camunda event action)."""
+  eventType: String
+  task: Task
+  timestamp: String
+}
+
+"""A BPM process-instance lifecycle event. `processInstance` is the typed ProcessInstance (a partial projection — id/definitionId/definitionKey/businessKey — built from the engine event)."""
+type ProcessEvent {
+  """STARTED / ENDED (the Camunda event action)."""
+  eventType: String
+  processInstance: ProcessInstance
+  timestamp: String
+}
+
+"""A JCR node change (flat payload, mirrors the handmade SSE event)."""
+type NodeChangeEvent {
+  """CREATED / MODIFIED / DELETED (mapped from the JCR event topic)."""
+  eventType: String
+  """
+  The changed node's path. Null on a DELETED drop signal for a node the
+  subscriber cannot read (its path/name must not be disclosed); the client
+  drops the affected item by `identifier` instead.
+  """
+  path: String
+  """UUID, when the node is referenceable."""
+  identifier: String
+  nodeType: String
+  """Original path for moved nodes."""
+  sourcePath: String
+  userId: String
+  timestamp: String
+}
+
+"""A change to a user's preferences. `data` is the category's current (non-jcr) string properties."""
+type PreferenceChangedEvent {
+  category: String
+  data: JSON
+  userId: String
+  timestamp: String
+}
+
+"""A change to a user's wallpapers."""
+type WallpaperChangedEvent {
+  userId: String
+  """added / updated / deleted (mapped from the JCR event topic)."""
+  action: String
+  filename: String
+  timestamp: String
+}
+
+"""A change to a user's avatar."""
+type AvatarChangedEvent {
+  userId: String
+  timestamp: String
+}
+
+"""A workspace runtime-state / settings change signal."""
+type WorkspaceChangedEvent {
+  workspace: String
+  timestamp: String
+}
+
+"""A snapshot of an async job's progress (flat payload, mirrors the handmade SSE event)."""
+type JobProgressEvent {
+  jobId: String!
+  """External status: queued, running, completed, failed, aborting, aborted."""
+  status: String
+  itemsTotal: Long
+  itemsProcessed: Long
+  """Leaf counter for delete jobs."""
+  itemsDeleted: Long
+  """Leaf counter for download-archive jobs."""
+  itemsArchived: Long
+  """Leaf counter for import jobs."""
+  itemsImported: Long
+  """Import per-file outcome counts (sum to the archive's file count)."""
+  itemsNew: Long
+  itemsOverwritten: Long
+  itemsSkipped: Long
+  itemsError: Long
+  """First import errors for the completion screen; each is "path\tmessage"."""
+  errorSamples: [String!]
+  """Import dry-run verdict (terminal event of a dry run only)."""
+  dryRunHasErrors: Boolean
+  dryRunNodeCount: Long
+  dryRunBinaryCount: Long
+  dryRunDetail: String
+  currentPath: String
+  errorMessage: String
+  """Coarse phase for multi-step jobs (e.g. workspace lifecycle)."""
+  phase: String
+  targetWorkspace: String
+  """Set by jobs whose result is a downloadable artifact (archive jobs)."""
+  downloadUrl: String
+  """Server timestamp (ISO-8601) when this snapshot was emitted."""
+  timestamp: String
+}
+
+input CreateFolderInput {
+  path: String!
+  name: String!
+  nodeType: String = "nt:folder"
+  createParents: Boolean = true
+}
+
+input CreateFileInput {
+  path: String!
+  name: String!
+  """Defaults to application/octet-stream when omitted or blank."""
+  mimeType: String
+  content: Base64!
+  nodeType: String = "nt:file"
+  createParents: Boolean = true
+}
+
+input RenameNodeInput {
+  path: String!
+  name: String!
+}
+
+input MoveNodeInput {
+  sourcePath: String!
+  """Destination parent folder (must exist and be a folder)."""
+  destPath: String!
+  """Optional new name; defaults to the source node's name."""
+  name: String
+}
+
+input DeleteNodeInput {
+  path: String!
+}
+
+input SetPropertiesInput {
+  path: String!
+  properties: [PropertyInput!]!
+}
+
+"""One property to set; a null `value` deletes the property."""
+input PropertyInput {
+  name: String!
+  value: PropertyValueInput
+}
+
+"""Input for a property value. Specify exactly ONE field (validated at runtime)."""
+input PropertyValueInput {
+  stringValue: String
+  stringArrayValue: [String!]
+  longValue: Long
+  longArrayValue: [Long!]
+  doubleValue: Float
+  doubleArrayValue: [Float!]
+  decimalValue: String
+  decimalArrayValue: [String!]
+  booleanValue: Boolean
+  booleanArrayValue: [Boolean!]
+  dateValue: DateTime
+  dateArrayValue: [DateTime!]
+  binaryValue: Base64
+  binaryUploadId: String
+  binaryArrayUploadIds: [String!]
+  binaryArrayItems: [BinaryArrayItemInput!]
+  nameValue: String
+  nameArrayValue: [String!]
+  pathValue: String
+  pathArrayValue: [String!]
+  referenceValue: String
+  referenceArrayValue: [String!]
+  weakReferenceValue: String
+  weakReferenceArrayValue: [String!]
+  uriValue: String
+  uriArrayValue: [String!]
+}
+
+"""A single item of a binary array property: keep an existing value or a new upload. Specify exactly one."""
+input BinaryArrayItemInput {
+  keepIndex: Int
+  uploadId: String
+}
+
+type SetPropertiesResult {
+  """The node after the (attempted) update; unchanged when there were errors (rolled back)."""
+  node: Node
+  """Per-property errors; empty when all succeeded. propertyName is null for input-shape errors."""
+  errors: [PropertyError!]!
+}
+
+type PropertyError {
+  propertyName: String
+  message: String!
+}
+
+# -----------------------------------------------------------------------------
+# Multipart (chunked) upload. State is keyed by uploadId on the node's local
+# temp disk (not per-session), so initiate/append/complete may span requests.
+# The uploadId is consumed by completeMultipartUpload (creates an nt:file) or by
+# setProperties' binaryUploadId / binaryArrayUploadIds / binaryArrayItems.
+# -----------------------------------------------------------------------------
+
+"""Multipart upload session info."""
+type MultipartUploadInfo {
+  uploadId: String!
+  totalSize: Long!
+}
+
+input InitiateMultipartUploadInput {
+  """Reserved for future use."""
+  _placeholder: String
+}
+
+input AppendMultipartUploadChunkInput {
+  uploadId: String!
+  data: Base64!
+}
+
+input CompleteMultipartUploadInput {
+  uploadId: String!
+  path: String!
+  name: String!
+  mimeType: String!
+  overwrite: Boolean = false
+}
+
+input AbortMultipartUploadInput {
+  uploadId: String!
+}
+
+# -----------------------------------------------------------------------------
+# Content node operations: copy / lock / mixin / ACL / versioning.
+# All run under the caller session and persist with a single save() (or, for
+# workspace.copy and the lock/version managers, the operation's own commit).
+# -----------------------------------------------------------------------------
+
+input CopyNodeInput {
+  sourcePath: String!
+  destPath: String!
+  """Optional new name for the copy (defaults to the source name)."""
+  name: String
+}
+
+input LockNodeInput {
+  path: String!
+  isDeep: Boolean = false
+  isSessionScoped: Boolean = false
+}
+
+input UnlockNodeInput {
+  path: String!
+}
+
+input AddMixinInput {
+  path: String!
+  mixinType: String!
+}
+
+input DeleteMixinInput {
+  path: String!
+  mixinType: String!
+}
+
+"""Set ACL entries. Provide `entries` to replace the whole list, or principal/privileges/allow to upsert a single entry."""
+input SetAccessControlInput {
+  path: String!
+  principal: String
+  privileges: [String!]
+  allow: Boolean = true
+  entries: [AccessControlEntryInput!]
+}
+
+input AccessControlEntryInput {
+  principal: String!
+  privileges: [String!]!
+  allow: Boolean = true
+}
+
+input DeleteAccessControlInput {
+  path: String!
+  principal: String!
+}
+
+input AddVersionControlInput {
+  path: String!
+}
+
+input CheckinInput {
+  path: String!
+}
+
+input CheckoutInput {
+  path: String!
+}
+
+input UncheckoutInput {
+  path: String!
+}
+
+input CheckpointInput {
+  path: String!
+}
+
+input RestoreVersionInput {
+  path: String!
+  versionName: String!
+}
+
+# Write-side ACL result. NOTE: distinct from the read-side AccessControl —
+# here `principal` is the bare principal name (String), matching the Webtop's
+# setAccessControl selection, whereas the read-side accessControl exposes a
+# Principal object. Kept separate so each conforms to the actual client query.
+type SetAccessControlResult {
+  entries: [SetAccessControlResultEntry!]!
+}
+
+type SetAccessControlResultEntry {
+  principal: String!
+  privileges: [String!]!
+  allow: Boolean!
+}
+
+# -----------------------------------------------------------------------------
+# Async jobs (delete / download-archive / import-archive). The init/append/
+# start/abort mutations only drive the job's lifecycle; the work runs on a
+# background worker and progress is streamed via jobProgress(jobId) (Phase 3).
+# -----------------------------------------------------------------------------
+
+"""A reference to an async job and its current status. `itemsAccepted` is set by append mutations, `itemsTotal` by start mutations."""
+type JobRef {
+  jobId: String!
+  """External status string (e.g. init, queued, running, aborting, aborted, completed, failed)."""
+  status: String!
+  """Items accepted by this append call (append mutations only)."""
+  itemsAccepted: Long
+  """Total items registered when the job was started (startDeleteNodes/startDownloadArchive only)."""
+  itemsTotal: Long
+}
+
+input InitDeleteNodesInput {
+  """Scheduling priority (higher runs sooner); defaults to 0."""
+  priority: Int
+}
+
+input AppendDeleteNodesInput {
+  jobId: String!
+  paths: [String!]!
+}
+
+input StartDeleteNodesInput {
+  jobId: String!
+}
+
+input AbortDeleteNodesInput {
+  jobId: String!
+}
+
+input InitDownloadArchiveInput {
+  priority: Int
+}
+
+input AppendDownloadArchiveInput {
+  jobId: String!
+  paths: [String!]!
+}
+
+input StartDownloadArchiveInput {
+  jobId: String!
+  filename: String!
+  """Include the .cms-archive/ metadata sidecar (re-importable export). Default true."""
+  includeMetadata: Boolean = true
+  """Include ACLs in the metadata sidecar. Default false."""
+  includeAcl: Boolean = false
+}
+
+input AbortDownloadArchiveInput {
+  jobId: String!
+}
+
+input InitImportArchiveInput {
+  priority: Int
+}
+
+input StartImportArchiveInput {
+  jobId: String!
+  """Path of the uploaded ZIP (relocated next to the job record on start)."""
+  archivePath: String!
+  destinationPath: String!
+  filename: String
+  """ImportContentHandler uuidBehavior code (0=create new, …). Default 0."""
+  uuidBehavior: Int
+  """ImportContentHandler pathBehavior code. Default 0."""
+  pathBehavior: Int
+  importAcl: Boolean
+  """Preserve archived jcr:created/jcr:lastModified. Default true."""
+  preserveTimestamps: Boolean
+  dryRun: Boolean
+  """UI locale used only to localize the import report's own strings."""
+  locale: String
+}
+
+input AbortImportArchiveInput {
+  jobId: String!
+}
+
+# -----------------------------------------------------------------------------
+# Cluster
+# -----------------------------------------------------------------------------
+
+"""Cluster topology of the deployment."""
+type Cluster {
+  """Whether this node runs as part of a cluster."""
+  enabled: Boolean!
+
+  """Identifier of the node serving the request."""
+  nodeId: String
+
+  """Registered members; empty in standalone deployments."""
+  members: [ClusterMember!]!
+}
+
+type ClusterMember {
+  """Identifier under which the node appears in the cluster."""
+  nodeId: String!
+
+  """Host name of the node, when it could be determined."""
+  hostName: String
+
+  """When the node joined, in milliseconds since the epoch."""
+  started: Long!
+
+  """The node's last heartbeat, in milliseconds since the epoch."""
+  lastHeartbeat: Long!
+
+  """The cluster coordinator's heartbeat-freshness judgement (server-owned)."""
+  alive: Boolean!
+
+  """Whether this member is the node that served the request."""
+  self: Boolean!
+}
+
+# -----------------------------------------------------------------------------
+# JCR content (scalar fields — see reconciliation note above)
+# -----------------------------------------------------------------------------
+
+"""A JCR node. Nested relations (parent, node-level children/versionHistory)
+are deferred to a later migration increment."""
+type Node {
+  """Node path in the repository."""
+  path: String!
+
+  """Node name (last path segment)."""
+  name: String!
+
+  """Primary node type (e.g. nt:file, nt:folder)."""
+  nodeType: String!
+
+  """
+  Stable JCR identifier, present for every node (not only mix:referenceable ones).
+  Unlike `uuid` it never collapses to null, so clients can use it as a durable
+  identity key — e.g. to drop an item on a path-free `nodeChanged` DELETE signal,
+  or to track a node across moves/renames where the path changes.
+  """
+  id: ID!
+
+  """UUID if the node is mix:referenceable (null otherwise). Prefer `id` for identity."""
+  uuid: String
+
+  created: DateTime
+  createdBy: String
+  createdByDisplayName: String
+  modified: DateTime
+  modifiedBy: String
+  modifiedByDisplayName: String
+
+  """MIME type (nt:file)."""
+  mimeType: String
+
+  """File size in bytes (nt:file)."""
+  size: Long
+
+  """Character encoding (nt:file)."""
+  encoding: String
+
+  """Download URL path (nt:file)."""
+  downloadUrl: String
+
+  """Whether the server evaluates this file through a script engine when served (nt:file)."""
+  scriptable: Boolean
+
+  """Whether the folder has child nodes (nt:folder)."""
+  hasChildren: Boolean
+
+  """Whether the node is locked."""
+  isLocked: Boolean
+
+  """Lock detail (null when not locked)."""
+  lockInfo: LockInfo
+
+  """Whether the node is mix:versionable."""
+  isVersionable: Boolean
+
+  """Whether a versionable node is currently checked out."""
+  isCheckedOut: Boolean
+
+  """Base (current) version name of a versionable node."""
+  baseVersionName: String
+
+  """Relevance score — populated only in `search` results."""
+  score: Float
+
+  """How this file is rendered when served over the web (nt:file)."""
+  webRender: WebRender
+
+  """Non-jcr: prefixed properties (read from jcr:content for nt:file, otherwise from the node)."""
+  properties: [Property!]!
+}
+
+"""Lock detail for a locked node (mirrors NodeMapper's lockInfo map)."""
+type LockInfo {
+  lockOwner: String
+  isDeep: Boolean
+  isSessionScoped: Boolean
+  isLockOwningSession: Boolean
+  """Whether the lock is held by the current principal (MintJams lock; null for standard locks)."""
+  isLockOwner: Boolean
+  lockOwnerDisplayName: String
+}
+
+"""How a file node is rendered when served over the web."""
+type WebRender {
+  """Whether the file is bound to a template (served as rendered output)."""
+  templated: Boolean!
+  """Whether the binding comes from a folder .web.yml descriptor rather than a per-file web.template."""
+  fromDescriptor: Boolean!
+  """The source extension the file name carries (e.g. "md"), or null."""
+  source: String
+  """Allowed output extensions; empty means any."""
+  outputs: [String!]!
+  """Nearest ancestor document-root path (site.root: true), or null."""
+  documentRoot: String
+}
+
+"""Access control list of a node."""
+type AccessControl {
+  entries: [AccessControlEntry!]!
+}
+
+type AccessControlEntry {
+  principal: Principal!
+  privileges: [String!]!
+  """Whether access is allowed (MintJams extended ACL; standard JCR ACL is always true)."""
+  allow: Boolean!
+}
+
+type Principal {
+  id: ID!
+  displayName: String
+  isGroup: Boolean!
+}
+
+"""One node in the effective access-control hierarchy: the entries declared at `path` (the target node itself or an ancestor that contributes an inherited policy)."""
+type EffectiveAccessControlPolicy {
+  """The path whose policy these entries belong to (the node or an ancestor); null if the implementation cannot report it."""
+  path: String
+  entries: [AccessControlEntry!]!
+}
+
+"""A principal returned by `searchPrincipals` (an identity-store user or group)."""
+type PrincipalSearchResult {
+  """The principal's stable identifier (user name / group id)."""
+  identifier: String!
+  displayName: String
+  isGroup: Boolean!
+  """True for service accounts (absent on the profile means false)."""
+  isService: Boolean!
+}
+
+# -----------------------------------------------------------------------------
+# Version history. Mirrors the handmade connection-like shape (edges/pageInfo/
+# totalCount + baseVersion + versionableUuid). Reconciliation: the contract doc
+# models VersionHistory.versions: [Version!]! instead — to be settled with the
+# Webtop client at cut-over. Version fields other than `name` are nullable
+# because baseVersion is populated with name/created only.
+# -----------------------------------------------------------------------------
+
+type VersionHistory {
+  edges: [VersionEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+  baseVersion: Version
+  versionableUuid: String!
+}
+
+type VersionEdge {
+  node: Version!
+  cursor: String!
+}
+
+type Version {
+  name: String!
+  created: DateTime
+  createdBy: String
+  frozenNodePath: String
+  predecessors: [String!]
+  successors: [String!]
+}
+
+# -----------------------------------------------------------------------------
+# Webtop applications (apps query). Each App is derived server-side from its
+# app.yml descriptor (plus sibling icon.svg / index.html).
+# -----------------------------------------------------------------------------
+
+type AppConnection {
+  edges: [AppEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type AppEdge {
+  node: App!
+  cursor: String!
+}
+
+type App {
+  identifier: String
+  name: String!
+  title: String
+  icon: String
+  path: String!
+  relPath: String!
+  """ISO-8601 last-modified time (from index.html, then the descriptor)."""
+  modified: String
+  editor: Boolean
+  contentTypes: [String!]
+  enableStartMenu: Boolean
+  isAdminOnly: Boolean
+  singleton: Boolean
+  customWindowControls: Boolean
+  minimumWidth: Int
+  minimumHeight: Int
+  actions: [AppAction!]!
+}
+
+type AppAction {
+  identifier: String!
+  label: String
+  title: String
+  icon: String
+  handler: String
+}
+
+"""A single JCR property projected for GraphQL: its name and typed value(s)."""
+type Property {
+  name: String!
+  propertyValue: PropertyValue!
+}
+
+"""Relay connection over Node."""
+type NodeConnection {
+  edges: [NodeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type NodeEdge {
+  node: Node!
+  cursor: String!
+}
+
+"""Relay-style pagination info."""
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+# -----------------------------------------------------------------------------
+# PropertyValue union (the concrete type is carried by the __typename that
+# NodeMapper/PropertyValue embed; PropertyValueTypeResolver reads it).
+#
+# value / values are typed as the JSON pass-through scalar — NOT String / Long /
+# Float / Boolean / DateTime / Base64. Clients select PropertyValue with inline
+# fragments that all read the SAME response key (`value` or `values`) across many
+# union members. The GraphQL spec's OverlappingFieldsCanBeMerged /
+# SameResponseShape rule then requires that key to have an IDENTICAL type
+# (including nullability/list wrappers) in every member; mixed leaf types such as
+# String vs Long are a validation error. The handmade engine never validated this,
+# so it tolerated per-type leaves; graphql-java enforces it. Unifying every
+# value/values onto one scalar makes the client selection valid, while __typename
+# and the `type` field still carry the concrete JCR type.
+#
+# The wire bytes are unchanged: the JSON scalar serialises its input as-is, and
+# NodeMapper already emits ISO-8601 strings for dates and plain
+# String/Long/Double/Boolean for the rest (binary `value` is always null) —
+# exactly what the former DateTime/Long/Float/Boolean/Base64 scalars produced.
+#
+# Other reconciliation vs documents/GRAPHQL_SCHEMA.graphql (which has drifted):
+#   - Reference/Weakreference carry path/paths (resolved from the UUID), which
+#     the doc omits.
+# -----------------------------------------------------------------------------
+
+union PropertyValue =
+    StringPropertyValue
+  | StringPropertyValueArray
+  | LongPropertyValue
+  | LongPropertyValueArray
+  | DoublePropertyValue
+  | DoublePropertyValueArray
+  | DecimalPropertyValue
+  | DecimalPropertyValueArray
+  | BooleanPropertyValue
+  | BooleanPropertyValueArray
+  | DatePropertyValue
+  | DatePropertyValueArray
+  | BinaryPropertyValue
+  | BinaryPropertyValueArray
+  | NamePropertyValue
+  | NamePropertyValueArray
+  | PathPropertyValue
+  | PathPropertyValueArray
+  | ReferencePropertyValue
+  | ReferencePropertyValueArray
+  | WeakreferencePropertyValue
+  | WeakreferencePropertyValueArray
+  | UriPropertyValue
+  | UriPropertyValueArray
+
+type StringPropertyValue { type: String! value: JSON }
+type StringPropertyValueArray { type: String! values: [JSON] }
+type LongPropertyValue { type: String! value: JSON }
+type LongPropertyValueArray { type: String! values: [JSON] }
+type DoublePropertyValue { type: String! value: JSON }
+type DoublePropertyValueArray { type: String! values: [JSON] }
+type DecimalPropertyValue { type: String! value: JSON }
+type DecimalPropertyValueArray { type: String! values: [JSON] }
+type BooleanPropertyValue { type: String! value: JSON }
+type BooleanPropertyValueArray { type: String! values: [JSON] }
+type DatePropertyValue { type: String! value: JSON }
+type DatePropertyValueArray { type: String! values: [JSON] }
+type BinaryPropertyValue { type: String! mimeType: String size: Long value: JSON }
+type BinaryPropertyValueArray { type: String! mimeTypes: [String]! sizes: [Long]! }
+type NamePropertyValue { type: String! value: JSON }
+type NamePropertyValueArray { type: String! values: [JSON] }
+type PathPropertyValue { type: String! value: JSON }
+type PathPropertyValueArray { type: String! values: [JSON] }
+type ReferencePropertyValue { type: String! value: JSON path: String }
+type ReferencePropertyValueArray { type: String! values: [JSON] paths: [String]! }
+type WeakreferencePropertyValue { type: String! value: JSON path: String }
+type WeakreferencePropertyValueArray { type: String! values: [JSON] paths: [String]! }
+type UriPropertyValue { type: String! value: JSON }
+type UriPropertyValueArray { type: String! values: [JSON] }

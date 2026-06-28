@@ -192,6 +192,9 @@
 							<template v-if="userSubTab === 'profile'">
 								<div class="property-group">
 									<div class="property-group-title">{{ t('app.identity-manager.user.infoTitle', undefined, 'User Information') }}</div>
+									<div v-if="isSelf" class="service-note">
+										<i class="bi bi-info-circle me-1"></i>{{ t('app.identity-manager.user.selfNote', undefined, 'This is your own account. You cannot disable it or change its roles here — manage your own profile from your account settings.') }}
+									</div>
 									<div v-if="selectedUser.isService" class="service-note">
 										<i class="bi bi-robot me-1"></i>{{ t('app.identity-manager.user.serviceNote', undefined, 'Service account — a non-interactive identity used by integrations (via runAs). It has no password and can never sign in.') }}
 									</div>
@@ -202,28 +205,28 @@
 										</div>
 										<div class="property-row half">
 											<label class="property-label">{{ t('app.identity-manager.field.email', undefined, 'Email') }}</label>
-											<input type="email" class="wt w-100" v-model="editForm.mail">
+											<input type="email" class="wt w-100" v-model="editForm.mail" :disabled="isSelf">
 										</div>
 									</div>
 									<div class="form-row">
 										<div class="property-row half">
 											<label class="property-label">{{ t('app.identity-manager.field.familyName', undefined, 'Family Name (sn)') }}</label>
-											<input type="text" class="wt w-100" v-model="editForm.sn">
+											<input type="text" class="wt w-100" v-model="editForm.sn" :disabled="isSelf">
 										</div>
 										<div class="property-row half">
 											<label class="property-label">{{ t('app.identity-manager.field.givenName', undefined, 'Given Name') }}</label>
-											<input type="text" class="wt w-100" v-model="editForm.givenName">
+											<input type="text" class="wt w-100" v-model="editForm.givenName" :disabled="isSelf">
 										</div>
 									</div>
 									<div class="form-row">
 										<div class="property-row half">
 											<label class="property-label">{{ t('app.identity-manager.field.displayName', undefined, 'Display Name') }}</label>
-											<input type="text" class="wt w-100" v-model="editForm.displayName">
+											<input type="text" class="wt w-100" v-model="editForm.displayName" :disabled="isSelf">
 										</div>
 										<div class="property-row half">
 											<label class="property-label">{{ t('app.identity-manager.field.status', undefined, 'Status') }}</label>
 											<label class="wt-checkbox-label">
-												<input type="checkbox" class="wt" v-model="editForm.enabled">
+												<input type="checkbox" class="wt" v-model="editForm.enabled" :disabled="isSelf">
 												<span>{{ t('app.identity-manager.status.enabled', undefined, 'Enabled') }}</span>
 											</label>
 										</div>
@@ -233,10 +236,10 @@
 								<div class="property-group">
 									<div class="property-group-title">{{ t('app.identity-manager.section.actions', undefined, 'Actions') }}</div>
 									<div class="form-actions">
-										<button class="wt wt-primary" @click="saveUser">
+										<button class="wt wt-primary" @click="saveUser" :disabled="isSelf">
 											<i class="bi bi-check-lg me-1"></i>{{ t('app.identity-manager.action.save', undefined, 'Save') }}
 										</button>
-										<button v-if="!isProtectedSelectedUser" class="wt wt-danger wt-outlined" @click="confirmDeleteUser">
+										<button v-if="!isProtectedSelectedUser && !isSelf" class="wt wt-danger wt-outlined" @click="confirmDeleteUser">
 											<i class="bi bi-trash me-1"></i>{{ t('app.identity-manager.action.delete', undefined, 'Delete') }}
 										</button>
 									</div>
@@ -255,14 +258,15 @@
 											:style="{ paddingLeft: (r.depth * 1.25) + 'rem' }">
 											<input type="checkbox" class="wt"
 												:checked="userHasRole(r.roleId)"
-												@change="toggleUserRole(r.roleId, event)">
+												@change="toggleUserRole(r.roleId, event)"
+												:disabled="isSelf">
 											<span>{{ r.displayName || r.name }}</span>
 											<span class="role-id-hint">{{ r.roleId }}</span>
 										</label>
 									</div>
 									<div v-if="allRolesFlat.length === 0" class="text-muted">{{ t('app.identity-manager.empty.rolesDefined', undefined, 'No roles defined') }}</div>
 									<div class="form-actions">
-										<button class="wt wt-primary" @click="saveUser">
+										<button class="wt wt-primary" @click="saveUser" :disabled="isSelf">
 											<i class="bi bi-check-lg me-1"></i>{{ t('app.identity-manager.user.saveRoleChanges', undefined, 'Save Role Changes') }}
 										</button>
 									</div>

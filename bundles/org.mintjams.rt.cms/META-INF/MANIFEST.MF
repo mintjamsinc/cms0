@@ -7,8 +7,8 @@ Automatic-Module-Name: org.mintjams.rt.cms
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Service-Component: OSGI-INF/org.mintjams.rt.cms.CmsService.xml,
- OSGI-INF/org.mintjams.rt.cms.internal.web.DownloadServlet.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.ArchiveDownloadServlet.xml,
+ OSGI-INF/org.mintjams.rt.cms.internal.web.DownloadServlet.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.GraphQLServlet.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.WebServlet.xml
 Import-Package: javax.activation;version="1.2.0",
@@ -58,6 +58,7 @@ Require-Bundle: org.apache.camel;bundle-version="4.0.0",
  bcutil;bundle-version="1.83.0",
  org.mintjams.saml2;bundle-version="1.0.0",
  org.mintjams.searchindex;bundle-version="1.0.0",
- org.apache.tika;bundle-version="2.6.0"
+ org.apache.tika;bundle-version="2.6.0",
+ graphql-java;bundle-version="22.3.0"
 Bundle-ClassPath: .
 Bundle-ActivationPolicy: lazy

@@ -50,7 +50,6 @@ import org.mintjams.cms.security.SecretKeyProvider;
 import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.AccessControlManager;
-import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
@@ -58,6 +57,7 @@ import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.jcr.spi.security.IdentityProvider;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.cms.internal.graphql.engine.WorkspaceGraphQLEngineProvider;
 import org.mintjams.rt.cms.internal.bpm.WorkspaceProcessEngineProvider;
 import org.mintjams.rt.cms.internal.cms.event.WorkspaceCmsEventManager;
 import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
@@ -134,6 +134,7 @@ public class CmsService {
 	private final Map<String, WorkspaceFacetProvider> fWorkspaceFacetProviders = new HashMap<>();
 	private final Map<String, WorkspaceProcessEngineProvider> fWorkspaceProcessEngineProviders = new HashMap<>();
 	private final Map<String, WorkspaceIntegrationEngineProvider> fWorkspaceIntegrationEngineProviders = new HashMap<>();
+	private final Map<String, WorkspaceGraphQLEngineProvider> fWorkspaceGraphQLEngineProviders = new HashMap<>();
 	private final Map<String, WorkspaceWebServletProvider> fWorkspaceServletProviders = new HashMap<>();
 	private final Map<String, WorkspaceCmsEventManager> fWorkspaceCmsEventManagers = new HashMap<>();
 	/**
@@ -488,6 +489,7 @@ public class CmsService {
 		WorkspaceUserHomes.invalidateWorkspace(workspaceName);
 		closeWorkspaceService(fWorkspaceCmsEventManagers.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceServletProviders.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceGraphQLEngineProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceIntegrationEngineProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceProcessEngineProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceFacetProviders.remove(workspaceName));
@@ -632,6 +634,14 @@ public class CmsService {
 			integrationEngineProvider.open();
 		} catch (Throwable ex) {
 			fLoggerFactory.getLogger(getClass()).error("An error occurred while starting the workspace integration engine: " + workspaceName, ex);
+		}
+
+		WorkspaceGraphQLEngineProvider graphqlEngineProvider = fCloser.register(new WorkspaceGraphQLEngineProvider(workspaceName));
+		fWorkspaceGraphQLEngineProviders.put(workspaceName, graphqlEngineProvider);
+		try {
+			graphqlEngineProvider.open();
+		} catch (Throwable ex) {
+			fLoggerFactory.getLogger(getClass()).error("An error occurred while starting the workspace GraphQL engine: " + workspaceName, ex);
 		}
 
 		WorkspaceWebServletProvider servletProvider = fCloser.register(new WorkspaceWebServletProvider(workspaceName));
@@ -798,6 +808,10 @@ public class CmsService {
 
 	public static WorkspaceIntegrationEngineProvider getWorkspaceIntegrationEngineProvider(String workspaceName) {
 		return getDefault().fWorkspaceIntegrationEngineProviders.get(workspaceName);
+	}
+
+	public static WorkspaceGraphQLEngineProvider getWorkspaceGraphQLEngineProvider(String workspaceName) {
+		return getDefault().fWorkspaceGraphQLEngineProviders.get(workspaceName);
 	}
 
 	public static WorkspaceWebServletProvider getWorkspaceServletProvider(String workspaceName) {

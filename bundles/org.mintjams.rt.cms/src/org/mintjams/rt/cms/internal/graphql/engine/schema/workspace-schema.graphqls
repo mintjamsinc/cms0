@@ -1,0 +1,177 @@
+# =============================================================================
+# Platform Workspace management GraphQL schema — preview / side-by-side
+# =============================================================================
+# Contributed by PlatformWorkspaceWiringContributor, merged into the same
+# graphql-java schema as the core platform SDL (platform-schema.graphqls). It
+# `extend`s the core Query/Mutation roots.
+#
+# This is the graphql-java migration target of the handmade
+# WorkspaceQueryExecutor / WorkspaceMutationExecutor, served at
+# /bin/graphql.cgi.
+#
+# Coverage:
+#   Reads: workspaces.
+#   Mutations: create/delete/start/stop/restart (async jobs), update (sync).
+#
+# Reconciliation vs documents/GRAPHQL_SCHEMA.graphql (which is stale here): the
+# Webtop selects displayName/autoStart on Workspace (added below though the doc
+# omits them), and the lifecycle state includes STOPPED (a deliberately idle
+# workspace) which the doc enum omits.
+# =============================================================================
+
+extend type Query {
+  """The workspaces available in the repository (system first, then alphabetical). Not admin-restricted — every user needs the list to switch desktops."""
+  workspaces: [Workspace!]!
+}
+
+"""A repository workspace and the live state of its per-workspace CMS services."""
+type Workspace {
+  """Workspace name; also the URL segment the workspace is served under."""
+  name: String!
+  """Human-readable label (etc/workspace.yml); may be empty/null."""
+  displayName: String
+  """Whether this is the workspace the queried endpoint is bound to."""
+  current: Boolean!
+  """Whether this is the system workspace (the identity store; never deletable)."""
+  system: Boolean!
+  """Whether the workspace starts automatically on boot (always true for system)."""
+  autoStart: Boolean!
+  """Lifecycle state of the workspace's CMS services on this node."""
+  state: WorkspaceState!
+  """When state is FAILED, the reason the services failed to start; null otherwise."""
+  stateMessage: String
+  """State of the workspace's process engine (Camunda)."""
+  processEngine: WorkspaceEngine!
+  """State of the workspace's integration engine (Apache Camel)."""
+  integrationEngine: WorkspaceEngine!
+}
+
+"""Lifecycle state of a workspace's CMS services (the JCR workspace itself is open in every listed state)."""
+enum WorkspaceState {
+  """The workspace's CMS services are running."""
+  ONLINE
+  """Startup is still in progress (e.g. freshly created, or just discovered on another node)."""
+  STARTING
+  """The CMS services failed to start; stateMessage carries the reason."""
+  FAILED
+  """Deliberately idle — the operator stopped it and must start it again."""
+  STOPPED
+}
+
+"""State of a per-workspace engine. `enabled` is the configuration switch (bpm.yml / eip.yml); `running` is the live state (enabled but not running = failed to start)."""
+type WorkspaceEngine {
+  enabled: Boolean
+  running: Boolean!
+}
+
+# -----------------------------------------------------------------------------
+# Mutations (mirror WorkspaceMutationExecutor)
+#
+# Workspace management is reserved for administrators and service accounts. The
+# five lifecycle operations run as background WorkspaceLifecycleJobs (watch
+# jobProgress(jobId)); update is synchronous. Errors are returned in-band as a
+# `errors` list (field/message/code) — `errors` is non-null only for synchronous
+# validation failures, in which case the job fields are null.
+# -----------------------------------------------------------------------------
+
+extend type Mutation {
+  """Start an asynchronous workspace creation (admin/service only); watch jobProgress(jobId)."""
+  createWorkspace(input: CreateWorkspaceInput!): CreateWorkspacePayload!
+
+  """Start an asynchronous workspace deletion (admin/service only). The system workspace and the bound workspace cannot be deleted."""
+  deleteWorkspace(input: DeleteWorkspaceInput!): DeleteWorkspacePayload!
+
+  """Start an asynchronous start of a stopped workspace (admin/service only)."""
+  startWorkspace(input: StartWorkspaceInput!): StartWorkspacePayload!
+
+  """Start an asynchronous stop of a running workspace (admin/service only). The system workspace and the bound workspace cannot be stopped."""
+  stopWorkspace(input: StopWorkspaceInput!): StopWorkspacePayload!
+
+  """Start an asynchronous restart (admin/service only); how BPM/EIP engine switches are applied. The system workspace and the bound workspace cannot be restarted."""
+  restartWorkspace(input: RestartWorkspaceInput!): RestartWorkspacePayload!
+
+  """Update a workspace's editable settings synchronously (admin/service only); returns the refreshed workspace."""
+  updateWorkspace(input: UpdateWorkspaceInput!): UpdateWorkspacePayload!
+}
+
+input CreateWorkspaceInput {
+  """Workspace name: lowercase letters, digits, hyphens and underscores, starting with a letter (max 64)."""
+  name: String!
+}
+
+input DeleteWorkspaceInput {
+  name: String!
+}
+
+input StartWorkspaceInput {
+  name: String!
+}
+
+input StopWorkspaceInput {
+  name: String!
+}
+
+input RestartWorkspaceInput {
+  name: String!
+}
+
+input UpdateWorkspaceInput {
+  name: String!
+  """etc/workspace.yml — takes effect immediately."""
+  displayName: String
+  """etc/workspace.yml — governs the next boot (ignored for the system workspace)."""
+  autoStart: Boolean
+  """etc/bpm/bpm.yml — read at workspace start; restart to apply."""
+  bpmEnabled: Boolean
+  """etc/eip/eip.yml — read at workspace start; restart to apply."""
+  eipEnabled: Boolean
+}
+
+"""An in-band workspace-mutation validation error."""
+type WorkspaceMutationError {
+  field: String
+  message: String!
+  code: String!
+}
+
+"""Result of starting a workspace creation. `errors` is non-null only on synchronous validation failure, in which case `jobId` is null."""
+type CreateWorkspacePayload {
+  jobId: String
+  status: String
+  errors: [WorkspaceMutationError!]
+}
+
+"""Result of starting a workspace deletion (`name` echoed back)."""
+type DeleteWorkspacePayload {
+  jobId: String
+  status: String
+  name: String
+  errors: [WorkspaceMutationError!]
+}
+
+type StartWorkspacePayload {
+  jobId: String
+  status: String
+  name: String
+  errors: [WorkspaceMutationError!]
+}
+
+type StopWorkspacePayload {
+  jobId: String
+  status: String
+  name: String
+  errors: [WorkspaceMutationError!]
+}
+
+type RestartWorkspacePayload {
+  jobId: String
+  status: String
+  name: String
+  errors: [WorkspaceMutationError!]
+}
+
+"""Result of a synchronous workspace settings update; `workspace` is the refreshed workspace (null on validation error)."""
+type UpdateWorkspacePayload {
+  workspace: Workspace
+  errors: [WorkspaceMutationError!]
+}

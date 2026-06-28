@@ -646,7 +646,7 @@ const App = {
 		},
 
 		triggerWallpaperUpload() {
-			const input = document.querySelector('input[ref="wallpaperFileInput"]') as HTMLInputElement;
+			const input = this.$refs.wallpaperFileInput as HTMLInputElement | undefined;
 			if (input) input.click();
 		},
 
@@ -810,7 +810,7 @@ const App = {
 		},
 
 		triggerAvatarUpload() {
-			const input = document.querySelector('input[ref="avatarFileInput"]') as HTMLInputElement;
+			const input = this.$refs.avatarFileInput as HTMLInputElement | undefined;
 			if (input) input.click();
 		},
 

@@ -1,5 +1,5 @@
 <template id="eip-canvas">
-	<div class="eip-canvas" :class="{ 'has-highlight': hasHighlight }" :data-theme="theme"
+	<div class="eip-canvas" ref="canvas" :class="{ 'has-highlight': hasHighlight }" :data-theme="theme"
 		 @mounted.stop="onMounted" @unmount.stop="onUnmount">
 		<svg class="eip-canvas-svg" :class="{ panning: isPanning }"
 			 @mousedown="onPanStart" @wheel.prevent="onWheel">

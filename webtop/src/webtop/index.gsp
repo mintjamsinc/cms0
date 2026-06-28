@@ -64,7 +64,7 @@
 					</div>
 				</div>
 			</nav>
-			<main id="desktop-area"
+			<main id="desktop-area" ref="desktopArea"
 				@dragover="onDesktopAreaDragOver" @drop="onDesktopAreaDrop"
 				@mousedown="onDesktopAreaMouseDown" @contextmenu="onDesktopAreaContextMenu">
 				<wt-desktop-icons :enabled="hasDesktopFolder" :desktopPath="desktopFolderPath"
@@ -84,11 +84,12 @@
 				<template v-if="contextMenu.variant === 'swatch-grid'">
 					<button v-for="(item, index) in contextMenu.items" :key="index"
 						type="button" class="context-menu-swatch"
-						:class="{ selected: item.selected }"
-						:style="{ background: item.swatch }"
+						:class="{ selected: item.selected, clear: !item.swatch }"
+						:style="item.swatch ? { background: item.swatch } : {}"
 						:title="item.label"
 						@click="onContextMenuAction(item.id)">
 						<i v-if="item.selected" class="bi bi-check-lg"></i>
+						<i v-else-if="item.icon" :class="['bi', item.icon]"></i>
 					</button>
 				</template>
 				<!-- List variant: the standard vertical menu. -->
@@ -107,7 +108,7 @@
 			</div>
 
 			<!-- App popup (iframe-escaping dropdown / menu) -->
-			<div id="app-popup-overlay" v-if="popup.visible" tabindex="-1" ref="popupOverlay"
+			<div id="app-popup-overlay" v-if="popup.visible" tabindex="-1"
 				@click="closePopup()" @contextmenu.prevent="closePopup()"
 				@keydown.esc="closePopup()"></div>
 			<div id="app-popup" v-if="popup.visible"
@@ -193,7 +194,7 @@
 						<div class="dialog-body">
 							<div class="mb-3">{{ t('webtop.session.save.desc') }}</div>
 							<label class="dialog-label">{{ t('webtop.session.save.nameLabel') }}</label>
-							<input v-model="sessionNameInput" type="text" class="wt w-100" :placeholder="t('webtop.session.save.namePlaceholder')" ref="sessionNameInput">
+							<input v-model="sessionNameInput" type="text" class="wt w-100" ref="sessionNameField" :placeholder="t('webtop.session.save.namePlaceholder')">
 						</div>
 						<div class="dialog-footer">
 							<button class="wt" @click="cancelSaveSession">{{ t('common.cancel') }}</button>
@@ -386,7 +387,7 @@
 				 desktop/windows behind it (the dock's own transform +
 				 backdrop-filter would otherwise isolate this element's
 				 backdrop). Position is set inline by onDockEntryEnter. -->
-			<div id="dock-preview" class="dock-preview" :class="{ open: hoveredDockEntry !== null }"
+			<div ref="dockPreview" class="dock-preview" :class="{ open: hoveredDockEntry !== null }"
 				@mouseenter="onPreviewEnter()" @mouseleave="onDockEntryLeave()">
 				<div class="dock-preview-card" :class="{ minimized: minimizedWindowIDs.indexOf(inst.id) !== -1 }"
 					v-for="inst in (hoveredDockEntry ? hoveredDockEntry.instances : [])" :key="inst.id"

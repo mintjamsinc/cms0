@@ -135,9 +135,13 @@ public class DownloadServlet extends HttpServlet {
 			if (Webs.isNormalRequest(request)) {
 				long lastModified = getLastModified(node).getTime();
 				String eTag = HttpCaching.toETag(lastModified);
-				// Revalidate rather than cache for a fixed term, so an overwritten
-				// file is served fresh on the next request (304 when unchanged).
-				if (HttpCaching.applyAndCheckNotModified(request, response, lastModified)) {
+				// Revalidate by default so an overwritten file is served fresh on the
+				// next request (304 when unchanged). A content-addressed request — one
+				// whose ?v= token equals this file's last-modified time, as the Webtop
+				// i18n loader stamps — instead opts in to immutable caching: its URL
+				// changes whenever the bytes do, so it is reused without a revalidation
+				// round-trip until then.
+				if (HttpCaching.applyAndCheckNotModifiedContentAddressed(request, response, lastModified)) {
 					return;
 				}
 
@@ -243,12 +247,13 @@ public class DownloadServlet extends HttpServlet {
 				return;
 			}
 
-			// Revalidate property binaries the same way as raw files: the owning
+			// Cache property binaries the same way as raw files: the owning
 			// file node's last-modified time validates the cached copy, so an edit
-			// is reflected on the next request (304 when unchanged). Checked before
+			// is reflected on the next request (304 when unchanged), and a request
+			// whose ?v= token pins that time is served immutably. Checked before
 			// reading the binary so an unchanged value need not be re-detected.
 			if (Webs.isNormalRequest(request)
-					&& HttpCaching.applyAndCheckNotModified(request, response, getLastModified(node).getTime())) {
+					&& HttpCaching.applyAndCheckNotModifiedContentAddressed(request, response, getLastModified(node).getTime())) {
 				return;
 			}
 

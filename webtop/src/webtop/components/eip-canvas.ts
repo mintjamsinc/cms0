@@ -252,7 +252,7 @@ defineComponent('eip-canvas', {
 		},
 
 		container(this: any): HTMLElement | null {
-			return document.querySelector('.eip-canvas') as HTMLElement | null;
+			return (this.$refs.canvas as HTMLElement) ?? null;
 		},
 
 		// Scale + centre the diagram so it fits the viewport (never magnified

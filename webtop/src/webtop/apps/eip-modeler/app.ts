@@ -1882,7 +1882,7 @@ const App = {
 			const type = event.dataTransfer?.getData('application/x-camel-type') as EipType;
 			if (!type || !this.activeStore || !this.currentFile) return;
 
-			const svg = document.getElementById('camel-canvas') as unknown as SVGSVGElement;
+			const svg = this.$refs.camelCanvas as unknown as SVGSVGElement;
 			if (!svg) return;
 
 			const rect = svg.getBoundingClientRect();
@@ -2001,7 +2001,7 @@ const App = {
 
 			// Left click on empty area - start selection rectangle
 			if (event.button === 0) {
-				const svg = document.getElementById('camel-canvas') as unknown as SVGSVGElement;
+				const svg = this.$refs.camelCanvas as unknown as SVGSVGElement;
 				if (!svg || !this.currentFile) return;
 
 				const rect = svg.getBoundingClientRect();
@@ -2028,7 +2028,7 @@ const App = {
 
 			// Element dragging
 			if (this.isDragging && this.draggedShapeId && this.activeStore && this.currentFile) {
-				const svg = document.getElementById('camel-canvas') as unknown as SVGSVGElement;
+				const svg = this.$refs.camelCanvas as unknown as SVGSVGElement;
 				if (!svg) return;
 
 				const rect = svg.getBoundingClientRect();
@@ -2091,7 +2091,7 @@ const App = {
 
 			// Connection preview
 			if (this.isDrawingConnection && this.currentFile) {
-				const svg = document.getElementById('camel-canvas') as unknown as SVGSVGElement;
+				const svg = this.$refs.camelCanvas as unknown as SVGSVGElement;
 				if (!svg) return;
 
 				const rect = svg.getBoundingClientRect();
@@ -2120,7 +2120,7 @@ const App = {
 
 			// Selection rectangle
 			if (this.selectionRect && this.currentFile) {
-				const svg = document.getElementById('camel-canvas') as unknown as SVGSVGElement;
+				const svg = this.$refs.camelCanvas as unknown as SVGSVGElement;
 				if (!svg) return;
 
 				const rect = svg.getBoundingClientRect();
@@ -2402,7 +2402,7 @@ const App = {
 			const delta = event.deltaY > 0 ? 0.9 : 1.1;
 			const newScale = Math.max(0.25, Math.min(2, this.currentFile.scale * delta));
 
-			const svg = document.getElementById('camel-canvas') as unknown as SVGSVGElement;
+			const svg = this.$refs.camelCanvas as unknown as SVGSVGElement;
 			if (svg) {
 				const rect = svg.getBoundingClientRect();
 				const mouseX = event.clientX - rect.left;
@@ -2431,7 +2431,7 @@ const App = {
 			if (this.activeStore && this.currentFile) {
 				const shape = this.activeStore.getShape(shapeId);
 				if (shape) {
-					const svg = document.getElementById('camel-canvas') as unknown as SVGSVGElement;
+					const svg = this.$refs.camelCanvas as unknown as SVGSVGElement;
 					if (svg) {
 						const rect = svg.getBoundingClientRect();
 						const x = (event.clientX - rect.left - this.currentFile.panOffset.x) / this.currentFile.scale;

@@ -841,11 +841,11 @@ export const App = {
 			this.formReady = false;
 		},
 
-		// ichigo.js does not expose Vue-style $refs, so look up the iframe by
-		// its `ref` attribute selector (matching the pattern used by other
-		// Webtop apps).
+		// The form iframe is registered through its `ref` attribute (ichigo.js
+		// $refs, available since 0.1.75). $refs.formFrame is undefined until the
+		// iframe renders (it sits behind v-else-if="formSrc"), so null-coalesce.
 		getFormFrame(): HTMLIFrameElement | null {
-			return document.querySelector('iframe[ref="formFrame"]');
+			return (this.$refs.formFrame as HTMLIFrameElement | undefined) ?? null;
 		},
 
 		// Stable origin check: sandboxed iframes report origin as "null".
@@ -1103,6 +1103,13 @@ export const App = {
 			if (!frame || !frame.contentWindow) return;
 
 			const reply = (ok: boolean, data?: unknown, error?: string) => {
+				// Re-fetch the frame at send time rather than trusting the `frame`
+				// captured above: the awaited dispatchRpc below can run long enough
+				// for the iframe to be destroyed (task deselected, form closed,
+				// re-rendered), which would leave the captured contentWindow null.
+				// Bail out instead of asserting non-null and throwing.
+				const w = this.getFormFrame()?.contentWindow;
+				if (!w) return;
 				const msg = {
 					__tasksRpc: 'result',
 					id: call.id,
@@ -1111,7 +1118,7 @@ export const App = {
 					error,
 				};
 				// Unwrap reactive Proxies before structured clone (see pushContextToFrame).
-				frame.contentWindow!.postMessage(JSON.parse(JSON.stringify(msg)), '*');
+				w.postMessage(JSON.parse(JSON.stringify(msg)), '*');
 			};
 
 			try {
@@ -1633,7 +1640,7 @@ export const App = {
 				assigneePopupHandle.update(items);
 				return;
 			}
-			const input = document.querySelector('.tasks-assignee-input') as HTMLInputElement | null;
+			const input = this.$refs.assigneeInput as HTMLInputElement | undefined;
 			if (!input || !this.instance) return;
 			const rect = input.getBoundingClientRect();
 			const handle = this.instance.popup.open({

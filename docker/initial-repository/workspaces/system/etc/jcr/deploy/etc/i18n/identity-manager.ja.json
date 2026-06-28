@@ -57,6 +57,7 @@
 	"app.identity-manager.user.tab.membership": "メンバーシップ",
 	"app.identity-manager.user.infoTitle": "ユーザー情報",
 	"app.identity-manager.user.serviceNote": "サービスアカウント — 連携処理が（runAs を介して）利用する非対話型のアイデンティティです。パスワードを持たず、サインインすることはできません。",
+	"app.identity-manager.user.selfNote": "これはご自身のアカウントです。ここでは無効化やロールの変更はできません — プロフィールの管理はアカウント設定から行ってください。",
 	"app.identity-manager.user.rolesTitle": "ロール",
 	"app.identity-manager.user.saveRoleChanges": "ロールの変更を保存",
 	"app.identity-manager.user.directMemberships": "直接所属グループ",
@@ -98,5 +99,6 @@
 	"app.identity-manager.dialog.roleNamePlaceholder": "例: editor",
 	"app.identity-manager.error.loadUsers": "ユーザーの読み込みに失敗しました: {error}",
 	"app.identity-manager.error.loadGroups": "グループの読み込みに失敗しました: {error}",
-	"app.identity-manager.error.loadRoles": "ロールの読み込みに失敗しました: {error}"
+	"app.identity-manager.error.loadRoles": "ロールの読み込みに失敗しました: {error}",
+	"app.identity-manager.error.selfEdit": "ここではご自身のアカウントを編集することはできません。"
 }

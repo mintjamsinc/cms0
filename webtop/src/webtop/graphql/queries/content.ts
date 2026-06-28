@@ -11,6 +11,7 @@ export const NODE_BASIC_FIELDS = `
     path
     name
     nodeType
+    id
     uuid
     mimeType
     size
@@ -26,6 +27,7 @@ export const NODE_FULL_FIELDS = `
     path
     name
     nodeType
+    id
     uuid
     created
     createdBy
@@ -84,6 +86,7 @@ export const CONTENT_QUERIES = {
         path
         name
         nodeType
+        id
         uuid
         created
         createdBy
@@ -151,6 +154,7 @@ export const CONTENT_QUERIES = {
             path
             name
             nodeType
+            id
             uuid
             mimeType
             size
@@ -278,6 +282,7 @@ export const CONTENT_QUERIES = {
             path
             name
             nodeType
+            id
             uuid
             properties {
               name
@@ -707,6 +712,7 @@ export const CONTENT_MUTATIONS = {
       addMixin(input: $input) {
         path
         nodeType
+        id
         uuid
       }
     }
@@ -718,6 +724,7 @@ export const CONTENT_MUTATIONS = {
       deleteMixin(input: $input) {
         path
         nodeType
+        id
         uuid
       }
     }
@@ -777,6 +784,7 @@ export const CONTENT_MUTATIONS = {
       addVersionControl(input: $input) {
         path
         nodeType
+        id
         uuid
       }
     }

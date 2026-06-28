@@ -29,6 +29,8 @@
 		"build:schema-manager:prod": "cross-env BUILD=production TARGETS=schema-manager rollup -c",
 		"build:tasks": "cross-env BUILD=development TARGETS=tasks rollup -c",
 		"build:tasks:prod": "cross-env BUILD=production TARGETS=tasks rollup -c",
+		"build:memo": "cross-env NODE_OPTIONS=--max-old-space-size=8192 BUILD=development TARGETS=memo rollup -c",
+		"build:memo:prod": "cross-env NODE_OPTIONS=--max-old-space-size=8192 BUILD=production TARGETS=memo rollup -c",
 		"build:text-editor": "cross-env BUILD=development TARGETS=text-editor rollup -c",
 		"build:text-editor:prod": "cross-env BUILD=production TARGETS=text-editor rollup -c",
 		"build:text-editor-preview": "cross-env BUILD=development TARGETS=text-editor-preview rollup -c",
@@ -60,6 +62,17 @@
 		"@rollup/plugin-commonjs": "^29.0.2",
 		"@rollup/plugin-node-resolve": "^16.0.3",
 		"@rollup/plugin-terser": "^1.0.0",
+		"@tiptap/core": "^3.27.1",
+		"@tiptap/extension-highlight": "^3.27.1",
+		"@tiptap/extension-placeholder": "^3.27.1",
+		"@tiptap/extension-table": "^3.27.1",
+		"@tiptap/extension-task-item": "^3.27.1",
+		"@tiptap/extension-task-list": "^3.27.1",
+		"@tiptap/extension-text-align": "^3.27.1",
+		"@tiptap/extension-text-style": "^3.27.1",
+		"@tiptap/pm": "^3.27.1",
+		"@tiptap/starter-kit": "^3.27.1",
+		"@tiptap/suggestion": "^3.27.1",
 		"@types/marked": "^6.0.0",
 		"bootstrap-icons": "^1.13.1",
 		"cross-env": "^10.1.0",
@@ -73,6 +86,7 @@
 	},
 	"dependencies": {
 		"@mintjamsinc/ichigojs": "^0.1.75",
+		"@tiptap/extension-image": "^3.27.1",
 		"intl-messageformat": "^11.2.6"
 	}
 }

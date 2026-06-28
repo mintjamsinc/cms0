@@ -58,6 +58,7 @@ export const App = {
 	data() {
 		return {
 			instance: null as ApplicationInstance | null,
+			currentUserId: '' as string,
 			idp: null as IdpServiceGraphQL | null,
 			messageListener: null as ((event: MessageEvent) => void) | null,
 			// Reactive Localization snapshot — see composables/use-localization.ts.
@@ -229,6 +230,14 @@ export const App = {
 			if (!this.selectedGroup) return false;
 			return this.selectedGroup.groupId === 'everyone';
 		},
+
+		// True when the selected user is the signed-in user. You cannot edit your
+		// own account here: disabling it or changing its roles is a self-lockout
+		// (also rejected server-side). Edit your own profile via account settings.
+		isSelf(): boolean {
+			return !!this.selectedUser && !!this.currentUserId
+				&& this.selectedUser.username === this.currentUserId;
+		},
 	},
 
 	methods: {
@@ -259,6 +268,7 @@ export const App = {
 
 			window.appLaunch = async (instance: ApplicationInstance) => {
 				vm.instance = vm.$markRaw(instance);
+				vm.currentUserId = instance.currentUser?.id || '';
 				vm.idp = vm.$markRaw(new IdpServiceGraphQL());
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
@@ -456,6 +466,13 @@ export const App = {
 
 		async saveUser() {
 			if (!this.selectedUser) return;
+			// Guard: editing your own account here is blocked (the UI also disables the
+			// controls, and the server rejects self-disable / self-role changes).
+			if (this.isSelf) {
+				this.errorMessage = this.t('app.identity-manager.error.selfEdit', undefined,
+					'You cannot edit your own account here.');
+				return;
+			}
 			try {
 				this.errorMessage = '';
 				const username = this.selectedUser.username;

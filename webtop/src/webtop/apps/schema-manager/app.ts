@@ -1863,7 +1863,7 @@ export const App = {
 			// Setting cmExpandedField hides the inline container (v-if) — its
 			// @unmount tears down the inline editor — and reveals the overlay.
 			const init = (attempts = 0) => {
-				const container = document.getElementById('cm-editor-expanded');
+				const container = vm.$refs.cmEditorExpanded as HTMLElement | undefined;
 				if (!container) {
 					if (attempts < 20) requestAnimationFrame(() => init(attempts + 1));
 					return;
@@ -1916,7 +1916,7 @@ export const App = {
 			vm.cmSearchNotFound = false;
 			vm.applyCmSearchQuery();
 			vm.$nextTick(() => {
-				const el = document.getElementById('cm-sm-search-input') as HTMLInputElement | null;
+				const el = vm.$refs.cmSearchInput as HTMLInputElement | undefined;
 				if (el) { el.focus(); el.select(); }
 			});
 		},

@@ -2,7 +2,7 @@
  * Event Hub
  *
  * Central hub for managing real-time events and subscriptions.
- * Integrates SSE subscriptions with application stores.
+ * Integrates graphql-sse subscriptions with application stores.
  */
 
 import { SubscriptionClient, createSubscriptionClient } from './subscription-client.js';
@@ -16,12 +16,44 @@ import type {
   TaskEvent,
   ProcessEvent,
   RouteStateEvent,
-  SystemNotification,
   JobProgressEvent,
   WorkspaceChangeEvent,
 } from '../graphql/types.js';
 
 export type EventHandler<T = unknown> = (data: T) => void;
+
+// ---------------------------------------------------------------------------
+// Subscription selection sets.
+//
+// In graphql-sse the client sends the full subscription document, so it owns the
+// selection set for each event type (these mirror the event-type fields in
+// graphql/types.ts). Keep them in sync with the server schema's event types.
+// ---------------------------------------------------------------------------
+const SELECTIONS = {
+  node: 'eventType path identifier nodeType sourcePath userId timestamp',
+  preference: 'category data userId timestamp',
+  wallpaper: 'userId action filename timestamp',
+  avatar: 'userId timestamp',
+  workspace: 'workspace timestamp',
+  job:
+    'jobId status itemsTotal itemsProcessed itemsDeleted itemsArchived itemsImported ' +
+    'itemsNew itemsOverwritten itemsSkipped itemsError errorSamples dryRunHasErrors ' +
+    'dryRunNodeCount dryRunBinaryCount dryRunDetail currentPath errorMessage phase ' +
+    'targetWorkspace downloadUrl timestamp',
+  task: 'eventType task { id name assignee taskDefinitionKey processInstanceId processDefinitionId } timestamp',
+  process: 'eventType processInstance { id definitionId definitionKey businessKey } timestamp',
+  route: 'routeId previousState currentState timestamp error',
+} as const;
+
+/** Quote and escape a value for inlining as a GraphQL String argument. */
+function gqlString(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/** Wrap a `field(args)` clause and its selection into a subscription document. */
+function subscriptionDoc(fieldWithArgs: string, selection: string): string {
+  return `subscription { ${fieldWithArgs} { ${selection} } }`;
+}
 
 /**
  * Event Hub for centralized event management
@@ -45,7 +77,7 @@ export class EventHub {
     return this.#workspace;
   }
 
-  /** Whether connected to SSE */
+  /** Whether connected to the subscription stream */
   get isConnected(): boolean {
     return this.#client.isConnected;
   }
@@ -59,7 +91,6 @@ export class EventHub {
    */
   initialize(userId: string, groups: string[] = []): void {
     this.#setupTaskSubscriptions(userId, groups);
-    this.#setupSystemSubscriptions();
   }
 
   /**
@@ -69,7 +100,7 @@ export class EventHub {
     // Task assigned to user
     this.#unsubscribers.push(
       this.#client.subscribe<TaskEvent>(
-        `taskAssigned(assignee: "${userId}")`,
+        subscriptionDoc(`taskAssigned(assignee: ${gqlString(userId)})`, SELECTIONS.task),
         (event) => {
           if (event.task) {
             taskActions.addTask(event.task);
@@ -86,7 +117,7 @@ export class EventHub {
     // Task completed
     this.#unsubscribers.push(
       this.#client.subscribe<TaskEvent>(
-        'taskCompleted',
+        subscriptionDoc('taskCompleted', SELECTIONS.task),
         (event) => {
           if (event.task) {
             taskActions.removeTask(event.task.id);
@@ -100,7 +131,7 @@ export class EventHub {
       for (const group of groups) {
         this.#unsubscribers.push(
           this.#client.subscribe<TaskEvent>(
-            `taskAssigned(candidateGroup: "${group}")`,
+            subscriptionDoc(`taskAssigned(candidateGroup: ${gqlString(group)})`, SELECTIONS.task),
             (event) => {
               if (event.task && !event.task.assignee) {
                 // Add to claimable tasks if unassigned
@@ -116,26 +147,6 @@ export class EventHub {
     }
   }
 
-  /**
-   * Set up system-level subscriptions
-   */
-  #setupSystemSubscriptions(): void {
-    this.#unsubscribers.push(
-      this.#client.subscribe<SystemNotification>(
-        'systemNotification',
-        (notification) => {
-          notificationActions.add({
-            type: notification.type,
-            title: notification.title,
-            message: notification.message,
-            severity: notification.severity,
-            data: notification.data,
-          });
-        }
-      )
-    );
-  }
-
   // =========================================================================
   // Manual Subscriptions
   // =========================================================================
@@ -148,48 +159,53 @@ export class EventHub {
     handler: EventHandler<NodeChangeEvent>,
     deep = false
   ): () => void {
-    const subscription = `nodeChanged(path: "${path}", deep: ${deep})`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`nodeChanged(path: ${gqlString(path)}, deep: ${deep})`, SELECTIONS.node),
+      handler
+    );
   }
 
   /**
    * Subscribe to preference changes for a user.
    * The server reads /home/users/{userId}/preferences/{category}/jcr:content
    * and delivers the properties directly in the event payload — no follow-up
-   * query needed on the client side.
-   *
-   * Subscription: preferenceChanged(userId: "<userId>")
+   * query needed on the client side. (The userId argument is accepted for
+   * wire-compat but resolved server-side from the session.)
    */
   watchPreferences(
     userId: string,
     handler: EventHandler<PreferenceChangeEvent>
   ): () => void {
-    const subscription = `preferenceChanged(userId: "${userId}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`preferenceChanged(userId: ${gqlString(userId)})`, SELECTIONS.preference),
+      handler
+    );
   }
 
   /**
    * Subscribe to wallpaper changes for a specific user.
-   * Subscription: wallpaperChanged(userId: "<userId>")
    */
   watchWallpapers(
     userId: string,
     handler: EventHandler<WallpaperChangeEvent>
   ): () => void {
-    const subscription = `wallpaperChanged(userId: "${userId}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`wallpaperChanged(userId: ${gqlString(userId)})`, SELECTIONS.wallpaper),
+      handler
+    );
   }
 
   /**
    * Subscribe to avatar changes for a specific user.
-   * Subscription: avatarChanged(userId: "<userId>")
    */
   watchAvatar(
     userId: string,
     handler: EventHandler<AvatarChangeEvent>
   ): () => void {
-    const subscription = `avatarChanged(userId: "${userId}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`avatarChanged(userId: ${gqlString(userId)})`, SELECTIONS.avatar),
+      handler
+    );
   }
 
   /**
@@ -198,31 +214,30 @@ export class EventHub {
    * The server emits one event each time the job's persisted record
    * changes — the worker batches writes (every 100 nodes deleted or 500ms,
    * whichever comes first) so callers don't see one event per leaf.
-   *
-   * Subscription: jobProgress(jobId: "<jobId>")
    */
   watchJobProgress(
     jobId: string,
     handler: EventHandler<JobProgressEvent>
   ): () => void {
-    const subscription = `jobProgress(jobId: "${jobId}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`jobProgress(jobId: ${gqlString(jobId)})`, SELECTIONS.job),
+      handler
+    );
   }
 
   /**
    * Subscribe to workspace runtime-state changes across the repository.
    *
    * Fires whenever any workspace's services start or stop, so the desktop's
-   * workspace switcher can stay in sync — newly started workspaces appear and
-   * stopped ones disappear without a manual refresh. The handler should
-   * re-read the workspace list rather than trust the event payload, which only
-   * names the workspace that changed.
-   *
-   * Subscription: workspaceChanged
+   * workspace switcher can stay in sync. The handler should re-read the
+   * workspace list rather than trust the event payload, which only names the
+   * workspace that changed.
    */
   watchWorkspaces(handler: EventHandler<WorkspaceChangeEvent>): () => void {
-    const subscription = 'workspaceChanged';
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc('workspaceChanged', SELECTIONS.workspace),
+      handler
+    );
   }
 
   /**
@@ -232,8 +247,10 @@ export class EventHub {
     definitionKey: string,
     handler: EventHandler<ProcessEvent>
   ): () => void {
-    const subscription = `processStarted(definitionKey: "${definitionKey}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`processStarted(definitionKey: ${gqlString(definitionKey)})`, SELECTIONS.process),
+      handler
+    );
   }
 
   /**
@@ -243,16 +260,20 @@ export class EventHub {
     routeId: string,
     handler: EventHandler<RouteStateEvent>
   ): () => void {
-    const subscription = `routeStateChanged(routeId: "${routeId}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`routeStateChanged(routeId: ${gqlString(routeId)})`, SELECTIONS.route),
+      handler
+    );
   }
 
   /**
    * Subscribe to all route state changes
    */
   watchAllRoutes(handler: EventHandler<RouteStateEvent>): () => void {
-    const subscription = 'routeStateChanged';
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc('routeStateChanged', SELECTIONS.route),
+      handler
+    );
   }
 
   /**
@@ -262,8 +283,10 @@ export class EventHub {
     processInstanceId: string,
     handler: EventHandler<TaskEvent>
   ): () => void {
-    const subscription = `taskCompleted(processInstanceId: "${processInstanceId}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`taskCompleted(processInstanceId: ${gqlString(processInstanceId)})`, SELECTIONS.task),
+      handler
+    );
   }
 
   /**
@@ -273,8 +296,10 @@ export class EventHub {
     taskId: string,
     handler: EventHandler<TaskEvent>
   ): () => void {
-    const subscription = `taskUpdated(taskId: "${taskId}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`taskUpdated(taskId: ${gqlString(taskId)})`, SELECTIONS.task),
+      handler
+    );
   }
 
   /**
@@ -284,15 +309,17 @@ export class EventHub {
     userId: string,
     handler: EventHandler<TaskEvent>
   ): () => void {
-    const subscription = `taskAssigned(assignee: "${userId}")`;
-    return this.#client.subscribe(subscription, handler);
+    return this.#client.subscribe(
+      subscriptionDoc(`taskAssigned(assignee: ${gqlString(userId)})`, SELECTIONS.task),
+      handler
+    );
   }
 
   /**
-   * Generic subscription
+   * Generic subscription — pass a full `subscription { … }` document.
    */
-  subscribe<T>(subscription: string, handler: EventHandler<T>): () => void {
-    return this.#client.subscribe(subscription, handler);
+  subscribe<T>(document: string, handler: EventHandler<T>): () => void {
+    return this.#client.subscribe(document, handler);
   }
 
   // =========================================================================
@@ -325,7 +352,7 @@ export class EventHub {
   }
 
   /**
-   * Reconnect to SSE
+   * Reconnect to the subscription stream
    */
   reconnect(): void {
     this.#client.reconnect();

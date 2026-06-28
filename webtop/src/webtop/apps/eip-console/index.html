@@ -709,7 +709,7 @@
 		<div v-if="cmSearchVisible" class="cm-search-bar" :class="{ 'cm-search-not-found': cmSearchNotFound }">
 			<div class="cm-search-row">
 				<div class="input-group cm-search-input-group">
-					<input id="cm-search-input" type="text" v-model="cmSearchTerm"
+					<input ref="cmSearchInput" type="text" v-model="cmSearchTerm"
 						@input="onCmSearchInput" @keydown="onCmSearchKeydown"
 						:placeholder="t('app.eip-console.rawJson.find', undefined, 'Find')" spellcheck="false">
 					<div class="input-group-actions">
@@ -733,7 +733,7 @@
 			</div>
 		</div>
 		<div class="cm-expanded-body">
-			<div id="cm-editor-expanded" class="cm-editor-expanded"></div>
+			<div ref="cmEditorExpanded" class="cm-editor-expanded"></div>
 		</div>
 	</div>
 

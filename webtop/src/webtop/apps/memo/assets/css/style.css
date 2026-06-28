@@ -1,0 +1,806 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Memo — design tokens & layout
+ *
+ * Theme tokens / shared components live in webtop-app.css. This file adds the
+ * memo-specific chrome (formatting toolbar) and the Tiptap / ProseMirror content
+ * styling. The slash command menu and the text/highlight colour pickers are
+ * rendered by the shell (popup service + swatch-grid context menu), so they need
+ * no styling here. It deliberately mirrors the Text Editor's layout (nav bar,
+ * tabs, status bar, dialogs) so the two apps feel like siblings.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--formatbar-height: 2.5rem;
+	--statusbar-height: 1.75rem;
+	/* Neutral, light-grey rule colour for document lines (table cells, hr,
+	   blockquote bar). Derived from the body text colour at low opacity so it
+	   reads as a faint grey in both light and dark themes — unlike the default
+	   --input-border-color, which is a blue-tinted input outline. */
+	--memo-rule-color: rgb(from var(--body-color) r g b / 0.18);
+}
+
+#app {
+	height: 100%;
+}
+
+/* ----------------------------------------------------------------------------
+ * Formatting toolbar — pinned to the top of the editor pane body, directly
+ * under the file tabs (scoped to the editor, not spanning the inspector).
+ * -------------------------------------------------------------------------- */
+.format-bar {
+	flex-shrink: 0;
+	min-height: var(--formatbar-height);
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.125rem;
+	padding: 0.25rem 0.5rem;
+	background-color: var(--navbar-bg);
+	border-bottom: 1px solid var(--navbar-border-color);
+}
+
+.format-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.0625rem;
+}
+
+.format-divider {
+	width: 1px;
+	height: 1.25rem;
+	margin: 0 0.25rem;
+	background-color: var(--text-muted-color);
+	opacity: 0.35;
+}
+
+.fmt-btn {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.75rem;
+	height: 1.75rem;
+	padding: 0 0.375rem;
+	border: none;
+	background: transparent;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	border-radius: 0.3rem;
+	font-size: 0.95rem;
+	line-height: 1;
+	transition: background-color 0.12s, color 0.12s;
+}
+
+.fmt-btn:hover {
+	background-color: var(--btn-icon-hover-bg);
+	color: var(--text-color);
+}
+
+.fmt-btn.active {
+	color: var(--primary-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.12);
+}
+
+.fmt-btn-danger:hover {
+	color: var(--danger-color);
+	background-color: rgb(from var(--danger-color) r g b / 0.12);
+}
+
+/* Small +/- badge overlaid on table op buttons */
+.fmt-badge {
+	position: absolute;
+	right: 0.05rem;
+	bottom: 0.05rem;
+	font-size: 0.5rem;
+	background-color: var(--navbar-bg);
+	border-radius: 50%;
+	line-height: 1;
+}
+
+/* ----------------------------------------------------------------------------
+ * Content body — center editor + (optional) inspector pane
+ * -------------------------------------------------------------------------- */
+.content-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	position: relative;
+	gap: 0.25rem;
+}
+
+.detail-resize-handle {
+	width: 4px;
+	cursor: col-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 2;
+	transition: background-color 0.15s;
+}
+
+.detail-resize-handle:hover,
+.detail-resize-handle:active {
+	background-color: var(--selection-rect-border);
+}
+
+/* ----------------------------------------------------------------------------
+ * Find & Replace sidebar (left pane) — mirrors the Text Editor's search panel.
+ * -------------------------------------------------------------------------- */
+.sidebar-panel {
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+	flex-shrink: 0;
+	min-width: 16rem;
+}
+
+.sidebar-panel-content {
+	display: flex;
+	flex-direction: column;
+}
+
+.sidebar-resize-handle {
+	width: 4px;
+	cursor: col-resize;
+	background-color: transparent;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 2;
+	transition: background-color 0.15s;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+	background-color: var(--selection-rect-border);
+}
+
+.sidebar-section-body {
+	margin-bottom: 0.75rem;
+}
+
+.filter-group {
+	margin-bottom: 0.75rem;
+}
+
+.filter-label {
+	display: block;
+	font-size: 12px;
+	margin-bottom: 0.125rem;
+	padding-left: 0.125rem;
+	color: var(--text-soft-color);
+}
+
+.filter-input-wrapper {
+	position: relative;
+}
+
+.filter-input-wrapper input.wt {
+	padding-right: 1.75rem;
+}
+
+.filter-input-clear {
+	position: absolute;
+	right: 0.4rem;
+	top: 50%;
+	transform: translateY(-50%);
+	background: none;
+	border: none;
+	padding: 0 0.2rem;
+	cursor: pointer;
+	color: var(--text-muted-color);
+	font-size: 0.9em;
+	line-height: 1;
+}
+
+.filter-input-clear:hover {
+	color: var(--text-color);
+}
+
+.filter-status {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 11px;
+	color: var(--text-soft-color);
+	padding-top: 0.25rem;
+	min-height: 1rem;
+}
+
+/* Search/replace toolbar (Aa/ab/.* + prev/next) */
+.search-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin-top: 0.375rem;
+}
+
+.search-toolbar .spacer {
+	flex: 1;
+}
+
+.search-toggle-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.5rem;
+	height: 1.5rem;
+	padding: 0 0.375rem;
+	border: none;
+	background: transparent;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	border-radius: 0.25rem;
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.search-toggle-btn:hover {
+	background-color: var(--btn-icon-hover-bg);
+	color: var(--text-color);
+}
+
+.search-toggle-btn.active {
+	color: var(--primary-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.1);
+}
+
+.search-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+}
+
+/* In-document match highlights (ProseMirror inline decorations; see search.ts).
+   Every match gets a soft tint; the active match is stronger with an outline. */
+.memo-search-match {
+	background-color: rgb(from var(--primary-color) r g b / 0.18);
+	border-radius: 2px;
+}
+
+.memo-search-match-current {
+	background-color: rgb(from var(--primary-color) r g b / 0.42);
+	box-shadow: 0 0 0 1px var(--primary-color);
+}
+
+.content-main {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* ----------------------------------------------------------------------------
+ * File tabs (identical structure to the Text Editor)
+ * -------------------------------------------------------------------------- */
+.file-tabs-bar {
+	flex-shrink: 0;
+	height: var(--navbar-height);
+	background-color: var(--navbar-bg);
+	border-bottom: 1px solid var(--navbar-border-color);
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+}
+
+.file-tabs {
+	display: flex;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	padding: 0 0.5rem;
+	gap: 0.25rem;
+}
+
+.file-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+.file-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.125rem 0.75rem;
+	border: 1px solid transparent;
+	border-right-color: var(--navbar-border-color);
+	border-radius: 9999px;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	white-space: nowrap;
+	user-select: none;
+	transition: background-color 0.15s, color 0.15s;
+}
+
+.file-tab:not(.active):hover {
+	background-color: var(--item-hover-bg);
+	color: var(--text-color);
+}
+
+.file-tab.active {
+	color: var(--nav-current-color);
+	background-color: var(--nav-current-bg);
+	border-color: var(--nav-current-border-color);
+}
+
+.file-tab.active:hover {
+	background-color: var(--nav-current-hover-bg);
+}
+
+.file-tab-name {
+	max-width: 14rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.file-tab .modified-dot {
+	color: var(--primary-color);
+	font-size: 0.5rem;
+	line-height: 1;
+}
+
+.file-tab-close {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1rem;
+	height: 1rem;
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	border-radius: 9999px;
+	opacity: 0;
+	padding: 0;
+	transition: opacity 0.15s, background-color 0.15s;
+}
+
+.file-tab:hover .file-tab-close,
+.file-tab.active .file-tab-close {
+	opacity: 1;
+}
+
+.file-tab-close:hover {
+	background-color: var(--btn-icon-hover-bg);
+}
+
+.file-tab-add {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	border: none;
+	background: transparent;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	border-radius: 9999px;
+	flex-shrink: 0;
+}
+
+.file-tab-add:hover {
+	background-color: var(--btn-icon-hover-bg);
+	color: var(--text-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Editor host — Tiptap mounts per-tab editors here
+ * -------------------------------------------------------------------------- */
+.editor-area {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	position: relative;
+}
+
+#editor-host {
+	width: 100%;
+	height: 100%;
+	overflow: auto;
+}
+
+/* Each per-tab mount fills the host; only the active one is shown. */
+.memo-editor-mount {
+	min-height: 100%;
+	display: none;
+}
+
+.memo-editor-mount.is-active {
+	display: block;
+}
+
+/* Empty-document hint, shown until the user starts typing. */
+.editor-hint {
+	position: absolute;
+	top: 2rem;
+	left: 50%;
+	transform: translateX(-50%);
+	color: var(--text-soft-color);
+	font-size: 0.85rem;
+	pointer-events: none;
+	opacity: 0.7;
+}
+
+/* ----------------------------------------------------------------------------
+ * ProseMirror document styling (the rendered memo content)
+ * -------------------------------------------------------------------------- */
+.ProseMirror {
+	max-width: 48rem;
+	margin: 0 auto;
+	padding: 2rem 2.5rem 6rem;
+	outline: none;
+	color: var(--body-color);
+	font-size: 0.95rem;
+	line-height: 1.7;
+	-webkit-font-smoothing: antialiased;
+	/* Document text defaults to a normal weight. webtop-app.css resets
+	   `* { font-weight: inherit }`, which would otherwise flatten <strong>; the
+	   rule below restores bold (as `bolder`) for emphasized text. Scoped to
+	   .ProseMirror so it only affects the memo document, not app chrome. */
+	font-weight: normal;
+}
+
+.ProseMirror:focus {
+	outline: none;
+}
+
+.ProseMirror strong,
+.ProseMirror b {
+	font-weight: bolder;
+}
+
+.ProseMirror > * + * {
+	margin-top: 0.6em;
+}
+
+.ProseMirror h1 {
+	font-size: 1.9rem;
+	font-weight: 700;
+	line-height: 1.25;
+	margin-top: 1.4em;
+}
+
+.ProseMirror h2 {
+	font-size: 1.5rem;
+	font-weight: 700;
+	line-height: 1.3;
+	margin-top: 1.2em;
+}
+
+.ProseMirror h3 {
+	font-size: 1.2rem;
+	font-weight: 600;
+	line-height: 1.35;
+	margin-top: 1em;
+}
+
+.ProseMirror p {
+	margin: 0;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+	padding-left: 1.5rem;
+}
+
+.ProseMirror ul {
+	list-style: disc;
+}
+
+.ProseMirror ol {
+	list-style: decimal;
+}
+
+.ProseMirror li {
+	margin: 0.15em 0;
+}
+
+.ProseMirror li > p {
+	margin: 0;
+}
+
+/* Task lists (checkbox lists) */
+.ProseMirror ul[data-type="taskList"] {
+	list-style: none;
+	padding-left: 0.25rem;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5rem;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+	display: inline-flex;
+	align-items: center;
+	/* Occupy exactly one line box (font-size × line-height) so the checkbox,
+	   centered within it, lines up with the label's first text line. */
+	height: 1.6em;
+	user-select: none;
+}
+
+/* Checkbox: a touch larger than the UA default, and themed to match
+   class="wt" inputs (primary accent that follows light / dark mode). Scoped to
+   the memo document so app chrome is unaffected. */
+.ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+	width: 1.05rem;
+	height: 1.05rem;
+	margin: 0;
+	accent-color: var(--primary-color);
+	cursor: pointer;
+}
+
+.ProseMirror ul[data-type="taskList"] li > div {
+	flex: 1;
+	min-width: 0;
+}
+
+.ProseMirror blockquote {
+	border-left: 0.25rem solid var(--body-color);
+	padding-left: 0.75rem;
+	margin-left: 0;
+	margin-right: 0;
+	color: var(--body-color);
+}
+
+.ProseMirror pre {
+	background-color: var(--list-header-bg);
+	border-radius: 0.5rem;
+	padding: 0.85rem 1rem;
+	overflow-x: auto;
+	font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Monaco, Consolas, monospace;
+	font-size: 0.85rem;
+	line-height: 1.5;
+}
+
+.ProseMirror pre code {
+	background: none;
+	padding: 0;
+	font-size: inherit;
+	color: inherit;
+}
+
+.ProseMirror code {
+	background-color: var(--list-header-bg);
+	border-radius: 0.3rem;
+	padding: 0.1em 0.35em;
+	font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Monaco, Consolas, monospace;
+	font-size: 0.85em;
+}
+
+/* Highlights use the pale companion palette (theme-independent). Pin a dark
+   text colour so highlighted text stays readable on the light tint in both
+   light and dark themes — like a marker pen over black ink. */
+.ProseMirror mark {
+	background-color: #fff59d;
+	color: #202124;
+	border-radius: 0.2em;
+	padding: 0 0.1em;
+}
+
+.ProseMirror a {
+	color: var(--primary-color);
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.ProseMirror hr {
+	border: none;
+	border-top: 1px solid var(--memo-rule-color);
+	margin: 1.5em 0;
+}
+
+/* Images (placed by dragging a Content Browser image onto the editor).
+ *
+ * Each image is rendered through Tiptap's ResizableNodeView, which wraps the
+ * <img> as `[data-resize-container] > [data-resize-wrapper] > img` and adds an
+ * absolutely-positioned grip at each corner. The container is shrink-wrapped to
+ * the image (width: fit-content) so the grips sit on its edges and hover /
+ * selection only react over the picture itself. */
+.ProseMirror [data-resize-container] {
+	margin: 0.5em 0;
+	width: fit-content;
+	max-width: 100%;
+}
+
+.ProseMirror img {
+	display: block;
+	max-width: 100%;
+	/* Derive height from the (possibly clamped) width so the aspect ratio is
+	   always preserved — even when a wide image is scaled down to fit a narrow
+	   editor. !important overrides the inline height the NodeView writes while
+	   dragging; because the resize is aspect-locked the computed height matches
+	   the grip's result, so the picture never distorts. */
+	height: auto !important;
+	border-radius: 0.4rem;
+}
+
+/* Selected image gets a primary-colour ring (ProseMirror adds the selected
+   class to the resize container). */
+.ProseMirror [data-resize-container].ProseMirror-selectednode img {
+	outline: 2px solid var(--primary-color);
+	outline-offset: 2px;
+}
+
+/* Corner resize grips — hidden until the image is hovered or selected. */
+.ProseMirror [data-resize-handle] {
+	width: 12px;
+	height: 12px;
+	background-color: var(--primary-color);
+	border: 2px solid var(--body-bg);
+	border-radius: 50%;
+	box-sizing: border-box;
+	opacity: 0;
+	transition: opacity 0.12s;
+	z-index: 3;
+}
+
+.ProseMirror [data-resize-container]:hover [data-resize-handle],
+.ProseMirror [data-resize-container].ProseMirror-selectednode [data-resize-handle] {
+	opacity: 1;
+}
+
+/* Centre each grip on its corner and give it a matching diagonal cursor. */
+.ProseMirror [data-resize-handle="top-left"] { margin: -6px 0 0 -6px; cursor: nwse-resize; }
+.ProseMirror [data-resize-handle="top-right"] { margin: -6px -6px 0 0; cursor: nesw-resize; }
+.ProseMirror [data-resize-handle="bottom-left"] { margin: 0 0 -6px -6px; cursor: nesw-resize; }
+.ProseMirror [data-resize-handle="bottom-right"] { margin: 0 -6px -6px 0; cursor: nwse-resize; }
+
+/* Tables */
+.ProseMirror table {
+	border-collapse: collapse;
+	table-layout: fixed;
+	width: 100%;
+	margin: 0.5em 0;
+	overflow: hidden;
+}
+
+.ProseMirror td,
+.ProseMirror th {
+	border: 1px solid var(--memo-rule-color);
+	padding: 0.4rem 0.6rem;
+	vertical-align: top;
+	min-width: 3rem;
+	position: relative;
+}
+
+.ProseMirror th {
+	background-color: var(--list-header-bg);
+	font-weight: 600;
+	text-align: left;
+}
+
+/* Active cell selection highlight */
+.ProseMirror .selectedCell:after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-color: rgb(from var(--primary-color) r g b / 0.12);
+	pointer-events: none;
+}
+
+/* Column resize handle */
+.ProseMirror .column-resize-handle {
+	position: absolute;
+	right: -2px;
+	top: 0;
+	bottom: -2px;
+	width: 4px;
+	background-color: var(--primary-color);
+	pointer-events: none;
+}
+
+.ProseMirror .tableWrapper {
+	overflow-x: auto;
+}
+
+/* Placeholder text for empty paragraphs (Tiptap Placeholder extension) */
+.ProseMirror p.is-editor-empty:first-child::before,
+.ProseMirror .is-empty::before {
+	content: attr(data-placeholder);
+	float: left;
+	color: var(--text-soft-color);
+	pointer-events: none;
+	height: 0;
+}
+
+/* ----------------------------------------------------------------------------
+ * Status bar (translucent, extends to window edges) — same as Text Editor
+ * -------------------------------------------------------------------------- */
+.status-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	height: var(--statusbar-height);
+	margin-bottom: -1rem;
+	margin-left: -1rem;
+	margin-right: -1rem;
+	padding: 0 1rem;
+	color: var(--navbar-color);
+	font-size: 11px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+.status-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.status-item {
+	padding: 0 0.5rem;
+}
+
+.status-divider {
+	width: 1px;
+	height: 0.875rem;
+	background-color: var(--text-muted-color);
+	opacity: 0.5;
+}
+
+#app:has(.cm-expanded-overlay) .status-bar > * {
+	visibility: hidden;
+}
+
+/* ----------------------------------------------------------------------------
+ * Loading / error overlays + Save As chip — same look as the Text Editor
+ * -------------------------------------------------------------------------- */
+.loading-overlay,
+.error-overlay {
+	position: absolute;
+	inset: 1rem;
+	background-color: var(--body-bg);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	color: var(--text-color);
+	border-radius: 1rem;
+	box-shadow: var(--island-shadow);
+	z-index: 1000;
+}
+
+.spin {
+	animation: spin-icon 1s linear infinite;
+	display: inline-block;
+}
+
+@keyframes spin-icon {
+	from { transform: rotate(0deg); }
+	to { transform: rotate(360deg); }
+}
+
+.save-as-chip-area {
+	text-align: center;
+}
+
+.save-as-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 1rem;
+	background-color: var(--item-hover-bg);
+	border: 2px dashed var(--input-border-color);
+	border-radius: 9999px;
+	cursor: grab;
+	font-weight: 600;
+	transition: border-color 0.15s, background-color 0.15s;
+}
+
+.save-as-chip:hover {
+	border-color: var(--primary-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.08);
+}
+
+.save-as-chip:active {
+	cursor: grabbing;
+}
+
+.fs-2 { font-size: 1.5rem !important; }

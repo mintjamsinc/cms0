@@ -1915,18 +1915,6 @@ type Subscription {
     deep: Boolean = false
   ): NodeChangeEvent!
 
-  """
-  Subscribe to query result changes.
-  Events are emitted when the result set of a query changes.
-  """
-  queryChanged(
-    """JCR query statement"""
-    statement: String!
-
-    """Query language (JCR-SQL2, XPath, SQL)"""
-    language: String = "JCR-SQL2"
-  ): QueryChangeEvent!
-
   # -------------------------------------------------------------------------
   # BPM Events
   # -------------------------------------------------------------------------
@@ -1964,13 +1952,6 @@ type Subscription {
     """Filter by route ID (null for all)"""
     routeId: String
   ): RouteStateEvent!
-
-  # -------------------------------------------------------------------------
-  # System Events
-  # -------------------------------------------------------------------------
-
-  """Subscribe to system notifications"""
-  systemNotification: SystemNotification!
 }
 
 # -----------------------------------------------------------------------------
@@ -2003,23 +1984,6 @@ enum NodeEventType {
   UNLOCKED
   CHECKED_IN
   CHECKED_OUT
-}
-
-type QueryChangeEvent {
-  """The query that was monitored"""
-  statement: String!
-
-  """Nodes added to the result set"""
-  addedNodes: [Node!]!
-
-  """Nodes removed from the result set"""
-  removedNodes: [Node!]!
-
-  """Nodes modified in the result set"""
-  modifiedNodes: [Node!]!
-
-  """When the event occurred"""
-  timestamp: DateTime!
 }
 
 type TaskEvent {
@@ -2074,45 +2038,6 @@ type RouteStateEvent {
 
   """Error message if state change was due to error"""
   error: String
-}
-
-type SystemNotification {
-  """Notification ID"""
-  id: ID!
-
-  """Notification type"""
-  type: NotificationType!
-
-  """Notification title"""
-  title: String!
-
-  """Notification message"""
-  message: String!
-
-  """Severity level"""
-  severity: Severity!
-
-  """When the notification was created"""
-  timestamp: DateTime!
-
-  """Additional data"""
-  data: JSON
-}
-
-enum NotificationType {
-  INFO
-  WARNING
-  ERROR
-  TASK
-  PROCESS
-  CONTENT
-}
-
-enum Severity {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
 }
 
 # =============================================================================

@@ -4620,7 +4620,7 @@ export const App = {
 				maxY = Math.max(maxY, el.y + el.height);
 			});
 
-			const canvas = document.getElementById('bpmn-canvas');
+			const canvas = vm.$refs.bpmnCanvas as HTMLElement | undefined;
 			if (!canvas) return;
 
 			const rect = canvas.getBoundingClientRect();
@@ -5299,7 +5299,7 @@ export const App = {
 			(vm as any).storeVersion++;
 
 			(vm as any).$nextTick?.(() => {
-				const input = document.querySelector('.wt-ref-input') as HTMLInputElement | null;
+				const input = (vm as any).$refs?.refInput as HTMLInputElement | undefined;
 				if (input) {
 					input.focus();
 					input.select();
@@ -5339,7 +5339,7 @@ export const App = {
 				refSuggestionPopupHandle.update(items);
 				return;
 			}
-			const input = document.querySelector('.wt-ref-input') as HTMLInputElement | null;
+			const input = (vm as any).$refs?.refInput as HTMLInputElement | undefined;
 			if (!input) return;
 			const rect = input.getBoundingClientRect();
 			refSuggestionPopupHandle = vm.instance.popup.open({

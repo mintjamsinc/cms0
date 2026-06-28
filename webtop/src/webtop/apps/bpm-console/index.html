@@ -228,6 +228,7 @@
 				<!-- BPMN Diagram View -->
 				<div v-if="selectedDef && bpmnModel && viewMode === 'diagram'"
 					class="bpm-diagram-container"
+					ref="bpmDiagramContainer"
 					:class="{ 'panning-mode': spacePressed || diagramPanning }"
 					@wheel="onDiagramWheel"
 					@mousedown="onDiagramPanStart"
@@ -788,10 +789,10 @@
 								<td class="text-muted">{{ inc.processInstanceId.slice(0, 8) }}…</td>
 								<td class="col-actions">
 									<div class="actions-cell">
-										<button class="btn-icon" @click.stop="showRetryIncidentDialog(inc)" :title="t('app.bpm-console.action.retrySetRetries', undefined, 'Retry (set retries)')">
+										<button v-if="inc.type !== 'custom'" class="btn-icon" @click.stop="showRetryIncidentDialog(inc)" :title="t('app.bpm-console.action.retrySetRetries', undefined, 'Retry (set retries)')">
 											<i class="bi bi-arrow-clockwise"></i>
 										</button>
-										<button class="btn-icon" @click.stop="showResolveIncidentDialog(inc)" :title="t('app.bpm-console.action.resolveIncident', undefined, 'Resolve incident')">
+										<button v-if="inc.type === 'custom'" class="btn-icon" @click.stop="showResolveIncidentDialog(inc)" :title="t('app.bpm-console.action.resolveIncident', undefined, 'Resolve incident')">
 											<i class="bi bi-check2-circle"></i>
 										</button>
 										<button class="btn-icon" @click.stop="jumpToIncidentOnDiagram(inc)" :title="t('app.bpm-console.action.showOnDiagram', undefined, 'Show on diagram')">
@@ -1049,10 +1050,10 @@
 					<!-- Section 5: Actions -->
 					<div class="detail-section-header">{{ t('app.bpm-console.detail.actions', undefined, 'Actions') }}</div>
 					<div class="detail-section-body actions-body">
-						<button class="wt wt-primary" @click="showRetryIncidentDialog(selectedIncident)">
+						<button v-if="selectedIncident.type !== 'custom'" class="wt wt-primary" @click="showRetryIncidentDialog(selectedIncident)">
 							<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.bpm-console.action.retryPlusOne', undefined, 'Retry (+1)') }}
 						</button>
-						<button class="wt" @click="showResolveIncidentDialog(selectedIncident)">
+						<button v-if="selectedIncident.type === 'custom'" class="wt" @click="showResolveIncidentDialog(selectedIncident)">
 							<i class="bi bi-check2-circle me-1"></i>{{ t('app.bpm-console.action.resolveIncidentLong', undefined, 'Resolve Incident') }}
 						</button>
 						<button class="wt" @click="showEditAnnotationDialog(selectedIncident)">

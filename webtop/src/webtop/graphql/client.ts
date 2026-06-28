@@ -215,6 +215,9 @@ export function createGraphQLClient(
   workspace: string,
   options: Partial<GraphQLClientOptions> = {}
 ): GraphQLClient {
+  // Endpoint cutover (#7b): /bin/graphql.cgi is now served by the platform
+  // (graphql-java) engine. Rollback = point this at /bin/graphql-legacy.cgi
+  // (the retired handmade engine) and redeploy.
   const endpoint = `/bin/graphql.cgi/${workspace}`;
   return new GraphQLClient({
     endpoint,

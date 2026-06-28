@@ -64,6 +64,13 @@ export class ContentServiceGraphQL {
     this.#client = client;
   }
 
+  /**
+   * Run an arbitrary GraphQL query/mutation through the shared client.
+   */
+  async runGraphQL<T = unknown>(document: string, variables?: Record<string, unknown>): Promise<T> {
+    return this.#client.mutation<T>(document, variables);
+  }
+
   // =========================================================================
   // Queries
   // =========================================================================

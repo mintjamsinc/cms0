@@ -35,6 +35,7 @@
 import { IntlMessageFormat } from 'intl-messageformat';
 import type { ContentServiceGraphQL } from './content-service-graphql.js';
 import type { EventHub } from '../realtime/event-hub.js';
+import { withContentVersion } from '../utils/content-version.js';
 
 /**
  * Options applied to every {@link IntlMessageFormat} we compile.
@@ -270,7 +271,7 @@ export class I18nService {
 			// the merge result is deterministic across boots. Modules keep their
 			// keys in disjoint namespaces, so in practice the merge never has to
 			// resolve a real conflict; sorting just removes any boot-order luck.
-			const files: Array<{ name: string; locale: string; downloadUrl: string; path?: string }> = [];
+			const files: Array<{ name: string; locale: string; downloadUrl: string; path?: string; modified?: string }> = [];
 			for await (const batch of this.#contentService.listAllChildren(BUNDLES_PATH, 50)) {
 				for (const node of batch) {
 					if (!node.name?.endsWith('.json')) continue;
@@ -285,7 +286,7 @@ export class I18nService {
 					const locale = base.substring(base.lastIndexOf('.') + 1).toLowerCase();
 					if (!locale) continue;
 
-					files.push({ name: node.name, locale, downloadUrl: node.downloadUrl, path: node.path });
+					files.push({ name: node.name, locale, downloadUrl: node.downloadUrl, path: node.path, modified: node.modified });
 				}
 			}
 
@@ -293,7 +294,10 @@ export class I18nService {
 
 			for (const file of files) {
 				try {
-					const response = await fetch(file.downloadUrl);
+					// Version-stamp the URL with the bundle's last-modified time so an
+					// unchanged file is served from the browser's immutable cache on the
+					// next boot instead of a revalidation round-trip (see withContentVersion).
+					const response = await fetch(withContentVersion(file.downloadUrl, file.modified));
 					if (!response.ok) continue;
 					const text = await response.text();
 					const data = JSON.parse(text) as Record<string, string>;

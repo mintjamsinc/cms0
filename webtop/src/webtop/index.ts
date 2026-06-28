@@ -51,11 +51,7 @@ export {
   useProcessOperations,
   useRoute,
   useRouteList,
-  useCamelContext,
-  useCamelContextList,
   useRouteStatistics,
-  useRouteMutations,
-  useRouteEditor,
 } from './composables/index.js';
 
 // Single shared keydown handler reference for the app popup.
@@ -510,6 +506,16 @@ const WtDesktop = {
 				}
 			});
 
+			// Desktop keyboard shortcuts (copy / cut / paste / rename / delete).
+			// Events only reach the shell document when focus is NOT inside an app
+			// iframe, so these never collide with an app's own shortcuts (e.g.
+			// Content Browser handles its own Ctrl+C). The clipboard is shared with
+			// Content Browser via window.__webtopClipboard, so Copy in one and
+			// Paste in the other interoperate.
+			document.addEventListener('keydown', (e: KeyboardEvent) => {
+				vm.onDesktopShellKeydown(e);
+			});
+
 			// Clipboard paste targeting the desktop background. Inputs and
 			// editable elements are skipped so app-internal paste keeps working.
 			document.addEventListener('paste', (e: ClipboardEvent) => {
@@ -556,7 +562,7 @@ const WtDesktop = {
 			document.addEventListener('webtop-desktop-icon-drop', (e: Event) => {
 				const d = (e as CustomEvent).detail || {};
 				vm.desktopDragOverItemID = null;
-				vm.onDesktopIconDrop(d.path, d.ctrlKey, d.osItems);
+				vm.onDesktopIconDrop(d.path, d.ctrlKey, d.osItems, d.saveAs);
 			});
 
 			// Broadcasts from WebtopServiceGraphQL.postMessage (via CustomEvent)
@@ -807,7 +813,7 @@ const WtDesktop = {
 			const previewBottom = window.innerHeight - iconRect.top;
 			const anchorX = iconRect.left + iconRect.width / 2;
 			vm.$nextTick(() => {
-				const preview = document.getElementById('dock-preview');
+				const preview = vm.$refs.dockPreview as HTMLElement | undefined;
 				if (!preview) return;
 				preview.style.bottom = previewBottom + 'px';
 				preview.style.left = anchorX + 'px';
@@ -877,7 +883,7 @@ const WtDesktop = {
 			vm.showSaveSessionOverlay = true;
 			vm.isMenuOpen = false;
 			vm.$nextTick(() => {
-				(vm.$refs.sessionNameInput as HTMLInputElement)?.focus();
+				(vm.$refs.sessionNameField as HTMLInputElement | undefined)?.focus();
 			});
 		},
 		cancelSaveSession() {
@@ -1336,7 +1342,10 @@ const WtDesktop = {
 			const types = Array.from(event.dataTransfer.types || []);
 			const hasInternal = vm._hasInternalDragData(event);
 			const hasFiles = types.includes('Files');
-			if (!hasInternal && !hasFiles) return;
+			// "Save As" payload dragged out of an editor (text-editor, memo,
+			// bpmn-modeler, eip-modeler — anything emitting x-webtop-save).
+			const hasSaveAs = types.includes('application/x-webtop-save');
+			if (!hasInternal && !hasFiles && !hasSaveAs) return;
 			event.preventDefault();
 			if (hasInternal) {
 				if (vm._isInternalDropForbidden(event)) {
@@ -1345,6 +1354,7 @@ const WtDesktop = {
 					event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
 				}
 			} else {
+				// OS files and editor Save-As payloads both copy into the Desktop.
 				event.dataTransfer.dropEffect = 'copy';
 			}
 		},
@@ -1354,7 +1364,8 @@ const WtDesktop = {
 			const types = Array.from(event.dataTransfer.types || []);
 			const hasInternal = vm._hasInternalDragData(event);
 			const hasFiles = types.includes('Files');
-			if (!hasInternal && !hasFiles) return;
+			const hasSaveAs = types.includes('application/x-webtop-save');
+			if (!hasInternal && !hasFiles && !hasSaveAs) return;
 			event.preventDefault();
 
 			if (!vm.hasDesktopFolder) {
@@ -1368,6 +1379,22 @@ const WtDesktop = {
 				if (!items || items.length === 0) return;
 				await vm._executeInternalDropToDesktop(items, vm.desktopFolderPath, event.ctrlKey);
 				try { (window as any).__webtopDragData = null; } catch { /* ignore */ }
+				return;
+			}
+
+			// "Save As" payload dragged out of an editor — persist it as a new
+			// node directly on the Desktop. getData is read synchronously here
+			// (the DataTransfer is only valid for the duration of this event).
+			if (hasSaveAs) {
+				const saveData = event.dataTransfer.getData('application/x-webtop-save');
+				if (saveData) {
+					try {
+						const { name, mimeType, content, saveAsToken } = JSON.parse(saveData);
+						await vm.saveDroppedContentToDesktop(vm.desktopFolderPath, name, mimeType, content, saveAsToken);
+					} catch (e) {
+						console.warn('[Webtop] Invalid Save As drop payload', e);
+					}
+				}
 				return;
 			}
 
@@ -1404,9 +1431,21 @@ const WtDesktop = {
 		},
 		// Drop on a folder icon — same logic as drop on the desktop background
 		// but the destination is the inner folder.
-		async onDesktopIconDrop(targetPath: string, isCopy: boolean, _osItems?: any[]) {
+		async onDesktopIconDrop(targetPath: string, isCopy: boolean, _osItems?: any[], saveAs?: string) {
 			const vm = this as any;
 			if (!vm.hasDesktopFolder) return;
+			// Editor "Save As" payload dropped onto a folder icon → save into
+			// that folder (saveAs was read synchronously from the drop event in
+			// wt-desktop-icons and forwarded here).
+			if (saveAs) {
+				try {
+					const { name, mimeType, content, saveAsToken } = JSON.parse(saveAs);
+					await vm.saveDroppedContentToDesktop(targetPath, name, mimeType, content, saveAsToken);
+				} catch (e) {
+					console.warn('[Webtop] Invalid Save As drop payload', e);
+				}
+				return;
+			}
 			// Internal drag is the common case. OS files dropped on a folder
 			// icon: not currently supported (would require holding the
 			// DataTransfer until after async work; we keep desktop-area drop
@@ -1536,6 +1575,71 @@ const WtDesktop = {
 				document.dispatchEvent(new CustomEvent('webtop-desktop-reload'));
 			}
 		},
+		// Persist a "Save As" payload (application/x-webtop-save) dragged out of
+		// an editor — text-editor, memo, bpmn-modeler, eip-modeler — directly
+		// onto the Desktop. Mirrors content-browser/app.ts saveDroppedContent
+		// but targets a Desktop folder and reuses the desktop upload monitor +
+		// conflict dialog so the same overlay/dialog renders. destFolderPath is
+		// the Desktop root for a background drop, or a folder icon's path for an
+		// icon drop.
+		async saveDroppedContentToDesktop(destFolderPath: string, name: string, mimeType: string, content: string, saveAsToken?: string) {
+			const vm = this as any;
+			if (vm.desktopUploadMonitor) return;
+			const contentService = window.Webtop.api.content;
+			const destPath = destFolderPath + '/' + name;
+
+			vm.desktopErrorMessage = '';
+			vm.desktopUploadMonitor = {
+				isCanceled: false,
+				target: { currentFile: name, progressPercent: 0 },
+				cancel() { this.isCanceled = true; },
+			};
+
+			let uploadId: string | null = null;
+			try {
+				// Resolve same-name conflicts the way OS uploads do: prompt, then
+				// overwrite via delete + recreate. Keeps Desktop overwrite
+				// semantics uniform regardless of the drag source.
+				const existing = await contentService.getNode(destPath).catch(() => null);
+				if (existing) {
+					const action = await vm.askDesktopConflict(name);
+					if (action === 'skip' || action === 'skipAll' || action === 'cancel') return;
+					try { await contentService.deleteNode(destPath); } catch { /* fall through to recreate */ }
+				}
+
+				// Encode UTF-8 text → base64 without spreading the byte array into
+				// String.fromCharCode (that overflows the call stack on big files).
+				const bytes = new TextEncoder().encode(content);
+				let binary = '';
+				for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+				const base64Content = btoa(binary);
+
+				const uploadInfo = await contentService.initiateMultipartUpload();
+				uploadId = uploadInfo.uploadId;
+				await contentService.appendMultipartUploadChunk(uploadId, base64Content);
+				await contentService.completeMultipartUpload(uploadId, destFolderPath, name, mimeType, false);
+				uploadId = null;
+				vm.desktopUploadMonitor.target.progressPercent = 100;
+
+				// Tell the source editor the new path so subsequent saves go
+				// straight to the node. The editor token-matches this message.
+				if (saveAsToken) {
+					const channel = new BroadcastChannel('webtop-save-as');
+					channel.postMessage({ type: 'save-as-complete', path: destPath, name, mimeType, saveAsToken });
+					channel.close();
+				}
+			} catch (error: any) {
+				if (uploadId) {
+					try { await contentService.abortMultipartUpload(uploadId); } catch { /* ignore */ }
+				}
+				vm.desktopErrorMessage = error?.message || String(error) || 'Save failed';
+			} finally {
+				if (!vm.desktopErrorMessage) {
+					vm.desktopUploadMonitor = null;
+				}
+				document.dispatchEvent(new CustomEvent('webtop-desktop-reload'));
+			}
+		},
 		closeDesktopUpload() {
 			const vm = this as any;
 			vm.desktopUploadMonitor = null;
@@ -1649,6 +1753,99 @@ const WtDesktop = {
 			return `${base} - Copy (${Date.now()})${ext}`;
 		},
 		// ---------------------------------------------------------------------
+		// Keyboard shortcuts + shared clipboard (copy / cut / paste).
+		//
+		// The clipboard lives on the top window as __webtopClipboard, the same
+		// object Content Browser reads/writes via window.parent. That makes
+		// "Copy in Content Browser → Paste on the Desktop" (and vice-versa) work
+		// with no extra messaging. Shape: { mode: 'copy'|'cut', items: [{ path,
+		// name, isCollection }] } — identical to content-browser/app.ts.
+		// ---------------------------------------------------------------------
+		_getDesktopClipboard(): { mode: 'copy' | 'cut' | null; items: { path: string; name: string; isCollection: boolean }[] } {
+			try {
+				const shared = (window as any).__webtopClipboard;
+				if (shared?.mode && shared?.items?.length > 0) return shared;
+			} catch { /* ignore */ }
+			return { mode: null, items: [] };
+		},
+		_setDesktopClipboard(mode: 'copy' | 'cut', items: { path: string; name: string; isCollection: boolean }[]) {
+			try { (window as any).__webtopClipboard = { mode, items }; } catch { /* ignore */ }
+		},
+		_clearDesktopClipboard() {
+			try { (window as any).__webtopClipboard = null; } catch { /* ignore */ }
+		},
+		desktopClipboardSelected(mode: 'copy' | 'cut') {
+			const vm = this as any;
+			const selected = vm.desktopItems.filter((i: any) => vm.desktopSelectedIds.includes(i.id));
+			if (selected.length === 0) return;
+			vm._setDesktopClipboard(mode, selected.map((i: any) => ({ path: i.path, name: i.name, isCollection: i.isCollection })));
+		},
+		// Paste the shared clipboard into the Desktop root. The internal
+		// move/copy pipeline already resolves same-directory duplicates, blocks
+		// pasting a folder into itself, and raises the conflict dialog, so we
+		// reuse it verbatim and just clear the clipboard after a cut.
+		async desktopClipboardPaste() {
+			const vm = this as any;
+			const cb = vm._getDesktopClipboard();
+			if (!cb.mode || cb.items.length === 0) return;
+			if (vm.desktopUploadMonitor) return;
+			if (!vm.hasDesktopFolder) { vm.showMissingDesktopAlert(); return; }
+			const isCopy = cb.mode === 'copy';
+			await vm._executeInternalDropToDesktop(cb.items, vm.desktopFolderPath, isCopy);
+			if (cb.mode === 'cut') vm._clearDesktopClipboard();
+		},
+		// Routes Ctrl+C / Ctrl+X / Ctrl+V / F2 / Delete to the desktop. Only
+		// fires while the desktop surface holds focus (see the listener comment);
+		// we additionally bail out when typing in a field, when any blocking
+		// dialog/overlay is up, or when focus sits inside an app window's chrome.
+		onDesktopShellKeydown(event: KeyboardEvent) {
+			const vm = this as any;
+			const target = event.target as HTMLElement | null;
+			if (!target) return;
+			if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+			// Focus inside an app window (or its iframe wrapper) → leave it to the app.
+			if (target.closest('wt-window, .wt-window')) return;
+			// Suppress while a modal overlay owns the screen.
+			if (vm.desktopRenameDialog.visible || vm.desktopDeleteDialog.visible
+				|| vm.desktopConflictDialog.visible || vm.desktopAlert.visible
+				|| vm.desktopUploadMonitor || vm.desktopDeleteMonitor
+				|| vm.popup.visible || vm.restoringSession || vm.showSessionPicker) {
+				return;
+			}
+
+			const ctrl = event.ctrlKey || event.metaKey;
+			const hasSelection = vm.desktopSelectedIds.length > 0;
+
+			if (ctrl && (event.key === 'c' || event.key === 'C')) {
+				if (hasSelection) { event.preventDefault(); vm.desktopClipboardSelected('copy'); }
+				return;
+			}
+			if (ctrl && (event.key === 'x' || event.key === 'X')) {
+				if (hasSelection) { event.preventDefault(); vm.desktopClipboardSelected('cut'); }
+				return;
+			}
+			if (ctrl && (event.key === 'v' || event.key === 'V')) {
+				if (vm._getDesktopClipboard().mode) { event.preventDefault(); vm.desktopClipboardPaste(); }
+				return;
+			}
+			if (event.key === 'F2') {
+				if (vm.desktopSelectedIds.length === 1) {
+					const item = vm.desktopItems.find((i: any) => i.id === vm.desktopSelectedIds[0]);
+					if (item) { event.preventDefault(); vm.showDesktopRenameDialog(item); }
+				}
+				return;
+			}
+			if (event.key === 'Delete') {
+				if (hasSelection) {
+					event.preventDefault();
+					const selected = vm.desktopItems.filter((i: any) => vm.desktopSelectedIds.includes(i.id));
+					vm.desktopDeleteDialog.items = selected.slice();
+					vm.desktopDeleteDialog.visible = true;
+				}
+				return;
+			}
+		},
+		// ---------------------------------------------------------------------
 		// Selection — click, ctrl/meta toggle, shift extend, rubber-band.
 		// ---------------------------------------------------------------------
 		onDesktopIconSelect(itemId: string, mods: { ctrlKey: boolean; shiftKey: boolean }) {
@@ -1687,7 +1884,7 @@ const WtDesktop = {
 			const target = event.target as HTMLElement | null;
 			if (target?.closest('.desktop-icon')) return;
 			if (target?.closest('wt-window, .wt-window')) return;
-			const area = document.getElementById('desktop-area');
+			const area = vm.$refs.desktopArea as HTMLElement | undefined;
 			if (!area) return;
 			const rect = area.getBoundingClientRect();
 			vm.desktopDragSelection.active = true;
@@ -1709,7 +1906,7 @@ const WtDesktop = {
 		onDesktopAreaMouseMove(event: MouseEvent) {
 			const vm = this as any;
 			if (!vm.desktopDragSelection.active) return;
-			const area = document.getElementById('desktop-area');
+			const area = vm.$refs.desktopArea as HTMLElement | undefined;
 			if (!area) return;
 			const rect = area.getBoundingClientRect();
 			vm.desktopDragSelection.currentX = event.clientX - rect.left;

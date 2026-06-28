@@ -17,6 +17,26 @@ distribution for attribution requirements.
 
 ---
 
+## bundles/graphql-java
+
+- **Upstream project:** [graphql-java](https://www.graphql-java.com/) 22.3
+- **Primary license:** MIT License
+- **Upstream LICENSE / NOTICE:**
+  - <https://github.com/graphql-java/graphql-java/blob/master/LICENSE.md>
+
+This bundle re-exports graphql-java together with its two runtime
+dependencies. graphql-java relocates ANTLR and Guava into its own jar
+(`graphql.org.antlr.v4.runtime`, `graphql.com.google.common`), so no
+separate jars are shipped for those.
+
+| JAR | Project | License |
+| --- | --- | --- |
+| `graphql-java-22.3.jar` | [graphql-java](https://github.com/graphql-java/graphql-java) | MIT License |
+| `java-dataloader-3.3.0.jar` | [java-dataloader](https://github.com/graphql-java/java-dataloader) | Apache License 2.0 |
+| `reactive-streams-1.0.3.jar` | [Reactive Streams](https://github.com/reactive-streams/reactive-streams-jvm) | MIT-0 |
+
+---
+
 ## bundles/org.apache.camel
 
 - **Upstream project:** [Apache Camel](https://camel.apache.org/) 4.18.1

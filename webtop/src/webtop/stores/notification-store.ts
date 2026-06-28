@@ -5,7 +5,19 @@
  */
 
 import { createStore, createActions } from './create-store.js';
-import type { NotificationType, Severity } from '../graphql/types.js';
+
+// Local notification taxonomy. These were originally shared with the removed
+// `systemNotification` GraphQL subscription; they are now purely client-side UI
+// types for the in-app notification/toast store.
+export type NotificationType =
+  | 'INFO'
+  | 'WARNING'
+  | 'ERROR'
+  | 'TASK'
+  | 'PROCESS'
+  | 'CONTENT';
+
+export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export interface Notification {
   id: string;

@@ -278,7 +278,9 @@ defineComponent('wt-desktop-icons', {
 			const types = Array.from(event.dataTransfer.types || []);
 			const hasInternal = types.includes('application/x-webtop-files') || !!(window as any).__webtopDragData;
 			const hasFiles = types.includes('Files');
-			if (!hasInternal && !hasFiles) return;
+			// Editor "Save As" payload (text-editor, memo, bpmn/eip-modeler).
+			const hasSaveAs = types.includes('application/x-webtop-save');
+			if (!hasInternal && !hasFiles && !hasSaveAs) return;
 			event.preventDefault();
 			event.stopPropagation();
 			event.dataTransfer.dropEffect = hasInternal && event.ctrlKey ? 'copy' : (hasInternal ? 'move' : 'copy');
@@ -296,6 +298,11 @@ defineComponent('wt-desktop-icons', {
 			const detail: any = { itemId: item.id, path: item.path, ctrlKey: event.ctrlKey };
 			if (types.includes('Files')) {
 				detail.osItems = Array.from(event.dataTransfer.items || []);
+			}
+			// Forward the editor Save-As payload (read synchronously while the
+			// DataTransfer is still valid) so the shell can save into this folder.
+			if (types.includes('application/x-webtop-save')) {
+				detail.saveAs = event.dataTransfer.getData('application/x-webtop-save');
 			}
 			(this as any).$emit('webtop-desktop-icon-drop', detail, { target: document });
 		},
