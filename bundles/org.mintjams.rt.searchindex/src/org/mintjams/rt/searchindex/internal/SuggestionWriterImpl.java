@@ -46,10 +46,15 @@ public class SuggestionWriterImpl implements SearchIndex.SuggestionWriter, Close
 	private final Closer fCloser = Closer.create();
 	private final IndexWriter fIndexWriter;
 	private Analyzer fAnalyzer;
-	private boolean fHasChanges;
+	// The bulk rebuild writes from several threads and commits once at the end,
+	// so this flag is read and written across threads; keep it visible.
+	private volatile boolean fHasChanges;
 
 	public SuggestionWriterImpl(SearchIndexImpl searchIndex) throws IOException {
 		fSearchIndex = searchIndex;
+		// The suggestion documents are tiny (short completion strings), so the
+		// default RAM buffer is plenty; only the document writer, which holds
+		// full extracted text, gets the enlarged bulk-rebuild buffer.
 		fIndexWriter = fCloser.register(new IndexWriter(fSearchIndex.getSuggestionIndexDirectory(), new IndexWriterConfig(getAnalyzer())));
 	}
 

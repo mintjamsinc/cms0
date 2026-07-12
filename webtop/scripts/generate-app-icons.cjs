@@ -306,6 +306,19 @@ function iconMemos() {
     svgClose(id);
 }
 
+function iconWorkspaces() {
+  const id = 'workspaces';
+  return svgOpen(id) +
+    bg(id, '#2dd4bf', '#0f766e') +
+    `
+  <g clip-path="url(#clip-${id})" fill="white">
+    <path d="M 90 38 L 146 66 L 90 94 L 34 66 Z"/>
+    <path d="M 46 84 L 34 90 L 90 118 L 146 90 L 134 84 L 90 106 Z" fill-opacity="0.75"/>
+    <path d="M 46 108 L 34 114 L 90 142 L 146 114 L 134 108 L 90 130 Z" fill-opacity="0.5"/>
+  </g>` +
+    svgClose(id);
+}
+
 const APP_ICONS = {
   'bpm-manager':     iconBpmManager,
   'bpmn-modeler':    iconBpmnModeler,
@@ -318,7 +331,8 @@ const APP_ICONS = {
   'preferences':     iconPreferences,
   'schema-manager':  iconSchema,
   'text-editor':     iconTextEditor,
-  'memos':           iconMemos,
+  'memo':            iconMemos,
+  'workspace-manager': iconWorkspaces,
 };
 
 const REPO_ROOT = path.resolve(__dirname, '..');

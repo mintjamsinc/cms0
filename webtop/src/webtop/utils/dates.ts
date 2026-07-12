@@ -296,6 +296,59 @@ export class Dates {
 	}
 
 	/**
+	 * Resolve the effective IANA time zone to hand to the server (e.g. for the
+	 * `taskCounts` "today" / "this week" boundaries). Returns the user's
+	 * Localization preference zone when set, otherwise the runtime (OS) zone.
+	 * Never returns an empty string, so the server always receives a concrete
+	 * zone and does not have to fall back to its own OS zone.
+	 */
+	static resolveTimeZone(preferred?: string | null): string {
+		if (preferred) {
+			return preferred;
+		}
+		try {
+			return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+		} catch {
+			return 'UTC';
+		}
+	}
+
+	/**
+	 * Start of a calendar day ("midnight") as an absolute instant, resolved
+	 * in the given IANA time zone (the user's Localization preference). When
+	 * `timeZone` is empty the runtime (OS) time zone is used. `daysAgo`
+	 * shifts the boundary back N calendar days in that zone (0 = today).
+	 * Use this — never `toISOString().slice(0, 10)` — to build "today" /
+	 * "past N days" boundaries: the UTC calendar date can differ from the
+	 * user's by up to a day.
+	 */
+	static startOfDay(timeZone?: string, daysAgo: number = 0): Date {
+		const now = new Date();
+		if (!timeZone) {
+			return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
+		}
+		const dtf = new Intl.DateTimeFormat('en-CA', {
+			timeZone,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+		});
+		const map: Record<string, number> = {};
+		for (const p of dtf.formatToParts(now)) {
+			if (p.type !== 'literal') map[p.type] = Number(p.value);
+		}
+		const naiveUTC = Date.UTC(map.year, map.month - 1, map.day - daysAgo);
+		const offset = Dates.getTimeZoneOffsetMs(timeZone, new Date(naiveUTC));
+		let instant = naiveUTC - offset;
+		// Re-resolve the offset at the computed instant to correct DST edges.
+		const offset2 = Dates.getTimeZoneOffsetMs(timeZone, new Date(instant));
+		if (offset2 !== offset) {
+			instant = naiveUTC - offset2;
+		}
+		return new Date(instant);
+	}
+
+	/**
 	 * Inverse of {@link toZonedInputValue}: interpret a `datetime-local`
 	 * wall-clock string (`YYYY-MM-DDTHH:mm`) as a time in the given time zone
 	 * and return the absolute instant. When `timeZone` is empty the runtime

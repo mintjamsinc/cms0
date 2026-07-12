@@ -2,14 +2,14 @@ identifier: e90d4871-634a-425d-a667-c2eb0f179751
 title: Memo
 icon: assets/icons/icon.svg
 # Rich-text (Tiptap) editor. Registers as an editor for its own native memo
-# documents (application/x-memo+json, saved with a .memo extension) so they
+# documents (application/vnd.mintjams.cms.memo+json, saved with a .memo extension) so they
 # reopen here by default. It can also open HTML files when one is dragged onto
 # the window or handed to it explicitly, round-tripping their markup — but it
 # deliberately does NOT claim text/html in contentTypes, so the Text Editor
 # stays the default opener for HTML/templates/GSP.
 editor: true
 contentTypes:
-  - application/x-memo+json
+  - application/vnd.mintjams.cms.memo+json
 actions:
   open:
     icon: open

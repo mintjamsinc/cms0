@@ -58,8 +58,18 @@ extend type Query {
   """Tasks (Relay connection), with extensive filtering and sorting."""
   tasks(first: Int = 20, after: String, assignee: String, assigneeIn: [String!], candidateUser: String, candidateGroup: String, candidateGroups: [String!], unassigned: Boolean, processInstanceId: String, processDefinitionId: String, processDefinitionKey: String, taskDefinitionKey: String, dueBefore: DateTime, dueAfter: DateTime, createdBefore: DateTime, createdAfter: DateTime, priority: Int, priorityHigherThanOrEquals: Int, priorityLowerThanOrEquals: Int, sortBy: TaskSortField, sortOrder: SortOrder): TaskConnection!
 
-  """Aggregate task counts for a dashboard (assignee or candidate scope)."""
-  taskCounts(assignee: String, candidateUser: String, candidateGroups: [String!]): TaskCounts!
+  """
+  Aggregate task counts for a dashboard (assignee or candidate scope).
+
+  `timeZone` is the IANA time-zone name (e.g. `"Asia/Tokyo"`) in which the
+  `dueToday` / `dueThisWeek` calendar-day boundaries are resolved, so the
+  counts match the viewer's local "today"/"this week". When omitted — or when
+  the name is malformed or unknown to the server's time-zone data — the
+  boundaries are resolved in UTC, so the result never depends on the server's
+  operating-system time zone and an unrecognised zone degrades gracefully
+  rather than failing the whole query.
+  """
+  taskCounts(assignee: String, candidateUser: String, candidateGroups: [String!], timeZone: String): TaskCounts!
 }
 
 """

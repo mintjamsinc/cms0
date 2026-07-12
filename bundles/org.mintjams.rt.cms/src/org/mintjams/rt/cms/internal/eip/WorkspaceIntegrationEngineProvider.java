@@ -190,7 +190,23 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 
 					// Load and add new routes (and route configurations) via RoutesLoader
 					RoutesLoader loader = PluginHelper.getRoutesLoader(fCamelContext);
-					loader.loadRoutes(new CamelResource(item));
+					try {
+						loader.loadRoutes(new CamelResource(item));
+					} catch (Throwable loadFailure) {
+						// A failed load can leave part of the item registered - the XML
+						// DSL, for example, adds the route configuration before the route
+						// itself, so a route that fails to build (e.g. a class that could
+						// not be loaded) leaves an orphan configuration behind. It was
+						// never recorded in fRouteConfigDeployments (that happens only on
+						// success below), so a later redeploy could neither remove nor
+						// re-add it and would fail forever with "... already exists".
+						// Roll back everything this load added - routes and route
+						// configurations absent from the pre-load snapshot - so the item
+						// can be retried from a clean state.
+						rollbackRoutes(routeIdsBefore);
+						rollbackRouteConfigurations(configIdsBefore);
+						throw loadFailure;
+					}
 
 					// Track newly added route IDs (post-snapshot minus pre-snapshot)
 					List<String> newRouteIds = fCamelContext.getRoutes().stream()
@@ -224,6 +240,39 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 				deploy(i.nextNode());
 			}
 			return;
+		}
+	}
+
+	private void rollbackRoutes(Set<String> routeIdsBefore) {
+		try {
+			List<String> addedRouteIds = fCamelContext.getRoutes().stream()
+					.map(route -> route.getRouteId())
+					.filter(id -> !routeIdsBefore.contains(id))
+					.collect(Collectors.toList());
+			for (String routeId : addedRouteIds) {
+				try {
+					fCamelContext.getRouteController().stopRoute(routeId);
+					fCamelContext.removeRoute(routeId);
+				} catch (Throwable ignore) {}
+			}
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn("Failed to roll back partially deployed routes.", ex);
+		}
+	}
+
+	private void rollbackRouteConfigurations(Set<String> configIdsBefore) {
+		try {
+			ModelCamelContext modelContext = (ModelCamelContext) fCamelContext;
+			for (RouteConfigurationDefinition def : new ArrayList<>(modelContext.getRouteConfigurationDefinitions())) {
+				String id = def.getId();
+				if (id != null && !configIdsBefore.contains(id)) {
+					try {
+						modelContext.removeRouteConfiguration(def);
+					} catch (Throwable ignore) {}
+				}
+			}
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn("Failed to roll back partially deployed route configurations.", ex);
 		}
 	}
 

@@ -90,6 +90,7 @@ import org.mintjams.rt.jcr.internal.cluster.ClusterJournal;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlEntry;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlList;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
+import org.mintjams.rt.jcr.internal.nodetype.JcrNodeTypeManager;
 import org.mintjams.rt.jcr.internal.sql.DatabaseDialect;
 import org.mintjams.rt.jcr.internal.version.JcrVersionManager;
 import org.mintjams.tools.adapter.Adaptable;
@@ -544,21 +545,77 @@ public class WorkspaceQuery implements Adaptable {
 			return adaptTo(BlobStore.class).read(id);
 		}
 
-		public void clean(QueryMonitor monitor) throws IOException, SQLException {
-			if (monitor.isCancelled()) {
-				return;
-			}
+		/**
+		 * Number of blobs removed per transaction of {@link #clean}. Each chunk
+		 * commit releases the deleted rows' locks — so a user transaction
+		 * re-marking one of them never waits behind the whole run — and the
+		 * work already committed survives a failure further down the list.
+		 */
+		private static final int CLEAN_BATCH_SIZE = 100;
 
-			try (Query.Result result = newQueryBuilder("SELECT file_id FROM jcr_files WHERE is_deleted = TRUE").build()
-					.setOffset(0).execute()) {
-				for (AdaptableMap<String, Object> r : result) {
+		/**
+		 * Removes the blobs of the {@code jcr_files} rows marked deleted, and
+		 * the rows themselves, in chunks of {@value #CLEAN_BATCH_SIZE} with a
+		 * commit after each chunk. A row locked by a concurrent transaction
+		 * (concurrent removals of overlapping subtrees mark the same row
+		 * deleted again) is skipped, not failed: it stays marked and is picked
+		 * up by the run that transaction's commit triggers.
+		 */
+		public void clean(QueryMonitor monitor) throws IOException, SQLException {
+			DatabaseDialect dialect = adaptTo(DatabaseDialect.class);
+			boolean useSavepoint = dialect.isTransactionAbortedOnError();
+			// Rows skipped because a concurrent transaction holds their lock.
+			// Excluded from the chunk queries below, so a backlog of only
+			// locked rows terminates the loop instead of spinning on them.
+			Set<String> skipped = new HashSet<>();
+			while (!monitor.isCancelled()) {
+				// Fetch a chunk at a time: a bulk removal can mark far more
+				// rows than should be materialized (or locked) at once.
+				List<String> ids = new ArrayList<>();
+				try (Query.Result result = newQueryBuilder("SELECT file_id FROM jcr_files WHERE is_deleted = TRUE")
+						.build().setOffset(0).setLimit(CLEAN_BATCH_SIZE + skipped.size()).execute()) {
+					for (AdaptableMap<String, Object> r : result) {
+						String id = r.getString("file_id");
+						if (!skipped.contains(id)) {
+							ids.add(id);
+						}
+					}
+				}
+				if (ids.isEmpty()) {
+					break;
+				}
+
+				for (String id : ids) {
 					if (monitor.isCancelled()) {
 						break;
 					}
 
-					adaptTo(BlobStore.class).delete(r.getString("file_id"));
-					filesEntity().deleteByPrimaryKey(r).execute();
+					// A blob whose row delete was skipped or rolled back on an
+					// earlier run is already gone; delete(id) is a no-op then.
+					adaptTo(BlobStore.class).delete(id);
+
+					Savepoint savepoint = useSavepoint ? getConnection().setSavepoint() : null;
+					try {
+						filesEntity().deleteByPrimaryKey(
+								AdaptableMap.<String, Object>newBuilder().put("file_id", id).build()).execute();
+					} catch (SQLException ex) {
+						if (!dialect.isLockContention(ex)) {
+							throw ex;
+						}
+						if (savepoint != null) {
+							getConnection().rollback(savepoint);
+						}
+						skipped.add(id);
+					}
 				}
+
+				getConnection().commit();
+			}
+
+			if (!skipped.isEmpty()) {
+				Activator.getDefault().getLogger(getClass()).info(
+						"Skipped {} deleted file(s) locked by concurrent transactions; they will be cleaned on a later run.",
+						skipped.size());
 			}
 		}
 	}
@@ -1164,6 +1221,18 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public Query.Result listNodes(String id, String[] nameGlobs, int offset) throws SQLException {
+			return listNodes(id, nameGlobs, offset, false);
+		}
+
+		/**
+		 * Lists child rows ordered by name. With {@code excludeDeleted} the
+		 * soft-deleted rows are filtered in SQL, so {@code offset} addresses the
+		 * same row set {@link #countNodes} counts — required when a pagination
+		 * offset is pushed down to the database. Without it the result also
+		 * carries rows soft-deleted earlier in this transaction, which some
+		 * callers (e.g. subtree moves) rely on.
+		 */
+		public Query.Result listNodes(String id, String[] nameGlobs, int offset, boolean excludeDeleted) throws SQLException {
 			if (Strings.isEmpty(id)) {
 				throw new IllegalArgumentException("Identifier must not be null or empty.");
 			}
@@ -1206,9 +1275,50 @@ public class WorkspaceQuery implements Adaptable {
 				statement.append(" AND item_name = {{" + varName + "}}");
 				variables.put(varName, glob);
 			}
+			if (excludeDeleted) {
+				statement.append(" AND is_deleted = FALSE");
+			}
 			statement.append(" ORDER BY item_name");
 
 			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(offset).execute();
+		}
+
+		/**
+		 * Returns whether the node has at least one child, with a single-row probe
+		 * instead of a full child count (a count scans the whole index range of a
+		 * large folder just to compare it with zero).
+		 */
+		public boolean hasChildNodes(String id) throws SQLException {
+			if (Strings.isEmpty(id)) {
+				throw new IllegalArgumentException("Identifier must not be null or empty.");
+			}
+
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT item_id FROM jcr_items WHERE parent_item_id = {{id}} AND is_deleted = FALSE");
+			try (Query.Result result = newQueryBuilder(statement.toString())
+					.setVariables(AdaptableMap.<String, Object>newBuilder().put("id", id).build())
+					.build().setOffset(0).setLimit(1).execute()) {
+				return result.iterator().hasNext();
+			} catch (IOException ex) {
+				throw new SQLException("Failed to check for child nodes of " + id, ex);
+			}
+		}
+
+		/**
+		 * Lists the property rows of all the given nodes in one statement, for
+		 * batch-seeding the property cache when a page of children is fetched.
+		 */
+		public Query.Result listPropertiesByParents(List<String> ids) throws SQLException {
+			if (ids == null || ids.isEmpty()) {
+				throw new IllegalArgumentException("Identifiers must not be null or empty.");
+			}
+
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT * FROM jcr_properties WHERE parent_item_id IN ({{ids;list}})")
+					.append(" ORDER BY parent_item_id, item_name");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("ids", ids).build();
+
+			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
 
 		public Query.Result listContentNodes(String... ids) throws SQLException {
@@ -1386,8 +1496,99 @@ public class WorkspaceQuery implements Adaptable {
 			}
 		}
 
-		public long countReferenced(String id) throws IOException, SQLException {
-			return countReferenced(id, null, false);
+		/**
+		 * Small identifier sets are probed with one DB-side query (no rows shipped);
+		 * past this size the OR-chain would be evaluated per reference row and a
+		 * single scan with Java-side set lookups is cheaper.
+		 */
+		private static final int COUNT_REFERENCED_PROBE_LIMIT = 16;
+
+		/**
+		 * Counts, for each of the given item identifiers, the REFERENCE properties on
+		 * live, non-system nodes that point at it. Identifiers that are not referenced
+		 * are absent from the returned map. {@code ARRAY_CONTAINS} cannot use an index,
+		 * so any check must pass over every reference row — but only once for the whole
+		 * set: probing each identifier separately repeated that scan per identifier,
+		 * which made removing large trees O(removed nodes × reference rows).
+		 */
+		public Map<String, Long> countReferenced(Collection<String> ids) throws IOException, SQLException {
+			Map<String, Long> counts = new HashMap<>();
+			if (ids.isEmpty()) {
+				return counts;
+			}
+			Set<String> idSet = new HashSet<>(ids);
+
+			if (idSet.size() <= COUNT_REFERENCED_PROBE_LIMIT) {
+				// Interactive deletes remove a handful of nodes; keep the whole check
+				// in the database so the common nothing-references-them case ships no
+				// rows. Per-identifier counts are only resolved on the failure path.
+				StringBuilder statement = new StringBuilder()
+						.append("SELECT COUNT(*) AS reference_count FROM jcr_properties")
+						.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
+						.append(" AND jcr_items.is_system IS FALSE)")
+						.append(" WHERE property_type = {{type}}")
+						.append(" AND jcr_properties.is_deleted = FALSE")
+						.append(" AND (");
+				AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
+						.put("type", PropertyType.REFERENCE).build();
+				int n = 0;
+				for (String id : idSet) {
+					if (n > 0) {
+						statement.append(" OR ");
+					}
+					String varName = "value" + n;
+					statement.append(adaptTo(DatabaseDialect.class).arrayContains("property_value", "{{" + varName + "}}"));
+					variables.put(varName, new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX));
+					n++;
+				}
+				statement.append(")");
+				long total;
+				try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build().execute()) {
+					total = result.iterator().next().getLong("reference_count");
+				}
+				if (total == 0) {
+					return counts;
+				}
+				for (String id : idSet) {
+					long count = countReferenced(id, null, false);
+					if (count > 0) {
+						counts.put(id, count);
+					}
+				}
+				return counts;
+			}
+
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT property_value FROM jcr_properties")
+					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
+					.append(" AND jcr_items.is_system IS FALSE)")
+					.append(" WHERE property_type = {{type}}")
+					.append(" AND jcr_properties.is_deleted = FALSE");
+			try (Query.Result result = newQueryBuilder(statement.toString())
+					.setVariable("type", PropertyType.REFERENCE).build().execute()) {
+				for (AdaptableMap<String, Object> r : result) {
+					// Count each property row once per identifier it contains, matching
+					// the row count the per-identifier COUNT(*) probe returns.
+					Set<String> matched = null;
+					for (Object e : r.getObjectArray("property_value")) {
+						QName propertyValue = QName.valueOf((String) e);
+						if (!JcrValue.STRING_NS_URI.equals(propertyValue.getNamespaceURI())) {
+							continue;
+						}
+						String targetId = propertyValue.getLocalPart();
+						if (!idSet.contains(targetId)) {
+							continue;
+						}
+						if (matched == null) {
+							matched = new HashSet<>();
+						}
+						if (matched.add(targetId)) {
+							counts.merge(targetId, 1L, Long::sum);
+						}
+					}
+				}
+			}
+			return counts;
 		}
 
 		public long countReferenced(String id, String name, boolean weak) throws IOException, SQLException {
@@ -1436,22 +1637,30 @@ public class WorkspaceQuery implements Adaptable {
 				throw new IllegalArgumentException("Path must not be null or empty.");
 			}
 
-			String path = getResolved(JcrPath.valueOf(absPath)).toString();
+			String prefix = getResolved(JcrPath.valueOf(absPath)).toString() + "/";
+			Set<String> ownedTokens = new HashSet<>(Arrays.asList(fWorkspace.getLockManager().getLockTokens()));
 
-			StringBuilder statement = new StringBuilder()
-					.append("SELECT COUNT(*) AS lock_count FROM jcr_locks l")
-					.append(" JOIN jcr_items i ON (l.item_id = i.item_id)")
-					.append(" WHERE i.item_path LIKE {{likePath}}")
-					.append(" AND l.lock_token NOT IN ({{lockTokens;list}})")
-					.append(" AND i.is_deleted IS FALSE");
-			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-					.put("likePath", path + "/%")
-					.put("lockTokens", fWorkspace.getLockManager().getLockTokens()).build();
-
-			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build()
-					.execute()) {
-				return result.iterator().next().getLong("lock_count");
+			// jcr_locks only holds rows while locks are held, so the whole table is
+			// fetched and filtered here. This keeps the cost O(held locks) instead
+			// of letting the optimizer drive the join from the subtree's item_path
+			// range (which scans the subtree once per call), and it also copes with
+			// a session that holds no tokens (an empty NOT IN list is not valid SQL).
+			long count = 0;
+			try (Query.Result result = newQueryBuilder(
+					"SELECT i.item_path, l.lock_token FROM jcr_locks l"
+					+ " JOIN jcr_items i ON (l.item_id = i.item_id)"
+					+ " WHERE i.is_deleted IS FALSE").build().setOffset(0).execute()) {
+				for (AdaptableMap<String, Object> r : result) {
+					if (!r.getString("item_path").startsWith(prefix)) {
+						continue;
+					}
+					if (ownedTokens.contains(r.getString("lock_token"))) {
+						continue;
+					}
+					count++;
+				}
 			}
+			return count;
 		}
 
 		public boolean hasPendingChanges() throws IOException, SQLException {
@@ -1569,6 +1778,307 @@ public class WorkspaceQuery implements Adaptable {
 					.put("event_type", Event.NODE_REMOVED).put("item_id", id).put("item_path", path)
 					.put("primary_type", primaryType).put("user_id", fWorkspace.getSession().getUserID())
 					.put("user_data", null).put("event_info", null).build());
+		}
+
+		/**
+		 * Maximum number of identifiers per {@code IN}-list statement issued by
+		 * {@link #removeTree(String)}. Keeps every statement well below the
+		 * parameter limits of both supported databases.
+		 */
+		private static final int REMOVE_TREE_CHUNK = 400;
+
+		/** Rows per multi-row {@code INSERT} when journaling a removed subtree. */
+		private static final int JOURNAL_INSERT_CHUNK = 50;
+
+		/**
+		 * Removes the node with the given identifier and its entire subtree with
+		 * set-based statements: the subtree is collected level by level over
+		 * {@code parent_item_id} (a few queries per tree level), the version
+		 * histories, binaries and primary types it owns are collected from its
+		 * property rows in one pass, and everything is then soft-deleted in bounded
+		 * {@code IN}-list updates. This replaces the per-node statement sequence of
+		 * {@link #removeNode(String, Map)} — which costs 15+ statements per node —
+		 * with a per-{@link #REMOVE_TREE_CHUNK}-nodes statement sequence, which is
+		 * what makes deleting large trees fast.
+		 *
+		 * <p>Every removed node still gets its own {@code NODE_REMOVED} journal row
+		 * (written in multi-row inserts), so all journal consumers keep working
+		 * unchanged: referential-integrity validation, the observation events that
+		 * feed {@code nodeChanged} subscriptions and OSGi handlers, search index and
+		 * suggestion cleanup, and cluster cache invalidation.
+		 *
+		 * <p>The caller is responsible for the subtree-root access checks; descendant
+		 * names are held to the same protected-node rule the per-node path applies
+		 * (see {@code JcrNode#removeTree()} for the eligibility gate).
+		 *
+		 * @return the number of removed files and folders (matching the per-node
+		 *         path's progress counting), or {@code 0} when the node does not
+		 *         exist (or was already removed in this transaction).
+		 */
+		public long removeTree(String id) throws IOException, SQLException, RepositoryException {
+			if (Strings.isEmpty(id)) {
+				throw new ItemNotFoundException("Identifier must not be null or empty.");
+			}
+
+			AdaptableMap<String, Object> root = null;
+			try (Query.Result result = itemsEntity().find(AdaptableMap.<String, Object>newBuilder()
+					.put("item_id", id).put("is_deleted", Boolean.FALSE).build()).setOffset(0).setLimit(1)
+					.execute()) {
+				Iterator<AdaptableMap<String, Object>> i = result.iterator();
+				if (i.hasNext()) {
+					root = i.next();
+				}
+			}
+			if (root == null) {
+				return 0;
+			}
+
+			// The main subtree, id -> path. Descendant names are held to the same
+			// protected-node rule remove() applies while recursing; the root's own
+			// name was already checked by the caller.
+			JcrNodeTypeManager nodeTypeManager = adaptTo(JcrNodeTypeManager.class);
+			Map<String, String> removedPaths = new LinkedHashMap<>();
+			removedPaths.put(id, root.getString("item_path"));
+			List<String> subtreeIds = new ArrayList<>();
+			subtreeIds.add(id);
+			for (AdaptableMap<String, Object> r : collectDescendants(subtreeIds)) {
+				String name = r.getString("item_name");
+				if (nodeTypeManager.isProtectedNode(name)) {
+					throw new ConstraintViolationException("The node '" + name + "' is protected.");
+				}
+				subtreeIds.add(r.getString("item_id"));
+				removedPaths.put(r.getString("item_id"), r.getString("item_path"));
+			}
+
+			// One pass over the subtree's property rows collects the binaries to
+			// release, the version histories the subtree owns, and each node's
+			// primary type (for progress counting and the journal rows). Version
+			// storage internals never carry jcr:versionHistory themselves (freeze()
+			// skips version control properties), so histories need no further chasing.
+			Set<String> binaryIds = new HashSet<>();
+			List<String> historyIds = new ArrayList<>();
+			Map<String, String> primaryTypes = new HashMap<>();
+			collectOwnedValues(subtreeIds, binaryIds, historyIds, primaryTypes);
+
+			List<String> historyRoots = new ArrayList<>();
+			for (List<String> chunk : chunked(historyIds)) {
+				try (Query.Result result = newQueryBuilder(
+						"SELECT item_id, item_path FROM jcr_items"
+						+ " WHERE item_id IN ({{ids;list}}) AND is_deleted = FALSE")
+						.setVariable("ids", chunk).build().setOffset(0).execute()) {
+					for (AdaptableMap<String, Object> r : result) {
+						historyRoots.add(r.getString("item_id"));
+						removedPaths.put(r.getString("item_id"), r.getString("item_path"));
+					}
+				}
+			}
+			List<String> historyItemIds = new ArrayList<>(historyRoots);
+			for (AdaptableMap<String, Object> r : collectDescendants(historyRoots)) {
+				historyItemIds.add(r.getString("item_id"));
+				removedPaths.put(r.getString("item_id"), r.getString("item_path"));
+			}
+			// Frozen nodes carry copies of binary properties; those blobs are
+			// released together with the history.
+			collectOwnedValues(historyItemIds, binaryIds, null, primaryTypes);
+
+			// Count what the per-node path counts: files and folders.
+			long countable = 0;
+			Map<String, Boolean> countableByType = new HashMap<>();
+			String fileTypeName = getResolved(NodeType.NT_FILE);
+			String folderTypeName = getResolved(NodeType.NT_FOLDER);
+			for (String itemId : subtreeIds) {
+				String typeName = primaryTypes.get(itemId);
+				if (typeName == null) {
+					continue;
+				}
+				Boolean typeCountable = countableByType.get(typeName);
+				if (typeCountable == null) {
+					typeCountable = Boolean.FALSE;
+					if (getNodeTypeManager().hasNodeType(typeName)) {
+						NodeType type = getNodeTypeManager().getNodeType(typeName);
+						typeCountable = type.isNodeType(fileTypeName) || type.isNodeType(folderTypeName);
+					}
+					countableByType.put(typeName, typeCountable);
+				}
+				if (typeCountable) {
+					countable++;
+				}
+			}
+
+			List<String> all = new ArrayList<>(removedPaths.keySet());
+			int aceCount = 0;
+			for (List<String> chunk : chunked(all)) {
+				newUpdateBuilder("UPDATE jcr_properties SET is_deleted = TRUE"
+						+ " WHERE parent_item_id IN ({{ids;list}}) AND is_deleted = FALSE")
+						.setVariable("ids", chunk).build().execute();
+				// active_path is released in the same statement so a same-path
+				// replacement may be created within this transaction, exactly as
+				// removeNode's syncActivePath does.
+				newUpdateBuilder("UPDATE jcr_items SET is_deleted = TRUE, active_path = NULL"
+						+ " WHERE item_id IN ({{ids;list}})")
+						.setVariable("ids", chunk).build().execute();
+				newUpdateBuilder("DELETE FROM jcr_locks WHERE item_id IN ({{ids;list}})")
+						.setVariable("ids", chunk).build().execute();
+				aceCount += newUpdateBuilder("DELETE FROM jcr_aces WHERE item_id IN ({{ids;list}})")
+						.setVariable("ids", chunk).build().execute();
+			}
+			if (aceCount > 0) {
+				// The path-keyed access control view changes on commit.
+				setAccessControlAffected();
+			}
+
+			for (List<String> chunk : chunked(new ArrayList<>(binaryIds))) {
+				newUpdateBuilder("UPDATE jcr_files SET is_deleted = TRUE WHERE file_id IN ({{ids;list}})")
+						.setVariable("ids", chunk).build().execute();
+			}
+
+			for (String itemId : all) {
+				markDirty(itemId);
+			}
+
+			writeRemovedJournal(removedPaths, primaryTypes);
+
+			return countable;
+		}
+
+		/**
+		 * Collects all live descendants of the given nodes, level by level over
+		 * {@code parent_item_id}. The seed nodes themselves are not included.
+		 */
+		private List<AdaptableMap<String, Object>> collectDescendants(List<String> seedIds) throws SQLException {
+			List<AdaptableMap<String, Object>> rows = new ArrayList<>();
+			List<String> frontier = seedIds;
+			while (!frontier.isEmpty()) {
+				List<String> next = new ArrayList<>();
+				for (List<String> chunk : chunked(frontier)) {
+					try (Query.Result result = newQueryBuilder(
+							"SELECT item_id, item_name, item_path FROM jcr_items"
+							+ " WHERE parent_item_id IN ({{ids;list}}) AND is_deleted = FALSE")
+							.setVariable("ids", chunk).build().setOffset(0).execute()) {
+						for (AdaptableMap<String, Object> r : result) {
+							rows.add(r);
+							next.add(r.getString("item_id"));
+						}
+					} catch (IOException ex) {
+						throw new SQLException("Failed to collect descendants", ex);
+					}
+				}
+				frontier = next;
+			}
+			return rows;
+		}
+
+		/**
+		 * Scans the live property rows of the given items, collecting the binary
+		 * values they own into {@code binaryIds}, each node's primary type into
+		 * {@code primaryTypes}, and — when {@code versionHistoryIds} is not
+		 * {@code null} — the version histories referenced by their
+		 * {@code jcr:versionHistory} properties.
+		 */
+		private void collectOwnedValues(List<String> itemIds, Set<String> binaryIds,
+				List<String> versionHistoryIds, Map<String, String> primaryTypes) throws SQLException {
+			String versionHistoryName = getResolved(JcrProperty.JCR_VERSION_HISTORY);
+			String primaryTypeName = getResolved(JcrProperty.JCR_PRIMARY_TYPE);
+			String binaryPrefix = "{" + JcrValue.BINARY_NS_URI + "}";
+			String stringPrefix = "{" + JcrValue.STRING_NS_URI + "}";
+			for (List<String> chunk : chunked(itemIds)) {
+				try (Query.Result result = newQueryBuilder(
+						"SELECT parent_item_id, item_name, property_value FROM jcr_properties"
+						+ " WHERE parent_item_id IN ({{ids;list}}) AND is_deleted = FALSE")
+						.setVariable("ids", chunk).build().setOffset(0).execute()) {
+					for (AdaptableMap<String, Object> r : result) {
+						String name = r.getString("item_name");
+						boolean isVersionHistory = (versionHistoryIds != null) && versionHistoryName.equals(name);
+						boolean isPrimaryType = primaryTypeName.equals(name);
+						for (Object e : r.getObjectArray("property_value")) {
+							String value = (String) e;
+							if (value.startsWith(binaryPrefix)) {
+								binaryIds.add(value.substring(binaryPrefix.length()));
+							} else if (value.startsWith(stringPrefix)) {
+								if (isVersionHistory) {
+									versionHistoryIds.add(value.substring(stringPrefix.length()));
+								} else if (isPrimaryType) {
+									primaryTypes.put(r.getString("parent_item_id"),
+											value.substring(stringPrefix.length()));
+								}
+							}
+						}
+					}
+				} catch (IOException ex) {
+					throw new SQLException("Failed to collect owned values", ex);
+				}
+			}
+		}
+
+		/**
+		 * Journals a {@code NODE_REMOVED} row for every removed node, in multi-row
+		 * inserts of {@link #JOURNAL_INSERT_CHUNK}. The rows are identical to what
+		 * per-node removal writes, so every journal consumer — observation events,
+		 * search index and suggestion cleanup, cluster replay and cache
+		 * invalidation, referential-integrity validation — sees the same record a
+		 * per-node removal produces.
+		 */
+		private void writeRemovedJournal(Map<String, String> removedPaths, Map<String, String> primaryTypes)
+				throws SQLException {
+			fJournalAffected = true;
+			SessionIdentifier sessionIdentifier = getSessionIdentifier();
+			String transactionId = sessionIdentifier.getTransactionIdentifier();
+			String sessionId = sessionIdentifier.toString();
+			String userId = fWorkspace.getSession().getUserID();
+			long occurred = System.currentTimeMillis();
+			long lastNanos = 0;
+
+			List<Map.Entry<String, String>> rows = new ArrayList<>(removedPaths.entrySet());
+			for (int offset = 0; offset < rows.size(); offset += JOURNAL_INSERT_CHUNK) {
+				int end = Math.min(offset + JOURNAL_INSERT_CHUNK, rows.size());
+				StringBuilder statement = new StringBuilder(
+						"INSERT INTO jcr_journal (journal_id, transaction_id, session_id, event_occurred,"
+						+ " event_type, item_id, item_path, primary_type, user_id) VALUES ");
+				AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
+						.put("tx", transactionId)
+						.put("sid", sessionId)
+						.put("occ", occurred)
+						.put("evt", Event.NODE_REMOVED)
+						.put("uid", userId)
+						.build();
+				for (int i = offset; i < end; i++) {
+					Map.Entry<String, String> row = rows.get(i);
+					long nanos = System.nanoTime();
+					if (nanos <= lastNanos) {
+						nanos = lastNanos + 1;
+					}
+					lastNanos = nanos;
+					int n = i - offset;
+					if (n > 0) {
+						statement.append(", ");
+					}
+					statement.append("({{j").append(n).append("}}, {{tx}}, {{sid}}, {{occ}}, {{evt}},")
+							.append(" {{i").append(n).append("}}, {{p").append(n).append("}}, {{y").append(n)
+							.append("}}, {{uid}})");
+					variables.put("j" + n, MessageFormat.format(
+							"{0,number,00000000000000000000}-{1,number,00000000000000000000}",
+							sessionIdentifier.getCreated(), nanos));
+					variables.put("i" + n, row.getKey());
+					variables.put("p" + n, row.getValue());
+					String primaryType = primaryTypes.get(row.getKey());
+					variables.put("y" + n, (primaryType != null) ? primaryType : "nt:base");
+				}
+				newUpdateBuilder(statement.toString()).setVariables(variables).build().execute();
+			}
+		}
+
+		private List<List<String>> chunked(List<String> ids) {
+			if (ids.isEmpty()) {
+				return List.of();
+			}
+			if (ids.size() <= REMOVE_TREE_CHUNK) {
+				return List.of(ids);
+			}
+			List<List<String>> chunks = new ArrayList<>();
+			for (int i = 0; i < ids.size(); i += REMOVE_TREE_CHUNK) {
+				chunks.add(ids.subList(i, Math.min(i + REMOVE_TREE_CHUNK, ids.size())));
+			}
+			return chunks;
 		}
 
 		public void moveNode(String srcAbsPath, String destAbsPath)
@@ -1842,26 +2352,42 @@ public class WorkspaceQuery implements Adaptable {
 				throw new PathNotFoundException("Invalid path: " + absPath);
 			}
 
-			int d = -1;
+			List<String> paths = new ArrayList<>();
 			for (JcrPath path = getResolved(JcrPath.valueOf(absPath)); path != null; path = path.getParent()) {
-				d++;
-				try (Query.Result result = locksEntity().findByPrimaryKey(getNode(path.toString())).setOffset(0)
-						.setLimit(1).execute()) {
-					Iterator<AdaptableMap<String, Object>> i = result.iterator();
-					if (!i.hasNext()) {
-						continue;
-					}
-
-					AdaptableMap<String, Object> lockData = i.next();
-					if (d > 0 && !lockData.getBoolean("is_deep")) {
-						continue;
-					}
-
-					return lockData;
-				}
+				paths.add(path.toString());
 			}
 
-			throw new LockException("Node '" + absPath + "' is not locked.");
+			// One statement over the whole ancestor chain instead of a node lookup
+			// plus a lock lookup per level. The nearest matching lock wins — a lock
+			// on the node itself always matches, an ancestor's only when deep —
+			// exactly as the per-level walk did.
+			StringBuilder statement = new StringBuilder()
+					.append("SELECT l.*, i.item_path FROM jcr_locks l")
+					.append(" JOIN jcr_items i ON (l.item_id = i.item_id)")
+					.append(" WHERE i.item_path IN ({{paths;list}}) AND i.is_deleted = FALSE");
+			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder().put("paths", paths)
+					.build();
+
+			AdaptableMap<String, Object> nearest = null;
+			int nearestDepth = Integer.MAX_VALUE;
+			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build()
+					.setOffset(0).execute()) {
+				for (AdaptableMap<String, Object> lockData : result) {
+					int depth = paths.indexOf(lockData.getString("item_path"));
+					if (depth < 0 || depth >= nearestDepth) {
+						continue;
+					}
+					if (depth > 0 && !lockData.getBoolean("is_deep")) {
+						continue;
+					}
+					nearest = lockData;
+					nearestDepth = depth;
+				}
+			}
+			if (nearest == null) {
+				throw new LockException("Node '" + absPath + "' is not locked.");
+			}
+			return nearest;
 		}
 
 		public String unlock(String absPath) throws IOException, SQLException, RepositoryException {

@@ -234,12 +234,12 @@ public class SearchIndexQueryResult implements SearchIndex.QueryResult, Adaptabl
 
 	private static class FacetImpl implements FacetResult.Facet {
 		private final String fDimension;
-		private final Map<String, Integer> fLabelAndValues = new LinkedHashMap<>();
+		private final Map<String, Number> fLabelAndValues = new LinkedHashMap<>();
 
 		public FacetImpl(org.apache.lucene.facet.FacetResult luceneFacetResult) {
 			fDimension = luceneFacetResult.dim;
 			for (org.apache.lucene.facet.LabelAndValue e : luceneFacetResult.labelValues) {
-				fLabelAndValues.put(e.label, e.value.intValue());
+				fLabelAndValues.put(e.label, e.value);
 			}
 		}
 
@@ -255,11 +255,25 @@ public class SearchIndexQueryResult implements SearchIndex.QueryResult, Adaptabl
 
 		@Override
 		public int getValue(String label) {
-			return fLabelAndValues.get(label);
+			return fLabelAndValues.get(label).intValue();
 		}
 
 		@Override
 		public Map<String, Integer> getValues() {
+			Map<String, Integer> values = new LinkedHashMap<>();
+			for (Map.Entry<String, Number> e : fLabelAndValues.entrySet()) {
+				values.put(e.getKey(), e.getValue().intValue());
+			}
+			return Collections.unmodifiableMap(values);
+		}
+
+		@Override
+		public Number getNumber(String label) {
+			return fLabelAndValues.get(label);
+		}
+
+		@Override
+		public Map<String, Number> getNumbers() {
 			return Collections.unmodifiableMap(fLabelAndValues);
 		}
 	}

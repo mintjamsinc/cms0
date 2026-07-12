@@ -28,7 +28,6 @@ html {
 :root {
 	--menubar-height: 2rem;
 	--window-title-height: 0;
-	--window-shadow: 0 0 0 1px rgb(0 0 0 / 0.05), 0 20px 60px rgb(0 0 0 / 0.2);
 	--dock-bg: var(--window-bg);
 	--dock-border-color: var(--window-border-color);
 	--dock-color: var(--window-color);

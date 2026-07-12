@@ -134,6 +134,41 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 
 	private AccessControlPolicy[] _effectivePolicies(JcrPath absPath)
 			throws PathNotFoundException, AccessDeniedException, RepositoryException {
+		// Each distinct principal is resolved against the identity store once per
+		// call — an ancestor chain repeats the same few principals across many
+		// entries, and per-entry lookups dominated the cost of this method.
+		Map<String, Principal> principalCache = new HashMap<>();
+
+		if (!getWorkspaceQuery().isAccessControlAffected()) {
+			// Serve from the workspace-wide access control store: same committed
+			// data the SQL below would return, without the query.
+			AccessControlStore.Snapshot snapshot;
+			try {
+				snapshot = adaptTo(AccessControlStore.class).getSnapshot();
+			} catch (IOException ex) {
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
+
+			// Deepest path first, entries in definition (row) order — the same
+			// ordering the SQL fallback produces (item_path DESC, row_no).
+			Map<String, JcrAccessControlList> policies = new LinkedHashMap<>();
+			for (JcrPath path = absPath; path != null; path = path.getParent()) {
+				List<AccessControlStore.Entry> entries = snapshot.getEntries(path.toString());
+				if (entries.isEmpty()) {
+					continue;
+				}
+				JcrAccessControlList acl = JcrAccessControlList.create(path.toString(), this);
+				for (AccessControlStore.Entry entry : entries) {
+					acl.addAccessControlEntry(resolvePrincipal(entry.getPrincipalName(), principalCache),
+							entry.isAllow(), entry.getPrivilegeNames());
+				}
+				policies.put(path.toString(), acl);
+			}
+			return policies.values().toArray(AccessControlPolicy[]::new);
+		}
+
+		// The transaction carries uncommitted access control changes; evaluate
+		// against it.
 		try (Query.Result result = getWorkspaceQuery().items().collectAccessControlEntries(absPath.toString())) {
 			Map<String, JcrAccessControlList> policies = new LinkedHashMap<>();
 			for (AdaptableMap<String, Object> r : result) {
@@ -143,19 +178,26 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 					policies.put(r.getString("item_path"), acl);
 				}
 
-				Principal principal;
-				try {
-					principal = Activator.getDefault().getPrincipal(r.getString("principal_name"));
-				} catch (PrincipalNotFoundException ignore) {
-					principal = new UnknownPrincipal(r.getString("principal_name"));
-				}
-
-				acl.addAccessControlEntry(principal, r.getBoolean("is_allow"), Arrays.stream(r.getObjectArray("privilege_names")).toArray(String[]::new));
+				acl.addAccessControlEntry(resolvePrincipal(r.getString("principal_name"), principalCache),
+						r.getBoolean("is_allow"), Arrays.stream(r.getObjectArray("privilege_names")).toArray(String[]::new));
 			}
 			return policies.values().toArray(AccessControlPolicy[]::new);
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
+	}
+
+	private Principal resolvePrincipal(String principalName, Map<String, Principal> cache) {
+		Principal principal = cache.get(principalName);
+		if (principal == null) {
+			try {
+				principal = Activator.getDefault().getPrincipal(principalName);
+			} catch (PrincipalNotFoundException ignore) {
+				principal = new UnknownPrincipal(principalName);
+			}
+			cache.put(principalName, principal);
+		}
+		return principal;
 	}
 
 	@Override
@@ -219,10 +261,7 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 			return privilegeBits(Privilege.JCR_READ);
 		}
 
-		List<String> principals = new ArrayList<>();
-		principals.add(new EveryonePrincipal().getName());
-		principals.addAll(session.getGroups().stream().map(Principal::getName).collect(Collectors.toList()));
-		principals.add(session.getUserPrincipal().getName());
+		List<String> principals = sessionPrincipalNames();
 
 		long allowed = 0;
 
@@ -235,30 +274,7 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 				throw Cause.create(ex).wrap(RepositoryException.class);
 			}
 
-			List<String> paths = new ArrayList<>();
-			for (JcrPath p = path; p != null; p = p.getParent()) {
-				paths.add(p.toString());
-			}
-			Collections.reverse(paths);
-
-			for (String p : paths) {
-				for (AccessControlStore.Entry entry : snapshot.getEntries(p)) {
-					if (!principals.contains(entry.getPrincipalName())) {
-						continue;
-					}
-
-					long bits = 0;
-					for (String privilegeName : entry.getPrivilegeNames()) {
-						bits |= privilegeBits(privilegeName);
-					}
-					if (entry.isAllow()) {
-						allowed |= bits;
-					} else {
-						allowed &= ~bits;
-					}
-				}
-			}
-			return allowed;
+			return storedPrivilegesMask(snapshot, path, principals);
 		}
 
 		// The transaction carries uncommitted access control changes; evaluate against it.
@@ -287,6 +303,95 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 
 	private long privilegeBits(String privilegeName) throws AccessControlException, RepositoryException {
 		return ((JcrPrivilege) privilegeFromName(privilegeName)).getBits();
+	}
+
+	/** The principal names privilege evaluation matches entries against: everyone, groups, user. */
+	private List<String> sessionPrincipalNames() throws RepositoryException {
+		JcrSession session = adaptTo(JcrSession.class);
+		List<String> principals = new ArrayList<>();
+		principals.add(new EveryonePrincipal().getName());
+		principals.addAll(session.getGroups().stream().map(Principal::getName).collect(Collectors.toList()));
+		principals.add(session.getUserPrincipal().getName());
+		return principals;
+	}
+
+	/**
+	 * Applies the store's entries along the root-to-path chain for the given
+	 * principals and returns the resulting privilege mask (allow adds bits, deny
+	 * removes them, root first).
+	 */
+	private long storedPrivilegesMask(AccessControlStore.Snapshot snapshot, JcrPath path, List<String> principals)
+			throws RepositoryException {
+		List<String> paths = new ArrayList<>();
+		for (JcrPath p = path; p != null; p = p.getParent()) {
+			paths.add(p.toString());
+		}
+		Collections.reverse(paths);
+
+		long allowed = 0;
+		for (String p : paths) {
+			for (AccessControlStore.Entry entry : snapshot.getEntries(p)) {
+				if (!principals.contains(entry.getPrincipalName())) {
+					continue;
+				}
+
+				long bits = 0;
+				for (String privilegeName : entry.getPrivilegeNames()) {
+					bits |= privilegeBits(privilegeName);
+				}
+				if (entry.isAllow()) {
+					allowed |= bits;
+				} else {
+					allowed &= ~bits;
+				}
+			}
+		}
+		return allowed;
+	}
+
+	/**
+	 * Returns whether every child of the given node is readable by this session,
+	 * decided without visiting the children. A {@code true} answer guarantees the
+	 * per-child read filtering in child-node iteration is a no-op, which lets a
+	 * pagination skip be pushed down to the database as a row offset. Answers
+	 * {@code false} whenever that guarantee cannot be established cheaply.
+	 */
+	public boolean canReadAllChildren(String absParentPath) {
+		try {
+			if (absParentPath == null || "/".equals(absParentPath)) {
+				// The root's children include /jcr:system, which is not readable
+				// by every session (nor by admin sessions).
+				return false;
+			}
+			JcrSession session = adaptTo(JcrSession.class);
+			if (session.isSystem() || session.isService() || session.isAdmin()) {
+				return true;
+			}
+			String systemPath = "/" + JcrNode.JCR_SYSTEM_NAME;
+			if (absParentPath.equals(systemPath) || absParentPath.startsWith(systemPath + "/")) {
+				// Every session holds read below /jcr:system.
+				return true;
+			}
+			if (getWorkspaceQuery().isAccessControlAffected()) {
+				// Uncommitted access control changes require per-child evaluation.
+				return false;
+			}
+			AccessControlStore store = adaptTo(AccessControlStore.class);
+			if (store.hasEntriesBelow(absParentPath)) {
+				// An entry on an individual child could deny it read.
+				return false;
+			}
+			// No entries below the parent, so every child inherits the parent's
+			// entry-derived mask. Public-access filters are deliberately ignored:
+			// they are not guaranteed to cover subtrees, so read must be
+			// established from the entries alone.
+			JcrPath path = JcrPath.valueOf(absParentPath).with(adaptTo(NamespaceProvider.class));
+			long readBits = privilegeBits(Privilege.JCR_READ);
+			long mask = storedPrivilegesMask(store.getSnapshot(), path, sessionPrincipalNames());
+			return (mask & readBits) == readBits;
+		} catch (Throwable ignore) {
+			return false;
+		}
 	}
 
 	/**

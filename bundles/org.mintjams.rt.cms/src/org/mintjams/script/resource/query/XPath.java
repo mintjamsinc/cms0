@@ -55,11 +55,11 @@ public class XPath {
 	}
 
 	public String value(int value) {
-		return "xs:decimal(" + value("" + value) + ")";
+		return "xs:long(" + value("" + value) + ")";
 	}
 
 	public String value(long value) {
-		return "xs:decimal(" + value("" + value) + ")";
+		return "xs:long(" + value("" + value) + ")";
 	}
 
 	public String value(double value) {

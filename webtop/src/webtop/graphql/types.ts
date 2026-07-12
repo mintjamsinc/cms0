@@ -117,16 +117,24 @@ export type PropertyValue =
   | LongPropertyValueArray
   | DoublePropertyValue
   | DoublePropertyValueArray
+  | DecimalPropertyValue
+  | DecimalPropertyValueArray
   | BooleanPropertyValue
   | BooleanPropertyValueArray
   | DatePropertyValue
   | DatePropertyValueArray
   | BinaryPropertyValue
   | BinaryPropertyValueArray
+  | NamePropertyValue
+  | NamePropertyValueArray
+  | PathPropertyValue
+  | PathPropertyValueArray
   | ReferencePropertyValue
   | ReferencePropertyValueArray
   | WeakreferencePropertyValue
-  | WeakreferencePropertyValueArray;
+  | WeakreferencePropertyValueArray
+  | UriPropertyValue
+  | UriPropertyValueArray;
 
 export interface StringPropertyValue {
   __typename: 'StringPropertyValue';
@@ -162,6 +170,23 @@ export interface DoublePropertyValueArray {
   __typename: 'DoublePropertyValueArray';
   type: string;
   values: number[];
+}
+
+/**
+ * Decimal values are serialized as strings (BigDecimal.toPlainString) to
+ * preserve arbitrary precision — e.g. money amounts — which a JS number
+ * (IEEE double) cannot guarantee.
+ */
+export interface DecimalPropertyValue {
+  __typename: 'DecimalPropertyValue';
+  type: string;
+  value: string;
+}
+
+export interface DecimalPropertyValueArray {
+  __typename: 'DecimalPropertyValueArray';
+  type: string;
+  values: string[];
 }
 
 export interface BooleanPropertyValue {
@@ -203,6 +228,30 @@ export interface BinaryPropertyValueArray {
   sizes: (number | null)[];
 }
 
+export interface NamePropertyValue {
+  __typename: 'NamePropertyValue';
+  type: string;
+  value: string;
+}
+
+export interface NamePropertyValueArray {
+  __typename: 'NamePropertyValueArray';
+  type: string;
+  values: string[];
+}
+
+export interface PathPropertyValue {
+  __typename: 'PathPropertyValue';
+  type: string;
+  value: string;
+}
+
+export interface PathPropertyValueArray {
+  __typename: 'PathPropertyValueArray';
+  type: string;
+  values: string[];
+}
+
 export interface ReferencePropertyValue {
   __typename: 'ReferencePropertyValue';
   type: string;
@@ -231,6 +280,18 @@ export interface WeakreferencePropertyValueArray {
   paths: (string | null)[];
 }
 
+export interface UriPropertyValue {
+  __typename: 'UriPropertyValue';
+  type: string;
+  value: string;
+}
+
+export interface UriPropertyValueArray {
+  __typename: 'UriPropertyValueArray';
+  type: string;
+  values: string[];
+}
+
 export interface NodeEdge {
   node: Node;
   cursor: string;
@@ -249,6 +310,9 @@ export interface PropertyValueInput {
   longArrayValue?: number[];
   doubleValue?: number;
   doubleArrayValue?: number[];
+  /** Decimal values travel as strings to preserve arbitrary precision. */
+  decimalValue?: string;
+  decimalArrayValue?: string[];
   booleanValue?: boolean;
   booleanArrayValue?: boolean[];
   dateValue?: string;
@@ -257,6 +321,16 @@ export interface PropertyValueInput {
   binaryUploadId?: string;
   binaryArrayUploadIds?: string[];
   binaryArrayItems?: { keepIndex?: number; uploadId?: string }[];
+  nameValue?: string;
+  nameArrayValue?: string[];
+  pathValue?: string;
+  pathArrayValue?: string[];
+  referenceValue?: string;
+  referenceArrayValue?: string[];
+  weakReferenceValue?: string;
+  weakReferenceArrayValue?: string[];
+  uriValue?: string;
+  uriArrayValue?: string[];
 }
 
 export interface PropertyInput {

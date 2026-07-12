@@ -172,6 +172,46 @@ public class JcrRepositoryConfiguration implements Adaptable {
 	}
 
 	/**
+	 * Returns the number of worker threads used to rebuild a workspace's search
+	 * index from scratch on startup (when {@code var/search} is missing),
+	 * configured via {@code org.mintjams.jcr.searchindex.rebuildThreads}.
+	 * <p>
+	 * A from-scratch rebuild extracts the full text of every document (Tika),
+	 * which is CPU/IO bound and embarrassingly parallel, so the default is one
+	 * worker per available processor. Each worker holds its own JCR session for
+	 * the duration of the rebuild, so the value is capped below
+	 * {@link #getMaxSessions()} to leave the session/connection pool headroom for
+	 * the traversal producer <em>and</em> the workspace's other startup-time
+	 * threads (the journal observer, workspace cleaner, garbage collector,
+	 * orphan monitor, and - under clustering - the remote poller), each of which
+	 * may take a session concurrently; without that headroom a worker could block
+	 * on {@code createSession} and time out, failing the rebuild. Set it to
+	 * {@code 1} to force the historical single-threaded rebuild.
+	 */
+	public int getSearchIndexRebuildThreads() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		int value;
+		String configured = bc.getProperty("org.mintjams.jcr.searchindex.rebuildThreads");
+		if (Strings.isNotEmpty(configured)) {
+			value = Integer.parseInt(configured.trim());
+		} else {
+			value = Runtime.getRuntime().availableProcessors();
+		}
+		if (value < 1) {
+			value = 1;
+		}
+		// Reserve slots for the traversal producer plus the handful of other
+		// per-workspace startup threads that each briefly take a session, so the
+		// worker pool can never starve them (or itself) into a login timeout.
+		int reserved = 6;
+		int cap = Math.max(1, getMaxSessions() - reserved);
+		if (value > cap) {
+			value = cap;
+		}
+		return value;
+	}
+
+	/**
 	 * Returns how often, in milliseconds, each node polls the cluster journal to
 	 * invalidate its caches for changes committed on <em>other</em> nodes — i.e.
 	 * the cross-node read-after-write window. A local commit already invalidates
@@ -301,6 +341,47 @@ public class JcrRepositoryConfiguration implements Adaptable {
 				Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.workspace.nodeCacheSize"), "8192"));
 		if (value < 64) {
 			value = 64;
+		}
+		return value;
+	}
+
+	/** Fraction of the JVM max heap one workspace's node cache may hold when unconfigured. */
+	private static final int DEFAULT_NODE_CACHE_HEAP_PERCENT = 5;
+
+	/** Lower bound for the heap-derived default node cache memory, in MB. */
+	private static final int MIN_DEFAULT_NODE_CACHE_MEMORY_MB = 8;
+
+	/** Upper bound for the heap-derived default node cache memory, in MB. */
+	private static final int MAX_DEFAULT_NODE_CACHE_MEMORY_MB = 128;
+
+	/**
+	 * Returns the memory budget of one workspace's node cache, in
+	 * <strong>megabytes</strong> ({@code org.mintjams.jcr.workspace.nodeCacheMemoryMB}).
+	 * <p>
+	 * {@link #getWorkspaceNodeCacheSize()} bounds the cache by entry count only; with
+	 * nodes carrying large property sets the default 8192 entries reached ~117 MB of
+	 * retained heap <em>per workspace</em> and drove the process into OOM. The byte
+	 * budget bounds what the entry count cannot. When the property is not set the
+	 * default is derived from the JVM max heap ({@code -Xmx}):
+	 * {@value #DEFAULT_NODE_CACHE_HEAP_PERCENT}% of the heap, clamped to
+	 * [{@value #MIN_DEFAULT_NODE_CACHE_MEMORY_MB}, {@value #MAX_DEFAULT_NODE_CACHE_MEMORY_MB}] MB,
+	 * following the same pattern as {@link #getCacheSizeMB()}.
+	 */
+	public int getWorkspaceNodeCacheMemoryMB() {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		int value;
+		String configured = bc.getProperty("org.mintjams.jcr.workspace.nodeCacheMemoryMB");
+		if (Strings.isNotEmpty(configured)) {
+			value = Integer.parseInt(configured.trim());
+		} else {
+			long maxHeapMB = Runtime.getRuntime().maxMemory() / (1024L * 1024L);
+			long scaled = maxHeapMB * DEFAULT_NODE_CACHE_HEAP_PERCENT / 100L;
+			value = (int) Math.min(Math.max(scaled, MIN_DEFAULT_NODE_CACHE_MEMORY_MB),
+					MAX_DEFAULT_NODE_CACHE_MEMORY_MB);
+		}
+		// Clamp to a sane floor so caching is never effectively disabled.
+		if (value < 1) {
+			value = 1;
 		}
 		return value;
 	}

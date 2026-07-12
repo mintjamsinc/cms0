@@ -223,11 +223,13 @@ export const BPM_QUERIES = {
       $assignee: String
       $candidateUser: String
       $candidateGroups: [String!]
+      $timeZone: String
     ) {
       taskCounts(
         assignee: $assignee
         candidateUser: $candidateUser
         candidateGroups: $candidateGroups
+        timeZone: $timeZone
       ) {
         total
         unassigned

@@ -101,6 +101,9 @@ type Query {
 
   """Search identity-store principals (users/groups) by keyword. Runs under privilege against the system workspace as the caller (matches the handmade engine; a plain caller session cannot resolve the lookup)."""
   searchPrincipals(keyword: String, offset: Int = 0, limit: Int = 20): [PrincipalSearchResult!]!
+
+  """Current progress snapshot of an async job (delete / downloadArchive / importArchive) — the poll-side complement of the jobProgress subscription. Null when no job record exists for the id."""
+  jobProgress(jobId: String!): JobProgressEvent
 }
 
 # -----------------------------------------------------------------------------
@@ -257,7 +260,7 @@ type TaskEvent {
   """CREATED / ASSIGNED / COMPLETED / UPDATED / DELETED (the Camunda event action)."""
   eventType: String
   task: Task
-  timestamp: String
+  timestamp: DateTime
 }
 
 """A BPM process-instance lifecycle event. `processInstance` is the typed ProcessInstance (a partial projection — id/definitionId/definitionKey/businessKey — built from the engine event)."""
@@ -265,7 +268,7 @@ type ProcessEvent {
   """STARTED / ENDED (the Camunda event action)."""
   eventType: String
   processInstance: ProcessInstance
-  timestamp: String
+  timestamp: DateTime
 }
 
 """A JCR node change (flat payload, mirrors the handmade SSE event)."""
@@ -284,7 +287,7 @@ type NodeChangeEvent {
   """Original path for moved nodes."""
   sourcePath: String
   userId: String
-  timestamp: String
+  timestamp: DateTime
 }
 
 """A change to a user's preferences. `data` is the category's current (non-jcr) string properties."""
@@ -292,7 +295,7 @@ type PreferenceChangedEvent {
   category: String
   data: JSON
   userId: String
-  timestamp: String
+  timestamp: DateTime
 }
 
 """A change to a user's wallpapers."""
@@ -301,19 +304,19 @@ type WallpaperChangedEvent {
   """added / updated / deleted (mapped from the JCR event topic)."""
   action: String
   filename: String
-  timestamp: String
+  timestamp: DateTime
 }
 
 """A change to a user's avatar."""
 type AvatarChangedEvent {
   userId: String
-  timestamp: String
+  timestamp: DateTime
 }
 
 """A workspace runtime-state / settings change signal."""
 type WorkspaceChangedEvent {
   workspace: String
-  timestamp: String
+  timestamp: DateTime
 }
 
 """A snapshot of an async job's progress (flat payload, mirrors the handmade SSE event)."""
@@ -349,7 +352,7 @@ type JobProgressEvent {
   """Set by jobs whose result is a downloadable artifact (archive jobs)."""
   downloadUrl: String
   """Server timestamp (ISO-8601) when this snapshot was emitted."""
-  timestamp: String
+  timestamp: DateTime
 }
 
 input CreateFolderInput {
@@ -678,11 +681,11 @@ type ClusterMember {
   """Host name of the node, when it could be determined."""
   hostName: String
 
-  """When the node joined, in milliseconds since the epoch."""
-  started: Long!
+  """When the node joined (ISO-8601 date-time in UTC)."""
+  started: DateTime!
 
-  """The node's last heartbeat, in milliseconds since the epoch."""
-  lastHeartbeat: Long!
+  """The node's last heartbeat (ISO-8601 date-time in UTC)."""
+  lastHeartbeat: DateTime!
 
   """The cluster coordinator's heartbeat-freshness judgement (server-owned)."""
   alive: Boolean!

@@ -40,6 +40,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
@@ -166,6 +169,15 @@ public class JournalObserver implements Adaptable, Closeable {
 	}
 
 	public void buildSearchIndex(Node item, SearchIndex.UpdateMonitor monitor) throws RepositoryException, IOException {
+		// Kept for callers that want the historical behaviour of committing the
+		// index once per indexed node. The startup rebuild uses
+		// rebuildSearchIndex(...) instead, which defers the commit so a full
+		// rebuild is not throttled by a per-node fsync.
+		buildSearchIndex(item, monitor, true);
+	}
+
+	private void buildSearchIndex(Node item, SearchIndex.UpdateMonitor monitor, boolean commit)
+			throws RepositoryException, IOException {
 		if (monitor != null) {
 			if (monitor.isCancelled()) {
 				return;
@@ -180,16 +192,243 @@ public class JournalObserver implements Adaptable, Closeable {
 		NodeType type = item.getPrimaryNodeType();
 		if (type.isNodeType(NodeType.NT_FOLDER)) {
 			for (NodeIterator i = item.getNodes(); i.hasNext();) {
-				buildSearchIndex(i.nextNode(), monitor);
+				buildSearchIndex(i.nextNode(), monitor, commit);
 			}
 			return;
 		}
 
 		try {
-			updateSearchIndex(item);
-			Optional.ofNullable(monitor.getPathConsumer()).ifPresent(consumer -> consumer.accept(path));
+			updateSearchIndex(item, commit);
+			// Count only the nodes actually indexed (nt:file), so the reported
+			// total matches the parallel rebuild's producer, which enqueues only
+			// nt:file nodes. updateSearchIndex is a no-op for anything else.
+			if (type.isNodeType(NodeType.NT_FILE)) {
+				Optional.ofNullable(monitor.getPathConsumer()).ifPresent(consumer -> consumer.accept(path));
+			}
 		} catch (Throwable ex) {
 			Activator.getDefault().getLogger(getClass()).error("An error occurred while building the index: " + path, ex);
+		}
+	}
+
+	/**
+	 * Rebuilds the whole search index from the repository content. This is the
+	 * path taken on startup when the index directory is missing, and it is the
+	 * hot spot the rebuild optimisation targets.
+	 * <p>
+	 * Two things make a from-scratch rebuild slow: extracting the full text of
+	 * every binary (Tika) is CPU/IO bound, and committing the Lucene index once
+	 * per node forces a fsync per document. This method addresses both. The
+	 * commit is deferred until every node has been written (Lucene still flushes
+	 * segments to disk on its own as its RAM buffer fills, so heap use stays
+	 * bounded), and, when more than one worker is configured, the file nodes are
+	 * fanned out across a pool of worker threads that each extract text and write
+	 * to the (thread-safe) shared Lucene writers in parallel.
+	 * <p>
+	 * The number of workers is {@code org.mintjams.jcr.searchindex.rebuildThreads}
+	 * (default: one per available processor, capped so the session pool is not
+	 * exhausted). Set it to {@code 1} to fall back to a single-threaded rebuild.
+	 */
+	public void rebuildSearchIndex(SearchIndex.UpdateMonitor monitor) throws RepositoryException, IOException {
+		// Warm the lazily-initialised, unsynchronised suggestion-key cache once
+		// on this thread so the worker threads never race to initialise it.
+		fWorkspaceProvider.getConfiguration().getSuggestionPropertyKeys();
+
+		int threads = adaptTo(JcrRepository.class).getConfiguration().getSearchIndexRebuildThreads();
+		if (threads <= 1) {
+			rebuildSearchIndexSequential(monitor);
+		} else {
+			rebuildSearchIndexParallel(monitor, threads);
+		}
+
+		// A single commit for the entire rebuild: everything written above is made
+		// durable and visible here, instead of paying a fsync per node.
+		commitSearchIndexWriters();
+	}
+
+	private void rebuildSearchIndexSequential(SearchIndex.UpdateMonitor monitor)
+			throws RepositoryException, IOException {
+		try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+			for (NodeIterator i = workspace.getSession().getRootNode().getNodes(); i.hasNext();) {
+				buildSearchIndex(i.nextNode(), monitor, false);
+			}
+		}
+	}
+
+	private void rebuildSearchIndexParallel(SearchIndex.UpdateMonitor monitor, int threads)
+			throws RepositoryException, IOException {
+		// A bounded queue gives back-pressure: the traversal producer blocks once
+		// the workers fall behind, so at most a bounded number of node ids are
+		// held in memory at any time regardless of repository size.
+		final BlockingQueue<String> queue = new ArrayBlockingQueue<>(Math.max(threads * 64, 256));
+		final AtomicReference<Throwable> failure = new AtomicReference<>();
+
+		List<Thread> workers = new ArrayList<>(threads);
+		for (int t = 0; t < threads; t++) {
+			Thread worker = new Thread(new RebuildWorker(queue, monitor, failure),
+					"searchindex-rebuild-" + fWorkspaceProvider.getWorkspaceName() + "-" + t);
+			worker.setDaemon(true);
+			worker.start();
+			workers.add(worker);
+		}
+
+		boolean interrupted = false;
+		try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+			for (NodeIterator i = workspace.getSession().getRootNode().getNodes(); i.hasNext();) {
+				enqueueIndexableIds(i.nextNode(), queue, monitor);
+			}
+		} catch (InterruptedException ex) {
+			interrupted = true;
+			failure.compareAndSet(null, ex);
+		} catch (Throwable ex) {
+			failure.compareAndSet(null, ex);
+		} finally {
+			// Deliver one poison pill per worker no matter what. The queue is FIFO,
+			// so every real node id enqueued above is consumed before any worker
+			// sees a pill; even if the traversal failed part way, the pills still
+			// release every worker. Clear any interrupt first so the interruptible
+			// put() calls actually run (a set interrupt makes put() throw
+			// immediately, which would strand the pills and leave workers blocked
+			// forever on take(), leaking their sessions); retry through spurious
+			// interrupts, then restore the interrupt at the end.
+			if (Thread.interrupted()) {
+				interrupted = true;
+			}
+			for (int t = 0; t < threads; t++) {
+				while (true) {
+					try {
+						queue.put(REBUILD_POISON);
+						break;
+					} catch (InterruptedException ex) {
+						interrupted = true;
+					}
+				}
+			}
+			if (interrupted) {
+				Thread.currentThread().interrupt();
+			}
+		}
+
+		for (Thread worker : workers) {
+			try {
+				worker.join();
+			} catch (InterruptedException ex) {
+				Thread.currentThread().interrupt();
+			}
+		}
+
+		Throwable ex = failure.get();
+		if (ex != null) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
+	private void enqueueIndexableIds(Node item, BlockingQueue<String> queue, SearchIndex.UpdateMonitor monitor)
+			throws RepositoryException, InterruptedException {
+		if (monitor != null && monitor.isCancelled()) {
+			return;
+		}
+
+		if (JCRs.isSystemPath(item.getPath())) {
+			return;
+		}
+
+		NodeType type = item.getPrimaryNodeType();
+		if (type.isNodeType(NodeType.NT_FOLDER)) {
+			for (NodeIterator i = item.getNodes(); i.hasNext();) {
+				enqueueIndexableIds(i.nextNode(), queue, monitor);
+			}
+			return;
+		}
+
+		// Only nt:file nodes carry indexable content; updateSearchIndex skips
+		// everything else, so there is no point queueing (and re-fetching) it.
+		if (type.isNodeType(NodeType.NT_FILE)) {
+			queue.put(item.getIdentifier());
+		}
+	}
+
+	private void commitSearchIndexWriters() throws IOException {
+		SearchIndex searchIndex = adaptTo(SearchIndex.class);
+		searchIndex.getDocumentWriter().commit();
+		searchIndex.getSuggestionWriter().commit();
+	}
+
+	/**
+	 * Reference-identity sentinel that signals a rebuild worker to stop. A fresh
+	 * {@code String} instance is used deliberately so it can never be equal by
+	 * reference to a real node identifier drawn from the queue.
+	 */
+	private static final String REBUILD_POISON = new String("__searchindex_rebuild_poison__");
+
+	private class RebuildWorker implements Runnable {
+		private final BlockingQueue<String> fQueue;
+		private final SearchIndex.UpdateMonitor fMonitor;
+		private final AtomicReference<Throwable> fFailure;
+
+		private RebuildWorker(BlockingQueue<String> queue, SearchIndex.UpdateMonitor monitor,
+				AtomicReference<Throwable> failure) {
+			fQueue = queue;
+			fMonitor = monitor;
+			fFailure = failure;
+		}
+
+		@Override
+		public void run() {
+			JcrWorkspace workspace = null;
+			try {
+				workspace = fWorkspaceProvider.createSession(new SystemPrincipal());
+			} catch (Throwable ex) {
+				// Record the failure but still drain the queue below so the
+				// producer never blocks waiting for a consumer that died.
+				fFailure.compareAndSet(null, ex);
+			}
+
+			try {
+				int sinceRefresh = 0;
+				while (true) {
+					String id;
+					try {
+						id = fQueue.take();
+					} catch (InterruptedException ex) {
+						Thread.currentThread().interrupt();
+						break;
+					}
+					if (id == REBUILD_POISON) {
+						break;
+					}
+					if (workspace == null) {
+						continue;
+					}
+
+					try {
+						Node item = workspace.getSession().getNodeByIdentifier(id);
+						updateSearchIndex(item, false);
+						if (fMonitor != null && fMonitor.getPathConsumer() != null) {
+							fMonitor.getPathConsumer().accept(item.getPath());
+						}
+					} catch (ItemNotFoundException ignore) {
+						// The node was removed after it was enumerated; nothing to index.
+					} catch (Throwable ex) {
+						Activator.getDefault().getLogger(JournalObserver.class)
+								.error("An error occurred while building the index: " + id, ex);
+					}
+
+					// Drop the per-session read caches periodically so a large
+					// rebuild does not accumulate transient state without bound.
+					if (++sinceRefresh >= 256) {
+						sinceRefresh = 0;
+						try {
+							workspace.getSession().refresh(false);
+						} catch (Throwable ignore) {}
+					}
+				}
+			} finally {
+				if (workspace != null) {
+					try {
+						workspace.close();
+					} catch (Throwable ignore) {}
+				}
+			}
 		}
 	}
 
@@ -229,6 +468,20 @@ public class JournalObserver implements Adaptable, Closeable {
 	}
 
 	private void updateSearchIndex(Node item) throws RepositoryException, IOException {
+		updateSearchIndex(item, true);
+	}
+
+	/**
+	 * Writes {@code item} to the search index. When {@code commit} is
+	 * {@code true} the document and suggestion writers are committed before
+	 * returning (the behaviour used for live, per-transaction updates). When it
+	 * is {@code false} the write is left uncommitted so a bulk rebuild can commit
+	 * everything once at the end; in that mode a failure must not roll back the
+	 * shared writers (that would discard every other node written so far, and
+	 * Lucene's rollback closes the writer), so the caller is expected to log and
+	 * skip the offending node.
+	 */
+	private void updateSearchIndex(Node item, boolean commit) throws RepositoryException, IOException {
 		NodeType type = item.getPrimaryNodeType();
 		if (!type.isNodeType(NodeType.NT_FILE)) {
 			return;
@@ -283,14 +536,14 @@ public class JournalObserver implements Adaptable, Closeable {
 
 					try {
 						Property dataProperty = contentNode.getProperty(JcrProperty.JCR_DATA);
-						if (mimeType.startsWith("text/")) {
-							String text = dataProperty.getString();
-							document.setSize(text.getBytes(encoding).length);
-							document.setContent(text);
-						} else {
-							document.setSize(dataProperty.getLength());
-							document.setContent(Adaptables.getAdapter(dataProperty.getValue(), Path.class));
-						}
+						// Feed the content from its backing file rather than reading
+						// the whole resource into a String first: a large text
+						// resource (for example a minified bundle) would otherwise be
+						// fully materialised in memory here, then copied again while
+						// indexing. The search index reads a bounded prefix instead,
+						// decoding text/* with the encoding declared above.
+						document.setSize(dataProperty.getLength());
+						document.setContent(Adaptables.getAdapter(dataProperty.getValue(), Path.class));
 					} catch (PathNotFoundException ignore) {
 						document.setSize(0);
 						document.setContent("");
@@ -354,15 +607,28 @@ public class JournalObserver implements Adaptable, Closeable {
 
 					return document;
 				} catch (Throwable ex) {
-					Activator.getDefault().getLogger(getClass()).error("An error occurred while creating the index: " + itemId, ex);
+					// A missing item/property usually means the node vanished while it
+					// was being indexed (see processTransaction, which verifies and
+					// handles that case); keep the log quiet for it.
+					if (!isCausedByMissingItem(ex)) {
+						Activator.getDefault().getLogger(getClass()).error("An error occurred while creating the index: " + itemId, ex);
+					}
 					throw Cause.create(ex).wrap(IllegalStateException.class);
 				}
 			});
-			documentWriter.commit();
+			if (commit) {
+				documentWriter.commit();
+			}
 		} catch (Throwable ex) {
-			try {
-				documentWriter.rollback();
-			} catch (Throwable ignore) {}
+			// Only roll back when we own the whole transaction (commit == true).
+			// During a deferred bulk rebuild the writer is shared across nodes and
+			// threads, and Lucene's rollback would discard every node written so
+			// far and close the writer; leave it untouched and let the caller skip.
+			if (commit) {
+				try {
+					documentWriter.rollback();
+				} catch (Throwable ignore) {}
+			}
 			throw Cause.create(ex).wrap(IOException.class);
 		}
 
@@ -434,14 +700,13 @@ public class JournalObserver implements Adaptable, Closeable {
 
 							try {
 								Property dataProperty = contentNode.getProperty(JcrProperty.JCR_DATA);
-								if (mimeType.startsWith("text/")) {
-									String text = dataProperty.getString();
-									suggestion.setSize(text.getBytes(encoding).length);
-									suggestion.setContent(text);
-								} else {
-									suggestion.setSize(dataProperty.getLength());
-									suggestion.setContent(Adaptables.getAdapter(dataProperty.getValue(), Path.class));
-								}
+								// Feed the content from its backing file rather than
+								// reading the whole resource into a String first, so a
+								// large text resource is not fully materialised in
+								// memory here. The search index reads a bounded prefix,
+								// decoding text/* with the encoding declared above.
+								suggestion.setSize(dataProperty.getLength());
+								suggestion.setContent(Adaptables.getAdapter(dataProperty.getValue(), Path.class));
 							} catch (PathNotFoundException ignore) {
 								suggestion.setSize(0);
 								suggestion.setContent("");
@@ -513,11 +778,17 @@ public class JournalObserver implements Adaptable, Closeable {
 					});
 				}
 			}
-			suggestionWriter.commit();
+			if (commit) {
+				suggestionWriter.commit();
+			}
 		} catch (Throwable ex) {
-			try {
-				suggestionWriter.rollback();
-			} catch (Throwable ignore) {}
+			// See the note on the document writer above: never roll back the
+			// shared writer during a deferred bulk rebuild.
+			if (commit) {
+				try {
+					suggestionWriter.rollback();
+				} catch (Throwable ignore) {}
+			}
 			throw Cause.create(ex).wrap(IOException.class);
 		}
 	}
@@ -680,39 +951,67 @@ public class JournalObserver implements Adaptable, Closeable {
 		return l;
 	}
 
-	private void removeSearchIndex(AdaptableMap<String, Object> eventData, Workspace workspace) throws IOException {
-		NodeType type;
+	private boolean isFolderType(String primaryType, Workspace workspace) throws IOException {
 		try {
-			type = workspace.getNodeTypeManager().getNodeType(eventData.getString("primary_type"));
+			return workspace.getNodeTypeManager().getNodeType(primaryType).isNodeType(NodeType.NT_FOLDER);
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
+	}
 
-		if (!type.isNodeType(NodeType.NT_FOLDER)) {
-			SearchIndex.DocumentWriter indexWriter = adaptTo(SearchIndex.class).getDocumentWriter();
-			try {
-				indexWriter.delete(eventData.getString("item_id"));
-				indexWriter.commit();
-			} catch (Throwable ex) {
-				try {
-					indexWriter.rollback();
-				} catch (Throwable ignore) {}
-				throw Cause.create(ex).wrap(IOException.class);
+	/**
+	 * Whether the failure's cause chain contains a missing-item error
+	 * ({@code PathNotFoundException} / {@code ItemNotFoundException}) — the
+	 * signature of a node that vanished while it was being indexed. The chain
+	 * is walked because the indexing lambda and the writer wrap the original
+	 * exception on the way out.
+	 */
+	private static boolean isCausedByMissingItem(Throwable ex) {
+		for (Throwable t = ex; t != null; t = t.getCause()) {
+			if (t instanceof PathNotFoundException || t instanceof ItemNotFoundException) {
+				return true;
 			}
+			if (t.getCause() == t) {
+				break;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Removes the index entries of the given removed items — the documents and
+	 * suggestions of the plain items, plus, for each removed folder, everything
+	 * the index still holds under the folder's path — with one document commit
+	 * and one suggestion commit for the whole batch. The path-prefix expansion
+	 * also harvests the matched documents' identifiers so the suggestions of a
+	 * removed folder's descendants are cleaned up as well.
+	 */
+	private void removeSearchIndexBatch(List<AdaptableMap<String, Object>> folderEvents, List<String> itemIds)
+			throws IOException {
+		if (folderEvents.isEmpty() && itemIds.isEmpty()) {
 			return;
 		}
 
+		Set<String> suggestionIds = new LinkedHashSet<>(itemIds);
 		SearchIndex.DocumentWriter documentWriter = adaptTo(SearchIndex.class).getDocumentWriter();
 		try {
-			StringBuilder stmt = new StringBuilder("/jcr:root").append(eventData.getString("item_path")).append("//*");
-			for (;;) {
-				SearchIndex.QueryResult.Row[] rows = adaptTo(SearchIndex.class)
-						.createQuery(stmt.toString(), "jcr:xpath").setOffset(0).setLimit(100).execute().toArray();
-				if (rows.length == 0) {
-					break;
-				}
+			if (!itemIds.isEmpty()) {
+				documentWriter.delete(itemIds.toArray(String[]::new));
+			}
+			for (AdaptableMap<String, Object> eventData : folderEvents) {
+				suggestionIds.add(eventData.getString("item_id"));
+				StringBuilder stmt = new StringBuilder("/jcr:root").append(eventData.getString("item_path")).append("//*");
+				for (;;) {
+					SearchIndex.QueryResult.Row[] rows = adaptTo(SearchIndex.class)
+							.createQuery(stmt.toString(), "jcr:xpath").setOffset(0).setLimit(100).execute().toArray();
+					if (rows.length == 0) {
+						break;
+					}
 
-				documentWriter.delete(Arrays.stream(rows).map(e -> e.getIdentifier()).toArray(String[]::new));
+					String[] ids = Arrays.stream(rows).map(e -> e.getIdentifier()).toArray(String[]::new);
+					documentWriter.delete(ids);
+					suggestionIds.addAll(Arrays.asList(ids));
+				}
 			}
 			documentWriter.commit();
 		} catch (Throwable ex) {
@@ -724,7 +1023,7 @@ public class JournalObserver implements Adaptable, Closeable {
 
 		SearchIndex.SuggestionWriter suggestionWriter = adaptTo(SearchIndex.class).getSuggestionWriter();
 		try {
-			suggestionWriter.delete(eventData.getString("item_id"));
+			suggestionWriter.delete(suggestionIds.toArray(String[]::new));
 			suggestionWriter.commit();
 		} catch (Throwable ex) {
 			try {
@@ -909,16 +1208,75 @@ public class JournalObserver implements Adaptable, Closeable {
 				}
 			}
 
-			for (String id : events.keySet()) {
-				AdaptableMap<String, Object> event = events.get(id);
-				postEvent(event);
-				try {
-					Node item = workspace.getSession().getNodeByIdentifier(id);
-					updateSearchIndex(event, item);
-				} catch (ItemNotFoundException ignore) {
-					removeSearchIndex(event, workspace);
+			// Removal events are collected and flushed to the search index as one
+			// batch after the loop: an index commit is expensive (fsync), and a
+			// delete transaction can carry many removal events, so committing per
+			// event made large deletes hammer the index writer.
+			List<String> removedDocumentIds = new ArrayList<>();
+			List<AdaptableMap<String, Object>> removedFolderEvents = new ArrayList<>();
+			Throwable failure = null;
+			try {
+				for (String id : events.keySet()) {
+					AdaptableMap<String, Object> event = events.get(id);
+					postEvent(event);
+					try {
+						Node item = workspace.getSession().getNodeByIdentifier(id);
+						updateSearchIndex(event, item);
+					} catch (ItemNotFoundException ignore) {
+						if (isFolderType(event.getString("primary_type"), workspace)) {
+							removedFolderEvents.add(event);
+						} else {
+							removedDocumentIds.add(event.getString("item_id"));
+						}
+					} catch (Throwable ex) {
+						// A node can vanish BETWEEN the identifier lookup and the index
+						// write: a short-lived node (e.g. a queue marker) is created in
+						// this transaction and removed by a sibling transaction that
+						// commits while this one is being indexed, so the property
+						// reads fail with PathNotFoundException instead of the lookup
+						// failing with ItemNotFoundException. Confirm the node is
+						// really gone and fold it into the removal batch — failing the
+						// whole transaction here would drop the OTHER nodes' index
+						// updates forever. Anything else stays a genuine failure.
+						if (!isCausedByMissingItem(ex)) {
+							throw ex;
+						}
+						boolean vanished = false;
+						try {
+							workspace.getSession().refresh(true);
+							workspace.getSession().getNodeByIdentifier(id);
+						} catch (ItemNotFoundException gone) {
+							vanished = true;
+						} catch (Throwable ignore) {}
+						if (!vanished) {
+							throw ex;
+						}
+						if (isFolderType(event.getString("primary_type"), workspace)) {
+							removedFolderEvents.add(event);
+						} else {
+							removedDocumentIds.add(event.getString("item_id"));
+						}
+					}
+					workspace.getSession().refresh(true);
 				}
-				workspace.getSession().refresh(true);
+			} catch (Throwable ex) {
+				failure = ex;
+			}
+			// The removals collected so far must reach the index even when a later
+			// event failed: a failed transaction is dropped by the caller and its
+			// deleted files would otherwise stay searchable forever.
+			try {
+				removeSearchIndexBatch(removedFolderEvents, removedDocumentIds);
+			} catch (Throwable ex) {
+				if (failure == null) {
+					failure = ex;
+				} else {
+					Activator.getDefault().getLogger(getClass())
+							.error("An error occurred while removing search index entries.", ex);
+				}
+			}
+			if (failure != null) {
+				throw Cause.create(failure).wrap(IOException.class);
 			}
 		}
 	}

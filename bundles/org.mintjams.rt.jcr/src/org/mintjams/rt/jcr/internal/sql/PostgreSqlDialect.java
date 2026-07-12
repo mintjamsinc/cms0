@@ -57,6 +57,15 @@ public class PostgreSqlDialect implements DatabaseDialect {
 	}
 
 	@Override
+	public boolean isLockContention(SQLException ex) {
+		// PostgreSQL reports lock_not_available as SQLSTATE 55P03 (lock_timeout
+		// or NOWAIT/SKIP LOCKED), deadlock_detected as 40P01, and
+		// serialization_failure as 40001.
+		return DatabaseDialect.hasSqlState(ex, "55P03") || DatabaseDialect.hasSqlState(ex, "40P01")
+				|| DatabaseDialect.hasSqlState(ex, "40001");
+	}
+
+	@Override
 	public Connection wrap(Connection connection) throws SQLException {
 		return JdbcArrayAdapter.wrap(connection);
 	}

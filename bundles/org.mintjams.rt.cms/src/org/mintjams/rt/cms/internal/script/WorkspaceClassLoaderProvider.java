@@ -65,9 +65,12 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	private final Path fCachePath;
 	private final Map<Path, String> fCachedFiles = new HashMap<>();
 	private final Closer fCloser = Closer.create();
-	private WorkspaceClassLoader fWorkspaceClassLoader;
-	private ScriptCacheManager fScriptCacheManager;
-	private GroovyClassLoader fGroovyClassLoader;
+	// Read by getClassLoader()/adaptTo() without holding fCachedFiles (the hot
+	// class-loading path), and swapped under fCachedFiles by reload(); volatile so
+	// the swap publishes safely and readers never see a stale reference.
+	private volatile WorkspaceClassLoader fWorkspaceClassLoader;
+	private volatile ScriptCacheManager fScriptCacheManager;
+	private volatile GroovyClassLoader fGroovyClassLoader;
 	private boolean fHasChanges;
 
 	public WorkspaceClassLoaderProvider(String workspaceName) throws IOException {
@@ -124,7 +127,8 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	}
 
 	private void openClassLoader() {
-		fScriptCacheManager = new ScriptCacheManager();
+		ScriptCacheManager scriptCacheManager = new ScriptCacheManager();
+		WorkspaceClassLoader workspaceClassLoader;
 		try {
 			List<URL> urls = new ArrayList<>();
 			collectFiles("lib", urls);
@@ -132,11 +136,19 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			collectFiles("usr/local/lib", urls);
 			addIfExists("content/WEB-INF/classes", urls);
 			collectFiles("content/WEB-INF/lib", urls);
-			fWorkspaceClassLoader = new WorkspaceClassLoader(urls.toArray(URL[]::new));
+			workspaceClassLoader = new WorkspaceClassLoader(urls.toArray(URL[]::new));
 		} catch (Throwable ex) {
 			throw Cause.create(ex).wrap(IllegalStateException.class, "An error occurred while creating the class loader: " + fWorkspaceName);
 		}
-		fGroovyClassLoader = new GroovyClassLoader(new WorkspaceDelegatingClassLoader(fWorkspaceName));
+		GroovyClassLoader groovyClassLoader = new GroovyClassLoader(new WorkspaceDelegatingClassLoader(fWorkspaceName));
+
+		// Publish the sibling loaders first and the workspace class loader last:
+		// getClassLoader() keys off fWorkspaceClassLoader, so by the time a reader
+		// can observe it the ScriptCacheManager and GroovyClassLoader that a caller
+		// may adapt to from it are already in place.
+		fScriptCacheManager = scriptCacheManager;
+		fGroovyClassLoader = groovyClassLoader;
+		fWorkspaceClassLoader = workspaceClassLoader;
 	}
 
 	private void reload(boolean force) {
@@ -148,8 +160,29 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			}
 
 			fHasChanges = false;
-			closeClassLoader();
+			// Build the replacement generation before retiring the current one, and
+			// publish it with a single (volatile) assignment inside openClassLoader,
+			// so a concurrent getClassLoader() - an EIP route or a script loading a
+			// class on another thread while a reload runs - never observes the
+			// momentary null that a close-then-open would expose. The previous
+			// generation keeps serving until the replacement is ready, and is only
+			// retired once it can no longer be handed out.
+			ScriptCacheManager previousScriptCacheManager = fScriptCacheManager;
+			GroovyClassLoader previousGroovyClassLoader = fGroovyClassLoader;
+			WorkspaceClassLoader previousWorkspaceClassLoader = fWorkspaceClassLoader;
+
 			openClassLoader();
+
+			if (previousGroovyClassLoader != null) {
+				previousGroovyClassLoader.clearCache();
+			}
+			if (previousWorkspaceClassLoader != null) {
+				IOs.closeQuietly(previousWorkspaceClassLoader);
+			}
+			if (previousScriptCacheManager != null) {
+				previousScriptCacheManager.clearCache();
+			}
+
 			CmsService.getLogger(getClass()).info("The class loader has been reloaded successfully.");
 		}
 	}

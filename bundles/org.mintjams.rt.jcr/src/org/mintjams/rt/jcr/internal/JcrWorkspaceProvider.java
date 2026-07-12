@@ -34,11 +34,11 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 import javax.jcr.LoginException;
-import javax.jcr.NodeIterator;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
 
@@ -142,6 +142,56 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		return getWorkspacePath().resolve("var/search").normalize();
 	}
 
+	/**
+	 * Returns the marker that records that a from-scratch rebuild of the search
+	 * index is in progress (or crashed before completing). The rebuild now
+	 * defers its Lucene commit to a single commit at the end, so a rebuild that
+	 * is killed or fails part way leaves the index directory present but empty
+	 * or partial. Because the rebuild is gated on the directory merely existing,
+	 * that incomplete index would otherwise be treated as "built" and never
+	 * rebuilt. This marker is written before the rebuild starts and removed only
+	 * after the final commit succeeds, so its presence on the next startup forces
+	 * a rebuild. It lives inside the index directory so discarding that directory
+	 * discards the marker too. Existing, fully-built indexes have no marker, so
+	 * they are never rebuilt spuriously.
+	 */
+	public Path getWorkspaceSearchRebuildMarkerPath() {
+		return getWorkspaceSearchPath().resolve(".rebuild-incomplete").normalize();
+	}
+
+	/**
+	 * Writes the rebuild-incomplete marker before a from-scratch rebuild begins.
+	 * Best-effort: a failure to write it only means a crash mid-rebuild would not
+	 * be detected on the next startup (the historical behaviour), so it must not
+	 * abort startup.
+	 */
+	private void markSearchIndexRebuildIncomplete() {
+		try {
+			Path marker = getWorkspaceSearchRebuildMarkerPath();
+			Files.createDirectories(marker.getParent());
+			if (!Files.exists(marker)) {
+				Files.createFile(marker);
+			}
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(getClass())
+					.warn("Could not write the search index rebuild marker.", ex);
+		}
+	}
+
+	/**
+	 * Removes the rebuild-incomplete marker after the rebuild's final commit has
+	 * succeeded. Best-effort: if the marker cannot be removed the only cost is a
+	 * redundant rebuild on the next startup.
+	 */
+	private void markSearchIndexRebuildComplete() {
+		try {
+			Files.deleteIfExists(getWorkspaceSearchRebuildMarkerPath());
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(getClass())
+					.warn("Could not clear the search index rebuild marker; the index will be rebuilt on the next startup.", ex);
+		}
+	}
+
 	public synchronized JcrWorkspaceProvider open() throws IOException {
 		Activator.getDefault().getLogger(getClass()).info("Start the JCR workspace '" + getWorkspaceName() + "'.");
 
@@ -184,7 +234,13 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			if (clusterEnabled) {
 				discardStaleSearchIndex();
 			}
-			needsBuildSearchIndex = !Files.exists(getWorkspaceSearchPath());
+			// Rebuild when the index directory is missing, or when a previous
+			// rebuild started but never finished (its marker is still present).
+			// The latter guards against the deferred single commit: a rebuild that
+			// crashes leaves the directory present but not durably committed, and
+			// without this check it would be mistaken for a completed index.
+			needsBuildSearchIndex = !Files.exists(getWorkspaceSearchPath())
+					|| Files.exists(getWorkspaceSearchRebuildMarkerPath());
 			fSearchIndex = fCloser.register(Activator.getDefault().getSearchIndexFactory().createSearchIndexConfiguration()
 					.setDataPath(getWorkspaceSearchPath()).setConfigPath(getWorkspaceEtcPath().resolve("search"))
 					.createSearchIndex());
@@ -210,14 +266,27 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		if (needsBuildSearchIndex) {
 			Activator.getDefault().getLogger(getClass()).info("Creating the JCR search index.");
 			SearchIndexUpdateMonitor updateMonitor = new SearchIndexUpdateMonitor();
-			try (JcrWorkspace workspace = createSession(new SystemPrincipal())) {
-				for (NodeIterator i = workspace.getSession().getRootNode().getNodes(); i.hasNext();) {
-					fJournalObserver.buildSearchIndex(i.nextNode(), updateMonitor);
-				}
+			long startedAt = System.currentTimeMillis();
+			// Mark the rebuild incomplete until its single deferred commit lands.
+			// If the process dies mid-rebuild, the marker survives and the next
+			// startup rebuilds instead of trusting a half-written index.
+			markSearchIndexRebuildIncomplete();
+			try {
+				// Deferred-commit, optionally multi-threaded rebuild. Committing
+				// the index per node (fsync each time) and extracting every
+				// document's text on a single thread made a from-scratch rebuild
+				// very slow; the observer now defers the commit and fans the work
+				// out across a pool of workers.
+				fJournalObserver.rebuildSearchIndex(updateMonitor);
 			} catch (RepositoryException ex) {
 				throw Cause.create(ex).wrap(IOException.class);
 			}
-			Activator.getDefault().getLogger(getClass()).info("JCR search index has been created. Total indexed " + updateMonitor.getCount() + " nodes.");
+			// The index is durably committed; clear the marker so subsequent
+			// startups trust it. Left in place on any failure above so the next
+			// startup rebuilds.
+			markSearchIndexRebuildComplete();
+			Activator.getDefault().getLogger(getClass()).info("JCR search index has been created. Total indexed "
+					+ updateMonitor.getCount() + " nodes in " + (System.currentTimeMillis() - startedAt) + " ms.");
 		}
 
 		fLive = true;
@@ -786,14 +855,16 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 	}
 
 	private class SearchIndexUpdateMonitor implements SearchIndex.UpdateMonitor {
-		private long fCount = 0;
+		// The rebuild may drive this consumer from several worker threads at
+		// once, so the counter must be atomic to report an accurate total.
+		private final AtomicLong fCount = new AtomicLong();
 
 		private final Consumer<String> fPathConsumer = new Consumer<>() {
 			@Override
 			public void accept(String path) {
-				fCount++;
-				if (fCount % 100 == 0) {
-					Activator.getDefault().getLogger(JcrWorkspaceProvider.class).info("Indexed " + fCount + " nodes.");
+				long count = fCount.incrementAndGet();
+				if (count % 100 == 0) {
+					Activator.getDefault().getLogger(JcrWorkspaceProvider.class).info("Indexed " + count + " nodes.");
 				}
 			}
 		};
@@ -809,7 +880,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		}
 
 		public long getCount() {
-			return fCount;
+			return fCount.get();
 		}
 	};
 

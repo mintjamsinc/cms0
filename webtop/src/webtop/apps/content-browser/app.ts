@@ -4,6 +4,7 @@ import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from
 import { downloadContentAsZip, importContentArchive, type ArchiveJobHandle, type ArchiveJobProgress, type ImportArchiveProgress } from "../../services/content-archive.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
+import { Dates } from "../../utils/dates.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
 import { readArchiveManifest } from "./archive-manifest.js";
 import {
@@ -580,20 +581,19 @@ export const App = {
 			if (text) {
 				result = result.filter(item => item.name.toLowerCase().includes(text));
 			}
-			// Date filter
+			// Date filter. Boundaries are resolved in the user's preference
+			// time zone (OS zone when unset), never the UTC calendar date.
 			if (this.filterDateMode !== 'none') {
-				const now = new Date();
+				const tz = this.localization.timeZone || undefined;
 				if (this.filterDateMode === 'today') {
-					const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+					const start = Dates.startOfDay(tz);
 					result = result.filter(item => item.lastModified && item.lastModified >= start);
 				} else if (this.filterDateMode === 'pastN') {
-					const start = new Date(now);
-					start.setDate(start.getDate() - this.filterDatePastN);
-					start.setHours(0, 0, 0, 0);
+					const start = Dates.startOfDay(tz, this.filterDatePastN);
 					result = result.filter(item => item.lastModified && item.lastModified >= start);
 				} else if (this.filterDateMode === 'range') {
-					if (this.filterDateFrom) {
-						const from = new Date(this.filterDateFrom);
+					const from = Dates.fromZonedInputValue(this.filterDateFrom, tz);
+					if (from) {
 						result = result.filter(item => {
 							if (!item.lastModified) return false;
 							return this.filterDateFromInclusive
@@ -601,8 +601,8 @@ export const App = {
 								: item.lastModified > from;
 						});
 					}
-					if (this.filterDateTo) {
-						const to = new Date(this.filterDateTo);
+					const to = Dates.fromZonedInputValue(this.filterDateTo, tz);
+					if (to) {
 						result = result.filter(item => {
 							if (!item.lastModified) return false;
 							return this.filterDateToInclusive
@@ -681,25 +681,28 @@ export const App = {
 						conditions.push(`@${cond.propertyKey}='${cond.booleanValue}'`);
 					}
 				} else if (baseType === 'DATE') {
+					// Day boundaries and datetime-local values are resolved in
+					// the user's preference time zone (OS zone when unset) and
+					// sent as the equivalent UTC instant; the server compares
+					// absolute instants, so the boundary must be the user's
+					// midnight, not UTC midnight.
+					const tz = this.localization.timeZone || undefined;
 					if (cond.dateMode === 'today') {
-						const today = new Date();
-						const iso = today.toISOString().slice(0, 10);
-						conditions.push(`@${cond.propertyKey} >= xs:dateTime('${iso}T00:00:00.000Z')`);
+						const start = Dates.startOfDay(tz);
+						conditions.push(`@${cond.propertyKey} >= xs:dateTime('${start.toISOString()}')`);
 					} else if (cond.dateMode === 'pastN') {
-						const d = new Date();
-						d.setDate(d.getDate() - cond.datePastN);
-						const iso = d.toISOString().slice(0, 10);
-						conditions.push(`@${cond.propertyKey} >= xs:dateTime('${iso}T00:00:00.000Z')`);
+						const start = Dates.startOfDay(tz, cond.datePastN);
+						conditions.push(`@${cond.propertyKey} >= xs:dateTime('${start.toISOString()}')`);
 					} else if (cond.dateMode === 'range') {
-						if (cond.dateFrom) {
+						const from = Dates.fromZonedInputValue(cond.dateFrom, tz);
+						if (from) {
 							const op = cond.dateFromInclusive ? '>=' : '>';
-							const dt = new Date(cond.dateFrom);
-							conditions.push(`@${cond.propertyKey} ${op} xs:dateTime('${dt.toISOString()}')`);
+							conditions.push(`@${cond.propertyKey} ${op} xs:dateTime('${from.toISOString()}')`);
 						}
-						if (cond.dateTo) {
+						const to = Dates.fromZonedInputValue(cond.dateTo, tz);
+						if (to) {
 							const op = cond.dateToInclusive ? '<=' : '<';
-							const dt = new Date(cond.dateTo);
-							conditions.push(`@${cond.propertyKey} ${op} xs:dateTime('${dt.toISOString()}')`);
+							conditions.push(`@${cond.propertyKey} ${op} xs:dateTime('${to.toISOString()}')`);
 						}
 					}
 				}
@@ -1104,9 +1107,11 @@ export const App = {
 				// even when the folder is not mix:referenceable.
 				vm._currentFolderId = (parentNode as any).id || (parentNode as any).uuid || null;
 
-				// Fetch all children using auto-pagination
+				// Fetch all children using auto-pagination. 200 per page: the
+				// per-page overhead (round trip, cursor positioning) dominates on
+				// large folders, and a 200-row payload is still small.
 				const items: ContentItem[] = [];
-				for await (const batch of contentService.listAllChildren(path, 50)) {
+				for await (const batch of contentService.listAllChildren(path, 200)) {
 					for (const node of batch) {
 						const item = nodeToContentItem(node);
 						item.attributes.displayDate = vm.displayDate(item);

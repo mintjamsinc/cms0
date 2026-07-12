@@ -27,8 +27,6 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.Principal;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -55,6 +53,7 @@ import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.WorkspaceUserHomes;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.rt.cms.internal.util.ISO8601;
 
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
@@ -94,9 +93,6 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 	static final String USERS_ROOT = "/home/users";
 	static final String ROLES_ROOT = "/home/roles";
 	static final String GROUPS_ROOT = "/home/groups";
-
-	private static final DateTimeFormatter ISO8601_FORMAT =
-			DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC);
 
 	@Override
 	public SchemaContribution contribute(String workspaceName) throws Exception {
@@ -1766,10 +1762,7 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 	}
 
 	static String formatDate(Calendar cal) {
-		if (cal == null) {
-			return null;
-		}
-		return ISO8601_FORMAT.format(cal.toInstant());
+		return ISO8601.format(cal);
 	}
 
 	private static Session callerSession(DataFetchingEnvironment environment) {

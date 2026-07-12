@@ -212,8 +212,8 @@ type CamelContextRoute {
 #     `path` (preferred) OR `exchangeId` (back-compat first match) — the doc's
 #     `exchangeId`-only argument is stale.
 #   - Numeric fields are Long (ms / byte counts can exceed Int); the doc's Int is
-#     stale. `headers` is the JSON scalar; `createdAt`/`completedAt` are ISO-8601
-#     strings (plain String, as the handmade returns — not the DateTime scalar).
+#     stale. `headers` is the JSON scalar; `createdAt`/`completedAt` are the
+#     DateTime scalar (ISO-8601 UTC strings on the wire).
 # -----------------------------------------------------------------------------
 
 type HistoryExchangeConnection {
@@ -237,7 +237,7 @@ type HistoryExchangeSummary {
   """Elapsed processing time in milliseconds."""
   elapsed: Long
   """ISO-8601 creation instant (UTC)."""
-  createdAt: String
+  createdAt: DateTime
   businessKey: String
 }
 
@@ -251,9 +251,9 @@ type HistoryExchange {
   """Elapsed processing time in milliseconds."""
   elapsed: Long
   """ISO-8601 creation instant."""
-  createdAt: String
+  createdAt: DateTime
   """ISO-8601 completion instant."""
-  completedAt: String
+  completedAt: DateTime
   exceptionType: String
   exceptionMessage: String
   businessKey: String

@@ -122,6 +122,20 @@ public class AccessControlStore implements Closeable, Adaptable {
 		return snapshot.hasEntriesUnder(absPath);
 	}
 
+	/**
+	 * Returns whether access control entries exist strictly below the given path
+	 * (entries at the path itself do not count — they apply uniformly to the whole
+	 * subtree). Answers conservatively ({@code true}) while the snapshot is stale
+	 * or not yet loaded.
+	 */
+	public boolean hasEntriesBelow(String absPath) {
+		Snapshot snapshot = fSnapshot;
+		if (fStale || snapshot == null) {
+			return true;
+		}
+		return snapshot.hasEntriesBelow(absPath);
+	}
+
 	public synchronized void reload() throws IOException {
 		long started = System.currentTimeMillis();
 		TreeMap<String, List<Entry>> entries = new TreeMap<>();
@@ -211,6 +225,11 @@ public class AccessControlStore implements Closeable, Adaptable {
 			if (fEntries.containsKey(absPath)) {
 				return true;
 			}
+			return hasEntriesBelow(absPath);
+		}
+
+		/** Returns whether entries exist strictly below the given path (excluding the path itself). */
+		public boolean hasEntriesBelow(String absPath) {
 			String prefix = absPath.endsWith("/") ? absPath : absPath + "/";
 			String key = fEntries.ceilingKey(prefix);
 			return (key != null && key.startsWith(prefix));

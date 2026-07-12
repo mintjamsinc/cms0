@@ -65,6 +65,7 @@ import org.apache.camel.support.PluginHelper;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
+import org.mintjams.rt.cms.internal.util.ISO8601;
 import org.mintjams.searchindex.SearchIndex;
 import org.mintjams.tools.adapter.Adaptables;
 import org.osgi.service.event.Event;
@@ -1064,7 +1065,7 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 		if (!content.hasProperty(name)) {
 			return null;
 		}
-		return Instant.ofEpochMilli(content.getProperty(name).getDate().getTimeInMillis()).toString();
+		return ISO8601.format(content.getProperty(name).getDate());
 	}
 
 	private static final class HistoryCursor {

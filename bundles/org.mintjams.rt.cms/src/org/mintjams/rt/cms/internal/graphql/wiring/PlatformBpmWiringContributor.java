@@ -24,12 +24,11 @@ package org.mintjams.rt.cms.internal.graphql.wiring;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -68,6 +67,7 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
 import org.mintjams.rt.cms.internal.job.bpm.MigrateInstancesJob;
+import org.mintjams.rt.cms.internal.util.ISO8601;
 
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
@@ -468,6 +468,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		String assignee = environment.getArgument("assignee");
 		String candidateUser = environment.getArgument("candidateUser");
 		List<String> candidateGroups = environment.getArgument("candidateGroups");
+		ZoneId zone = resolveZone(environment.getArgument("timeZone"));
 
 		TaskQuery base = engine.getTaskService().createTaskQuery();
 		if (assignee != null && !assignee.isEmpty()) {
@@ -497,29 +498,22 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		}
 		long overdue = overdueQ.count();
 
-		Calendar cal = Calendar.getInstance();
-		cal.set(Calendar.HOUR_OF_DAY, 0);
-		cal.set(Calendar.MINUTE, 0);
-		cal.set(Calendar.SECOND, 0);
-		cal.set(Calendar.MILLISECOND, 0);
-		Date startOfDay = cal.getTime();
-		cal.add(Calendar.DAY_OF_MONTH, 1);
-		Date endOfDay = cal.getTime();
+		// "Due today" / "due this week" boundaries are calendar days resolved
+		// in the caller's time zone (atStartOfDay is DST-safe) and converted to
+		// absolute instants, because Camunda compares dueDate as an instant.
+		// The window matches the original semantics: [start of today, +1 day)
+		// for "today" and [start of today, +7 days) for "this week".
+		ZonedDateTime startOfToday = ZonedDateTime.now(zone).toLocalDate().atStartOfDay(zone);
+		Date startOfDay = Date.from(startOfToday.toInstant());
+		Date endOfDay = Date.from(startOfToday.plusDays(1).toInstant());
 		TaskQuery dueTodayQ = engine.getTaskService().createTaskQuery().dueAfter(startOfDay).dueBefore(endOfDay);
 		if (assignee != null && !assignee.isEmpty()) {
 			dueTodayQ.taskAssignee(assignee);
 		}
 		long dueToday = dueTodayQ.count();
 
-		cal = Calendar.getInstance();
-		cal.set(Calendar.HOUR_OF_DAY, 0);
-		cal.set(Calendar.MINUTE, 0);
-		cal.set(Calendar.SECOND, 0);
-		cal.set(Calendar.MILLISECOND, 0);
-		Date startOfWeek = cal.getTime();
-		cal.add(Calendar.DAY_OF_MONTH, 7);
-		Date endOfWeek = cal.getTime();
-		TaskQuery dueWeekQ = engine.getTaskService().createTaskQuery().dueAfter(startOfWeek).dueBefore(endOfWeek);
+		Date endOfWeek = Date.from(startOfToday.plusDays(7).toInstant());
+		TaskQuery dueWeekQ = engine.getTaskService().createTaskQuery().dueAfter(startOfDay).dueBefore(endOfWeek);
 		if (assignee != null && !assignee.isEmpty()) {
 			dueWeekQ.taskAssignee(assignee);
 		}
@@ -824,11 +818,13 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 			Date parsed = null;
 			if (str != null && !str.isEmpty()) {
 				try {
-					parsed = Date.from(Instant.parse(str));
+					parsed = Date.from(ISO8601.parseInstant(str));
 				} catch (Exception e1) {
 					try {
+						// A zoneless value is interpreted as UTC so the stored
+						// instant never depends on the server's OS time zone.
 						java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(str);
-						parsed = Date.from(ldt.atZone(java.time.ZoneId.systemDefault()).toInstant());
+						parsed = Date.from(ldt.toInstant(ZoneOffset.UTC));
 					} catch (Exception ignore) {}
 				}
 			}
@@ -1681,18 +1677,37 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 	}
 
 	private static String formatDate(Date date) {
-		if (date == null) {
-			return null;
-		}
-		return DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSX").withZone(ZoneOffset.UTC).format(date.toInstant());
+		return ISO8601.format(date);
 	}
 
+	/**
+	 * Parses an ISO-8601 date filter argument. An unparseable value is a
+	 * client error and surfaces as such, rather than being swallowed and the
+	 * filter silently dropped from the query.
+	 */
 	private static Date parseDate(String isoString) {
-		try {
-			return Date.from(Instant.parse(isoString));
-		} catch (Exception ex) {
-			return null;
+		return Date.from(ISO8601.parseInstant(isoString));
+	}
+
+	/**
+	 * Resolves the time zone in which calendar-day boundaries ("today", "this
+	 * week") are computed for {@code taskCounts}. A blank argument falls back
+	 * to UTC so the result is deterministic and independent of the server's
+	 * operating-system time zone. A malformed or tzdata-unknown zone name (for
+	 * example a client sending {@code Europe/Kyiv} to a JVM whose bundled
+	 * tzdata predates the rename) also falls back to UTC rather than failing:
+	 * the zone only shifts two of the six counts by a day boundary, so it must
+	 * not abort the whole aggregate and blank the dashboard.
+	 */
+	private static ZoneId resolveZone(String timeZone) {
+		if (timeZone != null && !timeZone.isEmpty()) {
+			try {
+				return ZoneId.of(timeZone);
+			} catch (RuntimeException ignore) {
+				// Fall through to UTC (graceful degradation, see above).
+			}
 		}
+		return ZoneOffset.UTC;
 	}
 
 	private static String loadSchema() throws Exception {

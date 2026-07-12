@@ -93,6 +93,36 @@ public interface Node extends javax.jcr.Node {
 	 */
 	javax.jcr.Node addNode(String relPath, String primaryNodeTypeName, String identifier, java.util.Calendar created) throws RepositoryException;
 
+	/**
+	 * Removes this node and its entire subtree — including {@code jcr:content}
+	 * nodes, the version histories the subtree owns, and the binaries they
+	 * reference — with set-based statements instead of per-node recursion.
+	 * Everything is staged in the session's current transaction as one unit
+	 * (an {@code nt:file} and its {@code jcr:content} can never end up in
+	 * different {@code save()} calls) and is persisted by the next
+	 * {@link javax.jcr.Session#save()}.
+	 *
+	 * <p>The set-based path applies a single privilege/lock/protected check to
+	 * the subtree root, so it is only taken when that check is guaranteed to
+	 * hold for every descendant: the node is a plain {@code nt:file} or
+	 * {@code nt:folder}, no descendant carries its own access control entries
+	 * (unless the session is privileged), and no descendant is locked by
+	 * another session. When any of these does not hold, <em>nothing is
+	 * removed</em> and {@code -1} is returned; the caller falls back to
+	 * {@link javax.jcr.Node#remove()}, which checks each node individually.
+	 *
+	 * @return the number of removed content items (subtree nodes other than
+	 *         {@code jcr:content} nodes and version storage internals), or
+	 *         {@code -1} when this node is not eligible for set-based removal
+	 *         and nothing was removed.
+	 * @throws RepositoryException if the root check fails (access denied, the
+	 *         node is locked, or the node is protected) or the removal itself
+	 *         fails.
+	 */
+	default long removeTree() throws RepositoryException {
+		return -1;
+	}
+
 //	AccessControlPolicy[] getPolicies() throws PathNotFoundException, AccessDeniedException, RepositoryException;
 
 }

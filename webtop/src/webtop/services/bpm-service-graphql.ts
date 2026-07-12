@@ -6,6 +6,7 @@
 
 import { GraphQLClient } from '../graphql/client.js';
 import { BPM_QUERIES, BPM_MUTATIONS } from '../graphql/queries/bpm.js';
+import { Dates } from '../utils/dates.js';
 import type {
   Task,
   TaskConnection,
@@ -187,10 +188,17 @@ export class BpmServiceGraphQL {
     assignee?: string;
     candidateUser?: string;
     candidateGroups?: string[];
+    /**
+     * IANA time zone for the `dueToday` / `dueThisWeek` day boundaries.
+     * Defaults to the runtime (OS) zone so the counts always match the
+     * viewer's calendar day; callers should pass the user's Localization
+     * preference zone when available.
+     */
+    timeZone?: string;
   } = {}): Promise<TaskCounts> {
     const data = await this.#client.query<{ taskCounts: TaskCounts }>(
       BPM_QUERIES.GET_TASK_COUNTS,
-      options
+      { ...options, timeZone: Dates.resolveTimeZone(options.timeZone) }
     );
     return data.taskCounts;
   }

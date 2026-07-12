@@ -32,6 +32,7 @@ import type {
   StartImportArchiveResult,
   AbortImportArchiveResult,
   ImportArchiveOptions,
+  JobProgressEvent,
 } from '../graphql/types.js';
 
 /** Server-side cap on paths per append call (shared by delete and archive jobs). */
@@ -105,7 +106,10 @@ export class ContentServiceGraphQL {
   }
 
   /**
-   * Get all children (auto-pagination)
+   * Get all children (auto-pagination).
+   *
+   * Uses the page variant of the listing query (no totalCount, which this
+   * generator never reads) so the server skips one child COUNT per page.
    */
   async *listAllChildren(
     path: string,
@@ -115,7 +119,11 @@ export class ContentServiceGraphQL {
     let hasMore = true;
 
     while (hasMore) {
-      const result = await this.listChildren(path, { first: pageSize, after });
+      const data = await this.#client.query<{ children: Omit<NodeConnection, 'totalCount'> }>(
+        CONTENT_QUERIES.LIST_CHILDREN_PAGE,
+        { path, first: pageSize, after }
+      );
+      const result = data.children;
       const nodes = result.edges.map(e => e.node);
 
       if (nodes.length > 0) {
@@ -363,6 +371,21 @@ export class ContentServiceGraphQL {
       { input: { jobId } }
     );
     return data.startDeleteNodes;
+  }
+
+  /**
+   * One-shot snapshot of an async job's persisted progress record (any job
+   * type). Poll-side complement of the jobProgress(jobId) subscription: use
+   * it to reconcile a monitor whose subscription missed events (the worker
+   * can finish before the SSE handshake lands). Null when no job record
+   * exists for the id.
+   */
+  async getJobProgress(jobId: string): Promise<JobProgressEvent | null> {
+    const data = await this.#client.query<{ jobProgress: JobProgressEvent | null }>(
+      CONTENT_QUERIES.JOB_PROGRESS,
+      { jobId }
+    );
+    return data.jobProgress;
   }
 
   /**

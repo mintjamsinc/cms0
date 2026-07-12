@@ -24,7 +24,9 @@ package org.mintjams.rt.jcr.internal;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Calendar;
 import java.util.Collection;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -48,13 +50,25 @@ import org.mintjams.tools.collections.AdaptableMap;
  * {@link #setProperties(String, Map, long)}. If any transaction committed in between,
  * the put is silently dropped — the loaded data might predate that commit. Item data
  * is copied on both put and get so cached state is never aliased across sessions.
+ * <p>
+ * The cache is bounded twice: by entry count
+ * ({@code org.mintjams.jcr.workspace.nodeCacheSize}) and by estimated retained bytes
+ * ({@code org.mintjams.jcr.workspace.nodeCacheMemoryMB}). The count alone proved
+ * insufficient — 8192 entries of nodes with large property sets retained ~117 MB per
+ * workspace. Single items larger than an eighth of the byte budget are not cached at
+ * all: one giant node must not flush everything else.
  */
 public class NodeCache implements Closeable, Adaptable {
+
+	/** One entry may occupy at most 1/{@value} of the byte budget. */
+	private static final int OVERSIZE_DIVISOR = 8;
 
 	private final JcrWorkspaceProvider fWorkspaceProvider;
 	private final LinkedHashMap<String, Entry> fEntries = new LinkedHashMap<>(64, 0.75f, true);
 	private final Map<String, String> fPaths = new HashMap<>();
 	private long fRevision;
+	/** Estimated retained bytes of all entries; maintained by every put/remove. */
+	private long fTotalSize;
 
 	private NodeCache(JcrWorkspaceProvider workspaceProvider) {
 		fWorkspaceProvider = workspaceProvider;
@@ -121,7 +135,8 @@ public class NodeCache implements Closeable, Adaptable {
 		entry.fItemData = copy(itemData);
 		entry.fPath = path;
 		fPaths.put(path, id);
-		trim();
+		resize(entry);
+		trim(id, entry);
 	}
 
 	public synchronized void setProperties(String id, Map<String, AdaptableMap<String, Object>> properties,
@@ -139,7 +154,8 @@ public class NodeCache implements Closeable, Adaptable {
 			copied.put(e.getKey(), copy(e.getValue()));
 		}
 		entry.fProperties = copied;
-		trim();
+		resize(entry);
+		trim(id, entry);
 	}
 
 	/**
@@ -150,8 +166,11 @@ public class NodeCache implements Closeable, Adaptable {
 		fRevision++;
 		for (String id : ids) {
 			Entry entry = fEntries.remove(id);
-			if (entry != null && entry.fPath != null && id.equals(fPaths.get(entry.fPath))) {
-				fPaths.remove(entry.fPath);
+			if (entry != null) {
+				fTotalSize -= entry.fSize;
+				if (entry.fPath != null && id.equals(fPaths.get(entry.fPath))) {
+					fPaths.remove(entry.fPath);
+				}
 			}
 		}
 	}
@@ -173,23 +192,96 @@ public class NodeCache implements Closeable, Adaptable {
 				continue;
 			}
 			i.remove();
+			fTotalSize -= entry.fSize;
 			if (e.getKey().equals(fPaths.get(entry.fPath))) {
 				fPaths.remove(entry.fPath);
 			}
 		}
 	}
 
-	private void trim() {
-		int cacheSize = adaptTo(JcrRepository.class).getConfiguration().getWorkspaceNodeCacheSize();
-		while (fEntries.size() > cacheSize) {
+	/**
+	 * Evicts until both bounds hold; called after the given entry was put or grown.
+	 * An entry too large for the cache on its own is dropped immediately instead of
+	 * evicting everything else in a futile attempt to make room for it.
+	 */
+	private void trim(String id, Entry entry) {
+		JcrRepositoryConfiguration configuration = adaptTo(JcrRepository.class).getConfiguration();
+		long memorySize = configuration.getWorkspaceNodeCacheMemoryMB() * 1048576L;
+		if (entry.fSize > memorySize / OVERSIZE_DIVISOR) {
+			fEntries.remove(id);
+			fTotalSize -= entry.fSize;
+			if (entry.fPath != null && id.equals(fPaths.get(entry.fPath))) {
+				fPaths.remove(entry.fPath);
+			}
+			return;
+		}
+		int cacheSize = configuration.getWorkspaceNodeCacheSize();
+		while (fEntries.size() > cacheSize || (fTotalSize > memorySize && !fEntries.isEmpty())) {
 			Iterator<Map.Entry<String, Entry>> i = fEntries.entrySet().iterator();
 			Map.Entry<String, Entry> eldest = i.next();
 			i.remove();
-			Entry entry = eldest.getValue();
-			if (entry.fPath != null && eldest.getKey().equals(fPaths.get(entry.fPath))) {
-				fPaths.remove(entry.fPath);
+			Entry evicted = eldest.getValue();
+			fTotalSize -= evicted.fSize;
+			if (evicted.fPath != null && eldest.getKey().equals(fPaths.get(evicted.fPath))) {
+				fPaths.remove(evicted.fPath);
 			}
 		}
+	}
+
+	/** Recomputes the entry's estimated size and folds the delta into the total. */
+	private void resize(Entry entry) {
+		long size = 64L + estimateSize(entry.fPath) + estimateSize(entry.fItemData);
+		if (entry.fProperties != null) {
+			size += 64L;
+			for (Map.Entry<String, AdaptableMap<String, Object>> e : entry.fProperties.entrySet()) {
+				size += 40L + estimateSize(e.getKey()) + estimateSize(e.getValue());
+			}
+		}
+		fTotalSize += size - entry.fSize;
+		entry.fSize = size;
+	}
+
+	/**
+	 * Rough retained-size estimate of one cached value. Cached data are database
+	 * rows: strings, scalars, timestamps and arrays of those — precision is not the
+	 * goal, keeping the order of magnitude honest is.
+	 */
+	private static long estimateSize(Object value) {
+		if (value == null) {
+			return 0L;
+		}
+		if (value instanceof String) {
+			return 48L + 2L * ((String) value).length();
+		}
+		if (value instanceof byte[]) {
+			return 24L + ((byte[]) value).length;
+		}
+		if (value instanceof Object[]) {
+			long size = 24L;
+			for (Object element : (Object[]) value) {
+				size += 8L + estimateSize(element);
+			}
+			return size;
+		}
+		if (value instanceof Map) {
+			long size = 64L;
+			for (Map.Entry<?, ?> e : ((Map<?, ?>) value).entrySet()) {
+				size += 40L + estimateSize(e.getKey()) + estimateSize(e.getValue());
+			}
+			return size;
+		}
+		if (value instanceof Collection) {
+			long size = 48L;
+			for (Object element : (Collection<?>) value) {
+				size += 8L + estimateSize(element);
+			}
+			return size;
+		}
+		if (value instanceof Calendar || value instanceof Date) {
+			return 64L;
+		}
+		// Numbers, booleans, UUIDs and other scalar-ish values.
+		return 32L;
 	}
 
 	private static AdaptableMap<String, Object> copy(AdaptableMap<String, Object> data) {
@@ -202,6 +294,7 @@ public class NodeCache implements Closeable, Adaptable {
 	public synchronized void close() throws IOException {
 		fEntries.clear();
 		fPaths.clear();
+		fTotalSize = 0L;
 	}
 
 	@Override
@@ -213,6 +306,8 @@ public class NodeCache implements Closeable, Adaptable {
 		private AdaptableMap<String, Object> fItemData;
 		private Map<String, AdaptableMap<String, Object>> fProperties;
 		private String fPath;
+		/** Estimated retained bytes of this entry; see {@link #resize(Entry)}. */
+		private long fSize;
 	}
 
 }

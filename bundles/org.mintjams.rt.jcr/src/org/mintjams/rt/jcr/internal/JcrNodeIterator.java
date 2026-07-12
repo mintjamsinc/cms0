@@ -36,6 +36,7 @@ import javax.jcr.Node;
 import javax.jcr.NodeIterator;
 import javax.jcr.RepositoryException;
 
+import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.collections.AdaptableMap;
@@ -55,13 +56,14 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 	private boolean fFetchMore = true;
 	private int fFetchSize;
 	private long fFetchRevision;
+	private Boolean fSkipByOffset;
+	private boolean fInitialized;
 
 	private JcrNodeIterator(JcrNode node, String[] nameGlobs) {
 		fNode = node;
 		fNameGlobs = nameGlobs;
 		int cacheSize = adaptTo(JcrRepository.class).getConfiguration().getNodeCacheSize();
 		fFetchSize = BigDecimal.valueOf(cacheSize).multiply(BigDecimal.valueOf(0.5)).intValue();
-		readNext();
 	}
 
 	public static JcrNodeIterator create(JcrNode node) {
@@ -79,6 +81,15 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 
 	@Override
 	public long getSize() {
+		// Counted on demand: iterations that never ask for the size (or a page
+		// whose caller already knows the total) skip the COUNT statement.
+		if (fTotalHits == -1) {
+			try {
+				fTotalHits = adaptTo(WorkspaceQuery.class).items().countNodes(fNode.getIdentifier(), fNameGlobs);
+			} catch (IOException | SQLException | RepositoryException ex) {
+				throw Cause.create(ex).wrap(IllegalStateException.class);
+			}
+		}
 		return fTotalHits;
 	}
 
@@ -86,6 +97,31 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 	public void skip(long skipNum) {
 		if (skipNum < 0 || Integer.MAX_VALUE < skipNum) {
 			throw new NoSuchElementException("Invalid skip number: " + skipNum);
+		}
+		if (skipNum == 0) {
+			return;
+		}
+
+		// When this session is entitled to read every child, the skip is pushed
+		// down to the database as a row offset. The walking fallback below loads
+		// and access-checks every skipped node, which makes deep pagination cost
+		// O(offset) per page — quadratic over a full listing of a large folder.
+		if (isSkipByOffsetSafe()) {
+			// fNextNode (once initialized) is the row at index fPosition of the
+			// non-deleted, name-ordered child set — the same row set the database
+			// offset addresses (fetch() filters deleted rows in SQL).
+			long target = fPosition + skipNum;
+			fInitialized = true;
+			fFetchList.clear();
+			if (fFetchItems != null) {
+				fFetchItems.clear();
+			}
+			fOffset = (int) Math.min(target, Integer.MAX_VALUE);
+			fFetchMore = true;
+			fNextNode = null;
+			fPosition = target;
+			readNext();
+			return;
 		}
 
 		for (long i = 0; i < skipNum; i++) {
@@ -96,8 +132,27 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 		}
 	}
 
+	/**
+	 * Whether skipping may reposition the database cursor instead of walking
+	 * nodes: only when no child can be filtered out by the per-node read check,
+	 * so row offsets and node positions are guaranteed to coincide.
+	 */
+	private boolean isSkipByOffsetSafe() {
+		if (fSkipByOffset == null) {
+			boolean safe = false;
+			try {
+				JcrAccessControlManager accessControlManager = adaptTo(JcrAccessControlManager.class);
+				safe = (accessControlManager != null) && accessControlManager.canReadAllChildren(fNode.getPath());
+			} catch (Throwable ignore) {
+			}
+			fSkipByOffset = safe;
+		}
+		return fSkipByOffset;
+	}
+
 	@Override
 	public boolean hasNext() {
+		ensureInitialized();
 		return (fNextNode != null);
 	}
 
@@ -116,6 +171,18 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 		fPosition++;
 		readNext();
 		return item;
+	}
+
+	/**
+	 * The first fetch is deferred until the iteration is actually consumed, so
+	 * a caller that immediately repositions the cursor (skip-by-offset paging)
+	 * never pays for a page it does not read.
+	 */
+	private void ensureInitialized() {
+		if (!fInitialized) {
+			fInitialized = true;
+			readNext();
+		}
 	}
 
 	private void readNext() {
@@ -148,19 +215,12 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 		fFetchMore = false;
 		fFetchRevision = adaptTo(WorkspaceQuery.class).getNodeCacheRevision();
 		List<String> identifiers = new ArrayList<>();
-		if (fTotalHits == -1) {
-			try {
-				fTotalHits = adaptTo(WorkspaceQuery.class).items().countNodes(fNode.getIdentifier(), fNameGlobs);
-			} catch (IOException | SQLException | RepositoryException ex) {
-				throw Cause.create(ex).wrap(IllegalStateException.class);
-			}
-		}
-		try (Query.Result result = adaptTo(WorkspaceQuery.class).items().listNodes(fNode.getIdentifier(), fNameGlobs, fOffset)) {
+		// Deleted rows are filtered in SQL so that fOffset addresses the same
+		// row set countNodes() counts — the invariant skip-by-offset relies on.
+		try (Query.Result result = adaptTo(WorkspaceQuery.class).items().listNodes(fNode.getIdentifier(), fNameGlobs, fOffset, true)) {
 			for (AdaptableMap<String, Object> itemData : result) {
-				if (!itemData.getBoolean("is_deleted")) {
-					fFetchList.add(itemData);
-					identifiers.add(itemData.getString("item_id"));
-				}
+				fFetchList.add(itemData);
+				identifiers.add(itemData.getString("item_id"));
 				fOffset++;
 				if (fFetchList.size() >= fFetchSize) {
 					fFetchMore = true;
@@ -180,6 +240,44 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 			} catch (IOException | SQLException ex) {
 				throw Cause.create(ex).wrap(IllegalStateException.class);
 			}
+			prefetchProperties(identifiers);
+		}
+	}
+
+	/**
+	 * Seeds the property cache for every fetched child and its prefetched
+	 * {@code jcr:content} node with one statement, so mapping a page of children
+	 * (node types, file metadata, property listings) does not issue one
+	 * properties query per node. Best-effort: on failure the per-node lazy load
+	 * takes over.
+	 */
+	private void prefetchProperties(List<String> identifiers) {
+		WorkspaceQuery workspaceQuery = adaptTo(WorkspaceQuery.class);
+		Map<String, Map<String, AdaptableMap<String, Object>>> byParent = new HashMap<>();
+		for (String id : identifiers) {
+			byParent.put(id, new HashMap<>());
+		}
+		for (AdaptableMap<String, Object> itemData : fFetchItems.values()) {
+			byParent.put(itemData.getString("item_id"), new HashMap<>());
+		}
+
+		try (Query.Result result = workspaceQuery.items().listPropertiesByParents(new ArrayList<>(byParent.keySet()))) {
+			for (AdaptableMap<String, Object> propertyData : result) {
+				if (propertyData.getBoolean("is_deleted")) {
+					continue;
+				}
+				Map<String, AdaptableMap<String, Object>> properties = byParent.get(propertyData.getString("parent_item_id"));
+				if (properties != null) {
+					properties.put(propertyData.getString("item_name"), propertyData);
+				}
+			}
+		} catch (IOException | SQLException ex) {
+			return;
+		}
+
+		// Nodes without rows are cached as empty so they do not re-query either.
+		for (Map.Entry<String, Map<String, AdaptableMap<String, Object>>> e : byParent.entrySet()) {
+			workspaceQuery.cacheProperties(e.getKey(), e.getValue(), fFetchRevision);
 		}
 	}
 

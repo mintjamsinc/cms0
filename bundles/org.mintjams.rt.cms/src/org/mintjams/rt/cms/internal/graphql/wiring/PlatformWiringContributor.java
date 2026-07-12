@@ -26,10 +26,6 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
@@ -37,7 +33,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TimeZone;
 
 import javax.jcr.Binary;
 import javax.jcr.Node;
@@ -85,6 +80,7 @@ import org.mintjams.rt.cms.internal.job.archive.ImportArchiveJob;
 import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
+import org.mintjams.rt.cms.internal.util.ISO8601;
 import org.osgi.service.event.Event;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
@@ -154,9 +150,6 @@ public final class PlatformWiringContributor implements WiringContributor {
 
 	private static final String SCHEMA_RESOURCE = "/org/mintjams/rt/cms/internal/graphql/engine/schema/platform-schema.graphqls";
 
-	private static final DateTimeFormatter ISO8601 =
-			DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC);
-
 	@Override
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
@@ -173,6 +166,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 				.dataFetcher("Query", "apps", (DataFetcher<Object>) PlatformWiringContributor::apps)
 				.dataFetcher("Query", "effectiveAccessControl", (DataFetcher<Object>) PlatformWiringContributor::effectiveAccessControl)
 				.dataFetcher("Query", "searchPrincipals", (DataFetcher<Object>) PlatformWiringContributor::searchPrincipals)
+				.dataFetcher("Query", "jobProgress", (DataFetcher<Object>) PlatformWiringContributor::jobProgressSnapshot)
 				.dataFetcher("Mutation", "createFolder", (DataFetcher<Object>) PlatformWiringContributor::createFolder)
 				.dataFetcher("Mutation", "createFile", (DataFetcher<Object>) PlatformWiringContributor::createFile)
 				.dataFetcher("Mutation", "renameNode", (DataFetcher<Object>) PlatformWiringContributor::renameNode)
@@ -281,14 +275,20 @@ public final class PlatformWiringContributor implements WiringContributor {
 		SelectionSet nodeSelection = connectionNodeSelection(environment.getSelectionSet());
 
 		NodeIterator iterator = session.getNode(path).getNodes();
-		long totalCount = iterator.getSize();
-		if (totalCount == -1) {
-			totalCount = 0;
-			while (iterator.hasNext()) {
-				iterator.nextNode();
-				totalCount++;
+		// Counted only when the selection asks for it — a page request that
+		// omits totalCount costs no COUNT statement.
+		Long totalCount = null;
+		if (environment.getSelectionSet().contains("totalCount")) {
+			long counted = iterator.getSize();
+			if (counted == -1) {
+				counted = 0;
+				while (iterator.hasNext()) {
+					iterator.nextNode();
+					counted++;
+				}
+				iterator = session.getNode(path).getNodes();
 			}
-			iterator = session.getNode(path).getNodes();
+			totalCount = counted;
 		}
 		List<Map<String, Object>> edges = nodeEdges(iterator, start, first, nodeSelection, resolver);
 		return connection(edges, iterator.hasNext(), start > 0, totalCount);
@@ -762,7 +762,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 	}
 
 	private static String formatDate(Calendar calendar) {
-		return (calendar == null) ? null : ISO8601.format(calendar.toInstant());
+		return ISO8601.format(calendar);
 	}
 
 	// ---- mutations (content CRUD — Phase 2a) -------------------------------
@@ -888,7 +888,12 @@ public final class PlatformWiringContributor implements WiringContributor {
 		if (!session.nodeExists(path)) {
 			return false;
 		}
-		session.getNode(path).remove();
+		javax.jcr.Node node = session.getNode(path);
+		// Set-based subtree removal when eligible; per-node recursion otherwise.
+		if (!(node instanceof org.mintjams.jcr.Node)
+				|| ((org.mintjams.jcr.Node) node).removeTree() < 0) {
+			node.remove();
+		}
 		session.save();
 		return true;
 	}
@@ -1722,79 +1727,105 @@ public final class PlatformWiringContributor implements WiringContributor {
 			throw new IllegalArgumentException("jobId is required");
 		}
 		String workspaceName = GraphQLExecutionContext.from(environment).getWorkspaceName();
+		// The initial snapshot closes the subscribe race: a fast worker (bulk
+		// subtree delete) can reach its terminal status before the client's SSE
+		// handshake registers this subscriber, and those events are gone. The
+		// first emitted item is therefore the job's current persisted state.
 		return new CmsEventPublisher(workspaceName,
 				event -> JobNodes.isJobPath(event.getPath(), jobId),
-				event -> buildJobProgressPayload(workspaceName, jobId));
+				event -> buildJobProgressPayload(workspaceName, jobId),
+				() -> buildJobProgressPayload(workspaceName, jobId));
 	}
 
-	/** Reads the current job-progress snapshot (mirrors the handmade jobProgress payload). */
+	/**
+	 * {@code Query.jobProgress(jobId)} — one-shot snapshot of the job's persisted
+	 * progress record; the poll-side complement of the subscription for clients
+	 * that missed events (the worker can finish before the SSE handshake lands,
+	 * and the journal observer can lag behind commits). Access follows the
+	 * subscription's model: the opaque jobId is the capability.
+	 */
+	private static Object jobProgressSnapshot(DataFetchingEnvironment environment) throws Exception {
+		String jobId = environment.getArgument("jobId");
+		if (jobId == null || jobId.trim().isEmpty()) {
+			throw new IllegalArgumentException("jobId is required");
+		}
+		String workspaceName = GraphQLExecutionContext.from(environment).getWorkspaceName();
+		return buildJobProgressPayload(workspaceName, jobId);
+	}
+
+	/**
+	 * Reads the current job-progress snapshot (mirrors the handmade jobProgress
+	 * payload). Returns {@code null} when no job record exists — the subscription
+	 * skips the emission and the query resolves to null.
+	 */
 	private static Map<String, Object> buildJobProgressPayload(String workspaceName, String jobId) throws Exception {
 		Session session = CmsService.getRepository().login(new CmsServiceCredentials(), workspaceName);
 		try {
+			Node jobNode = JobNodes.getJobNode(session, jobId);
+			if (jobNode == null) {
+				return null;
+			}
 			Map<String, Object> data = new LinkedHashMap<>();
 			data.put("jobId", jobId);
-			Node jobNode = JobNodes.getJobNode(session, jobId);
-			if (jobNode != null) {
-				Node content = JobNodes.getContent(jobNode);
-				data.put("status", JobNodes.getString(content, JobNodes.PROP_JOB_STATUS, null));
-				data.put("itemsTotal", JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L));
-				data.put("itemsProcessed", JobNodes.getLong(content, JobNodes.PROP_ITEMS_PROCESSED, 0L));
-				// Leaf counter: job-type-specific (delete/archive/import).
-				if (content.hasProperty(JobNodes.PROP_ITEMS_DELETED)) {
-					data.put("itemsDeleted", JobNodes.getLong(content, JobNodes.PROP_ITEMS_DELETED, 0L));
+			Node content = JobNodes.getContent(jobNode);
+			data.put("status", JobNodes.getString(content, JobNodes.PROP_JOB_STATUS, null));
+			data.put("itemsTotal", JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L));
+			data.put("itemsProcessed", JobNodes.getLong(content, JobNodes.PROP_ITEMS_PROCESSED, 0L));
+			// Leaf counter: job-type-specific (delete/archive/import).
+			if (content.hasProperty(JobNodes.PROP_ITEMS_DELETED)) {
+				data.put("itemsDeleted", JobNodes.getLong(content, JobNodes.PROP_ITEMS_DELETED, 0L));
+			}
+			if (content.hasProperty(JobNodes.PROP_ITEMS_ARCHIVED)) {
+				data.put("itemsArchived", JobNodes.getLong(content, JobNodes.PROP_ITEMS_ARCHIVED, 0L));
+			}
+			if (content.hasProperty(JobNodes.PROP_ITEMS_IMPORTED)) {
+				data.put("itemsImported", JobNodes.getLong(content, JobNodes.PROP_ITEMS_IMPORTED, 0L));
+			}
+			// Import per-file outcome counts (the four sum to the archive's file count).
+			if (content.hasProperty(JobNodes.PROP_ITEMS_NEW)) {
+				data.put("itemsNew", JobNodes.getLong(content, JobNodes.PROP_ITEMS_NEW, 0L));
+				data.put("itemsOverwritten", JobNodes.getLong(content, JobNodes.PROP_ITEMS_OVERWRITTEN, 0L));
+				data.put("itemsSkipped", JobNodes.getLong(content, JobNodes.PROP_ITEMS_SKIPPED, 0L));
+				data.put("itemsError", JobNodes.getLong(content, JobNodes.PROP_ITEMS_ERROR, 0L));
+			}
+			if (content.hasProperty(JobNodes.PROP_ERROR_SAMPLES)) {
+				List<String> samples = new ArrayList<>();
+				for (Value v : content.getProperty(JobNodes.PROP_ERROR_SAMPLES).getValues()) {
+					samples.add(v.getString());
 				}
-				if (content.hasProperty(JobNodes.PROP_ITEMS_ARCHIVED)) {
-					data.put("itemsArchived", JobNodes.getLong(content, JobNodes.PROP_ITEMS_ARCHIVED, 0L));
-				}
-				if (content.hasProperty(JobNodes.PROP_ITEMS_IMPORTED)) {
-					data.put("itemsImported", JobNodes.getLong(content, JobNodes.PROP_ITEMS_IMPORTED, 0L));
-				}
-				// Import per-file outcome counts (the four sum to the archive's file count).
-				if (content.hasProperty(JobNodes.PROP_ITEMS_NEW)) {
-					data.put("itemsNew", JobNodes.getLong(content, JobNodes.PROP_ITEMS_NEW, 0L));
-					data.put("itemsOverwritten", JobNodes.getLong(content, JobNodes.PROP_ITEMS_OVERWRITTEN, 0L));
-					data.put("itemsSkipped", JobNodes.getLong(content, JobNodes.PROP_ITEMS_SKIPPED, 0L));
-					data.put("itemsError", JobNodes.getLong(content, JobNodes.PROP_ITEMS_ERROR, 0L));
-				}
-				if (content.hasProperty(JobNodes.PROP_ERROR_SAMPLES)) {
-					List<String> samples = new ArrayList<>();
-					for (Value v : content.getProperty(JobNodes.PROP_ERROR_SAMPLES).getValues()) {
-						samples.add(v.getString());
-					}
-					data.put("errorSamples", samples);
-				}
-				// Import dry-run verdict (terminal event of a dry run only).
-				if (content.hasProperty(JobNodes.PROP_DRY_RUN_HAS_ERRORS)) {
-					data.put("dryRunHasErrors", JobNodes.getBoolean(content, JobNodes.PROP_DRY_RUN_HAS_ERRORS, false));
-					data.put("dryRunNodeCount", JobNodes.getLong(content, JobNodes.PROP_DRY_RUN_NODE_COUNT, 0L));
-					data.put("dryRunBinaryCount", JobNodes.getLong(content, JobNodes.PROP_DRY_RUN_BINARY_COUNT, 0L));
-					String dryRunDetail = JobNodes.getString(content, JobNodes.PROP_DRY_RUN_DETAIL, null);
-					if (dryRunDetail != null) {
-						data.put("dryRunDetail", dryRunDetail);
-					}
-				}
-				String currentPath = JobNodes.getString(content, JobNodes.PROP_CURRENT_PATH, null);
-				if (currentPath != null) {
-					data.put("currentPath", currentPath);
-				}
-				String errorMessage = JobNodes.getString(content, JobNodes.PROP_ERROR_MESSAGE, null);
-				if (errorMessage != null) {
-					data.put("errorMessage", errorMessage);
-				}
-				String phase = JobNodes.getString(content, JobNodes.PROP_PHASE, null);
-				if (phase != null) {
-					data.put("phase", phase);
-				}
-				String targetWorkspace = JobNodes.getString(content, JobNodes.PROP_TARGET_WORKSPACE, null);
-				if (targetWorkspace != null) {
-					data.put("targetWorkspace", targetWorkspace);
-				}
-				String downloadUrl = JobNodes.getString(content, JobNodes.PROP_DOWNLOAD_URL, null);
-				if (downloadUrl != null) {
-					data.put("downloadUrl", downloadUrl);
+				data.put("errorSamples", samples);
+			}
+			// Import dry-run verdict (terminal event of a dry run only).
+			if (content.hasProperty(JobNodes.PROP_DRY_RUN_HAS_ERRORS)) {
+				data.put("dryRunHasErrors", JobNodes.getBoolean(content, JobNodes.PROP_DRY_RUN_HAS_ERRORS, false));
+				data.put("dryRunNodeCount", JobNodes.getLong(content, JobNodes.PROP_DRY_RUN_NODE_COUNT, 0L));
+				data.put("dryRunBinaryCount", JobNodes.getLong(content, JobNodes.PROP_DRY_RUN_BINARY_COUNT, 0L));
+				String dryRunDetail = JobNodes.getString(content, JobNodes.PROP_DRY_RUN_DETAIL, null);
+				if (dryRunDetail != null) {
+					data.put("dryRunDetail", dryRunDetail);
 				}
 			}
-			data.put("timestamp", Instant.now().toString());
+			String currentPath = JobNodes.getString(content, JobNodes.PROP_CURRENT_PATH, null);
+			if (currentPath != null) {
+				data.put("currentPath", currentPath);
+			}
+			String errorMessage = JobNodes.getString(content, JobNodes.PROP_ERROR_MESSAGE, null);
+			if (errorMessage != null) {
+				data.put("errorMessage", errorMessage);
+			}
+			String phase = JobNodes.getString(content, JobNodes.PROP_PHASE, null);
+			if (phase != null) {
+				data.put("phase", phase);
+			}
+			String targetWorkspace = JobNodes.getString(content, JobNodes.PROP_TARGET_WORKSPACE, null);
+			if (targetWorkspace != null) {
+				data.put("targetWorkspace", targetWorkspace);
+			}
+			String downloadUrl = JobNodes.getString(content, JobNodes.PROP_DOWNLOAD_URL, null);
+			if (downloadUrl != null) {
+				data.put("downloadUrl", downloadUrl);
+			}
+			data.put("timestamp", ISO8601.now());
 			return data;
 		} finally {
 			try {
@@ -1883,7 +1914,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 				Map<String, Object> data = new LinkedHashMap<>();
 				data.put("eventType", eventType);
 				data.put("path", path);
-				data.put("timestamp", Instant.now().toString());
+				data.put("timestamp", ISO8601.now());
 				data.put("userId", event.getUserID());
 				if (identifier != null) {
 					data.put("identifier", identifier);
@@ -1914,7 +1945,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 			if (identifier != null) {
 				data.put("identifier", identifier);
 			}
-			data.put("timestamp", Instant.now().toString());
+			data.put("timestamp", ISO8601.now());
 			data.put("userId", event.getUserID());
 			return data;
 		} catch (Throwable t) {
@@ -1997,7 +2028,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 					data.put("userId", userId);
 					data.put("action", action);
 					data.put("filename", filename);
-					data.put("timestamp", Instant.now().toString());
+					data.put("timestamp", ISO8601.now());
 					return data;
 				});
 	}
@@ -2016,7 +2047,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 				event -> {
 					Map<String, Object> data = new LinkedHashMap<>();
 					data.put("userId", userId);
-					data.put("timestamp", Instant.now().toString());
+					data.put("timestamp", ISO8601.now());
 					return data;
 				});
 	}
@@ -2029,7 +2060,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 				event -> {
 					Map<String, Object> data = new LinkedHashMap<>();
 					data.put("workspace", event.getWorkspaceName());
-					data.put("timestamp", Instant.now().toString());
+					data.put("timestamp", ISO8601.now());
 					return data;
 				});
 	}
@@ -2135,7 +2166,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		Map<String, Object> data = new LinkedHashMap<>();
 		data.put("eventType", topicAction(event));
 		data.put("task", task);
-		data.put("timestamp", Instant.now().toString());
+		data.put("timestamp", ISO8601.now());
 		return data;
 	}
 
@@ -2150,7 +2181,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		Map<String, Object> data = new LinkedHashMap<>();
 		data.put("eventType", topicAction(event));
 		data.put("processInstance", instance);
-		data.put("timestamp", Instant.now().toString());
+		data.put("timestamp", ISO8601.now());
 		return data;
 	}
 
@@ -2179,7 +2210,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 			Map<String, Object> data = new LinkedHashMap<>();
 			data.put("category", category);
 			data.put("data", values);
-			data.put("timestamp", Instant.now().toString());
+			data.put("timestamp", ISO8601.now());
 			data.put("userId", userId);
 			return data;
 		} finally {
@@ -2513,9 +2544,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 	}
 
 	private static Calendar parseISO8601Date(String dateString) {
-		Calendar cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
-		cal.setTimeInMillis(OffsetDateTime.parse(dateString).toInstant().toEpochMilli());
-		return cal;
+		return ISO8601.parseCalendar(dateString);
 	}
 
 	private static Map<String, Object> propertyError(String propertyName, String message) {
@@ -2596,7 +2625,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 	}
 
 	private static Map<String, Object> connection(List<Map<String, Object>> edges, boolean hasNextPage,
-			boolean hasPreviousPage, long totalCount) {
+			boolean hasPreviousPage, Long totalCount) {
 		Map<String, Object> pageInfo = new HashMap<>();
 		pageInfo.put("hasNextPage", hasNextPage);
 		pageInfo.put("hasPreviousPage", hasPreviousPage);
@@ -2605,7 +2634,10 @@ public final class PlatformWiringContributor implements WiringContributor {
 		Map<String, Object> connection = new HashMap<>();
 		connection.put("edges", edges);
 		connection.put("pageInfo", pageInfo);
-		connection.put("totalCount", totalCount);
+		// null = the caller skipped the count because the field was not selected.
+		if (totalCount != null) {
+			connection.put("totalCount", totalCount);
+		}
 		return connection;
 	}
 

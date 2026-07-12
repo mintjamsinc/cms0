@@ -56,6 +56,13 @@ public class H2Dialect implements DatabaseDialect {
 	}
 
 	@Override
+	public boolean isLockContention(SQLException ex) {
+		// H2 reports a lock timeout ("Timeout trying to lock ...") as
+		// SQLSTATE HYT00 (error code 50200) and a deadlock as 40001.
+		return DatabaseDialect.hasSqlState(ex, "HYT00") || DatabaseDialect.hasSqlState(ex, "40001");
+	}
+
+	@Override
 	public Connection wrap(Connection connection) {
 		return connection;
 	}

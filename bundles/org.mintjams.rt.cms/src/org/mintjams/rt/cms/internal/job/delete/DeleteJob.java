@@ -28,6 +28,7 @@ import java.util.List;
 
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
+import javax.jcr.ReferentialIntegrityException;
 import javax.jcr.Session;
 
 import org.mintjams.jcr.util.JCRs;
@@ -44,12 +45,37 @@ import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
  * {@code jcr:content} — one absolute path per line — written there by the
  * preceding {@code appendDeleteNodes} mutations.
  *
- * Per-leaf {@code save()} keeps each transaction small so:
+ * Each requested path is first offered to the set-based
+ * {@code org.mintjams.jcr.Node#removeTree()}, which removes the whole subtree
+ * (with its version histories and binaries) in a handful of bulk statements —
+ * this is what makes deleting large trees fast. Paths whose subtree needs
+ * per-node checks (descendant ACLs or foreign locks) fall back to the
+ * recursion below.
+ *
+ * Removals are committed in bounded batches ({@link #SAVE_BATCH_NODES} nodes
+ * or {@link #SAVE_BATCH_MILLIS}, whichever comes first). Every {@code save()}
+ * carries a fixed overhead — fsync, referential-integrity validation, journal
+ * observers, index updates — so the earlier one-transaction-per-node scheme
+ * paid it once per node (and twice per file: {@code jcr:content} was removed
+ * in its own transaction), which dominated large deletes. Batching keeps what
+ * that scheme provided:
  * <ul>
- *   <li>nodeChanged subscriptions fire as paths disappear (live UI feedback);</li>
- *   <li>aborts take effect within milliseconds of the next leaf;</li>
- *   <li>memory usage stays bounded for very deep trees.</li>
+ *   <li>nodeChanged subscriptions still fire at least every
+ *       {@link #SAVE_BATCH_MILLIS} while work progresses (live UI feedback);</li>
+ *   <li>aborts are still checked per node and take effect within one batch;</li>
+ *   <li>transactions stay bounded for very deep trees — the job recurses
+ *       into every container itself and only hands files (a file and its
+ *       {@code jcr:content}/version history) to {@code Node.remove()} as a
+ *       unit.</li>
  * </ul>
+ *
+ * A batch refused for referential integrity is retried with per-node saves
+ * (see {@link #fSaveEveryNode}) so only the referenced node itself remains.
+ *
+ * The progress row only advances after the deletions it reports are
+ * committed, so a crash between commits never skips paths that were not
+ * actually deleted — at worst a resume revisits already-deleted paths, which
+ * the missing-node check skips.
  *
  * Top-level paths are processed strictly in the order they appear in the body.
  */
@@ -61,6 +87,10 @@ public class DeleteJob implements Job {
 	private static final long PROGRESS_THROTTLE_ITEMS = 100L;
 	/** Throttle: also write progress when this much wall time has elapsed. */
 	private static final long PROGRESS_THROTTLE_MILLIS = 500L;
+	/** Commit the delete session after this many node removals. */
+	private static final int SAVE_BATCH_NODES = 64;
+	/** Also commit when this much wall time has elapsed since the last commit. */
+	private static final long SAVE_BATCH_MILLIS = 500L;
 
 	private final String fJobId;
 	private final String fWorkspaceName;
@@ -71,6 +101,18 @@ public class DeleteJob implements Job {
 	private long fItemsProcessed;
 	private long fItemsDeleted;
 	private long fLastWriteAt;
+	/** Node removals performed on the job session since its last save(). */
+	private int fPendingNodes;
+	private long fLastFlushAt;
+	/** Counter values as of the last successful save(), restored if a batch rolls back. */
+	private long fItemsProcessedFlushed;
+	private long fItemsDeletedFlushed;
+	/**
+	 * Fallback mode after a batch was refused for referential integrity: save
+	 * after every removal so the blocking node fails alone instead of taking
+	 * its whole batch down with it on every retry.
+	 */
+	private boolean fSaveEveryNode;
 
 	public DeleteJob(String jobId, String workspaceName, String userId, int priority) {
 		fJobId = jobId;
@@ -154,28 +196,42 @@ public class DeleteJob implements Job {
 		boolean aborted = false;
 		String errorMessage = initError;
 		fLastWriteAt = System.currentTimeMillis();
+		fLastFlushAt = fLastWriteAt;
+		fItemsProcessedFlushed = fItemsProcessed;
+		fItemsDeletedFlushed = fItemsDeleted;
 
 		if (initError == null && paths != null) {
-			try {
-				for (int i = (int) fItemsProcessed; i < paths.size(); i++) {
-					if (context.isAborted()) {
-						aborted = true;
-						break;
-					}
-					String top = paths.get(i);
+			for (;;) {
+				try {
+					aborted = deletePass(jobSession, paths, context, progressContent, progressSession);
+					break;
+				} catch (Throwable ex) {
+					// Drop the uncommitted batch and rewind to the committed state.
 					try {
-						deleteRecursively(jobSession, top, context, progressContent, progressSession);
-					} catch (AbortedException ex) {
-						aborted = true;
-						break;
+						jobSession.refresh(false);
+					} catch (Throwable ignore) {}
+					fPendingNodes = 0;
+					fItemsProcessed = fItemsProcessedFlushed;
+					fItemsDeleted = fItemsDeletedFlushed;
+
+					if (!fSaveEveryNode && isReferentialIntegrityViolation(ex)) {
+						// A batch commit was blocked by a still-referenced node.
+						// Redo from the committed state saving node by node, so
+						// every deletable sibling that shared the failed batch
+						// still gets deleted and the job fails (if at all)
+						// exactly at the blocking node — otherwise a retry
+						// would rebuild and re-fail the identical batch forever.
+						fSaveEveryNode = true;
+						context.getLogger().info("DeleteJob " + fJobId
+								+ " batch blocked by a referenced node; retrying with per-node saves.");
+						continue;
 					}
-					fItemsProcessed = i + 1L;
-					writeProgress(progressContent, progressSession, top, true);
+
+					errorMessage = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
+					context.getLogger().error("DeleteJob " + fJobId + " failed at item "
+							+ fItemsProcessed + " of " + fItemsTotal, ex);
+					break;
 				}
-			} catch (Throwable ex) {
-				errorMessage = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
-				context.getLogger().error("DeleteJob " + fJobId + " failed at item "
-						+ fItemsProcessed + " of " + fItemsTotal, ex);
 			}
 		}
 
@@ -210,6 +266,43 @@ public class DeleteJob implements Job {
 		}
 	}
 
+	/**
+	 * One traversal of the requested paths from the last committed position.
+	 * Returns whether the pass was aborted. Throws when a removal or a batch
+	 * commit fails; the caller rewinds to the committed state and decides
+	 * whether to retry.
+	 */
+	private boolean deletePass(Session jobSession, List<String> paths, JobContext context,
+			Node progressContent, Session progressSession) throws Exception {
+		boolean aborted = false;
+		for (int i = (int) fItemsProcessed; i < paths.size(); i++) {
+			if (context.isAborted()) {
+				aborted = true;
+				break;
+			}
+			try {
+				deleteRecursively(jobSession, paths.get(i), context, progressContent, progressSession);
+				fItemsProcessed = i + 1L;
+			} catch (AbortedException ex) {
+				aborted = true;
+				break;
+			}
+		}
+		// Commit the remainder — also on abort, so removals performed before
+		// the abort was noticed are not lost.
+		flushIfNeeded(jobSession, progressContent, progressSession, null, true);
+		return aborted;
+	}
+
+	private static boolean isReferentialIntegrityViolation(Throwable ex) {
+		for (Throwable t = ex; t != null; t = t.getCause()) {
+			if (t instanceof ReferentialIntegrityException) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private void deleteRecursively(Session session, String path, JobContext context,
 			Node progressContent, Session progressSession) throws Exception {
 		if (context.isAborted()) {
@@ -220,27 +313,84 @@ public class DeleteJob implements Job {
 		}
 		Node node = session.getNode(path);
 
-		List<String> childPaths = new ArrayList<>();
-		for (NodeIterator it = node.getNodes(); it.hasNext();) {
-			childPaths.add(it.nextNode().getPath());
-		}
-		for (String child : childPaths) {
-			deleteRecursively(session, child, context, progressContent, progressSession);
+		// Fast path: a plain file or folder whose subtree needs no per-node
+		// checks is removed with set-based statements — the whole tree, its
+		// version histories and binaries, in one unit within the current
+		// transaction. removeTree returns -1 without touching anything when a
+		// per-node walk is required (descendant ACLs or locks), and the
+		// recursion below takes over. Skipped in the per-node-save retry mode:
+		// after a referential-integrity refusal the job must fail exactly at
+		// the blocking node, which only the per-node walk can isolate.
+		if (!fSaveEveryNode && node instanceof org.mintjams.jcr.Node) {
+			long removed = ((org.mintjams.jcr.Node) node).removeTree();
+			if (removed > 0) {
+				fPendingNodes += (int) Math.min(removed, Integer.MAX_VALUE);
+				fItemsDeleted += removed;
+				flushIfNeeded(session, progressContent, progressSession, path, false);
+				return;
+			}
+			if (removed == 0) {
+				// The node disappeared since the existence check; nothing to do.
+				return;
+			}
 		}
 
-		if (!session.nodeExists(path)) {
-			return;
+		// Files are removed as one unit by Node.remove() — their internals
+		// (jcr:content, version history) no longer cost a removal (and formerly
+		// a whole transaction) each. Everything else that can carry children —
+		// folders, but also arbitrary container types — is recursed per child so
+		// batches stay bounded and progress/abort checks stay fine-grained.
+		if (!JCRs.isFile(node)) {
+			List<String> childPaths = new ArrayList<>();
+			for (NodeIterator it = node.getNodes(); it.hasNext();) {
+				childPaths.add(it.nextNode().getPath());
+			}
+			for (String child : childPaths) {
+				deleteRecursively(session, child, context, progressContent, progressSession);
+			}
+
+			if (!session.nodeExists(path)) {
+				return;
+			}
+			node = session.getNode(path);
 		}
-		Node toRemove = session.getNode(path);
+
 		// Count only the items the user thinks of as deleted (files and folders);
 		// internal descendants such as jcr:content must not inflate the progress.
-		boolean countable = JCRs.isFile(toRemove) || JCRs.isFolder(toRemove);
-		toRemove.remove();
-		session.save();
+		boolean countable = JCRs.isFile(node) || JCRs.isFolder(node);
+		node.remove();
+		fPendingNodes++;
 		if (countable) {
 			fItemsDeleted++;
 		}
-		writeProgress(progressContent, progressSession, path, false);
+		flushIfNeeded(session, progressContent, progressSession, path, false);
+	}
+
+	/**
+	 * Commits the job session once enough removals have accumulated (or enough
+	 * time has passed), then reports progress. The progress row is only ever
+	 * written after the save that covers it, so its counters never run ahead of
+	 * the committed state.
+	 */
+	private void flushIfNeeded(Session session, Node progressContent, Session progressSession,
+			String currentPath, boolean force) throws Exception {
+		if (fPendingNodes == 0) {
+			if (force) {
+				writeProgress(progressContent, progressSession, currentPath, true);
+			}
+			return;
+		}
+		long now = System.currentTimeMillis();
+		if (!force && !fSaveEveryNode
+				&& fPendingNodes < SAVE_BATCH_NODES && (now - fLastFlushAt) < SAVE_BATCH_MILLIS) {
+			return;
+		}
+		session.save();
+		fPendingNodes = 0;
+		fLastFlushAt = now;
+		fItemsProcessedFlushed = fItemsProcessed;
+		fItemsDeletedFlushed = fItemsDeleted;
+		writeProgress(progressContent, progressSession, currentPath, force);
 	}
 
 	private void writeProgress(Node content, Session progressSession, String currentPath, boolean force)

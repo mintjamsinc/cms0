@@ -49,11 +49,18 @@ public class DocumentWriterImpl implements SearchIndex.DocumentWriter, Closeable
 	private final IndexWriter fIndexWriter;
 	private final DirectoryTaxonomyWriter fTaxonomyWriter;
 	private Analyzer fAnalyzer;
-	private boolean fHasChanges;
+	// The bulk rebuild writes from several threads and commits once at the end,
+	// so this flag is read and written across threads; keep it visible.
+	private volatile boolean fHasChanges;
 
 	public DocumentWriterImpl(SearchIndexImpl searchIndex) throws IOException {
 		fSearchIndex = searchIndex;
-		fIndexWriter = fCloser.register(new IndexWriter(fSearchIndex.getDocumentIndexDirectory(), new IndexWriterConfig(getAnalyzer())));
+		IndexWriterConfig indexWriterConfig = new IndexWriterConfig(getAnalyzer());
+		// A larger RAM buffer lets a deferred-commit rebuild accumulate many
+		// documents per segment flush; harmless for normal per-transaction use
+		// because the buffer is filled lazily and released on commit.
+		indexWriterConfig.setRAMBufferSizeMB(Activator.getIndexWriterRAMBufferSizeMB());
+		fIndexWriter = fCloser.register(new IndexWriter(fSearchIndex.getDocumentIndexDirectory(), indexWriterConfig));
 		fTaxonomyWriter = fCloser.register(new DirectoryTaxonomyWriter(fSearchIndex.getDocumentTaxonomyDirectory()));
 	}
 

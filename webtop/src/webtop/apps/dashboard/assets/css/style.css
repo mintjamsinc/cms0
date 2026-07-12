@@ -52,7 +52,6 @@
 .dash-body {
 	flex: 1;
 	min-height: 0;
-	overflow: auto;
 }
 
 /* A labelled band of cards (e.g. "Today's Work", "Operations"). */

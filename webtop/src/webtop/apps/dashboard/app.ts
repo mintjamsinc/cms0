@@ -510,11 +510,15 @@ const App = {
 			const me = this.userId;
 			const groups = this.userGroups.length ? this.userGroups : undefined;
 
-			// Headline counts come from the server (accurate, unbounded).
+			// Headline counts come from the server (accurate, unbounded). Pass
+			// the viewer's Localization time zone so "due today" / "due this
+			// week" boundaries follow their calendar day (falls back to the
+			// OS zone in the service when the preference is unset).
+			const timeZone = this.localization?.timeZone || undefined;
 			const [globalCounts, myCounts, claimCounts] = await Promise.all([
-				bpm.getTaskCounts().catch(() => null),
-				me ? bpm.getTaskCounts({ assignee: me }).catch(() => null) : Promise.resolve(null),
-				me ? bpm.getTaskCounts({ candidateUser: me, candidateGroups: groups }).catch(() => null) : Promise.resolve(null),
+				bpm.getTaskCounts({ timeZone }).catch(() => null),
+				me ? bpm.getTaskCounts({ assignee: me, timeZone }).catch(() => null) : Promise.resolve(null),
+				me ? bpm.getTaskCounts({ candidateUser: me, candidateGroups: groups, timeZone }).catch(() => null) : Promise.resolve(null),
 			]);
 
 			const claimable = claimCounts ? claimCounts.total : 0;

@@ -64,8 +64,9 @@ html {
 		--button-warning-color: rgb(255 255 255 / 1);
 		--button-danger-color: rgb(255 255 255 / 1);
 		--badge-bg: rgb(241 240 245 / 1);
-		--island-bg: rgb(251 250 255 / 0.99);
+		--island-bg: rgb(255 255 255 / 0.9);
 		--island-border-color: rgb(26 27 31 / 0.05);
+		--island-shadow: rgb(26 27 31 / .1) 0px 1px 1rem 0.125rem;
 		--list-header-bg: rgb(241 240 245 / 1);
 		--list-header-color: var(--text-soft-color);
 		--section-header-bg: var(--list-header-bg);
@@ -78,6 +79,7 @@ html {
 		--scrollbar-thumb-bg: rgb(241 240 245 / 1);
 		--dialog-bg: rgb(226 227 231 / 0.4);
 		--dialog-border-color: rgb(255 255 255 / 0.3);
+		--dialog-shadow: 0 0 0 1px rgb(0 0 0 / 0.05), 0 30px 80px rgb(0 0 0 / 0.25);
 		--input-bg: rgb(255 255 255 / 0.4);
 		--input-border-color: rgb(0 91 193 / 0.3);
 		--input-focus-border-color: rgb(0 91 193 / 1);
@@ -87,9 +89,11 @@ html {
 		--context-menu-bg: rgb(255 255 255 / 0.9);
 		--context-menu-border-color: rgb(255 255 255 / 0.6);
 		--context-menu-hover-bg: rgb(0 91 193 / 0.15);
+		--context-menu-shadow: rgb(0 0 0 / 0.1) 0px 10px 15px -3px, rgb(0 0 0 / 0.05) 0px 4px 6px -2px, rgb(0 0 0 / 0.05) 0px 0px 0px 1px;
 		--menu-divider-color: rgb(26 27 31 / 0.1);
 		--window-bg: rgb(255 255 255 / 0.3);
 		--window-border-color: rgb(255 255 255 / 0.2);
+		--window-shadow: 0 0 0 1px rgb(26 27 31 / 0.05), 0 20px 60px rgb(26 27 31 / 0.2);
 		--navbar-bg: rgb(26 27 31 / 0.02);
 		--navbar-border-color: rgb(26 27 31 / 0.05);
 		--item-hover-bg: rgb(0 91 193 / 0.15);
@@ -122,8 +126,9 @@ html {
 		--button-warning-color: rgb(87 30 0 / 1);
 		--button-danger-color: rgb(105 0 5 / 1);
 		--badge-bg: rgb(47 48 52 / 1);
-		--island-bg: rgb(26 27 31 / 0.99);
+		--island-bg: rgb(20 20 20 / 0.9);
 		--island-border-color: rgb(241 240 245 / 0.1);
+		--island-shadow: rgb(173 198 255 / .2) 0px 0px 2rem 0.125rem;
 		--list-header-bg: rgb(47 48 52 / 1);
 		--list-header-color: var(--text-soft-color);
 		--section-header-bg: var(--list-header-bg);
@@ -136,6 +141,7 @@ html {
 		--scrollbar-thumb-bg: rgb(47 48 52 / 1);
 		--dialog-bg: rgb(70 70 75 / 0.4);
 		--dialog-border-color: rgb(255 255 255 / 0.1);
+		--dialog-shadow: 0 0 0 1px rgb(173 198 255 / 0.05), 0 30px 80px rgb(173 198 255 / 0.15);
 		--input-bg: rgb(47 48 52 / 0.4);
 		--input-border-color: rgb(173 198 255 / 0.3);
 		--input-focus-border-color: rgb(173 198 255 / 1);
@@ -145,9 +151,11 @@ html {
 		--context-menu-bg: rgb(26 27 31 / 0.9);
 		--context-menu-border-color: rgb(255 255 255 / 0.1);
 		--context-menu-hover-bg: rgb(173 198 255 / 0.15);
+		--context-menu-shadow: rgb(173 198 255 / 0.1) 0px 10px 15px -3px, rgb(173 198 255 / 0.05) 0px 4px 6px -2px, rgb(173 198 255 / 0.05) 0px 0px 0px 1px;
 		--menu-divider-color: rgb(255 255 255 / 0.1);
-		--window-bg: rgb(0 0 0 / 0.3);
+		--window-bg: rgb(0 0 0 / 0.5);
 		--window-border-color: rgb(227 226 231 / 0.1);
+		--window-shadow: 0 0 0 1px rgb(173 198 255 / 0.05), 0 20px 60px rgb(173 198 255 / 0.12);
 		--navbar-bg: rgb(227 226 231 / 0.04);
 		--navbar-border-color: rgb(227 226 231 / 0.1);
 		--item-hover-bg: rgb(173 198 255 / 0.15);
@@ -177,10 +185,6 @@ html {
 		--body-color: var(--text-color);
 		--navbar-color: inherit;
 		--window-title-color: var(--body-color);
-		--window-shadow: 0 0 0 1px rgb(0 0 0 / 0.05), 0 20px 60px rgb(0 0 0 / 0.2);
-		--dialog-shadow: 0 0 0 1px rgb(0 0 0 / 0.05), 0 30px 80px rgb(0 0 0 / 0.25);
-		--island-shadow: rgb(0 0 0 / 0.05) 0px 1px 2px 0px;
-		--context-menu-shadow: rgb(0 0 0 / 0.1) 0px 10px 15px -3px, rgb(0 0 0 / 0.05) 0px 4px 6px -2px, rgb(0 0 0 / 0.05) 0px 0px 0px 1px;
 		--disabled-input-border-color: rgb(from var(--neutral-color) r g b / 0.3);
 		--disabled-input-bg: rgb(from var(--neutral-color) r g b / 0.05);
 		--disabled-input-color: rgb(from var(--neutral-color) r g b / 0.6);
@@ -339,10 +343,10 @@ html {
 	 * Used for sidebar, main content, inspector, etc.
 	 * ---------------------------------------------------------------------- */
 	.island {
+		position: relative;
 		background: var(--island-bg);
 		border: 1px solid var(--island-border-color);
 		border-radius: 1rem;
-		backdrop-filter: blur(1.5rem);
 		box-shadow: var(--island-shadow);
 		padding: 1rem;
 		overflow: hidden;

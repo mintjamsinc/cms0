@@ -22,6 +22,7 @@
 
 package org.mintjams.rt.cms.internal.graphql;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +31,7 @@ import java.util.Map;
 import javax.jcr.Session;
 
 import org.mintjams.jcr.cluster.ClusterCoordinator;
+import org.mintjams.rt.cms.internal.util.ISO8601;
 import org.mintjams.tools.adapter.Adaptables;
 
 /**
@@ -95,8 +97,12 @@ public class ClusterQueryExecutor {
 				Map<String, Object> e = new HashMap<>();
 				e.put("nodeId", member.getNodeId());
 				e.put("hostName", member.getHostName());
-				e.put("started", member.getStarted());
-				e.put("lastHeartbeat", member.getLastHeartbeat());
+				// The coordinator tracks these as epoch milliseconds internally;
+				// the GraphQL projection exposes them as ISO-8601 UTC like every
+				// other API date-time (the raw epoch stays inside the cluster
+				// layer, which is unaffected).
+				e.put("started", ISO8601.format(Instant.ofEpochMilli(member.getStarted())));
+				e.put("lastHeartbeat", ISO8601.format(Instant.ofEpochMilli(member.getLastHeartbeat())));
 				e.put("alive", member.isAlive());
 				e.put("self", member.getNodeId() != null && member.getNodeId().equals(nodeId));
 				members.add(e);

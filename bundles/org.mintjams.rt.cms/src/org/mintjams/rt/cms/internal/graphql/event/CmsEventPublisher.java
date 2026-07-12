@@ -22,6 +22,7 @@
 
 package org.mintjams.rt.cms.internal.graphql.event;
 
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.SubmissionPublisher;
@@ -80,7 +81,7 @@ public final class CmsEventPublisher implements Publisher<Object> {
 
 		@Override
 		public Thread newThread(Runnable r) {
-			Thread t = new Thread(r, "pgraphql-subscription-" + fCount.incrementAndGet());
+			Thread t = new Thread(r, "graphql-subscription-" + fCount.incrementAndGet());
 			t.setDaemon(true);
 			return t;
 		}
@@ -89,11 +90,26 @@ public final class CmsEventPublisher implements Publisher<Object> {
 	private final String fWorkspaceName;
 	private final Predicate<CmsEvent> fFilter;
 	private final EventMapper fMapper;
+	private final Callable<Object> fInitialPayload;
 
 	public CmsEventPublisher(String workspaceName, Predicate<CmsEvent> filter, EventMapper mapper) {
+		this(workspaceName, filter, mapper, null);
+	}
+
+	/**
+	 * @param initialPayload evaluated once per subscriber right after the live
+	 *        feed is attached, and emitted as the stream's first item ({@code null}
+	 *        result skips it). Use this for state-snapshot subscriptions (e.g. job
+	 *        progress): a worker that finished before the subscribe handshake
+	 *        completed has already emitted its events into the void, and without a
+	 *        snapshot the subscriber would wait forever for a terminal event.
+	 */
+	public CmsEventPublisher(String workspaceName, Predicate<CmsEvent> filter, EventMapper mapper,
+			Callable<Object> initialPayload) {
 		fWorkspaceName = workspaceName;
 		fFilter = filter;
 		fMapper = mapper;
+		fInitialPayload = initialPayload;
 	}
 
 	@Override
@@ -193,5 +209,20 @@ public final class CmsEventPublisher implements Publisher<Object> {
 				}
 			}
 		});
+
+		// Emit the initial snapshot only after the sink has its subscriber — a
+		// SubmissionPublisher discards items offered while nobody is attached.
+		// Snapshot payloads are absolute state, so an overlap with a concurrent
+		// live event is harmless whichever lands first.
+		if (fInitialPayload != null && !sink.isClosed()) {
+			try {
+				Object payload = fInitialPayload.call();
+				if (payload != null) {
+					sink.offer(payload, (sub, item) -> false);
+				}
+			} catch (Throwable ignore) {
+				// The live feed still serves the subscriber.
+			}
+		}
 	}
 }

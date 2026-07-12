@@ -616,11 +616,11 @@ type ClusterMember {
   """Host name of the node, when it could be determined"""
   hostName: String
 
-  """When the node joined, in milliseconds since the epoch"""
-  started: Long!
+  """When the node joined (ISO-8601 date-time in UTC)"""
+  started: DateTime!
 
-  """The node's last heartbeat, in milliseconds since the epoch"""
-  lastHeartbeat: Long!
+  """The node's last heartbeat (ISO-8601 date-time in UTC)"""
+  lastHeartbeat: DateTime!
 
   """
   The cluster coordinator's heartbeat-freshness judgement: a member whose
@@ -2194,11 +2194,12 @@ type Query {
     sortOrder: SortOrder
   ): TaskConnection!
 
-  """Get task count statistics"""
+  """Get task count statistics. `timeZone` is the IANA zone for the dueToday/dueThisWeek day boundaries; omitted/unknown falls back to UTC."""
   taskCounts(
     assignee: String
     candidateUser: String
     candidateGroups: [String!]
+    timeZone: String
   ): TaskCounts!
 
   """Get a single incident by ID. Pass includeStackTrace=true to fetch the (potentially large) stack trace."""

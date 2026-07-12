@@ -24,6 +24,9 @@ package org.mintjams.rt.searchindex.internal;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
@@ -41,57 +44,101 @@ import org.mintjams.tools.io.Closer;
 
 public class DocumentReader implements Closeable, Adaptable {
 
+	/**
+	 * How long a superseded reader lingers before it is closed. This instance
+	 * is shared by every query thread and the callers do not acquire/release
+	 * readers, so a reader replaced by a refresh may still serve another
+	 * thread's in-flight search — closing it immediately raised
+	 * AlreadyClosedException under those searches. In-flight use is bounded by
+	 * a single query execution (result rows are materialized eagerly), so the
+	 * linger only needs to outlast the slowest single execution.
+	 */
+	private static final long RETIRE_LINGER_MILLIS = 10L * 60 * 1000;
+
 	private final SearchIndexImpl fSearchIndex;
 	private final Closer fCloser = Closer.create();
 	private DirectoryReader fIndexReader;
 	private DirectoryTaxonomyReader fTaxonomyReader;
 	private IndexSearcher fIndexSearcher;
 	private Analyzer fAnalyzer;
+	private final List<Retired> fRetired = new ArrayList<>();
+
+	private static class Retired {
+		final Closeable reader;
+		final long retiredAt;
+
+		Retired(Closeable reader, long retiredAt) {
+			this.reader = reader;
+			this.retiredAt = retiredAt;
+		}
+	}
 
 	public DocumentReader(SearchIndexImpl searchIndex) throws IOException {
 		fSearchIndex = searchIndex;
 	}
 
-	public IndexSearcher getIndexSearcher() throws IOException {
+	// Refresh and access are synchronized: the unsynchronized version let one
+	// thread replace-and-close fIndexReader while another thread was calling
+	// openIfChanged on (or searching with) the stale reference it had read,
+	// which surfaced as AlreadyClosedException from both paths.
+	public synchronized IndexSearcher getIndexSearcher() throws IOException {
 		if (fSearchIndex.isCloseRequested()) {
 			throw new IOException("SearchIndex has been closed.");
 		}
 
-		if (fIndexSearcher == null) {
-			fIndexSearcher = new IndexSearcher(getDirectoryReader());
-		} else {
-			DirectoryReader newDirectoryReader = getDirectoryReader();
-			if (!fIndexSearcher.getIndexReader().equals(newDirectoryReader)) {
-				fIndexSearcher = new IndexSearcher(newDirectoryReader);
-			}
+		DirectoryReader directoryReader = getDirectoryReader();
+		if (fIndexSearcher == null || fIndexSearcher.getIndexReader() != directoryReader) {
+			fIndexSearcher = new IndexSearcher(directoryReader);
 		}
 		return fIndexSearcher;
 	}
 
-	private DirectoryReader getDirectoryReader() throws IOException {
+	private synchronized DirectoryReader getDirectoryReader() throws IOException {
 		if (fIndexReader == null) {
 			fIndexReader = DirectoryReader.open(Adaptables.getAdapter(fSearchIndex.getDocumentWriter(), IndexWriter.class));
 		} else {
 			DirectoryReader newIndexReader = DirectoryReader.openIfChanged(fIndexReader);
 			if (newIndexReader != null) {
-				fIndexReader.close();
+				retire(fIndexReader);
 				fIndexReader = newIndexReader;
 			}
 		}
+		closeExpiredRetired();
 		return fIndexReader;
 	}
 
-	public DirectoryTaxonomyReader getDirectoryTaxonomyReader() throws IOException {
+	public synchronized DirectoryTaxonomyReader getDirectoryTaxonomyReader() throws IOException {
 		if (fTaxonomyReader == null) {
 			fTaxonomyReader = new DirectoryTaxonomyReader(Adaptables.getAdapter(fSearchIndex.getDocumentWriter(), DirectoryTaxonomyWriter.class));
 		} else {
 			DirectoryTaxonomyReader newTaxonomyReader = DirectoryTaxonomyReader.openIfChanged(fTaxonomyReader);
 			if (newTaxonomyReader != null) {
-				fTaxonomyReader.close();
+				retire(fTaxonomyReader);
 				fTaxonomyReader = newTaxonomyReader;
 			}
 		}
+		closeExpiredRetired();
 		return fTaxonomyReader;
+	}
+
+	/** Park a superseded reader instead of closing it under a possible in-flight search. */
+	private void retire(Closeable reader) {
+		fRetired.add(new Retired(reader, System.currentTimeMillis()));
+	}
+
+	/** Close the parked readers whose linger has elapsed (no search can still be using them). */
+	private void closeExpiredRetired() {
+		long cutoff = System.currentTimeMillis() - RETIRE_LINGER_MILLIS;
+		for (Iterator<Retired> i = fRetired.iterator(); i.hasNext();) {
+			Retired retired = i.next();
+			if (retired.retiredAt > cutoff) {
+				continue;
+			}
+			try {
+				retired.reader.close();
+			} catch (Throwable ignore) {}
+			i.remove();
+		}
 	}
 
 	public Analyzer getAnalyzer() throws IOException {
@@ -107,7 +154,7 @@ public class DocumentReader implements Closeable, Adaptable {
 	}
 
 	@Override
-	public void close() throws IOException {
+	public synchronized void close() throws IOException {
 		fIndexSearcher = null;
 
 		if (fIndexReader != null) {
@@ -123,6 +170,13 @@ public class DocumentReader implements Closeable, Adaptable {
 			} catch (Throwable ignore) {}
 			fTaxonomyReader = null;
 		}
+
+		for (Retired retired : fRetired) {
+			try {
+				retired.reader.close();
+			} catch (Throwable ignore) {}
+		}
+		fRetired.clear();
 
 		fCloser.close();
 	}

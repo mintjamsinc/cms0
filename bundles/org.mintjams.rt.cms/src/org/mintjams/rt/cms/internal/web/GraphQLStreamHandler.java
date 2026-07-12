@@ -29,11 +29,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -94,21 +98,64 @@ public final class GraphQLStreamHandler {
 	private static final long HEARTBEAT_INTERVAL_MS = 30000L;
 	/** A reserved token is dropped if its SSE stream is not opened within this window. */
 	private static final long RESERVATION_TIMEOUT_MS = 30000L;
+	/** An in-flight write that has not completed within this window means a dead client. */
+	private static final long WRITE_STALL_TIMEOUT_MS = 60000L;
+	/** How often the watchdog scans connections for stalled writes. */
+	private static final long WRITE_STALL_SCAN_INTERVAL_MS = 15000L;
+	/** Outbound frames buffered past this depth mean the client cannot keep up. */
+	private static final int MAX_PENDING_FRAMES = 256;
 
 	/** token -> connection. One per open client SSE stream. */
 	private static final ConcurrentMap<String, StreamConnection> CONNECTIONS = new ConcurrentHashMap<>();
 
-	private static final ScheduledExecutorService SCHEDULER =
-			Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-				private final AtomicLong fCount = new AtomicLong();
+	/**
+	 * Timer thread only — heartbeats, reservation timeouts and the stall watchdog.
+	 * It must never touch the servlet response: a write to one dead client can block
+	 * for as long as its TCP send buffer lasts, and with the writes previously done
+	 * here a single stalled connection froze every other connection's heartbeat and
+	 * every reservation timeout, letting dead connections (and their subscription
+	 * buffers) pile up until the heap filled.
+	 */
+	private static final ScheduledExecutorService SCHEDULER = createScheduler();
 
-				@Override
-				public Thread newThread(Runnable r) {
-					Thread t = new Thread(r, "graphql-sse-" + fCount.incrementAndGet());
-					t.setDaemon(true);
-					return t;
-				}
-			});
+	/** Blocking SSE writes run here, one drain task per connection at a time. */
+	private static final ExecutorService WRITER_EXECUTOR = Executors.newCachedThreadPool(new ThreadFactory() {
+		private final AtomicLong fCount = new AtomicLong();
+
+		@Override
+		public Thread newThread(Runnable r) {
+			Thread t = new Thread(r, "graphql-sse-writer-" + fCount.incrementAndGet());
+			t.setDaemon(true);
+			return t;
+		}
+	});
+
+	private static ScheduledExecutorService createScheduler() {
+		ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, new ThreadFactory() {
+			private final AtomicLong fCount = new AtomicLong();
+
+			@Override
+			public Thread newThread(Runnable r) {
+				Thread t = new Thread(r, "graphql-sse-" + fCount.incrementAndGet());
+				t.setDaemon(true);
+				return t;
+			}
+		});
+		// Cancelled heartbeat/reservation tasks must leave the queue immediately;
+		// the default keeps them queued until their next fire time.
+		scheduler.setRemoveOnCancelPolicy(true);
+		scheduler.scheduleAtFixedRate(GraphQLStreamHandler::terminateStalledConnections,
+				WRITE_STALL_SCAN_INTERVAL_MS, WRITE_STALL_SCAN_INTERVAL_MS, TimeUnit.MILLISECONDS);
+		return scheduler;
+	}
+
+	/** Reaps connections whose write has been blocked on a dead client's socket. */
+	private static void terminateStalledConnections() {
+		long now = System.currentTimeMillis();
+		for (StreamConnection connection : CONNECTIONS.values()) {
+			connection.terminateIfStalled(now);
+		}
+	}
 
 	private final String fWorkspaceName;
 
@@ -252,14 +299,21 @@ public final class GraphQLStreamHandler {
 	/**
 	 * One client SSE stream and the set of operations multiplexed onto it. Holds no
 	 * JCR session of its own — each operation's payload mapper reads JCR on demand.
+	 * All frames (events and heartbeats) go through a bounded outbound queue drained
+	 * by the writer pool; producers never block, and a client that stops reading is
+	 * detected by the write-error flag, the stall watchdog, or queue overflow —
+	 * whichever fires first — and torn down.
 	 */
 	private static final class StreamConnection {
 		private final String fWorkspaceName;
 		private final Credentials fCredentials;
 		private final String fToken;
-		private final Object fWriteLock = new Object();
 		private final ConcurrentMap<String, Operation> fOperations = new ConcurrentHashMap<>();
 		private final AtomicBoolean fClosed = new AtomicBoolean();
+		private final BlockingQueue<String> fOutbound = new LinkedBlockingQueue<>(MAX_PENDING_FRAMES);
+		private final AtomicBoolean fWriting = new AtomicBoolean();
+		/** Start of the in-flight blocking write, or 0 when none (watchdog input). */
+		private volatile long fWriteStartedAt;
 		private volatile AsyncContext fAsyncContext;
 		private volatile ScheduledFuture<?> fHeartbeat;
 		private volatile ScheduledFuture<?> fReservationTimeout;
@@ -374,19 +428,77 @@ public final class GraphQLStreamHandler {
 			write("event: " + event + "\ndata: " + data + "\n\n");
 		}
 
+		/**
+		 * Queues one SSE frame for the writer pool. Never blocks the caller, so the
+		 * scheduler and event-delivery threads cannot be held up by one stalled
+		 * client. A full queue means the client has not kept up for a long time —
+		 * the connection is torn down rather than buffered without bound.
+		 */
 		private void write(String frame) {
-			AsyncContext asyncContext = fAsyncContext;
-			if (fClosed.get() || asyncContext == null) {
+			if (fClosed.get() || fAsyncContext == null) {
 				return;
 			}
-			try {
-				PrintWriter writer = asyncContext.getResponse().getWriter();
-				synchronized (fWriteLock) {
-					writer.write(frame);
-					writer.flush();
+			if (!fOutbound.offer(frame)) {
+				terminate();
+				return;
+			}
+			if (fWriting.compareAndSet(false, true)) {
+				try {
+					WRITER_EXECUTOR.execute(this::drainOutbound);
+				} catch (Throwable ex) {
+					fWriting.set(false);
 				}
-			} catch (Exception ex) {
-				// Client gone or write failed — tear the whole connection down.
+			}
+		}
+
+		/** Drains queued frames onto the servlet response. Runs on the writer pool. */
+		private void drainOutbound() {
+			for (;;) {
+				String frame = fOutbound.poll();
+				if (frame == null) {
+					fWriting.set(false);
+					// Recheck: a frame may have arrived between poll() and the reset.
+					if (fOutbound.isEmpty() || !fWriting.compareAndSet(false, true)) {
+						return;
+					}
+					continue;
+				}
+				AsyncContext asyncContext = fAsyncContext;
+				if (fClosed.get() || asyncContext == null) {
+					fWriting.set(false);
+					return;
+				}
+				try {
+					PrintWriter writer = asyncContext.getResponse().getWriter();
+					fWriteStartedAt = System.currentTimeMillis();
+					try {
+						writer.write(frame);
+						writer.flush();
+					} finally {
+						fWriteStartedAt = 0L;
+					}
+					// PrintWriter swallows IOExceptions — a dead client only ever
+					// shows up on the error flag, never as a thrown exception.
+					if (writer.checkError()) {
+						terminate();
+						return;
+					}
+				} catch (Exception ex) {
+					// Client gone or write failed — tear the whole connection down.
+					terminate();
+					return;
+				}
+			}
+		}
+
+		/**
+		 * Watchdog hook: a write blocked past the stall timeout means the client is
+		 * dead but its socket still absorbs nothing — completing the async context
+		 * aborts the exchange and unblocks the writer thread.
+		 */
+		void terminateIfStalled(long now) {
+			long startedAt = fWriteStartedAt;
+			if (startedAt != 0L && (now - startedAt) >= WRITE_STALL_TIMEOUT_MS) {
 				terminate();
 			}
 		}
@@ -420,6 +532,7 @@ public final class GraphQLStreamHandler {
 				operation.cancel();
 			}
 			fOperations.clear();
+			fOutbound.clear();
 		}
 
 		private static Map<String, Object> errorResult(String message) {

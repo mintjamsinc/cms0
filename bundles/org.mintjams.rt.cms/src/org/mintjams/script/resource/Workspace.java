@@ -50,6 +50,9 @@ public class Workspace implements Adaptable {
 		return fQueryManager;
 	}
 
+	/**
+	 * @deprecated
+	 */
 	public FacetProvider getFacetProvider() {
 		return fFacetProvider;
 	}

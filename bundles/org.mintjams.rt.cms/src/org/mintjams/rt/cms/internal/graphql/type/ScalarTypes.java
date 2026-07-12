@@ -24,11 +24,19 @@ package org.mintjams.rt.cms.internal.graphql.type;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import org.mintjams.rt.cms.internal.util.ISO8601;
 
 import graphql.GraphQLContext;
 import graphql.execution.CoercedVariables;
@@ -43,6 +51,8 @@ import graphql.language.ObjectValue;
 import graphql.language.StringValue;
 import graphql.language.Value;
 import graphql.schema.Coercing;
+import graphql.schema.CoercingParseLiteralException;
+import graphql.schema.CoercingParseValueException;
 import graphql.schema.GraphQLScalarType;
 
 /**
@@ -70,15 +80,126 @@ public final class ScalarTypes {
 		if ("Long".equals(name)) {
 			return longType();
 		}
-		if ("DateTime".equals(name) || "Base64".equals(name)) {
-			// Carried as opaque strings: the platform formats DateTime as
-			// ISO-8601 (UTC) and Base64 as standard base64 text already.
+		if ("DateTime".equals(name)) {
+			return dateTimeType();
+		}
+		if ("Base64".equals(name)) {
+			// Carried as an opaque string: standard base64 text already.
 			return stringType(name);
 		}
 		if ("JSON".equals(name)) {
 			return passThrough(name);
 		}
 		return null;
+	}
+
+	/**
+	 * The {@code DateTime} scalar, the type-level counterpart of
+	 * {@link ISO8601}: the single point that enforces the ISO-8601 UTC wire
+	 * contract for every date-time field, regardless of which resolver
+	 * produced or consumed the value.
+	 *
+	 * <ul>
+	 * <li><b>Output</b> ({@code serialize}) canonicalises any temporal value
+	 * (Instant / Date / Calendar / OffsetDateTime / ZonedDateTime, an epoch
+	 * millisecond {@code Number}, or an already-formatted string) through
+	 * {@link ISO8601#format}, so fractional seconds are always three digits and
+	 * the offset is always {@code Z} even if a resolver returned
+	 * {@code Instant.toString()} or a raw temporal object. It never throws: an
+	 * unrecognised value passes through as its string form, so a resolver in an
+	 * application-defined schema (this scalar is shared by every compiled
+	 * schema) is never turned into a hard query error.</li>
+	 * <li><b>Input</b> ({@code parseValue} / {@code parseLiteral}) requires an
+	 * ISO-8601 date-time with an explicit offset and rejects anything else as
+	 * a client error, so a malformed value fails at the type boundary with a
+	 * clear message instead of being passed through and mishandled (or
+	 * silently ignored) by an individual resolver.</li>
+	 * </ul>
+	 */
+	private static GraphQLScalarType dateTimeType() {
+		return GraphQLScalarType.newScalar().name("DateTime")
+				.description("ISO-8601 date-time string in UTC, e.g. 2026-07-06T09:30:00.000Z")
+				.coercing(new Coercing<String, String>() {
+					@Override
+					public String serialize(Object input, GraphQLContext context, Locale locale) {
+						if (input == null) {
+							return null;
+						}
+						if (input instanceof Instant) {
+							return ISO8601.format((Instant) input);
+						}
+						if (input instanceof Date) {
+							return ISO8601.format((Date) input);
+						}
+						if (input instanceof Calendar) {
+							return ISO8601.format((Calendar) input);
+						}
+						if (input instanceof OffsetDateTime) {
+							return ISO8601.format(((OffsetDateTime) input).toInstant());
+						}
+						if (input instanceof ZonedDateTime) {
+							return ISO8601.format(((ZonedDateTime) input).toInstant());
+						}
+						if (input instanceof Number) {
+							// A bare number is treated as epoch milliseconds (the
+							// platform's convention), canonicalised rather than
+							// emitted as raw digits.
+							return ISO8601.format(Instant.ofEpochMilli(((Number) input).longValue()));
+						}
+						// Any other value (an already-formatted string, or a
+						// temporal type without an unambiguous instant such as
+						// LocalDateTime): re-emit in the canonical form when it
+						// parses as an offset-bearing ISO-8601 string, otherwise
+						// pass its string form through unchanged. Output coercion
+						// never throws — it must not turn a resolver's value into a
+						// hard query error (the previous pass-through never did),
+						// which matters because this scalar is shared by every
+						// compiled schema, including application-defined ones.
+						String text = input.toString();
+						try {
+							return ISO8601.format(ISO8601.parseInstant(text));
+						} catch (RuntimeException notIso) {
+							return text;
+						}
+					}
+
+					@Override
+					public String parseValue(Object input, GraphQLContext context, Locale locale) {
+						if (input == null) {
+							return null;
+						}
+						String text = input.toString();
+						try {
+							OffsetDateTime.parse(text);
+						} catch (DateTimeParseException e) {
+							throw new CoercingParseValueException(dateTimeInputError(text), e);
+						}
+						return text;
+					}
+
+					@Override
+					public String parseLiteral(Value<?> input, CoercedVariables variables, GraphQLContext context, Locale locale) {
+						if (input == null || input instanceof NullValue) {
+							return null;
+						}
+						if (input instanceof StringValue) {
+							String text = ((StringValue) input).getValue();
+							try {
+								OffsetDateTime.parse(text);
+							} catch (DateTimeParseException e) {
+								throw new CoercingParseLiteralException(dateTimeInputError(text), e);
+							}
+							return text;
+						}
+						throw new CoercingParseLiteralException(
+								"DateTime literal must be a string; got " + input.getClass().getSimpleName());
+					}
+				}).build();
+	}
+
+	private static String dateTimeInputError(String value) {
+		return "DateTime must be an ISO-8601 date-time with an explicit offset"
+				+ " (e.g. 2026-07-06T09:30:00.000Z); got: " + value;
 	}
 
 	private static GraphQLScalarType longType() {

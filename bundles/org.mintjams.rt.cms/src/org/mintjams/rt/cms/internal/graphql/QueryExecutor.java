@@ -23,8 +23,6 @@
 package org.mintjams.rt.cms.internal.graphql;
 
 import java.io.InputStream;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -64,6 +62,7 @@ import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
 import org.mintjams.rt.cms.internal.graphql.type.NodeMapper;
 import org.mintjams.rt.cms.internal.graphql.type.PrincipalDisplayNameResolver;
+import org.mintjams.rt.cms.internal.util.ISO8601;
 
 /**
  * Class for executing GraphQL Query operations with advanced parsing and field selection optimization
@@ -73,12 +72,6 @@ public class QueryExecutor {
 	private final Session session;
 	private final GraphQLParser parser;
 	private final PrincipalDisplayNameResolver principalResolver;
-
-	// ISO8601 date format for version dates
-	private static final DateTimeFormatter ISO8601_FORMAT;
-	static {
-		ISO8601_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC);
-	}
 
 	// Query patterns (simple implementation)
 	private static final Pattern NODE_QUERY_PATTERN = Pattern
@@ -212,17 +205,23 @@ public class QueryExecutor {
 		Node parentNode = session.getNode(path);
 		NodeIterator iterator = parentNode.getNodes();
 
-		long totalCount = iterator.getSize();
+		// Counted only when the selection asks for it — a page request that
+		// omits totalCount costs no COUNT statement.
+		boolean includeTotalCount = (childrenSelection == null) || childrenSelection.hasField("totalCount");
+		long totalCount = -1;
+		if (includeTotalCount) {
+			totalCount = iterator.getSize();
 
-		// If totalCount is unknown, count manually
-		if (totalCount == -1) {
-			totalCount = 0;
-			while (iterator.hasNext()) {
-				iterator.nextNode();
-				totalCount++;
+			// If totalCount is unknown, count manually
+			if (totalCount == -1) {
+				totalCount = 0;
+				while (iterator.hasNext()) {
+					iterator.nextNode();
+					totalCount++;
+				}
+				// Re-get iterator
+				iterator = parentNode.getNodes();
 			}
-			// Re-get iterator
-			iterator = parentNode.getNodes();
 		}
 
 		// Decode cursor to get starting position
@@ -271,7 +270,9 @@ public class QueryExecutor {
 		Map<String, Object> connection = new HashMap<>();
 		connection.put("edges", edges);
 		connection.put("pageInfo", pageInfo);
-		connection.put("totalCount", totalCount);
+		if (includeTotalCount) {
+			connection.put("totalCount", totalCount);
+		}
 
 		Map<String, Object> result = new HashMap<>();
 		result.put("children", connection);
@@ -843,7 +844,7 @@ public class QueryExecutor {
 			// Get created date in ISO8601 format
 			if (version.hasProperty("jcr:created")) {
 				java.util.Calendar createdCal = version.getProperty("jcr:created").getDate();
-				versionData.put("created", ISO8601_FORMAT.format(createdCal.toInstant()));
+				versionData.put("created", ISO8601.format(createdCal));
 			}
 
 			// Get createdBy from frozen node
@@ -889,7 +890,7 @@ public class QueryExecutor {
 			baseVersionData.put("name", baseVersion.getName());
 			if (baseVersion.hasProperty("jcr:created")) {
 				java.util.Calendar createdCal = baseVersion.getProperty("jcr:created").getDate();
-				baseVersionData.put("created", ISO8601_FORMAT.format(createdCal.toInstant()));
+				baseVersionData.put("created", ISO8601.format(createdCal));
 			}
 		}
 
@@ -1351,10 +1352,7 @@ public class QueryExecutor {
 	}
 
 	private static String formatDate(java.util.Calendar calendar) {
-		if (calendar == null) {
-			return null;
-		}
-		return ISO8601_FORMAT.format(calendar.toInstant());
+		return ISO8601.format(calendar);
 	}
 
 	private static boolean asBoolean(Object value) {

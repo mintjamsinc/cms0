@@ -24,7 +24,12 @@ package org.mintjams.rt.searchindex.internal;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.math.BigDecimal;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,11 +52,16 @@ import org.apache.lucene.document.TextField;
 import org.apache.lucene.util.BytesRef;
 import org.apache.tika.Tika;
 import org.apache.tika.exception.ZeroByteFileException;
+import org.apache.tika.metadata.Metadata;
 import org.mintjams.searchindex.SearchIndex;
 import org.mintjams.tools.collections.AdaptableList;
 import org.mintjams.tools.lang.Strings;
 
 public class IndexableSuggestion implements SearchIndex.Suggestion {
+
+	// A Tika instance is thread-safe and reusable; share a single instance
+	// instead of constructing one per suggestion during a bulk rebuild.
+	private static final Tika TIKA = new Tika();
 
 	private String fIdentifier;
 	private String fPath;
@@ -226,13 +236,14 @@ public class IndexableSuggestion implements SearchIndex.Suggestion {
 	public org.apache.lucene.document.Document asLuceneDocument() throws IOException {
 		Document doc = new Document();
 		StringBuilder fulltext = new StringBuilder();
+		final int maxLength = Activator.getMaxContentLength();
 		doc.add(new StringField("_identifier", fIdentifier, Field.Store.YES));
 
-		fulltext.append(getContentAsString());
+		appendBounded(fulltext, getContentAsString(), maxLength);
 
 		for (Map.Entry<String, List<Object>> e : fProperties.entrySet()) {
 			String name = e.getKey();
-			addField(doc, name, e.getValue(), fulltext);
+			addField(doc, name, e.getValue(), fulltext, maxLength);
 			doc.add(new StringField("_properties", name, Field.Store.NO));
 		}
 
@@ -345,61 +356,153 @@ public class IndexableSuggestion implements SearchIndex.Suggestion {
 	private String getContentAsString() throws IOException {
 		if (_contentString == null) {
 			_contentString = "";
-			do {
-				if (fContent == null) {
-					break;
-				}
-
-				if (Strings.defaultString(fMimeType).toLowerCase().startsWith("image/")
-						|| Strings.defaultString(fMimeType).toLowerCase().startsWith("video/")
-						|| Strings.defaultString(fMimeType).toLowerCase().startsWith("audio/")) {
-					break;
-				}
-
-				if (fContent instanceof String) {
-					_contentString = (String) fContent;
-					break;
-				}
-
-				if (fContent instanceof Path) {
-					if (Files.size((Path) fContent) == 0) {
+			final int maxLength = Activator.getMaxContentLength();
+			try {
+				do {
+					if (fContent == null) {
 						break;
 					}
 
-					try {
-						_contentString = Strings.defaultString(new Tika().parseToString((Path) fContent));
-					} catch (ZeroByteFileException ex) {
-						_contentString = "";
-					} catch (Throwable ex) {
-						Activator.getLogger(getClass()).warn("An error occurred while extracting the text from the document.", ex);
+					String mimeType = Strings.defaultString(fMimeType).toLowerCase();
+					if (mimeType.startsWith("image/") || mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
+						break;
 					}
-					break;
-				}
 
-				if (fContent instanceof InputStream) {
-					try (InputStream in = (InputStream) fContent) {
-						_contentString = Strings.defaultString(new Tika().parseToString(in));
-					} catch (ZeroByteFileException ex) {
-						_contentString = "";
-					} catch (Throwable ex) {
-						Activator.getLogger(getClass()).warn("An error occurred while extracting the text from the document.", ex);
+					// A String is already in memory; just bound how much of it is
+					// indexed so an oversized value cannot dominate the heap.
+					if (fContent instanceof String) {
+						_contentString = truncate((String) fContent, maxLength);
+						break;
 					}
-					break;
-				}
-			} while (false);
+
+					// text/* resources are decoded directly with their declared
+					// charset; everything else is handed to Tika for text
+					// extraction. Both are bounded to maxLength characters so a
+					// single huge resource (a minified bundle, a source map, a large
+					// log) is never fully materialised in memory.
+					if (fContent instanceof Path) {
+						Path path = (Path) fContent;
+						if (Files.size(path) == 0) {
+							break;
+						}
+
+						try {
+							if (mimeType.startsWith("text/")) {
+								try (Reader reader = newContentReader(Files.newInputStream(path))) {
+									_contentString = readBounded(reader, maxLength);
+								}
+							} else {
+								try (InputStream in = Files.newInputStream(path)) {
+									_contentString = Strings.defaultString(TIKA.parseToString(in, new Metadata(), maxLength));
+								}
+							}
+						} catch (ZeroByteFileException ex) {
+							_contentString = "";
+						} catch (Throwable ex) {
+							Activator.getLogger(getClass()).warn("An error occurred while extracting the text from the document.", ex);
+						}
+						break;
+					}
+
+					if (fContent instanceof InputStream) {
+						try {
+							if (mimeType.startsWith("text/")) {
+								try (Reader reader = newContentReader((InputStream) fContent)) {
+									_contentString = readBounded(reader, maxLength);
+								}
+							} else {
+								try (InputStream in = (InputStream) fContent) {
+									_contentString = Strings.defaultString(TIKA.parseToString(in, new Metadata(), maxLength));
+								}
+							}
+						} catch (ZeroByteFileException ex) {
+							_contentString = "";
+						} catch (Throwable ex) {
+							Activator.getLogger(getClass()).warn("An error occurred while extracting the text from the document.", ex);
+						}
+						break;
+					}
+				} while (false);
+			} finally {
+				// Release the (possibly large) content source now that the bounded
+				// text has been extracted, so it is not kept reachable for the whole
+				// lifetime of this suggestion while the Lucene document is built.
+				fContent = null;
+			}
 		}
 
 		return _contentString;
 	}
 
-	private void addField(org.apache.lucene.document.Document doc, String name, List<Object> values, StringBuilder fulltext) {
+	private Charset charset() {
+		if (Strings.isNotEmpty(fEncoding)) {
+			try {
+				return Charset.forName(fEncoding);
+			} catch (Throwable ignore) {}
+		}
+		return StandardCharsets.UTF_8;
+	}
+
+	// Decodes bytes leniently (malformed or unmappable input is replaced rather
+	// than throwing) so indexing a text resource never fails on a stray byte,
+	// matching the tolerance of the previous String/Tika based extraction.
+	private Reader newContentReader(InputStream in) {
+		CharsetDecoder decoder = charset().newDecoder()
+				.onMalformedInput(CodingErrorAction.REPLACE)
+				.onUnmappableCharacter(CodingErrorAction.REPLACE);
+		return new InputStreamReader(in, decoder);
+	}
+
+	private static String truncate(String value, int maxLength) {
+		if (value == null) {
+			return "";
+		}
+		if (value.length() <= maxLength) {
+			return value;
+		}
+		return value.substring(0, maxLength);
+	}
+
+	private static String readBounded(Reader reader, int maxLength) throws IOException {
+		int chunk = Math.min(maxLength, 8192);
+		char[] buffer = new char[chunk];
+		StringBuilder sb = new StringBuilder(chunk);
+		int remaining = maxLength;
+		while (remaining > 0) {
+			int n = reader.read(buffer, 0, Math.min(buffer.length, remaining));
+			if (n < 0) {
+				break;
+			}
+			sb.append(buffer, 0, n);
+			remaining -= n;
+		}
+		return sb.toString();
+	}
+
+	// Appends text to the shared _fulltext buffer without letting it grow past
+	// maxLength characters, so neither the document body nor an oversized property
+	// value can inflate the buffer (and the Lucene field built from it) without
+	// bound. Once the budget is spent further appends are no-ops.
+	private static void appendBounded(StringBuilder fulltext, String text, int maxLength) {
+		if (text == null || text.isEmpty()) {
+			return;
+		}
+		int remaining = maxLength - fulltext.length();
+		if (remaining <= 0) {
+			return;
+		}
+		fulltext.append(text, 0, Math.min(text.length(), remaining));
+	}
+
+	private void addField(org.apache.lucene.document.Document doc, String name, List<Object> values, StringBuilder fulltext, int maxLength) {
 		for (int i = 0; i < values.size(); i++) {
 			Object value = values.get(i);
 			AdaptableList<Object> v = AdaptableList.<Object>newBuilder().add(value).build();
 
 			if (value instanceof String) {
 				doc.add(new StringField(name, v.getString(0), Field.Store.NO));
-				fulltext.append("\n").append(v.getString(0));
+				appendBounded(fulltext, "\n", maxLength);
+				appendBounded(fulltext, v.getString(0), maxLength);
 				continue;
 			}
 

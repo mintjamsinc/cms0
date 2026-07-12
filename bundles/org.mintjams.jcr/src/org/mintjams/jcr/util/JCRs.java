@@ -676,10 +676,32 @@ public class JCRs {
 			throw new IllegalArgumentException("The specified node is not a file.");
 		}
 
+		Node contentNode = getContentNode(node);
 		try (org.mintjams.jcr.Binary value = (org.mintjams.jcr.Binary) node.getSession().getValueFactory().createBinary(in)) {
-			getContentNode(node).setProperty(Property.JCR_DATA, value);
+			contentNode.setProperty(Property.JCR_DATA, value);
 		} catch (IOException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+
+		// Advance the content's modification metadata in lock-step with the bytes.
+		//
+		// Downloads, the wt-inspector preview and the GraphQL `modified` field all
+		// derive their cache validator from jcr:content/jcr:lastModified: the
+		// DownloadServlet's ETag/Last-Modified is built from it, and NodeMapper
+		// reports it as `node.modified`. A content write that changed jcr:data but
+		// left jcr:lastModified untouched would therefore leave the validator
+		// unchanged, so a client that had already cached the file keeps serving the
+		// stale copy (its conditional request collapses to 304) and the browser
+		// listing still shows the old timestamp — even though the bytes did change.
+		// Stamping here makes every content write, through any caller, keep the
+		// validator honest. Callers that need a specific timestamp (e.g. preserving
+		// archived times on import) still set it explicitly after this returns.
+		try {
+			contentNode.setProperty(Property.JCR_LAST_MODIFIED, Calendar.getInstance());
+			contentNode.setProperty(Property.JCR_LAST_MODIFIED_BY, node.getSession().getUserID());
+		} catch (RepositoryException ignore) {
+			// Best effort: never fail a content write because the modification
+			// metadata could not be stamped (e.g. an unusual content node type).
 		}
 	}
 

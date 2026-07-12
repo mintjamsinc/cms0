@@ -61,22 +61,81 @@ export const PROPERTY_VALUE_FIELDS = `
     ... on LongPropertyValueArray { type values }
     ... on DoublePropertyValue { type value }
     ... on DoublePropertyValueArray { type values }
+    ... on DecimalPropertyValue { type value }
+    ... on DecimalPropertyValueArray { type values }
     ... on BooleanPropertyValue { type value }
     ... on BooleanPropertyValueArray { type values }
     ... on DatePropertyValue { type value }
     ... on DatePropertyValueArray { type values }
     ... on BinaryPropertyValue { type value mimeType size }
     ... on BinaryPropertyValueArray { type mimeTypes sizes }
+    ... on NamePropertyValue { type value }
+    ... on NamePropertyValueArray { type values }
+    ... on PathPropertyValue { type value }
+    ... on PathPropertyValueArray { type values }
     ... on ReferencePropertyValue { type value path }
     ... on ReferencePropertyValueArray { type values paths }
     ... on WeakreferencePropertyValue { type value path }
     ... on WeakreferencePropertyValueArray { type values paths }
+    ... on UriPropertyValue { type value }
+    ... on UriPropertyValueArray { type values }
   }
 `;
 
 // =============================================================================
 // Queries
 // =============================================================================
+
+/**
+ * Shared edges/pageInfo selection of the children connection, used by both
+ * LIST_CHILDREN (with totalCount) and LIST_CHILDREN_PAGE (without).
+ */
+const CHILDREN_CONNECTION_FIELDS = `
+        edges {
+          node {
+            path
+            name
+            nodeType
+            id
+            uuid
+            mimeType
+            size
+            hasChildren
+            created
+            createdBy
+            createdByDisplayName
+            modified
+            modifiedBy
+            modifiedByDisplayName
+            downloadUrl
+            isLocked
+            lockInfo {
+              lockOwner
+              lockOwnerDisplayName
+              isDeep
+              isSessionScoped
+              isLockOwningSession
+              isLockOwner
+            }
+            isVersionable
+            isCheckedOut
+            baseVersionName
+            properties {
+              name
+              propertyValue {
+                __typename
+                ... on StringPropertyValue { type value }
+              }
+            }
+          }
+          cursor
+        }
+        pageInfo {
+          hasNextPage
+          hasPreviousPage
+          startCursor
+          endCursor
+        }`;
 
 export const CONTENT_QUERIES = {
   /** Get a single node by path */
@@ -129,16 +188,24 @@ export const CONTENT_QUERIES = {
             ... on LongPropertyValueArray { type values }
             ... on DoublePropertyValue { type value }
             ... on DoublePropertyValueArray { type values }
+            ... on DecimalPropertyValue { type value }
+            ... on DecimalPropertyValueArray { type values }
             ... on BooleanPropertyValue { type value }
             ... on BooleanPropertyValueArray { type values }
             ... on DatePropertyValue { type value }
             ... on DatePropertyValueArray { type values }
             ... on BinaryPropertyValue { type value mimeType size }
             ... on BinaryPropertyValueArray { type mimeTypes sizes }
+            ... on NamePropertyValue { type value }
+            ... on NamePropertyValueArray { type values }
+            ... on PathPropertyValue { type value }
+            ... on PathPropertyValueArray { type values }
             ... on ReferencePropertyValue { type value path }
             ... on ReferencePropertyValueArray { type values paths }
             ... on WeakreferencePropertyValue { type value path }
             ... on WeakreferencePropertyValueArray { type values paths }
+            ... on UriPropertyValue { type value }
+            ... on UriPropertyValueArray { type values }
           }
         }
       }
@@ -149,52 +216,21 @@ export const CONTENT_QUERIES = {
   LIST_CHILDREN: `
     query ListChildren($path: String!, $first: Int, $after: String) {
       children(path: $path, first: $first, after: $after) {
-        edges {
-          node {
-            path
-            name
-            nodeType
-            id
-            uuid
-            mimeType
-            size
-            hasChildren
-            created
-            createdBy
-            createdByDisplayName
-            modified
-            modifiedBy
-            modifiedByDisplayName
-            downloadUrl
-            isLocked
-            lockInfo {
-              lockOwner
-              lockOwnerDisplayName
-              isDeep
-              isSessionScoped
-              isLockOwningSession
-              isLockOwner
-            }
-            isVersionable
-            isCheckedOut
-            baseVersionName
-            properties {
-              name
-              propertyValue {
-                __typename
-                ... on StringPropertyValue { type value }
-              }
-            }
-          }
-          cursor
-        }
-        pageInfo {
-          hasNextPage
-          hasPreviousPage
-          startCursor
-          endCursor
-        }
+        ${CHILDREN_CONNECTION_FIELDS}
         totalCount
+      }
+    }
+  `,
+
+  /**
+   * Page variant of LIST_CHILDREN without totalCount: the server only runs
+   * the child COUNT when the field is selected, so an auto-pagination loop
+   * (which never reads the total) skips one COUNT statement per page.
+   */
+  LIST_CHILDREN_PAGE: `
+    query ListChildrenPage($path: String!, $first: Int, $after: String) {
+      children(path: $path, first: $first, after: $after) {
+        ${CHILDREN_CONNECTION_FIELDS}
       }
     }
   `,
@@ -294,14 +330,22 @@ export const CONTENT_QUERIES = {
                 ... on LongPropertyValueArray { type values }
                 ... on DoublePropertyValue { type value }
                 ... on DoublePropertyValueArray { type values }
+                ... on DecimalPropertyValue { type value }
+                ... on DecimalPropertyValueArray { type values }
                 ... on BooleanPropertyValue { type value }
                 ... on BooleanPropertyValueArray { type values }
                 ... on DatePropertyValue { type value }
                 ... on DatePropertyValueArray { type values }
+                ... on NamePropertyValue { type value }
+                ... on NamePropertyValueArray { type values }
+                ... on PathPropertyValue { type value }
+                ... on PathPropertyValueArray { type values }
                 ... on ReferencePropertyValue { type value path }
                 ... on ReferencePropertyValueArray { type values paths }
                 ... on WeakreferencePropertyValue { type value path }
                 ... on WeakreferencePropertyValueArray { type values paths }
+                ... on UriPropertyValue { type value }
+                ... on UriPropertyValueArray { type values }
               }
             }
           }
@@ -415,6 +459,41 @@ export const CONTENT_QUERIES = {
           created
         }
         versionableUuid
+      }
+    }
+  `,
+
+  /**
+   * One-shot snapshot of an async job's persisted progress record — the
+   * poll-side complement of the jobProgress(jobId) subscription. Selection
+   * mirrors the subscription's (event-hub SELECTIONS.job). Null when no job
+   * record exists for the id.
+   */
+  JOB_PROGRESS: `
+    query JobProgress($jobId: String!) {
+      jobProgress(jobId: $jobId) {
+        jobId
+        status
+        itemsTotal
+        itemsProcessed
+        itemsDeleted
+        itemsArchived
+        itemsImported
+        itemsNew
+        itemsOverwritten
+        itemsSkipped
+        itemsError
+        errorSamples
+        dryRunHasErrors
+        dryRunNodeCount
+        dryRunBinaryCount
+        dryRunDetail
+        currentPath
+        errorMessage
+        phase
+        targetWorkspace
+        downloadUrl
+        timestamp
       }
     }
   `,
@@ -691,10 +770,29 @@ export const CONTENT_MUTATIONS = {
             propertyValue {
               __typename
               ... on StringPropertyValue { type value }
+              ... on StringPropertyValueArray { type values }
               ... on LongPropertyValue { type value }
+              ... on LongPropertyValueArray { type values }
+              ... on DoublePropertyValue { type value }
+              ... on DoublePropertyValueArray { type values }
+              ... on DecimalPropertyValue { type value }
+              ... on DecimalPropertyValueArray { type values }
               ... on BooleanPropertyValue { type value }
+              ... on BooleanPropertyValueArray { type values }
               ... on DatePropertyValue { type value }
+              ... on DatePropertyValueArray { type values }
               ... on BinaryPropertyValue { type value mimeType size }
+              ... on BinaryPropertyValueArray { type mimeTypes sizes }
+              ... on NamePropertyValue { type value }
+              ... on NamePropertyValueArray { type values }
+              ... on PathPropertyValue { type value }
+              ... on PathPropertyValueArray { type values }
+              ... on ReferencePropertyValue { type value path }
+              ... on ReferencePropertyValueArray { type values paths }
+              ... on WeakreferencePropertyValue { type value path }
+              ... on WeakreferencePropertyValueArray { type values paths }
+              ... on UriPropertyValue { type value }
+              ... on UriPropertyValueArray { type values }
             }
           }
         }

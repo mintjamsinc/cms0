@@ -36,6 +36,7 @@ public class WorkspaceCleaner implements Closeable, Adaptable {
 	private Thread fThread;
 	private boolean fCloseRequested;
 	private final Object fLock = new Object();
+	private boolean fCommitPending;
 
 	private WorkspaceCleaner(JcrWorkspaceProvider workspaceProvider) {
 		fWorkspaceProvider = workspaceProvider;
@@ -63,6 +64,7 @@ public class WorkspaceCleaner implements Closeable, Adaptable {
 
 	public WorkspaceCleaner comitted() {
 		synchronized (fLock) {
+			fCommitPending = true;
 			fLock.notifyAll();
 		}
 
@@ -101,9 +103,15 @@ public class WorkspaceCleaner implements Closeable, Adaptable {
 					break;
 				}
 				synchronized (fLock) {
-					try {
-						fLock.wait();
-					} catch (InterruptedException ignore) {}
+					// A commit that arrived while the previous run was still
+					// cleaning must not be lost: it may have released rows
+					// that run skipped as locked.
+					if (!fCommitPending) {
+						try {
+							fLock.wait();
+						} catch (InterruptedException ignore) {}
+					}
+					fCommitPending = false;
 				}
 
 				if (fCloseRequested) {

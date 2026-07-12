@@ -69,10 +69,20 @@ public interface DatabaseDialect {
 	boolean isUniqueConstraintViolation(SQLException ex);
 
 	/**
+	 * Returns whether the given exception reports that a lock could not be
+	 * acquired because another transaction holds it — a lock (or lock-wait)
+	 * timeout or a deadlock. Used by maintenance work that competes with user
+	 * transactions (the blob cleaner) to skip the contended row and retry it
+	 * on a later run instead of failing the whole pass.
+	 */
+	boolean isLockContention(SQLException ex);
+
+	/**
 	 * Returns whether {@code ex}, or any exception reachable from it through the
 	 * {@link Throwable#getCause() cause} chain or the
 	 * {@link SQLException#getNextException() SQL exception} chain, carries the
-	 * given {@code SQLSTATE}. Helper for {@link #isUniqueConstraintViolation}.
+	 * given {@code SQLSTATE}. Helper for {@link #isUniqueConstraintViolation}
+	 * and {@link #isLockContention}.
 	 */
 	static boolean hasSqlState(SQLException ex, String sqlState) {
 		for (Throwable t = ex; t != null; t = t.getCause()) {

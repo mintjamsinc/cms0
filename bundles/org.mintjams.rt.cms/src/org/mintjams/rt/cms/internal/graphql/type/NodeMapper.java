@@ -25,8 +25,6 @@ package org.mintjams.rt.cms.internal.graphql.type;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -50,6 +48,7 @@ import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
+import org.mintjams.rt.cms.internal.util.ISO8601;
 import org.mintjams.rt.cms.internal.web.WebRenders;
 import org.mintjams.rt.cms.internal.web.Webs;
 
@@ -60,11 +59,6 @@ public class NodeMapper {
 
 	private static final Tika TIKA = new Tika();
 	private static final int MIME_DETECT_BUFFER_SIZE = 2048;
-
-	private static final DateTimeFormatter ISO8601_FORMAT;
-	static {
-		ISO8601_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").withZone(ZoneOffset.UTC);
-	}
 
 	/**
 	 * Convert JCR node to GraphQL format Map (backward compatibility)
@@ -448,8 +442,11 @@ public class NodeMapper {
 			case PropertyType.LONG:
 				return value.getLong();
 			case PropertyType.DOUBLE:
-			case PropertyType.DECIMAL:
 				return value.getDouble();
+			case PropertyType.DECIMAL:
+				// Serialize as a plain string: BigDecimal precision (e.g. money
+				// amounts) survives, where a double round-trip could not.
+				return value.getDecimal().toPlainString();
 			case PropertyType.DATE:
 				return formatDate(value.getDate());
 			case PropertyType.BINARY:
@@ -692,9 +689,6 @@ public class NodeMapper {
 	 * Convert Calendar to ISO8601 format string
 	 */
 	private static String formatDate(java.util.Calendar calendar) {
-		if (calendar == null) {
-			return null;
-		}
-		return ISO8601_FORMAT.format(calendar.toInstant());
+		return ISO8601.format(calendar);
 	}
 }

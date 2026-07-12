@@ -40,6 +40,7 @@ import javax.jcr.SimpleCredentials;
 
 import org.mintjams.jcr.cluster.ClusterCoordinator;
 import org.mintjams.jcr.security.GroupPrincipal;
+import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalProvider;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
@@ -242,8 +243,15 @@ public class Session implements Closeable, Adaptable {
 		return fResourceResolver;
 	}
 
+	/**
+	 * @deprecated
+	 */
 	public UserManager getUserManager() {
 		return fUserManager;
+	}
+
+	public IdentityProvider getIdentityProvider() {
+		return Adaptables.getAdapter(fJcrSession, IdentityProvider.class);
 	}
 
 	public PrincipalProvider getPrincipalProvider() {

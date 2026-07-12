@@ -72,7 +72,7 @@ public final class OsgiEventPublisher implements Publisher<Object> {
 
 		@Override
 		public Thread newThread(Runnable r) {
-			Thread t = new Thread(r, "pgraphql-osgi-subscription-" + fCount.incrementAndGet());
+			Thread t = new Thread(r, "graphql-osgi-subscription-" + fCount.incrementAndGet());
 			t.setDaemon(true);
 			return t;
 		}

@@ -29,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.mintjams.rt.cms.internal.util.ISO8601;
+
 /**
  * Immutable record capturing the execution of a single Camel exchange.
  */
@@ -174,9 +176,9 @@ public class ExchangeHistoryRecord {
 		public Builder setRouteId(String v) { routeId = v; return this; }
 		public Builder setFromEndpoint(String v) { fromEndpoint = v; return this; }
 		public Builder setWorkspace(String v) { workspace = v; return this; }
-		public Builder setTimestamp(Instant v) { timestamp = v != null ? v.toString() : null; return this; }
-		public Builder setCreatedAt(Instant v) { createdAt = v != null ? v.toString() : null; return this; }
-		public Builder setCompletedAt(Instant v) { completedAt = v != null ? v.toString() : null; return this; }
+		public Builder setTimestamp(Instant v) { timestamp = ISO8601.format(v); return this; }
+		public Builder setCreatedAt(Instant v) { createdAt = ISO8601.format(v); return this; }
+		public Builder setCompletedAt(Instant v) { completedAt = ISO8601.format(v); return this; }
 		public Builder setElapsed(long v) { elapsed = v; return this; }
 		public Builder setStatus(String v) { status = v; return this; }
 		public Builder setExceptionType(String v) { exceptionType = v; return this; }

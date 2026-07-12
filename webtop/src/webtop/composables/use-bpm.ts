@@ -224,6 +224,12 @@ export interface UseTaskCountsOptions {
   assignee?: string;
   candidateUser?: string;
   candidateGroups?: string[];
+  /**
+   * IANA time zone for the `dueToday` / `dueThisWeek` boundaries. Defaults to
+   * the runtime (OS) zone; pass the user's Localization preference zone when
+   * available so the counts match their calendar day.
+   */
+  timeZone?: string;
   /** Polling interval in ms (default: no polling) */
   pollInterval?: number;
 }
@@ -247,10 +253,10 @@ export function useTaskCounts(
   bpmService: BpmServiceGraphQL,
   options: UseTaskCountsOptions = {}
 ): UseTaskCountsReturn {
-  const { assignee, candidateUser, candidateGroups, pollInterval } = options;
+  const { assignee, candidateUser, candidateGroups, timeZone, pollInterval } = options;
 
   const async = useAsync(
-    () => bpmService.getTaskCounts({ assignee, candidateUser, candidateGroups })
+    () => bpmService.getTaskCounts({ assignee, candidateUser, candidateGroups, timeZone })
   );
 
   let intervalId: number | null = null;

@@ -177,6 +177,20 @@ public class Query implements Adaptable {
 			public Map<String, Integer> getValues() {
 				return fFacet.getValues();
 			}
+
+			/**
+			 * <p>Returns the value of the specified label without narrowing it to
+			 * an int. Use this for the statistical aggregations of the
+			 * {@code facet accumulate} clause (sum, avg, percentile, ...), whose
+			 * values are decimals.</p>
+			 */
+			public Number getNumber(String label) {
+				return fFacet.getNumber(label);
+			}
+
+			public Map<String, Number> getNumbers() {
+				return fFacet.getNumbers();
+			}
 		}
 	}
 

@@ -30,6 +30,7 @@ import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -629,19 +630,28 @@ public class JcrSession implements Session, Adaptable {
 		try {
 			String transactionID = adaptTo(SessionIdentifier.class).getTransactionIdentifier();
 
+			Map<String, String> removed = new LinkedHashMap<>();
 			try (Query.Result result = getWorkspaceQuery().journal().listRemovedNodes(transactionID)) {
 				for (Iterator<AdaptableMap<String, Object>> i = result.iterator(); i.hasNext();) {
 					AdaptableMap<String, Object> row = i.next();
-					String itemID = row.getString("item_id");
-					String itemPath = row.getString("item_path");
+					removed.put(row.getString("item_id"), row.getString("item_path"));
+				}
+			}
+			if (removed.isEmpty()) {
+				return;
+			}
 
-					long refCount = getWorkspaceQuery().items().countReferenced(itemID);
-					if (refCount > 0) {
-						throw new ReferentialIntegrityException(
-								"Cannot remove node '" + itemPath
-								+ "': it is still referenced by " + refCount
-								+ " REFERENCE property(ies).");
-					}
+			// All removed nodes are checked in one pass over the workspace's
+			// REFERENCE properties; probing them one by one repeats that scan per
+			// removed node, which dominated the cost of deleting large trees.
+			Map<String, Long> referenced = getWorkspaceQuery().items().countReferenced(removed.keySet());
+			for (Map.Entry<String, String> e : removed.entrySet()) {
+				Long refCount = referenced.get(e.getKey());
+				if (refCount != null && refCount > 0) {
+					throw new ReferentialIntegrityException(
+							"Cannot remove node '" + e.getValue()
+							+ "': it is still referenced by " + refCount
+							+ " REFERENCE property(ies).");
 				}
 			}
 		} catch (ReferentialIntegrityException ex) {

@@ -102,6 +102,34 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			.put("_lastModifiedBy", SortField.Type.STRING)
 			.put("_score", SortField.Type.SCORE)
 			.build();
+	// The xs: type-cast functions accepted in query statements, grouped by the
+	// value domain they map to. Both the literal parsing (Clause.toJavaValue)
+	// and the order-by handling (OrderByClause) consult these arrays, so a type
+	// added here is supported everywhere at once.
+	// All numeric casts share one group: every numeric property is indexed as a
+	// DoublePoint with double-encoded doc values (see IndexableDocument), so
+	// xs:long and friends cannot get their own LONG-typed index representation
+	// and are parsed/sorted through the same BigDecimal/DOUBLE path as
+	// xs:decimal.
+	private static final String[] XS_NUMERIC_FUNCTIONS = {
+			"xs:decimal(", "xs:float(", "xs:double(", "xs:long(", "xs:int(", "xs:integer(" };
+	// The integer-valued subset of XS_NUMERIC_FUNCTIONS; literals cast with
+	// these must be whole numbers within the range of a Java long.
+	private static final String[] XS_INTEGER_FUNCTIONS = { "xs:long(", "xs:int(", "xs:integer(" };
+	private static final String[] XS_DATETIME_FUNCTIONS = { "xs:dateTime(", "xs:date(" };
+	private static final String[] XS_BOOLEAN_FUNCTIONS = { "xs:boolean(" };
+	private static final String[] XS_STRING_FUNCTIONS = { "xs:string(" };
+
+	private static boolean startsWithAny(String value, String[]... prefixGroups) {
+		for (String[] prefixes : prefixGroups) {
+			for (String prefix : prefixes) {
+				if (value.startsWith(prefix)) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
 
 	private final String fStatement;
 	private List<Clause> fClauses;
@@ -176,13 +204,31 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			if (!facetList.isEmpty()) {
 				FacetsCollector collector = documentSearcher.search(luceneQuery, new FacetsCollectorManager());
 				TaxonomyReader taxonomyReader = fSearchIndex.getDocumentReader().getDirectoryTaxonomyReader();
+				List<FacetStatistics.Params> statsList = new ArrayList<>();
+				Map<String, List<FacetStatistics.RangeBucket>> rangeBuckets = new HashMap<>();
 				for (FacetAccumulateClause.Facet facet : facetList) {
+					if (facet.isStats()) {
+						statsList.add(facet.getStatsParams());
+						continue;
+					}
+
 					if (!facet.isRange()) {
 						FacetAccumulateClause.TopFacetParams params = facet.getTopFacetParams();
 						Facets facets = new FastTaxonomyFacetCounts(taxonomyReader, fSearchIndex.getFacetsConfig(), collector);
 						result.addFacetResult(facets.getTopChildren(params.getLimit(), params.getFieldName()));
 						continue;
 					}
+
+					// A statistic grouped by this property buckets by these same
+					// ranges (in the double/epoch-millisecond domain its doc
+					// values decode to).
+					List<FacetStatistics.RangeBucket> statsBuckets = new ArrayList<>();
+					for (FacetAccumulateClause.RangeFacetParams params : facet.listRangeFacetParams()) {
+						statsBuckets.add(new FacetStatistics.RangeBucket(params.getLabel(),
+								((Number) params.getMinValue()).doubleValue(), params.isMinInclusive(),
+								((Number) params.getMaxValue()).doubleValue(), params.isMaxInclusive()));
+					}
+					rangeBuckets.put(facet.getFieldName(), statsBuckets);
 
 					List<Range> ranges = new ArrayList<>();
 					for (FacetAccumulateClause.RangeFacetParams params : facet.listRangeFacetParams()) {
@@ -206,6 +252,18 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					} else {
 						Facets facets = new LongRangeFacetCounts(facet.getFieldName(), collector, ranges.toArray(LongRange[]::new));
 						result.addFacetResult(facets.getAllChildren(facet.getFieldName()));
+					}
+				}
+
+				if (!statsList.isEmpty()) {
+					// All statistics share the facet collector's matching docs; a
+					// single pass computes every expression at once.
+					List<org.apache.lucene.facet.FacetResult> statsResults = FacetStatistics.compute(
+							statsList, collector, taxonomyReader, fSearchIndex.getFacetsConfig(),
+							Adaptables.getAdapter(fSearchIndex, SearchIndex.FieldTypeProvider.class),
+							rangeBuckets);
+					for (org.apache.lucene.facet.FacetResult statsResult : statsResults) {
+						result.addFacetResult(statsResult);
 					}
 				}
 			}
@@ -680,6 +738,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			List<String> args = new ArrayList<>();
 			StringBuilder argString = new StringBuilder();
 			char[] a = argsString.toCharArray();
+			int nest = 0;
 			for (int i = 0; i < a.length; i++) {
 				char c = a[i];
 
@@ -701,7 +760,16 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					continue;
 				}
 
-				if (c == ',') {
+				// Track parenthesis depth so that a comma inside a nested call,
+				// e.g. top(sum(@price, @category), 10), does not split the outer
+				// argument list.
+				if (c == '(') {
+					nest++;
+				} else if (c == ')') {
+					nest--;
+				}
+
+				if (c == ',' && nest == 0) {
 					args.add(argString.toString().trim());
 					argString = new StringBuilder();
 					continue;
@@ -715,50 +783,53 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			return args;
 		}
 
+		// Extracts the quoted literal from an xs: cast such as
+		// xs:decimal('123'), validating the surrounding syntax.
+		private String toFunctionArgument(String value) {
+			if (!value.endsWith(")")) {
+				throw new InvalidQuerySyntaxException(fStatement);
+			}
+
+			value = value.substring(value.indexOf("(") + 1, value.length() - 1).trim();
+
+			if (value.startsWith("\"") && value.endsWith("\"")) {
+				return value.substring(1, value.length() - 1).replaceAll("\\\\\"", "\"");
+			}
+			if (value.startsWith("'") && value.endsWith("'")) {
+				return value.substring(1, value.length() - 1).replaceAll("\\\\'", "'");
+			}
+			throw new InvalidQuerySyntaxException(fStatement);
+		}
+
 		protected Object toJavaValue(String value) {
-			if (value.startsWith("xs:decimal(") || value.startsWith("xs:float(") || value.startsWith("xs:double(")) {
-				if (!value.endsWith(")")) {
-					throw new InvalidQuerySyntaxException(fStatement);
-				}
-
-				value = value.substring(value.indexOf("(") + 1, value.length() - 1).trim();
-
-				if (value.startsWith("\"") && value.endsWith("\"")) {
-					value = value.substring(1, value.length() - 1).replaceAll("\\\\\"", "\"");
-				} else if (value.startsWith("'") && value.endsWith("'")) {
-					value = value.substring(1, value.length() - 1).replaceAll("\\\\'", "'");
-				} else {
-					throw new InvalidQuerySyntaxException(fStatement);
-				}
+			if (startsWithAny(value, XS_NUMERIC_FUNCTIONS)) {
+				boolean integral = startsWithAny(value, XS_INTEGER_FUNCTIONS);
+				String argument = toFunctionArgument(value);
 
 				BigDecimal decimalValue;
 				try {
-					decimalValue = AdaptableList.<Object>newBuilder().add(value).build().adapt(0, BigDecimal.class).getValue();
+					decimalValue = AdaptableList.<Object>newBuilder().add(argument).build().adapt(0, BigDecimal.class).getValue();
 				} catch (Throwable ex) {
 					throw Cause.create(ex).wrap(InvalidQuerySyntaxException.class);
+				}
+
+				if (integral) {
+					try {
+						decimalValue.longValueExact();
+					} catch (ArithmeticException ex) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
 				}
 
 				return decimalValue;
 			}
 
-			if (value.startsWith("xs:dateTime(") || value.startsWith("xs:date(")) {
-				if (!value.endsWith(")")) {
-					throw new InvalidQuerySyntaxException(fStatement);
-				}
-
-				value = value.substring(value.indexOf("(") + 1, value.length() - 1).trim();
-
-				if (value.startsWith("\"") && value.endsWith("\"")) {
-					value = value.substring(1, value.length() - 1).replaceAll("\\\\\"", "\"");
-				} else if (value.startsWith("'") && value.endsWith("'")) {
-					value = value.substring(1, value.length() - 1).replaceAll("\\\\'", "'");
-				} else {
-					throw new InvalidQuerySyntaxException(fStatement);
-				}
+			if (startsWithAny(value, XS_DATETIME_FUNCTIONS)) {
+				String argument = toFunctionArgument(value);
 
 				java.util.Date dateValue;
 				try {
-					dateValue = AdaptableList.<Object>newBuilder().add(value).build().adapt(0, java.util.Date.class).getValue();
+					dateValue = AdaptableList.<Object>newBuilder().add(argument).build().adapt(0, java.util.Date.class).getValue();
 				} catch (Throwable ex) {
 					throw Cause.create(ex).wrap(InvalidQuerySyntaxException.class);
 				}
@@ -766,29 +837,19 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				return dateValue;
 			}
 
-			if (value.startsWith("xs:boolean(")) {
-				if (!value.endsWith(")")) {
-					throw new InvalidQuerySyntaxException(fStatement);
-				}
-
-				value = value.substring(value.indexOf("(") + 1, value.length() - 1).trim();
-
-				if (value.startsWith("\"") && value.endsWith("\"")) {
-					value = value.substring(1, value.length() - 1).replaceAll("\\\\\"", "\"");
-				} else if (value.startsWith("'") && value.endsWith("'")) {
-					value = value.substring(1, value.length() - 1).replaceAll("\\\\'", "'");
-				} else {
-					throw new InvalidQuerySyntaxException(fStatement);
-				}
-
-				value = value.trim();
-				if (value.equals("true") || value.equals("1")) {
+			if (startsWithAny(value, XS_BOOLEAN_FUNCTIONS)) {
+				String argument = toFunctionArgument(value).trim();
+				if (argument.equals("true") || argument.equals("1")) {
 					return Boolean.TRUE;
-				} else if (value.equals("false") || value.equals("0")) {
+				} else if (argument.equals("false") || argument.equals("0")) {
 					return Boolean.FALSE;
 				}
 
 				throw new InvalidQuerySyntaxException(fStatement);
+			}
+
+			if (startsWithAny(value, XS_STRING_FUNCTIONS)) {
+				return toFunctionArgument(value);
 			}
 
 			if (value.matches("^true(.*)$")) {
@@ -1621,8 +1682,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 		protected String getFieldName(String field) {
 			field = field.trim();
-			if (field.startsWith("xs:decimal(") || field.startsWith("xs:float(") || field.startsWith("xs:double(")
-					|| field.startsWith("xs:dateTime(") || field.startsWith("xs:date(") || field.startsWith("xs:boolean(")) {
+			if (startsWithAny(field, XS_NUMERIC_FUNCTIONS, XS_DATETIME_FUNCTIONS, XS_BOOLEAN_FUNCTIONS, XS_STRING_FUNCTIONS)) {
 				if (field.endsWith(")")) {
 					field = field.substring(field.indexOf("(") + 1, field.length() - 1);
 				}
@@ -1631,14 +1691,21 @@ public class JcrXPathQuery extends SearchIndexQuery {
 		}
 
 		private SortField.Type getFieldType(String field, String name) {
-			if (field.startsWith("xs:decimal(") || field.startsWith("xs:float(") || field.startsWith("xs:double(")) {
+			// All numeric casts — including the integer ones such as xs:long —
+			// sort as DOUBLE: numeric doc values are stored double-encoded
+			// (NumericUtils.doubleToSortableLong, see IndexableDocument), so
+			// SortField.Type.LONG would misinterpret them.
+			if (startsWithAny(field, XS_NUMERIC_FUNCTIONS)) {
 				return SortField.Type.DOUBLE;
 			}
-			if (field.startsWith("xs:dateTime(") || field.startsWith("xs:date(")) {
+			if (startsWithAny(field, XS_DATETIME_FUNCTIONS)) {
 				return SortField.Type.LONG;
 			}
-			if (field.startsWith("xs:boolean(")) {
+			if (startsWithAny(field, XS_BOOLEAN_FUNCTIONS)) {
 				return SortField.Type.INT;
+			}
+			if (startsWithAny(field, XS_STRING_FUNCTIONS)) {
+				return SortField.Type.STRING;
 			}
 
 			if (SORT_TYPES.containsKey(name)) {
@@ -1668,6 +1735,12 @@ public class JcrXPathQuery extends SearchIndexQuery {
 	}
 
 	private static class FacetAccumulateClause extends Clause {
+		// The statistical aggregate functions of the facet accumulate clause.
+		// top( and range( are handled by their own branches and must not match.
+		private static final Pattern AGGREGATE_PATTERN = Pattern.compile(
+				"^(sum|avg|min|max|count|missing|variance|stddev|stats|percentile|median)\\((.*)\\)$",
+				Pattern.DOTALL);
+
 		private List<Facet> fFacets;
 
 		protected FacetAccumulateClause(String statement, Adaptable adaptable) {
@@ -1772,6 +1845,24 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 					String fieldName = args.get(0);
 					int limit = ((BigDecimal) arg1).intValue();
+					FacetStatistics.Params statsParams = toStatsParams(fieldName);
+					if (statsParams != null) {
+						// top(aggregate, n): keep the n buckets with the largest
+						// aggregated value. Only grouped aggregates have buckets
+						// to rank.
+						if (!statsParams.isGrouped()) {
+							throw new InvalidQuerySyntaxException(fStatement);
+						}
+						if (limit < 1) {
+							throw new InvalidQuerySyntaxException(fStatement);
+						}
+						statsParams.setLimit(limit);
+						if (l.containsKey(statsParams.getDimension())) {
+							throw new InvalidQuerySyntaxException(fStatement);
+						}
+						l.put(statsParams.getDimension(), new Facet(statsParams));
+						continue;
+					}
 					if (fieldName.startsWith("@")) {
 						TopFacetParams f = new TopFacetParams(fieldName.substring(1), limit);
 						if (l.containsKey(f.getFieldName())) {
@@ -1945,11 +2036,155 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					throw new InvalidQuerySyntaxException(fStatement);
 				}
 
+				{
+					FacetStatistics.Params statsParams = toStatsParams(cnd);
+					if (statsParams != null) {
+						if (l.containsKey(statsParams.getDimension())) {
+							throw new InvalidQuerySyntaxException(fStatement);
+						}
+						l.put(statsParams.getDimension(), new Facet(statsParams));
+						continue;
+					}
+				}
+
 				throw new InvalidQuerySyntaxException(fStatement);
 			}
 			fFacets = new ArrayList<>(l.values());
 
 			return null;
+		}
+
+		/**
+		 * Parses one aggregate expression of the {@code facet accumulate} clause,
+		 * e.g. {@code sum(@price)}, {@code avg(@price, @category)},
+		 * {@code percentile(@price, 50, 95)} or {@code stats(@price)}. Returns
+		 * null when the expression is not an aggregate at all (so the caller can
+		 * fall through to its other syntaxes) and throws when it is an aggregate
+		 * with invalid arguments.
+		 * <p>
+		 * Argument grammar: the first argument is the property whose values are
+		 * aggregated — optionally wrapped in an {@code xs:} cast, e.g.
+		 * {@code sum(xs:boolean(@flag))}, the same syntax the order-by clause
+		 * accepts, which names the stored value encoding IN the query (boolean /
+		 * date doc values are raw longs, numbers are sortable-double encoded) so
+		 * the aggregator needs no out-of-band field-type registry; an optional
+		 * last argument names a string property to group the statistic by;
+		 * {@code percentile} takes one or more percentile ranks in between
+		 * (exactly one when grouped, since a grouped result carries one number
+		 * per bucket). The result dimension uses the UNWRAPPED property name, so
+		 * a cast does not change how the result is addressed.
+		 */
+		private FacetStatistics.Params toStatsParams(String cnd) {
+			Matcher matcher = AGGREGATE_PATTERN.matcher(cnd);
+			if (!matcher.matches()) {
+				return null;
+			}
+
+			String function = matcher.group(1);
+			List<String> args = parseArguments(matcher.group(2).trim());
+			if (args.isEmpty()) {
+				throw new InvalidQuerySyntaxException(fStatement);
+			}
+
+			String fieldArg = args.get(0);
+			Class<?> fieldType = null;
+			if (startsWithAny(fieldArg, XS_NUMERIC_FUNCTIONS, XS_DATETIME_FUNCTIONS, XS_BOOLEAN_FUNCTIONS,
+					XS_STRING_FUNCTIONS)) {
+				if (!fieldArg.endsWith(")")) {
+					throw new InvalidQuerySyntaxException(fStatement);
+				}
+				if (startsWithAny(fieldArg, XS_BOOLEAN_FUNCTIONS)) {
+					fieldType = Boolean.class;
+				} else if (startsWithAny(fieldArg, XS_DATETIME_FUNCTIONS)) {
+					fieldType = java.util.Date.class;
+				} else if (startsWithAny(fieldArg, XS_STRING_FUNCTIONS)) {
+					fieldType = String.class;
+				} else {
+					fieldType = BigDecimal.class;
+				}
+				fieldArg = fieldArg.substring(fieldArg.indexOf("(") + 1, fieldArg.length() - 1).trim();
+			}
+			if (!(fieldArg.startsWith("@") || fieldArg.startsWith("jcr:"))) {
+				throw new InvalidQuerySyntaxException(fStatement);
+			}
+			String fieldName = getFieldName(fieldArg);
+			String fieldDisplayName = fieldArg.startsWith("@") ? fieldArg.substring(1) : fieldArg;
+
+			String groupArg = null;
+			List<BigDecimal> numbers = new ArrayList<>();
+			for (int i = 1; i < args.size(); i++) {
+				String arg = args.get(i);
+				if (arg.startsWith("@") || arg.startsWith("jcr:")) {
+					// The grouping property must be the last argument.
+					if (i != args.size() - 1) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					groupArg = arg;
+					continue;
+				}
+				Object value = toJavaValue(arg);
+				if (!(value instanceof BigDecimal)) {
+					throw new InvalidQuerySyntaxException(fStatement);
+				}
+				numbers.add((BigDecimal) value);
+			}
+
+			if (function.equals("percentile")) {
+				if (numbers.isEmpty()) {
+					throw new InvalidQuerySyntaxException(fStatement);
+				}
+				if (groupArg != null && numbers.size() != 1) {
+					throw new InvalidQuerySyntaxException(fStatement);
+				}
+				for (BigDecimal p : numbers) {
+					if (p.compareTo(BigDecimal.ZERO) <= 0 || p.compareTo(new BigDecimal("100")) > 0) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+				}
+			} else {
+				if (!numbers.isEmpty()) {
+					throw new InvalidQuerySyntaxException(fStatement);
+				}
+				if (function.equals("stats") && groupArg != null) {
+					// A grouped stats() would need two label levels (bucket x
+					// statistic); use the individual functions instead.
+					throw new InvalidQuerySyntaxException(fStatement);
+				}
+			}
+
+			String groupFieldName = null;
+			String groupDisplayName = null;
+			if (groupArg != null) {
+				groupFieldName = getFieldName(groupArg);
+				groupDisplayName = groupArg.startsWith("@") ? groupArg.substring(1) : groupArg;
+			}
+
+			// The result dimension is the canonical text of the expression, so a
+			// count facet and any number of statistics can coexist on one
+			// property without colliding in the per-dimension result map.
+			StringBuilder dimension = new StringBuilder(function).append("(").append(fieldDisplayName);
+			double[] percentiles = null;
+			String[] percentileLabels = null;
+			if (function.equals("percentile")) {
+				percentiles = new double[numbers.size()];
+				percentileLabels = new String[numbers.size()];
+				for (int i = 0; i < numbers.size(); i++) {
+					percentiles[i] = numbers.get(i).doubleValue();
+					percentileLabels[i] = FacetStatistics.formatPercentile(numbers.get(i));
+					dimension.append(",").append(percentileLabels[i]);
+				}
+			} else if (function.equals("median")) {
+				percentiles = new double[] { 50d };
+				percentileLabels = new String[] { "value" };
+			}
+			if (groupDisplayName != null) {
+				dimension.append(",").append(groupDisplayName);
+			}
+			dimension.append(")");
+
+			return new FacetStatistics.Params(dimension.toString(),
+					FacetStatistics.Function.valueOf(function.toUpperCase()),
+					fieldName, fieldType, groupFieldName, percentiles, percentileLabels);
 		}
 
 		public List<Facet> listFacets() {
@@ -1958,11 +2193,19 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 		private static class Facet {
 			private final List<FacetParams> fFacetParams = new ArrayList<>();
+			private final FacetStatistics.Params fStatsParams;
 
-			public Facet() {}
+			public Facet() {
+				fStatsParams = null;
+			}
 
 			public Facet(FacetParams params) {
 				fFacetParams.add(params);
+				fStatsParams = null;
+			}
+
+			public Facet(FacetStatistics.Params statsParams) {
+				fStatsParams = statsParams;
 			}
 
 			public boolean add(FacetParams params) {
@@ -1998,6 +2241,14 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 			public boolean isRange() {
 				return (fFacetParams.get(0) instanceof RangeFacetParams);
+			}
+
+			public boolean isStats() {
+				return (fStatsParams != null);
+			}
+
+			public FacetStatistics.Params getStatsParams() {
+				return fStatsParams;
 			}
 
 			public TopFacetParams getTopFacetParams() {

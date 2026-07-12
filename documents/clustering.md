@@ -48,8 +48,16 @@ isolated behind `org.mintjams.rt.jcr.internal.sql.DatabaseDialect`:
   the JDBC boundary — no SQL-issuing code knows which driver is in use.
 - **Transaction semantics.** PostgreSQL aborts a transaction on any
   statement failure; code that recovers from an expected failure inside
-  a transaction (journal-id collision retry) guards the statement with a
-  savepoint when `DatabaseDialect.isTransactionAbortedOnError()` is true.
+  a transaction (journal-id collision retry, the blob cleaner's
+  per-row delete) guards the statement with a savepoint when
+  `DatabaseDialect.isTransactionAbortedOnError()` is true.
+- **Lock-contention detection.** The SQLSTATEs for a lock timeout or
+  deadlock differ per product (`HYT00`/`40001` on H2, `55P03`/`40P01`/
+  `40001` on PostgreSQL) and are isolated behind
+  `DatabaseDialect.isLockContention()`. The blob cleaner uses it to
+  skip a `jcr_files` row locked by a concurrent user transaction —
+  the row stays marked deleted and is cleaned on a later run — instead
+  of failing its whole pass.
 
 The dialect is selected from the configured JDBC URL. Adding another
 database means implementing `DatabaseDialect` and registering it in
@@ -450,11 +458,15 @@ if (lease != null) {
 `cluster.isClusterEnabled()`, `cluster.nodeId`, and
 `cluster.listMembers()` (node id, host name, started, last heartbeat,
 alive) expose the cluster state, e.g. for an operations dashboard. In
-standalone deployments locks are granted immediately and the member list
-is empty, so the same code runs unchanged. Application locks live in
-their own namespace and cannot collide with the platform's internal
-locks. The same coordination is available to Java code through
-`org.mintjams.jcr.cluster.ClusterCoordinator` (adapt a JCR session).
+standalone deployments locks are held in an in-JVM lease table and the
+member list is empty, so the same code runs unchanged — and overlapping
+executions on the single node (a timer tick racing an async kick of the
+same task) exclude each other exactly as cluster nodes do, with the TTL
+still bounding how long a crashed execution can hold the lock.
+Application locks live in their own namespace and cannot collide with
+the platform's internal locks. The same coordination is available to
+Java code through `org.mintjams.jcr.cluster.ClusterCoordinator` (adapt
+a JCR session).
 
 Each node also watches the other members' heartbeats and logs a warning
 when a node goes silent for three heartbeat intervals (and a notice when

@@ -213,6 +213,19 @@ public interface SearchIndex extends Closeable {
 				int getValue(String label);
 
 				Map<String, Integer> getValues();
+
+				/**
+				 * <p>Returns the value of the specified label without narrowing it
+				 * to an int. Facet counts are integers, but the statistical
+				 * aggregations of the {@code facet accumulate} clause (sum, avg,
+				 * percentile, ...) are decimals; use this accessor for those.
+				 * The value is {@code Double.NaN} when a statistic is undefined
+				 * because no values were found (e.g. the average of an empty
+				 * set).</p>
+				 */
+				Number getNumber(String label);
+
+				Map<String, Number> getNumbers();
 			}
 		}
 

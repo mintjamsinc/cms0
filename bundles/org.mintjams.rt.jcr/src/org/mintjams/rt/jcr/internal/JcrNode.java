@@ -243,6 +243,68 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		}
 	}
 
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The set-based removal replaces the per-node checks of {@link #remove()}
+	 * with a single check on the subtree root, so it is only taken when that
+	 * check provably covers every descendant:
+	 * <ul>
+	 *   <li>the node is a plain {@code nt:file} or {@code nt:folder} — the
+	 *       content-delete shapes this fast path is built for; version storage
+	 *       and other special types keep the per-node semantics of
+	 *       {@link #remove()};</li>
+	 *   <li>privileges are uniform across the subtree: the session is
+	 *       privileged, or no descendant carries its own access control entries
+	 *       (and this transaction holds no uncommitted access control changes,
+	 *       whose effect on descendants cannot be read from the workspace-wide
+	 *       store);</li>
+	 *   <li>no descendant is locked by another session — such a lock must fail
+	 *       exactly at the locked node, which only the per-node path reports.</li>
+	 * </ul>
+	 * When a condition does not hold, nothing is touched and {@code -1} is
+	 * returned so the caller can fall back to {@link #remove()}.
+	 */
+	@Override
+	public long removeTree() throws RepositoryException {
+		if (isRootNode()) {
+			return -1;
+		}
+		if (!isNodeType(NodeType.NT_FILE) && !isNodeType(NodeType.NT_FOLDER)) {
+			return -1;
+		}
+
+		// The same guards remove() applies to this node.
+		JcrPath path = JcrPath.valueOf(getPath());
+		fSession.checkPrivileges(path.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
+		fSession.checkPrivileges(path.toString(), Privilege.JCR_REMOVE_NODE);
+		checkRemovable();
+		if (adaptTo(JcrNodeTypeManager.class).isProtectedNode(getName())) {
+			throw new ConstraintViolationException("The node '" + getName() + "' is protected.");
+		}
+
+		WorkspaceQuery workspaceQuery = getWorkspaceQuery();
+		if (!(fSession.isAdmin() || fSession.isSystem() || fSession.isService())) {
+			if (workspaceQuery.isAccessControlAffected()) {
+				return -1;
+			}
+			// hasEntriesUnder answers true conservatively while the store is stale.
+			if (adaptTo(AccessControlStore.class).hasEntriesUnder(getPath())) {
+				return -1;
+			}
+		}
+
+		try {
+			if (workspaceQuery.items().countNotOwnedLocksInDescendants(getPath()) > 0) {
+				return -1;
+			}
+
+			return workspaceQuery.items().removeTree(getIdentifier());
+		} catch (IOException | SQLException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+	}
+
 	@Override
 	public void save() throws AccessDeniedException, ItemExistsException, ConstraintViolationException,
 			InvalidItemStateException, ReferentialIntegrityException, VersionException, LockException,
@@ -598,8 +660,8 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public boolean hasNodes() throws RepositoryException {
 		try {
-			return (getWorkspaceQuery().items().countNodes(getIdentifier(), null) > 0);
-		} catch (IOException | SQLException ex) {
+			return getWorkspaceQuery().items().hasChildNodes(getIdentifier());
+		} catch (SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
 	}

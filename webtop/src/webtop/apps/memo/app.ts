@@ -48,7 +48,7 @@ import {
 // files that are dragged in are round-tripped as HTML instead, preserving their
 // markup; the Text Editor stays the default editor for HTML.
 // ----------------------------------------------------------------------------
-const MEMO_MIME = 'application/x-memo+json';
+const MEMO_MIME = 'application/vnd.mintjams.cms.memo+json';
 const MEMO_EXTENSION = 'memo';
 const MEMO_FORMAT_VERSION = 1;
 

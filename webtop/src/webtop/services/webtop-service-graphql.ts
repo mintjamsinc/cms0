@@ -116,10 +116,10 @@ export interface ClusterMember {
   nodeId: string;
   /** Host name of the node, when it could be determined. */
   hostName: string | null;
-  /** When the node joined, in milliseconds since the epoch. */
-  started: number;
-  /** The node's last heartbeat, in milliseconds since the epoch. */
-  lastHeartbeat: number;
+  /** When the node joined (ISO-8601 date-time in UTC). */
+  started: string;
+  /** The node's last heartbeat (ISO-8601 date-time in UTC). */
+  lastHeartbeat: string;
   /**
    * The server's own heartbeat-freshness judgement: a member whose
    * heartbeat went stale is presumed dead. Clients never re-derive this
