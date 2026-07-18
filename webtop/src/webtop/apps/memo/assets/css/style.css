@@ -14,7 +14,6 @@
 :root {
 	--navbar-height: 2.5rem;
 	--formatbar-height: 2.5rem;
-	--statusbar-height: 1.75rem;
 	/* Neutral, light-grey rule colour for document lines (table cells, hr,
 	   blockquote bar). Derived from the body text colour at low opacity so it
 	   reads as a faint grey in both light and dark themes — unlike the default
@@ -711,41 +710,10 @@
 	height: 0;
 }
 
-/* ----------------------------------------------------------------------------
- * Status bar (translucent, extends to window edges) — same as Text Editor
- * -------------------------------------------------------------------------- */
-.status-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	height: var(--statusbar-height);
-	margin-bottom: -1rem;
-	margin-left: -1rem;
-	margin-right: -1rem;
-	padding: 0 1rem;
-	color: var(--navbar-color);
-	font-size: 11px;
-	white-space: nowrap;
-	user-select: none;
-}
-
-.status-group {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.25rem;
-}
-
-.status-item {
-	padding: 0 0.5rem;
-}
-
-.status-divider {
-	width: 1px;
-	height: 0.875rem;
-	background-color: var(--text-muted-color);
-	opacity: 0.5;
-}
-
+/* While a property field is maximized, hide the status bar contents (the
+ * overlay blankets the window but the bar's 1rem bottom gutter would peek
+ * through). Mirrors the Text Editor app's rule; the bar stays in flow and
+ * draggable. */
 #app:has(.cm-expanded-overlay) .status-bar > * {
 	visibility: hidden;
 }

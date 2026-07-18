@@ -31,6 +31,7 @@ export const WEBTOP_QUERIES = {
             modified
             editor
             contentTypes
+            category
             enableStartMenu
             isAdminOnly
             singleton

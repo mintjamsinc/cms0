@@ -19,6 +19,35 @@
 	<div id="app" class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount" @dragover.prevent="onAppDragOver" @drop.prevent>
 		<!-- Navigation Bar -->
 		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="refreshList" :disabled="listLoading"
+					:title="t('app.content-browser.toolbar.refresh')">
+					<i class="bi bi-arrow-clockwise" :class="{spin: listLoading}"></i>
+				</button>
+			</div>
+
+			<!-- Full-text search. Scoped to the current folder; the Search section
+			     in the sidebar narrows the same query by schema condition.
+			     Unlike that section this sits outside the navigation busy shield,
+			     so it has to refuse to start a query itself while one is running —
+			     both writers replace the same list and the loser would clobber the
+			     winner's results. -->
+			<div class="cb-searchbar">
+				<div class="input-group" :class="{invalid: fullTextCompiled.error}">
+					<input type="search" v-model="fullTextKeyword" :disabled="listLoading"
+						:placeholder="t('app.content-browser.search.fullTextPlaceholder')"
+						:title="fullTextCompiled.error || t('app.content-browser.search.fullTextHint')"
+						@keydown.enter.prevent="xpathExecuteSearch">
+					<div class="input-group-actions">
+						<button class="input-group-btn" @click="xpathExecuteSearch"
+							:disabled="listLoading || !hasSearchInput"
+							:title="t('app.content-browser.search.search')">
+							<i class="bi bi-search"></i>
+						</button>
+					</div>
+				</div>
+			</div>
+
 			<span class="nav-spacer"></span>
 
 			<!-- Pane Toggles -->
@@ -202,22 +231,6 @@
 						<span>{{ t('app.content-browser.search.title') }}</span>
 					</div>
 					<div v-show="sidebarSectionExpanded.xpathSearch" class="sidebar-section-body px-2">
-						<!-- Full-text search input -->
-						<div class="filter-group fulltext-group">
-							<label class="filter-label" for="content-fulltext-input">{{ t('app.content-browser.search.fullText') }}</label>
-							<div class="fulltext-input-row">
-								<input id="content-fulltext-input" type="text" class="wt fulltext-input"
-									v-model="fullTextKeyword"
-									placeholder='word -ng "phrase" OR ...'
-									@keydown.enter.prevent="xpathExecuteSearch">
-								<button v-if="fullTextKeyword" class="filter-input-clear-sm fulltext-input-clear"
-									@click="fullTextKeyword = ''" :title="t('app.content-browser.filter.clear')">
-									<i class="bi bi-x"></i>
-								</button>
-							</div>
-							<div v-if="fullTextCompiled.error" class="xpath-error">{{ fullTextCompiled.error }}</div>
-						</div>
-
 						<!-- Condition list (placed above Schema so newly-added conditions appear at top) -->
 						<div v-if="xpathSelectedSchema" class="xpath-conditions">
 							<div v-for="cond in xpathConditions" :key="cond.id" class="xpath-condition">
@@ -643,8 +656,13 @@
 		</div>
 		</div> <!-- /.content-body -->
 
-		<!-- Bottom Status Bar (translucent, empty — same shape as editor apps) -->
-		<div class="status-bar window-drag-region"></div>
+		<!-- Bottom Status Bar (translucent — same shape as editor apps) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ listStatusText }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+		</div>
 
 		<div v-if="uploadMonitor && !conflictDialog.visible" class="upload-overlay flex-column text-center">
 			<span class="loader"></span>

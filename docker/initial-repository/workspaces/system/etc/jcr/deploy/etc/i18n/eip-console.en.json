@@ -1,4 +1,6 @@
 {
+	"webtop.appmenu.category.eip": "Enterprise Integration",
+
 	"app.eip-console.title": "EIP Console",
 	"app.eip-console.tab.graph": "Graph",
 	"app.eip-console.tab.routes": "Routes",

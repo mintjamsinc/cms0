@@ -2111,15 +2111,24 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			String fieldDisplayName = fieldArg.startsWith("@") ? fieldArg.substring(1) : fieldArg;
 
 			String groupArg = null;
+			Class<?> groupFieldType = null;
 			List<BigDecimal> numbers = new ArrayList<>();
 			for (int i = 1; i < args.size(); i++) {
 				String arg = args.get(i);
-				if (arg.startsWith("@") || arg.startsWith("jcr:")) {
+				// The grouping property may be a bare reference (@p / jcr:p) or a
+				// reference wrapped in an xs: cast that names its value domain, e.g.
+				// sum(@amount, xs:dateTime(@occurred_at)). The cast is what lets the
+				// engine decode a date/boolean grouping property from its raw doc
+				// values; an xs: cast over a QUOTED literal is a percentile argument,
+				// not a grouping reference, so groupCastType returns null for those.
+				Class<?> castType = groupCastType(arg);
+				if (arg.startsWith("@") || arg.startsWith("jcr:") || castType != null) {
 					// The grouping property must be the last argument.
 					if (i != args.size() - 1) {
 						throw new InvalidQuerySyntaxException(fStatement);
 					}
 					groupArg = arg;
+					groupFieldType = castType;
 					continue;
 				}
 				Object value = toJavaValue(arg);
@@ -2155,8 +2164,17 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			String groupFieldName = null;
 			String groupDisplayName = null;
 			if (groupArg != null) {
-				groupFieldName = getFieldName(groupArg);
-				groupDisplayName = groupArg.startsWith("@") ? groupArg.substring(1) : groupArg;
+				// Unwrap an xs: cast on the grouping reference to its bare field: the
+				// cast only names the decode type (captured in groupFieldType); the
+				// field name and the dimension identity are cast-free, so sum(@a, @d)
+				// and sum(@a, xs:dateTime(@d)) resolve to the same field and the same
+				// dimension, and readers keyed on the uncast name are unaffected.
+				String groupRef = groupArg;
+				if (groupFieldType != null) {
+					groupRef = groupArg.substring(groupArg.indexOf("(") + 1, groupArg.length() - 1).trim();
+				}
+				groupFieldName = getFieldName(groupRef);
+				groupDisplayName = groupRef.startsWith("@") ? groupRef.substring(1) : groupRef;
 			}
 
 			// The result dimension is the canonical text of the expression, so a
@@ -2184,7 +2202,36 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 			return new FacetStatistics.Params(dimension.toString(),
 					FacetStatistics.Function.valueOf(function.toUpperCase()),
-					fieldName, fieldType, groupFieldName, percentiles, percentileLabels);
+					fieldName, fieldType, groupFieldName, groupFieldType, percentiles, percentileLabels);
+		}
+
+		// The value domain named by an xs: cast that wraps a grouping FIELD
+		// reference (@p / jcr:p), or null when arg is not such a cast. A cast over a
+		// quoted literal (e.g. xs:decimal('50') as a percentile argument) is NOT a
+		// grouping reference and returns null here; only a field-wrapping cast names
+		// a grouping property's decode type. Mirrors the first-argument cast mapping.
+		private Class<?> groupCastType(String arg) {
+			if (!startsWithAny(arg, XS_NUMERIC_FUNCTIONS, XS_DATETIME_FUNCTIONS, XS_BOOLEAN_FUNCTIONS,
+					XS_STRING_FUNCTIONS)) {
+				return null;
+			}
+			if (!arg.endsWith(")")) {
+				throw new InvalidQuerySyntaxException(fStatement);
+			}
+			String inner = arg.substring(arg.indexOf("(") + 1, arg.length() - 1).trim();
+			if (!(inner.startsWith("@") || inner.startsWith("jcr:"))) {
+				return null;
+			}
+			if (startsWithAny(arg, XS_BOOLEAN_FUNCTIONS)) {
+				return Boolean.class;
+			}
+			if (startsWithAny(arg, XS_DATETIME_FUNCTIONS)) {
+				return java.util.Date.class;
+			}
+			if (startsWithAny(arg, XS_STRING_FUNCTIONS)) {
+				return String.class;
+			}
+			return BigDecimal.class;
 		}
 
 		public List<Facet> listFacets() {

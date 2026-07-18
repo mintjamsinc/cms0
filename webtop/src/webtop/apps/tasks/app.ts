@@ -1245,43 +1245,57 @@ export const App = {
 
 				case 'claimTask': {
 					this.requireSelectedTask();
-					const updated = await this.bpm!.claimTask(this.selectedTask!.id);
-					this.selectedTask = { ...this.selectedTask!, ...updated };
+					const taskId = this.selectedTask!.id;
+					const updated = await this.bpm!.claimTask(taskId);
 					this.patchTaskInList(updated);
+					this.applySelectedTaskUpdate(taskId, updated);
 					return this.serializeTask(updated);
 				}
 
 				case 'unclaimTask': {
 					this.requireSelectedTask();
 					this.requireOwnership();
-					const updated = await this.bpm!.unclaimTask(this.selectedTask!.id);
-					this.selectedTask = { ...this.selectedTask!, ...updated };
+					const taskId = this.selectedTask!.id;
+					const updated = await this.bpm!.unclaimTask(taskId);
 					this.patchTaskInList(updated);
+					this.applySelectedTaskUpdate(taskId, updated);
 					return this.serializeTask(updated);
 				}
 
 				case 'setAssignee': {
 					this.requireSelectedTask();
 					const assignee = (p.assignee ?? null) as string | null;
-					const updated = await this.bpm!.setTaskAssignee(this.selectedTask!.id, assignee);
-					this.selectedTask = { ...this.selectedTask!, ...updated };
+					const taskId = this.selectedTask!.id;
+					const updated = await this.bpm!.setTaskAssignee(taskId, assignee);
 					this.patchTaskInList(updated);
+					this.applySelectedTaskUpdate(taskId, updated);
 					return this.serializeTask(updated);
 				}
 
 				case 'completeTask': {
 					this.requireSelectedTask();
 					this.requireOwnership();
+					// Capture the task being completed before awaiting the server.
+					// Selecting another task while the call is in flight reassigns
+					// this.selectedTask; reading the live reference afterwards would
+					// drop the newly selected task from the list and leave the
+					// completed one behind.
+					const completedId = this.selectedTask!.id;
 					const variables = this.normalizeVariables(p.variables);
 					await this.bpm!.completeTask({
-						taskId: this.selectedTask!.id,
+						taskId: completedId,
 						variables,
 					});
 					// Drop the completed task from the runtime list.
-					this.tasks = this.tasks.filter(t => t.id !== this.selectedTask!.id);
+					this.tasks = this.tasks.filter(t => t.id !== completedId);
 					this.filterList();
-					this.selectedTask = null;
-					this.clearForm();
+					// Only clear the form/selection when the completed task is still
+					// the selected one; if the user has since picked another task,
+					// keep that selection and its form.
+					if (this.selectedTask?.id === completedId) {
+						this.selectedTask = null;
+						this.clearForm();
+					}
 					return true;
 				}
 
@@ -1467,17 +1481,28 @@ export const App = {
 			}
 		},
 
+		// Merge a server-side task update into the current selection, but only
+		// when the selection still points at the same task. The user may select
+		// a different task while an async task operation is in flight; the newer
+		// selection must win, so a stale update must not clobber it. Returns true
+		// when the selection was still current and was updated.
+		applySelectedTaskUpdate(taskId: string, updated: Partial<Task>): boolean {
+			if (this.selectedTask?.id !== taskId) return false;
+			this.selectedTask = { ...this.selectedTask, ...updated };
+			return true;
+		},
+
 		// =====================================================================
 		// Toolbar actions (claim/unclaim/assign) — same business rules as RPC
 		// =====================================================================
 
 		async claimSelectedTask() {
 			if (!this.selectedTask || !this.bpm) return;
+			const taskId = this.selectedTask.id;
 			try {
-				const updated = await this.bpm.claimTask(this.selectedTask.id);
-				this.selectedTask = { ...this.selectedTask, ...updated };
+				const updated = await this.bpm.claimTask(taskId);
 				this.patchTaskInList(updated);
-				this.pushContextToFrame();
+				if (this.applySelectedTaskUpdate(taskId, updated)) this.pushContextToFrame();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.claim', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to claim: {detail}');
 			}
@@ -1485,11 +1510,11 @@ export const App = {
 
 		async unclaimSelectedTask() {
 			if (!this.selectedTask || !this.bpm) return;
+			const taskId = this.selectedTask.id;
 			try {
-				const updated = await this.bpm.unclaimTask(this.selectedTask.id);
-				this.selectedTask = { ...this.selectedTask, ...updated };
+				const updated = await this.bpm.unclaimTask(taskId);
 				this.patchTaskInList(updated);
-				this.pushContextToFrame();
+				if (this.applySelectedTaskUpdate(taskId, updated)) this.pushContextToFrame();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.unclaim', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to unclaim: {detail}');
 			}
@@ -1516,12 +1541,12 @@ export const App = {
 
 		async executeTakeOver() {
 			if (!this.selectedTask || !this.bpm) return;
+			const taskId = this.selectedTask.id;
 			try {
-				const updated = await this.bpm.setTaskAssignee(this.selectedTask.id, this.currentUserID);
-				this.selectedTask = { ...this.selectedTask, ...updated };
+				const updated = await this.bpm.setTaskAssignee(taskId, this.currentUserID);
 				this.patchTaskInList(updated);
 				this.closeDialog();
-				this.pushContextToFrame();
+				if (this.applySelectedTaskUpdate(taskId, updated)) this.pushContextToFrame();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.takeover', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to take over: {detail}');
 			}
@@ -1546,12 +1571,12 @@ export const App = {
 			if (!this.selectedTask || !this.bpm) return;
 			const assignee = String(this.dialog.data.assignee || '').trim();
 			if (!assignee) return;
+			const taskId = this.selectedTask.id;
 			try {
-				const updated = await this.bpm.setTaskAssignee(this.selectedTask.id, assignee);
-				this.selectedTask = { ...this.selectedTask, ...updated };
+				const updated = await this.bpm.setTaskAssignee(taskId, assignee);
 				this.patchTaskInList(updated);
 				this.closeDialog();
-				this.pushContextToFrame();
+				if (this.applySelectedTaskUpdate(taskId, updated)) this.pushContextToFrame();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.assign', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to assign: {detail}');
 			}

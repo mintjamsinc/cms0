@@ -123,6 +123,36 @@ public interface Node extends javax.jcr.Node {
 		return -1;
 	}
 
+	/**
+	 * Removes the named children of this node, each with its entire subtree, as
+	 * one set-based unit — the batched form of {@link #removeTree()}.
+	 *
+	 * <p>Deleting a large tree through {@link #removeTree()} on its root is a
+	 * single unit of unbounded size: the transaction, the memory held for the
+	 * collected subtree and the interval between progress reports all grow with
+	 * the tree. Handing a container's children over a batch at a time keeps the
+	 * statements set-based while bounding all three by the batch size.
+	 *
+	 * <p>The eligibility rules of {@link #removeTree()} apply, but the checks
+	 * that cover a whole subtree are answered once for this node — which
+	 * contains every batch — instead of once per child.
+	 *
+	 * <p>Children that are no longer live are ignored, so a batch may be
+	 * replayed after a rollback.
+	 *
+	 * @param children the children to remove. Every one of them must be a child
+	 *                 of this node — the subtree-wide checks are answered for
+	 *                 this node and would not cover anything outside it.
+	 * @return the number of removed content items (as {@link #removeTree()}
+	 *         counts them), or {@code -1} when the children are not eligible for
+	 *         set-based removal and nothing was removed.
+	 * @throws RepositoryException if a check fails (access denied, a node is
+	 *         locked, or a node is protected) or the removal itself fails.
+	 */
+	default long removeChildTrees(java.util.Collection<javax.jcr.Node> children) throws RepositoryException {
+		return -1;
+	}
+
 //	AccessControlPolicy[] getPolicies() throws PathNotFoundException, AccessDeniedException, RepositoryException;
 
 }

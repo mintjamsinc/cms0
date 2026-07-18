@@ -1795,9 +1795,22 @@
 				</div>
 				<div class="dialog-body">
 					<p class="mt-0 dialog-help-text">
-						<span v-if="dialog.data.activeCount > 0">{{ t('app.bpm-console.dialog.migrateSourceActive', { name: dialog.data.source.name || dialog.data.source.key, version: dialog.data.source.version, count: dialog.data.activeCount }, 'Source: {name} v{version} — {count} active instance(s)') }}</span>
-						<span v-else>{{ t('app.bpm-console.dialog.migrateSourceNoActive', { name: dialog.data.source.name || dialog.data.source.key, version: dialog.data.source.version }, 'Source: {name} v{version} — no active instances') }}</span>
+						<span v-if="dialog.data.countLoading">{{ t('app.bpm-console.dialog.migrateSourceCounting', { name: dialog.data.source.name || dialog.data.source.key, version: dialog.data.source.version }, 'Source: {name} v{version} — counting instances…') }}</span>
+						<span v-else-if="dialog.data.countError">{{ t('app.bpm-console.dialog.migrateSourcePlain', { name: dialog.data.source.name || dialog.data.source.key, version: dialog.data.source.version }, 'Source: {name} v{version}') }}</span>
+						<span v-else-if="dialog.data.migratableCount > 0">{{ t('app.bpm-console.dialog.migrateSourceActive', { name: dialog.data.source.name || dialog.data.source.key, version: dialog.data.source.version, count: dialog.data.migratableCount }, 'Source: {name} v{version} — {count} active instance(s)') }}</span>
+						<span v-else class="text-danger">{{ t('app.bpm-console.dialog.migrateSourceNoActive', { name: dialog.data.source.name || dialog.data.source.key, version: dialog.data.source.version }, 'Source: {name} v{version} — no active instances') }}</span>
 					</p>
+
+					<!-- The engine migrates running, non-suspended instances only; an
+						 empty batch is rejected outright, so the source line above is
+						 flagged in danger color instead of a separate message. A failed
+						 count is reported as such — it is not evidence that there is
+						 nothing to migrate. -->
+					<div v-if="!dialog.data.countLoading && dialog.data.countError"
+						class="dialog-help-text" style="color: var(--wt-danger, #c33);">
+						<i class="bi bi-exclamation-triangle me-1"></i>
+						{{ t('app.bpm-console.dialog.migrateCountError', { error: dialog.data.countError }, 'Could not determine how many instances would be migrated: {error}') }}
+					</div>
 
 					<div class="mt-3">
 						<label class="dialog-label">{{ t('app.bpm-console.dialog.targetVersion', undefined, 'Target version') }}</label>
@@ -1883,7 +1896,7 @@
 					<button class="wt" @click="closeDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
 					<button
 						class="wt wt-primary"
-						:disabled="dialog.data.submitting || dialog.data.planLoading || !dialog.data.plan || (dialog.data.plan && dialog.data.plan.instructions.length === 0)"
+						:disabled="dialog.data.submitting || dialog.data.planLoading || dialog.data.countLoading || !dialog.data.migratableCount || !dialog.data.plan || dialog.data.plan.instructions.length === 0"
 						@click="executeMigrate">
 						<i class="bi bi-arrow-right-circle me-1"></i>
 						<span v-if="dialog.data.submitting">{{ t('app.bpm-console.dialog.submitting', undefined, 'Submitting…') }}</span>

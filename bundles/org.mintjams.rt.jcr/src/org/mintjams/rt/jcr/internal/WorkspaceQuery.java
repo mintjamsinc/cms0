@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -512,9 +513,17 @@ public class WorkspaceQuery implements Adaptable {
 					.put("file_size", size).build()).execute();
 		}
 
+		/**
+		 * Marks a file row deleted. Conditional on {@code is_deleted = FALSE}: a
+		 * transaction whose snapshot still references an already-deleted blob (a
+		 * concurrent rewrite or removal of the same node got there first) skips
+		 * the row instead of queueing behind the lock a concurrent {@link #clean}
+		 * chunk holds on it until that chunk commits.
+		 */
 		public void deleteFile(String id) throws SQLException {
-			filesEntity().updateByPrimaryKey(AdaptableMap.<String, Object>newBuilder().put("file_id", id)
-					.put("is_deleted", Boolean.TRUE).build()).execute();
+			newUpdateBuilder("UPDATE jcr_files SET is_deleted = TRUE"
+					+ " WHERE file_id = {{id}} AND is_deleted = FALSE")
+					.setVariable("id", id).build().execute();
 		}
 
 		public boolean exists(String id) throws IOException, SQLException {
@@ -773,6 +782,8 @@ public class WorkspaceQuery implements Adaptable {
 			try {
 				newUpdateBuilder("DELETE FROM jcr_items WHERE item_id = {{id}}").setVariable("id", id).build().execute();
 				newUpdateBuilder("DELETE FROM jcr_properties WHERE parent_item_id = {{id}}").setVariable("id", id).build()
+						.execute();
+				newUpdateBuilder("DELETE FROM jcr_references WHERE parent_item_id = {{id}}").setVariable("id", id).build()
 						.execute();
 
 				itemsEntity()
@@ -1390,20 +1401,19 @@ public class WorkspaceQuery implements Adaptable {
 			}
 
 			StringBuilder statement = new StringBuilder()
-					.append("SELECT * FROM jcr_properties")
-					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
-					.append(" AND jcr_items.is_system IS FALSE)")
-					.append(" WHERE property_type = {{type}}")
-					.append(" AND ").append(adaptTo(DatabaseDialect.class).arrayContains("property_value", "{{value}}"));
+					.append("SELECT p.* FROM jcr_references r")
+					.append(" INNER JOIN jcr_properties p ON (r.item_id = p.item_id)")
+					.append(" INNER JOIN jcr_items i ON (p.parent_item_id = i.item_id")
+					.append(" AND i.is_system IS FALSE)")
+					.append(" WHERE r.property_type = {{type}} AND r.target_item_id = {{id}}");
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
 					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
-					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();
+					.put("id", id).build();
 			if (Strings.isNotEmpty(name)) {
-				statement.append(" AND jcr_properties.item_name = {{name}}");
+				statement.append(" AND p.item_name = {{name}}");
 				variables.put("name", name);
 			}
-			statement.append(" AND jcr_properties.is_deleted = FALSE")
-					.append(" ORDER BY item_name");
+			statement.append(" ORDER BY p.item_name");
 
 			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
@@ -1497,94 +1507,28 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		/**
-		 * Small identifier sets are probed with one DB-side query (no rows shipped);
-		 * past this size the OR-chain would be evaluated per reference row and a
-		 * single scan with Java-side set lookups is cheaper.
-		 */
-		private static final int COUNT_REFERENCED_PROBE_LIMIT = 16;
-
-		/**
 		 * Counts, for each of the given item identifiers, the REFERENCE properties on
 		 * live, non-system nodes that point at it. Identifiers that are not referenced
-		 * are absent from the returned map. {@code ARRAY_CONTAINS} cannot use an index,
-		 * so any check must pass over every reference row — but only once for the whole
-		 * set: probing each identifier separately repeated that scan per identifier,
-		 * which made removing large trees O(removed nodes × reference rows).
+		 * are absent from the returned map. Resolved over the {@code jcr_references}
+		 * index (a handful of indexed rows per identifier), so the cost is
+		 * O(removed nodes), not O(workspace property rows).
 		 */
 		public Map<String, Long> countReferenced(Collection<String> ids) throws IOException, SQLException {
 			Map<String, Long> counts = new HashMap<>();
 			if (ids.isEmpty()) {
 				return counts;
 			}
-			Set<String> idSet = new HashSet<>(ids);
 
-			if (idSet.size() <= COUNT_REFERENCED_PROBE_LIMIT) {
-				// Interactive deletes remove a handful of nodes; keep the whole check
-				// in the database so the common nothing-references-them case ships no
-				// rows. Per-identifier counts are only resolved on the failure path.
-				StringBuilder statement = new StringBuilder()
-						.append("SELECT COUNT(*) AS reference_count FROM jcr_properties")
-						.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
-						.append(" AND jcr_items.is_system IS FALSE)")
-						.append(" WHERE property_type = {{type}}")
-						.append(" AND jcr_properties.is_deleted = FALSE")
-						.append(" AND (");
-				AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
-						.put("type", PropertyType.REFERENCE).build();
-				int n = 0;
-				for (String id : idSet) {
-					if (n > 0) {
-						statement.append(" OR ");
-					}
-					String varName = "value" + n;
-					statement.append(adaptTo(DatabaseDialect.class).arrayContains("property_value", "{{" + varName + "}}"));
-					variables.put(varName, new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX));
-					n++;
-				}
-				statement.append(")");
-				long total;
-				try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build().execute()) {
-					total = result.iterator().next().getLong("reference_count");
-				}
-				if (total == 0) {
-					return counts;
-				}
-				for (String id : idSet) {
-					long count = countReferenced(id, null, false);
-					if (count > 0) {
-						counts.put(id, count);
-					}
-				}
-				return counts;
-			}
-
-			StringBuilder statement = new StringBuilder()
-					.append("SELECT property_value FROM jcr_properties")
-					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
-					.append(" AND jcr_items.is_system IS FALSE)")
-					.append(" WHERE property_type = {{type}}")
-					.append(" AND jcr_properties.is_deleted = FALSE");
-			try (Query.Result result = newQueryBuilder(statement.toString())
-					.setVariable("type", PropertyType.REFERENCE).build().execute()) {
-				for (AdaptableMap<String, Object> r : result) {
-					// Count each property row once per identifier it contains, matching
-					// the row count the per-identifier COUNT(*) probe returns.
-					Set<String> matched = null;
-					for (Object e : r.getObjectArray("property_value")) {
-						QName propertyValue = QName.valueOf((String) e);
-						if (!JcrValue.STRING_NS_URI.equals(propertyValue.getNamespaceURI())) {
-							continue;
-						}
-						String targetId = propertyValue.getLocalPart();
-						if (!idSet.contains(targetId)) {
-							continue;
-						}
-						if (matched == null) {
-							matched = new HashSet<>();
-						}
-						if (matched.add(targetId)) {
-							counts.merge(targetId, 1L, Long::sum);
-						}
+			for (List<String> chunk : chunked(new ArrayList<>(new HashSet<>(ids)))) {
+				try (Query.Result result = newQueryBuilder(
+						"SELECT r.target_item_id AS target_item_id, COUNT(*) AS reference_count FROM jcr_references r"
+						+ " INNER JOIN jcr_items i ON (r.parent_item_id = i.item_id AND i.is_system IS FALSE)"
+						+ " WHERE r.property_type = {{type}} AND r.target_item_id IN ({{ids;list}})"
+						+ " GROUP BY r.target_item_id")
+						.setVariable("type", PropertyType.REFERENCE).setVariable("ids", chunk)
+						.build().setOffset(0).execute()) {
+					for (AdaptableMap<String, Object> r : result) {
+						counts.put(r.getString("target_item_id"), r.getLong("reference_count"));
 					}
 				}
 			}
@@ -1593,19 +1537,16 @@ public class WorkspaceQuery implements Adaptable {
 
 		public long countReferenced(String id, String name, boolean weak) throws IOException, SQLException {
 			StringBuilder statement = new StringBuilder()
-					.append("SELECT COUNT(*) AS reference_count FROM jcr_properties")
-					.append(" INNER JOIN jcr_items ON (jcr_properties.parent_item_id = jcr_items.item_id")
-					.append(" AND jcr_items.is_system IS FALSE)")
-					.append(" WHERE property_type = {{type}}")
-					.append(" AND ").append(adaptTo(DatabaseDialect.class).arrayContains("property_value", "{{value}}"));
+					.append("SELECT COUNT(*) AS reference_count FROM jcr_references r")
+					.append(" INNER JOIN jcr_items i ON (r.parent_item_id = i.item_id AND i.is_system IS FALSE)");
 			AdaptableMap<String, Object> variables = AdaptableMap.<String, Object>newBuilder()
 					.put("type", weak ? PropertyType.WEAKREFERENCE : PropertyType.REFERENCE)
-					.put("value", new QName(JcrValue.STRING_NS_URI, id, XMLConstants.DEFAULT_NS_PREFIX)).build();
+					.put("id", id).build();
 			if (Strings.isNotEmpty(name)) {
-				statement.append(" AND jcr_properties.item_name = {{name}}");
+				statement.append(" INNER JOIN jcr_properties p ON (r.item_id = p.item_id AND p.item_name = {{name}})");
 				variables.put("name", name);
 			}
-			statement.append(" AND jcr_properties.is_deleted = FALSE");
+			statement.append(" WHERE r.property_type = {{type}} AND r.target_item_id = {{id}}");
 
 			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build().execute()) {
 				return result.iterator().next().getLong("reference_count");
@@ -1764,6 +1705,8 @@ public class WorkspaceQuery implements Adaptable {
 							.execute();
 				}
 			}
+			newUpdateBuilder("DELETE FROM jcr_references WHERE parent_item_id = {{id}}")
+					.setVariable("id", id).build().execute();
 
 			itemsEntity().updateByPrimaryKey(
 					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
@@ -1820,28 +1763,49 @@ public class WorkspaceQuery implements Adaptable {
 				throw new ItemNotFoundException("Identifier must not be null or empty.");
 			}
 
-			AdaptableMap<String, Object> root = null;
-			try (Query.Result result = itemsEntity().find(AdaptableMap.<String, Object>newBuilder()
-					.put("item_id", id).put("is_deleted", Boolean.FALSE).build()).setOffset(0).setLimit(1)
-					.execute()) {
-				Iterator<AdaptableMap<String, Object>> i = result.iterator();
-				if (i.hasNext()) {
-					root = i.next();
-				}
-			}
-			if (root == null) {
+			return removeTree(List.of(id));
+		}
+
+		/**
+		 * Removes the subtrees of all the given identifiers as one set-based unit.
+		 * Collecting several roots at once is what lets a caller bound a large
+		 * delete: a folder's children can be handed over a batch at a time, so the
+		 * statements stay set-based while the transaction, the memory held for the
+		 * collected subtree and the progress interval all stay proportional to the
+		 * batch instead of the whole tree.
+		 *
+		 * <p>Identifiers that are not live (already removed in this transaction)
+		 * drop out silently, matching the single-identifier form's {@code 0}.
+		 */
+		public long removeTree(Collection<String> ids) throws IOException, SQLException, RepositoryException {
+			if (ids == null || ids.isEmpty()) {
 				return 0;
 			}
 
-			// The main subtree, id -> path. Descendant names are held to the same
-			// protected-node rule remove() applies while recursing; the root's own
-			// name was already checked by the caller.
-			JcrNodeTypeManager nodeTypeManager = adaptTo(JcrNodeTypeManager.class);
+			// The live subtree roots, id -> path.
 			Map<String, String> removedPaths = new LinkedHashMap<>();
-			removedPaths.put(id, root.getString("item_path"));
-			List<String> subtreeIds = new ArrayList<>();
-			subtreeIds.add(id);
-			for (AdaptableMap<String, Object> r : collectDescendants(subtreeIds)) {
+			List<String> roots = new ArrayList<>();
+			for (List<String> chunk : chunked(new ArrayList<>(new LinkedHashSet<>(ids)))) {
+				try (Query.Result result = newQueryBuilder(
+						"SELECT item_id, item_path FROM jcr_items"
+						+ " WHERE item_id IN ({{ids;list}}) AND is_deleted = FALSE")
+						.setVariable("ids", chunk).build().setOffset(0).execute()) {
+					for (AdaptableMap<String, Object> r : result) {
+						roots.add(r.getString("item_id"));
+						removedPaths.put(r.getString("item_id"), r.getString("item_path"));
+					}
+				}
+			}
+			if (roots.isEmpty()) {
+				return 0;
+			}
+
+			// Descendant names are held to the same protected-node rule remove()
+			// applies while recursing; the roots' own names were already checked
+			// by the caller.
+			JcrNodeTypeManager nodeTypeManager = adaptTo(JcrNodeTypeManager.class);
+			List<String> subtreeIds = new ArrayList<>(roots);
+			for (AdaptableMap<String, Object> r : collectDescendants(roots)) {
 				String name = r.getString("item_name");
 				if (nodeTypeManager.isProtectedNode(name)) {
 					throw new ConstraintViolationException("The node '" + name + "' is protected.");
@@ -1910,6 +1874,8 @@ public class WorkspaceQuery implements Adaptable {
 			for (List<String> chunk : chunked(all)) {
 				newUpdateBuilder("UPDATE jcr_properties SET is_deleted = TRUE"
 						+ " WHERE parent_item_id IN ({{ids;list}}) AND is_deleted = FALSE")
+						.setVariable("ids", chunk).build().execute();
+				newUpdateBuilder("DELETE FROM jcr_references WHERE parent_item_id IN ({{ids;list}})")
 						.setVariable("ids", chunk).build().execute();
 				// active_path is released in the same statement so a same-path
 				// replacement may be created within this transaction, exactly as
@@ -2081,6 +2047,36 @@ public class WorkspaceQuery implements Adaptable {
 			return chunks;
 		}
 
+		/**
+		 * Mirrors a property row's reference-typed values into
+		 * {@code jcr_references} within the current transaction. The property's
+		 * rows are always cleared first, so value updates and type changes never
+		 * leave stale entries behind.
+		 */
+		private void syncReferences(String propertyItemId, String parentItemId, int propertyType,
+				Object[] propertyValues) throws IOException, SQLException {
+			newUpdateBuilder("DELETE FROM jcr_references WHERE item_id = {{id}}")
+					.setVariable("id", propertyItemId).build().execute();
+			if (propertyType != PropertyType.REFERENCE && propertyType != PropertyType.WEAKREFERENCE) {
+				return;
+			}
+
+			Set<String> targets = new LinkedHashSet<>();
+			for (Object e : propertyValues) {
+				QName propertyValue = QName.valueOf((String) e);
+				if (JcrValue.STRING_NS_URI.equals(propertyValue.getNamespaceURI())) {
+					targets.add(propertyValue.getLocalPart());
+				}
+			}
+			for (String target : targets) {
+				newUpdateBuilder("INSERT INTO jcr_references (item_id, parent_item_id, property_type, target_item_id)"
+						+ " VALUES ({{itemId}}, {{parentId}}, {{type}}, {{target}})")
+						.setVariable("itemId", propertyItemId).setVariable("parentId", parentItemId)
+						.setVariable("type", propertyType).setVariable("target", target)
+						.build().execute();
+			}
+		}
+
 		public void moveNode(String srcAbsPath, String destAbsPath)
 				throws IOException, SQLException, RepositoryException {
 			if (Strings.isEmpty(srcAbsPath)) {
@@ -2230,6 +2226,7 @@ public class WorkspaceQuery implements Adaptable {
 				if (existing == null) {
 					propertiesEntity().deleteByPrimaryKey(r).execute();
 					propertiesEntity().create(r).execute();
+					syncReferences(params.getItemId(), id, params.getPropertyType(), params.getPropertyValues());
 
 					for (Map.Entry<String, JcrBinary> e : params.getBinaries()) {
 						files().createFile(e.getKey(), e.getValue());
@@ -2252,6 +2249,7 @@ public class WorkspaceQuery implements Adaptable {
 					}
 
 					propertiesEntity().updateByPrimaryKey(r).execute();
+					syncReferences(params.getItemId(), id, params.getPropertyType(), params.getPropertyValues());
 
 					for (Map.Entry<String, JcrBinary> e : params.getBinaries()) {
 						files().createFile(e.getKey(), e.getValue());
@@ -2334,6 +2332,8 @@ public class WorkspaceQuery implements Adaptable {
 			propertiesEntity().updateByPrimaryKey(
 					AdaptableMap.<String, Object>newBuilder().putAll(pk).put("is_deleted", Boolean.TRUE).build())
 					.execute();
+			newUpdateBuilder("DELETE FROM jcr_references WHERE item_id = {{id}}")
+					.setVariable("id", pk.getString("item_id")).build().execute();
 
 			markDirty(id);
 

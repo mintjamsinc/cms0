@@ -106,6 +106,16 @@ public final class JobNodes {
 	 * {@link #PROP_INCLUDE_METADATA}.
 	 */
 	public static final String PROP_INCLUDE_ACL = "jobIncludeAcl";
+	/**
+	 * Archive jobs: the folder the archive is rooted at. Entry names are made
+	 * relative to it, so the archive keeps the structure below this folder. The
+	 * client sends the folder being browsed, or the scope a search ran in, so an
+	 * archive built from search hits stays rooted where the user searched rather
+	 * than at whatever folder the hits happen to share. Must be an ancestor of
+	 * every archived path; absent or not an ancestor of all, the job falls back
+	 * to the deepest folder shared by the selection.
+	 */
+	public static final String PROP_BASE_PATH = "jobBasePath";
 
 	// Import jobs ------------------------------------------------------------
 	/** Repository path of the uploaded CMS Archive ({@code nt:file}) to import. */

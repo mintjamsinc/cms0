@@ -696,7 +696,11 @@ public class CmsComponent extends DefaultComponent {
 		 * URI format: cms:store?path=/content/file.txt&mimeType=application/json&createParents=true&@header.cmsStoredPath=path
 		 * Parameters:
 		 *   - path: Target file path (required)
-		 *   - mimeType: MIME type (default: application/octet-stream)
+		 *   - mimeType: MIME type (default: application/octet-stream). A value
+		 *     containing "+" (e.g. a "+json" structured-syntax suffix) MUST be
+		 *     wrapped as RAW(...): Camel normalizes a %2B escape back to "+" and
+		 *     then form-decodes the query, so both a literal and an encoded plus
+		 *     otherwise reach this endpoint as a space.
 		 *   - encoding: Optional encoding for string content (e.g., "UTF-8")
 		 *   - createParents: Auto-create parent folders (default: true)
 		 *   - source: Header name to get content from (default: @body for exchange body)

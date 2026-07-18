@@ -1,5 +1,6 @@
 identifier: 8ad27e16-2c83-4eb5-9e15-7d8a4f7d9c1a
 title: EIP Console
+category: eip
 icon: assets/icons/icon.svg
 isAdminOnly: true
 actions:

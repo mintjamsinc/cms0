@@ -45,28 +45,36 @@ import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
  * {@code jcr:content} — one absolute path per line — written there by the
  * preceding {@code appendDeleteNodes} mutations.
  *
- * Each requested path is first offered to the set-based
- * {@code org.mintjams.jcr.Node#removeTree()}, which removes the whole subtree
- * (with its version histories and binaries) in a handful of bulk statements —
- * this is what makes deleting large trees fast. Paths whose subtree needs
- * per-node checks (descendant ACLs or foreign locks) fall back to the
- * recursion below.
+ * Removal is set-based: a container's children are handed to
+ * {@code org.mintjams.jcr.Node#removeChildTrees()} {@link #REMOVE_BATCH_ITEMS}
+ * at a time, which removes them — with their subtrees, version histories and
+ * binaries — in a handful of bulk statements instead of the 15+ per node the
+ * per-node path costs. This is what makes deleting large trees fast. Children
+ * whose subtree needs per-node checks (descendant ACLs or foreign locks) fall
+ * back to the recursion below.
  *
- * Removals are committed in bounded batches ({@link #SAVE_BATCH_NODES} nodes
- * or {@link #SAVE_BATCH_MILLIS}, whichever comes first). Every {@code save()}
+ * The job walks the tree itself and empties each container depth first, rather
+ * than offering a requested path to {@code removeTree()} whole. A single
+ * removeTree() of a large subtree is one unbounded unit: it collects the entire
+ * subtree in memory before its first statement, commits it in one transaction,
+ * and reports one path for the lot. Batching the walk bounds all three by
+ * {@link #REMOVE_BATCH_ITEMS} while keeping the statements set-based.
+ *
+ * Removals are committed a batch at a time; what is left to the per-node path
+ * is committed in bounded batches instead ({@link #SAVE_BATCH_NODES} nodes or
+ * {@link #SAVE_BATCH_MILLIS}, whichever comes first). Every {@code save()}
  * carries a fixed overhead — fsync, referential-integrity validation, journal
  * observers, index updates — so the earlier one-transaction-per-node scheme
  * paid it once per node (and twice per file: {@code jcr:content} was removed
  * in its own transaction), which dominated large deletes. Batching keeps what
  * that scheme provided:
  * <ul>
- *   <li>nodeChanged subscriptions still fire at least every
- *       {@link #SAVE_BATCH_MILLIS} while work progresses (live UI feedback);</li>
- *   <li>aborts are still checked per node and take effect within one batch;</li>
- *   <li>transactions stay bounded for very deep trees — the job recurses
- *       into every container itself and only hands files (a file and its
- *       {@code jcr:content}/version history) to {@code Node.remove()} as a
- *       unit.</li>
+ *   <li>nodeChanged subscriptions still fire once per batch while work
+ *       progresses (live UI feedback);</li>
+ *   <li>aborts are checked per batch and take effect within one batch;</li>
+ *   <li>transactions stay bounded however large or deep the tree — a batch is
+ *       never split across saves, and a file always travels with its
+ *       {@code jcr:content} and version history as one unit.</li>
  * </ul>
  *
  * A batch refused for referential integrity is retried with per-node saves
@@ -83,14 +91,28 @@ public class DeleteJob implements Job {
 
 	public static final String TYPE = "delete";
 
-	/** Throttle: write progress to the job node every N item deletions. */
+	/**
+	 * Throttle: write progress to the job node every N item deletions. Only
+	 * reached on the per-node path — a set-based batch reports unconditionally.
+	 */
 	private static final long PROGRESS_THROTTLE_ITEMS = 100L;
 	/** Throttle: also write progress when this much wall time has elapsed. */
 	private static final long PROGRESS_THROTTLE_MILLIS = 500L;
-	/** Commit the delete session after this many node removals. */
+	/**
+	 * Commit the delete session after this many node removals. Only reached on
+	 * the per-node path — a set-based batch commits unconditionally.
+	 */
 	private static final int SAVE_BATCH_NODES = 64;
 	/** Also commit when this much wall time has elapsed since the last commit. */
 	private static final long SAVE_BATCH_MILLIS = 500L;
+	/**
+	 * Children handed to a single set-based removal. A batch is a unit: it is
+	 * committed and reported as a whole, so this alone decides how far the
+	 * progress display jumps between updates — the throttles above never widen
+	 * it. Lowering it buys a livelier display at the cost of one more commit
+	 * (and the index work that follows it) per batch.
+	 */
+	private static final int REMOVE_BATCH_ITEMS = 25;
 
 	private final String fJobId;
 	private final String fWorkspaceName;
@@ -313,14 +335,25 @@ public class DeleteJob implements Job {
 		}
 		Node node = session.getNode(path);
 
-		// Fast path: a plain file or folder whose subtree needs no per-node
-		// checks is removed with set-based statements — the whole tree, its
-		// version histories and binaries, in one unit within the current
-		// transaction. removeTree returns -1 without touching anything when a
-		// per-node walk is required (descendant ACLs or locks), and the
-		// recursion below takes over. Skipped in the per-node-save retry mode:
-		// after a referential-integrity refusal the job must fail exactly at
-		// the blocking node, which only the per-node walk can isolate.
+		// Everything that can carry children — folders, but also arbitrary
+		// container types — is emptied first, a batch at a time, so that what is
+		// handed to the removal below is a single node.
+		if (!JCRs.isFile(node)) {
+			deleteChildren(session, path, context, progressContent, progressSession);
+			if (!session.nodeExists(path)) {
+				return;
+			}
+			node = session.getNode(path);
+		}
+
+		// Fast path: a plain file or folder is removed with set-based statements —
+		// itself, its jcr:content, the version histories it owns and their
+		// binaries, in one unit within the current transaction. removeTree returns
+		// -1 without touching anything when a per-node walk is required
+		// (descendant ACLs or locks), and the removal below takes over. Skipped in
+		// the per-node-save retry mode: after a referential-integrity refusal the
+		// job must fail exactly at the blocking node, which only the per-node walk
+		// can isolate.
 		if (!fSaveEveryNode && node instanceof org.mintjams.jcr.Node) {
 			long removed = ((org.mintjams.jcr.Node) node).removeTree();
 			if (removed > 0) {
@@ -335,26 +368,6 @@ public class DeleteJob implements Job {
 			}
 		}
 
-		// Files are removed as one unit by Node.remove() — their internals
-		// (jcr:content, version history) no longer cost a removal (and formerly
-		// a whole transaction) each. Everything else that can carry children —
-		// folders, but also arbitrary container types — is recursed per child so
-		// batches stay bounded and progress/abort checks stay fine-grained.
-		if (!JCRs.isFile(node)) {
-			List<String> childPaths = new ArrayList<>();
-			for (NodeIterator it = node.getNodes(); it.hasNext();) {
-				childPaths.add(it.nextNode().getPath());
-			}
-			for (String child : childPaths) {
-				deleteRecursively(session, child, context, progressContent, progressSession);
-			}
-
-			if (!session.nodeExists(path)) {
-				return;
-			}
-			node = session.getNode(path);
-		}
-
 		// Count only the items the user thinks of as deleted (files and folders);
 		// internal descendants such as jcr:content must not inflate the progress.
 		boolean countable = JCRs.isFile(node) || JCRs.isFolder(node);
@@ -364,6 +377,110 @@ public class DeleteJob implements Job {
 			fItemsDeleted++;
 		}
 		flushIfNeeded(session, progressContent, progressSession, path, false);
+	}
+
+	/**
+	 * Removes everything below the container at {@code path}, leaving the
+	 * container itself to the caller.
+	 */
+	private void deleteChildren(Session session, String path, JobContext context,
+			Node progressContent, Session progressSession) throws Exception {
+		// The children are listed before any of them is removed: the iterator
+		// pages over the live rows by offset, so removing rows while it is open
+		// would shift the pages and skip children.
+		List<String> containerPaths = new ArrayList<>();
+		List<String> batchPaths = new ArrayList<>();
+		List<String> otherPaths = new ArrayList<>();
+		for (NodeIterator it = session.getNode(path).getNodes(); it.hasNext();) {
+			Node child = it.nextNode();
+			String childPath = child.getPath();
+			if (JCRs.isFile(child)) {
+				batchPaths.add(childPath);
+			} else if (JCRs.isFolder(child)) {
+				containerPaths.add(childPath);
+				batchPaths.add(childPath);
+			} else {
+				otherPaths.add(childPath);
+			}
+		}
+
+		// Empty the folder children first, depth first: each of them then costs
+		// one node in a batch below instead of an unbounded subtree of its own.
+		for (String childPath : containerPaths) {
+			if (context.isAborted()) {
+				throw new AbortedException();
+			}
+			if (!session.nodeExists(childPath)) {
+				continue;
+			}
+			deleteChildren(session, childPath, context, progressContent, progressSession);
+		}
+
+		// Anything that is neither a plain file nor a plain folder keeps the
+		// per-node semantics of remove().
+		for (String childPath : otherPaths) {
+			deleteRecursively(session, childPath, context, progressContent, progressSession);
+		}
+
+		removeInBatches(session, path, batchPaths, context, progressContent, progressSession);
+	}
+
+	/**
+	 * Removes the given children of a container in bounded batches, each one
+	 * set-based unit. Handing the children over a batch at a time — rather than
+	 * the container's whole subtree in a single {@code removeTree()} — is what
+	 * bounds the transaction, the memory the removal holds for the subtree it
+	 * collected, and the interval between progress reports.
+	 */
+	private void removeInBatches(Session session, String containerPath, List<String> childPaths,
+			JobContext context, Node progressContent, Session progressSession) throws Exception {
+		for (int i = 0; i < childPaths.size();) {
+			if (context.isAborted()) {
+				throw new AbortedException();
+			}
+
+			List<Node> batch = new ArrayList<>();
+			String lastPath = null;
+			while (i < childPaths.size() && batch.size() < REMOVE_BATCH_ITEMS) {
+				String childPath = childPaths.get(i++);
+				if (!session.nodeExists(childPath)) {
+					continue;
+				}
+				batch.add(session.getNode(childPath));
+				lastPath = childPath;
+			}
+			if (batch.isEmpty()) {
+				continue;
+			}
+
+			long removed = -1;
+			if (!fSaveEveryNode && session.nodeExists(containerPath)) {
+				Node container = session.getNode(containerPath);
+				if (container instanceof org.mintjams.jcr.Node) {
+					removed = ((org.mintjams.jcr.Node) container).removeChildTrees(batch);
+				}
+			}
+			if (removed < 0) {
+				// The batch needs per-node checks (descendant ACLs or locks), or
+				// the job is isolating a node that blocks referential integrity.
+				for (Node child : batch) {
+					deleteRecursively(session, child.getPath(), context, progressContent, progressSession);
+				}
+				continue;
+			}
+			if (removed == 0) {
+				// Every child of the batch was already gone.
+				continue;
+			}
+
+			fPendingNodes += (int) Math.min(removed, Integer.MAX_VALUE);
+			fItemsDeleted += removed;
+			// The batch is the unit: commit and report it whatever its size,
+			// rather than letting the per-node throttles decide — they would
+			// hold several batches back and report in coarser steps than the
+			// batch size asks for.
+			flushIfNeeded(session, progressContent, progressSession, lastPath, true);
+		}
 	}
 
 	/**

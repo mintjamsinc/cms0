@@ -1,5 +1,6 @@
 identifier: 18c1c623-fc2d-4492-ba29-ae019c6c5264
 title: EIP Modeler
+category: eip
 icon: assets/icons/icon.svg
 editor: true
 contentTypes:

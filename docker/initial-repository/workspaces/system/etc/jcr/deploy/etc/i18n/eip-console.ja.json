@@ -1,4 +1,6 @@
 {
+	"webtop.appmenu.category.eip": "エンタープライズ統合",
+
 	"app.eip-console.title": "EIP コンソール",
 	"app.eip-console.tab.graph": "グラフ",
 	"app.eip-console.tab.routes": "ルート",

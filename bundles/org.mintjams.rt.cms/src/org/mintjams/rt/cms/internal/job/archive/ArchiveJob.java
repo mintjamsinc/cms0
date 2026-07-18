@@ -61,9 +61,13 @@ import org.mintjams.rt.cms.internal.web.Webs;
  * The list of top-level paths to archive is read from the body of the job
  * node's {@code jcr:content} — one absolute path per line — written there by
  * the preceding {@code appendDownloadArchive} mutations. Folders are walked
- * recursively; each entry is named relative to its top-level item's parent so
- * the selected folder structure (but not the absolute repository path) is
- * preserved inside the archive.
+ * recursively; each entry is named relative to a single base folder, so the
+ * selected structure (but not the absolute repository path) is preserved inside
+ * the archive. That base is the folder the client pinned — the folder being
+ * browsed, or the scope a search ran in — so an archive built from search hits
+ * stays rooted where the user searched. When no base is pinned, or it is not an
+ * ancestor of every item, the base is the deepest folder shared by the
+ * selection instead (see {@link #resolveBasePath(String, List)}).
  *
  * Source content is read with the requesting user's session so a user can only
  * archive what they are allowed to read. The finished ZIP is written as an
@@ -109,6 +113,13 @@ public class ArchiveJob implements Job {
 	 * Off by default; ACL is only meaningful to privileged operators.
 	 */
 	private boolean fIncludeAcl;
+	/**
+	 * The folder the archive is rooted at, as requested by the client (the
+	 * browsed folder or the search scope). Entry names are made relative to it
+	 * when it is an ancestor of every archived path; otherwise the job falls back
+	 * to the deepest folder shared by the selection. Null when unset.
+	 */
+	private String fBasePath;
 	/** Local working area for the sidecar before it is folded into the ZIP. */
 	private Path fWorkDir;
 	private Writer fNodesWriter;
@@ -181,11 +192,12 @@ public class ArchiveJob implements Job {
 			}
 			progressContent = JobNodes.getContent(fileNode);
 
-			paths = JobNodes.readPaths(progressContent);
+			paths = pruneContainedPaths(JobNodes.readPaths(progressContent));
 			fItemsTotal = paths.size();
 			fIncludeMetadata = JobNodes.getBoolean(progressContent, JobNodes.PROP_INCLUDE_METADATA, true);
 			fIncludeAcl = fIncludeMetadata
 					&& JobNodes.getBoolean(progressContent, JobNodes.PROP_INCLUDE_ACL, false);
+			fBasePath = JobNodes.getString(progressContent, JobNodes.PROP_BASE_PATH, null);
 
 			JobNodes.setStatus(progressContent, JobStatus.RUNNING);
 			progressContent.setProperty(JobNodes.PROP_STARTED_AT, Calendar.getInstance());
@@ -207,6 +219,12 @@ public class ArchiveJob implements Job {
 					openMetadata(jobSession);
 				}
 				tempZip = Files.createTempFile("cms-archive-" + fJobId + "-", ".zip");
+				// One base path shared by every top-level item, so entry names stay
+				// unique: JCR paths are unique, and naming each entry relative to a
+				// single base preserves enough of the path to keep them apart.
+				// Naming relative to each item's own parent would collide as soon as
+				// two selected items are same-named files in different folders.
+				String basePath = resolveBasePath(fBasePath, paths);
 				try (ZipOutputStream zos = new ZipOutputStream(
 						new BufferedOutputStream(Files.newOutputStream(tempZip)))) {
 					for (int i = 0; i < paths.size(); i++) {
@@ -218,7 +236,7 @@ public class ArchiveJob implements Job {
 						try {
 							if (jobSession.nodeExists(top)) {
 								Node node = jobSession.getNode(top);
-								archiveRecursively(zos, node, parentPath(top), context,
+								archiveRecursively(zos, node, basePath, context,
 										progressContent, progressSession);
 							}
 						} catch (AbortedException ex) {
@@ -285,8 +303,9 @@ public class ArchiveJob implements Job {
 
 	/**
 	 * Add {@code node} and (for folders) all of its descendants to the ZIP.
-	 * Entry names are computed relative to {@code basePath} (the parent of the
-	 * top-level selected item) so the selected structure is preserved.
+	 * Entry names are computed relative to {@code basePath} (the shared base
+	 * resolved in {@link #resolveBasePath(String, List)}) so the selected
+	 * structure is preserved.
 	 */
 	private void archiveRecursively(ZipOutputStream zos, Node node, String basePath, JobContext context,
 			Node progressContent, Session progressSession) throws Exception {
@@ -521,6 +540,126 @@ public class ArchiveJob implements Job {
 			return "/";
 		}
 		return path.substring(0, idx);
+	}
+
+	/** Split an absolute path into its non-empty segments. */
+	private static List<String> segmentsOf(String path) {
+		List<String> segments = new ArrayList<>();
+		for (String segment : path.split("/")) {
+			if (!segment.isEmpty()) {
+				segments.add(segment);
+			}
+		}
+		return segments;
+	}
+
+	/**
+	 * Base folder that entry names are made relative to. When the client sent an
+	 * explicit base — the folder being browsed, or the scope a search ran in —
+	 * and every selected item lies within it, that base is used verbatim, so the
+	 * archive is rooted where the user is looking: a search scoped to {@code /a}
+	 * keeps the {@code a}-relative structure of every hit rather than collapsing
+	 * to whatever deeper folder the hits happen to share. Otherwise it falls back
+	 * to {@link #commonAncestorOfParents(List)}.
+	 */
+	private static String resolveBasePath(String requestedBase, List<String> paths) {
+		String base = normalizeBasePath(requestedBase);
+		if (base != null && isAncestorOfAll(base, paths)) {
+			return base;
+		}
+		return commonAncestorOfParents(paths);
+	}
+
+	/**
+	 * Normalize a requested base path: require it absolute, collapse repeated
+	 * slashes and drop a trailing slash (keeping root {@code "/"}). Returns null
+	 * for anything blank or not absolute, so the caller falls back.
+	 */
+	private static String normalizeBasePath(String path) {
+		if (path == null) {
+			return null;
+		}
+		String p = path.trim();
+		if (p.isEmpty() || !p.startsWith("/")) {
+			return null;
+		}
+		p = p.replaceAll("/{2,}", "/");
+		if (p.length() > 1 && p.endsWith("/")) {
+			p = p.substring(0, p.length() - 1);
+		}
+		return p;
+	}
+
+	/**
+	 * True when {@code base} contains every path — each path is the base itself
+	 * or sits below it. The {@code base + "/"} prefix keeps {@code /a} from
+	 * appearing to contain {@code /ab}.
+	 */
+	private static boolean isAncestorOfAll(String base, List<String> paths) {
+		String prefix = base.equals("/") ? "/" : base + "/";
+		for (String path : paths) {
+			if (!path.equals(base) && !path.startsWith(prefix)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Deepest folder that contains every top-level item, used as the single base
+	 * for entry names when the client did not pin an explicit base (see
+	 * {@link #resolveBasePath(String, List)}). For a selection that sits in one
+	 * folder — everything the Content Browser can select while browsing — this is
+	 * that folder, so entry names are unchanged. It only rises above it when
+	 * items span folders, which a selection made from a search result list can do.
+	 */
+	private static String commonAncestorOfParents(List<String> paths) {
+		List<String> common = null;
+		for (String path : paths) {
+			List<String> segments = segmentsOf(parentPath(path));
+			if (common == null) {
+				common = segments;
+				continue;
+			}
+			int limit = Math.min(common.size(), segments.size());
+			int i = 0;
+			while (i < limit && common.get(i).equals(segments.get(i))) {
+				i++;
+			}
+			common = new ArrayList<>(common.subList(0, i));
+		}
+		if (common == null || common.isEmpty()) {
+			return "/";
+		}
+		return "/" + String.join("/", common);
+	}
+
+	/**
+	 * Drop any path already covered by another selected path. Archiving both a
+	 * folder and something beneath it would otherwise write that descendant
+	 * twice — which, once entry names share one base, is a duplicate entry the
+	 * ZIP stream rejects. A search result list can surface a folder and its own
+	 * descendants side by side, so the selection reaching this job can contain
+	 * both. Duplicates of the same path are dropped too. The result is ordered
+	 * by path, which is also the order the entries are written in.
+	 */
+	private static List<String> pruneContainedPaths(List<String> paths) {
+		List<String> sorted = new ArrayList<>(paths);
+		sorted.sort(String::compareTo);
+		List<String> kept = new ArrayList<>();
+		for (String path : sorted) {
+			boolean covered = false;
+			for (String k : kept) {
+				if (path.equals(k) || path.startsWith(k.endsWith("/") ? k : k + "/")) {
+					covered = true;
+					break;
+				}
+			}
+			if (!covered) {
+				kept.add(path);
+			}
+		}
+		return kept;
 	}
 
 	private static String relativeEntryName(String basePath, String fullPath) {

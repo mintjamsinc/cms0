@@ -1183,6 +1183,25 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		// its own engine handle.
 		asCaller(environment, engine -> {
 			buildMigrationPlan(engine, sourceId, targetId, mapEqualActivities, updateEventTriggers);
+			// Reject an empty batch here too. The worker's executeAsync() would throw
+			// "processInstanceIds is empty", which only reaches the caller as a job
+			// that fails minutes after a successful-looking submit. Mirrors the query
+			// MigrateInstancesJob seeds the batch with — running AND not suspended,
+			// which is narrower than the "unfinished" counts the console's tree shows.
+			// Only when the caller relies solely on allActiveInstances: combined with
+			// explicit ids the batch covers the union, so an empty query is legitimate.
+			if (useAll && !useIds) {
+				long migratable = engine.getRuntimeService()
+						.createProcessInstanceQuery()
+						.processDefinitionId(sourceId)
+						.active()
+						.count();
+				if (migratable == 0) {
+					throw new IllegalArgumentException(
+							"No running instances of the source process definition to migrate"
+									+ " (suspended instances are not migrated)");
+				}
+			}
 			return null;
 		});
 

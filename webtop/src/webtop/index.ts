@@ -95,6 +95,12 @@ const WtDesktop = {
 			displayDate: null,
 			displayTime: null,
 			sortedApps: null,
+			// Start-menu category sections: [{ id, apps }]. Ordered by localized
+			// label at render time via orderedStartMenuGroups().
+			startMenuGroups: [] as { id: string; apps: any[] }[],
+			// Ids of collapsed category sections. In-memory only (not persisted);
+			// sections default to expanded and reset on reload.
+			collapsedCategories: [] as string[],
 			timerId: null,
 			appInstances: [],
 			activeAppInstanceID: null as string | null,
@@ -381,6 +387,7 @@ const WtDesktop = {
 			// アプリケーションをロード
 			window.Webtop.apps = (await window.Webtop.api.webtop.listApps()).apps;
 			vm.sortedApps = window.Webtop.sortedApps;
+			vm.startMenuGroups = window.Webtop.startMenuCategoryGroups;
 
 			// メタデータ定義キャッシュを初期化（バックグラウンド）
 			window.Webtop.initMetadataDefinitions().catch((err: any) => {
@@ -984,6 +991,41 @@ const WtDesktop = {
 			const literal = app.title || '';
 			const relPath = app.relPath || '';
 			return relPath ? (this as any).t(`app.${relPath}.title`, undefined, literal) : literal;
+		},
+		/**
+		 * Localized label for a start-menu category. Resolved by convention under
+		 * `webtop.appmenu.category.<categoryId>`, falling back to the capitalized
+		 * category id when no bundle key exists. Reactive via t(), so section
+		 * headers repaint on language change. Modules ship their own labels in
+		 * their i18n bundles (e.g. the Commerce category label lives in the
+		 * commerce module), so the shell needs no built-in category registry.
+		 */
+		categoryLabel(id: string): string {
+			if (!id) return '';
+			const fallback = id.charAt(0).toUpperCase() + id.slice(1);
+			return (this as any).t(`webtop.appmenu.category.${id}`, undefined, fallback);
+		},
+		/**
+		 * Start-menu category sections ordered by their localized label. Called
+		 * during render so re-sorting follows language changes (categoryLabel
+		 * reads the reactive localization snapshot).
+		 */
+		orderedStartMenuGroups(): { id: string; apps: any[] }[] {
+			const vm = this as any;
+			return (vm.startMenuGroups as { id: string; apps: any[] }[])
+				.slice()
+				.sort((a, b) => vm.categoryLabel(a.id).localeCompare(vm.categoryLabel(b.id)));
+		},
+		isCategoryCollapsed(id: string): boolean {
+			return (this as any).collapsedCategories.includes(id);
+		},
+		toggleCategory(id: string): void {
+			const vm = this as any;
+			if (vm.collapsedCategories.includes(id)) {
+				vm.collapsedCategories = vm.collapsedCategories.filter((c: string) => c !== id);
+			} else {
+				vm.collapsedCategories = [...vm.collapsedCategories, id];
+			}
 		},
 		formatDate(dateStr: string): string {
 			const vm = this as any;
@@ -2305,11 +2347,40 @@ export class Webtop implements WebtopContext {
 		console.log('[Webtop] I18n bundles cache initialized');
 	}
 
-	get sortedApps(): Application[] {
-		const apps = (window.Webtop?.apps || []).filter(app => {
+	// Enabled start-menu apps (start-menu opt-out honored). Admin-only apps are
+	// already filtered server-side for non-admin users in listApps().
+	#startMenuApps(): Application[] {
+		return (window.Webtop?.apps || []).filter(app => {
 			return app.enableStartMenu === undefined || app.enableStartMenu;
 		});
-		return apps.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+	}
+
+	// Uncategorized apps, shown as a flat list at the top of the start menu.
+	get sortedApps(): Application[] {
+		return this.#startMenuApps()
+			.filter(app => !app.category)
+			.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+	}
+
+	// Categorized apps grouped by category id. Each group's apps are sorted by
+	// title; group ordering (by localized label) and expand/collapse are handled
+	// reactively in the view-model so they follow language changes.
+	get startMenuCategoryGroups(): { id: string; apps: Application[] }[] {
+		const byCategory = new Map<string, Application[]>();
+		for (const app of this.#startMenuApps()) {
+			const category = app.category;
+			if (!category) continue;
+			let list = byCategory.get(category);
+			if (!list) {
+				list = [];
+				byCategory.set(category, list);
+			}
+			list.push(app);
+		}
+		return Array.from(byCategory.entries()).map(([id, apps]) => ({
+			id,
+			apps: apps.sort((a, b) => (a.title || '').localeCompare(b.title || '')),
+		}));
 	}
 
 	getFullPath(relPath: string): string {

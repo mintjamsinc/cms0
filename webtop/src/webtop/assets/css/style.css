@@ -609,6 +609,19 @@ body {
 		background-color: var(--menu-divider-color);
 	}
 
+	.side-menu-category {
+		margin-top: 0.25rem;
+	}
+
+	.side-menu-category-header .category-label {
+		color: var(--text-soft-color);
+	}
+
+	.side-menu-category-header .icon-block {
+		font-size: 0.75em;
+		color: var(--text-soft-color);
+	}
+
 	.app-name {
 		font-size: 13px;
 		color: var(--menubar-color);

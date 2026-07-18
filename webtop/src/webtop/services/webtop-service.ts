@@ -20,6 +20,9 @@ export class Application {
 		return this.#data.modified ? new Date(this.#data.modified) : undefined;
 	}
 	get enableStartMenu() { return this.#data.enableStartMenu; }
+	// Optional app-menu category id. Apps sharing a value are grouped under a
+	// collapsible section in the start menu; unset apps stay in the flat list.
+	get category() { return this.#data.category; }
 	get editor() { return this.#data.editor; }
 	get contentTypes(): string[] { return this.#data.contentTypes || []; }
 	get actions() { return this.#data.actions; }

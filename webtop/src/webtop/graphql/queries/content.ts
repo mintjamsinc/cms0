@@ -87,12 +87,15 @@ export const PROPERTY_VALUE_FIELDS = `
 // =============================================================================
 
 /**
- * Shared edges/pageInfo selection of the children connection, used by both
- * LIST_CHILDREN (with totalCount) and LIST_CHILDREN_PAGE (without).
+ * Node selection backing every list view. Any connection whose nodes are
+ * rendered as list items must select these fields: the list contract
+ * (nodeToInspectorTarget) reads them all, and a partial selection silently
+ * degrades to defaults rather than failing — a missing downloadUrl disables
+ * Download, missing lock/version flags misreport the context menu. Keeping the
+ * selection in one place is what stops folder listings and query results from
+ * drifting apart.
  */
-const CHILDREN_CONNECTION_FIELDS = `
-        edges {
-          node {
+const LIST_NODE_FIELDS = `
             path
             name
             nodeType
@@ -126,7 +129,16 @@ const CHILDREN_CONNECTION_FIELDS = `
                 __typename
                 ... on StringPropertyValue { type value }
               }
-            }
+            }`;
+
+/**
+ * Shared edges/pageInfo selection of the children connection, used by both
+ * LIST_CHILDREN (with totalCount) and LIST_CHILDREN_PAGE (without).
+ */
+const CHILDREN_CONNECTION_FIELDS = `
+        edges {
+          node {
+${LIST_NODE_FIELDS}
           }
           cursor
         }
@@ -284,19 +296,17 @@ export const CONTENT_QUERIES = {
     }
   `,
 
-  /** Execute XPath query */
+  /**
+   * Execute XPath query. Results are rendered as list items by the Content
+   * Browser, so this selects the full list node fields — the same contract as
+   * a folder listing.
+   */
   XPATH: `
     query XPath($query: String!, $first: Int, $after: String) {
       xpath(query: $query, first: $first, after: $after) {
         edges {
           node {
-            path
-            name
-            nodeType
-            mimeType
-            size
-            modified
-            modifiedBy
+${LIST_NODE_FIELDS}
           }
           cursor
         }

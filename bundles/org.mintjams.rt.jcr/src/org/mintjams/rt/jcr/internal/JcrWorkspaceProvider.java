@@ -29,18 +29,24 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Principal;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 import javax.jcr.LoginException;
 import javax.jcr.PathNotFoundException;
+import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
+import javax.xml.namespace.QName;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.security.LoginTimedOutException;
@@ -336,6 +342,19 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 	private void prepareInitialData() throws IOException {
 		try (Connection connection = getConnection(new SystemPrincipal())) {
+			// The normalized reference index is backfilled from existing property
+			// rows once it first appears; detect its absence before the DDL below
+			// creates it.
+			boolean referencesTableExisted = false;
+			try (ResultSet tables = connection.getMetaData().getTables(null, null, "%", new String[] { "TABLE" })) {
+				while (tables.next()) {
+					if ("jcr_references".equalsIgnoreCase(tables.getString("TABLE_NAME"))) {
+						referencesTableExisted = true;
+						break;
+					}
+				}
+			}
+
 			try {
 				for (String statement : Strings.readAll(getClass().getResourceAsStream("workspace-prepare.sql"),
 						StandardCharsets.UTF_8.toString()).toString().split(";")) {
@@ -595,6 +614,90 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 							.setStatement("CREATE UNIQUE INDEX IF NOT EXISTS jcr_items_active_path ON jcr_items (active_path)")
 							.build().execute();
 					connection.commit();
+				} catch (Throwable ex) {
+					try {
+						connection.rollback();
+					} catch (Throwable ignore) {
+					}
+					throw ex;
+				}
+			} while (false);
+
+			// Backfill the normalized reference index (jcr_references) from the
+			// existing property rows. Runs once when the table first appears; an
+			// interrupted backfill (empty table while live reference-typed rows
+			// exist) is detected and retried on the next start. New rows are
+			// maintained transactionally by the property write paths.
+			do {
+				if (referencesTableExisted) {
+					boolean hasIndexRows;
+					try (Query.Result result = Query.newBuilder(connection)
+							.setStatement("SELECT item_id FROM jcr_references")
+							.build().setOffset(0).setLimit(1).execute()) {
+						hasIndexRows = result.iterator().hasNext();
+					}
+					if (hasIndexRows) {
+						break;
+					}
+
+					boolean hasReferenceRows;
+					try (Query.Result result = Query.newBuilder(connection)
+							.setStatement("SELECT item_id FROM jcr_properties"
+									+ " WHERE property_type IN ({{types;list}}) AND is_deleted = FALSE")
+							.setVariable("types", List.of(PropertyType.REFERENCE, PropertyType.WEAKREFERENCE))
+							.build().setOffset(0).setLimit(1).execute()) {
+						hasReferenceRows = result.iterator().hasNext();
+					}
+					if (!hasReferenceRows) {
+						break;
+					}
+				}
+
+				Activator.getDefault().getLogger(getClass())
+						.info("Building the reference index for workspace '" + getWorkspaceName() + "'...");
+				try {
+					Update.newBuilder(connection).setStatement("DELETE FROM jcr_references").build().execute();
+
+					long count = 0;
+					try (PreparedStatement insert = connection.prepareStatement(
+							"INSERT INTO jcr_references (item_id, parent_item_id, property_type, target_item_id)"
+							+ " VALUES (?, ?, ?, ?)");
+							Query.Result result = Query.newBuilder(connection)
+									.setStatement("SELECT item_id, parent_item_id, property_type, property_value"
+											+ " FROM jcr_properties"
+											+ " WHERE property_type IN ({{types;list}}) AND is_deleted = FALSE")
+									.setVariable("types", List.of(PropertyType.REFERENCE, PropertyType.WEAKREFERENCE))
+									.build().setOffset(0).execute()) {
+						int batched = 0;
+						for (AdaptableMap<String, Object> r : result) {
+							Set<String> targets = new LinkedHashSet<>();
+							for (Object e : r.getObjectArray("property_value")) {
+								QName propertyValue = QName.valueOf((String) e);
+								if (JcrValue.STRING_NS_URI.equals(propertyValue.getNamespaceURI())) {
+									targets.add(propertyValue.getLocalPart());
+								}
+							}
+							for (String target : targets) {
+								insert.setString(1, r.getString("item_id"));
+								insert.setString(2, r.getString("parent_item_id"));
+								insert.setInt(3, r.getInteger("property_type"));
+								insert.setString(4, target);
+								insert.addBatch();
+								count++;
+								if (++batched >= 1000) {
+									insert.executeBatch();
+									batched = 0;
+								}
+							}
+						}
+						if (batched > 0) {
+							insert.executeBatch();
+						}
+					}
+					connection.commit();
+
+					Activator.getDefault().getLogger(getClass())
+							.info("Reference index build has been completed (" + count + " rows).");
 				} catch (Throwable ex) {
 					try {
 						connection.rollback();

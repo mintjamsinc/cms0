@@ -643,6 +643,11 @@ export const App = {
 			const ft = (this.fullTextKeyword as string).trim();
 			return ft.length > 0 || (this.xpathConditions as any[]).length > 0;
 		},
+		// True while either of the two writers of `items` is in flight. The two
+		// are mutually exclusive, so this is what a refresh has to wait on.
+		listLoading(): boolean {
+			return (this.isNavigating as boolean) || (this.xpathSearchLoading as boolean);
+		},
 		xpathBuiltQuery(): string {
 			const path = this.currentPath === '/' ? '//' : `/jcr:root${this.currentPath}//`;
 			const conditions: string[] = [];
@@ -861,6 +866,32 @@ export const App = {
 				.map((id: string) => (this.items as any[]).find((i: any) => i.id === id))
 				.filter(Boolean);
 		},
+		// Status bar text: total items, how many of them are selected, and —
+		// when a filter hides some — how many are actually on screen.
+		// The total is `items`, not `filteredItems`, so the selected count is
+		// always a subset of it: a filter narrows what is shown without
+		// dropping the selection (see selectItem, which indexes `items`).
+		// Blank while there is no list to describe, leaving the bar as a plain
+		// drag strip.
+		listStatusText(): string {
+			if (this.listLoading || this.loadError || this.currentFolderDeleted) return '';
+			const total = (this.items as any[]).length;
+			const shown = (this.filteredItems as any[]).length;
+			const selected = (this.selectedItems as string[]).length;
+			if (selected > 0) {
+				if (this.filterActive) {
+					return this.t('app.content-browser.status.selectedFiltered', { selected, total, shown },
+						`${selected} of ${total} items selected, ${shown} shown`);
+				}
+				return this.t('app.content-browser.status.selected', { selected, total },
+					`${selected} of ${total} items selected`);
+			}
+			if (this.filterActive) {
+				return this.t('app.content-browser.status.itemsFiltered', { total, shown },
+					`${total} items, ${shown} shown`);
+			}
+			return this.t('app.content-browser.status.items', { count: total }, `${total} items`);
+		},
 	},
 	watch: {
 		// Push the current folder path to the shell so the Dock hover preview
@@ -1060,6 +1091,14 @@ export const App = {
 			vm.errorMessage = '';
 			vm.loadError = '';
 			vm.currentFolderDeleted = false;
+			// This fills the list with a folder's children, so whatever else it
+			// held, it is no longer showing search results. xpathSearchActive says
+			// exactly that about the list, and everything keyed off it — the search
+			// bar, the folder-targeted menu entries — is wrong the moment it
+			// outlives the results it describes.
+			vm.xpathSearchActive = false;
+			vm.xpathSearchTotalCount = 0;
+			vm.xpathSearchError = '';
 			vm.currentPath = path;
 			vm.addToPathHistory(path);
 			// Update browser-style navigation stack
@@ -1408,16 +1447,9 @@ export const App = {
 			const idx = path.lastIndexOf('/');
 			const parent = idx > 0 ? path.substring(0, idx) : '/';
 			// While search results are showing, the list holds matches that may
-			// span folders, so always reload the real folder listing. Clear the
-			// search flags first (without xpathClearSearch's own reload, since
-			// navigateToPath performs the load).
-			const needLoad = this.xpathSearchActive || parent !== this.currentPath;
-			if (this.xpathSearchActive) {
-				this.xpathSearchActive = false;
-				this.xpathSearchTotalCount = 0;
-				this.xpathSearchError = '';
-			}
-			if (needLoad) {
+			// span folders, so always reload the real folder listing even when the
+			// parent is already the current path. The load clears the search state.
+			if (this.xpathSearchActive || parent !== this.currentPath) {
 				await this.navigateToPath(parent);
 			}
 			const item = (this.items as any[]).find((i: any) => i.path === path);
@@ -2130,16 +2162,19 @@ export const App = {
 			// コンテキストメニューのアイテムを構築
 			const menuItems: { id: string; label: string; icon?: string; danger?: boolean; type?: string }[] = [];
 
-			// New Folder/File + Upload options (always available)
-			menuItems.push({ id: 'new-folder', label: vm.t('app.content-browser.menu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' });
-			menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
-			menuItems.push({ id: 'upload-files', label: vm.t('app.content-browser.menu.uploadFiles', undefined, 'Upload Files'), icon: 'bi-upload' });
-			menuItems.push({ id: 'upload-folder', label: vm.t('app.content-browser.menu.uploadFolder', undefined, 'Upload Folder'), icon: 'bi-folder-symlink' });
-			// Import brings a CMS Archive into the current folder, mirroring the
-			// upload actions above; it is offered regardless of selection so it is
-			// reachable whether the user right-clicks an item or empty space.
-			menuItems.push({ id: 'import-archive', label: vm.t('app.content-browser.menu.import', undefined, 'Import…'), icon: 'bi-box-arrow-in-down' });
-			menuItems.push({ type: 'separator', id: '', label: '' });
+			// New Folder/File, the upload actions and Import all write into the
+			// folder being browsed. A search result list has no such folder — its
+			// items come from anywhere beneath the search scope — so these are
+			// offered only while browsing. They are otherwise independent of the
+			// selection, reachable from both an item and empty space.
+			if (!vm.xpathSearchActive) {
+				menuItems.push({ id: 'new-folder', label: vm.t('app.content-browser.menu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' });
+				menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
+				menuItems.push({ id: 'upload-files', label: vm.t('app.content-browser.menu.uploadFiles', undefined, 'Upload Files'), icon: 'bi-upload' });
+				menuItems.push({ id: 'upload-folder', label: vm.t('app.content-browser.menu.uploadFolder', undefined, 'Upload Folder'), icon: 'bi-folder-symlink' });
+				menuItems.push({ id: 'import-archive', label: vm.t('app.content-browser.menu.import', undefined, 'Import…'), icon: 'bi-box-arrow-in-down' });
+				menuItems.push({ type: 'separator', id: '', label: '' });
+			}
 
 			if (isSingleSelection && hasFolder) {
 				menuItems.push({ id: 'open', label: vm.t('app.content-browser.menu.open', undefined, 'Open'), icon: 'bi-folder2-open' });
@@ -2230,7 +2265,12 @@ export const App = {
 			// Clear selection when right-clicking on background
 			vm.clearSelection();
 
-			// Build context menu with New Folder / New File / Upload / Paste
+			// Build context menu with New Folder / New File / Upload / Paste.
+			// Every entry here targets the folder being browsed, so a search
+			// result list leaves nothing to offer.
+			if (vm.xpathSearchActive) {
+				return;
+			}
 			const menuItems: { id: string; label: string; icon?: string; danger?: boolean; type?: string }[] = [];
 			menuItems.push({ id: 'new-folder', label: vm.t('app.content-browser.menu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' });
 			menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
@@ -2291,9 +2331,11 @@ export const App = {
 					// Plain download: no `.cms-archive/` metadata sidecar, so the
 					// result is exactly the user's files. A single plain file streams
 					// directly; folders and any multi-selection are bundled into a ZIP.
-					if (selectedItemObjects.length === 1 && !selectedItemObjects[0].isCollection) {
+					// A node with no stream URL (not an nt:file) also takes the ZIP
+					// route, which needs only its path — never a silent no-op.
+					if (selectedItemObjects.length === 1 && !selectedItemObjects[0].isCollection && selectedItemObjects[0].downloadURL) {
 						const only = selectedItemObjects[0];
-						if (only.downloadURL) vm.downloadFile(only.downloadURL, only.name);
+						vm.downloadFile(only.downloadURL, only.name);
 					} else if (selectedItemObjects.length > 0) {
 						vm.startZipDownload(selectedItemObjects, { includeMetadata: false });
 					}
@@ -3115,6 +3157,14 @@ export const App = {
 			const contentService = vm.instance.api.content;
 			const eventHub = vm.instance?.api?.eventHub;
 			const filename = vm._zipFilenameFor(items[0]);
+			// Root the archive at the folder in view — the browsed folder, or the
+			// scope a search ran in (search never leaves currentPath). A selection
+			// made from search results can span folders below that scope; anchoring
+			// here keeps the archive rooted at the search folder rather than at
+			// whatever deeper folder the hits happen to share. While browsing, every
+			// item is a direct child of currentPath, so this matches the folder the
+			// server would infer anyway.
+			const basePath = vm.currentPath;
 
 			try {
 				await downloadContentAsZip(
@@ -3125,6 +3175,7 @@ export const App = {
 					{
 						includeMetadata: archiveOptions.includeMetadata,
 						includeAcl: archiveOptions.includeAcl,
+						basePath,
 						onStart: (handle: ArchiveJobHandle) => {
 							vm.archiveMonitor = {
 								jobId: handle.jobId,
@@ -4275,10 +4326,18 @@ export const App = {
 				vm.xpathSearchLoading = false;
 			}
 		},
+		// Re-run whatever produced the current list. Two different queries back
+		// the list, and xpathSearchActive is what says which one is showing.
+		async refreshList() {
+			if (this.xpathSearchActive) {
+				await this.xpathExecuteSearch();
+				return;
+			}
+			await this.load(this.currentPath, true);
+		},
 		async xpathClearSearch() {
-			this.xpathSearchActive = false;
-			this.xpathSearchTotalCount = 0;
-			this.xpathSearchError = '';
+			// Reloading the folder is what ends the search: load() clears the
+			// search state as part of replacing the list.
 			await this.load(this.currentPath, true);
 		},
 		xpathClearAllConditions() {

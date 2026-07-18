@@ -1,4 +1,6 @@
 {
+	"webtop.appmenu.category.bpm": "ビジネスプロセス管理",
+
 	"app.bpm-console.title": "BPM コンソール",
 	"app.bpm-console.toolbar.liveTailOn": "ライブテール ON — クリックで停止",
 	"app.bpm-console.toolbar.refresh": "更新（1.5秒長押しでライブテール）",
@@ -171,8 +173,11 @@
 	"app.bpm-console.dialog.annotation": "注釈",
 	"app.bpm-console.dialog.annotationPlaceholder": "例：運用チームが確認済み — 上流の修正後に再試行",
 	"app.bpm-console.dialog.migrateTitle": "インスタンスを移行",
+	"app.bpm-console.dialog.migrateSourceCounting": "移行元：{name} v{version} — インスタンスを集計中…",
+	"app.bpm-console.dialog.migrateSourcePlain": "移行元：{name} v{version}",
+	"app.bpm-console.dialog.migrateCountError": "移行対象のインスタンス数を確認できませんでした：{error}",
 	"app.bpm-console.dialog.migrateSourceActive": "移行元：{name} v{version} — {count}件のアクティブなインスタンス",
-	"app.bpm-console.dialog.migrateSourceNoActive": "移行元：{name} v{version} — アクティブなインスタンスなし",
+	"app.bpm-console.dialog.migrateSourceNoActive": "移行元：{name} v{version} — アクティブなインスタンスがありません。",
 	"app.bpm-console.dialog.targetVersion": "移行先バージョン",
 	"app.bpm-console.dialog.targetVersionSuspended": "v{version}（中断）",
 	"app.bpm-console.dialog.targetVersionLabel": "v{version}",

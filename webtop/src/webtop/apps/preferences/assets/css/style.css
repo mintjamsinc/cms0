@@ -85,22 +85,6 @@
 	padding-left: 0.125rem;
 }
 
-/* Bottom status bar (translucent, extends to window edges, empty for non-editor apps) */
-.status-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	height: var(--statusbar-height);
-	margin-bottom: -1rem;
-	margin-left: -1rem;
-	margin-right: -1rem;
-	padding: 0 1rem;
-	color: var(--navbar-color);
-	font-size: 11px;
-	white-space: nowrap;
-	user-select: none;
-}
-
 /* Remote update banner */
 .remote-notice {
 	display: flex;

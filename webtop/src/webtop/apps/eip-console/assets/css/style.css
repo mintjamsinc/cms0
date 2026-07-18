@@ -15,7 +15,6 @@
 
 :root {
 	--navbar-height: 2.5rem;
-	--statusbar-height: 1.75rem;
 
 	/* CodeMirror syntax colors (VSCode Light+ inspired) — kept in sync with
 	 * content-browser so both editors share an identical palette. */
@@ -863,37 +862,6 @@
 	padding: 1rem 0.5rem;
 	text-align: center;
 	color: var(--text-muted-color);
-}
-
-/* Bottom status bar (translucent, extends to window edges) — left side shows
- * either the history hit count (search mode) or the deployed route count
- * (manage mode). Mirrors the BPM Console pattern so window chrome stays
- * consistent across operations consoles. */
-.status-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	height: var(--statusbar-height);
-	margin-bottom: -1rem;
-	margin-left: -1rem;
-	margin-right: -1rem;
-	padding: 0 1rem;
-	color: var(--text-color);
-	font-size: 11px;
-	white-space: nowrap;
-	user-select: none;
-}
-
-.status-group {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.25rem;
-}
-
-.status-item {
-	padding: 0 0.5rem;
-	display: inline-flex;
-	align-items: center;
 }
 
 /* ----------------------------------------------------------------------------

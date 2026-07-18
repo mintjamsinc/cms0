@@ -10,7 +10,6 @@
 
 :root {
 	--navbar-height: 2.5rem;
-	--statusbar-height: 1.75rem;
 }
 
 :root[data-theme="light"] {
@@ -353,40 +352,6 @@
 	font-size: 13px;
 	line-height: 1.5;
 	overflow: auto;
-}
-
-
-/* Bottom status bar (translucent, extends to window edges) */
-.status-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	height: var(--statusbar-height);
-	margin-bottom: -1rem;
-	margin-left: -1rem;
-	margin-right: -1rem;
-	padding: 0 1rem;
-	color: var(--navbar-color);
-	font-size: 11px;
-	white-space: nowrap;
-	user-select: none;
-}
-
-.status-group {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.25rem;
-}
-
-.status-item {
-	padding: 0 0.5rem;
-}
-
-.status-divider {
-	width: 1px;
-	height: 0.875rem;
-	background-color: var(--text-muted-color);
-	opacity: 0.5;
 }
 
 /* While the Inspector's property "Text Editor" is maximized, its overlay

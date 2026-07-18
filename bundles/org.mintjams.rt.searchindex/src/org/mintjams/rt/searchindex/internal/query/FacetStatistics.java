@@ -88,17 +88,19 @@ class FacetStatistics {
 		private final String fFieldName;
 		private final Class<?> fFieldType;
 		private final String fGroupFieldName;
+		private final Class<?> fGroupFieldType;
 		private final double[] fPercentiles;
 		private final String[] fPercentileLabels;
 		private int fLimit = Integer.MAX_VALUE;
 
 		Params(String dimension, Function function, String fieldName, Class<?> fieldType, String groupFieldName,
-				double[] percentiles, String[] percentileLabels) {
+				Class<?> groupFieldType, double[] percentiles, String[] percentileLabels) {
 			fDimension = dimension;
 			fFunction = function;
 			fFieldName = fieldName;
 			fFieldType = fieldType;
 			fGroupFieldName = groupFieldName;
+			fGroupFieldType = groupFieldType;
 			fPercentiles = percentiles;
 			fPercentileLabels = percentileLabels;
 		}
@@ -127,6 +129,17 @@ class FacetStatistics {
 
 		String getGroupFieldName() {
 			return fGroupFieldName;
+		}
+
+		/**
+		 * The value type named by an {@code xs:} cast on the GROUPING argument, or
+		 * {@code null} when it carried no cast. A date or boolean grouping property
+		 * needs this cast to decode its raw doc values (epoch milliseconds, or 0/1)
+		 * into the domain the {@code range()} bucket bounds live in; a numeric
+		 * grouping property is self-describing (double-encoded) and needs none.
+		 */
+		Class<?> getGroupFieldType() {
+			return fGroupFieldType;
 		}
 
 		boolean isGrouped() {
@@ -230,10 +243,19 @@ class FacetStatistics {
 
 			List<RangeBucket> groupRanges = rangeBuckets.get(params.getGroupFieldName());
 			if (groupRanges != null && !groupRanges.isEmpty()) {
-				ValueSource groupValueSource = valueSources.get(params.getGroupFieldName());
+				// The grouping property's decode follows its xs: cast when the
+				// expression carried one — xs:dateTime(@occurred_at) reads the raw
+				// epoch-millisecond doc values that the range-bucket bounds live in
+				// — then the FieldTypeProvider, then the numeric default. Key by
+				// field name AND cast type so one field grouped under two casts in a
+				// single clause keeps two decoders.
+				String groupSourceKey = params.getGroupFieldName()
+						+ ((params.getGroupFieldType() == null) ? "" : "#" + params.getGroupFieldType().getSimpleName());
+				ValueSource groupValueSource = valueSources.get(groupSourceKey);
 				if (groupValueSource == null) {
-					groupValueSource = new ValueSource(params.getGroupFieldName(), fieldTypeProvider);
-					valueSources.put(params.getGroupFieldName(), groupValueSource);
+					groupValueSource = new ValueSource(params.getGroupFieldName(), fieldTypeProvider,
+							params.getGroupFieldType());
+					valueSources.put(groupSourceKey, groupValueSource);
 				}
 				states.add(new RangeGroupedState(params, valueSource, groupValueSource, groupRanges, percentileExactLimit));
 				continue;

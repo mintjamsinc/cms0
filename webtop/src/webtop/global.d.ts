@@ -13,6 +13,7 @@ export interface WebtopContext {
 	currentUser: User;
 	apps: Application[];
 	readonly sortedApps: Application[];
+	readonly startMenuCategoryGroups: { id: string; apps: Application[] }[];
 	readonly metadataDefinitions: MetadataDefinitionCache | null;
 	readonly i18n: I18nService | null;
 	getFullPath(relPath: string): string;

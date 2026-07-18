@@ -51,6 +51,27 @@
 							<div class="icon-block show-on-hover menu-on-hover" @click="selectApp(app)"><i class="bi bi-chevron-right fs-small"></i></div>
 						</div>
 					</div>
+					<div v-for="group in orderedStartMenuGroups()" :key="group.id" class="side-menu-category">
+						<div class="side-menu-category-header d-flex justify-content-start align-items-center c-pointer menu-on-hover py-1" @click="toggleCategory(group.id)">
+							<div class="icon-block">
+								<i class="bi" :class="isCategoryCollapsed(group.id) ? 'bi-chevron-right' : 'bi-chevron-down'"></i>
+							</div>
+							<div class="category-label pe-1 text-truncate flex-grow-1">{{ categoryLabel(group.id) }}</div>
+						</div>
+						<div v-show="!isCategoryCollapsed(group.id)">
+							<div v-for="app in group.apps" :key="app.identifier" class="position-relative">
+								<div class="ps-3 d-flex justify-content-between align-items-stretch c-pointer menu-on-hover">
+									<div class="d-flex justify-content-start align-items-center flex-grow-1 pe-1 py-2 overflow-hidden" @click="openApp(app)">
+										<div class="icon-block">
+											<img class="shadow-sm" :src="iconURL(app)">
+										</div>
+										<div class="app-name pe-1 text-truncate">{{ appTitle(app) }}</div>
+									</div>
+									<div class="icon-block show-on-hover menu-on-hover" @click="selectApp(app)"><i class="bi bi-chevron-right fs-small"></i></div>
+								</div>
+							</div>
+						</div>
+					</div>
 				</div>
 				<div class="divider"></div>
 				<div class="side-menu-footer">

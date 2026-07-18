@@ -161,6 +161,7 @@ interface AppNode {
   modified?: string | null;
   editor?: boolean | null;
   contentTypes?: string[] | null;
+  category?: string | null;
   enableStartMenu?: boolean | null;
   isAdminOnly?: boolean | null;
   singleton?: boolean | null;
@@ -411,6 +412,7 @@ export class WebtopServiceGraphQL {
       enableStartMenu: node.enableStartMenu ?? undefined,
       editor: node.editor ?? undefined,
       contentTypes: node.contentTypes ?? [],
+      category: node.category ?? undefined,
       actions,
       minimumWidth: node.minimumWidth ?? undefined,
       minimumHeight: node.minimumHeight ?? undefined,

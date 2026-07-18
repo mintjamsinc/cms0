@@ -1,5 +1,6 @@
 identifier: 29a261c2-abb3-4214-ab1f-d1796524d391
 title: BPM Console
+category: bpm
 icon: assets/icons/icon.svg
 isAdminOnly: true
 actions:

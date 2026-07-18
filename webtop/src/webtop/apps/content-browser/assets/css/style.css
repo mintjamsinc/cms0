@@ -2,7 +2,6 @@
 
 :root {
 	--navbar-height: 2.5rem;
-	--statusbar-height: 1rem;
 }
 
 :root[data-theme="light"] {
@@ -146,23 +145,57 @@
 	}
 }
 
-/* Bottom status bar (translucent, extends to window edges, empty — used as window drag handle) */
-.status-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	height: var(--statusbar-height);
-	margin-bottom: -1rem;
-	margin-left: -1rem;
-	margin-right: -1rem;
-	padding: 0 1rem;
-	color: var(--navbar-color);
-	font-size: 11px;
-	white-space: nowrap;
-	user-select: none;
+/* Navigation Bar: .nav-bar / .nav-spacer — see shared webtop-app.css */
+
+/* Refresh icon, spinning while the list it would reload is still loading. */
+@keyframes cb-spin {
+	to {
+		transform: rotate(360deg);
+	}
 }
 
-/* Navigation Bar: .nav-bar / .nav-spacer — see shared webtop-app.css */
+.nav-bar .spin {
+	animation: cb-spin 0.8s linear infinite;
+}
+
+/* Toolbar full-text search box.
+ *
+ * Two deliberate departures from the shared .input-group: it is a pill rather
+ * than a rounded rect, and it stays at the resting border colour until focused
+ * instead of rendering the focus treatment unconditionally. Both are scoped
+ * here — .input-group elsewhere (the path bar's edit-path field) is untouched. */
+.cb-searchbar {
+	width: 20rem;
+	max-width: 40vw;
+}
+
+.cb-searchbar .input-group {
+	width: 100%;
+	border-radius: 9999px;
+	border-color: var(--input-border-color);
+	box-shadow: none;
+}
+
+.cb-searchbar .input-group:focus-within {
+	border-color: var(--input-focus-border-color);
+	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
+}
+
+/* The pill's curve would clip text and the search icon against its ends. */
+.cb-searchbar .input-group input {
+	padding-left: 0.75rem;
+}
+
+.cb-searchbar .input-group-actions {
+	padding-right: 0.5rem;
+	border-left: none;
+}
+
+/* A malformed full-text expression. The parse error itself has no room in the
+ * toolbar, so the border raises it and the title attribute spells it out. */
+.cb-searchbar .input-group.invalid {
+	border-color: var(--danger-color);
+}
 
 /* Back/Forward arrows */
 .nav-arrows {
@@ -1217,30 +1250,6 @@
 
 .sidebar-fav-unpin:hover {
 	color: var(--text-color);
-}
-
-/* Full-text search input (top of Search section) */
-.fulltext-group {
-	margin-bottom: 0.5rem;
-}
-
-.fulltext-input-row {
-	position: relative;
-	display: flex;
-	align-items: center;
-}
-
-.fulltext-input {
-	flex: 1;
-	width: 100%;
-	padding-right: 1.75rem;
-}
-
-.fulltext-input-clear {
-	position: absolute;
-	right: 0.25rem;
-	top: 50%;
-	transform: translateY(-50%);
 }
 
 /* XPath search conditions */

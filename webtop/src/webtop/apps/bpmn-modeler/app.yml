@@ -1,5 +1,6 @@
 identifier: 8f3a2b1c-4d5e-6f7a-8b9c-0d1e2f3a4b5c
 title: BPMN Modeler
+category: bpm
 icon: assets/icons/icon.svg
 editor: true
 contentTypes:

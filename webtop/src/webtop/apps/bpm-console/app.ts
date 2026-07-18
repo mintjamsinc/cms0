@@ -750,14 +750,15 @@ export const App = {
 				.sort((a: ProcessDefinition, b: ProcessDefinition) => b.version - a.version);
 			if (candidates.length === 0) return;
 			const defaultTarget = candidates[0];
-			const activeCount = this.defInstanceCounts[def.id]?.active ?? 0;
 			this.dialog = {
 				type: 'migrate',
 				data: {
 					source: def,
 					targetCandidates: candidates,
 					targetId: defaultTarget.id,
-					activeCount,
+					migratableCount: 0,
+					countLoading: true,
+					countError: '',
 					plan: null,
 					planLoading: false,
 					planError: '',
@@ -769,8 +770,45 @@ export const App = {
 					batch: null,
 				},
 			};
-			// Prime the plan preview without blocking the dialog open.
+			// Prime the plan preview and the instance count without blocking the open.
 			this.loadMigrationPlan();
+			this.loadMigratableCount(def);
+		},
+
+		// Count the instances the migration batch would actually cover.
+		//
+		// This deliberately re-queries instead of reusing the tree's
+		// `defInstanceCounts`: the badges count *unfinished* instances (History
+		// service), which includes suspended ones, whereas the batch targets the
+		// engine's `.active()` runtime set — unfinished AND not suspended. A
+		// definition whose only running instances are suspended would look
+		// migratable by the badge yet make the engine reject the batch as empty.
+		// `active: true, suspended: false` reproduces the batch's own semantics.
+		async loadMigratableCount(def: ProcessDefinition) {
+			if (!this.bpm) return;
+			// The dialog may be closed or re-targeted while the count is in flight.
+			const isCurrent = () => this.dialog.type === 'migrate'
+				&& (this.dialog.data.source as ProcessDefinition | null)?.id === def.id;
+			try {
+				const conn = await this.bpm.listProcessInstances({
+					first: 1,
+					definitionId: def.id,
+					active: true,
+					suspended: false,
+				});
+				if (!isCurrent()) return;
+				this.dialog.data.migratableCount = conn.totalCount;
+			} catch (err) {
+				// Keep the count at zero so Migrate stays disabled rather than
+				// offering a batch we can't confirm has anything to migrate — but
+				// report the failure: "nothing to migrate" would be a lie when the
+				// truth is we never got an answer.
+				if (!isCurrent()) return;
+				this.dialog.data.migratableCount = 0;
+				this.dialog.data.countError = err instanceof Error ? err.message : String(err);
+			} finally {
+				if (isCurrent()) this.dialog.data.countLoading = false;
+			}
 		},
 
 		async openTargetVersionPopup(event: MouseEvent) {
@@ -832,11 +870,17 @@ export const App = {
 			const source = this.dialog.data.source as ProcessDefinition | null;
 			const targetId = this.dialog.data.targetId as string;
 			if (!source || !targetId) return;
+			// An empty batch is rejected by the engine ("processInstanceIds is
+			// empty") from inside the worker, i.e. long after this returns. The
+			// button is disabled in that state; this guards the programmatic path.
+			if (!(this.dialog.data.migratableCount as number)) return;
 			const target = this.selectedTargetDef();
+
+			let job: MigrationJob;
 			this.dialog.data.submitting = true;
 			try {
 				this.errorMessage = '';
-				const job = await this.bpm.migrateProcessInstance({
+				job = await this.bpm.migrateProcessInstance({
 					sourceProcessDefinitionId: source.id,
 					targetProcessDefinitionId: targetId,
 					allActiveInstances: true,
@@ -845,22 +889,22 @@ export const App = {
 					skipCustomListeners: this.dialog.data.skipCustomListeners as boolean,
 					skipIoMappings: this.dialog.data.skipIoMappings as boolean,
 				});
-				this.closeDialog();
-				this.startMigrationMonitor(job, source, target);
-				// Refresh definition/instance counts — they update once the
-				// engine's batch jobs run. The badges may still lag a moment;
-				// finishMigrationMonitor refreshes again on completion.
-				await this.loadDefinitions();
-				await this.refreshGroupCounts(source.key);
-				if (this.selectedGroup && this.selectedGroup.key !== source.key) {
-					await this.loadDefInstanceCounts(this.selectedGroup);
-				}
 			} catch (err) {
-				this.errorMessage = this.t('app.bpm-console.error.submitMigration', { error: err instanceof Error ? err.message : String(err) }, 'Failed to submit migration: {error}');
-				this.dialog.data.planError = err instanceof Error ? err.message : String(err);
-			} finally {
+				const message = err instanceof Error ? err.message : String(err);
+				this.errorMessage = this.t('app.bpm-console.error.submitMigration', { error: message }, 'Failed to submit migration: {error}');
+				this.dialog.data.planError = message;
 				this.dialog.data.submitting = false;
+				return;
 			}
+
+			// Submitted: the job is queued and the overlay now tracks it. Anything
+			// that fails past this point belongs to the refresh, not the submit —
+			// reporting it as "Failed to submit migration" would contradict the
+			// progress overlay and send the operator chasing a migration that ran.
+			this.dialog.data.submitting = false;
+			this.closeDialog();
+			this.startMigrationMonitor(job, source, target);
+			await this.refreshAfterMigration(source.key);
 		},
 
 		// =====================================================================
@@ -926,7 +970,7 @@ export const App = {
 				// No progress events arrived (the batch may have completed
 				// silently). Refresh the tree counts as a best-effort fallback so
 				// the left pane still reflects the migration outcome.
-				vm.loadDefinitions().then(() => vm.refreshGroupCounts(m.sourceKey));
+				vm.refreshAfterMigration(m.sourceKey);
 			}, PROGRESS_TIMEOUT_MS);
 		},
 
@@ -974,15 +1018,9 @@ export const App = {
 
 			// Refresh the definition tree so the badges reflect the migrated
 			// instances. Awaiting isn't necessary; the UI updates asynchronously.
-			// Refresh the affected (source) group's counts explicitly — it may
-			// differ from selectedGroup, or there may be no selection at all.
-			const sourceKey = m.sourceKey;
-			vm.loadDefinitions().then(() => {
-				vm.refreshGroupCounts(sourceKey);
-				if (vm.selectedGroup && vm.selectedGroup.key !== sourceKey) {
-					vm.loadDefInstanceCounts(vm.selectedGroup);
-				}
-			});
+			// The affected (source) group may differ from selectedGroup, or there
+			// may be no selection at all, so refreshAfterMigration covers both.
+			vm.refreshAfterMigration(m.sourceKey);
 
 			// Auto-close on success so the overlay doesn't linger. Failures
 			// stay open so the user can read the error and copy it.
@@ -1319,8 +1357,24 @@ export const App = {
 		// launched from the context menu without changing the current selection,
 		// so the affected group is not necessarily `selectedGroup`.
 		async refreshGroupCounts(key: string) {
-			const group = this.groups.find((g: ProcessGroup) => g.key === key);
+			const group = (this.processGroups as ProcessGroup[]).find((g) => g.key === key);
 			if (group) await this.loadDefInstanceCounts(group);
+		},
+
+		// Bring the definition tree and the affected group's badges back in sync
+		// after a migration is queued or finishes. Best-effort: the badges lag the
+		// batch anyway, and the monitor refreshes again on completion, so a failure
+		// here must never surface as a migration failure.
+		async refreshAfterMigration(sourceKey: string) {
+			try {
+				await this.loadDefinitions();
+				await this.refreshGroupCounts(sourceKey);
+				if (this.selectedGroup && this.selectedGroup.key !== sourceKey) {
+					await this.loadDefInstanceCounts(this.selectedGroup);
+				}
+			} catch {
+				// Non-critical — counts refresh again on the next monitor event.
+			}
 		},
 
 		async reloadInstances() {

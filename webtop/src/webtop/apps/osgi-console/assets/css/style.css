@@ -45,22 +45,6 @@
 	padding: 0;
 }
 
-/* Bottom status bar (translucent, extends to window edges, empty — used as window drag handle) */
-.status-bar {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	height: var(--statusbar-height);
-	margin-bottom: -1rem;
-	margin-left: -1rem;
-	margin-right: -1rem;
-	padding: 0 1rem;
-	color: var(--navbar-color);
-	font-size: 11px;
-	white-space: nowrap;
-	user-select: none;
-}
-
 /* ----------------------------------------------------------------------------
  * Console iframe — fills the island with no margin
  * -------------------------------------------------------------------------- */

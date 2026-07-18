@@ -626,6 +626,14 @@ input StartDownloadArchiveInput {
   includeMetadata: Boolean = true
   """Include ACLs in the metadata sidecar. Default false."""
   includeAcl: Boolean = false
+  """
+  Folder the archive is rooted at: entry names are made relative to it, so the
+  archive keeps the structure below this folder. Pass the folder being browsed,
+  or the scope a search ran in, to root the archive there. Must be an ancestor
+  of every appended path; when omitted or not an ancestor of all, the server
+  falls back to the deepest folder shared by the selection.
+  """
+  basePath: String
 }
 
 input AbortDownloadArchiveInput {
@@ -888,6 +896,8 @@ type App {
   modified: String
   editor: Boolean
   contentTypes: [String!]
+  """Optional app-menu category id. Apps sharing a value are grouped under a collapsible section; unset apps stay in the flat list."""
+  category: String
   enableStartMenu: Boolean
   isAdminOnly: Boolean
   singleton: Boolean

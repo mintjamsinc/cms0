@@ -29,6 +29,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -300,6 +301,85 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			}
 
 			return workspaceQuery.items().removeTree(getIdentifier());
+		} catch (IOException | SQLException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+	}
+
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The conditions {@link #removeTree()} checks per subtree root are checked
+	 * here as well, but the two that answer for a whole subtree — descendant
+	 * access control entries and foreign locks — are answered once for this node.
+	 * Every child and every descendant of a child lies under it, so one check
+	 * covers the batch; a stray entry or lock anywhere below merely sends the
+	 * whole batch to the per-node path, which is where it has to be reported
+	 * from anyway.
+	 */
+	@Override
+	public long removeChildTrees(Collection<javax.jcr.Node> children) throws RepositoryException {
+		if (children == null || children.isEmpty()) {
+			return 0;
+		}
+
+		// The guard remove() applies to the parent of a removed node.
+		fSession.checkPrivileges(getPath(), Privilege.JCR_REMOVE_CHILD_NODES);
+
+		WorkspaceQuery workspaceQuery = getWorkspaceQuery();
+		if (!(fSession.isAdmin() || fSession.isSystem() || fSession.isService())) {
+			if (workspaceQuery.isAccessControlAffected()) {
+				return -1;
+			}
+			// hasEntriesUnder answers true conservatively while the store is stale.
+			if (adaptTo(AccessControlStore.class).hasEntriesUnder(getPath())) {
+				return -1;
+			}
+		}
+
+		String prefix = getPath();
+		if (!prefix.endsWith("/")) {
+			prefix += "/";
+		}
+		JcrNodeTypeManager nodeTypeManager = adaptTo(JcrNodeTypeManager.class);
+		List<String> ids = new ArrayList<>();
+		for (javax.jcr.Node child : children) {
+			if (!(child instanceof JcrNode)) {
+				return -1;
+			}
+			JcrNode childNode = (JcrNode) child;
+			if (!childNode.getPath().equals(prefix + childNode.getName())) {
+				throw new IllegalArgumentException("Node '" + childNode.getPath()
+						+ "' is not a child of '" + getPath() + "'.");
+			}
+			// Removed earlier in this transaction: it would drop out of the
+			// removal below anyway, and reading its type here would fail.
+			if (!fSession.nodeExists(childNode.getPath())) {
+				continue;
+			}
+			if (!childNode.isNodeType(NodeType.NT_FILE) && !childNode.isNodeType(NodeType.NT_FOLDER)) {
+				return -1;
+			}
+
+			// The remaining guards remove() applies to the node itself. The lock
+			// it checks with checkRemovable() is covered by the descendant lock
+			// check below: this node's prefix matches every child.
+			fSession.checkPrivileges(childNode.getPath(), Privilege.JCR_REMOVE_NODE);
+			if (nodeTypeManager.isProtectedNode(childNode.getName())) {
+				throw new ConstraintViolationException("The node '" + childNode.getName() + "' is protected.");
+			}
+			ids.add(childNode.getIdentifier());
+		}
+		if (ids.isEmpty()) {
+			return 0;
+		}
+
+		try {
+			if (workspaceQuery.items().countNotOwnedLocksInDescendants(getPath()) > 0) {
+				return -1;
+			}
+
+			return workspaceQuery.items().removeTree(ids);
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}

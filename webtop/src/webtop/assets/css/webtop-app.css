@@ -184,6 +184,9 @@ html {
 		--slate-color: #94A3B8;
 		--body-color: var(--text-color);
 		--navbar-color: inherit;
+		/* Height of .status-bar. Apps with an empty (drag-handle only) bar
+		 * override this with a thinner strip. */
+		--statusbar-height: 1.75rem;
 		--window-title-color: var(--body-color);
 		--disabled-input-border-color: rgb(from var(--neutral-color) r g b / 0.3);
 		--disabled-input-bg: rgb(from var(--neutral-color) r g b / 0.05);
@@ -335,6 +338,66 @@ html {
 	.nav-spacer {
 		flex: 1;
 		min-width: 1rem;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * Status bar
+	 * Translucent bottom bar pinned to the app's bottom edge, mirroring the
+	 * nav bar: the negative margins cancel the #app padding so the bar spans
+	 * the full width and reaches the window edges.
+	 *
+	 * Height comes from --statusbar-height (default below). An app whose bar
+	 * carries no content sets it to 1rem, leaving a thin strip that still acts
+	 * as a window drag handle.
+	 *
+	 * Items are grouped: leading groups, then a .nav-spacer, then trailing
+	 * groups. Use .status-divider between items within a group.
+	 *
+	 * Usage:
+	 *   <div class="status-bar window-drag-region">
+	 *     <div class="status-group">
+	 *       <span class="status-item">12 items</span>
+	 *       <span class="status-divider"></span>
+	 *       <span class="status-item">3 selected</span>
+	 *     </div>
+	 *     <span class="nav-spacer"></span>
+	 *     <div class="status-group">...</div>
+	 *   </div>
+	 * ---------------------------------------------------------------------- */
+	.status-bar {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: var(--statusbar-height);
+		margin-bottom: -1rem;
+		margin-left: -1rem;
+		margin-right: -1rem;
+		padding: 0 1rem;
+		color: var(--navbar-color);
+		font-size: 11px;
+		white-space: nowrap;
+		user-select: none;
+	}
+
+	.status-group {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	/* inline-flex so an item that leads with an icon keeps it centred against
+	 * the text baseline. */
+	.status-item {
+		display: inline-flex;
+		align-items: center;
+		padding: 0 0.5rem;
+	}
+
+	.status-divider {
+		width: 1px;
+		height: 0.875rem;
+		background-color: var(--text-muted-color);
+		opacity: 0.5;
 	}
 
 	/* ------------------------------------------------------------------------

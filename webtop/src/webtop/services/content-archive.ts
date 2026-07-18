@@ -70,6 +70,16 @@ export interface DownloadArchiveOptions {
 	 * (currently ACL off).
 	 */
 	includeAcl?: boolean;
+	/**
+	 * Folder the archive is rooted at: entry names are made relative to it, so the
+	 * archive keeps the structure below this folder. Pass the folder being browsed
+	 * or the scope a search ran in — a selection made from search results can span
+	 * folders below that scope, and this keeps the archive rooted at the scope
+	 * rather than at whatever deeper folder the hits happen to share. The server
+	 * falls back to the selection's common ancestor when this is omitted or is not
+	 * an ancestor of every item.
+	 */
+	basePath?: string;
 }
 
 const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set([
@@ -144,6 +154,7 @@ export async function downloadContentAsZip(
 		const started = await contentService.startDownloadArchive(jobId, filename, {
 			includeMetadata: options.includeMetadata,
 			includeAcl: options.includeAcl,
+			basePath: options.basePath,
 		});
 		onProgress?.({
 			jobId,

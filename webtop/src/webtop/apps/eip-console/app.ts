@@ -187,9 +187,12 @@ const DEFAULT_BAND_COLORS = ['peacock', 'banana', 'tomato'];
 // page + "More"/scroll), accumulating up to HISTORY_MAX_ROWS.
 const HISTORY_PAGE = 100;
 const HISTORY_MAX_ROWS = 1000;
-// History records land under /var/eip/history/{yyyy}/{MM}/{dd}/{exchangeId}.json
+// History records land under
+// /var/eip/history/{yyyy}/{MM}/{dd}/{HH}/{routeId}/{exchangeId}.json
 // — see ExchangeHistoryEventNotifier. We subscribe to this subtree so newly
-// recorded exchanges stream into the list without polling.
+// recorded exchanges stream into the list without polling. Routes that declare
+// the mi:history route property as "failure" or "none" record fewer or no
+// exchanges, so they appear here rarely or not at all.
 const HISTORY_BASE_PATH = '/var/eip/history';
 // Coalesce bursts of node-change events (a single exchange write can touch the
 // nt:file + jcr:content child) into one batch.

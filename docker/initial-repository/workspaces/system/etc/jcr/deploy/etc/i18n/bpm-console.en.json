@@ -1,4 +1,6 @@
 {
+	"webtop.appmenu.category.bpm": "Business Process Management",
+
 	"app.bpm-console.title": "BPM Console",
 	"app.bpm-console.toolbar.liveTailOn": "Live tail ON — click to stop",
 	"app.bpm-console.toolbar.refresh": "Refresh (hold 1.5s for live tail)",
@@ -171,6 +173,9 @@
 	"app.bpm-console.dialog.annotation": "Annotation",
 	"app.bpm-console.dialog.annotationPlaceholder": "e.g. Acknowledged by ops — will retry after upstream fix",
 	"app.bpm-console.dialog.migrateTitle": "Migrate Instances",
+	"app.bpm-console.dialog.migrateSourceCounting": "Source: {name} v{version} — counting instances…",
+	"app.bpm-console.dialog.migrateSourcePlain": "Source: {name} v{version}",
+	"app.bpm-console.dialog.migrateCountError": "Could not determine how many instances would be migrated: {error}",
 	"app.bpm-console.dialog.migrateSourceActive": "Source: {name} v{version} — {count} active instance(s)",
 	"app.bpm-console.dialog.migrateSourceNoActive": "Source: {name} v{version} — no active instances",
 	"app.bpm-console.dialog.targetVersion": "Target version",

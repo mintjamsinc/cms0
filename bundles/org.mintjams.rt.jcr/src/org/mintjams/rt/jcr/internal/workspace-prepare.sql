@@ -34,6 +34,26 @@ CREATE INDEX IF NOT EXISTS jcr_properties_index1 ON jcr_properties (parent_item_
 CREATE INDEX IF NOT EXISTS jcr_properties_index2 ON jcr_properties (property_type, property_value);
 CREATE INDEX IF NOT EXISTS jcr_properties_index3 ON jcr_properties (is_deleted);
 
+-- Normalized index of reference-typed property values. One row per live
+-- (property row, distinct target) pair, maintained in the same transaction as
+-- every jcr_properties write. Reference lookups (referential integrity on
+-- save, getReferences/getWeakReferences) resolve over the target_item_id
+-- index instead of scanning every property row: array containment cannot be
+-- answered from an index, so any check against jcr_properties alone must
+-- pass over all live rows, which made removing a single node O(workspace).
+-- Rows are hard-deleted when the property row is soft-deleted, and a
+-- transactional rollback restores them together with the property row.
+-- (This file is split on semicolons, so comments must not contain any.)
+CREATE TABLE IF NOT EXISTS jcr_references (
+	item_id VARCHAR NOT NULL,
+	parent_item_id VARCHAR NOT NULL,
+	property_type INTEGER NOT NULL,
+	target_item_id VARCHAR NOT NULL,
+	PRIMARY KEY (item_id, target_item_id)
+);
+CREATE INDEX IF NOT EXISTS jcr_references_index1 ON jcr_references (target_item_id, property_type);
+CREATE INDEX IF NOT EXISTS jcr_references_index2 ON jcr_references (parent_item_id);
+
 CREATE TABLE IF NOT EXISTS jcr_files (
 	file_id VARCHAR NOT NULL,
 	file_size BIGINT NOT NULL,

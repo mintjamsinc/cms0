@@ -642,6 +642,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		app.put("title", data.get("title"));
 		app.put("path", appHome);
 		app.put("relPath", relPath);
+		app.put("category", asStringOrNull(data.get("category")));
 		app.put("editor", asBoolean(data.get("editor")));
 		app.put("enableStartMenu", asBooleanOrNull(data.get("enableStartMenu")));
 		app.put("isAdminOnly", asBoolean(data.get("isAdminOnly")));
@@ -745,6 +746,14 @@ public final class PlatformWiringContributor implements WiringContributor {
 
 	private static Boolean asBooleanOrNull(Object value) {
 		return (value == null) ? null : asBoolean(value);
+	}
+
+	/** A non-empty string value, otherwise null (blank descriptor entries are treated as unset). */
+	private static String asStringOrNull(Object value) {
+		if (value instanceof String && !((String) value).isEmpty()) {
+			return (String) value;
+		}
+		return null;
 	}
 
 	private static Integer asInteger(Object value) {
@@ -1601,6 +1610,11 @@ public final class PlatformWiringContributor implements WiringContributor {
 		// Default true: a download doubles as a re-importable export unless opted out.
 		boolean includeMetadata = !Boolean.FALSE.equals(input.get("includeMetadata"));
 		boolean includeAcl = Boolean.TRUE.equals(input.get("includeAcl"));
+		// Optional: the folder the archive is rooted at (the browsed folder or the
+		// search scope). The job validates and normalizes it; here we only carry a
+		// non-blank value through to the job node.
+		Object basePathArg = input.get("basePath");
+		String basePath = (basePathArg instanceof String) ? ((String) basePathArg).trim() : null;
 		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
 		String workspaceName = context.getWorkspaceName();
 		String userId = context.getCallerSession().getUserID();
@@ -1617,6 +1631,9 @@ public final class PlatformWiringContributor implements WiringContributor {
 			content.setProperty(JobNodes.PROP_ARCHIVE_FILENAME, filename);
 			content.setProperty(JobNodes.PROP_INCLUDE_METADATA, includeMetadata);
 			content.setProperty(JobNodes.PROP_INCLUDE_ACL, includeAcl);
+			if (basePath != null && !basePath.isEmpty()) {
+				content.setProperty(JobNodes.PROP_BASE_PATH, basePath);
+			}
 			JobNodes.setNodeId(mgmt, content);
 			JobNodes.setStatus(content, JobStatus.QUEUED);
 			mgmt.save();

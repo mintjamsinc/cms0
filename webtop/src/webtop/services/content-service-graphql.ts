@@ -453,13 +453,16 @@ export class ContentServiceGraphQL {
   async startDownloadArchive(
     jobId: string,
     filename: string,
-    options: { includeMetadata?: boolean; includeAcl?: boolean } = {},
+    options: { includeMetadata?: boolean; includeAcl?: boolean; basePath?: string } = {},
   ): Promise<StartDownloadArchiveResult> {
     const input: Record<string, unknown> = { jobId, filename };
     // Defaults are applied server-side (metadata on, ACL off); only send the
     // flags when the caller overrides them.
     if (options.includeMetadata !== undefined) input.includeMetadata = options.includeMetadata;
     if (options.includeAcl !== undefined) input.includeAcl = options.includeAcl;
+    // The folder to root the archive at (browsed folder or search scope). The
+    // server validates it and falls back to the selection's common ancestor.
+    if (options.basePath) input.basePath = options.basePath;
     const data = await this.#client.mutation<{ startDownloadArchive: StartDownloadArchiveResult }>(
       CONTENT_MUTATIONS.START_DOWNLOAD_ARCHIVE,
       { input }

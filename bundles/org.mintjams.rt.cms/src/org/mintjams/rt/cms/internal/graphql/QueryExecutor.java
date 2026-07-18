@@ -1252,6 +1252,7 @@ public class QueryExecutor {
 		app.put("title", data.get("title"));
 		app.put("path", appHome);
 		app.put("relPath", relPath);
+		app.put("category", asStringOrNull(data.get("category")));
 		app.put("editor", asBoolean(data.get("editor")));
 		app.put("enableStartMenu", asBooleanOrNull(data.get("enableStartMenu")));
 		app.put("isAdminOnly", asBoolean(data.get("isAdminOnly")));
@@ -1370,6 +1371,14 @@ public class QueryExecutor {
 			return null;
 		}
 		return asBoolean(value);
+	}
+
+	/** A non-empty string value, otherwise null (blank descriptor entries are treated as unset). */
+	private static String asStringOrNull(Object value) {
+		if (value instanceof String && !((String) value).isEmpty()) {
+			return (String) value;
+		}
+		return null;
 	}
 
 	private static Integer asInteger(Object value) {

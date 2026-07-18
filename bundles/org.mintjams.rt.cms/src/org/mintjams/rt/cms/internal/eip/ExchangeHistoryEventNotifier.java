@@ -76,11 +76,26 @@ import org.slf4j.LoggerFactory;
  *
  * <h3>Storage layout</h3>
  * <pre>
- * /var/eip/history/{yyyy}/{MM}/{dd}/{exchangeId}.json
+ * /var/eip/history/{yyyy}/{MM}/{dd}/{HH}/{routeId}/{exchangeId}.json
  * </pre>
  *
  * <p>Each file is a single JSON object representing one
  * {@link ExchangeHistoryRecord}, including its execution path (steps).
+ *
+ * <h3>Recording control</h3>
+ * Routes opt out of recording by declaring the {@code mi:history} route
+ * property on the exchange's origin route:
+ * <pre>
+ * &lt;route id="..."&gt;
+ *     &lt;routeProperty key="mi:history" value="failure"/&gt;
+ *     &lt;from uri="..."/&gt;
+ * </pre>
+ * Supported values: {@code all} (record every execution — the default when
+ * the property is absent), {@code failure} (record only executions that
+ * failed or carry a handled exception), {@code none} (never record).
+ * The origin route's setting governs the whole exchange, including work
+ * done in {@code direct:} sub-routes. An unrecognized value is treated as
+ * {@code all} and logged once per route.
  *
  * <h3>Write strategy</h3>
  * Records are enqueued to an internal {@link LinkedBlockingQueue} and
@@ -120,6 +135,11 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	private static final String HEADER_EXCLUDES = "mi:history.header.excludes";
 	private static final String HEADER_BUSINESS_KEY = "mi:history.businessKey";
 
+	private static final String ROUTE_PROPERTY_MODE = "mi:history";
+	private static final String MODE_ALL = "all";
+	private static final String MODE_FAILURE = "failure";
+	private static final String MODE_NONE = "none";
+
 	private static final int STRING_MAX_LENGTH = 1000;
 
 	// -- configuration --
@@ -129,6 +149,10 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	private LinkedBlockingQueue<ExchangeHistoryRecord> fQueue;
 	private Thread fWriterThread;
 	private volatile boolean fCloseRequested;
+
+	// Routes already warned about an unrecognized mi:history value, so a
+	// misconfigured short-period timer route does not flood the log.
+	private final java.util.Set<String> fWarnedRoutes = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
 	public ExchangeHistoryEventNotifier(String workspaceName) {
 		fWorkspaceName = workspaceName;
@@ -232,8 +256,50 @@ public class ExchangeHistoryEventNotifier extends EventNotifierSupport implement
 	// Record building
 	// ------------------------------------------------------------------
 
+	/**
+	 * Resolve the {@code mi:history} route property of the exchange's origin
+	 * route and decide whether this execution should be recorded. A handled
+	 * exception counts as a failure so that {@code failure} mode still
+	 * captures executions whose route swallows errors via {@code onException}.
+	 */
+	private boolean shouldRecord(Exchange exchange, boolean failed) {
+		String routeId = exchange.getFromRouteId();
+		if (routeId == null) {
+			return true;
+		}
+		org.apache.camel.Route route = exchange.getContext().getRoute(routeId);
+		if (route == null) {
+			return true;
+		}
+		Object value = route.getProperties().get(ROUTE_PROPERTY_MODE);
+		if (value == null) {
+			return true;
+		}
+		String mode = value.toString().trim().toLowerCase(java.util.Locale.ROOT);
+		switch (mode) {
+		case MODE_NONE:
+			return false;
+		case MODE_FAILURE:
+			return failed
+					|| exchange.getException() != null
+					|| exchange.getProperty(Exchange.EXCEPTION_CAUGHT) != null;
+		case MODE_ALL:
+			return true;
+		default:
+			if (fWarnedRoutes.add(routeId)) {
+				LOG.warn("Route {} declares unrecognized {} value '{}' - recording as '{}'",
+						routeId, ROUTE_PROPERTY_MODE, value, MODE_ALL);
+			}
+			return true;
+		}
+	}
+
 	private void onExchangeDone(Exchange exchange, boolean failed) {
 		try {
+			if (!shouldRecord(exchange, failed)) {
+				return;
+			}
+
 			Instant now = Instant.now();
 			long created = exchange.getCreated();
 			long elapsed = now.toEpochMilli() - created;
