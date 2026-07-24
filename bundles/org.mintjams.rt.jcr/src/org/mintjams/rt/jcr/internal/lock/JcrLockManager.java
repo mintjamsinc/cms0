@@ -152,6 +152,20 @@ public class JcrLockManager implements LockManager, Adaptable {
 		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
 			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
 
+			// Reclaim an expired lock row before claiming: delete exactly the
+			// row that was seen as expired (pinned by its token, so a lock
+			// refreshed or re-acquired in the meantime is never removed), then
+			// claim by insert. The primary key on item_id makes the claim
+			// atomic: of several concurrent claimers exactly one insert
+			// succeeds and the others fail into LockException.
+			AdaptableMap<String, Object> current = workspaceQuery.items().getLockRow(item.getIdentifier());
+			if (current != null) {
+				if (!JcrLock.isExpired(current, System.currentTimeMillis())) {
+					throw new LockException("Node '" + absPath + "' is already locked.");
+				}
+				workspaceQuery.items().removeLockRow(item.getIdentifier(), current.getString("lock_token"));
+			}
+
 			AdaptableMap<String,Object> lockData = AdaptableMap.<String, Object>newBuilder()
 					.put("item_id", item.getIdentifier())
 					.put("is_deep", isDeep)

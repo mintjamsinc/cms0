@@ -39,6 +39,7 @@ import java.util.Calendar;
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
+import javax.jcr.lock.LockException;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.NamespaceRegistry;
@@ -460,8 +461,44 @@ public class ResourceImpl implements Resource, Adaptable {
 
 	@Override
 	public Resource lock(boolean isDeep, boolean isSessionScoped) throws ResourceException {
+		return lock(isDeep, isSessionScoped, 0);
+	}
+
+	@Override
+	public Resource lock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException {
 		try {
-			JcrAction.create(getNode()).addLockToken().addLockable().checkLock().lock(isDeep, isSessionScoped);
+			JcrAction.create(getNode()).addLockToken().addLockable().checkLock().lock(isDeep, isSessionScoped,
+					timeoutSeconds);
+		} catch (Throwable ex) {
+			throw ResourceException.wrap(ex);
+		}
+		return this;
+	}
+
+	@Override
+	public Resource tryLock() throws ResourceException {
+		return tryLock(true, true, 0);
+	}
+
+	@Override
+	public Resource tryLock(boolean isDeep) throws ResourceException {
+		return tryLock(isDeep, true, 0);
+	}
+
+	@Override
+	public Resource tryLock(boolean isDeep, boolean isSessionScoped) throws ResourceException {
+		return tryLock(isDeep, isSessionScoped, 0);
+	}
+
+	@Override
+	public Resource tryLock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException {
+		try {
+			JcrAction.create(getNode()).addLockToken().addLockable().checkLock().lock(isDeep, isSessionScoped,
+					timeoutSeconds);
+		} catch (LockException ex) {
+			// Held by another execution; "someone is already doing the work"
+			// is a result, not an error.
+			return null;
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}

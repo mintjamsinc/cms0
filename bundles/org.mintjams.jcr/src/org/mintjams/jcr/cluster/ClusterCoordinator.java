@@ -27,15 +27,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Coordinates work across the repository nodes that share a workspace in a
- * clustered deployment. Obtained by adapting a workspace's session (or any
- * object that adapts to its workspace provider).
+ * Exposes the cluster membership of the repository nodes that share a
+ * workspace in a clustered deployment, and the signal bus between them.
+ * Obtained by adapting a workspace's session (or any object that adapts
+ * to its workspace provider).
  *
- * <p>Locks are lease-based and node-scoped: a lease names its owning node
- * and an expiry, so a crashed node never blocks the cluster for longer
- * than the lease's time-to-live. In standalone deployments every lock is
- * granted immediately, so callers need not distinguish between the two
- * modes.
+ * <p>This interface is deliberately about cluster synchronization only —
+ * who the nodes are and how they notify each other. It is not a lock
+ * service: application code that needs "exactly one execution" of a task
+ * uses a session-scoped JCR lock ({@code javax.jcr.lock.LockManager})
+ * with a timeout hint, which works identically in standalone and
+ * clustered deployments.
  */
 public interface ClusterCoordinator {
 
@@ -48,20 +50,6 @@ public interface ClusterCoordinator {
 	 * Returns the identifier under which this node appears in the cluster.
 	 */
 	String getNodeId();
-
-	/**
-	 * Acquires the named workspace-wide lock, waiting as long as it takes.
-	 * The time-to-live only bounds how long a crashed owner can keep the
-	 * lock.
-	 */
-	Lease lock(String name, long ttlMillis) throws IOException;
-
-	/**
-	 * Acquires the named workspace-wide lock if it is free (or its lease
-	 * has expired) and returns the lease, or returns {@code null} without
-	 * waiting.
-	 */
-	Lease tryLock(String name, long ttlMillis);
 
 	/**
 	 * Returns the nodes currently registered for this workspace, including
@@ -93,15 +81,6 @@ public interface ClusterCoordinator {
 	 *                   simple scalars (strings, numbers, booleans)
 	 */
 	void publish(String topic, Map<String, Object> properties);
-
-	/**
-	 * A held lock. Closing the lease releases the lock; closing it more
-	 * than once has no effect.
-	 */
-	interface Lease extends AutoCloseable {
-		@Override
-		void close();
-	}
 
 	/**
 	 * A node registered for the workspace.

@@ -222,6 +222,31 @@ public class UnknownIdentifierResource implements Resource {
 	}
 
 	@Override
+	public Resource lock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Resource tryLock() throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Resource tryLock(boolean isDeep) throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Resource tryLock(boolean isDeep, boolean isSessionScoped) throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Resource tryLock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public Resource unlock() throws ResourceException {
 		throw new UnsupportedOperationException();
 	}

@@ -53,6 +53,29 @@ public class JcrLock implements org.mintjams.jcr.lock.Lock, Adaptable {
 		return new JcrLock(itemData, session);
 	}
 
+	/**
+	 * Returns the time (epoch milliseconds) at which the lock described by
+	 * the given data expires, or {@code Long.MAX_VALUE} if it never does.
+	 * A lock expires {@code timeout_hint} seconds after {@code lock_created};
+	 * a non-positive hint, or one too large to represent, means no timeout.
+	 */
+	public static long getExpirationMillis(AdaptableMap<String, Object> lockData) {
+		long created = lockData.getLong("lock_created");
+		long timeoutHint = lockData.getLong("timeout_hint");
+		if (timeoutHint <= 0 || timeoutHint >= (Long.MAX_VALUE - created) / 1000) {
+			return Long.MAX_VALUE;
+		}
+		return created + timeoutHint * 1000;
+	}
+
+	/**
+	 * Returns whether the lock described by the given data has passed its
+	 * timeout and must be treated as no longer held.
+	 */
+	public static boolean isExpired(AdaptableMap<String, Object> lockData, long now) {
+		return getExpirationMillis(lockData) <= now;
+	}
+
 	@Override
 	public String getLockOwner() {
 		String info = fLockData.getString("owner_info");
@@ -78,7 +101,12 @@ public class JcrLock implements org.mintjams.jcr.lock.Lock, Adaptable {
 
 	@Override
 	public long getSecondsRemaining() throws RepositoryException {
-		return Long.MAX_VALUE;
+		long expiration = getExpirationMillis(fLockData);
+		if (expiration == Long.MAX_VALUE) {
+			return Long.MAX_VALUE;
+		}
+		long remaining = expiration - System.currentTimeMillis();
+		return (remaining <= 0) ? 0 : Math.max(1, remaining / 1000);
 	}
 
 	@Override

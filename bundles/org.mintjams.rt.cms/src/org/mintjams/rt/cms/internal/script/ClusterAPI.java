@@ -27,7 +27,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.mintjams.jcr.cluster.ClusterCoordinator;
 import org.mintjams.script.ScriptingContext;
@@ -35,48 +34,17 @@ import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.Cause;
 
 /**
- * Cluster coordination for application code. Scheduled work (EIP timer
- * routes, recurring scripts) runs on every cluster node; guarding it with
- * a lock from this API makes it run on exactly one:
+ * Cluster information for application code: whether this node runs as
+ * part of a cluster, its node identifier, and the current membership.
+ * Useful for operations dashboards and diagnostics.
  *
- * <pre>
- * def lease = cluster.tryLock("nightly-report", 600000)
- * if (lease != null) {
- *     try { ... } finally { lease.close() }
- * }
- * </pre>
- *
- * <p>Locks are lease-based and workspace-wide; a crashed node never holds
- * a lock for longer than the lease's time-to-live. In standalone
- * deployments locks are held in an in-JVM lease registry, so overlapping
- * executions on the single node (a timer tick racing an async kick of the
- * same task) exclude each other exactly as cluster nodes do, and the same
- * code runs unchanged. Application locks live in their own namespace and
- * cannot collide with the platform's internal locks.
+ * <p>This API is deliberately informational. Serializing work — "this
+ * task must run exactly once at a time" — is not a cluster concern:
+ * application code guards a task with a session-scoped JCR lock on a
+ * lock resource (see {@code Resource.tryLock}), which works identically
+ * in standalone and clustered deployments.
  */
 public class ClusterAPI {
-
-	private static final String APPLICATION_LOCK_PREFIX = "app:";
-
-	/**
-	 * Standalone lock table: lock name to the held lease (expiry in epoch
-	 * ms). Mutual exclusion for concurrent script executions inside one JVM
-	 * when no cluster coordinator exists; an expired entry is treated as
-	 * free, so a script that died without closing its lease can never hold
-	 * a lock past the time-to-live (the same guarantee the cluster
-	 * coordinator gives). The entry value is a per-claim instance, compared
-	 * by identity, so equal expiry times of racing claims cannot be
-	 * confused and closing a stale lease can never release a successor's.
-	 */
-	private static final ConcurrentHashMap<String, StandaloneLease> fStandaloneLocks = new ConcurrentHashMap<>();
-
-	private static final class StandaloneLease {
-		final long expiry;
-
-		StandaloneLease(long expiry) {
-			this.expiry = expiry;
-		}
-	}
 
 	private final WorkspaceScriptContext fContext;
 
@@ -128,70 +96,6 @@ public class ClusterAPI {
 			members.add(e);
 		}
 		return members;
-	}
-
-	/**
-	 * Acquires the named application lock, waiting until it is available.
-	 * The returned lease must be closed to release the lock; the
-	 * time-to-live bounds how long a crashed owner can keep it.
-	 */
-	public ClusterCoordinator.Lease lock(String name, long ttlMillis) throws IOException {
-		ClusterCoordinator coordinator = getCoordinator();
-		if (coordinator == null) {
-			// Standalone: wait on the in-JVM lock table, polling well under any
-			// realistic lease TTL so the wait ends promptly after a release.
-			for (;;) {
-				ClusterCoordinator.Lease lease = tryStandaloneLock(APPLICATION_LOCK_PREFIX + name, ttlMillis);
-				if (lease != null) {
-					return lease;
-				}
-				try {
-					Thread.sleep(100);
-				} catch (InterruptedException ex) {
-					Thread.currentThread().interrupt();
-					throw new IOException("Interrupted while waiting for lock: " + name, ex);
-				}
-			}
-		}
-		return coordinator.lock(APPLICATION_LOCK_PREFIX + name, ttlMillis);
-	}
-
-	/**
-	 * Acquires the named application lock if it is free and returns the
-	 * lease, or returns {@code null} without waiting — meaning another node
-	 * (or, standalone, another execution on this node) is already doing the
-	 * work.
-	 */
-	public ClusterCoordinator.Lease tryLock(String name, long ttlMillis) {
-		ClusterCoordinator coordinator = getCoordinator();
-		if (coordinator == null) {
-			return tryStandaloneLock(APPLICATION_LOCK_PREFIX + name, ttlMillis);
-		}
-		return coordinator.tryLock(APPLICATION_LOCK_PREFIX + name, ttlMillis);
-	}
-
-	/**
-	 * Standalone tryLock over the in-JVM lock table: atomically claims the
-	 * name if it is free or its lease has expired, returning a lease that
-	 * releases only its own claim, or {@code null} when a live lease is
-	 * held by another execution.
-	 */
-	private static ClusterCoordinator.Lease tryStandaloneLock(String name, long ttlMillis) {
-		final long now = System.currentTimeMillis();
-		final StandaloneLease claimed = new StandaloneLease(ttlMillis > 0 ? now + ttlMillis : Long.MAX_VALUE);
-		StandaloneLease winner = fStandaloneLocks.compute(name, (k, cur) -> {
-			if (cur != null && cur.expiry > now) {
-				return cur;
-			}
-			return claimed;
-		});
-		if (winner != claimed) {
-			return null;
-		}
-		// remove(key, value) compares by identity here (StandaloneLease does not
-		// override equals), so an expired-and-replaced claim is never released
-		// on behalf of its successor.
-		return () -> fStandaloneLocks.remove(name, claimed);
 	}
 
 	private ClusterCoordinator getCoordinator() {

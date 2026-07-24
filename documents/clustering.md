@@ -9,7 +9,7 @@ single source of truth for the current state.
 |-------|-------|--------|
 | 1 | Storage externalization: configurable workspace database (H2 / PostgreSQL) with a SQL dialect layer, pluggable blob storage, database-lease locking instead of the exclusive workspace lock file, cluster node registry, single-node execution of maintenance tasks | **Implemented** |
 | 2 | Cluster journal: nodes replay each other's committed transactions for search-index updates, cache invalidation (node cache, access control snapshot, subtree paths), and cross-node event propagation (OSGi events, and through them EIP route reloads, class loader reloads, CMS events, SSE/GraphQL subscriptions) | **Implemented** |
-| 3 | Failover hardening: logins made cluster-portable via an encrypted authentication token, cluster coordination API for application code (single-node execution of scheduled work, member listing), stale-node detection with heartbeat warnings | **Implemented** |
+| 3 | Failover hardening: logins made cluster-portable via an encrypted authentication token, cluster information API for application code (member listing), stale-node detection with heartbeat warnings | **Implemented** |
 
 > Sticky sessions are no longer required for staying signed in: the
 > authentication token re-establishes the login on whichever node
@@ -95,10 +95,13 @@ use):
   refreshes `last_heartbeat` every 30 seconds, and removes the row on
   clean shutdown. Operations can query this table to see the live
   cluster membership.
-- `jcr_cluster_locks` — lease-based locks (`lock_name`, `owner_id`,
-  `lock_expires`). A lease names its owning node and an expiry, so a
-  crashed node never blocks the cluster for longer than the lease's
-  time-to-live.
+- `jcr_cluster_locks` — platform-internal leases (`lock_name`,
+  `owner_id`, `lock_expires`) that serialize the repository's own
+  bootstrap and maintenance work across nodes. A lease names its owning
+  node and an expiry, so a crashed node never blocks the cluster for
+  longer than the lease's time-to-live. Application task locks do not
+  live here — they are ordinary JCR locks (see
+  `documents/task-locks.md`).
 - `jcr_cluster_signals` — the signal bus for short-lived control-plane
   notifications (see *Cluster signal bus* below).
 
@@ -112,9 +115,18 @@ once:
 | `blob-garbage-collection` | `WorkspaceGarbageCollection` | Sweeping unreferenced blobs |
 | `orphan-monitor` | `WorkspaceOrphanMonitor` | Orphan scan (avoids duplicate warnings) |
 | `cluster-signals-purge` | `ClusterController.SignalPoller` | Removing expired signal-bus rows |
+| `content-deployment` | `Session#deploy` (CMS layer) | Content deployment at startup |
+
+These leases are repository infrastructure, exposed to platform code as
+`org.mintjams.jcr.cluster.ClusterLeaseStore` (adapt a JCR session), and
+node-scoped: every holder is a per-JVM singleton (a scheduled
+maintenance thread or a startup step), so "one node at a time" is
+exactly the right granularity. They are not an application lock
+service — application tasks are guarded with session-scoped JCR locks
+instead (see `documents/task-locks.md`).
 
 In standalone mode the controller is a complete no-op: no tables, no
-threads, and every lock is granted immediately. The exclusive workspace
+threads, and every lease is granted immediately. The exclusive workspace
 lock file (`<workspace>/.lock`) is still taken in standalone mode to
 protect local storage against a second process; in cluster mode it is
 skipped (the workspace directory is shared) and the database leases take
@@ -354,7 +366,7 @@ The provisioning and deployment directories are ordinary shared
 configuration — sharing them is desirable, since all nodes should serve
 the same content. Every node runs the content deployment at startup, and
 the runs are serialized cluster-wide through the `content-deployment`
-lease (`ClusterCoordinator`, exposed by the repository and obtainable by
+lease (`ClusterLeaseStore`, exposed by the repository and obtainable by
 adapting a JCR session): the first node performs the actual work, the
 nodes after it walk the same files, find everything up to date via the
 modification-time check, and pass through without writing. Concurrent
@@ -438,35 +450,37 @@ switch does not log the user out.
   identity files above); the cookie is `HttpOnly`, `SameSite=Lax`, and
   `Secure` on HTTPS.
 
-## Application jobs and cluster coordination (Phase 3)
+## Application jobs and cluster information (Phase 3)
 
 Scheduled application work (EIP timer routes, recurring scripts) runs on
-every node. The `cluster` script API makes it run on exactly one:
+every node. Guarding it so that it runs exactly once at a time is not a
+cluster feature: the guard is an ordinary session-scoped JCR lock on a
+lock resource, which works identically in standalone and clustered
+deployments because the lock storage (`jcr_locks`) lives in the
+workspace database — node-local when standalone, shared when clustered.
+See `documents/task-locks.md` for the pattern and the `/var/locks`
+convention:
 
 ```groovy
-def lease = cluster.tryLock("nightly-report", 600000)
-if (lease != null) {
-    try {
-        // ... runs on exactly one node ...
-    } finally {
-        lease.close()
-    }
+def lock = repositorySession.getResource("/var/locks/nightly-report")
+        .tryLock(false, true, 600)
+if (lock == null) {
+    return  // another execution (any node) is already doing the work
+}
+try {
+    // ... runs exactly once at a time, cluster-wide ...
+} finally {
+    lock.unlock()
 }
 ```
 
-`cluster.lock(name, ttl)` waits instead of skipping;
-`cluster.isClusterEnabled()`, `cluster.nodeId`, and
-`cluster.listMembers()` (node id, host name, started, last heartbeat,
-alive) expose the cluster state, e.g. for an operations dashboard. In
-standalone deployments locks are held in an in-JVM lease table and the
-member list is empty, so the same code runs unchanged — and overlapping
-executions on the single node (a timer tick racing an async kick of the
-same task) exclude each other exactly as cluster nodes do, with the TTL
-still bounding how long a crashed execution can hold the lock.
-Application locks live in their own namespace and cannot collide with
-the platform's internal locks. The same coordination is available to
-Java code through `org.mintjams.jcr.cluster.ClusterCoordinator` (adapt
-a JCR session).
+The `cluster` script API exposes the cluster state, e.g. for an
+operations dashboard: `cluster.isClusterEnabled()`, `cluster.nodeId`,
+and `cluster.listMembers()` (node id, host name, started, last
+heartbeat, alive). In standalone deployments `isClusterEnabled()` is
+`false` and the member list is empty. The same information is available
+to Java code through `org.mintjams.jcr.cluster.ClusterCoordinator`
+(adapt a JCR session).
 
 Each node also watches the other members' heartbeats and logs a warning
 when a node goes silent for three heartbeat intervals (and a notice when

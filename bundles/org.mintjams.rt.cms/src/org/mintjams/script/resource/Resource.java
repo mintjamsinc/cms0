@@ -122,6 +122,16 @@ public interface Resource {
 
 	Resource lock(boolean isDeep, boolean isSessionScoped) throws ResourceException;
 
+	Resource lock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException;
+
+	Resource tryLock() throws ResourceException;
+
+	Resource tryLock(boolean isDeep) throws ResourceException;
+
+	Resource tryLock(boolean isDeep, boolean isSessionScoped) throws ResourceException;
+
+	Resource tryLock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException;
+
 	Resource unlock() throws ResourceException;
 
 	Resource createFolder() throws ResourceException;

@@ -38,7 +38,7 @@ import javax.jcr.Property;
 import javax.jcr.RepositoryException;
 import javax.jcr.SimpleCredentials;
 
-import org.mintjams.jcr.cluster.ClusterCoordinator;
+import org.mintjams.jcr.cluster.ClusterLeaseStore;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalProvider;
@@ -284,10 +284,10 @@ public class Session implements Closeable, Adaptable {
 		// or update the same resource concurrently. The second node then
 		// finds everything already up to date and walks through unchanged.
 		// In standalone mode the lease is granted immediately.
-		ClusterCoordinator.Lease lease = null;
-		ClusterCoordinator coordinator = Adaptables.getAdapter(fJcrSession, ClusterCoordinator.class);
-		if (coordinator != null) {
-			lease = coordinator.lock("content-deployment", 3600000L);
+		ClusterLeaseStore.Lease lease = null;
+		ClusterLeaseStore leases = Adaptables.getAdapter(fJcrSession, ClusterLeaseStore.class);
+		if (leases != null) {
+			lease = leases.lock("content-deployment", 3600000L);
 		}
 		try {
 			Path jcrPath = CmsService.getWorkspacePath(fContext.getWorkspaceName()).resolve("etc/jcr");

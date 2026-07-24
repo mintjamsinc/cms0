@@ -88,6 +88,7 @@ import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.blob.BlobStore;
 import org.mintjams.rt.jcr.internal.cluster.ClusterController;
 import org.mintjams.rt.jcr.internal.cluster.ClusterJournal;
+import org.mintjams.rt.jcr.internal.lock.JcrLock;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlEntry;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlList;
 import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
@@ -2370,9 +2371,15 @@ public class WorkspaceQuery implements Adaptable {
 
 			AdaptableMap<String, Object> nearest = null;
 			int nearestDepth = Integer.MAX_VALUE;
+			long now = System.currentTimeMillis();
 			try (Query.Result result = newQueryBuilder(statement.toString()).setVariables(variables).build()
 					.setOffset(0).execute()) {
 				for (AdaptableMap<String, Object> lockData : result) {
+					// A lock past its timeout is no longer held; the row is
+					// reclaimed lazily by the next claimer.
+					if (JcrLock.isExpired(lockData, now)) {
+						continue;
+					}
 					int depth = paths.indexOf(lockData.getString("item_path"));
 					if (depth < 0 || depth >= nearestDepth) {
 						continue;
@@ -2436,10 +2443,42 @@ public class WorkspaceQuery implements Adaptable {
 					"SELECT item_id FROM jcr_locks WHERE session_id = {{session_id}}")
 					.setVariable("session_id", getSessionIdentifier().toString()).build().execute()) {
 				for (AdaptableMap<String, Object> r : result) {
-					String absPath = getPath(r.getString("item_id"));
-					unlock(absPath);
+					// One failed unlock (e.g. a lock that expired and was
+					// reclaimed by another session) must not keep the rest of
+					// this session's locks held.
+					try {
+						unlock(getPath(r.getString("item_id")));
+					} catch (Throwable ignore) {}
 				}
 			}
+		}
+
+		/**
+		 * Returns the lock row for the given item, including an expired one,
+		 * or {@code null} if the item holds no lock row at all. Used by the
+		 * lock manager to reclaim an expired lock atomically.
+		 */
+		public AdaptableMap<String, Object> getLockRow(String itemId) throws IOException, SQLException {
+			try (Query.Result result = newQueryBuilder("SELECT * FROM jcr_locks WHERE item_id = {{item_id}}")
+					.setVariable("item_id", itemId).build().setOffset(0).execute()) {
+				for (AdaptableMap<String, Object> r : result) {
+					return r;
+				}
+			}
+			return null;
+		}
+
+		/**
+		 * Removes the lock row identified by the given item and lock token.
+		 * The token pins the exact claim that was seen as expired, so a lock
+		 * refreshed or re-acquired in the meantime is never removed on behalf
+		 * of a stale observation. Returns the number of rows removed.
+		 */
+		public int removeLockRow(String itemId, String lockToken) throws IOException, SQLException {
+			return newUpdateBuilder("DELETE FROM jcr_locks WHERE item_id = {{item_id}} AND lock_token = {{lock_token}}")
+					.setVariable("item_id", itemId)
+					.setVariable("lock_token", lockToken)
+					.build().execute();
 		}
 
 		public AdaptableMap<String, Object> refreshLock(String absPath)

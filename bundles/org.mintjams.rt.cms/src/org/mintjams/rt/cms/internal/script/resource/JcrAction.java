@@ -71,7 +71,16 @@ public class JcrAction implements Adaptable {
 	}
 
 	public JcrAction lock(boolean isDeep, boolean isSessionScoped) throws RepositoryException {
-		getLockManager().lock(getPath(), isDeep, isSessionScoped, Long.MAX_VALUE, getSession().getUserID());
+		return lock(isDeep, isSessionScoped, 0);
+	}
+
+	/**
+	 * Locks the node, passing the timeout hint through to the lock manager.
+	 * A non-positive timeout means the lock never times out.
+	 */
+	public JcrAction lock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws RepositoryException {
+		getLockManager().lock(getPath(), isDeep, isSessionScoped,
+				(timeoutSeconds > 0) ? timeoutSeconds : Long.MAX_VALUE, getSession().getUserID());
 		return this;
 	}
 

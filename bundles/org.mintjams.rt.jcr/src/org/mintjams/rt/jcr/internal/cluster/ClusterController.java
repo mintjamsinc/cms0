@@ -36,9 +36,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.mintjams.jcr.cluster.ClusterCoordinator;
+import org.mintjams.jcr.cluster.ClusterLeaseStore;
 import org.mintjams.rt.jcr.internal.Activator;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.lang.Cause;
@@ -50,20 +50,21 @@ import org.mintjams.tools.sql.Update;
  * Coordinates the repository nodes that share a workspace's database in a
  * clustered deployment. Coordination state lives in two workspace tables:
  * {@code jcr_cluster_nodes} (node registry, refreshed by a heartbeat) and
- * {@code jcr_cluster_locks} (lease-based locks used to serialize workspace
- * startup and to keep maintenance tasks from running on several nodes at
- * once).
+ * {@code jcr_cluster_locks} (platform-internal leases that serialize the
+ * repository's own bootstrap and maintenance work — workspace startup,
+ * blob cleanup and the like — across nodes).
  *
- * <p>Locks are node-scoped leases: a lease names its owning node and an
- * expiry, so a crashed node never blocks the cluster for longer than the
- * lease's time-to-live. In standalone mode (the default) the registry,
- * heartbeat and signal machinery are a no-op, but locks are still real:
- * they are held in an in-JVM lease table on this (per-workspace) controller,
- * so overlapping executions on the single node — a timer tick racing an
- * async kick of the same guarded task — exclude each other exactly as
- * cluster nodes do, and callers need not distinguish between the two modes.
+ * <p>Leases are node-scoped: a lease names its owning node and an expiry,
+ * so a crashed node never blocks the cluster for longer than the lease's
+ * time-to-live. Every lease caller is a per-JVM singleton (a scheduled
+ * maintenance thread or a startup step), so node scope is exactly the
+ * right granularity; these leases are repository infrastructure and do
+ * not serialize application tasks — application code uses session-scoped
+ * JCR locks for that. In standalone mode (the default) the registry,
+ * heartbeat and signal machinery are a no-op and every lease is granted
+ * immediately.
  */
-public class ClusterController implements ClusterCoordinator, Closeable {
+public class ClusterController implements ClusterCoordinator, ClusterLeaseStore, Closeable {
 
 	private static final long HEARTBEAT_INTERVAL_MILLIS = 30000L;
 	private static final long HEARTBEAT_STALE_MILLIS = HEARTBEAT_INTERVAL_MILLIS * 3;
@@ -101,56 +102,10 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 	}
 
 	/**
-	 * A held lock. Closing the lease releases the lock; closing it more than
+	 * A held lease. Closing the lease releases it; closing it more than
 	 * once has no effect.
 	 */
-	public interface Lease extends ClusterCoordinator.Lease {
-	}
-
-	/**
-	 * Standalone lock table: lock name to the held lease (expiry in epoch ms).
-	 * Mutual exclusion for concurrent executions inside one JVM when the
-	 * cluster machinery is disabled; an expired entry is treated as free, so
-	 * an execution that died without closing its lease can never hold a lock
-	 * past the time-to-live (the same guarantee the cluster tables give). The
-	 * entry value is a per-claim instance, compared by identity, so equal
-	 * expiry times of racing claims cannot be confused and closing a stale
-	 * lease can never release a successor's. Per controller — and there is
-	 * one controller per workspace — so the scope matches the cluster
-	 * tables' workspace-wide locks.
-	 */
-	private final ConcurrentHashMap<String, StandaloneLease> fStandaloneLocks = new ConcurrentHashMap<>();
-
-	private static final class StandaloneLease {
-		final long expiry;
-
-		StandaloneLease(long expiry) {
-			this.expiry = expiry;
-		}
-	}
-
-	/**
-	 * Standalone tryLock over the in-JVM lock table: atomically claims the
-	 * name if it is free or its lease has expired, returning a lease that
-	 * releases only its own claim, or {@code null} when a live lease is held
-	 * by another execution.
-	 */
-	private Lease tryStandaloneLock(String name, long ttlMillis) {
-		final long now = System.currentTimeMillis();
-		final StandaloneLease claimed = new StandaloneLease(ttlMillis > 0 ? now + ttlMillis : Long.MAX_VALUE);
-		StandaloneLease winner = fStandaloneLocks.compute(name, (k, cur) -> {
-			if (cur != null && cur.expiry > now) {
-				return cur;
-			}
-			return claimed;
-		});
-		if (winner != claimed) {
-			return null;
-		}
-		// remove(key, value) compares by identity here (StandaloneLease does not
-		// override equals), so an expired-and-replaced claim is never released
-		// on behalf of its successor.
-		return () -> fStandaloneLocks.remove(name, claimed);
+	public interface Lease extends ClusterLeaseStore.Lease {
 	}
 
 	@Override
@@ -185,28 +140,17 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 	}
 
 	/**
-	 * Acquires the named lock, waiting as long as it takes. Intended for
+	 * Acquires the named lease, waiting as long as it takes. Intended for
 	 * startup-critical sections; the time-to-live only bounds how long a
-	 * crashed owner can keep the lock.
+	 * crashed owner can keep the lease.
 	 */
 	@Override
 	public Lease lock(String name, long ttlMillis) throws IOException {
 		if (!fClusterEnabled) {
-			// Standalone: wait on the in-JVM lock table, polling well under any
-			// realistic lease TTL so the wait ends promptly after a release.
-			while (!fCloseRequested) {
-				Lease lease = tryStandaloneLock(name, ttlMillis);
-				if (lease != null) {
-					return lease;
-				}
-				try {
-					Thread.sleep(LOCK_RETRY_INTERVAL_MILLIS);
-				} catch (InterruptedException ex) {
-					Thread.currentThread().interrupt();
-					throw new IOException("Interrupted while waiting for the lock '" + name + "'.");
-				}
-			}
-			throw new IOException("The cluster controller has been closed.");
+			// Standalone: the callers are per-JVM singletons, so there is
+			// nothing to serialize against and the lease is granted
+			// immediately.
+			return () -> {};
 		}
 
 		long started = System.currentTimeMillis();
@@ -234,15 +178,18 @@ public class ClusterController implements ClusterCoordinator, Closeable {
 	}
 
 	/**
-	 * Acquires the named lock if it is free (or its lease has expired) and
-	 * returns the lease, or returns {@code null} without waiting. Intended
-	 * for recurring maintenance tasks, where "another node is already doing
-	 * it" simply means there is nothing to do.
+	 * Acquires the named lease if it is free (or its previous lease has
+	 * expired) and returns it, or returns {@code null} without waiting.
+	 * Intended for recurring maintenance tasks, where "another node is
+	 * already doing it" simply means there is nothing to do.
 	 */
 	@Override
 	public Lease tryLock(String name, long ttlMillis) {
 		if (!fClusterEnabled) {
-			return tryStandaloneLock(name, ttlMillis);
+			// Standalone: the callers are per-JVM singletons, so there is
+			// nothing to serialize against and the lease is granted
+			// immediately.
+			return () -> {};
 		}
 
 		if (tryAcquire(name, ttlMillis)) {

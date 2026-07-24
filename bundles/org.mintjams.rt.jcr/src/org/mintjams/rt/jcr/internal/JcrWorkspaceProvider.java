@@ -938,7 +938,8 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		}
 
 		if (adapterType.equals(ClusterController.class)
-				|| adapterType.equals(org.mintjams.jcr.cluster.ClusterCoordinator.class)) {
+				|| adapterType.equals(org.mintjams.jcr.cluster.ClusterCoordinator.class)
+				|| adapterType.equals(org.mintjams.jcr.cluster.ClusterLeaseStore.class)) {
 			return (AdapterType) fClusterController;
 		}
 
