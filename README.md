@@ -13,7 +13,7 @@ Identity Provider) is included out of the box.
   Identity Manager, BPM Console, BPMN/EIP Modeler, OSGi Console, etc.).
   Sources under [`webtop/`](webtop/).
 
-> Status: **0.1.20-beta** — public preview. APIs, on-disk formats, and bundled
+> Status: **0.1.21-beta** — public preview. APIs, on-disk formats, and bundled
 > apps may change before 1.0.
 
 ---
@@ -31,7 +31,7 @@ docker run --rm \
   -v cms-repository:/data/repository \
   -v cms-secrets:/data/secrets \
   --tmpfs /opt/felix/tmp:size=512m,mode=0700 \
-  mintjams/cms:0.1.20-beta
+  mintjams/cms:0.1.21-beta
 ```
 
 Then open <http://localhost:8080/> in a browser.
@@ -45,7 +45,7 @@ generate correct redirect URLs.
 ```yaml
 services:
   cms:
-    image: mintjams/cms:0.1.20-beta
+    image: mintjams/cms:0.1.21-beta
     restart: unless-stopped
     environment:
       CMS_PUBLIC_BASE_URL: "http://localhost:8080"
@@ -120,6 +120,21 @@ is the single source of truth for the external hostname; restarting with a
 new value retargets both SP and IdP. To federate with an external IdP, edit
 `etc/saml2.yml` after first boot; values written there take precedence over
 the auto-generated defaults.
+
+---
+
+## Maintenance
+
+### Rebuilding the search index
+
+Administrators can rebuild the full-text search index from the Webtop
+**Tasks** app (*Start a process* → **Search Index Rebuild**) — for
+example after changing the search configuration under
+`<workspace>/etc/search`. The rebuild runs in the background on every
+cluster node while search and content updates keep working; a progress
+task shows every node live and supports abort and re-running failed
+nodes. See
+[`documents/search-index-rebuild.md`](documents/search-index-rebuild.md).
 
 ---
 
