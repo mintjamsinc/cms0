@@ -17,6 +17,14 @@
 
 <body>
 	<div id="app" class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount" @dragover.prevent="onAppDragOver" @drop.prevent>
+
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. A
+		     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+		     unchanged; the gated markup is intentionally not re-indented. -->
+		<template v-if="isReady">
+
 		<!-- Navigation Bar -->
 		<nav class="nav-bar window-drag-region">
 			<div class="toolbar-group">
@@ -560,7 +568,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					<tr v-for="item in filteredItems" :key="item.id" class="item c-pointer item-on-hover" :class="{ 'item-selected': isSelected(item), 'item-flash': flashingItems.includes(item.id), 'item-cut': isClipboardCutItem(item.path), 'item-drop-target': dragOverFolderID === item.id }" :draggable="true" @dragstart="onFileDragStart(item, event)" @dragend="onInternalDragEnd" @dragenter.prevent @dragover.prevent="onItemDragOver(item, event)" @dragleave="onItemDragLeave(item)" @drop.prevent="onItemDrop(item, event)" @click="selectItem(item, event)" @dblclick="openItem(item)" @contextmenu="onContextMenu(item, event)">
+					<tr v-for="item in filteredItems" :key="item.id" class="item c-pointer item-on-hover" :class="{ 'item-selected': isSelected(item), 'item-focused': item.id === focusedItemID, 'item-flash': flashingItems.includes(item.id), 'item-cut': isClipboardCutItem(item.path), 'item-drop-target': dragOverFolderID === item.id }" :draggable="true" @dragstart="onFileDragStart(item, event)" @dragend="onInternalDragEnd" @dragenter.prevent @dragover.prevent="onItemDragOver(item, event)" @dragleave="onItemDragLeave(item)" @drop.prevent="onItemDrop(item, event)" @click="selectItem(item, event)" @dblclick="openItem(item)" @contextmenu="onContextMenu(item, event)">
 						<td class="icon-column">
 							<div class="icon-block">
 								<i :class="[getFileIcon(item), getFileIconClass(item)]"></i>
@@ -656,8 +664,12 @@
 		</div>
 		</div> <!-- /.content-body -->
 
-		<!-- Bottom Status Bar (translucent — same shape as editor apps) -->
-		<div class="status-bar window-drag-region">
+		<!-- Bottom Status Bar (translucent — same shape as editor apps).
+		     Hidden while an opaque progress panel (upload / delete / archive /
+		     import) is up: those panels are inset 1rem from the window edges and
+		     the bar is taller than that, so it would otherwise show below them
+		     with its text cut in half. -->
+		<div v-if="!progressOverlayVisible" class="status-bar window-drag-region">
 			<div class="status-group">
 				<span class="status-item">{{ listStatusText }}</span>
 			</div>
@@ -1107,6 +1119,8 @@
 			</div>
 		</div>
 
+		</template>
+		<!-- /Readiness gate -->
 	</div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

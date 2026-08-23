@@ -76,6 +76,7 @@ public class DefaultIdentityProvider implements IdentityProvider {
 			{
 				String escapedIdentifier = identifier.replace("'", "\\'");
 				String stmt = "/jcr:root/home/groups//*[@identifier = '" + escapedIdentifier + "' and @isGroup = true]";
+				@SuppressWarnings("deprecation")
 				Query q = systemSession.getWorkspace().getQueryManager().createQuery(stmt, Query.XPATH);
 				q.setOffset(0);
 				q.setLimit(1);
@@ -104,6 +105,7 @@ public class DefaultIdentityProvider implements IdentityProvider {
 			{
 				String escapedIdentifier = identifier.replace("'", "\\'");
 				String stmt = "/jcr:root/home/roles//*[@identifier = '" + escapedIdentifier + "']";
+				@SuppressWarnings("deprecation")
 				Query q = systemSession.getWorkspace().getQueryManager().createQuery(stmt, Query.XPATH);
 				q.setOffset(0);
 				q.setLimit(1);

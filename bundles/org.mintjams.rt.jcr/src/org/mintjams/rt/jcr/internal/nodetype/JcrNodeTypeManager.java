@@ -71,37 +71,63 @@ public class JcrNodeTypeManager implements org.mintjams.jcr.nodetype.NodeTypeMan
 		return new JcrNodeTypeManager(workspace);
 	}
 
+	/**
+	 * The parsed contents of {@code nodetypes.yml}.
+	 * <p>
+	 * A node type manager is built for every session, and the definitions it reads
+	 * are a build-time resource that cannot change while the bundle is running — so
+	 * re-parsing the document per session is pure cost paid on the hot path of every
+	 * login. The parsed document is read-only from here on: each node type copies
+	 * the entry it needs, and nothing writes back into it.
+	 */
+	private static volatile List<Map<String, Object>> fNodeTypeDefinitions;
+
 	@SuppressWarnings("unchecked")
+	private static List<Map<String, Object>> getNodeTypeDefinitions() throws IOException {
+		List<Map<String, Object>> definitions = fNodeTypeDefinitions;
+		if (definitions != null) {
+			return definitions;
+		}
+
+		synchronized (JcrNodeTypeManager.class) {
+			if (fNodeTypeDefinitions == null) {
+				try (InputStream in = JcrNodeTypeManager.class.getResourceAsStream("nodetypes.yml")) {
+					Map<String, Object> root = (Map<String, Object>) new Load(LoadSettings.builder().build())
+							.loadFromInputStream(in);
+					fNodeTypeDefinitions = (List<Map<String, Object>>) root.get("nodeTypes");
+				}
+			}
+			return fNodeTypeDefinitions;
+		}
+	}
+
 	private void load() throws IOException {
-		try (InputStream in = getClass().getResourceAsStream("nodetypes.yml")) {
-			Map<String, Object> root = (Map<String, Object>) new Load(LoadSettings.builder().build()).loadFromInputStream(in);
-			for (Map<String, Object> e : (List<Map<String, Object>>) root.get("nodeTypes")) {
-				JcrNodeType definition = JcrNodeType.create(e, this);
-				fNodeTypes.put(definition.getName(), definition);
+		for (Map<String, Object> e : getNodeTypeDefinitions()) {
+			JcrNodeType definition = JcrNodeType.create(e, this);
+			fNodeTypes.put(definition.getName(), definition);
 
-				for (PropertyDefinition pd : definition.getDeclaredPropertyDefinitions()) {
-					if (!pd.isProtected()) {
-						continue;
-					}
-
-					String propertyName = JcrName.valueOf(pd.getName()).with(getNamespaceProvider()).toString();
-					if (fProtectedProperties.contains(propertyName)) {
-						continue;
-					}
-					fProtectedProperties.add(propertyName);
+			for (PropertyDefinition pd : definition.getDeclaredPropertyDefinitions()) {
+				if (!pd.isProtected()) {
+					continue;
 				}
 
-				for (NodeDefinition nd : definition.getDeclaredChildNodeDefinitions()) {
-					if (!nd.isProtected()) {
-						continue;
-					}
-
-					String nodeName = JcrName.valueOf(nd.getName()).with(getNamespaceProvider()).toString();
-					if (fProtectedNodes.contains(nodeName)) {
-						continue;
-					}
-					fProtectedNodes.add(nodeName);
+				String propertyName = JcrName.valueOf(pd.getName()).with(getNamespaceProvider()).toString();
+				if (fProtectedProperties.contains(propertyName)) {
+					continue;
 				}
+				fProtectedProperties.add(propertyName);
+			}
+
+			for (NodeDefinition nd : definition.getDeclaredChildNodeDefinitions()) {
+				if (!nd.isProtected()) {
+					continue;
+				}
+
+				String nodeName = JcrName.valueOf(nd.getName()).with(getNamespaceProvider()).toString();
+				if (fProtectedNodes.contains(nodeName)) {
+					continue;
+				}
+				fProtectedNodes.add(nodeName);
 			}
 		}
 	}

@@ -66,24 +66,6 @@ wt-inspector {
 	font-size: 1em;
 }
 
-.detail-panel-close-btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border: none;
-	background: transparent;
-	color: var(--text-muted-color);
-	cursor: pointer;
-	padding: 0.25rem;
-	border-radius: 0.25rem;
-	min-width: auto;
-}
-
-.detail-panel-close-btn:hover {
-	background-color: var(--item-hover-bg);
-	color: var(--navbar-color);
-}
-
 .detail-panel-empty,
 .detail-panel-multi {
 	display: flex;
@@ -227,8 +209,8 @@ wt-inspector {
     color: var(--text-soft-color);
 }
 
-.detail-value {
-}
+/* .detail-value removed — display rows are wt-property-row now
+ * (.wt-property-row-value in webtop-ui.css). */
 
 .detail-muted-value {
     color: var(--text-muted-color) !important;
@@ -252,60 +234,21 @@ wt-inspector {
 	position: relative;
 }
 
-/* MIME type combobox suggestions: matches .wt-select-menu palette/style */
-.mime-type-suggestions {
-	position: absolute;
-	top: calc(100% + 0.25rem);
-	left: 0;
-	right: 0;
-	z-index: 100;
-	max-height: 20rem;
-	overflow-y: auto;
-	background-color: var(--context-menu-bg);
-	border: 1px solid var(--context-menu-border-color);
-	backdrop-filter: blur(1.5rem);
-	-webkit-backdrop-filter: blur(1.5rem);
-	border-radius: 0.5rem;
-	box-shadow: var(--context-menu-shadow);
-	padding: 0.25rem 0;
-}
-
-.mime-type-suggestion-item {
-	display: flex;
-	flex-direction: column;
-	padding: 0.375rem 0.75rem;
-	cursor: pointer;
-}
-
-.mime-type-suggestion-item:hover,
-.mime-type-suggestion-active {
-	background-color: var(--btn-icon-hover-bg);
-}
-
-.mime-type-suggestion-type {
-	/* font-family: monospace; */
-}
-
-.mime-type-suggestion-desc {
-	font-size: 11px;
-	color: var(--text-muted-color);
-}
-
 /* --- custom properties container --- */
+/* Display view rows are wt-property-row (plain values, same look as
+ * bpm-console's detail panel); the old boxed-value rule is gone. */
 .custom-properties {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 0.5rem;
     padding-top: 0.75rem;
     padding-bottom: 0.5rem;
+}
 
-	.detail-value,
-	.prop-value-date-list {
-		padding: 0.25rem 0.5rem 0.125rem;
-		background-color: var(--input-bg);
-		border: 2px solid var(--section-header-bg);
-		border-radius: 0.5rem;
-	}
+/* The Property Editor overlay reuses .custom-properties as its row container;
+ * its rows are boxed inputs, so keep the roomier rhythm there. */
+.prop-editor-body .custom-properties {
+	gap: 1.5rem;
 }
 
 .detail-prop-label {
@@ -314,11 +257,12 @@ wt-inspector {
 	gap: 0.25rem;
 }
 
+/* Property Editor read-mode row name. Font size / color are inherited from
+ * the .detail-label wrapper (12px, --text-soft-color) so the editor rows
+ * read like the wt-property-row rows in the display view. */
 .detail-prop-name {
 	flex: 1;
 	min-width: 0;
-	font-size: 13px;
-	color: var(--body-color);
 	padding-left: 0.125rem;
 }
 
@@ -333,7 +277,9 @@ wt-inspector {
 	margin-left: 0;
 }
 
-/* Timezone chip (pill, same style as type badge but different tint) */
+/* Timezone chip (pill). Metrics match .wt-badge (webtop-ui.css) so the
+ * Property Editor pills line up with the wt-badge chips the display view
+ * renders via wt-property-row's badges prop. */
 .prop-tz-badge {
     display: inline-flex;
     align-items: center;
@@ -341,9 +287,10 @@ wt-inspector {
 	height: 1.125rem;
     line-height: 1;
 	font-size: 10px;
+	font-weight: 600;
 	padding: 0 0.75em;
 	border-radius: 9999px;
-	background-color: rgba(from var(--neutral-color) r g b / 0.05);
+	background-color: rgba(from var(--neutral-color) r g b / 0.06);
 	color: var(--neutral-color);
 	border: 1px solid rgba(from var(--neutral-color) r g b / 0.3);
 }
@@ -355,9 +302,10 @@ wt-inspector {
 	height: 1.125rem;
     line-height: 1;
 	font-size: 10px;
+	font-weight: 600;
 	padding: 0 0.75em;
 	border-radius: 9999px;
-	background-color: rgba(from var(--danger-color) r g b / 0.05);
+	background-color: rgba(from var(--danger-color) r g b / 0.06);
 	color: var(--danger-color);
 	border: 1px solid rgba(from var(--danger-color) r g b / 0.3);
 }
@@ -389,17 +337,7 @@ wt-inspector {
 	padding-top: 0.35rem;
 }
 
-/* --- detail grid / status / action --- */
-.detail-grid {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 0 0.5rem;
-}
-
-.detail-grid > div {
-	padding-bottom: 0.25rem;
-}
-
+/* --- detail status --- */
 .detail-status-badge {
 	display: inline-flex;
 	align-items: center;
@@ -407,11 +345,6 @@ wt-inspector {
 	padding: 0.125rem 0.375rem;
 	border-radius: 0.25rem;
 	/* font-weight: 600; */
-}
-
-.detail-status-locked {
-	background-color: rgba(220, 53, 69, 0.1);
-	color: #dc3545;
 }
 
 .detail-status-checkedout {
@@ -445,11 +378,6 @@ wt-inspector {
 .lock-chip-other {
 	background-color: rgb(from var(--danger-color) r g b / 0.12);
 	color: var(--danger-color);
-}
-
-.detail-action {
-	border-bottom: none;
-	padding-top: 0.75rem;
 }
 
 /* Confirmation dialogs for destructive quick actions (version restore,
@@ -595,20 +523,6 @@ wt-inspector {
 	margin-bottom: 0;
 }
 
-.acl-policy-path {
-	font-size: 0.85rem;
-	padding: 0.375rem 0.5rem;
-	background-color: var(--list-header-bg);
-	border-radius: 0.25rem 0.25rem 0 0;
-	border-bottom: 1px solid var(--navbar-border-color);
-	color: var(--text-muted-color, var(--text-color));
-}
-
-.acl-policy-path.acl-policy-current {
-	/* font-weight: 600; */
-	color: var(--text-color);
-}
-
 .acl-policy-section .table {
 	margin-bottom: 0;
 	color: var(--text-color);
@@ -631,10 +545,6 @@ wt-inspector {
 
 .acl-policy-section .table tbody tr:hover {
 	background-color: var(--item-hover-bg);
-}
-
-.acl-privileges-cell {
-	max-width: 16rem;
 }
 
 .acl-badge-allow {
@@ -675,47 +585,6 @@ wt-inspector {
 /* Dim the unselected option so the active one stands out */
 .acl-effect-option:not(:has(input:checked)) {
 	opacity: 0.45;
-}
-
-/* Principal autocomplete results: matches .wt-select-menu palette */
-.acl-search-results {
-	position: absolute;
-	top: calc(100% + 0.25rem);
-	left: 0;
-	right: 0;
-	max-height: 20rem;
-	overflow-y: auto;
-	background-color: var(--context-menu-bg);
-	border: 1px solid var(--context-menu-border-color);
-	backdrop-filter: blur(1.5rem);
-	-webkit-backdrop-filter: blur(1.5rem);
-	border-radius: 0.5rem;
-	box-shadow: var(--context-menu-shadow);
-	padding: 0.25rem 0;
-	z-index: 100;
-	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-}
-
-.acl-search-result-item {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	padding: 0.375rem 0.75rem;
-	cursor: pointer;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.acl-search-result-item:hover {
-	background-color: var(--btn-icon-hover-bg);
-}
-
-.acl-search-result-name {
-	flex: 1;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
 }
 
 /* .acl-privilege-list removed — Privileges checkboxes now use shared .xpath-choices / .xpath-choice-item */
@@ -880,7 +749,7 @@ wt-inspector {
 /* Read-mode header classes replaced by shared
  * .detail-label / .detail-prop-label / .detail-prop-name / .detail-prop-badges */
 
-/* Type badge (small pill) */
+/* Type badge (small pill). Metrics match .wt-badge — see .prop-tz-badge. */
 .prop-type-badge {
     display: inline-flex;
     align-items: center;
@@ -888,9 +757,10 @@ wt-inspector {
 	height: 1.125rem;
     line-height: 1;
 	font-size: 10px;
+	font-weight: 600;
 	padding: 0 0.75em;
 	border-radius: 9999px;
-	background-color: rgba(from var(--neutral-color) r g b / 0.05);
+	background-color: rgba(from var(--neutral-color) r g b / 0.06);
 	color: var(--neutral-color);
 	border: 1px solid rgba(from var(--neutral-color) r g b / 0.3);
 }
@@ -1060,8 +930,11 @@ wt-inspector {
 	gap: 0.25rem;
 	margin-bottom: 0.125rem;
 
+	/* Same name typography as the read-mode rows / wt-property-row. */
 	.prop-name-text {
 		padding-left: 0.125rem;
+		font-size: 12px;
+		color: var(--text-soft-color);
 	}
 }
 
@@ -1150,18 +1023,6 @@ wt-inspector {
  * .prop-chip-remove / .prop-chip-value removed — replaced by shared
  * .input-group / .input-group-actions / .input-group-btn. */
 
-.prop-chip-add {
-	display: flex;
-	gap: 0.25rem;
-	align-items: center;
-}
-
-.prop-chip-add-btn {
-	flex-shrink: 0;
-	min-width: auto !important;
-	padding: 0.175rem 0.4rem;
-}
-
 /* --- reference picker --- */
 /* Reference/Weakreference drop zones */
 .ref-array-edit {
@@ -1169,12 +1030,6 @@ wt-inspector {
 	flex-direction: column;
 	gap: 0.35rem;
 	margin-top: 0.25rem;
-}
-
-.ref-drop-zone-row {
-	display: flex;
-	align-items: center;
-	gap: 0.35rem;
 }
 
 /* Clickable path+icon inside a chip-style row */
@@ -1299,8 +1154,6 @@ wt-inspector {
 	margin-bottom: 0.25rem;
 }
 
-/* .ref-query-selected-item replaced by .input-group */
-
 .ref-query-selected-label {
 	flex: 1;
 	min-width: 0;
@@ -1310,20 +1163,12 @@ wt-inspector {
 	white-space: nowrap;
 }
 
-.ref-query-selected-actions {
-	display: flex;
-	gap: 0.1rem;
-	flex-shrink: 0;
-}
-
 .ref-path-display {
 	flex: 1;
-	/* font-size: 0.82em; */
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	color: var(--navbar-color);
-	/* font-family: monospace; */
 }
 
 .ref-browse-icon {
@@ -1389,33 +1234,18 @@ wt-inspector {
 
 /* Dark mode form control overrides inside property editor */
 :root[data-theme="dark"] .prop-editor-body .form-control,
-:root[data-theme="dark"] .prop-editor-body .form-select,
-:root[data-theme="dark"] .detail-panel .form-control,
-:root[data-theme="dark"] .detail-panel .form-select {
+:root[data-theme="dark"] .detail-panel .form-control {
 	background-color: #2d2d2d;
 	color: var(--text-color);
 	border-color: var(--navbar-border-color);
 }
 
 :root[data-theme="dark"] .prop-editor-body .form-control:focus,
-:root[data-theme="dark"] .prop-editor-body .form-select:focus,
-:root[data-theme="dark"] .detail-panel .form-control:focus,
-:root[data-theme="dark"] .detail-panel .form-select:focus {
+:root[data-theme="dark"] .detail-panel .form-control:focus {
 	background-color: #2d2d2d;
 	color: var(--text-color);
 }
 
-:root[data-theme="dark"] .prop-editor-footer .btn-secondary {
-	background-color: #444;
-	border-color: #555;
-	color: #fff;
-}
-
-:root[data-theme="dark"] .prop-editor-footer .btn-secondary:hover {
-	background-color: #555;
-}
-
-:root[data-theme="dark"] .prop-edit-cancel-btn,
 :root[data-theme="dark"] .prop-array-toggle-btn {
 	background-color: #2d2d2d;
 	border-color: #555;
@@ -1425,19 +1255,6 @@ wt-inspector {
 /* dark override for .prop-chip-item removed (class no longer exists). */
 
 /* --- binary picker --- */
-/* Binary property inline edit preview */
-.binary-edit-preview {
-	display: flex;
-	justify-content: center;
-	margin-bottom: 0.4rem;
-}
-.binary-edit-preview-image {
-	max-width: 100%;
-	max-height: 12rem;
-	object-fit: contain;
-	border-radius: 4px;
-}
-
 /* Binary property inline edit drop zone — matches .ref-drop-zone.ref-drop-add */
 .binary-drop-zone {
 	display: flex;
@@ -1463,29 +1280,6 @@ wt-inspector {
 .binary-drop-zone.binary-drop-add {
 	margin-top: 0.25rem;
 }
-.binary-server-items {
-	display: flex;
-	flex-direction: column;
-	gap: 0.25rem;
-	margin-bottom: 0.4rem;
-	padding: 0.4rem 0.5rem;
-	border-radius: 4px;
-	background: var(--panel-bg-secondary, rgba(0,0,0,0.04));
-}
-.binary-server-item {
-	display: flex;
-	align-items: center;
-	gap: 0.4rem;
-	font-size: 0.8rem;
-	color: var(--text-muted-color);
-}
-.binary-server-note {
-	font-size: 0.75rem;
-	font-style: italic;
-	color: var(--text-muted-color);
-	opacity: 0.75;
-	margin-top: 0.15rem;
-}
 .binary-drop-hint-inner {
 	display: flex;
 	flex-direction: column;
@@ -1500,12 +1294,6 @@ wt-inspector {
 .binary-drop-hint-text {
 	font-size: 0.75rem;
 	color: var(--text-muted-color);
-}
-.binary-uploaded {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 0.2rem;
 }
 /* .binary-file-name / .binary-file-size removed — unused (no markup references). */
 .binary-upload-progress {
@@ -1563,10 +1351,6 @@ wt-inspector {
  * / --primary-color). */
 /* dark overrides for .ref-drop-zone removed — colors come from
  * --disabled-input-border-color / --primary-input-border-color / --primary-color. */
-:root[data-theme="dark"] .ref-query-selected-item {
-	border-color: #444;
-	background: #2d2d2d;
-}
 /* dark overrides for .binary-drop-zone removed — colors come from
  * --disabled-input-border-color / --primary-color. */
 
@@ -1668,32 +1452,6 @@ wt-inspector {
 	display: flex;
 	gap: 0.25rem;
 	z-index: 5;
-}
-
-.cm-inline-actions .cm-expand-btn {
-	position: static;
-}
-
-.cm-expand-btn {
-	position: absolute;
-	top: 0.25rem;
-	right: 0.25rem;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 1.5rem;
-	height: 1.5rem;
-	background: var(--window-bg);
-	border: 1px solid var(--navbar-border-color);
-	border-radius: 0.25rem;
-	color: var(--text-muted-color);
-	cursor: pointer;
-	font-size: 11px;
-	z-index: 5;
-}
-.cm-expand-btn:hover {
-	background-color: var(--item-hover-bg);
-	color: var(--navbar-color);
 }
 
 /* --- CodeMirror expanded view --- */

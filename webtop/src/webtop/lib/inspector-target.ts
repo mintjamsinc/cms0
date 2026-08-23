@@ -1,7 +1,7 @@
 // Builds the object handed to <wt-inspector> as its `target` prop from a
 // GraphQL Node. Shared by every host that embeds the Inspector (content-browser,
 // text-editor, …) so the target contract stays in one place and cannot drift
-// between callers. See memos/wt-inspector-設計書.md §3.1.
+// between callers.
 import { isFolderNode, type Node, type LockInfo } from '../graphql/types.js';
 
 export interface InspectorTarget {

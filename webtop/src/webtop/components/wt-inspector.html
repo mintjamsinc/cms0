@@ -61,110 +61,113 @@
 				</div>
 			</div>
 
-			<!-- Section 2: Basic Info -->
+			<!-- Section 2: Basic Info — wt-property-row rows (shared look with
+			     bpm-console's detail panel). Slot content is compiled in this
+			     component's scope, so the existing methods / refs keep working. -->
 			<div class="detail-section-header">{{ t('webtop.inspector.section.info') }}</div>
 
 			<div class="detail-section-body">
-				<div class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.name') }}</div>
-					<div class="detail-value text-break">{{ singleTarget.name }}</div>
-				</div>
+				<wt-property-row :name="t('webtop.inspector.field.name')" :model-value="singleTarget.name"></wt-property-row>
 
-				<div class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.type') }}</div>
-					<!-- MIME type inline editor (suggestions popup is shown by the shell) -->
-					<div v-if="mimeTypeEditing" class="mime-type-editor">
-						<div class="input-group">
-							<input type="text" v-model="mimeTypeInput" ref="mimeTypeInput"
-								@input="updateMimeTypeSuggestions"
-								@keydown="handleMimeTypeKeydown"
-								:disabled="mimeTypeSaving"
-								:placeholder="t('webtop.inspector.mimeType.placeholder')" />
-							<div class="input-group-actions">
-								<button class="input-group-btn" @click="confirmMimeTypeEdit"
-									:disabled="mimeTypeSaving || !mimeTypeInput.trim()"
-									:title="t('common.confirm')">
-									<i class="bi bi-check-lg"></i>
-								</button>
-								<button class="input-group-btn" @click="cancelMimeTypeEdit"
-									:disabled="mimeTypeSaving" :title="t('common.cancel')">
-									<i class="bi bi-x-lg"></i>
-								</button>
+				<!-- MIME type: clickable value opens the inline editor (suggestions
+				     popup is shown by the shell); the editor slot replaces the
+				     component's default input while mimeTypeEditing is on. -->
+				<wt-property-row :name="t('webtop.inspector.field.type')" :readonly="!mimeTypeEditing">
+					<template v-slot:value="p">
+						<span class="mime-type-clickable"
+							:class="{ 'mime-type-disabled': singleTarget.isCollection }"
+							@click="startMimeTypeEdit"
+							:title="singleTarget.isCollection ? '' : t('webtop.inspector.mimeType.editHint')">{{ displayType(singleTarget) }}</span>
+					</template>
+					<template v-slot:editor="p">
+						<div class="mime-type-editor">
+							<div class="input-group">
+								<input type="text" v-model="mimeTypeInput" ref="mimeTypeInput"
+									@input="updateMimeTypeSuggestions"
+									@keydown="handleMimeTypeKeydown"
+									:disabled="mimeTypeSaving"
+									:placeholder="t('webtop.inspector.mimeType.placeholder')" />
+								<div class="input-group-actions">
+									<button class="input-group-btn" @click="confirmMimeTypeEdit"
+										:disabled="mimeTypeSaving || !mimeTypeInput.trim()"
+										:title="t('common.confirm')">
+										<i class="bi bi-check-lg"></i>
+									</button>
+									<button class="input-group-btn" @click="cancelMimeTypeEdit"
+										:disabled="mimeTypeSaving" :title="t('common.cancel')">
+										<i class="bi bi-x-lg"></i>
+									</button>
+								</div>
 							</div>
 						</div>
-					</div>
-					<!-- Display mode -->
-					<div v-else class="detail-value mime-type-clickable"
-						:class="{ 'mime-type-disabled': singleTarget.isCollection }"
-						@click="startMimeTypeEdit"
-						:title="singleTarget.isCollection ? '' : t('webtop.inspector.mimeType.editHint')">
-						{{ displayType(singleTarget) }}
-					</div>
-				</div>
+					</template>
+				</wt-property-row>
 
-				<div v-if="!singleTarget.isCollection" class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.encoding') }}</div>
-					<!-- Encoding inline editor (suggestions popup is shown by the shell) -->
-					<div v-if="encodingEditing" class="mime-type-editor">
-						<div class="input-group">
-							<input type="text" v-model="encodingInput" ref="encodingInput"
-								@input="updateEncodingSuggestions"
-								@keydown="handleEncodingKeydown"
-								:disabled="encodingSaving"
-								:placeholder="t('webtop.inspector.encoding.placeholder')" />
-							<div class="input-group-actions">
-								<button class="input-group-btn" @click="confirmEncodingEdit"
+				<!-- Encoding: same clickable-value + editor-slot pattern -->
+				<wt-property-row v-if="!singleTarget.isCollection" :name="t('webtop.inspector.field.encoding')" :readonly="!encodingEditing">
+					<template v-slot:value="p">
+						<span class="mime-type-clickable"
+							@click="startEncodingEdit"
+							:title="t('webtop.inspector.encoding.editHint')">
+							<span v-if="singleTarget.encoding">{{ displayEncoding(singleTarget) }}</span>
+							<span v-else class="text-muted">&mdash;</span>
+						</span>
+					</template>
+					<template v-slot:editor="p">
+						<div class="mime-type-editor">
+							<div class="input-group">
+								<input type="text" v-model="encodingInput" ref="encodingInput"
+									@input="updateEncodingSuggestions"
+									@keydown="handleEncodingKeydown"
 									:disabled="encodingSaving"
-									:title="t('common.confirm')">
-									<i class="bi bi-check-lg"></i>
-								</button>
-								<button class="input-group-btn" @click="cancelEncodingEdit"
-									:disabled="encodingSaving" :title="t('common.cancel')">
-									<i class="bi bi-x-lg"></i>
-								</button>
+									:placeholder="t('webtop.inspector.encoding.placeholder')" />
+								<div class="input-group-actions">
+									<button class="input-group-btn" @click="confirmEncodingEdit"
+										:disabled="encodingSaving"
+										:title="t('common.confirm')">
+										<i class="bi bi-check-lg"></i>
+									</button>
+									<button class="input-group-btn" @click="cancelEncodingEdit"
+										:disabled="encodingSaving" :title="t('common.cancel')">
+										<i class="bi bi-x-lg"></i>
+									</button>
+								</div>
 							</div>
 						</div>
-					</div>
-					<!-- Display mode -->
-					<div v-else class="detail-value mime-type-clickable"
-						@click="startEncodingEdit"
-						:title="t('webtop.inspector.encoding.editHint')">
-						<span v-if="singleTarget.encoding">{{ displayEncoding(singleTarget) }}</span>
-						<span v-else class="text-muted">&mdash;</span>
-					</div>
-				</div>
+					</template>
+				</wt-property-row>
 
-				<div class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.size') }}</div>
-					<div v-if="!singleTarget.isCollection" class="detail-value">{{ displaySize(singleTarget) }}</div>
-					<div v-else class="detail-muted-value">&mdash;</div>
-				</div>
+				<wt-property-row :name="t('webtop.inspector.field.size')"
+					:model-value="singleTarget.isCollection ? '—' : displaySize(singleTarget)"
+					:muted="singleTarget.isCollection"></wt-property-row>
 
-				<div class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.path') }}</div>
-					<div class="detail-value text-break d-flex align-items-start" style="word-break: break-all;">
-						<span class="flex-grow-1">{{ singleTarget.path }}</span>
-						<button class="detail-inline-btn ms-1 flex-shrink-0" @click="copyPathToClipboard(event)" :title="t('webtop.inspector.path.copy')">
-							<i class="bi bi-clipboard"></i>
-						</button>
-					</div>
-				</div>
+				<wt-property-row :name="t('webtop.inspector.field.path')">
+					<template v-slot:value="p">
+						<div class="d-flex align-items-start" style="word-break: break-all;">
+							<span class="flex-grow-1">{{ singleTarget.path }}</span>
+							<button class="detail-inline-btn ms-1 flex-shrink-0" @click="copyPathToClipboard(event)" :title="t('webtop.inspector.path.copy')">
+								<i class="bi bi-clipboard"></i>
+							</button>
+						</div>
+					</template>
+				</wt-property-row>
 
-				<div class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.created') }}</div>
-					<div class="detail-value">{{ formatDetailDate(singleTarget.created) }}</div>
-					<div class="detail-value">{{ singleTarget.createdByDisplayName || singleTarget.createdBy || '—' }}</div>
-				</div>
+				<wt-property-row :name="t('webtop.inspector.field.created')">
+					<template v-slot:value="p">
+						<div>{{ formatDetailDate(singleTarget.created) }}</div>
+						<div>{{ singleTarget.createdByDisplayName || singleTarget.createdBy || '—' }}</div>
+					</template>
+				</wt-property-row>
 
-				<div class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.modified') }}</div>
-					<div class="detail-value">{{ formatDetailDate(singleTarget.lastModified) }}</div>
-					<div class="detail-value">{{ singleTarget.lastModifiedByDisplayName || singleTarget.lastModifiedBy || '—' }}</div>
-				</div>
+				<wt-property-row :name="t('webtop.inspector.field.modified')">
+					<template v-slot:value="p">
+						<div>{{ formatDetailDate(singleTarget.lastModified) }}</div>
+						<div>{{ singleTarget.lastModifiedByDisplayName || singleTarget.lastModifiedBy || '—' }}</div>
+					</template>
+				</wt-property-row>
 
-				<div class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.lockStatus') }}</div>
-					<div class="detail-value">
+				<wt-property-row :name="t('webtop.inspector.field.lockStatus')">
+					<template v-slot:value="p">
 						<span v-if="singleTarget.isLocked" class="lock-chip"
 							:class="singleTarget.lockInfo?.isLockOwner ? 'lock-chip-self' : 'lock-chip-other'">
 							<i class="bi bi-lock-fill me-1"></i>
@@ -172,12 +175,11 @@
 							<span v-else class="lock-chip-label">{{ t('webtop.inspector.lock.byOther', { owner: singleTarget.lockInfo?.lockOwnerDisplayName || singleTarget.lockInfo?.lockOwner }) }}</span>
 						</span>
 						<span v-else class="text-muted">&mdash;</span>
-					</div>
-				</div>
+					</template>
+				</wt-property-row>
 
-				<div v-if="singleTarget.isVersionable" class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.version') }}</div>
-					<div class="detail-value">
+				<wt-property-row v-if="singleTarget.isVersionable" :name="t('webtop.inspector.field.version')">
+					<template v-slot:value="p">
 						<span>{{ displayVersion(singleTarget) }}</span>
 						<button class="detail-inline-btn ms-1" @click="showDetailVersionHistory" :title="t('webtop.inspector.versionHistory.title')">
 							<i class="bi bi-clock-history"></i>
@@ -185,16 +187,15 @@
 						<span v-if="singleTarget.isCheckedOut" class="detail-status-badge detail-status-checkedout ms-1">
 							{{ t('webtop.inspector.version.checkedOut') }}
 						</span>
-					</div>
-				</div>
+					</template>
+				</wt-property-row>
 
-				<div class="detail-section">
-					<div class="detail-label">{{ t('webtop.inspector.field.referenceable') }}</div>
-					<div class="detail-value">
+				<wt-property-row :name="t('webtop.inspector.field.referenceable')">
+					<template v-slot:value="p">
 						<span v-if="singleTarget.isReferenceable">{{ t('common.yes') }} <small class="text-muted ms-1">{{ t('webtop.inspector.referenceable.uuid', { id: singleTarget.id }) }}</small></span>
 						<span v-else class="text-muted">{{ t('common.no') }}</span>
-					</div>
-				</div>
+					</template>
+				</wt-property-row>
 			</div>
 
 			<!-- Section 3: Properties -->
@@ -230,84 +231,28 @@
 						<input type="text" class="wt w-100" v-model="detailPropertiesFilter" :placeholder="t('webtop.inspector.properties.filter')">
 					</div>
 
-					<!-- Schema view: schema-ordered properties + extras -->
+					<!-- Schema view: schema-ordered properties + extras.
+					     Rows are wt-property-row (name + TZ/type badges via the
+					     badges prop, value branches in the value slot). -->
 					<div v-if="selectedSchemaKey && filteredSchemaDisplayProperties.schemaProps.length + filteredSchemaDisplayProperties.extraProps.length > 0" class="custom-properties">
-						<div v-for="prop in filteredSchemaDisplayProperties.schemaProps" :key="'s_' + prop.name" class="detail-section">
-							<div class="detail-label detail-prop-label">
-								<span class="detail-prop-name">{{ prop.schemaLabel }}</span>
-								<div class="detail-prop-badges">
-									<span v-if="prop.type === 'DATE'" class="prop-tz-badge">{{ localTZ }}</span>
-									<span class="prop-type-badge">{{ prop.isArray ? prop.type + '[]' : prop.type }}</span>
+						<wt-property-row v-for="prop in filteredSchemaDisplayProperties.schemaProps" :key="'s_' + prop.name"
+							:name="prop.schemaLabel" :badges="detailPropBadges(prop)">
+							<template v-slot:value="p">
+								<!-- Format error -->
+								<div v-if="prop.formatError" class="schema-format-error" :title="prop.formatError">
+									<i class="bi bi-exclamation-triangle-fill"></i> {{ prop.formatError }}
 								</div>
-							</div>
-							<!-- Format error -->
-							<div v-if="prop.formatError" class="detail-value schema-format-error" :title="prop.formatError">
-								<i class="bi bi-exclamation-triangle-fill"></i> {{ prop.formatError }}
-							</div>
-							<!-- Formatted value from display format -->
-							<div v-else-if="prop.formattedValue != null" class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': !prop.formattedValue }">{{ prop.formattedValue || '—' }}</div>
-							<!-- Choice labels (array) -->
-							<div v-else-if="prop.choiceLabels" class="prop-value-date-list">
-								<div v-for="(lbl, idx) in prop.choiceLabels" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !lbl }">{{ lbl || '—' }}</div>
-								<span v-if="prop.choiceLabels.length === 0" class="detail-muted-value">—</span>
-							</div>
-							<!-- Choice label (single) -->
-							<div v-else-if="prop.choiceLabel" class="detail-value text-break text-clamp-4">{{ prop.choiceLabel }}</div>
-							<!-- Binary array property -->
-							<div v-else-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
-								<div v-for="(mime, idx) in prop.mimeTypes" :key="idx" class="prop-binary-container">
-									<div v-if="prop.isImages[idx] && prop.propertyDownloadURLs[idx]" class="prop-binary-preview">
-										<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
-									</div>
-									<div v-else class="prop-binary-icon">
-										<i class="bi bi-file-earmark"></i>
-										<span class="prop-binary-mime">{{ mime }}</span>
-									</div>
-									<div class="prop-binary-info">
-										<span class="prop-binary-size">{{ prop.sizesFormatted[idx] }}</span>
-										<a v-if="prop.propertyDownloadURLs[idx]" :href="prop.propertyDownloadURLs[idx] + '&attachment=true'" class="prop-binary-download" :title="t('webtop.inspector.download')">
-											<i class="bi bi-download"></i>
-										</a>
-									</div>
+								<!-- Formatted value from display format -->
+								<div v-else-if="prop.formattedValue != null" class="text-break text-clamp-4" :class="{ 'detail-muted-value': !prop.formattedValue }">{{ prop.formattedValue || '—' }}</div>
+								<!-- Choice labels (array) -->
+								<div v-else-if="prop.choiceLabels" class="prop-value-date-list">
+									<div v-for="(lbl, idx) in prop.choiceLabels" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !lbl }">{{ lbl || '—' }}</div>
+									<span v-if="prop.choiceLabels.length === 0" class="detail-muted-value">—</span>
 								</div>
-								<span v-if="prop.mimeTypes.length === 0" class="detail-muted-value">—</span>
-							</div>
-							<!-- Binary single property -->
-							<div v-else-if="prop.type === 'BINARY'" class="prop-binary-container">
-								<div v-if="prop.isImage && prop.propertyDownloadURL" class="prop-binary-preview">
-									<img :src="prop.propertyDownloadURL" class="prop-binary-preview-image" />
-								</div>
-								<div v-else class="prop-binary-icon">
-									<i class="bi bi-file-earmark"></i>
-									<span class="prop-binary-mime">{{ prop.mimeType }}</span>
-								</div>
-								<div class="prop-binary-info">
-									<span class="prop-binary-size">{{ prop.sizeFormatted }}</span>
-									<a v-if="prop.propertyDownloadURL" :href="prop.propertyDownloadURL + '&attachment=true'" class="prop-binary-download" :title="t('webtop.inspector.download')">
-										<i class="bi bi-download"></i>
-									</a>
-								</div>
-							</div>
-							<div v-else-if="prop.isArray" class="prop-value-date-list">
-								<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ detailPropDisplayItem(prop, item) }}</div>
-								<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
-							</div>
-							<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
-						</div>
-						<!-- Extra properties not in schema -->
-						<div v-if="filteredSchemaDisplayProperties.extraProps.length > 0" class="custom-properties">
-							<div class="detail-section schema-extra-divider">
-								<span class="text-muted small">{{ t('webtop.inspector.properties.other') }}</span>
-							</div>
-							<div v-for="prop in filteredSchemaDisplayProperties.extraProps" :key="'e_' + prop.name" class="detail-section">
-								<div class="detail-label detail-prop-label">
-									<span class="detail-prop-name">{{ prop.name }}</span>
-									<div class="detail-prop-badges">
-										<span v-if="prop.type === 'DATE'" class="prop-tz-badge">{{ localTZ }}</span>
-										<span class="prop-type-badge">{{ prop.isArray ? prop.type + '[]' : prop.type }}</span>
-									</div>
-								</div>
-								<div v-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
+								<!-- Choice label (single) -->
+								<div v-else-if="prop.choiceLabel" class="text-break text-clamp-4">{{ prop.choiceLabel }}</div>
+								<!-- Binary array property -->
+								<div v-else-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
 									<div v-for="(mime, idx) in prop.mimeTypes" :key="idx" class="prop-binary-container">
 										<div v-if="prop.isImages[idx] && prop.propertyDownloadURLs[idx]" class="prop-binary-preview">
 											<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
@@ -325,6 +270,7 @@
 									</div>
 									<span v-if="prop.mimeTypes.length === 0" class="detail-muted-value">—</span>
 								</div>
+								<!-- Binary single property -->
 								<div v-else-if="prop.type === 'BINARY'" class="prop-binary-container">
 									<div v-if="prop.isImage && prop.propertyDownloadURL" class="prop-binary-preview">
 										<img :src="prop.propertyDownloadURL" class="prop-binary-preview-image" />
@@ -344,62 +290,107 @@
 									<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ detailPropDisplayItem(prop, item) }}</div>
 									<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
 								</div>
-								<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
+								<div v-else class="text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
+							</template>
+						</wt-property-row>
+						<!-- Extra properties not in schema -->
+						<div v-if="filteredSchemaDisplayProperties.extraProps.length > 0" class="custom-properties">
+							<div class="schema-extra-divider">
+								<span class="text-muted small">{{ t('webtop.inspector.properties.other') }}</span>
 							</div>
+							<wt-property-row v-for="prop in filteredSchemaDisplayProperties.extraProps" :key="'e_' + prop.name"
+								:name="prop.name" :badges="detailPropBadges(prop)">
+								<template v-slot:value="p">
+									<div v-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
+										<div v-for="(mime, idx) in prop.mimeTypes" :key="idx" class="prop-binary-container">
+											<div v-if="prop.isImages[idx] && prop.propertyDownloadURLs[idx]" class="prop-binary-preview">
+												<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
+											</div>
+											<div v-else class="prop-binary-icon">
+												<i class="bi bi-file-earmark"></i>
+												<span class="prop-binary-mime">{{ mime }}</span>
+											</div>
+											<div class="prop-binary-info">
+												<span class="prop-binary-size">{{ prop.sizesFormatted[idx] }}</span>
+												<a v-if="prop.propertyDownloadURLs[idx]" :href="prop.propertyDownloadURLs[idx] + '&attachment=true'" class="prop-binary-download" :title="t('webtop.inspector.download')">
+													<i class="bi bi-download"></i>
+												</a>
+											</div>
+										</div>
+										<span v-if="prop.mimeTypes.length === 0" class="detail-muted-value">—</span>
+									</div>
+									<div v-else-if="prop.type === 'BINARY'" class="prop-binary-container">
+										<div v-if="prop.isImage && prop.propertyDownloadURL" class="prop-binary-preview">
+											<img :src="prop.propertyDownloadURL" class="prop-binary-preview-image" />
+										</div>
+										<div v-else class="prop-binary-icon">
+											<i class="bi bi-file-earmark"></i>
+											<span class="prop-binary-mime">{{ prop.mimeType }}</span>
+										</div>
+										<div class="prop-binary-info">
+											<span class="prop-binary-size">{{ prop.sizeFormatted }}</span>
+											<a v-if="prop.propertyDownloadURL" :href="prop.propertyDownloadURL + '&attachment=true'" class="prop-binary-download" :title="t('webtop.inspector.download')">
+												<i class="bi bi-download"></i>
+											</a>
+										</div>
+									</div>
+									<div v-else-if="prop.isArray" class="prop-value-date-list">
+										<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ detailPropDisplayItem(prop, item) }}</div>
+										<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
+									</div>
+									<div v-else class="text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
+								</template>
+							</wt-property-row>
 						</div>
 					</div>
 
 					<!-- Default view: no schema selected -->
 					<div v-else class="custom-properties">
-						<div v-for="prop in filteredDetailProperties" :key="prop.name" class="detail-section">
-							<div class="detail-label detail-prop-label">
-								<span class="detail-prop-name">{{ prop.name }}</span>
-								<div class="detail-prop-badges">
-									<span v-if="prop.type === 'DATE'" class="prop-tz-badge">{{ localTZ }}</span>
-									<span class="prop-type-badge">{{ prop.isArray ? prop.type + '[]' : prop.type }}</span>
+						<wt-property-row v-for="prop in filteredDetailProperties" :key="prop.name"
+							:name="prop.name" :badges="detailPropBadges(prop)">
+							<template v-slot:value="p">
+								<!-- Binary array property: multiple previews -->
+								<div v-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
+									<div v-for="(mime, idx) in prop.mimeTypes" :key="idx" class="prop-binary-container">
+										<div v-if="prop.isImages[idx] && prop.propertyDownloadURLs[idx]" class="prop-binary-preview">
+											<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
+										</div>
+										<div v-else class="prop-binary-icon">
+											<i class="bi bi-file-earmark"></i>
+											<span class="prop-binary-mime">{{ mime }}</span>
+										</div>
+										<div class="prop-binary-info">
+											<span class="prop-binary-size">{{ prop.sizesFormatted[idx] }}</span>
+											<a v-if="prop.propertyDownloadURLs[idx]" :href="prop.propertyDownloadURLs[idx] + '&attachment=true'" class="prop-binary-download" :title="t('webtop.inspector.download')">
+												<i class="bi bi-download"></i>
+											</a>
+										</div>
+									</div>
+									<span v-if="prop.mimeTypes.length === 0" class="detail-muted-value">—</span>
 								</div>
-							</div>
-							<!-- Binary array property: multiple previews -->
-							<div v-if="prop.type === 'BINARY' && prop.isArray" class="prop-binary-array-list">
-								<div v-for="(mime, idx) in prop.mimeTypes" :key="idx" class="prop-binary-container">
-									<div v-if="prop.isImages[idx] && prop.propertyDownloadURLs[idx]" class="prop-binary-preview">
-										<img :src="prop.propertyDownloadURLs[idx]" class="prop-binary-preview-image" />
+								<!-- Binary single property: preview + download -->
+								<div v-else-if="prop.type === 'BINARY'" class="prop-binary-container">
+									<div v-if="prop.isImage && prop.propertyDownloadURL" class="prop-binary-preview">
+										<img :src="prop.propertyDownloadURL" class="prop-binary-preview-image" />
 									</div>
 									<div v-else class="prop-binary-icon">
 										<i class="bi bi-file-earmark"></i>
-										<span class="prop-binary-mime">{{ mime }}</span>
+										<span class="prop-binary-mime">{{ prop.mimeType }}</span>
 									</div>
 									<div class="prop-binary-info">
-										<span class="prop-binary-size">{{ prop.sizesFormatted[idx] }}</span>
-										<a v-if="prop.propertyDownloadURLs[idx]" :href="prop.propertyDownloadURLs[idx] + '&attachment=true'" class="prop-binary-download" :title="t('webtop.inspector.download')">
+										<span class="prop-binary-size">{{ prop.sizeFormatted }}</span>
+										<a v-if="prop.propertyDownloadURL" :href="prop.propertyDownloadURL + '&attachment=true'" class="prop-binary-download" :title="t('webtop.inspector.download')">
 											<i class="bi bi-download"></i>
 										</a>
 									</div>
 								</div>
-								<span v-if="prop.mimeTypes.length === 0" class="detail-muted-value">—</span>
-							</div>
-							<!-- Binary single property: preview + download -->
-							<div v-else-if="prop.type === 'BINARY'" class="prop-binary-container">
-								<div v-if="prop.isImage && prop.propertyDownloadURL" class="prop-binary-preview">
-									<img :src="prop.propertyDownloadURL" class="prop-binary-preview-image" />
+								<div v-else-if="prop.isArray" class="prop-value-date-list">
+									<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ detailPropDisplayItem(prop, item) }}</div>
+									<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
 								</div>
-								<div v-else class="prop-binary-icon">
-									<i class="bi bi-file-earmark"></i>
-									<span class="prop-binary-mime">{{ prop.mimeType }}</span>
-								</div>
-								<div class="prop-binary-info">
-									<span class="prop-binary-size">{{ prop.sizeFormatted }}</span>
-									<a v-if="prop.propertyDownloadURL" :href="prop.propertyDownloadURL + '&attachment=true'" class="prop-binary-download" :title="t('webtop.inspector.download')">
-										<i class="bi bi-download"></i>
-									</a>
-								</div>
-							</div>
-							<div v-else-if="prop.isArray" class="prop-value-date-list">
-								<div v-for="(item, idx) in prop.items" :key="idx" class="prop-value-date-item" :class="{ 'detail-muted-value': !item }">{{ detailPropDisplayItem(prop, item) }}</div>
-								<span v-if="prop.items.length === 0" class="detail-muted-value">—</span>
-							</div>
-							<div v-else class="detail-value text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
-						</div>
+								<div v-else class="text-break text-clamp-4" :class="{ 'detail-muted-value': prop.value === '' || prop.value == null }">{{ detailPropDisplayValue(prop) }}</div>
+							</template>
+						</wt-property-row>
 					</div>
 				</template>
 			</div>
@@ -890,7 +881,7 @@
 									</div>
 								</div>
 								<!-- Format error -->
-								<div v-if="prop.formatError && !prop.isDeleted" class="detail-value schema-format-error" :title="prop.formatError">
+								<div v-if="prop.formatError && !prop.isDeleted" class="prop-value schema-format-error" :title="prop.formatError">
 									<i class="bi bi-exclamation-triangle-fill"></i> {{ prop.formatError }}
 								</div>
 								<!-- Formatted value from display format -->
@@ -902,7 +893,7 @@
 								</div>
 								<!-- Choice label (single) -->
 								<div v-else-if="prop.choiceLabel && !prop.isDeleted" class="prop-value prop-value-text text-clamp-4">{{ prop.choiceLabel || '—' }}</div>
-								<div v-else-if="prop.isArray && prop.type === 'DATE' && !prop.isDeleted" class="prop-value-date-list">
+								<div v-else-if="prop.isArray && prop.type === 'DATE' && !prop.isDeleted" class="prop-value prop-value-date-list">
 									<div v-for="(val, idx) in prop.currentValues" :key="idx" class="prop-value-date-item">
 										{{ formatDateLocal(val) }}
 									</div>

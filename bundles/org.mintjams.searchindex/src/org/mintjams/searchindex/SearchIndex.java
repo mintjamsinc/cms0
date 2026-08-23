@@ -44,6 +44,44 @@ public interface SearchIndex extends Closeable {
 
 	SearchIndex with(FieldTypeProvider fieldTypeProvider) throws IOException;
 
+	/**
+	 * <p>Begins a rebuild session. The session builds a complete replacement
+	 * index in a staging area under this index's data path, leaving the live
+	 * index fully operational while the rebuild runs. {@link RebuildSession#commit()}
+	 * swaps the staged index in as the live index and deletes the old one;
+	 * closing the session without committing discards the staging area and
+	 * leaves the live index untouched.</p>
+	 *
+	 * <p>Only one rebuild session may be active at a time; starting a second
+	 * one before the first is committed or closed fails.</p>
+	 */
+	RebuildSession createRebuildSession() throws IOException;
+
+	/**
+	 * <p>A staged full rebuild of the index. Writers obtained from this session
+	 * write to the staging index; readers and writers of the live index are
+	 * unaffected until {@link #commit()}.</p>
+	 *
+	 * <p>{@code commit()} makes the staged index live: it commits and closes
+	 * the staging writers, then swaps the staged index directories in under a
+	 * short exclusive lock (queries block for the duration of the swap) and
+	 * deletes the previous index. Callers must quiesce their own incremental
+	 * writes to the live index around {@code commit()} — writers obtained from
+	 * the live index before the swap must not be used across it.</p>
+	 *
+	 * <p>The swap is crash-safe: until the staged index is complete the live
+	 * index is untouched, and an interrupted swap is rolled forward the next
+	 * time the index is opened. {@link #close()} without a prior commit
+	 * discards the staging area.</p>
+	 */
+	interface RebuildSession extends Closeable {
+		DocumentWriter getDocumentWriter() throws IOException;
+
+		SuggestionWriter getSuggestionWriter() throws IOException;
+
+		void commit() throws IOException;
+	}
+
 	interface Document {
 		Document setIdentifier(String identifier);
 
@@ -242,5 +280,16 @@ public interface SearchIndex extends Closeable {
 		boolean isCancelled();
 
 		Consumer<String> getPathConsumer();
+
+		/**
+		 * <p>Receives the coarse phase transitions of a staged rebuild after the
+		 * traversal — {@code "catchingUp"} (replaying what changed while the
+		 * traversal ran) and {@code "swapping"} (the staged index is being
+		 * swapped in). Progress reporters map these to user-facing messages;
+		 * the default (null) means the caller does not care.</p>
+		 */
+		default Consumer<String> getPhaseConsumer() {
+			return null;
+		}
 	}
 }

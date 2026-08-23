@@ -27,7 +27,9 @@ import java.util.Map;
 
 import javax.script.ScriptContext;
 
-public interface ScriptingContext extends ScriptContext {
+import org.mintjams.tools.util.ActionContext;
+
+public interface ScriptingContext extends ScriptContext, ActionContext {
 
 	List<String> getAttributeNames();
 
@@ -36,5 +38,9 @@ public interface ScriptingContext extends ScriptContext {
 	Map<String, Object> getAttributes();
 
 	Object getAttribute(String name);
+
+	void setAttribute(String name, Object value);
+
+	Object removeAttribute(String name);
 
 }

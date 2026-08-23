@@ -32,7 +32,8 @@ import java.io.Reader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
-import java.time.ZoneId;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -717,115 +718,131 @@ public class JCRs {
 
 		Node contentNode = getContentNode(node);
 
-		if (value instanceof String) {
-			contentNode.setProperty(name, (String) value);
+		if (value instanceof String v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
-		if (value instanceof BigDecimal) {
-			contentNode.setProperty(name, (BigDecimal) value);
+		if (value instanceof BigDecimal v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
-		if (value instanceof Double) {
-			contentNode.setProperty(name, (Double) value);
+		if (value instanceof Double v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
-		if (value instanceof Long) {
-			contentNode.setProperty(name, (Long) value);
+		if (value instanceof Long v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
-		if (value instanceof Integer) {
-			contentNode.setProperty(name, (Integer) value);
+		if (value instanceof Integer v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
-		if (value instanceof Calendar) {
-			contentNode.setProperty(name, (Calendar) value);
+		if (value instanceof Calendar v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
-		if (value instanceof java.util.Date date) {
+		if (value instanceof java.util.Date v) {
 			Calendar c = Calendar.getInstance();
-			c.setTime(date);
+			c.setTime(v);
 			c.setTimeZone(TimeZone.getTimeZone(ZoneOffset.UTC));
 			contentNode.setProperty(name, c);
 			return;
 		}
 
-		if (value instanceof Boolean) {
-			contentNode.setProperty(name, (Boolean) value);
+		if (value instanceof Instant v) {
+			Calendar c = Calendar.getInstance();
+			c.setTimeInMillis(v.toEpochMilli());
+			c.setTimeZone(TimeZone.getTimeZone(ZoneOffset.UTC));
+			contentNode.setProperty(name, c);
 			return;
 		}
 
-		if (value instanceof Value) {
-			contentNode.setProperty(name, (Value) value);
+		if (value instanceof OffsetDateTime v) {
+			Calendar c = Calendar.getInstance();
+			c.setTimeInMillis(v.toInstant().toEpochMilli());
+			c.setTimeZone(TimeZone.getTimeZone(ZoneOffset.UTC));
+			contentNode.setProperty(name, c);
 			return;
 		}
 
-		if (value instanceof Value[]) {
-			contentNode.setProperty(name, (Value[]) value);
+		if (value instanceof Boolean v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
-		if (value instanceof Binary) {
-			contentNode.setProperty(name, (Binary) value);
+		if (value instanceof Value v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
-		if (value instanceof Node) {
-			contentNode.setProperty(name, (Node) value);
+		if (value instanceof Value[] v) {
+			contentNode.setProperty(name, v);
+			return;
+		}
+
+		if (value instanceof Binary v) {
+			contentNode.setProperty(name, v);
+			return;
+		}
+
+		if (value instanceof Node v) {
+			contentNode.setProperty(name, v);
 			return;
 		}
 
 		ValueFactory valueFactory = node.getSession().getValueFactory();
 
-		if (value instanceof String[]) {
-			contentNode.setProperty(name, Arrays.stream((String[]) value).map(e -> {
+		if (value instanceof String[] v) {
+			contentNode.setProperty(name, Arrays.stream(v).map(e -> {
 				return valueFactory.createValue(e);
 			}).toArray(Value[]::new));
 			return;
 		}
 
-		if (value instanceof BigDecimal[]) {
-			contentNode.setProperty(name, Arrays.stream((BigDecimal[]) value).map(e -> {
+		if (value instanceof BigDecimal[] v) {
+			contentNode.setProperty(name, Arrays.stream(v).map(e -> {
 				return valueFactory.createValue(e);
 			}).toArray(Value[]::new));
 			return;
 		}
 
-		if (value instanceof Double[]) {
-			contentNode.setProperty(name, Arrays.stream((Double[]) value).map(e -> {
+		if (value instanceof Double[] v) {
+			contentNode.setProperty(name, Arrays.stream(v).map(e -> {
 				return valueFactory.createValue(e);
 			}).toArray(Value[]::new));
 			return;
 		}
 
-		if (value instanceof Long[]) {
-			contentNode.setProperty(name, Arrays.stream((Long[]) value).map(e -> {
+		if (value instanceof Long[] v) {
+			contentNode.setProperty(name, Arrays.stream(v).map(e -> {
 				return valueFactory.createValue(e);
 			}).toArray(Value[]::new));
 			return;
 		}
 
-		if (value instanceof Integer[]) {
-			contentNode.setProperty(name, Arrays.stream((Integer[]) value).map(e -> {
+		if (value instanceof Integer[] v) {
+			contentNode.setProperty(name, Arrays.stream(v).map(e -> {
 				return valueFactory.createValue(e);
 			}).toArray(Value[]::new));
 			return;
 		}
 
-		if (value instanceof Calendar[]) {
-			contentNode.setProperty(name, Arrays.stream((Calendar[]) value).map(e -> {
+		if (value instanceof Calendar[] v) {
+			contentNode.setProperty(name, Arrays.stream(v).map(e -> {
 				return valueFactory.createValue(e);
 			}).toArray(Value[]::new));
 			return;
 		}
 
-		if (value instanceof java.util.Date[]) {
-			contentNode.setProperty(name, Arrays.stream((java.util.Date[]) value).map(e -> {
+		if (value instanceof java.util.Date[] v) {
+			contentNode.setProperty(name, Arrays.stream(v).map(e -> {
 				Calendar c = Calendar.getInstance();
 				c.setTime(e);
 				return valueFactory.createValue(c);
@@ -833,15 +850,15 @@ public class JCRs {
 			return;
 		}
 
-		if (value instanceof Boolean[]) {
-			contentNode.setProperty(name, Arrays.stream((Boolean[]) value).map(e -> {
+		if (value instanceof Boolean[] v) {
+			contentNode.setProperty(name, Arrays.stream(v).map(e -> {
 				return valueFactory.createValue(e);
 			}).toArray(Value[]::new));
 			return;
 		}
 
-		if (value instanceof byte[]) {
-			try (InputStream in = new ByteArrayInputStream((byte[]) value)) {
+		if (value instanceof byte[] v) {
+			try (InputStream in = new ByteArrayInputStream(v)) {
 				try (org.mintjams.jcr.Binary binaryValue = (org.mintjams.jcr.Binary) valueFactory.createBinary(in)) {
 					contentNode.setProperty(name, binaryValue);
 				}
@@ -851,8 +868,8 @@ public class JCRs {
 			return;
 		}
 
-		if (value instanceof InputStream) {
-			try (org.mintjams.jcr.Binary binaryValue = (org.mintjams.jcr.Binary) valueFactory.createBinary((InputStream) value)) {
+		if (value instanceof InputStream v) {
+			try (org.mintjams.jcr.Binary binaryValue = (org.mintjams.jcr.Binary) valueFactory.createBinary(v)) {
 				contentNode.setProperty(name, binaryValue);
 			} catch (IOException ex) {
 				throw Cause.create(ex).wrap(RepositoryException.class);

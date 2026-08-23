@@ -1,5 +1,6 @@
 identifier: 9c2f0e8a-7b1d-4f9a-bc28-3e51d8a9f421
 title: Tasks
+category: bpm
 icon: assets/icons/icon.svg
 actions:
   open:

@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search Index Rebuild — Progress</title>
+<style>
+	/* Theme tokens, base text, button.wt and the wt-* component styles come
+	   from wt-ui.css, injected by the wt-ui.esm.js bundle's initUi() (loaded
+	   via the form host's webtopBaseUrl). Only form-specific layout lives
+	   here, expressed in the shared tokens. */
+	[v-cloak] { display: none; }
+	h1 { font-size: 18px; margin: 0 0 4px; }
+	.muted { color: var(--text-muted-color); }
+	.panel {
+		background: var(--island-bg); border: 1px solid var(--island-border-color);
+		border-radius: 8px; padding: 12px 16px; margin: 12px 0;
+	}
+	table { border-collapse: collapse; width: 100%; }
+	th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--navbar-border-color); vertical-align: top; }
+	th { color: var(--text-muted-color); font-weight: 600; white-space: nowrap; }
+	.status-completed { color: var(--success-color); font-weight: 600; }
+	.status-failed, .status-aborted { color: var(--danger-color); font-weight: 600; }
+	.status-running, .status-queued, .status-aborting { color: var(--warning-color); font-weight: 600; }
+	.bar { background: var(--progress-track-bg); border-radius: 4px; height: 8px; width: 160px; overflow: hidden; }
+	.bar > div { background: var(--progress-bar-bg); height: 100%; transition: width .5s; }
+	.path { word-break: break-all; }
+	button.wt { margin-right: 8px; }
+	.error { color: var(--danger-color); }
+	wt-inline-message { margin-top: 8px; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak @mounted="onMounted" @unmount="onUnmount">
+	<h1>{{ t('progress.title', null, 'Search Index Rebuild Progress') }}</h1>
+	<p class="muted">
+		{{ t('progress.rebuildId', null, 'Rebuild:') }} <span class="path">{{ rebuildId }}</span>
+	</p>
+
+	<div class="panel" style="overflow-x: auto;">
+		<table>
+			<tr>
+				<th>{{ t('progress.col.node', null, 'Node') }}</th>
+				<th>{{ t('progress.col.status', null, 'Status') }}</th>
+				<th>{{ t('progress.col.progress', null, 'Progress') }}</th>
+				<th></th>
+			</tr>
+			<tr v-for="row in rows" :key="row.nodeId">
+				<td>
+					{{ row.nodeId }}<span v-if="row.self"> ({{ t('progress.self', null, 'this node') }})</span>
+					<div v-if="row.hostName" class="muted">{{ row.hostName }}</div>
+					<div v-if="row.alive === false" class="error">{{ t('progress.nodeDown', null, 'node down') }}</div>
+				</td>
+				<td>
+					<span v-if="row.jobId" :class="'status-' + (row.status || 'queued')">{{ statusLabel(row.status) }}</span>
+					<span v-if="!row.jobId" class="muted">{{ t('progress.notTargeted', null, 'not targeted (joined later; rebuilds on startup)') }}</span>
+				</td>
+				<td>
+					<div v-if="row.jobId">
+						<div class="bar"><div :style="'width:' + percent(row) + '%'"></div></div>
+						<div class="muted">{{ row.itemsProcessed || 0 }} / {{ row.itemsTotal || '?' }} ({{ percent(row) }}%)</div>
+						<!-- Once the status reads "completed" the last phase is stale
+						     (the swap it names has already happened), so it goes. -->
+						<div v-if="row.phase && row.status !== 'completed'" class="muted">{{ phaseLabel(row.phase) }}</div>
+						<div v-if="row.errorMessage" class="error">{{ row.errorMessage }}</div>
+					</div>
+				</td>
+				<td>
+					<button v-if="row.jobId && !isTerminal(row.status)" class="wt wt-danger wt-slim"
+							:disabled="busy || row.status === 'aborting'"
+							@click="onAbort(row)">{{ t('progress.abort', null, 'Abort') }}</button>
+				</td>
+			</tr>
+		</table>
+	</div>
+
+	<div class="panel">
+		<p v-if="!allTerminal" class="muted">{{ t('progress.runningHint', null, 'The rebuild is running. You can close this window; the task stays in your task list and shows the live state whenever you reopen it.') }}</p>
+		<p v-if="allTerminal && failedNodes.length === 0" class="status-completed">{{ t('progress.allCompleted', null, 'Every node completed successfully.') }}</p>
+		<p v-if="allTerminal && failedNodes.length > 0" class="error">{{ t('progress.someFailed', { count: failedNodes.length }, 'Some nodes did not complete.') }}</p>
+		<button v-if="allTerminal && failedNodes.length > 0" class="wt" :disabled="busy" @click="onRerun">
+			{{ t('progress.rerun', null, 'Re-run failed nodes') }}
+		</button>
+		<button v-if="allTerminal" class="wt wt-primary" :disabled="busy" @click="onClose">
+			{{ t('progress.close', null, 'Complete task') }}
+		</button>
+		<wt-inline-message v-if="errorMessage" type="error">{{ errorMessage }}</wt-inline-message>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.system.searchindex.';
+const TERMINAL = ['completed', 'aborted', 'failed'];
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		// Host version 2 is the first that holds a loading overlay over this
+		// frame until notifyReady() is called; this form relies on that — it
+		// paints an empty table that briefly claims every node completed until
+		// onMounted() has built the first row set.
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	// The webtop UI bundle: ichigo.js + wt-* components + wt-ui.css in one
+	// module, resolved through the host so the form stays deploy-agnostic.
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	// -------------------------------------------------------------------------
+	// Minimal graphql-sse client, single connection mode — the protocol webtop's
+	// SubscriptionClient speaks, verified from a form iframe by the step-0 spike.
+	// One EventSource multiplexes every jobProgress subscription; on a dropped
+	// connection everything is re-established and re-posted after a short delay.
+	// -------------------------------------------------------------------------
+	class MiniSubscriptionClient {
+		constructor(endpoint) {
+			this.endpoint = endpoint;
+			this.ops = new Map();
+			this.seq = 0;
+			this.token = null;
+			this.es = null;
+			this.connecting = null;
+			this.retryTimer = null;
+			this.closed = false;
+		}
+
+		subscribe(query, handler) {
+			const id = String(++this.seq);
+			this.ops.set(id, { query, handler });
+			this._ensure().then((ok) => { if (ok && !this.closed) this._post(id); });
+		}
+
+		_ensure() {
+			if (this.closed) return Promise.resolve(false);
+			if (this.es && this.es.readyState === EventSource.OPEN && this.token) return Promise.resolve(true);
+			if (this.connecting) return this.connecting;
+			this.connecting = this._open().finally(() => { this.connecting = null; });
+			return this.connecting;
+		}
+
+		async _open() {
+			try {
+				const reservation = await fetch(this.endpoint, { method: 'PUT', credentials: 'include' });
+				if (!reservation.ok) throw new Error('reservation failed');
+				this.token = (await reservation.text()).trim();
+				if (!this.token) throw new Error('empty token');
+				return await new Promise((resolve) => {
+					const es = new EventSource(this.endpoint + '?token=' + encodeURIComponent(this.token), { withCredentials: true });
+					this.es = es;
+					let settled = false;
+					es.onopen = () => { if (!settled) { settled = true; resolve(true); } };
+					es.onerror = () => { if (!settled) { settled = true; resolve(false); } this._onError(); };
+					es.addEventListener('next', (event) => this._onNext(event));
+				});
+			} catch {
+				this._scheduleRetry();
+				return false;
+			}
+		}
+
+		async _post(id) {
+			const op = this.ops.get(id);
+			if (!op || !this.token) return;
+			try {
+				const response = await fetch(this.endpoint + '?token=' + encodeURIComponent(this.token), {
+					method: 'POST',
+					credentials: 'include',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ query: op.query, extensions: { operationId: id } }),
+				});
+				if (response.status === 404) this._onError(); // token gone — re-establish
+			} catch {
+				this._onError();
+			}
+		}
+
+		_onNext(event) {
+			try {
+				const message = JSON.parse(event.data);
+				const op = message && this.ops.get(message.id);
+				const data = message && message.payload && message.payload.data;
+				if (op && data && typeof data === 'object') {
+					const value = Object.values(data)[0];
+					if (value !== undefined && value !== null) op.handler(value);
+				}
+			} catch { /* ignore malformed frames */ }
+		}
+
+		_onError() {
+			if (this.closed) return;
+			try { if (this.es) this.es.close(); } catch { /* ignore */ }
+			this.es = null;
+			this.token = null;
+			this._scheduleRetry();
+		}
+
+		_scheduleRetry() {
+			if (this.closed || this.retryTimer) return;
+			this.retryTimer = setTimeout(async () => {
+				this.retryTimer = null;
+				if (await this._ensure()) {
+					for (const id of this.ops.keys()) this._post(id);
+				}
+			}, 5000);
+		}
+
+		close() {
+			this.closed = true;
+			if (this.retryTimer) clearTimeout(this.retryTimer);
+			try { if (this.es) this.es.close(); } catch { /* ignore */ }
+			this.es = null;
+		}
+	}
+
+	const PROGRESS_FIELDS = '{ jobId status itemsTotal itemsProcessed errorMessage phase timestamp }';
+
+	const App = {
+		data() {
+			return {
+				rebuildId: '',
+				jobs: {},               // nodeId -> jobId
+				rows: [],               // [{nodeId, hostName, alive, self, jobId, status, phase, itemsTotal, itemsProcessed, errorMessage}]
+				busy: false,
+				errorMessage: '',
+				i18nRevision: 0,
+			};
+		},
+		computed: {
+			allTerminal() {
+				const jobRows = this.rows.filter((r) => r.jobId);
+				return jobRows.length > 0 && jobRows.every((r) => TERMINAL.includes(r.status));
+			},
+			failedNodes() {
+				return this.rows
+						.filter((r) => r.jobId && (r.status === 'failed' || r.status === 'aborted'))
+						.map((r) => r.nodeId);
+			},
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			statusLabel(status) {
+				const s = status || 'queued';
+				return this.t('status.' + s, null, s);
+			},
+			phaseLabel(phase) {
+				return this.t('phase.' + phase, null, phase);
+			},
+			isTerminal(status) {
+				return TERMINAL.includes(status);
+			},
+			percent(row) {
+				if (row.status === 'completed') return 100;
+				const total = Number(row.itemsTotal || 0);
+				const processed = Number(row.itemsProcessed || 0);
+				if (total <= 0) return 0;
+				return Math.min(100, Math.floor((processed / total) * 100));
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			async onMounted() {
+				// Every exit below is a state worth showing, so the reveal sits
+				// in a finally: the rows, the wrong-context message, or the
+				// load error — but never the empty table in between.
+				try {
+					const ctx = host.context || {};
+					this.applyTheme(ctx.theme || host.theme);
+					this.applyLocalization(ctx.localization || host.localization);
+					this._unsubscribe = host.subscribe((type, payload) => {
+						if (type === 'theme') this.applyTheme(payload);
+						else if (type === 'localization') this.applyLocalization(payload);
+					});
+					if (ctx.mode !== 'task' || !ctx.task) {
+						this.errorMessage = this.t('progress.openFromTask', null, 'Open this form from the "Search Index Rebuild Progress" task.');
+						return;
+					}
+
+					try {
+						// The dispatch's output: rebuildId + the nodeId -> jobId map.
+						const variables = await host.getProcessVariables();
+						for (const v of variables || []) {
+							if (v.name === 'rebuildId') this.rebuildId = String(v.value || '');
+							if (v.name === 'jobIds' && v.value) {
+								try { this.jobs = JSON.parse(String(v.value)); } catch { this.jobs = {}; }
+							}
+						}
+						await this.buildRows();
+						this.watchJobs();
+					} catch (e) {
+						this.errorMessage = (e && e.message) || String(e);
+					}
+				} finally {
+					host.notifyReady();
+				}
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+				if (this._sse) this._sse.close();
+			},
+
+			// One row per cluster member (from the admin-only cluster query),
+			// merged with the dispatched jobs; a job whose node has meanwhile left
+			// the cluster still gets a row.
+			async buildRows() {
+				let members = [];
+				try {
+					const data = await host.graphql.query(
+							'query { cluster { enabled nodeId members { nodeId hostName alive self } } }');
+					const cluster = data && data.cluster;
+					if (cluster) {
+						members = cluster.members || [];
+						if (members.length === 0 && cluster.nodeId) {
+							// Standalone: a single implicit member.
+							members = [{ nodeId: cluster.nodeId, hostName: null, alive: true, self: true }];
+						}
+					}
+				} catch (e) {
+					// The cluster query needs administrative privileges; fall back to
+					// the dispatched jobs alone.
+				}
+
+				const rows = [];
+				const seen = new Set();
+				for (const member of members) {
+					rows.push({
+						nodeId: member.nodeId, hostName: member.hostName, alive: member.alive, self: member.self,
+						jobId: this.jobs[member.nodeId] || null,
+						status: null, phase: null, itemsTotal: 0, itemsProcessed: 0, errorMessage: '',
+					});
+					seen.add(member.nodeId);
+				}
+				for (const nodeId of Object.keys(this.jobs)) {
+					if (!seen.has(nodeId)) {
+						rows.push({
+							nodeId, hostName: null, alive: null, self: false,
+							jobId: this.jobs[nodeId],
+							status: null, phase: null, itemsTotal: 0, itemsProcessed: 0, errorMessage: '',
+						});
+					}
+				}
+				this.rows = rows;
+			},
+
+			watchJobs() {
+				// Snapshot first (renders even if the stream handshake is slow),
+				// then the live subscription; its first event is a snapshot too, so
+				// no update can fall between the two.
+				this._sse = new MiniSubscriptionClient('/bin/graphql.cgi/' + host.workspace + '/stream');
+				for (const row of this.rows) {
+					if (!row.jobId) continue;
+					host.graphql.query(
+							'query { jobProgress(jobId: "' + row.jobId + '") ' + PROGRESS_FIELDS + ' }')
+							.then((data) => { if (data && data.jobProgress) this.applyProgress(row.jobId, data.jobProgress); })
+							.catch(() => { /* the subscription still covers it */ });
+					this._sse.subscribe(
+							'subscription { jobProgress(jobId: "' + row.jobId + '") ' + PROGRESS_FIELDS + ' }',
+							(event) => this.applyProgress(row.jobId, event));
+				}
+			},
+
+			applyProgress(jobId, progress) {
+				const row = this.rows.find((r) => r.jobId === jobId);
+				if (!row || !progress) return;
+				row.status = progress.status || row.status;
+				row.phase = progress.phase || row.phase;
+				if (progress.itemsTotal != null) row.itemsTotal = progress.itemsTotal;
+				if (progress.itemsProcessed != null) row.itemsProcessed = progress.itemsProcessed;
+				row.errorMessage = progress.errorMessage || '';
+			},
+
+			async run(fn) {
+				this.busy = true;
+				this.errorMessage = '';
+				try { await fn(); }
+				catch (e) { this.errorMessage = (e && e.message) || String(e); }
+				finally { this.busy = false; }
+			},
+			onAbort(row) {
+				return this.run(async () => {
+					await host.graphql.mutation(
+							'mutation($input: AbortSearchIndexRebuildInput!) { abortSearchIndexRebuild(input: $input) { jobId status } }',
+							{ input: { jobId: row.jobId } });
+					if (!this.isTerminal(row.status)) row.status = 'aborting';
+				});
+			},
+			onRerun() {
+				return this.run(() => host.completeTask([
+					{ name: 'action', value: 'rerun' },
+					{ name: 'rerunScope', value: this.failedNodes.join(',') },
+				]));
+			},
+			onClose() {
+				return this.run(() => host.completeTask([{ name: 'action', value: 'close' }]));
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

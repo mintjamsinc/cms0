@@ -87,6 +87,11 @@ public class UnknownIdentifierResource implements Resource {
 	}
 
 	@Override
+	public boolean isRoot() throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public boolean isCollection() throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
@@ -152,6 +157,11 @@ public class UnknownIdentifierResource implements Resource {
 	}
 
 	@Override
+	public Resource removeProperty(String name) throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public String getContent() throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
@@ -177,7 +187,17 @@ public class UnknownIdentifierResource implements Resource {
 	}
 
 	@Override
+	public Resource setContentType(String contentType) throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public String getContentEncoding() throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Resource setContentEncoding(String contentEncoding) throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
 
@@ -197,12 +217,22 @@ public class UnknownIdentifierResource implements Resource {
 	}
 
 	@Override
+	public Resource setLastModified(Date lastModified) throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public String getCreatedBy() throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public String getLastModifiedBy() throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Resource setLastModifiedBy(String lastModifiedBy) throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
 
@@ -297,6 +327,11 @@ public class UnknownIdentifierResource implements Resource {
 	}
 
 	@Override
+	public Resource getOrCreateFolder() throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public Resource createFolder(String name) throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
@@ -313,6 +348,11 @@ public class UnknownIdentifierResource implements Resource {
 
 	@Override
 	public Resource createFile() throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Resource getOrCreateFile() throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
 
@@ -457,7 +497,7 @@ public class UnknownIdentifierResource implements Resource {
 	}
 
 	@Override
-	public Resource allowAnyProperties() throws ResourceException {
+	public Resource setProperty(String name, Object value) throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
 

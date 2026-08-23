@@ -1,3 +1,4 @@
+import { initUi } from "../../ui/index.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node, Property } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
@@ -331,6 +332,11 @@ function buildEditorExtensions(updateListener: any, languageExt: any, lineWrap: 
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			files: [] as TextFile[],
 			currentFileIndex: -1,
@@ -377,9 +383,6 @@ export const App = {
 			detailPanelWidth: 280,
 			detailPanelMinWidth: 200,
 			detailPanelMaxWidth: 500,
-			detailPanelResizing: false,
-			detailResizeStartX: 0,
-			detailResizeStartWidth: 0,
 			inspectorApi: null as any,
 			// Mirrors whether the Inspector currently has an overlay open, so
 			// the editor can suppress its own global keyboard shortcuts
@@ -403,9 +406,12 @@ export const App = {
 			searchRegex: false,
 			searchNotFound: false,
 			// Resize state
+			// True while the sidebar wt-splitter drag is in progress
+			// (drives #app.is-resizing).
 			sidebarResizing: false,
-			sidebarResizeStartX: 0,
-			sidebarResizeStartWidth: 0,
+			// Bumped (after the pane is in the DOM) to focus wt-find-replace's
+			// find input — Ctrl+F.
+			searchFocusSeq: 0,
 			// Checkout dialog state
 			checkoutDialog: {
 				visible: false,
@@ -428,6 +434,31 @@ export const App = {
 		};
 	},
 	computed: {
+		// Items for the wt-file-tabs strip.
+		fileTabItems(): { key: string; label: string; modified: boolean; title: string }[] {
+			return (this.files as TextFile[]).map((f: TextFile) => ({
+				key: f.id, label: f.name, modified: f.isModified, title: f.path || f.name,
+			}));
+		},
+
+		// I18n labels for wt-find-replace (computed so they re-resolve on
+		// locale change).
+		findReplaceLabels(): Record<string, string> {
+			return {
+				find: this.t('app.text-editor.find.find', undefined, 'Find'),
+				replace: this.t('app.text-editor.find.replace', undefined, 'Replace'),
+				findPlaceholder: this.t('app.text-editor.find.findPlaceholder', undefined, 'Find...'),
+				replacePlaceholder: this.t('app.text-editor.find.replacePlaceholder', undefined, 'Replace...'),
+				replaceAll: this.t('app.text-editor.find.replaceAll', undefined, 'All'),
+				clear: this.t('app.text-editor.find.clear', undefined, 'Clear'),
+				matchCase: this.t('app.text-editor.find.matchCase', undefined, 'Match case'),
+				wholeWord: this.t('app.text-editor.find.wholeWord', undefined, 'Whole word'),
+				regex: this.t('app.text-editor.find.regex', undefined, 'Regex'),
+				previous: this.t('app.text-editor.find.previous', undefined, 'Previous (Shift+Enter)'),
+				next: this.t('app.text-editor.find.next', undefined, 'Next (Enter)'),
+			};
+		},
+
 		isMarkdown(): boolean {
 			const name = this.currentFile.name || '';
 			const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -492,18 +523,13 @@ export const App = {
 		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
 			return translate(this.localization, this.instance, messageId, params, fallback);
 		},
-		async onMounted() {
+		// Synchronous on purpose: window.appLaunch must be defined by the time
+		// this returns, so the shell finds it on the first try instead of
+		// polling for it (see wt-window.ts `appLaunch not found after waiting`).
+		// Everything that needs a fetch — the wt-* templates, the inspector
+		// template — is awaited inside appLaunch(), ahead of the readiness gate.
+		onMounted() {
 			const vm = this;
-
-			// Inject the wt-inspector <template> into <body> so the custom
-			// element can resolve `template: '#wt-inspector'` once it is mounted
-			// via the v-if guard. Must run before any state path can flip
-			// detailPanelVisible to true.
-			try {
-				await loadInspectorTemplate();
-			} catch (e) {
-				console.warn('[TextEditor] Failed to load wt-inspector template:', e);
-			}
 
 			// Save As response channel
 			saveAsChannelRef = new BroadcastChannel('webtop-save-as');
@@ -590,6 +616,25 @@ export const App = {
 
 				// snapshot the effective Localization preference
 				refreshLocalization(vm.localization, vm.instance);
+
+				// --- Readiness gate ---
+				// Load every component template BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The inspector template is
+				// loaded here too: <wt-inspector> sits behind detailPanelVisible,
+				// which loadDetailPanelState() below may set.
+				try {
+					await Promise.all([initUi(), loadInspectorTemplate()]);
+				} catch (e) {
+					console.warn('[TextEditor] Failed to load component templates:', e);
+				}
+
+				// Opening the gate builds the screen. Wait for that DOM before
+				// initEditor() looks for its container ($refs.editorContainer
+				// lives inside the gate, and initEditor bails out silently when
+				// it is missing).
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 
 				await vm.loadDetailPanelState();
 				await vm.loadLineWrapState();
@@ -715,31 +760,6 @@ export const App = {
 		toggleDetailPanel() {
 			this.detailPanelVisible = !this.detailPanelVisible;
 			this.persistDetailPanelState();
-		},
-		onDetailResizeStart(event: MouseEvent) {
-			const vm = this;
-			event.preventDefault();
-			vm.detailPanelResizing = true;
-			vm.detailResizeStartX = event.clientX;
-			vm.detailResizeStartWidth = vm.detailPanelWidth;
-			const onMove = (e: MouseEvent) => {
-				if (!vm.detailPanelResizing) return;
-				// The Inspector sits on the right, so dragging the handle left
-				// (decreasing clientX) widens the panel.
-				const delta = vm.detailResizeStartX - e.clientX;
-				vm.detailPanelWidth = Math.max(
-					vm.detailPanelMinWidth,
-					Math.min(vm.detailPanelMaxWidth, vm.detailResizeStartWidth + delta),
-				);
-			};
-			const onUp = () => {
-				vm.detailPanelResizing = false;
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-				vm.persistDetailPanelState();
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
 		},
 		async persistDetailPanelState() {
 			const vm = this;
@@ -958,13 +978,9 @@ export const App = {
 				}
 			}
 			vm.sidebarPanelVisible = true;
-			vm.$nextTick(() => {
-				const input = vm.$refs.findInput as HTMLInputElement | undefined;
-				if (input) {
-					input.focus();
-					input.select();
-				}
-			});
+			// Bump AFTER the pane exists so the component's focus-seq watcher
+			// sees a change (a fresh component would miss a same-tick bump).
+			vm.$nextTick(() => { vm.searchFocusSeq++; });
 		},
 		// Toggle the companion Preview window. The text-editor keeps at most
 		// one preview window open (per editor instance) — re-clicking the
@@ -976,26 +992,6 @@ export const App = {
 			} else {
 				vm.openPreviewWindow();
 			}
-		},
-		// ---- Sidebar resize ----
-		onSidebarResizeStart(event: MouseEvent) {
-			const vm = this;
-			event.preventDefault();
-			vm.sidebarResizing = true;
-			vm.sidebarResizeStartX = event.clientX;
-			vm.sidebarResizeStartWidth = vm.sidebarPanelWidth;
-			const onMove = (e: MouseEvent) => {
-				if (!vm.sidebarResizing) return;
-				const delta = e.clientX - vm.sidebarResizeStartX;
-				vm.sidebarPanelWidth = Math.max(180, Math.min(600, vm.sidebarResizeStartWidth + delta));
-			};
-			const onUp = () => {
-				vm.sidebarResizing = false;
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
 		},
 		// ---- Editor lifecycle ----
 		createUpdateListener() {
@@ -1529,25 +1525,10 @@ export const App = {
 			});
 			vm.editor.dispatch({ effects: setSearchQuery.of(query) });
 		},
+		// wt-find-replace 'change': the models (term / options) are already
+		// updated when this fires — re-run the query.
 		onSearchTermInput() {
 			this.searchNotFound = false;
-			this.applySearchQuery();
-		},
-		clearSearchTerm() {
-			this.searchTerm = '';
-			this.searchNotFound = false;
-			this.applySearchQuery();
-		},
-		toggleSearchCaseSensitive() {
-			this.searchCaseSensitive = !this.searchCaseSensitive;
-			this.applySearchQuery();
-		},
-		toggleSearchWholeWord() {
-			this.searchWholeWord = !this.searchWholeWord;
-			this.applySearchQuery();
-		},
-		toggleSearchRegex() {
-			this.searchRegex = !this.searchRegex;
 			this.applySearchQuery();
 		},
 		findNextMatch() {
@@ -1584,24 +1565,6 @@ export const App = {
 			if (!vm.editor || !vm.searchTerm) return;
 			vm.applySearchQuery();
 			vm.searchNotFound = !replaceAll(vm.editor);
-		},
-		onSearchTermKeydown(event: KeyboardEvent) {
-			if (event.key === 'Enter') {
-				event.preventDefault();
-				if (event.shiftKey) this.findPrev(); else this.findNextMatch();
-			} else if (event.key === 'Escape') {
-				event.preventDefault();
-				if (this.editor) this.editor.focus();
-			}
-		},
-		onReplaceTermKeydown(event: KeyboardEvent) {
-			if (event.key === 'Enter') {
-				event.preventDefault();
-				if (event.ctrlKey || event.metaKey) this.replaceAllInDoc(); else this.replaceCurrent();
-			} else if (event.key === 'Escape') {
-				event.preventDefault();
-				if (this.editor) this.editor.focus();
-			}
 		},
 		// ---- Companion Preview window ----
 		// Rendering itself lives in the text-editor-preview app. The editor
@@ -1865,5 +1828,10 @@ export const App = {
 	},
 };
 
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

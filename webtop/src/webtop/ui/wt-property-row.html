@@ -1,0 +1,18 @@
+<template id="wt-property-row">
+	<div class="wt-property-row" :class="{muted: muted}">
+		<div class="wt-property-row-header">
+			<span class="wt-property-row-name">{{ name }}</span>
+			<span class="wt-property-row-badges">
+				<wt-badge v-for="b of badges" :key="b.label" :variant="b.variant || 'neutral'">{{ b.label }}</wt-badge>
+			</span>
+		</div>
+		<div v-if="readonly" class="wt-property-row-value">
+			<slot name="value" :name="name" :value="modelValue">{{ displayValue }}</slot>
+		</div>
+		<div v-if="!readonly" class="wt-property-row-editor">
+			<slot name="editor" :name="name" :value="modelValue">
+				<input class="wt w-100" :value="displayValue" @input="$emit('update:modelValue', $event.target.value)">
+			</slot>
+		</div>
+	</div>
+</template>

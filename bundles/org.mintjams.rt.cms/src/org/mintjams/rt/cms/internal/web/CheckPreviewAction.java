@@ -51,7 +51,7 @@ public class CheckPreviewAction implements Action {
 		}
 
 		try {
-			if (ctx.getRepositorySession().isAnonymous()) {
+			if (ctx.getSession().isAnonymous()) {
 				Webs.getResponse(context).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 				return;
 			}

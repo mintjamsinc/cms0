@@ -137,6 +137,7 @@ public class CmsService {
 	private final Map<String, WorkspaceGraphQLEngineProvider> fWorkspaceGraphQLEngineProviders = new HashMap<>();
 	private final Map<String, WorkspaceWebServletProvider> fWorkspaceServletProviders = new HashMap<>();
 	private final Map<String, WorkspaceCmsEventManager> fWorkspaceCmsEventManagers = new HashMap<>();
+	private final Map<String, org.mintjams.rt.cms.internal.searchindex.SearchIndexRebuildService> fWorkspaceSearchIndexRebuildServices = new HashMap<>();
 	/**
 	 * The last service-start failure per workspace, keyed by name. A workspace
 	 * whose start threw is neither online (no servlet provider) nor merely
@@ -487,6 +488,7 @@ public class CmsService {
 		fWorkspaceStartErrors.remove(workspaceName);
 		fStoppedWorkspaces.add(workspaceName);
 		WorkspaceUserHomes.invalidateWorkspace(workspaceName);
+		closeWorkspaceService(fWorkspaceSearchIndexRebuildServices.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceCmsEventManagers.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceServletProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceGraphQLEngineProviders.remove(workspaceName));
@@ -651,6 +653,14 @@ public class CmsService {
 		WorkspaceCmsEventManager cmsEventManager = fCloser.register(new WorkspaceCmsEventManager(workspaceName));
 		fWorkspaceCmsEventManagers.put(workspaceName, cmsEventManager);
 		cmsEventManager.open();
+
+		// Picks up the search index rebuild jobs addressed to this node —
+		// dispatched while it runs (node events) or while it was down (its
+		// startup scan) — and re-queues its own restart casualties.
+		org.mintjams.rt.cms.internal.searchindex.SearchIndexRebuildService searchIndexRebuildService = fCloser
+				.register(new org.mintjams.rt.cms.internal.searchindex.SearchIndexRebuildService(workspaceName));
+		fWorkspaceSearchIndexRebuildServices.put(workspaceName, searchIndexRebuildService);
+		searchIndexRebuildService.open();
 	}
 
 	/**
@@ -702,8 +712,7 @@ public class CmsService {
 						JobNodes.setStatus(content, JobStatus.ABORTED);
 					} else {
 						JobNodes.setStatus(content, JobStatus.FAILED);
-						content.setProperty(JobNodes.PROP_ERROR_MESSAGE,
-								"The node restarted before the job finished.");
+						content.setProperty(JobNodes.PROP_ERROR_MESSAGE, JobNodes.RESTART_ERROR_MESSAGE);
 					}
 					content.setProperty(JobNodes.PROP_FINISHED_AT, Calendar.getInstance());
 					recovered++;

@@ -34,6 +34,7 @@ import javax.script.ScriptEngineFactory;
 import javax.script.ScriptEngineManager;
 
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.script.ISO8601;
 import org.mintjams.script.JSON;
 import org.mintjams.script.LoggerAPI;
 import org.mintjams.script.MimeTypeAPI;
@@ -43,12 +44,10 @@ import org.mintjams.script.bpm.ProcessAPI;
 import org.mintjams.script.eip.IntegrationAPI;
 import org.mintjams.script.event.EventAdminAPI;
 import org.mintjams.script.metadata.MetadataAPI;
-import org.mintjams.script.resource.ResourceException;
 import org.mintjams.script.resource.SessionAPI;
 import org.mintjams.script.resource.query.XPath;
 import org.mintjams.script.web.WebAPI;
 import org.mintjams.tools.adapter.Adaptables;
-import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.util.ActionContext;
 
 public class Scripts {
@@ -103,6 +102,7 @@ public class Scripts {
 		ClusterAPI cluster = new ClusterAPI(ctx);
 		ctx.setAttribute("cluster", cluster);
 		ctx.setAttribute(ClusterAPI.class.getSimpleName(), cluster);
+		ctx.setAttribute(SearchIndexAPI.class.getSimpleName(), new SearchIndexAPI(ctx));
 		if (ctx.getAttribute("request") != null) {
 			ctx.setAttribute(WebAPI.class.getSimpleName(), new WebAPI(ctx));
 		}
@@ -112,12 +112,8 @@ public class Scripts {
 		ctx.setAttribute(XPath.class.getSimpleName(), new XPath(ctx));
 		ctx.setAttribute(JSON.class.getSimpleName(), new JSON(ctx));
 		ctx.setAttribute(YAML.class.getSimpleName(), new YAML(ctx));
+		ctx.setAttribute(ISO8601.class.getSimpleName(), new ISO8601(ctx));
 		ctx.setAttribute(MetadataAPI.class.getSimpleName(), new MetadataAPI(ctx));
-		try {
-			ctx.setAttribute("repositorySession", ctx.getResourceResolver().getSession());
-		} catch (ResourceException ex) {
-			throw Cause.create(ex).wrap(IOException.class);
-		}
 	}
 
 	public static Session getJcrSession(ActionContext context) throws RepositoryException {

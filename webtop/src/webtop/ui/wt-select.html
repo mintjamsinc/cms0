@@ -1,0 +1,15 @@
+<template id="wt-select">
+	<div class="wt-select" :class="{open: open, disabled: disabled}" @click.outside="close" @keydown.escape="close">
+		<button type="button" class="wt-select-trigger" :disabled="disabled" @click.stop="toggle($event)">
+			<span class="wt-select-value" :class="{placeholder: !selectedItem}">{{ displayLabel }}</span>
+			<i class="bi bi-chevron-down wt-select-chevron"></i>
+		</button>
+		<div v-if="open" class="wt-select-menu">
+			<button v-for="opt of items" :key="opt.value" type="button" class="wt-select-item"
+				:class="{selected: opt.value === modelValue}" :disabled="opt.disabled"
+				@click.stop="select(opt)">
+				<slot name="option" :option="opt" :selected="opt.value === modelValue">{{ opt.label }}</slot>
+			</button>
+		</div>
+	</div>
+</template>

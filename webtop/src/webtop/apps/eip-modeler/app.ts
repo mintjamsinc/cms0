@@ -1,3 +1,5 @@
+import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { VDOM } from '@mintjamsinc/ichigojs';
@@ -31,23 +33,13 @@ import {
 	selectOptimalPorts, createSmartPath, getConnectionLabelPosition,
 	getShortLabel as eipGetShortLabel,
 } from '../../lib/camel/engine.js';
+import { escapeXml, storeToXml } from '../../lib/camel/serializer.js';
 
 // =============================================================================
 // Type Definitions
 // =============================================================================
 
 
-/**
- * Escape special characters for XML content
- */
-function escapeXml(str: string): string {
-	return str
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&apos;');
-}
 
 /**
  * File management interface (tab management)
@@ -99,18 +91,19 @@ interface ChoiceOption {
 	labelKey?: string;
 }
 
-// Sentinel for the implicit "(none)" / placeholder choice in popups.
-const EMPTY_CHOICE_ID = '__empty__';
-
 // -- Static option lists for property-panel dropdowns ----------------------
 const FLOW_CONDITION_TYPE_OPTIONS: ChoiceOption[] = [
 	{ id: 'when',      label: 'When (Condition)', labelKey: 'app.eip-modeler.option.flowConditionType.when' },
 	{ id: 'otherwise', label: 'Otherwise', labelKey: 'app.eip-modeler.option.flowConditionType.otherwise' },
 ];
+// JEXL is here for the predicate that Simple cannot write: it has parenthesis
+// grouping, and it reads a header whose name contains a colon. Both come up in
+// every route that branches on more than one commerce:* field.
 const FLOW_LANGUAGE_OPTIONS: ChoiceOption[] = [
 	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.flowLanguage.simple' },
 	{ id: 'xpath',    label: 'XPath', labelKey: 'app.eip-modeler.option.flowLanguage.xpath' },
 	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.flowLanguage.jsonpath' },
+	{ id: 'jexl',     label: 'JEXL', labelKey: 'app.eip-modeler.option.flowLanguage.jexl' },
 ];
 const FLOW_ROLE_OPTIONS: ChoiceOption[] = [
 	{ id: 'try',     label: 'Try (Main Flow)', labelKey: 'app.eip-modeler.option.flowRole.try' },
@@ -129,37 +122,43 @@ const SET_HEADER_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
 	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.setHeaderExpressionType.simple' },
 	{ id: 'constant', label: 'Constant', labelKey: 'app.eip-modeler.option.setHeaderExpressionType.constant' },
 	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.setHeaderExpressionType.jsonpath' },
+	{ id: 'jexl',     label: 'JEXL', labelKey: 'app.eip-modeler.option.setHeaderExpressionType.jexl' },
 ];
 const FILTER_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
 	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.filterExpressionType.simple' },
 	{ id: 'xpath',    label: 'XPath', labelKey: 'app.eip-modeler.option.filterExpressionType.xpath' },
 	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.filterExpressionType.jsonpath' },
+	{ id: 'jexl',     label: 'JEXL', labelKey: 'app.eip-modeler.option.filterExpressionType.jexl' },
 ];
 const SPLIT_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
 	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.splitExpressionType.simple' },
 	{ id: 'xpath',    label: 'XPath', labelKey: 'app.eip-modeler.option.splitExpressionType.xpath' },
 	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.splitExpressionType.jsonpath' },
 	{ id: 'tokenize', label: 'Tokenize', labelKey: 'app.eip-modeler.option.splitExpressionType.tokenize' },
+	{ id: 'jexl',     label: 'JEXL', labelKey: 'app.eip-modeler.option.splitExpressionType.jexl' },
 ];
 const TRANSFORM_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
 	{ id: 'simple',   label: 'Simple', labelKey: 'app.eip-modeler.option.transformExpressionType.simple' },
 	{ id: 'xpath',    label: 'XPath', labelKey: 'app.eip-modeler.option.transformExpressionType.xpath' },
 	{ id: 'jsonpath', label: 'JSONPath', labelKey: 'app.eip-modeler.option.transformExpressionType.jsonpath' },
-	{ id: 'groovy',   label: 'Groovy', labelKey: 'app.eip-modeler.option.transformExpressionType.groovy' },
+	{ id: 'jexl',     label: 'JEXL', labelKey: 'app.eip-modeler.option.transformExpressionType.jexl' },
 ];
-const DATA_FORMAT_OPTIONS: ChoiceOption[] = [
-	{ id: 'json',     label: 'JSON', labelKey: 'app.eip-modeler.option.dataFormat.json' },
-	{ id: 'xml',      label: 'XML (JAXB)', labelKey: 'app.eip-modeler.option.dataFormat.xml' },
-	{ id: 'csv',      label: 'CSV', labelKey: 'app.eip-modeler.option.dataFormat.csv' },
-	{ id: 'yaml',     label: 'YAML', labelKey: 'app.eip-modeler.option.dataFormat.yaml' },
-	{ id: 'avro',     label: 'Avro', labelKey: 'app.eip-modeler.option.dataFormat.avro' },
-	{ id: 'protobuf', label: 'Protobuf', labelKey: 'app.eip-modeler.option.dataFormat.protobuf' },
-];
-const JSON_LIBRARY_OPTIONS: ChoiceOption[] = [
-	{ id: 'jackson', label: 'Jackson', labelKey: 'app.eip-modeler.option.jsonLibrary.jackson' },
-	{ id: 'gson',    label: 'Gson', labelKey: 'app.eip-modeler.option.jsonLibrary.gson' },
-	{ id: 'jsonb',   label: 'JSON-B', labelKey: 'app.eip-modeler.option.jsonLibrary.jsonb' },
-];
+// There is no data-format palette here, and that is not an omission.
+//
+// This deployment loads no Camel data format at all: the jars ship 22
+// components and 14 languages and zero entries under
+// META-INF/services/org/apache/camel/dataformat, so `json`, `xml`, `csv`,
+// `yaml`, `avro` and `protobuf` alike fail at route startup with nothing to
+// suggest the palette was the problem. Offering all six was the defect - a
+// choice of six formats reads as six that work.
+//
+// `scripts/check-dataformats.py` says this rather than this comment: it reads
+// what the jars declare and refuses a palette entry the deployment cannot load,
+// so restoring one means deploying it first.
+//
+// <marshal> and <unmarshal> are still parsed and still written back. Nothing
+// can create one, but one that exists in a file is not deleted by opening it -
+// that failure is the one the round-trip corpus exists to prevent.
 
 /**
  * Launch options for the application
@@ -198,40 +197,39 @@ function getDefaultProperties(type: EipType): Record<string, any> {
 		removeHeader: { name: '' },
 		removeHeaders: { pattern: '' },
 		transform: { expressionType: 'simple', expression: '' },
-		marshal: { dataFormat: 'json', library: 'jackson', prettyPrint: false, unmarshalType: '' },
-		unmarshal: { dataFormat: 'json', library: 'jackson', unmarshalType: '' },
 		convertBodyTo: { type: '' },
 		choice: { when: [{ expressionType: 'simple', expression: '', steps: [] }], otherwise: undefined },
 		filter: { expressionType: 'simple', expression: '' },
+		// The boolean attributes are absent rather than false. An attribute that
+		// is not there and one written out as "false" are different things now -
+		// the second is a decision somebody made - so a node nobody has touched
+		// must not arrive already claiming to have made four of them.
 		split: {
 			expressionType: 'simple',
 			expression: '${body}',
-			streaming: false,
-			parallelProcessing: false,
-			aggregationStrategy: '',
-			stopOnException: false,
-			shareUnitOfWork: false
+			aggregationStrategy: ''
 		},
 		aggregate: {
 			correlationExpression: '${header.CamelFileName}',
 			completionSize: 10,
 			completionTimeout: 5000,
-			aggregationStrategy: '',
-			eagerCheckCompletion: false,
-			completionFromBatchConsumer: false
+			aggregationStrategy: ''
 		},
-		multicast: { parallelProcessing: false, aggregationStrategy: '', stopOnException: false },
-		recipientList: { simple: '', parallelProcessing: false, stopOnException: false },
+		multicast: { aggregationStrategy: '' },
+		recipientList: { simple: '' },
 		routingSlip: { simple: '' },
 		dynamicRouter: { simple: '' },
 		loadBalance: { roundRobin: true },
-		loop: { simple: '3', doWhile: false, copy: false },
+		loop: { simple: '3' },
 		onException: { exceptions: ['java.lang.Exception'], handled: true, maximumRedeliveries: 0, redeliveryDelay: '1000', routeConfigurationId: '' },
+		// parallelProcessing stays false: a backstop that closes a JCR session has
+		// to run on the thread that opened it.
+		onCompletion: { parallelProcessing: 'false' },
 		doTry: { doCatch: [{ exceptions: ['java.lang.Exception'] }], doFinally: undefined },
 		doCatch: { exceptions: ['java.lang.Exception'] },
 		doFinally: {},
-		delay: { constant: '1000', asyncDelayed: false },
-		throttle: { constant: '10', timePeriodMillis: '1000', asyncDelayed: false, rejectExecution: false },
+		delay: { constant: '1000' },
+		throttle: { constant: '10', timePeriodMillis: '1000' },
 		stop: {},
 		process: { ref: '' },
 		bean: { ref: '', method: '', beanType: '' },
@@ -254,697 +252,6 @@ function getDefaultProperties(type: EipType): Record<string, any> {
 // XML Serialization
 // =============================================================================
 
-/**
- * Convert store to Camel XML DSL string
- */
-function storeToXml(store: CamelModelStore): string {
-	const lines: string[] = [];
-	const processors = store.getAllProcessors();
-
-	lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-	// camel-app DSL root: unlike <routes> (RoutesDefinition), <camel> (BeansDefinition)
-	// can contain both <route> and <routeConfiguration>, so route configurations survive.
-	lines.push('<camel>');
-
-	// 1. Group onException nodes by routeConfigurationId
-	const onExceptionNodes = processors.filter(p => p.type === 'onException');
-	const grouped = new Map<string, CamelProcessorSemantic[]>();
-	for (const ex of onExceptionNodes) {
-		const configId = ex.properties.routeConfigurationId || '';
-		if (!grouped.has(configId)) grouped.set(configId, []);
-		grouped.get(configId)!.push(ex);
-	}
-
-	// 1a. Output routeConfiguration blocks (nodes with a configId)
-	grouped.forEach((exNodes, configId) => {
-		if (!configId) return;
-		lines.push(`  <routeConfiguration id="${escapeXml(configId)}">`);
-		for (const exNode of exNodes) {
-			onExceptionToXmlLines(lines, exNode, store, 4);
-		}
-		lines.push('  </routeConfiguration>');
-	});
-
-	// 1b. Output standalone onException nodes (no configId)
-	const standaloneExNodes = grouped.get('') || [];
-	for (const exNode of standaloneExNodes) {
-		onExceptionToXmlLines(lines, exNode, store, 2);
-	}
-
-	// 2. Then output routes (from nodes)
-	const fromNodes = processors.filter(p => p.type === 'from');
-
-	for (const fromNode of fromNodes) {
-		const routeId = fromNode.properties.routeId || `route-${fromNode.id.substring(0, 8)}`;
-		const routeAttrs = [`id="${escapeXml(routeId)}"`];
-		if (fromNode.properties.routeConfigurationId) {
-			routeAttrs.push(`routeConfigurationId="${escapeXml(fromNode.properties.routeConfigurationId)}"`);
-		}
-		lines.push(`  <route ${routeAttrs.join(' ')}>`);
-
-		// From
-		const fromUri = fromNode.properties.uri || 'direct:start';
-		const params = fromNode.properties.parameters;
-		if (params && Object.keys(params).length > 0) {
-			// Build URI with query parameters
-			const queryParts = Object.entries(params).map(([k, v]) => `${k}=${v}`);
-			lines.push(`    <from uri="${escapeXml(fromUri + '?' + queryParts.join('&amp;'))}"/>`);
-		} else {
-			lines.push(`    <from uri="${escapeXml(fromUri)}"/>`);
-		}
-
-		// Find connected steps and output as child elements
-		const connectedSteps = getConnectedSteps(store, fromNode.id);
-		const visitedIds = new Set<string>();
-		for (const step of connectedSteps) {
-			const stepXml = processorToXml(step, 4, store, visitedIds);
-			lines.push(...stepXml);
-		}
-
-		lines.push('  </route>');
-	}
-
-	lines.push('</camel>');
-	return lines.join('\n');
-}
-
-/**
- * Output onException XML lines.
- */
-function onExceptionToXmlLines(
-	lines: string[],
-	exNode: CamelProcessorSemantic,
-	store: CamelModelStore,
-	baseIndent: number
-): void {
-	const pad = ' '.repeat(baseIndent);
-	lines.push(`${pad}<onException>`);
-
-	const exList = exNode.properties.exceptions || ['java.lang.Exception'];
-	for (const ex of exList) {
-		lines.push(`${pad}  <exception>${escapeXml(ex)}</exception>`);
-	}
-
-	// Output handled property
-	if (exNode.properties.handled !== undefined) {
-		lines.push(`${pad}  <handled>`);
-		lines.push(`${pad}    <constant>${exNode.properties.handled}</constant>`);
-		lines.push(`${pad}  </handled>`);
-	}
-
-	// Output redelivery policy
-	const maxRedel = exNode.properties.maximumRedeliveries;
-	const redelDelay = exNode.properties.redeliveryDelay;
-	const hasRedelivery = (maxRedel !== undefined && maxRedel > 0) || (redelDelay !== undefined && redelDelay !== '0');
-
-	if (hasRedelivery) {
-		const attrs: string[] = [];
-		if (maxRedel !== undefined && maxRedel > 0) {
-			attrs.push(`maximumRedeliveries="${maxRedel}"`);
-		}
-		if (redelDelay !== undefined && redelDelay !== '0') {
-			attrs.push(`redeliveryDelay="${redelDelay}"`);
-		}
-		lines.push(`${pad}  <redeliveryPolicy ${attrs.join(' ')}/>`);
-	}
-
-	// Get connected steps for exception handling flow
-	const connectedSteps = getConnectedSteps(store, exNode.id);
-	const visitedIds = new Set<string>();
-	for (const step of connectedSteps) {
-		const stepXml = processorToXml(step, baseIndent + 2, store, visitedIds);
-		lines.push(...stepXml);
-	}
-
-	lines.push(`${pad}</onException>`);
-}
-
-/**
- * Find the merge node that follows a branching node (Choice, Split, DoTry)
- * by tracing all branches and finding a common merge point
- */
-function findMergeNodeForBranching(store: CamelModelStore, branchingId: string): string | null {
-	const flows = store.getAllFlows();
-	// Get all outgoing flows from the branching node
-	const outgoing = flows.filter(f => f.sourceRef === branchingId);
-
-	if (outgoing.length === 0) return null;
-
-	// Trace each branch to find merge nodes
-	for (const flow of outgoing) {
-		let curr = flow.targetRef;
-		const visited = new Set<string>();
-
-		while (!visited.has(curr)) {
-			visited.add(curr);
-			const node = store.getProcessor(curr);
-			if (!node) break;
-
-			// Found a merge node
-			if (node.type === 'merge') {
-				return node.id;
-			}
-
-			// Stop at other branching nodes (nested)
-			if (['choice', 'split', 'doTry', 'filter'].includes(node.type)) {
-				// Try to find merge after this nested branching
-				const nestedMerge = findMergeNodeForBranching(store, curr);
-				if (nestedMerge) {
-					curr = nestedMerge;
-					continue;
-				}
-				break;
-			}
-
-			// Follow to next node
-			const nextFlow = flows.find(f => f.sourceRef === curr);
-			if (!nextFlow) break;
-			curr = nextFlow.targetRef;
-		}
-	}
-	return null;
-}
-
-/**
- * Get steps connected to a source processor (following flows)
- * Handles merge nodes for branching constructs (Choice, Split, DoTry)
- * @param store The model store
- * @param sourceId Starting processor ID
- * @param stopAtMerge If true, stop traversal when hitting a Merge node (used within branches)
- */
-function getConnectedSteps(store: CamelModelStore, sourceId: string, stopAtMerge: boolean = false): CamelProcessorSemantic[] {
-	const result: CamelProcessorSemantic[] = [];
-	const flows = store.getAllFlows();
-	const visited = new Set<string>();
-	visited.add(sourceId);
-
-	let currentId = sourceId;
-	while (true) {
-		// Get current processor to check if it's a branching node
-		const currentProc = store.getProcessor(currentId);
-
-		// Stop traversal at branching nodes (Choice, Split, DoTry, Multicast) - their content is handled recursively
-		// But only if we're not at the starting node (to allow recursive calls to continue)
-		if (currentProc && ['choice', 'split', 'doTry', 'multicast', 'filter'].includes(currentProc.type)) {
-			if (currentId !== sourceId) {
-				// Add the branching node to result
-				result.push(currentProc);
-
-				// Look for a merge node that follows this branching node
-				const mergeNodeId = findMergeNodeForBranching(store, currentId);
-				if (mergeNodeId) {
-					// If stopAtMerge is true, don't continue past the merge
-					if (stopAtMerge) {
-						break;
-					}
-					// Skip to the merge node and continue from there
-					visited.add(mergeNodeId);
-					currentId = mergeNodeId;
-					// Don't add merge node to result (it's visual-only)
-					continue;
-				}
-				// No merge found, stop here
-				break;
-			}
-		}
-
-		// If we're at a merge node (from the starting point being a merge), skip it
-		if (currentProc && currentProc.type === 'merge' && currentId === sourceId) {
-			if (stopAtMerge) {
-				break;
-			}
-			const outgoing = flows.find(f => f.sourceRef === currentId && !visited.has(f.targetRef));
-			if (outgoing) {
-				visited.add(outgoing.targetRef);
-				currentId = outgoing.targetRef;
-				continue;
-			}
-			break;
-		}
-
-		// Find next node in the chain
-		const outgoing = flows.find(f => f.sourceRef === currentId && !visited.has(f.targetRef));
-		if (!outgoing) break;
-
-		visited.add(outgoing.targetRef);
-		const target = store.getProcessor(outgoing.targetRef);
-
-		if (target) {
-			// If we hit a merge node during normal traversal
-			if (target.type === 'merge') {
-				// If stopAtMerge is true, stop here (within branch context)
-				if (stopAtMerge) {
-					break;
-				}
-				// Otherwise skip it (don't add to result) but continue traversal from its output
-				currentId = outgoing.targetRef;
-				continue;
-			}
-
-			result.push(target);
-
-			// If we just added a branching node, look for its merge point
-			if (['choice', 'split', 'doTry', 'multicast', 'filter'].includes(target.type)) {
-				// If stopAtMerge is true, stop after adding the branching node
-				// (its internal steps will be handled by processorToXml recursively)
-				if (stopAtMerge) {
-					break;
-				}
-				const mergeNodeId = findMergeNodeForBranching(store, target.id);
-				if (mergeNodeId) {
-					visited.add(mergeNodeId);
-					currentId = mergeNodeId;
-					continue;
-				}
-				break;
-			}
-
-			currentId = outgoing.targetRef;
-		} else {
-			break;
-		}
-	}
-
-	return result;
-}
-
-/**
- * Helper to gather branch steps safely, handling nested container nodes
- * If the start node is itself a container (Choice/Split), treat it as a single block
- * and then jump to its merge node to find subsequent steps in this branch.
- */
-function getBranchSteps(store: CamelModelStore, startNodeRef: string): CamelProcessorSemantic[] {
-	const targetProc = store.getProcessor(startNodeRef);
-	if (!targetProc) return [];
-
-	// If the start node is ITSELF a container (Choice/Split/Multicast), we must treat it as a single block
-	// and then jump to its merge node to find subsequent steps in this branch.
-	if (['choice', 'split', 'doTry', 'multicast', 'filter'].includes(targetProc.type)) {
-		const mergeId = findMergeNodeForBranching(store, targetProc.id);
-		const subsequentSteps = mergeId ? getConnectedSteps(store, mergeId, true) : [];
-		return [targetProc, ...subsequentSteps];
-	} else {
-		// Regular node start
-		return [targetProc, ...getConnectedSteps(store, startNodeRef, true)];
-	}
-}
-
-/**
- * Convert a processor to XML DSL lines
- * @param proc The processor to convert
- * @param indent Indentation level (in spaces)
- * @param store The model store (needed for Choice branches)
- * @param visitedIds Set of already visited processor IDs (to prevent infinite loops)
- */
-function processorToXml(
-	proc: CamelProcessorSemantic,
-	indent: number,
-	store: CamelModelStore,
-	visitedIds: Set<string> = new Set()
-): string[] {
-	const lines: string[] = [];
-	const pad = ' '.repeat(indent);
-	const props = proc.properties;
-
-	// Prevent infinite loops
-	if (visitedIds.has(proc.id)) return lines;
-	visitedIds.add(proc.id);
-
-	// User-authored Camel `id` attribute (round-tripped from XML / set via UI).
-	// Empty string is treated as "no id" so the attribute is omitted.
-	const idAttr = props.id ? ` id="${escapeXml(String(props.id))}"` : '';
-
-	switch (proc.type) {
-		case 'to':
-		case 'toD': {
-			const tagName = proc.type;
-			const uri = props.uri || '';
-			const params = props.parameters;
-			if (params && Object.keys(params).length > 0) {
-				const queryParts = Object.entries(params).map(([k, v]) => `${k}=${v}`);
-				lines.push(`${pad}<${tagName}${idAttr} uri="${escapeXml(uri + '?' + queryParts.join('&amp;'))}"/>`);
-			} else {
-				lines.push(`${pad}<${tagName}${idAttr} uri="${escapeXml(uri)}"/>`);
-			}
-			break;
-		}
-
-		case 'log': {
-			const attrs = [`message="${escapeXml(props.message || '')}"`];
-			if (props.loggingLevel && props.loggingLevel !== 'INFO') {
-				attrs.push(`loggingLevel="${escapeXml(props.loggingLevel)}"`);
-			}
-			if (props.loggerName) {
-				attrs.push(`loggerName="${escapeXml(props.loggerName)}"`);
-			}
-			lines.push(`${pad}<log${idAttr} ${attrs.join(' ')}/>`);
-			break;
-		}
-
-		case 'setBody':
-			lines.push(`${pad}<setBody${idAttr}>`);
-			if (props.simple) {
-				lines.push(`${pad}  <simple>${escapeXml(props.simple)}</simple>`);
-			} else if (props.constant) {
-				lines.push(`${pad}  <constant>${escapeXml(props.constant)}</constant>`);
-			}
-			lines.push(`${pad}</setBody>`);
-			break;
-
-		case 'setHeader': {
-			lines.push(`${pad}<setHeader${idAttr} name="${escapeXml(props.name || '')}">`);
-			const exprType = props.expressionType || 'simple';
-			if (props.expression) {
-				lines.push(`${pad}  <${exprType}>${escapeXml(props.expression)}</${exprType}>`);
-			}
-			lines.push(`${pad}</setHeader>`);
-			break;
-		}
-
-		case 'choice': {
-			lines.push(`${pad}<choice${idAttr}>`);
-			const flows = store.getAllFlows().filter(f => f.sourceRef === proc.id);
-			const whenFlows = flows.filter(f => f.conditionType === 'when');
-			const otherwiseFlow = flows.find(f => f.conditionType === 'otherwise');
-
-			for (const flow of whenFlows) {
-				const exprType = flow.language || 'simple';
-				lines.push(`${pad}  <when>`);
-				lines.push(`${pad}    <${exprType}>${escapeXml(flow.expression || '')}</${exprType}>`);
-				const branchSteps = getBranchSteps(store, flow.targetRef);
-				for (const step of branchSteps) {
-					const stepLines = processorToXml(step, indent + 4, store, new Set(visitedIds));
-					lines.push(...stepLines);
-				}
-				lines.push(`${pad}  </when>`);
-			}
-
-			if (otherwiseFlow) {
-				lines.push(`${pad}  <otherwise>`);
-				const branchSteps = getBranchSteps(store, otherwiseFlow.targetRef);
-				for (const step of branchSteps) {
-					const stepLines = processorToXml(step, indent + 4, store, new Set(visitedIds));
-					lines.push(...stepLines);
-				}
-				lines.push(`${pad}  </otherwise>`);
-			}
-
-			lines.push(`${pad}</choice>`);
-			break;
-		}
-
-		case 'filter': {
-			const filterExprType = props.expressionType || 'simple';
-			lines.push(`${pad}<filter${idAttr}>`);
-			lines.push(`${pad}  <${filterExprType}>${escapeXml(props.expression || '')}</${filterExprType}>`);
-			// <filter> is a block: the steps reached from its output port (up to the
-			// merge node that closes the block) run only when the predicate matches.
-			const filterFlows = store.getAllFlows().filter(f => f.sourceRef === proc.id);
-			for (const flow of filterFlows) {
-				const bodySteps = getBranchSteps(store, flow.targetRef);
-				for (const step of bodySteps) {
-					const stepLines = processorToXml(step, indent + 2, store, new Set(visitedIds));
-					lines.push(...stepLines);
-				}
-			}
-			lines.push(`${pad}</filter>`);
-			break;
-		}
-
-		case 'split': {
-			const splitAttrs: string[] = [];
-			if (props.streaming) splitAttrs.push('streaming="true"');
-			if (props.parallelProcessing) splitAttrs.push('parallelProcessing="true"');
-			if (props.stopOnException) splitAttrs.push('stopOnException="true"');
-			if (props.shareUnitOfWork) splitAttrs.push('shareUnitOfWork="true"');
-			if (props.aggregationStrategy) splitAttrs.push(`aggregationStrategy="${escapeXml(props.aggregationStrategy)}"`);
-
-			const attrStr = splitAttrs.length > 0 ? ' ' + splitAttrs.join(' ') : '';
-			lines.push(`${pad}<split${idAttr}${attrStr}>`);
-			const splitExprType = props.expressionType || 'simple';
-			lines.push(`${pad}  <${splitExprType}>${escapeXml(props.expression || '')}</${splitExprType}>`);
-
-			const splitFlows = store.getAllFlows().filter(f => f.sourceRef === proc.id);
-			for (const flow of splitFlows) {
-				const innerSteps = getBranchSteps(store, flow.targetRef);
-				for (const step of innerSteps) {
-					const stepLines = processorToXml(step, indent + 2, store, new Set(visitedIds));
-					lines.push(...stepLines);
-				}
-			}
-			lines.push(`${pad}</split>`);
-			break;
-		}
-
-		case 'delay':
-			lines.push(`${pad}<delay${idAttr}>`);
-			lines.push(`${pad}  <constant>${escapeXml(props.constant || '1000')}</constant>`);
-			if (props.asyncDelayed) lines.push(`${pad}  <asyncDelayed>true</asyncDelayed>`);
-			lines.push(`${pad}</delay>`);
-			break;
-
-		case 'throttle': {
-			const throttleAttrs: string[] = [];
-			if (props.timePeriodMillis) throttleAttrs.push(`timePeriodMillis="${props.timePeriodMillis}"`);
-			if (props.asyncDelayed) throttleAttrs.push('asyncDelayed="true"');
-			if (props.rejectExecution) throttleAttrs.push('rejectExecution="true"');
-			const tAttrStr = throttleAttrs.length > 0 ? ' ' + throttleAttrs.join(' ') : '';
-			lines.push(`${pad}<throttle${idAttr}${tAttrStr}>`);
-			lines.push(`${pad}  <constant>${escapeXml(props.constant || '10')}</constant>`);
-			lines.push(`${pad}</throttle>`);
-			break;
-		}
-
-		case 'bean': {
-			const beanAttrs: string[] = [];
-			if (props.ref) beanAttrs.push(`ref="${escapeXml(props.ref)}"`);
-			if (props.method) beanAttrs.push(`method="${escapeXml(props.method)}"`);
-			if (props.beanType) beanAttrs.push(`beanType="${escapeXml(props.beanType)}"`);
-			lines.push(`${pad}<bean${idAttr} ${beanAttrs.join(' ')}/>`);
-			break;
-		}
-
-		case 'aggregate': {
-			const aggAttrs: string[] = [];
-			if (props.aggregationStrategy) aggAttrs.push(`aggregationStrategy="${escapeXml(props.aggregationStrategy)}"`);
-			if (props.completionSize) aggAttrs.push(`completionSize="${props.completionSize}"`);
-			if (props.completionTimeout) aggAttrs.push(`completionTimeout="${props.completionTimeout}"`);
-			if (props.eagerCheckCompletion) aggAttrs.push('eagerCheckCompletion="true"');
-			if (props.completionFromBatchConsumer) aggAttrs.push('completionFromBatchConsumer="true"');
-			const aAttrStr = aggAttrs.length > 0 ? ' ' + aggAttrs.join(' ') : '';
-			lines.push(`${pad}<aggregate${idAttr}${aAttrStr}>`);
-			lines.push(`${pad}  <correlationExpression>`);
-			lines.push(`${pad}    <simple>${escapeXml(props.correlationExpression || '')}</simple>`);
-			lines.push(`${pad}  </correlationExpression>`);
-			lines.push(`${pad}</aggregate>`);
-			break;
-		}
-
-		case 'marshal':
-			lines.push(`${pad}<marshal${idAttr}>`);
-			if (props.dataFormat === 'json') {
-				const jsonAttrs: string[] = [];
-				if (props.library) jsonAttrs.push(`library="${props.library}"`);
-				if (props.prettyPrint) jsonAttrs.push('prettyPrint="true"');
-				if (props.unmarshalType) jsonAttrs.push(`unmarshalType="${escapeXml(props.unmarshalType)}"`);
-				lines.push(`${pad}  <json ${jsonAttrs.join(' ')}/>`);
-			} else {
-				lines.push(`${pad}  <${props.dataFormat || 'json'}/>`);
-			}
-			lines.push(`${pad}</marshal>`);
-			break;
-
-		case 'unmarshal':
-			lines.push(`${pad}<unmarshal${idAttr}>`);
-			if (props.dataFormat === 'json') {
-				const jsonAttrs: string[] = [];
-				if (props.library) jsonAttrs.push(`library="${props.library}"`);
-				if (props.unmarshalType) jsonAttrs.push(`unmarshalType="${escapeXml(props.unmarshalType)}"`);
-				lines.push(`${pad}  <json ${jsonAttrs.join(' ')}/>`);
-			} else {
-				lines.push(`${pad}  <${props.dataFormat || 'json'}/>`);
-			}
-			lines.push(`${pad}</unmarshal>`);
-			break;
-
-		case 'transform': {
-			const transformExprType = props.expressionType || 'simple';
-			lines.push(`${pad}<transform${idAttr}>`);
-			lines.push(`${pad}  <${transformExprType}>${escapeXml(props.expression || '')}</${transformExprType}>`);
-			lines.push(`${pad}</transform>`);
-			break;
-		}
-
-		case 'multicast': {
-			const mcAttrs: string[] = [];
-			if (props.parallelProcessing) mcAttrs.push('parallelProcessing="true"');
-			if (props.stopOnException) mcAttrs.push('stopOnException="true"');
-			if (props.aggregationStrategy) mcAttrs.push(`aggregationStrategy="${escapeXml(props.aggregationStrategy)}"`);
-			const mcAttrStr = mcAttrs.length > 0 ? ' ' + mcAttrs.join(' ') : '';
-			lines.push(`${pad}<multicast${idAttr}${mcAttrStr}>`);
-
-			const multicastFlows = store.getAllFlows().filter(f => f.sourceRef === proc.id);
-			for (const flow of multicastFlows) {
-				const branchSteps = getBranchSteps(store, flow.targetRef);
-				for (const step of branchSteps) {
-					const stepLines = processorToXml(step, indent + 2, store, new Set(visitedIds));
-					lines.push(...stepLines);
-				}
-			}
-			lines.push(`${pad}</multicast>`);
-			break;
-		}
-
-		case 'recipientList': {
-			const rlAttrs: string[] = [];
-			if (props.parallelProcessing) rlAttrs.push('parallelProcessing="true"');
-			if (props.stopOnException) rlAttrs.push('stopOnException="true"');
-			if (props.aggregationStrategy) rlAttrs.push(`aggregationStrategy="${escapeXml(props.aggregationStrategy)}"`);
-			const rlAttrStr = rlAttrs.length > 0 ? ' ' + rlAttrs.join(' ') : '';
-			lines.push(`${pad}<recipientList${idAttr}${rlAttrStr}>`);
-			lines.push(`${pad}  <simple>${escapeXml(props.simple || '')}</simple>`);
-			lines.push(`${pad}</recipientList>`);
-			break;
-		}
-
-		case 'loop': {
-			const loopAttrs: string[] = [];
-			if (props.doWhile) loopAttrs.push('doWhile="true"');
-			if (props.copy) loopAttrs.push('copy="true"');
-			const loopAttrStr = loopAttrs.length > 0 ? ' ' + loopAttrs.join(' ') : '';
-			lines.push(`${pad}<loop${idAttr}${loopAttrStr}>`);
-			lines.push(`${pad}  <simple>${escapeXml(props.simple || '3')}</simple>`);
-			lines.push(`${pad}</loop>`);
-			break;
-		}
-
-		case 'wireTap': {
-			const wtAttrs = [`uri="${escapeXml(props.uri || '')}"`];
-			if (props.copy === false) wtAttrs.push('copy="false"');
-			lines.push(`${pad}<wireTap${idAttr} ${wtAttrs.join(' ')}/>`);
-			break;
-		}
-
-		case 'enrich': {
-			const enrichAttrs: string[] = [];
-			if (props.aggregationStrategy) enrichAttrs.push(`aggregationStrategy="${escapeXml(props.aggregationStrategy)}"`);
-			const eAttrStr = enrichAttrs.length > 0 ? ' ' + enrichAttrs.join(' ') : '';
-			lines.push(`${pad}<enrich${idAttr}${eAttrStr}>`);
-			lines.push(`${pad}  <constant>${escapeXml(props.uri || '')}</constant>`);
-			lines.push(`${pad}</enrich>`);
-			break;
-		}
-
-		case 'pollEnrich': {
-			const peAttrs: string[] = [];
-			if (props.timeout) peAttrs.push(`timeout="${props.timeout}"`);
-			if (props.aggregationStrategy) peAttrs.push(`aggregationStrategy="${escapeXml(props.aggregationStrategy)}"`);
-			const peAttrStr = peAttrs.length > 0 ? ' ' + peAttrs.join(' ') : '';
-			lines.push(`${pad}<pollEnrich${idAttr}${peAttrStr}>`);
-			lines.push(`${pad}  <constant>${escapeXml(props.uri || '')}</constant>`);
-			lines.push(`${pad}</pollEnrich>`);
-			break;
-		}
-
-		case 'threads': {
-			const thAttrs: string[] = [];
-			if (props.poolSize) thAttrs.push(`poolSize="${props.poolSize}"`);
-			if (props.maxPoolSize) thAttrs.push(`maxPoolSize="${props.maxPoolSize}"`);
-			if (props.maxQueueSize) thAttrs.push(`maxQueueSize="${props.maxQueueSize}"`);
-			lines.push(`${pad}<threads${idAttr} ${thAttrs.join(' ')}/>`);
-			break;
-		}
-
-		case 'circuitBreaker':
-			lines.push(`${pad}<circuitBreaker${idAttr}>`);
-			if (props.resilience4jConfiguration) {
-				const r4jAttrs: string[] = [];
-				if (props.resilience4jConfiguration.minimumNumberOfCalls) {
-					r4jAttrs.push(`minimumNumberOfCalls="${props.resilience4jConfiguration.minimumNumberOfCalls}"`);
-				}
-				if (props.resilience4jConfiguration.failureRateThreshold) {
-					r4jAttrs.push(`failureRateThreshold="${props.resilience4jConfiguration.failureRateThreshold}"`);
-				}
-				if (props.resilience4jConfiguration.waitDurationInOpenState) {
-					r4jAttrs.push(`waitDurationInOpenState="${props.resilience4jConfiguration.waitDurationInOpenState}"`);
-				}
-				lines.push(`${pad}  <resilience4jConfiguration ${r4jAttrs.join(' ')}/>`);
-			}
-			lines.push(`${pad}</circuitBreaker>`);
-			break;
-
-		case 'stop':
-			lines.push(`${pad}<stop${idAttr}/>`);
-			break;
-
-		case 'doTry': {
-			lines.push(`${pad}<doTry${idAttr}>`);
-			const doTryFlows = store.getAllFlows().filter(f => f.sourceRef === proc.id);
-
-			// 1. try steps - flows with role='try' or no role set
-			const tryFlows = doTryFlows.filter(f => f.role === 'try' || (!f.role && !f.conditionType));
-			for (const flow of tryFlows) {
-				const branchSteps = getBranchSteps(store, flow.targetRef);
-				for (const step of branchSteps) {
-					const stepLines = processorToXml(step, indent + 2, store, new Set(visitedIds));
-					lines.push(...stepLines);
-				}
-			}
-
-			// 2. doCatch blocks
-			const catchFlows = doTryFlows.filter(f => f.role === 'catch');
-			for (const flow of catchFlows) {
-				lines.push(`${pad}  <doCatch>`);
-				const exceptionList = flow.exceptions || ['java.lang.Exception'];
-				for (const ex of exceptionList) {
-					lines.push(`${pad}    <exception>${escapeXml(ex)}</exception>`);
-				}
-				const branchSteps = getBranchSteps(store, flow.targetRef);
-				for (const step of branchSteps) {
-					const stepLines = processorToXml(step, indent + 4, store, new Set(visitedIds));
-					lines.push(...stepLines);
-				}
-				lines.push(`${pad}  </doCatch>`);
-			}
-
-			// 3. doFinally
-			const finallyFlow = doTryFlows.find(f => f.role === 'finally');
-			if (finallyFlow) {
-				lines.push(`${pad}  <doFinally>`);
-				const branchSteps = getBranchSteps(store, finallyFlow.targetRef);
-				for (const step of branchSteps) {
-					const stepLines = processorToXml(step, indent + 4, store, new Set(visitedIds));
-					lines.push(...stepLines);
-				}
-				lines.push(`${pad}  </doFinally>`);
-			}
-
-			lines.push(`${pad}</doTry>`);
-			break;
-		}
-
-		case 'merge':
-			// Merge is a visual-only node, not output to XML
-			return [];
-
-		default: {
-			// Generic element output
-			const defaultAttrs: string[] = [];
-			for (const [key, value] of Object.entries(props)) {
-				if (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') {
-					defaultAttrs.push(`${key}="${escapeXml(String(value))}"`);
-				}
-			}
-			if (defaultAttrs.length > 0) {
-				lines.push(`${pad}<${proc.type} ${defaultAttrs.join(' ')}/>`);
-			} else {
-				lines.push(`${pad}<${proc.type}/>`);
-			}
-		}
-	}
-
-	return lines;
-}
 
 
 // =============================================================================
@@ -954,6 +261,12 @@ function processorToXml(
 const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
+
 			// Application instance
 			instance: null as ApplicationInstance | null,
 
@@ -983,9 +296,6 @@ const App = {
 			sidebarPanelVisible: true,
 			detailPanelVisible: true,
 			sidebarPanelWidth: 240,
-			sidebarResizing: false,
-			sidebarResizeStartX: 0,
-			sidebarResizeStartWidth: 0,
 			// Palette collapsible sections (keyed by category.key)
 			paletteExpanded: {
 				basic: true,
@@ -994,6 +304,7 @@ const App = {
 				control: true,
 				integration: true,
 				errorHandling: true,
+				session: true,
 			} as Record<string, boolean>,
 
 			// Canvas interaction state
@@ -1023,7 +334,6 @@ const App = {
 
 			// Properties panel resize
 			propertiesPanelWidth: 280,
-			propertiesPanelResizing: null as { startX: number; startWidth: number } | null,
 
 			// Store version trigger for reactivity
 			storeVersion: 0,
@@ -1064,8 +374,6 @@ const App = {
 						{ type: 'setBody', label: 'Set Body', labelKey: 'app.eip-modeler.palette.item.setBody', icon: 'icon-setbody' },
 						{ type: 'setHeader', label: 'Set Header', labelKey: 'app.eip-modeler.palette.item.setHeader', icon: 'icon-setheader' },
 						{ type: 'transform', label: 'Transform', labelKey: 'app.eip-modeler.palette.item.transform', icon: 'icon-transform' },
-						{ type: 'marshal', label: 'Marshal', labelKey: 'app.eip-modeler.palette.item.marshal', icon: 'icon-marshal' },
-						{ type: 'unmarshal', label: 'Unmarshal', labelKey: 'app.eip-modeler.palette.item.unmarshal', icon: 'icon-unmarshal' },
 					],
 				},
 				{
@@ -1113,6 +421,7 @@ const App = {
 					items: [
 						{ type: 'onException', label: 'On Exception', labelKey: 'app.eip-modeler.palette.item.onException', icon: 'icon-onexception' },
 						{ type: 'doTry', label: 'Try-Catch', labelKey: 'app.eip-modeler.palette.item.doTry', icon: 'icon-dotry' },
+						{ type: 'onCompletion', label: 'On Completion', labelKey: 'app.eip-modeler.palette.item.onCompletion', icon: 'icon-oncompletion' },
 					],
 				},
 			] as PaletteCategory[],
@@ -1120,6 +429,40 @@ const App = {
 	},
 
 	computed: {
+		// Items for the wt-file-tabs strip.
+		fileTabItems(): { key: string; label: string; modified: boolean; title: string }[] {
+			return (this.files as CamelFile[]).map((f: CamelFile) => ({
+				key: f.id, label: f.name, modified: f.isModified, title: f.path || f.name,
+			}));
+		},
+
+		// wt-select items for the property-panel dropdowns (computed so the
+		// labels re-resolve when the locale changes).
+		flowConditionTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(FLOW_CONDITION_TYPE_OPTIONS);
+		},
+		flowLanguageItems(): { value: string; label: string }[] {
+			return this.choiceItems(FLOW_LANGUAGE_OPTIONS);
+		},
+		flowRoleItems(): { value: string; label: string }[] {
+			return this.choiceItems(FLOW_ROLE_OPTIONS);
+		},
+		loggingLevelItems(): { value: string; label: string }[] {
+			return this.choiceItems(LOGGING_LEVEL_OPTIONS);
+		},
+		setHeaderExpressionTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(SET_HEADER_EXPRESSION_TYPE_OPTIONS);
+		},
+		filterExpressionTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(FILTER_EXPRESSION_TYPE_OPTIONS);
+		},
+		splitExpressionTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(SPLIT_EXPRESSION_TYPE_OPTIONS);
+		},
+		transformExpressionTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(TRANSFORM_EXPRESSION_TYPE_OPTIONS);
+		},
+
 		/**
 		 * Get current file
 		 */
@@ -1370,6 +713,22 @@ const App = {
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
 
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The popup adapter is passed
+				// here as well: wt-select menus escape the window through the
+				// shell popup API.
+				try {
+					await initUi({ popupAdapter: createShellPopupAdapter(instance) });
+				} catch (e) {
+					console.warn('[EipModeler] Failed to load component templates:', e);
+				}
+				// Wait for the gated DOM before loading a diagram: the canvas
+				// ($refs.camelCanvas) lives inside the gate.
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
+
 				// Set beforeClose callback
 				instance.setBeforeCloseCallback(async () => {
 					return await vm.confirmClose();
@@ -1552,26 +911,6 @@ const App = {
 		toggleDetailPanel() {
 			this.detailPanelVisible = !this.detailPanelVisible;
 		},
-		onSidebarResizeStart(event: MouseEvent) {
-			const vm = this;
-			event.preventDefault();
-			vm.sidebarResizing = true;
-			vm.sidebarResizeStartX = event.clientX;
-			vm.sidebarResizeStartWidth = vm.sidebarPanelWidth;
-			const onMove = (e: MouseEvent) => {
-				if (!vm.sidebarResizing) return;
-				const delta = e.clientX - vm.sidebarResizeStartX;
-				vm.sidebarPanelWidth = Math.max(180, Math.min(600, vm.sidebarResizeStartWidth + delta));
-			};
-			const onUp = () => {
-				vm.sidebarResizing = false;
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
-
 		// ---- Window controls ----
 		onMinimizeWindow() {
 			this.instance?.minimize();
@@ -2176,223 +1515,63 @@ const App = {
 			this.selectionRect = null;
 		},
 
-		// Properties panel resize
-		onPropertiesPanelResizeStart(event: MouseEvent) {
-			event.preventDefault();
-			this.propertiesPanelResizing = {
-				startX: event.clientX,
-				startWidth: this.propertiesPanelWidth,
-			};
-			document.addEventListener('mousemove', this.onPropertiesPanelResizeMove);
-			document.addEventListener('mouseup', this.onPropertiesPanelResizeEnd);
-		},
-
-		onPropertiesPanelResizeMove(event: MouseEvent) {
-			if (!this.propertiesPanelResizing) return;
-			const dx = this.propertiesPanelResizing.startX - event.clientX;
-			this.propertiesPanelWidth = Math.max(200, Math.min(600, this.propertiesPanelResizing.startWidth + dx));
-		},
-
-		onPropertiesPanelResizeEnd() {
-			this.propertiesPanelResizing = null;
-			document.removeEventListener('mousemove', this.onPropertiesPanelResizeMove);
-			document.removeEventListener('mouseup', this.onPropertiesPanelResizeEnd);
-		},
-
 		// =========================================================================
-		// Property-panel dropdowns (shell-rendered popups replacing <select>)
+		// Property-panel dropdowns (wt-select; menus escape the window through
+		// the shell popupAdapter wired in appLaunch)
 		// =========================================================================
 
-		/**
-		 * Open a choice popup anchored at the trigger element's rect.
-		 * The shell renders the menu above all iframes; the selected id is
-		 * resolved via the popup service. Mirrors the BPMN editor pattern.
-		 */
-		async openChoicePopup(
-			event: MouseEvent,
-			options: ChoiceOption[],
-			currentValue: string,
-			onSelect: (value: string) => void,
-			placeholder?: string,
-		) {
-			const vm = this;
-			const trigger = event.currentTarget as HTMLElement | null;
-			if (!trigger || !vm.instance) return;
-			const rect = trigger.getBoundingClientRect();
-			const items: any[] = [];
-			if (placeholder !== undefined) {
-				items.push({
-					id: EMPTY_CHOICE_ID,
-					label: placeholder,
-					selected: !currentValue,
-				});
-			}
-			for (const o of options) {
-				items.push({
-					id: o.id,
-					label: o.labelKey ? vm.t(o.labelKey, undefined, o.label) : o.label,
-					selected: currentValue === o.id,
-				});
-			}
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			const value = result === EMPTY_CHOICE_ID ? '' : String(result);
-			onSelect(value);
-			vm.storeVersion++;
+		/** Map a ChoiceOption list to wt-select items, resolving i18n labels. */
+		choiceItems(options: ChoiceOption[]): { value: string; label: string }[] {
+			return options.map(o => ({
+				value: o.id,
+				label: o.labelKey ? this.t(o.labelKey, undefined, o.label) : o.label,
+			}));
 		},
 
-		/**
-		 * Resolve the label for the current value of a choice option list.
-		 */
-		optionLabel(options: ChoiceOption[], value: string | undefined, fallback = ''): string {
-			if (!value) return fallback;
-			const opt = options.find(o => o.id === value);
-			if (!opt) return fallback;
-			return opt.labelKey ? this.t(opt.labelKey, undefined, opt.label) : opt.label;
-		},
-
-		// -- Flow (connection) dropdowns --
-		openFlowConditionTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			const flow = vm.selectedFlow;
+		// -- Flow (connection) change handlers -- each preserves the old
+		// openChoicePopup side effects: default fallback, markModified and the
+		// storeVersion bump that repaints v-if branches in the property pane.
+		onFlowConditionTypeChange(v: string) {
+			const flow = this.selectedFlow;
 			if (!flow) return;
-			vm.openChoicePopup(event, FLOW_CONDITION_TYPE_OPTIONS,
-				flow.conditionType || 'when',
-				v => { (flow as any).conditionType = v || 'when'; vm.markModified(); });
-		},
-		flowConditionTypeLabel(): string {
-			return this.optionLabel(FLOW_CONDITION_TYPE_OPTIONS,
-				this.selectedFlow?.conditionType || 'when', 'When (Condition)');
+			(flow as any).conditionType = v || 'when';
+			this.markModified();
+			this.storeVersion++;
 		},
 
-		openFlowLanguageDropdown(event: MouseEvent) {
-			const vm = this;
-			const flow = vm.selectedFlow;
+		onFlowLanguageChange(v: string) {
+			const flow = this.selectedFlow;
 			if (!flow) return;
-			vm.openChoicePopup(event, FLOW_LANGUAGE_OPTIONS,
-				flow.language || 'simple',
-				v => { (flow as any).language = v || 'simple'; vm.markModified(); });
-		},
-		flowLanguageLabel(): string {
-			return this.optionLabel(FLOW_LANGUAGE_OPTIONS,
-				this.selectedFlow?.language || 'simple', 'Simple');
+			(flow as any).language = v || 'simple';
+			this.markModified();
+			this.storeVersion++;
 		},
 
-		openFlowRoleDropdown(event: MouseEvent) {
-			const vm = this;
-			const flow = vm.selectedFlow;
+		onFlowRoleChange(v: string) {
+			const flow = this.selectedFlow;
 			if (!flow) return;
-			vm.openChoicePopup(event, FLOW_ROLE_OPTIONS,
-				flow.role || 'try',
-				v => { (flow as any).role = v || 'try'; vm.markModified(); });
-		},
-		flowRoleLabel(): string {
-			return this.optionLabel(FLOW_ROLE_OPTIONS,
-				this.selectedFlow?.role || 'try', 'Try (Main Flow)');
+			(flow as any).role = v || 'try';
+			this.markModified();
+			this.storeVersion++;
 		},
 
-		// -- Processor dropdowns --
-		openLoggingLevelDropdown(event: MouseEvent) {
-			const vm = this;
-			const proc = vm.selectedProcessor;
+		// -- Processor change handlers --
+		onLoggingLevelChange(v: string) {
+			const proc = this.selectedProcessor;
 			if (!proc) return;
-			vm.openChoicePopup(event, LOGGING_LEVEL_OPTIONS,
-				proc.properties.loggingLevel || 'INFO',
-				v => { proc.properties.loggingLevel = v || 'INFO'; vm.markModified(); });
-		},
-		loggingLevelLabel(): string {
-			return this.optionLabel(LOGGING_LEVEL_OPTIONS,
-				this.selectedProcessor?.properties.loggingLevel || 'INFO', 'INFO');
+			proc.properties.loggingLevel = v || 'INFO';
+			this.markModified();
+			this.storeVersion++;
 		},
 
-		openSetHeaderExpressionTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			const proc = vm.selectedProcessor;
+		// Shared by the Set Header / Filter / Split / Transform panes — they all
+		// edit properties.expressionType with the same 'simple' default.
+		onExpressionTypeChange(v: string) {
+			const proc = this.selectedProcessor;
 			if (!proc) return;
-			vm.openChoicePopup(event, SET_HEADER_EXPRESSION_TYPE_OPTIONS,
-				proc.properties.expressionType || 'simple',
-				v => { proc.properties.expressionType = v || 'simple'; vm.markModified(); });
-		},
-		setHeaderExpressionTypeLabel(): string {
-			return this.optionLabel(SET_HEADER_EXPRESSION_TYPE_OPTIONS,
-				this.selectedProcessor?.properties.expressionType || 'simple', 'Simple');
-		},
-
-		openFilterExpressionTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			const proc = vm.selectedProcessor;
-			if (!proc) return;
-			vm.openChoicePopup(event, FILTER_EXPRESSION_TYPE_OPTIONS,
-				proc.properties.expressionType || 'simple',
-				v => { proc.properties.expressionType = v || 'simple'; vm.markModified(); });
-		},
-		filterExpressionTypeLabel(): string {
-			return this.optionLabel(FILTER_EXPRESSION_TYPE_OPTIONS,
-				this.selectedProcessor?.properties.expressionType || 'simple', 'Simple');
-		},
-
-		openSplitExpressionTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			const proc = vm.selectedProcessor;
-			if (!proc) return;
-			vm.openChoicePopup(event, SPLIT_EXPRESSION_TYPE_OPTIONS,
-				proc.properties.expressionType || 'simple',
-				v => { proc.properties.expressionType = v || 'simple'; vm.markModified(); });
-		},
-		splitExpressionTypeLabel(): string {
-			return this.optionLabel(SPLIT_EXPRESSION_TYPE_OPTIONS,
-				this.selectedProcessor?.properties.expressionType || 'simple', 'Simple');
-		},
-
-		openTransformExpressionTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			const proc = vm.selectedProcessor;
-			if (!proc) return;
-			vm.openChoicePopup(event, TRANSFORM_EXPRESSION_TYPE_OPTIONS,
-				proc.properties.expressionType || 'simple',
-				v => { proc.properties.expressionType = v || 'simple'; vm.markModified(); });
-		},
-		transformExpressionTypeLabel(): string {
-			return this.optionLabel(TRANSFORM_EXPRESSION_TYPE_OPTIONS,
-				this.selectedProcessor?.properties.expressionType || 'simple', 'Simple');
-		},
-
-		openMarshalDataFormatDropdown(event: MouseEvent) {
-			const vm = this;
-			const proc = vm.selectedProcessor;
-			if (!proc) return;
-			vm.openChoicePopup(event, DATA_FORMAT_OPTIONS,
-				proc.properties.dataFormat || 'json',
-				v => { proc.properties.dataFormat = v || 'json'; vm.markModified(); });
-		},
-		openUnmarshalDataFormatDropdown(event: MouseEvent) {
-			this.openMarshalDataFormatDropdown(event);
-		},
-		dataFormatLabel(): string {
-			return this.optionLabel(DATA_FORMAT_OPTIONS,
-				this.selectedProcessor?.properties.dataFormat || 'json', 'JSON');
-		},
-
-		openMarshalLibraryDropdown(event: MouseEvent) {
-			const vm = this;
-			const proc = vm.selectedProcessor;
-			if (!proc) return;
-			vm.openChoicePopup(event, JSON_LIBRARY_OPTIONS,
-				proc.properties.library || 'jackson',
-				v => { proc.properties.library = v || 'jackson'; vm.markModified(); });
-		},
-		openUnmarshalLibraryDropdown(event: MouseEvent) {
-			this.openMarshalLibraryDropdown(event);
-		},
-		jsonLibraryLabel(): string {
-			return this.optionLabel(JSON_LIBRARY_OPTIONS,
-				this.selectedProcessor?.properties.library || 'jackson', 'Jackson');
+			proc.properties.expressionType = v || 'simple';
+			this.markModified();
+			this.storeVersion++;
 		},
 
 		onCanvasWheel(event: WheelEvent) {
@@ -3117,6 +2296,52 @@ const App = {
 		// =========================================================================
 
 		/**
+		 * The <routeProperty> entries of the selected route.
+		 *
+		 * They belong to the route rather than to any step, so they are edited from
+		 * the from node - the one node whose property panel stands for the route.
+		 * They express decisions no step can: mi:history, for one, decides whether
+		 * the route appears in message history at all.
+		 */
+		getRouteProperties(): { key: string; value: string }[] {
+			const entries = this.selectedProcessor?.properties.routeProperties;
+			return Array.isArray(entries) ? entries : [];
+		},
+
+		addRouteProperty() {
+			if (!this.selectedProcessor) return;
+			if (!Array.isArray(this.selectedProcessor.properties.routeProperties)) {
+				this.selectedProcessor.properties.routeProperties = [];
+			}
+			this.selectedProcessor.properties.routeProperties.push({ key: '', value: '' });
+			this.markModified();
+			this.storeVersion++;
+		},
+
+		updateRoutePropertyKey(index: number, event: Event) {
+			const entries = this.getRouteProperties();
+			if (!entries[index]) return;
+			entries[index].key = (event.target as HTMLInputElement).value;
+			this.markModified();
+			this.storeVersion++;
+		},
+
+		updateRoutePropertyValue(index: number, event: Event) {
+			const entries = this.getRouteProperties();
+			if (!entries[index]) return;
+			entries[index].value = (event.target as HTMLInputElement).value;
+			this.markModified();
+		},
+
+		removeRouteProperty(index: number) {
+			const entries = this.getRouteProperties();
+			if (!entries[index]) return;
+			entries.splice(index, 1);
+			this.markModified();
+			this.storeVersion++;
+		},
+
+		/**
 		 * Add a new parameter to the selected processor's parameters object
 		 */
 		addParameter() {
@@ -3359,13 +2584,32 @@ const App = {
 					case 'split':
 					case 'recipientList':
 					case 'filter':
-						if (!props.expression && !props.simple) errors.set(proc.id, this.t('app.eip-modeler.error.expressionRequired', undefined, 'Expression is required'));
+						if (!props.expression) errors.set(proc.id, this.t('app.eip-modeler.error.expressionRequired', undefined, 'Expression is required'));
 						break;
-					case 'doTry':
+					case 'doTry': {
 						if (!outgoing.some((f: CamelFlowSemantic) => f.role === 'catch')) {
 							errors.set(proc.id, this.t('app.eip-modeler.error.doTryRequiresCatch', undefined, 'doTry usually requires at least one "Catch" branch'));
+							break;
+						}
+						// A doTry can hold only one finally block. Two would
+						// serialize into XML the engine rejects, and the second
+						// would silently be the one that survives a round trip.
+						const finallyEdges = outgoing.filter((f: CamelFlowSemantic) => f.role === 'finally');
+						if (finallyEdges.length > 1) {
+							errors.set(proc.id, this.t('app.eip-modeler.error.doTryOneFinally', undefined, 'doTry accepts at most one "Finally" branch'));
+							break;
+						}
+						// An edge that reaches nothing is not an empty block —
+						// it disappears on save, taking with it whatever the
+						// author meant to put there (typically the logout).
+						const danglingRole = outgoing.find((f: CamelFlowSemantic) =>
+							(f.role === 'catch' || f.role === 'finally') && !this.activeStore?.getProcessor(f.targetRef)
+						);
+						if (danglingRole) {
+							errors.set(proc.id, this.t('app.eip-modeler.error.doTryBranchEmpty', undefined, 'A "Catch" or "Finally" branch leads to no step'));
 						}
 						break;
+					}
 					case 'bean':
 						if (!props.ref && !props.beanType) errors.set(proc.id, this.t('app.eip-modeler.error.beanRefRequired', undefined, 'Bean reference or type is required'));
 						break;
@@ -3411,5 +2655,9 @@ const App = {
 	},
 };
 
-// Mount the app
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 VDOM.createApp(App).mount('#app');

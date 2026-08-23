@@ -1,0 +1,7 @@
+<template id="wt-checkbox">
+	<label class="wt-checkbox" :class="{disabled: disabled}">
+		<input type="checkbox" class="wt" :checked="modelValue" :disabled="disabled"
+			@change="onChange($event.target.checked)">
+		<span class="wt-checkbox-text"><slot>{{ label }}</slot></span>
+	</label>
+</template>

@@ -1,3 +1,4 @@
+import { initUi } from "../../ui/index.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import {
 	createLocalizationSnapshot,
@@ -232,6 +233,11 @@ let windowInteractionObserver: MutationObserver | null = null;
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			previewKey: '',
 			fileName: '',
@@ -313,6 +319,21 @@ export const App = {
 
 				vm.instance.windowTitle = vm.t('app.text-editor-preview.toolbar.label', undefined, 'Preview');
 				vm.instance.setDisplayInfo({ subtitle: '' });
+
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets.
+				try {
+					await initUi();
+				} catch (e) {
+					console.warn('[TextEditorPreview] Failed to load component templates:', e);
+				}
+				// Wait for the gated DOM: the preview body / iframe ($refs) live
+				// inside the gate and the channel starts rendering into them as
+				// soon as it opens.
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 
 				instance.appState = () => ({ previewKey: vm.previewKey });
 
@@ -886,5 +907,10 @@ export const App = {
 	},
 };
 
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

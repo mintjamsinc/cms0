@@ -983,14 +983,21 @@ const WtDesktop = {
 		 * Localized display title for an app. By convention an app's title is
 		 * translated under `app.<relPath>.title` (relPath is the app folder, the
 		 * same id used for the app's own `app.<id>.*` messages), falling back to
-		 * the literal `title` from app.yml when no bundle key exists. Reactive
-		 * via t(), so the start menu / dock / menubar repaint on language change.
+		 * the literal `title` from app.yml when no bundle key exists. Resolved
+		 * against the app's own scoped bundle (`<app>/i18n/`) first — the shell
+		 * passes the app's id as the explicit scope — then the global bundles.
+		 * Reactive via translate(), so the start menu / dock / menubar repaint
+		 * on language change.
 		 */
 		appTitle(app: any): string {
 			if (!app) return '';
 			const literal = app.title || '';
 			const relPath = app.relPath || '';
-			return relPath ? (this as any).t(`app.${relPath}.title`, undefined, literal) : literal;
+			if (!relPath) return literal;
+			return translate(
+				(this as any).localization, window.Webtop,
+				`app.${relPath}.title`, undefined, literal, relPath,
+			);
 		},
 		/**
 		 * Localized label for a start-menu category. Resolved by convention under

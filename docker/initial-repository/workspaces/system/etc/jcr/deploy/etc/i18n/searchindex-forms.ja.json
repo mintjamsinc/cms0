@@ -1,0 +1,42 @@
+{
+	"form.system.searchindex.common.checkingRole": "権限を確認しています…",
+	"form.system.searchindex.common.adminRequired": "検索インデックスの再構築には管理者ロールが必要です。",
+
+	"form.system.searchindex.start.title": "検索インデックスの再構築",
+	"form.system.searchindex.start.subtitle": "全クラスタノードの全文検索インデックスをリポジトリの内容から再構築します。",
+	"form.system.searchindex.start.description": "再構築は各ノードのバックグラウンドで実行されます。実行中も検索・コンテンツ更新は通常どおり動作し、完成した新しいインデックスが自動的に切り替わります。",
+	"form.system.searchindex.start.note.progress": "開始するとタスク一覧に進捗確認タスクが作成されます。いつでも開いて全ノードの進捗確認・中止・失敗ノードの再実行ができます。",
+	"form.system.searchindex.start.note.duration": "リポジトリの規模によっては長時間かかることがあります。再構築は同時に 1 つだけ実行してください。",
+	"form.system.searchindex.start.button": "再構築を開始",
+	"form.system.searchindex.start.started": "再構築をリクエストしました。タスク一覧の「Search Index Rebuild Progress」タスクを開いて進捗を確認してください。",
+	"form.system.searchindex.start.failed": "再構築を開始できませんでした: ",
+
+	"form.system.searchindex.progress.title": "検索インデックス再構築の進捗",
+	"form.system.searchindex.progress.rebuildId": "再構築 ID:",
+	"form.system.searchindex.progress.col.node": "ノード",
+	"form.system.searchindex.progress.col.status": "状態",
+	"form.system.searchindex.progress.col.progress": "進捗",
+	"form.system.searchindex.progress.self": "このノード",
+	"form.system.searchindex.progress.nodeDown": "ノード停止中",
+	"form.system.searchindex.progress.notTargeted": "対象外（後から参加。起動時に自動構築されます）",
+	"form.system.searchindex.progress.abort": "中止",
+	"form.system.searchindex.progress.runningHint": "再構築を実行中です。このウィンドウは閉じても構いません。タスクはタスク一覧に残り、開き直せば最新の状態が表示されます。",
+	"form.system.searchindex.progress.allCompleted": "すべてのノードが正常に完了しました。",
+	"form.system.searchindex.progress.someFailed": "{count} 件のノードが完了しませんでした。",
+	"form.system.searchindex.progress.rerun": "失敗ノードを再実行",
+	"form.system.searchindex.progress.close": "タスクを完了",
+	"form.system.searchindex.progress.openFromTask": "このフォームは「Search Index Rebuild Progress」タスクから開いてください。",
+
+	"form.system.searchindex.status.init": "準備中",
+	"form.system.searchindex.status.queued": "待機中",
+	"form.system.searchindex.status.running": "実行中",
+	"form.system.searchindex.status.aborting": "中止処理中…",
+	"form.system.searchindex.status.aborted": "中止",
+	"form.system.searchindex.status.completed": "完了",
+	"form.system.searchindex.status.failed": "失敗",
+
+	"form.system.searchindex.phase.counting": "対象件数を集計中",
+	"form.system.searchindex.phase.indexing": "インデックス作成中",
+	"form.system.searchindex.phase.catchingUp": "差分を反映中",
+	"form.system.searchindex.phase.swapping": "新インデックスへ切替中"
+}

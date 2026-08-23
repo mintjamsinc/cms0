@@ -18,6 +18,13 @@
 	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount"
 		@dragover.prevent="onAppDragOver" @drop.prevent>
 
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. A
+		     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+		     unchanged; the gated markup is intentionally not re-indented. -->
+		<template v-if="isReady">
+
 		<!-- Top Toolbar (translucent) -->
 		<nav class="nav-bar window-drag-region">
 			<!-- Left: section icons -->
@@ -170,57 +177,35 @@
 					<template v-if="section === 'localization'">
 						<h2 class="pref-section-title">{{ t('app.preferences.localization.title') }}</h2>
 
-						<div class="property-group">
-							<div class="property-group-title mb-2">{{ t('app.preferences.localization.language.title') }}</div>
-							<div class="property-label">{{ t('app.preferences.localization.language.desc') }}</div>
-							<div class="wt-select pref-select">
-								<button type="button" class="wt-select-trigger"
-									@click.stop="openLocaleDropdown(event)">
-									<span class="wt-select-value">{{ localeLabel(locale) }}</span>
-									<i class="bi bi-chevron-down wt-select-chevron"></i>
-								</button>
-							</div>
-						</div>
+						<div class="d-flex flex-column gap-3">
+							<wt-field class="pref-select"
+								:label="t('app.preferences.localization.language.title')"
+								:hint="t('app.preferences.localization.language.desc')">
+								<wt-select v-model="locale" :items="localeItems" @change="onLocalizationChange"></wt-select>
+							</wt-field>
 
-						<div class="property-group">
-							<div class="property-group-title mb-2">{{ t('app.preferences.localization.timezone.title') }}</div>
-							<div class="property-label">{{ t('app.preferences.localization.timezone.desc') }}</div>
-							<div class="wt-select pref-select">
-								<button type="button" class="wt-select-trigger"
-									@click.stop="openTimezoneDropdown(event)">
-									<span class="wt-select-value">{{ timezoneLabel(timezone) }}</span>
-									<i class="bi bi-chevron-down wt-select-chevron"></i>
-								</button>
-							</div>
-						</div>
+							<wt-field class="pref-select"
+								:label="t('app.preferences.localization.timezone.title')"
+								:hint="t('app.preferences.localization.timezone.desc')">
+								<wt-select v-model="timezone" :items="timezoneItems" @change="onLocalizationChange"></wt-select>
+							</wt-field>
 
-						<div class="property-group">
-							<div class="property-group-title mb-2">{{ t('app.preferences.localization.numberFormat.title') }}</div>
-							<div class="property-label">{{ t('app.preferences.localization.numberFormat.desc') }}</div>
-							<div class="wt-select pref-select">
-								<button type="button" class="wt-select-trigger"
-									@click.stop="openNumberFormatDropdown(event)">
-									<span class="wt-select-value">{{ numberFormatLabel(numberFormat) }}</span>
-									<i class="bi bi-chevron-down wt-select-chevron"></i>
-								</button>
-							</div>
-						</div>
+							<wt-field class="pref-select"
+								:label="t('app.preferences.localization.numberFormat.title')"
+								:hint="t('app.preferences.localization.numberFormat.desc')">
+								<wt-select v-model="numberFormat" :items="numberFormatItems" @change="onLocalizationChange"></wt-select>
+							</wt-field>
 
-						<div class="property-group">
-							<div class="property-group-title mb-2">{{ t('app.preferences.localization.currency.title') }}</div>
-							<div class="property-label">{{ t('app.preferences.localization.currency.desc') }}</div>
-							<div class="wt-select pref-select">
-								<button type="button" class="wt-select-trigger"
-									@click.stop="openCurrencyDropdown(event)">
-									<span class="wt-select-value">{{ currencyLabel(currency) }}</span>
-									<i class="bi bi-chevron-down wt-select-chevron"></i>
-								</button>
-							</div>
-						</div>
+							<wt-field class="pref-select"
+								:label="t('app.preferences.localization.currency.title')"
+								:hint="t('app.preferences.localization.currency.desc')">
+								<wt-select v-model="currency" :items="currencyItems" @change="onLocalizationChange"></wt-select>
+							</wt-field>
 
-						<div v-if="localizationMessage" class="pref-inline-message"
-							:class="localizationMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
-							{{ localizationMessage }}
+							<wt-inline-message v-if="localizationMessage"
+								:type="localizationMessageType === 'success' ? 'success' : 'error'">
+								{{ localizationMessage }}
+							</wt-inline-message>
 						</div>
 					</template>
 
@@ -266,19 +251,20 @@
 
 						<!-- Display Name -->
 						<div class="property-group">
-							<div class="property-label">{{ t('app.preferences.profile.displayName') }}</div>
-							<div class="d-flex gap-2 align-items-center">
-								<input type="text" class="wt pref-input" v-model="displayName"
-									:placeholder="t('app.preferences.profile.displayNamePlaceholder')">
-								<button class="wt wt-primary" @click="saveDisplayName"
-									:disabled="!displayNameChanged || profileSaving">
-									{{ t('common.save') }}
-								</button>
-							</div>
-							<div v-if="profileMessage" class="pref-inline-message"
-								:class="profileMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
+							<wt-field :label="t('app.preferences.profile.displayName')">
+								<div class="d-flex gap-2 align-items-center">
+									<input type="text" class="wt pref-input" v-model="displayName"
+										:placeholder="t('app.preferences.profile.displayNamePlaceholder')">
+									<button class="wt wt-primary" @click="saveDisplayName"
+										:disabled="!displayNameChanged || profileSaving">
+										{{ t('common.save') }}
+									</button>
+								</div>
+							</wt-field>
+							<wt-inline-message v-if="profileMessage" class="mt-2"
+								:type="profileMessageType === 'success' ? 'success' : 'error'">
 								{{ profileMessage }}
-							</div>
+							</wt-inline-message>
 						</div>
 					</template>
 
@@ -289,31 +275,28 @@
 						<div class="property-group">
 							<div class="property-group-title mb-2">{{ t('app.preferences.security.changePassword') }}</div>
 							<div class="pref-form">
-								<div class="property-row">
-									<label class="property-label">{{ t('app.preferences.security.currentPassword') }}</label>
+								<wt-field :label="t('app.preferences.security.currentPassword')">
 									<input type="password" class="wt w-100"
 										v-model="passwordForm.current" autocomplete="current-password">
-								</div>
-								<div class="property-row">
-									<label class="property-label">{{ t('app.preferences.security.newPassword') }}</label>
+								</wt-field>
+								<wt-field :label="t('app.preferences.security.newPassword')">
 									<input type="password" class="wt w-100"
 										v-model="passwordForm.newPassword" autocomplete="new-password">
-								</div>
-								<div class="property-row">
-									<label class="property-label">{{ t('app.preferences.security.confirmPassword') }}</label>
+								</wt-field>
+								<wt-field :label="t('app.preferences.security.confirmPassword')">
 									<input type="password" class="wt w-100"
 										v-model="passwordForm.confirm" autocomplete="new-password">
-								</div>
+								</wt-field>
 								<div class="d-flex gap-2 mt-1">
 									<button class="wt wt-primary" @click="changePassword"
 										:disabled="!canChangePassword || passwordSaving">
 										{{ t('app.preferences.security.changePassword') }}
 									</button>
 								</div>
-								<div v-if="passwordMessage" class="pref-inline-message"
-									:class="passwordMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
+								<wt-inline-message v-if="passwordMessage"
+									:type="passwordMessageType === 'success' ? 'success' : 'error'">
 									{{ passwordMessage }}
-								</div>
+								</wt-inline-message>
 							</div>
 						</div>
 					</template>
@@ -338,10 +321,10 @@
 									</button>
 								</div>
 							</div>
-							<div v-if="sessionMessage" class="pref-inline-message"
-								:class="sessionMessageType === 'success' ? 'pref-inline-success' : 'pref-inline-error'">
+							<wt-inline-message v-if="sessionMessage" class="mt-2"
+								:type="sessionMessageType === 'success' ? 'success' : 'error'">
 								{{ sessionMessage }}
-							</div>
+							</wt-inline-message>
 						</div>
 					</template>
 
@@ -353,58 +336,38 @@
 		<div class="status-bar window-drag-region"></div>
 
 		<!-- Confirmation Dialog -->
-		<div v-if="confirmDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 28rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<div class="dialog-header-top">
-							<h3>
-								<i :class="['bi', 'me-2', confirmDialog.iconClass || 'bi-question-circle']"></i>{{ confirmDialog.title }}
-							</h3>
-							<button class="btn-icon" @click="closeConfirmDialog" :title="t('common.close')">
-								<i class="bi bi-x-lg"></i>
-							</button>
-						</div>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0 mb-0">{{ confirmDialog.message }}</p>
-					</div>
-					<div class="dialog-footer">
-						<button class="wt" @click="closeConfirmDialog">{{ t('common.cancel') }}</button>
-						<button class="wt"
-							:class="confirmDialog.danger ? 'wt-danger' : 'wt-primary'"
-							@click="acceptConfirmDialog">
-							{{ confirmDialog.confirmLabel || t('common.ok') }}
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<wt-dialog v-model:open="confirmDialog.visible" size="sm" @close="closeConfirmDialog">
+			<template v-slot:title="d">
+				<i :class="['bi', 'me-2', confirmDialog.iconClass || 'bi-question-circle']"></i>{{ confirmDialog.title }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-0">{{ confirmDialog.message }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closeConfirmDialog">{{ t('common.cancel') }}</button>
+				<button class="wt"
+					:class="confirmDialog.danger ? 'wt-danger' : 'wt-primary'"
+					@click="acceptConfirmDialog">
+					{{ confirmDialog.confirmLabel || t('common.ok') }}
+				</button>
+			</template>
+		</wt-dialog>
 
 		<!-- Notification Dialog -->
-		<div v-if="notificationDialog.visible" class="dialog-overlay dialog-overlay-message">
-			<div class="dialog-frame" style="max-width: 28rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<div class="dialog-header-top">
-							<h3>
-								<i :class="['bi', 'me-2', notificationIconClass()]"></i>{{ notificationDialog.title }}
-							</h3>
-							<button class="btn-icon" @click="closeNotificationDialog" :title="t('common.close')">
-								<i class="bi bi-x-lg"></i>
-							</button>
-						</div>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0 mb-0">{{ notificationDialog.message }}</p>
-					</div>
-					<div class="dialog-footer">
-						<button class="wt wt-primary" @click="closeNotificationDialog">{{ t('common.ok') }}</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<wt-dialog v-model:open="notificationDialog.visible" size="sm" @close="closeNotificationDialog">
+			<template v-slot:title="d">
+				<i :class="['bi', 'me-2', notificationIconClass()]"></i>{{ notificationDialog.title }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-0">{{ notificationDialog.message }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt wt-primary" @click="closeNotificationDialog">{{ t('common.ok') }}</button>
+			</template>
+		</wt-dialog>
 
+		</template>
+		<!-- /Readiness gate -->
 	</div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

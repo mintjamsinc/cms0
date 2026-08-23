@@ -1,0 +1,7 @@
+<template id="wt-empty-state">
+	<div class="wt-empty-state">
+		<i v-if="icon" class="bi wt-empty-state-icon" :class="icon"></i>
+		<div class="wt-empty-state-body"><slot></slot></div>
+		<div class="wt-empty-state-actions"><slot name="actions"></slot></div>
+	</div>
+</template>

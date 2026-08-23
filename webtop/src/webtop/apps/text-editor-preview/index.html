@@ -19,6 +19,13 @@
 		@mounted="onMounted" @unmount="onUnmount"
 		@dragover.prevent @drop.prevent>
 
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. A
+		     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+		     unchanged; the gated markup is intentionally not re-indented. -->
+		<template v-if="isReady">
+
 		<!-- Top Toolbar (translucent) -->
 		<nav class="nav-bar window-drag-region">
 			<div class="pane-toggles">
@@ -113,7 +120,8 @@
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
 							referrerpolicy="no-referrer"></iframe>
 						<div v-else class="detail-panel-empty">
-							<i class="bi" :class="previewLoading ? 'bi-arrow-repeat spin' : 'bi-eye'"></i>
+							<wt-spinner v-if="previewLoading" size="lg"></wt-spinner>
+							<i v-else class="bi bi-eye"></i>
 							<span>{{ previewLoading ? t('app.text-editor-preview.empty.rendering') : t('app.text-editor-preview.empty.placeholder') }}</span>
 						</div>
 					</template>
@@ -149,6 +157,9 @@
 				</div>
 			</div>
 		</div>
+
+		</template>
+		<!-- /Readiness gate -->
 	</div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

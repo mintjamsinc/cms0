@@ -17,6 +17,9 @@
 	"common.error": "エラー",
 	"common.minimize": "最小化",
 	"common.maximize": "最大化",
+	"webtop.appmenu.category.bpm": "ビジネスプロセス管理",
+	"webtop.appmenu.category.eip": "エンタープライズ統合",
+
 	"webtop.menu.saveSessionAndSignOut": "セッションを保存してサインアウト",
 	"webtop.menu.signOut": "サインアウト",
 	"webtop.session.save.title": "セッションを保存",

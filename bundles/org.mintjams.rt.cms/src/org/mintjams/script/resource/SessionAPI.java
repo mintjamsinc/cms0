@@ -22,13 +22,9 @@
 
 package org.mintjams.script.resource;
 
-import javax.jcr.Credentials;
-
-import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
+import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
 import org.mintjams.script.ScriptingContext;
-import org.mintjams.script.resource.security.CredentialExpiredException;
-import org.mintjams.script.resource.security.LoginException;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 
@@ -44,27 +40,8 @@ public class SessionAPI implements Adaptable {
 		return (SessionAPI) context.getAttribute(SessionAPI.class.getSimpleName());
 	}
 
-	public Session login(Credentials credentials) throws ResourceException {
-		javax.jcr.Repository jcrRepository = CmsService.getRepository();
-		if (jcrRepository == null) {
-			throw new LoginException("Repository is not available.");
-		}
-
-		javax.jcr.Session jcrSession;
-		try {
-			jcrSession = jcrRepository.login(credentials, fContext.getWorkspaceName());
-		} catch (javax.jcr.LoginException ex) {
-			for (Throwable e = ex.getCause(); e != null; e = e.getCause()) {
-				if (e instanceof javax.security.auth.login.CredentialExpiredException) {
-					throw new CredentialExpiredException("Credential expired");
-				}
-			}
-			throw (LoginException) new LoginException(ex.getMessage()).initCause(ex);
-		} catch (Throwable ex) {
-			throw ResourceException.wrap(ex);
-		}
-
-		return new Session(jcrSession, fContext);
+	public Session switchUser(String userId) throws ResourceException {
+		return fContext.switchSession(new ServiceUserCredentials(userId));
 	}
 
 	@Override

@@ -45,8 +45,9 @@
  * `locale` (or bumping `revision` on bundle reload) re-runs every `t()` /
  * `format*()` binding. The shell broadcasts `localization-changed` from
  * `preferences/app.ts` (user edit) and `webtop-api.ts` (remote sync), and the
- * i18n service broadcasts `i18n-bundles-updated` when `/etc/i18n/*.json`
- * changes; {@link handleLocalizationMessage} folds both into the snapshot.
+ * i18n service broadcasts `i18n-bundles-updated` when any bundle changes
+ * (global `/etc/i18n/*.json` or an app's `<app>/i18n/*.json`);
+ * {@link handleLocalizationMessage} folds both into the snapshot.
  *
  * Crossing component boundaries: pass the snapshot as a single prop
  * (e.g. `:localization="localization"`). ichigojs ≥ 0.1.68 subscribes to the
@@ -161,12 +162,19 @@ function resolveI18n(instance: any): any {
  *
  * Reads `snapshot.locale` and `snapshot.revision` so the calling binding
  * repaints when the language switches or the bundles hot-reload. Falls back —
- * inside `I18nService.format` — through exact locale → language only → 'en' →
- * `fallback` → the id itself, so a missing key degrades gracefully rather than
- * throwing.
+ * inside `I18nService.format` — through the app's own scoped bundle (when the
+ * caller is an app), then exact locale → language only → 'en' in the global
+ * bundles → `fallback` → the id itself, so a missing key degrades gracefully
+ * rather than throwing.
+ *
+ * The app scope is derived from `instance.app.relPath` automatically, so an
+ * app's `t()` resolves keys from its own `<app>/i18n/<locale>.json` bundle
+ * first without any per-app wiring. Pass `appId` explicitly only to resolve
+ * against a *different* app's scope (the shell does this for app titles).
  *
  * @param params  ICU MessageFormat arguments (e.g. `{ count: 3 }`).
  * @param fallback Literal shown when no bundle defines the id.
+ * @param appId   Explicit app scope override (defaults to the caller's app).
  */
 export function translate(
 	snapshot: LocalizationSnapshot,
@@ -174,6 +182,7 @@ export function translate(
 	messageId: string,
 	params?: Record<string, any>,
 	fallback?: string,
+	appId?: string,
 ): string {
 	// Establish the reactive dependencies (see file header): reading these
 	// snapshot fields subscribes the calling binding, so it repaints when the
@@ -188,7 +197,8 @@ export function translate(
 	if (!i18n || typeof i18n.format !== 'function') {
 		return fallback ?? messageId;
 	}
-	return i18n.format(messageId, params, fallback, locale || undefined);
+	const scope = appId || instance?.app?.relPath || undefined;
+	return i18n.format(messageId, params, fallback, locale || undefined, scope);
 }
 
 /**

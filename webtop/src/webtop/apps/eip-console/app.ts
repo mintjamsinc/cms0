@@ -28,6 +28,7 @@
  *   - Mutations use the Input Object Pattern (e.g. startRoute(input:...)).
  */
 
+import { initUi } from "../../ui/index.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { EipServiceGraphQL } from "../../services/eip-service-graphql.js";
 import { createGraphQLClient } from "../../graphql/client.js";
@@ -60,6 +61,23 @@ import { syntaxHighlighting, HighlightStyle, bracketMatching } from "@codemirror
 import { tags as t } from "@lezer/highlight";
 import { search, findNext, findPrevious, setSearchQuery, SearchQuery } from "@codemirror/search";
 import { json } from "@codemirror/lang-json";
+
+// Chart.js — the centre-upper time series. Only the pieces a multi-series line
+// chart needs are registered (no `chart.js/auto`) so the bundle carries just
+// the line controller, the two scales and the tooltip plugin. The legend is the
+// app's own DOM legend below the canvas, so Chart.js's own legend stays out.
+import {
+	Chart,
+	LineController,
+	LineElement,
+	PointElement,
+	LinearScale,
+	CategoryScale,
+	Tooltip,
+} from "chart.js";
+import type { ActiveElement, ChartConfiguration, ChartData, TooltipItem } from "chart.js";
+
+Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip);
 
 const cmTheme = EditorView.theme({
 	"&": { backgroundColor: "var(--body-bg)", color: "var(--body-color)" },
@@ -96,6 +114,16 @@ type DetailType = 'none' | 'route' | 'exchange';
 // History list sortable columns (mapped to HistoryExchangeSummary fields in
 // compareHistorySummary). 'started' sorts by createdAt.
 type HistorySortColumn = 'exchangeId' | 'businessKey' | 'started' | 'status' | 'elapsed' | 'route';
+
+/** Theme colours resolved from CSS variables for the Chart.js canvas. */
+interface ChartTheme {
+	muted: string;
+	text: string;
+	axis: string;
+	grid: string;
+	tooltipBg: string;
+	tooltipBorder: string;
+}
 
 /** One rendered elapsed band (slider segment + chart series + legend row). */
 interface BandSegment {
@@ -224,6 +252,11 @@ export const App = {
 	data() {
 		const bottomPanelHeight = window.innerHeight * 0.6;
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			eip: null as EipServiceGraphQL | null,
 			messageListener: null as ((event: MessageEvent) => void) | null,
@@ -242,7 +275,8 @@ export const App = {
 			detailPanelWidth: 360,
 
 			// Resize state (private)
-			_resizing: null as null | { kind: 'sidebar'|'bottom'|'detail'; startX: number; startY: number; startSize: number },
+			// True while a wt-splitter drag is in progress (drives #app.is-resizing).
+			resizingPane: false,
 
 			// Live updates — the history list streams new exchanges pushed from
 			// a node-change subscription on /var/eip/history (no polling). The
@@ -319,11 +353,12 @@ export const App = {
 			// right-edge bucket grow in real time with no extra server round-trip.
 			_liveBuckets: {} as Record<number, number[]>,
 
-			// Chart dimensions — kept reactive so the SVG redraws when the
-			// container resizes (ResizeObserver feeds these).
-			chartWidth: 800,
-			chartHeight: 240,
-			_resizeObserver: null as ResizeObserver | null,
+			// Chart.js instance for the centre-upper time series. Created when the
+			// canvas mounts (onChartMounted) and destroyed when it unmounts, so a
+			// screen switch or an empty result never leaves a chart bound to a
+			// detached canvas. Chart.js owns its own ResizeObserver, so the panel
+			// no longer tracks chart dimensions itself.
+			_chart: null as Chart | null,
 
 			// History panel — paged accumulator (initial page + More/scroll up
 			// to HISTORY_MAX_ROWS). totalCount is the server's full match count,
@@ -617,93 +652,12 @@ export const App = {
 		},
 
 		/**
-		 * Render the multi-series chart as an inline SVG fragment.
-		 *
-		 * One line series per elapsed band (see bandSegments), each painted its
-		 * configured colour, sharing a common Y axis scaled to the largest value
-		 * across all bands. X labels show the first / middle / last buckets.
-		 *
-		 * The SVG viewBox is driven by reactive `chartWidth` / `chartHeight`
-		 * tracked by a ResizeObserver so the chart fits the panel as it is
-		 * resized.
-		 */
-		chartSvg(): string {
-			const vm = this as any;
-			const stats = vm.stats as RouteStats | null;
-			const points = vm.chartPoints as StatPoint[];
-			if (!stats || !points.length) return '';
-
-			const W = vm.chartWidth as number;
-			const H = vm.chartHeight as number;
-			const padL = 48, padR = 16, padT = 12, padB = 28;
-			const innerW = Math.max(1, W - padL - padR);
-			const innerH = Math.max(1, H - padT - padB);
-
-			const n = points.length;
-			// Band count comes from the server response so the chart always
-			// matches the returned data even if the slider config is mid-edit.
-			const bandCount = points[0]?.bands?.length ?? 0;
-			if (bandCount === 0) return '';
-			const segs = vm.bandSegments as BandSegment[];
-			const colorAt = (b: number) => segs[b]?.color || ELAPSED_COLOR_MAP[DEFAULT_BAND_COLORS[b % DEFAULT_BAND_COLORS.length]];
-
-			let max = 1;
-			for (const p of points) {
-				for (let b = 0; b < bandCount; b++) {
-					if (p.bands[b] > max) max = p.bands[b];
-				}
-			}
-
-			const xStep = n > 1 ? innerW / (n - 1) : innerW;
-			const xAt = (i: number) => padL + i * xStep;
-			const yAt = (v: number) => padT + innerH - (v / max) * innerH;
-
-			const seriesLine = (b: number) => {
-				const color = colorAt(b);
-				const pts = points.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.bands[b]).toFixed(1)}`).join(' ');
-				const dots = points
-					.map((p, i) => `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(p.bands[b]).toFixed(1)}" r="2.5" fill="${color}"/>`)
-					.join('');
-				return `<polyline fill="none" stroke="${color}" stroke-width="1.75" points="${pts}"/>${dots}`;
-			};
-
-			let series = '';
-			for (let b = 0; b < bandCount; b++) series += seriesLine(b);
-
-			const labelIdxs = n === 1 ? [0] : [0, Math.floor(n / 2), n - 1];
-			const xLabels = labelIdxs
-				.map(i => {
-					const t = formatBucketLabel(points[i].bucket, stats.interval, vm.localization.locale || undefined, vm.localization.timeZone || undefined);
-					const x = xAt(i).toFixed(1);
-					return `<text class="axis-label" x="${x}" y="${(H - 8).toFixed(1)}" text-anchor="middle">${escapeXml(t)}</text>`;
-				})
-				.join('');
-
-			const yLabels = [
-				`<text class="axis-label" x="${padL - 6}" y="${padT + 4}" text-anchor="end">${formatNumber(max)}</text>`,
-				`<text class="axis-label" x="${padL - 6}" y="${padT + innerH}" text-anchor="end">0</text>`,
-			].join('');
-
-			return `
-				<line class="axis" x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}"/>
-				<line class="axis" x1="${padL}" y1="${padT + innerH}" x2="${padL + innerW}" y2="${padT + innerH}"/>
-				${series}
-				${xLabels}
-				${yLabels}
-			`;
-		},
-
-		isResizing(): boolean {
-			return !!(this as any)._resizing;
-		},
-
-		/**
 		 * Flatten the selected exchange's header map into a sorted list of
 		 * `{ name, type, value }` rows for the detail-panel "Headers" section.
 		 *
 		 * Mirrors the shape used by BPM Console's `instanceVariables` so the
-		 * two panels can share the `.bpm-var-list` / `.bpm-type-badge`
-		 * presentation. The server wraps each header as
+		 * two panels share the wt-property-row presentation.
+		 * The server wraps each header as
 		 * `{ type, value, length?, size? }` (see ExchangeHistoryEventNotifier
 		 * #buildHeaderInfo), so we read the type tag directly and render
 		 * only the inner value in the row body.
@@ -734,6 +688,11 @@ export const App = {
 		// Elapsed boundaries only change the chart bands — refetch stats alone.
 		// (Colour changes need no refetch; the chart recolours reactively.)
 		bandBoundaries: { handler() { (this as any).scheduleStatsReload(); }, deep: true },
+		// Chart.js is imperative: these two watchers are what keep the canvas in
+		// step with the reactive data. chartPoints covers the server snapshot and
+		// the live overlay; bandSegments covers band colour / label edits.
+		chartPoints() { (this as any).syncChart(); },
+		bandSegments() { (this as any).syncChart(); },
 	},
 
 	methods: {
@@ -782,8 +741,16 @@ export const App = {
 				const { type, ...payload } = event.data || {};
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
+					// The canvas cannot inherit the CSS variables the rest of the
+					// UI switches with, so re-read them into the chart.
+					vm.applyChartTheme();
 				}
-				if (handleLocalizationMessage(type, vm.localization, vm.instance)) return;
+				if (handleLocalizationMessage(type, vm.localization, vm.instance)) {
+					// Axis ticks and tooltip headings are formatted with the
+					// localization snapshot's locale / timeZone — repaint them.
+					vm.syncChart();
+					return;
+				}
 				// Shell context-menu selection. The same channel carries both the
 				// routes-tree actions and the Elapsed colour-picker choices, told
 				// apart by the action id's prefix.
@@ -812,6 +779,19 @@ export const App = {
 				vm.instance.windowTitle = vm.t('app.eip-console.title', undefined, 'EIP Console');
 
 				refreshLocalization(vm.localization, vm.instance);
+
+				// --- Readiness gate ---
+				// Load every component template BEFORE the gated markup is
+				// compiled, so each <wt-*> / <eip-canvas> element finds its
+				// <template> on the single connectedCallback it gets.
+				try {
+					await Promise.all([initUi(), loadEipCanvasTemplate()]);
+				} catch (e) {
+					console.warn('[EipConsole] Failed to load component templates:', e);
+				}
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
+
 				vm.workspace = appInstance.api.workspace;
 
 				const client = createGraphQLClient(vm.workspace);
@@ -845,6 +825,7 @@ export const App = {
 			}
 			document.removeEventListener('visibilitychange', vm.onVisibilityChange);
 			vm.closeRawJsonViewer();
+			vm.destroyChart();
 		},
 
 		onVisibilityChange() {
@@ -910,39 +891,233 @@ export const App = {
 		},
 
 		// =====================================================
-		// Chart resize handler — keeps SVG fit-to-container.
-		// Wired via `v-resize` on the chart area element.
+		// Chart (Chart.js) — lifecycle, data sync, theming
+		//
+		// The canvas is created / destroyed by the template (`v-if` on the graph
+		// screen and on "has data"), so the Chart instance is bound to the canvas
+		// via its @mounted / @unmount hooks. Data changes never rebuild the chart:
+		// the `chartPoints` / `bandSegments` watchers push new labels, values and
+		// colours into the existing instance and repaint without animation, which
+		// is what keeps the live right-edge bucket cheap to grow.
+		//
+		// X axis is a category scale over the bucket labels rather than a time
+		// scale: the server returns a contiguous, evenly-spaced bucket grid
+		// (buildBuckets), so spacing is identical, and formatting stays on the
+		// app's own Intl path (locale + timeZone from the localization snapshot)
+		// instead of needing a Chart.js date adapter.
 		// =====================================================
-		onChartResize(entries: ResizeObserverEntry[]) {
+		onChartMounted() {
 			const vm = this as any;
-			for (const e of entries) {
-				const w = Math.round(e.contentRect.width);
-				const h = Math.round(e.contentRect.height);
-				if (w > 0) vm.chartWidth = w;
-				if (h > 0) vm.chartHeight = h;
+			const canvas = vm.$refs.chartCanvas as HTMLCanvasElement | undefined;
+			if (!canvas) return;
+			vm.destroyChart();
+			const chart = new Chart(canvas, vm.buildChartConfig());
+			// Keep the instance out of the reactive graph: Chart.js mutates its
+			// own state heavily and must never be proxied.
+			vm._chart = vm.$markRaw(chart);
+		},
+
+		onChartUnmount() {
+			(this as any).destroyChart();
+		},
+
+		destroyChart() {
+			const vm = this as any;
+			if (!vm._chart) return;
+			try { (vm._chart as Chart).destroy(); } catch { /* noop */ }
+			vm._chart = null;
+		},
+
+		/** Full Chart.js configuration for the current data + theme. */
+		buildChartConfig(): ChartConfiguration<'line'> {
+			const vm = this as any;
+			const theme = vm.chartTheme() as ChartTheme;
+			return {
+				type: 'line',
+				data: vm.buildChartData(),
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					// Live data lands every few seconds; animating each arrival
+					// would keep the canvas busy for no informational gain.
+					animation: false,
+					// Hover / tooltip pick the whole bucket, not a single series
+					// point, so a hover anywhere in the column reports every band.
+					interaction: { mode: 'index', intersect: false },
+					layout: { padding: { top: 4, right: 8, bottom: 0, left: 0 } },
+					onClick: (_e, elements) => vm.onChartPointClick(elements),
+					scales: {
+						x: {
+							grid: { display: false },
+							border: { color: theme.axis },
+							ticks: {
+								color: theme.muted,
+								font: { size: 10 },
+								maxRotation: 0,
+								autoSkip: true,
+								autoSkipPadding: 16,
+							},
+						},
+						y: {
+							beginAtZero: true,
+							grid: { color: theme.grid },
+							border: { display: false },
+							ticks: {
+								color: theme.muted,
+								font: { size: 10 },
+								maxTicksLimit: 6,
+								precision: 0,
+								callback: (v) => formatNumber(typeof v === 'number' ? v : Number(v)),
+							},
+						},
+					},
+					plugins: {
+						// The legend is the app's own DOM row under the canvas.
+						legend: { display: false },
+						tooltip: {
+							backgroundColor: theme.tooltipBg,
+							titleColor: theme.text,
+							bodyColor: theme.text,
+							footerColor: theme.muted,
+							borderColor: theme.tooltipBorder,
+							borderWidth: 1,
+							padding: 8,
+							displayColors: true,
+							callbacks: {
+								// Hover shows the bucket's full date-time window
+								// (the axis ticks are abbreviated to fit).
+								title: (items: TooltipItem<'line'>[]) => vm.chartTooltipTitle(items),
+								label: (item: TooltipItem<'line'>) =>
+									`${item.dataset.label}: ${item.formattedValue}`,
+								// The drill-down hint the canvas used to carry as a
+								// native `title` attribute.
+								footer: () => vm.t('app.eip-console.chart.clickHint', undefined,
+									'Click a point to focus the list on that period'),
+							},
+						},
+					},
+				},
+			};
+		},
+
+		/** Labels + one dataset per elapsed band, painted the band's colour. */
+		buildChartData(): ChartData<'line', number[], string> {
+			const vm = this as any;
+			const stats = vm.stats as RouteStats | null;
+			const points = vm.chartPoints as StatPoint[];
+			if (!stats || !points.length) return { labels: [], datasets: [] };
+
+			// Band count comes from the server response so the chart always
+			// matches the returned data even if the slider config is mid-edit.
+			const bandCount = points[0]?.bands?.length ?? 0;
+			const segs = vm.bandSegments as BandSegment[];
+			const colorAt = (b: number) => segs[b]?.color || ELAPSED_COLOR_MAP[DEFAULT_BAND_COLORS[b % DEFAULT_BAND_COLORS.length]];
+
+			const labels = points.map((p) => formatBucketLabel(p.bucket, stats.interval,
+				vm.localization.locale || undefined, vm.localization.timeZone || undefined));
+
+			const datasets = [];
+			for (let b = 0; b < bandCount; b++) {
+				const color = colorAt(b);
+				datasets.push({
+					label: segs[b]?.label ?? String(b),
+					data: points.map((p) => p.bands[b] ?? 0),
+					borderColor: color,
+					backgroundColor: color,
+					pointBackgroundColor: color,
+					pointBorderColor: color,
+					borderWidth: 1.75,
+					pointRadius: 2.5,
+					pointHoverRadius: 4,
+					tension: 0,
+					fill: false,
+				});
 			}
+			return { labels, datasets };
+		},
+
+		/**
+		 * Push the current data into the live chart instance. Called from the
+		 * `chartPoints` / `bandSegments` watchers, so a live overlay bump, a
+		 * window slide, or a band colour change all repaint in place.
+		 */
+		syncChart() {
+			const vm = this as any;
+			const chart = vm._chart as Chart | null;
+			if (!chart) return;
+			const data = vm.buildChartData() as ChartData<'line', number[], string>;
+			// Dataset count changes when the user adds / removes an elapsed band;
+			// replacing the array wholesale keeps that case correct.
+			chart.data.labels = data.labels;
+			chart.data.datasets = data.datasets;
+			chart.update('none');
+		},
+
+		/**
+		 * Resolved theme colours for the canvas. Unlike the previous inline SVG,
+		 * a canvas cannot inherit CSS variables, so the values are read from the
+		 * document and re-applied whenever the shell reports a theme change.
+		 *
+		 * The variables use the modern `rgb(r g b / a)` syntax; each is round-
+		 * tripped through a probe element so Chart.js's colour parser only ever
+		 * sees a computed `rgb()` / `rgba()` string.
+		 */
+		chartTheme(): ChartTheme {
+			const muted = resolveCssColor('--text-muted-color', 'rgba(128, 128, 128, 0.5)');
+			return {
+				muted,
+				text: resolveCssColor('--body-color', '#1a1b1f'),
+				axis: withAlpha(muted, 0.4),
+				grid: withAlpha(muted, 0.15),
+				tooltipBg: resolveCssColor('--body-bg', '#ffffff'),
+				tooltipBorder: withAlpha(muted, 0.35),
+			};
+		},
+
+		/** Re-read the theme colours into the live chart (shell theme switch). */
+		applyChartTheme() {
+			const vm = this as any;
+			const chart = vm._chart as Chart | null;
+			if (!chart) return;
+			const theme = vm.chartTheme() as ChartTheme;
+			const opts = chart.options as any;
+			opts.scales.x.border.color = theme.axis;
+			opts.scales.x.ticks.color = theme.muted;
+			opts.scales.y.grid.color = theme.grid;
+			opts.scales.y.ticks.color = theme.muted;
+			opts.plugins.tooltip.backgroundColor = theme.tooltipBg;
+			opts.plugins.tooltip.titleColor = theme.text;
+			opts.plugins.tooltip.bodyColor = theme.text;
+			opts.plugins.tooltip.footerColor = theme.muted;
+			opts.plugins.tooltip.borderColor = theme.tooltipBorder;
+			chart.update('none');
+		},
+
+		/** Tooltip heading: the hovered bucket's full date-time window. */
+		chartTooltipTitle(items: TooltipItem<'line'>[]): string {
+			const vm = this as any;
+			const stats = vm.stats as RouteStats | null;
+			const points = vm.chartPoints as StatPoint[];
+			const i = items[0]?.dataIndex ?? -1;
+			if (!stats || i < 0 || i >= points.length) return '';
+			const from = points[i].bucket;
+			const to = i < points.length - 1 ? points[i + 1].bucket : stats.to;
+			return formatBucketRange(from, to,
+				vm.localization.locale || undefined, vm.localization.timeZone || undefined);
 		},
 
 		// =====================================================
 		// Chart drill-down — click a bucket to focus the list on its window.
-		// (The chart SVG is rendered via v-html, so we map the click x to the
-		// nearest bucket here rather than binding per-point handlers.)
+		// Chart.js resolves the click to the nearest bucket for us ('index'
+		// mode with intersect:false, i.e. anywhere in the column counts).
 		// =====================================================
-		onChartClick(e: MouseEvent) {
+		onChartPointClick(elements: ActiveElement[]) {
 			const vm = this as any;
 			const stats = vm.stats as RouteStats | null;
 			if (!stats || !stats.points.length) return;
-			const area = (e.currentTarget as HTMLElement);
-			const rect = area.getBoundingClientRect();
-			if (rect.width <= 0) return;
-			// Map client x → viewBox x → bucket index (chartSvg padding padL/padR).
-			const padL = 48, padR = 16;
-			const vbx = ((e.clientX - rect.left) / rect.width) * vm.chartWidth;
+			if (!elements.length) return;
 			const n = stats.points.length;
-			const innerW = Math.max(1, vm.chartWidth - padL - padR);
-			const xStep = n > 1 ? innerW / (n - 1) : innerW;
-			let i = Math.round((vbx - padL) / xStep);
-			i = Math.max(0, Math.min(n - 1, i));
+			const i = Math.max(0, Math.min(n - 1, elements[0].index));
 			const from = stats.points[i].bucket;
 			const to = i < n - 1 ? stats.points[i + 1].bucket : stats.to;
 			const label = formatBucketLabel(from, stats.interval,
@@ -1017,51 +1192,19 @@ export const App = {
 			return segs[idx]?.label || '';
 		},
 
+		// Badges for a header's wt-property-row: TZ (Date only) + type.
+		headerBadges(h: { type: string }): { label: string }[] {
+			const badges: { label: string }[] = h.type === 'Date' ? [{ label: (this as any).localTZ }] : [];
+			badges.push({ label: h.type });
+			return badges;
+		},
+
 		// =====================================================
 		// Pane toggles & resize
 		// =====================================================
 		toggleSidebarPanel() { (this as any).sidebarPanelVisible = !(this as any).sidebarPanelVisible; },
 		toggleBottomPanel() { (this as any).bottomPanelVisible = !(this as any).bottomPanelVisible; },
 		toggleDetailPanel() { (this as any).detailPanelVisible = !(this as any).detailPanelVisible; },
-
-		onSidebarResizeStart(e: MouseEvent) { this._startResize(e, 'sidebar'); },
-		onBottomResizeStart(e: MouseEvent) { this._startResize(e, 'bottom'); },
-		onDetailResizeStart(e: MouseEvent) { this._startResize(e, 'detail'); },
-
-		_startResize(e: MouseEvent, kind: 'sidebar'|'bottom'|'detail') {
-			const vm = this as any;
-			e.preventDefault();
-			const startSize =
-				kind === 'sidebar' ? vm.sidebarPanelWidth :
-				kind === 'bottom' ? vm.bottomPanelHeight :
-				vm.detailPanelWidth;
-			vm._resizing = { kind, startX: e.clientX, startY: e.clientY, startSize };
-			document.addEventListener('mousemove', vm._onResizeMove);
-			document.addEventListener('mouseup', vm._onResizeEnd);
-		},
-
-		_onResizeMove(e: MouseEvent) {
-			const vm = this as any;
-			const r = vm._resizing;
-			if (!r) return;
-			if (r.kind === 'sidebar') {
-				const dx = e.clientX - r.startX;
-				vm.sidebarPanelWidth = Math.max(180, Math.min(640, r.startSize + dx));
-			} else if (r.kind === 'detail') {
-				const dx = e.clientX - r.startX;
-				vm.detailPanelWidth = Math.max(220, Math.min(720, r.startSize - dx));
-			} else {
-				const dy = e.clientY - r.startY;
-				vm.bottomPanelHeight = Math.max(120, Math.min(600, r.startSize - dy));
-			}
-		},
-
-		_onResizeEnd() {
-			const vm = this as any;
-			vm._resizing = null;
-			document.removeEventListener('mousemove', vm._onResizeMove);
-			document.removeEventListener('mouseup', vm._onResizeEnd);
-		},
 
 		// =====================================================
 		// Refresh — a plain click reloads everything (routes + chart + list).
@@ -2431,17 +2574,40 @@ function bandIndexOf(elapsed: number, boundaries: number[]): number {
 	return boundaries.length;
 }
 
-function escapeXml(s: string): string {
-	return s.replace(/[<>&"']/g, c => {
-		switch (c) {
-			case '<': return '&lt;';
-			case '>': return '&gt;';
-			case '&': return '&amp;';
-			case '"': return '&quot;';
-			case "'": return '&apos;';
-			default: return c;
-		}
-	});
+/**
+ * Resolve a CSS custom property to a colour string Chart.js can parse.
+ *
+ * The webtop theme declares colours in the modern space-separated form
+ * (`rgb(26 27 31 / 0.5)`), which Chart.js's colour parser does not accept, so
+ * the raw value is round-tripped through a probe element and read back as the
+ * browser's computed `rgb()` / `rgba()` form.
+ */
+function resolveCssColor(varName: string, fallback: string): string {
+	try {
+		const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+		if (!raw) return fallback;
+		const probe = document.createElement('span');
+		probe.style.display = 'none';
+		probe.style.color = raw;
+		document.body.appendChild(probe);
+		const resolved = getComputedStyle(probe).color;
+		probe.remove();
+		return resolved || fallback;
+	} catch {
+		return fallback;
+	}
+}
+
+/**
+ * Re-alpha a computed `rgb()` / `rgba()` colour. Used to derive the axis and
+ * grid tints from the single muted text colour, the way the SVG chart did with
+ * a stroke opacity.
+ */
+function withAlpha(color: string, alpha: number): string {
+	const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i.exec(color);
+	if (!m) return color;
+	const baseAlpha = m[4] !== undefined ? Number(m[4]) : 1;
+	return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${(baseAlpha * alpha).toFixed(3)})`;
 }
 
 function formatNumber(v: number): string {
@@ -2485,6 +2651,31 @@ function formatBucketLabel(iso: string, interval: string, locale?: string, timeZ
 	}
 }
 
+/**
+ * Tooltip heading: the hovered bucket's full window, e.g.
+ * "Aug 9, 2026, 14:35 – 14:40" (or "… – Aug 10, 00:00" when the bucket ends on
+ * another day). Unlike the abbreviated axis tick this always carries the date,
+ * which is the point of hovering.
+ */
+function formatBucketRange(fromIso: string, toIso: string, locale?: string, timeZone?: string): string {
+	try {
+		const from = new Date(fromIso);
+		const to = new Date(toIso);
+		const tz = timeZone || undefined;
+		const dateOpts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric', timeZone: tz };
+		const timeOpts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', timeZone: tz };
+		const fromDay = from.toLocaleDateString(locale || undefined, dateOpts);
+		const toDay = to.toLocaleDateString(locale || undefined, dateOpts);
+		const head = `${fromDay} ${from.toLocaleTimeString(locale || undefined, timeOpts)}`;
+		const tail = fromDay === toDay
+			? to.toLocaleTimeString(locale || undefined, timeOpts)
+			: `${toDay} ${to.toLocaleTimeString(locale || undefined, timeOpts)}`;
+		return `${head} – ${tail}`;
+	} catch {
+		return fromIso;
+	}
+}
+
 // Mount the app
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { BUILD_VERSION } from "../../utils/build-version.js";
@@ -2504,6 +2695,9 @@ async function loadEipCanvasTemplate(): Promise<void> {
 	}
 }
 
-loadEipCanvasTemplate().then(() => {
-	VDOM.createApp(App).mount('#app');
-});
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
+VDOM.createApp(App).mount('#app');

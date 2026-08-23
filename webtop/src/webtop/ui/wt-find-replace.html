@@ -1,0 +1,52 @@
+<template id="wt-find-replace">
+	<div class="wt-find-replace">
+		<div class="wt-find-replace-group">
+			<label class="wt-find-replace-label">{{ text('find', 'Find') }}</label>
+			<div class="wt-find-replace-field">
+				<input ref="findInput" type="text" class="wt" :value="modelValue"
+					:placeholder="text('findPlaceholder', 'Find...')" spellcheck="false"
+					@input="onTermInput($event.target.value)" @keydown="onTermKeydown($event)">
+				<button v-if="modelValue" type="button" class="wt-find-replace-clear"
+					@click="clearTerm" :title="text('clear', 'Clear')">
+					<i class="bi bi-x"></i>
+				</button>
+			</div>
+			<div class="wt-find-replace-toolbar">
+				<button type="button" class="wt-find-replace-opt" :class="{active: caseSensitive}"
+					@click="toggle('caseSensitive')" :title="text('matchCase', 'Match case')">Aa</button>
+				<button type="button" class="wt-find-replace-opt" :class="{active: wholeWord}"
+					@click="toggle('wholeWord')" :title="text('wholeWord', 'Whole word')">ab</button>
+				<button type="button" class="wt-find-replace-opt" :class="{active: regex}"
+					@click="toggle('regex')" :title="text('regex', 'Regex')">.*</button>
+				<span class="wt-find-replace-spacer"></span>
+				<button type="button" class="btn-icon" @click="$emit('find-prev')" :title="text('previous', 'Previous (Shift+Enter)')">
+					<i class="bi bi-chevron-up"></i>
+				</button>
+				<button type="button" class="btn-icon" @click="$emit('find-next')" :title="text('next', 'Next (Enter)')">
+					<i class="bi bi-chevron-down"></i>
+				</button>
+			</div>
+		</div>
+
+		<div class="wt-find-replace-group">
+			<label class="wt-find-replace-label">{{ text('replace', 'Replace') }}</label>
+			<div class="wt-find-replace-field">
+				<input type="text" class="wt" :value="replace"
+					:placeholder="text('replacePlaceholder', 'Replace...')" spellcheck="false"
+					@input="onReplaceInput($event.target.value)" @keydown="onReplaceKeydown($event)">
+				<button v-if="replace" type="button" class="wt-find-replace-clear"
+					@click="onReplaceInput('')" :title="text('clear', 'Clear')">
+					<i class="bi bi-x"></i>
+				</button>
+			</div>
+			<div class="wt-find-replace-actions">
+				<button type="button" class="wt wt-primary wt-outlined wt-slim fs-small"
+					@click="$emit('replace')" :disabled="!modelValue">{{ text('replace', 'Replace') }}</button>
+				<button type="button" class="wt wt-primary wt-outlined wt-slim fs-small"
+					@click="$emit('replace-all')" :disabled="!modelValue">{{ text('replaceAll', 'All') }}</button>
+			</div>
+		</div>
+
+		<div class="wt-find-replace-status"><slot name="status" :term="modelValue"></slot></div>
+	</div>
+</template>

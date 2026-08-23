@@ -35,13 +35,43 @@ public class GroovyScriptEngineFactory extends org.codehaus.groovy.jsr223.Groovy
 
 	private final String fWorkspaceName;
 
+	/**
+	 * The engine for the current class loader, and the loader it was built for.
+	 * <p>
+	 * A fresh {@code GroovyScriptEngineImpl} per call means a fresh compiled class
+	 * per call: the engine's script cache is what stops a script being recompiled,
+	 * and a discarded engine takes its cache with it. Every {@code Class} that
+	 * produces stays in metaspace, so a part invoked once per record over a large
+	 * import compiles — and leaks — once per record.
+	 * <p>
+	 * The engine is keyed by class loader rather than simply held forever, so that
+	 * redeploying the workspace's classes yields a new engine and lets the old one,
+	 * along with everything it compiled, be collected.
+	 */
+	private volatile GroovyClassLoader fClassLoader;
+	private volatile ScriptEngine fScriptEngine;
+
 	public GroovyScriptEngineFactory(String workspaceName) {
 		fWorkspaceName = workspaceName;
 	}
 
 	@Override
 	public ScriptEngine getScriptEngine() {
-		return new GroovyScriptEngineImpl(Adaptables.getAdapter(getWorkspaceClassLoaderProvider().getClassLoader(), GroovyClassLoader.class));
+		GroovyClassLoader classLoader = Adaptables
+				.getAdapter(getWorkspaceClassLoaderProvider().getClassLoader(), GroovyClassLoader.class);
+
+		ScriptEngine scriptEngine = fScriptEngine;
+		if (scriptEngine != null && fClassLoader == classLoader) {
+			return scriptEngine;
+		}
+
+		synchronized (this) {
+			if (fScriptEngine == null || fClassLoader != classLoader) {
+				fScriptEngine = new GroovyScriptEngineImpl(classLoader);
+				fClassLoader = classLoader;
+			}
+			return fScriptEngine;
+		}
 	}
 
 	private WorkspaceClassLoaderProvider getWorkspaceClassLoaderProvider() {

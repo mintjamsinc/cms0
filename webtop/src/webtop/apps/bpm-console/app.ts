@@ -6,6 +6,8 @@
  * right panel (detail / variable editor).
  */
 
+import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { BpmServiceGraphQL } from "../../services/bpm-service-graphql.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
@@ -61,6 +63,11 @@ interface DialogState {
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			bpm: null as BpmServiceGraphQL | null,
 			idp: null as IdpServiceGraphQL | null,
@@ -280,6 +287,20 @@ export const App = {
 				vm.instance.windowTitle = vm.t('app.bpm-console.title', undefined, 'BPM Console');
 
 				refreshLocalization(vm.localization, vm.instance);
+
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The popup adapter is passed
+				// here as well: wt-select menus escape the window through the
+				// shell popup API.
+				try {
+					await initUi({ popupAdapter: createShellPopupAdapter(appInstance) });
+				} catch (e) {
+					console.warn('[BpmConsole] Failed to load component templates:', e);
+				}
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 
 				vm.workspace = appInstance.api.workspace;
 
@@ -552,11 +573,6 @@ export const App = {
 			);
 		},
 
-		clearDefSearch() {
-			this.defSearch = '';
-			this.filterDefs();
-		},
-
 		toggleGroupExpand(group: ProcessGroup) {
 			group.expanded = !group.expanded;
 			if (group.expanded) {
@@ -811,28 +827,7 @@ export const App = {
 			}
 		},
 
-		async openTargetVersionPopup(event: MouseEvent) {
-			if (!this.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const candidates = (this.dialog.data.targetCandidates || []) as ProcessDefinition[];
-			const currentId = this.dialog.data.targetId as string;
-			const items = candidates.map((c: ProcessDefinition) => ({
-				id: c.id,
-				label: c.suspended
-					? this.t('app.bpm-console.dialog.targetVersionSuspended', { version: c.version }, 'v{version} (suspended)')
-					: this.t('app.bpm-console.dialog.targetVersionLabel', { version: c.version }, 'v{version}'),
-				selected: c.id === currentId,
-			}));
-			const handle = this.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			this.dialog.data.targetId = String(result);
+		onTargetVersionChange() {
 			this.dialog.data.plan = null;
 			this.loadMigrationPlan();
 		},
@@ -1759,13 +1754,11 @@ export const App = {
 		showDeployDialog() {
 			this.dialog = {
 				type: 'deploy',
-				data: { name: '', fileName: '', bpmnXml: '', dropHighlight: false },
+				data: { name: '', fileName: '', bpmnXml: '' },
 			};
 		},
 
 		async onDeployDrop(event: DragEvent) {
-			this.dialog.data.dropHighlight = false;
-
 			// Check for Content Browser file
 			const webtopFileData = event.dataTransfer?.getData('application/x-webtop-file');
 			if (webtopFileData) {
@@ -1837,6 +1830,14 @@ export const App = {
 			this.bottomTab = tab;
 		},
 
+		// Count shown in a bottom tab's wt-badge. Rendered from the app scope
+		// via the wt-tabs tab slot so it tracks the filtered lists directly.
+		bottomTabCount(tab: BottomTab): number {
+			if (tab === 'instances') return this.filteredInstances.length;
+			if (tab === 'tasks') return this.filteredTasks.length;
+			return this.filteredIncidents.length;
+		},
+
 		// =====================================================================
 		// Dialog
 		// =====================================================================
@@ -1846,109 +1847,25 @@ export const App = {
 		},
 
 		// =====================================================================
-		// Splitters
+		// Variable type change (wt-select drives v.type / v.value directly)
 		// =====================================================================
 
-		onSidebarResizeStart(event: MouseEvent) {
-			event.preventDefault();
-			const startX = event.clientX;
-			const startWidth = this.sidebarPanelWidth;
-
-			const onMove = (e: MouseEvent) => {
-				const dx = e.clientX - startX;
-				this.sidebarPanelWidth = Math.max(180, Math.min(500, startWidth + dx));
-			};
-			const onUp = () => {
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
-
-		onBottomResizeStart(event: MouseEvent) {
-			event.preventDefault();
-			const startY = event.clientY;
-			const startHeight = this.bottomPanelHeight;
-
-			const onMove = (e: MouseEvent) => {
-				const dy = startY - e.clientY;
-				this.bottomPanelHeight = Math.max(80, Math.min(500, startHeight + dy));
-			};
-			const onUp = () => {
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
-
-		onDetailResizeStart(event: MouseEvent) {
-			event.preventDefault();
-			const startX = event.clientX;
-			const startWidth = this.detailPanelWidth;
-
-			const onMove = (e: MouseEvent) => {
-				const dx = startX - e.clientX;
-				this.detailPanelWidth = Math.max(220, Math.min(600, startWidth + dx));
-			};
-			const onUp = () => {
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
-
-		// =====================================================================
-		// Variable type / boolean popup (replaces native <select>)
-		// =====================================================================
-
-		async openVarTypePopup(event: MouseEvent, variable: DialogVariable) {
-			if (!this.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const types = ['String', 'Long', 'Double', 'Boolean', 'Date'];
-			const items = types.map(t => ({
-				id: t,
-				label: t,
-				selected: variable.type === t,
-			}));
-			const handle = this.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			const newType = String(result);
-			variable.type = newType;
+		// Runs after v-model already wrote the new type.
+		onVarTypeChange(variable: DialogVariable) {
 			// Reset value when switching to incompatible types
-			if (newType === 'Boolean' && variable.value !== 'true' && variable.value !== 'false') {
+			if (variable.type === 'Boolean' && variable.value !== 'true' && variable.value !== 'false') {
 				variable.value = 'true';
-			} else if (newType === 'Date') {
+			} else if (variable.type === 'Date') {
 				variable.value = '';
 			}
 		},
 
-		async openVarBoolPopup(event: MouseEvent, variable: DialogVariable) {
-			if (!this.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const items = [
-				{ id: 'true', label: 'true', selected: variable.value === 'true' },
-				{ id: 'false', label: 'false', selected: variable.value === 'false' },
-			];
-			const handle = this.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			variable.value = String(result);
+		// Badges for a variable's wt-property-row: TZ (Date only) + type.
+		varBadges(v: ProcessVariable): { label: string }[] {
+			const type = this.normalizeVarType(v.type);
+			const badges: { label: string }[] = type === 'Date' ? [{ label: this.localTZ }] : [];
+			badges.push({ label: type });
+			return badges;
 		},
 
 		// =====================================================================
@@ -2336,6 +2253,40 @@ export const App = {
 			return this.incidents.filter((i: Incident) => i.activityId === this.diagramFilterElementId);
 		},
 
+		// Bottom panel tabs (counts render as wt-badge via the tab slot —
+		// see bottomTabCount; keeping the items free of counts avoids relying
+		// on computed→computed dependency propagation).
+		bottomTabItems(): { key: BottomTab; icon: string; label: string }[] {
+			return [
+				{ key: 'instances', icon: 'bi-list-task', label: this.t('app.bpm-console.tab.instances', undefined, 'Instances') },
+				{ key: 'tasks', icon: 'bi-person-check', label: this.t('app.bpm-console.tab.userTasks', undefined, 'User Tasks') },
+				{ key: 'incidents', icon: 'bi-exclamation-triangle-fill', label: this.t('app.bpm-console.tab.incidents', undefined, 'Incidents') },
+			];
+		},
+
+		// wt-select items for the dialog variable editors.
+		varTypeItems(): { value: string; label: string }[] {
+			return ['String', 'Long', 'Double', 'Boolean', 'Date'].map(t => ({ value: t, label: t }));
+		},
+
+		boolItems(): { value: string; label: string }[] {
+			return [
+				{ value: 'true', label: 'true' },
+				{ value: 'false', label: 'false' },
+			];
+		},
+
+		// wt-select items for the migrate dialog's target version picker.
+		targetVersionItems(): { value: string; label: string }[] {
+			const candidates = (this.dialog.data.targetCandidates || []) as ProcessDefinition[];
+			return candidates.map((c: ProcessDefinition) => ({
+				value: c.id,
+				label: c.suspended
+					? this.t('app.bpm-console.dialog.targetVersionSuspended', { version: c.version }, 'v{version} (suspended)')
+					: this.t('app.bpm-console.dialog.targetVersionLabel', { version: c.version }, 'v{version}'),
+			}));
+		},
+
 		// Map of activityId → unresolved incident count (for diagram overlay).
 		incidentsByActivityId(): Record<string, number> {
 			const map: Record<string, number> = {};
@@ -2391,6 +2342,10 @@ export const App = {
 	},
 };
 
-// Mount the app
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

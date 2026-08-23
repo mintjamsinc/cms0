@@ -24,6 +24,7 @@ package org.mintjams.rt.cms.internal.eip;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -37,19 +38,27 @@ import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 
+import org.apache.camel.AggregationStrategy;
 import org.apache.camel.CamelContext;
+import org.apache.camel.Exchange;
 import org.apache.camel.ProducerTemplate;
 import org.apache.camel.model.ModelCamelContext;
 import org.apache.camel.model.RouteConfigurationDefinition;
 import org.apache.camel.spi.RoutesLoader;
 import org.apache.camel.support.PluginHelper;
 import org.mintjams.jcr.nodetype.NodeType;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.script.ScriptReader;
+import org.mintjams.rt.cms.internal.script.Scripts;
+import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.script.ScriptingContext;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.io.IOs;
 import org.mintjams.tools.lang.Cause;
+import org.mintjams.tools.lang.Strings;
 import org.mintjams.tools.osgi.Registration;
 import org.osgi.service.event.Event;
 import org.osgi.service.event.EventConstants;
@@ -61,6 +70,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 	private final Closer fCloser = Closer.create();
 	private final Map<String, List<String>> fDeployments = new HashMap<>();
 	private final Map<String, List<String>> fRouteConfigDeployments = new HashMap<>();
+	private final Map<String, AggregationStrategyImpl> fAggregationStrategies = new HashMap<>();
 	private WorkspaceCamelContext fCamelContext;
 	private ProducerTemplate fProducerTemplate;
 
@@ -100,8 +110,10 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 			}
 		});
 
-		Deployer deployer = fCloser.register(new Deployer());
-		deployer.open();
+		AggregationStrategyDeployer aggregationStrategyDeployer = fCloser.register(new AggregationStrategyDeployer());
+		aggregationStrategyDeployer.open();
+		RouteDeployer routeDeployer = fCloser.register(new RouteDeployer());
+		routeDeployer.open();
 	}
 
 	@Override
@@ -153,7 +165,22 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		}
 	}
 
-	private void deploy(Node item) throws IOException, RepositoryException {
+	public AggregationStrategy getAggregationStrategy(String beanName) {
+		if (Strings.isBlank(beanName)) {
+			throw new IllegalArgumentException("beanName is blank.");
+		}
+
+		synchronized (fAggregationStrategies) {
+			for (AggregationStrategyImpl strategy : fAggregationStrategies.values()) {
+				if (strategy.matches(beanName)) {
+					return strategy;
+				}
+			}
+			return null;
+		}
+	}
+
+	private void deployRoute(Node item) throws IOException, RepositoryException {
 		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FILE_NAME)) {
 			synchronized (fDeployments) {
 				String itemPath = item.getPath();
@@ -237,7 +264,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FOLDER_NAME)) {
 			NodeIterator i = item.getNodes();
 			while (i.hasNext()) {
-				deploy(i.nextNode());
+				deployRoute(i.nextNode());
 			}
 			return;
 		}
@@ -293,7 +320,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		}
 	}
 
-	private void undeploy(String itemPath, Event event) throws IOException, RepositoryException {
+	private void undeployRoute(String itemPath, Event event) throws IOException, RepositoryException {
 		String nodeType = event.getProperty("type").toString();
 
 		if (nodeType.equals(NodeType.NT_FILE_NAME)) {
@@ -357,14 +384,82 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		}
 	}
 
-	private class Deployer implements EventHandler, Closeable {
+	private void deployAggregationStrategy(Node item, List<String> rootPaths) throws IOException, RepositoryException {
+		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FILE_NAME)) {
+			synchronized (fAggregationStrategies) {
+				String itemPath = item.getPath();
+				try {
+					AggregationStrategyImpl strategy = new AggregationStrategyImpl(item, rootPaths);
+
+					fAggregationStrategies.put(itemPath, strategy);
+				} catch (Throwable cause) {
+					throw Cause.create(cause).wrap(IOException.class);
+				}
+
+				CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/DEPLOYED", AdaptableMap.<String, Object>newBuilder()
+						.put("path", itemPath)
+						.put("type", item.getPrimaryNodeType().getName())
+						.put("workspace", getWorkspaceName())
+						.build());
+			}
+			return;
+		}
+
+		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FOLDER_NAME)) {
+			NodeIterator i = item.getNodes();
+			while (i.hasNext()) {
+				deployAggregationStrategy(i.nextNode(), rootPaths);
+			}
+			return;
+		}
+	}
+
+	private void undeployAggregationStrategy(String itemPath, Event event) throws IOException, RepositoryException {
+		String nodeType = event.getProperty("type").toString();
+
+		if (nodeType.equals(NodeType.NT_FILE_NAME)) {
+			synchronized (fAggregationStrategies) {
+				AggregationStrategyImpl strategy = fAggregationStrategies.remove(itemPath);
+
+				if (strategy != null) {
+					CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/UNDEPLOYED", AdaptableMap.<String, Object>newBuilder()
+							.put("path", itemPath)
+							.put("type", nodeType)
+							.put("workspace", getWorkspaceName())
+							.build());
+				}
+			}
+			return;
+		}
+
+		if (nodeType.equals(NodeType.NT_FOLDER_NAME)) {
+			synchronized (fAggregationStrategies) {
+				for (String path : fAggregationStrategies.keySet().toArray(String[]::new)) {
+					if (path.startsWith(itemPath + "/")) {
+						AggregationStrategyImpl strategy = fAggregationStrategies.remove(path);
+
+						if (strategy != null) {
+							CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/UNDEPLOYED", AdaptableMap.<String, Object>newBuilder()
+									.put("path", path)
+									.put("type", NodeType.NT_FILE_NAME)
+									.put("workspace", getWorkspaceName())
+									.build());
+						}
+					}
+				}
+			}
+			return;
+		}
+	}
+
+	private class RouteDeployer implements EventHandler, Closeable {
 		private Thread fThread;
 		private boolean fCloseRequested;
 		private final List<Event> fEvents = new ArrayList<>();
 		private final List<String> fPaths = new ArrayList<>();
 		private Registration<EventHandler> fEventHandlerRegistration;
 
-		private Deployer() {
+		private RouteDeployer() {
 			fPaths.add("/etc/eip/routes");
 			fPaths.add("/content/WEB-INF/routes");
 		}
@@ -377,7 +472,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 			}
 		}
 
-		private Deployer open() throws IOException, RepositoryException {
+		private RouteDeployer open() throws IOException, RepositoryException {
 			if (fThread != null) {
 				return this;
 			}
@@ -387,7 +482,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 				session = CmsService.getRepository().login(new CmsServiceCredentials(), getWorkspaceName());
 				for (String e : fPaths) {
 					try {
-						deploy(session.getNode(e));
+						deployRoute(session.getNode(e));
 					} catch (PathNotFoundException ignore) {
 						// Ignore if the path does not exist
 					} catch (Throwable ex) {
@@ -463,7 +558,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 							if (topic.endsWith("/MOVED")) {
 								String srcPath = event.getProperty("source_path").toString();
 								if (pathMatches(srcPath)) {
-									undeploy(srcPath, event);
+									undeployRoute(srcPath, event);
 								}
 							}
 
@@ -480,7 +575,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 							Session session = null;
 							try {
 								session = CmsService.getRepository().login(new CmsServiceCredentials(), getWorkspaceName());
-								deploy(session.getNodeByIdentifier(event.getProperty("identifier").toString()));
+								deployRoute(session.getNodeByIdentifier(event.getProperty("identifier").toString()));
 							} finally {
 								try {
 									session.logout();
@@ -492,7 +587,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 								continue;
 							}
 
-							undeploy(path, event);
+							undeployRoute(path, event);
 						}
 					} catch (Throwable ex) {
 						CmsService.getLogger(getClass()).error("An error occurred while processing the event: " + event, ex);
@@ -508,6 +603,277 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 				}
 				return false;
 			}
+		}
+	}
+
+	private class AggregationStrategyDeployer implements EventHandler, Closeable {
+		private Thread fThread;
+		private boolean fCloseRequested;
+		private final List<Event> fEvents = new ArrayList<>();
+		private final List<String> fPaths = new ArrayList<>();
+		private Registration<EventHandler> fEventHandlerRegistration;
+
+		private AggregationStrategyDeployer() {
+			fPaths.add("/etc/eip/strategies/aggregation");
+		}
+
+		@Override
+		public void handleEvent(Event event) {
+			synchronized (fEvents) {
+				fEvents.add(event);
+				fEvents.notifyAll();
+			}
+		}
+
+		private AggregationStrategyDeployer open() throws IOException, RepositoryException {
+			if (fThread != null) {
+				return this;
+			}
+
+			Session session = null;
+			try {
+				session = CmsService.getRepository().login(new CmsServiceCredentials(), getWorkspaceName());
+				for (String e : fPaths) {
+					try {
+						deployAggregationStrategy(session.getNode(e), fPaths);
+					} catch (PathNotFoundException ignore) {
+						// Ignore if the path does not exist
+					} catch (Throwable ex) {
+						CmsService.getLogger(getClass()).error("Failed to deploy items under " + e, ex);
+					}
+				}
+			} finally {
+				try {
+					session.logout();
+				} catch (Throwable ignore) {}
+			}
+
+			fThread = new Thread(new Task());
+			fThread.setDaemon(true);
+			fThread.start();
+
+			fEventHandlerRegistration = fCloser.register(Registration.newBuilder(EventHandler.class)
+					.setService(this)
+					.setProperty(EventConstants.EVENT_TOPIC, new String[] { Node.class.getName().replace(".", "/") + "/*" })
+					.setProperty(EventConstants.EVENT_FILTER, "(workspace=" + getWorkspaceName() + ")")
+					.setBundleContext(CmsService.getDefault().getBundleContext())
+					.build());
+
+			return this;
+		}
+
+		@Override
+		public void close() throws IOException {
+			if (fCloseRequested) {
+				return;
+			}
+
+			fCloseRequested = true;
+			IOs.closeQuietly(fEventHandlerRegistration);
+			synchronized (fEvents) {
+				fEvents.notifyAll();
+			}
+			try {
+				fThread.interrupt();
+				fThread.join(10000);
+			} catch (InterruptedException ignore) {}
+			fThread = null;
+			fCloseRequested = false;
+		}
+
+		private class Task implements Runnable {
+			@Override
+			public void run() {
+				while (!fCloseRequested) {
+					if (Thread.interrupted()) {
+						fCloseRequested = true;
+						break;
+					}
+					Event event;
+					synchronized (fEvents) {
+						if (fEvents.isEmpty()) {
+							try {
+								fEvents.wait();
+							} catch (InterruptedException ignore) {}
+							continue;
+						}
+
+						event = fEvents.remove(0);
+						if (Thread.interrupted()) {
+							fCloseRequested = true;
+							break;
+						}
+					}
+
+					try {
+						String topic = event.getTopic();
+						if (topic.endsWith("/ADDED") || topic.endsWith("/CHANGED") || topic.endsWith("/MOVED")) {
+							if (topic.endsWith("/MOVED")) {
+								String srcPath = event.getProperty("source_path").toString();
+								if (pathMatches(srcPath)) {
+									undeployAggregationStrategy(srcPath, event);
+								}
+							}
+
+							String path = event.getProperty("path").toString();
+							if (!pathMatches(path)) {
+								continue;
+							}
+
+							String type = event.getProperty("type").toString();
+							if (!type.equals(NodeType.NT_FILE_NAME)) {
+								continue;
+							}
+
+							Session session = null;
+							try {
+								session = CmsService.getRepository().login(new CmsServiceCredentials(), getWorkspaceName());
+								deployAggregationStrategy(session.getNodeByIdentifier(event.getProperty("identifier").toString()), fPaths);
+							} finally {
+								try {
+									session.logout();
+								} catch (Throwable ignore) {}
+							}
+						} else if (topic.endsWith("/REMOVED")) {
+							String path = event.getProperty("path").toString();
+							if (!pathMatches(path)) {
+								continue;
+							}
+
+							undeployAggregationStrategy(path, event);
+						}
+					} catch (Throwable ex) {
+						CmsService.getLogger(getClass()).error("An error occurred while processing the event: " + event, ex);
+					}
+				}
+			}
+
+			private boolean pathMatches(String path) {
+				for (String e : fPaths) {
+					if (path.startsWith(e + "/")) {
+						return true;
+					}
+				}
+				return false;
+			}
+		}
+	}
+
+	private class AggregationStrategyImpl implements AggregationStrategy {
+		private final String fRootPath;
+		private final String fRelPath;
+		private final String fBeanName;
+		private final String fSource;
+
+		private AggregationStrategyImpl(Node item, List<String> rootPaths) throws RepositoryException, IOException {
+			String rootPath = null;
+			for (String path : rootPaths) {
+				if (path.endsWith("/")) {
+					path = path.substring(0, path.length() - 1);
+				}
+				if (!item.getPath().startsWith(path + "/")) {
+					continue;
+				}
+				if (!JCRs.isFile(item)) {
+					throw new IllegalArgumentException("The aggregation strategy must be a file node: " + item.getPath());
+				}
+				if (!item.getName().endsWith(".groovy")) {
+					throw new IllegalArgumentException("The aggregation strategy must be a Groovy script file: " + item.getPath());
+				}
+				rootPath = path;
+				break;
+			}
+			if (rootPath == null) {
+				new IllegalArgumentException("The aggregation strategy must be deployed under one of the following paths: " + rootPaths);
+			}
+			fRootPath = rootPath;
+			String relPath = item.getPath().substring(rootPath.length());
+			relPath = relPath.startsWith("/") ? relPath.substring(1) : relPath;
+			fRelPath = relPath;
+			String beanName = relPath.substring(0, relPath.length() - ".groovy".length());
+			beanName = beanName.replace("/", ".");
+			fBeanName = beanName;
+			fSource = JCRs.getContentAsString(item);
+		}
+
+		public boolean matches(String beanName) {
+			return (fBeanName.equals(beanName) || fBeanName.equals(beanName.replace("/", ".")));
+		}
+
+		@Override
+		public Exchange aggregate(Exchange oldExchange, Exchange newExchange) {
+			Map<String, Object> bindings = new HashMap<>();
+			bindings.put("oldExchange", oldExchange);
+			bindings.put("newExchange", newExchange);
+			return eval(bindings, newExchange);
+		}
+
+		@Override
+		public Exchange aggregate(Exchange oldExchange, Exchange newExchange, Exchange inputExchange) {
+			Map<String, Object> bindings = new HashMap<>();
+			bindings.put("oldExchange", oldExchange);
+			bindings.put("newExchange", newExchange);
+			bindings.put("inputExchange", inputExchange);
+			return eval(bindings, newExchange);
+		}
+
+		private Exchange eval(Map<String, Object> env, Exchange exchange) {
+			ScriptingContext context = (ScriptingContext) getEnv("mi:cms.context", exchange);
+			WorkspaceScriptContext scriptingContext = null;
+			if (!(context instanceof WorkspaceScriptContext)) {
+				scriptingContext = new WorkspaceScriptContext(getWorkspaceName());
+				try {
+					Scripts.prepareAPIs(scriptingContext);
+				} catch (IOException ex) {
+					throw Cause.create(ex).wrap(IllegalStateException.class, "Failed to prepare APIs for the scripting context.");
+				}
+				context = scriptingContext;
+			}
+
+			try (ScriptReader scriptReader = new ScriptReader(new StringReader(fSource))) {
+				for (Map.Entry<String, Object> entry : env.entrySet()) {
+					context.setAttribute(entry.getKey(), entry.getValue());
+				}
+				return (Exchange) scriptReader
+						.setScriptName("inline")
+						.setExtension("groovy")
+						.setScriptEngineManager(Scripts.getScriptEngineManager(context))
+						.setClassLoader(Scripts.getClassLoader(context))
+						.setScriptContext(context)
+						.eval();
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(IllegalStateException.class, "Failed to evaluate the aggregation strategy script.");
+			} finally {
+				for (String key : env.keySet()) {
+					context.removeAttribute(key);
+				}
+				if (scriptingContext != null) {
+					try {
+						scriptingContext.close();
+					} catch (Throwable ignore) {}
+				}
+			}
+		}
+
+		private Object getEnv(String name, Exchange exchange) {
+			name = name.trim();
+			if (Strings.isEmpty(name)) {
+				throw new IllegalArgumentException("The name of the environment variable must not be empty.");
+			}
+
+			Object value = exchange.getProperty(name);
+			if (value instanceof String key) {
+				if (key.startsWith("@property.")) {
+					return exchange.getProperty(key.substring("@property.".length()));
+				}
+				if (key.startsWith("@header.")) {
+					return exchange.getIn().getHeader(key.substring("@header.".length()));
+				}
+				if (key.equalsIgnoreCase("@body")) {
+					return exchange.getIn().getBody();
+				}
+			}
+			return value;
 		}
 	}
 

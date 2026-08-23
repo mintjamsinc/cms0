@@ -18,8 +18,15 @@
 
 <body>
 <div id="app" v-cloak class="d-flex flex-column"
-	:class="{ 'is-resizing': isResizing }"
+	:class="{ 'is-resizing': resizingPane }"
 	@mounted="onMounted" @unmount="onUnmount">
+
+	<!-- Readiness gate: the screen is compiled only after appLaunch() has
+	     loaded the component templates and flipped isReady, so every <wt-*>
+	     element is connected with its <template> already present. A
+	     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+	     unchanged; the gated markup is intentionally not re-indented. -->
+	<template v-if="isReady">
 
 	<!-- =================================================================
 	     Top Toolbar
@@ -43,7 +50,8 @@
 				@click="onRefreshClick"
 				:disabled="refreshing"
 				:title="t('app.eip-console.toolbar.refresh', undefined, 'Refresh')">
-				<i class="bi bi-arrow-clockwise" :class="{spin: refreshing}"></i>
+				<wt-spinner v-if="refreshing" size="sm"></wt-spinner>
+				<i v-else class="bi bi-arrow-clockwise"></i>
 			</button>
 		</div>
 
@@ -55,10 +63,11 @@
 		</div>
 
 		<!-- Live indicator — reflects the /var/eip/history subscription -->
-		<span class="eip-live" :class="{ connected: liveConnected }"
-			:title="liveConnected ? t('app.eip-console.toolbar.liveOn', undefined, 'Live updates on') : t('app.eip-console.toolbar.liveOff', undefined, 'Live updates off')">
-			<span class="eip-live-dot"></span>{{ liveConnected ? t('app.eip-console.toolbar.live', undefined, 'Live') : t('app.eip-console.toolbar.offline', undefined, 'Offline') }}
-		</span>
+		<wt-live-indicator class="ms-2" :connected="liveConnected"
+			:on-label="t('app.eip-console.toolbar.live', undefined, 'Live')"
+			:off-label="t('app.eip-console.toolbar.offline', undefined, 'Offline')"
+			:on-title="t('app.eip-console.toolbar.liveOn', undefined, 'Live updates on')"
+			:off-title="t('app.eip-console.toolbar.liveOff', undefined, 'Live updates off')"></wt-live-indicator>
 
 		<span class="nav-spacer"></span>
 
@@ -219,16 +228,8 @@
 					<div class="filter-label-row" style="margin-bottom: 0.5rem;">
 						<label class="filter-label">{{ t('app.eip-console.filter.route', undefined, 'Route') }}</label>
 					</div>
-					<div class="input-group">
-						<input type="text" class="wt"
-							v-model="manageFilterText"
-							:placeholder="t('app.eip-console.route.filterPlaceholder', undefined, 'Filter by Route ID...')">
-						<div v-if="manageFilterText" class="input-group-actions">
-							<button class="input-group-btn" @click="manageFilterText = ''" :title="t('app.eip-console.action.clear', undefined, 'Clear')">
-								<i class="bi bi-x"></i>
-							</button>
-						</div>
-					</div>
+					<wt-search-box v-model="manageFilterText"
+						:placeholder="t('app.eip-console.route.filterPlaceholder', undefined, 'Filter by Route ID...')"></wt-search-box>
 				</div>
 
 				<div class="list-body">
@@ -247,7 +248,7 @@
 								<div class="tree-group-name">{{ group.name }}</div>
 								<div class="tree-group-key">{{ group.key }}</div>
 							</div>
-							<span class="bpm-badge bpm-badge-version">{{ group.routes.length }}</span>
+							<wt-badge>{{ group.routes.length }}</wt-badge>
 						</div>
 						<div v-if="group.expanded">
 							<div v-for="route in group.routes" :key="route.routeId"
@@ -259,10 +260,10 @@
 									<div class="tree-leaf-name">
 										<i class="bi bi-pin-map tree-node-icon"></i>
 										<span>{{ route.routeId }}</span>
-										<span v-if="route.exchangesFailed && route.exchangesFailed > 0"
-											class="bpm-badge bpm-badge-error" :title="t('app.eip-console.route.failedExchanges', undefined, 'Failed exchanges')">
+										<wt-badge v-if="route.exchangesFailed && route.exchangesFailed > 0"
+											variant="danger" :title="t('app.eip-console.route.failedExchanges', undefined, 'Failed exchanges')">
 											<i class="bi bi-exclamation-triangle-fill"></i>{{ route.exchangesFailed }}
-										</span>
+										</wt-badge>
 									</div>
 									<div v-if="route.description" class="tree-leaf-sub">{{ route.description }}</div>
 								</div>
@@ -277,8 +278,8 @@
 			</div>
 		</div>
 
-		<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
-			@mousedown="onSidebarResizeStart"></div>
+		<wt-splitter v-if="sidebarPanelVisible" v-model:size="sidebarPanelWidth" :min="180" :max="640"
+			@resize-start="resizingPane = true" @resize-end="resizingPane = false"></wt-splitter>
 
 		<!-- ====================================================
 		     CENTER — upper (Stats chart) + lower (History list)
@@ -288,7 +289,7 @@
 			<!-- Upper: chart (graph screen) or route model (routes screen) -->
 			<div class="content-upper island p-0">
 				<!-- GRAPH: time-series chart -->
-				<div v-if="view === 'graph'" class="eip-chart-area" v-resize="onChartResize">
+				<div v-if="view === 'graph'" class="eip-chart-area">
 					<div v-if="statsLoading && !stats" class="eip-empty">
 						<i class="bi bi-hourglass-split"></i> {{ t('common.loading', undefined, 'Loading…') }}
 					</div>
@@ -296,13 +297,17 @@
 						<i class="bi bi-bar-chart"></i> {{ t('app.eip-console.empty.noChartData', undefined, 'No data for the selected range') }}
 					</div>
 					<template v-else>
-						<svg class="eip-chart"
-							:viewBox="'0 0 ' + chartWidth + ' ' + chartHeight"
-							preserveAspectRatio="none"
-							@click="onChartClick(event)"
-							:title="t('app.eip-console.chart.clickHint', undefined, 'Click a point to focus the list on that period')">
-							<g v-html="chartSvg"></g>
-						</svg>
+						<!-- Chart.js canvas. The wrapper owns the layout box and the
+						     canvas is absolutely positioned inside it, so Chart.js can
+						     size the canvas to the wrapper without the canvas feeding
+						     its own size back into the flex layout. -->
+						<div class="eip-chart-canvas">
+							<!-- No `title` here: the hover tooltip carries the
+							     drill-down hint in its footer, and a native
+							     tooltip would overlap it. -->
+							<canvas class="eip-chart" ref="chartCanvas"
+								@mounted="onChartMounted" @unmount="onChartUnmount"></canvas>
+						</div>
 						<div class="eip-chart-legend">
 							<span v-for="seg in bandSegments" :key="'lg' + seg.index" class="legend-item">
 								<span class="legend-swatch" :style="{ background: seg.color }"></span>{{ seg.label }}
@@ -325,8 +330,8 @@
 				</div>
 			</div>
 
-			<div v-if="bottomPanelVisible" class="bottom-resize-handle"
-				@mousedown="onBottomResizeStart"></div>
+			<wt-splitter v-if="bottomPanelVisible" direction="row" reverse v-model:size="bottomPanelHeight" :min="120" :max="600"
+				@resize-start="resizingPane = true" @resize-end="resizingPane = false"></wt-splitter>
 
 			<!-- Lower: history list (Filter above the table, status bar at bottom) -->
 			<div v-if="bottomPanelVisible" class="content-lower island p-0"
@@ -340,16 +345,8 @@
 							<i class="bi bi-x"></i>
 						</button>
 					</span>
-					<div class="input-group">
-						<input type="text" class="wt"
-							v-model="filterText"
-							:placeholder="t('app.eip-console.history.filterPlaceholder', undefined, 'Filter by Business key / Exchange ID / Route ID')">
-						<div v-if="filterText" class="input-group-actions">
-							<button class="input-group-btn" @click="filterText = ''" :title="t('app.eip-console.action.clear', undefined, 'Clear')">
-								<i class="bi bi-x"></i>
-							</button>
-						</div>
-					</div>
+					<wt-search-box v-model="filterText"
+						:placeholder="t('app.eip-console.history.filterPlaceholder', undefined, 'Filter by Business key / Exchange ID / Route ID')"></wt-search-box>
 				</div>
 
 				<div class="content-list" @scroll="onHistoryScroll(event)">
@@ -437,8 +434,8 @@
 			</div>
 		</div>
 
-		<div v-if="detailPanelVisible" class="detail-resize-handle"
-			@mousedown="onDetailResizeStart"></div>
+		<wt-splitter v-if="detailPanelVisible" reverse v-model:size="detailPanelWidth" :min="220" :max="720"
+			@resize-start="resizingPane = true" @resize-end="resizingPane = false"></wt-splitter>
 
 		<!-- ====================================================
 		     RIGHT PANE — detail
@@ -467,54 +464,28 @@
 				<div v-if="activeDetailType === 'route' && managedRoute">
 					<div class="detail-section-header">{{ t('app.eip-console.filter.route', undefined, 'Route') }}</div>
 					<div class="detail-section-body">
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.detail.routeId', undefined, 'Route ID') }}</div>
-							<div class="detail-prop-value"><code>{{ managedRoute.routeId }}</code></div>
-						</div>
-						<div v-if="managedRoute.description" class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.detail.description', undefined, 'Description') }}</div>
-							<div class="detail-prop-value">{{ managedRoute.description }}</div>
-						</div>
-						<div v-if="managedRoute.group" class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.detail.group', undefined, 'Group') }}</div>
-							<div class="detail-prop-value">{{ managedRoute.group }}</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.column.status', undefined, 'Status') }}</div>
-							<div class="detail-prop-value">
+						<wt-property-row :name="t('app.eip-console.detail.routeId', undefined, 'Route ID')">
+							<template v-slot:value="p"><code>{{ managedRoute.routeId }}</code></template>
+						</wt-property-row>
+						<wt-property-row v-if="managedRoute.description" :name="t('app.eip-console.detail.description', undefined, 'Description')" :model-value="managedRoute.description"></wt-property-row>
+						<wt-property-row v-if="managedRoute.group" :name="t('app.eip-console.detail.group', undefined, 'Group')" :model-value="managedRoute.group"></wt-property-row>
+						<wt-property-row :name="t('app.eip-console.column.status', undefined, 'Status')">
+							<template v-slot:value="p">
 								<span class="bpm-status" :class="(managedRoute.status || '').toLowerCase()">
 									{{ routeStatusLabel(managedRoute.status) }}
 								</span>
-							</div>
-						</div>
-						<div v-if="managedRoute.uptime" class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.detail.uptime', undefined, 'Uptime') }}</div>
-							<div class="detail-prop-value">{{ managedRoute.uptime }}</div>
-						</div>
+							</template>
+						</wt-property-row>
+						<wt-property-row v-if="managedRoute.uptime" :name="t('app.eip-console.detail.uptime', undefined, 'Uptime')" :model-value="managedRoute.uptime"></wt-property-row>
 					</div>
 
 					<div class="detail-section-header">{{ t('app.eip-console.detail.exchanges', undefined, 'Exchanges') }}</div>
 					<div class="detail-section-body">
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.stats.total', undefined, 'Total') }}</div>
-							<div class="detail-prop-value">{{ managedRoute.exchangesTotal || 0 }}</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.status.completed', undefined, 'Completed') }}</div>
-							<div class="detail-prop-value">{{ managedRoute.exchangesCompleted || 0 }}</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.status.failed', undefined, 'Failed') }}</div>
-							<div class="detail-prop-value">{{ managedRoute.exchangesFailed || 0 }}</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.stats.inflight', undefined, 'Inflight') }}</div>
-							<div class="detail-prop-value">{{ managedRoute.exchangesInflight || 0 }}</div>
-						</div>
-						<div v-if="managedRoute.meanProcessingTime != null" class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.stats.meanProcessingTime', undefined, 'Mean processing time') }}</div>
-							<div class="detail-prop-value">{{ Math.round(managedRoute.meanProcessingTime) }} ms</div>
-						</div>
+						<wt-property-row :name="t('app.eip-console.stats.total', undefined, 'Total')" :model-value="managedRoute.exchangesTotal || 0"></wt-property-row>
+						<wt-property-row :name="t('app.eip-console.status.completed', undefined, 'Completed')" :model-value="managedRoute.exchangesCompleted || 0"></wt-property-row>
+						<wt-property-row :name="t('app.eip-console.status.failed', undefined, 'Failed')" :model-value="managedRoute.exchangesFailed || 0"></wt-property-row>
+						<wt-property-row :name="t('app.eip-console.stats.inflight', undefined, 'Inflight')" :model-value="managedRoute.exchangesInflight || 0"></wt-property-row>
+						<wt-property-row v-if="managedRoute.meanProcessingTime != null" :name="t('app.eip-console.stats.meanProcessingTime', undefined, 'Mean processing time')" :model-value="Math.round(managedRoute.meanProcessingTime) + ' ms'"></wt-property-row>
 					</div>
 
 					<div class="detail-section-header">{{ t('app.eip-console.detail.actions', undefined, 'Actions') }}</div>
@@ -542,48 +513,30 @@
 				<div v-if="activeDetailType === 'exchange' && selectedExchange">
 					<div class="detail-section-header">{{ t('app.eip-console.detail.overview', undefined, 'Overview') }}</div>
 					<div class="detail-section-body">
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.column.exchangeId', undefined, 'Exchange ID') }}</div>
-							<div class="detail-prop-value"><code>{{ selectedExchange.exchangeId }}</code></div>
-						</div>
-						<div v-if="selectedExchange.businessKey" class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.column.businessKey', undefined, 'Business Key') }}</div>
-							<div class="detail-prop-value">{{ selectedExchange.businessKey }}</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.column.started', undefined, 'Started') }}</div>
-							<div class="detail-prop-value">{{ formatTime(selectedExchange.createdAt) }}</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.detail.ended', undefined, 'Ended') }}</div>
-							<div class="detail-prop-value">{{ formatTime(selectedExchange.completedAt) }}</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.column.status', undefined, 'Status') }}</div>
-							<div class="detail-prop-value">
+						<wt-property-row :name="t('app.eip-console.column.exchangeId', undefined, 'Exchange ID')">
+							<template v-slot:value="p"><code>{{ selectedExchange.exchangeId }}</code></template>
+						</wt-property-row>
+						<wt-property-row v-if="selectedExchange.businessKey" :name="t('app.eip-console.column.businessKey', undefined, 'Business Key')" :model-value="selectedExchange.businessKey"></wt-property-row>
+						<wt-property-row :name="t('app.eip-console.column.started', undefined, 'Started')" :model-value="formatTime(selectedExchange.createdAt)"></wt-property-row>
+						<wt-property-row :name="t('app.eip-console.detail.ended', undefined, 'Ended')" :model-value="formatTime(selectedExchange.completedAt)"></wt-property-row>
+						<wt-property-row :name="t('app.eip-console.column.status', undefined, 'Status')">
+							<template v-slot:value="p">
 								<span class="bpm-status" :class="selectedExchange.status">{{ statusLabel(selectedExchange.status) }}</span>
-							</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.column.elapsed', undefined, 'Elapsed') }}</div>
-							<div class="detail-prop-value">{{ selectedExchange.elapsed }} ms</div>
-						</div>
-						<div class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.filter.route', undefined, 'Route') }}</div>
-							<div class="detail-prop-value">{{ selectedExchange.routeId }}</div>
-						</div>
-						<div v-if="selectedExchange.exceptionType" class="detail-prop">
-							<div class="detail-prop-label">{{ t('app.eip-console.detail.exception', undefined, 'Exception') }}</div>
-							<div class="detail-prop-value">
+							</template>
+						</wt-property-row>
+						<wt-property-row :name="t('app.eip-console.column.elapsed', undefined, 'Elapsed')" :model-value="selectedExchange.elapsed + ' ms'"></wt-property-row>
+						<wt-property-row :name="t('app.eip-console.filter.route', undefined, 'Route')" :model-value="selectedExchange.routeId"></wt-property-row>
+						<wt-property-row v-if="selectedExchange.exceptionType" :name="t('app.eip-console.detail.exception', undefined, 'Exception')">
+							<template v-slot:value="p">
 								<strong>{{ selectedExchange.exceptionType }}</strong><br>
 								<span class="muted">{{ selectedExchange.exceptionMessage }}</span>
-							</div>
-						</div>
+							</template>
+						</wt-property-row>
 					</div>
 
 					<div class="detail-section-header">{{ t('app.eip-console.detail.executionPath', undefined, 'Execution Path') }}</div>
 					<div class="detail-section-body">
-						<div v-if="!exchangeStepRows || exchangeStepRows.length === 0" class="detail-prop-value muted">
+						<div v-if="!exchangeStepRows || exchangeStepRows.length === 0" class="text-muted">
 							{{ t('app.eip-console.empty.noSteps', undefined, 'No steps recorded') }}
 						</div>
 						<div v-else class="step-timeline">
@@ -612,16 +565,12 @@
 
 					<div class="detail-section-header">{{ t('app.eip-console.detail.headers', undefined, 'Headers') }}</div>
 					<div class="detail-section-body">
-						<div v-if="!exchangeHeaders.length" class="detail-prop-value muted">{{ t('app.eip-console.empty.noHeaders', undefined, 'No headers') }}</div>
-						<div v-else class="bpm-var-list">
-							<div v-for="h in exchangeHeaders" :key="h.name" class="bpm-var-item">
-								<div class="bpm-var-header">
-									<span class="bpm-var-name">{{ h.name }}</span>
-									<span v-if="h.type === 'Date'" class="bpm-tz-badge">{{ localTZ }}</span>
-									<span class="bpm-type-badge">{{ h.type }}</span>
-								</div>
-								<div class="bpm-var-value" :class="{ muted: h.value === '—' }">{{ h.type === 'Date' ? formatTime(h.value) : h.value }}</div>
-							</div>
+						<div v-if="!exchangeHeaders.length" class="text-muted">{{ t('app.eip-console.empty.noHeaders', undefined, 'No headers') }}</div>
+						<div v-else>
+							<wt-property-row v-for="h in exchangeHeaders" :key="h.name"
+								:name="h.name" :badges="headerBadges(h)" :muted="h.value === '—'">
+								<template v-slot:value="p">{{ h.type === 'Date' ? formatTime(h.value) : h.value }}</template>
+							</wt-property-row>
 						</div>
 					</div>
 
@@ -661,34 +610,25 @@
 	     ================================================================= -->
 
 	<!-- Route control confirmation (Start / Stop / Suspend / Resume) -->
-	<div v-if="dialog && dialog.kind === 'routeAction'" class="dialog-overlay">
-		<div class="dialog-frame" style="max-width: 28rem;">
-			<div class="island p-2">
-				<div class="dialog-header">
-					<div class="dialog-header-top">
-						<h3>
-							<i class="bi" :class="dialog.icon"></i>
-							{{ dialog.title }}
-						</h3>
-						<button class="btn-icon" @click="closeDialog"><i class="bi bi-x-lg"></i></button>
-					</div>
-				</div>
-				<div class="dialog-body">
-					<p>{{ dialog.message }}</p>
-					<p v-if="dialog.hint" class="dialog-help-text">{{ dialog.hint }}</p>
-				</div>
-				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog" :disabled="dialog.busy">{{ t('common.cancel', undefined, 'Cancel') }}</button>
-					<button class="wt" :class="dialog.confirmClass"
-						:disabled="dialog.busy"
-						@click="executeRouteAction">
-						<span v-if="dialog.busy"><i class="bi bi-hourglass-split"></i> {{ t('app.eip-console.dialog.working', undefined, 'Working…') }}</span>
-						<span v-else>{{ dialog.confirmLabel }}</span>
-					</button>
-				</div>
-			</div>
-		</div>
-	</div>
+	<wt-dialog :open="!!dialog && dialog.kind === 'routeAction'" size="sm" @close="closeDialog">
+		<template v-slot:title="d">
+			<i class="bi" :class="dialog.icon"></i>
+			{{ dialog.title }}
+		</template>
+		<template v-slot="d">
+			<p>{{ dialog.message }}</p>
+			<p v-if="dialog.hint" class="dialog-help-text">{{ dialog.hint }}</p>
+		</template>
+		<template v-slot:footer="d">
+			<button class="wt" @click="closeDialog" :disabled="dialog.busy">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+			<button class="wt" :class="dialog.confirmClass"
+				:disabled="dialog.busy"
+				@click="executeRouteAction">
+				<span v-if="dialog.busy"><i class="bi bi-hourglass-split"></i> {{ t('app.eip-console.dialog.working', undefined, 'Working…') }}</span>
+				<span v-else>{{ dialog.confirmLabel }}</span>
+			</button>
+		</template>
+	</wt-dialog>
 
 	<!-- =================================================================
 	     RAW JSON viewer — full-screen CodeMirror overlay (read-only)
@@ -737,26 +677,24 @@
 		</div>
 	</div>
 
-	<!-- Error message dialog -->
-	<div v-if="dialog && dialog.kind === 'errorMessage'" class="dialog-overlay dialog-overlay-message">
-		<div class="dialog-frame" style="max-width: 32rem;">
-			<div class="island p-2">
-				<div class="dialog-header">
-					<div class="dialog-header-top">
-						<h3><i class="bi bi-exclamation-triangle text-danger"></i> {{ t('common.error', undefined, 'Error') }}</h3>
-						<button class="btn-icon" @click="closeDialog"><i class="bi bi-x-lg"></i></button>
-					</div>
-				</div>
-				<div class="dialog-body">
-					<p>{{ dialog.message }}</p>
-				</div>
-				<div class="dialog-footer">
-					<button class="wt wt-primary" @click="closeDialog">{{ t('common.ok', undefined, 'OK') }}</button>
-				</div>
-			</div>
-		</div>
-	</div>
+	<!-- Error message dialog — declared after every other dialog: all
+	     wt-dialog overlays share the same z-index, so DOM order is what keeps
+	     the notice painted on top (the role .dialog-overlay-message used to
+	     play). -->
+	<wt-dialog :open="!!dialog && dialog.kind === 'errorMessage'" @close="closeDialog">
+		<template v-slot:title="d">
+			<i class="bi bi-exclamation-triangle text-danger"></i> {{ t('common.error', undefined, 'Error') }}
+		</template>
+		<template v-slot="d">
+			<p>{{ dialog.message }}</p>
+		</template>
+		<template v-slot:footer="d">
+			<button class="wt wt-primary" @click="closeDialog">{{ t('common.ok', undefined, 'OK') }}</button>
+		</template>
+	</wt-dialog>
 
+	</template>
+	<!-- /Readiness gate -->
 </div>
 
 <script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

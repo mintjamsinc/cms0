@@ -17,6 +17,9 @@
 	"common.error": "Error",
 	"common.minimize": "Minimize",
 	"common.maximize": "Maximize",
+	"webtop.appmenu.category.bpm": "Business Process Management",
+	"webtop.appmenu.category.eip": "Enterprise Integration",
+
 	"webtop.menu.saveSessionAndSignOut": "Save session and sign out",
 	"webtop.menu.signOut": "Sign out",
 	"webtop.session.save.title": "Save Session",

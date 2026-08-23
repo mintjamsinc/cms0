@@ -19,7 +19,7 @@ export type EipType =
 	| 'log' | 'setBody' | 'setHeader' | 'setHeaders' | 'setProperty' | 'setVariable'
 	| 'removeHeader' | 'removeHeaders' | 'transform' | 'marshal' | 'unmarshal' | 'convertBodyTo'
 	// Error Handling
-	| 'onException' | 'doTry' | 'doCatch' | 'doFinally'
+	| 'onException' | 'doTry' | 'doCatch' | 'doFinally' | 'onCompletion'
 	// Control Flow
 	| 'delay' | 'throttle' | 'stop' | 'process' | 'bean' | 'circuitBreaker' | 'threads' | 'step'
 	// Merge (visual-only, not output to XML)
@@ -80,11 +80,18 @@ export interface CamelFlowSemantic {
     conditionType?: 'default' | 'when' | 'otherwise';
     expression?: string;    // Whenの場合の条件式
     language?: string;
+    // 式要素の属性（jsonpath の suppressExceptions など）をラウンドトリップで保持する
+    expressionAttributes?: Record<string, string>;
 
     // doTry用のフロー役割（try/catch/finally）
-    role?: 'try' | 'catch' | 'finally';
+    role?: 'try' | 'catch' | 'finally' | 'completion';
     // catch用の例外クラスリスト
     exceptions?: string[];
+    // doCatch / doFinally 要素自身の id（ラウンドトリップで保持する）
+    blockId?: string;
+    // when / otherwise 要素自身の id。これらはノードではなくフローとして表現される
+    // ため id の置き場所が他に無く、メッセージ履歴は失敗をこの id で報告する。
+    elementId?: string;
 }
 
 // --- DI Layer (Visual Representation) ---

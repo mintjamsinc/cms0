@@ -18,6 +18,13 @@
 	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount"
 		@dragover.prevent="onAppDragOver" @drop.prevent>
 
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. A
+		     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+		     unchanged; the gated markup is intentionally not re-indented. -->
+		<template v-if="isReady">
+
 		<!-- Top Toolbar (translucent) -->
 		<nav class="nav-bar window-drag-region">
 			<!-- Left: Save / Save As -->
@@ -176,16 +183,6 @@
 											<rect x="4" y="4" width="28" height="28" rx="3" fill="#3498DB" stroke="#2980B9" stroke-width="2"/>
 											<path d="M10,18 L16,12 L16,15 L26,15 L26,21 L16,21 L16,24 Z" fill="white"/>
 										</g>
-										<!-- Marshal Icon -->
-										<g v-if="item.type === 'marshal'">
-											<rect x="4" y="4" width="28" height="28" rx="3" fill="#E67E22" stroke="#D35400" stroke-width="2"/>
-											<text x="18" y="23" text-anchor="middle" fill="white" font-size="12" font-weight="bold">{}</text>
-										</g>
-										<!-- Unmarshal Icon -->
-										<g v-if="item.type === 'unmarshal'">
-											<rect x="4" y="4" width="28" height="28" rx="3" fill="#9B59B6" stroke="#8E44AD" stroke-width="2"/>
-											<text x="18" y="23" text-anchor="middle" fill="white" font-size="11" font-weight="bold">{ }</text>
-										</g>
 										<!-- OnException Icon (circle — a flow origin, mirrors From/To) -->
 										<g v-if="item.type === 'onException'">
 											<circle cx="18" cy="18" r="14" fill="#E74C3C" stroke="#C0392B" stroke-width="2"/>
@@ -279,31 +276,19 @@
 			</div>
 
 			<!-- Sidebar resize handle -->
-			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
-				@mousedown="onSidebarResizeStart"></div>
+			<wt-splitter v-if="sidebarPanelVisible" v-model:size="sidebarPanelWidth" :min="180" :max="600"></wt-splitter>
 
 			<!-- Center pane: canvas -->
 			<div class="content-main island p-0"
 				@dragover.prevent.stop="onCenterPaneDragOver" @drop.prevent.stop="onCenterPaneDrop">
 
 				<!-- Header: file tabs -->
-				<div class="file-tabs-bar">
-					<div class="file-tabs">
-						<div v-for="(file, index) in files" :key="file.id"
-							class="file-tab"
-							:class="{active: currentFileIndex === index, modified: file.isModified}"
-							@click="selectTab(index)" :title="file.path || file.name">
-							<span class="file-tab-name">{{ file.name }}</span>
-							<span v-if="file.isModified" class="modified-dot">●</span>
-							<button class="file-tab-close" @click.stop="closeFile(index)" :title="t('common.close', undefined, 'Close')">
-								<i class="bi bi-x"></i>
-							</button>
-						</div>
-						<button class="file-tab-add" @click="newDiagram" :title="t('app.eip-modeler.fileTab.newFile', undefined, 'New file')">
-							<i class="bi bi-plus-lg"></i>
-						</button>
-					</div>
-				</div>
+				<wt-file-tabs :model-value="currentFileIndex" :items="fileTabItems"
+					:add-title="t('app.eip-modeler.fileTab.newFile', undefined, 'New file')"
+					:close-title="t('common.close', undefined, 'Close')"
+					@select="selectTab($event.detail)"
+					@close="closeFile($event.detail)"
+					@add="newDiagram"></wt-file-tabs>
 
 				<!-- Body: canvas -->
 				<div class="canvas-container"
@@ -722,7 +707,7 @@
 										<use :href="spriteUrl + '#canvas-loop'" x="0" y="0" width="60" height="60"/>
 										<text class="node-label-light" x="95" y="26" text-anchor="middle" font-weight="600">{{ t('app.eip-modeler.canvas.node.loop', undefined, 'Loop') }}</text>
 										<text class="node-label-light" x="95" y="40" text-anchor="middle" font-size="9">
-											{{ activeStore.getProcessor(shape.semanticId).properties.simple || '3' }}x
+											{{ activeStore.getProcessor(shape.semanticId).properties.expression || '3' }}x
 										</text>
 										<circle class="port output-port" :cx="shape.bounds.width" :cy="shape.bounds.height/2" r="5"
 												@mousedown.stop="onOutputPortMouseDown(event, shape.semanticId)"/>
@@ -829,8 +814,7 @@
 			</div>
 
 			<!-- Detail resize handle -->
-			<div v-if="detailPanelVisible" class="detail-resize-handle"
-				@mousedown="onPropertiesPanelResizeStart"></div>
+			<wt-splitter v-if="detailPanelVisible" reverse v-model:size="propertiesPanelWidth" :min="200" :max="600"></wt-splitter>
 
 			<!-- Right pane: properties -->
 			<div v-if="detailPanelVisible" class="detail-panel island p-0"
@@ -858,23 +842,13 @@
 						<div v-if="activeStore?.getProcessor(selectedFlow.sourceRef)?.type === 'choice'" class="property-group">
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.routeType', undefined, 'Route Type') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openFlowConditionTypeDropdown(event)">
-										<span class="wt-select-value">{{ flowConditionTypeLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
+								<wt-select class="w-100" :model-value="selectedFlow.conditionType || 'when'"
+									:items="flowConditionTypeItems" @change="onFlowConditionTypeChange($event.detail)"></wt-select>
 							</div>
 							<div class="property-row" v-if="(selectedFlow.conditionType || 'when') === 'when'">
 								<label class="property-label">{{ t('app.eip-modeler.properties.language', undefined, 'Language') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openFlowLanguageDropdown(event)">
-										<span class="wt-select-value">{{ flowLanguageLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
+								<wt-select class="w-100" :model-value="selectedFlow.language || 'simple'"
+									:items="flowLanguageItems" @change="onFlowLanguageChange($event.detail)"></wt-select>
 							</div>
 							<div class="property-row" v-if="(selectedFlow.conditionType || 'when') === 'when'">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
@@ -889,13 +863,8 @@
 						<div v-else-if="activeStore?.getProcessor(selectedFlow.sourceRef)?.type === 'doTry'" class="property-group">
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.blockRole', undefined, 'Block Role') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openFlowRoleDropdown(event)">
-										<span class="wt-select-value">{{ flowRoleLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
+								<wt-select class="w-100" :model-value="selectedFlow.role || 'try'"
+									:items="flowRoleItems" @change="onFlowRoleChange($event.detail)"></wt-select>
 							</div>
 							<div class="property-row" v-if="selectedFlow.role === 'catch'">
 								<label class="property-label">{{ t('app.eip-modeler.properties.exceptionsCommaSeparated', undefined, 'Exceptions (comma separated)') }}</label>
@@ -995,6 +964,59 @@
 									</button>
 								</div>
 							</div>
+							<div class="property-row">
+								<label class="property-label">{{ t('app.eip-modeler.properties.routeProperties', undefined, 'Route Properties') }}</label>
+								<div v-if="getRouteProperties().length > 0" class="parameter-list">
+									<div v-for="(entry, index) in getRouteProperties()" :key="index" class="parameter-item">
+										<input type="text" class="wt" :value="entry.key"
+											@change="updateRoutePropertyKey(index, event)" :placeholder="t('app.eip-modeler.properties.routePropertyKey', undefined, 'Key')"/>
+										<input type="text" class="wt" :value="entry.value"
+											@input="updateRoutePropertyValue(index, event)" :placeholder="t('app.eip-modeler.properties.routePropertyValue', undefined, 'Value')"/>
+										<button class="wt wt-square wt-danger wt-outlined"
+											@click="removeRouteProperty(index)" :title="t('common.remove', undefined, 'Remove')">
+											<i class="bi bi-x"></i>
+										</button>
+									</div>
+								</div>
+								<div v-else class="property-info">
+									<p class="mt-0">{{ t('app.eip-modeler.properties.noRouteProperties', undefined, 'No route properties defined.') }}</p>
+								</div>
+								<div class="parameter-add-row">
+									<button class="wt wt-slim" @click="addRouteProperty">
+										<i class="bi bi-plus me-1"></i>{{ t('common.add', undefined, 'Add') }}
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<!-- OnCompletion Properties -->
+						<div v-if="selectedProcessor?.type === 'onCompletion'" class="property-group">
+							<div class="property-row">
+								<label class="property-label">{{ t('app.eip-modeler.properties.parallelProcessing', undefined, 'Parallel Processing') }}</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.parallelProcessing || ''"
+									@input="updateProperty('parallelProcessing', event)"
+									placeholder="false"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">{{ t('app.eip-modeler.properties.mode', undefined, 'Mode') }}</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.mode || ''"
+									@input="updateProperty('mode', event)"
+									placeholder="AfterConsumer"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">{{ t('app.eip-modeler.properties.onCompleteOnly', undefined, 'On Complete Only') }}</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.onCompleteOnly || ''"
+									@input="updateProperty('onCompleteOnly', event)"/>
+							</div>
+							<div class="property-row">
+								<label class="property-label">{{ t('app.eip-modeler.properties.onFailureOnly', undefined, 'On Failure Only') }}</label>
+								<input type="text" class="wt w-100"
+									:value="selectedProcessor.properties.onFailureOnly || ''"
+									@input="updateProperty('onFailureOnly', event)"/>
+							</div>
 						</div>
 
 						<!-- To Properties -->
@@ -1074,13 +1096,8 @@
 							</div>
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.loggingLevel', undefined, 'Logging Level') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openLoggingLevelDropdown(event)">
-										<span class="wt-select-value">{{ loggingLevelLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
+								<wt-select class="w-100" :model-value="selectedProcessor.properties.loggingLevel || 'INFO'"
+									:items="loggingLevelItems" @change="onLoggingLevelChange($event.detail)"></wt-select>
 							</div>
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.loggerName', undefined, 'Logger Name') }}</label>
@@ -1110,13 +1127,8 @@
 							</div>
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expressionType', undefined, 'Expression Type') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openSetHeaderExpressionTypeDropdown(event)">
-										<span class="wt-select-value">{{ setHeaderExpressionTypeLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
+								<wt-select class="w-100" :model-value="selectedProcessor.properties.expressionType || 'simple'"
+									:items="setHeaderExpressionTypeItems" @change="onExpressionTypeChange($event.detail)"></wt-select>
 							</div>
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
@@ -1136,13 +1148,8 @@
 						<div v-if="selectedProcessor?.type === 'filter'" class="property-group">
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expressionType', undefined, 'Expression Type') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openFilterExpressionTypeDropdown(event)">
-										<span class="wt-select-value">{{ filterExpressionTypeLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
+								<wt-select class="w-100" :model-value="selectedProcessor.properties.expressionType || 'simple'"
+									:items="filterExpressionTypeItems" @change="onExpressionTypeChange($event.detail)"></wt-select>
 							</div>
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
@@ -1156,13 +1163,8 @@
 						<div v-if="selectedProcessor?.type === 'split'" class="property-group">
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expressionType', undefined, 'Expression Type') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openSplitExpressionTypeDropdown(event)">
-										<span class="wt-select-value">{{ splitExpressionTypeLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
+								<wt-select class="w-100" :model-value="selectedProcessor.properties.expressionType || 'simple'"
+									:items="splitExpressionTypeItems" @change="onExpressionTypeChange($event.detail)"></wt-select>
 							</div>
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
@@ -1320,84 +1322,12 @@
 							</div>
 						</div>
 
-						<!-- Marshal Properties -->
-						<div v-if="selectedProcessor?.type === 'marshal'" class="property-group">
-							<div class="property-row">
-								<label class="property-label">{{ t('app.eip-modeler.properties.dataFormat', undefined, 'Data Format') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openMarshalDataFormatDropdown(event)">
-										<span class="wt-select-value">{{ dataFormatLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
-							</div>
-							<div class="property-row" v-if="selectedProcessor.properties.dataFormat === 'json'">
-								<label class="property-label">{{ t('app.eip-modeler.properties.jsonLibrary', undefined, 'JSON Library') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openMarshalLibraryDropdown(event)">
-										<span class="wt-select-value">{{ jsonLibraryLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
-							</div>
-							<div class="property-row">
-								<label>
-									<input type="checkbox" :checked="selectedProcessor.properties.prettyPrint"
-										@change="updatePropertyBoolean('prettyPrint', event)"/>
-									{{ t('app.eip-modeler.properties.prettyPrint', undefined, 'Pretty Print') }}
-								</label>
-							</div>
-							<div class="property-row">
-								<label class="property-label">{{ t('app.eip-modeler.properties.unmarshalType', undefined, 'Unmarshal Type (Java Class)') }}</label>
-								<input type="text" class="wt w-100"
-									:value="selectedProcessor.properties.unmarshalType || ''"
-									@input="updateProperty('unmarshalType', event)" :placeholder="t('app.eip-modeler.properties.unmarshalTypePlaceholder', undefined, 'com.example.MyPojo')"/>
-							</div>
-						</div>
-
-						<!-- Unmarshal Properties -->
-						<div v-if="selectedProcessor?.type === 'unmarshal'" class="property-group">
-							<div class="property-row">
-								<label class="property-label">{{ t('app.eip-modeler.properties.dataFormat', undefined, 'Data Format') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openUnmarshalDataFormatDropdown(event)">
-										<span class="wt-select-value">{{ dataFormatLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
-							</div>
-							<div class="property-row" v-if="selectedProcessor.properties.dataFormat === 'json'">
-								<label class="property-label">{{ t('app.eip-modeler.properties.jsonLibrary', undefined, 'JSON Library') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openUnmarshalLibraryDropdown(event)">
-										<span class="wt-select-value">{{ jsonLibraryLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
-							</div>
-							<div class="property-row">
-								<label class="property-label">{{ t('app.eip-modeler.properties.unmarshalType', undefined, 'Unmarshal Type (Java Class)') }}</label>
-								<input type="text" class="wt w-100"
-									:value="selectedProcessor.properties.unmarshalType || ''"
-									@input="updateProperty('unmarshalType', event)" :placeholder="t('app.eip-modeler.properties.unmarshalTypePlaceholder', undefined, 'com.example.MyPojo')"/>
-							</div>
-						</div>
-
 						<!-- Transform Properties -->
 						<div v-if="selectedProcessor?.type === 'transform'" class="property-group">
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expressionType', undefined, 'Expression Type') }}</label>
-								<div class="wt-select w-100">
-									<button type="button" class="wt-select-trigger"
-										@click.stop="openTransformExpressionTypeDropdown(event)">
-										<span class="wt-select-value">{{ transformExpressionTypeLabel() }}</span>
-										<i class="bi bi-chevron-down wt-select-chevron"></i>
-									</button>
-								</div>
+								<wt-select class="w-100" :model-value="selectedProcessor.properties.expressionType || 'simple'"
+									:items="transformExpressionTypeItems" @change="onExpressionTypeChange($event.detail)"></wt-select>
 							</div>
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expression', undefined, 'Expression') }}</label>
@@ -1437,8 +1367,8 @@
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.expressionSimple', undefined, 'Expression (Simple)') }}</label>
 								<input type="text" class="wt w-100"
-									:value="selectedProcessor.properties.simple || ''"
-									@input="updateProperty('simple', event)" placeholder="${header.recipients}"/>
+									:value="selectedProcessor.properties.expression || ''"
+									@input="updateProperty('expression', event)" placeholder="${header.recipients}"/>
 							</div>
 							<div class="property-row">
 								<label>
@@ -1461,8 +1391,8 @@
 							<div class="property-row">
 								<label class="property-label">{{ t('app.eip-modeler.properties.loopCount', undefined, 'Loop Count (Simple Expression)') }}</label>
 								<input type="text" class="wt w-100"
-									:value="selectedProcessor.properties.simple || ''"
-									@input="updateProperty('simple', event)" placeholder="3"/>
+									:value="selectedProcessor.properties.expression || ''"
+									@input="updateProperty('expression', event)" placeholder="3"/>
 							</div>
 							<div class="property-row">
 								<label>
@@ -1657,73 +1587,56 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.eip-modeler.statusbar.saving', undefined, 'Saving...') }}</span>
+				<span v-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.eip-modeler.statusbar.saving', undefined, 'Saving...') }}</span>
 				<span v-else-if="isModified" class="status-item">{{ t('app.eip-modeler.statusbar.modified', undefined, 'Modified') }}</span>
 				<span v-else class="status-item">{{ t('app.eip-modeler.statusbar.saved', undefined, 'Saved') }}</span>
 			</div>
 		</div>
 
 		<!-- Save As Dialog -->
-		<div v-if="saveAsDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 28rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<div class="dialog-header-top">
-							<h3>{{ t('app.eip-modeler.dialog.saveAs.title', undefined, 'Save As') }}</h3>
-							<button class="btn-icon" @click="closeSaveAsDialog" :title="t('common.close', undefined, 'Close')">
-								<i class="bi bi-x-lg"></i>
-							</button>
-						</div>
+		<wt-dialog :open="saveAsDialog.visible" size="sm" :title="t('app.eip-modeler.dialog.saveAs.title', undefined, 'Save As')" @close="closeSaveAsDialog">
+			<template v-slot="d">
+				<label class="dialog-label">{{ t('app.eip-modeler.dialog.saveAs.fileName', undefined, 'File Name') }}</label>
+				<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
+					:placeholder="t('app.eip-modeler.dialog.saveAs.fileNamePlaceholder', undefined, 'filename.xml')" @keydown.enter="closeSaveAsDialog" />
+				<div class="save-as-chip-area mt-3"
+					@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+					<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
+						<i class="bi bi-file-earmark-code me-1"></i>
+						<span>{{ saveAsDialog.fileName || t('app.eip-modeler.dialog.saveAs.untitled', undefined, 'untitled.xml') }}</span>
 					</div>
-					<div class="dialog-body">
-						<label class="dialog-label">{{ t('app.eip-modeler.dialog.saveAs.fileName', undefined, 'File Name') }}</label>
-						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
-							:placeholder="t('app.eip-modeler.dialog.saveAs.fileNamePlaceholder', undefined, 'filename.xml')" @keydown.enter="closeSaveAsDialog" />
-						<div class="save-as-chip-area mt-3"
-							@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
-							<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
-								<i class="bi bi-file-earmark-code me-1"></i>
-								<span>{{ saveAsDialog.fileName || t('app.eip-modeler.dialog.saveAs.untitled', undefined, 'untitled.xml') }}</span>
-							</div>
-							<p class="text-muted fs-small mt-2 mb-0">
-								{{ t('app.eip-modeler.dialog.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
-							</p>
-						</div>
-					</div>
+					<p class="text-muted fs-small mt-2 mb-0">
+						{{ t('app.eip-modeler.dialog.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
+					</p>
 				</div>
-			</div>
-		</div>
+			</template>
+		</wt-dialog>
 
 		<!-- Loading Overlay -->
-		<div v-if="isLoading" class="loading-overlay flex-column text-center">
-			<span class="loader"></span>
-			<span class="mt-3">{{ t('app.eip-modeler.loading.file', undefined, 'Loading file...') }}</span>
-		</div>
+		<wt-spinner v-if="isLoading" overlay size="lg"></wt-spinner>
 
-		<!-- Close Confirmation Dialog -->
-		<div v-if="closeConfirmDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 32rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.eip-modeler.dialog.close.title', undefined, 'Unsaved Changes') }}</h3>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0">{{ t('app.eip-modeler.dialog.close.body1', undefined, 'The file has unsaved changes.') }}</p>
-						<p>{{ t('app.eip-modeler.dialog.close.body2', undefined, 'Do you want to save your changes before closing?') }}</p>
-					</div>
-					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
-						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
-							<i class="bi bi-trash me-1"></i>{{ t('app.eip-modeler.dialog.close.dontSave', undefined, 'Don\'t Save') }}
-						</button>
-						<button v-if="currentFile?.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
-							<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<!-- Close Confirmation Dialog — no ✕ / Escape: the choice is explicit. -->
+		<wt-dialog :open="closeConfirmDialog.visible" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.eip-modeler.dialog.close.title', undefined, 'Unsaved Changes') }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0">{{ t('app.eip-modeler.dialog.close.body1', undefined, 'The file has unsaved changes.') }}</p>
+				<p>{{ t('app.eip-modeler.dialog.close.body2', undefined, 'Do you want to save your changes before closing?') }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
+					<i class="bi bi-trash me-1"></i>{{ t('app.eip-modeler.dialog.close.dontSave', undefined, 'Don\'t Save') }}
+				</button>
+				<button v-if="currentFile?.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
+					<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
+				</button>
+			</template>
+		</wt-dialog>
 
+		</template>
+		<!-- /Readiness gate -->
 	</div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

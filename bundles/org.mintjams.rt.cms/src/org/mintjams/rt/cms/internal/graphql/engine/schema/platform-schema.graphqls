@@ -211,6 +211,9 @@ type Mutation {
   startImportArchive(input: StartImportArchiveInput!): JobRef!
   """Signal an archive-import job to abort."""
   abortImportArchive(input: AbortImportArchiveInput!): JobRef!
+
+  """Signal one node's search index rebuild job to abort. Rebuild jobs are dispatched by the search-index-rebuild BPMN process (one per cluster node); a job running on another node is marked ABORTING and finalised by that node within its status-poll interval."""
+  abortSearchIndexRebuild(input: AbortSearchIndexRebuildInput!): JobRef!
 }
 
 # =============================================================================
@@ -607,6 +610,10 @@ input StartDeleteNodesInput {
 }
 
 input AbortDeleteNodesInput {
+  jobId: String!
+}
+
+input AbortSearchIndexRebuildInput {
   jobId: String!
 }
 

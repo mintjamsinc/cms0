@@ -1,0 +1,20 @@
+<template id="wt-dialog">
+	<div class="wt-dialog">
+		<div v-if="open" class="dialog-overlay" @click="onOverlayClick($event)" @keydown.escape.document="onEscape">
+			<div class="dialog-frame" :class="'wt-' + size">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<div class="dialog-header-top">
+							<h3><slot name="title">{{ title }}</slot></h3>
+							<button v-if="closable" type="button" class="btn-icon" @click="close">
+								<i class="bi bi-x-lg"></i>
+							</button>
+						</div>
+					</div>
+					<div class="dialog-body"><slot></slot></div>
+					<div class="dialog-footer"><slot name="footer"></slot></div>
+				</div>
+			</div>
+		</div>
+	</div>
+</template>

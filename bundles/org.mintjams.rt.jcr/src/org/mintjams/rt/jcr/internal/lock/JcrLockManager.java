@@ -169,7 +169,12 @@ public class JcrLockManager implements LockManager, Adaptable {
 			AdaptableMap<String,Object> lockData = AdaptableMap.<String, Object>newBuilder()
 					.put("item_id", item.getIdentifier())
 					.put("is_deep", isDeep)
-					.put("session_id", isSessionScoped ? workspaceQuery.getSessionIdentifier().toString() : null)
+					// The acquiring session's identifier, not the throwaway system
+					// session's: unlockSessionScopedLocks() matches on this column
+					// when the acquiring session closes, so recording the system
+					// session here would leave every session-scoped lock held until
+					// its timeout expired.
+					.put("session_id", isSessionScoped ? getWorkspaceQuery().getSessionIdentifier().toString() : null)
 					.put("timeout_hint", timeoutHint)
 					.put("owner_info", ownerInfo)
 					.put("principal_name", fWorkspace.getSession().getUserID())
@@ -279,11 +284,27 @@ public class JcrLockManager implements LockManager, Adaptable {
 		}
 	}
 
+	/**
+	 * Loads the lock tokens this session inherits from its principal.
+	 * <p>
+	 * An open-scoped lock outlives the session that took it, so its token must be
+	 * inherited per principal — otherwise nobody could ever release it. A
+	 * session-scoped lock means "held by that one session" (JSR-283), so its token
+	 * stays with the acquiring session: inheriting it would let a second session
+	 * running as the same user unlock, and write through, a critical section
+	 * someone else is inside. {@code JcrAction.addLockToken} already makes that
+	 * distinction; this is the same rule applied at login.
+	 */
 	public JcrLockManager load() throws IOException {
+		String sessionIdentifier = getWorkspaceQuery().getSessionIdentifier().toString();
 		try (Query.Result result = getWorkspaceQuery().items().listLockTokens()) {
 			for (AdaptableMap<String, Object> r : result) {
 				String lockToken = r.getString("lock_token");
 				if (Strings.isEmpty(lockToken) || fLockTokens.contains(lockToken)) {
+					continue;
+				}
+				String lockSessionIdentifier = r.getString("session_id");
+				if (Strings.isNotEmpty(lockSessionIdentifier) && !lockSessionIdentifier.equals(sessionIdentifier)) {
 					continue;
 				}
 				fLockTokens.add(lockToken);
@@ -291,6 +312,52 @@ public class JcrLockManager implements LockManager, Adaptable {
 			return this;
 		} catch (SQLException ex) {
 			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
+	/**
+	 * Extends the lease on a lock this session holds, so that a finite
+	 * {@code timeoutSeconds} can act as a failover-detection window rather than a
+	 * budget for how long the work may run.
+	 * <p>
+	 * The token pins the exact claim the caller believes it holds: if the lock
+	 * expired and was re-acquired by someone else in the meantime, the row no
+	 * longer carries this token and the refresh fails instead of silently
+	 * extending a stranger's lease. Like {@code lock} and {@code unlock}, the row
+	 * is written through a dedicated system session, so a refresh neither joins
+	 * nor disturbs the caller's transaction.
+	 */
+	public void refresh(String absPath, String lockToken) throws LockException, PathNotFoundException,
+			AccessDeniedException, RepositoryException {
+		if (Strings.isEmpty(lockToken)) {
+			throw new IllegalArgumentException("Invalid lock token: " + lockToken);
+		}
+
+		Node item = fWorkspace.getSession().getNode(absPath);
+		adaptTo(Session.class).checkPrivileges(absPath, Privilege.JCR_LOCK_MANAGEMENT);
+
+		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class)
+				.createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
+			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
+			int count = workspaceQuery.items().refreshLock(item.getIdentifier(), lockToken);
+			if (count == 0) {
+				throw new LockException("Could not refresh the lock on node '" + absPath + "'.");
+			}
+
+			workspaceQuery.journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
+					.put("event_occurred", System.currentTimeMillis())
+					.put("event_type", Event.LOCK_REFRESHED)
+					.put("item_id", item.getIdentifier())
+					.put("item_path", item.getPath())
+					.put("primary_type", item.getPrimaryNodeType().getName())
+					.put("user_id", fWorkspace.getSession().getUserID())
+					.put("user_data", null)
+					.put("event_info", null)
+					.build());
+
+			workspace.getSession().save();
+		} catch (IOException | SQLException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
 	}
 

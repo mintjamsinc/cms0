@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -152,6 +153,10 @@ public class JcrXPathQuery extends SearchIndexQuery {
 	public SearchIndex.QueryResult execute() throws IOException {
 		long startTime = System.currentTimeMillis();
 		SearchIndexQueryResult result = SearchIndexQueryResult.create(this);
+		// Held for the whole run: a rebuild swap must not close this index's
+		// readers under a running search.
+		Lock lock = fSearchIndex.getQueryLock();
+		lock.lock();
 		try {
 			IndexSearcher documentSearcher = fSearchIndex.getDocumentReader().getIndexSearcher();
 			getCompiled(); // compile
@@ -301,13 +306,19 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			}
 
 			Activator.getLogger(getClass()).debug("Execute jcr:xpath query (" + (System.currentTimeMillis() - startTime) + "ms): " + fStatement);
-		} catch (IndexNotFoundException ignore) {}
+		} catch (IndexNotFoundException ignore) {
+		} finally {
+			lock.unlock();
+		}
 		return result;
 	}
 
 	@Override
 	public long count() throws IOException {
 		long startTime = System.currentTimeMillis();
+		// Same swap read lock as execute(): see there.
+		Lock lock = fSearchIndex.getQueryLock();
+		lock.lock();
 		try {
 			IndexSearcher documentSearcher = fSearchIndex.getDocumentReader().getIndexSearcher();
 			getCompiled(); // compile
@@ -316,6 +327,8 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			return count;
 		} catch (IndexNotFoundException ignore) {
 			return 0;
+		} finally {
+			lock.unlock();
 		}
 	}
 
@@ -746,15 +759,24 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					argString.append(c);
 					char quart = c;
 					for (i++;; i++) {
+						if (i >= a.length) {
+							throw new InvalidQuerySyntaxException(fStatement);
+						}
+
 						c = a[i];
+
+						if (c == '\\') {
+							if ((i + 1) >= a.length) {
+								throw new InvalidQuerySyntaxException(fStatement);
+							}
+
+							argString.append(c).append(a[++i]);
+							continue;
+						}
+
 						argString.append(c);
 						if (c == quart) {
 							break;
-						}
-						if (c == '\\') {
-							argString.append('\\');
-							i++;
-							continue;
 						}
 					}
 					continue;
@@ -1602,10 +1624,10 @@ public class JcrXPathQuery extends SearchIndexQuery {
 						return escape(propertyName.substring(1)) + ":*" + escapedValue + "*";
 					}
 
-					throw new InvalidQuerySyntaxException(fStatement);
+					return null;
 				}
 
-				return value;
+				return null;
 			}
 		}
 	}

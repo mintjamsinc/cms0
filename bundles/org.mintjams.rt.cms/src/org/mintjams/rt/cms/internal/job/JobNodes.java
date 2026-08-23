@@ -203,6 +203,21 @@ public final class JobNodes {
 	 * own jobs and leave the other nodes' running jobs alone.
 	 */
 	public static final String PROP_NODE_ID = "jobNodeId";
+	/**
+	 * Search index rebuild jobs: correlates the per-node jobs of one rebuild
+	 * request. A rebuild dispatch creates one job record per cluster node
+	 * (each node rebuilds its own node-local index), all carrying the same
+	 * rebuild id, so a progress view can aggregate them.
+	 */
+	public static final String PROP_REBUILD_ID = "jobRebuildId";
+
+	/**
+	 * The error message recovery stamps on jobs that died with a node restart.
+	 * Services that can safely re-run their kind of job (e.g. the search index
+	 * rebuild, which is idempotent) match on this to distinguish a restart
+	 * casualty from a genuine failure.
+	 */
+	public static final String RESTART_ERROR_MESSAGE = "The node restarted before the job finished.";
 
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private static final DateTimeFormatter YEAR_FMT = DateTimeFormatter.ofPattern("yyyy").withZone(ZoneOffset.UTC);

@@ -24,10 +24,13 @@ package org.mintjams.script.resource.query;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 import javax.jcr.NodeIterator;
+import javax.jcr.RepositoryException;
 
 import org.mintjams.script.resource.Resource;
 import org.mintjams.script.resource.ResourceException;
@@ -77,7 +80,7 @@ public class Query implements Adaptable {
 		return Adaptables.getAdapter(fJcrQuery, adapterType);
 	}
 
-	public class QueryResult {
+	public class QueryResult implements Iterable<Resource> {
 		private final javax.jcr.query.QueryResult fJcrQueryResult;
 		private final long fElapsed;
 		private List<Resource> fResources;
@@ -109,7 +112,7 @@ public class Query implements Adaptable {
 			return fElapsed;
 		}
 
-		public Resource[] getResources() {
+		public List<Resource> getResources() {
 			try {
 				if (fResources == null) {
 					NodeIterator it = fJcrQueryResult.getNodes();
@@ -120,7 +123,16 @@ public class Query implements Adaptable {
 					}
 					fHasMore = it.hasNext();
 				}
-				return fResources.toArray(Resource[]::new);
+				return Collections.unmodifiableList(fResources);
+			} catch (Throwable ex) {
+				throw Cause.create(ex).wrap(IllegalStateException.class);
+			}
+		}
+
+		@Override
+		public Iterator<Resource> iterator() {
+			try {
+				return new ResourceIterator();
 			} catch (Throwable ex) {
 				throw Cause.create(ex).wrap(IllegalStateException.class);
 			}
@@ -139,6 +151,32 @@ public class Query implements Adaptable {
 				return new SuggestionResult();
 			} catch (Throwable ex) {
 				throw Cause.create(ex).wrap(IllegalStateException.class);
+			}
+		}
+
+		public class ResourceIterator implements Iterator<Resource> {
+			private final NodeIterator fNodeIterator;
+
+			private ResourceIterator() throws RepositoryException {
+				fNodeIterator = fJcrQueryResult.getNodes();
+			}
+
+			public long getTotal() {
+				return fNodeIterator.getSize();
+			}
+
+			@Override
+			public boolean hasNext() {
+				return fNodeIterator.hasNext();
+			}
+
+			@Override
+			public Resource next() {
+				try {
+					return new ResourceImpl(fNodeIterator.nextNode(), fQueryManager.adaptTo(Session.class));
+				} catch (Throwable ex) {
+					throw Cause.create(ex).wrap(IllegalStateException.class);
+				}
 			}
 		}
 	}

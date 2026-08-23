@@ -26,6 +26,12 @@ import {
 // Side-effect import: registers the <wt-inspector> custom element.
 import "../../components/wt-inspector.js";
 
+// wt-inspector renders its property rows with wt-* UI components
+// (wt-property-row / wt-badge), so their registrations + templates must be
+// present in this document too. initUi() is awaited next to the inspector
+// template injection in appLaunch, ahead of the readiness gate.
+import { initUi } from "../../ui/index.js";
+
 // Fetch and inject the wt-inspector <template> tag. Mirrors the shell's
 // loadComponent() helper but scoped to this app since the inspector template
 // is not part of the shell's default load list.
@@ -251,6 +257,11 @@ const NAV_SPINNER_DELAY_MS = 300;
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			idp: null as IdpServiceGraphQL | null,
 			currentPath: '/content',
@@ -414,9 +425,15 @@ export const App = {
 				{ id: 'bpmn', label: 'BPMN Document', labelKey: 'bpmn', extension: '.bpmn', mimeType: 'application/bpmn+xml' },
 				{ id: 'eip.xml', label: 'EIP/Route Document', labelKey: 'eipxml', extension: '.eip.xml', mimeType: 'application/vnd.webtop.eip+xml' },
 			],
-			// Selection state
+			// Selection state. The Shift anchor and the keyboard cursor are held
+			// as item ids rather than row indexes: the list is re-sorted,
+			// filtered and reloaded underneath them, and a stale id resolves to
+			// "no row" instead of pointing at whatever moved into that slot.
 			selectedItems: [] as string[],
-			lastSelectedIndex: -1,
+			// Fixed end of a Shift range — Shift+click and Shift+Arrow extend from here.
+			selectionAnchorID: '',
+			// Moving end of a Shift range; the row plain Arrow keys step from.
+			focusedItemID: '',
 			dragSelection: {
 				active: false,
 				startX: 0,
@@ -892,6 +909,17 @@ export const App = {
 			}
 			return this.t('app.content-browser.status.items', { count: total }, `${total} items`);
 		},
+		// True while an opaque progress / conflict panel covers the window
+		// (upload, delete, archive, import — see .upload-overlay and
+		// .conflict-dialog-overlay in style.css). Those panels are inset 1rem
+		// from every edge, so they stop short of the status bar, which is
+		// taller than that and bleeds into #app's bottom padding. The bar is
+		// hidden while one is up, otherwise its lower strip peeks out below the
+		// panel with the text cut in half. Same guard the Workspace Manager
+		// uses while a lifecycle operation runs.
+		progressOverlayVisible(): boolean {
+			return !!(this.uploadMonitor || this.deleteMonitor || this.archiveMonitor || this.importMonitor);
+		},
 	},
 	watch: {
 		// Push the current folder path to the shell so the Dock hover preview
@@ -910,18 +938,13 @@ export const App = {
 		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
 			return translate(this.localization, this.instance, messageId, params, fallback);
 		},
-		async onMounted() {
+		// Synchronous on purpose: window.appLaunch must be defined by the time
+		// this returns, so the shell finds it on the first try instead of
+		// polling for it (see wt-window.ts `appLaunch not found after waiting`).
+		// Everything that needs a fetch — the wt-* templates, the inspector
+		// template — is awaited inside appLaunch(), ahead of the readiness gate.
+		onMounted() {
 			const vm = this;
-
-			// Inject the wt-inspector <template> into <body> so the custom
-			// element can resolve `template: '#wt-inspector'` once it gets
-			// mounted via the v-if guard below. Must run before any state
-			// path can flip `detailPanelVisible` to true.
-			try {
-				await loadInspectorTemplate();
-			} catch (e) {
-				console.warn('[ContentBrowser] Failed to load wt-inspector template:', e);
-			}
 
 			// Register click-outside listener for dropdowns
 			vm.navClickOutsideListener = (e: MouseEvent) => vm.onNavClickOutside(e);
@@ -1026,6 +1049,23 @@ export const App = {
 
 				// snapshot the effective Localization preference
 				refreshLocalization(vm.localization, vm.instance);
+
+				// --- Readiness gate ---
+				// Load every component template BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The inspector template is
+				// loaded here too: <wt-inspector> sits behind detailPanelVisible,
+				// which loadDetailPanelState() above may already have set.
+				try {
+					await Promise.all([initUi(), loadInspectorTemplate()]);
+				} catch (e) {
+					console.warn('[ContentBrowser] Failed to load component templates:', e);
+				}
+
+				// Opening the gate builds the screen. The panel state, theme and
+				// localization resolved above are already in place, so it appears
+				// fully formed.
+				vm.isReady = true;
 
 				// Use initialPath from launch options if provided (e.g. opened for reference browsing)
 				if (options?.initialPath) {
@@ -1455,7 +1495,8 @@ export const App = {
 			const item = (this.items as any[]).find((i: any) => i.path === path);
 			if (!item) return;
 			this.selectedItems = [item.id];
-			this.lastSelectedIndex = (this.items as any[]).findIndex((i: any) => i.id === item.id);
+			this.selectionAnchorID = item.id;
+			this.focusedItemID = item.id;
 			this.$nextTick(() => {
 				const row = document.querySelector('.content-list tbody tr.item-selected');
 				row?.scrollIntoView({ block: 'nearest' });
@@ -1995,29 +2036,50 @@ export const App = {
 		},
 		clearSelection() {
 			this.selectedItems = [];
-			this.lastSelectedIndex = -1;
+			this.selectionAnchorID = '';
+			this.focusedItemID = '';
+		},
+		// Position of an item among the rows the user can actually reach.
+		// `filteredItems` is what the table renders, so ranges and Arrow-key
+		// steps walk that list — a filter must not let a range swallow rows
+		// that are off screen. Returns -1 for an id no longer on the list.
+		visibleIndexOf(id: string): number {
+			if (!id) return -1;
+			return (this.filteredItems as any[]).findIndex((i: any) => i.id === id);
 		},
 		selectItem(item: any, event?: MouseEvent) {
-			const vm = this;
-			const index = vm.items.findIndex((i: any) => i.id === item.id);
 			const e = event || (window.event as MouseEvent);
-			const isCtrlOrCmd = e?.ctrlKey || e?.metaKey || false;
-			const isShift = e?.shiftKey || false;
+			this.applySelection(item, e?.shiftKey || false, e?.ctrlKey || e?.metaKey || false);
+		},
+		// Shared by mouse clicks and Arrow-key navigation. `extend` (Shift)
+		// selects the range from the anchor to `item`; `toggle` (Ctrl/Cmd) adds
+		// or removes a single row without dropping the rest, and combined with
+		// `extend` adds the range to what is already selected.
+		applySelection(item: any, extend: boolean, toggle: boolean) {
+			const vm = this;
+			const list = vm.filteredItems as any[];
+			const index = list.findIndex((i: any) => i.id === item.id);
+			if (index < 0) return;
+			const anchor = vm.visibleIndexOf(vm.selectionAnchorID);
 
-			if (isShift && vm.lastSelectedIndex >= 0) {
-				// Shift+click: range selection
-				const start = Math.min(vm.lastSelectedIndex, index);
-				const end = Math.max(vm.lastSelectedIndex, index);
-				if (!isCtrlOrCmd) {
+			if (extend && anchor >= 0) {
+				// Range selection: rebuild it from scratch (unless Ctrl/Cmd is
+				// also down) so shrinking a range with Shift+Arrow releases the
+				// rows the cursor moved back past.
+				const start = Math.min(anchor, index);
+				const end = Math.max(anchor, index);
+				if (!toggle) {
 					vm.selectedItems = [];
 				}
 				for (let i = start; i <= end; i++) {
-					const id = vm.items[i].id;
+					const id = list[i].id;
 					if (!vm.selectedItems.includes(id)) {
 						vm.selectedItems.push(id);
 					}
 				}
-			} else if (isCtrlOrCmd) {
+				// The anchor deliberately stays put, so the next Shift+click or
+				// Shift+Arrow grows or shrinks this same range.
+			} else if (toggle) {
 				// Ctrl/Cmd+click: toggle selection
 				const idx = vm.selectedItems.indexOf(item.id);
 				if (idx >= 0) {
@@ -2025,14 +2087,97 @@ export const App = {
 				} else {
 					vm.selectedItems.push(item.id);
 				}
-				vm.lastSelectedIndex = index;
+				vm.selectionAnchorID = item.id;
 			} else {
 				// Normal click: single selection
 				vm.selectedItems = [item.id];
-				vm.lastSelectedIndex = index;
+				vm.selectionAnchorID = item.id;
 			}
+			vm.focusedItemID = item.id;
 			// The Inspector reacts to the resulting `inspectorTarget` change
 			// via its own `target` watch; no host action needed here.
+		},
+		// Arrow Up/Down: step the cursor through the visible rows. Holding
+		// Shift grows or shrinks the range from the anchor, exactly as
+		// Shift+click does; holding Ctrl moves only the cursor (see focusRow).
+		// Stops at both ends rather than wrapping.
+		moveSelection(delta: number, extend: boolean, focusOnly: boolean) {
+			const vm = this;
+			const list = vm.filteredItems as any[];
+			if (list.length === 0) return;
+
+			const current = vm.visibleIndexOf(vm.focusedItemID);
+			let next: number;
+			if (current < 0) {
+				// Nothing focused yet, or the focused row was filtered away:
+				// enter the list from the end the key points at, so a single
+				// press always lands on a row.
+				next = delta > 0 ? 0 : list.length - 1;
+			} else {
+				next = current + delta;
+				if (next < 0 || next >= list.length) return;
+			}
+
+			vm.focusRow(next, extend, focusOnly);
+		},
+		// Home / End: jump the cursor to the first / last visible row, with the
+		// same Shift (extend) and Ctrl (cursor only) modifiers as the arrows.
+		jumpSelection(edge: number, extend: boolean, focusOnly: boolean) {
+			const vm = this;
+			const list = vm.filteredItems as any[];
+			if (list.length === 0) return;
+			vm.focusRow(edge > 0 ? list.length - 1 : 0, extend, focusOnly);
+		},
+		// Land the keyboard cursor on a visible row. Ctrl (focusOnly) moves the
+		// cursor without touching the selection or the anchor — Explorer-style
+		// "walk with Ctrl, pick with Space". Shift wins over Ctrl when both are
+		// held: the range from the anchor is added to the existing selection.
+		focusRow(index: number, extend: boolean, focusOnly: boolean) {
+			const vm = this;
+			const item = (vm.filteredItems as any[])[index];
+			if (!item) return;
+			if (extend) {
+				vm.applySelection(item, true, focusOnly);
+			} else if (focusOnly) {
+				vm.focusedItemID = item.id;
+			} else {
+				vm.applySelection(item, false, false);
+			}
+			vm.scrollFocusedIntoView();
+		},
+		// Space: add or remove the cursor row without touching the rest of the
+		// selection — the picking half of Ctrl+Arrow navigation. The toggled
+		// row becomes the anchor (via applySelection), as in Explorer.
+		toggleFocused() {
+			const vm = this;
+			const index = vm.visibleIndexOf(vm.focusedItemID);
+			if (index < 0) return;
+			vm.applySelection((vm.filteredItems as any[])[index], false, true);
+		},
+		// Ctrl+A: select every visible row. The cursor stays where it is (or
+		// enters at the top), and the anchor moves to the first row so a
+		// following Shift+click shrinks from the top edge predictably.
+		selectAllVisible() {
+			const vm = this;
+			const list = vm.filteredItems as any[];
+			if (list.length === 0) return;
+			vm.selectedItems = list.map((i: any) => i.id);
+			vm.selectionAnchorID = list[0].id;
+			if (vm.visibleIndexOf(vm.focusedItemID) < 0) {
+				vm.focusedItemID = list[0].id;
+			}
+		},
+		// Keep the cursor row on screen. Rows carry no id of their own, but the
+		// tbody renders `filteredItems` in order, so the visible index is the
+		// row index.
+		scrollFocusedIntoView() {
+			const vm = this;
+			const index = vm.visibleIndexOf(vm.focusedItemID);
+			if (index < 0) return;
+			vm.$nextTick(() => {
+				const rows = document.querySelectorAll('.content-list tbody tr.item');
+				rows[index]?.scrollIntoView({ block: 'nearest' });
+			});
 		},
 		// Drag selection methods
 		onContentMouseDown(event: MouseEvent) {
@@ -2139,7 +2284,8 @@ export const App = {
 			// 未選択のアイテムを右クリックした場合、そのアイテムを単一選択
 			if (!vm.selectedItems.includes(item.id)) {
 				vm.selectedItems = [item.id];
-				vm.lastSelectedIndex = vm.items.findIndex((i: any) => i.id === item.id);
+				vm.selectionAnchorID = item.id;
+				vm.focusedItemID = item.id;
 			}
 
 			// 選択されたアイテムの情報を取得
@@ -4028,6 +4174,14 @@ export const App = {
 			if (this.backDropdownOpen && !target.closest('.nav-back-wrapper')) {
 				this.backDropdownOpen = false;
 			}
+			// Clicking anywhere outside the path editor cancels editing and
+			// restores the breadcrumb view. `.nav-breadcrumb` is excluded
+			// because the very click that opens edit mode also bubbles up to
+			// this document listener — without the guard it would close the
+			// editor immediately after enterEditMode() opened it.
+			if (this.navEditMode && !target.closest('.nav-edit') && !target.closest('.nav-breadcrumb')) {
+				this.exitEditMode();
+			}
 		},
 		// Localized label for a date-filter mode id ('none'|'today'|'pastN'|'range').
 		// Shared by the filter and per-condition date dropdowns + their labels.
@@ -4760,6 +4914,47 @@ export const App = {
 				return;
 			}
 
+			// Arrow Up/Down: move the selection through the list. Shift+Arrow
+			// extends the range from the anchor, Ctrl+Arrow moves only the
+			// cursor (pick rows with Space). preventDefault stops the list
+			// pane from also scrolling under the cursor.
+			if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+				if ((vm.filteredItems as any[]).length > 0) {
+					event.preventDefault();
+					vm.moveSelection(event.key === 'ArrowDown' ? 1 : -1,
+						event.shiftKey, event.ctrlKey || event.metaKey);
+				}
+				return;
+			}
+			// Home / End: jump to the first / last row, same modifiers as above.
+			if (event.key === 'Home' || event.key === 'End') {
+				if ((vm.filteredItems as any[]).length > 0) {
+					event.preventDefault();
+					vm.jumpSelection(event.key === 'End' ? 1 : -1,
+						event.shiftKey, event.ctrlKey || event.metaKey);
+				}
+				return;
+			}
+			// Space: toggle the cursor row in and out of the selection. Left
+			// alone when a button has focus (Space must still press it) or when
+			// no row has the cursor — then the key keeps its scroll default.
+			if (event.key === ' ') {
+				if (target.tagName === 'BUTTON' || target.tagName === 'A') return;
+				if (vm.visibleIndexOf(vm.focusedItemID) >= 0) {
+					event.preventDefault();
+					vm.toggleFocused();
+				}
+				return;
+			}
+			// Ctrl+A: select all visible rows
+			if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+				if ((vm.filteredItems as any[]).length > 0) {
+					event.preventDefault();
+					vm.selectAllVisible();
+				}
+				return;
+			}
+
 			// Ctrl+C: copy selected items
 			if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
 				if (vm.selectedItems.length > 0) {
@@ -4810,6 +5005,10 @@ export const App = {
 	},
 };
 
-// Mount the app
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting does not have to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

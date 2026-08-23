@@ -18,6 +18,13 @@
 	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount"
 		@dragover.prevent="onAppDragOver" @drop.prevent>
 
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. A
+		     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+		     unchanged; the gated markup is intentionally not re-indented. -->
+		<template v-if="isReady">
+
 		<!-- Top Toolbar (translucent) -->
 		<nav class="nav-bar window-drag-region">
 			<!-- Left: file actions -->
@@ -291,31 +298,19 @@
 			</div>
 
 			<!-- Sidebar resize handle -->
-			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
-				@mousedown="onSidebarResizeStart"></div>
+			<wt-splitter v-if="sidebarPanelVisible" v-model:size="sidebarPanelWidth" :min="180" :max="600"></wt-splitter>
 
 			<!-- Center pane: canvas -->
 			<div class="content-main island p-0"
 				@dragover.prevent.stop="onCenterPaneDragOver" @drop.prevent.stop="onCenterPaneDrop">
 
 				<!-- Header: file tabs -->
-				<div class="file-tabs-bar">
-					<div class="file-tabs">
-						<div v-for="(file, index) in files" :key="file.id"
-							class="file-tab"
-							:class="{active: currentFileIndex === index, modified: file.isModified}"
-							@click="selectTab(index)" :title="file.path || file.name">
-							<span class="file-tab-name">{{ file.name }}</span>
-							<span v-if="file.isModified" class="modified-dot">●</span>
-							<button class="file-tab-close" @click.stop="closeFile(index)" :title="t('common.close', undefined, 'Close')">
-								<i class="bi bi-x"></i>
-							</button>
-						</div>
-						<button class="file-tab-add" @click="newDiagram" :title="t('app.bpmn-modeler.tabs.newFile', undefined, 'New file')">
-							<i class="bi bi-plus-lg"></i>
-						</button>
-					</div>
-				</div>
+				<wt-file-tabs :model-value="currentFileIndex" :items="fileTabItems"
+					:add-title="t('app.bpmn-modeler.tabs.newFile', undefined, 'New file')"
+					:close-title="t('common.close', undefined, 'Close')"
+					@select="selectTab($event.detail)"
+					@close="closeFile($event.detail)"
+					@add="newDiagram"></wt-file-tabs>
 
 				<!-- Body: canvas -->
 				<div class="canvas-container"
@@ -1301,8 +1296,7 @@
 			</div> <!-- /.content-main -->
 
 			<!-- Detail resize handle -->
-			<div v-if="detailPanelVisible" class="detail-resize-handle"
-				@mousedown="onPropertiesPanelResizeStart"></div>
+			<wt-splitter v-if="detailPanelVisible" reverse v-model:size="propertiesPanelWidth" :min="200" :max="600"></wt-splitter>
 
 			<!-- Right pane: properties -->
 			<div v-if="detailPanelVisible" class="detail-panel island p-0"
@@ -1313,26 +1307,9 @@
 				</div>
 				<div class="properties-body">
 					<div v-if="selectedElement">
-						<!-- Property Tabs -->
-						<div class="property-tabs">
-							<button type="button" class="property-tab" :class="{ active: propertyTab === 'general' }" @click="propertyTab = 'general'">
-								{{ t('app.bpmn-modeler.properties.tab.general') }}
-							</button>
-							<button type="button" class="property-tab" :class="{ active: propertyTab === 'forms' }" @click="propertyTab = 'forms'"
-									v-if="selectedElement.type === 'startEvent' || selectedElement.type === 'userTask'">
-								{{ t('app.bpmn-modeler.properties.tab.forms') }}
-							</button>
-							<button type="button" class="property-tab" :class="{ active: propertyTab === 'io' }" @click="propertyTab = 'io'"
-									v-if="selectedElement.type === 'endEvent' || selectedElement.type === 'serviceTask'">
-								{{ t('app.bpmn-modeler.properties.tab.io') }}
-							</button>
-							<button type="button" class="property-tab" :class="{ active: propertyTab === 'listeners' }" @click="propertyTab = 'listeners'">
-								{{ t('app.bpmn-modeler.properties.tab.listeners') }}
-							</button>
-							<button type="button" class="property-tab" :class="{ active: propertyTab === 'extensions' }" @click="propertyTab = 'extensions'">
-								{{ t('app.bpmn-modeler.properties.tab.extensions') }}
-							</button>
-						</div>
+						<!-- Property Tabs (items via a method — the visible set depends on
+						     selectedElement, so the binding re-evaluates on selection) -->
+						<wt-tabs v-model="propertyTab" :items="propertyTabItems()" variant="underline"></wt-tabs>
 
 						<!-- General Tab -->
 						<div v-if="propertyTab === 'general'" class="property-tab-content">
@@ -1389,12 +1366,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.timerEvent') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.timerType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openTimerTypeDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.timerType}">{{ timerTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.timerType || ''" :items="timerTypeItems"
+										@change="onElementChoice('timerType', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.timerType" class="property-row">
 									<label class="property-label">
@@ -1412,12 +1385,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.conditionalEvent') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.conditionType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openConditionTypeDropdown(event)">
-											<span class="wt-select-value">{{ conditionTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.conditionType || 'expression'" :items="conditionTypeItems"
+										@change="onConditionTypeChoice($event.detail)"></wt-select>
 								</div>
 								<!-- Expression Type -->
 								<div v-if="selectedElement.conditionType === 'expression' || !selectedElement.conditionType" class="property-row">
@@ -1429,23 +1398,15 @@
 								<div v-if="selectedElement.conditionType === 'script'">
 									<div class="property-row">
 										<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptType') }}</label>
-										<div class="wt-select w-100">
-											<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptTypeDropdown(event)">
-												<span class="wt-select-value">{{ conditionScriptTypeLabel() }}</span>
-												<i class="bi bi-chevron-down wt-select-chevron"></i>
-											</button>
-										</div>
+										<wt-select class="w-100" :model-value="selectedElement.conditionScriptType || 'inline'" :items="scriptTypeItems"
+											@change="onElementChoice('conditionScriptType', $event.detail)"></wt-select>
 									</div>
 									<!-- Inline Script -->
 									<div v-if="selectedElement.conditionScriptType !== 'external'">
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
-											<div class="wt-select w-100">
-												<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptFormatDropdown(event)">
-													<span class="wt-select-value">{{ conditionScriptFormatLabel() }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="w-100" :model-value="selectedElement.conditionScriptFormat || 'javascript'" :items="scriptFormatJsItems"
+												@change="onElementChoice('conditionScriptFormat', $event.detail)"></wt-select>
 										</div>
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
@@ -1457,12 +1418,8 @@
 									<div v-if="selectedElement.conditionScriptType === 'external'">
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
-											<div class="wt-select w-100">
-												<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptFormatDropdown(event)">
-													<span class="wt-select-value">{{ conditionScriptFormatLabel() }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="w-100" :model-value="selectedElement.conditionScriptFormat || 'javascript'" :items="scriptFormatJsItems"
+												@change="onElementChoice('conditionScriptFormat', $event.detail)"></wt-select>
 										</div>
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.resource') }}</label>
@@ -1590,12 +1547,8 @@
 								<!-- Implementation Type for Message Throw Event -->
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openMessageImplTypeDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.messageImplementationType}">{{ messageImplTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.messageImplementationType || ''" :items="messageImplTypeItems"
+										@change="onElementChoice('messageImplementationType', $event.detail)"></wt-select>
 								</div>
 
 								<!-- Java Class -->
@@ -1662,23 +1615,15 @@
 											 class="connector-param-row">
 											<input type="text" class="wt param-name" v-model="input.name"
 												   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.paramName')">
-											<div class="wt-select param-type">
-												<button type="button" class="wt-select-trigger" @click.stop="openInputTypeDropdown(input, event)">
-													<span class="wt-select-value">{{ paramTypeLabel(input) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="param-type" :model-value="input.type || 'text'" :items="paramTypeItems"
+												@change="onRowChoice(input, 'type', $event.detail)"></wt-select>
 											<div v-if="input.type === 'text'" class="param-value-wrapper">
 												<input type="text" class="wt param-value" v-model="input.value"
 													   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.valueOrExpression')">
 											</div>
 											<div v-if="input.type === 'script'" class="param-script-wrapper">
-												<div class="wt-select param-script-format">
-													<button type="button" class="wt-select-trigger" @click.stop="openParamScriptFormatDropdown(input, event)">
-														<span class="wt-select-value">{{ paramScriptFormatLabel(input) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="param-script-format" :model-value="input.scriptFormat || 'javascript'" :items="paramScriptFormatItems"
+													@change="onRowChoice(input, 'scriptFormat', $event.detail)"></wt-select>
 												<textarea class="wt param-value" v-model="input.value"
 														  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.scriptCode')" rows="2"></textarea>
 											</div>
@@ -1700,23 +1645,15 @@
 											 class="connector-param-row">
 											<input type="text" class="wt param-name" v-model="output.name"
 												   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.variableName')">
-											<div class="wt-select param-type">
-												<button type="button" class="wt-select-trigger" @click.stop="openOutputTypeDropdown(output, event)">
-													<span class="wt-select-value">{{ paramTypeLabel(output) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="param-type" :model-value="output.type || 'text'" :items="paramTypeItems"
+												@change="onRowChoice(output, 'type', $event.detail)"></wt-select>
 											<div v-if="output.type === 'text'" class="param-value-wrapper">
 												<input type="text" class="wt param-value" v-model="output.value"
 													   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.valueOrExpression')">
 											</div>
 											<div v-if="output.type === 'script'" class="param-script-wrapper">
-												<div class="wt-select param-script-format">
-													<button type="button" class="wt-select-trigger" @click.stop="openParamScriptFormatDropdown(output, event)">
-														<span class="wt-select-value">{{ paramScriptFormatLabel(output) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="param-script-format" :model-value="output.scriptFormat || 'javascript'" :items="paramScriptFormatItems"
+													@change="onRowChoice(output, 'scriptFormat', $event.detail)"></wt-select>
 												<textarea class="wt param-value" v-model="output.value"
 														  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.scriptCode')" rows="2"></textarea>
 											</div>
@@ -1739,12 +1676,8 @@
 										 class="field-injection-row">
 										<input type="text" class="wt field-name" v-model="field.name"
 											   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.fieldName')">
-										<div class="wt-select field-type">
-											<button type="button" class="wt-select-trigger" @click.stop="openFieldTypeDropdown(field, event)">
-												<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
-												<i class="bi bi-chevron-down wt-select-chevron"></i>
-											</button>
-										</div>
+										<wt-select class="field-type" :model-value="field.type || 'string'" :items="fieldTypeItems"
+											@change="onRowChoice(field, 'type', $event.detail)"></wt-select>
 										<input type="text" class="wt field-value" v-model="field.value"
 											   @input="onPropertyChange" :placeholder="field.type === 'expression' ? '${...}' : 'Value'">
 										<button type="button" class="btn-remove" @click="removeMessageFieldInjection(index)">×</button>
@@ -1757,12 +1690,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.timerEvent') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.timerType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openTimerTypeDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.timerType}">{{ timerTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.timerType || ''" :items="timerTypeItems"
+										@change="onElementChoice('timerType', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.timerType" class="property-row">
 									<label class="property-label">
@@ -1781,12 +1710,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.conditionalEvent') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.conditionType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openConditionTypeDropdown(event)">
-											<span class="wt-select-value">{{ conditionTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.conditionType || 'expression'" :items="conditionTypeItems"
+										@change="onConditionTypeChoice($event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.conditionType === 'expression' || !selectedElement.conditionType" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
@@ -1940,12 +1865,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.compensationThrowEvent') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.activityRef') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openCompensationActivityRefDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.compensationActivityRef}">{{ compensationActivityRefLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.compensationActivityRef || ''" :items="compensationActivityRefItems()"
+										@change="onElementChoice('compensationActivityRef', $event.detail)"></wt-select>
 								</div>
 								<div class="property-row">
 									<label class="property-checkbox">
@@ -2004,12 +1925,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.timerEvent') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.timerDefinitionType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openTimerTypeShortDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.timerType}">{{ timerTypeShortLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.timerType || ''" :items="timerTypeShortItems"
+										@change="onElementChoice('timerType', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.timerType === 'timeDate'" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.date') }}</label>
@@ -2118,12 +2035,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.conditionalEvent') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.conditionType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openConditionTypeDropdown(event, 'propertyChange')">
-											<span class="wt-select-value">{{ conditionTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.conditionType || 'expression'" :items="conditionTypeItems"
+										@change="onConditionTypeChoice($event.detail, 'propertyChange')"></wt-select>
 								</div>
 								<div v-if="selectedElement.conditionType !== 'script'" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
@@ -2132,12 +2045,8 @@
 								</div>
 								<div v-if="selectedElement.conditionType === 'script'" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptFormatDropdown(event)">
-											<span class="wt-select-value">{{ conditionScriptFormatLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.conditionScriptFormat || 'javascript'" :items="scriptFormatJsItems"
+										@change="onElementChoice('conditionScriptFormat', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.conditionType === 'script'" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
@@ -2174,12 +2083,8 @@
 								<!-- Implementation Type for Message End Event -->
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openMessageImplTypeDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.messageImplementationType}">{{ messageImplTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.messageImplementationType || ''" :items="messageImplTypeItems"
+										@change="onElementChoice('messageImplementationType', $event.detail)"></wt-select>
 								</div>
 
 								<!-- Java Class -->
@@ -2246,23 +2151,15 @@
 											 class="connector-param-row">
 											<input type="text" class="wt param-name" v-model="input.name"
 												   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.paramName')">
-											<div class="wt-select param-type">
-												<button type="button" class="wt-select-trigger" @click.stop="openInputTypeDropdown(input, event)">
-													<span class="wt-select-value">{{ paramTypeLabel(input) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="param-type" :model-value="input.type || 'text'" :items="paramTypeItems"
+												@change="onRowChoice(input, 'type', $event.detail)"></wt-select>
 											<div v-if="input.type === 'text'" class="param-value-wrapper">
 												<input type="text" class="wt param-value" v-model="input.value"
 													   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.valueOrExpression')">
 											</div>
 											<div v-if="input.type === 'script'" class="param-script-wrapper">
-												<div class="wt-select param-script-format">
-													<button type="button" class="wt-select-trigger" @click.stop="openParamScriptFormatDropdown(input, event)">
-														<span class="wt-select-value">{{ paramScriptFormatLabel(input) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="param-script-format" :model-value="input.scriptFormat || 'javascript'" :items="paramScriptFormatItems"
+													@change="onRowChoice(input, 'scriptFormat', $event.detail)"></wt-select>
 												<textarea class="wt param-value" v-model="input.value"
 														  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.scriptCode')" rows="2"></textarea>
 											</div>
@@ -2284,23 +2181,15 @@
 											 class="connector-param-row">
 											<input type="text" class="wt param-name" v-model="output.name"
 												   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.variableName')">
-											<div class="wt-select param-type">
-												<button type="button" class="wt-select-trigger" @click.stop="openOutputTypeDropdown(output, event)">
-													<span class="wt-select-value">{{ paramTypeLabel(output) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="param-type" :model-value="output.type || 'text'" :items="paramTypeItems"
+												@change="onRowChoice(output, 'type', $event.detail)"></wt-select>
 											<div v-if="output.type === 'text'" class="param-value-wrapper">
 												<input type="text" class="wt param-value" v-model="output.value"
 													   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.valueOrExpression')">
 											</div>
 											<div v-if="output.type === 'script'" class="param-script-wrapper">
-												<div class="wt-select param-script-format">
-													<button type="button" class="wt-select-trigger" @click.stop="openParamScriptFormatDropdown(output, event)">
-														<span class="wt-select-value">{{ paramScriptFormatLabel(output) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="param-script-format" :model-value="output.scriptFormat || 'javascript'" :items="paramScriptFormatItems"
+													@change="onRowChoice(output, 'scriptFormat', $event.detail)"></wt-select>
 												<textarea class="wt param-value" v-model="output.value"
 														  @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.scriptCode')" rows="2"></textarea>
 											</div>
@@ -2323,12 +2212,8 @@
 										 class="field-injection-row">
 										<input type="text" class="wt field-name" v-model="field.name"
 											   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.fieldName')">
-										<div class="wt-select field-type">
-											<button type="button" class="wt-select-trigger" @click.stop="openFieldTypeDropdown(field, event)">
-												<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
-												<i class="bi bi-chevron-down wt-select-chevron"></i>
-											</button>
-										</div>
+										<wt-select class="field-type" :model-value="field.type || 'string'" :items="fieldTypeItems"
+											@change="onRowChoice(field, 'type', $event.detail)"></wt-select>
 										<input type="text" class="wt field-value" v-model="field.value"
 											   @input="onPropertyChange"
 											   :placeholder="field.type === 'expression' ? '${...}' : 'Value'">
@@ -2546,12 +2431,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.serviceTask') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openServiceTaskImplDropdown(event)">
-											<span class="wt-select-value">{{ serviceTaskImplLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.implementation || 'class'" :items="serviceTaskImplItems"
+										@change="onElementChoice('implementation', $event.detail)"></wt-select>
 								</div>
 								<div class="property-row" v-if="selectedElement.implementation === 'class'">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
@@ -2577,12 +2458,8 @@
 										 class="field-injection-row">
 										<input type="text" class="wt field-name" v-model="field.name"
 											   @input="onPropertyChange" :placeholder="t('app.bpmn-modeler.properties.placeholder.fieldName')">
-										<div class="wt-select field-type">
-											<button type="button" class="wt-select-trigger" @click.stop="openFieldTypeDropdown(field, event)">
-												<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
-												<i class="bi bi-chevron-down wt-select-chevron"></i>
-											</button>
-										</div>
+										<wt-select class="field-type" :model-value="field.type || 'string'" :items="fieldTypeItems"
+											@change="onRowChoice(field, 'type', $event.detail)"></wt-select>
 										<input type="text" class="wt field-value" v-model="field.value"
 											   @input="onPropertyChange" :placeholder="field.type === 'expression' ? '${...}' : 'Value'">
 										<button type="button" class="btn-remove" @click="removeServiceTaskFieldInjection(index)">×</button>
@@ -2595,12 +2472,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.scriptTask') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openScriptFormatGroovyFirstDropdown(event)">
-											<span class="wt-select-value">{{ scriptFormatGroovyFirstLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.scriptFormat || 'groovy'" :items="scriptFormatGroovyItems"
+										@change="onElementChoice('scriptFormat', $event.detail)"></wt-select>
 								</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
@@ -2613,12 +2486,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.sendTask') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openImplementationTypeDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.implementationType}">{{ implementationTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.implementationType || ''" :items="messageImplTypeItems"
+										@change="onElementChoice('implementationType', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.implementationType === 'class'" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.javaClass') }}</label>
@@ -2681,12 +2550,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.businessRuleTask') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.implementation') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openBusinessRuleImplDropdown(event)">
-											<span class="wt-select-value">{{ businessRuleImplLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.implementationType || 'dmn'" :items="businessRuleImplItems"
+										@change="onElementChoice('implementationType', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.implementationType === 'dmn' || !selectedElement.implementationType">
 									<div class="property-row">
@@ -2696,12 +2561,8 @@
 									</div>
 									<div class="property-row">
 										<label class="property-label">{{ t('app.bpmn-modeler.properties.decisionRefBinding') }}</label>
-										<div class="wt-select w-100">
-											<button type="button" class="wt-select-trigger" @click.stop="openDecisionRefBindingDropdown(event)">
-												<span class="wt-select-value">{{ decisionRefBindingLabel() }}</span>
-												<i class="bi bi-chevron-down wt-select-chevron"></i>
-											</button>
-										</div>
+										<wt-select class="w-100" :model-value="selectedElement.decisionRefBinding || 'latest'" :items="refBindingItems"
+											@change="onElementChoice('decisionRefBinding', $event.detail)"></wt-select>
 									</div>
 									<div v-if="selectedElement.decisionRefBinding === 'version'" class="property-row">
 										<label class="property-label">{{ t('app.bpmn-modeler.properties.decisionRefVersion') }}</label>
@@ -2720,12 +2581,8 @@
 									</div>
 									<div class="property-row">
 										<label class="property-label">{{ t('app.bpmn-modeler.properties.mapDecisionResult') }}</label>
-										<div class="wt-select w-100">
-											<button type="button" class="wt-select-trigger" @click.stop="openMapDecisionResultDropdown(event)">
-												<span class="wt-select-value">{{ mapDecisionResultLabel() }}</span>
-												<i class="bi bi-chevron-down wt-select-chevron"></i>
-											</button>
-										</div>
+										<wt-select class="w-100" :model-value="selectedElement.mapDecisionResult || 'singleEntry'" :items="mapDecisionResultItems"
+											@change="onElementChoice('mapDecisionResult', $event.detail)"></wt-select>
 									</div>
 									<div class="property-row">
 										<label class="property-label">{{ t('app.bpmn-modeler.properties.decisionRefTenantId') }}</label>
@@ -2769,12 +2626,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.callActivity') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.calledElementType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openCalledElementTypeDropdown(event)">
-											<span class="wt-select-value">{{ calledElementTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.calledElementType || 'bpmn'" :items="calledElementTypeItems"
+										@change="onElementChoice('calledElementType', $event.detail)"></wt-select>
 								</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.calledElement') }}</label>
@@ -2783,12 +2636,8 @@
 								</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.binding') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openCalledElementBindingDropdown(event)">
-											<span class="wt-select-value">{{ calledElementBindingLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.calledElementBinding || 'latest'" :items="refBindingItems"
+										@change="onElementChoice('calledElementBinding', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.calledElementBinding === 'version'" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.version') }}</label>
@@ -2878,12 +2727,8 @@
 								</div>
 								<div v-if="selectedElement.instantiate" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.eventGatewayType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openEventGatewayTypeDropdown(event)">
-											<span class="wt-select-value">{{ eventGatewayTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.eventGatewayType || 'exclusive'" :items="eventGatewayTypeItems"
+										@change="onElementChoice('eventGatewayType', $event.detail)"></wt-select>
 								</div>
 							</div>
 
@@ -2914,12 +2759,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.multiInstance') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.loopType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openLoopTypeDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.loopType}">{{ loopTypeLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.loopType || ''" :items="loopTypeItems"
+										@change="onElementChoice('loopType', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.loopType === 'multiInstanceParallel' || selectedElement.loopType === 'multiInstanceSequential'">
 									<div class="property-row">
@@ -2940,12 +2781,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.transaction') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.method') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openTransactionMethodDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.transactionMethod}">{{ transactionMethodLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.transactionMethod || ''" :items="transactionMethodItems"
+										@change="onElementChoice('transactionMethod', $event.detail)"></wt-select>
 								</div>
 							</div>
 
@@ -3048,12 +2885,8 @@
 								<div class="property-group-title">{{ t('app.bpmn-modeler.properties.group.sequenceFlow') }}</div>
 								<div class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.conditionType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger" @click.stop="openConditionTypeWithNoneDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedElement.conditionType}">{{ conditionTypeWithNoneLabel() }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedElement.conditionType || ''" :items="conditionTypeWithNoneItems"
+										@change="onElementChoice('conditionType', $event.detail)"></wt-select>
 								</div>
 								<div v-if="selectedElement.conditionType === 'expression'" class="property-row">
 									<label class="property-label">{{ t('app.bpmn-modeler.properties.expression') }}</label>
@@ -3063,12 +2896,8 @@
 								<div v-if="selectedElement.conditionType === 'script'">
 									<div class="property-row">
 										<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
-										<div class="wt-select w-100">
-											<button type="button" class="wt-select-trigger" @click.stop="openConditionScriptFormatDropdown(event)">
-												<span class="wt-select-value">{{ conditionScriptFormatLabel() }}</span>
-												<i class="bi bi-chevron-down wt-select-chevron"></i>
-											</button>
-										</div>
+										<wt-select class="w-100" :model-value="selectedElement.conditionScriptFormat || 'javascript'" :items="scriptFormatJsItems"
+											@change="onElementChoice('conditionScriptFormat', $event.detail)"></wt-select>
 									</div>
 									<div class="property-row">
 										<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
@@ -3118,12 +2947,8 @@
 										</div>
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.type') }}</label>
-											<div class="wt-select w-100">
-												<button type="button" class="wt-select-trigger" @click.stop="openExtParamTypeDropdown(param, event)">
-													<span class="wt-select-value">{{ extParamTypeLabel(param) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="w-100" :model-value="param.type || 'text'" :items="extensionParamTypeItems"
+												@change="onRowChoice(param, 'type', $event.detail)"></wt-select>
 										</div>
 
 										<!-- Text Type -->
@@ -3137,12 +2962,8 @@
 										<div v-if="param.type === 'script'">
 											<div class="property-row">
 												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
-												<div class="wt-select w-100">
-													<button type="button" class="wt-select-trigger" @click.stop="openExtParamScriptFormatDropdown(param, event)">
-														<span class="wt-select-value">{{ extParamScriptFormatLabel(param) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="w-100" :model-value="param.scriptFormat || 'groovy'" :items="scriptFormatGroovyItems"
+													@change="onRowChoice(param, 'scriptFormat', $event.detail)"></wt-select>
 											</div>
 											<div class="property-row">
 												<label class="property-label">{{ t('app.bpmn-modeler.properties.script') }}</label>
@@ -3238,21 +3059,13 @@
 										</div>
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.event') }}</label>
-											<div class="wt-select w-100">
-												<button type="button" class="wt-select-trigger" @click.stop="openListenerEventDropdown(listener, event)">
-													<span class="wt-select-value">{{ listenerEventLabel(listener) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="w-100" :model-value="listener.event || 'start'" :items="listenerEventItems"
+												@change="onRowChoice(listener, 'event', $event.detail)"></wt-select>
 										</div>
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.listenerType') }}</label>
-											<div class="wt-select w-100">
-												<button type="button" class="wt-select-trigger" @click.stop="openListenerTypeDropdown(listener, event)">
-													<span class="wt-select-value">{{ listenerTypeLabel(listener) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="w-100" :model-value="listener.listenerType || 'class'" :items="listenerTypeItems"
+												@change="onRowChoice(listener, 'listenerType', $event.detail)"></wt-select>
 										</div>
 
 										<!-- Java Class Type -->
@@ -3284,12 +3097,8 @@
 																</div>
 																<div class="property-row" style="margin-bottom: 0.25rem;">
 																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.type') }}</label>
-																	<div class="wt-select w-100" style="font-size: 0.75rem;">
-																		<button type="button" class="wt-select-trigger" style="padding: 0.2rem 0.3rem;" @click.stop="openListenerFieldTypeDropdown(field, event)">
-																			<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
-																			<i class="bi bi-chevron-down wt-select-chevron"></i>
-																		</button>
-																	</div>
+																	<wt-select class="w-100" style="font-size: 0.75rem;" :model-value="field.type || 'string'" :items="fieldTypeItems"
+																		@change="onRowChoice(field, 'type', $event.detail)"></wt-select>
 																</div>
 																<div class="property-row" style="margin-bottom: 0.25rem;">
 																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.value') }}</label>
@@ -3320,21 +3129,13 @@
 										<div v-if="listener.listenerType === 'script'">
 											<div class="property-row">
 												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
-												<div class="wt-select w-100">
-													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptFormatDropdown(listener, event)">
-														<span class="wt-select-value">{{ listenerScriptFormatLabel(listener) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="w-100" :model-value="listener.scriptFormat || 'groovy'" :items="scriptFormatGroovyItems"
+													@change="onRowChoice(listener, 'scriptFormat', $event.detail)"></wt-select>
 											</div>
 											<div class="property-row">
 												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptType') }}</label>
-												<div class="wt-select w-100">
-													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptTypeDropdown(listener, event)">
-														<span class="wt-select-value">{{ listenerScriptTypeLabel(listener) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="w-100" :model-value="listener.scriptType || 'inline'" :items="scriptTypeItems"
+													@change="onRowChoice(listener, 'scriptType', $event.detail)"></wt-select>
 											</div>
 											<!-- Inline Script -->
 											<div class="property-row" v-if="listener.scriptType === 'inline' || !listener.scriptType">
@@ -3376,21 +3177,13 @@
 										</div>
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.event') }}</label>
-											<div class="wt-select w-100">
-												<button type="button" class="wt-select-trigger" @click.stop="openTaskListenerEventDropdown(listener, event)">
-													<span class="wt-select-value">{{ taskListenerEventLabel(listener) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="w-100" :model-value="listener.event || 'create'" :items="taskListenerEventItems"
+												@change="onRowChoice(listener, 'event', $event.detail)"></wt-select>
 										</div>
 										<div class="property-row">
 											<label class="property-label">{{ t('app.bpmn-modeler.properties.listenerType') }}</label>
-											<div class="wt-select w-100">
-												<button type="button" class="wt-select-trigger" @click.stop="openTaskListenerTypeDropdown(listener, event)">
-													<span class="wt-select-value">{{ taskListenerTypeLabel(listener) }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="w-100" :model-value="listener.listenerType || 'class'" :items="taskListenerTypeItems"
+												@change="onRowChoice(listener, 'listenerType', $event.detail)"></wt-select>
 										</div>
 
 										<!-- Java Class Type -->
@@ -3422,12 +3215,8 @@
 																</div>
 																<div class="property-row" style="margin-bottom: 0.25rem;">
 																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.type') }}</label>
-																	<div class="wt-select w-100" style="font-size: 0.75rem;">
-																		<button type="button" class="wt-select-trigger" style="padding: 0.2rem 0.3rem;" @click.stop="openListenerFieldTypeDropdown(field, event)">
-																			<span class="wt-select-value">{{ fieldTypeLabel(field) }}</span>
-																			<i class="bi bi-chevron-down wt-select-chevron"></i>
-																		</button>
-																	</div>
+																	<wt-select class="w-100" style="font-size: 0.75rem;" :model-value="field.type || 'string'" :items="fieldTypeItems"
+																		@change="onRowChoice(field, 'type', $event.detail)"></wt-select>
 																</div>
 																<div class="property-row" style="margin-bottom: 0.25rem;">
 																	<label class="property-label" style="font-size: 0.7rem;">{{ t('app.bpmn-modeler.properties.value') }}</label>
@@ -3467,21 +3256,13 @@
 										<div v-if="listener.listenerType === 'script'">
 											<div class="property-row">
 												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptFormat') }}</label>
-												<div class="wt-select w-100">
-													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptFormatDropdown(listener, event)">
-														<span class="wt-select-value">{{ listenerScriptFormatLabel(listener) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="w-100" :model-value="listener.scriptFormat || 'groovy'" :items="scriptFormatGroovyItems"
+													@change="onRowChoice(listener, 'scriptFormat', $event.detail)"></wt-select>
 											</div>
 											<div class="property-row">
 												<label class="property-label">{{ t('app.bpmn-modeler.properties.scriptType') }}</label>
-												<div class="wt-select w-100">
-													<button type="button" class="wt-select-trigger" @click.stop="openListenerScriptTypeDropdown(listener, event)">
-														<span class="wt-select-value">{{ listenerScriptTypeLabel(listener) }}</span>
-														<i class="bi bi-chevron-down wt-select-chevron"></i>
-													</button>
-												</div>
+												<wt-select class="w-100" :model-value="listener.scriptType || 'inline'" :items="scriptTypeItems"
+													@change="onRowChoice(listener, 'scriptType', $event.detail)"></wt-select>
 											</div>
 											<!-- Inline Script -->
 											<div class="property-row" v-if="listener.scriptType === 'inline' || !listener.scriptType">
@@ -3585,120 +3366,75 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.bpmn-modeler.statusbar.saving') }}</span>
+				<span v-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.bpmn-modeler.statusbar.saving') }}</span>
 				<span v-else-if="isModified" class="status-item">{{ t('app.bpmn-modeler.statusbar.modified') }}</span>
 				<span v-else class="status-item">{{ t('app.bpmn-modeler.statusbar.saved') }}</span>
 			</div>
 		</div>
 
 		<!-- Save As Dialog -->
-		<div v-if="saveAsDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 28rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<div class="dialog-header-top">
-							<h3>{{ t('app.bpmn-modeler.dialog.saveAs.title') }}</h3>
-							<button class="btn-icon" @click="closeSaveAsDialog" :title="t('common.close', undefined, 'Close')">
-								<i class="bi bi-x-lg"></i>
-							</button>
-						</div>
+		<wt-dialog :open="saveAsDialog.visible" size="sm" :title="t('app.bpmn-modeler.dialog.saveAs.title')" @close="closeSaveAsDialog">
+			<template v-slot="d">
+				<label class="dialog-label">{{ t('app.bpmn-modeler.dialog.saveAs.fileName') }}</label>
+				<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
+					:placeholder="t('app.bpmn-modeler.dialog.saveAs.fileName.placeholder')" @keydown.enter="closeSaveAsDialog" />
+				<div class="save-as-chip-area mt-3"
+					@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+					<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
+						<i class="bi bi-file-earmark-code me-1"></i>
+						<span>{{ saveAsDialog.fileName || t('app.bpmn-modeler.dialog.saveAs.untitled') }}</span>
 					</div>
-					<div class="dialog-body">
-						<label class="dialog-label">{{ t('app.bpmn-modeler.dialog.saveAs.fileName') }}</label>
-						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
-							:placeholder="t('app.bpmn-modeler.dialog.saveAs.fileName.placeholder')" @keydown.enter="closeSaveAsDialog" />
-						<div class="save-as-chip-area mt-3"
-							@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
-							<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
-								<i class="bi bi-file-earmark-code me-1"></i>
-								<span>{{ saveAsDialog.fileName || t('app.bpmn-modeler.dialog.saveAs.untitled') }}</span>
-							</div>
-							<p class="text-muted fs-small mt-2 mb-0">
-								{{ t('app.bpmn-modeler.dialog.saveAs.dragHint') }}
-							</p>
-						</div>
-					</div>
+					<p class="text-muted fs-small mt-2 mb-0">
+						{{ t('app.bpmn-modeler.dialog.saveAs.dragHint') }}
+					</p>
 				</div>
-			</div>
-		</div>
+			</template>
+		</wt-dialog>
 
 		<!-- Definitions Management Dialog (Message / Signal / Error / Escalation) -->
-		<div v-if="managementDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 36rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<div class="dialog-header-top">
-							<h3>{{ managementDialogTitle() }}</h3>
-							<button class="btn-icon" @click="closeManagementDialog" :title="t('common.close', undefined, 'Close')">
-								<i class="bi bi-x-lg"></i>
-							</button>
-						</div>
-					</div>
-					<div class="dialog-body">
-						<div v-if="managementDialogItems().length === 0" class="text-muted">
-							{{ t('app.bpmn-modeler.dialog.management.noDefinitions') }}
-						</div>
-						<table v-else class="management-table w-100">
-							<thead>
-								<tr>
-									<th>{{ t('app.bpmn-modeler.dialog.management.colName') }}</th>
-									<th v-if="managementDialogHasCode()">{{ t('app.bpmn-modeler.dialog.management.colCode') }}</th>
-									<th class="management-cell-num">{{ t('app.bpmn-modeler.dialog.management.colReferences') }}</th>
-									<th class="management-cell-action"></th>
-								</tr>
-							</thead>
-							<tbody>
-								<tr v-for="item in managementDialogItems()" :key="item.id">
-									<td class="management-cell-name">{{ item.name || t('app.bpmn-modeler.dialog.management.unnamed') }}</td>
-									<td v-if="managementDialogHasCode()" class="management-cell-code">{{ item.code || '' }}</td>
-									<td class="management-cell-num">{{ item.refCount }}</td>
-									<td class="management-cell-action">
-										<button v-if="item.refCount === 0" class="btn-icon"
-												@click="deleteDefinition(managementDialog.kind, item.id)"
-												:title="t('common.delete', undefined, 'Delete')">
-											<i class="bi bi-trash"></i>
-										</button>
-									</td>
-								</tr>
-							</tbody>
-						</table>
-					</div>
-					<div class="dialog-footer">
-						<button class="wt" @click="closeManagementDialog">{{ t('common.close', undefined, 'Close') }}</button>
-						<button class="wt wt-danger"
-								@click="deleteUnreferencedDefinitions(managementDialog.kind)"
-								:disabled="!hasUnreferencedDefinitions()">
-							<i class="bi bi-trash me-1"></i>{{ t('app.bpmn-modeler.dialog.management.deleteAllUnreferenced') }}
-						</button>
-					</div>
+		<wt-dialog :open="managementDialog.visible" size="lg" @close="closeManagementDialog">
+			<template v-slot:title="d">{{ managementDialogTitle() }}</template>
+			<template v-slot="d">
+				<div v-if="managementDialogItems().length === 0" class="text-muted">
+					{{ t('app.bpmn-modeler.dialog.management.noDefinitions') }}
 				</div>
-			</div>
-		</div>
-
-		<!-- Notification Dialog (info / success / warning / error) -->
-		<div v-if="notificationDialog.visible" class="dialog-overlay dialog-overlay-message">
-			<div class="dialog-frame" style="max-width: 28rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3>
-							<i :class="['bi', 'me-2', notificationIconClass()]"></i>{{ notificationDialog.title }}
-						</h3>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0 mb-0 notification-message">{{ notificationDialog.message }}</p>
-					</div>
-					<div class="dialog-footer">
-						<button class="wt wt-primary" @click="closeNotificationDialog">{{ t('common.ok', undefined, 'OK') }}</button>
-					</div>
-				</div>
-			</div>
-		</div>
+				<table v-else class="management-table w-100">
+					<thead>
+						<tr>
+							<th>{{ t('app.bpmn-modeler.dialog.management.colName') }}</th>
+							<th v-if="managementDialogHasCode()">{{ t('app.bpmn-modeler.dialog.management.colCode') }}</th>
+							<th class="management-cell-num">{{ t('app.bpmn-modeler.dialog.management.colReferences') }}</th>
+							<th class="management-cell-action"></th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr v-for="item in managementDialogItems()" :key="item.id">
+							<td class="management-cell-name">{{ item.name || t('app.bpmn-modeler.dialog.management.unnamed') }}</td>
+							<td v-if="managementDialogHasCode()" class="management-cell-code">{{ item.code || '' }}</td>
+							<td class="management-cell-num">{{ item.refCount }}</td>
+							<td class="management-cell-action">
+								<button v-if="item.refCount === 0" class="btn-icon"
+										@click="deleteDefinition(managementDialog.kind, item.id)"
+										:title="t('common.delete', undefined, 'Delete')">
+									<i class="bi bi-trash"></i>
+								</button>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closeManagementDialog">{{ t('common.close', undefined, 'Close') }}</button>
+				<button class="wt wt-danger"
+						@click="deleteUnreferencedDefinitions(managementDialog.kind)"
+						:disabled="!hasUnreferencedDefinitions()">
+					<i class="bi bi-trash me-1"></i>{{ t('app.bpmn-modeler.dialog.management.deleteAllUnreferenced') }}
+				</button>
+			</template>
+		</wt-dialog>
 
 		<!-- Loading Overlay -->
-		<div v-if="isLoading" class="loading-overlay flex-column text-center">
-			<span class="loader"></span>
-			<span class="mt-5">{{ t('app.bpmn-modeler.loading.file') }}</span>
-		</div>
+		<wt-spinner v-if="isLoading" overlay size="lg"></wt-spinner>
 
 		<!-- Error Overlay -->
 		<div v-if="errorMessage && !isLoading" class="error-overlay flex-column text-center">
@@ -3707,29 +3443,44 @@
 			<button type="button" class="wt" @click="errorMessage = ''">{{ t('common.close', undefined, 'Close') }}</button>
 		</div>
 
-		<!-- Close Confirmation Dialog -->
-		<div v-if="closeConfirmDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 32rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.bpmn-modeler.dialog.closeConfirm.title') }}</h3>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0">{{ t('app.bpmn-modeler.dialog.closeConfirm.message', { name: currentFile.name }) }}</p>
-						<p>{{ t('app.bpmn-modeler.dialog.closeConfirm.question') }}</p>
-					</div>
-					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
-						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
-							<i class="bi bi-trash me-1"></i>{{ t('app.bpmn-modeler.dialog.closeConfirm.dontSave') }}
-						</button>
-						<button v-if="currentFile.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
-							<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<!-- Close Confirmation Dialog — no ✕ / Escape: the choice is explicit. -->
+		<wt-dialog :open="closeConfirmDialog.visible" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.bpmn-modeler.dialog.closeConfirm.title') }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0">{{ t('app.bpmn-modeler.dialog.closeConfirm.message', { name: currentFile.name }) }}</p>
+				<p>{{ t('app.bpmn-modeler.dialog.closeConfirm.question') }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
+					<i class="bi bi-trash me-1"></i>{{ t('app.bpmn-modeler.dialog.closeConfirm.dontSave') }}
+				</button>
+				<button v-if="currentFile.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
+					<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Notification Dialog (info / success / warning / error) — declared
+		     after every other dialog: all wt-dialog overlays share the same
+		     z-index, so DOM order is what keeps the notice painted on top
+		     (the role .dialog-overlay-message used to play). -->
+		<wt-dialog :open="notificationDialog.visible" size="sm" @close="closeNotificationDialog">
+			<template v-slot:title="d">
+				<i :class="['bi', 'me-2', notificationIconClass()]"></i>{{ notificationDialog.title }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-0 notification-message">{{ notificationDialog.message }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt wt-primary" @click="closeNotificationDialog">{{ t('common.ok', undefined, 'OK') }}</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+		<!-- /Readiness gate -->
 	</div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

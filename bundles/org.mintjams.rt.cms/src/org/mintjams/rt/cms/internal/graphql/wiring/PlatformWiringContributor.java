@@ -220,6 +220,8 @@ public final class PlatformWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformWiringContributor::startImportArchive)
 				.dataFetcher("Mutation", "abortImportArchive",
 						(DataFetcher<Object>) PlatformWiringContributor::abortImportArchive)
+				.dataFetcher("Mutation", "abortSearchIndexRebuild",
+						(DataFetcher<Object>) PlatformWiringContributor::abortSearchIndexRebuild)
 				.dataFetcher("Subscription", "jobProgress",
 						(DataFetcher<Object>) PlatformWiringContributor::jobProgress)
 				.dataFetcher("Subscription", "nodeChanged",
@@ -410,7 +412,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 			searchPath = "/jcr:root" + searchPath;
 		}
 		String xpathQuery = searchPath + "//element(*, nt:file)[jcr:contains(., '"
-				+ text.replaceAll("'", "\\'") + "')]";
+				+ text.replace("'", "\\'") + "')]";
 
 		QueryManager queryManager = session.getWorkspace().getQueryManager();
 		RowIterator rows = queryManager.createQuery(xpathQuery, Query.XPATH).execute().getRows();
@@ -1588,6 +1590,16 @@ public final class PlatformWiringContributor implements WiringContributor {
 	}
 
 	private static Object abortDeleteNodes(DataFetchingEnvironment environment) throws Exception {
+		return abortJobMutation(environment);
+	}
+
+	/**
+	 * Aborts one node's search index rebuild job. The generic abort already
+	 * handles the cluster case (a job running on another node is marked
+	 * ABORTING; that node's worker observes the persisted status within its
+	 * poll interval and finalises).
+	 */
+	private static Object abortSearchIndexRebuild(DataFetchingEnvironment environment) throws Exception {
 		return abortJobMutation(environment);
 	}
 

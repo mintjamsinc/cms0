@@ -34,14 +34,10 @@ public class CheckProtectedAction implements Action {
 	public void doAction(ActionContext context, ActionChain chain) throws ActionException {
 		String resourcePath = Webs.getResourcePath(context);
 
-		if (!(resourcePath.startsWith("/content/") ||
-				resourcePath.endsWith("/content"))) {
-			Webs.getResponse(context).setStatus(HttpServletResponse.SC_NOT_FOUND);
-			return;
-		}
-
-		if (resourcePath.startsWith("/content/WEB-INF/") ||
-				resourcePath.endsWith("/content/WEB-INF")) {
+		// /WEB-INF is a reserved folder name, and must never be served.
+		// This is a security measure to prevent accidental exposure of sensitive configuration files.
+		if (resourcePath.endsWith("/WEB-INF") || 
+				resourcePath.indexOf("/WEB-INF/") != -1) {
 			Webs.getResponse(context).setStatus(HttpServletResponse.SC_NOT_FOUND);
 			return;
 		}

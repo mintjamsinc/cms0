@@ -78,6 +78,7 @@ import org.camunda.bpm.engine.runtime.JobQuery;
 import org.camunda.bpm.engine.runtime.ProcessInstance;
 import org.camunda.bpm.engine.runtime.ProcessInstanceModificationBuilder;
 import org.camunda.bpm.engine.runtime.ProcessInstanceModificationInstantiationBuilder;
+import org.camunda.bpm.engine.query.Query;
 import org.camunda.bpm.engine.runtime.ProcessInstanceQuery;
 import org.camunda.bpm.engine.runtime.SignalEventReceivedBuilder;
 import org.camunda.bpm.engine.task.Task;
@@ -101,7 +102,9 @@ public class BpmComponent extends DefaultComponent {
 		String operation = remaining;
 
 		BpmEndpoint endpoint = new BpmEndpoint(uri, operation, parameters);
-		parameters.clear(); // All parameters are consumed internally by BpmEndpoint
+		// Taken: everything here is consumed internally by BpmEndpoint, and leaving the map
+		// non-empty would make Camel reject all of it.
+		parameters.clear();
 		return endpoint;
 	}
 
@@ -263,6 +266,15 @@ public class BpmComponent extends DefaultComponent {
 			if ("setAssignee".equals(fOperation)) {
 				return new SetAssigneeProducer();
 			}
+			if ("setTaskPriority".equals(fOperation)) {
+				return new SetTaskPriorityProducer();
+			}
+			if ("addCandidateGroup".equals(fOperation)) {
+				return new CandidateGroupProducer(true);
+			}
+			if ("removeCandidateGroup".equals(fOperation)) {
+				return new CandidateGroupProducer(false);
+			}
 			if ("delegateTask".equals(fOperation)) {
 				return new DelegateTaskProducer();
 			}
@@ -323,6 +335,82 @@ public class BpmComponent extends DefaultComponent {
 			}
 
 			protected abstract void doProcess(ProcessContext context) throws Exception;
+
+			/**
+			 * Applies {@code orderBy} and {@code order} to a query, by handing the
+			 * column to the engine's own {@code orderByXxx()}.
+			 *
+			 * <p>There is no sorting here, and that is the point. A component that
+			 * ordered the materialised list would order the rows it happened to
+			 * receive, which with {@code maxResults} is a different set from the one
+			 * the author asked for — the first N of an arbitrary order, re-sorted to
+			 * look deliberate. The database has to do it, so the option is passed
+			 * through rather than implemented.
+			 *
+			 * <p>The {@code selectColumn} callback maps a column name to the engine
+			 * call. A name it does not know is reported rather than sorted by nothing.
+			 */
+			protected void applyOrdering(ProcessContext pc, Query<?, ?> query,
+					java.util.function.Consumer<String> selectColumn) {
+				Object given = pc.getParameter("orderBy");
+				String orderBy = (given == null) ? null : given.toString().trim();
+				if (Strings.isEmpty(orderBy)) {
+					return;
+				}
+				selectColumn.accept(orderBy);
+
+				Object direction = pc.getParameter("order");
+				String order = (direction == null) ? "" : direction.toString().trim();
+				if ("desc".equalsIgnoreCase(order)) {
+					query.desc();
+				} else {
+					query.asc();
+				}
+			}
+
+			/**
+			 * The matches, a page at a time when {@code maxResults} says so.
+			 *
+			 * <p>{@code listPage} is the engine's, for the same reason: taking the
+			 * first N of a materialised list still materialises all of them, which is
+			 * the cost the option was written to avoid.
+			 *
+			 * <p>{@code maxResults} without {@code orderBy} is refused in the
+			 * catalogue, so a page here is always a page of something ordered.
+			 */
+			protected <U> List<U> listResults(ProcessContext pc, Query<?, U> query) {
+				Integer maxResults = pc.getParameterAsInteger("maxResults");
+				if (maxResults == null) {
+					return query.list();
+				}
+				Integer firstResult = pc.getParameterAsInteger("firstResult");
+				return query.listPage((firstResult == null) ? 0 : firstResult.intValue(),
+						maxResults.intValue());
+			}
+
+			/**
+			 * Binds {@code total} — how many matched — when the route asked for it.
+			 *
+			 * <p>Distinct from {@code count}, whose meaning is left exactly as it was:
+			 * the number of rows returned when a list was bound. With
+			 * {@code maxResults} those two answer different questions, and the one a
+			 * monitor needs is "how many are there", so that a page can say when it
+			 * did not show everything. The extra query is only issued when something
+			 * binds it.
+			 */
+			protected void putTotal(ProcessContext pc, Query<?, ?> query, Map<String, Object> sources) {
+				if (pc.getBoundSourceNames().contains("total")) {
+					sources.put("total", (int) query.count());
+				}
+			}
+
+			/**
+			 * What to say when a column has no engine call behind it — rather than
+			 * sorting by nothing and returning a page of it.
+			 */
+			protected String unorderable(String operation, String column) {
+				return "bpm:" + operation + " has no engine ordering for orderBy=" + column + ".";
+			}
 
 			/**
 			 * ProcessContext provides convenient access to endpoint parameters and exchange data for producers.
@@ -1379,12 +1467,21 @@ public class BpmComponent extends DefaultComponent {
 
 				// Materialise only the result sources that the declared bindings actually reference, so a
 				// count-only request avoids listing (and materialising details for) every matching instance.
+				applyOrdering(pc, query, column -> {
+					switch (column) {
+						case "id": query.orderByProcessInstanceId(); break;
+						case "processDefinitionKey": query.orderByProcessDefinitionKey(); break;
+						case "businessKey": query.orderByBusinessKey(); break;
+						default: throw new IllegalArgumentException(unorderable("queryProcessInstances", column));
+					}
+				});
+
 				Set<String> requested = pc.getBoundSourceNames();
 				boolean needList = requested.contains("ids") || requested.contains("instances");
 
 				Map<String, Object> sources = new HashMap<>();
 				if (needList) {
-					List<ProcessInstance> found = query.list();
+					List<ProcessInstance> found = listResults(pc, query);
 					List<Object> ids = new ArrayList<>();
 					List<Object> instances = new ArrayList<>();
 					for (ProcessInstance instance : found) {
@@ -1409,6 +1506,7 @@ public class BpmComponent extends DefaultComponent {
 					// Only the count was requested: count without listing.
 					sources.put("count", (int) query.count());
 				}
+				putTotal(pc, query, sources);
 				pc.applyResultBindings(sources);
 			}
 
@@ -1741,6 +1839,75 @@ public class BpmComponent extends DefaultComponent {
 		}
 
 		/**
+		 * Producer for raising or lowering a user task's priority.
+		 *
+		 * A task nobody has picked up is escalated by making it sort to the top of
+		 * the lists people actually read. That is an action on the engine, and it
+		 * belongs on the route beside the rule that decided it — not inside a
+		 * scanner script, where "escalate" meant a priority number nobody could see
+		 * from the flow.
+		 *
+		 * Supported parameters:
+		 * - taskId: Id of the user task (required)
+		 * - priority: The new priority (required)
+		 */
+		private class SetTaskPriorityProducer extends BpmProducer {
+			private SetTaskPriorityProducer() {
+				super(BpmEndpoint.this);
+			}
+
+			@Override
+			protected void doProcess(ProcessContext pc) throws Exception {
+				TaskService taskService = taskService();
+				String taskId = requireTaskId(pc);
+
+				Integer priority = pc.getParameterAsInteger("priority");
+				if (priority == null) {
+					throw new IllegalArgumentException("bpm:setTaskPriority requires priority.");
+				}
+				taskService.setPriority(taskId, priority.intValue());
+			}
+		}
+
+		/**
+		 * Producer for adding or removing a candidate group on a user task.
+		 *
+		 * The other half of escalation: put the task in front of a second group of
+		 * people. Add and remove are one producer because they are one decision with
+		 * two directions, and splitting them would make a route that undoes an
+		 * escalation look unrelated to the one that made it.
+		 *
+		 * Supported parameters:
+		 * - taskId: Id of the user task (required)
+		 * - groupId: Id of the candidate group (required)
+		 */
+		private class CandidateGroupProducer extends BpmProducer {
+			private final boolean fAdd;
+
+			private CandidateGroupProducer(boolean add) {
+				super(BpmEndpoint.this);
+				fAdd = add;
+			}
+
+			@Override
+			protected void doProcess(ProcessContext pc) throws Exception {
+				TaskService taskService = taskService();
+				String taskId = requireTaskId(pc);
+
+				String groupId = (String) pc.getParameter("groupId");
+				if (Strings.isEmpty(groupId)) {
+					throw new IllegalArgumentException("bpm:" + (fAdd ? "addCandidateGroup"
+							: "removeCandidateGroup") + " requires groupId.");
+				}
+				if (fAdd) {
+					taskService.addCandidateGroup(taskId, groupId);
+				} else {
+					taskService.deleteCandidateGroup(taskId, groupId);
+				}
+			}
+		}
+
+		/**
 		 * Producer for delegating a user task to another user (Group D, D4).
 		 * The task is delegated and its delegation state is set to PENDING, so the original owner can later
 		 * resolve it back via the resolveTask operation.
@@ -2018,12 +2185,25 @@ public class BpmComponent extends DefaultComponent {
 				}
 				applyVariableValueFilters(pc, query);
 
+				applyOrdering(pc, query, column -> {
+					switch (column) {
+						case "createTime": query.orderByTaskCreateTime(); break;
+						case "dueDate": query.orderByDueDate(); break;
+						case "priority": query.orderByTaskPriority(); break;
+						case "name": query.orderByTaskName(); break;
+						case "assignee": query.orderByTaskAssignee(); break;
+						case "id": query.orderByTaskId(); break;
+						default: throw new IllegalArgumentException(unorderable("queryTasks", column));
+					}
+				});
+
 				Set<String> requested = pc.getBoundSourceNames();
 				boolean needList = requested.contains("ids") || requested.contains("tasks");
 
 				Map<String, Object> sources = new HashMap<>();
 				if (needList) {
-					List<Task> found = query.list();
+					List<Task> found = listResults(pc, query);
+					Map<String, String> businessKeys = businessKeysOf(found);
 					List<Object> ids = new ArrayList<>();
 					List<Object> tasks = new ArrayList<>();
 					for (Task task : found) {
@@ -2037,6 +2217,7 @@ public class BpmComponent extends DefaultComponent {
 						detail.put("priority", task.getPriority());
 						detail.put("taskDefinitionKey", task.getTaskDefinitionKey());
 						detail.put("processInstanceId", task.getProcessInstanceId());
+						detail.put("businessKey", businessKeys.get(task.getProcessInstanceId()));
 						detail.put("executionId", task.getExecutionId());
 						detail.put("processDefinitionId", task.getProcessDefinitionId());
 						detail.put("createTime", task.getCreateTime());
@@ -2051,7 +2232,43 @@ public class BpmComponent extends DefaultComponent {
 				} else if (requested.contains("count")) {
 					sources.put("count", (int) query.count());
 				}
+				putTotal(pc, query, sources);
 				pc.applyResultBindings(sources);
+			}
+
+			/**
+			 * The business key of each task's process instance, by instance id.
+			 *
+			 * <p>A task carries the order number or customer id it is about only
+			 * through its process instance: 7.17's {@code Task} exposes
+			 * {@code processInstanceId} and nothing else, so a route that wanted to
+			 * say <em>which order</em> a breached task belonged to had to query per
+			 * task, on an identifier that means nothing outside the engine. That is
+			 * the reason the caller usually ended up in Groovy.
+			 *
+			 * <p>One query for the whole page, not one per task. It is issued whenever
+			 * the task list is materialised rather than behind an option: a field that
+			 * is present only when somebody remembered to ask for it is a field every
+			 * caller has to check for, which costs more than the query does.
+			 */
+			private Map<String, String> businessKeysOf(List<Task> tasks) {
+				Set<String> instanceIds = new HashSet<>();
+				for (Task task : tasks) {
+					if (!Strings.isEmpty(task.getProcessInstanceId())) {
+						instanceIds.add(task.getProcessInstanceId());
+					}
+				}
+				Map<String, String> keys = new HashMap<>();
+				if (instanceIds.isEmpty()) {
+					return keys;
+				}
+				RuntimeService runtime = CmsService.getWorkspaceProcessEngineProvider(fWorkspaceName)
+						.getProcessEngine().getRuntimeService();
+				for (ProcessInstance instance : runtime.createProcessInstanceQuery()
+						.processInstanceIds(instanceIds).list()) {
+					keys.put(instance.getProcessInstanceId(), instance.getBusinessKey());
+				}
+				return keys;
 			}
 
 			/**
@@ -2211,12 +2428,21 @@ public class BpmComponent extends DefaultComponent {
 					query.incidentTimestampAfter((java.util.Date) timestampAfter);
 				}
 
+				applyOrdering(pc, query, column -> {
+					switch (column) {
+						case "incidentTimestamp": query.orderByIncidentTimestamp(); break;
+						case "incidentType": query.orderByIncidentType(); break;
+						case "id": query.orderByIncidentId(); break;
+						default: throw new IllegalArgumentException(unorderable("queryIncidents", column));
+					}
+				});
+
 				Set<String> requested = pc.getBoundSourceNames();
 				boolean needList = requested.contains("ids") || requested.contains("incidents");
 
 				Map<String, Object> sources = new HashMap<>();
 				if (needList) {
-					List<Incident> found = query.list();
+					List<Incident> found = listResults(pc, query);
 					List<Object> ids = new ArrayList<>();
 					List<Object> incidents = new ArrayList<>();
 					for (Incident incident : found) {
@@ -2247,6 +2473,7 @@ public class BpmComponent extends DefaultComponent {
 				} else if (requested.contains("count")) {
 					sources.put("count", (int) query.count());
 				}
+				putTotal(pc, query, sources);
 				pc.applyResultBindings(sources);
 			}
 		}
@@ -2362,12 +2589,21 @@ public class BpmComponent extends DefaultComponent {
 					query.duedateHigherThan((java.util.Date) duedateHigherThan);
 				}
 
+				applyOrdering(pc, query, column -> {
+					switch (column) {
+						case "dueDate": query.orderByJobDuedate(); break;
+						case "retries": query.orderByJobRetries(); break;
+						case "id": query.orderByJobId(); break;
+						default: throw new IllegalArgumentException(unorderable("queryJobs", column));
+					}
+				});
+
 				Set<String> requested = pc.getBoundSourceNames();
 				boolean needList = requested.contains("ids") || requested.contains("jobs");
 
 				Map<String, Object> sources = new HashMap<>();
 				if (needList) {
-					List<Job> found = query.list();
+					List<Job> found = listResults(pc, query);
 					List<Object> ids = new ArrayList<>();
 					List<Object> jobs = new ArrayList<>();
 					for (Job job : found) {
@@ -2398,6 +2634,7 @@ public class BpmComponent extends DefaultComponent {
 				} else if (requested.contains("count")) {
 					sources.put("count", (int) query.count());
 				}
+				putTotal(pc, query, sources);
 				pc.applyResultBindings(sources);
 			}
 		}
@@ -2533,12 +2770,22 @@ public class BpmComponent extends DefaultComponent {
 				}
 				applyVariableValueFilters(pc, query);
 
+				applyOrdering(pc, query, column -> {
+					switch (column) {
+						case "startTime": query.orderByProcessInstanceStartTime(); break;
+						case "endTime": query.orderByProcessInstanceEndTime(); break;
+						case "duration": query.orderByProcessInstanceDuration(); break;
+						case "id": query.orderByProcessInstanceId(); break;
+						default: throw new IllegalArgumentException(unorderable("queryHistoricProcessInstances", column));
+					}
+				});
+
 				Set<String> requested = pc.getBoundSourceNames();
 				boolean needList = requested.contains("ids") || requested.contains("instances");
 
 				Map<String, Object> sources = new HashMap<>();
 				if (needList) {
-					List<HistoricProcessInstance> found = query.list();
+					List<HistoricProcessInstance> found = listResults(pc, query);
 					List<Object> ids = new ArrayList<>();
 					List<Object> instances = new ArrayList<>();
 					for (HistoricProcessInstance instance : found) {
@@ -2571,6 +2818,7 @@ public class BpmComponent extends DefaultComponent {
 				} else if (requested.contains("count")) {
 					sources.put("count", (int) query.count());
 				}
+				putTotal(pc, query, sources);
 				pc.applyResultBindings(sources);
 			}
 

@@ -124,8 +124,15 @@ public class WorkspaceQuery implements Adaptable {
 	}
 
 	public void commit() throws SQLException {
-		newUpdateBuilder("DELETE FROM jcr_items WHERE is_deleted = TRUE").build().execute();
-		newUpdateBuilder("DELETE FROM jcr_properties WHERE is_deleted = TRUE").build().execute();
+		// Rows flagged is_deleted are flagged by this transaction and are invisible
+		// to any other, so a transaction that wrote nothing has none to sweep. The
+		// two statements are cheap individually but not free, and every read-only
+		// cms: node ends in a commit — on a webhook path that records health on each
+		// message, this is the difference between a read and two writes plus a read.
+		if (fJournalAffected || fAccessControlAffected || !fDirtyItems.isEmpty()) {
+			newUpdateBuilder("DELETE FROM jcr_items WHERE is_deleted = TRUE").build().execute();
+			newUpdateBuilder("DELETE FROM jcr_properties WHERE is_deleted = TRUE").build().execute();
+		}
 
 		if (fJournalAffected) {
 			fJournalAffected = false;
@@ -2481,48 +2488,20 @@ public class WorkspaceQuery implements Adaptable {
 					.build().execute();
 		}
 
-		public AdaptableMap<String, Object> refreshLock(String absPath)
-				throws IOException, SQLException, RepositoryException {
-			if (Strings.isEmpty(absPath) || !absPath.startsWith("/")) {
-				throw new PathNotFoundException("Invalid path: " + absPath);
-			}
-
-			AdaptableMap<String, Object> lockData;
-			try {
-				lockData = getLock(absPath);
-			} catch (LockException ignore) {
-				throw new LockException("Node '" + absPath + "' is not locked.");
-			}
-
-			AdaptableMap<String, Object> itemData = getNode(absPath);
-			String id = itemData.getString("item_id");
-
-			if (!lockData.getString("item_id").equals(id)) {
-				throw new LockException(
-						"Node '" + absPath + "' is locked on node '" + itemData.getString("item_path") + "'.");
-			}
-
-			lockData.put("lock_created", System.currentTimeMillis());
-			try {
-				int count = locksEntity().update(
-						AdaptableMap.<String, Object>newBuilder().put("lock_created", lockData.getLong("lock_created"))
-								.build(),
-						AdaptableMap.<String, Object>newBuilder().put("item_id", lockData.getString("item_id")).build())
-						.execute();
-				if (count == 0) {
-					throw new LockException("Could not refresh lock on node '" + absPath + "'.");
-				}
-			} catch (SQLException ignore) {
-				throw new LockException("Node '" + absPath + "' is already locked.");
-			}
-
-			journal().writeJournal(AdaptableMap.<String, Object>newBuilder().put("event_occurred", System.currentTimeMillis())
-					.put("event_type", Event.LOCK_REFRESHED).put("item_id", id)
-					.put("item_path", itemData.getString("item_path")).put("primary_type", getPrimaryType(id))
-					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null).put("event_info", null)
-					.build());
-
-			return lockData;
+		/**
+		 * Extends the lease on the lock identified by the given item and lock
+		 * token, and returns the number of rows updated. The token pins the exact
+		 * claim: a lock that expired and was re-acquired in the meantime carries a
+		 * different token, so a stale observation refreshes nothing (0 rows)
+		 * instead of extending someone else's lease.
+		 */
+		public int refreshLock(String itemId, String lockToken) throws IOException, SQLException {
+			return newUpdateBuilder(
+					"UPDATE jcr_locks SET lock_created = {{lockCreated}} WHERE item_id = {{itemId}} AND lock_token = {{lockToken}}")
+					.setVariable("lockCreated", System.currentTimeMillis())
+					.setVariable("itemId", itemId)
+					.setVariable("lockToken", lockToken)
+					.build().execute();
 		}
 
 		public void removeLock(String id) throws IOException, SQLException, RepositoryException {

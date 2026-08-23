@@ -1,0 +1,782 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Webtop UI framework (wt-* components)
+ *
+ * Styles for the shared UI components under src/webtop/ui/. Imported by
+ * webtop-app.css, so every app (and the shell) gets these without adding a
+ * <link>. Everything lives in @layer webtop-defaults — apps override by
+ * writing the same selector outside any layer, same as webtop-app.css.
+ *
+ * Naming rules:
+ *   - root:   .wt-<component>
+ *   - parts:  .wt-<component>-<part>
+ *   - variants/states: modifier classes nested under the root
+ *     (.wt-primary, .wt-sm, open, selected, ...) — never defined globally.
+ * ============================================================================ */
+
+@layer webtop-defaults {
+
+	/* ------------------------------------------------------------------------
+	 * Tokens
+	 * Non-color tokens shared by wt-* components (the color tokens live in
+	 * webtop-app.css). New CSS should use these instead of hard-coded values.
+	 * ---------------------------------------------------------------------- */
+	:root {
+		--wt-radius-sm: 0.25rem;
+		--wt-radius-md: 0.5rem;
+		--wt-radius-lg: 0.75rem;
+		--wt-radius-pill: 9999px;
+
+		--wt-space-1: 0.25rem;
+		--wt-space-2: 0.5rem;
+		--wt-space-3: 0.75rem;
+		--wt-space-4: 1rem;
+
+		--wt-z-dropdown: 1000;
+		--wt-z-dialog: 1100;
+		--wt-z-overlay: 1200;
+		--wt-z-toast: 1300;
+	}
+
+	/* Success color: the one semantic color missing from the webtop-app.css
+	 * token set (BPMN forms had to define their own --ok). */
+	:root[data-theme="light"] {
+		--success-color: rgb(21 128 61 / 1);
+	}
+	:root[data-theme="dark"] {
+		--success-color: rgb(74 222 128 / 1);
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-badge> — semantic pill badge
+	 * ---------------------------------------------------------------------- */
+	wt-badge {
+		display: inline-flex;
+	}
+	.wt-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25em;
+		height: 1.125rem;
+		padding: 0 0.75em;
+		font-size: 10px;
+		font-weight: 600;
+		line-height: 1;
+		white-space: nowrap;
+		border-radius: var(--wt-radius-pill);
+		color: var(--neutral-color);
+		background-color: rgb(from var(--neutral-color) r g b / 0.06);
+		border: 1px solid rgb(from var(--neutral-color) r g b / 0.3);
+
+		&.wt-primary {
+			color: var(--primary-color);
+			background-color: rgb(from var(--primary-color) r g b / 0.06);
+			border-color: rgb(from var(--primary-color) r g b / 0.3);
+		}
+		&.wt-secondary {
+			color: var(--secondary-color);
+			background-color: rgb(from var(--secondary-color) r g b / 0.06);
+			border-color: rgb(from var(--secondary-color) r g b / 0.3);
+		}
+		&.wt-info {
+			color: var(--info-color);
+			background-color: rgb(from var(--info-color) r g b / 0.06);
+			border-color: rgb(from var(--info-color) r g b / 0.3);
+		}
+		&.wt-success {
+			color: var(--success-color);
+			background-color: rgb(from var(--success-color) r g b / 0.06);
+			border-color: rgb(from var(--success-color) r g b / 0.3);
+		}
+		&.wt-warning {
+			color: var(--warning-color);
+			background-color: rgb(from var(--warning-color) r g b / 0.06);
+			border-color: rgb(from var(--warning-color) r g b / 0.3);
+		}
+		&.wt-danger {
+			color: var(--danger-color);
+			background-color: rgb(from var(--danger-color) r g b / 0.06);
+			border-color: rgb(from var(--danger-color) r g b / 0.3);
+		}
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-spinner> — activity indicator (inline or overlay)
+	 * ---------------------------------------------------------------------- */
+	wt-spinner {
+		display: inline-flex;
+	}
+	.wt-spinner {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+
+		&.wt-spinner-overlay {
+			position: absolute;
+			inset: 0;
+			z-index: var(--wt-z-overlay);
+			background-color: rgb(from var(--body-bg) r g b / 0.5);
+		}
+		&.wt-sm > .wt-spinner-ring {
+			width: 1rem;
+		}
+		&.wt-lg > .wt-spinner-ring {
+			width: 2.5rem;
+			border-width: 3px;
+		}
+	}
+	.wt-spinner-ring {
+		width: 1.75rem;
+		aspect-ratio: 1;
+		border-radius: 50%;
+		border: 2px solid var(--island-border-color);
+		border-top-color: var(--primary-color);
+		animation: wt-spin 0.8s linear infinite;
+	}
+	@keyframes wt-spin {
+		to { transform: rotate(360deg); }
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-empty-state> — centered "nothing here" placeholder
+	 * ---------------------------------------------------------------------- */
+	wt-empty-state {
+		display: flex;
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+	.wt-empty-state {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--wt-space-2);
+		padding: var(--wt-space-4);
+		color: var(--text-muted-color);
+		text-align: center;
+	}
+	.wt-empty-state-icon {
+		font-size: 2rem;
+		opacity: 0.6;
+	}
+	.wt-empty-state-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--wt-space-2);
+
+		/* Hide when the actions slot received no content (only the empty
+		 * <slot> element remains). */
+		&:not(:has(> :not(slot))) {
+			display: none;
+		}
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-field> — form field wrapper: label + slotted control + hint / error
+	 * ---------------------------------------------------------------------- */
+	wt-field {
+		display: block;
+	}
+	.wt-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+	.wt-field-label {
+		font-size: 12px;
+		color: var(--text-soft-color);
+		padding-left: 0.125rem;
+	}
+	.wt-field-required {
+		color: var(--danger-color);
+		margin-left: 0.125rem;
+	}
+	.wt-field-hint {
+		font-size: 11px;
+		color: var(--text-muted-color);
+		padding-left: 0.125rem;
+	}
+	.wt-field-error {
+		font-size: 11px;
+		color: var(--danger-color);
+		padding-left: 0.125rem;
+	}
+	.wt-field.has-error :is(input.wt, textarea.wt, select.wt, .wt-select-trigger) {
+		border-color: var(--danger-color);
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-checkbox> — labeled checkbox
+	 * ---------------------------------------------------------------------- */
+	wt-checkbox {
+		display: inline-flex;
+	}
+	.wt-checkbox {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		cursor: pointer;
+		user-select: none;
+
+		&.disabled {
+			cursor: default;
+			opacity: 0.6;
+		}
+	}
+	.wt-checkbox-text {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 13px;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-search-box> — filter/search input with clear button
+	 * (visuals come from the shared .input-group classes)
+	 * ---------------------------------------------------------------------- */
+	wt-search-box {
+		display: block;
+	}
+	.wt-search-box > input.wt {
+		width: 100%;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-select> — visuals come from the shared .wt-select-* classes in
+	 * webtop-app.css; only the host display is defined here.
+	 * ---------------------------------------------------------------------- */
+	wt-select {
+		display: block;
+		min-width: 0;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-dialog> — modal dialog (frame/overlay visuals come from the shared
+	 * .dialog-* classes; the size classes replace inline max-width styles)
+	 * ---------------------------------------------------------------------- */
+	wt-dialog {
+		display: contents;
+	}
+	.wt-dialog {
+		display: contents;
+	}
+	.wt-dialog .dialog-frame {
+		width: 100%;
+
+		&.wt-sm { max-width: 28rem; }
+		&.wt-md { max-width: 32rem; }
+		&.wt-lg { max-width: 36rem; }
+		&.wt-xl { max-width: 42rem; }
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-tabs> — tab bar (pill / underline)
+	 * ---------------------------------------------------------------------- */
+	wt-tabs {
+		display: block;
+	}
+	.wt-tabs {
+		display: flex;
+		align-items: center;
+	}
+	.wt-tab {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		border: none;
+		background: transparent;
+		color: var(--text-soft-color);
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 600;
+		padding: 0.25rem 0.75rem;
+		cursor: pointer;
+		white-space: nowrap;
+
+		&:disabled {
+			opacity: 0.5;
+			cursor: default;
+		}
+	}
+	.wt-tabs.wt-pill {
+		gap: 0.25rem;
+
+		& > .wt-tab {
+			border-radius: var(--wt-radius-pill);
+
+			&:hover:not(:disabled):not(.active) {
+				background-color: var(--item-hover-bg);
+			}
+			&.active {
+				background-color: var(--item-selected-bg);
+				color: var(--item-selected-color);
+			}
+		}
+	}
+	.wt-tabs.wt-underline {
+		gap: 0;
+		border-bottom: 1px solid var(--island-border-color);
+
+		& > .wt-tab {
+			border-radius: 0;
+			border-bottom: 2px solid transparent;
+			margin-bottom: -1px;
+			padding: 0.375rem 0.75rem;
+
+			&:hover:not(:disabled):not(.active) {
+				color: var(--text-color);
+			}
+			&.active {
+				color: var(--primary-color);
+				border-bottom-color: var(--primary-color);
+			}
+		}
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-section> — collapsible section (the .section-* TODO, realized)
+	 * ---------------------------------------------------------------------- */
+	wt-section {
+		display: block;
+	}
+	.wt-section-header {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.25rem 0.375rem;
+		border-radius: var(--wt-radius-sm);
+		background-color: var(--section-header-bg);
+		color: var(--section-header-color);
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		user-select: none;
+	}
+	.wt-section:not(.open) .wt-section-header {
+		opacity: 0.8;
+	}
+	.wt-section-chevron {
+		font-size: 10px;
+	}
+	.wt-section-title {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.wt-section-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+	.wt-section-body {
+		padding: 0.375rem 0.25rem;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-property-row> — name + badges + value (read-only or editable)
+	 * ---------------------------------------------------------------------- */
+	wt-property-row {
+		display: block;
+	}
+	.wt-property-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		padding: 0.25rem 0;
+	}
+	.wt-property-row-header {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+	.wt-property-row-name {
+		flex: 1;
+		min-width: 0;
+		font-size: 12px;
+		color: var(--text-soft-color);
+		padding-left: 0.125rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.wt-property-row-badges {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+	.wt-property-row-value {
+		font-size: 13px;
+		padding-left: 0.125rem;
+		overflow-wrap: break-word;
+		word-break: break-word;
+	}
+	.wt-property-row.muted .wt-property-row-value {
+		color: var(--text-muted-color);
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-tree> — tree view (the .tree-* TODO, realized)
+	 * ---------------------------------------------------------------------- */
+	wt-tree {
+		display: block;
+		min-height: 0;
+	}
+	.wt-tree {
+		display: flex;
+		flex-direction: column;
+	}
+	.wt-tree-item {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.25rem 0.375rem;
+		font-size: 13px;
+		border-radius: var(--wt-radius-md);
+		cursor: pointer;
+		user-select: none;
+		transition: background-color 0.15s;
+
+		&:hover {
+			background-color: var(--item-hover-bg);
+		}
+		&.selected {
+			background-color: var(--item-selected-bg);
+			color: var(--item-selected-color);
+		}
+	}
+	.wt-tree-toggle {
+		width: 1rem;
+		flex-shrink: 0;
+		display: inline-flex;
+		justify-content: center;
+		font-size: 10px;
+		color: var(--text-soft-color);
+	}
+	.wt-tree-content {
+		flex: 1;
+		min-width: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+	.wt-tree-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-splitter> — drag handle between panes
+	 * ---------------------------------------------------------------------- */
+	wt-splitter {
+		display: block;
+		flex-shrink: 0;
+	}
+	.wt-splitter {
+		flex-shrink: 0;
+		position: relative;
+		z-index: 2;
+		background-color: transparent;
+		transition: background-color 0.15s;
+
+		&.wt-col {
+			width: 4px;
+			height: 100%;
+			cursor: col-resize;
+		}
+		&.wt-row {
+			height: 4px;
+			width: 100%;
+			cursor: row-resize;
+		}
+		&:hover,
+		&.is-resizing {
+			background-color: rgb(from var(--primary-color) r g b / 0.35);
+		}
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-inline-message> — inline info / success / warning / error note
+	 * ---------------------------------------------------------------------- */
+	wt-inline-message {
+		display: block;
+	}
+	.wt-inline-message {
+		display: flex;
+		align-items: baseline;
+		gap: 0.375rem;
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--info-color);
+
+		&.wt-success { color: var(--success-color); }
+		&.wt-warning { color: var(--warning-color); }
+		&.wt-error { color: var(--danger-color); }
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-file-tabs> — document tab strip with close / add buttons
+	 * ---------------------------------------------------------------------- */
+	wt-file-tabs {
+		display: block;
+		flex-shrink: 0;
+	}
+	.wt-file-tabs-bar {
+		flex-shrink: 0;
+		height: var(--navbar-height);
+		background-color: var(--navbar-bg);
+		border-bottom: 1px solid var(--navbar-border-color);
+		display: flex;
+		align-items: center;
+		overflow: hidden;
+	}
+	.wt-file-tabs {
+		display: flex;
+		align-items: center;
+		flex: 1;
+		min-width: 0;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: none;
+		padding: 0 0.5rem;
+		gap: 0.25rem;
+	}
+	.wt-file-tabs::-webkit-scrollbar {
+		display: none;
+	}
+	.wt-file-tab {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.125rem 0.75rem;
+		border: 1px solid transparent;
+		border-right-color: var(--navbar-border-color);
+		border-radius: var(--wt-radius-pill);
+		color: var(--text-muted-color);
+		cursor: pointer;
+		white-space: nowrap;
+		user-select: none;
+		transition: background-color 0.15s, color 0.15s;
+
+		&:not(.active):hover {
+			background-color: var(--item-hover-bg);
+			color: var(--text-color);
+		}
+		&.active {
+			color: var(--nav-current-color);
+			background-color: var(--nav-current-bg);
+			border-color: var(--nav-current-border-color);
+		}
+		&.active:hover {
+			background-color: var(--nav-current-hover-bg);
+		}
+		&:hover .wt-file-tab-close,
+		&.active .wt-file-tab-close {
+			opacity: 1;
+		}
+	}
+	.wt-file-tab-name {
+		max-width: 14rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.wt-file-tab-dot {
+		display: inline-block;
+		flex-shrink: 0;
+		width: 0.5em;
+		height: 0.5em;
+		border-radius: var(--wt-radius-pill);
+		background-color: var(--primary-color);
+	}
+	.wt-file-tab-close {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1rem;
+		height: 1rem;
+		border: none;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+		border-radius: var(--wt-radius-pill);
+		opacity: 0;
+		padding: 0;
+		transition: opacity 0.15s, background-color 0.15s;
+
+		&:hover {
+			background-color: var(--btn-icon-hover-bg);
+		}
+	}
+	.wt-file-tab-add {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		border: none;
+		background: transparent;
+		color: var(--text-muted-color);
+		cursor: pointer;
+		border-radius: var(--wt-radius-pill);
+		flex-shrink: 0;
+
+		&:hover {
+			background-color: var(--btn-icon-hover-bg);
+			color: var(--text-color);
+		}
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-find-replace> — sidebar Find & Replace pane
+	 * ---------------------------------------------------------------------- */
+	wt-find-replace {
+		display: block;
+	}
+	.wt-find-replace-group {
+		margin-bottom: 0.75rem;
+	}
+	.wt-find-replace-label {
+		display: block;
+		font-size: 12px;
+		margin-bottom: 0.125rem;
+		padding-left: 0.125rem;
+		color: var(--text-soft-color);
+	}
+	.wt-find-replace-field {
+		position: relative;
+
+		& > input.wt {
+			width: 100%;
+			padding-right: 1.75rem;
+		}
+	}
+	.wt-find-replace-clear {
+		position: absolute;
+		right: 0.4rem;
+		top: 50%;
+		transform: translateY(-50%);
+		background: none;
+		border: none;
+		padding: 0 0.2rem;
+		cursor: pointer;
+		color: var(--text-muted-color);
+		font-size: 0.9em;
+		line-height: 1;
+
+		&:hover {
+			color: var(--text-color);
+		}
+	}
+	.wt-find-replace-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		margin-top: 0.375rem;
+	}
+	.wt-find-replace-spacer {
+		flex: 1;
+	}
+	.wt-find-replace-opt {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 1.5rem;
+		height: 1.5rem;
+		padding: 0 0.375rem;
+		border: none;
+		background: transparent;
+		color: var(--text-muted-color);
+		cursor: pointer;
+		border-radius: var(--wt-radius-sm);
+		font-size: 11px;
+		font-weight: 700;
+
+		&:hover {
+			background-color: var(--btn-icon-hover-bg);
+			color: var(--text-color);
+		}
+		&.active {
+			color: var(--primary-color);
+			background-color: rgb(from var(--primary-color) r g b / 0.1);
+		}
+	}
+	.wt-find-replace-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+	}
+	.wt-find-replace-status {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 11px;
+		color: var(--text-soft-color);
+		padding-top: 0.25rem;
+
+		/* Hide when the status slot received no content. */
+		&:not(:has(> :not(slot))) {
+			display: none;
+		}
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-live-indicator> — "Live / Offline" dot + label
+	 * ---------------------------------------------------------------------- */
+	wt-live-indicator {
+		display: inline-flex;
+	}
+	.wt-live-indicator {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 12px;
+		color: var(--text-soft-color);
+		padding: 0 0.5rem;
+
+		&.connected .wt-live-indicator-dot {
+			background: var(--primary-color);
+			box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary-color) 60%, transparent);
+			animation: wt-live-pulse 2s infinite;
+		}
+	}
+	.wt-live-indicator-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--text-soft-color);
+	}
+	@keyframes wt-live-pulse {
+		0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary-color) 55%, transparent); }
+		70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary-color) 0%, transparent); }
+		100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary-color) 0%, transparent); }
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-dropzone> — dashed drag & drop target
+	 * ---------------------------------------------------------------------- */
+	wt-dropzone {
+		display: block;
+	}
+	.wt-dropzone {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 1.5rem 1rem;
+		border: 2px dashed var(--input-border-color);
+		border-radius: var(--wt-radius-lg);
+		text-align: center;
+		transition: border-color 0.2s, background-color 0.2s;
+
+		&.highlight {
+			border-color: var(--primary-color);
+			background-color: rgb(from var(--primary-color) r g b / 0.05);
+		}
+	}
+}

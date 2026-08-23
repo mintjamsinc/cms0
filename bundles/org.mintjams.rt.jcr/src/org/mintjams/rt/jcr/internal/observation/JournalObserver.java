@@ -31,6 +31,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -42,7 +43,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
@@ -99,6 +102,19 @@ public class JournalObserver implements Adaptable, Closeable {
 	private boolean fCloseRequested;
 	private final List<String> fTransactionIdentifiers = new ArrayList<>();
 	private final Object fRemoteLock = new Object();
+
+	// Serializes the commit pipeline (local Task + cluster RemotePoller, read
+	// side) against the final catch-up and swap of a staged rebuild (write
+	// side): the swap must not run while a transaction is being applied to the
+	// live index, and nothing may change between the final catch-up and the
+	// swap.
+	private final ReentrantReadWriteLock fPipelineLock = new ReentrantReadWriteLock();
+
+	// Set while a staged rebuild is running. The commit pipeline records every
+	// item it touches here; the rebuild's catch-up replays them against the
+	// staging index so the swapped-in index misses nothing that changed during
+	// the traversal.
+	private volatile RebuildContext fRebuildContext;
 
 	private JournalObserver(JcrWorkspaceProvider workspaceProvider) {
 		fWorkspaceProvider = workspaceProvider;
@@ -168,15 +184,7 @@ public class JournalObserver implements Adaptable, Closeable {
 		fCloseRequested = false;
 	}
 
-	public void buildSearchIndex(Node item, SearchIndex.UpdateMonitor monitor) throws RepositoryException, IOException {
-		// Kept for callers that want the historical behaviour of committing the
-		// index once per indexed node. The startup rebuild uses
-		// rebuildSearchIndex(...) instead, which defers the commit so a full
-		// rebuild is not throttled by a per-node fsync.
-		buildSearchIndex(item, monitor, true);
-	}
-
-	private void buildSearchIndex(Node item, SearchIndex.UpdateMonitor monitor, boolean commit)
+	private void buildSearchIndex(Node item, SearchIndex.UpdateMonitor monitor, IndexWriters writers)
 			throws RepositoryException, IOException {
 		if (monitor != null) {
 			if (monitor.isCancelled()) {
@@ -192,13 +200,13 @@ public class JournalObserver implements Adaptable, Closeable {
 		NodeType type = item.getPrimaryNodeType();
 		if (type.isNodeType(NodeType.NT_FOLDER)) {
 			for (NodeIterator i = item.getNodes(); i.hasNext();) {
-				buildSearchIndex(i.nextNode(), monitor, commit);
+				buildSearchIndex(i.nextNode(), monitor, writers);
 			}
 			return;
 		}
 
 		try {
-			updateSearchIndex(item, commit);
+			updateSearchIndex(item, false, writers);
 			// Count only the nodes actually indexed (nt:file), so the reported
 			// total matches the parallel rebuild's producer, which enqueues only
 			// nt:file nodes. updateSearchIndex is a no-op for anything else.
@@ -207,6 +215,39 @@ public class JournalObserver implements Adaptable, Closeable {
 			}
 		} catch (Throwable ex) {
 			Activator.getDefault().getLogger(getClass()).error("An error occurred while building the index: " + path, ex);
+		}
+	}
+
+	/**
+	 * Counts the indexable items ({@code nt:file} nodes outside the system
+	 * space) by walking the content tree — deliberately without consulting the
+	 * search index, whose completeness is exactly what a rebuild questions.
+	 */
+	public long countIndexableItems() throws RepositoryException, IOException {
+		long[] count = new long[1];
+		try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+			for (NodeIterator i = workspace.getSession().getRootNode().getNodes(); i.hasNext();) {
+				countIndexableItems(i.nextNode(), count);
+			}
+		}
+		return count[0];
+	}
+
+	private void countIndexableItems(Node item, long[] count) throws RepositoryException {
+		if (JCRs.isSystemPath(item.getPath())) {
+			return;
+		}
+
+		NodeType type = item.getPrimaryNodeType();
+		if (type.isNodeType(NodeType.NT_FOLDER)) {
+			for (NodeIterator i = item.getNodes(); i.hasNext();) {
+				countIndexableItems(i.nextNode(), count);
+			}
+			return;
+		}
+
+		if (type.isNodeType(NodeType.NT_FILE)) {
+			count[0]++;
 		}
 	}
 
@@ -233,28 +274,160 @@ public class JournalObserver implements Adaptable, Closeable {
 		// on this thread so the worker threads never race to initialise it.
 		fWorkspaceProvider.getConfiguration().getSuggestionPropertyKeys();
 
-		int threads = adaptTo(JcrRepository.class).getConfiguration().getSearchIndexRebuildThreads();
-		if (threads <= 1) {
-			rebuildSearchIndexSequential(monitor);
-		} else {
-			rebuildSearchIndexParallel(monitor, threads);
-		}
+		// The whole rebuild is written into a staging index; the live index
+		// keeps serving queries and incremental updates until the staged one is
+		// complete and caught up, then the two are swapped. Every write below
+		// is uncommitted until the session's single commit — no per-node fsync.
+		SearchIndex.RebuildSession session = adaptTo(SearchIndex.class).createRebuildSession();
+		RebuildContext context = new RebuildContext();
+		IndexWriters stagingWriters = new IndexWriters() {
+			@Override
+			public SearchIndex.DocumentWriter getDocumentWriter() throws IOException {
+				return session.getDocumentWriter();
+			}
 
-		// A single commit for the entire rebuild: everything written above is made
-		// durable and visible here, instead of paying a fsync per node.
-		commitSearchIndexWriters();
-	}
+			@Override
+			public SearchIndex.SuggestionWriter getSuggestionWriter() throws IOException {
+				return session.getSuggestionWriter();
+			}
+		};
 
-	private void rebuildSearchIndexSequential(SearchIndex.UpdateMonitor monitor)
-			throws RepositoryException, IOException {
-		try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
-			for (NodeIterator i = workspace.getSession().getRootNode().getNodes(); i.hasNext();) {
-				buildSearchIndex(i.nextNode(), monitor, false);
+		boolean committed = false;
+		fRebuildContext = context;
+		try {
+			int threads = adaptTo(JcrRepository.class).getConfiguration().getSearchIndexRebuildThreads();
+			if (threads <= 1) {
+				rebuildSearchIndexSequential(monitor, stagingWriters);
+			} else {
+				rebuildSearchIndexParallel(monitor, threads, stagingWriters);
+			}
+			if (monitor != null && monitor.isCancelled()) {
+				return;
+			}
+
+			try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+				notifyPhase(monitor, "catchingUp");
+				// Catch up on what the commit pipeline applied to the live index
+				// while the traversal ran. The pipeline keeps running during
+				// these rounds; each round drains the backlog recorded so far,
+				// so it shrinks toward empty.
+				for (int round = 0; round < CATCHUP_MAX_ROUNDS; round++) {
+					if (monitor != null && monitor.isCancelled()) {
+						return;
+					}
+					if (!applyCatchUp(workspace, context, stagingWriters, monitor)) {
+						break;
+					}
+				}
+
+				// The final catch-up and the swap run with the commit pipeline
+				// paused, so nothing can land in the live index between them.
+				// Pipeline transactions queue up briefly and resume against the
+				// swapped-in index.
+				fPipelineLock.writeLock().lock();
+				try {
+					if (monitor != null && monitor.isCancelled()) {
+						return;
+					}
+					applyCatchUp(workspace, context, stagingWriters, null);
+					fRebuildContext = null;
+					notifyPhase(monitor, "swapping");
+					session.commit();
+					committed = true;
+				} finally {
+					fPipelineLock.writeLock().unlock();
+				}
+			}
+		} finally {
+			fRebuildContext = null;
+			if (!committed) {
+				try {
+					session.close();
+				} catch (Throwable ignore) {}
 			}
 		}
 	}
 
-	private void rebuildSearchIndexParallel(SearchIndex.UpdateMonitor monitor, int threads)
+	private static void notifyPhase(SearchIndex.UpdateMonitor monitor, String phase) {
+		if (monitor == null) {
+			return;
+		}
+		java.util.function.Consumer<String> consumer = monitor.getPhaseConsumer();
+		if (consumer != null) {
+			try {
+				consumer.accept(phase);
+			} catch (Throwable ignore) {}
+		}
+	}
+
+	/**
+	 * How many pipeline-concurrent catch-up rounds may run before the rebuild
+	 * stops chasing a moving target and takes the exclusive final round. Under
+	 * sustained write load the backlog may never drain to empty; the bound
+	 * keeps the exclusive pause short without letting the chase run forever.
+	 */
+	private static final int CATCHUP_MAX_ROUNDS = 8;
+
+	/**
+	 * Replays one round of the changes the commit pipeline recorded against
+	 * the staging index: recorded removals are deleted, recorded updates are
+	 * re-read from the repository (indexed when present, deleted when gone —
+	 * the current state wins, which also settles any stale write a traversal
+	 * worker lost a race over). Returns false when there was nothing to replay.
+	 */
+	private boolean applyCatchUp(JcrWorkspace workspace, RebuildContext context, IndexWriters writers,
+			SearchIndex.UpdateMonitor monitor) throws RepositoryException, IOException {
+		List<String> removedIds = context.drainRemoved();
+		List<String> touchedIds = context.drainTouched();
+		if (removedIds.isEmpty() && touchedIds.isEmpty()) {
+			return false;
+		}
+
+		// See the newest committed state, not the session's cached view.
+		workspace.getSession().refresh(false);
+
+		if (!removedIds.isEmpty()) {
+			writers.getDocumentWriter().delete(removedIds.toArray(String[]::new));
+			writers.getSuggestionWriter().delete(removedIds.toArray(String[]::new));
+		}
+
+		int sinceRefresh = 0;
+		for (String id : touchedIds) {
+			if (monitor != null && monitor.isCancelled()) {
+				break;
+			}
+			try {
+				Node item = workspace.getSession().getNodeByIdentifier(id);
+				updateSearchIndex(item, false, writers);
+			} catch (ItemNotFoundException gone) {
+				writers.getDocumentWriter().delete(id);
+				writers.getSuggestionWriter().delete(id);
+			} catch (Throwable ex) {
+				// Same policy as the rebuild workers: skip the offending node,
+				// never roll back the shared staging writers.
+				Activator.getDefault().getLogger(getClass())
+						.error("An error occurred while catching up the index: " + id, ex);
+			}
+			if (++sinceRefresh >= 256) {
+				sinceRefresh = 0;
+				try {
+					workspace.getSession().refresh(false);
+				} catch (Throwable ignore) {}
+			}
+		}
+		return true;
+	}
+
+	private void rebuildSearchIndexSequential(SearchIndex.UpdateMonitor monitor, IndexWriters writers)
+			throws RepositoryException, IOException {
+		try (JcrWorkspace workspace = fWorkspaceProvider.createSession(new SystemPrincipal())) {
+			for (NodeIterator i = workspace.getSession().getRootNode().getNodes(); i.hasNext();) {
+				buildSearchIndex(i.nextNode(), monitor, writers);
+			}
+		}
+	}
+
+	private void rebuildSearchIndexParallel(SearchIndex.UpdateMonitor monitor, int threads, IndexWriters writers)
 			throws RepositoryException, IOException {
 		// A bounded queue gives back-pressure: the traversal producer blocks once
 		// the workers fall behind, so at most a bounded number of node ids are
@@ -264,7 +437,7 @@ public class JournalObserver implements Adaptable, Closeable {
 
 		List<Thread> workers = new ArrayList<>(threads);
 		for (int t = 0; t < threads; t++) {
-			Thread worker = new Thread(new RebuildWorker(queue, monitor, failure),
+			Thread worker = new Thread(new RebuildWorker(queue, monitor, failure, writers),
 					"searchindex-rebuild-" + fWorkspaceProvider.getWorkspaceName() + "-" + t);
 			worker.setDaemon(true);
 			worker.start();
@@ -347,10 +520,60 @@ public class JournalObserver implements Adaptable, Closeable {
 		}
 	}
 
-	private void commitSearchIndexWriters() throws IOException {
-		SearchIndex searchIndex = adaptTo(SearchIndex.class);
-		searchIndex.getDocumentWriter().commit();
-		searchIndex.getSuggestionWriter().commit();
+	/**
+	 * The pair of index writers a search index write goes to — either the live
+	 * index or a rebuild session's staging index. The writers are re-acquired
+	 * per call (never cached) so a live write always lands in the writer that
+	 * is current after a swap.
+	 */
+	private interface IndexWriters {
+		SearchIndex.DocumentWriter getDocumentWriter() throws IOException;
+
+		SearchIndex.SuggestionWriter getSuggestionWriter() throws IOException;
+	}
+
+	private final IndexWriters fLiveWriters = new IndexWriters() {
+		@Override
+		public SearchIndex.DocumentWriter getDocumentWriter() throws IOException {
+			return adaptTo(SearchIndex.class).getDocumentWriter();
+		}
+
+		@Override
+		public SearchIndex.SuggestionWriter getSuggestionWriter() throws IOException {
+			return adaptTo(SearchIndex.class).getSuggestionWriter();
+		}
+	};
+
+	/**
+	 * What the commit pipeline touched while a staged rebuild was running.
+	 * Updates and removals are only recorded here; the rebuild's catch-up
+	 * replays them against the staging index by re-reading the current
+	 * repository state, so recording is cheap and ordering races between the
+	 * pipeline and the traversal workers resolve themselves.
+	 */
+	private static class RebuildContext {
+		private final Set<String> fTouchedIds = ConcurrentHashMap.newKeySet();
+		private final Set<String> fRemovedIds = ConcurrentHashMap.newKeySet();
+
+		void recordTouched(String id) {
+			fTouchedIds.add(id);
+		}
+
+		void recordRemoved(Collection<String> ids) {
+			fRemovedIds.addAll(ids);
+		}
+
+		List<String> drainTouched() {
+			List<String> drained = new ArrayList<>(fTouchedIds);
+			fTouchedIds.removeAll(drained);
+			return drained;
+		}
+
+		List<String> drainRemoved() {
+			List<String> drained = new ArrayList<>(fRemovedIds);
+			fRemovedIds.removeAll(drained);
+			return drained;
+		}
 	}
 
 	/**
@@ -364,12 +587,14 @@ public class JournalObserver implements Adaptable, Closeable {
 		private final BlockingQueue<String> fQueue;
 		private final SearchIndex.UpdateMonitor fMonitor;
 		private final AtomicReference<Throwable> fFailure;
+		private final IndexWriters fWriters;
 
 		private RebuildWorker(BlockingQueue<String> queue, SearchIndex.UpdateMonitor monitor,
-				AtomicReference<Throwable> failure) {
+				AtomicReference<Throwable> failure, IndexWriters writers) {
 			fQueue = queue;
 			fMonitor = monitor;
 			fFailure = failure;
+			fWriters = writers;
 		}
 
 		@Override
@@ -399,10 +624,16 @@ public class JournalObserver implements Adaptable, Closeable {
 					if (workspace == null) {
 						continue;
 					}
+					// A cancelled rebuild keeps draining the queue (so the
+					// producer and the poison pills are never stranded) but
+					// stops paying for Tika extraction and index writes.
+					if (fMonitor != null && fMonitor.isCancelled()) {
+						continue;
+					}
 
 					try {
 						Node item = workspace.getSession().getNodeByIdentifier(id);
-						updateSearchIndex(item, false);
+						updateSearchIndex(item, false, fWriters);
 						if (fMonitor != null && fMonitor.getPathConsumer() != null) {
 							fMonitor.getPathConsumer().accept(item.getPath());
 						}
@@ -468,11 +699,19 @@ public class JournalObserver implements Adaptable, Closeable {
 	}
 
 	private void updateSearchIndex(Node item) throws RepositoryException, IOException {
-		updateSearchIndex(item, true);
+		updateSearchIndex(item, true, fLiveWriters);
+		// While a staged rebuild runs, remember every item the live pipeline
+		// (re)indexed; the rebuild's catch-up re-reads them and indexes their
+		// then-current state into the staging index, so nothing that changed
+		// during the traversal is missing after the swap.
+		RebuildContext context = fRebuildContext;
+		if (context != null && item.getPrimaryNodeType().isNodeType(NodeType.NT_FILE)) {
+			context.recordTouched(item.getIdentifier());
+		}
 	}
 
 	/**
-	 * Writes {@code item} to the search index. When {@code commit} is
+	 * Writes {@code item} to the given index writers. When {@code commit} is
 	 * {@code true} the document and suggestion writers are committed before
 	 * returning (the behaviour used for live, per-transaction updates). When it
 	 * is {@code false} the write is left uncommitted so a bulk rebuild can commit
@@ -481,7 +720,7 @@ public class JournalObserver implements Adaptable, Closeable {
 	 * Lucene's rollback closes the writer), so the caller is expected to log and
 	 * skip the offending node.
 	 */
-	private void updateSearchIndex(Node item, boolean commit) throws RepositoryException, IOException {
+	private void updateSearchIndex(Node item, boolean commit, IndexWriters writers) throws RepositoryException, IOException {
 		NodeType type = item.getPrimaryNodeType();
 		if (!type.isNodeType(NodeType.NT_FILE)) {
 			return;
@@ -496,7 +735,7 @@ public class JournalObserver implements Adaptable, Closeable {
 		WorkspaceQuery workspaceQuery = Adaptables.getAdapter(item, WorkspaceQuery.class);
 		List<String> authorized = getAuthorized(item);
 
-		SearchIndex.DocumentWriter documentWriter = adaptTo(SearchIndex.class).getDocumentWriter();
+		SearchIndex.DocumentWriter documentWriter = writers.getDocumentWriter();
 		try {
 			documentWriter.update(document -> {
 				try {
@@ -632,7 +871,7 @@ public class JournalObserver implements Adaptable, Closeable {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
 
-		SearchIndex.SuggestionWriter suggestionWriter = adaptTo(SearchIndex.class).getSuggestionWriter();
+		SearchIndex.SuggestionWriter suggestionWriter = writers.getSuggestionWriter();
 		try {
 			suggestionWriter.delete(itemId);
 			List<String> suggestions = new ArrayList<>();
@@ -1021,6 +1260,15 @@ public class JournalObserver implements Adaptable, Closeable {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
 
+		// While a staged rebuild runs, the staging index needs these removals
+		// too. The path-prefix expansion above already harvested the removed
+		// folders' descendants from the live index, so recording the harvested
+		// ids covers them — the staging index itself never needs to be queried.
+		RebuildContext context = fRebuildContext;
+		if (context != null) {
+			context.recordRemoved(suggestionIds);
+		}
+
 		SearchIndex.SuggestionWriter suggestionWriter = adaptTo(SearchIndex.class).getSuggestionWriter();
 		try {
 			suggestionWriter.delete(suggestionIds.toArray(String[]::new));
@@ -1045,6 +1293,19 @@ public class JournalObserver implements Adaptable, Closeable {
 	 * and, in a cluster, the remote commit poller.
 	 */
 	private void processTransaction(JcrWorkspace workspace, String transactionId)
+			throws IOException, SQLException, RepositoryException {
+		// Read side of the pipeline lock: a staged rebuild's final catch-up and
+		// swap (the write side) wait for the transaction being applied here and
+		// briefly hold back the next one.
+		fPipelineLock.readLock().lock();
+		try {
+			processTransactionLocked(workspace, transactionId);
+		} finally {
+			fPipelineLock.readLock().unlock();
+		}
+	}
+
+	private void processTransactionLocked(JcrWorkspace workspace, String transactionId)
 			throws IOException, SQLException, RepositoryException {
 		WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
 		try (Query.Result result = workspaceQuery.journal().listJournal(transactionId)) {

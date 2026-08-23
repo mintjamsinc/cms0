@@ -979,6 +979,10 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public Property setProperty(String name, Value[] values, int type) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
+		if (values == null || values.length == 0) {
+			throw new ValueFormatException("Values array cannot be null or empty.");
+		}
+
 		fSession.checkPrivileges(getPath(), Privilege.JCR_MODIFY_PROPERTIES);
 		checkWritable();
 		validateNamePrefixRegistered(name);

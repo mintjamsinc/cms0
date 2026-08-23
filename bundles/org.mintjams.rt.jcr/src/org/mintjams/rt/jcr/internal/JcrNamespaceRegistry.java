@@ -33,6 +33,7 @@ import javax.jcr.NamespaceException;
 import javax.jcr.RepositoryException;
 import javax.jcr.UnsupportedRepositoryOperationException;
 
+import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.collections.AdaptableMap;
@@ -124,8 +125,14 @@ public class JcrNamespaceRegistry implements org.mintjams.jcr.NamespaceRegistry,
 	@Override
 	public void registerNamespace(String prefix, String uri) throws NamespaceException,
 			UnsupportedRepositoryOperationException, AccessDeniedException, RepositoryException {
-		try {
-			getWorkspaceQuery().namespaces().registerNamespace(prefix, uri);
+		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
+			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
+			workspaceQuery.namespaces().registerNamespace(prefix, uri);
+			// Namespace writes bypass the journal, so Session#save() would see no
+			// pending changes and skip the commit. Commit the transaction directly;
+			// on failure the close-time rollback discards the write.
+			workspaceQuery.commit();
+
 			fCacheURIs.put(prefix, uri);
 			fCachePrefixes.put(uri, prefix);
 		} catch (IOException | SQLException ex) {
@@ -136,8 +143,12 @@ public class JcrNamespaceRegistry implements org.mintjams.jcr.NamespaceRegistry,
 	@Override
 	public void unregisterNamespace(String prefix) throws NamespaceException, UnsupportedRepositoryOperationException,
 			AccessDeniedException, RepositoryException {
-		try {
-			getWorkspaceQuery().namespaces().unregisterNamespace(prefix);
+		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
+			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
+			workspaceQuery.namespaces().unregisterNamespace(prefix);
+			// See registerNamespace: commit directly, the journal never sees this.
+			workspaceQuery.commit();
+
 			String uri = fCacheURIs.remove(prefix);
 			if (uri != null) {
 				fCachePrefixes.remove(uri);

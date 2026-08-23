@@ -1,3 +1,5 @@
+import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance, PopupHandle, PopupItem } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import {
@@ -280,8 +282,8 @@ const REF_CONFIGS: Record<RefKind, RefConfig> = {
 
 // =============================================================================
 // Property-panel dropdown option sets
-// Shared by the shell-rendered popups that replace native <select> elements
-// in the right-side properties pane.
+// Rendered through wt-select in the right-side properties pane (labels are
+// i18n keys, resolved by choiceItems / the *Items computeds).
 // =============================================================================
 interface ChoiceOption { id: string; label: string; }
 
@@ -425,13 +427,14 @@ const TASK_LISTENER_TYPE_OPTIONS: ChoiceOption[] = [
 	{ id: 'script', label: 'app.bpmn-modeler.opt.paramType.script' },
 ];
 
-// Sentinel value returned by the shell popup for the blank/placeholder row.
-// Actual stored property value is '' (empty).
-const EMPTY_CHOICE_ID = '__empty__';
-
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			// Reactive localization snapshot. Folded by the message listener on
 			// `localization-changed` / `i18n-bundles-updated`. See
@@ -493,9 +496,6 @@ export const App = {
 			sidebarPanelVisible: true,
 			detailPanelVisible: true,
 			sidebarPanelWidth: 240,
-			sidebarResizing: false,
-			sidebarResizeStartX: 0,
-			sidebarResizeStartWidth: 0,
 			// Palette collapsible sections
 			paletteExpanded: {
 				events: true,
@@ -576,7 +576,6 @@ export const App = {
 			laneResizing: null as { element: BpmnElement; startY: number; startHeight: number } | null,
 			// Properties panel resizing state
 			propertiesPanelWidth: 280,
-			propertiesPanelResizing: null as { startX: number; startWidth: number } | null,
 			// Command manager
 			commandManager: new CommandManager(),
 			// Undo/Redo guard flag - prevents watch from creating commands during undo/redo
@@ -605,6 +604,96 @@ export const App = {
 		};
 	},
 	computed: {
+		// Items for the wt-file-tabs strip.
+		fileTabItems(): { key: string; label: string; modified: boolean; title: string }[] {
+			return (this.files as BpmnFile[]).map((f: BpmnFile) => ({
+				key: f.id, label: f.name, modified: f.isModified, title: f.path || f.name,
+			}));
+		},
+
+		// -- wt-select items for the property-panel dropdowns (computed so the
+		// labels re-resolve when the locale changes). Lists whose popup offered
+		// a blank/placeholder row get a '' item — selecting it clears the
+		// property, and it doubles as the display label while unset.
+		timerTypeItems(): { value: string; label: string }[] {
+			return [{ value: '', label: this.t('app.bpmn-modeler.placeholder.selectTimerType') },
+				...this.choiceItems(TIMER_TYPE_OPTIONS)];
+		},
+		timerTypeShortItems(): { value: string; label: string }[] {
+			return [{ value: '', label: this.t('app.bpmn-modeler.placeholder.noneParen') },
+				...this.choiceItems(TIMER_TYPE_SHORT_OPTIONS)];
+		},
+		conditionTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(CONDITION_TYPE_OPTIONS);
+		},
+		conditionTypeWithNoneItems(): { value: string; label: string }[] {
+			return [{ value: '', label: this.t('app.bpmn-modeler.placeholder.none') },
+				...this.choiceItems(CONDITION_TYPE_OPTIONS)];
+		},
+		scriptTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(SCRIPT_TYPE_OPTIONS);
+		},
+		scriptFormatJsItems(): { value: string; label: string }[] {
+			return this.choiceItems(SCRIPT_FORMAT_JS_OPTIONS);
+		},
+		scriptFormatGroovyItems(): { value: string; label: string }[] {
+			return this.choiceItems(SCRIPT_FORMAT_GROOVY_OPTIONS);
+		},
+		paramScriptFormatItems(): { value: string; label: string }[] {
+			return this.choiceItems(PARAM_SCRIPT_FORMAT_OPTIONS);
+		},
+		messageImplTypeItems(): { value: string; label: string }[] {
+			return [{ value: '', label: this.t('app.bpmn-modeler.placeholder.noneParen') },
+				...this.choiceItems(MESSAGE_IMPL_TYPE_OPTIONS)];
+		},
+		paramTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(PARAM_TYPE_OPTIONS);
+		},
+		extensionParamTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(EXTENSION_PARAM_TYPE_OPTIONS);
+		},
+		fieldTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(FIELD_TYPE_OPTIONS);
+		},
+		serviceTaskImplItems(): { value: string; label: string }[] {
+			return this.choiceItems(SERVICE_TASK_IMPL_OPTIONS);
+		},
+		businessRuleImplItems(): { value: string; label: string }[] {
+			return this.choiceItems(BUSINESS_RULE_IMPL_OPTIONS);
+		},
+		refBindingItems(): { value: string; label: string }[] {
+			return this.choiceItems(REF_BINDING_OPTIONS);
+		},
+		mapDecisionResultItems(): { value: string; label: string }[] {
+			return this.choiceItems(MAP_DECISION_RESULT_OPTIONS);
+		},
+		calledElementTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(CALLED_ELEMENT_TYPE_OPTIONS);
+		},
+		eventGatewayTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(EVENT_GATEWAY_TYPE_OPTIONS);
+		},
+		loopTypeItems(): { value: string; label: string }[] {
+			return [{ value: '', label: this.t('app.bpmn-modeler.placeholder.none') },
+				...this.choiceItems(LOOP_TYPE_OPTIONS)];
+		},
+		transactionMethodItems(): { value: string; label: string }[] {
+			return [{ value: '', label: this.t('app.bpmn-modeler.placeholder.default') },
+				...this.choiceItems(TRANSACTION_METHOD_OPTIONS)];
+		},
+		listenerEventItems(): { value: string; label: string }[] {
+			return this.choiceItems(LISTENER_EVENT_OPTIONS);
+		},
+		listenerTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(LISTENER_TYPE_OPTIONS);
+		},
+		taskListenerEventItems(): { value: string; label: string }[] {
+			return this.choiceItems(TASK_LISTENER_EVENT_OPTIONS);
+		},
+		taskListenerTypeItems(): { value: string; label: string }[] {
+			return this.choiceItems(TASK_LISTENER_TYPE_OPTIONS);
+		},
+
 		viewportTransform(): string {
 			return `translate(${this.panX}, ${this.panY}) scale(${this.zoom})`;
 		},
@@ -1788,7 +1877,12 @@ export const App = {
 			};
 		},
 
-		async onMounted() {
+		// Synchronous on purpose: window.appLaunch must be defined by the time
+		// this returns, so the shell finds it on the first try instead of
+		// polling for it (see wt-window.ts `appLaunch not found after waiting`).
+		// The wt-* templates are awaited inside appLaunch(), ahead of the
+		// readiness gate.
+		onMounted() {
 			const vm = this;
 
 			// Set up Save As response channel
@@ -1900,6 +1994,24 @@ export const App = {
 				// Apply theme
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
+
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The popup adapter is passed
+				// here as well: wt-select menus escape the window through the
+				// shell popup API.
+				try {
+					await initUi({ popupAdapter: createShellPopupAdapter(instance) });
+				} catch (e) {
+					console.warn('[BpmnModeler] Failed to load component templates:', e);
+				}
+
+				// Opening the gate builds the screen. Wait for that DOM before
+				// loading a diagram: the canvas ($refs.bpmnCanvas) lives inside
+				// the gate and zoom-to-fit measures it.
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 
 				// Set beforeClose callback
 				instance.setBeforeCloseCallback(async () => {
@@ -2290,26 +2402,6 @@ export const App = {
 		toggleDetailPanel() {
 			this.detailPanelVisible = !this.detailPanelVisible;
 		},
-		onSidebarResizeStart(event: MouseEvent) {
-			const vm = this;
-			event.preventDefault();
-			vm.sidebarResizing = true;
-			vm.sidebarResizeStartX = event.clientX;
-			vm.sidebarResizeStartWidth = vm.sidebarPanelWidth;
-			const onMove = (e: MouseEvent) => {
-				if (!vm.sidebarResizing) return;
-				const delta = e.clientX - vm.sidebarResizeStartX;
-				vm.sidebarPanelWidth = Math.max(180, Math.min(600, vm.sidebarResizeStartWidth + delta));
-			};
-			const onUp = () => {
-				vm.sidebarResizing = false;
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
-		},
-
 		// ---- Window controls ----
 		onMinimizeWindow() {
 			this.instance?.minimize();
@@ -4812,441 +4904,84 @@ export const App = {
 		},
 
 		// ==========================================================================
-		// Property-panel dropdowns (shell-rendered popups replacing <select>)
+		// Property-panel dropdowns (wt-select; menus escape the window through
+		// the shell popupAdapter wired in appLaunch)
 		// ==========================================================================
 
-		/**
-		 * Open a choice popup anchored at the trigger element's rect.
-		 * The shell renders the menu above all iframes; the selected id is
-		 * resolved via the popup service.
-		 */
-		async openChoicePopup(
-			event: MouseEvent,
-			options: ChoiceOption[],
-			currentValue: string,
-			onSelect: (value: string) => void,
-			placeholder?: string,
-		) {
-			const vm = this;
-			const trigger = event.currentTarget as HTMLElement | null;
-			if (!trigger || !vm.instance) return;
-			const rect = trigger.getBoundingClientRect();
-			const items: any[] = [];
-			if (placeholder !== undefined) {
-				items.push({
-					id: EMPTY_CHOICE_ID,
-					label: placeholder,
-					selected: !currentValue,
-				});
-			}
-			for (const o of options) {
-				items.push({
-					id: o.id,
-					label: vm.t(o.label, undefined, o.label),
-					selected: currentValue === o.id,
-				});
-			}
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			const value = result === EMPTY_CHOICE_ID ? '' : String(result);
-			onSelect(value);
-			// Force ichigo.js reactivity. Some downstream handlers (e.g.
-			// onConditionTypeChange) only mutate nested fields without
-			// reassigning selectedElement; bumping storeVersion guarantees
-			// the property pane re-renders for v-if branches that depend
-			// on the new value.
-			(vm as any).storeVersion++;
+		/** Map a ChoiceOption list to wt-select items, resolving i18n labels. */
+		choiceItems(options: ChoiceOption[]): { value: string; label: string }[] {
+			return options.map(o => ({
+				value: o.id,
+				label: this.t(o.label, undefined, o.label),
+			}));
 		},
 
 		/**
-		 * Resolve the label for the current value of a choice option list.
-		 * Returns the placeholder if value is unset or unknown.
+		 * Items for the property-pane tab strip. A method, not a computed: the
+		 * visible set depends on the selectedElement computed, so the template
+		 * binding re-evaluates it on every selection change instead of relying
+		 * on computed→computed dependency propagation.
 		 */
-		optionLabel(options: ChoiceOption[], value: string | undefined, fallback = ''): string {
-			if (!value) return fallback;
-			const key = options.find(o => o.id === value)?.label;
-			return key ? this.t(key, undefined, key) : fallback;
-		},
-
-		// -- Static enum dropdowns --------------------------------------------
-
-		openTimerTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, TIMER_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.timerType || '',
-				v => { (vm.selectedElement as any).timerType = v; vm.onPropertyChange(); },
-				this.t('app.bpmn-modeler.placeholder.selectTimerType'));
-		},
-		timerTypeLabel(): string {
-			return this.optionLabel(TIMER_TYPE_OPTIONS,
-				(this.selectedElement as any)?.timerType, this.t('app.bpmn-modeler.placeholder.selectTimerType'));
-		},
-
-		openTimerTypeShortDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, TIMER_TYPE_SHORT_OPTIONS,
-				(vm.selectedElement as any)?.timerType || '',
-				v => { (vm.selectedElement as any).timerType = v; vm.onPropertyChange(); },
-				this.t('app.bpmn-modeler.placeholder.noneParen'));
-		},
-		timerTypeShortLabel(): string {
-			return this.optionLabel(TIMER_TYPE_SHORT_OPTIONS,
-				(this.selectedElement as any)?.timerType, this.t('app.bpmn-modeler.placeholder.noneParen'));
-		},
-
-		openConditionTypeDropdown(event: MouseEvent, onChange?: 'conditionTypeChange' | 'propertyChange') {
-			const vm = this;
-			const use = onChange || 'conditionTypeChange';
-			// Implicit default is 'expression' (matches conditionTypeLabel fallback and the
-			// `!conditionType` branch in the property pane). Pass it explicitly so the
-			// popup highlights Expression when the property is unset.
-			this.openChoicePopup(event, CONDITION_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.conditionType || 'expression',
-				v => {
-					(vm.selectedElement as any).conditionType = v;
-					if (use === 'conditionTypeChange') vm.onConditionTypeChange();
-					else vm.onPropertyChange();
-				});
-		},
-		conditionTypeLabel(): string {
-			return this.optionLabel(CONDITION_TYPE_OPTIONS,
-				(this.selectedElement as any)?.conditionType, this.t('app.bpmn-modeler.opt.implType.expression'));
-		},
-
-		// Variant allowing an empty "None" choice (Sequence Flow condition editor)
-		openConditionTypeWithNoneDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, CONDITION_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.conditionType || '',
-				v => { (vm.selectedElement as any).conditionType = v; vm.onPropertyChange(); },
-				this.t('app.bpmn-modeler.placeholder.none'));
-		},
-		conditionTypeWithNoneLabel(): string {
-			return this.optionLabel(CONDITION_TYPE_OPTIONS,
-				(this.selectedElement as any)?.conditionType, this.t('app.bpmn-modeler.placeholder.none'));
-		},
-
-		openConditionScriptTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, SCRIPT_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.conditionScriptType || 'inline',
-				v => { (vm.selectedElement as any).conditionScriptType = v; vm.onPropertyChange(); });
-		},
-		conditionScriptTypeLabel(): string {
-			return this.optionLabel(SCRIPT_TYPE_OPTIONS,
-				(this.selectedElement as any)?.conditionScriptType || 'inline', this.t('app.bpmn-modeler.opt.scriptType.inline'));
-		},
-
-		openConditionScriptFormatDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, SCRIPT_FORMAT_JS_OPTIONS,
-				(vm.selectedElement as any)?.conditionScriptFormat || 'javascript',
-				v => { (vm.selectedElement as any).conditionScriptFormat = v; vm.onPropertyChange(); });
-		},
-		conditionScriptFormatLabel(): string {
-			return this.optionLabel(SCRIPT_FORMAT_JS_OPTIONS,
-				(this.selectedElement as any)?.conditionScriptFormat || 'javascript', 'JavaScript');
-		},
-
-		openMessageImplTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, MESSAGE_IMPL_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.messageImplementationType || '',
-				v => { (vm.selectedElement as any).messageImplementationType = v; vm.onPropertyChange(); },
-				this.t('app.bpmn-modeler.placeholder.noneParen'));
-		},
-		messageImplTypeLabel(): string {
-			return this.optionLabel(MESSAGE_IMPL_TYPE_OPTIONS,
-				(this.selectedElement as any)?.messageImplementationType, this.t('app.bpmn-modeler.placeholder.noneParen'));
-		},
-
-		openServiceTaskImplDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, SERVICE_TASK_IMPL_OPTIONS,
-				(vm.selectedElement as any)?.implementation || 'class',
-				v => { (vm.selectedElement as any).implementation = v; vm.onPropertyChange(); });
-		},
-		serviceTaskImplLabel(): string {
-			return this.optionLabel(SERVICE_TASK_IMPL_OPTIONS,
-				(this.selectedElement as any)?.implementation || 'class', this.t('app.bpmn-modeler.opt.implType.class'));
-		},
-
-		openScriptFormatGroovyFirstDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, SCRIPT_FORMAT_GROOVY_OPTIONS,
-				(vm.selectedElement as any)?.scriptFormat || 'groovy',
-				v => { (vm.selectedElement as any).scriptFormat = v; vm.onPropertyChange(); });
-		},
-		scriptFormatGroovyFirstLabel(): string {
-			return this.optionLabel(SCRIPT_FORMAT_GROOVY_OPTIONS,
-				(this.selectedElement as any)?.scriptFormat || 'groovy', 'Groovy');
-		},
-
-		openImplementationTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, MESSAGE_IMPL_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.implementationType || '',
-				v => { (vm.selectedElement as any).implementationType = v; vm.onPropertyChange(); },
-				this.t('app.bpmn-modeler.placeholder.noneParen'));
-		},
-		implementationTypeLabel(): string {
-			return this.optionLabel(MESSAGE_IMPL_TYPE_OPTIONS,
-				(this.selectedElement as any)?.implementationType, this.t('app.bpmn-modeler.placeholder.noneParen'));
-		},
-
-		openBusinessRuleImplDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, BUSINESS_RULE_IMPL_OPTIONS,
-				(vm.selectedElement as any)?.implementationType || 'dmn',
-				v => { (vm.selectedElement as any).implementationType = v; vm.onPropertyChange(); });
-		},
-		businessRuleImplLabel(): string {
-			return this.optionLabel(BUSINESS_RULE_IMPL_OPTIONS,
-				(this.selectedElement as any)?.implementationType || 'dmn', this.t('app.bpmn-modeler.opt.businessRule.dmn'));
-		},
-
-		openDecisionRefBindingDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, REF_BINDING_OPTIONS,
-				(vm.selectedElement as any)?.decisionRefBinding || 'latest',
-				v => { (vm.selectedElement as any).decisionRefBinding = v; vm.onPropertyChange(); });
-		},
-		decisionRefBindingLabel(): string {
-			return this.optionLabel(REF_BINDING_OPTIONS,
-				(this.selectedElement as any)?.decisionRefBinding || 'latest', 'latest');
-		},
-
-		openMapDecisionResultDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, MAP_DECISION_RESULT_OPTIONS,
-				(vm.selectedElement as any)?.mapDecisionResult || 'singleEntry',
-				v => { (vm.selectedElement as any).mapDecisionResult = v; vm.onPropertyChange(); });
-		},
-		mapDecisionResultLabel(): string {
-			return this.optionLabel(MAP_DECISION_RESULT_OPTIONS,
-				(this.selectedElement as any)?.mapDecisionResult || 'singleEntry', 'singleEntry');
-		},
-
-		openCalledElementTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, CALLED_ELEMENT_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.calledElementType || 'bpmn',
-				v => { (vm.selectedElement as any).calledElementType = v; vm.onPropertyChange(); });
-		},
-		calledElementTypeLabel(): string {
-			return this.optionLabel(CALLED_ELEMENT_TYPE_OPTIONS,
-				(this.selectedElement as any)?.calledElementType || 'bpmn', this.t('app.bpmn-modeler.opt.calledElementType.bpmn'));
-		},
-
-		openCalledElementBindingDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, REF_BINDING_OPTIONS,
-				(vm.selectedElement as any)?.calledElementBinding || 'latest',
-				v => { (vm.selectedElement as any).calledElementBinding = v; vm.onPropertyChange(); });
-		},
-		calledElementBindingLabel(): string {
-			return this.optionLabel(REF_BINDING_OPTIONS,
-				(this.selectedElement as any)?.calledElementBinding || 'latest', 'latest');
-		},
-
-		openEventGatewayTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, EVENT_GATEWAY_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.eventGatewayType || 'exclusive',
-				v => { (vm.selectedElement as any).eventGatewayType = v; vm.onPropertyChange(); });
-		},
-		eventGatewayTypeLabel(): string {
-			return this.optionLabel(EVENT_GATEWAY_TYPE_OPTIONS,
-				(this.selectedElement as any)?.eventGatewayType || 'exclusive', this.t('app.bpmn-modeler.opt.eventGatewayType.exclusive'));
-		},
-
-		openLoopTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, LOOP_TYPE_OPTIONS,
-				(vm.selectedElement as any)?.loopType || '',
-				v => { (vm.selectedElement as any).loopType = v; vm.onPropertyChange(); },
-				this.t('app.bpmn-modeler.placeholder.none'));
-		},
-		loopTypeLabel(): string {
-			return this.optionLabel(LOOP_TYPE_OPTIONS,
-				(this.selectedElement as any)?.loopType, this.t('app.bpmn-modeler.placeholder.none'));
-		},
-
-		openTransactionMethodDropdown(event: MouseEvent) {
-			const vm = this;
-			this.openChoicePopup(event, TRANSACTION_METHOD_OPTIONS,
-				(vm.selectedElement as any)?.transactionMethod || '',
-				v => { (vm.selectedElement as any).transactionMethod = v; vm.onPropertyChange(); },
-				this.t('app.bpmn-modeler.placeholder.default'));
-		},
-		transactionMethodLabel(): string {
-			return this.optionLabel(TRANSACTION_METHOD_OPTIONS,
-				(this.selectedElement as any)?.transactionMethod, this.t('app.bpmn-modeler.placeholder.default'));
-		},
-
-		// Compensation Activity Ref — dynamic list of tasks in the process
-		async openCompensationActivityRefDropdown(event: MouseEvent) {
-			const vm = this;
-			const trigger = event.currentTarget as HTMLElement | null;
-			if (!trigger || !vm.instance) return;
-			const rect = trigger.getBoundingClientRect();
-			const currentId = (vm.selectedElement as any)?.compensationActivityRef || '';
-			const items: any[] = [
-				{ id: EMPTY_CHOICE_ID, label: this.t('app.bpmn-modeler.placeholder.noneBroadcast'), selected: !currentId },
+		propertyTabItems(): { key: string; label: string }[] {
+			const el = this.selectedElement as any;
+			const items: { key: string; label: string }[] = [
+				{ key: 'general', label: this.t('app.bpmn-modeler.properties.tab.general') },
 			];
-			for (const task of (vm.compensatableTasks as any[])) {
-				items.push({
-					id: task.id,
-					label: task.name || task.id,
-					selected: task.id === currentId,
-				});
+			if (el && (el.type === 'startEvent' || el.type === 'userTask')) {
+				items.push({ key: 'forms', label: this.t('app.bpmn-modeler.properties.tab.forms') });
 			}
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			const value = result === EMPTY_CHOICE_ID ? '' : String(result);
-			(vm.selectedElement as any).compensationActivityRef = value;
-			vm.onPropertyChange();
-		},
-		compensationActivityRefLabel(): string {
-			const vm = this;
-			const id = (vm.selectedElement as any)?.compensationActivityRef || '';
-			if (!id) return this.t('app.bpmn-modeler.placeholder.noneBroadcast');
-			const task = (vm.compensatableTasks as any[]).find(t => t.id === id);
-			return (task?.name || task?.id) || id;
+			if (el && (el.type === 'endEvent' || el.type === 'serviceTask')) {
+				items.push({ key: 'io', label: this.t('app.bpmn-modeler.properties.tab.io') });
+			}
+			items.push({ key: 'listeners', label: this.t('app.bpmn-modeler.properties.tab.listeners') });
+			items.push({ key: 'extensions', label: this.t('app.bpmn-modeler.properties.tab.extensions') });
+			return items;
 		},
 
-		// -- Array-nested dropdowns (per-row in v-for lists) -------------------
-
-		openInputTypeDropdown(input: any, event: MouseEvent) {
-			this.openChoicePopup(event, PARAM_TYPE_OPTIONS,
-				input.type || 'text',
-				v => { input.type = v; this.onPropertyChange(); });
-		},
-		openOutputTypeDropdown(output: any, event: MouseEvent) {
-			this.openChoicePopup(event, PARAM_TYPE_OPTIONS,
-				output.type || 'text',
-				v => { output.type = v; this.onPropertyChange(); });
-		},
-		paramTypeLabel(item: any): string {
-			return this.optionLabel(PARAM_TYPE_OPTIONS, item?.type || 'text', this.t('app.bpmn-modeler.opt.paramType.text'));
+		/**
+		 * Items for the Compensation Activity Ref picker. A method for the same
+		 * reason as propertyTabItems: it reads the compensatableTasks computed.
+		 */
+		compensationActivityRefItems(): { value: string; label: string }[] {
+			const items: { value: string; label: string }[] = [
+				{ value: '', label: this.t('app.bpmn-modeler.placeholder.noneBroadcast') },
+			];
+			for (const task of (this.compensatableTasks as any[])) {
+				items.push({ value: task.id, label: task.name || task.id });
+			}
+			return items;
 		},
 
-		openParamScriptFormatDropdown(item: any, event: MouseEvent) {
-			this.openChoicePopup(event, PARAM_SCRIPT_FORMAT_OPTIONS,
-				item.scriptFormat || 'javascript',
-				v => { item.scriptFormat = v; this.onPropertyChange(); });
-		},
-		paramScriptFormatLabel(item: any): string {
-			return this.optionLabel(PARAM_SCRIPT_FORMAT_OPTIONS,
-				item?.scriptFormat || 'javascript', 'JavaScript');
+		// -- Change handlers. Each preserves the old openChoicePopup side
+		// effects: the property write, the follow-up call, and the storeVersion
+		// bump that repaints v-if branches in the property pane.
+
+		/** Write an element property from a wt-select change. */
+		onElementChoice(prop: string, v: string) {
+			if (!this.selectedElement) return;
+			(this.selectedElement as any)[prop] = v;
+			this.onPropertyChange();
+			this.storeVersion++;
 		},
 
-		openFieldTypeDropdown(field: any, event: MouseEvent) {
-			this.openChoicePopup(event, FIELD_TYPE_OPTIONS,
-				field.type || 'string',
-				v => { field.type = v; this.onPropertyChange(); });
-		},
-		fieldTypeLabel(field: any): string {
-			return this.optionLabel(FIELD_TYPE_OPTIONS, field?.type || 'string', this.t('app.bpmn-modeler.opt.fieldType.string'));
+		/** Write a property on a v-for row object (params, fields, listeners). */
+		onRowChoice(row: any, prop: string, v: string) {
+			row[prop] = v;
+			this.onPropertyChange();
+			this.storeVersion++;
 		},
 
-		// Extension properties: 4-way param.type (text/script/list/map)
-		openExtParamTypeDropdown(param: any, event: MouseEvent) {
-			this.openChoicePopup(event, EXTENSION_PARAM_TYPE_OPTIONS,
-				param.type || 'text',
-				v => { param.type = v; this.onPropertyChange(); });
-		},
-		extParamTypeLabel(param: any): string {
-			return this.optionLabel(EXTENSION_PARAM_TYPE_OPTIONS, param?.type || 'text', this.t('app.bpmn-modeler.opt.paramType.text'));
-		},
-
-		openExtParamScriptFormatDropdown(param: any, event: MouseEvent) {
-			this.openChoicePopup(event, SCRIPT_FORMAT_GROOVY_OPTIONS,
-				param.scriptFormat || 'groovy',
-				v => { param.scriptFormat = v; this.onPropertyChange(); });
-		},
-		extParamScriptFormatLabel(param: any): string {
-			return this.optionLabel(SCRIPT_FORMAT_GROOVY_OPTIONS,
-				param?.scriptFormat || 'groovy', 'Groovy');
-		},
-
-		// Execution listeners
-		openListenerEventDropdown(listener: any, event: MouseEvent) {
-			this.openChoicePopup(event, LISTENER_EVENT_OPTIONS,
-				listener.event || 'start',
-				v => { listener.event = v; this.onPropertyChange(); });
-		},
-		listenerEventLabel(listener: any): string {
-			return this.optionLabel(LISTENER_EVENT_OPTIONS, listener?.event || 'start', 'start');
-		},
-
-		openListenerTypeDropdown(listener: any, event: MouseEvent) {
-			this.openChoicePopup(event, LISTENER_TYPE_OPTIONS,
-				listener.listenerType || 'class',
-				v => { listener.listenerType = v; this.onPropertyChange(); });
-		},
-		listenerTypeLabel(listener: any): string {
-			return this.optionLabel(LISTENER_TYPE_OPTIONS,
-				listener?.listenerType || 'class', this.t('app.bpmn-modeler.opt.implType.class'));
-		},
-
-		openListenerScriptFormatDropdown(listener: any, event: MouseEvent) {
-			this.openChoicePopup(event, SCRIPT_FORMAT_GROOVY_OPTIONS,
-				listener.scriptFormat || 'groovy',
-				v => { listener.scriptFormat = v; this.onPropertyChange(); });
-		},
-		listenerScriptFormatLabel(listener: any): string {
-			return this.optionLabel(SCRIPT_FORMAT_GROOVY_OPTIONS,
-				listener?.scriptFormat || 'groovy', 'Groovy');
-		},
-
-		openListenerScriptTypeDropdown(listener: any, event: MouseEvent) {
-			this.openChoicePopup(event, SCRIPT_TYPE_OPTIONS,
-				listener.scriptType || 'inline',
-				v => { listener.scriptType = v; this.onPropertyChange(); });
-		},
-		listenerScriptTypeLabel(listener: any): string {
-			return this.optionLabel(SCRIPT_TYPE_OPTIONS,
-				listener?.scriptType || 'inline', this.t('app.bpmn-modeler.opt.scriptType.inline'));
-		},
-
-		openListenerFieldTypeDropdown(field: any, event: MouseEvent) {
-			this.openChoicePopup(event, FIELD_TYPE_OPTIONS,
-				field.type || 'string',
-				v => { field.type = v; this.onPropertyChange(); });
-		},
-
-		// Task listeners (script format / type / field type reuse the execution
-		// listener dropdowns above; only event and listener type differ).
-		openTaskListenerEventDropdown(listener: any, event: MouseEvent) {
-			this.openChoicePopup(event, TASK_LISTENER_EVENT_OPTIONS,
-				listener.event || 'create',
-				v => { listener.event = v; this.onPropertyChange(); });
-		},
-		taskListenerEventLabel(listener: any): string {
-			return this.optionLabel(TASK_LISTENER_EVENT_OPTIONS, listener?.event || 'create', 'create');
-		},
-
-		openTaskListenerTypeDropdown(listener: any, event: MouseEvent) {
-			this.openChoicePopup(event, TASK_LISTENER_TYPE_OPTIONS,
-				listener.listenerType || 'class',
-				v => { listener.listenerType = v; this.onPropertyChange(); });
-		},
-		taskListenerTypeLabel(listener: any): string {
-			return this.optionLabel(TASK_LISTENER_TYPE_OPTIONS,
-				listener?.listenerType || 'class', this.t('app.bpmn-modeler.opt.implType.class'));
+		/**
+		 * Condition Type has two variants: the conditional-event panes run the
+		 * full onConditionTypeChange handler; the boundary-event pane only needs
+		 * a plain property change.
+		 */
+		onConditionTypeChoice(v: string, use?: 'propertyChange') {
+			if (!this.selectedElement) return;
+			(this.selectedElement as any).conditionType = v;
+			if (use === 'propertyChange') this.onPropertyChange();
+			else this.onConditionTypeChange();
+			this.storeVersion++;
 		},
 
 		// -- Reference combobox widget (Message / Signal / Error / Escalation) --
@@ -5945,40 +5680,6 @@ export const App = {
 			}
 			document.removeEventListener('mousemove', vm.onLaneResizeMove);
 			document.removeEventListener('mouseup', vm.onLaneResizeEnd);
-		},
-
-		/**
-		 * Start properties panel resize
-		 */
-		onPropertiesPanelResizeStart(event: MouseEvent) {
-			const vm = this;
-			event.preventDefault();
-			vm.propertiesPanelResizing = {
-				startX: event.clientX,
-				startWidth: vm.propertiesPanelWidth,
-			};
-			document.addEventListener('mousemove', vm.onPropertiesPanelResizeMove);
-			document.addEventListener('mouseup', vm.onPropertiesPanelResizeEnd);
-		},
-
-		/**
-		 * Handle properties panel resize move
-		 */
-		onPropertiesPanelResizeMove(event: MouseEvent) {
-			const vm = this;
-			if (!vm.propertiesPanelResizing) return;
-			const dx = vm.propertiesPanelResizing.startX - event.clientX;
-			vm.propertiesPanelWidth = Math.max(200, Math.min(600, vm.propertiesPanelResizing.startWidth + dx));
-		},
-
-		/**
-		 * End properties panel resize
-		 */
-		onPropertiesPanelResizeEnd() {
-			const vm = this;
-			vm.propertiesPanelResizing = null;
-			document.removeEventListener('mousemove', vm.onPropertiesPanelResizeMove);
-			document.removeEventListener('mouseup', vm.onPropertiesPanelResizeEnd);
 		},
 
 		/**
@@ -6762,6 +6463,10 @@ export const App = {
 	},
 };
 
-// Mount the app
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

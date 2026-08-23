@@ -28,6 +28,8 @@
 
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { ApplicationInstance } from "../../services/webtop-service.js";
+import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import type { WorkspaceInfo } from "../../services/webtop-service-graphql.js";
 import type { JobProgressEvent, JobStatus } from "../../graphql/types.js";
 import {
@@ -74,6 +76,11 @@ interface EditForm {
 const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			messageListener: null as ((event: MessageEvent) => void) | null,
 			// Reactive Localization snapshot — see composables/use-localization.ts.
@@ -86,8 +93,6 @@ const App = {
 			searchQuery: '',
 			selectedName: null as string | null,
 			sidebarPanelWidth: 280,
-			_sidebarResizeMoveHandler: null as null | ((e: MouseEvent) => void),
-			_sidebarResizeUpHandler: null as null | (() => void),
 			// Right pane: the selected workspace's editable settings.
 			editForm: {
 				displayName: '',
@@ -184,6 +189,20 @@ const App = {
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
 
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The popup adapter is passed
+				// here as well: wt-select menus escape the window through the
+				// shell popup API.
+				try {
+					await initUi({ popupAdapter: createShellPopupAdapter(instance) });
+				} catch (e) {
+					console.warn('[WorkspaceManager] Failed to load component templates:', e);
+				}
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
+
 				await vm.refresh();
 
 				// Keep the list live: a workspace started or stopped elsewhere
@@ -248,31 +267,6 @@ const App = {
 				eipEnabled: ws.integrationEngine?.enabled ?? true,
 			};
 		},
-		onSearchInput() {
-			// v-model drives `displayedWorkspaces`; nothing else to do.
-		},
-		clearSearch() {
-			this.searchQuery = '';
-		},
-		onSidebarResizeStart(e: MouseEvent) {
-			e.preventDefault();
-			const vm = this;
-			const startX = e.clientX;
-			const startWidth = vm.sidebarPanelWidth;
-			vm._sidebarResizeMoveHandler = (moveEvent: MouseEvent) => {
-				const delta = moveEvent.clientX - startX;
-				vm.sidebarPanelWidth = Math.max(200, Math.min(600, startWidth + delta));
-			};
-			vm._sidebarResizeUpHandler = () => {
-				document.removeEventListener('mousemove', vm._sidebarResizeMoveHandler!);
-				document.removeEventListener('mouseup', vm._sidebarResizeUpHandler!);
-				vm._sidebarResizeMoveHandler = null;
-				vm._sidebarResizeUpHandler = null;
-			};
-			document.addEventListener('mousemove', vm._sidebarResizeMoveHandler);
-			document.addEventListener('mouseup', vm._sidebarResizeUpHandler);
-		},
-
 		// =====================================================================
 		// Per-state capabilities (drive which action buttons are shown)
 		//
@@ -639,4 +633,9 @@ const App = {
 	},
 };
 
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 VDOM.createApp(App).mount('#app');

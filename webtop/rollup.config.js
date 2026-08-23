@@ -142,8 +142,9 @@ function makeConfig({
 }
 
 // Standard webtop app config: src/webtop/apps/<name>/app.ts ->
-// dist/webtop/apps/<name>/app.js, with index.html/assets/app.yml copied and
-// any CSS under assets/css/ minified in production builds.
+// dist/webtop/apps/<name>/app.js, with index.html/assets/app.yml and the
+// app-scoped i18n bundles copied, and any CSS under assets/css/ minified in
+// production builds.
 function makeAppConfig(name) {
   return makeConfig({
     name,
@@ -153,6 +154,9 @@ function makeAppConfig(name) {
       { src: `src/webtop/apps/${name}/index.html`, dest: `dist/webtop/apps/${name}`, transform: stampVersion },
       { src: `src/webtop/apps/${name}/assets`, dest: `dist/webtop/apps/${name}` },
       { src: `src/webtop/apps/${name}/app.yml`, dest: `dist/webtop/apps/${name}` },
+      // App-scoped message bundles (<app>/i18n/<locale>.json) deploy with the
+      // app itself; the shell's I18nService discovers them per app folder.
+      { src: `src/webtop/apps/${name}/i18n`, dest: `dist/webtop/apps/${name}` },
     ],
     cssMinifyTargets: [
       {
@@ -176,6 +180,8 @@ const webtopCoreConfig = makeConfig({
     { src: 'src/webtop/assets', dest: 'dist/webtop' },
     { src: 'src/webtop/components/*.html', dest: 'dist/webtop/components' },
     { src: 'src/webtop/components/*.css', dest: 'dist/webtop/components' },
+    // wt-* UI framework component templates (loaded at runtime by initUi()).
+    { src: 'src/webtop/ui/wt-*.html', dest: 'dist/webtop/ui' },
     // The read-only <eip-canvas> reuses the modeler's node icon sprite. It has a
     // single source (the modeler) and is copied to components/ so any app that
     // mounts the shared canvas can resolve it at ../../components/.
@@ -206,8 +212,27 @@ const webtopCoreConfig = makeConfig({
   ],
 });
 
+// BPMN-form distribution bundle: ichigo.js + every wt-* component in one
+// self-contained ESM. Ships with its
+// stylesheet and the component templates so a target that builds only this
+// bundle is complete on its own (the webtop core target copies the same
+// templates — the duplicate copy is harmless).
+const uiStandaloneConfig = makeConfig({
+  name: 'webtop-ui-standalone',
+  input: 'src/webtop/ui/standalone.ts',
+  outputFile: 'dist/webtop/ui/wt-ui.esm.js',
+  outputExtra: { inlineDynamicImports: true },
+  copyTargets: [
+    { src: 'src/webtop/ui/wt-*.html', dest: 'dist/webtop/ui' },
+  ],
+  cssMinifyTargets: [
+    { src: 'src/webtop/ui/wt-ui.css', dest: 'dist/webtop/ui' },
+  ],
+});
+
 export default [
   webtopCoreConfig,
+  uiStandaloneConfig,
   makeAppConfig('content-browser'),
   makeAppConfig('memo'),
   makeAppConfig('text-editor'),

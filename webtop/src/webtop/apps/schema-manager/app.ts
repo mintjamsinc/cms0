@@ -1,3 +1,5 @@
+import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import {
 	createLocalizationSnapshot,
@@ -118,7 +120,6 @@ interface ScanState {
 	properties: ScannedProperty[];
 	overwriteExisting: boolean;
 	bulkPrefix: string;
-	isDropHighlighted: boolean;
 }
 
 // Tokenize a key into words (handles camelCase, snake_case, kebab-case, dot.case)
@@ -535,6 +536,11 @@ function isNumericJcrType(jcrType: string): boolean {
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			isLoading: false,
 			isSaving: false,
@@ -571,14 +577,11 @@ export const App = {
 				overwriteExisting: false,
 				bulkPrefix: '',
 				selectedCase: '' as '' | 'camelCase' | 'snake_case' | 'kebab-case' | 'dot.case',
-				isDropHighlighted: false,
 				lastAnchorIndex: -1,
 			} as ScanState & { lastAnchorIndex: number },
 			// Sidebar resize / toggle state
 			sidebarPanelVisible: true,
 			sidebarPanelWidth: 260,
-			_sidebarResizeMoveHandler: null as ((e: MouseEvent) => void) | null,
-			_sidebarResizeUpHandler: null as ((e: MouseEvent) => void) | null,
 			// Close confirmation dialog (shown when there are unsaved changes)
 			closeConfirmDialog: {
 				visible: false,
@@ -632,6 +635,25 @@ export const App = {
 		};
 	},
 	computed: {
+		// wt-select items for the JCR type pickers (property form, scan rows,
+		// scan bulk-type tool).
+		jcrTypeItems(): { value: string; label: string }[] {
+			return (this.jcrTypes as JcrType[]).map(t => ({
+				value: t,
+				label: this.jcrTypeLabels[t] || t,
+			}));
+		},
+
+		// wt-select items for the scan toolbar's naming-convention menu.
+		scanCaseItems(): { value: string; label: string }[] {
+			return [
+				{ value: 'camelCase',  label: this.t('app.schema-manager.scan.case.camel', undefined, 'camel') },
+				{ value: 'snake_case', label: this.t('app.schema-manager.scan.case.snake', undefined, 'snake') },
+				{ value: 'kebab-case', label: this.t('app.schema-manager.scan.case.kebab', undefined, 'kebab') },
+				{ value: 'dot.case',   label: this.t('app.schema-manager.scan.case.dot', undefined, 'dot')   },
+			];
+		},
+
 		filteredSchemas(): SchemaDefinition[] {
 			const q = (this.schemaFilter || '').trim().toLowerCase();
 			if (!q) return this.schemas;
@@ -848,6 +870,22 @@ export const App = {
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
 
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The popup adapter is passed
+				// here as well: wt-select menus escape the window through the
+				// shell popup API.
+				try {
+					await initUi({ popupAdapter: createShellPopupAdapter(instance) });
+				} catch (e) {
+					console.warn('[SchemaManager] Failed to load component templates:', e);
+				}
+				// Wait for the gated DOM: selectSchema() below mounts CodeMirror
+				// editors into containers that live inside the gate.
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
+
 				// Intercept window close to confirm unsaved changes
 				instance.setBeforeCloseCallback(async () => {
 					return await vm.confirmClose();
@@ -883,13 +921,6 @@ export const App = {
 				window.removeEventListener('message', vm.messageListener);
 				vm.messageListener = null;
 			}
-			// Clean up sidebar resize listeners
-			if (vm._sidebarResizeUpHandler) {
-				document.removeEventListener('mouseup', vm._sidebarResizeUpHandler);
-			}
-			if (vm._sidebarResizeMoveHandler) {
-				document.removeEventListener('mousemove', vm._sidebarResizeMoveHandler);
-			}
 		},
 
 		// Window controls (custom title-bar buttons)
@@ -908,156 +939,60 @@ export const App = {
 			this.sidebarPanelVisible = !this.sidebarPanelVisible;
 		},
 
-		// Sidebar resize (drag the splitter between left and right panes)
-		onSidebarResizeStart(e: MouseEvent) {
-			e.preventDefault();
-			const vm = this;
-			const startX = e.clientX;
-			const startWidth = vm.sidebarPanelWidth;
-
-			vm._sidebarResizeMoveHandler = (moveEvent: MouseEvent) => {
-				const delta = moveEvent.clientX - startX;
-				vm.sidebarPanelWidth = Math.max(180, Math.min(600, startWidth + delta));
-			};
-
-			vm._sidebarResizeUpHandler = () => {
-				document.removeEventListener('mousemove', vm._sidebarResizeMoveHandler!);
-				document.removeEventListener('mouseup', vm._sidebarResizeUpHandler!);
-				vm._sidebarResizeMoveHandler = null;
-				vm._sidebarResizeUpHandler = null;
-			};
-
-			document.addEventListener('mousemove', vm._sidebarResizeMoveHandler);
-			document.addEventListener('mouseup', vm._sidebarResizeUpHandler);
-		},
-
 		// ----------------------------------------------------------------
-		// Popup-rendered dropdowns (replace native <select>)
-		//
-		// Uses the shell-side common popup (instance.popup.open). The shell
-		// renders the menu above all iframes and resolves the selected id.
+		// Property-form / scan dropdowns (wt-select; menus escape the window
+		// through the shell popupAdapter wired in appLaunch)
 		// ----------------------------------------------------------------
 
-		async openTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			const prop = vm.selectedProperty;
-			if (!prop || !vm.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const items = (vm.jcrTypes as JcrType[]).map(t => ({
-				id: t,
-				label: vm.jcrTypeLabels[t] || t,
-				selected: prop.type === t,
-			}));
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			prop.type = String(result) as JcrType;
-			vm.onTypeChange();
-		},
-
-		async openEditorTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			const prop = vm.selectedProperty;
-			if (!prop || !vm.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const items: any[] = [
-				{ id: '__auto__', label: vm.t('app.schema-manager.editor.editorTypeAuto', undefined, '— Auto —'), selected: !prop.uiHint.editorType },
+		/**
+		 * Items for the UI-hint editor type picker. A method, not a computed:
+		 * it reads the availableEditorTypes computed, so the template binding
+		 * re-evaluates it instead of relying on computed→computed propagation.
+		 */
+		editorTypeItems(): { value: string; label: string }[] {
+			const items: { value: string; label: string }[] = [
+				{ value: '', label: this.t('app.schema-manager.editor.editorTypeAuto', undefined, '— Auto —') },
 			];
-			for (const t of vm.availableEditorTypes as string[]) {
-				items.push({ id: t, label: t, selected: prop.uiHint.editorType === t });
+			for (const t of this.availableEditorTypes as string[]) {
+				items.push({ value: t, label: t });
 			}
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			prop.uiHint.editorType = result === '__auto__' ? '' : String(result);
-			vm.onPropertyFieldChange();
+			return items;
+		},
+
+		// -- Change handlers (each preserves the old popup side effects) --
+
+		onPropTypeChoice(v: string) {
+			const prop = this.selectedProperty;
+			if (!prop) return;
+			prop.type = v as JcrType;
+			this.onTypeChange();
+		},
+
+		onEditorTypeChoice(v: string) {
+			const prop = this.selectedProperty;
+			if (!prop) return;
+			prop.uiHint.editorType = v;
+			this.onPropertyFieldChange();
 			// A STATIC+STRING default value follows the UI-hint editor type for
 			// JSON/XML/HTML highlighting — refresh its language in place.
-			vm.refreshCmFieldLanguage('default');
+			this.refreshCmFieldLanguage('default');
 		},
 
-		async openScanRowTypeDropdown(event: MouseEvent, index: number) {
-			const vm = this;
-			if (!vm.instance) return;
-			const sp = vm.scanState.properties[index] as ScannedProperty;
+		onScanRowTypeChoice(index: number, v: string) {
+			const sp = this.scanState.properties[index] as ScannedProperty;
 			if (!sp) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const items = (vm.jcrTypes as JcrType[]).map(t => ({
-				id: t,
-				label: vm.jcrTypeLabels[t] || t,
-				selected: sp.type === t,
-			}));
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			sp.type = String(result) as JcrType;
-			vm.onScanFieldChange(index, 'type');
+			sp.type = v as JcrType;
+			this.onScanFieldChange(index, 'type');
 		},
 
-		async openScanCaseDropdown(event: MouseEvent) {
-			const vm = this;
-			if (!vm.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const items = [
-				{ id: 'camelCase',  label: vm.t('app.schema-manager.scan.case.camel', undefined, 'camel') },
-				{ id: 'snake_case', label: vm.t('app.schema-manager.scan.case.snake', undefined, 'snake') },
-				{ id: 'kebab-case', label: vm.t('app.schema-manager.scan.case.kebab', undefined, 'kebab') },
-				{ id: 'dot.case',   label: vm.t('app.schema-manager.scan.case.dot', undefined, 'dot')   },
-			];
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			vm.applyScanNamingConvention(result as any);
-		},
-
-		async openScanBulkTypeDropdown(event: MouseEvent) {
-			const vm = this;
-			if (!vm.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const items = (vm.jcrTypes as JcrType[]).map(t => ({
-				id: t,
-				label: vm.jcrTypeLabels[t] || t,
-			}));
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			const type = String(result) as JcrType;
-			for (const p of vm.scanState.properties as ScannedProperty[]) {
+		onScanBulkTypeChoice(v: string) {
+			const type = v as JcrType;
+			for (const p of this.scanState.properties as ScannedProperty[]) {
 				if (!p._selected) continue;
 				p.type = type;
 				p.semantic = JCR_DEFAULT_SEMANTIC[type] || '';
 			}
-			vm.updateDuplicateFlags();
+			this.updateDuplicateFlags();
 		},
 
 		// Load all schema and mixin files from /etc/metadata/{schemas,mixins}/
@@ -1226,6 +1161,14 @@ export const App = {
 			return (this.schemas as SchemaDefinition[])
 				.filter((s: SchemaDefinition) => s.kind === 'mixin' && !s._isDeleted && s.key && !used.has(s.key))
 				.map((s: SchemaDefinition) => ({ key: s.key, label: s.label || s.key }));
+		},
+
+		// wt-select items for the "attach mixin" action menu.
+		availableMixinItems(schema: SchemaDefinition): { value: string; label: string }[] {
+			return this.availableMixinsFor(schema).map(mx => ({
+				value: mx.key,
+				label: mx.label && mx.label !== mx.key ? `${mx.key} — ${mx.label}` : mx.key,
+			}));
 		},
 
 		// Resolve a mixin key to its in-memory definition (so the schema editor
@@ -2437,7 +2380,6 @@ export const App = {
 			this.scanState.overwriteExisting = false;
 			this.scanState.bulkPrefix = '';
 			this.scanState.selectedCase = '';
-			this.scanState.isDropHighlighted = false;
 			this.scanState.lastAnchorIndex = -1;
 			// Select the schema but clear property selection
 			this.selection = { schemaID, propertyID: '' };
@@ -2449,25 +2391,9 @@ export const App = {
 			this.scanState.properties = [];
 		},
 
-		// Drag over the scan drop zone
-		onScanDragOver(event: DragEvent) {
-			event.preventDefault();
-			if (event.dataTransfer) {
-				event.dataTransfer.dropEffect = 'copy';
-			}
-			this.scanState.isDropHighlighted = true;
-		},
-
-		// Drag leave the scan drop zone
-		onScanDragLeave() {
-			this.scanState.isDropHighlighted = false;
-		},
-
-		// File dropped on scan drop zone
+		// File dropped on the scan wt-dropzone (highlight / dropEffect are the
+		// component's job now).
 		async onScanDrop(event: DragEvent) {
-			event.preventDefault();
-			this.scanState.isDropHighlighted = false;
-
 			// Check for Content Browser file
 			const webtopFileData = event.dataTransfer?.getData('application/x-webtop-file');
 			if (webtopFileData) {
@@ -2924,6 +2850,10 @@ export const App = {
 	},
 };
 
-// Mount the app
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

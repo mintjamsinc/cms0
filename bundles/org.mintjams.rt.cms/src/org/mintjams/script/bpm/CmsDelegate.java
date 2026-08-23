@@ -125,7 +125,7 @@ public class CmsDelegate implements JavaDelegate, ExecutionListener, TaskListene
 
 	private void evaluate(WorkspaceScriptContext context, VariableScope variableScope) throws Exception {
 		String resourcePath = getPath(variableScope);
-		Resource resource = context.getRepositorySession().getResource(resourcePath);
+		Resource resource = context.getSession().getResource(resourcePath);
 
 		// Check if resource exists and is readable
 		if (!resource.exists()) {

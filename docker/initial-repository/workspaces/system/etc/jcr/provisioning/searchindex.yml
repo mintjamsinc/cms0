@@ -1,0 +1,34 @@
+# Provisioning for the search index rebuild feature
+# (/etc/bpm/{processes,scripts,forms}/system/searchindex).
+#
+# Applied idempotently on every boot by Session.deploy(); see README.md in this
+# folder for the mechanism.
+#
+# Authorization model:
+#   - The BPMN dispatch service task runs as searchindex-service-user (runAs) —
+#     without it the script would be evaluated as guest, which cannot read the
+#     script resource. The service account only needs jcr:read on the script
+#     folder; the real gate (the initiator's administrator role) is enforced
+#     inside dispatch.groovy.
+#   - /etc/bpm content is deployed with the image and must stay writable by
+#     administrators only (deploying a form or process equals deploying an
+#     application). Administrators bypass ACLs, so no allow entry is needed for
+#     them; simply granting nothing to anyone else keeps /etc/bpm closed. The
+#     start/progress forms are opened by the initiator, who is an
+#     administrator, so no explicit read grant is needed there either.
+
+users:
+  # Non-interactive service account for the dispatch script (BPMN runAs).
+  # No password, cannot sign in; an ordinary principal subject to ACLs.
+  - id: searchindex-service-user
+    service: true
+    displayName: Search Index Service
+
+nodes:
+  # The dispatch script must be readable by the service account.
+  - path: /etc/bpm/scripts/system/searchindex
+    primaryType: nt:folder
+    acl:
+      - user: searchindex-service-user
+        privileges: jcr:read
+        effect: allow

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search Index Rebuild — Start</title>
+<style>
+	/* Theme tokens, base text, button.wt and the wt-* component styles come
+	   from wt-ui.css, injected by the wt-ui.esm.js bundle's initUi() (loaded
+	   via the form host's webtopBaseUrl). Only form-specific layout lives
+	   here, expressed in the shared tokens. */
+	[v-cloak] { display: none; }
+	h1 { font-size: 18px; margin: 0 0 4px; }
+	.muted { color: var(--text-muted-color); }
+	.panel {
+		background: var(--island-bg); border: 1px solid var(--island-border-color);
+		border-radius: 8px; padding: 14px 18px; margin: 12px 0;
+	}
+	ul { margin: 6px 0; padding-left: 20px; }
+	.success { color: var(--success-color); font-weight: 600; }
+	wt-inline-message { margin-top: 8px; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak @mounted="onMounted" @unmount="onUnmount">
+	<h1>{{ t('start.title', null, 'Rebuild Search Index') }}</h1>
+	<p class="muted">{{ t('start.subtitle', null, 'Rebuild the full-text search index of every cluster node from the repository content.') }}</p>
+
+	<div class="panel">
+		<p>{{ t('start.description', null, 'The rebuild runs in the background on each node. Search and content updates keep working throughout; the new index replaces the old one atomically when it is complete.') }}</p>
+		<ul class="muted">
+			<li>{{ t('start.note.progress', null, 'A progress task will appear in your task list; open it any time to watch every node, abort, or re-run failed nodes.') }}</li>
+			<li>{{ t('start.note.duration', null, 'Depending on repository size this can take a long time. Only one rebuild should run at a time.') }}</li>
+		</ul>
+	</div>
+
+	<div class="panel">
+		<p v-if="isAdmin === null" class="muted">{{ t('common.checkingRole', null, 'Checking permissions…') }}</p>
+		<wt-inline-message v-if="isAdmin === false" type="error">{{ t('common.adminRequired', null, 'Administrator role is required to rebuild the search index.') }}</wt-inline-message>
+		<div v-if="isAdmin === true">
+			<button class="wt wt-primary" :disabled="starting || started" @click="onStart">{{ t('start.button', null, 'Start rebuild') }}</button>
+			<p v-if="started" class="success">{{ t('start.started', null, 'The rebuild has been requested. Open the "Search Index Rebuild Progress" task from your task list to follow it.') }}</p>
+		</div>
+		<wt-inline-message v-if="errorMessage" type="error">{{ errorMessage }}</wt-inline-message>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.system.searchindex.';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		// Host version 2 is the first that holds a loading overlay over this
+		// frame until notifyReady() is called; this form relies on that.
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	// The webtop UI bundle: ichigo.js + wt-* components + wt-ui.css in one
+	// module, resolved through the host so the form stays deploy-agnostic.
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	const App = {
+		data() {
+			return {
+				isAdmin: null,          // null = checking, then true / false
+				starting: false,
+				started: false,
+				errorMessage: '',
+				i18nRevision: 0,        // bumped on 'localization' so t() bindings repaint
+			};
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			onMounted() {
+				const ctx = host.context || {};
+				this.applyTheme(ctx.theme || host.theme);
+				this.applyLocalization(ctx.localization || host.localization);
+				this._unsubscribe = host.subscribe((type, payload) => {
+					if (type === 'theme') this.applyTheme(payload);
+					else if (type === 'localization') this.applyLocalization(payload);
+				});
+
+				// Display control only — the dispatch script enforces the
+				// administrator role server-side either way.
+				host.idp.getMe().then((me) => {
+					const roles = (me && me.roles) || [];
+					this.isAdmin = roles.some((r) => r && (r.name === 'administrator' || r.roleId === 'administrator'));
+				}).catch((e) => {
+					this.isAdmin = false;
+					this.errorMessage = 'Could not resolve your roles: ' + ((e && e.message) || e);
+				}).finally(() => {
+					// Painted — take the host's loading overlay down. The "Checking
+					// permissions…" line is a designed state, so there is nothing
+					// further to wait for before showing the form.
+					host.notifyReady();
+				});
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+			},
+			async onStart() {
+				this.starting = true;
+				this.errorMessage = '';
+				try {
+					// The correlation key: business key of the instance, `rebuildId`
+					// process variable, and `jobRebuildId` on every per-node job.
+					const rebuildId = 'searchindex-' + Date.now() + '-'
+							+ Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+					await host.startProcess({
+						businessKey: rebuildId,
+						variables: [{ name: 'rebuildId', value: rebuildId }],
+					});
+					this.started = true;
+				} catch (e) {
+					this.errorMessage = this.t('start.failed', null, 'Could not start the rebuild: ')
+							+ ((e && e.message) || e);
+				} finally {
+					this.starting = false;
+				}
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

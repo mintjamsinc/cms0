@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_search_index_rebuild" targetNamespace="http://bpmn.io/schema/bpmn">
+  <!-- Rebuilds the search index of every cluster node while the system stays
+       fully operational.
+
+       Flow: the start form (administrators only; the form hides the button
+       for everyone else, the dispatch script enforces it) mints a rebuildId
+       and starts this process. The dispatch service task validates the
+       initiator's administrator role and persists one QUEUED job record per
+       alive cluster node under /var/jobs; each node's
+       SearchIndexRebuildService picks up its own record and rebuilds its
+       node-local index (staged build + atomic swap — queries keep working
+       throughout). The progress user task stays with the initiator: its form
+       watches every node's job via the jobProgress subscription, can abort,
+       and on completion either closes the process (action=close, the
+       gateway's default) or loops back to re-dispatch the failed nodes
+       (action=rerun with rerunScope).
+
+       The formKeys use {{lastModified}}, not ${...}: Camunda evaluates task
+       formKeys as JUEL (which would swallow ${...}), while the tasks app
+       substitutes {{...}} itself for cache busting.
+
+       Progress is deliberately NOT kept in process variables — every
+       variable write emits Camunda history. The jobs write progress to
+       their /var/jobs records only; the process carries just the
+       correlation (rebuildId) and the dispatch result (jobIds). -->
+
+  <bpmn:error id="Error_searchindex_unauthorized" name="SearchIndexRebuildUnauthorized"
+              errorCode="searchindex.rebuild.unauthorized"/>
+
+  <bpmn:process id="search-index-rebuild" name="Search Index Rebuild" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_rebuild" name="Rebuild requested"
+                     camunda:formKey="cms:/etc/bpm/forms/system/searchindex/start.html?t={{lastModified}}"
+                     camunda:initiator="initiator">
+      <bpmn:outgoing>Flow_start_dispatch</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ServiceTask_dispatch" name="Dispatch Rebuild"
+                      camunda:class="org.mintjams.script.bpm.CmsDelegate">
+      <bpmn:extensionElements>
+        <camunda:field name="path">
+          <camunda:string>/etc/bpm/scripts/system/searchindex/dispatch.groovy</camunda:string>
+        </camunda:field>
+        <camunda:field name="inputs">
+          <camunda:string>initiator,rebuildId,rerunScope,jobIds</camunda:string>
+        </camunda:field>
+        <camunda:field name="outputs">
+          <camunda:string>jobIds</camunda:string>
+        </camunda:field>
+        <!-- Without runAs the script would be evaluated as guest, which cannot
+             even read the script resource. The service account only needs
+             jcr:read on the script folder (see provisioning/searchindex.yml);
+             the authorization gate inside the script checks the initiator. -->
+        <camunda:field name="runAs">
+          <camunda:string>searchindex-service-user</camunda:string>
+        </camunda:field>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_start_dispatch</bpmn:incoming>
+      <bpmn:incoming>Flow_rerun_dispatch</bpmn:incoming>
+      <bpmn:outgoing>Flow_dispatch_progress</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- A non-administrator who bypassed the form's display gate lands here:
+         the dispatch throws the unauthorized BpmnError and the process ends
+         without having created any job. -->
+    <bpmn:boundaryEvent id="Boundary_unauthorized" name="Unauthorized"
+                        attachedToRef="ServiceTask_dispatch">
+      <!-- The BPMN XSD orders an event's children: incoming/outgoing first,
+           eventDefinition last. -->
+      <bpmn:outgoing>Flow_unauthorized_end</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_unauthorized" errorRef="Error_searchindex_unauthorized"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:userTask id="UserTask_progress" name="Search Index Rebuild Progress"
+                   camunda:formKey="cms:/etc/bpm/forms/system/searchindex/progress.html?t={{lastModified}}"
+                   camunda:assignee="${initiator}">
+      <bpmn:incoming>Flow_dispatch_progress</bpmn:incoming>
+      <bpmn:outgoing>Flow_progress_gateway</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="Gateway_action" name="Action?" default="Flow_close_end">
+      <bpmn:incoming>Flow_progress_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_rerun_dispatch</bpmn:outgoing>
+      <bpmn:outgoing>Flow_close_end</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:endEvent id="EndEvent_done" name="Closed">
+      <bpmn:incoming>Flow_close_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:endEvent id="EndEvent_unauthorized" name="Rejected">
+      <bpmn:incoming>Flow_unauthorized_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_start_dispatch" sourceRef="StartEvent_rebuild" targetRef="ServiceTask_dispatch"/>
+    <bpmn:sequenceFlow id="Flow_dispatch_progress" sourceRef="ServiceTask_dispatch" targetRef="UserTask_progress"/>
+    <bpmn:sequenceFlow id="Flow_progress_gateway" sourceRef="UserTask_progress" targetRef="Gateway_action"/>
+    <bpmn:sequenceFlow id="Flow_rerun_dispatch" name="rerun" sourceRef="Gateway_action" targetRef="ServiceTask_dispatch">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${action == 'rerun'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_close_end" name="close" sourceRef="Gateway_action" targetRef="EndEvent_done"/>
+    <bpmn:sequenceFlow id="Flow_unauthorized_end" sourceRef="Boundary_unauthorized" targetRef="EndEvent_unauthorized"/>
+  </bpmn:process>
+</bpmn:definitions>

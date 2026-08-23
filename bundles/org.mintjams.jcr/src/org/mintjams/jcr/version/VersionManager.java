@@ -30,6 +30,8 @@ import javax.jcr.version.VersionException;
 
 public interface VersionManager extends javax.jcr.version.VersionManager {
 
+	void addVersionControl(String id) throws RepositoryException;
+
 	void uncheckout(String absPath) throws VersionException, UnsupportedRepositoryOperationException,
 			InvalidItemStateException, LockException, RepositoryException;
 

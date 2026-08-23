@@ -142,7 +142,7 @@ public class ResourceImpl implements Resource, Adaptable {
 		} catch (ResourceNotFoundException ignore) {
 			return false;
 		} catch (AccessDeniedException ignore) {
-			return true;
+			return false;
 		}
 	}
 
@@ -204,6 +204,16 @@ public class ResourceImpl implements Resource, Adaptable {
 		}
 	}
 
+	@Override
+	public boolean isRoot() throws ResourceException {
+		try {
+			return JcrPath.valueOf(getPath()).isRoot();
+		} catch (Throwable ex) {
+			throw ResourceException.wrap(ex);
+		}
+	}
+
+	@Override
 	public boolean isCollection() throws ResourceException {
 		try {
 			return JCRs.isFolder(getNode());
@@ -339,6 +349,12 @@ public class ResourceImpl implements Resource, Adaptable {
 	}
 
 	@Override
+	public Resource removeProperty(String name) throws ResourceException {
+		setProperty(name, (Object) null);
+		return this;
+	}
+
+	@Override
 	public String getContent() throws ResourceException {
 		try {
 			return Strings.readAll(getContentAsReader());
@@ -396,9 +412,29 @@ public class ResourceImpl implements Resource, Adaptable {
 	}
 
 	@Override
+	public Resource setContentType(String contentType) throws ResourceException {
+		try {
+			JCRs.setProperty(getNode(), org.mintjams.jcr.Property.JCR_MIMETYPE_NAME, contentType);
+			return this;
+		} catch (Throwable ex) {
+			throw ResourceException.wrap(ex);
+		}
+	}
+
+	@Override
 	public String getContentEncoding() throws ResourceException {
 		try {
 			return JCRs.getEncoding(getNode());
+		} catch (Throwable ex) {
+			throw ResourceException.wrap(ex);
+		}
+	}
+
+	@Override
+	public Resource setContentEncoding(String contentEncoding) throws ResourceException {
+		try {
+			JCRs.setProperty(getNode(), org.mintjams.jcr.Property.JCR_ENCODING_NAME, contentEncoding);
+			return this;
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
@@ -432,6 +468,16 @@ public class ResourceImpl implements Resource, Adaptable {
 	}
 
 	@Override
+	public Resource setLastModified(java.util.Date lastModified) throws ResourceException {
+		try {
+			JCRs.setProperty(getNode(), org.mintjams.jcr.Property.JCR_LAST_MODIFIED_NAME, lastModified);
+			return this;
+		} catch (Throwable ex) {
+			throw ResourceException.wrap(ex);
+		}
+	}
+
+	@Override
 	public String getCreatedBy() throws ResourceException {
 		try {
 			return JCRs.getCreatedBy(getNode());
@@ -444,6 +490,16 @@ public class ResourceImpl implements Resource, Adaptable {
 	public String getLastModifiedBy() throws ResourceException {
 		try {
 			return JCRs.getLastModifiedBy(getNode());
+		} catch (Throwable ex) {
+			throw ResourceException.wrap(ex);
+		}
+	}
+
+	@Override
+	public Resource setLastModifiedBy(String lastModifiedBy) throws ResourceException {
+		try {
+			JCRs.setProperty(getNode(), org.mintjams.jcr.Property.JCR_LAST_MODIFIED_BY_NAME, lastModifiedBy);
+			return this;
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
@@ -595,15 +651,38 @@ public class ResourceImpl implements Resource, Adaptable {
 
 	@Override
 	public Resource createFolder() throws ResourceException {
-		ResourceImpl r = (ResourceImpl) getParent().createFolder(getName());
+		if (exists()) {
+			throw new ResourceAlreadyExistsException(getPath());
+		}
+
+		Resource parent = getParent();
+		if (!parent.exists()) {
+			parent.createFolder();
+		} else if (!parent.isCollection()) {
+			throw new ResourceTypeMismatchException(parent.getPath());
+		}
+		ResourceImpl r = (ResourceImpl) parent.createFolder(getName());
 		fNode = r.fNode;
 		return this;
 	}
 
 	@Override
+	public Resource getOrCreateFolder() throws ResourceException {
+		if (exists()) {
+			return this;
+		}
+
+		return createFolder();
+	}
+
+	@Override
 	public Resource createFolder(String name) throws ResourceException {
-		if (!isCollection()) {
-			throw new ResourceTypeMismatchException(getPath());
+		if (exists()) {
+			if (!isCollection()) {
+				throw new ResourceTypeMismatchException(getPath());
+			}
+		} else {
+			createFolder();
 		}
 
 		Resource child = getResource(name);
@@ -644,15 +723,38 @@ public class ResourceImpl implements Resource, Adaptable {
 
 	@Override
 	public Resource createFile() throws ResourceException {
-		ResourceImpl r = (ResourceImpl) getParent().createFile(getName());
+		if (exists()) {
+			throw new ResourceAlreadyExistsException(getPath());
+		}
+
+		Resource parent = getParent();
+		if (!parent.exists()) {
+			parent.createFolder();
+		} else if (!parent.isCollection()) {
+			throw new ResourceTypeMismatchException(parent.getPath());
+		}
+		ResourceImpl r = (ResourceImpl) parent.createFile(getName());
 		fNode = r.fNode;
 		return this;
 	}
 
 	@Override
+	public Resource getOrCreateFile() throws ResourceException {
+		if (exists()) {
+			return this;
+		}
+
+		return createFile();
+	}
+
+	@Override
 	public Resource createFile(String name) throws ResourceException {
-		if (!isCollection()) {
-			throw new ResourceTypeMismatchException(getPath());
+		if (exists()) {
+			if (!isCollection()) {
+				throw new ResourceTypeMismatchException(getPath());
+			}
+		} else {
+			createFolder();
 		}
 
 		Resource child = getResource(name);
@@ -877,13 +979,13 @@ public class ResourceImpl implements Resource, Adaptable {
 
 	@Override
 	public Resource setProperty(String name, String value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, String[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
@@ -896,7 +998,7 @@ public class ResourceImpl implements Resource, Adaptable {
 				throw Cause.create(ex).wrap(ValueFormatException.class);
 			}
 		}
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
@@ -911,113 +1013,114 @@ public class ResourceImpl implements Resource, Adaptable {
 				throw Cause.create(ex).wrap(ValueFormatException.class);
 			}
 		}
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, BigDecimal value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, BigDecimal[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, double value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, double[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, long value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, long[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, int value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, int[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, Calendar value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, Calendar[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, java.util.Date value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, java.util.Date[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, boolean value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, boolean[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, byte[] value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, InputStream value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
 	@Override
 	public Resource setProperty(String name, Resource value) throws ResourceException {
-		_setProperty(name, value);
+		setProperty(name, (Object) value);
 		return this;
 	}
 
-	private void _setProperty(String name, Object value) throws ResourceException {
+	@Override
+	public Resource setProperty(String name, Object value) throws ResourceException {
 		if (isCollection()) {
 			throw new ResourceTypeMismatchException(getPath());
 		}
@@ -1031,16 +1134,8 @@ public class ResourceImpl implements Resource, Adaptable {
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
-	}
 
-	@Override
-	public Resource allowAnyProperties() throws ResourceException {
-		try {
-			JcrAction.create(getNode()).addLockToken().checkLock().addMixin(getContentNode(), "mi:anyProperties");
-			return this;
-		} catch (Throwable ex) {
-			throw ResourceException.wrap(ex);
-		}
+		return this;
 	}
 
 	@Override

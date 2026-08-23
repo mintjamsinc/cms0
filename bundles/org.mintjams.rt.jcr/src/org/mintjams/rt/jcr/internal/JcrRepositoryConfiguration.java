@@ -164,9 +164,9 @@ public class JcrRepositoryConfiguration implements Adaptable {
 
 	public int getMaxSessions() {
 		BundleContext bc = Activator.getDefault().getBundleContext();
-		int value = Integer.parseInt(Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.workspace.maxSessions"), "32"));
-		if (value < 8) {
-			value = 8;
+		int value = Integer.parseInt(Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.workspace.maxSessions"), "128"));
+		if (value < 32) {
+			value = 32;
 		}
 		return value;
 	}

@@ -8,6 +8,8 @@
  */
 
 import { ApplicationInstance } from "../../services/webtop-service.js";
+import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import {
 	createLocalizationSnapshot,
@@ -57,6 +59,11 @@ const USER_FETCH_LIMIT = 1000;
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			currentUserId: '' as string,
 			idp: null as IdpServiceGraphQL | null,
@@ -121,8 +128,6 @@ export const App = {
 			// Sidebar
 			sidebarPanelVisible: true,
 			sidebarPanelWidth: 280,
-			_sidebarResizeMoveHandler: null as ((e: MouseEvent) => void) | null,
-			_sidebarResizeUpHandler: null as ((e: MouseEvent) => void) | null,
 
 			// Dialog
 			dialog: {
@@ -161,20 +166,48 @@ export const App = {
 			},
 		},
 
-		// Label shown inside the create-group "Parent Group" select trigger
-		parentGroupLabel(): string {
-			const id = this.dialog?.data?.parentGroupId as string | undefined;
-			if (!id) return this.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)');
-			const found = (this.flatGroupTree as FlatGroupNode[]).find((g) => g.groupId === id);
-			return found ? (found.displayName || found.name) : id;
+		// Item lists for the create-group / create-role parent pickers.
+		// '' encodes root level; depth is indicated by indentation (as before).
+		parentGroupItems(): any[] {
+			return [
+				{ value: '', label: this.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)') },
+				...(this.flatGroupTree as FlatGroupNode[]).map((g) => ({
+					value: g.groupId,
+					label: '  '.repeat(g.depth) + (g.displayName || g.name),
+				})),
+			];
 		},
 
-		// Label shown inside the create-role "Parent Role" select trigger
-		parentRoleLabel(): string {
-			const id = this.dialog?.data?.parentRoleId as string | undefined;
-			if (!id) return this.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)');
-			const found = (this.allRolesFlat as FlatRoleNode[]).find((r) => r.roleId === id);
-			return found ? (found.displayName || found.name) : id;
+		parentRoleItems(): any[] {
+			return [
+				{ value: '', label: this.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)') },
+				...(this.allRolesFlat as FlatRoleNode[]).map((r) => ({
+					value: r.roleId,
+					label: '  '.repeat(r.depth) + (r.displayName || r.name),
+				})),
+			];
+		},
+
+		// Sub-tab definitions for the detail pane
+		userTabItems(): any[] {
+			return [
+				{ key: 'profile', label: this.t('app.identity-manager.user.tab.profile', undefined, 'Profile'), icon: 'bi-person' },
+				{ key: 'security', label: this.t('app.identity-manager.user.tab.security', undefined, 'Security'), icon: 'bi-shield-lock' },
+				{ key: 'membership', label: this.t('app.identity-manager.user.tab.membership', undefined, 'Membership'), icon: 'bi-diagram-3' },
+			];
+		},
+
+		groupTabItems(): any[] {
+			return [
+				{ key: 'info', label: this.t('app.identity-manager.group.tab.info', undefined, 'Information'), icon: 'bi-info-circle' },
+				{ key: 'members', label: this.t('app.identity-manager.group.tab.members', undefined, 'Members'), icon: 'bi-people' },
+			];
+		},
+
+		roleTabItems(): any[] {
+			return [
+				{ key: 'info', label: this.t('app.identity-manager.role.tab.info', undefined, 'Information'), icon: 'bi-info-circle' },
+			];
 		},
 
 		// Client-side filtered user list
@@ -277,6 +310,20 @@ export const App = {
 
 				refreshLocalization(vm.localization, vm.instance);
 
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The popup adapter is passed
+				// here as well: wt-select menus escape the window through the
+				// shell popup API.
+				try {
+					await initUi({ popupAdapter: createShellPopupAdapter(instance) });
+				} catch (e) {
+					console.warn('[IdentityManager] Failed to load component templates:', e);
+				}
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
+
 				await vm.loadInitialData();
 
 				vm.$nextTick(() => {
@@ -290,12 +337,6 @@ export const App = {
 			if (vm.messageListener) {
 				window.removeEventListener('message', vm.messageListener);
 				vm.messageListener = null;
-			}
-			if (vm._sidebarResizeUpHandler) {
-				document.removeEventListener('mouseup', vm._sidebarResizeUpHandler);
-			}
-			if (vm._sidebarResizeMoveHandler) {
-				document.removeEventListener('mousemove', vm._sidebarResizeMoveHandler);
 			}
 		},
 
@@ -350,29 +391,6 @@ export const App = {
 			this.sidebarPanelVisible = !this.sidebarPanelVisible;
 		},
 
-		// Sidebar resize (drag the splitter between list and detail panes)
-		onSidebarResizeStart(e: MouseEvent) {
-			e.preventDefault();
-			const vm = this;
-			const startX = e.clientX;
-			const startWidth = vm.sidebarPanelWidth;
-
-			vm._sidebarResizeMoveHandler = (moveEvent: MouseEvent) => {
-				const delta = moveEvent.clientX - startX;
-				vm.sidebarPanelWidth = Math.max(180, Math.min(600, startWidth + delta));
-			};
-
-			vm._sidebarResizeUpHandler = () => {
-				document.removeEventListener('mousemove', vm._sidebarResizeMoveHandler!);
-				document.removeEventListener('mouseup', vm._sidebarResizeUpHandler!);
-				vm._sidebarResizeMoveHandler = null;
-				vm._sidebarResizeUpHandler = null;
-			};
-
-			document.addEventListener('mousemove', vm._sidebarResizeMoveHandler);
-			document.addEventListener('mouseup', vm._sidebarResizeUpHandler);
-		},
-
 		// =====================================================================
 		// Section switching / search
 		// =====================================================================
@@ -396,11 +414,6 @@ export const App = {
 				this.applyRoleFilter();
 			}
 			// Users: filtered reactively via the displayedUsers computed.
-		},
-
-		clearSearch() {
-			this.currentSearchQuery = '';
-			this.onSearchInput();
 		},
 
 		clearMemberSearch() {
@@ -459,8 +472,7 @@ export const App = {
 			return this.selectedUser.roles.some((r: IdpRole) => r.roleId === roleId);
 		},
 
-		toggleUserRole(roleId: string, event: Event) {
-			const checked = (event.target as HTMLInputElement).checked;
+		toggleUserRole(roleId: string, checked: boolean) {
 			this.pendingRoleChanges[roleId] = checked;
 		},
 
@@ -1043,62 +1055,6 @@ export const App = {
 			this.dialog = { type: '', data: {} };
 		},
 
-		// Shell-rendered dropdown for the create-group "Parent Group" picker
-		async openParentGroupDropdown(event: MouseEvent) {
-			const vm = this;
-			if (!vm.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const currentId = (vm.dialog.data.parentGroupId as string) || '';
-			const items: any[] = [
-				{ id: '__root__', label: vm.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)'), selected: !currentId },
-			];
-			for (const g of vm.flatGroupTree as FlatGroupNode[]) {
-				items.push({
-					id: g.groupId,
-					label: '  '.repeat(g.depth) + (g.displayName || g.name),
-					selected: currentId === g.groupId,
-				});
-			}
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			vm.dialog.data.parentGroupId = result === '__root__' ? '' : String(result);
-		},
-
-		// Shell-rendered dropdown for the create-role "Parent Role" picker
-		async openParentRoleDropdown(event: MouseEvent) {
-			const vm = this;
-			if (!vm.instance) return;
-			const trigger = event.currentTarget as HTMLElement;
-			const rect = trigger.getBoundingClientRect();
-			const currentId = (vm.dialog.data.parentRoleId as string) || '';
-			const items: any[] = [
-				{ id: '__root__', label: vm.t('app.identity-manager.dialog.rootLevel', undefined, '(Root level)'), selected: !currentId },
-			];
-			for (const r of vm.allRolesFlat as FlatRoleNode[]) {
-				items.push({
-					id: r.roleId,
-					label: '  '.repeat(r.depth) + (r.displayName || r.name),
-					selected: currentId === r.roleId,
-				});
-			}
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null) return;
-			vm.dialog.data.parentRoleId = result === '__root__' ? '' : String(result);
-		},
-
 		async createUser() {
 			try {
 				this.errorMessage = '';
@@ -1242,6 +1198,10 @@ export const App = {
 	},
 };
 
-// Mount the app
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

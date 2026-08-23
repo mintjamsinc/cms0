@@ -27,16 +27,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.stream.Stream;
 
-import javax.jcr.Credentials;
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
 import javax.jcr.Property;
-import javax.jcr.RepositoryException;
-import javax.jcr.SimpleCredentials;
 
 import org.mintjams.jcr.cluster.ClusterLeaseStore;
 import org.mintjams.jcr.security.GroupPrincipal;
@@ -46,14 +42,13 @@ import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.provisioning.Provisioner;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
-import org.mintjams.rt.cms.internal.web.Webs;
+import org.mintjams.script.ScriptingContext;
 import org.mintjams.script.resource.security.AccessControlManager;
 import org.mintjams.script.resource.security.AccessDeniedException;
 import org.mintjams.script.resource.security.UserManager;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.lang.Cause;
-import org.mintjams.tools.lang.Strings;
 
 public class Session implements Closeable, Adaptable {
 
@@ -101,33 +96,6 @@ public class Session implements Closeable, Adaptable {
 		return adaptTo(org.mintjams.jcr.Session.class).isSystem();
 	}
 
-	public boolean isAuthorized() {
-		if (isAnonymous()) {
-			return false;
-		}
-
-		try {
-			Resource attributes = fUserManager.getUserAttributes();
-			if (!attributes.exists()) {
-				return true;
-			}
-			if (!attributes.hasProperty("mi:totpSecret")) {
-				return true;
-			}
-		} catch (ResourceException ex) {
-			throw Cause.create(ex).wrap(IllegalStateException.class);
-		}
-
-		String authenticatedFactors = (String) Webs.getRequest(fContext).getSession().getAttribute(Webs.AUTHENTICATED_FACTORS_ATTRIBUTE);
-		if (Strings.isEmpty(authenticatedFactors)) {
-			return false;
-		}
-		if (!Arrays.asList(authenticatedFactors.split(",")).contains("totp")) {
-			return false;
-		}
-		return true;
-	}
-
 	public Resource getResource(String absPath) throws ResourceException {
 		return new ResourceImpl(absPath, this);
 	}
@@ -173,8 +141,6 @@ public class Session implements Closeable, Adaptable {
 	}
 
 	public void commit() throws ResourceException {
-		fUserManager.commit();
-
 		if (fJcrSession == null) {
 			return;
 		}
@@ -193,8 +159,6 @@ public class Session implements Closeable, Adaptable {
 	}
 
 	public void rollback() throws ResourceException {
-		fUserManager.rollback();
-
 		if (fJcrSession == null) {
 			return;
 		}
@@ -211,8 +175,6 @@ public class Session implements Closeable, Adaptable {
 	}
 
 	public void logout() {
-		fUserManager.logout();
-
 		if (fJcrSession == null) {
 			return;
 		}
@@ -220,10 +182,6 @@ public class Session implements Closeable, Adaptable {
 		if (!fJcrSession.isLive()) {
 			return;
 		}
-
-		try {
-			rollback();
-		} catch (Throwable ignore) {}
 
 		fJcrSession.logout();
 	}
@@ -262,20 +220,8 @@ public class Session implements Closeable, Adaptable {
 		return fAccessControlManager;
 	}
 
-	public Session newSession() throws ResourceException {
-		try {
-			return new Session(fJcrSession.getRepository().login(fContext.adaptTo(Credentials.class), fContext.getWorkspaceName()), fContext);
-		} catch (RepositoryException ex) {
-			throw (ResourceException) new ResourceException(ex.getMessage()).initCause(ex);
-		}
-	}
-
-	public Session impersonate(String userId) throws ResourceException {
-		try {
-			return new Session(fJcrSession.impersonate(new SimpleCredentials(userId, "".toCharArray())), fContext);
-		} catch (RepositoryException ex) {
-			throw (ResourceException) new ResourceException(ex.getMessage()).initCause(ex);
-		}
+	public ScriptingContext getContext() {
+		return fContext;
 	}
 
 	public void deploy() throws ResourceException, IOException {

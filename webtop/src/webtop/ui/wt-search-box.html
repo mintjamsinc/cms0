@@ -1,0 +1,12 @@
+<template id="wt-search-box">
+	<div class="wt-search-box input-group">
+		<input type="search" class="wt" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
+			@input="onInput($event.target.value)"
+			@keydown.enter="$emit('search', modelValue)">
+		<div class="input-group-actions">
+			<button v-if="modelValue" type="button" class="input-group-btn" :disabled="disabled" @click="onClear">
+				<i class="bi bi-x"></i>
+			</button>
+		</div>
+	</div>
+</template>

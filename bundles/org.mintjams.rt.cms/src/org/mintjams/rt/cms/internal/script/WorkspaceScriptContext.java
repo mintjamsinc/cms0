@@ -25,6 +25,7 @@ package org.mintjams.rt.cms.internal.script;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.Writer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -45,7 +46,9 @@ import org.mintjams.script.YAML;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.script.resource.ResourceResolver;
 import org.mintjams.script.resource.Session;
+import org.mintjams.script.resource.security.LoginException;
 import org.mintjams.tools.adapter.Adaptable;
+import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.util.ActionContext;
@@ -55,6 +58,7 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 	private final String fWorkspaceName;
 	private final Closer fCloser = Closer.create();
 	private Credentials fCredentials;
+	private List<Session> fSessionList = new ArrayList<>();
 
 	public WorkspaceScriptContext(String workspaceName) {
 		fWorkspaceName = workspaceName;
@@ -91,61 +95,71 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 		return fCredentials;
 	}
 
-	private Session fSession;
 	public Session getSession() throws ResourceException {
-		if (fSession == null) {
+		if (fSessionList.isEmpty()) {
+			switchSession(getCredentials());
+		}
+		return fSessionList.get(0);
+	}
+
+	@Deprecated
+	public Session getRepositorySession() throws ResourceException {
+		return getSession();
+	}
+
+	public Session switchSession(Credentials credentials) throws ResourceException {
+		while (!fSessionList.isEmpty()) {
 			try {
-				fSession = fCloser.register(new Session(getJcrSession(), this));
+				fSessionList.remove(0).close();
 			} catch (Throwable ex) {
 				throw ResourceException.wrap(ex);
 			}
 		}
-		return fSession;
-	}
 
-	public Session getRepositorySession() throws ResourceException {
-		return getSession();
+		try {
+			fSessionList.add(0, fCloser.register(new SessionImpl(getJcrSession(credentials), this)));
+		} catch (Throwable ex) {
+			throw LoginException.wrap(ex);
+		}
+		return fSessionList.get(0);
 	}
 
 	public ResourceResolver getResourceResolver() throws ResourceException {
 		return getSession().getResourceResolver();
 	}
 
-	private javax.jcr.Session fJcrSession;
-	private javax.jcr.Session getJcrSession() throws RepositoryException {
-		if (fJcrSession == null) {
-			fJcrSession = CmsService.getRepository().login(getCredentials(), getWorkspaceName());
-			fCloser.add(new Closeable() {
-				@Override
-				public void close() throws IOException {
-					for (int scope : new int[] { ENGINE_SCOPE, GLOBAL_SCOPE }) {
-						Bindings bindings = getBindings(scope);
-						if (bindings == null) {
-							continue;
-						}
-
-						for (Object e : bindings.values()) {
-							if (e instanceof Closeable && !this.equals(e)) {
-								try {
-									((Closeable) e).close();
-								} catch (Throwable ignore) {}
-							}
-						}
-
-						bindings.clear();
+	private javax.jcr.Session getJcrSession(Credentials credentials) throws RepositoryException {
+		javax.jcr.Session jcrSession = CmsService.getRepository().login(credentials, getWorkspaceName());
+		fCloser.add(new Closeable() {
+			@Override
+			public void close() throws IOException {
+				for (int scope : new int[] { ENGINE_SCOPE, GLOBAL_SCOPE }) {
+					Bindings bindings = getBindings(scope);
+					if (bindings == null) {
+						continue;
 					}
-				}
-			});
-			fCloser.add(new Closeable() {
-				@Override
-				public void close() throws IOException {
-					if (fJcrSession.isLive()) {
-						fJcrSession.logout();
+
+					for (Object e : bindings.values()) {
+						if (e instanceof Closeable && !this.equals(e)) {
+							try {
+								((Closeable) e).close();
+							} catch (Throwable ignore) {}
+						}
 					}
+
+					bindings.clear();
 				}
-			});
-		}
-		return fJcrSession;
+			}
+		});
+		fCloser.add(new Closeable() {
+			@Override
+			public void close() throws IOException {
+				if (jcrSession.isLive()) {
+					jcrSession.logout();
+				}
+			}
+		});
+		return jcrSession;
 	}
 
 	public List<String> getAttributeNames() {
@@ -172,10 +186,12 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 		return bindings.entrySet().stream().collect(Collectors.toMap(e -> e.getKey().toString(), Map.Entry::getValue));
 	}
 
+	@Override
 	public void setAttribute(String name, Object value) {
 		super.setAttribute(name, value, ScriptContext.ENGINE_SCOPE);
 	}
 
+	@Override
 	public Object removeAttribute(String name) {
 		return super.removeAttribute(name, ScriptContext.ENGINE_SCOPE);
 	}
@@ -190,8 +206,8 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 	public <AdapterType> AdapterType adaptTo(Class<AdapterType> adapterType) {
 		if (adapterType.equals(javax.jcr.Session.class)) {
 			try {
-				return (AdapterType) getJcrSession();
-			} catch (RepositoryException ex) {
+				return Adaptables.getAdapter(getSession(), adapterType);
+			} catch (ResourceException ex) {
 				throw Cause.create(ex).wrap(IllegalStateException.class);
 			}
 		}
@@ -209,6 +225,25 @@ public class WorkspaceScriptContext extends SimpleScriptContext implements Scrip
 		}
 
 		return null;
+	}
+
+	private class SessionImpl extends Session {
+		public SessionImpl(javax.jcr.Session session, WorkspaceScriptContext context) {
+			super(session, context);
+			setAttribute("repositorySession", this);
+		}
+
+		@Override
+		public void close() throws IOException {
+			super.close();
+			fCloser.remove(this);
+			fSessionList.remove(this);
+			if (!fSessionList.isEmpty()) {
+				setAttribute("repositorySession", fSessionList.get(0));
+			} else {
+				removeAttribute("repositorySession");
+			}
+		}
 	}
 
 }

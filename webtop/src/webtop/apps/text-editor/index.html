@@ -24,6 +24,13 @@
 		@mounted="onMounted" @unmount="onUnmount"
 		@dragover.prevent="onAppDragOver" @drop.prevent>
 
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. A
+		     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+		     unchanged; the gated markup is intentionally not re-indented. -->
+		<template v-if="isReady">
+
 		<!-- Top Toolbar (translucent) -->
 		<nav class="nav-bar window-drag-region">
 			<!-- Left: file actions -->
@@ -105,68 +112,28 @@
 				<div class="sidebar-panel-content">
 					<div class="sidebar-section">
 						<div class="sidebar-section-body px-2">
-
-							<!-- Find -->
-							<div class="filter-group">
-								<label class="filter-label">{{ t('app.text-editor.find.find', undefined, 'Find') }}</label>
-								<div class="filter-input-wrapper">
-									<input ref="findInput" type="text" class="wt w-100" v-model="searchTerm"
-										:placeholder="t('app.text-editor.find.findPlaceholder', undefined, 'Find...')" spellcheck="false"
-										@input="onSearchTermInput" @keydown="onSearchTermKeydown">
-									<button v-if="searchTerm" class="filter-input-clear"
-										@click="clearSearchTerm" :title="t('app.text-editor.find.clear', undefined, 'Clear')">
-										<i class="bi bi-x"></i>
-									</button>
-								</div>
-								<div class="search-toolbar">
-									<button class="search-toggle-btn" :class="{active: searchCaseSensitive}"
-										@click="toggleSearchCaseSensitive" :title="t('app.text-editor.find.matchCase', undefined, 'Match case')">Aa</button>
-									<button class="search-toggle-btn" :class="{active: searchWholeWord}"
-										@click="toggleSearchWholeWord" :title="t('app.text-editor.find.wholeWord', undefined, 'Whole word')">ab</button>
-									<button class="search-toggle-btn" :class="{active: searchRegex}"
-										@click="toggleSearchRegex" :title="t('app.text-editor.find.regex', undefined, 'Regex')">.*</button>
-									<span class="spacer"></span>
-									<button class="btn-icon" @click="findPrev" :title="t('app.text-editor.find.previous', undefined, 'Previous (Shift+Enter)')">
-										<i class="bi bi-chevron-up"></i>
-									</button>
-									<button class="btn-icon" @click="findNextMatch" :title="t('app.text-editor.find.next', undefined, 'Next (Enter)')">
-										<i class="bi bi-chevron-down"></i>
-									</button>
-								</div>
-							</div>
-
-							<!-- Replace -->
-							<div class="filter-group">
-								<label class="filter-label">{{ t('app.text-editor.find.replace', undefined, 'Replace') }}</label>
-								<div class="filter-input-wrapper">
-									<input type="text" class="wt w-100" v-model="replaceTerm"
-										:placeholder="t('app.text-editor.find.replacePlaceholder', undefined, 'Replace...')" spellcheck="false"
-										@keydown="onReplaceTermKeydown">
-									<button v-if="replaceTerm" class="filter-input-clear"
-										@click="replaceTerm = ''" :title="t('app.text-editor.find.clear', undefined, 'Clear')">
-										<i class="bi bi-x"></i>
-									</button>
-								</div>
-								<div class="search-actions">
-									<button class="wt wt-primary wt-outlined wt-slim fs-small"
-										@click="replaceCurrent" :disabled="!searchTerm">{{ t('app.text-editor.find.replace', undefined, 'Replace') }}</button>
-									<button class="wt wt-primary wt-outlined wt-slim fs-small"
-										@click="replaceAllInDoc" :disabled="!searchTerm">{{ t('app.text-editor.find.replaceAll', undefined, 'All') }}</button>
-								</div>
-							</div>
-
-							<!-- Status -->
-							<div v-if="searchNotFound" class="filter-status">
-								<span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>{{ t('app.text-editor.find.noMatches', undefined, 'No matches') }}</span>
-							</div>
+							<wt-find-replace v-model="searchTerm" v-model:replace="replaceTerm"
+								v-model:case-sensitive="searchCaseSensitive"
+								v-model:whole-word="searchWholeWord"
+								v-model:regex="searchRegex"
+								:focus-seq="searchFocusSeq"
+								:labels="findReplaceLabels"
+								@change="onSearchTermInput"
+								@find-next="findNextMatch" @find-prev="findPrev"
+								@replace="replaceCurrent" @replace-all="replaceAllInDoc"
+								@escape="focusEditor">
+								<template v-slot:status="s">
+									<span v-if="searchNotFound" class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>{{ t('app.text-editor.find.noMatches', undefined, 'No matches') }}</span>
+								</template>
+							</wt-find-replace>
 						</div>
 					</div>
 				</div>
 			</div>
 
 			<!-- Sidebar resize handle -->
-			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
-				@mousedown="onSidebarResizeStart"></div>
+			<wt-splitter v-if="sidebarPanelVisible" v-model:size="sidebarPanelWidth" :min="180" :max="600"
+				@resize-start="sidebarResizing = true" @resize-end="sidebarResizing = false"></wt-splitter>
 
 			<!-- Center pane: editor -->
 			<!-- @drop uses .capture so we intercept file drops before CodeMirror's
@@ -175,23 +142,12 @@
 				@dragover.prevent.stop="onCenterPaneDragOver" @drop.capture="onCenterPaneDrop">
 
 				<!-- Header: file tabs -->
-				<div class="file-tabs-bar">
-					<div class="file-tabs">
-						<div v-for="(file, index) in files" :key="file.id"
-							class="file-tab"
-							:class="{active: currentFileIndex === index, modified: file.isModified}"
-							@click="selectTab(index)" :title="file.path || file.name">
-							<span class="file-tab-name">{{ file.name }}</span>
-							<span v-if="file.isModified" class="modified-dot">●</span>
-							<button class="file-tab-close" @click.stop="closeFile(index)" :title="t('common.close', undefined, 'Close')">
-								<i class="bi bi-x"></i>
-							</button>
-						</div>
-						<button class="file-tab-add" @click="newFile" :title="t('app.text-editor.tabs.newFile', undefined, 'New file')">
-							<i class="bi bi-plus-lg"></i>
-						</button>
-					</div>
-				</div>
+				<wt-file-tabs :model-value="currentFileIndex" :items="fileTabItems"
+					:add-title="t('app.text-editor.tabs.newFile', undefined, 'New file')"
+					:close-title="t('common.close', undefined, 'Close')"
+					@select="selectTab($event.detail)"
+					@close="closeFile($event.detail)"
+					@add="newFile"></wt-file-tabs>
 
 				<!-- Body: editor -->
 				<div class="editor-area">
@@ -200,8 +156,9 @@
 			</div>
 
 			<!-- Detail Resize Handle -->
-			<div v-if="detailPanelVisible" class="detail-resize-handle"
-				@mousedown="onDetailResizeStart"></div>
+			<wt-splitter v-if="detailPanelVisible" reverse v-model:size="detailPanelWidth"
+				:min="detailPanelMinWidth" :max="detailPanelMaxWidth"
+				@resize-end="persistDetailPanelState"></wt-splitter>
 
 			<!-- Inspector Panel — wt-inspector custom element. Targets the active
 			     tab's file. The host owns panel visibility (detailPanelVisible)
@@ -230,48 +187,33 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.text-editor.statusbar.saving', undefined, 'Saving...') }}</span>
+				<span v-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.text-editor.statusbar.saving', undefined, 'Saving...') }}</span>
 				<span v-else-if="currentFile.isModified" class="status-item">{{ t('app.text-editor.statusbar.modified', undefined, 'Modified') }}</span>
 				<span v-else class="status-item">{{ t('app.text-editor.statusbar.saved', undefined, 'Saved') }}</span>
 			</div>
 		</div>
 
 		<!-- Save As Dialog -->
-		<div v-if="saveAsDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 28rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<div class="dialog-header-top">
-							<h3>{{ t('app.text-editor.saveAs.title', undefined, 'Save As') }}</h3>
-							<button class="btn-icon" @click="closeSaveAsDialog" :title="t('common.close', undefined, 'Close')">
-								<i class="bi bi-x-lg"></i>
-							</button>
-						</div>
+		<wt-dialog :open="saveAsDialog.visible" size="sm" :title="t('app.text-editor.saveAs.title', undefined, 'Save As')" @close="closeSaveAsDialog">
+			<template v-slot="d">
+				<label class="dialog-label">{{ t('app.text-editor.saveAs.fileName', undefined, 'File Name') }}</label>
+				<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
+					placeholder="filename.txt" @keydown.enter="closeSaveAsDialog" />
+				<div class="save-as-chip-area mt-3"
+					@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+					<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
+						<i class="bi bi-file-earmark-text me-1"></i>
+						<span>{{ saveAsDialog.fileName || 'untitled.txt' }}</span>
 					</div>
-					<div class="dialog-body">
-						<label class="dialog-label">{{ t('app.text-editor.saveAs.fileName', undefined, 'File Name') }}</label>
-						<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
-							placeholder="filename.txt" @keydown.enter="closeSaveAsDialog" />
-						<div class="save-as-chip-area mt-3"
-							@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
-							<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
-								<i class="bi bi-file-earmark-text me-1"></i>
-								<span>{{ saveAsDialog.fileName || 'untitled.txt' }}</span>
-							</div>
-							<p class="text-muted fs-small mt-2 mb-0">
-								{{ t('app.text-editor.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
-							</p>
-						</div>
-					</div>
+					<p class="text-muted fs-small mt-2 mb-0">
+						{{ t('app.text-editor.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
+					</p>
 				</div>
-			</div>
-		</div>
+			</template>
+		</wt-dialog>
 
 		<!-- Loading Overlay -->
-		<div v-if="currentFile.isLoading" class="loading-overlay flex-column text-center">
-			<span class="loader"></span>
-			<span class="mt-5">{{ t('app.text-editor.loadingFile', undefined, 'Loading file...') }}</span>
-		</div>
+		<wt-spinner v-if="currentFile.isLoading" overlay size="lg"></wt-spinner>
 
 		<!-- Error Overlay -->
 		<div v-if="errorMessage && !currentFile.isLoading" class="error-overlay flex-column text-center">
@@ -280,77 +222,68 @@
 			<button type="button" class="wt" @click="dismissError">{{ t('common.close', undefined, 'Close') }}</button>
 		</div>
 
-		<!-- Checkout Confirmation Dialog -->
-		<div v-if="checkoutDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 32rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3><i class="bi bi-box-arrow-up-right me-2"></i>{{ t('app.text-editor.checkout.title', undefined, 'Checkout Required') }}</h3>
-					</div>
-					<div class="dialog-body">
-						<p>{{ t('app.text-editor.checkout.message', undefined, 'This file is under version control and needs to be checked out before editing.') }}</p>
-						<p class="text-muted fs-small mb-0">{{ t('app.text-editor.checkout.version', { version: currentFile.baseVersionName }, 'Version: {version}') }}</p>
-					</div>
-					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCheckoutDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
-						<button class="wt wt-primary wt-outlined" @click="onCheckoutDialogAction('checkout')">
-							<i class="bi bi-box-arrow-up-right me-1"></i>{{ t('app.text-editor.checkout.checkout', undefined, 'Checkout') }}
-						</button>
-						<button class="wt wt-primary" @click="onCheckoutDialogAction('checkoutAndCheckin')">
-							<i class="bi bi-check2-circle me-1"></i>{{ t('app.text-editor.checkout.checkoutAndCheckin', undefined, 'Checkout & Checkin after Save') }}
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<!-- Checkout Confirmation Dialog — no ✕ / Escape: the choice is explicit. -->
+		<wt-dialog :open="checkoutDialog.visible" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-box-arrow-up-right me-2"></i>{{ t('app.text-editor.checkout.title', undefined, 'Checkout Required') }}
+			</template>
+			<template v-slot="d">
+				<p>{{ t('app.text-editor.checkout.message', undefined, 'This file is under version control and needs to be checked out before editing.') }}</p>
+				<p class="text-muted fs-small mb-0">{{ t('app.text-editor.checkout.version', { version: currentFile.baseVersionName }, 'Version: {version}') }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="onCheckoutDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-primary wt-outlined" @click="onCheckoutDialogAction('checkout')">
+					<i class="bi bi-box-arrow-up-right me-1"></i>{{ t('app.text-editor.checkout.checkout', undefined, 'Checkout') }}
+				</button>
+				<button class="wt wt-primary" @click="onCheckoutDialogAction('checkoutAndCheckin')">
+					<i class="bi bi-check2-circle me-1"></i>{{ t('app.text-editor.checkout.checkoutAndCheckin', undefined, 'Checkout & Checkin after Save') }}
+				</button>
+			</template>
+		</wt-dialog>
 
-		<!-- Checkin Dialog -->
-		<div v-if="checkinDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 32rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3><i class="bi bi-floppy-fill me-2"></i>{{ t('app.text-editor.checkin.title', undefined, 'File Saved') }}</h3>
-					</div>
-					<div class="dialog-body">
-						<p>{{ t('app.text-editor.checkin.message', undefined, 'The file has been saved successfully. Would you like to create a new version?') }}</p>
-						<p class="text-muted fs-small mb-0">{{ t('app.text-editor.checkin.currentVersion', { version: currentFile.baseVersionName }, 'Current version: {version}') }}</p>
-					</div>
-					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="closeCheckinDialog" :disabled="checkinDialog.isLoading">{{ t('app.text-editor.checkin.keepEditing', undefined, 'Keep Editing') }}</button>
-						<button class="wt wt-primary wt-outlined" @click="submitCheckpoint" :disabled="checkinDialog.isLoading">
-							<i class="bi bi-save me-1"></i>{{ t('app.text-editor.checkin.checkpoint', undefined, 'Checkpoint') }}
-						</button>
-						<button class="wt wt-primary" @click="submitCheckin" :disabled="checkinDialog.isLoading">
-							<i class="bi bi-box-arrow-in-down-left me-1"></i>{{ t('app.text-editor.checkin.checkin', undefined, 'Checkin') }}
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<!-- Checkin Dialog — no ✕ / Escape: the choice is explicit. -->
+		<wt-dialog :open="checkinDialog.visible" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-floppy-fill me-2"></i>{{ t('app.text-editor.checkin.title', undefined, 'File Saved') }}
+			</template>
+			<template v-slot="d">
+				<p>{{ t('app.text-editor.checkin.message', undefined, 'The file has been saved successfully. Would you like to create a new version?') }}</p>
+				<p class="text-muted fs-small mb-0">{{ t('app.text-editor.checkin.currentVersion', { version: currentFile.baseVersionName }, 'Current version: {version}') }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closeCheckinDialog" :disabled="checkinDialog.isLoading">{{ t('app.text-editor.checkin.keepEditing', undefined, 'Keep Editing') }}</button>
+				<button class="wt wt-primary wt-outlined" @click="submitCheckpoint" :disabled="checkinDialog.isLoading">
+					<i class="bi bi-save me-1"></i>{{ t('app.text-editor.checkin.checkpoint', undefined, 'Checkpoint') }}
+				</button>
+				<button class="wt wt-primary" @click="submitCheckin" :disabled="checkinDialog.isLoading">
+					<i class="bi bi-box-arrow-in-down-left me-1"></i>{{ t('app.text-editor.checkin.checkin', undefined, 'Checkin') }}
+				</button>
+			</template>
+		</wt-dialog>
 
-		<!-- Close Confirmation Dialog -->
-		<div v-if="closeConfirmDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 32rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.text-editor.unsaved.title', undefined, 'Unsaved Changes') }}</h3>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0">{{ t('app.text-editor.unsaved.hasChanges', { name: currentFile.name }, 'The file "{name}" has unsaved changes.') }}</p>
-						<p>{{ t('app.text-editor.unsaved.prompt', undefined, 'Do you want to save your changes before closing?') }}</p>
-					</div>
-					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
-						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
-							<i class="bi bi-trash me-1"></i>{{ t('app.text-editor.unsaved.dontSave', undefined, "Don't Save") }}
-						</button>
-						<button v-if="currentFile.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
-							<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<!-- Close Confirmation Dialog — no ✕ / Escape: the choice is explicit. -->
+		<wt-dialog :open="closeConfirmDialog.visible" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.text-editor.unsaved.title', undefined, 'Unsaved Changes') }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0">{{ t('app.text-editor.unsaved.hasChanges', { name: currentFile.name }, 'The file "{name}" has unsaved changes.') }}</p>
+				<p>{{ t('app.text-editor.unsaved.prompt', undefined, 'Do you want to save your changes before closing?') }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
+					<i class="bi bi-trash me-1"></i>{{ t('app.text-editor.unsaved.dontSave', undefined, "Don't Save") }}
+				</button>
+				<button v-if="currentFile.path" class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
+					<i class="bi bi-floppy me-1"></i>{{ t('common.save', undefined, 'Save') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+		<!-- /Readiness gate -->
 	</div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

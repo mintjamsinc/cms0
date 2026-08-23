@@ -88,6 +88,9 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 
 	private class NodeIteratorImpl implements NodeIterator, RowIterator {
 		private int fOffset;
+		/** {@link #fLimit} when the query asked for no limit: fetch until exhausted. */
+		private static final int UNBOUNDED = -1;
+
 		private int fLimit;
 		private final List<Principal> fAuthorizables = new ArrayList<>();
 		private long fPosition;
@@ -106,7 +109,17 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 			if (fQuery.getOffset() != -1) {
 				fOffset = Math.toIntExact(fQuery.getOffset());
 			}
-			fLimit = (fQuery.getLimit() != -1) ? Math.toIntExact(fQuery.getLimit()) : 100;
+			// A query that sets no limit returns everything it matches.
+			//
+			// This used to default to 100, which is not a limit anyone asked for and
+			// not one anyone could see: the caller received a hundred rows and had
+			// no way to tell "that is all of them" from "that is the first hundred".
+			// Retention pruning fell an hour behind per store per run, a GDPR
+			// erasure covered its first hundred nodes and reported success, and a
+			// purge preview offered to delete exactly as many as it could count.
+			// JSR-283 puts no such cap on QueryResult; callers that want one call
+			// setLimit.
+			fLimit = (fQuery.getLimit() != -1) ? Math.toIntExact(fQuery.getLimit()) : UNBOUNDED;
 			JcrSession session = adaptTo(JcrSession.class);
 			if (!session.isSystem() && !session.isService() && !session.isAdmin()) {
 				fAuthorizables.add(new EveryonePrincipal());
@@ -116,7 +129,10 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 				}
 			}
 			int cacheSize = adaptTo(JcrRepository.class).getConfiguration().getNodeCacheSize();
-			fFetchSize = BigDecimal.valueOf(cacheSize).multiply(BigDecimal.valueOf(0.5)).intValue();
+			// At least one: the fetch size now bounds what is asked of the index, so
+			// a tiny node cache would otherwise turn every query into no results.
+			fFetchSize = Math.max(1,
+					BigDecimal.valueOf(cacheSize).multiply(BigDecimal.valueOf(0.5)).intValue());
 			readNext();
 		}
 
@@ -235,8 +251,12 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 			fFetchRevision = adaptTo(WorkspaceQuery.class).getNodeCacheRevision();
 			List<String> identifiers = new ArrayList<>();
 			try {
+				// Ask the index for no more than this pass will consume. An unbounded
+				// query is still fetched incrementally - it is unbounded in total,
+				// not in how much is materialised at once.
+				int fetchLimit = (fLimit == UNBOUNDED) ? fFetchSize : Math.min(fLimit, fFetchSize);
 				SearchIndex.Query indexQuery = adaptTo(SearchIndex.class).createQuery(fQuery.getStatement(), "jcr:xpath")
-						.setOffset(fOffset).setLimit(fLimit);
+						.setOffset(fOffset).setLimit(fetchLimit);
 				if (!fAuthorizables.isEmpty()) {
 					indexQuery.setAuthorizables(fAuthorizables.toArray(Principal[]::new));
 				}
@@ -245,9 +265,11 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 					fFetchList.add(row);
 					identifiers.add(row.getIdentifier());
 					fOffset++;
-					fLimit--;
-					if (fLimit <= 0) {
-						break;
+					if (fLimit != UNBOUNDED) {
+						fLimit--;
+						if (fLimit <= 0) {
+							break;
+						}
 					}
 					if (fFetchList.size() >= fFetchSize) {
 						fFetchMore = true;

@@ -1,3 +1,4 @@
+import { initUi } from "../../ui/index.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
@@ -197,6 +198,11 @@ function isImageFile(mimeType: string | undefined, fileName: string | undefined)
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the wt-* templates are
+			// present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			files: [] as MemoFile[],
 			currentFileIndex: -1,
@@ -242,9 +248,12 @@ export const App = {
 			// CodeMirror. Hidden by default so the memo opens uncluttered.
 			sidebarPanelVisible: false,
 			sidebarPanelWidth: 260,
+			// True while the sidebar wt-splitter drag is in progress
+			// (drives #app.is-resizing).
 			sidebarResizing: false,
-			sidebarResizeStartX: 0,
-			sidebarResizeStartWidth: 0,
+			// Bumped (after the pane is in the DOM) to focus wt-find-replace's
+			// find input — pane open and Ctrl+F.
+			searchFocusSeq: 0,
 			searchTerm: '',
 			replaceTerm: '',
 			searchCaseSensitive: false,
@@ -259,9 +268,6 @@ export const App = {
 			detailPanelWidth: 280,
 			detailPanelMinWidth: 200,
 			detailPanelMaxWidth: 500,
-			detailPanelResizing: false,
-			detailResizeStartX: 0,
-			detailResizeStartWidth: 0,
 			inspectorApi: null as any,
 			inspectorOverlayOpen: false,
 			// Checkout / checkin / close dialogs (version control flow, identical
@@ -285,6 +291,31 @@ export const App = {
 		};
 	},
 	computed: {
+		// Items for the wt-file-tabs strip.
+		fileTabItems(): { key: string; label: string; modified: boolean; title: string }[] {
+			return (this.files as MemoFile[]).map((f: MemoFile) => ({
+				key: f.id, label: f.name, modified: f.isModified, title: f.path || f.name,
+			}));
+		},
+
+		// I18n labels for wt-find-replace (computed so they re-resolve on
+		// locale change).
+		findReplaceLabels(): Record<string, string> {
+			return {
+				find: this.t('app.memo.find.find', undefined, 'Find'),
+				replace: this.t('app.memo.find.replace', undefined, 'Replace'),
+				findPlaceholder: this.t('app.memo.find.findPlaceholder', undefined, 'Find...'),
+				replacePlaceholder: this.t('app.memo.find.replacePlaceholder', undefined, 'Replace...'),
+				replaceAll: this.t('app.memo.find.replaceAll', undefined, 'All'),
+				clear: this.t('app.memo.find.clear', undefined, 'Clear'),
+				matchCase: this.t('app.memo.find.matchCase', undefined, 'Match case'),
+				wholeWord: this.t('app.memo.find.wholeWord', undefined, 'Whole word'),
+				regex: this.t('app.memo.find.regex', undefined, 'Regular expression'),
+				previous: this.t('app.memo.find.previous', undefined, 'Previous (Shift+Enter)'),
+				next: this.t('app.memo.find.next', undefined, 'Next (Enter)'),
+			};
+		},
+
 		dockSubtitle(): string {
 			const f = (this as any).files[(this as any).currentFileIndex];
 			return f?.name || '';
@@ -311,14 +342,13 @@ export const App = {
 		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
 			return translate(this.localization, this.instance, messageId, params, fallback);
 		},
-		async onMounted() {
+		// Synchronous on purpose: window.appLaunch must be defined by the time
+		// this returns, so the shell finds it on the first try instead of
+		// polling for it (see wt-window.ts `appLaunch not found after waiting`).
+		// Everything that needs a fetch — the wt-* templates, the inspector
+		// template — is awaited inside appLaunch(), ahead of the readiness gate.
+		onMounted() {
 			const vm = this;
-
-			try {
-				await loadInspectorTemplate();
-			} catch (e) {
-				console.warn('[Memo] Failed to load wt-inspector template:', e);
-			}
 
 			// Save As response channel — Content Browser posts here once a dragged
 			// chip has been written, so this tab can adopt the new backing node.
@@ -364,26 +394,6 @@ export const App = {
 			};
 			window.addEventListener('message', vm.messageListener);
 
-			// Tiptap's ResizableNodeView keeps each image hidden
-			// (visibility:hidden; pointer-events:none) until its <img> fires `load`.
-			// If a referenced repository asset is gone (deleted / moved / expired),
-			// `load` never fires, so the node would stay invisible *and* unclickable —
-			// impossible to select or delete with the mouse. `error` events don't
-			// bubble, so catch them in the capture phase on the shared editor host and
-			// reveal the failed image's container so the broken node stays selectable.
-			const editorHost = vm.$refs.editorHost as HTMLElement | undefined;
-			if (editorHost) {
-				editorHost.addEventListener('error', (e: Event) => {
-					const target = e.target as HTMLElement | null;
-					if (!target || target.tagName !== 'IMG') return;
-					const container = target.closest('[data-resize-container]') as HTMLElement | null;
-					if (container) {
-						container.style.visibility = '';
-						container.style.pointerEvents = '';
-					}
-				}, true);
-			}
-
 			document.addEventListener('keydown', (e: KeyboardEvent) => {
 				// While an Inspector overlay is up the user is editing inside the
 				// panel — let it own the keyboard and skip our global shortcuts.
@@ -422,6 +432,23 @@ export const App = {
 				document.documentElement.dataset.theme = theme;
 
 				refreshLocalization(vm.localization, vm.instance);
+
+				// --- Readiness gate ---
+				// Load every component template BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. Both loads are idempotent
+				// enough for one call per window; appLaunch runs once per iframe.
+				try {
+					await Promise.all([initUi(), loadInspectorTemplate()]);
+				} catch (e) {
+					console.warn('[Memo] Failed to load component templates:', e);
+				}
+
+				// Opening the gate builds the screen. Wait for that DOM before
+				// touching anything inside it ($refs, the editor host).
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
+				vm.attachEditorHostErrorHandler();
 
 				await vm.loadDetailPanelState();
 
@@ -475,10 +502,9 @@ export const App = {
 			vm.sidebarPanelVisible = !vm.sidebarPanelVisible;
 			if (vm.sidebarPanelVisible) {
 				vm.applySearchQuery();
-				vm.$nextTick(() => {
-					const input = vm.$refs.findInput as HTMLInputElement | undefined;
-					if (input) { input.focus(); input.select(); }
-				});
+				// Bump AFTER the pane exists so the component's focus-seq watcher
+				// sees a change (a fresh component would miss a same-tick bump).
+				vm.$nextTick(() => { vm.searchFocusSeq++; });
 			} else {
 				vm.clearSearchHighlight();
 			}
@@ -498,29 +524,7 @@ export const App = {
 			}
 			vm.sidebarPanelVisible = true;
 			vm.applySearchQuery();
-			vm.$nextTick(() => {
-				const input = vm.$refs.findInput as HTMLInputElement | undefined;
-				if (input) { input.focus(); input.select(); }
-			});
-		},
-		onSidebarResizeStart(event: MouseEvent) {
-			const vm = this;
-			event.preventDefault();
-			vm.sidebarResizing = true;
-			vm.sidebarResizeStartX = event.clientX;
-			vm.sidebarResizeStartWidth = vm.sidebarPanelWidth;
-			const onMove = (e: MouseEvent) => {
-				if (!vm.sidebarResizing) return;
-				const delta = e.clientX - vm.sidebarResizeStartX;
-				vm.sidebarPanelWidth = Math.max(180, Math.min(600, vm.sidebarResizeStartWidth + delta));
-			};
-			const onUp = () => {
-				vm.sidebarResizing = false;
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
+			vm.$nextTick(() => { vm.searchFocusSeq++; });
 		},
 		// Push the current term/options into the active editor's search plugin and
 		// refresh the reactive match counters. Idempotent — safe to call before
@@ -546,24 +550,10 @@ export const App = {
 			this.searchMatchCurrent = 0;
 			this.searchNotFound = false;
 		},
+		// wt-find-replace 'change': the models (term / options) are already
+		// updated when this fires — re-run the query.
 		onSearchTermInput() {
 			this.searchNotFound = false;
-			this.applySearchQuery();
-		},
-		clearSearchTerm() {
-			this.searchTerm = '';
-			this.applySearchQuery();
-		},
-		toggleSearchCaseSensitive() {
-			this.searchCaseSensitive = !this.searchCaseSensitive;
-			this.applySearchQuery();
-		},
-		toggleSearchWholeWord() {
-			this.searchWholeWord = !this.searchWholeWord;
-			this.applySearchQuery();
-		},
-		toggleSearchRegex() {
-			this.searchRegex = !this.searchRegex;
 			this.applySearchQuery();
 		},
 		findNextMatch() {
@@ -600,51 +590,10 @@ export const App = {
 			// that as "No matches" (which reads like the operation failed).
 			this.searchNotFound = count === 0;
 		},
-		onSearchTermKeydown(event: KeyboardEvent) {
-			if (event.key === 'Enter') {
-				event.preventDefault();
-				if (event.shiftKey) this.findPrev(); else this.findNextMatch();
-			} else if (event.key === 'Escape') {
-				event.preventDefault();
-				this.focusEditor();
-			}
-		},
-		onReplaceTermKeydown(event: KeyboardEvent) {
-			if (event.key === 'Enter') {
-				event.preventDefault();
-				if (event.ctrlKey || event.metaKey) this.replaceAllInDoc(); else this.replaceCurrent();
-			} else if (event.key === 'Escape') {
-				event.preventDefault();
-				this.focusEditor();
-			}
-		},
 		// ---- Inspector (right pane) ----
 		toggleDetailPanel() {
 			this.detailPanelVisible = !this.detailPanelVisible;
 			this.persistDetailPanelState();
-		},
-		onDetailResizeStart(event: MouseEvent) {
-			const vm = this;
-			event.preventDefault();
-			vm.detailPanelResizing = true;
-			vm.detailResizeStartX = event.clientX;
-			vm.detailResizeStartWidth = vm.detailPanelWidth;
-			const onMove = (e: MouseEvent) => {
-				if (!vm.detailPanelResizing) return;
-				const delta = vm.detailResizeStartX - e.clientX;
-				vm.detailPanelWidth = Math.max(
-					vm.detailPanelMinWidth,
-					Math.min(vm.detailPanelMaxWidth, vm.detailResizeStartWidth + delta),
-				);
-			};
-			const onUp = () => {
-				vm.detailPanelResizing = false;
-				document.removeEventListener('mousemove', onMove);
-				document.removeEventListener('mouseup', onUp);
-				vm.persistDetailPanelState();
-			};
-			document.addEventListener('mousemove', onMove);
-			document.addEventListener('mouseup', onUp);
 		},
 		async persistDetailPanelState() {
 			const vm = this;
@@ -821,6 +770,33 @@ export const App = {
 				// Find & Replace (highlights + match registry); see search.ts.
 				createSearchExtension(),
 			];
+		},
+		// Tiptap's ResizableNodeView keeps each image hidden
+		// (visibility:hidden; pointer-events:none) until its <img> fires `load`.
+		// If a referenced repository asset is gone (deleted / moved / expired),
+		// `load` never fires, so the node would stay invisible *and* unclickable —
+		// impossible to select or delete with the mouse. `error` events don't
+		// bubble, so catch them in the capture phase on the shared editor host and
+		// reveal the failed image's container so the broken node stays selectable.
+		//
+		// Called from appLaunch after the readiness gate opens: the editor host
+		// lives inside the gate, so it does not exist at onMounted time.
+		attachEditorHostErrorHandler(): void {
+			const vm = this as any;
+			const editorHost = vm.$refs.editorHost as HTMLElement | undefined;
+			if (!editorHost) {
+				console.warn('[Memo] editor host not found; broken images may stay unselectable.');
+				return;
+			}
+			editorHost.addEventListener('error', (e: Event) => {
+				const target = e.target as HTMLElement | null;
+				if (!target || target.tagName !== 'IMG') return;
+				const container = target.closest('[data-resize-container]') as HTMLElement | null;
+				if (container) {
+					container.style.visibility = '';
+					container.style.pointerEvents = '';
+				}
+			}, true);
 		},
 		// Create (once) the per-tab Editor and its mount, returning the Editor.
 		ensureEditor(file: MemoFile, content: any): Editor {
@@ -1676,5 +1652,10 @@ export const App = {
 	},
 };
 
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

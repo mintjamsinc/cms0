@@ -49,6 +49,7 @@ import javax.jcr.RepositoryException;
 import javax.xml.namespace.QName;
 
 import org.mintjams.jcr.JcrPath;
+import org.mintjams.jcr.search.SearchIndexRebuilder;
 import org.mintjams.jcr.security.LoginTimedOutException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.util.JCRs;
@@ -92,6 +93,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 	private NodeCache fNodeCache;
 	private SearchIndex fSearchIndex;
 	private JournalObserver fJournalObserver;
+	private SearchIndexRebuilder fSearchIndexRebuilder;
 	private WorkspaceCleaner fWorkspaceCleaner;
 	private WorkspaceOrphanMonitor fWorkspaceOrphanMonitor;
 	private boolean fLive;
@@ -254,6 +256,21 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			fJournalObserver = fCloser.register(JournalObserver.create(this));
 			fJournalObserver.open();
 
+			// The public entry point for rebuilding the search index while the
+			// workspace is live (adapt a session to SearchIndexRebuilder). The
+			// startup rebuild below goes through the same staged-swap path.
+			fSearchIndexRebuilder = new SearchIndexRebuilder() {
+				@Override
+				public long countIndexableItems() throws RepositoryException, IOException {
+					return fJournalObserver.countIndexableItems();
+				}
+
+				@Override
+				public void rebuild(SearchIndex.UpdateMonitor monitor) throws RepositoryException, IOException {
+					fJournalObserver.rebuildSearchIndex(monitor);
+				}
+			};
+
 			prepareDefaultNodes();
 
 			fWorkspaceCleaner = fCloser.register(WorkspaceCleaner.create(this));
@@ -281,8 +298,12 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				// Deferred-commit, optionally multi-threaded rebuild. Committing
 				// the index per node (fsync each time) and extracting every
 				// document's text on a single thread made a from-scratch rebuild
-				// very slow; the observer now defers the commit and fans the work
-				// out across a pool of workers.
+				// very slow; the observer defers the commit and fans the work
+				// out across a pool of workers. The rebuild is staged: it is
+				// written next to the live index and swapped in on completion
+				// (the same path an online rebuild via SearchIndexRebuilder
+				// takes), so a crash mid-rebuild never leaves a half-written
+				// live index.
 				fJournalObserver.rebuildSearchIndex(updateMonitor);
 			} catch (RepositoryException ex) {
 				throw Cause.create(ex).wrap(IOException.class);
@@ -949,6 +970,10 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 		if (adapterType.equals(JournalObserver.class)) {
 			return (AdapterType) fJournalObserver;
+		}
+
+		if (adapterType.equals(SearchIndexRebuilder.class)) {
+			return (AdapterType) fSearchIndexRebuilder;
 		}
 
 		if (adapterType.equals(WorkspaceCleaner.class)) {

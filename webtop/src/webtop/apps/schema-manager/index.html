@@ -17,6 +17,13 @@
 <body>
 	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
 
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. A
+		     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+		     unchanged; the gated markup is intentionally not re-indented. -->
+		<template v-if="isReady">
+
 		<!-- Top Toolbar (translucent) -->
 		<nav class="nav-bar window-drag-region">
 			<!-- Left: file actions -->
@@ -63,14 +70,7 @@
 
 				<!-- Filter -->
 				<div class="schema-filter">
-					<div class="input-group">
-						<input type="text" class="wt" v-model="schemaFilter" :placeholder="t('app.schema-manager.tree.filterPlaceholder')">
-						<div v-if="schemaFilter" class="input-group-actions">
-							<button class="input-group-btn" @click="schemaFilter = ''" :title="t('app.schema-manager.action.clear')">
-								<i class="bi bi-x"></i>
-							</button>
-						</div>
-					</div>
+					<wt-search-box v-model="schemaFilter" :placeholder="t('app.schema-manager.tree.filterPlaceholder')"></wt-search-box>
 				</div>
 
 				<!-- Schema tree -->
@@ -143,7 +143,7 @@
 									:title="t('app.schema-manager.tree.shadowsMixinFrom', { mixin: shadowedByMixinKey(schema, prop.key) })">
 									{{ t('app.schema-manager.tree.shadows', { mixin: shadowedByMixinKey(schema, prop.key) }) }}
 								</span>
-								<span class="prop-type-badge">{{ prop.type }}</span>
+								<wt-badge>{{ prop.type }}</wt-badge>
 								<span class="property-item-actions">
 									<button v-if="!prop._isDeleted" class="btn-icon btn-item-delete"
 										@click.stop="markPropertyDeleted(schema._id, prop._id)" :title="t('app.schema-manager.action.delete')">
@@ -178,8 +178,7 @@
 			</div>
 
 			<!-- Sidebar resize handle -->
-			<div v-if="sidebarPanelVisible" class="sidebar-resize-handle"
-				@mousedown="onSidebarResizeStart"></div>
+			<wt-splitter v-if="sidebarPanelVisible" v-model:size="sidebarPanelWidth" :min="180" :max="600"></wt-splitter>
 
 			<!-- Right pane -->
 			<div class="content-main island p-0">
@@ -207,14 +206,11 @@
 
 					<!-- Body: drop zone -->
 					<div v-if="scanState.phase === 'drop'" class="scan-drop-zone-container">
-						<div class="scan-drop-zone" :class="{ 'drop-highlight': scanState.isDropHighlighted }"
-							@dragover.prevent="onScanDragOver"
-							@dragleave="onScanDragLeave"
-							@drop.prevent="onScanDrop">
+						<wt-dropzone class="scan-drop-zone" drop-effect="copy" @dropped="onScanDrop($event.detail)">
 							<i class="bi bi-file-earmark-arrow-down scan-drop-icon"></i>
 							<div class="scan-drop-text">{{ t('app.schema-manager.scan.dropText') }}</div>
 							<div class="scan-drop-hint">{{ t('app.schema-manager.scan.dropHint') }}</div>
-						</div>
+						</wt-dropzone>
 						<button class="wt mt-3" @click="cancelScan">{{ t('app.schema-manager.action.cancel') }}</button>
 					</div>
 
@@ -272,13 +268,8 @@
 												@click.stop>
 										</td>
 										<td class="col-type" @click.stop>
-											<div class="wt-select scan-inline-select-wrapper">
-												<button type="button" class="wt-select-trigger"
-													@click.stop="openScanRowTypeDropdown(event, idx)">
-													<span class="wt-select-value">{{ jcrTypeLabels[sp.type] || sp.type }}</span>
-													<i class="bi bi-chevron-down wt-select-chevron"></i>
-												</button>
-											</div>
+											<wt-select class="scan-inline-select-wrapper" :model-value="sp.type" :items="jcrTypeItems"
+												@change="onScanRowTypeChoice(idx, $event.detail)"></wt-select>
 										</td>
 										<td class="col-semantic" @click.stop>
 											<input type="text" v-model="sp.semantic" class="scan-inline-input">
@@ -300,13 +291,11 @@
 								<!-- Naming convention -->
 								<div class="scan-tool-group">
 									<span class="scan-tool-label">{{ t('app.schema-manager.scan.selectedLabel', { count: selectedScanCount }) }}</span>
-									<div class="wt-select scan-tool-select">
-										<button type="button" class="wt-select-trigger"
-											@click.stop="openScanCaseDropdown(event)">
-											<span class="wt-select-value placeholder">{{ t('app.schema-manager.scan.convertCase') }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<!-- Action menu: no current value — the placeholder stays as the
+									     label and picking an item applies the conversion. -->
+									<wt-select class="scan-tool-select" model-value="" :items="scanCaseItems"
+										:placeholder="t('app.schema-manager.scan.convertCase')"
+										@change="applyScanNamingConvention($event.detail)"></wt-select>
 								</div>
 								<!-- Prefix -->
 								<div class="scan-tool-group">
@@ -321,15 +310,11 @@
 										</div>
 									</div>
 								</div>
-								<!-- Bulk type change -->
+								<!-- Bulk type change (action menu — see convert-case above) -->
 								<div class="scan-tool-group">
-									<div class="wt-select scan-tool-select">
-										<button type="button" class="wt-select-trigger"
-											@click.stop="openScanBulkTypeDropdown(event)">
-											<span class="wt-select-value placeholder">{{ t('app.schema-manager.scan.setType') }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="scan-tool-select" model-value="" :items="jcrTypeItems"
+										:placeholder="t('app.schema-manager.scan.setType')"
+										@change="onScanBulkTypeChoice($event.detail)"></wt-select>
 								</div>
 								<div class="scan-tool-group">
 									<label class="wt-checkbox-label">
@@ -473,14 +458,11 @@
 
 							<div v-if="availableMixinsFor(selectedSchema).length > 0" class="property-row mt-2">
 								<label class="property-label">{{ t('app.schema-manager.schema.addMixin') }}</label>
-								<select class="wt" :value="''"
-									@change="addMixinReference(selectedSchema, $event.target.value); $event.target.value = ''">
-									<option value="" disabled>{{ t('app.schema-manager.schema.selectMixinToAttach') }}</option>
-									<option v-for="mx in availableMixinsFor(selectedSchema)"
-										:key="mx.key" :value="mx.key">
-										{{ mx.key }}<template v-if="mx.label && mx.label !== mx.key"> — {{ mx.label }}</template>
-									</option>
-								</select>
+								<!-- Action menu: attaching removes the mixin from the item
+								     list, so the empty model falls back to the placeholder. -->
+								<wt-select model-value="" :items="availableMixinItems(selectedSchema)"
+									:placeholder="t('app.schema-manager.schema.selectMixinToAttach')"
+									@change="addMixinReference(selectedSchema, $event.detail)"></wt-select>
 							</div>
 						</div>
 
@@ -499,7 +481,7 @@
 									<i class="bi bi-file-code me-1"></i>
 									<span class="inherited-prop-key">{{ entry.prop.key }}</span>
 									<span v-if="entry.prop.label" class="inherited-prop-label">{{ entry.prop.label }}</span>
-									<span class="prop-type-badge">{{ entry.prop.type }}</span>
+									<wt-badge>{{ entry.prop.type }}</wt-badge>
 									<span class="mixin-origin-badge">{{ t('app.schema-manager.schema.fromMixin', { mixin: entry.mixinKey }) }}</span>
 									<span v-if="entry.overridden" class="mixin-override-badge"
 										:title="t('app.schema-manager.schema.overriddenTitle')">{{ t('app.schema-manager.schema.overridden') }}</span>
@@ -553,7 +535,7 @@
 									<i class="bi bi-file-code me-1"></i>
 									<span class="inherited-prop-key">{{ p.key || t('app.schema-manager.tree.unnamed') }}</span>
 									<span v-if="p.label" class="inherited-prop-label">{{ p.label }}</span>
-									<span class="prop-type-badge">{{ p.type }}</span>
+									<wt-badge>{{ p.type }}</wt-badge>
 									<span v-if="mixinPropertyShadowCount(selectedSchema, p.key) > 0"
 										class="mixin-override-badge ms-auto"
 										:title="t('app.schema-manager.mixin.shadowedByTitle', { count: mixinPropertyShadowCount(selectedSchema, p.key) })">
@@ -644,13 +626,9 @@
 							<div class="form-row">
 								<div class="property-row half">
 									<label class="property-label">{{ t('app.schema-manager.field.type') }}</label>
-									<div class="wt-select w-100" :class="{'is-invalid': validationErrors['prop.type']}">
-										<button type="button" class="wt-select-trigger"
-											@click.stop="openTypeDropdown(event)">
-											<span class="wt-select-value">{{ jcrTypeLabels[selectedProperty.type] || selectedProperty.type }}</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :class="{'is-invalid': validationErrors['prop.type']}"
+										:model-value="selectedProperty.type" :items="jcrTypeItems"
+										@change="onPropTypeChoice($event.detail)"></wt-select>
 									<div v-if="validationErrors['prop.type']" class="invalid-feedback">
 										{{ validationErrors['prop.type'] }}
 									</div>
@@ -858,15 +836,9 @@
 							<div v-if="showEditorType" class="form-row">
 								<div class="property-row half">
 									<label class="property-label">{{ t('app.schema-manager.property.editorType') }}</label>
-									<div class="wt-select w-100">
-										<button type="button" class="wt-select-trigger"
-											@click.stop="openEditorTypeDropdown(event)">
-											<span class="wt-select-value" :class="{placeholder: !selectedProperty.uiHint.editorType}">
-												{{ selectedProperty.uiHint.editorType || t('app.schema-manager.editor.editorTypeAuto') }}
-											</span>
-											<i class="bi bi-chevron-down wt-select-chevron"></i>
-										</button>
-									</div>
+									<wt-select class="w-100" :model-value="selectedProperty.uiHint.editorType || ''"
+										:items="editorTypeItems()"
+										@change="onEditorTypeChoice($event.detail)"></wt-select>
 								</div>
 							</div>
 							<div v-if="['TextArea','Text Editor','JSON','XML','HTML','Markdown'].includes(selectedProperty.uiHint.editorType)"
@@ -934,89 +906,76 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.schema-manager.status.saving') }}</span>
+				<span v-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.schema-manager.status.saving') }}</span>
 				<span v-else-if="hasChanges" class="status-item">{{ t('app.schema-manager.status.unsaved', { count: changedSchemaCount }) }}</span>
 				<span v-else class="status-item">{{ t('app.schema-manager.status.saved') }}</span>
 			</div>
 		</div>
 
 		<!-- Loading Overlay -->
-		<div v-if="isLoading" class="loading-overlay flex-column text-center">
-			<div class="spinner"></div>
-			<span class="mt-3">{{ t('app.schema-manager.status.loading') }}</span>
-		</div>
+		<wt-spinner v-if="isLoading" overlay size="lg"></wt-spinner>
 
-		<!-- Close Confirmation Dialog -->
-		<div v-if="closeConfirmDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 32rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.schema-manager.dialog.unsavedTitle') }}</h3>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0">{{ t('app.schema-manager.dialog.unsavedCount', { count: changedSchemaCount }) }}</p>
-						<p>{{ t('app.schema-manager.dialog.saveBeforeClose') }}</p>
-					</div>
-					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('app.schema-manager.action.cancel') }}</button>
-						<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
-							<i class="bi bi-trash me-1"></i>{{ t('app.schema-manager.dialog.dontSave') }}
-						</button>
-						<button class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
-							<i class="bi bi-floppy me-1"></i>{{ t('app.schema-manager.action.save') }}
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<!-- Close Confirmation Dialog — no ✕ / Escape: the choice is explicit. -->
+		<wt-dialog :open="closeConfirmDialog.visible" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.schema-manager.dialog.unsavedTitle') }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0">{{ t('app.schema-manager.dialog.unsavedCount', { count: changedSchemaCount }) }}</p>
+				<p>{{ t('app.schema-manager.dialog.saveBeforeClose') }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="onCloseConfirmDialogAction('cancel')">{{ t('app.schema-manager.action.cancel') }}</button>
+				<button class="wt wt-danger" @click="onCloseConfirmDialogAction('discard')">
+					<i class="bi bi-trash me-1"></i>{{ t('app.schema-manager.dialog.dontSave') }}
+				</button>
+				<button class="wt wt-primary" @click="onCloseConfirmDialogAction('save')">
+					<i class="bi bi-floppy me-1"></i>{{ t('app.schema-manager.action.save') }}
+				</button>
+			</template>
+		</wt-dialog>
 
 		<!-- Delete Mixin Confirmation Dialog
 		     Surfaces when the user deletes a mixin that has live dependent
 		     schemas. The mode radios decide how those schemas are treated:
 		     Inline preserves their effective shape by copying the mixin's
 		     properties into each schema; Detach drops them. -->
-		<div v-if="deleteMixinDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 36rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3>
-							<i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.schema-manager.dialog.deleteMixinTitle') }}
-							"<span class="mixin-chip-key">{{ deleteMixinDialog.mixinKey }}</span>"
-						</h3>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0">
-							{{ t('app.schema-manager.dialog.mixinUsedBy', { count: deleteMixinDialog.dependentIDs.length }) }}
-						</p>
-						<ul class="mixin-dependent-list">
-							<li v-for="depID in deleteMixinDialog.dependentIDs" :key="depID">
-								<i class="bi bi-collection ms-1 me-3"></i>
-								<span class="mixin-chip-key">{{ (schemas.find(s => s._id === depID) || {}).key || t('app.schema-manager.tree.unnamed') }}</span>
-								<span v-if="(schemas.find(s => s._id === depID) || {}).label"
-									class="mixin-chip-label ms-2">{{ (schemas.find(s => s._id === depID) || {}).label }}</span>
-							</li>
-						</ul>
-						<p class="mt-6 mb-0">{{ t('app.schema-manager.dialog.howHandleDependents') }}</p>
-						<label class="dialog-radio">
-							<input class="wt" type="radio" name="delete-mixin-mode" value="inline"
-								v-model="deleteMixinDialog.mode">
-							<span>{{ t('app.schema-manager.dialog.modeInline') }}</span>
-						</label>
-						<label class="dialog-radio">
-							<input class="wt" type="radio" name="delete-mixin-mode" value="detach"
-								v-model="deleteMixinDialog.mode">
-							<span>{{ t('app.schema-manager.dialog.modeDetach') }}</span>
-						</label>
-					</div>
-					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="cancelDeleteMixinDialog">{{ t('app.schema-manager.action.cancel') }}</button>
-						<button class="wt wt-danger" @click="confirmDeleteMixinDialog">
-							<i class="bi bi-trash me-1"></i>{{ t('app.schema-manager.action.delete') }}
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<wt-dialog :open="deleteMixinDialog.visible" size="lg" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.schema-manager.dialog.deleteMixinTitle') }}
+				"<span class="mixin-chip-key">{{ deleteMixinDialog.mixinKey }}</span>"
+			</template>
+			<template v-slot="d">
+				<p class="mt-0">
+					{{ t('app.schema-manager.dialog.mixinUsedBy', { count: deleteMixinDialog.dependentIDs.length }) }}
+				</p>
+				<ul class="mixin-dependent-list">
+					<li v-for="depID in deleteMixinDialog.dependentIDs" :key="depID">
+						<i class="bi bi-collection ms-1 me-3"></i>
+						<span class="mixin-chip-key">{{ (schemas.find(s => s._id === depID) || {}).key || t('app.schema-manager.tree.unnamed') }}</span>
+						<span v-if="(schemas.find(s => s._id === depID) || {}).label"
+							class="mixin-chip-label ms-2">{{ (schemas.find(s => s._id === depID) || {}).label }}</span>
+					</li>
+				</ul>
+				<p class="mt-6 mb-0">{{ t('app.schema-manager.dialog.howHandleDependents') }}</p>
+				<label class="dialog-radio">
+					<input class="wt" type="radio" name="delete-mixin-mode" value="inline"
+						v-model="deleteMixinDialog.mode">
+					<span>{{ t('app.schema-manager.dialog.modeInline') }}</span>
+				</label>
+				<label class="dialog-radio">
+					<input class="wt" type="radio" name="delete-mixin-mode" value="detach"
+						v-model="deleteMixinDialog.mode">
+					<span>{{ t('app.schema-manager.dialog.modeDetach') }}</span>
+				</label>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="cancelDeleteMixinDialog">{{ t('app.schema-manager.action.cancel') }}</button>
+				<button class="wt wt-danger" @click="confirmDeleteMixinDialog">
+					<i class="bi bi-trash me-1"></i>{{ t('app.schema-manager.action.delete') }}
+				</button>
+			</template>
+		</wt-dialog>
 
 		<!-- Extract to Mixin Dialog
 		     Splits selected own properties from the current schema into a
@@ -1026,95 +985,88 @@
 		     collisions are first-wins on resolution). Everything happens
 		     in-memory; Save All persists the new mixin and the updated
 		     schema as one batch. -->
-		<div v-if="extractDialog.visible" class="dialog-overlay">
-			<div class="dialog-frame" style="max-width: 40rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<h3><i class="bi bi-box-arrow-up-right me-2"></i>{{ t('app.schema-manager.extract.title') }}</h3>
-					</div>
-					<div class="dialog-body direction-column">
-						<div class="form-row">
-							<div class="property-row half">
-								<label class="property-label">{{ t('app.schema-manager.extract.newMixinKey') }}</label>
-								<input type="text" class="wt w-100" v-model="extractDialog.newKey"
-									:class="{'is-invalid': extractDialog.newKey && !isExtractKeyValid()}"
-									:placeholder="t('app.schema-manager.schema.keyPlaceholderMixin')">
-								<div v-if="extractDialog.newKey && !isExtractKeyValid()"
-									class="invalid-feedback">
-									{{ t('app.schema-manager.extract.keyInvalid') }}
-								</div>
-							</div>
-							<div class="property-row half">
-								<label class="property-label">{{ t('app.schema-manager.field.label') }}</label>
-								<input type="text" class="wt w-100" v-model="extractDialog.newLabel"
-									:placeholder="t('app.schema-manager.schema.labelPlaceholderMixin')">
+		<wt-dialog :open="extractDialog.visible" size="xl" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-box-arrow-up-right me-2"></i>{{ t('app.schema-manager.extract.title') }}
+			</template>
+			<template v-slot="d">
+				<!-- Column stack (stands in for the old .dialog-body.direction-column) -->
+				<div class="d-flex flex-column" style="gap: 1rem;">
+					<div class="form-row">
+						<div class="property-row half">
+							<label class="property-label">{{ t('app.schema-manager.extract.newMixinKey') }}</label>
+							<input type="text" class="wt w-100" v-model="extractDialog.newKey"
+								:class="{'is-invalid': extractDialog.newKey && !isExtractKeyValid()}"
+								:placeholder="t('app.schema-manager.schema.keyPlaceholderMixin')">
+							<div v-if="extractDialog.newKey && !isExtractKeyValid()"
+								class="invalid-feedback">
+								{{ t('app.schema-manager.extract.keyInvalid') }}
 							</div>
 						</div>
-						<div class="property-row">
-							<label class="property-label">{{ t('app.schema-manager.field.description') }}</label>
-							<textarea class="wt w-100" v-model="extractDialog.newDescription" rows="2"
-								:placeholder="t('app.schema-manager.extract.descPlaceholder')"></textarea>
-						</div>
-
-						<div class="property-group-title mt-2">
-							{{ t('app.schema-manager.extract.propertiesToExtract', { count: extractDialog.selectedPropertyIDs.length }) }}
-						</div>
-						<div v-if="extractDialogRows().length === 0" class="text-muted">
-							{{ t('app.schema-manager.extract.noOwnProperties') }}
-						</div>
-						<div v-else class="extract-row-list">
-							<label v-for="row in extractDialogRows()"
-								:key="row.prop._id"
-								class="extract-row"
-								:class="{ 'is-blocked': row.blocked }"
-								:title="row.blocked ? t('app.schema-manager.extract.alreadyContributed', { mixin: row.blockedBy }) : ''">
-								<input type="checkbox" class="wt"
-									:disabled="row.blocked"
-									:checked="extractDialog.selectedPropertyIDs.includes(row.prop._id)"
-									@change="toggleExtractProperty(row.prop._id)">
-								<i class="bi bi-file-code"></i>
-								<span class="extract-row-key">{{ row.prop.key }}</span>
-								<span v-if="row.prop.label" class="extract-row-label">{{ row.prop.label }}</span>
-								<span class="prop-type-badge">{{ row.prop.type }}</span>
-								<span v-if="row.blocked" class="mixin-override-badge ms-auto">
-									{{ t('app.schema-manager.extract.inMixin', { mixin: row.blockedBy }) }}
-								</span>
-							</label>
+						<div class="property-row half">
+							<label class="property-label">{{ t('app.schema-manager.field.label') }}</label>
+							<input type="text" class="wt w-100" v-model="extractDialog.newLabel"
+								:placeholder="t('app.schema-manager.schema.labelPlaceholderMixin')">
 						</div>
 					</div>
-					<div class="dialog-footer flex-wrap">
-						<button class="wt" @click="cancelExtractDialog">{{ t('app.schema-manager.action.cancel') }}</button>
-						<button class="wt wt-primary"
-							:disabled="!canConfirmExtract()"
-							@click="confirmExtractDialog">
-							<i class="bi bi-box-arrow-up-right me-1"></i>{{ t('app.schema-manager.extract.confirm') }}
-						</button>
+					<div class="property-row">
+						<label class="property-label">{{ t('app.schema-manager.field.description') }}</label>
+						<textarea class="wt w-100" v-model="extractDialog.newDescription" rows="2"
+							:placeholder="t('app.schema-manager.extract.descPlaceholder')"></textarea>
+					</div>
+
+					<div class="property-group-title mt-2">
+						{{ t('app.schema-manager.extract.propertiesToExtract', { count: extractDialog.selectedPropertyIDs.length }) }}
+					</div>
+					<div v-if="extractDialogRows().length === 0" class="text-muted">
+						{{ t('app.schema-manager.extract.noOwnProperties') }}
+					</div>
+					<div v-else class="extract-row-list">
+						<label v-for="row in extractDialogRows()"
+							:key="row.prop._id"
+							class="extract-row"
+							:class="{ 'is-blocked': row.blocked }"
+							:title="row.blocked ? t('app.schema-manager.extract.alreadyContributed', { mixin: row.blockedBy }) : ''">
+							<input type="checkbox" class="wt"
+								:disabled="row.blocked"
+								:checked="extractDialog.selectedPropertyIDs.includes(row.prop._id)"
+								@change="toggleExtractProperty(row.prop._id)">
+							<i class="bi bi-file-code"></i>
+							<span class="extract-row-key">{{ row.prop.key }}</span>
+							<span v-if="row.prop.label" class="extract-row-label">{{ row.prop.label }}</span>
+							<wt-badge>{{ row.prop.type }}</wt-badge>
+							<span v-if="row.blocked" class="mixin-override-badge ms-auto">
+								{{ t('app.schema-manager.extract.inMixin', { mixin: row.blockedBy }) }}
+							</span>
+						</label>
 					</div>
 				</div>
-			</div>
-		</div>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="cancelExtractDialog">{{ t('app.schema-manager.action.cancel') }}</button>
+				<button class="wt wt-primary"
+					:disabled="!canConfirmExtract()"
+					@click="confirmExtractDialog">
+					<i class="bi bi-box-arrow-up-right me-1"></i>{{ t('app.schema-manager.extract.confirm') }}
+				</button>
+			</template>
+		</wt-dialog>
 
-		<!-- Error Dialog -->
-		<div v-if="errorMessage" class="dialog-overlay dialog-overlay-message">
-			<div class="dialog-frame" style="max-width: 28rem;">
-				<div class="island p-2">
-					<div class="dialog-header">
-						<div class="dialog-header-top">
-							<h3><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.schema-manager.dialog.noticeTitle') }}</h3>
-							<button class="btn-icon" @click="errorMessage = ''" :title="t('app.schema-manager.toolbar.close')">
-								<i class="bi bi-x-lg"></i>
-							</button>
-						</div>
-					</div>
-					<div class="dialog-body">
-						<p class="mt-0 mb-0">{{ errorMessage }}</p>
-					</div>
-					<div class="dialog-footer">
-						<button class="wt wt-primary" @click="errorMessage = ''">{{ t('app.schema-manager.action.ok') }}</button>
-					</div>
-				</div>
-			</div>
-		</div>
+		<!-- Error Dialog — declared after every other dialog: all wt-dialog
+		     overlays share the same z-index, so DOM order is what keeps the
+		     notice painted on top (the role .dialog-overlay-message used to
+		     play). -->
+		<wt-dialog :open="!!errorMessage" size="sm" @close="errorMessage = ''">
+			<template v-slot:title="d">
+				<i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>{{ t('app.schema-manager.dialog.noticeTitle') }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-0">{{ errorMessage }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt wt-primary" @click="errorMessage = ''">{{ t('app.schema-manager.action.ok') }}</button>
+			</template>
+		</wt-dialog>
 		<!-- CodeMirror maximized overlay (動作>既定値・検証 / UIヒント>表示形式).
 		     Rendered at #app level (sibling of the dialogs, OUTSIDE every .island)
 		     so its position: fixed fills the whole window. While it is open the
@@ -1168,6 +1120,9 @@
 				<div ref="cmEditorExpanded" class="cm-editor-expanded"></div>
 			</div>
 		</div>
+
+		</template>
+		<!-- /Readiness gate -->
 	</div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

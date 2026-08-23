@@ -27,20 +27,8 @@
 /* .nav-bar / .nav-spacer: see shared webtop-app.css */
 
 /* Content body — single pane */
-.content-body {
-	display: flex;
-	flex: 1;
-	min-height: 0;
-	position: relative;
-	gap: 0.25rem;
-}
-
 .content-main {
-	display: flex;
-	flex-direction: column;
-	flex: 1;
-	min-width: 0;
-	min-height: 0;
+	/* Shared frame in webtop-app.css; app-specific extras only */
 	overflow: hidden;
 	padding: 0;
 }

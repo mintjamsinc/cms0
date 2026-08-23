@@ -15,6 +15,8 @@ import {
 	handleLocalizationMessage,
 	translate,
 } from "../../composables/use-localization.js";
+import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
 const ACCEPTED_IMAGE_TYPES = /^image\/(png|jpeg|jpg|gif|webp|bmp|svg\+xml)$/;
@@ -142,6 +144,11 @@ function timezoneOptionLabel(tz: string): string {
 const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
 			idp: null as IdpServiceGraphQL | null,
 			// Reactive Localization snapshot — see composables/use-localization.ts.
@@ -229,6 +236,32 @@ const App = {
 		displayNameChanged() {
 			return this.displayName !== this.originalDisplayName;
 		},
+		// Item lists for the localization wt-selects. '' encodes each "Auto"
+		// choice (the label helpers already render the auto wording for '').
+		localeItems() {
+			return [
+				{ value: '', label: this.localeLabel('') },
+				...this.availableLocales.map((l: string) => ({ value: l, label: nativeLocaleName(l) })),
+			];
+		},
+		timezoneItems() {
+			return [
+				{ value: '', label: this.timezoneLabel('') },
+				...this.availableTimezones.map((tz: string) => ({ value: tz, label: timezoneOptionLabel(tz) })),
+			];
+		},
+		numberFormatItems() {
+			return [
+				{ value: '', label: this.numberFormatLabel('') },
+				...this.availableLocales.map((l: string) => ({ value: l, label: numberFormatOptionLabel(l, this.currentDisplayLocale()) })),
+			];
+		},
+		currencyItems() {
+			return [
+				{ value: '', label: this.currencyLabel('') },
+				...this.availableCurrencies.map((c: any) => ({ value: c.code, label: this.t(c.labelKey) })),
+			];
+		},
 		canChangePassword() {
 			return this.passwordForm.current
 				&& this.passwordForm.newPassword
@@ -273,6 +306,20 @@ const App = {
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
+
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The popup adapter is passed
+				// here as well: wt-select menus escape the window through the
+				// shell popup API.
+				try {
+					await initUi({ popupAdapter: createShellPopupAdapter(instance) });
+				} catch (e) {
+					console.warn('[Preferences] Failed to load component templates:', e);
+				}
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 
 				await vm.loadSettings();
 
@@ -403,66 +450,6 @@ const App = {
 			if (!value) return this.t('app.preferences.localization.currency.auto', undefined, 'Auto (derived from language)');
 			const found = this.availableCurrencies.find(c => c.code === value);
 			return found ? this.t(found.labelKey) : value;
-		},
-
-		async openLocaleDropdown(event: MouseEvent) {
-			const vm = this;
-			const items = [
-				{ id: '__auto__', label: vm.t('app.preferences.localization.language.auto', undefined, 'Auto (browser language)'), selected: !vm.locale },
-				...vm.availableLocales.map(l => ({ id: l, label: nativeLocaleName(l), selected: l === vm.locale })),
-			];
-			const result = await vm.openSelectPopup(event, items);
-			if (result == null) return;
-			vm.locale = result === '__auto__' ? '' : String(result);
-			await vm.onLocalizationChange();
-		},
-		async openTimezoneDropdown(event: MouseEvent) {
-			const vm = this;
-			const items = [
-				{ id: '__auto__', label: vm.t('app.preferences.localization.timezone.auto', undefined, 'Auto (system time zone)'), selected: !vm.timezone },
-				...vm.availableTimezones.map(tz => ({ id: tz, label: timezoneOptionLabel(tz), selected: tz === vm.timezone })),
-			];
-			const result = await vm.openSelectPopup(event, items);
-			if (result == null) return;
-			vm.timezone = result === '__auto__' ? '' : String(result);
-			await vm.onLocalizationChange();
-		},
-		async openNumberFormatDropdown(event: MouseEvent) {
-			const vm = this;
-			const items = [
-				{ id: '__auto__', label: vm.t('app.preferences.localization.numberFormat.auto', undefined, 'Auto (use display language)'), selected: !vm.numberFormat },
-				...vm.availableLocales.map(l => ({ id: l, label: numberFormatOptionLabel(l, vm.currentDisplayLocale()), selected: l === vm.numberFormat })),
-			];
-			const result = await vm.openSelectPopup(event, items);
-			if (result == null) return;
-			vm.numberFormat = result === '__auto__' ? '' : String(result);
-			await vm.onLocalizationChange();
-		},
-		async openCurrencyDropdown(event: MouseEvent) {
-			const vm = this;
-			const items = [
-				{ id: '__auto__', label: vm.t('app.preferences.localization.currency.auto', undefined, 'Auto (derived from language)'), selected: !vm.currency },
-				...vm.availableCurrencies.map(c => ({ id: c.code, label: vm.t(c.labelKey), selected: c.code === vm.currency })),
-			];
-			const result = await vm.openSelectPopup(event, items);
-			if (result == null) return;
-			vm.currency = result === '__auto__' ? '' : String(result);
-			await vm.onLocalizationChange();
-		},
-
-		async openSelectPopup(event: MouseEvent, items: any[]): Promise<string | number | null> {
-			const vm = this;
-			const trigger = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
-			if (!trigger || !vm.instance) return null;
-			const rect = trigger.getBoundingClientRect();
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: rect.width,
-				maxHeight: 360,
-				items,
-			});
-			return await handle.result;
 		},
 
 		async onLocalizationChange() {
@@ -1174,4 +1161,9 @@ const App = {
 	},
 };
 
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 VDOM.createApp(App).mount('#app');

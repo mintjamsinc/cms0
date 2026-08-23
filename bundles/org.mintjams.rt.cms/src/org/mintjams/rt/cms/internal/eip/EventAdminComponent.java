@@ -25,6 +25,7 @@ package org.mintjams.rt.cms.internal.eip;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.ExecutorService;
 
 import org.apache.camel.CamelContext;
 import org.apache.camel.Consumer;
@@ -87,6 +88,7 @@ public class EventAdminComponent extends DefaultComponent {
 
 		private class EventAdminConsumer extends DefaultConsumer implements EventHandler {
 			private final Closer fCloser = Closer.create();
+			private ExecutorService fExecutorService;
 
 			public EventAdminConsumer(Processor processor) {
 				super(EventAdminEndpoint.this, processor);
@@ -94,21 +96,32 @@ public class EventAdminComponent extends DefaultComponent {
 
 			@Override
 			public void handleEvent(org.osgi.service.event.Event event) {
-				Exchange exchange = getEndpoint().createExchange();
-				exchange.getIn().setBody(event);
-				try {
-					getProcessor().process(exchange);
-					if (exchange.getException() != null) {
-						getExceptionHandler().handleException("An error occurred while processing the exchange", exchange, exchange.getException());
+				fExecutorService.submit(() -> {
+					if (!isRunAllowed()) {
+						return;
 					}
-				} catch (Throwable ex) {
-					getExceptionHandler().handleException("An error occurred while processing the exchange", exchange, ex);
-				}
+
+					Exchange exchange = getEndpoint().createExchange();
+					exchange.getIn().setBody(event);
+					try {
+						getProcessor().process(exchange);
+						if (exchange.getException() != null) {
+							getExceptionHandler().handleException("An error occurred while processing the exchange", exchange, exchange.getException());
+						}
+					} catch (Throwable ex) {
+						exchange.setException(ex);
+						getExceptionHandler().handleException("An error occurred while processing the exchange", exchange, ex);
+					}
+				});
 			}
 
 			@Override
 			protected void doStart() throws Exception {
 				super.doStart();
+				fExecutorService = getEndpoint()
+						.getCamelContext()
+						.getExecutorServiceManager()
+						.newSingleThreadExecutor(this, EventAdminConsumer.class.getSimpleName());
 
 				Registration.Builder<EventHandler> builder = Registration.newBuilder(EventHandler.class)
 						.setService(this)

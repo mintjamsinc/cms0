@@ -17,6 +17,13 @@
 <body>
 <div id="app" v-cloak class="d-flex flex-column" :class="{ 'is-resizing': isResizing }" @mounted="onMounted" @unmount="onUnmount">
 
+	<!-- Readiness gate: the screen is compiled only after appLaunch() has
+	     loaded the component templates and flipped isReady, so every <wt-*>
+	     element is connected with its <template> already present. A
+	     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+	     unchanged; the gated markup is intentionally not re-indented. -->
+	<template v-if="isReady">
+
 	<!-- ============================================================
 	     Top Toolbar (translucent)
 	     ============================================================ -->
@@ -94,18 +101,10 @@
 				<!-- Tasks (Runtime) filters -->
 				<div v-if="mode === 'tasks-runtime'">
 					<div class="filter-group">
-						<label class="filter-label">{{ t('app.tasks.filter.keyword', undefined, 'Keyword') }}</label>
-						<div class="input-group">
-							<input type="text" class="wt"
-								v-model="filters.taskKeyword"
-								@input="filterList"
-								:placeholder="t('app.tasks.filter.taskKeywordPlaceholder', undefined, 'Name, process, business key…')">
-							<div v-if="filters.taskKeyword" class="input-group-actions">
-								<button class="input-group-btn" @click="clearTaskKeyword" :title="t('app.tasks.action.clear', undefined, 'Clear')">
-									<i class="bi bi-x"></i>
-								</button>
-							</div>
-						</div>
+						<wt-field :label="t('app.tasks.filter.keyword', undefined, 'Keyword')">
+							<wt-search-box v-model="filters.taskKeyword" @change="filterList"
+								:placeholder="t('app.tasks.filter.taskKeywordPlaceholder', undefined, 'Name, process, business key…')"></wt-search-box>
+						</wt-field>
 					</div>
 
 					<div class="filter-group">
@@ -142,48 +141,36 @@
 							{{ t('app.tasks.filter.noProcessDefinitions', undefined, 'No process definitions deployed.') }}
 						</div>
 						<div v-else class="def-checkbox-list">
-							<label v-for="def in definitions" :key="def.id" class="filter-check def-checkbox-item">
-								<input type="checkbox" class="wt"
-									:checked="!!selectedDefKeyMap[def.key]"
-									@change="toggleDefKey(def.key)">
+							<wt-checkbox v-for="def in definitions" :key="def.id" class="def-checkbox-item"
+								:model-value="!!selectedDefKeyMap[def.key]"
+								@change="toggleDefKey(def.key)">
 								<span class="def-checkbox-label">{{ def.name || def.key }}</span>
-							</label>
+							</wt-checkbox>
 						</div>
 					</div>
 
 					<div class="filter-group">
-						<label class="filter-label">{{ t('app.tasks.filter.due', undefined, 'Due') }}</label>
-						<button type="button" class="wt-select-trigger" @click="openDuePickerPopup">
-							<span class="wt-select-value" :class="{placeholder: !filters.dueLabel}">
-								{{ filters.dueLabel || t('app.tasks.filter.due.any', undefined, 'Any time') }}
-							</span>
-							<i class="bi bi-chevron-down wt-select-chevron"></i>
-						</button>
+						<wt-field :label="t('app.tasks.filter.due', undefined, 'Due')">
+							<wt-select v-model="filters.dueRange" :items="dueItems" @change="filterList"></wt-select>
+						</wt-field>
 					</div>
 
 					<div class="filter-group">
-						<label class="filter-label">{{ t('app.tasks.filter.priorityMin', undefined, 'Priority (≥)') }}</label>
-						<input type="number" class="wt w-100" min="0" max="100" step="1"
-							v-model.number="filters.priorityMin" @input="filterList"
-							placeholder="0">
+						<wt-field :label="t('app.tasks.filter.priorityMin', undefined, 'Priority (≥)')">
+							<input type="number" class="wt w-100" min="0" max="100" step="1"
+								v-model.number="filters.priorityMin" @input="filterList"
+								placeholder="0">
+						</wt-field>
 					</div>
 				</div>
 
 				<!-- Tasks (History) filters -->
 				<div v-if="mode === 'tasks-history'">
 					<div class="filter-group">
-						<label class="filter-label">{{ t('app.tasks.filter.keyword', undefined, 'Keyword') }}</label>
-						<div class="input-group">
-							<input type="text" class="wt"
-								v-model="filters.taskKeyword"
-								@input="filterList"
-								:placeholder="t('app.tasks.filter.taskKeywordPlaceholder', undefined, 'Name, process, business key…')">
-							<div v-if="filters.taskKeyword" class="input-group-actions">
-								<button class="input-group-btn" @click="clearTaskKeyword" :title="t('app.tasks.action.clear', undefined, 'Clear')">
-									<i class="bi bi-x"></i>
-								</button>
-							</div>
-						</div>
+						<wt-field :label="t('app.tasks.filter.keyword', undefined, 'Keyword')">
+							<wt-search-box v-model="filters.taskKeyword" @change="filterList"
+								:placeholder="t('app.tasks.filter.taskKeywordPlaceholder', undefined, 'Name, process, business key…')"></wt-search-box>
+						</wt-field>
 					</div>
 					<div class="filter-group">
 						<p class="filter-hint mt-0">
@@ -195,43 +182,29 @@
 				<!-- Process Start filters -->
 				<div v-if="mode === 'start'">
 					<div class="filter-group">
-						<label class="filter-label">{{ t('app.tasks.filter.keyword', undefined, 'Keyword') }}</label>
-						<div class="input-group">
-							<input type="text" class="wt"
-								v-model="filters.defKeyword"
-								@input="filterList"
-								:placeholder="t('app.tasks.filter.defKeywordPlaceholder', undefined, 'Name, key, description…')">
-							<div v-if="filters.defKeyword" class="input-group-actions">
-								<button class="input-group-btn" @click="clearDefKeyword" :title="t('app.tasks.action.clear', undefined, 'Clear')">
-									<i class="bi bi-x"></i>
-								</button>
-							</div>
-						</div>
+						<wt-field :label="t('app.tasks.filter.keyword', undefined, 'Keyword')">
+							<wt-search-box v-model="filters.defKeyword" @change="filterList"
+								:placeholder="t('app.tasks.filter.defKeywordPlaceholder', undefined, 'Name, key, description…')"></wt-search-box>
+						</wt-field>
 					</div>
 
 					<div class="filter-group">
-						<label class="filter-label">{{ t('app.tasks.filter.category', undefined, 'Category') }}</label>
-						<button type="button" class="wt-select-trigger" @click="openCategoryPickerPopup">
-							<span class="wt-select-value" :class="{placeholder: !filters.category}">
-								{{ filters.category || t('app.tasks.filter.category.all', undefined, 'All categories') }}
-							</span>
-							<i class="bi bi-chevron-down wt-select-chevron"></i>
-						</button>
+						<wt-field :label="t('app.tasks.filter.category', undefined, 'Category')">
+							<wt-select v-model="filters.category" :items="categoryItems" @change="filterList"></wt-select>
+						</wt-field>
 					</div>
 
 					<div class="filter-group">
-						<label class="filter-check">
-							<input type="checkbox" class="wt" v-model="filters.favoritesOnly" @change="filterList">
-							<span>{{ t('app.tasks.filter.favoritesOnly', undefined, 'Favorites only') }}</span>
-						</label>
+						<wt-checkbox v-model="filters.favoritesOnly" @change="filterList"
+							:label="t('app.tasks.filter.favoritesOnly', undefined, 'Favorites only')"></wt-checkbox>
 					</div>
 				</div>
 			</div>
 		</div>
 
 		<!-- Search resize handle -->
-		<div v-if="searchPanelVisible" class="search-resize-handle"
-			@mousedown="onSearchResizeStart"></div>
+		<wt-splitter v-if="searchPanelVisible" v-model:size="searchPanelWidth" :min="180" :max="420"
+			@resize-start="resizingPane = true" @resize-end="resizingPane = false"></wt-splitter>
 
 		<!-- ============================================================
 		     MIDDLE PANE — task / process definition list
@@ -240,7 +213,7 @@
 			:style="{ width: listPanelWidth + 'px' }">
 
 			<div v-if="isLoading && filteredItems.length === 0" class="list-empty">
-				<span class="spinner"></span>
+				<wt-spinner size="sm"></wt-spinner>
 				<span>{{ t('app.tasks.list.loading', undefined, 'Loading…') }}</span>
 			</div>
 
@@ -317,8 +290,8 @@
 		</div>
 
 		<!-- List resize handle -->
-		<div v-if="listPanelVisible" class="list-resize-handle"
-			@mousedown="onListResizeStart"></div>
+		<wt-splitter v-if="listPanelVisible" v-model:size="listPanelWidth" :min="220" :max="560"
+			@resize-start="resizingPane = true" @resize-end="resizingPane = false"></wt-splitter>
 
 		<!-- ============================================================
 		     RIGHT PANE — form (iframe)
@@ -389,26 +362,59 @@
 					<span>{{ noFormKeyMessage }}</span>
 				</div>
 
-				<!-- Loading state -->
-				<div v-else-if="formLoading" class="form-empty">
-					<span class="spinner"></span>
-					<span>{{ t('app.tasks.form.loading', undefined, 'Loading form…') }}</span>
-				</div>
+				<!--
+					Loaded form. The iframe and the states layered over it are
+					siblings rather than v-else-if branches, because the overlay
+					has to cover the frame WHILE it starts up — the same shape
+					wt-window uses for its `launching` / `launch-failed` panes.
+					Branching would unmount the frame and defeat the point.
+				-->
+				<template v-else>
+					<!--
+						Form iframe — SAME-ORIGIN, deliberately NOT sandboxed.
 
-				<!-- Form load error -->
-				<div v-else-if="formError" class="form-empty form-error">
-					<i class="bi bi-exclamation-triangle-fill"></i>
-					<span>{{ formError }}</span>
-				</div>
+						The form is user-authored HTML stored in the CMS and served
+						from this very origin (/bin/cms.cgi/...). Running it under
+						`sandbox` without `allow-same-origin` put it in an opaque
+						origin, which broke every same-origin affordance a form
+						actually needs: webtop's stylesheets could not pull their
+						@font-face files, credentialed fetches were impossible, and
+						the only channel to the host was a postMessage RPC bridge.
 
-				<!-- Iframe -->
-				<iframe v-else-if="formSrc"
-					ref="formFrame"
-					class="form-frame"
-					:src="formSrc"
-					sandbox="allow-scripts allow-forms allow-popups allow-modals"
-					allow="clipboard-read; clipboard-write"
-					@load="onFormFrameLoad"></iframe>
+						Dropping `sandbox` makes the form an ordinary same-origin
+						document: it loads webtop's CSS/fonts directly and talks to
+						the host through `window.parent.TasksFormHost` (see app.ts),
+						which hands it the live GraphQL client. Deploying a form is
+						therefore as privileged as deploying an app — the JCR write
+						ACL on the form node is the trust boundary.
+					-->
+					<iframe v-if="formSrc"
+						class="form-frame"
+						:src="formSrc"
+						allow="clipboard-read; clipboard-write"></iframe>
+
+					<!--
+						Loading overlay — covers formKey resolution and the
+						form's own startup as one state. Comes down only when
+						the form calls TasksFormHost.notifyReady(); the frame's
+						`load` event is deliberately not used, because it fires
+						before a form that fetches its own data has anything to
+						show.
+					-->
+					<div v-if="formPending" class="form-overlay">
+						<wt-spinner size="sm"></wt-spinner>
+						<span>{{ t('app.tasks.form.loading', undefined, 'Loading form…') }}</span>
+					</div>
+
+					<!-- Form load / startup failure -->
+					<div v-else-if="formError" class="form-overlay form-error">
+						<i class="bi bi-exclamation-triangle-fill"></i>
+						<span>{{ formError }}</span>
+						<button type="button" class="wt wt-slim" @click="reloadForm">
+							<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.tasks.form.retry', undefined, 'Retry') }}
+						</button>
+					</div>
+				</template>
 			</div>
 		</div>
 	</div>
@@ -424,103 +430,80 @@
 		</div>
 		<span class="nav-spacer"></span>
 		<div class="status-group">
-			<span v-if="isLoading" class="status-item"><i class="bi bi-arrow-repeat spin me-1"></i>{{ t('app.tasks.status.loading', undefined, 'Loading') }}</span>
+			<span v-if="isLoading" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.tasks.status.loading', undefined, 'Loading') }}</span>
 		</div>
 	</div>
 
 	<!-- ============================================================
 	     Error / Notice Dialog
 	     ============================================================ -->
-	<div v-if="errorMessage" class="dialog-overlay dialog-overlay-message">
-		<div class="dialog-frame" style="max-width: 28rem;">
-			<div class="island p-2">
-				<div class="dialog-header">
-					<div class="dialog-header-top">
-						<h3><i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.tasks.dialog.notice.title', undefined, 'Notice') }}</h3>
-						<button class="btn-icon" @click="errorMessage = ''" :title="t('app.tasks.window.close', undefined, 'Close')">
-							<i class="bi bi-x-lg"></i>
-						</button>
-					</div>
-				</div>
-				<div class="dialog-body">
-					<p class="mt-0 mb-0">{{ errorMessage }}</p>
-				</div>
-				<div class="dialog-footer">
-					<button class="wt wt-primary" @click="errorMessage = ''">{{ t('app.tasks.action.ok', undefined, 'OK') }}</button>
-				</div>
-			</div>
-		</div>
-	</div>
+	<wt-dialog :open="!!errorMessage" size="sm" @close="errorMessage = ''">
+		<template v-slot:title="d">
+			<i class="bi bi-exclamation-triangle-fill me-2"></i>{{ t('app.tasks.dialog.notice.title', undefined, 'Notice') }}
+		</template>
+		<template v-slot="d">
+			<p class="mt-0 mb-0">{{ errorMessage }}</p>
+		</template>
+		<template v-slot:footer="d">
+			<button class="wt wt-primary" @click="errorMessage = ''">{{ t('app.tasks.action.ok', undefined, 'OK') }}</button>
+		</template>
+	</wt-dialog>
 
 	<!-- ============================================================
 	     Take Over Confirmation Dialog
 	     ============================================================ -->
-	<div v-if="dialog.type === 'takeover'" class="dialog-overlay">
-		<div class="dialog-frame" style="max-width: 28rem;">
-			<div class="island p-2">
-				<div class="dialog-header">
-					<div class="dialog-header-top">
-						<h3><i class="bi bi-arrow-left-right me-2"></i>{{ t('app.tasks.dialog.takeover.title', undefined, 'Take Over Task') }}</h3>
-						<button class="btn-icon" @click="closeDialog" :title="t('app.tasks.window.close', undefined, 'Close')">
-							<i class="bi bi-x-lg"></i>
-						</button>
-					</div>
-				</div>
-				<div class="dialog-body">
-					<p class="mt-0">{{ t('app.tasks.dialog.takeover.confirm', { taskName: dialog.data.taskName, assignee: dialog.data.currentAssignee }, 'Take over "{taskName}" from "{assignee}"?') }}</p>
-					<p class="mb-0 small text-muted">
-						{{ t('app.tasks.dialog.takeover.note', undefined, 'You will become the new assignee. The previous assignee will lose access to this task.') }}
-					</p>
-				</div>
-				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">{{ t('app.tasks.action.cancel', undefined, 'Cancel') }}</button>
-					<button class="wt wt-primary" @click="executeTakeOver">{{ t('app.tasks.action.takeover', undefined, 'Take over') }}</button>
-				</div>
-			</div>
-		</div>
-	</div>
+	<wt-dialog :open="dialog.type === 'takeover'" size="sm" @close="closeDialog">
+		<template v-slot:title="d">
+			<i class="bi bi-arrow-left-right me-2"></i>{{ t('app.tasks.dialog.takeover.title', undefined, 'Take Over Task') }}
+		</template>
+		<template v-slot="d">
+			<p class="mt-0">{{ t('app.tasks.dialog.takeover.confirm', { taskName: dialog.data.taskName, assignee: dialog.data.currentAssignee }, 'Take over "{taskName}" from "{assignee}"?') }}</p>
+			<p class="mb-0 small text-muted">
+				{{ t('app.tasks.dialog.takeover.note', undefined, 'You will become the new assignee. The previous assignee will lose access to this task.') }}
+			</p>
+		</template>
+		<template v-slot:footer="d">
+			<button class="wt" @click="closeDialog">{{ t('app.tasks.action.cancel', undefined, 'Cancel') }}</button>
+			<button class="wt wt-primary" @click="executeTakeOver">{{ t('app.tasks.action.takeover', undefined, 'Take over') }}</button>
+		</template>
+	</wt-dialog>
 
 	<!-- ============================================================
 	     Assign Task Dialog
 	     ============================================================ -->
-	<div v-if="dialog.type === 'assign'" class="dialog-overlay">
-		<div class="dialog-frame" style="max-width: 30rem;">
-			<div class="island p-2">
-				<div class="dialog-header">
-					<div class="dialog-header-top">
-						<h3><i class="bi bi-person-gear me-2"></i>{{ t('app.tasks.dialog.assign.title', undefined, 'Assign Task') }}</h3>
-						<button class="btn-icon" @click="closeDialog" :title="t('app.tasks.window.close', undefined, 'Close')">
-							<i class="bi bi-x-lg"></i>
-						</button>
+	<wt-dialog :open="dialog.type === 'assign'" @close="closeDialog">
+		<template v-slot:title="d">
+			<i class="bi bi-person-gear me-2"></i>{{ t('app.tasks.dialog.assign.title', undefined, 'Assign Task') }}
+		</template>
+		<template v-slot="d">
+			<p class="mt-0">{{ t('app.tasks.dialog.assign.intro', { taskName: dialog.data.taskName }, 'Reassign "{taskName}" to another user. Search by username, display name, or email — any user can be selected.') }}</p>
+			<wt-field :label="t('app.tasks.dialog.assign.userLabel', undefined, 'User')">
+				<div class="position-relative">
+					<input class="wt w-100" type="text" ref="assigneeInput"
+						v-model="dialog.data.assignee"
+						@input="onAssigneeSearchInput"
+						@focus="onAssigneeSearchFocus"
+						:placeholder="t('app.tasks.dialog.assign.searchPlaceholder', undefined, 'Search user...')"
+						autocomplete="off"
+						autofocus>
+					<div v-if="dialog.data.isSearching" class="input-group-actions">
+						<wt-spinner size="sm"></wt-spinner>
 					</div>
 				</div>
-				<div class="dialog-body">
-					<p class="mt-0">{{ t('app.tasks.dialog.assign.intro', { taskName: dialog.data.taskName }, 'Reassign "{taskName}" to another user. Search by username, display name, or email — any user can be selected.') }}</p>
-					<label class="dialog-label">{{ t('app.tasks.dialog.assign.userLabel', undefined, 'User') }}</label>
-					<div class="position-relative">
-						<input class="wt w-100" type="text" ref="assigneeInput"
-							v-model="dialog.data.assignee"
-							@input="onAssigneeSearchInput"
-							@focus="onAssigneeSearchFocus"
-							:placeholder="t('app.tasks.dialog.assign.searchPlaceholder', undefined, 'Search user...')"
-							autocomplete="off"
-							autofocus>
-						<div v-if="dialog.data.isSearching" class="input-group-actions">
-							<span class="spinner-border spinner-border-sm"></span>
-						</div>
-					</div>
-					<div v-if="dialog.data.assigneeDisplayName" class="mt-1 small text-muted">
-						{{ t('app.tasks.dialog.assign.selected', undefined, 'Selected:') }} <strong>{{ dialog.data.assigneeDisplayName }}</strong>
-						<span> ({{ dialog.data.assignee }})</span>
-					</div>
-				</div>
-				<div class="dialog-footer">
-					<button class="wt" @click="closeDialog">{{ t('app.tasks.action.cancel', undefined, 'Cancel') }}</button>
-					<button class="wt wt-primary" :disabled="!dialog.data.assignee" @click="executeAssign">{{ t('app.tasks.action.assign', undefined, 'Assign') }}</button>
-				</div>
+			</wt-field>
+			<div v-if="dialog.data.assigneeDisplayName" class="mt-1 small text-muted">
+				{{ t('app.tasks.dialog.assign.selected', undefined, 'Selected:') }} <strong>{{ dialog.data.assigneeDisplayName }}</strong>
+				<span> ({{ dialog.data.assignee }})</span>
 			</div>
-		</div>
-	</div>
+		</template>
+		<template v-slot:footer="d">
+			<button class="wt" @click="closeDialog">{{ t('app.tasks.action.cancel', undefined, 'Cancel') }}</button>
+			<button class="wt wt-primary" :disabled="!dialog.data.assignee" @click="executeAssign">{{ t('app.tasks.action.assign', undefined, 'Assign') }}</button>
+		</template>
+	</wt-dialog>
+
+	</template>
+	<!-- /Readiness gate -->
 </div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

@@ -17,19 +17,29 @@
 <body>
 	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
 
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. A
+		     <template> fragment (not a wrapper <div>) keeps #app's flex layout
+		     unchanged; the gated markup is intentionally not re-indented. -->
+		<template v-if="isReady">
+
 		<!-- Top toolbar -->
 		<nav class="nav-bar window-drag-region">
 			<div class="toolbar-group">
 				<button class="btn-icon" @click="refresh" :disabled="refreshing" :title="t('app.dashboard.toolbar.refresh', undefined, 'Refresh')">
-					<i class="bi bi-arrow-clockwise" :class="{ spin: refreshing }"></i>
+					<wt-spinner v-if="refreshing" size="sm"></wt-spinner>
+					<i v-else class="bi bi-arrow-clockwise"></i>
 				</button>
 			</div>
 
 			<span class="dash-greeting" v-if="view === 'ready'">{{ greeting }}</span>
 
-			<span class="dash-live" :class="{ connected }" :title="connected ? t('app.dashboard.live.on', undefined, 'Live updates on') : t('app.dashboard.live.off', undefined, 'Live updates off')">
-				<span class="dash-live-dot"></span>{{ connected ? t('app.dashboard.live.live', undefined, 'Live') : t('app.dashboard.live.offline', undefined, 'Offline') }}
-			</span>
+			<wt-live-indicator :connected="connected"
+				:on-label="t('app.dashboard.live.live', undefined, 'Live')"
+				:off-label="t('app.dashboard.live.offline', undefined, 'Offline')"
+				:on-title="t('app.dashboard.live.on', undefined, 'Live updates on')"
+				:off-title="t('app.dashboard.live.off', undefined, 'Live updates off')"></wt-live-indicator>
 
 			<span class="nav-spacer"></span>
 
@@ -48,17 +58,16 @@
 		</nav>
 
 		<!-- Loading -->
-		<div v-if="view === 'loading'" class="dash-state">
-			<div class="spinner"></div>
-			<span>{{ t('app.dashboard.state.loading', undefined, 'Loading dashboard…') }}</span>
-		</div>
+		<wt-empty-state v-if="view === 'loading'">
+			<wt-spinner size="lg"></wt-spinner>
+			{{ t('app.dashboard.state.loading', undefined, 'Loading dashboard…') }}
+		</wt-empty-state>
 
 		<!-- Error -->
-		<div v-else-if="view === 'error'" class="dash-state">
-			<i class="bi bi-exclamation-triangle-fill text-warning" style="font-size: 1.5rem;"></i>
-			<span>{{ errorMessage }}</span>
-			<button class="wt" @click="refresh">{{ t('app.dashboard.action.retry', undefined, 'Retry') }}</button>
-		</div>
+		<wt-empty-state v-else-if="view === 'error'" icon="bi-exclamation-triangle-fill">
+			{{ errorMessage }}
+			<button slot="actions" class="wt" @click="refresh">{{ t('app.dashboard.action.retry', undefined, 'Retry') }}</button>
+		</wt-empty-state>
 
 		<!-- Ready -->
 		<div v-else class="dash-body">
@@ -115,7 +124,7 @@
 											<span class="dash-list-title">{{ task.title }}</span>
 											<span class="dash-list-sub">{{ task.sub }}</span>
 										</span>
-										<span class="dash-pill" :class="task.pillClass" v-if="task.pill">{{ task.pill }}</span>
+										<wt-badge v-if="task.pill" :variant="task.pillClass">{{ task.pill }}</wt-badge>
 									</button>
 									<div class="dash-list-empty" v-if="work.next.length === 0">
 										{{ t('app.dashboard.myDay.empty', undefined, 'Nothing assigned to you right now. Nice and clear.') }}
@@ -141,7 +150,7 @@
 						<div class="dash-rows">
 							<div class="dash-row">
 								<span class="dash-row-label"><i class="bi bi-alarm"></i>{{ t('app.dashboard.metric.overdue', undefined, 'Overdue') }}</span>
-								<span class="dash-pill" :class="myTasks.overdue > 0 ? 'danger' : 'ok'">{{ myTasks.overdue }}</span>
+								<wt-badge :variant="myTasks.overdue > 0 ? 'danger' : 'success'">{{ myTasks.overdue }}</wt-badge>
 							</div>
 							<div class="dash-row">
 								<span class="dash-row-label">{{ t('app.dashboard.metric.dueToday', undefined, 'Due today') }}</span>
@@ -229,7 +238,7 @@
 								<span class="dash-kpi-label">{{ t('app.dashboard.ops.runningProcesses', undefined, 'Running processes') }}</span>
 							</div>
 							<div class="dash-kpi is-link" @click="openEip()" :title="t('app.dashboard.ops.activeRoutes.hint', undefined, 'Started routes / deployed routes')">
-								<span class="dash-kpi-value">{{ ops.activeRoutes }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ ops.totalRoutes }}</span></span>
+								<span class="dash-kpi-value">{{ ops.activeRoutes }}<span class="dash-denom">/{{ ops.totalRoutes }}</span></span>
 								<span class="dash-kpi-label">{{ t('app.dashboard.ops.activeRoutes', undefined, 'Active routes') }}</span>
 							</div>
 							<div class="dash-kpi is-link" @click="openBpm({ view: 'incidents' })" :title="t('app.dashboard.ops.openIncidents.hint', undefined, 'Open process incidents')">
@@ -245,16 +254,16 @@
 								<span class="dash-kpi-label">{{ t('app.dashboard.ops.connectionIssues', undefined, 'Connection issues') }}</span>
 							</div>
 							<div class="dash-kpi" :class="{ 'is-link': workspaceManagerAvailable }" @click="openWorkspaceManager()" :title="t('app.dashboard.ops.workspaces.hint', undefined, 'Workspaces online / total')">
-								<span class="dash-kpi-value" :class="{ 'dash-value-warn': workspaces.starting > 0, 'dash-value-danger': workspaces.failed > 0 || workspaces.engineIssues > 0 }">{{ workspaces.online }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ workspaces.total }}</span></span>
+								<span class="dash-kpi-value" :class="{ 'dash-value-warn': workspaces.starting > 0, 'dash-value-danger': workspaces.failed > 0 || workspaces.engineIssues > 0 }">{{ workspaces.online }}<span class="dash-denom">/{{ workspaces.total }}</span></span>
 								<span class="dash-kpi-label">{{ t('app.dashboard.workspaces.title', undefined, 'Workspaces') }}</span>
 							</div>
 							<div class="dash-kpi" :title="cluster.enabled ? t('app.dashboard.cluster.hint', undefined, 'Nodes with a fresh heartbeat / registered nodes') : t('app.dashboard.cluster.singleHint', undefined, 'Running as a single node without clustering')">
-								<span class="dash-kpi-value" v-if="cluster.enabled" :class="{ 'dash-value-danger': cluster.stale > 0 }">{{ cluster.alive }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ cluster.total }}</span></span>
-								<span class="dash-kpi-value" v-else><span class="dash-pill neutral">{{ t('app.dashboard.cluster.single', undefined, 'Single') }}</span></span>
+								<span class="dash-kpi-value" v-if="cluster.enabled" :class="{ 'dash-value-danger': cluster.stale > 0 }">{{ cluster.alive }}<span class="dash-denom">/{{ cluster.total }}</span></span>
+								<span class="dash-kpi-value" v-else><wt-badge variant="neutral">{{ t('app.dashboard.cluster.single', undefined, 'Single') }}</wt-badge></span>
 								<span class="dash-kpi-label">{{ t('app.dashboard.cluster.title', undefined, 'Cluster') }}</span>
 							</div>
 							<div class="dash-kpi text-center">
-								<span class="dash-kpi-value"><span class="dash-pill" :class="ops.overall.cls">{{ ops.overall.label }}</span></span>
+								<span class="dash-kpi-value"><wt-badge :variant="ops.overall.cls">{{ ops.overall.label }}</wt-badge></span>
 								<span class="dash-kpi-label">{{ t('app.dashboard.ops.overall', undefined, 'Overall') }}</span>
 							</div>
 						</div>
@@ -279,7 +288,7 @@
 							</div>
 							<div class="dash-row">
 								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
-								<span class="dash-pill" :class="defs.suspended > 0 ? 'warn' : 'ok'">{{ defs.suspended }}</span>
+								<wt-badge :variant="defs.suspended > 0 ? 'warning' : 'success'">{{ defs.suspended }}</wt-badge>
 							</div>
 						</div>
 					</div>
@@ -310,11 +319,11 @@
 						<div class="dash-rows" v-if="running.suspended > 0 || running.withIncidents > 0">
 							<div class="dash-row" v-if="running.suspended > 0">
 								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
-								<span class="dash-pill warn">{{ running.suspended }}</span>
+								<wt-badge variant="warning">{{ running.suspended }}</wt-badge>
 							</div>
 							<div class="dash-row" v-if="running.withIncidents > 0">
 								<span class="dash-row-label"><i class="bi bi-exclamation-octagon"></i>{{ t('app.dashboard.running.withIncidents', undefined, 'With incidents') }}</span>
-								<span class="dash-pill danger">{{ running.withIncidents }}</span>
+								<wt-badge variant="danger">{{ running.withIncidents }}</wt-badge>
 							</div>
 						</div>
 					</div>
@@ -355,21 +364,21 @@
 							</button>
 						</div>
 						<div class="dash-metric">
-							<span class="dash-metric-value">{{ routes.started }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ routes.total }}</span></span>
+							<span class="dash-metric-value">{{ routes.started }}<span class="dash-denom">/{{ routes.total }}</span></span>
 							<span class="dash-metric-unit">{{ t('app.dashboard.routes.started', undefined, 'started') }}</span>
 						</div>
 						<div class="dash-rows">
 							<div class="dash-row">
 								<span class="dash-row-label"><i class="bi bi-hdd-network"></i>{{ t('app.dashboard.routes.context', undefined, 'Context') }}</span>
-								<span class="dash-pill" :class="routes.contextPill">{{ routes.contextState }}</span>
+								<wt-badge :variant="routes.contextPill">{{ routes.contextState }}</wt-badge>
 							</div>
 							<div class="dash-row" v-if="routes.stopped > 0">
 								<span class="dash-row-label"><i class="bi bi-stop-circle"></i>{{ t('app.dashboard.status.stopped', undefined, 'Stopped') }}</span>
-								<span class="dash-pill" :class="routes.stopped > 0 ? 'warn' : 'ok'">{{ routes.stopped }}</span>
+								<wt-badge :variant="routes.stopped > 0 ? 'warning' : 'success'">{{ routes.stopped }}</wt-badge>
 							</div>
 							<div class="dash-row" v-if="routes.suspended > 0">
 								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
-								<span class="dash-pill warn">{{ routes.suspended }}</span>
+								<wt-badge variant="warning">{{ routes.suspended }}</wt-badge>
 							</div>
 							<div class="dash-row" v-if="routes.uptime">
 								<span class="dash-row-label">{{ t('app.dashboard.routes.uptime', undefined, 'Uptime') }}</span>
@@ -394,7 +403,7 @@
 						<div class="dash-rows">
 							<div class="dash-row">
 								<span class="dash-row-label"><i class="bi bi-x-octagon"></i>{{ t('app.dashboard.status.failed', undefined, 'Failed') }}</span>
-								<span class="dash-pill" :class="throughput.failed > 0 ? 'danger' : 'ok'">{{ throughput.failedLabel }}</span>
+								<wt-badge :variant="throughput.failed > 0 ? 'danger' : 'success'">{{ throughput.failedLabel }}</wt-badge>
 							</div>
 							<div class="dash-row" v-if="throughput.inflight > 0">
 								<span class="dash-row-label"><i class="bi bi-hourglass-split"></i>{{ t('app.dashboard.throughput.inFlight', undefined, 'In flight') }}</span>
@@ -434,7 +443,7 @@
 									<span class="dash-list-title">{{ c.label }}</span>
 									<span class="dash-list-sub">{{ c.routeId }}</span>
 								</span>
-								<span class="dash-pill danger">{{ c.state }}</span>
+								<wt-badge variant="danger">{{ c.state }}</wt-badge>
 							</button>
 						</div>
 						<div class="dash-list-empty" v-else>
@@ -451,7 +460,7 @@
 							</button>
 						</div>
 						<div class="dash-metric">
-							<span class="dash-metric-value" :class="{ 'dash-value-warn': workspaces.starting > 0, 'dash-value-danger': workspaces.engineIssues > 0 || workspaces.failed > 0 }">{{ workspaces.online }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ workspaces.total }}</span></span>
+							<span class="dash-metric-value" :class="{ 'dash-value-warn': workspaces.starting > 0, 'dash-value-danger': workspaces.engineIssues > 0 || workspaces.failed > 0 }">{{ workspaces.online }}<span class="dash-denom">/{{ workspaces.total }}</span></span>
 							<span class="dash-metric-unit">{{ t('app.dashboard.workspaces.online', undefined, 'online') }}</span>
 						</div>
 						<div class="dash-list">
@@ -459,10 +468,10 @@
 								@click="openWorkspaceManager()" :title="w.name">
 								<span class="dash-list-rank"><i class="bi bi-collection"></i></span>
 								<span class="dash-list-main">
-									<span class="dash-list-title">{{ w.displayName || w.name }}<span class="dash-pill neutral" style="margin-left: 0.4rem;" v-if="w.system">{{ t('app.dashboard.workspaces.system', undefined, 'System') }}</span><span class="dash-pill neutral" style="margin-left: 0.4rem;" v-if="w.current">{{ t('app.dashboard.workspaces.current', undefined, 'Current') }}</span></span>
+									<span class="dash-list-title">{{ w.displayName || w.name }}<wt-badge class="ms-1" variant="neutral" v-if="w.system">{{ t('app.dashboard.workspaces.system', undefined, 'System') }}</wt-badge><wt-badge class="ms-1" variant="neutral" v-if="w.current">{{ t('app.dashboard.workspaces.current', undefined, 'Current') }}</wt-badge></span>
 									<span class="dash-list-sub">{{ w.enginesLabel }}</span>
 								</span>
-								<span class="dash-pill" :class="w.pillClass" :title="w.stateMessage">{{ w.pillLabel }}</span>
+								<wt-badge :variant="w.pillClass" :title="w.stateMessage">{{ w.pillLabel }}</wt-badge>
 							</button>
 							<div class="dash-list-empty" v-if="workspaces.list.length === 0">
 								{{ t('app.dashboard.workspaces.empty', undefined, 'No workspace information available.') }}
@@ -479,17 +488,17 @@
 						<!-- Clustered: every registered node with its heartbeat health -->
 						<div v-if="cluster.enabled">
 							<div class="dash-metric">
-								<span class="dash-metric-value" :class="{ 'dash-value-danger': cluster.stale > 0 }">{{ cluster.alive }}<span style="font-size: 16px; color: var(--text-soft-color);">/{{ cluster.total }}</span></span>
+								<span class="dash-metric-value" :class="{ 'dash-value-danger': cluster.stale > 0 }">{{ cluster.alive }}<span class="dash-denom">/{{ cluster.total }}</span></span>
 								<span class="dash-metric-unit">{{ t('app.dashboard.cluster.nodesAlive', undefined, 'nodes alive') }}</span>
 							</div>
 							<div class="dash-list">
 								<div class="dash-list-row is-static" v-for="m in cluster.members" :key="m.nodeId" :title="m.nodeId">
 									<span class="dash-list-rank"><i class="bi bi-hdd-network"></i></span>
 									<span class="dash-list-main">
-										<span class="dash-list-title">{{ m.name }}<span class="dash-pill neutral" style="margin-left: 0.4rem;" v-if="m.self">{{ t('app.dashboard.cluster.thisNode', undefined, 'This node') }}</span></span>
+										<span class="dash-list-title">{{ m.name }}<wt-badge class="ms-1" variant="neutral" v-if="m.self">{{ t('app.dashboard.cluster.thisNode', undefined, 'This node') }}</wt-badge></span>
 										<span class="dash-list-sub">{{ m.nodeId }} · {{ t('app.dashboard.cluster.heartbeatAge', { age: m.heartbeatAge }, 'heartbeat ' + m.heartbeatAge + ' ago') }}</span>
 									</span>
-									<span class="dash-pill" :class="m.alive ? 'ok' : 'danger'">{{ m.alive ? t('app.dashboard.cluster.alive', undefined, 'Alive') : t('app.dashboard.cluster.stale', undefined, 'Stale') }}</span>
+									<wt-badge :variant="m.alive ? 'success' : 'danger'">{{ m.alive ? t('app.dashboard.cluster.alive', undefined, 'Alive') : t('app.dashboard.cluster.stale', undefined, 'Stale') }}</wt-badge>
 								</div>
 							</div>
 						</div>
@@ -529,6 +538,8 @@
 			</div>
 		</div>
 
+		</template>
+		<!-- /Readiness gate -->
 	</div>
 
 	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>

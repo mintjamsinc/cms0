@@ -1,0 +1,12 @@
+<template id="wt-tabs">
+	<div class="wt-tabs" :class="'wt-' + variant">
+		<button v-for="tab of items" :key="tab.key" type="button" class="wt-tab"
+			:class="{active: tab.key === modelValue}" :disabled="tab.disabled"
+			@click="select(tab)">
+			<slot name="tab" :tab="tab" :active="tab.key === modelValue">
+				<i v-if="tab.icon" class="bi" :class="tab.icon"></i>
+				<span>{{ tab.label }}</span>
+			</slot>
+		</button>
+	</div>
+</template>

@@ -52,6 +52,8 @@ public interface Resource {
 
 	ResourceIterator list(ResourceNameFilter filter) throws ResourceException;
 
+	boolean isRoot() throws ResourceException;
+
 	boolean isCollection() throws ResourceException;
 
 	boolean isLocked() throws ResourceException;
@@ -94,6 +96,8 @@ public interface Resource {
 
 	String[] getPropertyKeys() throws ResourceException;
 
+	Resource removeProperty(String name) throws ResourceException;
+
 	String getContent() throws ResourceException;
 
 	Reader getContentAsReader() throws ResourceException;
@@ -104,7 +108,11 @@ public interface Resource {
 
 	String getContentType() throws ResourceException;
 
+	Resource setContentType(String contentType) throws ResourceException;
+
 	String getContentEncoding() throws ResourceException;
+
+	Resource setContentEncoding(String contentEncoding) throws ResourceException;
 
 	long getContentLength() throws ResourceException;
 
@@ -112,9 +120,13 @@ public interface Resource {
 
 	java.util.Date getLastModified() throws ResourceException;
 
+	Resource setLastModified(java.util.Date lastModified) throws ResourceException;
+
 	String getCreatedBy() throws ResourceException;
 
 	String getLastModifiedBy() throws ResourceException;
+
+	Resource setLastModifiedBy(String lastModifiedBy) throws ResourceException;
 
 	Resource lock() throws ResourceException;
 
@@ -136,6 +148,8 @@ public interface Resource {
 
 	Resource createFolder() throws ResourceException;
 
+	Resource getOrCreateFolder() throws ResourceException;
+
 	Resource createFolder(String name) throws ResourceException;
 
 	Resource getFolder(String name) throws ResourceException;
@@ -143,6 +157,8 @@ public interface Resource {
 	Resource getOrCreateFolder(String name) throws ResourceException;
 
 	Resource createFile() throws ResourceException;
+
+	Resource getOrCreateFile() throws ResourceException;
 
 	Resource createFile(String name) throws ResourceException;
 
@@ -200,7 +216,7 @@ public interface Resource {
 
 	Resource setProperty(String name, Resource value) throws ResourceException;
 
-	Resource allowAnyProperties() throws ResourceException;
+	Resource setProperty(String name, Object value) throws ResourceException;
 
 	Session getSession();
 

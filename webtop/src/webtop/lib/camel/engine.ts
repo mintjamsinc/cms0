@@ -169,6 +169,138 @@ export function getNodeStyleForType(type: string): typeof NODE_STYLE {
 // =============================================================================
 
 /**
+ * How this module obtains a DOM parser.
+ *
+ * The browser's DOMParser is the default. The seam exists so the parse and
+ * round-trip behaviour can be exercised outside a browser - a check that the
+ * Modeler still writes back what it read is only useful if it can run
+ * automatically, and it cannot while the only way to run it is to open a route
+ * and click save.
+ */
+type DomParserFactory = () => { parseFromString(source: string, mimeType: string): Document };
+
+let domParserFactory: DomParserFactory = () => new DOMParser();
+
+export function setDomParserFactory(factory: DomParserFactory): void {
+	domParserFactory = factory;
+}
+
+/**
+ * The elements Camel accepts wherever a route asks for an expression.
+ *
+ * There is one set because there used to be five, each listing a slightly
+ * different handful, and a language missing from the list a step happened to use
+ * was not an error: the expression simply came back empty and the step was
+ * written out without it. `<language language="jexl">` was absent from every one
+ * of them.
+ *
+ * Its counterpart on the writing side is BRANCHING_TYPES in serializer.ts. The
+ * two are not derived from each other, and nothing but the round-trip check
+ * notices when only one of them is updated - which is the reason that check
+ * exists and the reason it covers every step type rather than the ones the
+ * routes happen to use.
+ */
+export const EXPRESSION_TAGS: ReadonlySet<string> = new Set([
+	'simple', 'constant', 'jsonpath', 'xpath', 'xquery', 'tokenize', 'xtokenize',
+	'language', 'csimple', 'groovy', 'js', 'python', 'mvel', 'ognl', 'spel',
+	'datasonnet', 'header', 'exchangeProperty', 'variable', 'method', 'ref',
+	'bean', 'file', 'hl7terser', 'joor', 'jq', 'wasm', 'expression'
+]);
+
+/** The first child that is an expression, whichever language it is written in. */
+export function findExpressionElement(el: Element): Element | undefined {
+	return Array.from(el.children).find(c => EXPRESSION_TAGS.has(c.localName));
+}
+
+/**
+ * The name a route step's expression is edited and stored under.
+ *
+ * Most languages are their own element - <simple>, <jsonpath>. A language
+ * registered by name instead is written <language language="jexl">, which would
+ * otherwise appear in the property panel as the type "language" with the actual
+ * language hidden in an attribute. It is stored under the language's own name so
+ * that the panel shows what it is, and written back to the same two-part form.
+ */
+export function expressionTypeOf(exprEl: Element | undefined): string {
+	if (!exprEl) return 'simple';
+	if (exprEl.localName !== 'language') return exprEl.localName;
+	return exprEl.getAttribute('language') || 'language';
+}
+
+/** The attributes to keep, minus the one that named the language. */
+export function expressionAttributesOf(exprEl: Element | undefined): Record<string, string> | undefined {
+	const attributes = readExpressionAttributes(exprEl);
+	if (!attributes || exprEl?.localName !== 'language') return attributes;
+	const { language, ...rest } = attributes;
+	return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
+/**
+ * Step types whose children form one chain that rejoins the route after the block.
+ * Each needs the same treatment as <filter>: parse the body, and write it back.
+ */
+export const LINEAR_BLOCK_TYPES: ReadonlySet<string> = new Set([
+	'filter', 'step', 'circuitBreaker', 'loadBalance', 'aggregate', 'loop'
+]);
+
+/**
+ * Children of a block that configure it rather than run inside it, so they are
+ * not mistaken for body steps.
+ */
+export const BLOCK_CONFIG_TAGS: Record<string, ReadonlySet<string>> = {
+	aggregate: new Set(['correlationExpression', 'completionPredicate', 'completionTimeoutExpression',
+		'completionSizeExpression', 'optimisticLockRetryPolicy']),
+	circuitBreaker: new Set(['resilience4jConfiguration', 'faultToleranceConfiguration', 'onFallback']),
+	loadBalance: new Set(['roundRobin', 'random', 'sticky', 'topic', 'failover', 'weighted',
+		'customLoadBalancer']),
+};
+
+/** The children of a block that are steps rather than its own configuration. */
+export function bodyStepElements(el: Element, alsoSkip: ReadonlySet<string> = new Set()): Element[] {
+	return Array.from(el.children).filter(
+		c => !EXPRESSION_TAGS.has(c.localName) && !alsoSkip.has(c.localName));
+}
+
+/**
+ * Attributes carried by an expression element, kept so a save writes them back.
+ *
+ * They are not decoration: <jsonpath suppressExceptions="true"> is the
+ * difference between a missing path yielding null and a missing path throwing,
+ * and a webhook route relies on the former.
+ */
+export function readExpressionAttributes(exprEl: Element | undefined): Record<string, string> | undefined {
+	if (!exprEl || exprEl.attributes.length === 0) return undefined;
+	const attributes: Record<string, string> = {};
+	for (const attr of Array.from(exprEl.attributes)) {
+		attributes[attr.name] = attr.value;
+	}
+	return attributes;
+}
+
+/**
+ * A boolean attribute as three states: written `true`, written `false`, and not
+ * written at all.
+ *
+ * The distinction is not pedantry. The platform refuses a `<split>` inside a
+ * session scope that does not state `stopOnException`, on the grounds that
+ * whether one bad item stops the run is a decision and not an accident. Read as
+ * a plain boolean, `stopOnException="false"` and an absent attribute are the
+ * same value — so the serializer wrote neither, the Modeler deleted a
+ * declaration the platform requires, and the route it had just saved would no
+ * longer deploy. The author could not fix it in the Modeler either, because the
+ * Modeler could only ever write `true`.
+ *
+ * So: absent stays absent, and anything written comes back as written.
+ */
+export function boolAttribute(el: Element, name: string): boolean | undefined {
+	const raw = el.getAttribute(name);
+	if (raw === null || raw.trim() === '') {
+		return undefined;
+	}
+	return raw.trim() === 'true';
+}
+
+/**
  * Get text content of a direct child element by tag name
  */
 export function getChildText(parent: Element, tagName: string): string | null {
@@ -197,13 +329,15 @@ export function parseXmlToStore(xmlString: string): CamelModelStore {
 	const store = new CamelModelStore();
 
 	try {
-		const parser = new DOMParser();
+		const parser = domParserFactory();
 		const doc = parser.parseFromString(xmlString, 'application/xml');
 
-		// Check for parse errors
-		const parseError = doc.querySelector('parsererror');
-		if (parseError) {
-			console.error('XML parse error:', parseError.textContent);
+		// Check for parse errors. getElementsByTagName rather than a selector: this
+		// has to work under whatever DOM the parser factory supplies, and the minimal
+		// ones used outside the browser implement the former only.
+		const parseErrors = doc.getElementsByTagName('parsererror');
+		if (parseErrors.length > 0) {
+			console.error('XML parse error:', parseErrors[0].textContent);
 			return store;
 		}
 
@@ -267,10 +401,12 @@ export function parseOnExceptionElementToStore(store: CamelModelStore, oeEl: Ele
 	const handledConstant = handledEl ? getChildText(handledEl, 'constant') : null;
 	const handled = handledConstant === 'true';
 
-	// Parse redeliveryPolicy
+	// Parse redeliveryPolicy. Absent stays absent: defaulting a delay here made
+	// the serializer write a <redeliveryPolicy> into every handler that had none,
+	// which is not a formatting difference but a change to how failures retry.
 	const rpEl = Array.from(oeEl.children).find(c => c.localName === 'redeliveryPolicy');
-	const maxRedeliveries = rpEl ? parseInt(rpEl.getAttribute('maximumRedeliveries') || '0', 10) : 0;
-	const redeliveryDelay = rpEl ? rpEl.getAttribute('redeliveryDelay') || '1000' : '1000';
+	const maxRedeliveries = rpEl?.getAttribute('maximumRedeliveries');
+	const redeliveryDelay = rpEl?.getAttribute('redeliveryDelay');
 
 	const semantic: CamelProcessorSemantic = {
 		id: stepId,
@@ -278,8 +414,9 @@ export function parseOnExceptionElementToStore(store: CamelModelStore, oeEl: Ele
 		properties: {
 			exceptions,
 			handled,
-			maximumRedeliveries: maxRedeliveries,
-			redeliveryDelay: String(redeliveryDelay),
+			...(maxRedeliveries ? { maximumRedeliveries: parseInt(maxRedeliveries, 10) } : {}),
+			...(redeliveryDelay ? { redeliveryDelay } : {}),
+			...(oeEl.getAttribute('id') ? { id: oeEl.getAttribute('id') } : {}),
 			routeConfigurationId: routeConfigurationId || ''
 		}
 	};
@@ -321,6 +458,18 @@ export function parseRouteElementToStore(store: CamelModelStore, routeEl: Elemen
 	const routeId = routeEl.getAttribute('id') || '';
 	const routeConfigurationId = routeEl.getAttribute('routeConfigurationId') || '';
 
+	// <routeProperty> configures the route, not a step in it. It is carried on the
+	// from node beside routeId, because that is the node whose property panel
+	// stands for the route. Keeping it out of the step list matters: as a step it
+	// was re-emitted after <from> on save, and the properties expressed this way -
+	// mi:history among them - decide whether a route is observable at all.
+	const routeProperties: { key: string; value: string }[] = [];
+	for (const rpEl of getChildrenByTag(routeEl, 'routeProperty')) {
+		const key = rpEl.getAttribute('key') || '';
+		if (!key) continue;
+		routeProperties.push({ key, value: rpEl.getAttribute('value') || '' });
+	}
+
 	// Parse from element
 	const fromEl = Array.from(routeEl.children).find(c => c.localName === 'from');
 	if (fromEl) {
@@ -348,7 +497,9 @@ export function parseRouteElementToStore(store: CamelModelStore, routeEl: Elemen
 				uri: fromUri,
 				parameters,
 				routeId,
-				routeConfigurationId
+				routeConfigurationId,
+				routeProperties,
+				...(fromEl.getAttribute('id') ? { id: fromEl.getAttribute('id') } : {})
 			}
 		};
 		store.addProcessor(fromSemantic);
@@ -364,8 +515,10 @@ export function parseRouteElementToStore(store: CamelModelStore, routeEl: Elemen
 		currentX += FROM_WIDTH + STEP_GAP_X;
 	}
 
-	// Parse step elements (all children after from)
-	const stepElements = getChildElements(routeEl).filter(c => c.localName !== 'from');
+	// Parse step elements (all children after from). routeProperty is route
+	// configuration, already captured above, and must not become a node.
+	const stepElements = getChildElements(routeEl)
+		.filter(c => c.localName !== 'from' && c.localName !== 'routeProperty');
 	for (const stepEl of stepElements) {
 		const result = parseStepElementToStore(store, stepEl, currentX, currentY, previousId);
 		if (result) {
@@ -395,10 +548,14 @@ export function parseStepElementToStore(
 	previousId: string | null,
 	flowProperties?: {
 		conditionType?: 'when' | 'otherwise';
+		/** The block element's own Camel id, for the branch elements that are flows here. */
+		elementId?: string;
 		expression?: string;
 		language?: string;
-		role?: 'try' | 'catch' | 'finally';
+		expressionAttributes?: Record<string, string>;
+		role?: 'try' | 'catch' | 'finally' | 'completion';
 		exceptions?: string[];
+		blockId?: string;
 	}
 ): { id: string; endId: string; nextX: number; maxY: number } | null {
 	const stepType = stepEl.localName as EipType;
@@ -435,10 +592,13 @@ export function parseStepElementToStore(
 			sourceRef: previousId,
 			targetRef: stepId,
 			...(flowProperties?.conditionType && { conditionType: flowProperties.conditionType }),
+			...(flowProperties?.elementId && { elementId: flowProperties.elementId }),
 			...(flowProperties?.expression && { expression: flowProperties.expression }),
 			...(flowProperties?.language && { language: flowProperties.language }),
+			...(flowProperties?.expressionAttributes && { expressionAttributes: flowProperties.expressionAttributes }),
 			...(flowProperties?.role && { role: flowProperties.role }),
-			...(flowProperties?.exceptions && { exceptions: flowProperties.exceptions })
+			...(flowProperties?.exceptions && { exceptions: flowProperties.exceptions }),
+			...(flowProperties?.blockId && { blockId: flowProperties.blockId })
 		};
 		store.addFlow(flow);
 
@@ -465,18 +625,19 @@ export function parseStepElementToStore(
 		const whenEls = getChildrenByTag(stepEl, 'when');
 		for (const whenEl of whenEls) {
 			// Extract expression - first child element that is an expression type
-			const exprEl = Array.from(whenEl.children).find(c =>
-				['simple', 'xpath', 'jsonpath', 'constant', 'tokenize'].includes(c.localName)
-			);
-			const exprType = exprEl?.localName || 'simple';
+			const exprEl = findExpressionElement(whenEl);
+			const exprType = expressionTypeOf(exprEl);
 			const expression = exprEl?.textContent?.trim() || '';
+			const expressionAttributes = expressionAttributesOf(exprEl);
+			// A branch is a flow rather than a node, so its own id has nowhere else
+			// to live. Without this a <when id="..."> comes back unnamed, and the id
+			// is what message history reports a failure against.
+			const elementId = whenEl.getAttribute('id') || undefined;
 
 			branchMaxY = branchY;
 
 			// Get step elements inside when (skip expression element)
-			const whenStepEls = getChildElements(whenEl).filter(c =>
-				!['simple', 'xpath', 'jsonpath', 'constant', 'tokenize'].includes(c.localName)
-			);
+			const whenStepEls = bodyStepElements(whenEl);
 			if (whenStepEls.length > 0) {
 				let branchPrevId: string | null = null;
 				let branchX = branchStartX;
@@ -484,7 +645,9 @@ export function parseStepElementToStore(
 
 				for (let i = 0; i < whenStepEls.length; i++) {
 					const branchStepEl = whenStepEls[i];
-					const flowProps = i === 0 ? { conditionType: 'when' as const, expression, language: exprType } : undefined;
+					const flowProps = i === 0
+						? { conditionType: 'when' as const, expression, language: exprType, expressionAttributes, elementId }
+						: undefined;
 					const connectFrom = i === 0 ? stepId : branchPrevId;
 
 					const result = parseStepElementToStore(store, branchStepEl, branchX, branchY, connectFrom, flowProps);
@@ -506,6 +669,7 @@ export function parseStepElementToStore(
 		// Parse 'otherwise' branch
 		const otherwiseEl = Array.from(stepEl.children).find(c => c.localName === 'otherwise');
 		if (otherwiseEl) {
+			const otherwiseId = otherwiseEl.getAttribute('id') || undefined;
 			const otherwiseStepEls = getChildElements(otherwiseEl);
 			if (otherwiseStepEls.length > 0) {
 				branchMaxY = branchY;
@@ -515,7 +679,9 @@ export function parseStepElementToStore(
 
 				for (let i = 0; i < otherwiseStepEls.length; i++) {
 					const branchStepEl = otherwiseStepEls[i];
-					const flowProps = i === 0 ? { conditionType: 'otherwise' as const } : undefined;
+					const flowProps = i === 0
+						? { conditionType: 'otherwise' as const, elementId: otherwiseId }
+						: undefined;
 					const connectFrom = i === 0 ? stepId : branchPrevId;
 
 					const result = parseStepElementToStore(store, branchStepEl, branchX, branchY, connectFrom, flowProps);
@@ -592,13 +758,15 @@ export function parseStepElementToStore(
 		}
 	}
 
-	// Handle Filter element with conditional body steps.
-	// In Camel <filter> is a block, not a leaf: the child steps execute only when the
-	// predicate matches, then the route continues. Model it like Split (single branch +
-	// auto-merge) so the body (e.g. a nested <to>) is preserved and round-trips.
-	if (stepType === 'filter') {
-		const exprTags = new Set(['simple', 'xpath', 'jsonpath', 'constant', 'tokenize']);
-		const bodyStepEls = getChildElements(stepEl).filter(c => !exprTags.has(c.localName));
+	// Blocks whose children are a single chain that rejoins the route afterwards.
+	//
+	// In Camel these are not leaves: <filter> runs its children when the predicate
+	// matches, <step> groups them for tracing, <circuitBreaker> guards them,
+	// <loadBalance> distributes across them, <aggregate> runs them per batch. Model
+	// each like Split - one branch plus an auto-merge - so the body survives a save.
+	// Read as leaves, as they were, the children were simply gone.
+	if (LINEAR_BLOCK_TYPES.has(stepType)) {
+		const bodyStepEls = bodyStepElements(stepEl, BLOCK_CONFIG_TAGS[stepType] ?? new Set());
 
 		if (bodyStepEls.length > 0) {
 			let bodyMaxY = y;
@@ -632,6 +800,37 @@ export function parseStepElementToStore(
 		}
 	}
 
+	// Handle OnCompletion element: a container whose children are its own chain.
+	//
+	// Camel hoists a route-scoped onCompletion out of the output list, so its
+	// position among the siblings does not affect behaviour — but its children very
+	// much do, and reading them as a branch is what keeps them from being dropped
+	// on save. The branch does not merge back into the main flow, because an
+	// onCompletion is not part of it: it runs after the exchange is done.
+	if (stepType === 'onCompletion') {
+		const completionStepEls = getChildElements(stepEl);
+		const branchY = y + NODE_HEIGHT + STEP_GAP_Y;
+		let branchPrevId: string | null = null;
+		let branchX = nextX;
+		let branchMaxY = branchY;
+
+		for (let i = 0; i < completionStepEls.length; i++) {
+			const connectFrom = i === 0 ? stepId : branchPrevId;
+			const flowProps = i === 0 ? { role: 'completion' as const } : undefined;
+			const result = parseStepElementToStore(store, completionStepEls[i], branchX, branchY, connectFrom, flowProps);
+			if (result) {
+				branchPrevId = result.endId;
+				branchX = result.nextX;
+				branchMaxY = Math.max(branchMaxY, result.maxY);
+			}
+		}
+
+		// The backstop runs below the main flow and does not rejoin it: the node
+		// itself stays the end point, so the next step continues from here rather
+		// than from the last thing the backstop does.
+		return { id: stepId, endId: stepId, nextX: Math.max(nextX, branchX), maxY: Math.max(maxY, branchMaxY) };
+	}
+
 	// Handle DoTry element with doCatch/doFinally
 	if (stepType === 'doTry') {
 		let branchY = y;
@@ -643,7 +842,7 @@ export function parseStepElementToStore(
 		const parseBranchElements = (
 			stepEls: Element[],
 			startY: number,
-			flowProps?: { role?: 'try' | 'catch' | 'finally'; exceptions?: string[] }
+			flowProps?: { role?: 'try' | 'catch' | 'finally' | 'completion'; exceptions?: string[]; blockId?: string }
 		) => {
 			if (stepEls.length === 0) return { lastEndId: null, maxY: startY };
 
@@ -689,7 +888,8 @@ export function parseStepElementToStore(
 				? exceptionEls.map(el => el.textContent?.trim() || 'java.lang.Exception')
 				: ['java.lang.Exception'];
 			const catchStepEls = getChildElements(catchEl).filter(c => c.localName !== 'exception');
-			const result = parseBranchElements(catchStepEls, branchY, { role: 'catch', exceptions });
+			const result = parseBranchElements(catchStepEls, branchY,
+				{ role: 'catch', exceptions, blockId: catchEl.getAttribute('id') || undefined });
 			if (result.lastEndId) branchEndIds.push(result.lastEndId);
 			branchMaxY = Math.max(branchMaxY, result.maxY);
 			branchY = branchMaxY + NODE_HEIGHT + STEP_GAP_Y;
@@ -701,7 +901,8 @@ export function parseStepElementToStore(
 		if (finallyEl) {
 			branchMaxY = branchY;
 			const finallyStepEls = getChildElements(finallyEl);
-			const result = parseBranchElements(finallyStepEls, branchY, { role: 'finally' });
+			const result = parseBranchElements(finallyStepEls, branchY,
+				{ role: 'finally', blockId: finallyEl.getAttribute('id') || undefined });
 			if (result.lastEndId) branchEndIds.push(result.lastEndId);
 			branchMaxY = Math.max(branchMaxY, result.maxY);
 			maxY = Math.max(maxY, branchMaxY);
@@ -786,9 +987,12 @@ export function parseStepElementProperties(type: EipType, el: Element): Record<s
 			return { uri, parameters: Object.keys(parameters).length > 0 ? parameters : undefined };
 		}
 		case 'log':
+			// loggingLevel is kept exactly as written, including when it matches
+			// Camel's default: a level the author stated is a decision, and one
+			// that disappeared because it equalled a default is a lost decision.
 			return {
 				message: el.getAttribute('message') || '',
-				loggingLevel: el.getAttribute('loggingLevel') || 'INFO',
+				loggingLevel: el.getAttribute('loggingLevel') || undefined,
 				loggerName: el.getAttribute('loggerName') || undefined
 			};
 		case 'setBody': {
@@ -796,37 +1000,40 @@ export function parseStepElementProperties(type: EipType, el: Element): Record<s
 			const constant = getChildText(el, 'constant');
 			return { simple: simple || undefined, constant: constant || undefined };
 		}
-		case 'setHeader': {
+		case 'setHeader':
+		case 'setProperty':
+		case 'setVariable': {
 			const name = el.getAttribute('name') || '';
-			const exprEl = Array.from(el.children).find(c =>
-				['simple', 'constant', 'jsonpath', 'xpath'].includes(c.localName)
-			);
+			const exprEl = findExpressionElement(el);
 			return {
 				name,
-				expressionType: exprEl?.localName || 'simple',
-				expression: exprEl?.textContent?.trim() || ''
+				expressionType: expressionTypeOf(exprEl),
+				expression: exprEl?.textContent?.trim() || '',
+				expressionAttributes: expressionAttributesOf(exprEl)
 			};
 		}
-		case 'filter': {
-			const exprEl = Array.from(el.children).find(c =>
-				['simple', 'xpath', 'jsonpath'].includes(c.localName)
-			);
+		case 'filter':
+		case 'validate':
+		case 'routingSlip':
+		case 'dynamicRouter':
+		case 'script': {
+			const exprEl = findExpressionElement(el);
 			return {
-				expressionType: exprEl?.localName || 'simple',
-				expression: exprEl?.textContent?.trim() || ''
+				expressionType: expressionTypeOf(exprEl),
+				expression: exprEl?.textContent?.trim() || '',
+				expressionAttributes: expressionAttributesOf(exprEl)
 			};
 		}
 		case 'split': {
-			const exprEl = Array.from(el.children).find(c =>
-				['simple', 'xpath', 'jsonpath', 'tokenize'].includes(c.localName)
-			);
+			const exprEl = findExpressionElement(el);
 			return {
-				expressionType: exprEl?.localName || 'simple',
+				expressionType: expressionTypeOf(exprEl),
 				expression: exprEl?.textContent?.trim() || '',
-				streaming: el.getAttribute('streaming') === 'true',
-				parallelProcessing: el.getAttribute('parallelProcessing') === 'true',
-				stopOnException: el.getAttribute('stopOnException') === 'true',
-				shareUnitOfWork: el.getAttribute('shareUnitOfWork') === 'true',
+				expressionAttributes: expressionAttributesOf(exprEl),
+				streaming: boolAttribute(el, 'streaming'),
+				parallelProcessing: boolAttribute(el, 'parallelProcessing'),
+				stopOnException: boolAttribute(el, 'stopOnException'),
+				shareUnitOfWork: boolAttribute(el, 'shareUnitOfWork'),
 				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined
 			};
 		}
@@ -834,15 +1041,15 @@ export function parseStepElementProperties(type: EipType, el: Element): Record<s
 			return {};
 		case 'delay': {
 			const constant = getChildText(el, 'constant') || getChildText(el, 'simple') || '1000';
-			return { constant };
+			return { constant, asyncDelayed: boolAttribute(el, 'asyncDelayed') };
 		}
 		case 'throttle': {
 			const constant = getChildText(el, 'constant') || '10';
 			return {
 				constant,
 				timePeriodMillis: el.getAttribute('timePeriodMillis') || undefined,
-				asyncDelayed: el.getAttribute('asyncDelayed') === 'true' || undefined,
-				rejectExecution: el.getAttribute('rejectExecution') === 'true' || undefined
+				asyncDelayed: boolAttribute(el, 'asyncDelayed'),
+				rejectExecution: boolAttribute(el, 'rejectExecution')
 			};
 		}
 		case 'bean':
@@ -853,14 +1060,15 @@ export function parseStepElementProperties(type: EipType, el: Element): Record<s
 			};
 		case 'aggregate': {
 			const corrEl = Array.from(el.children).find(c => c.localName === 'correlationExpression');
-			const corrSimple = corrEl ? getChildText(corrEl, 'simple') : '';
+			const corrExprEl = corrEl ? findExpressionElement(corrEl) : undefined;
 			return {
-				correlationExpression: corrSimple || '',
+				correlationExpression: corrExprEl?.textContent?.trim() || '',
+				correlationExpressionType: expressionTypeOf(corrExprEl),
 				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined,
 				completionSize: el.getAttribute('completionSize') || undefined,
 				completionTimeout: el.getAttribute('completionTimeout') || undefined,
-				eagerCheckCompletion: el.getAttribute('eagerCheckCompletion') === 'true' || undefined,
-				completionFromBatchConsumer: el.getAttribute('completionFromBatchConsumer') === 'true' || undefined
+				eagerCheckCompletion: boolAttribute(el, 'eagerCheckCompletion'),
+				completionFromBatchConsumer: boolAttribute(el, 'completionFromBatchConsumer')
 			};
 		}
 		case 'marshal':
@@ -871,47 +1079,55 @@ export function parseStepElementProperties(type: EipType, el: Element): Record<s
 			const result: Record<string, any> = { dataFormat };
 			if (dataFormat === 'json') {
 				if (dfEl.getAttribute('library')) result.library = dfEl.getAttribute('library');
-				if (dfEl.getAttribute('prettyPrint') === 'true') result.prettyPrint = true;
+				const prettyPrint = boolAttribute(dfEl, 'prettyPrint');
+				if (prettyPrint !== undefined) result.prettyPrint = prettyPrint;
 				if (dfEl.getAttribute('unmarshalType')) result.unmarshalType = dfEl.getAttribute('unmarshalType');
 			}
 			return result;
 		}
 		case 'transform': {
-			const exprEl = Array.from(el.children).find(c =>
-				['simple', 'constant', 'xpath'].includes(c.localName)
-			);
+			const exprEl = findExpressionElement(el);
 			return {
-				expressionType: exprEl?.localName || 'simple',
-				expression: exprEl?.textContent?.trim() || ''
+				expressionType: expressionTypeOf(exprEl),
+				expression: exprEl?.textContent?.trim() || '',
+				expressionAttributes: expressionAttributesOf(exprEl)
 			};
 		}
 		case 'multicast':
 			return {
-				parallelProcessing: el.getAttribute('parallelProcessing') === 'true' || undefined,
-				stopOnException: el.getAttribute('stopOnException') === 'true' || undefined,
+				parallelProcessing: boolAttribute(el, 'parallelProcessing'),
+				stopOnException: boolAttribute(el, 'stopOnException'),
 				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined
 			};
 		case 'recipientList': {
-			const simple = getChildText(el, 'simple') || '';
+			const exprEl = findExpressionElement(el);
 			return {
-				simple,
-				parallelProcessing: el.getAttribute('parallelProcessing') === 'true' || undefined,
-				stopOnException: el.getAttribute('stopOnException') === 'true' || undefined,
+				expressionType: expressionTypeOf(exprEl),
+				expression: exprEl?.textContent?.trim() || '',
+				expressionAttributes: expressionAttributesOf(exprEl),
+				parallelProcessing: boolAttribute(el, 'parallelProcessing'),
+				stopOnException: boolAttribute(el, 'stopOnException'),
 				aggregationStrategy: el.getAttribute('aggregationStrategy') || undefined
 			};
 		}
 		case 'loop': {
-			const simple = getChildText(el, 'simple') || '3';
+			// The expression element is kept as written. It used to be read as text
+			// and written back as <simple>, so <constant>2</constant> came back as a
+			// Simple expression that happens to evaluate to 2 - the same count today
+			// and a different one the moment the text contains a ${}.
+			const exprEl = findExpressionElement(el);
 			return {
-				simple,
-				doWhile: el.getAttribute('doWhile') === 'true' || undefined,
-				copy: el.getAttribute('copy') === 'true' || undefined
+				expressionType: expressionTypeOf(exprEl),
+				expression: exprEl?.textContent?.trim() || '3',
+				expressionAttributes: expressionAttributesOf(exprEl),
+				doWhile: boolAttribute(el, 'doWhile'),
+				copy: boolAttribute(el, 'copy')
 			};
 		}
 		case 'wireTap':
 			return {
 				uri: el.getAttribute('uri') || '',
-				copy: el.getAttribute('copy') === 'false' ? false : undefined
+				copy: boolAttribute(el, 'copy')
 			};
 		case 'enrich': {
 			const constant = getChildText(el, 'constant') || '';
@@ -949,6 +1165,18 @@ export function parseStepElementProperties(type: EipType, el: Element): Record<s
 		}
 		case 'stop':
 			return {};
+		case 'onCompletion':
+			// parallelProcessing is kept as an explicit string rather than being
+			// normalised away: a session-closing backstop depends on staying false,
+			// and a value that vanished because it matched a default would take that
+			// guarantee with it.
+			return {
+				mode: el.getAttribute('mode') || undefined,
+				parallelProcessing: el.getAttribute('parallelProcessing') || undefined,
+				executorService: el.getAttribute('executorService') || undefined,
+				onCompleteOnly: el.getAttribute('onCompleteOnly') || undefined,
+				onFailureOnly: el.getAttribute('onFailureOnly') || undefined
+			};
 		default: {
 			// Generic: extract all attributes as properties
 			const props: Record<string, any> = {};
@@ -1092,23 +1320,64 @@ export function computeConnectionPaths(store: CamelModelStore): ConnectionPath[]
 // =============================================================================
 
 /** Compact, human-friendly one-line label for a node (icon caption). */
+/**
+ * Reduce an endpoint URI to the part that says what the node does.
+ *
+ * Truncating the raw URI is close to useless in practice: a repository full of
+ * `cms:/etc/commerce/scripts/...` endpoints renders as the same dozen characters
+ * on every node, so a canvas of thirty distinct steps reads as thirty copies of
+ * `cms:/etc/com…`. What distinguishes them is the operation — the part after the
+ * scheme, or, when the remainder is a script path, the script's file name.
+ *
+ * Query parameters are dropped: they are the node's configuration, which belongs
+ * in the property panel rather than in a label.
+ */
+export function describeEndpoint(uri: string): string {
+	if (!uri) return '';
+
+	const queryAt = uri.indexOf('?');
+	const base = queryAt >= 0 ? uri.substring(0, queryAt) : uri;
+
+	const schemeAt = base.indexOf(':');
+	if (schemeAt < 0) return base;
+
+	const scheme = base.substring(0, schemeAt);
+	let operation = base.substring(schemeAt + 1);
+
+	// http://host/path and the like: the authority identifies the endpoint.
+	if (operation.startsWith('//')) {
+		operation = operation.substring(2);
+		const slashAt = operation.indexOf('/');
+		if (slashAt > 0) operation = operation.substring(0, slashAt);
+		return `${scheme}:${operation}`;
+	}
+
+	// A path-shaped remainder names a script; its file name is the operation.
+	if (operation.startsWith('/')) {
+		const name = operation.substring(operation.lastIndexOf('/') + 1);
+		if (name) operation = name;
+	}
+
+	return `${scheme}:${operation}`;
+}
+
+/** Trim a label to fit a node, marking that it was cut. */
+function truncateLabel(text: string, max: number): string {
+	return text.length > max ? text.substring(0, max) + '...' : text;
+}
+
 export function getShortLabel(semantic: CamelProcessorSemantic): string {
 	const props = semantic.properties;
 	// User-authored step ID takes precedence — matches what MessageHistory shows.
 	if (props.id) {
-		const idStr = String(props.id);
-		return idStr.length > 15 ? idStr.substring(0, 15) + '...' : idStr;
+		return truncateLabel(String(props.id), 15);
 	}
 	switch (semantic.type) {
-		case 'from': {
-			const fromUri = props.uri || '';
-			return fromUri.length > 15 ? fromUri.substring(0, 15) + '...' : fromUri;
-		}
+		case 'from':
+			return truncateLabel(describeEndpoint(props.uri || ''), 15);
 		case 'to':
-		case 'toD': {
-			const toUri = props.uri || '';
-			return toUri.length > 12 ? toUri.substring(0, 12) + '...' : toUri;
-		}
+		case 'toD':
+			return truncateLabel(describeEndpoint(props.uri || ''), 15);
 		case 'log':
 			return props.loggingLevel || 'INFO';
 		case 'setBody':
@@ -1121,6 +1390,8 @@ export function getShortLabel(semantic: CamelProcessorSemantic): string {
 			return props.ref?.substring(0, 10) || 'Bean';
 		case 'merge':
 			return '';  // Merge node shows only the icon
+		case 'onCompletion':
+			return 'backstop';
 		case 'onException': {
 			const exceptions = props.exceptions || ['Exception'];
 			const firstEx = exceptions[0] || 'Exception';
@@ -1133,10 +1404,8 @@ export function getShortLabel(semantic: CamelProcessorSemantic): string {
 			return props.expression ? '${...}' : 'Transform';
 		case 'wireTap':
 		case 'enrich':
-		case 'pollEnrich': {
-			const uri = props.uri || '';
-			return uri.length > 12 ? uri.substring(0, 12) + '...' : uri;
-		}
+		case 'pollEnrich':
+			return truncateLabel(describeEndpoint(props.uri || ''), 15);
 		case 'filter':
 			return props.expression ? props.expression.substring(0, 12) : 'Filter';
 		case 'split':
@@ -1175,8 +1444,8 @@ export function parseModel(xmlString: string): ParsedModel {
 	const store = new CamelModelStore();
 	const routes: ParsedRoute[] = [];
 	try {
-		const doc = new DOMParser().parseFromString(xmlString, 'application/xml');
-		if (doc.querySelector('parsererror')) {
+		const doc = domParserFactory().parseFromString(xmlString, 'application/xml');
+		if (doc.getElementsByTagName('parsererror').length > 0) {
 			console.error('XML parse error');
 			return { store, routes };
 		}

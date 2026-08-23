@@ -1,0 +1,5 @@
+<template id="wt-live-indicator">
+	<span class="wt-live-indicator" :class="{connected: connected}" :title="connected ? onTitle : offTitle">
+		<span class="wt-live-indicator-dot"></span>{{ connected ? onLabel : offLabel }}
+	</span>
+</template>

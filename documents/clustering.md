@@ -99,9 +99,9 @@ use):
   `owner_id`, `lock_expires`) that serialize the repository's own
   bootstrap and maintenance work across nodes. A lease names its owning
   node and an expiry, so a crashed node never blocks the cluster for
-  longer than the lease's time-to-live. Application task locks do not
-  live here — they are ordinary JCR locks (see
-  `documents/task-locks.md`).
+  longer than the lease's time-to-live. Application locks do not live
+  here — they are ordinary JCR locks (see
+  `documents/resource-locks.md`).
 - `jcr_cluster_signals` — the signal bus for short-lived control-plane
   notifications (see *Cluster signal bus* below).
 
@@ -122,8 +122,8 @@ These leases are repository infrastructure, exposed to platform code as
 node-scoped: every holder is a per-JVM singleton (a scheduled
 maintenance thread or a startup step), so "one node at a time" is
 exactly the right granularity. They are not an application lock
-service — application tasks are guarded with session-scoped JCR locks
-instead (see `documents/task-locks.md`).
+service — application work is guarded with ordinary JCR locks instead
+(see `documents/resource-locks.md`).
 
 In standalone mode the controller is a complete no-op: no tables, no
 threads, and every lease is granted immediately. The exclusive workspace
@@ -450,29 +450,31 @@ switch does not log the user out.
   identity files above); the cookie is `HttpOnly`, `SameSite=Lax`, and
   `Secure` on HTTPS.
 
-## Application jobs and cluster information (Phase 3)
+## Application work and cluster information (Phase 3)
 
 Scheduled application work (EIP timer routes, recurring scripts) runs on
 every node. Guarding it so that it runs exactly once at a time is not a
-cluster feature: the guard is an ordinary session-scoped JCR lock on a
-lock resource, which works identically in standalone and clustered
-deployments because the lock storage (`jcr_locks`) lives in the
-workspace database — node-local when standalone, shared when clustered.
-See `documents/task-locks.md` for the pattern and the `/var/locks`
-convention:
+cluster feature: the guard is an ordinary JCR lock, which works
+identically in standalone and clustered deployments because the lock
+storage (`jcr_locks`) lives in the workspace database — node-local when
+standalone, shared when clustered.
 
-```groovy
-def lock = repositorySession.getResource("/var/locks/nightly-report")
-        .tryLock(false, true, 600)
-if (lock == null) {
-    return  // another execution (any node) is already doing the work
-}
-try {
-    // ... runs exactly once at a time, cluster-wide ...
-} finally {
-    lock.unlock()
-}
+The guard is declared on the route that drives the work, so that losing
+the race is a visible branch rather than an early return buried in a
+script:
+
+```xml
+<toD id="sweep-lock"
+     uri="cms:lock?context=cmsContext&amp;path=/var/locks/nightly-report&amp;isSessionScoped=true&amp;timeoutSeconds=600&amp;@header.locked=locked"/>
+<filter id="sweep-guard">
+    <simple>${header.locked} == true</simple>
+    <!-- runs exactly once at a time, cluster-wide -->
+</filter>
 ```
+
+See `documents/eip-session-lifecycle.md` for the route shape and
+`documents/resource-locks.md` for the lock semantics and the
+`/var/locks` convention.
 
 The `cluster` script API exposes the cluster state, e.g. for an
 operations dashboard: `cluster.isClusterEnabled()`, `cluster.nodeId`,
@@ -526,6 +528,27 @@ every node. The lifecycle is cluster-safe:
   message) and leaves the other nodes' live jobs strictly alone. Jobs
   owned by a node that never returns keep their last status until an
   operator cleans them up.
+
+### Search index rebuild
+
+The full-text index is node-local (see the state table above), so an
+administrator-triggered rebuild (`documents/search-index-rebuild.md`)
+targets **every** node: one job record per alive member is persisted
+under `/var/jobs`, all sharing a correlation id. The dispatch is
+deliberately content-based rather than signal-bus-based — the signal bus
+is ephemeral, while a persisted record reaches a running node through
+the replicated node events and reaches a node that was down at dispatch
+time through its startup scan.
+
+Two behaviours extend the generic job lifecycle above:
+
+- **Restart casualties are re-run, not just finalised.** A rebuild is
+  idempotent (a staged build that swaps in atomically), so after the
+  generic recovery marks this node's dead rebuild jobs FAILED, the
+  node's rebuild service re-queues and re-runs them automatically.
+- **A node that joins after the dispatch needs nothing.** Its index
+  directory does not exist yet, so it builds the index at startup; the
+  progress form lists it as "not targeted".
 
 ## Future hardening
 

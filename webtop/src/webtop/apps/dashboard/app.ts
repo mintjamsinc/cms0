@@ -29,6 +29,7 @@
 // dashboard from drifting from the tools it links into.
 
 import { VDOM } from '@mintjamsinc/ichigojs';
+import { initUi } from "../../ui/index.js";
 import { createGraphQLClient } from '../../graphql/client.js';
 import { BpmServiceGraphQL } from '../../services/bpm-service-graphql.js';
 import { EipServiceGraphQL } from '../../services/eip-service-graphql.js';
@@ -150,6 +151,11 @@ const EMPTY_MODEL = () => ({
 const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as AnyInstance,
 
 			// Reactive Localization snapshot (effective locale + IANA time
@@ -266,8 +272,8 @@ const App = {
 			const overall = (m.incidents.total > 0 || m.connections.down > 0 || m.cluster.stale > 0 || m.workspaces.engineIssues > 0 || m.workspaces.failed > 0)
 				? { cls: 'danger', label: this.t('app.dashboard.ops.overall.issues', undefined, 'Issues') }
 				: (failed > 0 || m.running.suspended > 0 || m.routes.stopped > 0 || m.workspaces.starting > 0)
-					? { cls: 'warn', label: this.t('app.dashboard.ops.overall.attention', undefined, 'Attention') }
-					: { cls: 'ok', label: this.t('app.dashboard.ops.overall.healthy', undefined, 'Healthy') };
+					? { cls: 'warning', label: this.t('app.dashboard.ops.overall.attention', undefined, 'Attention') }
+					: { cls: 'success', label: this.t('app.dashboard.ops.overall.healthy', undefined, 'Healthy') };
 			return {
 				runningProcesses: this.fmtNum(m.running.active),
 				activeRoutes: m.routes.started,
@@ -336,6 +342,18 @@ const App = {
 				refreshLocalization(vm.localization, vm.instance);
 
 				try { instance.windowTitle = vm.t('app.dashboard.title', undefined, 'Dashboard'); } catch (_) {}
+
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets.
+				try {
+					await initUi();
+				} catch (e) {
+					console.warn('[Dashboard] Failed to load component templates:', e);
+				}
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 
 				vm.resolveUser();
 				vm._workspace = (() => { try { return instance.api.workspace as string; } catch (_) { return ''; } })();
@@ -564,7 +582,7 @@ const App = {
 				let pill = '', pillClass = 'neutral';
 				if (Number.isFinite(dueMs)) {
 					if (dueMs < now) { pill = this.t('app.dashboard.pill.overdue', undefined, 'Overdue'); pillClass = 'danger'; }
-					else if (dueMs - now < 24 * 3600 * 1000) { pill = this.t('app.dashboard.pill.today', undefined, 'Today'); pillClass = 'warn'; }
+					else if (dueMs - now < 24 * 3600 * 1000) { pill = this.t('app.dashboard.pill.today', undefined, 'Today'); pillClass = 'warning'; }
 					else { pill = this.t('app.dashboard.pill.dueIn', { age: ageLabel(now, dueMs) }, `in ${ageLabel(now, dueMs)}`); pillClass = 'neutral'; }
 				}
 				const bkey = (t.businessKey || (t.processInstance && t.processInstance.businessKey)) || '';
@@ -815,7 +833,7 @@ const App = {
 						stateMessage: w.stateMessage || '',
 						enginesLabel: this.t('app.dashboard.workspaces.engines',
 							{ bpm: bpm.label, eip: eip.label }, `BPM ${bpm.label} · EIP ${eip.label}`),
-						pillClass: failed ? 'danger' : stopped ? 'neutral' : !online ? 'warn' : degraded ? 'danger' : 'ok',
+						pillClass: failed ? 'danger' : stopped ? 'neutral' : !online ? 'warning' : degraded ? 'danger' : 'success',
 						pillLabel: failed
 							? this.t('app.dashboard.workspaces.pill.failed', undefined, 'Failed')
 							: stopped
@@ -879,10 +897,15 @@ const App = {
 // Map a Camel context state label to a severity pill.
 function pillForContextState(state: string): string {
 	const s = String(state || '').toLowerCase();
-	if (s.startsWith('start')) return 'ok';
-	if (s.startsWith('suspend')) return 'warn';
+	if (s.startsWith('start')) return 'success';
+	if (s.startsWith('suspend')) return 'warning';
 	if (!s || s === '—') return 'neutral';
 	return 'danger';
 }
 
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 VDOM.createApp(App).mount('#app');

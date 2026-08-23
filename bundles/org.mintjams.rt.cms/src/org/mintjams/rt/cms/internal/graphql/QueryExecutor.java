@@ -1497,7 +1497,7 @@ public class QueryExecutor {
 		if (!Strings.isEmpty(searchPath)) {
 			searchPath = "/jcr:root" + searchPath;
 		}
-		String xpathQuery = searchPath + "//element(*, nt:file)[jcr:contains(., '" + searchText.replaceAll("'", "\\'") + "')]";
+		String xpathQuery = searchPath + "//element(*, nt:file)[jcr:contains(., '" + searchText.replace("'", "\\'") + "')]";
 
 		// Execute XPath query
 		QueryManager queryManager = session.getWorkspace().getQueryManager();

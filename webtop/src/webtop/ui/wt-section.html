@@ -1,0 +1,10 @@
+<template id="wt-section">
+	<section class="wt-section" :class="{open: isOpen || !collapsible}">
+		<div class="wt-section-header" @click="toggle">
+			<i v-if="collapsible" class="bi wt-section-chevron" :class="isOpen ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+			<span class="wt-section-title"><slot name="title">{{ title }}</slot></span>
+			<span class="wt-section-actions" @click.stop><slot name="actions"></slot></span>
+		</div>
+		<div v-if="isOpen || !collapsible" class="wt-section-body"><slot></slot></div>
+	</section>
+</template>

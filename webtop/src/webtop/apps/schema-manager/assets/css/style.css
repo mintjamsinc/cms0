@@ -58,47 +58,8 @@
 /* .nav-bar / .nav-spacer / .toolbar-group: see shared webtop-app.css */
 
 /* Content body — 2 panes */
-.content-body {
-	display: flex;
-	flex: 1;
-	min-height: 0;
-	position: relative;
-	gap: 0.25rem;
-}
-
 /* Sidebar (left pane: schema tree) */
-.sidebar-panel {
-	display: flex;
-	flex-direction: column;
-	overflow: hidden;
-	flex-shrink: 0;
-	min-width: 14rem;
-}
-
-.sidebar-resize-handle {
-	width: 4px;
-	cursor: col-resize;
-	background-color: transparent;
-	flex-shrink: 0;
-	position: relative;
-	z-index: 2;
-	transition: background-color 0.15s;
-}
-
-.sidebar-resize-handle:hover,
-.sidebar-resize-handle:active {
-	background-color: var(--primary-color);
-}
-
 /* Center/right pane (forms or scan) */
-.content-main {
-	display: flex;
-	flex-direction: column;
-	flex: 1;
-	min-width: 0;
-	min-height: 0;
-}
-
 /* Path bar (right-pane header) */
 .path-bar {
 	display: flex;
@@ -363,11 +324,6 @@
 	background-color: var(--item-hover-bg);
 }
 
-.schema-action-link.scan-link.selected {
-	color: var(--nav-current-color);
-	background-color: var(--item-selected-bg);
-}
-
 /* Item action button (delete / restore inside tree rows). */
 .btn-icon.btn-item-delete:hover {
 	color: var(--danger-color);
@@ -385,20 +341,7 @@
 	font-size: 12px;
 }
 
-/* Property type badge (shared style with Content Browser detail panel) */
-.prop-type-badge {
-	display: inline-flex;
-	align-items: center;
-	flex-shrink: 0;
-	height: 1.125rem;
-	line-height: 1;
-	font-size: 10px;
-	padding: 0 0.75em;
-	border-radius: 9999px;
-	background-color: rgba(from var(--neutral-color) r g b / 0.05);
-	color: var(--neutral-color);
-	border: 1px solid rgba(from var(--neutral-color) r g b / 0.3);
-}
+/* Property type badge: wt-badge (webtop-ui.css) */
 
 /* ----------------------------------------------------------------------------
  * Right pane: empty state / form
@@ -474,23 +417,8 @@
 }
 
 input.wt.is-invalid,
-.wt-select.is-invalid > .wt-select-trigger {
+wt-select.is-invalid .wt-select-trigger {
 	border-color: var(--danger-color) !important;
-}
-
-/* Field-help block (validation hint) */
-.field-help {
-	font-size: 11px;
-	color: var(--text-muted-color);
-	margin-bottom: 0.25rem;
-    padding-left: 0.125rem;
-}
-
-.field-help code {
-	font-size: 10px;
-	padding: 0.05rem 0.25rem;
-	background-color: rgba(from var(--neutral-color) r g b / 0.1);
-	border-radius: 0.2rem;
 }
 
 /* Constraints disabled notice */
@@ -584,22 +512,16 @@ input.wt.is-invalid,
 	padding: 2rem;
 }
 
-.scan-drop-zone {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
+/* Drop target is a <wt-dropzone> (webtop-ui.css); only the sizing is
+   app-specific — the class sits on the component host, the padded box is
+   one level deeper. */
+wt-dropzone.scan-drop-zone {
 	width: 100%;
 	max-width: 26rem;
-	padding: 3rem 2rem;
-	border: 2px dashed var(--input-border-color);
-	border-radius: 1rem;
-	transition: border-color 0.2s, background-color 0.2s;
 }
 
-.scan-drop-zone.drop-highlight {
-	border-color: var(--primary-color);
-	background-color: rgba(from var(--primary-color) r g b / 0.05);
+.scan-drop-zone .wt-dropzone {
+	padding: 3rem 2rem;
 }
 
 .scan-drop-icon {
@@ -745,7 +667,8 @@ input.wt.is-invalid,
 	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
 }
 
-.scan-inline-select-wrapper > .wt-select-trigger {
+/* The type cell is a <wt-select> host — the trigger sits one level deeper. */
+.scan-inline-select-wrapper .wt-select-trigger {
 	padding: 0.15rem 0.4rem;
 	border-width: 1px;
 }
@@ -800,7 +723,8 @@ input.wt.is-invalid,
 	min-width: 8rem;
 }
 
-.scan-tool-select > .wt-select-trigger {
+/* The tool menus are <wt-select> hosts — the trigger sits one level deeper. */
+.scan-tool-select .wt-select-trigger {
 	padding: 0.2rem 0.5rem;
 	font-size: 12px;
 }
@@ -818,36 +742,13 @@ input.wt.is-invalid,
 }
 
 /* ----------------------------------------------------------------------------
- * Loading overlay
+ * Loading overlay: <wt-spinner overlay>; spinners are wt-spinner (webtop-ui.css)
  * -------------------------------------------------------------------------- */
 
-.loading-overlay {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	position: absolute;
-	inset: 0;
-	background-color: rgba(0, 0, 0, 0.2);
-	z-index: 1000;
-	color: var(--text-color);
-}
-
-.spinner {
-	width: 1.75rem;
-	height: 1.75rem;
-	border: 2px solid var(--navbar-border-color);
-	border-top-color: var(--primary-color);
-	border-radius: 50%;
-	animation: spin 0.8s linear infinite;
-}
-
-.spin {
-	animation: spin 0.8s linear infinite;
-	display: inline-block;
-}
-
-@keyframes spin {
-	to { transform: rotate(360deg); }
+/* The close-confirm dialog stacks up to three actions in the footer —
+ * let them wrap (the wt-dialog footer has no class hook). */
+.dialog-footer {
+	flex-wrap: wrap;
 }
 
 /* ----------------------------------------------------------------------------

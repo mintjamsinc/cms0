@@ -2,8 +2,18 @@
  * Tasks Application
  *
  * Mail-like UI for starting business processes and processing user tasks.
- * Forms are user-authored HTML stored in CMS; they run inside a sandboxed
- * iframe and talk to the host app via a postMessage RPC bridge.
+ * Forms are user-authored HTML stored in CMS; they run inside a plain
+ * SAME-ORIGIN iframe (no `sandbox`) and reach the host directly through the
+ * `window.parent.TasksFormHost` bridge published by `installFormHost()`.
+ *
+ * There is no postMessage RPC any more. The bridge hands a form the live
+ * GraphQL client and the BPM / CMS / IdP services this app already built, so
+ * a form can issue any query the signed-in user is authorized for instead of
+ * being limited to a hand-maintained method whitelist. Task lifecycle calls
+ * (claim / complete / startProcess) still go through the bridge rather than
+ * the raw service so the host list and selection stay in sync. The one place
+ * a message still leaves this app is app launch (`openApp` / `openFile`),
+ * which is the shell's job and always was.
  *
  * Modes:
  *   - tasks-runtime : active user tasks (assigned to me / my candidate groups)
@@ -13,11 +23,13 @@
  * Layout: 3 panes — search filters / list / form iframe.
  */
 
-import { ApplicationInstance } from "../../services/webtop-service.js";
+import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
+import { ApplicationInstance, type Application } from "../../services/webtop-service.js";
 import { BpmServiceGraphQL } from "../../services/bpm-service-graphql.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { ContentServiceGraphQL } from "../../services/content-service-graphql.js";
-import { createGraphQLClient } from "../../graphql/client.js";
+import { createGraphQLClient, GraphQLClient } from "../../graphql/client.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -61,7 +73,6 @@ interface Filters {
 	// Multi-select filter for the "tasks-runtime" view. An empty array means
 	// "no process filter applied" (show tasks for any process).
 	processDefinitionKeys: string[];
-	dueLabel: string;
 	dueRange: 'any' | 'today' | 'week' | 'overdue';
 	priorityMin: number;
 	category: string;
@@ -73,31 +84,11 @@ interface DialogState {
 	data: Record<string, unknown>;
 }
 
-// JSON-RPC-style messages exchanged with the iframe.
-// Iframes send { __tasksRpc: 'call', id, method, params }; parent replies with
-// { __tasksRpc: 'result', id, ok, data } | { __tasksRpc: 'result', id, ok: false, error }.
-interface RpcCall {
-	__tasksRpc: 'call';
-	id: string;
-	method: string;
-	params?: unknown;
-}
-
-interface RpcReady {
-	__tasksRpc: 'ready';
-}
-
-type FormContextEvent =
-	| { __tasksRpc: 'event'; type: 'context'; payload: Record<string, unknown> }
-	| { __tasksRpc: 'event'; type: 'theme-changed'; theme: string }
-	| { __tasksRpc: 'event'; type: 'localization-changed'; localization: FormLocalization };
-
-// Effective localization forwarded to the form iframe. Mirrors the shell's
+// Effective localization handed to the form. Mirrors the shell's
 // LocalizationSnapshot fields the form needs to translate labels and format
-// money / dates / numbers in the user's language. Pushed initially inside the
-// context payload and again on every shell `localization-changed` /
-// `i18n-bundles-updated` broadcast — the theme-channel pattern, applied to
-// locale.
+// money / dates / numbers in the user's language. Carried in the context and
+// re-announced on every shell `localization-changed` / `i18n-bundles-updated`
+// broadcast — the theme-channel pattern, applied to locale.
 interface FormLocalization {
 	locale: string;
 	timeZone: string;
@@ -105,10 +96,24 @@ interface FormLocalization {
 	currency: string;
 }
 
+// Events the host announces to subscribed forms. `context` fires whenever the
+// selection or the selected task's assignment changes without reloading the
+// frame; `theme` / `localization` mirror the shell broadcasts.
+type FormEventType = 'context' | 'theme' | 'localization';
+
+type FormEventListener = (type: FormEventType, payload: unknown) => void;
+
 // Suggestion popup for the "Assign Task" dialog. Module-scoped because the
 // shell-managed popup outlives any single dialog open/close cycle and there
 // can only be one open at a time.
 let assigneePopupHandle: import('../../services/webtop-service.js').PopupHandle | null = null;
+
+// How long the loading overlay waits for a form to call notifyReady() before
+// it gives up and shows the failure state. Covers the document never loading,
+// the form throwing during startup, and the form simply never signalling.
+// Generous compared to wt-window's 10s appLaunch poll: a form is arbitrary
+// user-authored HTML that may fetch its own data before it can paint.
+const FORM_READY_TIMEOUT_MS = 30000;
 
 const CMS_PREFIX_RE = /^cms:\/{1,3}/i;
 
@@ -193,10 +198,36 @@ function nowMs(): number {
 	return Date.now();
 }
 
+// A message id no i18n bundle can define — JSON keys never contain NUL. Used
+// to run an ad-hoc ICU template through I18nService.format, which formats the
+// `fallback` argument whenever the id misses in every locale of the chain.
+const NON_MESSAGE_ID = '\u0000';
+
+// Deep-copy a value to plain data before handing it across the bridge.
+//
+// Everything this app holds is wrapped in ichigo.js reactive Proxies, and the
+// form iframe is now same-origin — so a raw return would give the form live
+// references it could mutate, silently rewriting the host's task list. The
+// JSON round-trip both unwraps the proxies and severs the reference; it also
+// drops anything non-JSON, which is exactly the contract the serializers
+// already promise (scalars, arrays, plain objects, ISO date strings).
+function toPlainData<T>(value: T): T {
+	if (value === undefined || value === null) return value;
+	return JSON.parse(JSON.stringify(value)) as T;
+}
+
 export const App = {
 	data() {
 		return {
+			// Readiness gate for the whole screen (see the <template v-if> in
+			// index.html). Flipped by appLaunch() once the component templates
+			// are present, so no component element is connected before its
+			// <template> exists.
+			isReady: false,
 			instance: null as ApplicationInstance | null,
+			// The GraphQL client every service below is built on. Handed to
+			// forms through the bridge so they can run their own operations.
+			graphql: null as GraphQLClient | null,
 			bpm: null as BpmServiceGraphQL | null,
 			idp: null as IdpServiceGraphQL | null,
 			cms: null as ContentServiceGraphQL | null,
@@ -233,7 +264,6 @@ export const App = {
 				defKeyword: '',
 				scope: 'assigned' as TaskScope,
 				processDefinitionKeys: [] as string[],
-				dueLabel: '',
 				dueRange: 'any' as const,
 				priorityMin: 0,
 				category: '',
@@ -256,14 +286,37 @@ export const App = {
 			// Form iframe state
 			currentFormKey: '' as string,
 			formSrc: '' as string,
+			// True while the formKey is being resolved to a frame src (node
+			// lookup + ACL check). Ends when `formSrc` is assigned — the
+			// overlay stays up past it, gated by `formReady` below.
 			formLoading: false,
 			formError: '' as string,
-			formReady: false,
-			pendingRpcs: {} as Record<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>,
 
-			// Mirrors document.documentElement.dataset.theme so the value can be
-			// forwarded to the form iframe (which has no same-origin access to
-			// the parent document).
+			// --- Readiness gate (mirrors wt-window's isLaunched / launching) ---
+			// The iframe is mounted as soon as there is a src, with an opaque
+			// overlay on top; `formReady` is what takes the overlay down. The
+			// ONLY thing that sets it is the form calling
+			// `TasksFormHost.notifyReady()` — the exact counterpart of an app
+			// calling `appInstance.notifyLaunched()`. The frame's own `load`
+			// event is deliberately not wired up: it fires when the document
+			// has loaded, which for any form that fetches its own data is well
+			// before there is anything worth looking at.
+			formReady: false,
+			// Watchdog behind FORM_READY_TIMEOUT_MS. Raw: it holds a timer id,
+			// and nothing renders off it.
+			formReadyTimer: null as ReturnType<typeof setTimeout> | null,
+
+			// Listeners registered by the currently-loaded form through
+			// `TasksFormHost.subscribe()`. Held raw (not reactive) because it
+			// stores closures from the iframe's realm, and cleared in
+			// clearForm() — i.e. BEFORE a new formSrc is assigned, so the
+			// incoming document's own subscription (registered while its
+			// module scripts run) is never swept away.
+			formListeners: null as Set<FormEventListener> | null,
+
+			// Mirrors document.documentElement.dataset.theme. Forms read it off
+			// the bridge to paint with the right palette on their first render;
+			// the shell broadcasts theme changes to this app, not to the form.
 			currentTheme: 'light' as string,
 
 			// Dialog
@@ -272,8 +325,8 @@ export const App = {
 				data: {},
 			} as DialogState,
 
-			// Resize handles
-			_resizing: null as null | { kind: 'search' | 'list'; startX: number; startWidth: number },
+			// True while a wt-splitter drag is in progress (drives #app.is-resizing).
+			resizingPane: false,
 
 			// Debounce timer for the assign-dialog user search (matches the
 			// "Add ACL Entry" flow in content-browser).
@@ -284,6 +337,15 @@ export const App = {
 	computed: {
 		hasSelection(): boolean {
 			return this.mode === 'start' ? !!this.selectedDef : !!this.selectedTask;
+		},
+
+		// Drives the loading overlay above the form iframe. Deliberately spans
+		// BOTH phases as one uninterrupted state — resolving the formKey to a
+		// src, and the loaded document's own startup — so there is no gap where
+		// a blank frame shows through between them.
+		formPending(): boolean {
+			if (this.formError) return false;
+			return this.formLoading || (!!this.formSrc && !this.formReady);
 		},
 
 		emptyListMessage(): string {
@@ -323,7 +385,24 @@ export const App = {
 		// events — otherwise the iframe captures mousemove/mouseup and the
 		// drag stops following the cursor.
 		isResizing(): boolean {
-			return !!this._resizing;
+			return this.resizingPane;
+		},
+
+		// Item lists for the due / category filter selects
+		dueItems(): any[] {
+			return [
+				{ value: 'any', label: this.t('app.tasks.filter.due.any', undefined, 'Any time') },
+				{ value: 'overdue', label: this.t('app.tasks.filter.due.overdue', undefined, 'Overdue') },
+				{ value: 'today', label: this.t('app.tasks.filter.due.today', undefined, 'Due today') },
+				{ value: 'week', label: this.t('app.tasks.filter.due.week', undefined, 'Due this week') },
+			];
+		},
+		categoryItems(): any[] {
+			const cats = Array.from(new Set(this.definitions.map((d: any) => d.category).filter(Boolean) as string[])).sort();
+			return [
+				{ value: '', label: this.t('app.tasks.filter.category.all', undefined, 'All categories') },
+				...cats.map((c: string) => ({ value: c, label: c })),
+			];
 		},
 	},
 
@@ -362,8 +441,24 @@ export const App = {
 				// bindings render in the user's language from the first paint.
 				refreshLocalization(vm.localization, vm.instance);
 
+				// --- Readiness gate ---
+				// Load the component templates BEFORE the gated markup is
+				// compiled, so each <wt-*> element finds its <template> on the
+				// single connectedCallback it gets. The popup adapter is passed
+				// here as well: wt-select menus escape the window through the
+				// shell popup API.
+				try {
+					await initUi({ popupAdapter: createShellPopupAdapter(appInstance) });
+				} catch (e) {
+					console.warn('[Tasks] Failed to load component templates:', e);
+				}
+				vm.isReady = true;
+				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
+
 				await vm.initServices();
 				await vm.loadCurrentUser();
+				// Publish the form bridge before the first form can be opened.
+				vm.installFormHost();
 				vm.loadFavorites();
 
 				// A drill-down (e.g. from the Dashboard) hands us a filter to land
@@ -383,10 +478,12 @@ export const App = {
 			if (this.messageListener) {
 				window.removeEventListener('message', this.messageListener);
 			}
+			this.uninstallFormHost();
 		},
 
 		async initServices() {
 			const client = createGraphQLClient(this.workspace);
+			this.graphql = this.$markRaw(client);
 			this.bpm = this.$markRaw(new BpmServiceGraphQL(client));
 			this.cms = this.$markRaw(new ContentServiceGraphQL(client));
 			// IdP lives in the system workspace
@@ -436,34 +533,6 @@ export const App = {
 
 		toggleSearchPanel() { this.searchPanelVisible = !this.searchPanelVisible; },
 		toggleListPanel() { this.listPanelVisible = !this.listPanelVisible; },
-
-		onSearchResizeStart(event: MouseEvent) {
-			this._resizing = { kind: 'search', startX: event.clientX, startWidth: this.searchPanelWidth };
-			window.addEventListener('mousemove', this.onResizeMove);
-			window.addEventListener('mouseup', this.onResizeEnd);
-			event.preventDefault();
-		},
-		onListResizeStart(event: MouseEvent) {
-			this._resizing = { kind: 'list', startX: event.clientX, startWidth: this.listPanelWidth };
-			window.addEventListener('mousemove', this.onResizeMove);
-			window.addEventListener('mouseup', this.onResizeEnd);
-			event.preventDefault();
-		},
-		onResizeMove(event: MouseEvent) {
-			const r = this._resizing;
-			if (!r) return;
-			const delta = event.clientX - r.startX;
-			if (r.kind === 'search') {
-				this.searchPanelWidth = Math.max(180, Math.min(420, r.startWidth + delta));
-			} else {
-				this.listPanelWidth = Math.max(220, Math.min(560, r.startWidth + delta));
-			}
-		},
-		onResizeEnd() {
-			this._resizing = null;
-			window.removeEventListener('mousemove', this.onResizeMove);
-			window.removeEventListener('mouseup', this.onResizeEnd);
-		},
 
 		// =====================================================================
 		// Mode switching
@@ -666,56 +735,9 @@ export const App = {
 			this.filterList();
 		},
 
-		clearTaskKeyword() { this.filters.taskKeyword = ''; this.filterList(); },
-		clearDefKeyword() { this.filters.defKeyword = ''; this.filterList(); },
-
 		// =====================================================================
 		// Filter popups (postMessage → shell popup)
 		// =====================================================================
-
-		async openDuePickerPopup(event: MouseEvent) {
-			const options: Array<{ id: Filters['dueRange']; label: string }> = [
-				{ id: 'any', label: this.t('app.tasks.filter.due.any', undefined, 'Any time') },
-				{ id: 'overdue', label: this.t('app.tasks.filter.due.overdue', undefined, 'Overdue') },
-				{ id: 'today', label: this.t('app.tasks.filter.due.today', undefined, 'Due today') },
-				{ id: 'week', label: this.t('app.tasks.filter.due.week', undefined, 'Due this week') },
-			];
-			const handle = this.instance?.popup.open({
-				anchor: (event.currentTarget as HTMLElement).getBoundingClientRect(),
-				items: options.map(o => ({ id: o.id, label: o.label, selected: this.filters.dueRange === o.id })),
-				placement: 'bottom-start',
-				minWidth: 200,
-			});
-			const result = await handle?.result;
-			if (result !== null && result !== undefined) {
-				const id = String(result) as Filters['dueRange'];
-				const opt = options.find(o => o.id === id);
-				if (opt) {
-					this.filters.dueRange = opt.id;
-					this.filters.dueLabel = opt.id === 'any' ? '' : opt.label;
-					this.filterList();
-				}
-			}
-		},
-
-		async openCategoryPickerPopup(event: MouseEvent) {
-			const cats = Array.from(new Set(this.definitions.map(d => d.category).filter(Boolean) as string[])).sort();
-			const items = [
-				{ id: '', label: this.t('app.tasks.filter.category.all', undefined, 'All categories'), selected: !this.filters.category },
-				...cats.map(c => ({ id: c, label: c, selected: this.filters.category === c })),
-			];
-			const handle = this.instance?.popup.open({
-				anchor: (event.currentTarget as HTMLElement).getBoundingClientRect(),
-				items,
-				placement: 'bottom-start',
-				minWidth: 200,
-			});
-			const result = await handle?.result;
-			if (result !== null && result !== undefined) {
-				this.filters.category = String(result);
-				this.filterList();
-			}
-		},
 
 		// =====================================================================
 		// Selection
@@ -771,7 +793,7 @@ export const App = {
 		},
 
 		// =====================================================================
-		// Form iframe — load + RPC bridge
+		// Form iframe — load
 		// =====================================================================
 
 		clearForm() {
@@ -780,7 +802,12 @@ export const App = {
 			this.formError = '';
 			this.formLoading = false;
 			this.formReady = false;
-			this.rejectAllPendingRpcs(new Error('Form closed'));
+			this.cancelFormReadyWatchdog();
+			// Drop the outgoing document's listeners here rather than on the
+			// iframe's `load`: module scripts in the NEW document run before
+			// `load` fires, so clearing there would unsubscribe the form that
+			// just subscribed.
+			this.formListeners?.clear();
 		},
 
 		async openFormForTask(task: Task) {
@@ -828,6 +855,11 @@ export const App = {
 				const resolvedQuery = resolveFormKeyTokens(query, node);
 				this.formSrc = cmsPathToFrameSrc(this.workspace, path)
 					+ (resolvedQuery ? '?' + resolvedQuery : '');
+				// From here the overlay is held up by `formReady`, not by
+				// `formLoading`. Start the watchdog now so a document that
+				// never loads at all is caught too, not just one that loads
+				// and then never signals.
+				this.startFormReadyWatchdog();
 			} catch (err) {
 				this.formError = this.t('app.tasks.form.loadFailed', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load form: {detail}');
 			} finally {
@@ -835,26 +867,47 @@ export const App = {
 			}
 		},
 
-		onFormFrameLoad() {
-			// The iframe will signal readiness via the 'ready' RPC; once received,
-			// we push the current context.
-			this.formReady = false;
+		// Re-run the whole resolve → load cycle for the current selection.
+		// Backs the Retry button on the failure overlay. clearForm() blanks
+		// `formSrc` first, so the iframe unmounts and the identical src is a
+		// real reload rather than a no-op binding update.
+		async reloadForm() {
+			const formKey = this.currentFormKey;
+			if (!formKey) return;
+			this.clearForm();
+			this.currentFormKey = formKey;
+			await this.loadFormFromKey(formKey);
 		},
 
-		// The form iframe is registered through its `ref` attribute (ichigo.js
-		// $refs, available since 0.1.75). $refs.formFrame is undefined until the
-		// iframe renders (it sits behind v-else-if="formSrc"), so null-coalesce.
-		getFormFrame(): HTMLIFrameElement | null {
-			return (this.$refs.formFrame as HTMLIFrameElement | undefined) ?? null;
+		// =====================================================================
+		// Form iframe — readiness gate
+		// =====================================================================
+
+		markFormReady() {
+			this.cancelFormReadyWatchdog();
+			// A form that signals late — after the watchdog already gave up —
+			// is still a working form, so show it instead of leaving the user
+			// staring at a timeout it just disproved. The only error reachable
+			// here is that timeout: every other failure returns before a src is
+			// assigned, so the frame never loads and never signals.
+			this.formError = '';
+			this.formReady = true;
 		},
 
-		// Stable origin check: sandboxed iframes report origin as "null".
-		// We additionally verify that the source is the form iframe's window,
-		// which is unforgeable.
-		isFromFormFrame(event: MessageEvent): boolean {
-			const frame = this.getFormFrame();
-			if (!frame || !frame.contentWindow) return false;
-			return event.source === frame.contentWindow;
+		startFormReadyWatchdog() {
+			this.cancelFormReadyWatchdog();
+			this.formReadyTimer = setTimeout(() => {
+				this.formReadyTimer = null;
+				if (this.formReady) return;
+				this.formError = this.t('app.tasks.form.readyTimeout', undefined, 'The form did not finish loading.');
+			}, FORM_READY_TIMEOUT_MS);
+		},
+
+		cancelFormReadyWatchdog() {
+			if (this.formReadyTimer) {
+				clearTimeout(this.formReadyTimer);
+				this.formReadyTimer = null;
+			}
 		},
 
 		handleWindowMessage(event: MessageEvent) {
@@ -862,12 +915,12 @@ export const App = {
 
 			// Localization changes (locale / time zone / bundle hot-reload)
 			// broadcast by the shell. Fold them into the reactive snapshot so
-			// every `t()` and date binding repaints, then forward the fresh
-			// snapshot to the form iframe (which can't observe the shell
-			// directly). Same-origin only.
+			// every `t()` and date binding repaints, then announce the fresh
+			// snapshot to the form (the shell broadcasts to apps, not to form
+			// documents). Same-origin only.
 			if (data && typeof data === 'object' && event.origin === window.location.origin) {
 				if (handleLocalizationMessage(data.type, this.localization, this.instance)) {
-					this.pushLocalizationToFrame();
+					this.notifyForm('localization', this.buildLocalization());
 					return;
 				}
 			}
@@ -877,7 +930,7 @@ export const App = {
 				if (event.origin === window.location.origin) {
 					document.documentElement.dataset.theme = data.theme;
 					this.currentTheme = data.theme;
-					this.pushThemeToFrame();
+					this.notifyForm('theme', this.currentTheme);
 				}
 				return;
 			}
@@ -892,29 +945,10 @@ export const App = {
 				return;
 			}
 
-			// Form iframe messages.
-			if (data && typeof data === 'object' && data.__tasksRpc) {
-				if (!this.isFromFormFrame(event)) return;
-				if (data.__tasksRpc === 'activate') {
-					// The form lives in an opaque sandboxed iframe, so clicks
-					// inside it never reach the shell and can't raise this window
-					// on their own. The SDK forwards them here; re-stack the
-					// window via the host (which knows this instance's id).
-					this.instance?.activate();
-					return;
-				}
-				if (data.__tasksRpc === 'ready') {
-					this.formReady = true;
-					// pushContextToFrame includes the current theme in its
-					// payload, so a separate initial theme push is unnecessary.
-					this.pushContextToFrame();
-					return;
-				}
-				if (data.__tasksRpc === 'call') {
-					this.handleRpcCall(data as RpcCall);
-					return;
-				}
-			}
+			// Nothing else is expected here. The form used to speak a
+			// postMessage RPC on this channel; it now calls the bridge directly
+			// (see installFormHost), and clicks inside it raise the window via
+			// the shell's own same-origin frame-tree listener.
 		},
 
 		// =====================================================================
@@ -971,58 +1005,28 @@ export const App = {
 			this.selectLaunchTask(options);
 		},
 
-		pushContextToFrame() {
-			const frame = this.getFormFrame();
-			if (!frame || !frame.contentWindow) return;
-			const ctx = this.buildContext();
-			// Carry the current theme alongside the context so the form can
-			// paint with the correct palette on its first render. Subsequent
-			// shell-driven changes are delivered via pushThemeToFrame().
-			ctx.theme = this.currentTheme || 'light';
-			const msg: FormContextEvent = {
-				__tasksRpc: 'event',
-				type: 'context',
-				payload: ctx,
-			};
-			// Unwrap reactive Proxies (especially Proxy-wrapped arrays like
-			// candidateUsers/candidateGroups) so structured clone can serialize.
-			frame.contentWindow.postMessage(JSON.parse(JSON.stringify(msg)), '*');
+		// Announce a change to the currently-loaded form. Listeners come from
+		// the iframe's realm, so a throwing form must not take the host down
+		// with it — each is called defensively. Iterating a copy lets a
+		// listener unsubscribe during dispatch.
+		notifyForm(type: FormEventType, payload: unknown) {
+			const listeners = this.formListeners as Set<FormEventListener> | null;
+			if (!listeners || listeners.size === 0) return;
+			for (const fn of Array.from(listeners)) {
+				try {
+					fn(type, payload);
+				} catch (err) {
+					console.error(`Tasks: form '${type}' listener failed`, err);
+				}
+			}
 		},
 
-		// Sandboxed form iframes have origin "null" and cannot read the
-		// parent's data-theme attribute, so theme updates must be pushed
-		// explicitly. Called when the shell broadcasts a theme change; the
-		// initial theme rides along inside the context payload.
-		pushThemeToFrame() {
-			if (!this.formReady) return;
-			const frame = this.getFormFrame();
-			if (!frame || !frame.contentWindow) return;
-			const msg: FormContextEvent = {
-				__tasksRpc: 'event',
-				type: 'theme-changed',
-				theme: this.currentTheme || 'light',
-			};
-			frame.contentWindow.postMessage(msg, '*');
-		},
-
-		// Sandboxed form iframes (opaque origin) cannot reach the shell's
-		// LocalizationManager / I18nService, so locale changes must be pushed
-		// explicitly — the theme-channel pattern applied to localization. The
-		// initial value rides along inside the context payload; this fires when
-		// the user switches language/zone (`localization-changed`) or an i18n
-		// bundle hot-reloads (`i18n-bundles-updated`). The form re-fetches its
-		// messages via the `getI18nMessages` RPC and repaints.
-		pushLocalizationToFrame() {
-			if (!this.formReady) return;
-			const frame = this.getFormFrame();
-			if (!frame || !frame.contentWindow) return;
-			const msg: FormContextEvent = {
-				__tasksRpc: 'event',
-				type: 'localization-changed',
-				localization: this.buildLocalization(),
-			};
-			// Plain data — no reactive Proxies — so a direct post is safe.
-			frame.contentWindow.postMessage(msg, '*');
+		// Re-announce the selection context. Called after an in-place change
+		// that does NOT reload the frame — claim / unclaim / assign / takeover.
+		// A selection change replaces formSrc, so the new document reads the
+		// fresh context off the bridge on its own.
+		notifyFormContext() {
+			this.notifyForm('context', this.buildContext());
 		},
 
 		// Snapshot the effective localization for the form iframe. Read from the
@@ -1047,10 +1051,21 @@ export const App = {
 			};
 		},
 
+		// The selection snapshot a form reads on load and on every `context`
+		// announcement. Deep-cloned to plain data by toPlainData() so a form
+		// never receives — nor can mutate — this app's reactive proxies.
 		buildContext(): Record<string, unknown> {
+			return toPlainData(this.buildContextRaw());
+		},
+
+		buildContextRaw(): Record<string, unknown> {
+			// The theme rides along so a form paints with the right palette on
+			// its first render; later changes arrive as a 'theme' event.
+			const theme = this.currentTheme || 'light';
 			if (this.mode === 'start' && this.selectedDef) {
 				return {
 					mode: 'start',
+					theme,
 					currentUser: { id: this.currentUserID, displayName: this.currentUserDisplay },
 					localization: this.buildLocalization(),
 					processDefinition: {
@@ -1066,6 +1081,7 @@ export const App = {
 			if (this.selectedTask) {
 				return {
 					mode: 'task',
+					theme,
 					currentUser: { id: this.currentUserID, displayName: this.currentUserDisplay },
 					localization: this.buildLocalization(),
 					task: {
@@ -1088,282 +1104,537 @@ export const App = {
 					},
 				};
 			}
-			return { mode: this.mode, localization: this.buildLocalization() };
+			return { mode: this.mode, theme, localization: this.buildLocalization() };
 		},
 
-		rejectAllPendingRpcs(err: Error) {
-			for (const id of Object.keys(this.pendingRpcs)) {
-				try { this.pendingRpcs[id].reject(err); } catch { /* noop */ }
-			}
-			this.pendingRpcs = {};
+		// =====================================================================
+		// Form host bridge — window.parent.TasksFormHost
+		//
+		// The form iframe is same-origin, so it reaches the host by calling
+		// this object directly. There is no serialization boundary and no
+		// request/reply correlation: a form gets the live GraphQL client and
+		// the BPM / CMS / IdP services this app already built, and calls them
+		// with the signed-in user's credentials. Server-side authorization
+		// (Camunda + JCR ACLs) is the only thing gating what it can do — the
+		// method list here is convenience, not a security boundary.
+		//
+		// Task lifecycle operations still live here rather than being left to
+		// `bpm` directly, because they must also update this app's list and
+		// selection state (drop a completed task, patch an assignee, refresh
+		// after a process start).
+		// =====================================================================
+
+		installFormHost() {
+			// The bridge reads everything through getters closed over `this`, so
+			// one instance stays correct for the app's lifetime; the only
+			// per-form state is the listener set, which clearForm() resets
+			// between documents.
+			//
+			// markRaw that set: it lives in reactive data but holds closures
+			// from the iframe's realm, which must not be wrapped in proxies. The
+			// bridge object itself never enters reactive data, so it needs none.
+			this.formListeners = this.$markRaw(new Set<FormEventListener>());
+			(window as unknown as { TasksFormHost?: unknown }).TasksFormHost = this.buildFormHost();
 		},
 
-		async handleRpcCall(call: RpcCall) {
-			const frame = this.getFormFrame();
-			if (!frame || !frame.contentWindow) return;
-
-			const reply = (ok: boolean, data?: unknown, error?: string) => {
-				// Re-fetch the frame at send time rather than trusting the `frame`
-				// captured above: the awaited dispatchRpc below can run long enough
-				// for the iframe to be destroyed (task deselected, form closed,
-				// re-rendered), which would leave the captured contentWindow null.
-				// Bail out instead of asserting non-null and throwing.
-				const w = this.getFormFrame()?.contentWindow;
-				if (!w) return;
-				const msg = {
-					__tasksRpc: 'result',
-					id: call.id,
-					ok,
-					data,
-					error,
-				};
-				// Unwrap reactive Proxies before structured clone (see pushContextToFrame).
-				w.postMessage(JSON.parse(JSON.stringify(msg)), '*');
-			};
-
-			try {
-				const result = await this.dispatchRpc(call.method, call.params);
-				reply(true, result);
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				reply(false, undefined, msg);
-			}
+		uninstallFormHost() {
+			this.cancelFormReadyWatchdog();
+			this.formListeners?.clear();
+			delete (window as unknown as { TasksFormHost?: unknown }).TasksFormHost;
 		},
 
-		// Dispatch table — methods exposed to the iframe.
-		// Each method MUST validate against the currently-selected context so
-		// that a compromised iframe cannot manipulate other tasks/processes.
-		async dispatchRpc(method: string, params: unknown): Promise<unknown> {
-			const p = (params || {}) as Record<string, unknown>;
-			switch (method) {
+		buildFormHost() {
+			const vm = this;
+			return {
+				// Bumped when the shape below changes incompatibly, so a form can
+				// refuse to run against a host older than it expects.
+				//
+				// 2 — readiness is mandatory: the host holds a loading overlay
+				//     over the frame until the form calls notifyReady(). A form
+				//     written for version 1 never calls it and now sits behind
+				//     the overlay until the watchdog fires.
+				// 3 — adds app launch: listApps() / openApp() / openFile().
+				//     Purely additive — every version 2 form keeps working.
+				version: 3,
+
+				// ----- Environment -----
+
+				get workspace(): string { return vm.workspace; },
+
+				// Absolute URL of the webtop root (…/content/webtop/), derived
+				// from this app's own location (…/content/webtop/apps/tasks/).
+				// Forms join it to load webtop's stylesheets, fonts and icons —
+				// the whole point of dropping the iframe sandbox.
+				get webtopBaseUrl(): string { return new URL('../../', window.location.href).href; },
+
+				// ----- GraphQL -----
+
+				// The client this app's services run on: `query` / `mutation`
+				// against /bin/graphql.cgi/<workspace>, credentials included.
+				get graphql(): GraphQLClient | null { return vm.graphql; },
+				// A client for a different workspace (e.g. 'system').
+				createGraphQLClient(workspace: string): GraphQLClient {
+					return createGraphQLClient(workspace);
+				},
+				// Typed service facades over the same client. `idp` targets the
+				// system workspace, as everywhere else in webtop.
+				get bpm(): BpmServiceGraphQL | null { return vm.bpm; },
+				get cms(): ContentServiceGraphQL | null { return vm.cms; },
+				get idp(): IdpServiceGraphQL | null { return vm.idp; },
+
+				// ----- Context -----
+
+				// Plain-data snapshot of the current selection: `{ mode, theme,
+				// currentUser, localization, task? , processDefinition? }`.
+				get context(): Record<string, unknown> { return vm.buildContext(); },
+				get theme(): string { return vm.currentTheme || 'light'; },
+				get localization(): FormLocalization { return vm.buildLocalization(); },
+				get currentUser(): { id: string; displayName: string; groups: string[] } {
+					return {
+						id: vm.currentUserID,
+						displayName: vm.currentUserDisplay,
+						groups: [...vm.myGroups],
+					};
+				},
+
+				// Subscribe to host announcements — 'context' (selection or
+				// assignment changed in place), 'theme', 'localization'. Returns
+				// an unsubscribe function. Subscriptions are dropped when the
+				// host loads a different form, so a document never has to worry
+				// about a successor's events.
+				subscribe(listener: FormEventListener): () => void {
+					const listeners = vm.formListeners;
+					if (!listeners || typeof listener !== 'function') return () => { /* noop */ };
+					listeners.add(listener);
+					return () => { listeners.delete(listener); };
+				},
+
+				// ----- Readiness -----
+
+				// REQUIRED. Every form must call this exactly once, when it has
+				// finished starting up and is worth showing. Until it does, the
+				// host keeps an opaque loading overlay over the frame — the
+				// same contract an app has with the shell through
+				// `appInstance.notifyLaunched()`, and the reason the frame's
+				// `load` event is not used: `load` means "the document
+				// arrived", not "the form has something to show".
+				//
+				//   const App = { ... };
+				//   VDOM.createApp(App).mount('#app');
+				//   await loadMyData();
+				//   host.notifyReady();          // <- overlay comes down here
+				//
+				// Call it on the failure paths too, once the form has rendered
+				// its own error state — otherwise the user waits out the
+				// watchdog and gets the host's generic message instead of the
+				// form's specific one. A `finally` around startup is usually
+				// the right place.
+				//
+				// The host gives up after FORM_READY_TIMEOUT_MS and shows its
+				// failure state with a Retry button, so a form that throws
+				// before signalling degrades to an error rather than a spinner
+				// that never stops. Calling twice is harmless.
+				notifyReady(): void {
+					// No epoch guard needed: switching forms unmounts the iframe
+					// (clearForm blanks formSrc, and the node lookup for the next
+					// form yields long enough for that to render), which destroys
+					// the outgoing document before its pending work can resume.
+					// A stale signal therefore cannot arrive from a discarded
+					// form the way a stale `subscribe` listener could.
+					if (!vm.formSrc) return;
+					vm.markFormReady();
+				},
+
+				// Bring the Tasks window to the front. Rarely needed: the shell
+				// attaches its own mousedown listener across the same-origin
+				// frame tree, so ordinary clicks in the form already raise it.
+				activate(): void { vm.instance?.activate(); },
+
+				// ----- App launch -----
+				//
+				// Open another webtop app from a form — the drill-down a review
+				// step usually wants ("show me the order this approval is
+				// about"). The shell owns window creation; these methods only
+				// resolve and validate the request, then hand it over through
+				// the same `open-app` / `open-file-with-app` messages Content
+				// Browser uses for a double-click.
+				//
+				// `options` arrives at the target app as the second argument of
+				// its `window.appLaunch(instance, options)`. For a SINGLETON app
+				// that is already running the shell does not open a second
+				// window: it focuses the existing one and re-targets it with a
+				// `{ type: 'app-reopen', options }` message, so a form button
+				// clicked repeatedly lands on one window rather than a stack of
+				// them. Apps that ignore `app-reopen` still get focused.
+				//
+				// Launching is fire-and-forget: the new window has its own
+				// lifecycle, so there is nothing meaningful to wait for and
+				// nothing to return. Failures that the form can fix (unknown
+				// app, unreadable path, no editor for the type) throw here;
+				// anything after the hand-off is the shell's to report.
+
+				// The installed apps as plain data, so a form can resolve an id
+				// by title or category instead of hard-coding a UUID that
+				// differs per deployment: `listApps().find(a => a.title === …)`.
+				listApps(): { id: string; title: string; category: string | null; editor: boolean; contentTypes: string[]; singleton: boolean }[] {
+					return vm.shellApps().map((a: Application) => ({
+						id: a.id,
+						title: a.title || '',
+						category: a.category ?? null,
+						editor: !!a.editor,
+						contentTypes: [...(a.contentTypes || [])],
+						singleton: a.singleton,
+					}));
+				},
+
+				// Launch an app by id, optionally handing it a launch payload:
+				//
+				//   host.openApp(orderAppId, { view: 'order', orderId: '4711' });
+				//
+				// `options.initialWindowState` ({ x, y, width, height }) is
+				// consumed by the shell to place the window verbatim instead of
+				// cascading it; every other key is the target app's own
+				// business.
+				openApp(appId: string, options?: Record<string, unknown>): void {
+					const id = String(appId ?? '').trim();
+					if (!id) throw new Error('appId is required');
+					if (!vm.findApp(id)) throw new Error(`App not found: ${id}`);
+					window.parent.postMessage({
+						type: 'open-app',
+						appId: id,
+						// Plain data only: the payload crosses into the shell
+						// realm and is stored on the instance, so a live
+						// reference from the form's realm must not travel with
+						// it. Same contract as every return value here.
+						options: options ? toPlainData(options) : undefined,
+					}, window.location.origin);
+				},
+
+				// Open a CMS file in its editor — the double-click of Content
+				// Browser, addressable from a form:
+				//
+				//   await host.openFile('/content/orders/4711/invoice.pdf');
+				//
+				// Both parts are optional and resolved when omitted: the MIME
+				// type from the node itself, the app from the editor registered
+				// for that type. Pass `appId` to force a specific editor, or
+				// `mimeType` to skip the node lookup when the form already knows
+				// it. Async only because of those lookups — it resolves once the
+				// request has been handed to the shell, not when the app is up.
+				async openFile(path: string, opts?: { appId?: string; mimeType?: string }): Promise<void> {
+					const p = String(path ?? '').trim();
+					if (!p) throw new Error('path is required');
+					const o = opts || {};
+					let appId = String(o.appId ?? '').trim();
+					let mimeType = String(o.mimeType ?? '').trim();
+					if (!mimeType) {
+						const node = await vm.cms!.getNode(p);
+						if (!node) throw new Error(`Node not found: ${p}`);
+						mimeType = node.mimeType || '';
+					}
+					if (!appId) {
+						const editor = vm.findEditorForMimeType(mimeType);
+						if (!editor) {
+							throw new Error(`No editor is registered for ${mimeType || 'this content type'}: ${p}`);
+						}
+						appId = editor.id;
+					} else if (!vm.findApp(appId)) {
+						throw new Error(`App not found: ${appId}`);
+					}
+					window.parent.postMessage({
+						type: 'open-file-with-app',
+						appId,
+						filePath: p,
+						mimeType,
+					}, window.location.origin);
+				},
 
 				// ----- Identity -----
-				case 'getCurrentUser':
-					return {
-						id: this.currentUserID,
-						displayName: this.currentUserDisplay,
-						groups: this.myGroups,
-					};
 
 				// Look up another user (e.g. resolve an assignee username to a
-				// display name). Returns null when the user does not exist.
-				case 'getUser': {
-					const username = String(p.username ?? '').trim();
-					if (!username) throw new Error('username is required');
-					if (!this.idp) throw new Error('IdP service is not initialized');
-					const user = await this.idp.getUser(username);
+				// display name). Resolves to null when the user does not exist.
+				async getUser(username: string) {
+					const name = String(username ?? '').trim();
+					if (!name) throw new Error('username is required');
+					if (!vm.idp) throw new Error('IdP service is not initialized');
+					const user = await vm.idp.getUser(name);
 					if (!user) return null;
 					return {
 						id: user.username,
 						displayName: user.displayName || user.username,
 						mail: user.mail,
 					};
-				}
+				},
 
 				// ----- Localization -----
-				// Hand the form a resolved, flat i18n message map for the user's
-				// effective locale (fallback chain already merged). The form runs
-				// in an opaque origin and cannot reach the shell I18nService, so it
-				// pulls its namespace's messages through here and compiles ICU
-				// templates locally. `locale` is returned alongside so the form
-				// formats those templates against the correct locale.
-				case 'getI18nMessages': {
-					const i18n = this.instance?.api?.i18n;
-					// Live manager first (authoritative), then the snapshot, then the
-					// i18n service's own resolution — never hand the form an empty
-					// locale or it formats dates/numbers in the browser locale.
-					const locale = this.instance?.api?.localization?.effectiveLocale
-						|| this.localization.locale
+
+				// Format a message id straight through the shell's ICU engine
+				// against the effective locale — the same bundles and the same
+				// fallback chain every shell app uses. Forms no longer need to
+				// load intl-messageformat themselves.
+				//
+				// The locale comes from the live LocalizationManager rather than
+				// this app's reactive snapshot: the snapshot is seeded once at
+				// appLaunch and can still be empty on the first form open, which
+				// would format the message in the browser locale instead.
+				translate(messageId: string, params?: Record<string, unknown>, fallback?: string): string {
+					const i18n = vm.instance?.api?.i18n;
+					if (!i18n || typeof i18n.format !== 'function') return fallback ?? messageId;
+					const locale = vm.instance?.api?.localization?.effectiveLocale
+						|| vm.localization.locale
+						|| '';
+					return i18n.format(messageId, params, fallback, locale || undefined);
+				},
+
+				// Format an ad-hoc ICU template (not a bundle key) against the
+				// effective locale — plurals, select, number/date placeholders.
+				// Implemented as a lookup of an id no bundle can define, whose
+				// fallback is the template, which is exactly the path
+				// I18nService.format takes for an unresolved id.
+				formatTemplate(template: string, params?: Record<string, unknown>): string {
+					const i18n = vm.instance?.api?.i18n;
+					if (!i18n || typeof i18n.format !== 'function') return String(template);
+					const locale = vm.instance?.api?.localization?.effectiveLocale
+						|| vm.localization.locale
+						|| '';
+					return i18n.format(NON_MESSAGE_ID, params, String(template), locale || undefined);
+				},
+
+				// A resolved, flat message map for a namespace, for forms that
+				// prefer to hold their own bundle: `{ locale, messages }`.
+				getI18nMessages(prefix?: string): { locale: string; messages: Record<string, string> } {
+					const i18n = vm.instance?.api?.i18n;
+					// Live manager first (authoritative), then the snapshot, then
+					// the i18n service's own resolution — never hand the form an
+					// empty locale or it formats dates/numbers in the browser one.
+					const locale = vm.instance?.api?.localization?.effectiveLocale
+						|| vm.localization.locale
 						|| (i18n ? i18n.currentLocale : '')
 						|| '';
 					if (!i18n || typeof i18n.getMessages !== 'function') {
 						return { locale, messages: {} };
 					}
-					const prefix = typeof p.prefix === 'string' ? p.prefix : undefined;
 					return { locale, messages: i18n.getMessages(prefix, locale || undefined) };
-				}
+				},
 
 				// ----- Process start (start mode only) -----
-				case 'getProcessDefinition':
-					this.requireMode('start');
-					this.requireSelectedDefinition();
-					return this.serializeDefinition(this.selectedDef!);
 
-				case 'startProcess': {
-					this.requireMode('start');
-					this.requireSelectedDefinition();
-					const variables = this.normalizeVariables(p.variables);
-					const businessKey = typeof p.businessKey === 'string' ? p.businessKey : undefined;
-					const inst = await this.bpm!.startProcess({
-						definitionId: this.selectedDef!.id,
-						businessKey,
-						variables,
+				getProcessDefinition() {
+					vm.requireMode('start');
+					vm.requireSelectedDefinition();
+					return toPlainData(vm.serializeDefinition(vm.selectedDef!));
+				},
+
+				async startProcess(opts?: { variables?: unknown; businessKey?: string }) {
+					vm.requireMode('start');
+					vm.requireSelectedDefinition();
+					const o = opts || {};
+					const inst = await vm.bpm!.startProcess({
+						definitionId: vm.selectedDef!.id,
+						businessKey: typeof o.businessKey === 'string' ? o.businessKey : undefined,
+						variables: vm.normalizeVariables(o.variables),
 					});
-					// Mark the form as completed; clear selection and refresh list later.
-					this.errorMessage = '';
-					this.$nextTick(() => this.refresh());
-					return this.serializeInstance(inst);
-				}
+					vm.errorMessage = '';
+					vm.$nextTick(() => vm.refresh());
+					return toPlainData(vm.serializeInstance(inst));
+				},
 
 				// ----- Task operations (task modes only) -----
-				case 'getTask':
-					this.requireSelectedTask();
-					return this.serializeTask(this.selectedTask!);
 
-				case 'getTaskWithVariables': {
-					this.requireSelectedTask();
-					const full = await this.bpm!.getTask(this.selectedTask!.id);
-					return full ? { ...this.serializeTask(full), variables: full.variables ?? [], localVariables: full.localVariables ?? [] } : null;
-				}
+				getTask() {
+					vm.requireSelectedTask();
+					return toPlainData(vm.serializeTask(vm.selectedTask!));
+				},
 
-				case 'getTaskVariables': {
-					this.requireSelectedTask();
-					const full = await this.bpm!.getTask(this.selectedTask!.id);
-					return { variables: full?.variables ?? [], localVariables: full?.localVariables ?? [] };
-				}
+				async getTaskWithVariables() {
+					vm.requireSelectedTask();
+					const full = await vm.bpm!.getTask(vm.selectedTask!.id);
+					if (!full) return null;
+					return toPlainData({
+						...vm.serializeTask(full),
+						variables: full.variables ?? [],
+						localVariables: full.localVariables ?? [],
+					});
+				},
 
-				case 'setTaskVariables': {
-					this.requireSelectedTask();
-					const variables = this.normalizeVariables(p.variables);
-					const local = !!p.local;
-					await this.bpm!.setTaskVariables(this.selectedTask!.id, variables, local);
+				async getTaskVariables() {
+					vm.requireSelectedTask();
+					const full = await vm.bpm!.getTask(vm.selectedTask!.id);
+					return toPlainData({
+						variables: full?.variables ?? [],
+						localVariables: full?.localVariables ?? [],
+					});
+				},
+
+				async setTaskVariables(variables: unknown, local?: boolean) {
+					vm.requireSelectedTask();
+					await vm.bpm!.setTaskVariables(vm.selectedTask!.id, vm.normalizeVariables(variables), !!local);
 					return true;
-				}
+				},
 
-				case 'getProcessVariables': {
-					this.requireSelectedTask();
-					const inst = await this.bpm!.getProcessInstance(this.selectedTask!.processInstanceId);
-					return inst?.variables ?? [];
-				}
+				async getProcessVariables() {
+					vm.requireSelectedTask();
+					const inst = await vm.bpm!.getProcessInstance(vm.selectedTask!.processInstanceId);
+					return toPlainData(inst?.variables ?? []);
+				},
 
-				case 'setProcessVariables': {
-					this.requireSelectedTask();
-					const variables = this.normalizeVariables(p.variables);
-					await this.bpm!.setProcessVariables(this.selectedTask!.processInstanceId, variables);
+				async setProcessVariables(variables: unknown) {
+					vm.requireSelectedTask();
+					await vm.bpm!.setProcessVariables(vm.selectedTask!.processInstanceId, vm.normalizeVariables(variables));
 					return true;
-				}
+				},
 
-				case 'claimTask': {
-					this.requireSelectedTask();
-					const taskId = this.selectedTask!.id;
-					const updated = await this.bpm!.claimTask(taskId);
-					this.patchTaskInList(updated);
-					this.applySelectedTaskUpdate(taskId, updated);
-					return this.serializeTask(updated);
-				}
+				async claimTask() {
+					vm.requireSelectedTask();
+					const taskId = vm.selectedTask!.id;
+					const updated = await vm.bpm!.claimTask(taskId);
+					vm.patchTaskInList(updated);
+					vm.applySelectedTaskUpdate(taskId, updated);
+					return toPlainData(vm.serializeTask(updated));
+				},
 
-				case 'unclaimTask': {
-					this.requireSelectedTask();
-					this.requireOwnership();
-					const taskId = this.selectedTask!.id;
-					const updated = await this.bpm!.unclaimTask(taskId);
-					this.patchTaskInList(updated);
-					this.applySelectedTaskUpdate(taskId, updated);
-					return this.serializeTask(updated);
-				}
+				async unclaimTask() {
+					vm.requireSelectedTask();
+					vm.requireOwnership();
+					const taskId = vm.selectedTask!.id;
+					const updated = await vm.bpm!.unclaimTask(taskId);
+					vm.patchTaskInList(updated);
+					vm.applySelectedTaskUpdate(taskId, updated);
+					return toPlainData(vm.serializeTask(updated));
+				},
 
-				case 'setAssignee': {
-					this.requireSelectedTask();
-					const assignee = (p.assignee ?? null) as string | null;
-					const taskId = this.selectedTask!.id;
-					const updated = await this.bpm!.setTaskAssignee(taskId, assignee);
-					this.patchTaskInList(updated);
-					this.applySelectedTaskUpdate(taskId, updated);
-					return this.serializeTask(updated);
-				}
+				async setAssignee(assignee: string | null) {
+					vm.requireSelectedTask();
+					const taskId = vm.selectedTask!.id;
+					const updated = await vm.bpm!.setTaskAssignee(taskId, assignee ?? null);
+					vm.patchTaskInList(updated);
+					vm.applySelectedTaskUpdate(taskId, updated);
+					return toPlainData(vm.serializeTask(updated));
+				},
 
-				case 'completeTask': {
-					this.requireSelectedTask();
-					this.requireOwnership();
+				async completeTask(variables?: unknown) {
+					vm.requireSelectedTask();
+					vm.requireOwnership();
 					// Capture the task being completed before awaiting the server.
 					// Selecting another task while the call is in flight reassigns
-					// this.selectedTask; reading the live reference afterwards would
+					// vm.selectedTask; reading the live reference afterwards would
 					// drop the newly selected task from the list and leave the
 					// completed one behind.
-					const completedId = this.selectedTask!.id;
-					const variables = this.normalizeVariables(p.variables);
-					await this.bpm!.completeTask({
+					const completedId = vm.selectedTask!.id;
+					await vm.bpm!.completeTask({
 						taskId: completedId,
-						variables,
+						variables: vm.normalizeVariables(variables),
 					});
 					// Drop the completed task from the runtime list.
-					this.tasks = this.tasks.filter(t => t.id !== completedId);
-					this.filterList();
-					// Only clear the form/selection when the completed task is still
-					// the selected one; if the user has since picked another task,
-					// keep that selection and its form.
-					if (this.selectedTask?.id === completedId) {
-						this.selectedTask = null;
-						this.clearForm();
+					vm.tasks = vm.tasks.filter(t => t.id !== completedId);
+					vm.filterList();
+					// Only clear the form/selection when the completed task is
+					// still the selected one; if the user has since picked another
+					// task, keep that selection and its form.
+					if (vm.selectedTask?.id === completedId) {
+						vm.selectedTask = null;
+						vm.clearForm();
 					}
 					return true;
-				}
+				},
 
-				// ----- CMS read/write (relies on JCR ACLs server-side) -----
-				case 'getNode': {
-					const path = String(p.path ?? '');
-					if (!path) throw new Error('path is required');
-					return this.serializeCmsNode(await this.cms!.getNode(path));
-				}
+				// ----- CMS convenience (server-side JCR ACLs apply) -----
+				//
+				// `cms` above exposes the full service; these three are kept
+				// because they are what forms actually reach for, and they
+				// return the flat node shape the SDK's property accessors read.
 
-				case 'listChildren': {
-					const path = String(p.path ?? '');
-					if (!path) throw new Error('path is required');
-					const conn = await this.cms!.listChildren(path, {
-						first: typeof p.first === 'number' ? p.first : 100,
-						after: typeof p.after === 'string' ? p.after : undefined,
+				async getNode(path: string) {
+					const p = String(path ?? '');
+					if (!p) throw new Error('path is required');
+					return toPlainData(vm.serializeCmsNode(await vm.cms!.getNode(p)));
+				},
+
+				async listChildren(path: string, opts?: { first?: number; after?: string }) {
+					const p = String(path ?? '');
+					if (!p) throw new Error('path is required');
+					const o = opts || {};
+					const conn = await vm.cms!.listChildren(p, {
+						first: typeof o.first === 'number' ? o.first : 100,
+						after: typeof o.after === 'string' ? o.after : undefined,
 					});
-					return {
-						edges: conn.edges.map((e: { node: CmsNode; cursor: string }) => ({
-							node: this.serializeCmsNode(e.node),
-							cursor: e.cursor,
-						})),
+					return toPlainData({
+						nodes: conn.edges.map((e: { node: CmsNode }) => vm.serializeCmsNode(e.node)),
 						pageInfo: conn.pageInfo,
 						totalCount: conn.totalCount,
-					};
-				}
+					});
+				},
 
-				// Write a single property on a node. Server-side JCR ACLs gate the
-				// actual write; the parent only forwards the call. Limited to
-				// scalar values (string/number/boolean) — array writes can be
-				// added when a form needs them.
-				case 'setNodeProperty': {
-					const path = String(p.path ?? '');
-					if (!path) throw new Error('path is required');
-					const name = String(p.name ?? '');
-					if (!name) throw new Error('property name is required');
-					const value = (p as { value?: unknown }).value;
+				// Write a single scalar property. Array writes can be added when
+				// a form needs them; until then a form wanting one can go
+				// through `cms` directly.
+				async setNodeProperty(path: string, name: string, value: unknown) {
+					const p = String(path ?? '');
+					if (!p) throw new Error('path is required');
+					const n = String(name ?? '');
+					if (!n) throw new Error('property name is required');
 					if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
 						throw new Error('property value must be a string, number, or boolean');
 					}
-					await this.cms!.setProperty(path, name, value);
+					await vm.cms!.setProperty(p, n, value);
 					return true;
-				}
+				},
 
-				// Read a node's binary content as text. The form iframe runs in an
-				// opaque origin (no allow-same-origin), so it cannot fetch the
-				// downloadUrl with credentials directly; the parent (same-origin
-				// with the CMS) does the fetch and returns the body as text.
-				// Server-side JCR ACLs are enforced by getNode().
-				case 'readNodeText': {
-					const path = String(p.path ?? '');
-					if (!path) throw new Error('path is required');
-					const node = await this.cms!.getNode(path);
-					if (!node) throw new Error(`Node not found: ${path}`);
-					if (!node.downloadUrl) throw new Error(`Node has no content: ${path}`);
+				// Read a node's binary content as text.
+				async readNodeText(path: string): Promise<string> {
+					const p = String(path ?? '');
+					if (!p) throw new Error('path is required');
+					const node = await vm.cms!.getNode(p);
+					if (!node) throw new Error(`Node not found: ${p}`);
+					if (!node.downloadUrl) throw new Error(`Node has no content: ${p}`);
 					const res = await fetch(node.downloadUrl, { credentials: 'same-origin' });
-					if (!res.ok) {
-						throw new Error(`Failed to read ${path}: HTTP ${res.status}`);
-					}
+					if (!res.ok) throw new Error(`Failed to read ${p}: HTTP ${res.status}`);
 					return await res.text();
-				}
-
-				default:
-					throw new Error(`Unknown method: ${method}`);
-			}
+				},
+			};
 		},
 
-		// ----- RPC guards -----
+		// ----- Shell app registry -----
+		//
+		// The installed-app list lives in the shell realm, so an app iframe
+		// reads it through `window.parent.Webtop` — the same access Content
+		// Browser uses to find an editor for a MIME type. Kept out of reactive
+		// data on purpose: these are the shell's live Application objects, and
+		// they are only ever read.
+
+		shellApps(): Application[] {
+			return (window.parent?.Webtop?.apps || []) as Application[];
+		},
+
+		findApp(appId: string): Application | null {
+			return this.shellApps().find((a: Application) => a.id === appId) || null;
+		},
+
+		// The app registered as an editor for a MIME type, `text/*` wildcards
+		// included. Mirrors Content Browser's resolution so a form and a
+		// double-click open the same file in the same app.
+		findEditorForMimeType(mimeType: string): Application | null {
+			const mt = String(mimeType || '');
+			if (!mt) return null;
+			for (const app of this.shellApps()) {
+				if (!app.editor) continue;
+				for (const pattern of app.contentTypes || []) {
+					if (pattern.endsWith('/*')) {
+						if (mt.startsWith(pattern.slice(0, -1))) return app;
+					} else if (pattern === mt) {
+						return app;
+					}
+				}
+			}
+			return null;
+		},
+
+		// ----- Operation guards -----
+		//
+		// Now that the form is same-origin these are business rules rather than
+		// a sandbox boundary: they keep a form from acting on a task that is no
+		// longer selected (or that the user does not own), which would leave
+		// this app's list and selection out of step with the engine.
 
 		requireMode(mode: Mode) {
 			if (this.mode !== mode) throw new Error(`Operation not allowed in mode "${this.mode}"`);
@@ -1502,7 +1773,7 @@ export const App = {
 			try {
 				const updated = await this.bpm.claimTask(taskId);
 				this.patchTaskInList(updated);
-				if (this.applySelectedTaskUpdate(taskId, updated)) this.pushContextToFrame();
+				if (this.applySelectedTaskUpdate(taskId, updated)) this.notifyFormContext();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.claim', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to claim: {detail}');
 			}
@@ -1514,7 +1785,7 @@ export const App = {
 			try {
 				const updated = await this.bpm.unclaimTask(taskId);
 				this.patchTaskInList(updated);
-				if (this.applySelectedTaskUpdate(taskId, updated)) this.pushContextToFrame();
+				if (this.applySelectedTaskUpdate(taskId, updated)) this.notifyFormContext();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.unclaim', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to unclaim: {detail}');
 			}
@@ -1546,7 +1817,7 @@ export const App = {
 				const updated = await this.bpm.setTaskAssignee(taskId, this.currentUserID);
 				this.patchTaskInList(updated);
 				this.closeDialog();
-				if (this.applySelectedTaskUpdate(taskId, updated)) this.pushContextToFrame();
+				if (this.applySelectedTaskUpdate(taskId, updated)) this.notifyFormContext();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.takeover', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to take over: {detail}');
 			}
@@ -1576,7 +1847,7 @@ export const App = {
 				const updated = await this.bpm.setTaskAssignee(taskId, assignee);
 				this.patchTaskInList(updated);
 				this.closeDialog();
-				if (this.applySelectedTaskUpdate(taskId, updated)) this.pushContextToFrame();
+				if (this.applySelectedTaskUpdate(taskId, updated)) this.notifyFormContext();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.assign', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to assign: {detail}');
 			}
@@ -1727,6 +1998,10 @@ function startOfToday(): number {
 	return d.getTime();
 }
 
-// Mount the app
+// Mount immediately. The screen itself is behind the readiness gate
+// (<template v-if="isReady"> in index.html), which appLaunch opens once the
+// component templates are loaded — so mounting no longer has to wait on a
+// fetch, and window.appLaunch is defined the moment the iframe finishes
+// loading.
 import { VDOM } from '@mintjamsinc/ichigojs';
 VDOM.createApp(App).mount('#app');

@@ -1,0 +1,4 @@
+<template id="wt-splitter">
+	<div class="wt-splitter" :class="[direction === 'row' ? 'wt-row' : 'wt-col', resizing ? 'is-resizing' : '']"
+		@mousedown="onDown($event)"></div>
+</template>

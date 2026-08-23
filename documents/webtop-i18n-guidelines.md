@@ -14,7 +14,7 @@ built so that adding a locale is "drop in one JSON file" — no code change.
 | Layer | What it controls | Source of truth |
 | --- | --- | --- |
 | **Localization preference** | locale, time zone, number-format locale, currency | `services/localization-manager.ts` (per-user, IndexedDB + JCR sync) |
-| **Message bundles** | the actual translated strings | `/etc/i18n/<locale>.json` loaded by `services/webtop-i18n-service.ts` |
+| **Message bundles** | the actual translated strings | global `/etc/i18n/*.json` + per-app `<app>/i18n/<locale>.json`, loaded by `services/webtop-i18n-service.ts` |
 
 The user edits the preference in **Preferences → Localization**. Every change is
 broadcast to all app iframes and folded into each app's reactive snapshot, so
@@ -25,48 +25,69 @@ default"; the manager's `effective*` getters resolve the fallback for you.
 
 ## 2. Message bundles
 
-### Layout — one file per app, merged by locale
+### Layout — app bundles live in the app folder, global bundles in /etc/i18n
 
-Flat JSON files at JCR `/etc/i18n/`, **one or more per locale**. The locale of a
-file is the **last dot-delimited segment** of its name (before `.json`):
+Bundles are flat JSON files in **two locations**. The locale of a file is the
+**last dot-delimited segment** of its name (before `.json`):
 
 ```
+# App-scoped bundles — inside each app's folder, deployed WITH the app
+/content/webtop/apps/content-browser/i18n/en.json   → locale "en"
+/content/webtop/apps/content-browser/i18n/ja.json   → locale "ja"
+/content/webtop/apps/commerce-orders/i18n/ja.json   → locale "ja"   (add-on app)
+
+# Global bundles — /etc/i18n/, for keys visible outside a single app
 /etc/i18n/en.json                  → locale "en"   (cms0 core: common.* + webtop.* + cms.*)
 /etc/i18n/ja.json                  → locale "ja"
-/etc/i18n/content-browser.en.json  → locale "en"   (one cms0 app's bundle)
-/etc/i18n/content-browser.ja.json  → locale "ja"
-/etc/i18n/preferences.en.json      → locale "en"
-/etc/i18n/preferences.ja.json      → locale "ja"
-/etc/i18n/commerce.en.json         → locale "en"   (an add-on module's bundle)
-/etc/i18n/commerce.ja.json         → locale "ja"
+/etc/i18n/wt-inspector.en.json     → locale "en"   (shared component, webtop.inspector.*)
+/etc/i18n/searchindex-forms.ja.json→ locale "ja"   (BPMN forms, form.*)
 /etc/i18n/en-US.json               → locale "en-us"
 ```
 
-cms0 itself follows the same modular convention it offers add-on modules: the
-core `en.json` / `ja.json` carry only the cross-app namespaces (`common.*`,
-`webtop.*`, `cms.*`), and **each standard app ships its own
-`<appId>.<locale>.json` pair** holding that app's `app.<appId>.*` keys
-(`content-browser.en.json`, `preferences.ja.json`, …). This mirrors how the
-Commerce suite ships one bundle per app, so the platform reads consistently
-end to end and an app's strings live next to nothing but that app's strings.
+**App bundles are scoped to their app.** The i18n service keeps them per app
+(the app id is the app folder name, i.e. `relPath`) and consults them only for
+lookups made in that app's scope — the `translate()` composable passes
+`instance.app.relPath` automatically, so every app's `t()` resolves its own
+bundle first with **no extra wiring**. Two consequences:
 
-All files for the same locale are **merged** into one bundle. This is the
-platform contract that lets independently deployed units — the cms0 core, each
-cms0 app, the Commerce app suite, any future app pack — each ship their own
-`<unit>.<locale>.json` and contribute keys **without editing or overwriting
-another unit's file**. Each unit owns a key namespace (an app owns
-`app.<appId>.*`); because namespaces are disjoint, the merge never resolves a
-real conflict. (If two files did define the same key, the file that sorts last
-by name would win — deterministic, but a sign two units overstepped their
-namespaces.)
+- An app's keys **cannot collide** with another app's keys, whatever they are
+  named. The conventional `app.<appId>.*` prefix keeps working (and stays the
+  recommended, greppable style), but it is no longer what prevents collisions.
+- An app's keys are **not visible** to the shell or other apps. Any key that
+  must be read outside the app (e.g. a start-menu category label
+  `webtop.appmenu.category.<id>`) belongs in a **global** file, not the app
+  bundle.
 
-Core and per-app seed copies live in the repository at
-`docker/initial-repository/workspaces/system/etc/jcr/deploy/etc/i18n/` and are
-deployed into the workspace at boot; add-on module bundles travel in their own
-repo's deploy tree (e.g. commerce-dev's `etc/i18n/commerce.<locale>.json`).
-Editing any bundle at runtime hot-reloads the whole directory: the i18n service
-watches it, reloads + re-merges, and broadcasts `i18n-bundles-updated` so every
-app repaints.
+Lookups fall back from the app scope to the global bundles, so apps use the
+shared `common.*` / `webtop.*` primitives exactly as before.
+
+All **global** files for the same locale are still **merged** into one bundle
+(sorted by file name, deterministic). Independently deployed units contribute
+global keys via their own `<unit>.<locale>.json` in disjoint namespaces — but
+with per-app bundles in place, a unit only needs a global file for its
+cross-app keys; everything else travels inside its app folders.
+
+Seed copies in the repositories:
+
+- **App bundles** live next to the app source at
+  `webtop/src/webtop/apps/<appId>/i18n/<locale>.json`; the rollup build copies
+  them into `dist/webtop/apps/<appId>/i18n/`, so they deploy (and version)
+  with the app itself. Add-on repos (e.g. commerce-dev) do the same in their
+  own app folders.
+- **Global bundles** (core `en.json` / `ja.json`, `wt-inspector.*`,
+  `searchindex-forms.*`) live at
+  `docker/initial-repository/workspaces/system/etc/jcr/deploy/etc/i18n/` and
+  are deployed into the workspace at boot.
+
+Editing any bundle at runtime hot-reloads everything: the i18n service watches
+`/etc/i18n` (shallow) and the apps tree (deep, filtered to `i18n/` folders),
+reloads + re-merges, and broadcasts `i18n-bundles-updated` so every app
+repaints.
+
+> **Migration note.** Workspaces deployed before app-scoped bundles existed may
+> still carry the old `/etc/i18n/<appId>.<locale>.json` files. They are
+> harmless — the app's own scoped bundle wins for every key it defines — and
+> can be deleted at leisure.
 
 ### Key naming convention
 
@@ -192,29 +213,35 @@ switching language in Preferences or hot-editing a bundle re-runs every
 ## 4. Adding a string (checklist)
 
 1. Pick a key in the right namespace (§2).
-2. Add it to **both** locale files of the unit that owns the namespace, under
-   `docker/initial-repository/.../etc/i18n/`:
-   - an app string (`app.<appId>.*`) → `<appId>.en.json` **and** `<appId>.ja.json`;
+2. Add it to **both** locale files of the unit that owns the namespace:
+   - an app string (`app.<appId>.*`) → the app's own
+     `webtop/src/webtop/apps/<appId>/i18n/en.json` **and** `i18n/ja.json`;
    - a shared/shell string (`common.*`, `webtop.*`, `cms.*`) → core `en.json`
-     **and** `ja.json`.
+     **and** `ja.json` under `docker/initial-repository/.../etc/i18n/`.
 3. Reference it via `t('your.key')` in the template (or `translate(...)` in TS).
 4. Never hardcode the English text in the component.
+
+Remember the scope rule (§2): a key defined in an app bundle is visible only
+inside that app. If the shell or another app must read it, it is a global key —
+put it in a global file under the owning global namespace instead.
 
 ## 5. Adding a locale
 
 Drop a new `<locale>.json` for every existing unit — the core `<locale>.json`
-plus one `<appId>.<locale>.json` per app — with the same key sets as the `en`
-files. No code change is required: the loader derives the locale from the file
-name, the fallback chain is `exact → language-only → en`, and the Preferences
-language list is populated from the available bundles.
+in `/etc/i18n` plus one `i18n/<locale>.json` inside each app folder — with the
+same key sets as the `en` files. No code change is required: the loader derives
+the locale from the file name, the fallback chain is
+`exact → language-only → en` (applied in the app scope first, then globally),
+and the Preferences language list is populated from all available bundles.
 
 ## 5a. Adding a new app
 
-Give the app its own `<appId>.en.json` / `<appId>.ja.json` pair (seed copies
-under `docker/initial-repository/.../etc/i18n/`), put its title under
-`app.<appId>.title` and the rest of its strings under `app.<appId>.*`, and reuse
-the shared `common.*` / `webtop.*` primitives rather than redefining them. No
-loader change is needed — the new pair is discovered and merged at boot.
+Give the app its own `i18n/en.json` / `i18n/ja.json` pair inside its app folder
+(`webtop/src/webtop/apps/<appId>/i18n/`; the rollup app config copies the
+folder to dist automatically). Put its title under `app.<appId>.title` and the
+rest of its strings under `app.<appId>.*`, and reuse the shared `common.*` /
+`webtop.*` primitives rather than redefining them. No loader change is needed —
+the folder is discovered per app at boot and hot-reloaded on edit.
 
 ---
 

@@ -1,0 +1,8 @@
+<template id="wt-field">
+	<div class="wt-field" :class="{'has-error': !!error}">
+		<span v-if="label" class="wt-field-label">{{ label }}<span v-if="required" class="wt-field-required">*</span></span>
+		<slot></slot>
+		<span v-if="error" class="wt-field-error">{{ error }}</span>
+		<span v-if="hint && !error" class="wt-field-hint">{{ hint }}</span>
+	</div>
+</template>

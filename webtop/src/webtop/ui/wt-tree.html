@@ -1,0 +1,17 @@
+<template id="wt-tree">
+	<div class="wt-tree" role="tree">
+		<div v-for="row of visibleRows" :key="row.id" class="wt-tree-item" role="treeitem"
+			:class="{selected: row.id === localSelected}"
+			:style="'padding-left: ' + (row.depth * 1.25 + 0.25) + 'rem'"
+			@click="onSelect(row)">
+			<span class="wt-tree-toggle" @click.stop="onToggle(row)">
+				<i v-if="row.hasChildren" class="bi" :class="row.expanded ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+			</span>
+			<span class="wt-tree-content">
+				<slot name="item" :node="row.node" :depth="row.depth" :expanded="row.expanded" :selected="row.id === localSelected">
+					<span class="wt-tree-label">{{ row.label }}</span>
+				</slot>
+			</span>
+		</div>
+	</div>
+</template>

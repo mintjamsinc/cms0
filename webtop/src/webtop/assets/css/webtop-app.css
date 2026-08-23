@@ -1,6 +1,7 @@
 @charset "utf-8";
 
 @import url("./webtop-utilities.css?v=__BUILD_VERSION__");
+@import url("./webtop-ui.css?v=__BUILD_VERSION__");
 
 /* ============================================================================
  * Webtop App - Shared base stylesheet
@@ -216,8 +217,8 @@ html {
 	 * ---------------------------------------------------------------------- */
 	body {
 		font-size: 13px;
-		font-weight: 600;
-		letter-spacing: -0.025em;
+		font-weight: 500;
+		letter-spacing: normal;
 		line-height: 1.5;
 		color: var(--body-color);
 		background-color: transparent;
@@ -413,6 +414,62 @@ html {
 		box-shadow: var(--island-shadow);
 		padding: 1rem;
 		overflow: hidden;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * App shell layout
+	 * The 2/3-pane frame every app builds: nav-bar above, content-body with
+	 * sidebar / main / detail panes, status-bar below. Promoted from the
+	 * per-app stylesheets; an app only overrides the few properties it
+	 * differs in (unlayered app CSS wins over this layer).
+	 * ---------------------------------------------------------------------- */
+	.content-body {
+		display: flex;
+		flex: 1;
+		min-height: 0;
+		position: relative;
+		gap: 0.25rem;
+	}
+
+	.content-main {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-width: 0;
+		min-height: 0;
+	}
+
+	.sidebar-panel {
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		flex-shrink: 0;
+		min-width: 14rem;
+	}
+
+	.detail-panel {
+		display: flex;
+		flex-direction: column;
+		user-select: text;
+		flex-shrink: 0;
+		min-width: 16rem;
+	}
+
+	/* Pane resize handles (apps not yet migrated to <wt-splitter>; same look) */
+	.sidebar-resize-handle,
+	.detail-resize-handle {
+		width: 4px;
+		cursor: col-resize;
+		background-color: transparent;
+		flex-shrink: 0;
+		position: relative;
+		z-index: 2;
+		transition: background-color 0.15s;
+	}
+
+	.sidebar-resize-handle:hover, .sidebar-resize-handle:active,
+	.detail-resize-handle:hover, .detail-resize-handle:active {
+		background-color: rgb(from var(--primary-color) r g b / 0.35);
 	}
 
 	/* ------------------------------------------------------------------------
@@ -926,13 +983,15 @@ html {
 		border: none;
 		background: transparent;
 		color: var(--text-muted-color);
-		/* opacity: 0.5; */
 		cursor: pointer;
-	}
 
-	.input-group-btn:hover {
-		/* opacity: 1; */
-		color: var(--primary-color);
+		&:hover:not(:disabled) {
+			color: var(--primary-color);
+		}
+
+		&:disabled {
+			opacity: 0.5;
+		}
 	}
 
 	/* ------------------------------------------------------------------------
@@ -965,18 +1024,6 @@ html {
 	/* ------------------------------------------------------------------------
 	 * Tree
 	 * ---------------------------------------------------------------------- */
-	.tree {
-		/* TODO */
-	}
-
-	.tree-item {
-		/* TODO: indent, hover, selected */
-	}
-
-	.tree-item-toggle {
-		/* TODO: expand/collapse chevron */
-	}
-
 	/* ------------------------------------------------------------------------
 	 * Icon button (primitive)
 	 * Circular 24x24 icon button. Base for all other icon-button variants.
@@ -1008,7 +1055,7 @@ html {
 	}
 
 	.btn-icon:disabled {
-		opacity: 0.3;
+		opacity: 0.5;
 		cursor: default;
 	}
 

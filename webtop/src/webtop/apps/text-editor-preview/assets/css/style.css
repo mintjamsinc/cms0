@@ -36,14 +36,6 @@
 }
 
 /* Content body — single island */
-.content-body {
-	display: flex;
-	flex: 1;
-	min-height: 0;
-	position: relative;
-	gap: 0.25rem;
-}
-
 .preview-main {
 	flex: 1;
 	display: flex;
@@ -171,11 +163,9 @@
 }
 
 .markdown-body code {
-	font-family: 'Cascadia Code', 'Fira Code', monospace;
 	background-color: var(--item-hover-bg);
 	padding: 0.1em 0.35em;
 	border-radius: 0.25rem;
-	font-size: 0.9em;
 }
 
 .markdown-body pre {
@@ -244,12 +234,4 @@
 	margin: 1.25em 0;
 }
 
-.spin {
-	display: inline-block;
-	animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-	from { transform: rotate(0deg); }
-	to { transform: rotate(360deg); }
-}
+/* Spinner: wt-spinner (webtop-ui.css) */

@@ -565,6 +565,7 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 		}
 	}
 
+	@Override
 	public void addVersionControl(String id) throws RepositoryException {
 		Node item = fWorkspace.getSession().getNodeByIdentifier(id);
 		adaptTo(Session.class).checkPrivileges(item.getPath(), Privilege.JCR_VERSION_MANAGEMENT);

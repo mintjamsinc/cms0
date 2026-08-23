@@ -1,0 +1,42 @@
+{
+	"form.system.searchindex.common.checkingRole": "Checking permissions…",
+	"form.system.searchindex.common.adminRequired": "Administrator role is required to rebuild the search index.",
+
+	"form.system.searchindex.start.title": "Rebuild Search Index",
+	"form.system.searchindex.start.subtitle": "Rebuild the full-text search index of every cluster node from the repository content.",
+	"form.system.searchindex.start.description": "The rebuild runs in the background on each node. Search and content updates keep working throughout; the new index replaces the old one atomically when it is complete.",
+	"form.system.searchindex.start.note.progress": "A progress task will appear in your task list; open it any time to watch every node, abort, or re-run failed nodes.",
+	"form.system.searchindex.start.note.duration": "Depending on repository size this can take a long time. Only one rebuild should run at a time.",
+	"form.system.searchindex.start.button": "Start rebuild",
+	"form.system.searchindex.start.started": "The rebuild has been requested. Open the \"Search Index Rebuild Progress\" task from your task list to follow it.",
+	"form.system.searchindex.start.failed": "Could not start the rebuild: ",
+
+	"form.system.searchindex.progress.title": "Search Index Rebuild Progress",
+	"form.system.searchindex.progress.rebuildId": "Rebuild:",
+	"form.system.searchindex.progress.col.node": "Node",
+	"form.system.searchindex.progress.col.status": "Status",
+	"form.system.searchindex.progress.col.progress": "Progress",
+	"form.system.searchindex.progress.self": "this node",
+	"form.system.searchindex.progress.nodeDown": "node down",
+	"form.system.searchindex.progress.notTargeted": "not targeted (joined later; rebuilds on startup)",
+	"form.system.searchindex.progress.abort": "Abort",
+	"form.system.searchindex.progress.runningHint": "The rebuild is running. You can close this window; the task stays in your task list and shows the live state whenever you reopen it.",
+	"form.system.searchindex.progress.allCompleted": "Every node completed successfully.",
+	"form.system.searchindex.progress.someFailed": "{count, plural, one {# node} other {# nodes}} did not complete.",
+	"form.system.searchindex.progress.rerun": "Re-run failed nodes",
+	"form.system.searchindex.progress.close": "Complete task",
+	"form.system.searchindex.progress.openFromTask": "Open this form from the \"Search Index Rebuild Progress\" task.",
+
+	"form.system.searchindex.status.init": "Preparing",
+	"form.system.searchindex.status.queued": "Queued",
+	"form.system.searchindex.status.running": "Running",
+	"form.system.searchindex.status.aborting": "Aborting…",
+	"form.system.searchindex.status.aborted": "Aborted",
+	"form.system.searchindex.status.completed": "Completed",
+	"form.system.searchindex.status.failed": "Failed",
+
+	"form.system.searchindex.phase.counting": "Counting items",
+	"form.system.searchindex.phase.indexing": "Indexing",
+	"form.system.searchindex.phase.catchingUp": "Catching up on changes",
+	"form.system.searchindex.phase.swapping": "Activating the new index"
+}

@@ -76,10 +76,14 @@ public class JcrLock implements org.mintjams.jcr.lock.Lock, Adaptable {
 		return getExpirationMillis(lockData) <= now;
 	}
 
+	/**
+	 * Returns the owner information supplied when the lock was taken, falling back
+	 * to the acquiring principal's name when the caller supplied none.
+	 */
 	@Override
 	public String getLockOwner() {
 		String info = fLockData.getString("owner_info");
-		if (Strings.isNotEmpty(info)) {
+		if (Strings.isEmpty(info)) {
 			info = fLockData.getString("principal_name");
 		}
 		return info;
@@ -129,15 +133,16 @@ public class JcrLock implements org.mintjams.jcr.lock.Lock, Adaptable {
 		return Strings.isNotEmpty(fLockData.getString("session_id"));
 	}
 
+	/**
+	 * Extends this lock's lease. Delegated to the lock manager so that the row is
+	 * written through its own system session and pinned by this lock's token — the
+	 * same discipline {@code lock} and {@code unlock} follow.
+	 */
 	@Override
 	public void refresh() throws LockException, RepositoryException {
 		String absPath = fSession.getNodeByIdentifier(fLockData.getString("item_id")).getPath();
-		adaptTo(org.mintjams.jcr.Session.class).checkPrivileges(absPath, Privilege.JCR_LOCK_MANAGEMENT);
-		try {
-			getWorkspaceQuery().items().refreshLock(absPath);
-		} catch (IOException | SQLException ex) {
-			throw Cause.create(ex).wrap(RepositoryException.class);
-		}
+		adaptTo(JcrLockManager.class).refresh(absPath, getLockToken());
+		fLockData.put("lock_created", System.currentTimeMillis());
 	}
 
 	@Override

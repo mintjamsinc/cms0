@@ -1,0 +1,19 @@
+<template id="wt-file-tabs">
+	<div class="wt-file-tabs-bar">
+		<div class="wt-file-tabs">
+			<div v-for="(tab, index) in items" :key="tab.key ?? index"
+				class="wt-file-tab"
+				:class="{active: index === modelValue, modified: tab.modified}"
+				@click="select(index)" :title="tab.title || tab.label">
+				<span class="wt-file-tab-name"><slot name="tab" :tab="tab" :index="index">{{ tab.label }}</slot></span>
+				<span v-if="tab.modified" class="wt-file-tab-dot" aria-hidden="true"></span>
+				<button type="button" class="wt-file-tab-close" @click.stop="$emit('close', index)" :title="closeTitle">
+					<i class="bi bi-x"></i>
+				</button>
+			</div>
+			<button type="button" class="wt-file-tab-add" @click="$emit('add')" :title="addTitle">
+				<i class="bi bi-plus-lg"></i>
+			</button>
+		</div>
+	</div>
+</template>

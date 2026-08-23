@@ -266,8 +266,7 @@ public class Provisioner implements Closeable {
 		}
 
 		registry.registerNamespace(prefix, uri);
-		fSession.commit();
-		CmsService.getLogger(getClass()).debug("Provisioned namespace: " + prefix + " -> " + uri);
+		CmsService.getLogger(getClass()).info("Provisioned namespace: " + prefix + " -> " + uri);
 	}
 
 	// =========================================================================
@@ -289,7 +288,7 @@ public class Provisioner implements Closeable {
 		setStringIfPresent(profile, "displayName", definition);
 		setStringIfPresent(profile, "description", definition);
 		session.save();
-		CmsService.getLogger(getClass()).debug("Provisioned role: " + id);
+		CmsService.getLogger(getClass()).info("Provisioned role: " + id);
 	}
 
 	private void provisionGroup(Map<String, Object> definition) throws Exception {
@@ -311,7 +310,7 @@ public class Provisioner implements Closeable {
 		setStringIfPresent(profile, "displayName", definition);
 		setStringIfPresent(profile, "description", definition);
 		session.save();
-		CmsService.getLogger(getClass()).debug("Provisioned group: " + id);
+		CmsService.getLogger(getClass()).info("Provisioned group: " + id);
 	}
 
 	private void provisionUser(Map<String, Object> definition) throws Exception {
@@ -361,7 +360,7 @@ public class Provisioner implements Closeable {
 		// Identity Manager so the account behaves consistently afterwards.
 		JCRs.setAccessControlEntry(userFolder, userPrincipal(id), true, Privilege.JCR_ALL);
 		session.save();
-		CmsService.getLogger(getClass()).debug("Provisioned user: " + id);
+		CmsService.getLogger(getClass()).info("Provisioned user: " + id);
 	}
 
 	/**
@@ -413,7 +412,7 @@ public class Provisioner implements Closeable {
 			}
 			resource = createNode(path, primaryType);
 			fSession.commit();
-			CmsService.getLogger(getClass()).debug("Provisioned node: " + path);
+			CmsService.getLogger(getClass()).info("Provisioned node: " + path);
 		}
 
 		List<Map<String, Object>> entries = mapList(definition.get("acl"));
@@ -434,7 +433,7 @@ public class Provisioner implements Closeable {
 		if (changed) {
 			resource.setAccessControlList(acl);
 			fSession.commit();
-			CmsService.getLogger(getClass()).debug("Provisioned ACL: " + path);
+			CmsService.getLogger(getClass()).info("Provisioned ACL: " + path);
 		}
 	}
 

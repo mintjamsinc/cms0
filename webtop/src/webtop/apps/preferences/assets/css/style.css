@@ -32,20 +32,8 @@
  * .section-toggle is kept as a semantic marker, matching identity-manager. */
 
 /* Content body — single pane */
-.content-body {
-	display: flex;
-	flex: 1;
-	min-height: 0;
-	position: relative;
-	gap: 0.25rem;
-}
-
 .content-main {
-	display: flex;
-	flex-direction: column;
-	flex: 1;
-	min-width: 0;
-	min-height: 0;
+	/* Shared frame in webtop-app.css; app-specific extras only */
 	overflow: hidden;
 	padding: 0;
 }
@@ -66,23 +54,9 @@
 	color: var(--text-color);
 }
 
-/* Property group + reusable property row classes (BPMN editor style) */
+/* Property group heading (labels/rows now come from wt-field) */
 .property-group-title {
 	color: var(--text-soft-color);
-}
-
-.property-description {
-	margin-bottom: 0.5rem;
-	font-size: 12px;
-	color: var(--text-soft-color);
-}
-
-.property-label {
-	display: block;
-	font-size: 12px;
-	color: var(--text-soft-color);
-	margin-bottom: 0.125rem;
-	padding-left: 0.125rem;
 }
 
 /* Remote update banner */
@@ -98,25 +72,7 @@
 	font-size: 12px;
 }
 
-/* Inline status messages under forms */
-.pref-inline-message {
-	margin-top: 0.75rem;
-	padding: 0.5rem 0.75rem;
-	border-radius: 0.5rem;
-	font-size: 12px;
-}
-
-.pref-inline-success {
-	background-color: rgb(from var(--primary-color) r g b / 0.08);
-	border: 1px solid rgb(from var(--primary-color) r g b / 0.25);
-	color: var(--primary-color);
-}
-
-.pref-inline-error {
-	background-color: var(--danger-input-bg);
-	border: 1px solid var(--danger-input-border-color);
-	color: var(--danger-input-color);
-}
+/* Inline status messages: wt-inline-message (webtop-ui.css) */
 
 /* ----------------------------------------------------------------------------
  * Theme selector

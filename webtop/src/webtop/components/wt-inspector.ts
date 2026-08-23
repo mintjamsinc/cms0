@@ -5,7 +5,7 @@
 // content-browser embeds it for the currently-selected item; other editors
 // (text-editor, etc.) can embed it for whichever file is active.
 //
-// Contract (see memos/wt-inspector-設計書.md for the full design):
+// Contract:
 //   props:
 //     target  — InspectorTarget | InspectorTarget[] | null
 //               null = no selection, array = multi selection,
@@ -2982,6 +2982,13 @@ defineComponent('wt-inspector', {
 			if (item === '' || item == null) return '—';
 			if (prop.type === 'DATE') return this.formatDateLocal(item) || '—';
 			return item;
+		},
+		// Badges for a property's wt-property-row: TZ (DATE only) + type.
+		// Same shape as bpm-console's varBadges so both panels read alike.
+		detailPropBadges(this: any, prop: any): { label: string }[] {
+			const badges: { label: string }[] = prop.type === 'DATE' ? [{ label: this.localTZ }] : [];
+			badges.push({ label: prop.isArray ? prop.type + '[]' : prop.type });
+			return badges;
 		},
 		moveEditChip(this: any, idx: number, dir: number) {
 			const arr = this.propEditorEditValues as string[];

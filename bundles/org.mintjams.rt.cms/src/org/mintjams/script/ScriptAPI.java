@@ -29,6 +29,7 @@ import org.apache.commons.io.IOUtils;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.script.resource.ResourceNotFoundException;
@@ -70,10 +71,11 @@ public class ScriptAPI implements Adaptable {
 		}
 	}
 
-	public static ScriptingContext createInternalContext(String workspaceName) {
+	@Deprecated
+	public ScriptingContext createInternalContext() {
 		WorkspaceScriptContext context = null;
 		try {
-			context = new WorkspaceScriptContext(workspaceName);
+			context = new WorkspaceScriptContext(fContext.getWorkspaceName());
 			context.setCredentials(new CmsServiceCredentials());
 			Scripts.prepareAPIs(context);
 			return context;
@@ -83,10 +85,25 @@ public class ScriptAPI implements Adaptable {
 		}
 	}
 
-	public static ScriptingContext createAnonymousContext(String workspaceName) {
+	public ScriptingContext createServiceUserContext(String userId) {
 		WorkspaceScriptContext context = null;
 		try {
-			context = new WorkspaceScriptContext(workspaceName);
+			context = new WorkspaceScriptContext(fContext.getWorkspaceName());
+			context.setCredentials(new ServiceUserCredentials(userId));
+			Scripts.prepareAPIs(context);
+			context.getSession();  // Ensure that the session is created to validate the credentials
+			return context;
+		} catch (Throwable ex) {
+			IOUtils.closeQuietly(context);
+			throw new IllegalStateException(ex.getMessage(), ex);
+		}
+	}
+
+	@Deprecated
+	public ScriptingContext createAnonymousContext() {
+		WorkspaceScriptContext context = null;
+		try {
+			context = new WorkspaceScriptContext(fContext.getWorkspaceName());
 			context.setCredentials(new GuestCredentials());
 			Scripts.prepareAPIs(context);
 			return context;

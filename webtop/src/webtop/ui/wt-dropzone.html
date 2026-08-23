@@ -1,0 +1,8 @@
+<template id="wt-dropzone">
+	<div class="wt-dropzone" :class="{highlight: highlighted}"
+		@dragover.prevent="onDragOver($event)"
+		@dragleave="highlighted = false"
+		@drop.prevent="onDrop($event)">
+		<slot :highlighted="highlighted"></slot>
+	</div>
+</template>

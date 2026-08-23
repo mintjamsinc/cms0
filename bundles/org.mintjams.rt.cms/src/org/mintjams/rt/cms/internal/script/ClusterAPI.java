@@ -38,11 +38,23 @@ import org.mintjams.tools.lang.Cause;
  * part of a cluster, its node identifier, and the current membership.
  * Useful for operations dashboards and diagnostics.
  *
- * <p>This API is deliberately informational. Serializing work — "this
- * task must run exactly once at a time" — is not a cluster concern:
- * application code guards a task with a session-scoped JCR lock on a
- * lock resource (see {@code Resource.tryLock}), which works identically
- * in standalone and clustered deployments.
+ * <p>This API is deliberately informational, and offers no lock or
+ * leader-election call. "This work runs on one node only" is not a
+ * decision a script makes: it is a property of the route that drives the
+ * work, declared on the route as {@code cms:lock} and enforced before the
+ * work begins. The mechanism is the same session-scoped JCR lock either
+ * way — a row in the workspace database, so it serializes identically in
+ * standalone and clustered deployments — but where the guard is decides
+ * what the guard costs. Inside a script, everything the lock protects has
+ * to live inside that script's {@code try/finally}; on the route, the
+ * work it protects is free to be assembled from steps that can be read,
+ * rewired and extended. That is the whole point.
+ *
+ * <p>Ordinary JCR locks keep their real purpose: protecting a specific
+ * resource against concurrent mutation by unrelated callers. They are not
+ * a scheduling mechanism, and a script reaching for one to serialize its
+ * own recurring execution is a script that has absorbed flow belonging to
+ * its route. See {@code documents/eip-session-lifecycle.md}.
  */
 public class ClusterAPI {
 

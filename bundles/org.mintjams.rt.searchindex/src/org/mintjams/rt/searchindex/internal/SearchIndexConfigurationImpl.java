@@ -161,6 +161,31 @@ public class SearchIndexConfigurationImpl implements SearchIndexConfiguration {
 		return getSuggestionPath().resolve("index").normalize();
 	}
 
+	/** Staging area of a rebuild session: a complete replacement index is built here, then swapped in on commit. */
+	public Path getRebuildPath() {
+		return getDataPath().resolve("rebuild").normalize();
+	}
+
+	/**
+	 * Marker written just before the swap moves start (the staged index is
+	 * complete by then) and removed once the swapped index has been reopened.
+	 * Its presence at open time means a commit was interrupted: the swap is
+	 * rolled forward, never rolled back.
+	 */
+	public Path getSwapStatePath() {
+		return getDataPath().resolve("swap.state").normalize();
+	}
+
+	/** Where the previous documents index is parked during a swap, deleted after the swapped index reopens. */
+	public Path getDocumentBackupPath() {
+		return getDataPath().resolve("documents.old").normalize();
+	}
+
+	/** Where the previous suggestions index is parked during a swap, deleted after the swapped index reopens. */
+	public Path getSuggestionBackupPath() {
+		return getDataPath().resolve("suggestions.old").normalize();
+	}
+
 	public Path getConfigPath() {
 		if (!fConfig.containsKey(PROP_CONFIG_PATH)) {
 			return getDataPath().resolve("etc");
