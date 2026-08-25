@@ -27,15 +27,12 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
 
 import javax.jcr.AccessDeniedException;
 import javax.jcr.InvalidItemStateException;
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
 import javax.jcr.PathNotFoundException;
-import javax.jcr.Property;
-import javax.jcr.PropertyType;
 import javax.jcr.RepositoryException;
 import javax.jcr.UnsupportedRepositoryOperationException;
 import javax.jcr.lock.Lock;
@@ -45,7 +42,6 @@ import javax.jcr.nodetype.NodeType;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.Session;
-import org.mintjams.jcr.observation.Event;
 import org.mintjams.jcr.security.Privilege;
 import org.mintjams.rt.jcr.internal.JcrWorkspace;
 import org.mintjams.rt.jcr.internal.JcrWorkspaceProvider;
@@ -152,62 +148,20 @@ public class JcrLockManager implements LockManager, Adaptable {
 		try (JcrWorkspace workspace = adaptTo(JcrWorkspaceProvider.class).createSession(new SystemPrincipal(fWorkspace.getSession().getUserID()))) {
 			WorkspaceQuery workspaceQuery = Adaptables.getAdapter(workspace, WorkspaceQuery.class);
 
-			// Reclaim an expired lock row before claiming: delete exactly the
-			// row that was seen as expired (pinned by its token, so a lock
-			// refreshed or re-acquired in the meantime is never removed), then
-			// claim by insert. The primary key on item_id makes the claim
-			// atomic: of several concurrent claimers exactly one insert
-			// succeeds and the others fail into LockException.
-			AdaptableMap<String, Object> current = workspaceQuery.items().getLockRow(item.getIdentifier());
-			if (current != null) {
-				if (!JcrLock.isExpired(current, System.currentTimeMillis())) {
-					throw new LockException("Node '" + absPath + "' is already locked.");
-				}
-				workspaceQuery.items().removeLockRow(item.getIdentifier(), current.getString("lock_token"));
-			}
+			// The acquiring session's identifier, not the throwaway system
+			// session's: unlockSessionScopedLocks() matches on that column when
+			// the acquiring session closes, so recording the system session
+			// would leave every session-scoped lock held until its timeout
+			// expired.
+			String sessionIdentifier = isSessionScoped ? getWorkspaceQuery().getSessionIdentifier().toString() : null;
 
-			AdaptableMap<String,Object> lockData = AdaptableMap.<String, Object>newBuilder()
-					.put("item_id", item.getIdentifier())
-					.put("is_deep", isDeep)
-					// The acquiring session's identifier, not the throwaway system
-					// session's: unlockSessionScopedLocks() matches on this column
-					// when the acquiring session closes, so recording the system
-					// session here would leave every session-scoped lock held until
-					// its timeout expired.
-					.put("session_id", isSessionScoped ? getWorkspaceQuery().getSessionIdentifier().toString() : null)
-					.put("timeout_hint", timeoutHint)
-					.put("owner_info", ownerInfo)
-					.put("principal_name", fWorkspace.getSession().getUserID())
-					.put("lock_created", System.currentTimeMillis())
-					.put("lock_token", UUID.randomUUID().toString())
-					.build();
-			try {
-				workspaceQuery.items().locksEntity().create(lockData).execute();
-			} catch (SQLException ignore) {
-				throw new LockException("Node '" + absPath + "' is already locked.");
-			}
+			AdaptableMap<String, Object> lockData = workspaceQuery.items().createLock(item.getIdentifier(), isDeep,
+					sessionIdentifier, timeoutHint, ownerInfo);
 			addLockToken(lockData.getString("lock_token"));
-
-			workspaceQuery.items().setProperty(item.getIdentifier(), Property.JCR_LOCK_OWNER, PropertyType.STRING, workspaceQuery.createValue(PropertyType.STRING, fWorkspace.getSession().getUserID()));
-			workspaceQuery.items().setProperty(item.getIdentifier(), Property.JCR_LOCK_IS_DEEP, PropertyType.BOOLEAN, workspaceQuery.createValue(PropertyType.BOOLEAN, isDeep));
-
-			workspaceQuery.journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.currentTimeMillis())
-					.put("event_type", Event.LOCKED)
-					.put("item_id", item.getIdentifier())
-					.put("item_path", item.getPath())
-					.put("primary_type", item.getPrimaryNodeType().getName())
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
-					.build());
 
 			workspace.getSession().save();
 
-			lock = JcrLock.create(lockData, fWorkspace.getSession());
-			addLockToken(lock.getLockToken());
-
-			return lock;
+			return JcrLock.create(lockData, fWorkspace.getSession());
 		} catch (IOException | SQLException ex) {
 			throw Cause.create(ex).wrap(RepositoryException.class);
 		}
@@ -254,28 +208,7 @@ public class JcrLockManager implements LockManager, Adaptable {
 				throw new LockException("Could not unlock node '" + absPath + "'.");
 			}
 
-			AdaptableMap<String,Object> lockPk = AdaptableMap.<String, Object>newBuilder()
-					.put("item_id", item.getIdentifier())
-					.build();
-
-			int count = workspaceQuery.items().locksEntity().deleteByPrimaryKey(lockPk).execute();
-			if (count == 0) {
-				throw new LockException("Could not unlock node '" + absPath + "'.");
-			}
-
-			workspaceQuery.journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.currentTimeMillis())
-					.put("event_type", Event.UNLOCKED)
-					.put("item_id", item.getIdentifier())
-					.put("item_path", item.getPath())
-					.put("primary_type", item.getPrimaryNodeType().getName())
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
-					.build());
-
-			workspaceQuery.items().removeProperty(item.getIdentifier(), Property.JCR_LOCK_OWNER);
-			workspaceQuery.items().removeProperty(item.getIdentifier(), Property.JCR_LOCK_IS_DEEP);
+			workspaceQuery.items().unlock(item.getIdentifier(), lock.getLockToken());
 
 			workspace.getSession().save();
 			removeLockToken(lock.getLockToken());
@@ -343,17 +276,6 @@ public class JcrLockManager implements LockManager, Adaptable {
 			if (count == 0) {
 				throw new LockException("Could not refresh the lock on node '" + absPath + "'.");
 			}
-
-			workspaceQuery.journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
-					.put("event_occurred", System.currentTimeMillis())
-					.put("event_type", Event.LOCK_REFRESHED)
-					.put("item_id", item.getIdentifier())
-					.put("item_path", item.getPath())
-					.put("primary_type", item.getPrimaryNodeType().getName())
-					.put("user_id", fWorkspace.getSession().getUserID())
-					.put("user_data", null)
-					.put("event_info", null)
-					.build());
 
 			workspace.getSession().save();
 		} catch (IOException | SQLException ex) {

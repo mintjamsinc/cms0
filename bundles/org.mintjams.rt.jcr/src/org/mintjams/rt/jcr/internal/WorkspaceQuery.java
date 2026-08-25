@@ -670,7 +670,7 @@ public class WorkspaceQuery implements Adaptable {
 
 		private Entity fLocksEntity;
 
-		public Entity locksEntity() throws SQLException {
+		private Entity locksEntity() throws SQLException {
 			if (fLocksEntity == null) {
 				fLocksEntity = Entity.newBuilder(getConnection()).setName("jcr_locks").build();
 			}
@@ -2462,10 +2462,9 @@ public class WorkspaceQuery implements Adaptable {
 
 		/**
 		 * Returns the lock row for the given item, including an expired one,
-		 * or {@code null} if the item holds no lock row at all. Used by the
-		 * lock manager to reclaim an expired lock atomically.
+		 * or {@code null} if the item holds no lock row at all.
 		 */
-		public AdaptableMap<String, Object> getLockRow(String itemId) throws IOException, SQLException {
+		private AdaptableMap<String, Object> getLockRow(String itemId) throws IOException, SQLException {
 			try (Query.Result result = newQueryBuilder("SELECT * FROM jcr_locks WHERE item_id = {{item_id}}")
 					.setVariable("item_id", itemId).build().setOffset(0).execute()) {
 				for (AdaptableMap<String, Object> r : result) {
@@ -2477,11 +2476,11 @@ public class WorkspaceQuery implements Adaptable {
 
 		/**
 		 * Removes the lock row identified by the given item and lock token.
-		 * The token pins the exact claim that was seen as expired, so a lock
+		 * The token pins the exact claim the caller observed, so a lock
 		 * refreshed or re-acquired in the meantime is never removed on behalf
 		 * of a stale observation. Returns the number of rows removed.
 		 */
-		public int removeLockRow(String itemId, String lockToken) throws IOException, SQLException {
+		private int removeLockRow(String itemId, String lockToken) throws IOException, SQLException {
 			return newUpdateBuilder("DELETE FROM jcr_locks WHERE item_id = {{item_id}} AND lock_token = {{lock_token}}")
 					.setVariable("item_id", itemId)
 					.setVariable("lock_token", lockToken)
@@ -2489,19 +2488,125 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		/**
-		 * Extends the lease on the lock identified by the given item and lock
-		 * token, and returns the number of rows updated. The token pins the exact
-		 * claim: a lock that expired and was re-acquired in the meantime carries a
-		 * different token, so a stale observation refreshes nothing (0 rows)
-		 * instead of extending someone else's lease.
+		 * Claims the lock on the given item and returns the row that was written,
+		 * including the lock token that identifies the claim.
+		 * <p>
+		 * An expired lock row is reclaimed before claiming: it is deleted pinned by
+		 * its own token, so a lock refreshed or re-acquired in the meantime is never
+		 * removed. The claim itself is an insert, and the primary key on
+		 * {@code item_id} makes it atomic: of several concurrent claimers exactly one
+		 * insert succeeds and the others fail into {@link LockException}.
+		 * <p>
+		 * {@code sessionIdentifier} is the identifier of the session taking the lock,
+		 * or {@code null} for an open-scoped one. It must be the acquiring session's,
+		 * not that of any system session this query happens to run on:
+		 * {@link #unlockSessionScopedLocks()} matches on that column when the
+		 * acquiring session closes, so recording another session here would leave a
+		 * session-scoped lock held until its timeout expired.
 		 */
-		public int refreshLock(String itemId, String lockToken) throws IOException, SQLException {
-			return newUpdateBuilder(
+		public AdaptableMap<String, Object> createLock(String itemId, boolean isDeep, String sessionIdentifier,
+				long timeoutHint, String ownerInfo) throws IOException, SQLException, RepositoryException {
+			if (Strings.isEmpty(itemId)) {
+				throw new ItemNotFoundException("Identifier must not be null or empty.");
+			}
+
+			AdaptableMap<String, Object> current = getLockRow(itemId);
+			if (current != null) {
+				if (!JcrLock.isExpired(current, System.currentTimeMillis())) {
+					throw new LockException("Node '" + getPath(itemId) + "' is already locked.");
+				}
+				removeLockRow(itemId, current.getString("lock_token"));
+			}
+
+			String userID = fWorkspace.getSession().getUserID();
+			AdaptableMap<String, Object> lockData = AdaptableMap.<String, Object>newBuilder()
+					.put("item_id", itemId)
+					.put("is_deep", isDeep)
+					.put("session_id", sessionIdentifier)
+					.put("timeout_hint", timeoutHint)
+					.put("owner_info", ownerInfo)
+					.put("principal_name", userID)
+					.put("lock_created", System.currentTimeMillis())
+					.put("lock_token", UUID.randomUUID().toString())
+					.build();
+			try {
+				locksEntity().create(lockData).execute();
+			} catch (SQLException ignore) {
+				throw new LockException("Node '" + getPath(itemId) + "' is already locked.");
+			}
+
+			setProperty(itemId, Property.JCR_LOCK_OWNER, PropertyType.STRING,
+					createValue(PropertyType.STRING, userID));
+			setProperty(itemId, Property.JCR_LOCK_IS_DEEP, PropertyType.BOOLEAN,
+					createValue(PropertyType.BOOLEAN, isDeep));
+
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
+					.put("event_occurred", System.currentTimeMillis()).put("event_type", Event.LOCKED)
+					.put("item_id", itemId).put("item_path", getPath(itemId))
+					.put("primary_type", getPrimaryType(itemId)).put("user_id", userID).put("user_data", null)
+					.put("event_info", null).build());
+
+			return lockData;
+		}
+
+		/**
+		 * Releases the lock identified by the given item and lock token, removing the
+		 * lock properties from the item and writing the journal event. The token pins
+		 * the exact claim the caller observed, so a lock that expired and was
+		 * re-acquired in the meantime is not released on behalf of a stale
+		 * observation; nothing to release is a {@link LockException}.
+		 * <p>
+		 * Unlike {@link #unlock(String)} this performs no token-ownership check of its
+		 * own: the caller states which claim it is releasing.
+		 */
+		public void unlock(String itemId, String lockToken) throws IOException, SQLException, RepositoryException {
+			if (Strings.isEmpty(itemId)) {
+				throw new ItemNotFoundException("Identifier must not be null or empty.");
+			}
+
+			int count = removeLockRow(itemId, lockToken);
+			if (count == 0) {
+				throw new LockException("Could not unlock node '" + getPath(itemId) + "'.");
+			}
+
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
+					.put("event_occurred", System.currentTimeMillis()).put("event_type", Event.UNLOCKED)
+					.put("item_id", itemId).put("item_path", getPath(itemId))
+					.put("primary_type", getPrimaryType(itemId))
+					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null)
+					.put("event_info", null).build());
+
+			removeProperty(itemId, Property.JCR_LOCK_OWNER);
+			removeProperty(itemId, Property.JCR_LOCK_IS_DEEP);
+		}
+
+		/**
+		 * Extends the lease on the lock identified by the given item and lock token,
+		 * writes the journal event, and returns the number of rows updated. The token
+		 * pins the exact claim: a lock that expired and was re-acquired in the
+		 * meantime carries a different token, so a stale observation refreshes nothing
+		 * (0 rows, and no journal event) instead of extending someone else's lease.
+		 */
+		public int refreshLock(String itemId, String lockToken)
+				throws IOException, SQLException, RepositoryException {
+			int count = newUpdateBuilder(
 					"UPDATE jcr_locks SET lock_created = {{lockCreated}} WHERE item_id = {{itemId}} AND lock_token = {{lockToken}}")
 					.setVariable("lockCreated", System.currentTimeMillis())
 					.setVariable("itemId", itemId)
 					.setVariable("lockToken", lockToken)
 					.build().execute();
+			if (count == 0) {
+				return count;
+			}
+
+			journal().writeJournal(AdaptableMap.<String, Object>newBuilder()
+					.put("event_occurred", System.currentTimeMillis()).put("event_type", Event.LOCK_REFRESHED)
+					.put("item_id", itemId).put("item_path", getPath(itemId))
+					.put("primary_type", getPrimaryType(itemId))
+					.put("user_id", fWorkspace.getSession().getUserID()).put("user_data", null)
+					.put("event_info", null).build());
+
+			return count;
 		}
 
 		public void removeLock(String id) throws IOException, SQLException, RepositoryException {
