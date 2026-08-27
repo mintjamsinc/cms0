@@ -909,6 +909,11 @@ public class JcrXPathQuery extends SearchIndexQuery {
 	}
 
 	private static class PathClause extends Clause {
+		// Upper bound on the number of paths one clause may expand to; brace
+		// groups multiply (each group's alternatives times every other group's),
+		// so an unbounded expansion could be used to blow up the query.
+		private static final int BRACE_EXPANSION_LIMIT = 256;
+
 		private final Map<String, PointsConfig> fPointsConfigMap = new HashMap<>();
 
 		protected PathClause(String statement, Adaptable adaptable) {
@@ -917,7 +922,133 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 		@Override
 		protected String compile() {
-			String query = fStatement;
+			List<String> statements = expandBraces(fStatement);
+			if (statements.size() == 1) {
+				return compilePath(statements.get(0));
+			}
+
+			StringBuilder buf = new StringBuilder();
+			for (String statement : statements) {
+				String q = compilePath(statement);
+				if (q.equals("*:*")) {
+					// One alternative matches everything, so the whole clause does.
+					return q;
+				}
+				if (buf.length() > 0) {
+					buf.append(" OR ");
+				}
+				buf.append(q);
+			}
+			return "(" + buf + ")";
+		}
+
+		// Expands shell-style brace alternatives, e.g.
+		// /dir1/{dir3,dir4}/dir6 -> /dir1/dir3/dir6, /dir1/dir4/dir6.
+		// Bash semantics: a group needs a matching '}' and at least one
+		// top-level comma; anything else (unmatched or comma-less braces) is
+		// left as literal text. Groups may nest, and multiple groups produce
+		// the cross product of their alternatives.
+		private List<String> expandBraces(String statement) {
+			List<String> results = new ArrayList<>();
+			expandBraces(statement, results);
+			return results;
+		}
+
+		private void expandBraces(String statement, List<String> results) {
+			char[] chars = statement.toCharArray();
+			for (int i = 0; i < chars.length; i++) {
+				char c = chars[i];
+
+				if (c == '"' || c == '\'') {
+					char quart = c;
+					for (i++; i < chars.length; i++) {
+						c = chars[i];
+						if (c == quart) {
+							break;
+						}
+						if (c == '\\') {
+							i++;
+							continue;
+						}
+					}
+					continue;
+				}
+
+				if (c == '\\') {
+					i++;
+					continue;
+				}
+
+				if (c != '{') {
+					continue;
+				}
+
+				int nest = 0;
+				int endIndex = -1;
+				List<Integer> commaIndexes = new ArrayList<>();
+				for (int j = i; j < chars.length; j++) {
+					char cj = chars[j];
+
+					if (cj == '"' || cj == '\'') {
+						char quart = cj;
+						for (j++; j < chars.length; j++) {
+							cj = chars[j];
+							if (cj == quart) {
+								break;
+							}
+							if (cj == '\\') {
+								j++;
+								continue;
+							}
+						}
+						continue;
+					}
+
+					if (cj == '\\') {
+						j++;
+						continue;
+					}
+
+					if (cj == '{') {
+						nest++;
+						continue;
+					}
+					if (cj == '}') {
+						nest--;
+						if (nest == 0) {
+							endIndex = j;
+							break;
+						}
+						continue;
+					}
+					if (cj == ',' && nest == 1) {
+						commaIndexes.add(j);
+					}
+				}
+
+				if (endIndex == -1 || commaIndexes.isEmpty()) {
+					continue;
+				}
+
+				String prefix = statement.substring(0, i);
+				String suffix = statement.substring(endIndex + 1);
+				int beginIndex = i + 1;
+				for (int commaIndex : commaIndexes) {
+					expandBraces(prefix + statement.substring(beginIndex, commaIndex) + suffix, results);
+					beginIndex = commaIndex + 1;
+				}
+				expandBraces(prefix + statement.substring(beginIndex, endIndex) + suffix, results);
+				return;
+			}
+
+			if (results.size() >= BRACE_EXPANSION_LIMIT) {
+				throw new InvalidQuerySyntaxException(fStatement);
+			}
+			results.add(statement);
+		}
+
+		private String compilePath(String statement) {
+			String query = statement;
 			String filename = null;
 			String nodeType = null;
 			int depth = -1;
