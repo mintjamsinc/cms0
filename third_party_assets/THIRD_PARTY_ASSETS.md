@@ -13,6 +13,20 @@
   `webtop/rollup.config.js`.
 - Licensed under the SIL Open Font License 1.1.
 
+## Noto Sans JP Font
+
+- Bundled from the
+  [@fontsource-variable/noto-sans-jp](https://www.npmjs.com/package/@fontsource-variable/noto-sans-jp)
+  npm package (pinned in `webtop/package.json`), which repackages the
+  upstream [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk)
+  Noto Sans JP variable font as Google Fonts' unicode-range subsets. The
+  package's `index.css`, its `files/` directory of variable woff2 subsets
+  and the upstream `LICENSE` are copied into
+  `webtop/dist/webtop/assets/vendor/noto-sans-jp/` at build time by
+  `webtop/rollup.config.js`. `style.css` and `webtop-app.css` `@import` the
+  vendored `index.css`; browsers fetch only the subsets a page actually uses.
+- Licensed under the SIL Open Font License 1.1.
+
 ## Bootstrap Icons
 
 - Bundled from the [bootstrap-icons](https://icons.getbootstrap.com/) npm

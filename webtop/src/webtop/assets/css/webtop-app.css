@@ -3,6 +3,12 @@
 @import url("./webtop-utilities.css?v=__BUILD_VERSION__");
 @import url("./webtop-ui.css?v=__BUILD_VERSION__");
 
+/* Noto Sans JP (variable). Vendored from @fontsource-variable/noto-sans-jp;
+ * its ~120 unicode-range subsets are @import-ed rather than inlined, and
+ * the browser fetches only the subsets a page actually uses. Placed after
+ * InterVariable in the html stack so Latin keeps rendering in Inter. */
+@import url("../vendor/noto-sans-jp/index.css?v=__BUILD_VERSION__");
+
 /* ============================================================================
  * Webtop App - Shared base stylesheet
  *
@@ -36,7 +42,7 @@
 }
 
 html {
-	font-family: "InterVariable", ui-sans-serif, -apple-system, system-ui, Segoe UI, Helvetica, Apple Color Emoji, Arial, sans-serif, Segoe UI Emoji, Segoe UI Symbol;
+	font-family: "InterVariable", "Noto Sans JP Variable", ui-sans-serif, -apple-system, system-ui, Segoe UI, Helvetica, Apple Color Emoji, Arial, sans-serif, Segoe UI Emoji, Segoe UI Symbol;
 	font-feature-settings: "ss01" on;
 	font-size: 16px;
 }
