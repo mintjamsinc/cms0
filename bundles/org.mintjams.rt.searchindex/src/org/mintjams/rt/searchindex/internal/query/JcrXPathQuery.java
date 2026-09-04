@@ -1758,7 +1758,80 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					return null;
 				}
 
+				if (value.startsWith("jcr:like(")) {
+					if (!value.endsWith(")")) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+
+					String argsString = value.substring(value.indexOf("(") + 1, value.length() - 1).trim();
+					List<String> args = parseArguments(argsString);
+					if (args.size() != 2) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					String propertyName = args.get(0);
+					// jcr:like tests a single property against a pattern, so unlike
+					// jcr:contains the first argument cannot be "." (the node itself).
+					if (!(propertyName.startsWith("@") || propertyName.startsWith("jcr:"))) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					Object arg1 = toJavaValue(args.get(1));
+					if (!(arg1 instanceof String)) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					if (Strings.isEmpty(arg1.toString())) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+
+					return escape(getFieldName(propertyName)) + ":" + toLuceneWildcard(arg1.toString());
+				}
+
 				return null;
+			}
+
+			// Translates a jcr:like pattern into a Lucene wildcard term. JCR (and
+			// SQL) spell the wildcards '%' (any run of characters, including none)
+			// and '_' (exactly one character), with '\' escaping the next character
+			// so a literal '%', '_' or '\' can be matched. Lucene spells the same two
+			// wildcards '*' and '?', so the translation is one character at a time:
+			// the two wildcards are swapped for their Lucene counterparts and every
+			// other character is escaped for the query parser, which keeps a literal
+			// '*' or '?' in the pattern from being read as a wildcard.
+			//
+			// String properties are indexed as exact, untokenized terms
+			// (StringField), so the resulting WildcardQuery matches against the whole
+			// stored value exactly as the JCR function specifies, and a pattern
+			// without wildcards degenerates into an exact term match. The query
+			// parser is configured to allow a leading wildcard, which a pattern such
+			// as '%text%' needs.
+			private String toLuceneWildcard(String pattern) {
+				StringBuilder buf = new StringBuilder();
+				char[] chars = pattern.toCharArray();
+				for (int i = 0; i < chars.length; i++) {
+					char c = chars[i];
+
+					if (c == '\\') {
+						// A trailing escape character escapes nothing; refuse it
+						// rather than guess whether a literal backslash was meant.
+						if (i + 1 >= chars.length) {
+							throw new InvalidQuerySyntaxException(fStatement);
+						}
+						buf.append(escape(String.valueOf(chars[++i])));
+						continue;
+					}
+
+					if (c == '%') {
+						buf.append('*');
+						continue;
+					}
+
+					if (c == '_') {
+						buf.append('?');
+						continue;
+					}
+
+					buf.append(escape(String.valueOf(c)));
+				}
+				return buf.toString();
 			}
 		}
 	}
