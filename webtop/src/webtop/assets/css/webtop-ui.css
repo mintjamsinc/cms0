@@ -195,7 +195,7 @@
 	}
 	.wt-field-hint {
 		font-size: 11px;
-		color: var(--text-muted-color);
+		color: var(--text-soft-color);
 		padding-left: 0.125rem;
 	}
 	.wt-field-error {
