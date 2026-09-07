@@ -207,6 +207,131 @@
 		border-color: var(--danger-color);
 	}
 
+	/* Vertical rhythm for a run of fields. Use this instead of putting a
+	 * margin on the fields themselves, so the spacing is stated once and
+	 * every screen that stacks fields agrees on it.
+	 *
+	 *   <div class="wt-fields">
+	 *     <div class="wt-field">...</div>
+	 *     <div class="wt-field">...</div>
+	 *   </div>
+	 *
+	 * Add .wt-grid to lay the same fields out in as many columns as fit;
+	 * it falls back to one column below roughly 16rem of width, so no media
+	 * query is needed. */
+	.wt-fields {
+		display: flex;
+		flex-direction: column;
+		gap: var(--wt-space-3);
+
+		&.wt-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+			gap: var(--wt-space-3) var(--wt-space-4);
+			align-items: start;
+		}
+	}
+
+	/* A set of radio buttons or checkboxes that together answer one field.
+	 * Wraps rather than overflowing, because a form pane can be narrow.
+	 *
+	 *   <div class="wt-field">
+	 *     <span class="wt-field-label">Match</span>
+	 *     <div class="wt-field-options">
+	 *       <label><input type="radio" class="wt" value="any"> Any of them</label>
+	 *       <label><input type="radio" class="wt" value="all"> All of them</label>
+	 *     </div>
+	 *   </div>
+	 */
+	.wt-field-options {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--wt-space-1) var(--wt-space-4);
+
+		> label {
+			display: inline-flex;
+			align-items: center;
+			gap: var(--wt-space-1);
+			font-weight: 400;
+		}
+
+		/* Stack the options instead of running them along the row. Use this
+		 * when the labels are long enough that a wrapped row would be hard
+		 * to scan - a list of datasets, say, rather than Any/All. */
+		&.wt-column {
+			flex-direction: column;
+			align-items: flex-start;
+			flex-wrap: nowrap;
+		}
+	}
+
+	/* Two controls that are read as one value - From/To, min/max. The inputs
+	 * share the row evenly and may shrink, so a narrow pane wraps instead of
+	 * pushing the separator off the edge.
+	 *
+	 *   <div class="wt-field-range">
+	 *     <input type="number" class="wt" placeholder="From">
+	 *     <span>-</span>
+	 *     <input type="number" class="wt" placeholder="To">
+	 *   </div>
+	 */
+	.wt-field-range {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--wt-space-2);
+
+		> :is(input.wt, select.wt) {
+			flex: 1 1 8rem;
+			min-width: 0;
+		}
+	}
+
+	/* A control with something attached on the same row - a lookup button, a
+	 * unit, a browse affordance. The control takes the room that is left, the
+	 * attachment keeps its own size, and both align to the top so a growing
+	 * textarea does not drag its button down with it.
+	 *
+	 *   <div class="wt-field-addon">
+	 *     <textarea class="wt" rows="3"></textarea>
+	 *     <button class="btn-icon" @click="openLookup"><i class="bi bi-search"></i></button>
+	 *   </div>
+	 */
+	.wt-field-addon {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--wt-space-2);
+
+		> :is(input.wt, select.wt, textarea.wt) {
+			flex: 1;
+			min-width: 0;
+		}
+	}
+
+	/* Read-only key/value list - what a screen was asked to do, played back.
+	 * Labels size to their content, values take the rest and wrap.
+	 *
+	 *   <dl class="wt-keyvalue">
+	 *     <dt>Customer tags</dt><dd>vip, wholesale</dd>
+	 *     <dt>Order total</dt><dd>1000 - 5000</dd>
+	 *   </dl>
+	 */
+	.wt-keyvalue {
+		display: grid;
+		grid-template-columns: max-content 1fr;
+		gap: var(--wt-space-1) var(--wt-space-4);
+		margin: 0;
+
+		> dt {
+			color: var(--text-soft-color);
+		}
+		> dd {
+			margin: 0;
+			overflow-wrap: anywhere;
+		}
+	}
+
 	/* ------------------------------------------------------------------------
 	 * <wt-checkbox> — labeled checkbox
 	 * ---------------------------------------------------------------------- */
@@ -272,7 +397,7 @@
 	}
 
 	/* ------------------------------------------------------------------------
-	 * <wt-tabs> — tab bar (pill / underline)
+	 * <wt-tabs> — tab bar (pill / underline / file)
 	 * ---------------------------------------------------------------------- */
 	wt-tabs {
 		display: block;
@@ -312,6 +437,37 @@
 			&.active {
 				background-color: var(--item-selected-bg);
 				color: var(--item-selected-color);
+			}
+		}
+	}
+	/* The <wt-file-tabs> look, for a tab bar that should read as an editor's
+	 * document tabs rather than as a segmented control: a bordered pill in the
+	 * nav-current palette, a hairline between tabs, and body text rather than
+	 * the small bold of the other variants. Kept in step with .wt-file-tab. */
+	.wt-tabs.wt-file {
+		gap: 0.25rem;
+
+		& > .wt-tab {
+			font-size: inherit;
+			font-weight: inherit;
+			padding: 0.125rem 0.75rem;
+			border: 1px solid transparent;
+			border-color: var(--navbar-border-color);
+			border-radius: var(--wt-radius-pill);
+			color: var(--text-muted-color);
+			transition: background-color 0.15s, color 0.15s;
+
+			&:hover:not(:disabled):not(.active) {
+				background-color: var(--item-hover-bg);
+				color: var(--text-color);
+			}
+			&.active {
+				color: var(--nav-current-color);
+				background-color: var(--nav-current-bg);
+				border-color: var(--nav-current-border-color);
+			}
+			&.active:hover {
+				background-color: var(--nav-current-hover-bg);
 			}
 		}
 	}
@@ -554,7 +710,7 @@
 		gap: 0.375rem;
 		padding: 0.125rem 0.75rem;
 		border: 1px solid transparent;
-		border-right-color: var(--navbar-border-color);
+		border-color: var(--navbar-border-color);
 		border-radius: var(--wt-radius-pill);
 		color: var(--text-muted-color);
 		cursor: pointer;

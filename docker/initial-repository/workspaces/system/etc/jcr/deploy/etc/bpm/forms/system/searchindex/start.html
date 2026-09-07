@@ -5,43 +5,57 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Search Index Rebuild — Start</title>
 <style>
-	/* Theme tokens, base text, button.wt and the wt-* component styles come
-	   from wt-ui.css, injected by the wt-ui.esm.js bundle's initUi() (loaded
-	   via the form host's webtopBaseUrl). Only form-specific layout lives
-	   here, expressed in the shared tokens. */
+	/* Everything this form draws with - theme tokens, the .wt-form shell,
+	   .island, .alert, button.wt, the text utilities and the wt-* components -
+	   comes from wt-ui.css, injected by the wt-ui.esm.js bundle's initUi()
+	   (loaded via the form host's webtopBaseUrl). A form should need no CSS of
+	   its own; anything it does need probably belongs in the shared sheets.
+
+	   [v-cloak] is the one rule that has to stay inline: wt-ui.css carries it
+	   too (via webtop-app.css), but that only applies once the <link> has
+	   loaded, and the cloak has to cover the paint before that. */
 	[v-cloak] { display: none; }
-	h1 { font-size: 18px; margin: 0 0 4px; }
-	.muted { color: var(--text-muted-color); }
-	.panel {
-		background: var(--island-bg); border: 1px solid var(--island-border-color);
-		border-radius: 8px; padding: 14px 18px; margin: 12px 0;
-	}
-	ul { margin: 6px 0; padding-left: 20px; }
-	.success { color: var(--success-color); font-weight: 600; }
-	wt-inline-message { margin-top: 8px; }
 </style>
 </head>
 <body>
-<main id="app" v-cloak @mounted="onMounted" @unmount="onUnmount">
-	<h1>{{ t('start.title', null, 'Rebuild Search Index') }}</h1>
-	<p class="muted">{{ t('start.subtitle', null, 'Rebuild the full-text search index of every cluster node from the repository content.') }}</p>
-
-	<div class="panel">
-		<p>{{ t('start.description', null, 'The rebuild runs in the background on each node. Search and content updates keep working throughout; the new index replaces the old one atomically when it is complete.') }}</p>
-		<ul class="muted">
-			<li>{{ t('start.note.progress', null, 'A progress task will appear in your task list; open it any time to watch every node, abort, or re-run failed nodes.') }}</li>
-			<li>{{ t('start.note.duration', null, 'Depending on repository size this can take a long time. Only one rebuild should run at a time.') }}</li>
-		</ul>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ t('start.title', null, 'Rebuild Search Index') }}</h1>
+		<p class="wt-form-subtitle">{{ t('start.subtitle', null, 'Rebuild the full-text search index of every cluster node from the repository content.') }}</p>
 	</div>
 
-	<div class="panel">
-		<p v-if="isAdmin === null" class="muted">{{ t('common.checkingRole', null, 'Checking permissions…') }}</p>
-		<wt-inline-message v-if="isAdmin === false" type="error">{{ t('common.adminRequired', null, 'Administrator role is required to rebuild the search index.') }}</wt-inline-message>
-		<div v-if="isAdmin === true">
-			<button class="wt wt-primary" :disabled="starting || started" @click="onStart">{{ t('start.button', null, 'Start rebuild') }}</button>
-			<p v-if="started" class="success">{{ t('start.started', null, 'The rebuild has been requested. Open the "Search Index Rebuild Progress" task from your task list to follow it.') }}</p>
+	<div class="wt-form-body">
+		<div>
+			<p class="mt-0">{{ t('start.description', null, 'The rebuild runs in the background on each node. Search and content updates keep working throughout; the new index replaces the old one atomically when it is complete.') }}</p>
+			<p class="mb-0">{{ t('start.note.progress', null, 'A progress task will appear in your task list; open it any time to watch every node, abort, or re-run failed nodes.') }}</p>
 		</div>
-		<wt-inline-message v-if="errorMessage" type="error">{{ errorMessage }}</wt-inline-message>
+
+		<div class="alert wt-warning">
+			<i class="bi bi-exclamation-triangle"></i>
+			<div>{{ t('start.note.duration', null, 'Depending on repository size this can take a long time. Only one rebuild should run at a time.') }}</div>
+		</div>
+
+		<div v-if="isAdmin === false" class="alert wt-danger">
+			<i class="bi bi-shield-lock"></i>
+			<div>{{ t('common.adminRequired', null, 'Administrator role is required to rebuild the search index.') }}</div>
+		</div>
+
+		<div v-if="started" class="alert wt-success">
+			<i class="bi bi-check-circle"></i>
+			<div>{{ t('start.started', null, 'The rebuild has been requested. Open the "Search Index Rebuild Progress" task from your task list to follow it.') }}</div>
+		</div>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<span v-if="isAdmin === null" class="text-muted">{{ t('common.checkingRole', null, 'Checking permissions…') }}</span>
+		<div class="wt-form-actions">
+			<button class="wt wt-primary" :disabled="isAdmin !== true || starting || started" @click="onStart">{{ t('start.button', null, 'Start rebuild') }}</button>
+		</div>
 	</div>
 </main>
 

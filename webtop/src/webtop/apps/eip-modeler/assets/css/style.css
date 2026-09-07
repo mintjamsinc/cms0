@@ -514,11 +514,6 @@
 
 /* Loading overlay: <wt-spinner overlay> (webtop-ui.css) */
 
-/* Hidden (for v-cloak) */
-[v-cloak] {
-	display: none !important;
-}
-
 /* ----------------------------------------------------------------------------
  * Utility helpers
  * -------------------------------------------------------------------------- */

@@ -18,26 +18,157 @@
 @import url("../assets/vendor/bootstrap-icons/bootstrap-icons.min.css");
 
 /* ----------------------------------------------------------------------------
- * Form-host defaults. Unlayered, so they win over @layer webtop-defaults.
+ * Form-only rules
+ *
+ * No app or the shell loads this file - they link webtop-app.css directly -
+ * so this is the one stylesheet that reaches BPMN forms and nothing else, and
+ * the place for a rule that must apply to every form but to no app. Write it
+ * below, unlayered, where it wins over @layer webtop-defaults.
+ *
+ * initUi() waits for this sheet before it resolves, so anything added here is
+ * in effect by the time a form mounts. It is NOT in effect during the first
+ * paint before that, which is why [v-cloak] lives in each form's inline
+ * <style> rather than here.
+ *
+ * Shared defaults that apply to apps and forms alike - color-scheme, the
+ * theme tokens, [v-cloak] - belong in webtop-app.css, imported above.
  * -------------------------------------------------------------------------- */
-
-/* System-theme fallback: webtop-app.css defines its tokens only under
- * :root[data-theme="light"/"dark"], and the Tasks form host stamps data-theme
- * right after mount. Cover the first paint (and hostless viewing) with a
- * light-dark() base so the page never flashes unthemed. */
-:root {
-	color-scheme: light dark;
-}
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
-
-/* Forms are scrolling documents on a solid background (the shell body is a
- * non-scrolling transparent surface layered over the wallpaper). */
+/* Let a form document scroll. Apps are fixed-viewport shells inside the
+ * webtop window manager, so webtop-app.css turns body scrolling off; a form
+ * is a plain document that may well be taller than the pane it is shown in.
+ * A form built on .wt-form below scrolls inside .wt-form-body instead and
+ * never reaches this rule, but one laid out as ordinary flow depends on it. */
 body {
-	background-color: var(--body-bg, light-dark(#ffffff, #1a1b1f));
-	color: var(--text-color, light-dark(#1a1b1f, #e3e2e7));
 	overflow: auto;
-	padding: 16px;
 }
 
-[v-cloak] { display: none; }
+/* ----------------------------------------------------------------------------
+ * Form shell
+ *
+ * The header / body / footer frame a task form wants: a title that stays put,
+ * a scrolling middle, and buttons pinned to the bottom.
+ *
+ *   <main id="app" v-cloak class="wt-form">
+ *     <div class="wt-form-header">
+ *       <h1 class="wt-form-title">Rebuild Search Index</h1>
+ *       <p class="wt-form-subtitle">Rebuild the index on every node.</p>
+ *     </div>
+ *     <div class="wt-form-body">
+ *       <div class="alert wt-warning">...</div>
+ *       <div class="island">
+ *         <div class="wt-fields">...</div>
+ *       </div>
+ *     </div>
+ *     <div class="wt-form-footer">
+ *       <span class="text-muted">3 nodes selected</span>
+ *       <div class="wt-form-actions">
+ *         <button class="wt" @click="cancel">Cancel</button>
+ *         <button class="wt wt-primary" @click="start">Start</button>
+ *       </div>
+ *     </div>
+ *   </main>
+ *
+ * The shell fills the frame absolutely, and that is what keeps the title from
+ * scrolling away: the container gets a definite height, so .wt-form-body is
+ * the only thing that scrolls. Header and footer are optional - the body
+ * absorbs whatever room they leave - but the body is not.
+ *
+ * The pieces a form puts inside come from the shared stylesheets, not from
+ * here: .island for a panel, .alert for a notice, .wt-fields / .wt-field for
+ * the controls, .progress for a bar, .text-muted and friends for colour. A
+ * form that needs none of its own CSS is the goal.
+ * -------------------------------------------------------------------------- */
+.wt-form {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+
+	/* Cancels the 1rem webtop-app.css puts on #app. A form shell runs to the
+	 * frame edge, so .wt-form-body's scrollbar sits against that edge instead
+	 * of floating 1rem inside it. The #app rule lives in @layer
+	 * webtop-defaults and this file is unlayered, so this wins even though
+	 * #app is the more specific selector. */
+	padding: 0;
+
+	> .wt-form-header {
+		flex-shrink: 0;
+		padding: var(--wt-space-4) var(--wt-space-4) var(--wt-space-3);
+		background-color: var(--navbar-bg);
+		border-bottom: 1px solid var(--island-border-color);
+	}
+
+	> .wt-form-body {
+		flex-grow: 1;
+		overflow: auto;
+		padding: var(--wt-space-4);
+
+		/* The body owns the rhythm between the blocks dropped into it, so no
+		 * .island or .alert carries a margin of its own and no two forms end
+		 * up spacing their panels differently. */
+		display: flex;
+		flex-direction: column;
+		gap: var(--wt-space-4);
+	}
+
+	> .wt-form-footer {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		gap: var(--wt-space-2);
+		padding: var(--wt-space-3) var(--wt-space-4);
+		background-color: var(--navbar-bg);
+		border-top: 1px solid var(--island-border-color);
+
+		/* Same floor as .dialog-footer: the buttons that commit or abandon a
+		 * screen read as a pair, and a short label must not shrink one of
+		 * them into a chip. */
+		button.wt {
+			min-width: 6.5rem;
+		}
+	}
+}
+
+/* Title block. Sized for a whole pane, which is why it is larger than the
+ * .dialog-header h3 of a modal. */
+.wt-form-title {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 700;
+}
+
+.wt-form-subtitle {
+	margin: var(--wt-space-1) 0 0;
+	color: var(--text-soft-color);
+}
+
+/* Heading for a block inside .wt-form-body - "Status", "Conditions",
+ * "Results". One step below .wt-form-title, which names the whole form. The
+ * body's gap does the separating, so the block needs no rule or panel of its
+ * own unless the content calls for one.
+ *
+ * The space belongs above the heading rather than below it: a heading sitting
+ * midway between the group it ends and the group it starts reads as belonging
+ * to neither. */
+.wt-form-heading {
+	margin: var(--wt-space-3) 0 var(--wt-space-1);
+	font-size: 14px;
+	font-weight: 700;
+}
+
+/* Inside a .wt-fields stack the heading is one of the rows, so the stack's
+ * own row gap is already under it and the margin above would double it.
+ * Cancel the gap so the heading lands directly on the field it introduces. */
+.wt-fields > .wt-form-heading {
+	margin-bottom: calc(-1 * var(--wt-space-1));
+}
+
+/* Buttons in the footer. Pushes itself to the trailing edge, so the footer
+ * reads "status ......... [Cancel] [Start]" whether or not status text is
+ * present. */
+.wt-form-actions {
+	margin-inline-start: auto;
+	display: flex;
+	align-items: center;
+	gap: var(--wt-space-2);
+}

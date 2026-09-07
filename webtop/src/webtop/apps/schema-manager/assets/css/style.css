@@ -1020,14 +1020,6 @@ wt-dropzone.scan-drop-zone {
 }
 
 /* ----------------------------------------------------------------------------
- * Utilities
- * -------------------------------------------------------------------------- */
-
-[v-cloak] {
-	display: none !important;
-}
-
-/* ----------------------------------------------------------------------------
  * CodeMirror property-form editors (動作>既定値・検証 / UIヒント>表示形式)
  * Ported from wt-inspector.css so the inline + maximized editors look identical.
  * Colors come from the --cm-* tokens above; --body-bg / --window-bg / etc. are

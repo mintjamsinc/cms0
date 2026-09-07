@@ -371,6 +371,17 @@
 
 .text-prewrap { white-space: pre-wrap; }
 
+/* Semantic text colors.
+ * Every BPMN form used to carry its own `.muted` / `.success` / `.error`
+ * rule; these are the shared spelling. The tokens resolve per data-theme,
+ * so a colour picked here follows the theme like everything else. */
+.text-muted   { color: var(--text-muted-color); }
+.text-soft    { color: var(--text-soft-color); }
+.text-info    { color: var(--info-color); }
+.text-success { color: var(--success-color); }
+.text-warning { color: var(--warning-color); }
+.text-danger  { color: var(--danger-color); }
+
 /* 複数行テキスト省略（N行でクランプ）
  * -webkit-line-clamp は現在も最も互換性が高い（全主要ブラウザ対応）
  * line-clamp はプレフィックスなしの標準版（新しいブラウザで追従） */

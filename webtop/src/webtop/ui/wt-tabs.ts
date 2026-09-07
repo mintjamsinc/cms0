@@ -6,12 +6,15 @@
 //     </wt-tabs>
 //
 // Items are `{ key, label, icon?, badge?, disabled? }`. Variants: pill
-// (segmented, default) and underline. Replaces the per-app detail-tab /
-// property-tab implementations and the unused shared .view-tabs.
+// (segmented, default), underline, and file - which borrows the look of
+// <wt-file-tabs> for a bar that should read as document tabs, without that
+// component's index-based model, close buttons or add button. Replaces the
+// per-app detail-tab / property-tab implementations and the unused shared
+// .view-tabs.
 
 import { defineComponent } from '@mintjamsinc/ichigojs';
 
-const VARIANTS = ['pill', 'underline'];
+const VARIANTS = ['pill', 'underline', 'file'];
 
 defineComponent('wt-tabs', {
 	template: '#wt-tabs',
@@ -20,7 +23,7 @@ defineComponent('wt-tabs', {
 		modelValue: { default: undefined },
 		/** Tabs: [{ key, label, icon?, badge?, disabled? }]. */
 		items: { type: Array, default: () => [] },
-		/** Visual style: pill (segmented) / underline. */
+		/** Visual style: pill (segmented) / underline / file. */
 		variant: { type: String, default: 'pill', validator: (v: any) => VARIANTS.includes(v) },
 	},
 	emits: ['change'],

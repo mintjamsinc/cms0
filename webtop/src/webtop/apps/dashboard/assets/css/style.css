@@ -13,10 +13,6 @@
 	--navbar-height: 2.5rem;
 }
 
-[v-cloak] {
-	display: none;
-}
-
 #app {
 	height: 100%;
 }

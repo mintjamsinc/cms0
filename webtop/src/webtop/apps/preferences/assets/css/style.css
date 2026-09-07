@@ -17,10 +17,6 @@
  * Layout — top toolbar, content body, status bar
  * -------------------------------------------------------------------------- */
 
-[v-cloak] {
-	display: none;
-}
-
 #app {
 	height: 100%;
 }

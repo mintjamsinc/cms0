@@ -47,7 +47,40 @@ html {
 	font-size: 16px;
 }
 
+/* Mount cloak. Outside @layer and !important on purpose: the elements that
+ * carry v-cloak are the app roots, which also carry layout utilities
+ * (`class="d-flex flex-column"`). `.d-flex` is unlayered and webtop-app.css is
+ * linked after the app stylesheet, so a layered - or merely unlayered -
+ * `display: none` loses to it and the raw template flashes before mount.
+ * Apps no longer declare this themselves. BPMN forms keep their own copy in
+ * an inline <style>, and must: their stylesheet (wt-ui.css) arrives through a
+ * <link> that initUi() appends at runtime, so this rule reaches them only
+ * once that link has loaded - long after the first paint the cloak exists to
+ * cover. */
+[v-cloak] {
+	display: none !important;
+}
+
 @layer webtop-defaults {
+
+	/* ------------------------------------------------------------------------
+	 * Color scheme
+	 * Pins what the UA renders on its own - scrollbars, native form controls
+	 * and date pickers, the default canvas - to the active theme, so they do
+	 * not follow the OS setting while the tokens below follow data-theme.
+	 *
+	 * The bare :root default covers the window in which no theme is stamped
+	 * yet: an app mirrors the shell broadcast onto <html data-theme> and a
+	 * BPMN form applies host.theme on mount, and until then no token below is
+	 * defined at all. `light dark` at least lets the UA paint that first frame
+	 * (and a form opened without a host) in the OS scheme rather than always
+	 * white.
+	 * ---------------------------------------------------------------------- */
+	:root {
+		color-scheme: light dark;
+	}
+	:root[data-theme="light"] { color-scheme: light; }
+	:root[data-theme="dark"] { color-scheme: dark; }
 
 	/* ------------------------------------------------------------------------
 	 * Theme tokens
@@ -575,6 +608,10 @@ html {
 		justify-content: flex-end;
 		gap: 0.5rem;
 		padding: 0.5rem 1rem;
+
+		button.wt {
+			min-width: 6.5rem;
+		}
 	}
 
 	/* ------------------------------------------------------------------------
@@ -632,6 +669,59 @@ html {
 		/* TODO */
 	}
 
+	/* table.wt.wt-rows — the list / report table a form or a detail pane
+	 * draws: full width, a rule under every row, and cells aligned to the top
+	 * so one wrapped cell does not push its neighbours down the row.
+	 *
+	 * Opt-in rather than folded into table.wt, because the app tables above
+	 * size themselves and would shift if the base rule claimed the width.
+	 *
+	 * table.wt clips every cell to a single line; put .wt-wrap on the cells
+	 * that should wrap instead. Add .wt-sticky to pin the header while an
+	 * .overflow-auto wrapper scrolls under it - the header is opaque already,
+	 * so nothing shows through.
+	 *
+	 * Usage:
+	 *   <div class="overflow-auto">
+	 *     <table class="wt wt-rows wt-sticky">
+	 *       <thead><tr><th>Node</th><th>Path</th></tr></thead>
+	 *       <tbody><tr><td>node-1</td><td class="wt-wrap">/content/…</td></tr></tbody>
+	 *     </table>
+	 *   </div>
+	 * ---------------------------------------------------------------------- */
+	table.wt.wt-rows {
+		width: 100%;
+		border-collapse: collapse;
+
+		:is(thead th, tbody td) {
+			text-align: start;
+			vertical-align: top;
+			padding: 0.375rem 0.5rem;
+			border-bottom: 1px solid var(--navbar-border-color);
+		}
+
+		:is(th, td).wt-wrap {
+			white-space: normal;
+			overflow: visible;
+			text-overflow: clip;
+		}
+
+		&.wt-sticky thead th {
+			position: sticky;
+			top: 0;
+			z-index: 1;
+		}
+	}
+
+	/* Scroll box for a wt-rows table: scrolls in both axes and caps its own
+	 * height, so a long result set does not push everything below it off the
+	 * screen. It is also what gives .wt-sticky a scrollport to pin the header
+	 * against - a table left to scroll with the page has no header to pin. */
+	.wt-table-scroll {
+		overflow: auto;
+		max-height: 60vh;
+	}
+
 	/* ------------------------------------------------------------------------
 	 * Form controls (input / textarea / select)
 	 *
@@ -662,6 +752,12 @@ html {
 		&:disabled {
 			color: var(--text-muted-color);
 		}
+	}
+
+	/* Grow-only. A textarea that can be widened breaks the column it sits in,
+	 * and every screen that has one was overriding this by hand. */
+	textarea.wt {
+		resize: vertical;
 	}
 
 	input.wt[type="checkbox"],
@@ -1025,6 +1121,73 @@ html {
 		white-space: nowrap;
 		background-color: var(--progress-bar-bg);
 		transition: width 0.3s ease;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * Alert — a block notice the reader has to take in before acting.
+	 *
+	 * Louder than <wt-inline-message>, which is a single line of small helper
+	 * text under a control. Reach for an alert when the message is about the
+	 * screen rather than about one field: a precondition, a warning, the
+	 * outcome of a long-running job.
+	 *
+	 * Usage:
+	 *   <div class="alert wt-warning">
+	 *     <i class="bi bi-exclamation-triangle"></i>
+	 *     <div>Only one rebuild should run at a time.</div>
+	 *   </div>
+	 *
+	 * Neutral by default; add one of .wt-info / .wt-success / .wt-warning /
+	 * .wt-danger. The variant recipe (semantic colour for the text, the same
+	 * colour at 6% for the fill and 30% for the border) is the one .wt-badge
+	 * uses, so a badge and an alert of the same variant read as one colour.
+	 * ---------------------------------------------------------------------- */
+	.alert {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 0.625rem 0.875rem;
+		border-radius: var(--wt-radius-md);
+		color: var(--neutral-color);
+		background-color: rgb(from var(--neutral-color) r g b / 0.06);
+		border: 1px solid rgb(from var(--neutral-color) r g b / 0.3);
+
+		/* The leading icon is optional; when present it sits on the first
+		 * text line rather than centred against the whole block. */
+		> .bi {
+			flex-shrink: 0;
+			line-height: 1.5;
+		}
+
+		/* Alerts are usually written with a bare <p> or two inside. Drop the
+		 * outer margins so the padding above is the only spacing. */
+		> * {
+			min-width: 0;
+
+			> p:first-child { margin-top: 0; }
+			> p:last-child { margin-bottom: 0; }
+		}
+
+		&.wt-info {
+			color: var(--info-color);
+			background-color: rgb(from var(--info-color) r g b / 0.06);
+			border-color: rgb(from var(--info-color) r g b / 0.3);
+		}
+		&.wt-success {
+			color: var(--success-color);
+			background-color: rgb(from var(--success-color) r g b / 0.06);
+			border-color: rgb(from var(--success-color) r g b / 0.3);
+		}
+		&.wt-warning {
+			color: var(--warning-color);
+			background-color: rgb(from var(--warning-color) r g b / 0.06);
+			border-color: rgb(from var(--warning-color) r g b / 0.3);
+		}
+		&.wt-danger {
+			color: var(--danger-color);
+			background-color: rgb(from var(--danger-color) r g b / 0.06);
+			border-color: rgb(from var(--danger-color) r g b / 0.3);
+		}
 	}
 
 	/* ------------------------------------------------------------------------

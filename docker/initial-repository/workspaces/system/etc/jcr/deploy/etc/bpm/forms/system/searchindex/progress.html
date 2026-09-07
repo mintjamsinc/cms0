@@ -5,86 +5,89 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Search Index Rebuild — Progress</title>
 <style>
-	/* Theme tokens, base text, button.wt and the wt-* component styles come
-	   from wt-ui.css, injected by the wt-ui.esm.js bundle's initUi() (loaded
-	   via the form host's webtopBaseUrl). Only form-specific layout lives
-	   here, expressed in the shared tokens. */
+	/* Everything this form draws with - theme tokens, the .wt-form shell,
+	   .alert, table.wt.wt-rows, .progress, button.wt, the text utilities and
+	   the wt-* components - comes from wt-ui.css, injected by the
+	   wt-ui.esm.js bundle's initUi() (loaded via the form host's
+	   webtopBaseUrl). A form should need no CSS of its own.
+
+	   [v-cloak] is the one rule that has to stay inline: wt-ui.css carries it
+	   too (via webtop-app.css), but that only applies once the <link> has
+	   loaded, and the cloak has to cover the paint before that. */
 	[v-cloak] { display: none; }
-	h1 { font-size: 18px; margin: 0 0 4px; }
-	.muted { color: var(--text-muted-color); }
-	.panel {
-		background: var(--island-bg); border: 1px solid var(--island-border-color);
-		border-radius: 8px; padding: 12px 16px; margin: 12px 0;
-	}
-	table { border-collapse: collapse; width: 100%; }
-	th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--navbar-border-color); vertical-align: top; }
-	th { color: var(--text-muted-color); font-weight: 600; white-space: nowrap; }
-	.status-completed { color: var(--success-color); font-weight: 600; }
-	.status-failed, .status-aborted { color: var(--danger-color); font-weight: 600; }
-	.status-running, .status-queued, .status-aborting { color: var(--warning-color); font-weight: 600; }
-	.bar { background: var(--progress-track-bg); border-radius: 4px; height: 8px; width: 160px; overflow: hidden; }
-	.bar > div { background: var(--progress-bar-bg); height: 100%; transition: width .5s; }
-	.path { word-break: break-all; }
-	button.wt { margin-right: 8px; }
-	.error { color: var(--danger-color); }
-	wt-inline-message { margin-top: 8px; }
 </style>
 </head>
 <body>
-<main id="app" v-cloak @mounted="onMounted" @unmount="onUnmount">
-	<h1>{{ t('progress.title', null, 'Search Index Rebuild Progress') }}</h1>
-	<p class="muted">
-		{{ t('progress.rebuildId', null, 'Rebuild:') }} <span class="path">{{ rebuildId }}</span>
-	</p>
-
-	<div class="panel" style="overflow-x: auto;">
-		<table>
-			<tr>
-				<th>{{ t('progress.col.node', null, 'Node') }}</th>
-				<th>{{ t('progress.col.status', null, 'Status') }}</th>
-				<th>{{ t('progress.col.progress', null, 'Progress') }}</th>
-				<th></th>
-			</tr>
-			<tr v-for="row in rows" :key="row.nodeId">
-				<td>
-					{{ row.nodeId }}<span v-if="row.self"> ({{ t('progress.self', null, 'this node') }})</span>
-					<div v-if="row.hostName" class="muted">{{ row.hostName }}</div>
-					<div v-if="row.alive === false" class="error">{{ t('progress.nodeDown', null, 'node down') }}</div>
-				</td>
-				<td>
-					<span v-if="row.jobId" :class="'status-' + (row.status || 'queued')">{{ statusLabel(row.status) }}</span>
-					<span v-if="!row.jobId" class="muted">{{ t('progress.notTargeted', null, 'not targeted (joined later; rebuilds on startup)') }}</span>
-				</td>
-				<td>
-					<div v-if="row.jobId">
-						<div class="bar"><div :style="'width:' + percent(row) + '%'"></div></div>
-						<div class="muted">{{ row.itemsProcessed || 0 }} / {{ row.itemsTotal || '?' }} ({{ percent(row) }}%)</div>
-						<!-- Once the status reads "completed" the last phase is stale
-						     (the swap it names has already happened), so it goes. -->
-						<div v-if="row.phase && row.status !== 'completed'" class="muted">{{ phaseLabel(row.phase) }}</div>
-						<div v-if="row.errorMessage" class="error">{{ row.errorMessage }}</div>
-					</div>
-				</td>
-				<td>
-					<button v-if="row.jobId && !isTerminal(row.status)" class="wt wt-danger wt-slim"
-							:disabled="busy || row.status === 'aborting'"
-							@click="onAbort(row)">{{ t('progress.abort', null, 'Abort') }}</button>
-				</td>
-			</tr>
-		</table>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ t('progress.title', null, 'Search Index Rebuild Progress') }}</h1>
+		<p class="wt-form-subtitle">{{ t('progress.rebuildId', null, 'Rebuild:') }} <span class="text-break">{{ rebuildId }}</span></p>
 	</div>
 
-	<div class="panel">
-		<p v-if="!allTerminal" class="muted">{{ t('progress.runningHint', null, 'The rebuild is running. You can close this window; the task stays in your task list and shows the live state whenever you reopen it.') }}</p>
-		<p v-if="allTerminal && failedNodes.length === 0" class="status-completed">{{ t('progress.allCompleted', null, 'Every node completed successfully.') }}</p>
-		<p v-if="allTerminal && failedNodes.length > 0" class="error">{{ t('progress.someFailed', { count: failedNodes.length }, 'Some nodes did not complete.') }}</p>
-		<button v-if="allTerminal && failedNodes.length > 0" class="wt" :disabled="busy" @click="onRerun">
-			{{ t('progress.rerun', null, 'Re-run failed nodes') }}
-		</button>
-		<button v-if="allTerminal" class="wt wt-primary" :disabled="busy" @click="onClose">
-			{{ t('progress.close', null, 'Complete task') }}
-		</button>
-		<wt-inline-message v-if="errorMessage" type="error">{{ errorMessage }}</wt-inline-message>
+	<div class="wt-form-body">
+		<div class="overflow-auto">
+			<table class="wt wt-rows">
+				<thead>
+					<tr>
+						<th>{{ t('progress.col.node', null, 'Node') }}</th>
+						<th>{{ t('progress.col.status', null, 'Status') }}</th>
+						<th>{{ t('progress.col.progress', null, 'Progress') }}</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr v-for="row in rows" :key="row.nodeId">
+						<td class="wt-wrap">
+							{{ row.nodeId }}<span v-if="row.self"> ({{ t('progress.self', null, 'this node') }})</span>
+							<div v-if="row.hostName" class="text-muted">{{ row.hostName }}</div>
+							<div v-if="row.alive === false" class="text-danger">{{ t('progress.nodeDown', null, 'node down') }}</div>
+						</td>
+						<td class="wt-wrap">
+							<span v-if="row.jobId" class="fw-semibold" :class="statusClass(row.status)">{{ statusLabel(row.status) }}</span>
+							<span v-if="!row.jobId" class="text-muted">{{ t('progress.notTargeted', null, 'not targeted (joined later; rebuilds on startup)') }}</span>
+						</td>
+						<td class="wt-wrap">
+							<div v-if="row.jobId">
+								<div class="progress"><div class="progress-bar" :style="'width:' + percent(row) + '%'"></div></div>
+								<div class="text-muted">{{ row.itemsProcessed || 0 }} / {{ row.itemsTotal || '?' }} ({{ percent(row) }}%)</div>
+								<!-- Once the status reads "completed" the last phase is stale
+								     (the swap it names has already happened), so it goes. -->
+								<div v-if="row.phase && row.status !== 'completed'" class="text-muted">{{ phaseLabel(row.phase) }}</div>
+								<div v-if="row.errorMessage" class="text-danger">{{ row.errorMessage }}</div>
+							</div>
+						</td>
+						<td>
+							<button v-if="row.jobId && !isTerminal(row.status)" class="wt wt-danger wt-slim"
+									:disabled="busy || row.status === 'aborting'"
+									@click="onAbort(row)">{{ t('progress.abort', null, 'Abort') }}</button>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<div v-if="allTerminal && failedNodes.length === 0" class="alert wt-success">
+			<i class="bi bi-check-circle"></i>
+			<div>{{ t('progress.allCompleted', null, 'Every node completed successfully.') }}</div>
+		</div>
+
+		<div v-if="allTerminal && failedNodes.length > 0" class="alert wt-danger">
+			<i class="bi bi-exclamation-triangle"></i>
+			<div>{{ t('progress.someFailed', { count: failedNodes.length }, 'Some nodes did not complete.') }}</div>
+		</div>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<span v-if="!allTerminal" class="text-muted">{{ t('progress.runningHint', null, 'The rebuild is running. You can close this window; the task stays in your task list and shows the live state whenever you reopen it.') }}</span>
+		<div class="wt-form-actions">
+			<button v-if="allTerminal && failedNodes.length > 0" class="wt" :disabled="busy" @click="onRerun">{{ t('progress.rerun', null, 'Re-run failed nodes') }}</button>
+			<button v-if="allTerminal" class="wt wt-primary" :disabled="busy" @click="onClose">{{ t('progress.close', null, 'Complete task') }}</button>
+		</div>
 	</div>
 </main>
 
@@ -248,6 +251,14 @@ if (!host) {
 			statusLabel(status) {
 				const s = status || 'queued';
 				return this.t('status.' + s, null, s);
+			},
+			// Maps a job status onto one of the shared text-colour utilities,
+			// so the form needs no colour rules of its own.
+			statusClass(status) {
+				const s = status || 'queued';
+				if (s === 'completed') return 'text-success';
+				if (s === 'failed' || s === 'aborted') return 'text-danger';
+				return 'text-warning';
 			},
 			phaseLabel(phase) {
 				return this.t('phase.' + phase, null, phase);
