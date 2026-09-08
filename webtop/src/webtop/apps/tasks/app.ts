@@ -17,7 +17,6 @@
  *
  * Modes:
  *   - tasks-runtime : active user tasks (assigned to me / my candidate groups)
- *   - tasks-history : completed tasks (read-only)
  *   - start         : startable process definitions
  *
  * Layout: 3 panes — search filters / list / form iframe.
@@ -49,7 +48,7 @@ import type {
 	Node as CmsNode,
 } from "../../graphql/types.js";
 
-type Mode = 'tasks-runtime' | 'tasks-history' | 'start';
+type Mode = 'tasks-runtime' | 'start';
 
 interface Favorites {
 	[processDefinitionKey: string]: boolean;
@@ -273,7 +272,7 @@ export const App = {
 			// Tasks
 			tasks: [] as Task[],
 			processDefByKey: {} as Record<string, ProcessDefinition>,
-			selectedTask: null as (Task & { completed?: boolean }) | null,
+			selectedTask: null as Task | null,
 
 			// Process definitions (latest, active, startable)
 			definitions: [] as ProcessDefinition[],
@@ -350,7 +349,6 @@ export const App = {
 
 		emptyListMessage(): string {
 			if (this.mode === 'start') return this.t('app.tasks.empty.noStartableProcesses', undefined, 'No startable processes');
-			if (this.mode === 'tasks-history') return this.t('app.tasks.empty.noCompletedTasks', undefined, 'No completed tasks');
 			return this.t('app.tasks.empty.noTasks', undefined, 'No tasks');
 		},
 
@@ -366,7 +364,6 @@ export const App = {
 
 		contextPlaceholder(): string {
 			if (this.mode === 'start') return this.t('app.tasks.context.processStart', undefined, 'Process start');
-			if (this.mode === 'tasks-history') return this.t('app.tasks.context.completedTasks', undefined, 'Completed tasks');
 			return this.t('app.tasks.context.myTasks', undefined, 'My tasks');
 		},
 
@@ -555,10 +552,8 @@ export const App = {
 			await this.loadDefinitions();
 			if (this.mode === 'start') {
 				this.filterList();
-			} else if (this.mode === 'tasks-runtime') {
-				await this.loadTasks();
 			} else {
-				await this.loadHistoryTasks();
+				await this.loadTasks();
 			}
 		},
 
@@ -631,14 +626,6 @@ export const App = {
 			} finally {
 				this.isLoading = false;
 			}
-		},
-
-		async loadHistoryTasks() {
-			// Camunda history tasks are not currently exposed through the GraphQL
-			// surface used by this app. Show an empty list with a hint until the
-			// server adds a historicTasks query.
-			this.tasks = [];
-			this.filteredItems = [];
 		},
 
 		compareTasks(a: Task, b: Task): number {

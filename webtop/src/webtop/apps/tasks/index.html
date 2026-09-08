@@ -29,19 +29,13 @@
 	     ============================================================ -->
 	<nav class="nav-bar window-drag-region">
 
-		<!-- Left: mode group (Runtime / History / Start) -->
+		<!-- Left: mode group (Runtime / Start) -->
 		<div class="toolbar-group">
 			<button class="btn-icon"
 				:class="{active: mode === 'tasks-runtime'}"
 				@click="switchMode('tasks-runtime')"
 				:title="t('app.tasks.mode.runtime', undefined, 'My tasks (running)')">
 				<i class="bi bi-inbox-fill"></i>
-			</button>
-			<button class="btn-icon"
-				:class="{active: mode === 'tasks-history'}"
-				@click="switchMode('tasks-history')"
-				:title="t('app.tasks.mode.history', undefined, 'My tasks (completed)')">
-				<i class="bi bi-archive"></i>
 			</button>
 			<button class="btn-icon"
 				:class="{active: mode === 'start'}"
@@ -164,21 +158,6 @@
 					</div>
 				</div>
 
-				<!-- Tasks (History) filters -->
-				<div v-if="mode === 'tasks-history'">
-					<div class="filter-group">
-						<wt-field :label="t('app.tasks.filter.keyword', undefined, 'Keyword')">
-							<wt-search-box v-model="filters.taskKeyword" @change="filterList"
-								:placeholder="t('app.tasks.filter.taskKeywordPlaceholder', undefined, 'Name, process, business key…')"></wt-search-box>
-						</wt-field>
-					</div>
-					<div class="filter-group">
-						<p class="filter-hint mt-0">
-							{{ t('app.tasks.history.hint', undefined, 'Completed tasks are sourced from the Camunda history; this view is currently read-only.') }}
-						</p>
-					</div>
-				</div>
-
 				<!-- Process Start filters -->
 				<div v-if="mode === 'start'">
 					<div class="filter-group">
@@ -222,7 +201,7 @@
 				<span>{{ emptyListMessage }}</span>
 			</div>
 
-			<!-- Tasks list (runtime/history) -->
+			<!-- Tasks list -->
 			<div v-if="mode !== 'start'" class="pane-scroll">
 				<div v-for="task in filteredItems" :key="task.id"
 					class="task-item"
@@ -320,7 +299,7 @@
 				</div>
 				<div class="form-context-actions">
 					<!-- Task assignment actions -->
-					<template v-if="mode !== 'start' && selectedTask && !selectedTask.completed">
+					<template v-if="mode !== 'start' && selectedTask">
 						<button v-if="!selectedTask.assignee"
 							class="wt wt-slim wt-primary"
 							@click="claimSelectedTask"
