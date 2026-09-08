@@ -105,13 +105,21 @@ public class JcrPath implements Serializable {
 	}
 
 	public JcrPath getParent() {
-		String path = toString();
-		if (Strings.isEmpty(path) || path.equals("/") || path.indexOf("/") == -1) {
+		// Drop the last name rather than cutting the string at its last "/": a name
+		// in expanded form ("{namespaceURI}localName") carries slashes of its own,
+		// and cutting there would split the namespace URI in two.
+		if (fNames.length < 2) {
+			// The root itself, or a relative path of a single name: no parent.
 			return null;
 		}
 
-		String absPath = path.substring(0, path.lastIndexOf("/"));
+		List<String> names = new ArrayList<>();
+		for (int i = 0; i < fNames.length - 1; i++) {
+			names.add(fNames[i].toString());
+		}
+		String absPath = String.join("/", names);
 		if (Strings.isEmpty(absPath)) {
+			// Only the leading empty name is left: the root.
 			absPath = "/";
 		}
 		JcrPath parentPath = new JcrPath(absPath);
