@@ -47,6 +47,25 @@ async function loadInspectorTemplate(): Promise<void> {
 // CodeMirror, marked, validation helpers and inline editor popup handles
 // moved to wt-inspector along with the Inspector UI itself.
 
+// Path helpers. currentPath is "/" at the repository root, so a naive
+// `parent + '/' + name` yields "//usr" there — a path the server used to
+// resolve inconsistently (created as "/usr", never matched on lookup), which
+// made existence checks miss and the next create fail with ItemExistsException.
+// Always build child paths through childPath() so the root is not a special case.
+function childPath(parentPath: string, name: string): string {
+	let parent = parentPath;
+	while (parent.endsWith('/')) parent = parent.slice(0, -1);
+	let child = name;
+	while (child.startsWith('/')) child = child.slice(1);
+	return parent + '/' + child;
+}
+
+/** Parent of an absolute path; "/" for a node directly under the root. */
+function parentPathOf(path: string): string {
+	const idx = path.lastIndexOf('/');
+	return (idx <= 0) ? '/' : path.substring(0, idx);
+}
+
 // Helper to convert GraphQL Node to CmsItem-compatible object. The Inspector
 // target fields come from the shared nodeToInspectorTarget(); the list view adds
 // a few extras on top (existence, children, derived display attributes).
@@ -1399,7 +1418,7 @@ export const App = {
 						}
 					} else if (path) {
 						// For CREATED, MODIFIED, MOVED, etc. — check if path is a direct child
-						const parentPath = path.substring(0, path.lastIndexOf('/'));
+						const parentPath = parentPathOf(path);
 						if (parentPath !== vm.currentPath) {
 							// Not a direct child of the current directory — skip adding
 							continue;
@@ -1834,11 +1853,11 @@ export const App = {
 				const dir = parts.join('/');
 
 				// Ensure parent folder exists
-				const parentPath = vm.currentPath + (dir ? '/' + dir : '');
+				const parentPath = dir ? childPath(vm.currentPath, dir) : vm.currentPath;
 				await vm.ensureFolder(parentPath);
 
 				// Check if file already exists
-				const destPath = vm.currentPath + '/' + info.path;
+				const destPath = childPath(vm.currentPath, info.path);
 				const existingNode = await contentService.getNode(destPath);
 
 				if (existingNode) {
@@ -1933,7 +1952,7 @@ export const App = {
 			const contentService = vm.instance.api.content;
 
 			// Check if file already exists
-			const destPath = vm.currentPath + '/' + name;
+			const destPath = childPath(vm.currentPath, name);
 			const existingNode = await contentService.getNode(destPath);
 			if (existingNode) {
 				// Set temporary uploadMonitor so conflict dialog can render
@@ -1982,12 +2001,11 @@ export const App = {
 			if (node) return;
 
 			// Ensure parent folder exists first
-			const idx = path.lastIndexOf('/');
-			const parent = idx <= 0 ? '/' : path.substring(0, idx);
+			const parent = parentPathOf(path);
 			await vm.ensureFolder(parent);
 
 			// Create this folder
-			const folderName = path.substring(idx + 1);
+			const folderName = path.substring(path.lastIndexOf('/') + 1);
 			await contentService.createFolder(parent, folderName);
 		},
 		async askConflict(): Promise<string> {
@@ -2650,7 +2668,7 @@ export const App = {
 					vm.uploadMonitor.target.progressPercent = 0;
 
 					const destPath = vm.currentPath;
-					const sourceParent = item.path.substring(0, item.path.lastIndexOf('/'));
+					const sourceParent = parentPathOf(item.path);
 
 					// Prevent pasting into itself or a descendant (for move)
 					if (mode === 'cut') {
@@ -2670,7 +2688,7 @@ export const App = {
 					}
 
 					// Check for name collision
-					const targetNodePath = destPath + '/' + item.name;
+					const targetNodePath = childPath(destPath, item.name);
 					const existing = await contentService.getNode(targetNodePath).catch(() => null);
 
 					if (existing) {
@@ -2807,13 +2825,13 @@ export const App = {
 
 			// Try "name - Copy.ext" first
 			let candidate = `${baseName} - Copy${ext}`;
-			let existing = await contentService.getNode(`${destPath}/${candidate}`).catch(() => null);
+			let existing = await contentService.getNode(childPath(destPath, candidate)).catch(() => null);
 			if (!existing) return candidate;
 
 			// Try "name - Copy (2).ext", "name - Copy (3).ext", ...
 			for (let i = 2; i <= 100; i++) {
 				candidate = `${baseName} - Copy (${i})${ext}`;
-				existing = await contentService.getNode(`${destPath}/${candidate}`).catch(() => null);
+				existing = await contentService.getNode(childPath(destPath, candidate)).catch(() => null);
 				if (!existing) return candidate;
 			}
 
@@ -2937,7 +2955,7 @@ export const App = {
 					if (vm.uploadMonitor.isCanceled) break;
 					vm.uploadMonitor.target.currentFile = dragItem.name;
 
-					const sourceParent = dragItem.path.substring(0, dragItem.path.lastIndexOf('/'));
+					const sourceParent = parentPathOf(dragItem.path);
 
 					// Cyclic prevention: cannot drop folder into itself or descendant
 					if (dragItem.isCollection && (destPath === dragItem.path || destPath.startsWith(dragItem.path + '/'))) {
@@ -2954,7 +2972,7 @@ export const App = {
 					}
 
 					// Check collision
-					const targetNodePath = destPath + '/' + dragItem.name;
+					const targetNodePath = childPath(destPath, dragItem.name);
 					const existing = await contentService.getNode(targetNodePath).catch(() => null);
 					if (existing) {
 						let action = overwriteAll ? 'overwrite' : skipAll ? 'skip' : await vm.askConflict();
