@@ -77,11 +77,13 @@ public class JCRs {
 		if (Strings.isEmpty(srcPath)) {
 			return "";
 		}
-		if (srcPath.equals("/")) {
+
+		String normalizedPath = String.join("/", normalizeAndSplitPath(srcPath));
+		if (Strings.isEmpty(normalizedPath) && srcPath.startsWith("/")) {
+			// The path consisted of separators only ("/", "//", ...): the root.
 			return "/";
 		}
-
-		return String.join("/", normalizeAndSplitPath(srcPath));
+		return normalizedPath;
 	}
 
 	public static String[] normalizeAndSplitPath(String path) {
@@ -90,9 +92,18 @@ public class JCRs {
 			return new String[0];
 		}
 
+		String[] names = splitPath(srcPath);
 		List<String> l = new ArrayList<>();
-		for (String name : splitPath(srcPath)) {
-			name = name.trim();
+		for (int i = 0; i < names.length; i++) {
+			String name = names[i].trim();
+			if (name.isEmpty() && i > 0) {
+				// Only the leading empty name is meaningful (it marks an absolute
+				// path); any other one comes from a duplicated separator such as
+				// "/a//b" and is collapsed away, so that "//usr" and "/usr"
+				// denote the same item everywhere.
+				continue;
+			}
+
 			if (name.equals(".")) {
 				continue;
 			}
@@ -115,22 +126,23 @@ public class JCRs {
 	private static String[] splitPath(String path) {
 		List<String> l = new ArrayList<>();
 		String pathname = "";
-		boolean f = false;
+		// True while inside the namespace URI of a name in expanded form
+		// ("{namespaceURI}localName"), where a "/" belongs to the URI rather than
+		// separating two names. The closing brace ends it — without that the rest
+		// of the path would be swallowed into a single name.
+		boolean inNamespaceURI = false;
 		for (char c : path.toCharArray()) {
-			if (f) {
+			if (inNamespaceURI) {
 				pathname += c;
+				if (c == '}') {
+					inNamespaceURI = false;
+				}
 				continue;
 			}
 
 			if (c == '{') {
 				pathname += c;
-				f = true;
-				continue;
-			}
-
-			if (c == '}') {
-				pathname += c;
-				f = false;
+				inNamespaceURI = true;
 				continue;
 			}
 
