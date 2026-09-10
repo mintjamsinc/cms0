@@ -26,6 +26,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Supplier;
 
 import org.apache.camel.CamelContext;
 import org.apache.camel.Consumer;
@@ -34,6 +37,7 @@ import org.apache.camel.Exchange;
 import org.apache.camel.Message;
 import org.apache.camel.Processor;
 import org.apache.camel.Producer;
+import org.apache.camel.builder.ThreadPoolBuilder;
 import org.apache.camel.support.CamelContextHelper;
 import org.apache.camel.support.DefaultComponent;
 import org.apache.camel.support.DefaultConsumer;
@@ -58,12 +62,33 @@ public class EventAdminComponent extends DefaultComponent {
 		return endpoint;
 	}
 
+	private enum RejectedPolicy {
+		CallerRuns(ThreadPoolExecutor.CallerRunsPolicy::new),
+		Abort(ThreadPoolExecutor.AbortPolicy::new),
+		Discard(ThreadPoolExecutor.DiscardPolicy::new),
+		DiscardOldest(ThreadPoolExecutor.DiscardOldestPolicy::new);
+
+		private final Supplier<RejectedExecutionHandler> fHandler;
+
+		private RejectedPolicy(Supplier<RejectedExecutionHandler> handler) {
+			fHandler = handler;
+		}
+
+		private RejectedExecutionHandler newHandler() {
+			return fHandler.get();
+		}
+	}
+
 	public class EventAdminEndpoint extends DefaultEndpoint {
 		private static final String TOPIC = "topic";
 		private static final String FILTER = "filter";
 
 		private final String fTopic;
 		private final Map<String, Object> fParameters = new HashMap<>();
+		private int fPoolSize = 1;
+		private Integer fMaxPoolSize;
+		private int fMaxQueueSize = 1000;
+		private RejectedPolicy fRejectedPolicy = RejectedPolicy.CallerRuns;
 
 		private EventAdminEndpoint(String endpointUri, String remaining) {
 			super(endpointUri, EventAdminComponent.this);
@@ -72,6 +97,30 @@ public class EventAdminComponent extends DefaultComponent {
 
 		public void setFilter(String value) {
 			fParameters.put(FILTER, value);
+		}
+
+		public void setPoolSize(int value) {
+			fPoolSize = value;
+		}
+
+		public void setMaxPoolSize(int value) {
+			fMaxPoolSize = value;
+		}
+
+		public void setMaxQueueSize(int value) {
+			fMaxQueueSize = value;
+		}
+
+		public void setRejectedPolicy(String value) {
+			String name = (value == null) ? "" : value.trim();
+			for (RejectedPolicy policy : RejectedPolicy.values()) {
+				if (policy.name().equalsIgnoreCase(name)) {
+					fRejectedPolicy = policy;
+					return;
+				}
+			}
+			throw new IllegalArgumentException("Unknown rejectedPolicy: " + value
+					+ ". Available policies are: CallerRuns, Abort, Discard, DiscardOldest.");
 		}
 
 		@Override
@@ -118,10 +167,15 @@ public class EventAdminComponent extends DefaultComponent {
 			@Override
 			protected void doStart() throws Exception {
 				super.doStart();
-				fExecutorService = getEndpoint()
-						.getCamelContext()
-						.getExecutorServiceManager()
-						.newSingleThreadExecutor(this, EventAdminConsumer.class.getSimpleName());
+				fExecutorService = new ThreadPoolBuilder(getEndpoint().getCamelContext())
+						.poolSize(fPoolSize)
+						// An unset maxPoolSize follows poolSize, so poolSize alone is enough to size the pool.
+						.maxPoolSize((fMaxPoolSize != null) ? fMaxPoolSize : fPoolSize)
+						.maxQueueSize(fMaxQueueSize)
+						.build(this, EventAdminConsumer.class.getSimpleName());
+				// ThreadPoolBuilder only takes Camel's ThreadPoolRejectedPolicy, which in Camel 4 has
+				// no Discard or DiscardOldest, so the handler goes on the executor Camel built.
+				((ThreadPoolExecutor) fExecutorService).setRejectedExecutionHandler(fRejectedPolicy.newHandler());
 
 				Registration.Builder<EventHandler> builder = Registration.newBuilder(EventHandler.class)
 						.setService(this)
