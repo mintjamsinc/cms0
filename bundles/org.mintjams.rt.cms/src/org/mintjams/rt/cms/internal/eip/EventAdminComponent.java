@@ -137,7 +137,13 @@ public class EventAdminComponent extends DefaultComponent {
 
 			@Override
 			protected void doStop() throws Exception {
-				fCloser.close();
+				try {
+					fCloser.close();
+				} finally {
+					// Camel shuts pools down on its own only when the whole context stops,
+					// and doStart creates a new one on every start of the route.
+					getEndpoint().getCamelContext().getExecutorServiceManager().shutdown(fExecutorService);
+				}
 				super.doStop();
 			}
 		}
