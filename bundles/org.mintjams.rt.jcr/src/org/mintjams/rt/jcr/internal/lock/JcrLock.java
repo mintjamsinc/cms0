@@ -22,17 +22,12 @@
 
 package org.mintjams.rt.jcr.internal.lock;
 
-import java.io.IOException;
-import java.sql.SQLException;
-
 import javax.jcr.Node;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.lock.LockException;
 
-import org.mintjams.jcr.security.Privilege;
 import org.mintjams.rt.jcr.internal.SessionIdentifier;
-import org.mintjams.rt.jcr.internal.WorkspaceQuery;
 import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.collections.AdaptableMap;
@@ -158,10 +153,6 @@ public class JcrLock implements org.mintjams.jcr.lock.Lock, Adaptable {
 			}
 		}
 		return false;
-	}
-
-	private WorkspaceQuery getWorkspaceQuery() {
-		return adaptTo(WorkspaceQuery.class);
 	}
 
 	@Override
