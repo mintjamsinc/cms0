@@ -43,6 +43,7 @@ import javax.jcr.lock.LockException;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.NamespaceRegistry;
+import org.mintjams.jcr.lock.Lock;
 import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.Privilege;
 import org.mintjams.jcr.util.JCRs;
@@ -529,6 +530,15 @@ public class ResourceImpl implements Resource, Adaptable {
 			throw ResourceException.wrap(ex);
 		}
 		return this;
+	}
+
+	@Override
+	public Lock getLock() throws ResourceException {
+		try {
+			return (org.mintjams.jcr.lock.Lock) JcrAction.create(getNode()).addLockToken().getLock();
+		} catch (Throwable ex) {
+			throw ResourceException.wrap(ex);
+		}
 	}
 
 	@Override

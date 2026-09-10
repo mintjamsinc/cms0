@@ -28,6 +28,7 @@ import java.math.BigDecimal;
 import java.util.Calendar;
 import java.util.Date;
 
+import org.mintjams.jcr.lock.Lock;
 import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.script.resource.version.Version;
 import org.mintjams.script.resource.version.VersionHistory;
@@ -253,6 +254,11 @@ public class UnknownIdentifierResource implements Resource {
 
 	@Override
 	public Resource lock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Lock getLock() throws ResourceException {
 		throw new UnsupportedOperationException();
 	}
 
