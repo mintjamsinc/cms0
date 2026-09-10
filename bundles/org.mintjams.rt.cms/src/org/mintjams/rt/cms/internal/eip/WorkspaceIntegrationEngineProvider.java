@@ -42,6 +42,7 @@ import org.apache.camel.AggregationStrategy;
 import org.apache.camel.CamelContext;
 import org.apache.camel.Exchange;
 import org.apache.camel.ProducerTemplate;
+import org.apache.camel.Route;
 import org.apache.camel.model.ModelCamelContext;
 import org.apache.camel.model.RouteConfigurationDefinition;
 import org.apache.camel.spi.RoutesLoader;
@@ -194,8 +195,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 					if (previousRouteIds != null) {
 						for (String routeId : previousRouteIds) {
 							try {
-								fCamelContext.getRouteController().stopRoute(routeId);
-								fCamelContext.removeRoute(routeId);
+								removeDeployedRoute(routeId);
 							} catch (Throwable ex) {
 								CmsService.getLogger(getClass()).warn("Failed to remove route: " + routeId, ex);
 							}
@@ -205,11 +205,13 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 					// Remove previously deployed route configurations for this path
 					removeRouteConfigurations(fRouteConfigDeployments.get(itemPath));
 
-					// Snapshot of current route IDs and route configuration IDs after
-					// removal of the previous deployment and before loading the new one
-					Set<String> routeIdsBefore = fCamelContext.getRoutes().stream()
-							.map(route -> route.getRouteId())
-							.collect(Collectors.toSet());
+					// Snapshot of current routes and route configuration IDs after
+					// removal of the previous deployment and before loading the new one.
+					// The route instances are kept so that a route another file deployed,
+					// and this load replaced under the same id, can be told apart.
+					Map<String, Route> routesBefore = fCamelContext.getRoutes().stream()
+							.collect(Collectors.toMap(Route::getRouteId, route -> route));
+					Set<String> routeIdsBefore = routesBefore.keySet();
 					Set<String> configIdsBefore = modelContext.getRouteConfigurationDefinitions().stream()
 							.map(RouteConfigurationDefinition::getId)
 							.filter(id -> id != null)
@@ -248,6 +250,31 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 							.filter(id -> id != null && !configIdsBefore.contains(id))
 							.collect(Collectors.toList());
 					fRouteConfigDeployments.put(itemPath, newConfigIds);
+
+					// Camel replaces a route whose id is already taken without a word, so a
+					// file declaring another file's route id takes that route over unseen.
+					List<String> displaced = new ArrayList<>();
+					for (Map.Entry<String, Route> entry : routesBefore.entrySet()) {
+						if (fCamelContext.getRoute(entry.getKey()) != entry.getValue()) {
+							displaced.add(entry.getKey() + " (deployed from " + findDeployedPath(entry.getKey(), itemPath) + ")");
+						}
+					}
+					if (!displaced.isEmpty()) {
+						CmsService.getLogger(getClass()).warn("Deploying the route file " + itemPath
+								+ " replaced or removed routes deployed from other files: " + displaced);
+					}
+
+					if (newRouteIds.isEmpty() && newConfigIds.isEmpty()) {
+						// Camel loads a document it cannot read as XML routes as nothing at all,
+						// logging only "Invalid XML document", so an empty result is the one
+						// trace such a file leaves here.
+						CmsService.getLogger(getClass()).warn("Deployed the route file with no routes: " + itemPath
+								+ ". If it is meant to define routes, check that it is a valid Camel XML document.");
+					} else {
+						CmsService.getLogger(getClass()).info(((previousRouteIds != null) ? "Redeployed" : "Deployed")
+								+ " the route file: " + itemPath + " routes=" + newRouteIds
+								+ (newConfigIds.isEmpty() ? "" : " routeConfigurations=" + newConfigIds));
+					}
 				} catch (Throwable cause) {
 					throw Cause.create(cause).wrap(IOException.class);
 				}
@@ -264,7 +291,15 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FOLDER_NAME)) {
 			NodeIterator i = item.getNodes();
 			while (i.hasNext()) {
-				deployRoute(i.nextNode());
+				Node child = i.nextNode();
+				String childPath = child.getPath();
+				// One file that fails to load must not keep the files after it from
+				// being deployed, and only the failing file is named in the log.
+				try {
+					deployRoute(child);
+				} catch (Throwable ex) {
+					CmsService.getLogger(getClass()).error("Failed to deploy the route file: " + childPath, ex);
+				}
 			}
 			return;
 		}
@@ -320,6 +355,32 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		}
 	}
 
+	/**
+	 * Stops and removes a route deployed from a route file, and says so when that
+	 * does not happen: Camel reports a route it could not remove only through the
+	 * return value of {@code removeRoute}.
+	 */
+	private void removeDeployedRoute(String routeId) throws Exception {
+		if (fCamelContext.getRoute(routeId) == null) {
+			CmsService.getLogger(getClass()).warn("The route to remove does not exist in the engine: " + routeId);
+			return;
+		}
+
+		fCamelContext.getRouteController().stopRoute(routeId);
+		if (!fCamelContext.removeRoute(routeId)) {
+			CmsService.getLogger(getClass()).warn("The route did not stop and was not removed: " + routeId);
+		}
+	}
+
+	private String findDeployedPath(String routeId, String excludedPath) {
+		for (Map.Entry<String, List<String>> entry : fDeployments.entrySet()) {
+			if (!entry.getKey().equals(excludedPath) && entry.getValue().contains(routeId)) {
+				return entry.getKey();
+			}
+		}
+		return "an unknown file";
+	}
+
 	private void undeployRoute(String itemPath, Event event) throws IOException, RepositoryException {
 		String nodeType = event.getProperty("type").toString();
 
@@ -329,8 +390,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 				if (routeIds != null) {
 					for (String routeId : routeIds) {
 						try {
-							fCamelContext.stopRoute(routeId);
-							fCamelContext.removeRoute(routeId);
+							removeDeployedRoute(routeId);
 						} catch (Throwable ex) {
 							CmsService.getLogger(getClass()).error("An error occurred while removing route: " + routeId, ex);
 						}
@@ -341,6 +401,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 				removeRouteConfigurations(fRouteConfigDeployments.remove(itemPath));
 
 				if (routeIds != null) {
+					CmsService.getLogger(getClass()).info("Undeployed the route file: " + itemPath + " routes=" + routeIds);
 					CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/UNDEPLOYED", AdaptableMap.<String, Object>newBuilder()
 							.put("path", itemPath)
 							.put("type", nodeType)
@@ -359,8 +420,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 						if (routeIds != null) {
 							for (String routeId : routeIds) {
 								try {
-									fCamelContext.getRouteController().stopRoute(routeId);
-									fCamelContext.removeRoute(routeId);
+									removeDeployedRoute(routeId);
 								} catch (Throwable ex) {
 									CmsService.getLogger(getClass()).error("An error occurred while removing route: " + routeId, ex);
 								}
@@ -371,6 +431,7 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 						removeRouteConfigurations(fRouteConfigDeployments.remove(path));
 
 						if (routeIds != null) {
+							CmsService.getLogger(getClass()).info("Undeployed the route file: " + path + " routes=" + routeIds);
 							CmsService.postEvent(CamelContext.class.getName().replace(".", "/") + "/UNDEPLOYED", AdaptableMap.<String, Object>newBuilder()
 									.put("path", path)
 									.put("type", NodeType.NT_FILE_NAME)
@@ -568,8 +629,15 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 							}
 
 							String type = event.getProperty("type").toString();
-							if (!type.equals(NodeType.NT_FILE_NAME)) {
+							// A moved folder is reported alone, not file by file, so the files
+							// under it are deployed from here or not at all.
+							boolean movedFolder = topic.endsWith("/MOVED") && type.equals(NodeType.NT_FOLDER_NAME);
+							if (!type.equals(NodeType.NT_FILE_NAME) && !movedFolder) {
 								continue;
+							}
+							if (movedFolder) {
+								CmsService.getLogger(getClass()).info("Deploying the route files under the moved folder: " + path
+										+ " (moved from " + event.getProperty("source_path") + ")");
 							}
 
 							Session session = null;
