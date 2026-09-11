@@ -265,6 +265,7 @@ public class WorkspaceLifecycleJob implements Job {
 			logout(opSession);
 		}
 		WorkspaceOperations.declarePresent(fTargetWorkspace, fUserId);
+		CmsService.postWorkspaceCreated(fTargetWorkspace);
 
 		setPhase(progressContent, progressSession, PHASE_STARTING);
 		awaitNodes(progressContent, progressSession, START_TIMEOUT_MILLIS, node -> started(node, null));
@@ -293,6 +294,7 @@ public class WorkspaceLifecycleJob implements Job {
 			logout(opSession);
 		}
 		WorkspaceOperations.removeRecord(fTargetWorkspace, fUserId);
+		CmsService.postWorkspaceDeleted(fTargetWorkspace);
 	}
 
 	/**

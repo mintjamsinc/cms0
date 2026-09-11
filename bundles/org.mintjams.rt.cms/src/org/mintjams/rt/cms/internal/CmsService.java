@@ -159,6 +159,15 @@ public class CmsService {
 	 * runtime state it complements.
 	 */
 	private final java.util.Set<String> fStoppedWorkspaces = java.util.concurrent.ConcurrentHashMap.newKeySet();
+	/**
+	 * Workspaces whose services came fully up on this node and were announced
+	 * with {@link org.mintjams.cms.Workspace#TOPIC_STARTED}. A workspace leaves
+	 * the set when it is announced with
+	 * {@link org.mintjams.cms.Workspace#TOPIC_STOPPED}, so every STOPPED event
+	 * pairs with an earlier STARTED: a start that failed part-way — rolled back,
+	 * or left half up at boot — announces neither.
+	 */
+	private final java.util.Set<String> fStartedWorkspaces = java.util.concurrent.ConcurrentHashMap.newKeySet();
 	private final Closer fCloser = Closer.create();
 	private SecretKeyProvider fSecretKeyProvider;
 	private Encryptor fEncryptor;
@@ -332,6 +341,7 @@ public class CmsService {
 
 		// Prepare services for all workspaces
 		prepareServices("system");
+		workspaceStarted("system");
 		for (String workspaceName : getWorkspaceNames()) {
 			if (workspaceName.equals("system")) {
 				continue;
@@ -342,6 +352,7 @@ public class CmsService {
 
 			try {
 				prepareServices(workspaceName);
+				workspaceStarted(workspaceName);
 			} catch (Throwable ex) {
 				fLoggerFactory.getLogger(getClass()).error("An error occurred while starting the workspace service: " + workspaceName, ex);
 				fWorkspaceStartErrors.put(workspaceName, startErrorMessage(ex));
@@ -366,6 +377,9 @@ public class CmsService {
 				.setService(new OSGiCmsService())
 				.setBundleContext(getBundleContext())
 				.build());
+
+		// The clock events
+		fCloser.register(new CmsClock()).open();
 
 		// From here on, workspaces are opened, started, stopped and closed by
 		// converging on the cluster-wide desired state.
@@ -480,6 +494,7 @@ public class CmsService {
 			}
 			throw Cause.create(ex).wrap(IOException.class);
 		}
+		workspaceStarted(workspaceName);
 		getLogger(getClass()).info("Workspace services have been started: " + workspaceName);
 	}
 
@@ -515,6 +530,7 @@ public class CmsService {
 		closeWorkspaceService(fWorkspaceFacetProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceScriptEngineManagers.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceClassLoaderProviders.remove(workspaceName));
+		workspaceStopped(workspaceName);
 		getLogger(getClass()).info("Workspace services have been stopped: " + workspaceName);
 	}
 
@@ -542,14 +558,65 @@ public class CmsService {
 	 * deployment the broadcast is a no-op.
 	 */
 	public static void postWorkspaceSettingsChanged(String workspaceName) {
+		postWorkspaceEvent(TOPIC_WORKSPACE_SETTINGS_CHANGED, workspaceName, true);
+	}
+
+	/**
+	 * Announces that a workspace was created. Creation is a fact for the whole
+	 * cluster — every node opens the new workspace — so, like a settings change,
+	 * the event is posted locally and broadcast over the cluster signal bus:
+	 * every node receives it once, whichever node carried out the creation.
+	 * Best-effort.
+	 */
+	public static void postWorkspaceCreated(String workspaceName) {
+		postWorkspaceEvent(org.mintjams.cms.Workspace.TOPIC_CREATED, workspaceName, true);
+	}
+
+	/**
+	 * Announces that a workspace was deleted: no node has it open any more, and
+	 * its directory and operations record are gone. Posted locally and broadcast
+	 * to the cluster, like {@link #postWorkspaceCreated(String)}. Best-effort.
+	 */
+	public static void postWorkspaceDeleted(String workspaceName) {
+		postWorkspaceEvent(org.mintjams.cms.Workspace.TOPIC_DELETED, workspaceName, true);
+	}
+
+	/**
+	 * Records that a workspace's services came fully up on this node and
+	 * announces it. Running is a node's own state, so the event is not
+	 * broadcast: each node announces its own start.
+	 */
+	private void workspaceStarted(String workspaceName) {
+		fStartedWorkspaces.add(workspaceName);
+		postWorkspaceEvent(org.mintjams.cms.Workspace.TOPIC_STARTED, workspaceName, false);
+	}
+
+	/**
+	 * Announces, on this node only, that a workspace's services went down —
+	 * provided their start was announced.
+	 */
+	private void workspaceStopped(String workspaceName) {
+		if (fStartedWorkspaces.remove(workspaceName)) {
+			postWorkspaceEvent(org.mintjams.cms.Workspace.TOPIC_STOPPED, workspaceName, false);
+		}
+	}
+
+	/**
+	 * Posts an event whose only property is {@code workspace}, and broadcasts it
+	 * to the other nodes when it is a fact for the whole cluster. A delivery
+	 * failure is logged and never derails the operation that triggered it.
+	 */
+	private static void postWorkspaceEvent(String topic, String workspaceName, boolean clusterWide) {
 		Map<String, Object> properties = new HashMap<>();
 		properties.put("workspace", workspaceName);
 		try {
-			postEvent(TOPIC_WORKSPACE_SETTINGS_CHANGED, properties);
+			postEvent(topic, properties);
 		} catch (Throwable ex) {
-			getLogger(CmsService.class).warn("Could not post the workspace settings change: " + workspaceName, ex);
+			getLogger(CmsService.class).warn("Could not post '" + topic + "': " + workspaceName, ex);
 		}
-		broadcastToCluster(TOPIC_WORKSPACE_SETTINGS_CHANGED, workspaceName, properties);
+		if (clusterWide) {
+			broadcastToCluster(topic, workspaceName, properties);
+		}
 	}
 
 	/**
@@ -744,7 +811,15 @@ public class CmsService {
 	}
 
 	private synchronized void close() throws IOException {
-		fCloser.close();
+		try {
+			fCloser.close();
+		} finally {
+			// Services that go down with the component bypass
+			// stopWorkspaceServices; announce them so every STARTED is paired.
+			for (String workspaceName : fStartedWorkspaces) {
+				workspaceStopped(workspaceName);
+			}
+		}
 	}
 
 	public static CmsService getDefault() {

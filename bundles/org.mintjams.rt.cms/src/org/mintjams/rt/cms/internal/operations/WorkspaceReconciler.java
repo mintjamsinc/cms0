@@ -183,6 +183,7 @@ public class WorkspaceReconciler implements Closeable {
 					OperationNodes.removeWorkspace(session, workspaceName);
 					session.save();
 					CmsService.getLogger(getClass()).info("Completed the unfinished deletion of the workspace: " + workspaceName);
+					CmsService.postWorkspaceDeleted(workspaceName);
 				} catch (Throwable ex) {
 					refreshQuietly(session);
 					CmsService.getLogger(getClass()).warn("Could not complete the unfinished deletion of the workspace: " + workspaceName, ex);
