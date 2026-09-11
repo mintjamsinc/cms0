@@ -158,26 +158,23 @@ public class EventAdminComponent extends DefaultComponent {
 			@Override
 			public void handleEvent(org.osgi.service.event.Event event) {
 				if (event.getProperty("workspace") != null) {
-					String workspace = (String) event.getProperty("workspace");
-					if (workspace != null) {
-						String ws = workspace.trim();
-						if (fWorkspace == null) {
-							if (!fWorkspaceName.equals(ws)) {
-								// Ignore events from other workspaces
-								return;
-							}
+					String ws = ((String) event.getProperty("workspace")).trim();
+					if (fWorkspace == null) {
+						if (!fWorkspaceName.equals(ws)) {
+							// Ignore events from other workspaces
+							return;
+						}
+					} else {
+						String fw = fWorkspace.trim();
+						if (fw.equals("*")) {
+							// Accept all workspaces
 						} else {
-							String fw = fWorkspace.trim();
-							if (fw.equals("*")) {
-								// Accept all workspaces
-							} else {
-								// Treat fWorkspace as comma-separated list; if workspace not included, ignore
-								boolean matched = Arrays.stream(fw.split(","))
-									.map(String::trim)
-									.anyMatch(s -> s.equals(ws));
-								if (!matched) {
-									return;
-								}
+							// Treat fWorkspace as comma-separated list; if workspace not included, ignore
+							boolean matched = Arrays.stream(fw.split(","))
+								.map(String::trim)
+								.anyMatch(s -> s.equals(ws));
+							if (!matched) {
+								return;
 							}
 						}
 					}
