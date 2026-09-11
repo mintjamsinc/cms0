@@ -36,6 +36,7 @@ import org.apache.camel.Consumer;
 import org.apache.camel.Endpoint;
 import org.apache.camel.Exchange;
 import org.apache.camel.Message;
+import org.apache.camel.MultipleConsumersSupport;
 import org.apache.camel.Processor;
 import org.apache.camel.Producer;
 import org.apache.camel.builder.ThreadPoolBuilder;
@@ -86,7 +87,7 @@ public class EventAdminComponent extends DefaultComponent {
 		}
 	}
 
-	public class EventAdminEndpoint extends DefaultEndpoint {
+	public class EventAdminEndpoint extends DefaultEndpoint implements MultipleConsumersSupport {
 		private static final String TOPIC = "topic";
 		private static final String FILTER = "filter";
 
@@ -133,6 +134,19 @@ public class EventAdminComponent extends DefaultComponent {
 
 		public void setWorkspace(String workspace) {
 			fWorkspace = workspace;
+		}
+
+		/**
+		 * EventAdmin delivers every event to every handler registered for its
+		 * topic, and each consumer registers a handler and an executor of its own,
+		 * so any number of routes can subscribe to the same topic and filter.
+		 * Camel refuses a second consumer on one endpoint unless the endpoint says
+		 * so here; without it, two routes reacting to the same event (for example
+		 * org/mintjams/cms/Workspace/STARTED) could not both start.
+		 */
+		@Override
+		public boolean isMultipleConsumersSupported() {
+			return true;
 		}
 
 		@Override
