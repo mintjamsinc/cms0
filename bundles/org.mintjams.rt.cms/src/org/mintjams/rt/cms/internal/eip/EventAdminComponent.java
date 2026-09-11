@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Supplier;
+import java.util.Arrays;
 
 import org.apache.camel.CamelContext;
 import org.apache.camel.Consumer;
@@ -54,6 +55,12 @@ import org.osgi.service.event.EventHandler;
 public class EventAdminComponent extends DefaultComponent {
 
 	public static final String COMPONENT_NAME = "eventadmin";
+
+	private final String fWorkspaceName;
+
+	public EventAdminComponent(String workspaceName) {
+		fWorkspaceName = workspaceName;
+	}
 
 	@Override
 	protected Endpoint createEndpoint(String uri, String remaining, Map<String, Object> parameters) throws Exception {
@@ -89,6 +96,7 @@ public class EventAdminComponent extends DefaultComponent {
 		private Integer fMaxPoolSize;
 		private int fMaxQueueSize = 1000;
 		private RejectedPolicy fRejectedPolicy = RejectedPolicy.CallerRuns;
+		private String fWorkspace;
 
 		private EventAdminEndpoint(String endpointUri, String remaining) {
 			super(endpointUri, EventAdminComponent.this);
@@ -123,6 +131,10 @@ public class EventAdminComponent extends DefaultComponent {
 					+ ". Available policies are: CallerRuns, Abort, Discard, DiscardOldest.");
 		}
 
+		public void setWorkspace(String workspace) {
+			fWorkspace = workspace;
+		}
+
 		@Override
 		public Consumer createConsumer(Processor processor) throws Exception {
 			EventAdminConsumer consumer = new EventAdminConsumer(processor);
@@ -145,6 +157,32 @@ public class EventAdminComponent extends DefaultComponent {
 
 			@Override
 			public void handleEvent(org.osgi.service.event.Event event) {
+				if (event.getProperty("workspace") != null) {
+					String workspace = (String) event.getProperty("workspace");
+					if (workspace != null) {
+						String ws = workspace.trim();
+						if (fWorkspace == null) {
+							if (!fWorkspaceName.equals(ws)) {
+								// Ignore events from other workspaces
+								return;
+							}
+						} else {
+							String fw = fWorkspace.trim();
+							if (fw.equals("*")) {
+								// Accept all workspaces
+							} else {
+								// Treat fWorkspace as comma-separated list; if workspace not included, ignore
+								boolean matched = Arrays.stream(fw.split(","))
+									.map(String::trim)
+									.anyMatch(s -> s.equals(ws));
+								if (!matched) {
+									return;
+								}
+							}
+						}
+					}
+				}
+
 				fExecutorService.submit(() -> {
 					if (!isRunAllowed()) {
 						return;

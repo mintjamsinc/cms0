@@ -41,7 +41,7 @@ public class WorkspaceCamelContext extends DefaultCamelContext {
 	public WorkspaceCamelContext(WorkspaceIntegrationEngineProviderConfiguration config) {
 		setApplicationContextClassLoader(new WorkspaceDelegatingClassLoader(config.getWorkspaceName()));
 
-		addComponent(EventAdminComponent.COMPONENT_NAME, new EventAdminComponent());
+		addComponent(EventAdminComponent.COMPONENT_NAME, new EventAdminComponent(config.getWorkspaceName()));
 		addComponent(BpmComponent.COMPONENT_NAME, new BpmComponent(config.getWorkspaceName()));
 		addComponent(CmsComponent.COMPONENT_NAME, new CmsComponent(config.getWorkspaceName()));
 
