@@ -343,7 +343,7 @@ public final class OperationNodes {
 		Node content = getOrCreateContent(session, nodePath(workspaceName, report.nodeId) + "/" + STATE);
 		content.setProperty(PROP_NODE_ID, report.nodeId);
 		content.setProperty(PROP_STATE, report.state.name());
-		content.setProperty(PROP_STATE_MESSAGE, report.message);
+		setString(content, PROP_STATE_MESSAGE, report.message);
 		setBoolean(content, PROP_PROCESS_ENGINE_ENABLED, report.processEngineEnabled);
 		content.setProperty(PROP_PROCESS_ENGINE_RUNNING, report.processEngineRunning);
 		setBoolean(content, PROP_INTEGRATION_ENGINE_ENABLED, report.integrationEngineEnabled);
@@ -495,6 +495,18 @@ public final class OperationNodes {
 
 	private static Boolean getBoolean(Node content, String name) throws RepositoryException {
 		return content.hasProperty(name) ? content.getProperty(name).getBoolean() : null;
+	}
+
+	/**
+	 * Sets a string property, or removes it for {@code null}: this repository
+	 * rejects a null value rather than treating it as a removal.
+	 */
+	private static void setString(Node content, String name, String value) throws RepositoryException {
+		if (value != null) {
+			content.setProperty(name, value);
+		} else if (content.hasProperty(name)) {
+			content.getProperty(name).remove();
+		}
 	}
 
 	private static void setBoolean(Node content, String name, Boolean value) throws RepositoryException {
