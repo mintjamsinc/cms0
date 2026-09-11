@@ -713,6 +713,25 @@ export interface Route {
   endpoints: Endpoint[];
   consumers: Endpoint[];
   producers: Endpoint[];
+  /** The state operators asked every node to keep the route in; FOLLOW when nobody did. */
+  desiredState?: RouteDesiredState;
+  /** The route's status on each registered node (administrators only; empty otherwise). */
+  nodes?: RouteNodeState[];
+}
+
+/** The state operators asked every node to keep a route in; FOLLOW: the definition decides. */
+export type RouteDesiredState = 'FOLLOW' | 'STARTED' | 'STOPPED' | 'SUSPENDED';
+
+/** A route's status on one node. */
+export interface RouteNodeState {
+  nodeId: string;
+  hostName: string | null;
+  /** Whether this is the node that served the request. */
+  self: boolean;
+  /** Whether the node's heartbeat is fresh. */
+  alive: boolean;
+  /** 'Unknown' when the node has not reported the route. */
+  status: RouteState;
 }
 
 export interface RouteError {

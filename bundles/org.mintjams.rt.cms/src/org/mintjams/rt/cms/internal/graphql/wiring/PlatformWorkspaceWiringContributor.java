@@ -41,6 +41,15 @@ import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProviderConfig
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
 import org.mintjams.rt.cms.internal.job.workspace.WorkspaceLifecycleJob;
+import org.mintjams.rt.cms.internal.operations.OperationNodes.DesiredState;
+import org.mintjams.rt.cms.internal.operations.OperationNodes.NodeReport;
+import org.mintjams.rt.cms.internal.operations.OperationNodes.NodeState;
+import org.mintjams.rt.cms.internal.operations.OperationNodes.Presence;
+import org.mintjams.rt.cms.internal.operations.OperationNodes.Run;
+import org.mintjams.rt.cms.internal.operations.WorkspaceOperations;
+import org.mintjams.rt.cms.internal.operations.WorkspaceOperations.NodeView;
+import org.mintjams.rt.cms.internal.operations.WorkspaceOperations.WorkspaceView;
+import org.mintjams.rt.cms.internal.util.ISO8601;
 import org.mintjams.rt.cms.internal.workspace.WorkspaceSettings;
 
 import graphql.schema.DataFetcher;
@@ -57,12 +66,14 @@ import org.mintjams.rt.cms.internal.graphql.GraphQLExecutionContext;
  * {@code extend}s the core Query/Mutation roots, and its {@link DataFetcher}s
  * project workspaces into the same flat maps the handmade engine produced.
  *
- * <p>Coverage: the {@code workspaces} read; the {@code createWorkspace},
+ * <p>Coverage: the {@code workspaces} read, with each workspace's state on the
+ * serving node and across the cluster; the {@code createWorkspace},
  * {@code deleteWorkspace}, {@code startWorkspace}, {@code stopWorkspace},
- * {@code restartWorkspace} (asynchronous {@code WorkspaceLifecycleJob}s) and
- * {@code updateWorkspace} (synchronous) mutations. Mutations are reserved for
- * administrators and service accounts and report validation failures in-band as
- * an {@code errors} list, exactly as the handmade engine did.
+ * {@code restartWorkspace} (asynchronous {@code WorkspaceLifecycleJob}s that act
+ * on every node), {@code updateWorkspace} and {@code retryWorkspace}
+ * (synchronous) mutations. Mutations are reserved for administrators and service
+ * accounts and report validation failures in-band as an {@code errors} list,
+ * exactly as the handmade engine did.
  */
 public final class PlatformWorkspaceWiringContributor implements WiringContributor {
 
@@ -86,7 +97,9 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 				.dataFetcher("Mutation", "restartWorkspace",
 						(DataFetcher<Object>) PlatformWorkspaceWiringContributor::restartWorkspace)
 				.dataFetcher("Mutation", "updateWorkspace",
-						(DataFetcher<Object>) PlatformWorkspaceWiringContributor::updateWorkspace);
+						(DataFetcher<Object>) PlatformWorkspaceWiringContributor::updateWorkspace)
+				.dataFetcher("Mutation", "retryWorkspace",
+						(DataFetcher<Object>) PlatformWorkspaceWiringContributor::retryWorkspace);
 	}
 
 	// ---- queries (mirror WorkspaceQueryExecutor) ---------------------------
@@ -95,7 +108,8 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 	 * Returns the accessible workspaces, the system workspace first then the rest
 	 * alphabetically, each described with its lifecycle and engine state. Workspace
 	 * names are not sensitive (every user needs them to switch desktops), so the
-	 * listing carries no admin restriction.
+	 * listing carries no admin restriction; the per-node breakdown, which names the
+	 * cluster's nodes, is reserved for administrators and service accounts.
 	 */
 	private static Object workspaces(DataFetchingEnvironment environment) {
 		Session session = GraphQLExecutionContext.from(environment).getCallerSession();
@@ -117,19 +131,36 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 			return a.compareTo(b);
 		});
 
+		Map<String, WorkspaceView> views = readViews(names);
+		boolean includeNodes = isWorkspaceManager(session);
 		List<Map<String, Object>> workspaces = new ArrayList<>();
 		for (String name : names) {
-			workspaces.add(describeWorkspace(name, currentName));
+			workspaces.add(describeWorkspace(name, currentName, views.get(name), includeNodes));
 		}
 		return workspaces;
+	}
+
+	/** The cluster views of the given workspaces; empty when the operations state cannot be read. */
+	private static Map<String, WorkspaceView> readViews(List<String> names) {
+		try {
+			return WorkspaceOperations.views(names);
+		} catch (Throwable ex) {
+			CmsService.getLogger(PlatformWorkspaceWiringContributor.class)
+					.warn("Could not read the cluster state of the workspaces.", ex);
+			return new HashMap<>();
+		}
 	}
 
 	/**
 	 * Builds the GraphQL representation of one workspace (shared with the workspace
 	 * mutations so a freshly changed workspace reports the same shape as a listed
-	 * one). Mirrors {@code WorkspaceQueryExecutor.describeWorkspace}.
+	 * one). Mirrors {@code WorkspaceQueryExecutor.describeWorkspace}, extended with
+	 * the cluster-wide state.
+	 *
+	 * @param view the workspace's cluster view; null falls back to this node's own state
 	 */
-	static Map<String, Object> describeWorkspace(String name, String currentName) {
+	static Map<String, Object> describeWorkspace(String name, String currentName, WorkspaceView view,
+			boolean includeNodes) {
 		Map<String, Object> workspace = new HashMap<>();
 		workspace.put("name", name);
 		workspace.put("current", name.equals(currentName));
@@ -165,7 +196,55 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 		workspace.put("stateMessage", startError);
 		workspace.put("processEngine", processEngineState(name));
 		workspace.put("integrationEngine", integrationEngineState(name));
+
+		if (view != null) {
+			workspace.put("clusterState", view.clusterState.name());
+			workspace.put("desiredRun", (view.desired == null || view.desired.run == Run.RUNNING) ? "RUNNING" : "STOPPED");
+			workspace.put("nodes", includeNodes ? describeNodes(name, view) : List.of());
+		} else {
+			// The operations state could not be read: this node's own state is the
+			// best available answer (every node state is also a cluster state).
+			workspace.put("clusterState", state);
+			workspace.put("desiredRun", "STOPPED".equals(state) ? "STOPPED" : "RUNNING");
+			workspace.put("nodes", List.of());
+		}
 		return workspace;
+	}
+
+	private static List<Map<String, Object>> describeNodes(String name, WorkspaceView view) {
+		boolean bpmOnDisk = WorkspaceProcessEngineProviderConfiguration.isEnabledOnDisk(name);
+		boolean eipOnDisk = WorkspaceIntegrationEngineProviderConfiguration.isEnabledOnDisk(name);
+		List<Map<String, Object>> nodes = new ArrayList<>();
+		for (NodeView node : view.nodes) {
+			NodeReport report = node.report;
+			Map<String, Object> entry = new HashMap<>();
+			entry.put("nodeId", node.nodeId);
+			entry.put("hostName", node.hostName);
+			entry.put("self", node.self);
+			entry.put("alive", node.alive);
+			entry.put("registered", node.registered);
+			entry.put("state", (report == null || report.state == null) ? "UNKNOWN" : report.state.name());
+			entry.put("stateMessage", (report == null) ? null : report.message);
+			entry.put("processEngine", engineState(
+					(report == null) ? null : report.processEngineEnabled, report != null && report.processEngineRunning));
+			entry.put("integrationEngine", engineState(
+					(report == null) ? null : report.integrationEngineEnabled, report != null && report.integrationEngineRunning));
+			entry.put("restartPending", node.restartPending);
+			boolean nodeOnline = (report != null && report.state == NodeState.ONLINE);
+			entry.put("engineSettingsPending", nodeOnline
+					&& ((report.processEngineEnabled != null && report.processEngineEnabled.booleanValue() != bpmOnDisk)
+							|| (report.integrationEngineEnabled != null && report.integrationEngineEnabled.booleanValue() != eipOnDisk)));
+			entry.put("updated", (report == null || report.updated == null) ? null : ISO8601.format(report.updated));
+			nodes.add(entry);
+		}
+		return nodes;
+	}
+
+	private static Map<String, Object> engineState(Boolean enabled, boolean running) {
+		Map<String, Object> state = new HashMap<>();
+		state.put("enabled", enabled);
+		state.put("running", running);
+		return state;
 	}
 
 	private static Map<String, Object> processEngineState(String workspaceName) {
@@ -202,12 +281,19 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 		if (Arrays.asList(session.getWorkspace().getAccessibleWorkspaceNames()).contains(name)) {
 			return errorResult("Workspace already exists: " + name, "ALREADY_EXISTS");
 		}
+		if (isBeingDeleted(name)) {
+			return errorResult("The deletion of the workspace '" + name + "' has not completed yet", "CONFLICT");
+		}
 		String jobId = submitWorkspaceJob(environment, WorkspaceLifecycleJob.Operation.CREATE,
 				WorkspaceLifecycleJob.TYPE_CREATE, name);
 		return jobAcceptedResult(jobId, name);
 	}
 
-	/** Starts an async workspace deletion; the system and bound workspaces are refused. */
+	/**
+	 * Starts an async workspace deletion; the system and bound workspaces are
+	 * refused. A deletion that did not complete (the workspace is already closed
+	 * on this node, but its record is still marked for deletion) can be run again.
+	 */
 	private static Object deleteWorkspace(DataFetchingEnvironment environment) throws Exception {
 		Map<String, Object> input = inputArg(environment);
 		String name = (String) input.get("name");
@@ -224,7 +310,7 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 		if (name.equals(session.getWorkspace().getName())) {
 			return errorResult("The workspace this session is bound to cannot be deleted", "INVALID_INPUT");
 		}
-		if (!Arrays.asList(session.getWorkspace().getAccessibleWorkspaceNames()).contains(name)) {
+		if (!Arrays.asList(session.getWorkspace().getAccessibleWorkspaceNames()).contains(name) && !isBeingDeleted(name)) {
 			return errorResult("Workspace not found: " + name, "NOT_FOUND");
 		}
 		String jobId = submitWorkspaceJob(environment, WorkspaceLifecycleJob.Operation.DELETE,
@@ -232,7 +318,7 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 		return jobAcceptedResult(jobId, name);
 	}
 
-	/** Starts an async start of a stopped workspace. */
+	/** Starts an async start of a workspace on every node. */
 	private static Object startWorkspace(DataFetchingEnvironment environment) throws Exception {
 		Map<String, Object> input = inputArg(environment);
 		String name = (String) input.get("name");
@@ -246,12 +332,18 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 		if (!Arrays.asList(session.getWorkspace().getAccessibleWorkspaceNames()).contains(name)) {
 			return errorResult("Workspace not found: " + name, "NOT_FOUND");
 		}
+		if (SYSTEM_WORKSPACE_NAME.equals(name)) {
+			return errorResult("The system workspace always runs", "INVALID_INPUT");
+		}
+		if (isBeingDeleted(name)) {
+			return errorResult("The workspace '" + name + "' is being deleted", "CONFLICT");
+		}
 		String jobId = submitWorkspaceJob(environment, WorkspaceLifecycleJob.Operation.START,
 				WorkspaceLifecycleJob.TYPE_START, name);
 		return jobAcceptedResult(jobId, name);
 	}
 
-	/** Starts an async stop of a running workspace; the system and bound workspaces are refused. */
+	/** Starts an async stop of a workspace on every node; the system and bound workspaces are refused. */
 	private static Object stopWorkspace(DataFetchingEnvironment environment) throws Exception {
 		Map<String, Object> guard = guardStartedWorkspaceMutation(environment);
 		if (guard != null) {
@@ -263,7 +355,7 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 		return jobAcceptedResult(jobId, name);
 	}
 
-	/** Starts an async restart of a workspace (applies BPM/EIP switches); same guard as stop. */
+	/** Starts an async restart of a workspace on every node (applies BPM/EIP switches); same guard as stop. */
 	private static Object restartWorkspace(DataFetchingEnvironment environment) throws Exception {
 		Map<String, Object> guard = guardStartedWorkspaceMutation(environment);
 		if (guard != null) {
@@ -305,7 +397,7 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 			settings.save();
 			changed = true;
 		}
-		// Engine switches (applied on the next workspace start).
+		// Engine switches (applied when each node next starts or restarts the workspace).
 		if (input.containsKey("bpmEnabled")) {
 			WorkspaceProcessEngineProviderConfiguration.setEnabled(name, toBoolean(input.get("bpmEnabled")));
 			changed = true;
@@ -314,15 +406,63 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 			WorkspaceIntegrationEngineProviderConfiguration.setEnabled(name, toBoolean(input.get("eipEnabled")));
 			changed = true;
 		}
-		// Announce so every connected desktop refreshes its switcher/dashboard live.
+		// Announce so every connected desktop, on every node, refreshes its switcher/dashboard live.
 		if (changed) {
-			CmsService.postWorkspaceChanged(name);
+			CmsService.postWorkspaceSettingsChanged(name);
 		}
 
+		return workspaceResult(session, name);
+	}
+
+	/**
+	 * Asks the nodes on which a workspace failed to start to try again — the
+	 * given nodes, or every alive node it failed on. Synchronous: the request is
+	 * recorded and the refreshed workspace returned; the nodes act on it as it
+	 * reaches them.
+	 */
+	@SuppressWarnings("unchecked")
+	private static Object retryWorkspace(DataFetchingEnvironment environment) throws Exception {
+		Map<String, Object> input = inputArg(environment);
+		String name = (String) input.get("name");
+		Session session = callerSession(environment);
+		if (!isWorkspaceManager(session)) {
+			return errorResult("Workspace management requires administrative privileges", "ACCESS_DENIED");
+		}
+		if (name == null || name.isEmpty()) {
+			return errorResult("name is required", "INVALID_INPUT");
+		}
+		if (!Arrays.asList(session.getWorkspace().getAccessibleWorkspaceNames()).contains(name)) {
+			return errorResult("Workspace not found: " + name, "NOT_FOUND");
+		}
+		Object nodeIds = input.get("nodeIds");
+		try {
+			WorkspaceOperations.requestRetry(name, (nodeIds instanceof List) ? (List<String>) nodeIds : null,
+					session.getUserID());
+		} catch (javax.jcr.RepositoryException ex) {
+			return errorResult(ex.getMessage(), "INVALID_INPUT");
+		}
+		return workspaceResult(session, name);
+	}
+
+	/** The {workspace, errors: null} result of a synchronous mutation, with the workspace described afresh. */
+	private static Map<String, Object> workspaceResult(Session session, String name) throws Exception {
 		Map<String, Object> result = new HashMap<>();
-		result.put("workspace", describeWorkspace(name, session.getWorkspace().getName()));
+		result.put("workspace", describeWorkspace(name, session.getWorkspace().getName(),
+				readViews(List.of(name)).get(name), isWorkspaceManager(session)));
 		result.put("errors", null);
 		return result;
+	}
+
+	/** Whether the workspace's record is marked for deletion (a deletion started and not completed). */
+	private static boolean isBeingDeleted(String name) {
+		try {
+			DesiredState desired = WorkspaceOperations.readDesired(name);
+			return desired != null && desired.presence == Presence.ABSENT;
+		} catch (Throwable ex) {
+			CmsService.getLogger(PlatformWorkspaceWiringContributor.class)
+					.warn("Could not read the desired state of the workspace: " + name, ex);
+			return false;
+		}
 	}
 
 	/**
@@ -350,6 +490,9 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 		}
 		if (!Arrays.asList(session.getWorkspace().getAccessibleWorkspaceNames()).contains(name)) {
 			return errorResult("Workspace not found: " + name, "NOT_FOUND");
+		}
+		if (isBeingDeleted(name)) {
+			return errorResult("The workspace '" + name + "' is being deleted", "CONFLICT");
 		}
 		return null;
 	}

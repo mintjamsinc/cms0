@@ -106,6 +106,31 @@ type Route {
   consumers: [Endpoint!]
   """Producer endpoints — not populated by the route read; null here (handmade parity)."""
   producers: [Endpoint!]
+  """The state operators asked every node to keep the route in; FOLLOW when nobody did (the route's definition decides)."""
+  desiredState: RouteDesiredState!
+  """The route's status on each registered node. Administrators and service accounts only; empty for anyone else."""
+  nodes: [RouteNodeState!]!
+}
+
+"""The state operators asked every node to keep a route in."""
+enum RouteDesiredState {
+  """No request: the route starts or stays stopped as its definition says."""
+  FOLLOW
+  STARTED
+  STOPPED
+  SUSPENDED
+}
+
+"""A route's status on one node."""
+type RouteNodeState {
+  nodeId: String!
+  hostName: String
+  """Whether this is the node that served the request (its status is read live)."""
+  self: Boolean!
+  """Whether the node's heartbeat is fresh."""
+  alive: Boolean!
+  """The route's status on the node; Unknown when the node has not reported it (not deployed there, or the engine is not running)."""
+  status: RouteState!
 }
 
 """Lifecycle state of a route — Camel ServiceStatus names, plus Unknown."""
@@ -321,20 +346,22 @@ type StatPoint {
 }
 
 # -----------------------------------------------------------------------------
-# Route control mutations (EIP-2 → mirror of EipRouteExecutor's write half).
-# Operate on the deployed Camel route controller for the request's workspace
-# (no JCR writes); each returns the route's full projection after the operation.
+# Route control mutations (EIP-2).
+# Each records the desired route state for every node (Route.desiredState),
+# applies it at once on the node that served the request, and returns the
+# route's full projection after the operation; the other nodes apply it as the
+# record reaches them, and keep it across redeployments and restarts.
 # Handmade parity: no extra authorization beyond the authenticated endpoint.
 # -----------------------------------------------------------------------------
 
 extend type Mutation {
-  """Start a stopped route; returns the route after the operation."""
+  """Start a route on every node; returns the route after the operation."""
   startRoute(input: StartRouteInput!): Route!
-  """Stop a running route (optional graceful timeout, seconds); returns the route after the operation."""
+  """Stop a route on every node (the optional graceful timeout, seconds, applies on the node that served the request); returns the route after the operation."""
   stopRoute(input: StopRouteInput!): Route!
-  """Suspend a running route (optional graceful timeout, seconds); returns the route after the operation."""
+  """Suspend a route on every node (the optional graceful timeout, seconds, applies on the node that served the request); returns the route after the operation."""
   suspendRoute(input: SuspendRouteInput!): Route!
-  """Resume a suspended route; returns the route after the operation."""
+  """Resume a route on every node; returns the route after the operation."""
   resumeRoute(input: ResumeRouteInput!): Route!
 }
 

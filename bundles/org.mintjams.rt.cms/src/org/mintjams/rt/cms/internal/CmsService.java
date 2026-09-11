@@ -34,6 +34,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import javax.jcr.Node;
@@ -64,6 +65,7 @@ import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
 import org.mintjams.rt.cms.internal.job.JobManager;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.operations.WorkspaceReconciler;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceFacetProvider;
@@ -102,8 +104,6 @@ import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.osgi.service.component.annotations.ReferencePolicy;
 import org.osgi.service.event.Event;
 import org.osgi.service.event.EventAdmin;
-import org.osgi.service.event.EventConstants;
-import org.osgi.service.event.EventHandler;
 import org.osgi.service.log.Logger;
 import org.osgi.service.log.LoggerFactory;
 
@@ -163,21 +163,23 @@ public class CmsService {
 	private SecretKeyProvider fSecretKeyProvider;
 	private Encryptor fEncryptor;
 	private JobManager fJobManager;
+	private WorkspaceReconciler fWorkspaceReconciler;
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
 	/**
-	 * EventAdmin topic posted whenever a workspace changes in a way a connected
-	 * desktop should reflect: its runtime state changes on this node (services
-	 * started or stopped) <em>or</em> its settings are edited (display name,
-	 * auto-start, engine switches). Unlike the JCR node-change events, this
-	 * carries no path — only the {@code workspace} property — and is delivered
-	 * to every workspace's event manager so that any connected desktop,
-	 * regardless of which workspace it is bound to, can refresh its workspace
-	 * switcher and dashboard live via the {@code workspaceChanged} subscription.
-	 * Subscribers re-read the workspace list rather than trust the payload, so a
-	 * single topic correctly serves both state and settings changes.
+	 * EventAdmin topic posted when a workspace's shared settings are edited
+	 * (display name, auto-start, engine switches). The settings live in files
+	 * every node reads, so the change is a fact for the whole cluster: the event
+	 * is posted locally and broadcast over the cluster signal bus, and every
+	 * workspace's event manager delivers it so any connected desktop can refresh
+	 * via the {@code workspaceChanged} subscription. It carries no path — only
+	 * the {@code workspace} property.
+	 *
+	 * <p>Runtime state is not announced here: each node reports its own state
+	 * under {@code /var/operations/workspaces} in the system workspace, and that
+	 * write reaches every node through the cluster journal as a node event.
 	 */
-	public static final String TOPIC_WORKSPACE_CHANGED = "org/mintjams/rt/cms/workspace/CHANGED";
+	public static final String TOPIC_WORKSPACE_SETTINGS_CHANGED = "org/mintjams/rt/cms/workspace/SETTINGS_CHANGED";
 
 	@Activate
 	void activate(ComponentContext cc, BundleContext bc, Map<String, Object> config) {
@@ -212,6 +214,16 @@ public class CmsService {
 
 	@Deactivate
 	void deactivate(ComponentContext cc, BundleContext bc) {
+		// Stop converging first, outside this component's monitor: the
+		// reconciler must not start or stop services while they are torn down,
+		// and it may be waiting on that monitor to finish its current step.
+		if (fWorkspaceReconciler != null) {
+			try {
+				fWorkspaceReconciler.close();
+			} catch (Throwable ex) {
+				fLoggerFactory.getLogger(getClass()).warn("An error occurred while stopping the workspace reconciler.", ex);
+			}
+		}
 		try {
 			close();
 		} catch (Throwable ex) {
@@ -260,17 +272,32 @@ public class CmsService {
 		} catch (Throwable ex) {
 			fLoggerFactory.getLogger(getClass()).warn("An error occurred while recovering jobs: system", ex);
 		}
+		// Settle the cluster-wide desired state before any workspace starts, so
+		// this node starts exactly what the running cluster runs — or, when the
+		// whole cluster is starting, what the auto-start settings say. A
+		// workspace meant to be stopped skips every start step and is recorded
+		// as deliberately stopped (not STARTING, not FAILED).
+		fWorkspaceReconciler = new WorkspaceReconciler();
+		Set<String> stoppedAtBoot;
+		try {
+			stoppedAtBoot = fWorkspaceReconciler.bootstrap();
+		} catch (Throwable ex) {
+			fLoggerFactory.getLogger(getClass()).error("Could not settle the desired workspace states; following the auto-start settings.", ex);
+			stoppedAtBoot = new java.util.HashSet<>();
+			for (String workspaceName : getWorkspaceNames()) {
+				if (!workspaceName.equals("system")
+						&& !org.mintjams.rt.cms.internal.workspace.WorkspaceSettings.isAutoStartOf(workspaceName)) {
+					stoppedAtBoot.add(workspaceName);
+				}
+			}
+		}
 		for (String workspaceName : getWorkspaceNames()) {
 			if (workspaceName.equals("system")) {
 				continue;
 			}
-			// Honour the per-workspace auto-start policy: a workspace whose
-			// workspace.yml#autoStart is false stays stopped at boot until an
-			// operator starts it, so skip every start step for it and record it
-			// as deliberately stopped (not STARTING, not FAILED).
-			if (!org.mintjams.rt.cms.internal.workspace.WorkspaceSettings.isAutoStartOf(workspaceName)) {
+			if (stoppedAtBoot.contains(workspaceName)) {
 				fStoppedWorkspaces.add(workspaceName);
-				fLoggerFactory.getLogger(getClass()).info("Auto-start is disabled; leaving the workspace stopped: " + workspaceName);
+				fLoggerFactory.getLogger(getClass()).info("Leaving the workspace stopped: " + workspaceName);
 				continue;
 			}
 
@@ -321,17 +348,6 @@ public class CmsService {
 			}
 		}
 
-		// The workspace lifecycle listener: starts and stops per-workspace
-		// services when workspaces are created or deleted at runtime (on this
-		// node via the management API, or on another cluster node via
-		// workspace discovery).
-		fCloser.register(Registration.newBuilder(EventHandler.class)
-				.setService(new WorkspaceLifecycleListener())
-				.setProperty(EventConstants.EVENT_TOPIC,
-						org.mintjams.jcr.Workspace.class.getName().replace(".", "/") + "/*")
-				.setBundleContext(getBundleContext())
-				.build());
-
 		// The web console security provider
 		fCloser.register(Registration.newBuilder(WebConsoleSecurityProvider.class)
 				.setService(new FelixWebConsoleSecurityProvider())
@@ -350,6 +366,10 @@ public class CmsService {
 				.setService(new OSGiCmsService())
 				.setBundleContext(getBundleContext())
 				.build());
+
+		// From here on, workspaces are opened, started, stopped and closed by
+		// converging on the cluster-wide desired state.
+		fWorkspaceReconciler.open();
 	}
 
 	private void prepareStandardFolders() throws IOException, RepositoryException {
@@ -411,11 +431,10 @@ public class CmsService {
 	 * Brings a workspace fully online: standard folders, provisioning and
 	 * content deployment, then the per-workspace services (script engines,
 	 * process engine, integration engine, servlets, events). This can take
-	 * minutes for a freshly created workspace, which is why runtime creation
-	 * reaches this method only through the asynchronous workspace-lifecycle
-	 * event — never on a request thread. Idempotent — a workspace whose
-	 * services are already running is left untouched — so repeated lifecycle
-	 * events (runtime creation, cluster discovery) can race safely.
+	 * minutes for a freshly created workspace, which is why it is reached only
+	 * from the workspace reconciler and background jobs — never on a request
+	 * thread. Idempotent — a workspace whose services are already running is
+	 * left untouched — so the reconciler and a lifecycle job can race safely.
 	 */
 	public synchronized void startWorkspaceServices(String workspaceName) throws IOException, RepositoryException {
 		if (fWorkspaceServletProviders.containsKey(workspaceName)) {
@@ -462,7 +481,6 @@ public class CmsService {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
 		getLogger(getClass()).info("Workspace services have been started: " + workspaceName);
-		postWorkspaceChanged(workspaceName);
 	}
 
 	/** First non-blank message walking the cause chain, for the FAILED reason. */
@@ -498,7 +516,6 @@ public class CmsService {
 		closeWorkspaceService(fWorkspaceScriptEngineManagers.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceClassLoaderProviders.remove(workspaceName));
 		getLogger(getClass()).info("Workspace services have been stopped: " + workspaceName);
-		postWorkspaceChanged(workspaceName);
 	}
 
 	/**
@@ -514,50 +531,46 @@ public class CmsService {
 	}
 
 	/**
-	 * Announces that a workspace changed — its runtime state (start/stop) or its
-	 * settings (display name, auto-start, engine switches) — to every connected
-	 * desktop so its workspace switcher and dashboard can refresh live.
-	 * Best-effort: a delivery failure must never derail the operation that
-	 * triggered it.
+	 * Announces that a workspace's shared settings were edited (display name,
+	 * auto-start, engine switches) to every connected desktop so its workspace
+	 * switcher and dashboard can refresh live. Best-effort: a delivery failure
+	 * must never derail the update that triggered it.
 	 *
-	 * <p>The notification reaches the whole cluster, not just this node: it is
-	 * posted locally for the desktops connected here, and broadcast over the
-	 * cluster signal bus so the desktops connected to the other nodes refresh
-	 * too. In a standalone deployment the broadcast is a no-op.
+	 * <p>The notification reaches the whole cluster: it is posted locally for
+	 * the desktops connected here, and broadcast over the cluster signal bus so
+	 * the desktops connected to the other nodes refresh too. In a standalone
+	 * deployment the broadcast is a no-op.
 	 */
-	public static void postWorkspaceChanged(String workspaceName) {
+	public static void postWorkspaceSettingsChanged(String workspaceName) {
 		Map<String, Object> properties = new HashMap<>();
 		properties.put("workspace", workspaceName);
 		try {
-			postEvent(TOPIC_WORKSPACE_CHANGED, properties);
+			postEvent(TOPIC_WORKSPACE_SETTINGS_CHANGED, properties);
 		} catch (Throwable ex) {
-			getLogger(CmsService.class).warn("Could not post workspace-changed event: " + workspaceName, ex);
+			getLogger(CmsService.class).warn("Could not post the workspace settings change: " + workspaceName, ex);
 		}
-		broadcastWorkspaceChangedToCluster(workspaceName, properties);
+		broadcastToCluster(TOPIC_WORKSPACE_SETTINGS_CHANGED, workspaceName, properties);
 	}
 
 	/**
-	 * Fans a workspace-changed notification out to the other cluster nodes so
-	 * the desktops connected to them refresh alongside this node's. The system
-	 * workspace is the repository-wide channel: it runs on every node, so its
-	 * signal bus reaches them all regardless of which workspaces each node
-	 * happens to be running. Each receiving node re-emits the notification as a
-	 * local {@code workspaceChanged} event, indistinguishable from a local
-	 * post, so the existing subscription machinery delivers it unchanged.
-	 * Best-effort, like {@link #postWorkspaceChanged(String)} itself, and a
-	 * no-op outside a cluster.
+	 * Fans a notification out to the other cluster nodes. The system workspace
+	 * is the repository-wide channel: it runs on every node, so its signal bus
+	 * reaches them all regardless of which workspaces each node runs. Each
+	 * receiving node re-emits the notification as a local event,
+	 * indistinguishable from a local post. Best-effort, and a no-op outside a
+	 * cluster.
 	 */
-	private static void broadcastWorkspaceChangedToCluster(String workspaceName, Map<String, Object> properties) {
+	private static void broadcastToCluster(String topic, String workspaceName, Map<String, Object> properties) {
 		Session session = null;
 		try {
 			session = getRepository().login(new CmsServiceCredentials(), "system");
 			org.mintjams.jcr.cluster.ClusterCoordinator coordinator = Adaptables.getAdapter(session,
 					org.mintjams.jcr.cluster.ClusterCoordinator.class);
 			if (coordinator != null && coordinator.isClusterEnabled()) {
-				coordinator.publish(TOPIC_WORKSPACE_CHANGED, properties);
+				coordinator.publish(topic, properties);
 			}
 		} catch (Throwable ex) {
-			getLogger(CmsService.class).warn("Could not broadcast workspace-changed to the cluster: " + workspaceName, ex);
+			getLogger(CmsService.class).warn("Could not broadcast '" + topic + "' to the cluster: " + workspaceName, ex);
 		} finally {
 			if (session != null) {
 				try {
@@ -582,31 +595,14 @@ public class CmsService {
 		}
 	}
 
-	private class WorkspaceLifecycleListener implements EventHandler {
-		@Override
-		public void handleEvent(Event event) {
-			String workspaceName = (String) event.getProperty("workspace");
-			if (Strings.isEmpty(workspaceName)) {
-				return;
-			}
-
-			if (event.getTopic().endsWith("/CREATED")) {
-				try {
-					startWorkspaceServices(workspaceName);
-				} catch (Throwable ex) {
-					getLogger(getClass()).error("An error occurred while starting the workspace service: " + workspaceName, ex);
-				}
-				return;
-			}
-
-			if (event.getTopic().endsWith("/DELETED")) {
-				try {
-					stopWorkspaceServices(workspaceName);
-				} catch (Throwable ex) {
-					getLogger(getClass()).error("An error occurred while stopping the workspace service: " + workspaceName, ex);
-				}
-			}
-		}
+	/**
+	 * Clears what this node remembers about a workspace it has closed, so a
+	 * workspace of the same name created later is not reported as stopped or
+	 * failed from its predecessor's record.
+	 */
+	public void forgetWorkspace(String workspaceName) {
+		fWorkspaceStartErrors.remove(workspaceName);
+		fStoppedWorkspaces.remove(workspaceName);
 	}
 
 	private void prepareServices(String workspaceName) throws IOException, RepositoryException {
@@ -851,6 +847,20 @@ public class CmsService {
 
 	public static JobManager getJobManager() {
 		return getDefault().fJobManager;
+	}
+
+	/** The reconciler that keeps this node's workspaces at the cluster-wide desired state. */
+	public static WorkspaceReconciler getWorkspaceReconciler() {
+		return getDefault().fWorkspaceReconciler;
+	}
+
+	/** The names of the workspaces open on this node, or none when they cannot be read. */
+	public static String[] getRepositoryWorkspaceNames() {
+		try {
+			return getDefault().getWorkspaceNames();
+		} catch (Throwable ex) {
+			return new String[0];
+		}
 	}
 
 	public static Path getEtcPath() {

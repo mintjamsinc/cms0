@@ -689,6 +689,15 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 			return (AdapterType) fIdentityProvider;
 		}
 
+		if (adapterType.equals(org.mintjams.jcr.WorkspaceManager.class)) {
+			// Opening and closing workspaces is repository-wide management, held
+			// to the same administrative sessions as creating and deleting them.
+			if (fSession.isAdmin() || fSession.isSystem() || fSession.isService()) {
+				return (AdapterType) adaptTo(JcrRepository.class);
+			}
+			return null;
+		}
+
 		return Adaptables.getAdapter(fWorkspaceProvider, adapterType);
 	}
 

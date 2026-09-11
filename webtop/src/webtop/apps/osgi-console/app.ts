@@ -2,7 +2,9 @@
  * OSGi Console Application
  *
  * Admin-only viewer that embeds the Felix OSGi Console (/system/console)
- * inside a single-pane translucent Webtop window.
+ * inside a single-pane translucent Webtop window. The Felix console shows and
+ * changes only the node that served the window, and Webtop does not choose
+ * the node, so in a cluster the status bar names it.
  */
 
 import { VDOM } from '@mintjamsinc/ichigojs';
@@ -21,6 +23,8 @@ const App = {
 			messageListener: null as ((event: MessageEvent) => void) | null,
 			// Reactive Localization snapshot — see composables/use-localization.ts.
 			localization: createLocalizationSnapshot(),
+			// The cluster node the console belongs to; empty when not clustered.
+			nodeLabel: '',
 		};
 	},
 	methods: {
@@ -53,6 +57,17 @@ const App = {
 				this.$nextTick(() => {
 					instance.notifyLaunched();
 				});
+
+				try {
+					const cluster = await vm.instance.api.webtop.getCluster();
+					if (cluster.enabled) {
+						const self = cluster.members.find((m) => m.self);
+						const nodeId = self?.nodeId || cluster.nodeId || '';
+						vm.nodeLabel = (self?.hostName && self.hostName !== nodeId) ? `${self.hostName} (${nodeId})` : nodeId;
+					}
+				} catch (err) {
+					console.warn('[OsgiConsole] Failed to read the cluster topology:', err);
+				}
 			};
 		},
 		onUnmount() {

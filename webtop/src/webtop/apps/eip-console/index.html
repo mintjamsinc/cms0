@@ -477,6 +477,19 @@
 							</template>
 						</wt-property-row>
 						<wt-property-row v-if="managedRoute.uptime" :name="t('app.eip-console.detail.uptime', undefined, 'Uptime')" :model-value="managedRoute.uptime"></wt-property-row>
+						<wt-property-row v-if="managedRoute.desiredState && managedRoute.desiredState !== 'FOLLOW'" :name="t('app.eip-console.detail.desiredState', undefined, 'Kept on every node')" :model-value="desiredStateLabel(managedRoute.desiredState)"></wt-property-row>
+					</div>
+
+					<!-- The route on each cluster node (Webtop does not choose the node) -->
+					<div v-if="managedRoute.nodes && managedRoute.nodes.length > 0">
+						<div class="detail-section-header">{{ t('app.eip-console.detail.nodes', undefined, 'Nodes') }}</div>
+						<div class="detail-section-body">
+							<wt-property-row v-for="node in managedRoute.nodes" :key="node.nodeId" :name="routeNodeName(node)">
+								<template v-slot:value="p">
+									<span class="bpm-status" :class="node.alive ? (node.status || '').toLowerCase() : ''">{{ node.alive ? routeStatusLabel(node.status) : t('app.eip-console.detail.nodeStale', undefined, 'No heartbeat') }}</span>
+								</template>
+							</wt-property-row>
+						</div>
 					</div>
 
 					<div class="detail-section-header">{{ t('app.eip-console.detail.exchanges', undefined, 'Exchanges') }}</div>

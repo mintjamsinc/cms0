@@ -1,3 +1,5 @@
 {
-	"app.osgi-console.title": "OSGi Console"
+	"app.osgi-console.title": "OSGi Console",
+	"app.osgi-console.node": "Node: {node}",
+	"app.osgi-console.nodeHint": "The console shows and changes this node only."
 }

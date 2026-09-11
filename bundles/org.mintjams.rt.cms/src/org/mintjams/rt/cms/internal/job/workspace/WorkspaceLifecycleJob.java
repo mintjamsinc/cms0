@@ -22,50 +22,72 @@
 
 package org.mintjams.rt.cms.internal.job.workspace;
 
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.List;
+import java.util.Map;
 
 import javax.jcr.Node;
 import javax.jcr.Session;
 
+import org.mintjams.jcr.WorkspaceManager;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.job.Job;
 import org.mintjams.rt.cms.internal.job.JobContext;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.operations.OperationNodes.NodeReport;
+import org.mintjams.rt.cms.internal.operations.OperationNodes.NodeState;
+import org.mintjams.rt.cms.internal.operations.WorkspaceOperations;
+import org.mintjams.rt.cms.internal.operations.WorkspaceOperations.NodeView;
+import org.mintjams.rt.cms.internal.operations.WorkspaceOperations.Progress;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.tools.adapter.Adaptables;
 
 /**
- * Creates or deletes a repository workspace in the background, reporting
- * start / phase / completion / error through the standard
- * {@code jobProgress(jobId)} channel so the Workspace Manager can show a
- * progress overlay and — crucially — surface a terminal error the user can
- * dismiss, instead of a workspace stuck in {@code STARTING} forever.
+ * Carries out a Webtop workspace operation — create, delete, start, stop,
+ * restart — for the whole cluster in the background, reporting start / phase /
+ * completion / error through the standard {@code jobProgress(jobId)} channel so
+ * the Workspace Manager can show a progress overlay and surface a terminal error
+ * the user can dismiss, instead of a workspace stuck in {@code STARTING} forever.
  *
  * <h2>Why a job</h2>
- * Bringing a workspace online runs provisioning and content deployment and
- * can take minutes — far beyond an HTTP idle timeout — and either step can
- * fail. Deletion must first stop the workspace's services and wait for them
- * to come fully down before removing the directory, or file handles still
- * held by a starting/running workspace leave debris behind. Both are
- * long-running, fail-able, multi-phase operations: exactly what
- * {@link org.mintjams.rt.cms.internal.job.JobManager} exists to run.
+ * Bringing a workspace online runs provisioning and content deployment and can
+ * take minutes — far beyond an HTTP idle timeout — and it can fail on any node.
+ * Deletion must first have every node stop the workspace's services and close
+ * it before the directory is removed, or file handles still held leave debris
+ * behind. Both are long-running, fail-able, multi-phase operations: exactly
+ * what {@link org.mintjams.rt.cms.internal.job.JobManager} exists to run.
+ *
+ * <h2>How an operation reaches every node</h2>
+ * Webtop cannot choose a node, so the job never acts on the node that runs it
+ * alone. It records the desired state ({@link WorkspaceOperations}), which every
+ * node — this one included — converges on
+ * ({@link org.mintjams.rt.cms.internal.operations.WorkspaceReconciler}), and then
+ * waits until every alive node has got there or failed. When a node fails, the
+ * job fails with that node's reason; the desired state stays, so a retry, or a
+ * node restart, completes it. The job's item counters report the nodes that have
+ * settled out of the nodes that are alive.
  *
  * <h2>Phases</h2>
  * <ul>
- *   <li><b>create</b> — {@code creating} (JCR workspace) → {@code starting}
- *       (CMS services).</li>
- *   <li><b>delete</b> — {@code stopping} (CMS services, synchronously, so the
- *       workspace is fully down) → {@code deleting} (JCR workspace and its
- *       directory).</li>
+ *   <li><b>create</b> — {@code creating} (the workspace directory, from the
+ *       template, on this node) → {@code starting} (every node opens it and
+ *       starts its services).</li>
+ *   <li><b>delete</b> — {@code stopping} (every node stops the services and
+ *       closes the workspace) → {@code deleting} (the directory, once no node has
+ *       it open, and the workspace's operations record).</li>
+ *   <li><b>start</b> / <b>restart</b> — {@code starting}.</li>
+ *   <li><b>stop</b> — {@code stopping}.</li>
  * </ul>
  * The phase is published on the job node and republished to subscribers; the
  * generic {@link JobStatus} stays RUNNING throughout and turns COMPLETED or
- * FAILED at the end, so recovery and the manager reason about it like any
- * other job.
+ * FAILED at the end, so recovery and the manager reason about it like any other
+ * job.
  *
  * <h2>Storage</h2>
- * The {@code /var/jobs} record lives in the requester's own workspace, never
- * in the workspace being acted upon — a delete job's record must outlive the
+ * The {@code /var/jobs} record lives in the requester's own workspace, never in
+ * the workspace being acted upon — a delete job's record must outlive the
  * workspace it removes. The target workspace is carried separately
  * ({@link JobNodes#PROP_TARGET_WORKSPACE}).
  *
@@ -88,6 +110,10 @@ public class WorkspaceLifecycleJob implements Job {
 	public static final String PHASE_STOPPING = "stopping";
 	public static final String PHASE_DELETING = "deleting";
 
+	/** Starting services runs provisioning and content deployment, which can take minutes per node. */
+	private static final long START_TIMEOUT_MILLIS = 30L * 60L * 1000L;
+	private static final long STOP_TIMEOUT_MILLIS = 10L * 60L * 1000L;
+
 	public enum Operation {
 		CREATE,
 		DELETE,
@@ -102,7 +128,7 @@ public class WorkspaceLifecycleJob implements Job {
 	private final String fUserId;
 	private final int fPriority;
 	private final Operation fOperation;
-	/** Workspace this job creates or deletes. */
+	/** Workspace this job acts upon. */
 	private final String fTargetWorkspace;
 
 	public WorkspaceLifecycleJob(String jobId, String jobWorkspace, String userId, int priority,
@@ -190,8 +216,8 @@ public class WorkspaceLifecycleJob implements Job {
 		}
 
 		// A queued abort that arrives before any work has started is trivially
-		// safe to honour; once the JCR workspace is touched we run to a
-		// consistent end-state rather than leave it half-built or half-removed.
+		// safe to honour; once the desired state is recorded we run to a
+		// consistent end-state rather than leave it half-applied.
 		if (context.isAborted()) {
 			finalise(progressContent, progressSession, JobStatus.ABORTED, null);
 			return;
@@ -200,19 +226,19 @@ public class WorkspaceLifecycleJob implements Job {
 		try {
 			switch (fOperation) {
 			case CREATE:
-				runCreate(context, progressContent, progressSession);
+				runCreate(progressContent, progressSession);
 				break;
 			case DELETE:
-				runDelete(context, progressContent, progressSession);
+				runDelete(progressContent, progressSession);
 				break;
 			case START:
-				runStart(context, progressContent, progressSession);
+				runStart(progressContent, progressSession);
 				break;
 			case STOP:
-				runStop(context, progressContent, progressSession);
+				runStop(progressContent, progressSession);
 				break;
 			case RESTART:
-				runRestart(context, progressContent, progressSession);
+				runRestart(progressContent, progressSession);
 				break;
 			default:
 				throw new IllegalStateException("Unknown workspace operation: " + fOperation);
@@ -226,14 +252,11 @@ public class WorkspaceLifecycleJob implements Job {
 	}
 
 	/**
-	 * Create the JCR workspace, then bring its CMS services online. Starting
-	 * is idempotent and serialised with the lifecycle-event listener that the
-	 * CREATED event also triggers, so whichever runs first wins and the other
-	 * is a no-op; either way this call returns only once the start attempt has
-	 * settled, and the servlet provider's presence is the platform's
-	 * definition of "online".
+	 * Creates the workspace directory and opens it on this node, records it as
+	 * present and running, and waits until every alive node has opened it and
+	 * brought its services online.
 	 */
-	private void runCreate(JobContext context, Node progressContent, Session progressSession) throws Exception {
+	private void runCreate(Node progressContent, Session progressSession) throws Exception {
 		setPhase(progressContent, progressSession, PHASE_CREATING);
 		Session opSession = openServiceSession();
 		try {
@@ -241,109 +264,145 @@ public class WorkspaceLifecycleJob implements Job {
 		} finally {
 			logout(opSession);
 		}
+		WorkspaceOperations.declarePresent(fTargetWorkspace, fUserId);
 
 		setPhase(progressContent, progressSession, PHASE_STARTING);
-		try {
-			CmsService.getDefault().startWorkspaceServices(fTargetWorkspace);
-		} catch (Throwable ex) {
-			// Reconciled below against the authoritative runtime state; the
-			// recorded start error becomes the job's failure message.
-			context.getLogger().warn("WorkspaceLifecycleJob " + fJobId + " — start reported an error for "
-					+ fTargetWorkspace, ex);
-		}
-
-		if (CmsService.getWorkspaceServletProvider(fTargetWorkspace) == null) {
-			String detail = CmsService.getWorkspaceStartError(fTargetWorkspace);
-			throw new WorkspaceJobException(detail != null ? detail
-					: "The workspace was created but its services failed to start. See the server log.");
-		}
+		awaitNodes(progressContent, progressSession, START_TIMEOUT_MILLIS, node -> started(node, null));
 	}
 
 	/**
-	 * Stop the workspace's services and wait for them to come fully down
-	 * (stopWorkspaceServices is synchronous and serialised against any
-	 * in-flight start), then delete the JCR workspace and its directory. The
-	 * ordering is what keeps deletion clean: removing the directory while the
-	 * workspace is still starting/running is what leaves debris behind.
+	 * Has every alive node stop the workspace's services and close it, then —
+	 * with no node holding it open — removes the directory and the workspace's
+	 * operations record. Removing the directory while a node still has the
+	 * workspace open is what leaves debris behind.
 	 */
-	private void runDelete(JobContext context, Node progressContent, Session progressSession) throws Exception {
+	private void runDelete(Node progressContent, Session progressSession) throws Exception {
 		setPhase(progressContent, progressSession, PHASE_STOPPING);
-		CmsService.getDefault().stopWorkspaceServices(fTargetWorkspace);
+		WorkspaceOperations.declareAbsent(fTargetWorkspace, fUserId);
+		awaitNodes(progressContent, progressSession, STOP_TIMEOUT_MILLIS, WorkspaceLifecycleJob::closed);
 
 		setPhase(progressContent, progressSession, PHASE_DELETING);
 		Session opSession = openServiceSession();
 		try {
-			opSession.getWorkspace().deleteWorkspace(fTargetWorkspace);
+			WorkspaceManager workspaceManager = Adaptables.getAdapter(opSession, WorkspaceManager.class);
+			if (workspaceManager == null) {
+				throw new WorkspaceJobException("The repository does not support workspace management.");
+			}
+			workspaceManager.removeWorkspaceDirectory(fTargetWorkspace);
 		} finally {
 			logout(opSession);
 		}
+		WorkspaceOperations.removeRecord(fTargetWorkspace, fUserId);
 	}
 
 	/**
-	 * Start an existing, stopped workspace's CMS services. Idempotent and
-	 * serialised in {@link CmsService#startWorkspaceServices(String)} like the
-	 * create path, and reconciled the same way against the servlet provider —
-	 * the platform's definition of "online" — so a start that throws surfaces
-	 * as a job failure carrying the recorded reason instead of a workspace
-	 * stuck STARTING.
+	 * Asks every node to run the workspace — nodes on which an earlier start
+	 * failed try again — and waits until every alive node is online or has
+	 * failed.
 	 */
-	private void runStart(JobContext context, Node progressContent, Session progressSession) throws Exception {
+	private void runStart(Node progressContent, Session progressSession) throws Exception {
 		setPhase(progressContent, progressSession, PHASE_STARTING);
-		try {
-			CmsService.getDefault().startWorkspaceServices(fTargetWorkspace);
-		} catch (Throwable ex) {
-			context.getLogger().warn("WorkspaceLifecycleJob " + fJobId + " — start reported an error for "
-					+ fTargetWorkspace, ex);
-		}
+		Map<String, Long> requested = WorkspaceOperations.requestStart(fTargetWorkspace, fUserId);
+		awaitNodes(progressContent, progressSession, START_TIMEOUT_MILLIS, node -> started(node, requested));
+	}
 
-		if (CmsService.getWorkspaceServletProvider(fTargetWorkspace) == null) {
-			String detail = CmsService.getWorkspaceStartError(fTargetWorkspace);
-			throw new WorkspaceJobException(detail != null ? detail
-					: "The workspace services failed to start. See the server log.");
-		}
+	/** Asks every node to stop the workspace's services and waits until every alive node has. */
+	private void runStop(Node progressContent, Session progressSession) throws Exception {
+		setPhase(progressContent, progressSession, PHASE_STOPPING);
+		WorkspaceOperations.requestStop(fTargetWorkspace, fUserId);
+		awaitNodes(progressContent, progressSession, STOP_TIMEOUT_MILLIS, WorkspaceLifecycleJob::stopped);
 	}
 
 	/**
-	 * Stop a running workspace's CMS services. {@code stopWorkspaceServices} is
-	 * synchronous and serialised against any in-flight start, so the workspace
-	 * is fully down when this returns.
+	 * Asks every node to restart the workspace once and waits until every alive
+	 * node has restarted it. This is how configuration that is only read at
+	 * start time — the BPM and EIP engine switches — is applied across the
+	 * cluster.
 	 */
-	private void runStop(JobContext context, Node progressContent, Session progressSession) throws Exception {
-		setPhase(progressContent, progressSession, PHASE_STOPPING);
-		CmsService.getDefault().stopWorkspaceServices(fTargetWorkspace);
-	}
-
-	/**
-	 * Restart a workspace: stop its services and wait for them to come fully
-	 * down, then start them again. This is how configuration that is only read
-	 * at start time — the BPM and EIP engine switches — is applied to a running
-	 * workspace. Reconciled against the servlet provider after the start so a
-	 * failed restart fails the job with its reason.
-	 */
-	private void runRestart(JobContext context, Node progressContent, Session progressSession) throws Exception {
-		setPhase(progressContent, progressSession, PHASE_STOPPING);
-		CmsService.getDefault().stopWorkspaceServices(fTargetWorkspace);
-
+	private void runRestart(Node progressContent, Session progressSession) throws Exception {
 		setPhase(progressContent, progressSession, PHASE_STARTING);
-		try {
-			CmsService.getDefault().startWorkspaceServices(fTargetWorkspace);
-		} catch (Throwable ex) {
-			context.getLogger().warn("WorkspaceLifecycleJob " + fJobId + " — restart reported an error for "
-					+ fTargetWorkspace, ex);
-		}
+		long generation = WorkspaceOperations.requestRestart(fTargetWorkspace, fUserId);
+		awaitNodes(progressContent, progressSession, START_TIMEOUT_MILLIS, node -> restarted(node, generation));
+	}
 
-		if (CmsService.getWorkspaceServletProvider(fTargetWorkspace) == null) {
-			String detail = CmsService.getWorkspaceStartError(fTargetWorkspace);
-			throw new WorkspaceJobException(detail != null ? detail
-					: "The workspace services failed to restart. See the server log.");
+	private void awaitNodes(Node progressContent, Session progressSession, long timeoutMillis,
+			WorkspaceOperations.NodeCheck check) throws Exception {
+		long[] lastCounts = { -1L, -1L };
+		List<NodeView> failed = WorkspaceOperations.await(fTargetWorkspace, check, timeoutMillis, (settled, alive) -> {
+			if (settled == lastCounts[0] && alive == lastCounts[1]) {
+				return;
+			}
+			lastCounts[0] = settled;
+			lastCounts[1] = alive;
+			try {
+				progressContent.setProperty(JobNodes.PROP_ITEMS_TOTAL, (long) alive);
+				progressContent.setProperty(JobNodes.PROP_ITEMS_PROCESSED, (long) settled);
+				progressContent.setProperty("jcr:lastModified", Calendar.getInstance());
+				progressSession.save();
+			} catch (Throwable ex) {
+				CmsService.getLogger(WorkspaceLifecycleJob.class)
+						.warn("WorkspaceLifecycleJob " + fJobId + " could not record its progress", ex);
+			}
+		});
+		if (!failed.isEmpty()) {
+			throw new WorkspaceJobException(describeFailures(failed));
 		}
+	}
+
+	/** Online, once the node has acted on the request sent to it (if any). */
+	private static Progress started(NodeView node, Map<String, Long> requestedRetry) {
+		NodeReport report = node.report;
+		if (report == null) {
+			return Progress.PENDING;
+		}
+		Long requested = (requestedRetry == null) ? null : requestedRetry.get(node.nodeId);
+		if (requested != null && report.appliedRetryGeneration < requested) {
+			return Progress.PENDING;
+		}
+		if (report.state == NodeState.FAILED) {
+			return Progress.FAILED;
+		}
+		return (report.state == NodeState.ONLINE && !node.restartPending) ? Progress.DONE : Progress.PENDING;
+	}
+
+	/** Online again, once the node has applied the restart. */
+	private static Progress restarted(NodeView node, long generation) {
+		NodeReport report = node.report;
+		if (report == null || report.appliedRestartGeneration < generation) {
+			return Progress.PENDING;
+		}
+		if (report.state == NodeState.FAILED) {
+			return Progress.FAILED;
+		}
+		return (report.state == NodeState.ONLINE) ? Progress.DONE : Progress.PENDING;
+	}
+
+	private static Progress stopped(NodeView node) {
+		NodeReport report = node.report;
+		return (report != null && (report.state == NodeState.STOPPED || report.state == NodeState.CLOSED))
+				? Progress.DONE : Progress.PENDING;
+	}
+
+	private static Progress closed(NodeView node) {
+		NodeReport report = node.report;
+		return (report != null && report.state == NodeState.CLOSED) ? Progress.DONE : Progress.PENDING;
+	}
+
+	/** One line naming every failed node and its reason, for the job's error message. */
+	private static String describeFailures(List<NodeView> failed) {
+		List<String> parts = new ArrayList<>();
+		for (NodeView node : failed) {
+			String reason = (node.report != null && node.report.message != null) ? node.report.message : "failed";
+			parts.add(node.nodeId + ": " + reason);
+		}
+		return String.join("; ", parts);
 	}
 
 	/**
 	 * A privileged, service-authorised session bound to the system workspace,
-	 * used only to drive the repository-wide create/delete operation. It is
-	 * never the target workspace, so deleting the target never trips the
-	 * "cannot delete the bound workspace" guard.
+	 * used only for the repository-wide create/delete operations. It is never
+	 * the target workspace, so deleting the target never trips the "cannot
+	 * delete the bound workspace" guard.
 	 */
 	private Session openServiceSession() throws Exception {
 		return CmsService.getRepository().login(new CmsServiceCredentials(fUserId), "system");
@@ -410,7 +469,7 @@ public class WorkspaceLifecycleJob implements Job {
 		return (ex.getMessage() != null) ? ex.getMessage() : ex.getClass().getSimpleName();
 	}
 
-	/** Carries a reconciled, user-facing failure message to the finaliser. */
+	/** Carries a user-facing failure message to the finaliser. */
 	private static final class WorkspaceJobException extends Exception {
 		private static final long serialVersionUID = 1L;
 

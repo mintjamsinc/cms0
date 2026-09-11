@@ -27,7 +27,6 @@ import java.nio.file.Path;
 import javax.jcr.Repository;
 
 import org.mintjams.cms.security.Encryptor;
-import org.mintjams.cms.security.SecretKeyProvider;
 
 /**
  * The CmsService interface defines the contract for a CMS (Content Management System) service.

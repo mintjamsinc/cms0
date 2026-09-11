@@ -50,6 +50,44 @@ export interface WorkspaceEngineInfo {
   running: boolean;
 }
 
+/**
+ * State of a workspace across the cluster, aggregated over the nodes that are
+ * alive (a standalone deployment is a cluster of one). DEGRADED: meant to run
+ * and failed on some, not all, alive nodes; FAILED: failed on every one.
+ */
+export type WorkspaceClusterState =
+  | 'ONLINE' | 'STARTING' | 'STOPPING' | 'STOPPED' | 'DEGRADED' | 'FAILED' | 'DELETING';
+
+/** The cluster-wide desired run state every node converges on. */
+export type WorkspaceRun = 'RUNNING' | 'STOPPED';
+
+/** State of a workspace on one node. CLOSED: not open there; UNKNOWN: not reported yet. */
+export type WorkspaceNodeLifecycle = 'ONLINE' | 'STARTING' | 'STOPPED' | 'FAILED' | 'CLOSED' | 'UNKNOWN';
+
+/** A workspace as it stands on one node (administrators only). */
+export interface WorkspaceNodeInfo {
+  nodeId: string;
+  hostName: string | null;
+  /** Whether this is the node that served the request. */
+  self: boolean;
+  /** Whether the node's heartbeat is fresh. */
+  alive: boolean;
+  /** False for a node that left the registry but still has a report on record. */
+  registered: boolean;
+  state: WorkspaceNodeLifecycle;
+  /** When `state` is FAILED, the reason. */
+  stateMessage: string | null;
+  /** `enabled` is the switch the node's running services were started with (null when not running). */
+  processEngine: WorkspaceEngineInfo;
+  integrationEngine: WorkspaceEngineInfo;
+  /** Whether the node has not applied the latest restart request yet. */
+  restartPending: boolean;
+  /** Whether the saved engine switches differ from the ones the node runs with. */
+  engineSettingsPending: boolean;
+  /** When the node last reported (ISO-8601, UTC). */
+  updated: string | null;
+}
+
 /** A repository workspace as reported by the `workspaces` query. */
 export interface WorkspaceInfo {
   /** Workspace name; also the URL segment the workspace is served under. */
@@ -68,14 +106,23 @@ export interface WorkspaceInfo {
    * Always true for the system workspace (auto-start does not apply to it).
    */
   autoStart: boolean;
-  /** Lifecycle state of the workspace's CMS services on this node. */
+  /**
+   * Lifecycle state of the workspace's CMS services on the node that served
+   * the request. Use `clusterState` for the workspace as a whole.
+   */
   state: WorkspaceState;
   /** When `state` is FAILED, why the services failed to start; null otherwise. */
   stateMessage: string | null;
-  /** State of the workspace's process engine (Camunda). */
+  /** State of the workspace's process engine (Camunda) on the serving node. */
   processEngine: WorkspaceEngineInfo;
-  /** State of the workspace's integration engine (Apache Camel). */
+  /** State of the workspace's integration engine (Apache Camel) on the serving node. */
   integrationEngine: WorkspaceEngineInfo;
+  /** State of the workspace across the cluster. */
+  clusterState: WorkspaceClusterState;
+  /** Whether the workspace is meant to run on every node. */
+  desiredRun: WorkspaceRun;
+  /** The workspace on each node; empty for non-administrators. */
+  nodes: WorkspaceNodeInfo[];
 }
 
 export interface WorkspaceMutationError {
@@ -337,9 +384,29 @@ export class WebtopServiceGraphQL {
   }
 
   /**
-   * Start a stopped workspace's services. Administrators only. Runs as a
-   * background job; watch `eventHub.watchJobProgress(jobId, …)`. Throws when
-   * the server rejects the request synchronously.
+   * Ask the nodes on which a workspace failed to start to try again: the
+   * given nodes, or every alive node it failed on when `nodeIds` is omitted.
+   * Administrators only. Returns the refreshed workspace; the nodes act on the
+   * request as it reaches them, so watch the workspace list for the outcome.
+   */
+  async retryWorkspace(name: string, nodeIds?: string[]): Promise<WorkspaceInfo> {
+    const result = await this.#client.query<{
+      retryWorkspace: { workspace: WorkspaceInfo | null; errors: WorkspaceMutationError[] | null };
+    }>(WEBTOP_MUTATIONS.RETRY_WORKSPACE, { input: nodeIds ? { name, nodeIds } : { name } });
+
+    const payload = result.retryWorkspace;
+    if (payload.errors?.length) {
+      throw new Error(payload.errors[0].message);
+    }
+    return payload.workspace!;
+  }
+
+  /**
+   * Start a workspace's services on every node. Administrators only. Runs as
+   * a background job that completes once every alive node is online (or
+   * fails with the reasons of the nodes it failed on); watch
+   * `eventHub.watchJobProgress(jobId, …)`. Throws when the server rejects the
+   * request synchronously.
    */
   async startWorkspace(name: string): Promise<WorkspaceJobHandle> {
     return this.#submitWorkspaceLifecycle('startWorkspace', WEBTOP_MUTATIONS.START_WORKSPACE, name);

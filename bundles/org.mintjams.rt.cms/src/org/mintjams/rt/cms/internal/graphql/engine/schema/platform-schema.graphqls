@@ -239,7 +239,7 @@ type Subscription {
   """Changes to the signed-in user's avatar. `userId` is accepted but ignored (resolved from the session)."""
   avatarChanged(userId: String): AvatarChangedEvent!
 
-  """Repository-wide signal that some workspace started, stopped, or had its settings changed."""
+  """Cluster-wide signal that a workspace list may show something new: a workspace's settings, its desired state, or a node's reported state changed. Re-read the list."""
   workspaceChanged: WorkspaceChangedEvent!
 
   """A task was assigned (Camunda Task/ASSIGNED). Filter by `assignee`. `candidateGroup` is accepted for wire-compat but not yet filterable from the event (claimable-group live updates need BPM-domain candidate-group resolution)."""

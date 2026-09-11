@@ -42,6 +42,8 @@ import {
 } from "../../composables/use-localization.js";
 import type {
 	Route,
+	RouteDesiredState,
+	RouteNodeState,
 	RouteStats,
 	StatPoint,
 	HistoryExchange,
@@ -238,6 +240,10 @@ const FLASH_DURATION_MS = 1300;
 // in the execution path. The threshold mirrors the "1s sub-second" band so
 // that the UI's "warning" colour is consistent with the chart.
 const STEP_GAP_THRESHOLD_MS = 1_000;
+// A route operation is applied at once on the node that served it and on the
+// other nodes as the request reaches them; they report their route statuses
+// about a second after they settle. The route detail is re-read after this.
+const ROUTE_NODES_SETTLE_DELAY = 2500;
 
 const ROUTE_ACTION_META: Record<RouteAction, {
 	title: string; verb: string; icon: string; confirmClass: string;
@@ -2190,6 +2196,11 @@ export const App = {
 				}
 				vm.dialog = null;
 				await vm.loadRoutes();
+				// The list carries no per-node statuses: re-read the detail now for
+				// this node, and once more after the other nodes have had a moment
+				// to apply the operation and report.
+				await vm.refreshManagedRouteDetail();
+				window.setTimeout(() => vm.refreshManagedRouteDetail(), ROUTE_NODES_SETTLE_DELAY);
 			} catch (ex: any) {
 				vm.dialog = {
 					kind: 'errorMessage',
@@ -2207,6 +2218,37 @@ export const App = {
 			const d = vm.dialog;
 			if (d && d.kind === 'routeAction' && d.busy) return;
 			vm.dialog = null;
+		},
+
+		/** Re-reads the managed route's full detail, which carries each node's status. */
+		async refreshManagedRouteDetail() {
+			const vm = this as any;
+			const route = vm.managedRoute as Route | null;
+			if (!route || !vm.eip) return;
+			try {
+				const detail = await vm.eip.getRoute(route.id);
+				if (detail && vm.managedRoute && vm.managedRoute.id === detail.id) {
+					vm.managedRoute = detail;
+				}
+			} catch { /* keep the current snapshot */ }
+		},
+
+		/** A node's row label in the route detail: host (or id), marked when it served this window. */
+		routeNodeName(node: RouteNodeState): string {
+			const vm = this as any;
+			const name = node.hostName || node.nodeId;
+			return node.self ? `${name} (${vm.t('app.eip-console.detail.thisNode', undefined, 'this node')})` : name;
+		},
+
+		/** The state operators asked every node to keep a route in. */
+		desiredStateLabel(state: RouteDesiredState): string {
+			const vm = this as any;
+			switch (state) {
+				case 'STARTED': return vm.t('app.eip-console.desiredState.started', undefined, 'Started');
+				case 'STOPPED': return vm.t('app.eip-console.desiredState.stopped', undefined, 'Stopped');
+				case 'SUSPENDED': return vm.t('app.eip-console.desiredState.suspended', undefined, 'Suspended');
+				default: return String(state);
+			}
 		},
 
 		// =====================================================

@@ -112,6 +112,7 @@
 	"app.dashboard.workspaces.pill.starting": "起動中",
 	"app.dashboard.workspaces.pill.stopped": "停止中",
 	"app.dashboard.workspaces.pill.failed": "失敗",
+	"app.dashboard.workspaces.pill.partial": "一部異常 {online}/{total}",
 	"app.dashboard.workspaces.pill.degraded": "障害",
 	"app.dashboard.workspaces.empty": "ワークスペース情報を取得できません。",
 	"app.dashboard.cluster.title": "クラスタ",

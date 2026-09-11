@@ -37,7 +37,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -56,6 +55,7 @@ import javax.jcr.ValueFactory;
 import javax.jcr.query.Query;
 
 import org.mintjams.jcr.Repository;
+import org.mintjams.jcr.WorkspaceManager;
 import org.mintjams.jcr.security.AuthenticatedCredentials;
 import org.mintjams.jcr.security.Group;
 import org.mintjams.jcr.security.GroupPrincipal;
@@ -79,7 +79,7 @@ import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
 import org.mintjams.tools.osgi.BundleLocalization;
 
-public class JcrRepository implements Repository, Closeable, Adaptable {
+public class JcrRepository implements Repository, WorkspaceManager, Closeable, Adaptable {
 
 	@SuppressWarnings("deprecation")
 	private static final Collection<String> STANDARD_DESCRIPTOR_KEYS = Collections.unmodifiableCollection(Arrays.asList(
@@ -136,7 +136,6 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 	private MimeTypeDetector fMimeTypeDetector;
 	private final Map<String, JcrWorkspaceProvider> fWorkspaceProviders = new ConcurrentHashMap<>();
 	private final Object fWorkspaceManagementLock = new Object();
-	private WorkspaceDiscoverer fWorkspaceDiscoverer;
 	private boolean fLive = false;
 	private PrincipalProviderImpl fPrincipalProvider = new PrincipalProviderImpl();
 	private IdentityProviderImpl fIdentityProvider = new IdentityProviderImpl();
@@ -285,14 +284,9 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 			}
 		}
 
-		if (fConfiguration.isClusterEnabled()) {
-			// Workspaces created or deleted on another cluster node appear on
-			// the shared storage; events only reach local listeners, so each
-			// node keeps itself in sync by rescanning the workspace root.
-			fWorkspaceDiscoverer = fCloser.register(new WorkspaceDiscoverer());
-			fWorkspaceDiscoverer.open();
-		}
-
+		// Workspaces created or deleted on another cluster node are opened or
+		// closed here by the layer that coordinates the cluster, through
+		// WorkspaceManager; the repository does not rescan the workspace root.
 		fLive = true;
 		return this;
 	}
@@ -435,7 +429,7 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 	/**
 	 * Creates and starts a new workspace. The workspace directory is staged
 	 * under a dot-prefixed name and moved into place only when fully
-	 * populated, so a concurrent rescan (or a crash) never sees a
+	 * populated, so another node opening it (or a crash) never sees a
 	 * half-created workspace. When {@code <repository>/etc/workspace-template}
 	 * exists, its contents seed the new workspace directory — this is how
 	 * operators supply per-workspace configuration that must be present
@@ -691,123 +685,120 @@ public class JcrRepository implements Repository, Closeable, Adaptable {
 		}
 	}
 
+	@Override
+	public String[] getOpenWorkspaceNames() {
+		return getAvailableWorkspaceNames();
+	}
+
 	/**
-	 * Keeps this node's workspace registry in sync with the shared storage
-	 * in a clustered deployment. Workspace creation and deletion only post
-	 * events on the node that performed them; the other nodes notice the
-	 * change by periodically rescanning the workspace root. A directory is
-	 * only picked up once its {@code etc/jcr/jcr.yml} exists — the creating
-	 * node materialises it during first start, and in a cluster it must
-	 * carry the shared datasource configuration, so its presence marks the
-	 * workspace as safe to open.
+	 * A directory is only ready once its {@code etc/jcr/jcr.yml} exists: the
+	 * creating node materialises it during first start, and in a cluster it
+	 * carries the shared datasource configuration, so its presence marks the
+	 * workspace as safe to open on another node.
 	 */
-	private class WorkspaceDiscoverer implements Closeable, Runnable {
-		private Thread fThread;
-		private boolean fCloseRequested;
+	@Override
+	public boolean isWorkspaceAvailable(String workspaceName) {
+		if (workspaceName == null || !WORKSPACE_NAME_PATTERN.matcher(workspaceName).matches()) {
+			return false;
+		}
+		Path workspacePath = fConfiguration.getWorkspaceRootPath().resolve(workspaceName).normalize();
+		return Files.isDirectory(workspacePath) && Files.exists(workspacePath.resolve("etc/jcr/jcr.yml"));
+	}
 
-		public void open() {
-			fThread = new Thread(this, getClass().getSimpleName());
-			fThread.setDaemon(true);
-			fThread.start();
+	@Override
+	public void openWorkspace(String workspaceName) throws RepositoryException {
+		if (!fLive) {
+			throw new RepositoryException("The repository is not available.");
 		}
 
-		@Override
-		public void close() throws IOException {
-			fCloseRequested = true;
-			if (fThread != null) {
-				try {
-					fThread.interrupt();
-					fThread.join(10000);
-				} catch (InterruptedException ignore) {
-				} finally {
-					fThread = null;
+		synchronized (fWorkspaceManagementLock) {
+			JcrWorkspaceProvider existing = fWorkspaceProviders.get(workspaceName);
+			if (existing != null) {
+				if (existing.isLive()) {
+					return;
 				}
+				// A provider that failed to open at startup stays registered but
+				// not live; discard it so this attempt starts from a clean slate.
+				fWorkspaceProviders.remove(workspaceName);
+				try {
+					fCloser.unregister(existing);
+				} catch (Throwable ignore) {}
+				try {
+					existing.close();
+				} catch (Throwable ignore) {}
 			}
+			if (!isWorkspaceAvailable(workspaceName)) {
+				throw new NoSuchWorkspaceException("The workspace directory is not available: " + workspaceName);
+			}
+
+			JcrWorkspaceProvider workspaceProvider = JcrWorkspaceProvider.create(workspaceName, this);
+			try {
+				fCloser.register(workspaceProvider).open();
+			} catch (Throwable ex) {
+				try {
+					fCloser.unregister(workspaceProvider);
+					workspaceProvider.close();
+				} catch (Throwable ignore) {}
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
+			fWorkspaceProviders.put(workspaceName, workspaceProvider);
+
+			Activator.getDefault().getLogger(getClass()).info("JCR workspace '" + workspaceName + "' has been opened.");
+		}
+	}
+
+	@Override
+	public void closeWorkspace(String workspaceName) throws RepositoryException {
+		if (JcrWorkspaceProvider.SYSTEM_WORKSPACE_NAME.equals(workspaceName)) {
+			throw new RepositoryException("The system workspace cannot be closed.");
 		}
 
-		@Override
-		public void run() {
-			while (!fCloseRequested) {
-				try {
-					Thread.sleep(fConfiguration.getWorkspaceDiscoveryInterval() * 1000L);
-				} catch (InterruptedException ex) {
-					continue;
-				}
-
-				try {
-					discover();
-				} catch (Throwable ex) {
-					Activator.getDefault().getLogger(getClass())
-							.warn("An error occurred while discovering workspaces.", ex);
-				}
+		synchronized (fWorkspaceManagementLock) {
+			JcrWorkspaceProvider workspaceProvider = fWorkspaceProviders.remove(workspaceName);
+			if (workspaceProvider == null) {
+				return;
 			}
+
+			try {
+				fCloser.unregister(workspaceProvider);
+			} catch (Throwable ignore) {}
+			try {
+				workspaceProvider.close();
+			} catch (Throwable ex) {
+				Activator.getDefault().getLogger(getClass())
+						.warn("An error occurred while closing the workspace: " + workspaceName, ex);
+			}
+
+			Activator.getDefault().getLogger(getClass()).info("JCR workspace '" + workspaceName + "' has been closed.");
+		}
+	}
+
+	@Override
+	public void removeWorkspaceDirectory(String workspaceName) throws RepositoryException {
+		if (JcrWorkspaceProvider.SYSTEM_WORKSPACE_NAME.equals(workspaceName)) {
+			throw new RepositoryException("The system workspace cannot be deleted.");
+		}
+		if (workspaceName == null || !WORKSPACE_NAME_PATTERN.matcher(workspaceName).matches()) {
+			throw new RepositoryException("Invalid workspace name: " + workspaceName);
 		}
 
-		private void discover() throws IOException {
-			synchronized (fWorkspaceManagementLock) {
-				Collection<String> found = new HashSet<>();
-				try (Stream<Path> stream = Files.list(fConfiguration.getWorkspaceRootPath())) {
-					for (Path path : stream.toArray(Path[]::new)) {
-						if (!Files.isDirectory(path) || path.getFileName().toString().startsWith(".")) {
-							continue;
-						}
-
-						String workspaceName = path.getFileName().toString();
-						found.add(workspaceName);
-						if (fWorkspaceProviders.containsKey(workspaceName)) {
-							continue;
-						}
-						if (!Files.exists(path.resolve("etc/jcr/jcr.yml"))) {
-							// Still being created on another node; pick it up
-							// on a later pass once its configuration exists.
-							continue;
-						}
-
-						JcrWorkspaceProvider workspaceProvider = JcrWorkspaceProvider.create(workspaceName, JcrRepository.this);
-						try {
-							fCloser.register(workspaceProvider).open();
-						} catch (Throwable ex) {
-							try {
-								fCloser.unregister(workspaceProvider);
-								workspaceProvider.close();
-							} catch (Throwable ignore) {}
-							Activator.getDefault().getLogger(getClass())
-									.warn("An error occurred during the start of the discovered workspace: " + workspaceName, ex);
-							continue;
-						}
-						fWorkspaceProviders.put(workspaceName, workspaceProvider);
-
-						Activator.getDefault().getLogger(getClass())
-								.info("JCR workspace '" + workspaceName + "' has been discovered.");
-						postWorkspaceEvent("CREATED", workspaceName);
-					}
-				}
-
-				for (String workspaceName : fWorkspaceProviders.keySet().toArray(String[]::new)) {
-					if (found.contains(workspaceName)
-							|| JcrWorkspaceProvider.SYSTEM_WORKSPACE_NAME.equals(workspaceName)) {
-						continue;
-					}
-
-					JcrWorkspaceProvider workspaceProvider = fWorkspaceProviders.remove(workspaceName);
-					if (workspaceProvider == null) {
-						continue;
-					}
-					try {
-						fCloser.unregister(workspaceProvider);
-					} catch (Throwable ignore) {}
-					try {
-						workspaceProvider.close();
-					} catch (Throwable ex) {
-						Activator.getDefault().getLogger(getClass())
-								.warn("An error occurred while stopping the workspace: " + workspaceName, ex);
-					}
-
-					Activator.getDefault().getLogger(getClass())
-							.info("JCR workspace '" + workspaceName + "' has been deleted on another node.");
-					postWorkspaceEvent("DELETED", workspaceName);
-				}
+		synchronized (fWorkspaceManagementLock) {
+			if (fWorkspaceProviders.containsKey(workspaceName)) {
+				throw new RepositoryException("The workspace '" + workspaceName + "' is still open on this node.");
 			}
+
+			Path workspacePath = fConfiguration.getWorkspaceRootPath().resolve(workspaceName).normalize();
+			if (!Files.exists(workspacePath)) {
+				return;
+			}
+			deleteWorkspaceDirectory(workspacePath);
+			if (Files.exists(workspacePath)) {
+				throw new RepositoryException(
+						"The workspace directory for '" + workspaceName + "' could not be fully removed.");
+			}
+
+			Activator.getDefault().getLogger(getClass())
+					.info("The directory of the JCR workspace '" + workspaceName + "' has been removed.");
 		}
 	}
 

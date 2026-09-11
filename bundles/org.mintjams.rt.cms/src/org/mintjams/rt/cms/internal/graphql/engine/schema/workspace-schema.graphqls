@@ -36,14 +36,80 @@ type Workspace {
   system: Boolean!
   """Whether the workspace starts automatically on boot (always true for system)."""
   autoStart: Boolean!
-  """Lifecycle state of the workspace's CMS services on this node."""
+  """Lifecycle state of the workspace's CMS services on the node that served the request (see clusterState for the whole cluster)."""
   state: WorkspaceState!
   """When state is FAILED, the reason the services failed to start; null otherwise."""
   stateMessage: String
-  """State of the workspace's process engine (Camunda)."""
+  """State of the workspace's process engine (Camunda) on the node that served the request."""
   processEngine: WorkspaceEngine!
-  """State of the workspace's integration engine (Apache Camel)."""
+  """State of the workspace's integration engine (Apache Camel) on the node that served the request."""
   integrationEngine: WorkspaceEngine!
+  """State of the workspace across the cluster, aggregated over the nodes that are alive. A standalone deployment is a cluster of one."""
+  clusterState: WorkspaceClusterState!
+  """Whether the workspace is meant to run — the cluster-wide desired state every node converges on."""
+  desiredRun: WorkspaceRun!
+  """The workspace on each node: every registered node, plus nodes that left but still have a report on record. Administrators and service accounts only; empty for anyone else."""
+  nodes: [WorkspaceNodeState!]!
+}
+
+"""State of a workspace across the cluster."""
+enum WorkspaceClusterState {
+  """Running on every alive node, with the latest restart applied."""
+  ONLINE
+  """Meant to run; some nodes have not got there yet."""
+  STARTING
+  """Meant to be stopped; some nodes have not got there yet."""
+  STOPPING
+  """Stopped on every alive node."""
+  STOPPED
+  """Meant to run, and failed on some — not all — alive nodes."""
+  DEGRADED
+  """Meant to run, and failed on every alive node."""
+  FAILED
+  """Being deleted."""
+  DELETING
+}
+
+"""The cluster-wide desired run state of a workspace."""
+enum WorkspaceRun {
+  RUNNING
+  STOPPED
+}
+
+"""State of a workspace on one node."""
+enum WorkspaceNodeLifecycle {
+  ONLINE
+  STARTING
+  STOPPED
+  FAILED
+  """The workspace is not open on the node (being deleted, or not opened yet)."""
+  CLOSED
+  """The node has not reported yet."""
+  UNKNOWN
+}
+
+"""A workspace as it stands on one node."""
+type WorkspaceNodeState {
+  nodeId: String!
+  hostName: String
+  """Whether this is the node that served the request (its state is read live)."""
+  self: Boolean!
+  """Whether the node's heartbeat is fresh."""
+  alive: Boolean!
+  """Whether the node is in the registry; false for a node that left but still has a report on record."""
+  registered: Boolean!
+  state: WorkspaceNodeLifecycle!
+  """When state is FAILED, the reason; null otherwise."""
+  stateMessage: String
+  """The engine as started on the node: `enabled` is the switch the running services were started with (null when they are not running)."""
+  processEngine: WorkspaceEngine!
+  integrationEngine: WorkspaceEngine!
+  """Whether the node has not applied the latest restart request yet."""
+  restartPending: Boolean!
+  """Whether the saved engine switches differ from the ones the node's running services were started with — a restart applies them."""
+  engineSettingsPending: Boolean!
+  """When the node last reported (ISO-8601, UTC)."""
+  updated: DateTime
 }
 
 """Lifecycle state of a workspace's CMS services (the JCR workspace itself is open in every listed state)."""
@@ -69,7 +135,9 @@ type WorkspaceEngine {
 #
 # Workspace management is reserved for administrators and service accounts. The
 # five lifecycle operations run as background WorkspaceLifecycleJobs (watch
-# jobProgress(jobId)); update is synchronous. Errors are returned in-band as a
+# jobProgress(jobId)) and act on every node of the cluster: each records the
+# desired state and waits until every alive node has converged on it or failed;
+# update and retry are synchronous. Errors are returned in-band as a
 # `errors` list (field/message/code) — `errors` is non-null only for synchronous
 # validation failures, in which case the job fields are null.
 # -----------------------------------------------------------------------------
@@ -90,8 +158,17 @@ extend type Mutation {
   """Start an asynchronous restart (admin/service only); how BPM/EIP engine switches are applied. The system workspace and the bound workspace cannot be restarted."""
   restartWorkspace(input: RestartWorkspaceInput!): RestartWorkspacePayload!
 
-  """Update a workspace's editable settings synchronously (admin/service only); returns the refreshed workspace."""
+  """Update a workspace's editable settings synchronously (admin/service only); returns the refreshed workspace. The engine switches apply when each node next starts or restarts the workspace."""
   updateWorkspace(input: UpdateWorkspaceInput!): UpdateWorkspacePayload!
+
+  """Ask the nodes on which a workspace failed to start to try again (admin/service only): the given nodes, or every alive node it failed on. Returns the refreshed workspace; the nodes act on the request as it reaches them."""
+  retryWorkspace(input: RetryWorkspaceInput!): UpdateWorkspacePayload!
+}
+
+input RetryWorkspaceInput {
+  name: String!
+  """The nodes to ask; omit for every alive node the workspace failed on."""
+  nodeIds: [String!]
 }
 
 input CreateWorkspaceInput {

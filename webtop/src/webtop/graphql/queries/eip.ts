@@ -60,6 +60,14 @@ export const EIP_QUERIES = {
           component
           state
         }
+        desiredState
+        nodes {
+          nodeId
+          hostName
+          self
+          alive
+          status
+        }
       }
     }
   `,

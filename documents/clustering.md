@@ -284,11 +284,14 @@ Delivery semantics and operational notes:
 
 The journal carries the events that ride a JCR transaction. Some
 notifications do not: they announce a change that is not itself a
-repository write — for example `workspaceChanged`, which fires when a
-workspace's runtime state (start/stop) or its settings (display name,
-auto-start, engine switches) change. These would otherwise stay
-node-local, so a desktop connected to another node would not refresh
-until its next poll or reload.
+repository write — for example the workspace settings signal
+(`org/mintjams/rt/cms/workspace/SETTINGS_CHANGED`), which fires when a
+workspace's display name, auto-start or engine switches are edited in the
+files every node reads. These would otherwise stay node-local, so a
+desktop connected to another node would not refresh until its next poll
+or reload. (A workspace's runtime state is not announced this way: every
+node records it as a repository write, see *Workspace operations across
+the cluster* below.)
 
 The **signal bus** propagates them. `ClusterCoordinator.publish(topic,
 properties)` inserts a row into `jcr_cluster_signals` (publishing node,
@@ -299,9 +302,9 @@ properties — indistinguishable from a local post, so the existing
 event-driven layers (CMS events, SSE/GraphQL subscriptions) deliver it
 unchanged. The publishing node does not receive its own signal; a caller
 that wants the whole cluster posts the event locally *and* publishes it,
-which is exactly what `CmsService.postWorkspaceChanged` does, fanning the
-notification out over the **system** workspace's bus (the one workspace
-running on every node, hence the repository-wide channel).
+which is exactly what `CmsService.postWorkspaceSettingsChanged` does,
+fanning the notification out over the **system** workspace's bus (the one
+workspace running on every node, hence the repository-wide channel).
 
 Delivery semantics and operational notes:
 
@@ -322,6 +325,70 @@ Delivery semantics and operational notes:
 - **Standalone.** `publish` is a no-op and the poller does not run; there
   are no other nodes to notify, and the local post already reaches the
   local desktops.
+
+### Workspace operations across the cluster
+
+Webtop cannot choose a node, so every operation on a workspace or an EIP
+route acts on the whole cluster. Creating, deleting, starting, stopping
+and restarting a workspace, and starting, stopping, suspending and
+resuming a route, record a **desired state** in the system workspace under
+`/var/operations/workspaces/<workspace>`; every node converges on it
+(`WorkspaceReconciler`) and records what it actually runs next to it.
+
+| Record | Written by | Content |
+|--------|------------|---------|
+| `desired` | the operation | presence (`PRESENT` / `ABSENT`), run (`RUNNING` / `STOPPED`), restart generation |
+| `routes/<route>` | route operations | the state every node keeps the route in (`STARTED` / `STOPPED` / `SUSPENDED`); absent: the route definition decides |
+| `nodes/<node>/request` | a retry | the node's retry generation |
+| `nodes/<node>/state` | that node only | its state (`ONLINE` / `STARTING` / `STOPPED` / `FAILED` / `CLOSED`), the failure reason, its engines, the generations it has applied |
+| `nodes/<node>/routes` | that node only | its route statuses |
+
+The records are ordinary writes to the system workspace, so the cluster
+journal delivers them to every node as local node events: the write is
+both the durable state and the notification, and nothing depends on the
+ephemeral signal bus. Each node also runs a full pass every 30 seconds,
+which catches anything an event did not deliver.
+
+- **Convergence, not commands.** A node that was down converges when it
+  boots, so the order in which operations were requested never matters.
+- **Restart and retry are generations.** A restart is an action, not a
+  state: the restart generation is increased, and every node applies it
+  once. A failed start is not retried automatically, which would loop on a
+  broken workspace; a retry increases the retry generation of the chosen
+  nodes.
+- **Boot.** Before starting any workspace, a node reads the desired state.
+  When no other node is alive — the cluster is starting with every node
+  stopped — each workspace's run state is reset from its `autoStart`
+  setting (`etc/workspace.yml`), and deletions left unfinished are
+  completed. Otherwise the node follows the running cluster's desired state
+  and starts what the cluster runs within its own boot sequence. A node
+  that crashed counts as alive until its heartbeat goes stale (90 seconds),
+  so a node restarted within that window follows the previous desired state
+  rather than `autoStart`; a graceful stop deregisters the node and leaves
+  no such window.
+- **Lifecycle jobs wait for the cluster.** The jobs behind the Workspace
+  Manager record the desired state and complete once every alive node has
+  converged; a node that fails makes the job fail with that node's reason,
+  and the desired state stays.
+- **Creation and deletion.** Nodes do not rescan the workspace root. A
+  workspace created on one node is opened on the others through its
+  record. Deletion marks the workspace `ABSENT`, waits until every alive
+  node has stopped its services and closed it, and only then removes the
+  directory and the record.
+- **Routes** keep their desired state across redeployments and restarts:
+  it is applied right after a route file is (re)deployed.
+
+The Workspace Manager shows each workspace's cluster-wide state and, for
+every node, its state, engines, whether the latest restart and the saved
+engine settings are applied there, and the failure reason, with a retry
+for the nodes it failed on. The EIP Console shows a route's status on each
+node. The OSGi Console (the Felix web console) is inherently per node; the
+app names the node that served it.
+
+The workspace directories — including `etc/workspace.yml`,
+`etc/bpm/bpm.yml` and `etc/eip/eip.yml` — must be on storage shared by all
+nodes: with node-local repository directories, neither runtime creation
+nor settings changes reach the other nodes.
 
 ## Identity files (`repository/etc`, secrets)
 
@@ -378,8 +445,11 @@ resources.
 1. Provision PostgreSQL with one database per workspace for JCR (and one
    per workspace for BPM if used).
 2. Install the PostgreSQL JDBC driver bundle into the Felix runtime.
-3. Place the repository directory on shared storage (or at minimum
-   configure `blobstore.directory` to shared storage on every node).
+3. Place the repository directory on shared storage — at least
+   `<repository>/workspaces`, whose directories carry the settings every
+   node reads and are created and deleted at runtime (see *Workspace
+   operations across the cluster*). Blobs follow it unless
+   `blobstore.directory` points at other shared storage.
 4. Configure `jcr.yml#datasource` and `bpm.yml#jdbcURL` identically on
    all nodes; configure `search.indexPath` (or accept the per-node
    default).

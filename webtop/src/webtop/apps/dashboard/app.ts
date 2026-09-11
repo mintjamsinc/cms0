@@ -811,12 +811,23 @@ const App = {
 			try {
 				const list = await webtop.listWorkspaces();
 				const rows = list.map((w) => {
-					const online = w.state === 'ONLINE';
-					const failed = w.state === 'FAILED';
-					const stopped = w.state === 'STOPPED';
-					const bpm = this.engineStatus(w.processEngine, online);
-					const eip = this.engineStatus(w.integrationEngine, online);
-					const degraded = online && (bpm.failed || eip.failed);
+					// The cluster-wide state: a workspace is online when it runs on
+					// every alive node, and failed on some of them is an outage too.
+					const clusterState = w.clusterState || w.state;
+					const online = clusterState === 'ONLINE';
+					const partial = clusterState === 'DEGRADED';
+					const failed = clusterState === 'FAILED' || partial;
+					const stopped = clusterState === 'STOPPED';
+					const aliveNodes = (w.nodes || []).filter((n) => n.alive);
+					const bpm = this.engineStatus(w.processEngine, w.state === 'ONLINE');
+					const eip = this.engineStatus(w.integrationEngine, w.state === 'ONLINE');
+					// An engine switched on but not running on any node that runs the
+					// workspace is a failed engine start there.
+					const nodeEngineFailed = aliveNodes.some((n) => n.state === 'ONLINE'
+						&& ((n.processEngine?.enabled && !n.processEngine.running)
+							|| (n.integrationEngine?.enabled && !n.integrationEngine.running)));
+					const degraded = online && (bpm.failed || eip.failed || nodeEngineFailed);
+					const onlineNodes = aliveNodes.filter((n) => n.state === 'ONLINE').length;
 					return {
 						name: w.name,
 						// Human-friendly label shown in the list; falls back to the
@@ -829,12 +840,18 @@ const App = {
 						online,
 						failed,
 						degraded,
-						// The FAILED reason, surfaced as a tooltip on the pill.
-						stateMessage: w.stateMessage || '',
+						// The failure reasons (per node when known), surfaced as a tooltip on the pill.
+						stateMessage: aliveNodes.some((n) => n.state === 'FAILED')
+							? aliveNodes.filter((n) => n.state === 'FAILED')
+								.map((n) => `${n.hostName || n.nodeId}: ${n.stateMessage || ''}`).join('\n')
+							: (w.stateMessage || ''),
 						enginesLabel: this.t('app.dashboard.workspaces.engines',
 							{ bpm: bpm.label, eip: eip.label }, `BPM ${bpm.label} · EIP ${eip.label}`),
 						pillClass: failed ? 'danger' : stopped ? 'neutral' : !online ? 'warning' : degraded ? 'danger' : 'success',
-						pillLabel: failed
+						pillLabel: partial
+							? this.t('app.dashboard.workspaces.pill.partial', { online: onlineNodes, total: aliveNodes.length },
+								`Degraded ${onlineNodes}/${aliveNodes.length}`)
+							: failed
 							? this.t('app.dashboard.workspaces.pill.failed', undefined, 'Failed')
 							: stopped
 								? this.t('app.dashboard.workspaces.pill.stopped', undefined, 'Stopped')

@@ -214,10 +214,11 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 
 		ManagedCamelContext managedContext = managedContext(camelContext);
 		RouteHealth health = computeHealth(camelContext);
+		RouteCluster cluster = routeCluster(environment, workspaceName);
 
 		List<Map<String, Object>> edges = new ArrayList<>(page.size());
 		for (RouteRef ref : page) {
-			Map<String, Object> node = buildRouteNode(ref, camelContext, managedContext, false, health);
+			Map<String, Object> node = buildRouteNode(ref, camelContext, managedContext, false, health, cluster);
 			Map<String, Object> edge = new LinkedHashMap<>();
 			edge.put("node", node);
 			edge.put("cursor", encodeCursor(ref.routeId));
@@ -253,7 +254,7 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 			return null;
 		}
 		RouteHealth health = computeHealth(camelContext);
-		return buildRouteNode(ref, camelContext, managedContext, true, health);
+		return buildRouteNode(ref, camelContext, managedContext, true, health, routeCluster(environment, workspaceName));
 	}
 
 	// ---- camelContext (mirror CamelQueryExecutor) --------------------------
@@ -348,7 +349,7 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 	}
 
 	private static Map<String, Object> buildRouteNode(RouteRef ref, CamelContext context,
-			ManagedCamelContext managedContext, boolean includeDefinition, RouteHealth health) {
+			ManagedCamelContext managedContext, boolean includeDefinition, RouteHealth health, RouteCluster cluster) {
 		Map<String, Object> node = new LinkedHashMap<>();
 		node.put("id", ref.routeId);
 		node.put("routeId", ref.routeId);
@@ -403,6 +404,21 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 		if (includeDefinition) {
 			node.put("definition", buildDefinition(context, ref.routeId));
 		}
+
+		org.mintjams.rt.cms.internal.operations.OperationNodes.RouteState desired = cluster.desiredStates.get(ref.routeId);
+		node.put("desiredState", (desired != null) ? desired.name() : "FOLLOW");
+		List<Map<String, Object>> nodes = new ArrayList<>();
+		for (org.mintjams.rt.cms.internal.operations.WorkspaceOperations.RouteNodeView clusterNode : cluster.nodes) {
+			Map<String, Object> entry = new LinkedHashMap<>();
+			entry.put("nodeId", clusterNode.nodeId);
+			entry.put("hostName", clusterNode.hostName);
+			entry.put("self", clusterNode.self);
+			entry.put("alive", clusterNode.alive);
+			String nodeStatus = (clusterNode.statuses == null) ? null : clusterNode.statuses.get(ref.routeId);
+			entry.put("status", (nodeStatus != null && REPORTED_ROUTE_STATES.contains(nodeStatus)) ? nodeStatus : "Unknown");
+			nodes.add(entry);
+		}
+		node.put("nodes", nodes);
 		return node;
 	}
 
@@ -1358,9 +1374,11 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 	}
 
 	// =========================================================================
-	// Route control mutations (mirror EipRouteExecutor): Input Object Pattern,
-	// operating on the deployed route controller for the request's workspace (no
-	// JCR writes). Each returns the route's full projection after the operation.
+	// Route control mutations: Input Object Pattern. Webtop cannot choose a
+	// node, so each records the desired route state for every node, applies it
+	// at once on the node that served the request, and returns the route's full
+	// projection after the operation; the other nodes apply it as the record
+	// reaches them (WorkspaceReconciler), and keep it across redeployments.
 	// Handmade parity: no extra authorization beyond the authenticated endpoint.
 	// =========================================================================
 
@@ -1368,8 +1386,10 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 		String workspaceName = GraphQLExecutionContext.from(environment).getWorkspaceName();
 		String id = requireId(requireInput(environment));
 		WorkspaceIntegrationEngineProvider provider = requireProvider(workspaceName);
+		requireRouteRef(provider, id);
+		recordRouteState(environment, workspaceName, id, org.mintjams.rt.cms.internal.operations.OperationNodes.RouteState.STARTED);
 		provider.getCamelContext().getRouteController().startRoute(id);
-		return routeNodeAfter(provider, id);
+		return routeNodeAfter(environment, provider, id);
 	}
 
 	private static Object stopRoute(DataFetchingEnvironment environment) throws Exception {
@@ -1378,12 +1398,14 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 		String id = requireId(input);
 		Integer timeout = (Integer) input.get("timeout");
 		WorkspaceIntegrationEngineProvider provider = requireProvider(workspaceName);
+		requireRouteRef(provider, id);
+		recordRouteState(environment, workspaceName, id, org.mintjams.rt.cms.internal.operations.OperationNodes.RouteState.STOPPED);
 		if (timeout != null) {
 			provider.getCamelContext().getRouteController().stopRoute(id, timeout.longValue(), TimeUnit.SECONDS);
 		} else {
 			provider.getCamelContext().getRouteController().stopRoute(id);
 		}
-		return routeNodeAfter(provider, id);
+		return routeNodeAfter(environment, provider, id);
 	}
 
 	private static Object suspendRoute(DataFetchingEnvironment environment) throws Exception {
@@ -1392,29 +1414,65 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 		String id = requireId(input);
 		Integer timeout = (Integer) input.get("timeout");
 		WorkspaceIntegrationEngineProvider provider = requireProvider(workspaceName);
+		requireRouteRef(provider, id);
+		recordRouteState(environment, workspaceName, id, org.mintjams.rt.cms.internal.operations.OperationNodes.RouteState.SUSPENDED);
 		if (timeout != null) {
 			provider.getCamelContext().getRouteController().suspendRoute(id, timeout.longValue(), TimeUnit.SECONDS);
 		} else {
 			provider.getCamelContext().getRouteController().suspendRoute(id);
 		}
-		return routeNodeAfter(provider, id);
+		return routeNodeAfter(environment, provider, id);
 	}
 
 	private static Object resumeRoute(DataFetchingEnvironment environment) throws Exception {
 		String workspaceName = GraphQLExecutionContext.from(environment).getWorkspaceName();
 		String id = requireId(requireInput(environment));
 		WorkspaceIntegrationEngineProvider provider = requireProvider(workspaceName);
+		requireRouteRef(provider, id);
+		recordRouteState(environment, workspaceName, id, org.mintjams.rt.cms.internal.operations.OperationNodes.RouteState.STARTED);
 		provider.getCamelContext().getRouteController().resumeRoute(id);
-		return routeNodeAfter(provider, id);
+		return routeNodeAfter(environment, provider, id);
+	}
+
+	/** Records the state every node is to keep the route in, as the caller. */
+	private static void recordRouteState(DataFetchingEnvironment environment, String workspaceName, String routeId,
+			org.mintjams.rt.cms.internal.operations.OperationNodes.RouteState state) throws Exception {
+		String userId = GraphQLExecutionContext.from(environment).getCallerSession().getUserID();
+		org.mintjams.rt.cms.internal.operations.WorkspaceOperations.setRouteState(workspaceName, routeId, state, userId);
 	}
 
 	/** Full route projection after a control operation (mirrors the handmade return). */
-	private static Map<String, Object> routeNodeAfter(WorkspaceIntegrationEngineProvider provider, String id) {
+	private static Map<String, Object> routeNodeAfter(DataFetchingEnvironment environment,
+			WorkspaceIntegrationEngineProvider provider, String id) {
 		RouteRef ref = requireRouteRef(provider, id);
 		CamelContext context = provider.getCamelContext();
 		ManagedCamelContext managedContext = managedContext(context);
 		RouteHealth health = computeHealth(context);
-		return buildRouteNode(ref, context, managedContext, true, health);
+		return buildRouteNode(ref, context, managedContext, true, health,
+				routeCluster(environment, provider.getWorkspaceName()));
+	}
+
+	/**
+	 * The desired route states and — for administrators and service accounts —
+	 * every node's route statuses, read once per fetch. When the operations state
+	 * cannot be read, the routes are still served, without the cluster detail.
+	 */
+	private static RouteCluster routeCluster(DataFetchingEnvironment environment, String workspaceName) {
+		boolean includeNodes = false;
+		Object caller = GraphQLExecutionContext.from(environment).getCallerSession();
+		if (caller instanceof org.mintjams.jcr.Session) {
+			org.mintjams.jcr.Session jcrSession = (org.mintjams.jcr.Session) caller;
+			includeNodes = jcrSession.isAdmin() || jcrSession.isService();
+		}
+		try {
+			org.mintjams.rt.cms.internal.operations.WorkspaceOperations.RouteView view =
+					org.mintjams.rt.cms.internal.operations.WorkspaceOperations.routeView(workspaceName);
+			return new RouteCluster(view.desiredStates, includeNodes ? view.nodes : List.of());
+		} catch (Throwable ex) {
+			CmsService.getLogger(PlatformEipWiringContributor.class)
+					.warn("Could not read the cluster route states: " + workspaceName, ex);
+			return new RouteCluster(Map.of(), List.of());
+		}
 	}
 
 	@SuppressWarnings("unchecked")
@@ -1466,6 +1524,22 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 		RouteRef(String routeId, String group) {
 			this.routeId = routeId;
 			this.group = group;
+		}
+	}
+
+	/** The route statuses a node reports that the RouteState enum can carry; anything else is served as Unknown. */
+	private static final Set<String> REPORTED_ROUTE_STATES = Set.of(
+			"Started", "Stopped", "Suspended", "Starting", "Stopping", "Suspending");
+
+	/** Per-fetch cluster snapshot of a workspace's routes: desired states, and the nodes' statuses when visible. */
+	private static final class RouteCluster {
+		final Map<String, org.mintjams.rt.cms.internal.operations.OperationNodes.RouteState> desiredStates;
+		final List<org.mintjams.rt.cms.internal.operations.WorkspaceOperations.RouteNodeView> nodes;
+
+		RouteCluster(Map<String, org.mintjams.rt.cms.internal.operations.OperationNodes.RouteState> desiredStates,
+				List<org.mintjams.rt.cms.internal.operations.WorkspaceOperations.RouteNodeView> nodes) {
+			this.desiredStates = desiredStates;
+			this.nodes = nodes;
 		}
 	}
 

@@ -75,7 +75,7 @@
 							<div class="list-item-sub">{{ ws.name }}</div>
 						</div>
 						<span v-if="ws.current" class="service-badge">{{ t('app.workspace-manager.badge.current', undefined, 'Current') }}</span>
-						<span :class="stateBadgeClass(ws)" :title="ws.stateMessage || ''">{{ stateLabel(ws) }}</span>
+						<span :class="stateBadgeClass(ws)" :title="stateTitle(ws)">{{ stateLabel(ws) }}</span>
 					</div>
 					<div v-if="!isLoading && displayedWorkspaces.length === 0" class="list-empty-message">
 						{{ t('app.workspace-manager.empty', undefined, 'No workspaces found') }}
@@ -99,15 +99,60 @@
 							</div>
 						</div>
 						<span class="nav-spacer"></span>
-						<span :class="stateBadgeClass(selectedWorkspace)" :title="selectedWorkspace.stateMessage || ''" class="me-3">{{ stateLabel(selectedWorkspace) }}</span>
+						<span :class="stateBadgeClass(selectedWorkspace)" :title="stateTitle(selectedWorkspace)" class="me-3">{{ stateLabel(selectedWorkspace) }}</span>
 					</div>
 
 					<!-- Body -->
 					<div class="content-form">
 
-						<!-- Failure detail -->
-						<wt-inline-message v-if="selectedWorkspace.state === 'FAILED' && selectedWorkspace.stateMessage"
-							class="mb-2" type="error">{{ selectedWorkspace.stateMessage }}</wt-inline-message>
+						<!-- Failure detail: the reason of every node the workspace failed on -->
+						<wt-inline-message v-if="(selectedWorkspace.clusterState === 'FAILED' || selectedWorkspace.clusterState === 'DEGRADED') && stateTitle(selectedWorkspace)"
+							class="mb-2 text-break" type="error" style="white-space: pre-line;">{{ stateTitle(selectedWorkspace) }}</wt-inline-message>
+
+						<!-- Nodes: the workspace on each cluster node (a standalone deployment is a cluster of one) -->
+						<div class="property-group" v-if="selectedWorkspace.nodes.length > 0">
+							<div class="property-group-title">{{ t('app.workspace-manager.section.nodes', undefined, 'Nodes') }}</div>
+							<div class="wt-table-scroll node-table-scroll">
+								<table class="wt wt-rows wt-sticky">
+									<thead>
+										<tr>
+											<th>{{ t('app.workspace-manager.nodes.column.node', undefined, 'Node') }}</th>
+											<th>{{ t('app.workspace-manager.nodes.column.heartbeat', undefined, 'Heartbeat') }}</th>
+											<th>{{ t('app.workspace-manager.nodes.column.state', undefined, 'State') }}</th>
+											<th>{{ t('app.workspace-manager.nodes.column.bpm', undefined, 'BPM') }}</th>
+											<th>{{ t('app.workspace-manager.nodes.column.eip', undefined, 'EIP') }}</th>
+											<th>{{ t('app.workspace-manager.nodes.column.applied', undefined, 'Applied') }}</th>
+											<th>{{ t('app.workspace-manager.nodes.column.details', undefined, 'Details') }}</th>
+											<th></th>
+										</tr>
+									</thead>
+									<tbody>
+										<tr v-for="node in selectedWorkspace.nodes" :key="node.nodeId" :class="{ 'node-row-offline': !node.alive }">
+											<td :title="node.nodeId">
+												<div class="node-name">{{ node.hostName || node.nodeId }}<span v-if="node.self" class="service-badge ms-1">{{ t('app.workspace-manager.badge.thisNode', undefined, 'This node') }}</span></div>
+												<div class="list-item-sub" v-if="node.hostName && node.hostName !== node.nodeId">{{ node.nodeId }}</div>
+											</td>
+											<td><span :class="node.alive ? 'service-badge' : 'service-badge service-badge-failed'">{{ heartbeatLabel(node) }}</span></td>
+											<td><span :class="nodeStateClass(node)">{{ nodeStateLabel(node) }}</span></td>
+											<td>{{ engineLabel(node.processEngine) }}</td>
+											<td>{{ engineLabel(node.integrationEngine) }}</td>
+											<td>{{ appliedLabel(node) }}</td>
+											<td class="wt-wrap node-message">{{ nodeDetails(node) }}</td>
+											<td>
+												<button v-if="canRetryNode(selectedWorkspace, node)" class="wt" @click="retryNodes(selectedWorkspace, [node.nodeId])" :disabled="isRetrying">
+													<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.workspace-manager.action.retry', undefined, 'Retry') }}
+												</button>
+											</td>
+										</tr>
+									</tbody>
+								</table>
+							</div>
+							<div class="form-actions" v-if="failedNodes(selectedWorkspace).length > 1">
+								<button class="wt" @click="retryNodes(selectedWorkspace)" :disabled="isRetrying">
+									<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.workspace-manager.action.retryAllFailed', undefined, 'Retry all failed nodes') }}
+								</button>
+							</div>
+						</div>
 
 						<!-- General -->
 						<div class="property-group">
@@ -196,6 +241,12 @@
 			<template v-if="operation.status !== 'failed'">
 				<wt-spinner size="lg"></wt-spinner>
 				<span class="progress-message mt-5">{{ operationMessage() }}</span>
+				<div v-if="operationNodes().length > 1" class="operation-nodes mt-3">
+					<div class="operation-node" v-for="node in operationNodes()" :key="node.nodeId">
+						<span class="operation-node-name" :title="node.nodeId">{{ node.hostName || node.nodeId }}</span>
+						<span :class="nodeStateClass(node)">{{ nodeStateLabel(node) }}</span>
+					</div>
+				</div>
 			</template>
 			<template v-else>
 				<i class="bi bi-exclamation-triangle-fill text-warning" style="font-size: 2.5rem;"></i>
@@ -256,6 +307,20 @@
 				<button class="wt wt-danger" @click="submitDelete" :disabled="dialog.isLoading">
 					<wt-spinner v-if="dialog.isLoading" size="sm" class="me-1"></wt-spinner>
 					{{ t('common.delete') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Restart offered after saving engine settings (they apply only when the services restart) -->
+		<wt-dialog :open="dialog.type === 'restart'" @close="closeDialog"
+			:title="t('app.workspace-manager.dialog.restartTitle', undefined, 'Apply Engine Settings')">
+			<template v-slot="d">
+				<div>{{ t('app.workspace-manager.dialog.restartDesc', { name: dialog.name }, 'The engine settings have been saved. Restart the "{name}" workspace on every node to apply them? Its services are briefly unavailable while it restarts.') }}</div>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closeDialog">{{ t('app.workspace-manager.action.later', undefined, 'Later') }}</button>
+				<button class="wt wt-primary" @click="confirmRestart">
+					<i class="bi bi-arrow-repeat me-1"></i>{{ t('app.workspace-manager.action.restart', undefined, 'Restart') }}
 				</button>
 			</template>
 		</wt-dialog>

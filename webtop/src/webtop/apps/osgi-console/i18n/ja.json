@@ -1,3 +1,5 @@
 {
-	"app.osgi-console.title": "OSGi コンソール"
+	"app.osgi-console.title": "OSGi コンソール",
+	"app.osgi-console.node": "ノード: {node}",
+	"app.osgi-console.nodeHint": "このコンソールで表示・変更できるのは、このノードだけです。"
 }

@@ -244,6 +244,13 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 							.collect(Collectors.toList());
 					fDeployments.put(itemPath, newRouteIds);
 
+					// A route an operator started, stopped or suspended stays that way
+					// across the redeployment, instead of following its definition again.
+					org.mintjams.rt.cms.internal.operations.WorkspaceReconciler reconciler = CmsService.getWorkspaceReconciler();
+					if (reconciler != null) {
+						reconciler.applyRouteStates(getWorkspaceName(), newRouteIds);
+					}
+
 					// Track newly added route configuration IDs
 					List<String> newConfigIds = modelContext.getRouteConfigurationDefinitions().stream()
 							.map(RouteConfigurationDefinition::getId)

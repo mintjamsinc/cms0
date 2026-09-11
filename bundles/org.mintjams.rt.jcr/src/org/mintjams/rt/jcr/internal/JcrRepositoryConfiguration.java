@@ -145,23 +145,6 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		return JcrWorkspaceProvider.SYSTEM_WORKSPACE_NAME;
 	}
 
-	/**
-	 * Returns the interval, in seconds, at which this node rescans the
-	 * workspace root for workspaces created or deleted by other cluster
-	 * nodes ({@code org.mintjams.jcr.workspace.discoveryInterval}). Only
-	 * used in cluster mode; standalone nodes manage workspaces locally and
-	 * need no discovery.
-	 */
-	public int getWorkspaceDiscoveryInterval() {
-		BundleContext bc = Activator.getDefault().getBundleContext();
-		int value = Integer.parseInt(Strings.defaultIfEmpty(
-				bc.getProperty("org.mintjams.jcr.workspace.discoveryInterval"), "30"));
-		if (value < 5) {
-			value = 5;
-		}
-		return value;
-	}
-
 	public int getMaxSessions() {
 		BundleContext bc = Activator.getDefault().getBundleContext();
 		int value = Integer.parseInt(Strings.defaultIfEmpty(bc.getProperty("org.mintjams.jcr.workspace.maxSessions"), "128"));

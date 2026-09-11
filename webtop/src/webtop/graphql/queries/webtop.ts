@@ -76,6 +76,22 @@ export const WEBTOP_QUERIES = {
         stateMessage
         processEngine { enabled running }
         integrationEngine { enabled running }
+        clusterState
+        desiredRun
+        nodes {
+          nodeId
+          hostName
+          self
+          alive
+          registered
+          state
+          stateMessage
+          processEngine { enabled running }
+          integrationEngine { enabled running }
+          restartPending
+          engineSettingsPending
+          updated
+        }
       }
     }
   `,
@@ -173,6 +189,66 @@ export const WEBTOP_MUTATIONS = {
           stateMessage
           processEngine { enabled running }
           integrationEngine { enabled running }
+          clusterState
+          desiredRun
+          nodes {
+            nodeId
+            hostName
+            self
+            alive
+            registered
+            state
+            stateMessage
+            processEngine { enabled running }
+            integrationEngine { enabled running }
+            restartPending
+            engineSettingsPending
+            updated
+          }
+        }
+        errors {
+          field
+          message
+          code
+        }
+      }
+    }
+  `,
+
+  /**
+   * Ask the nodes on which a workspace failed to start to try again — the
+   * given `nodeIds`, or every alive node it failed on. Administrators only.
+   * Returns the refreshed workspace.
+   */
+  RETRY_WORKSPACE: `
+    mutation RetryWorkspace($input: RetryWorkspaceInput!) {
+      retryWorkspace(input: $input) {
+        workspace {
+          name
+          displayName
+          current
+          system
+          autoStart
+          state
+          stateMessage
+          processEngine { enabled running }
+          integrationEngine { enabled running }
+          clusterState
+          desiredRun
+          nodes {
+            nodeId
+            hostName
+            self
+            alive
+            registered
+            state
+            stateMessage
+            processEngine { enabled running }
+            integrationEngine { enabled running }
+            restartPending
+            engineSettingsPending
+            updated
+          }
         }
         errors {
           field

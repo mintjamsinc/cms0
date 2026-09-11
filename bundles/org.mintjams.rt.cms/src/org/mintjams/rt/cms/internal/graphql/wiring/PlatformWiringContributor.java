@@ -2081,14 +2081,26 @@ public final class PlatformWiringContributor implements WiringContributor {
 				});
 	}
 
-	/** {@code Subscription.workspaceChanged} — repository-wide signal, matched on the event topic alone. */
+	/**
+	 * {@code Subscription.workspaceChanged} — something a workspace list shows
+	 * changed anywhere in the cluster: a workspace's shared settings (the
+	 * settings topic), or its desired or reported state (a write under
+	 * {@code /var/operations/workspaces} in the system workspace, which the
+	 * cluster journal delivers to every node). Route status reports are left
+	 * out; they do not change the list.
+	 */
 	private static Object workspaceChanged(DataFetchingEnvironment environment) {
 		String workspaceName = GraphQLExecutionContext.from(environment).getWorkspaceName();
 		return new CmsEventPublisher(workspaceName,
-				event -> CmsService.TOPIC_WORKSPACE_CHANGED.equals(event.getTopic()),
+				event -> CmsService.TOPIC_WORKSPACE_SETTINGS_CHANGED.equals(event.getTopic())
+						|| ("system".equals(event.getWorkspaceName())
+								&& org.mintjams.rt.cms.internal.operations.OperationNodes.workspaceOf(event.getPath()) != null
+								&& !org.mintjams.rt.cms.internal.operations.OperationNodes.isRouteReportPath(event.getPath())),
 				event -> {
 					Map<String, Object> data = new LinkedHashMap<>();
-					data.put("workspace", event.getWorkspaceName());
+					data.put("workspace", CmsService.TOPIC_WORKSPACE_SETTINGS_CHANGED.equals(event.getTopic())
+							? event.getWorkspaceName()
+							: org.mintjams.rt.cms.internal.operations.OperationNodes.workspaceOf(event.getPath()));
 					data.put("timestamp", ISO8601.now());
 					return data;
 				});

@@ -42,8 +42,14 @@
 			</div>
 		</div>
 
-		<!-- Bottom Status Bar (translucent, empty — same shape as editor apps) -->
-		<div class="status-bar window-drag-region"></div>
+		<!-- Bottom Status Bar (translucent). The Felix console only ever shows the
+		     node that served this window, and Webtop does not choose the node, so
+		     name it. -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group" v-if="nodeLabel">
+				<span class="status-item" :title="t('app.osgi-console.nodeHint', undefined, 'The console shows and changes this node only.')"><i class="bi bi-hdd-network me-1"></i>{{ t('app.osgi-console.node', { node: nodeLabel }, 'Node: ' + nodeLabel) }}</span>
+			</div>
+		</div>
 
 	</div>
 
