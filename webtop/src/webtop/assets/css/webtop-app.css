@@ -969,11 +969,17 @@ html {
 		transform: rotate(180deg);
 	}
 
+	/* At least as wide as the trigger, and wider when a label needs it: a
+	 * trigger sized to a short choice would otherwise cut the longer ones
+	 * off. The shell popup (shell-popup-adapter) sizes its menu the same way. */
 	.wt-select-menu {
 		position: absolute;
 		left: 0;
-		right: 0;
 		top: calc(100% + 0.25rem);
+		box-sizing: border-box;
+		width: max-content;
+		min-width: 100%;
+		max-width: calc(100vw - 2rem);
 		max-height: 20rem;
 		overflow-y: auto;
 		background-color: var(--context-menu-bg);
