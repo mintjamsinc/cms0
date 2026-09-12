@@ -137,6 +137,8 @@ import org.mintjams.tools.lang.Strings;
  * Sessions opened by {@code cms:login} are tracked for the lifetime of the
  * component, because a JCR session holds one of a hard-capped pool of slots and
  * a leaked one is never returned — see {@link CmsSessionReaper}.
+ * 
+ * @deprecated Use <groovy/> script in EIP routes instead. The component is not going away, but the operations are not being maintained and will eventually be removed.
  */
 public class CmsComponent extends DefaultComponent {
 
@@ -190,6 +192,18 @@ public class CmsComponent extends DefaultComponent {
 
 	public CmsComponent(String workspaceName) {
 		fWorkspaceName = workspaceName;
+	}
+
+	@Override
+	protected Endpoint createEndpoint(String uri, String remaining, Map<String, Object> parameters) throws Exception {
+		// Parse operation type from remaining (e.g., "store", "setProperties", "move")
+		String operation = remaining;
+
+		CmsEndpoint endpoint = new CmsEndpoint(uri, operation, parameters);
+		// Taken: everything here is consumed internally by CmsEndpoint, and leaving the map
+		// non-empty would make Camel reject all of it.
+		parameters.clear();
+		return endpoint;
 	}
 
 	@Override
@@ -404,18 +418,6 @@ public class CmsComponent extends DefaultComponent {
 				}
 			}
 		}
-	}
-
-	@Override
-	protected Endpoint createEndpoint(String uri, String remaining, Map<String, Object> parameters) throws Exception {
-		// Parse operation type from remaining (e.g., "store", "setProperties", "move")
-		String operation = remaining;
-
-		CmsEndpoint endpoint = new CmsEndpoint(uri, operation, parameters);
-		// Taken: everything here is consumed internally by CmsEndpoint, and leaving the map
-		// non-empty would make Camel reject all of it.
-		parameters.clear();
-		return endpoint;
 	}
 
 	public class CmsEndpoint extends DefaultEndpoint {
