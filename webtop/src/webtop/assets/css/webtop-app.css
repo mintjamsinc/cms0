@@ -498,6 +498,7 @@ html {
 	.sidebar-resize-handle,
 	.detail-resize-handle {
 		width: 4px;
+		border-radius: 2px;
 		cursor: col-resize;
 		background-color: transparent;
 		flex-shrink: 0;

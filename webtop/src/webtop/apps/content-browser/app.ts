@@ -1962,15 +1962,12 @@ export const App = {
 				if (action === 'skip' || action === 'skipAll' || action === 'cancel') return;
 			}
 
-			// Multipart upload
-			const encoder = new TextEncoder();
-			const bytes = encoder.encode(content);
-			const base64Content = btoa(String.fromCharCode(...bytes));
-
+			// Multipart upload. The payload (e.g. a memo with embedded images)
+			// can run to megabytes, so it goes up in chunks.
 			const uploadInfo = await contentService.initiateMultipartUpload();
 			const uploadId = uploadInfo.uploadId;
 			try {
-				await contentService.appendMultipartUploadChunk(uploadId, base64Content);
+				await contentService.appendMultipartUploadData(uploadId, content);
 				await contentService.completeMultipartUpload(
 					uploadId, vm.currentPath, name, mimeType, existingNode ? true : false
 				);

@@ -1431,9 +1431,6 @@ export const App = {
 				vm.isSaving = true;
 
 				const content = vm.currentFile.content;
-				const encoder = new TextEncoder();
-				const bytes = encoder.encode(content);
-				const base64 = btoa(String.fromCharCode(...bytes));
 
 				const pathParts = vm.currentFile.path.split('/');
 				const fileName = pathParts.pop() as string;
@@ -1443,7 +1440,7 @@ export const App = {
 				const uploadId = uploadInfo.uploadId;
 
 				try {
-					await contentService.appendMultipartUploadChunk(uploadId, base64);
+					await contentService.appendMultipartUploadData(uploadId, content);
 					await contentService.completeMultipartUpload(
 						uploadId,
 						parentPath,

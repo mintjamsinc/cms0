@@ -2236,9 +2236,15 @@ export const App = {
 					const dirPath = schema.kind === 'mixin' ? MIXINS_PATH : SCHEMAS_PATH;
 					const filePath = dirPath + '/' + fileName;
 
-					const encoder = new TextEncoder();
-					const bytes = encoder.encode(jsonStr);
-					const base64Content = btoa(String.fromCharCode(...bytes));
+					// createFile takes the content base64 encoded in one request
+					// (it also creates the schema folder on first use). Encode
+					// UTF-8 → base64 without spreading the bytes into
+					// String.fromCharCode, which overflows the call stack when
+					// large. Updates go up in chunks instead.
+					const bytes = new TextEncoder().encode(jsonStr);
+					let binary = '';
+					for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+					const base64Content = btoa(binary);
 
 					if (schema._isNew) {
 						console.log('[SchemaEditor] Creating new file:', filePath, 'mimeType:', MIME_TYPE);
@@ -2263,7 +2269,7 @@ export const App = {
 							const uploadInfo = await contentService.initiateMultipartUpload();
 							const uploadID = uploadInfo.uploadId;
 							try {
-								await contentService.appendMultipartUploadChunk(uploadID, base64Content);
+								await contentService.appendMultipartUploadData(uploadID, jsonStr);
 								await contentService.completeMultipartUpload(
 									uploadID, dirPath, fileName, MIME_TYPE, true,
 								);

@@ -38,6 +38,26 @@ import type {
 /** Server-side cap on paths per append call (shared by delete and archive jobs). */
 const DELETE_APPEND_CHUNK = 100;
 
+/**
+ * Bytes per multipart upload append. A chunk travels base64 encoded inside
+ * the GraphQL request (512KB → ~700KB); 1MB (~1.37MB encoded) already
+ * overflows the request limit and is rejected with HTTP 413.
+ */
+const UPLOAD_APPEND_CHUNK = 524288;
+
+/** Read a Blob as base64 (its data URL without the header). */
+function readBlobAsBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.substring(result.indexOf(';base64,') + 8));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
 export interface ListChildrenOptions {
   first?: number;
   after?: string;
@@ -840,6 +860,32 @@ export class ContentServiceGraphQL {
       { input: { uploadId, data: chunkData } }
     );
     return data.appendMultipartUploadChunk;
+  }
+
+  /**
+   * Append data of any size to a multipart upload, in chunks of
+   * {@link UPLOAD_APPEND_CHUNK} bytes. A string is sent as UTF-8.
+   *
+   * `onProgress` is called after each chunk with the bytes sent so far.
+   * `isCanceled` is checked before each chunk; a cancel stops appending and
+   * resolves `false`, leaving the abort to the caller.
+   */
+  async appendMultipartUploadData(
+    uploadId: string,
+    data: Blob | string,
+    options: {
+      onProgress?: (sent: number, total: number) => void;
+      isCanceled?: () => boolean;
+    } = {}
+  ): Promise<boolean> {
+    const blob = typeof data === 'string' ? new Blob([data]) : data;
+    for (let offset = 0; offset < blob.size; offset += UPLOAD_APPEND_CHUNK) {
+      if (options.isCanceled?.()) return false;
+      const chunk = blob.slice(offset, offset + UPLOAD_APPEND_CHUNK);
+      await this.appendMultipartUploadChunk(uploadId, await readBlobAsBase64(chunk));
+      options.onProgress?.(Math.min(offset + UPLOAD_APPEND_CHUNK, blob.size), blob.size);
+    }
+    return true;
   }
 
   /**

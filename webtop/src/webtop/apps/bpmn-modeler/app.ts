@@ -2326,11 +2326,6 @@ export const App = {
 				const contentService = vm.instance.api.content;
 				const xml = serializeStoreToXml(bpmnModelStore);
 
-				// Encode content to base64
-				const encoder = new TextEncoder();
-				const bytes = encoder.encode(xml);
-				const base64 = btoa(String.fromCharCode(...bytes));
-
 				// Get parent path and filename
 				const pathParts = vm.currentFile.path.split('/');
 				const fileName = pathParts.pop() as string;
@@ -2341,7 +2336,7 @@ export const App = {
 				const uploadId = uploadInfo.uploadId;
 
 				try {
-					await contentService.appendMultipartUploadChunk(uploadId, base64);
+					await contentService.appendMultipartUploadData(uploadId, xml);
 					await contentService.completeMultipartUpload(
 						uploadId,
 						parentPath,

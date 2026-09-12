@@ -1073,10 +1073,6 @@ const App = {
 				const contentService = vm.instance!.api.content;
 				const xml = storeToXml(vm.activeStore);
 
-				const encoder = new TextEncoder();
-				const bytes = encoder.encode(xml);
-				const base64Content = btoa(String.fromCharCode(...bytes));
-
 				if (vm.currentFile.path) {
 					const pathParts = vm.currentFile.path.split('/');
 					const fileName = pathParts.pop() as string;
@@ -1086,7 +1082,7 @@ const App = {
 					const uploadId = uploadInfo.uploadId;
 
 					try {
-						await contentService.appendMultipartUploadChunk(uploadId, base64Content);
+						await contentService.appendMultipartUploadData(uploadId, xml);
 						await contentService.completeMultipartUpload(
 							uploadId, parentPath, fileName, vm.currentFile.mimeType, true
 						);

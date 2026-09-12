@@ -1656,16 +1656,20 @@ const WtDesktop = {
 					try { await contentService.deleteNode(destPath); } catch { /* fall through to recreate */ }
 				}
 
-				// Encode UTF-8 text → base64 without spreading the byte array into
-				// String.fromCharCode (that overflows the call stack on big files).
-				const bytes = new TextEncoder().encode(content);
-				let binary = '';
-				for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-				const base64Content = btoa(binary);
-
+				// The payload (e.g. a memo with embedded images) can run to
+				// megabytes, so it goes up in chunks, driving the monitor.
 				const uploadInfo = await contentService.initiateMultipartUpload();
 				uploadId = uploadInfo.uploadId;
-				await contentService.appendMultipartUploadChunk(uploadId, base64Content);
+				const monitor = vm.desktopUploadMonitor;
+				const appended = await contentService.appendMultipartUploadData(uploadId, content, {
+					onProgress: (sent: number, total: number) => { monitor.target.progressPercent = Math.floor((sent / total) * 100); },
+					isCanceled: () => monitor.isCanceled,
+				});
+				if (!appended) {
+					try { await contentService.abortMultipartUpload(uploadId); } catch { /* ignore */ }
+					uploadId = null;
+					return;
+				}
 				await contentService.completeMultipartUpload(uploadId, destFolderPath, name, mimeType, false);
 				uploadId = null;
 				vm.desktopUploadMonitor.target.progressPercent = 100;
