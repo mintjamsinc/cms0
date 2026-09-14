@@ -192,3 +192,7 @@ inventory of third-party software shipped inside the container image.
 ## Trademarks
 
 All trademarks are the property of their respective owners.
+
+---
+
+Built with ❤️ by [MintJams Inc.](https://www.mintjams.jp/)
