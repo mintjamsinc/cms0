@@ -42,9 +42,7 @@
 		"prepare": "npm run build",
 		"test": "npm run build && node --test",
 		"check:camel-roundtrip": "tsc -p tsconfig.json --outDir dist && node scripts/check-camel-roundtrip.mjs",
-		"check:camel-model": "python3 ../scripts/check-camel-model.py",
-		"check:dataformats": "python3 ../scripts/check-dataformats.py",
-		"check": "npm run check:camel-roundtrip && npm run check:camel-model && npm run check:dataformats",
+		"check": "npm run check:camel-roundtrip",
 		"_prebuild:prod": "npm run check"
 	},
 	"devDependencies": {

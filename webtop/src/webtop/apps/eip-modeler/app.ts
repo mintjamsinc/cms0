@@ -152,10 +152,6 @@ const TRANSFORM_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
 // suggest the palette was the problem. Offering all six was the defect - a
 // choice of six formats reads as six that work.
 //
-// `scripts/check-dataformats.py` says this rather than this comment: it reads
-// what the jars declare and refuses a palette entry the deployment cannot load,
-// so restoring one means deploying it first.
-//
 // <marshal> and <unmarshal> are still parsed and still written back. Nothing
 // can create one, but one that exists in a file is not deleted by opening it -
 // that failure is the one the round-trip corpus exists to prevent.

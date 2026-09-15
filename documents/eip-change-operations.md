@@ -367,9 +367,7 @@ It would also not have run. **This deployment loads no Camel data format at
 all** — the jars carry components and languages and no entry under
 `META-INF/services/org/apache/camel/dataformat`, so `<marshal>` and
 `<unmarshal>` fail at route startup whichever format they name. The Modeler used
-to offer six of them; it offers none now, and `scripts/check-dataformats.py`
-refuses a palette entry for a format nothing declares, so putting one back means
-deploying it first.
+to offer six of them; it offers none now.
 
 The two elements are still read and still written, so a route that has one is
 not quietly gutted by being opened. Nothing can create one.
