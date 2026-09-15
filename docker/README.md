@@ -9,6 +9,8 @@ container with zero manual SAML configuration on first boot.
 - `entrypoint.sh` — startup script that prepares persistent dirs and validates
    `CMS_PUBLIC_BASE_URL`
 - `docker-compose.yml` — example compose file with the two named volumes
+- `seed/` — bundled assets and default configuration shipped in the image
+  (see [Bundled assets and configuration](#bundled-assets-and-configuration))
 
 ## Required runtime configuration
 
@@ -19,6 +21,7 @@ container with zero manual SAML configuration on first boot.
 | `CMS_INITIAL_ADMIN_PASSWORD` | Optional. Initial password for the auto-created `admin` user. If unset, a random password is generated on first boot and written to `/data/repository/INITIAL_PASSWORD.txt` (mode 0600). Read it via `docker exec`, log in, change the password, then delete the file. |
 | `CMS_SP_KEYSTORE_PASSWORD` | Optional. Password for the auto-generated SP keystore (`etc/sp-keystore.p12`). If unset, a random password is generated on first boot and written to `/data/repository/SP_KEYSTORE_PASSWORD.txt` (mode 0600). Stored AES-encrypted in `etc/saml2.yml` either way. |
 | `CMS_IDP_KEYSTORE_PASSWORD` | Optional. Password for the auto-generated IdP keystore (`etc/idp-keystore.p12`). If unset, a random password is generated on first boot and written to `/data/repository/IDP_KEYSTORE_PASSWORD.txt` (mode 0600). Stored AES-encrypted in `etc/idp.yml` either way. |
+| `CMS_CLUSTER_ENABLED` | Optional, `true` or `false`. Selects the clustered or the standalone configuration files placed on first start, and when set overrides `etc/repository.yml#cluster.enabled`. See [Bundled assets and configuration](#bundled-assets-and-configuration). |
 
 ## Volumes
 
@@ -26,6 +29,58 @@ container with zero manual SAML configuration on first boot.
 |---|---|
 | `/data/repository` | JCR content, generated SP/IdP keystores (`*.p12`), and the auto-generated `saml2.yml` / `idp.yml`. Losing this means starting from a blank repository. |
 | `/data/secrets` | The AES key that encrypts the keystore passwords in `*.yml`. **Losing this makes the encrypted values in `saml2.yml` / `idp.yml` unrecoverable** — back it up on its own schedule. |
+
+## Bundled assets and configuration
+
+The image carries a read-only seed at `/opt/cms/seed`
+(`MINTJAMS_CMS_SEED_PATH`), built from [`seed/`](seed/). It has two parts
+with different owners:
+
+| Part | Owner | On every start |
+|---|---|---|
+| `assets/system/`, `assets/workspace/` | The image | The runtime applies them to the repository: the `system` workspace gets `assets/system`, every other workspace `assets/workspace`. Each has a `deploy/` folder (content) and a `provisioning/` folder (descriptors). |
+| `config/common/` plus `config/standalone/` or `config/cluster/` | The operator | `entrypoint.sh` copies them into `/data/repository`, but only where no file exists yet. An existing file is never overwritten. |
+
+**Bundled assets.** The build writes `MANIFEST`, every asset with its
+SHA-256 digest, and `VERSION`, the image version. Each workspace records the
+manifest it applied last in `/var/seed/MANIFEST` (and the version in
+`/var/seed/VERSION`), and every start compares the image's manifest with
+that record:
+
+- a file that is not recorded is created;
+- a file whose digest changed is overwritten;
+- a recorded file the image no longer ships is removed, together with the
+  folders it leaves empty;
+- a file whose digest is unchanged is left alone, even if it was edited in
+  the repository.
+
+Upgrading therefore means replacing the image, and running an older image
+brings the assets back to that image's state. The comparison runs under the
+`content-deployment` cluster lease, so the nodes of a cluster share one
+record. Provisioning descriptors only ever add: principals and ACL entries
+they no longer declare are not removed.
+
+A workspace's own `etc/jcr/deploy/` is still deployed as before, except at
+paths the image owns: those files are skipped with a warning.
+
+**Configuration.** `config/` holds `etc/cms.yml`, `etc/repository.yml`,
+`etc/workspace-template/`, and the system workspace's `etc/` files.
+`CMS_CLUSTER_ENABLED=true` places `config/cluster`, whose `repository.yml`
+enables clustering and whose `jcr.yml` / `bpm.yml` point at a shared
+PostgreSQL database with `<host>`, `<username>`, and `<password>`
+placeholders. Put your completed copies into the repository before the first
+start (they are kept as they are), or edit the placed files and restart. A
+setting a later release introduces takes its default until you add it; the
+files are never rewritten for you. See
+[`documents/clustering.md`](../documents/clustering.md) for the rest of a
+clustered deployment.
+
+**Assembling the seed.** The Webtop is build output, not a source. After
+building it (`cd webtop && npm run build:prod`), run
+`./scripts/assemble-seed.sh` (or `.\scripts\assemble-seed.ps1`) to lay it
+into `seed/assets/`: every app for the system workspace, and every app except
+`workspace-manager` for the others. The image build fails when the Webtop is
+missing.
 
 ## Zero-configuration SAML
 
@@ -60,8 +115,9 @@ pipeline (Tycho/Maven/Gradle/etc.) to produce that directory before invoking
 
 ## Building the container image
 
-Once `felix-dist/` exists, build the image with one of the included wrappers
-from the repository root.
+Once `felix-dist/` exists and the seed is assembled (see
+[Assembling the seed](#bundled-assets-and-configuration)), build the image
+with one of the included wrappers from the repository root.
 
 **Linux / macOS (bash):**
 

@@ -13,8 +13,8 @@
 !docker/Dockerfile
 !docker/entrypoint.sh
 !docker/THIRD_PARTY_LICENSES.md
-!docker/initial-repository/
-!docker/initial-repository/**
+!docker/seed/
+!docker/seed/**
 
 # Defensive overrides: never include these even if a future allow-list entry
 # would otherwise pull them in.

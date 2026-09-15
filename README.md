@@ -14,7 +14,8 @@ Identity Provider) is included out of the box.
   Sources under [`webtop/`](webtop/).
 
 > Status: **0.1.23-beta** — public preview. APIs, on-disk formats, and bundled
-> apps may change before 1.0.
+> apps may change before 1.0. Installations of 0.1.23-beta or earlier cannot be
+> upgraded in place — see [Upgrading](#upgrading).
 
 ---
 
@@ -97,6 +98,7 @@ To set the initial password explicitly instead, pass
 | `CMS_SP_KEYSTORE_PASSWORD` | no | Password for the auto-generated SP keystore. If unset, a random one is generated and written to `/data/repository/SP_KEYSTORE_PASSWORD.txt`. Stored AES-encrypted in `etc/saml2.yml` either way. |
 | `CMS_IDP_KEYSTORE_PASSWORD` | no | Password for the auto-generated IdP keystore. If unset, a random one is generated and written to `/data/repository/IDP_KEYSTORE_PASSWORD.txt`. Stored AES-encrypted in `etc/idp.yml` either way. |
 | `MINTJAMS_CMS_SECRET_KEY_PATH` | no | Path to the AES master key. Defaults to `/data/secrets/secret-key.yml`. |
+| `CMS_CLUSTER_ENABLED` | no | `true` or `false`. Selects the clustered or standalone configuration files placed on first start, and when set overrides `etc/repository.yml`. See [`docker/README.md`](docker/README.md#bundled-assets-and-configuration). |
 
 ### Persistent volumes
 
@@ -120,6 +122,38 @@ is the single source of truth for the external hostname; restarting with a
 new value retargets both SP and IdP. To federate with an external IdP, edit
 `etc/saml2.yml` after first boot; values written there take precedence over
 the auto-generated defaults.
+
+---
+
+## Upgrading
+
+From **0.1.24-beta** on, upgrading means replacing the image and keeping the
+volumes. On every start, the bundled content (Webtop apps, built-in
+provisioning, and the other default content shipped with the image) is
+brought in line with the running image in every workspace, including the
+removal of files the image no longer ships. Configuration files in the
+repository volume (`etc/*.yml`, `<workspace>/etc/**/*.yml`) are written only
+when missing and never overwritten; settings introduced by a later release
+use their defaults until you set them.
+
+### Installations of 0.1.23-beta or earlier
+
+These releases copied the bundled content into the repository volume only
+when the volume was first created, so replacing the image never updated it.
+They cannot be upgraded in place. Install 0.1.24-beta or later on new, empty
+volumes instead:
+
+1. In the old installation, export the content you want to keep as a CMS
+   Archive from the Content Browser.
+2. Start the new version with new volumes for `/data/repository` and
+   `/data/secrets`. A new `admin` password is generated (see
+   [First login](#first-login)).
+3. Import the archives in the new installation's Content Browser, and reapply
+   any changes you made to configuration files (for example an external IdP in
+   `etc/saml2.yml`).
+
+Until 1.0, a release may again require a fresh installation; such releases
+are announced in this section.
 
 ---
 
@@ -156,8 +190,9 @@ running architecture and ignores the rest. See
 ```
 bundles/    Server-side OSGi bundles (JCR, CMS, SAML SP/IdP, Camel, Camunda, ...)
 webtop/    Client-side virtual desktop and built-in apps (TypeScript + Rollup)
-docker/    Dockerfile, entrypoint, compose example, initial repository seed
-scripts/   docker-build.sh / docker-build.ps1 wrappers around `docker buildx`
+docker/    Dockerfile, entrypoint, compose example, image seed (bundled assets, default configuration)
+scripts/   docker-build.sh / docker-build.ps1 wrappers around `docker buildx`,
+           assemble-seed.sh / assemble-seed.ps1 to lay the Webtop into the seed
 ```
 
 ## Building from source
@@ -167,9 +202,11 @@ yourself (custom bundles, private fork, etc.), see
 [`docker/README.md`](docker/README.md) for the full build pipeline:
 
 1. Produce a `felix-dist/` directory at the repo root (Felix runtime + the
-   bundles compiled from `bundles/` + the Webtop assets compiled from
-   `webtop/`).
-2. Run `./scripts/docker-build.sh -v <version>` (or the PowerShell
+   bundles compiled from `bundles/`).
+2. Build the Webtop (`cd webtop && npm run build:prod`) and run
+   `./scripts/assemble-seed.sh` (or the PowerShell equivalent) to lay it into
+   `docker/seed/`.
+3. Run `./scripts/docker-build.sh -v <version>` (or the PowerShell
    equivalent) to produce a `mintjams/cms:<version>` image.
 
 Per-component build instructions live in [`webtop/README.md`](webtop/README.md)

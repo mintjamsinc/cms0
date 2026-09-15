@@ -178,11 +178,13 @@ before or at the workspace's first start:
   substitution) instead of the embedded per-directory H2 default.
 - `etc/jcr/provisioning/*.yml` — initial groups, ACLs and folder
   structure for new workspaces.
-- `etc/jcr/deploy/` — content deployed on first start. To make the
-  webtop desktop available in new workspaces, place the webtop
-  distribution here (`etc/jcr/deploy/content/webtop/**` plus
-  `etc/jcr/deploy/etc/i18n/**`), mirroring the system workspace's
-  deploy layout.
+- `etc/jcr/deploy/` — your own content deployed on start. The Webtop
+  desktop does not belong here: in the container image it is part of
+  the bundled assets, which every start applies to every workspace from
+  the image (see `docker/README.md`, "Bundled assets and
+  configuration"). Outside the image, place the webtop distribution
+  here (`etc/jcr/deploy/content/webtop/**` plus
+  `etc/jcr/deploy/etc/i18n/**`).
 - `etc/search/` — full-text search analyzer configuration
   (`search.yml`, `userdict.txt`, `stopwords.txt`, `stoptags.txt`,
   `mapping.txt`). Without it the generated `search.yml` is empty and

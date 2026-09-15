@@ -1,0 +1,66 @@
+analyzers:
+    fulltext@index:
+      - type: org.apache.lucene.analysis.ja.JapaneseTokenizerFactory
+        attributes:
+            userDictionary: userdict.txt
+      - type: org.apache.lucene.analysis.ja.JapaneseBaseFormFilterFactory
+      - type: org.apache.lucene.analysis.ja.JapanesePartOfSpeechStopFilterFactory
+        attributes:
+            tags: stoptags.txt
+      - type: org.apache.lucene.analysis.cjk.CJKWidthFilterFactory
+      - type: org.apache.lucene.analysis.core.StopFilterFactory
+        attributes:
+            words: stopwords.txt
+      - type: org.apache.lucene.analysis.ja.JapaneseKatakanaStemFilterFactory
+      - type: org.apache.lucene.analysis.core.LowerCaseFilterFactory
+
+    fulltext@query:
+      - type: org.apache.lucene.analysis.ja.JapaneseTokenizerFactory
+        attributes:
+            userDictionary: userdict.txt
+      - type: org.apache.lucene.analysis.ja.JapaneseBaseFormFilterFactory
+      - type: org.apache.lucene.analysis.ja.JapanesePartOfSpeechStopFilterFactory
+        attributes:
+            tags: stoptags.txt
+      - type: org.apache.lucene.analysis.cjk.CJKWidthFilterFactory
+      - type: org.apache.lucene.analysis.core.StopFilterFactory
+        attributes:
+            words: stopwords.txt
+      - type: org.apache.lucene.analysis.ja.JapaneseKatakanaStemFilterFactory
+      - type: org.apache.lucene.analysis.core.LowerCaseFilterFactory
+
+    completion@index:
+      - type: org.apache.lucene.analysis.ja.JapaneseTokenizerFactory
+        attributes:
+            userDictionary: userdict.txt
+      - type: org.apache.lucene.analysis.ja.JapaneseBaseFormFilterFactory
+      - type: org.apache.lucene.analysis.ja.JapanesePartOfSpeechStopFilterFactory
+        attributes:
+            tags: stoptags.txt
+      - type: org.apache.lucene.analysis.cjk.CJKWidthFilterFactory
+      - type: org.apache.lucene.analysis.core.StopFilterFactory
+        attributes:
+            words: stopwords.txt
+      - type: org.apache.lucene.analysis.ja.JapaneseKatakanaStemFilterFactory
+      - type: org.apache.lucene.analysis.core.LowerCaseFilterFactory
+      - type: org.apache.lucene.analysis.ja.JapaneseCompletionFilterFactory
+        attributes:
+            mode: INDEX
+
+    completion@query:
+      - type: org.apache.lucene.analysis.ja.JapaneseTokenizerFactory
+        attributes:
+            userDictionary: userdict.txt
+      - type: org.apache.lucene.analysis.ja.JapaneseBaseFormFilterFactory
+      - type: org.apache.lucene.analysis.ja.JapanesePartOfSpeechStopFilterFactory
+        attributes:
+            tags: stoptags.txt
+      - type: org.apache.lucene.analysis.cjk.CJKWidthFilterFactory
+      - type: org.apache.lucene.analysis.core.StopFilterFactory
+        attributes:
+            words: stopwords.txt
+      - type: org.apache.lucene.analysis.ja.JapaneseKatakanaStemFilterFactory
+      - type: org.apache.lucene.analysis.core.LowerCaseFilterFactory
+      - type: org.apache.lucene.analysis.ja.JapaneseCompletionFilterFactory
+        attributes:
+            mode: QUERY

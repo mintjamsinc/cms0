@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Lay down the Webtop in docker/seed before building the Docker image.
+#
+# The seed's assets/ tree is applied to every workspace on every start of the
+# container (see docker/README.md). This script fills in the parts that are
+# build output rather than sources, from one built Webtop:
+#   assets/system/deploy/content/webtop/     the Webtop with every app
+#   assets/workspace/deploy/content/webtop/  the Webtop for the other workspaces,
+#                                            without SYSTEM_ONLY_APPS
+#   assets/workspace/deploy/etc/i18n/        the global message bundles, copied
+#                                            from assets/system
+#
+# Build the Webtop first (cd webtop && npm run build:prod).
+
+set -euo pipefail
+
+# Apps that only make sense in the system workspace.
+SYSTEM_ONLY_APPS=(workspace-manager)
+
+WEBTOP_DIST="webtop/dist/webtop"
+
+usage() {
+    cat <<EOF
+Usage: $0 [options]
+  -w, --webtop-dist DIR    Built Webtop (default: ${WEBTOP_DIST}).
+  -h, --help               Show this help.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -w|--webtop-dist) WEBTOP_DIST="$2"; shift 2 ;;
+        -h|--help)        usage; exit 0 ;;
+        *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
+    esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+
+if [[ ! -f "${WEBTOP_DIST}/webtop.js" ]]; then
+    echo "ERROR: no built Webtop at ${WEBTOP_DIST}. Build it first (cd webtop && npm run build:prod)." >&2
+    exit 1
+fi
+
+SEED_ASSETS="docker/seed/assets"
+
+# Replaces the destination directory with a copy of the source directory.
+copy_tree() {
+    rm -rf "$2"
+    mkdir -p "$2"
+    cp -R "$1/." "$2/"
+}
+
+copy_tree "${WEBTOP_DIST}" "${SEED_ASSETS}/system/deploy/content/webtop"
+copy_tree "${WEBTOP_DIST}" "${SEED_ASSETS}/workspace/deploy/content/webtop"
+for app in "${SYSTEM_ONLY_APPS[@]}"; do
+    rm -rf "${SEED_ASSETS}/workspace/deploy/content/webtop/apps/${app}"
+done
+copy_tree "${SEED_ASSETS}/system/deploy/etc/i18n" "${SEED_ASSETS}/workspace/deploy/etc/i18n"
+
+echo "OK: seed assets laid down from ${WEBTOP_DIST}"
+echo "  system:    $(find "${SEED_ASSETS}/system" -type f | wc -l) files"
+echo "  workspace: $(find "${SEED_ASSETS}/workspace" -type f | wc -l) files"

@@ -33,3 +33,7 @@ hs_err_pid*
 # bundles). Treated as a build artifact, not a source — distributed via the
 # DockerHub image rather than committed.
 /felix-dist/
+
+# Docker seed: the Webtop laid down by scripts/assemble-seed.* before a build.
+/docker/seed/assets/*/deploy/content/webtop/
+/docker/seed/assets/workspace/deploy/etc/i18n/

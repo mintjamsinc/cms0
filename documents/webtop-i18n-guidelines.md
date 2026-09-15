@@ -76,8 +76,9 @@ Seed copies in the repositories:
   own app folders.
 - **Global bundles** (core `en.json` / `ja.json`, `wt-inspector.*`,
   `searchindex-forms.*`) live at
-  `docker/initial-repository/workspaces/system/etc/jcr/deploy/etc/i18n/` and
-  are deployed into the workspace at boot.
+  `docker/seed/assets/system/deploy/etc/i18n/` and are deployed into the
+  workspace at boot (`scripts/assemble-seed.*` copies them for the other
+  workspaces).
 
 Editing any bundle at runtime hot-reloads everything: the i18n service watches
 `/etc/i18n` (shallow) and the apps tree (deep, filtered to `i18n/` folders),
@@ -217,7 +218,7 @@ switching language in Preferences or hot-editing a bundle re-runs every
    - an app string (`app.<appId>.*`) → the app's own
      `webtop/src/webtop/apps/<appId>/i18n/en.json` **and** `i18n/ja.json`;
    - a shared/shell string (`common.*`, `webtop.*`, `cms.*`) → core `en.json`
-     **and** `ja.json` under `docker/initial-repository/.../etc/i18n/`.
+     **and** `ja.json` under `docker/seed/assets/system/deploy/etc/i18n/`.
 3. Reference it via `t('your.key')` in the template (or `translate(...)` in TS).
 4. Never hardcode the English text in the component.
 

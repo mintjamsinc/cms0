@@ -440,6 +440,14 @@ modification-time check, and pass through without writing. Concurrent
 node starts therefore do not race over creating or updating the same
 resources.
 
+The bundled assets of the container image (`docker/README.md`, "Bundled
+assets and configuration") are applied under the same lease, before the
+workspace's own folders. Their record of the applied manifest lives in the
+workspace (`/var/seed`), so the first node applies what the image changed
+and the others find the record current. Nodes started from different images
+would take turns bringing the assets to their own image's state: upgrade by
+stopping every node and starting them all on the new image.
+
 ## Deployment checklist (Phase 1 + 2)
 
 1. Provision PostgreSQL with one database per workspace for JCR (and one
@@ -457,6 +465,8 @@ resources.
    start one node alone first.
 6. Enable `cluster.enabled` and give each node a unique `nodeId`
    (e.g. via `CMS_CLUSTER_NODE_ID`); keep node clocks NTP-synchronized.
+   With the container image, `CMS_CLUSTER_ENABLED=true` does the former
+   and also places the clustered configuration files on first start.
 7. Put the nodes behind a load balancer; sticky sessions are
    recommended (application-set session attributes are node-local)
    though logins survive node switches via the authentication token.

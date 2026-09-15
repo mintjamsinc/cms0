@@ -131,5 +131,5 @@ a regular group.
 
 ## Schema
 
-See [`provisioning/README.md`](../docker/initial-repository/workspaces/system/etc/jcr/provisioning/README.md)
+See [`provisioning/README.md`](../docker/seed/config/common/workspaces/system/etc/jcr/provisioning/README.md)
 for the full descriptor schema and examples.

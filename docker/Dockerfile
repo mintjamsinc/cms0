@@ -60,21 +60,39 @@ RUN set -e; \
 ENV FELIX_HOME=/opt/felix \
     CMS_REPOSITORY_PATH=/data/repository \
     MINTJAMS_CMS_SECRET_KEY_PATH=/data/secrets/secret-key.yml \
+    MINTJAMS_CMS_SEED_PATH=/opt/cms/seed \
     JAVA_TOOL_OPTIONS="-Dorg.mintjams.jcr.repository.rootdir=/data/repository \
                         -Dmintjams.cms.secret-key.path=/data/secrets/secret-key.yml \
                         -XX:+UseG1GC \
                         -XX:+UseContainerSupport \
                         -XX:MaxRAMPercentage=75.0"
 
-# /data/secrets is empty in the image; secret-key.yml is created on first run
-# by FileSecretKeyProvider. Only the directory needs to exist with felix ownership.
-RUN mkdir -p /data/secrets \
- && chown ${FELIX_USER}:${FELIX_USER} /data /data/secrets
+# Both volumes are empty in the image: entrypoint.sh places the configuration
+# files from the seed, and secret-key.yml is created on first run by
+# FileSecretKeyProvider. Only the directories need to exist with felix ownership.
+RUN mkdir -p /data/repository /data/secrets \
+ && chown ${FELIX_USER}:${FELIX_USER} /data /data/repository /data/secrets
 
-# Seed content for /data/repository (initial JCR nodes, keystores, etc.).
-# Docker copies this into a named volume only when the volume is first created
-# and empty; bind mounts or pre-existing volumes will hide this content.
-COPY --chown=${FELIX_USER}:${FELIX_USER} docker/initial-repository/ /data/repository/
+# The seed, read-only at runtime (see docker/README.md, "Bundled assets and
+# configuration"):
+#   assets/  bundled content, applied to every workspace on every start
+#   config/  configuration files, placed into /data/repository when missing
+# The Webtop is build output laid down by scripts/assemble-seed.*; an image
+# without it would start without a desktop, so the build fails instead.
+# MANIFEST lists every asset with its SHA-256 digest: comparing it with the
+# manifest applied last is how a start decides what to update and remove.
+COPY docker/seed/ /opt/cms/seed/
+RUN set -e; \
+    cd /opt/cms/seed; \
+    for assets in system workspace; do \
+        if [ ! -f "assets/${assets}/deploy/content/webtop/webtop.js" ]; then \
+            echo "ERROR: docker/seed/assets/${assets} has no Webtop. Run scripts/assemble-seed.sh first." >&2; \
+            exit 1; \
+        fi; \
+    done; \
+    printf '%s\n' "${IMAGE_VERSION}" > VERSION; \
+    find assets -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > MANIFEST; \
+    chmod -R a+rX /opt/cms/seed
 
 # WORKDIR creates ${FELIX_HOME} as root if it doesn't exist; chown so the
 # felix user can later create runtime dirs (felix-cache, log, ...) here.

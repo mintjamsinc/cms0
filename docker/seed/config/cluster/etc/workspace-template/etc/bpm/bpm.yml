@@ -1,0 +1,5 @@
+enabled: true
+jdbcURL: jdbc:postgresql://<host>:<port>/bpm_${workspace.name}
+username: <username>
+password: <password>
+driverClassName: org.postgresql.Driver

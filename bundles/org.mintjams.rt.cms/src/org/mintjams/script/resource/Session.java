@@ -28,6 +28,8 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import javax.jcr.ItemNotFoundException;
@@ -42,6 +44,7 @@ import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.provisioning.Provisioner;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
+import org.mintjams.rt.cms.internal.seed.SeedDeployer;
 import org.mintjams.script.ScriptingContext;
 import org.mintjams.script.resource.security.AccessControlManager;
 import org.mintjams.script.resource.security.AccessDeniedException;
@@ -237,16 +240,28 @@ public class Session implements Closeable, Adaptable {
 		}
 		try {
 			Path jcrPath = CmsService.getWorkspacePath(fContext.getWorkspaceName()).resolve("etc/jcr");
+			// The bundled assets shipped in the image seed are applied before
+			// the workspace's own folders, so that the workspace's descriptors
+			// can refer to what the seed provisions. Outside the container image
+			// there is no seed and only the workspace's folders are deployed.
+			SeedDeployer seed = SeedDeployer.create(this);
 			// Provision identity and access control first so that the node
 			// hierarchy, ACLs and principals are already in place before content
 			// is imported into them. Importing files into an established,
 			// permission-bounded structure keeps the workspace consistent and
 			// avoids resolving content against not-yet-known principals.
 			try (Provisioner provisioner = new Provisioner(this)) {
+				if (seed != null) {
+					provisioner.provision(seed.getProvisioningPath());
+				}
 				provisioner.provision(jcrPath.resolve("provisioning"));
 			}
+			Set<String> seedPaths = Collections.emptySet();
+			if (seed != null) {
+				seedPaths = seed.deploy();
+			}
 			DeployProgress progress = new DeployProgress();
-			deploy(jcrPath.resolve("deploy"), getRootFolder(), progress);
+			deploy(jcrPath.resolve("deploy"), getRootFolder(), seedPaths, progress);
 			CmsService.getLogger(getClass()).info("Content deployment finished: " + progress.summarize());
 		} catch (Throwable ex) {
 			try {
@@ -260,7 +275,7 @@ public class Session implements Closeable, Adaptable {
 		}
 	}
 
-	private void deploy(Path path, Resource resource, DeployProgress progress) throws ResourceException, IOException {
+	private void deploy(Path path, Resource resource, Set<String> seedPaths, DeployProgress progress) throws ResourceException, IOException {
 		if (!Files.exists(path)) {
 			return;
 		}
@@ -275,7 +290,7 @@ public class Session implements Closeable, Adaptable {
 			try (Stream<Path> stream = Files.list(path)) {
 				stream.forEach(childPath -> {
 					try {
-						deploy(childPath, resource.getResource(childPath.getFileName().toString()), progress);
+						deploy(childPath, resource.getResource(childPath.getFileName().toString()), seedPaths, progress);
 					} catch (Throwable ex) {
 						throw new UncheckedIOException(Cause.create(ex).wrap(IOException.class));
 					}
@@ -283,6 +298,15 @@ public class Session implements Closeable, Adaptable {
 			} catch (UncheckedIOException ex) {
 				throw ex.getCause();
 			}
+			return;
+		}
+
+		// A file the seed owns is kept at the seed's content; otherwise a copy
+		// in the workspace directory would override the image and bring back
+		// files the image has removed.
+		if (seedPaths.contains(resource.getPath())) {
+			CmsService.getLogger(getClass()).warn("Skip content owned by the bundled assets: " + path.toAbsolutePath().toString());
+			progress.skipped();
 			return;
 		}
 
@@ -318,6 +342,7 @@ public class Session implements Closeable, Adaptable {
 		private long fCreated;
 		private long fUpdated;
 		private long fUnchanged;
+		private long fSkipped;
 
 		private void created() {
 			fCreated++;
@@ -334,6 +359,11 @@ public class Session implements Closeable, Adaptable {
 			reportIfStale();
 		}
 
+		private void skipped() {
+			fSkipped++;
+			reportIfStale();
+		}
+
 		private void reportIfStale() {
 			if (System.currentTimeMillis() - fLastReported < REPORT_INTERVAL_MILLIS) {
 				return;
@@ -344,7 +374,7 @@ public class Session implements Closeable, Adaptable {
 		}
 
 		private String summarize() {
-			return fCreated + " created, " + fUpdated + " updated, " + fUnchanged + " unchanged ("
+			return fCreated + " created, " + fUpdated + " updated, " + fUnchanged + " unchanged, " + fSkipped + " skipped ("
 					+ ((System.currentTimeMillis() - fStarted) / 1000) + " seconds).";
 		}
 	}
