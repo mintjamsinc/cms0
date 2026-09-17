@@ -9,44 +9,51 @@ defaultNodes:
         privileges: jcr:all
         effect: deny
 
-# Workspace database. When omitted, the workspace uses an embedded H2
-# database under <workspace>/var/jcr/data. For a clustered deployment,
-# point every node at the same shared database (H2 server mode or
-# PostgreSQL; for PostgreSQL install the driver bundle and set
-# driverClassName). ${...} variables are substituted.
+# This file is read by every node of the cluster — with the repository
+# directory on shared storage there is only one copy of it. Values that differ
+# per deployment or per node are therefore named here and supplied from
+# outside: ${env.NAME} reads the environment variable NAME, and
+# ${env.NAME:-default} falls back to a default when it is unset.
 # See documents/clustering.md.
-#
-#datasource:
-#    jdbcURL: jdbc:postgresql://db:5432/jcr_${workspace.name}
-#    username: jcr
-#    password: secret
-#    driverClassName: org.postgresql.Driver
 
-# Binary (blob) storage. When omitted, blobs are stored as files under
-# <workspace>/var/jcr/bin. For a clustered deployment, the directory must
-# resolve to storage shared by all nodes.
+# Workspace database. Every node must point at the same database, and each
+# workspace needs its own (the operator creates it; the platform only creates
+# the tables). The PostgreSQL driver bundle has to be installed for
+# driverClassName to load.
 #
-#blobstore:
-#    type: fs
-#    directory: ${workspace.home}/var/jcr/bin
-
+# The password has three interchangeable forms — use whichever the deployment
+# is set up for:
+#   password: ${env.CMS_DB_PASSWORD}      the environment variable itself
+#   CMS_DB_PASSWORD_FILE=/run/secrets/…   a Docker secret or a mounted
+#                                         Kubernetes Secret, which keeps the
+#                                         value out of `docker inspect`
+#   password: ENC[v1:…]                   encrypted with this installation's
+#                                         secret key, written straight into
+#                                         this file:
+#                                           docker exec -i cms cms-encrypt
 datasource:
-    jdbcURL: jdbc:postgresql://<host>:<port>/jcr_${workspace.name}
-    username: <username>
-    password: <password>
+    jdbcURL: jdbc:postgresql://${env.CMS_DB_HOST}:${env.CMS_DB_PORT:-5432}/jcr_${workspace.name}
+    username: ${env.CMS_DB_USER}
+    password: ${env.CMS_DB_PASSWORD}
     driverClassName: org.postgresql.Driver
 
+# Binary (blob) storage. Without a directory, blobs are stored as files under
+# <workspace>/var/jcr/bin — already shared storage in the recommended layout,
+# where the repository directory itself is shared. Set `directory` only to put
+# blobs on storage of their own; it must be shared by all nodes either way.
 blobstore:
     type: fs
 
 search:
     suggestion:
         propertyKeys: mi:suggestions
-    # The full-text search index is node-local: in a clustered deployment
-    # every node maintains its own index. When the workspace directory
-    # lives on shared storage and indexPath is not set, each node
-    # automatically uses <workspace>/var/search/nodes/<nodeId>.
-    #indexPath: /var/lib/cms/search/${workspace.name}
+    # The full-text search index is node-local: every node maintains its own,
+    # and a node that starts with an empty index directory builds it from the
+    # repository content. CMS_SEARCH_INDEX_PATH is the image's node-local
+    # volume (/data/index), which keeps Lucene off the shared storage; the
+    # node identifier below is the same guard the platform's own default uses,
+    # in case that volume is shared after all.
+    indexPath: ${env.CMS_SEARCH_INDEX_PATH}/${workspace.name}/nodes/${cluster.nodeId}
 
 security:
     filters: [

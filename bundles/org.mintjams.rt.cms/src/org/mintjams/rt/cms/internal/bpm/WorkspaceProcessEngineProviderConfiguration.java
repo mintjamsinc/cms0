@@ -48,6 +48,7 @@ import org.camunda.bpm.engine.impl.scripting.engine.ResolverFactory;
 import org.camunda.bpm.engine.impl.scripting.engine.ScriptBindingsFactory;
 import org.camunda.bpm.engine.impl.scripting.engine.ScriptingEngines;
 import org.camunda.bpm.engine.impl.scripting.engine.VariableScopeResolverFactory;
+import org.mintjams.cms.config.ConfigValues;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
 import org.mintjams.rt.cms.internal.bpm.event.EventAdminProcessEnginePlugin;
@@ -261,8 +262,7 @@ public class WorkspaceProcessEngineProviderConfiguration {
 
 	private String getJdbcURL() {
 		String v = adapt(fConfig.get("jdbcURL"), String.class).trim();
-		v = Configuration.create(CmsService.getDefault().getBundleContext()).with(new VariableProviderImpl()).replaceVariables(v);
-		return v;
+		return resolve(v, "bpm.yml#jdbcURL");
 	}
 
 	/**
@@ -304,8 +304,19 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		if (v == null || v.trim().isEmpty()) {
 			return null;
 		}
-		return Configuration.create(CmsService.getDefault().getBundleContext()).with(new VariableProviderImpl())
-				.replaceVariables(v.trim());
+		return resolve(v.trim(), "bpm.yml#" + key);
+	}
+
+	/**
+	 * Substitutes the {@code ${...}} variables of a configured value and
+	 * decrypts it when it is an {@code ENC[...]} one.
+	 *
+	 * @param source the setting the value came from, for error messages
+	 */
+	private String resolve(String value, String source) {
+		String resolved = Configuration.create(CmsService.getDefault().getBundleContext())
+				.with(new VariableProviderImpl()).replaceVariables(value);
+		return ConfigValues.decrypt(resolved, source);
 	}
 
 	/**
@@ -365,6 +376,10 @@ public class WorkspaceProcessEngineProviderConfiguration {
 	private class VariableProviderImpl implements VariableProvider {
 		@Override
 		public Object getVariable(String name) {
+			if (ConfigValues.isEnvironmentVariable(name)) {
+				return ConfigValues.getEnvironmentVariable(name);
+			}
+
 			// Resolved directly instead of via mutated global system
 			// properties: each workspace must see its own values even when
 			// several workspaces resolve their configuration concurrently.

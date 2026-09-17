@@ -31,6 +31,7 @@ docker run --rm \
   -e CMS_PUBLIC_BASE_URL=http://localhost:8080 \
   -v cms-repository:/data/repository \
   -v cms-secrets:/data/secrets \
+  -v cms-index:/data/index \
   --tmpfs /opt/felix/tmp:size=512m,mode=0700 \
   mintjams/cms:0.1.23-beta
 ```
@@ -55,12 +56,14 @@ services:
     volumes:
       - cms-repository:/data/repository
       - cms-secrets:/data/secrets
+      - cms-index:/data/index
     tmpfs:
       - /opt/felix/tmp:size=512m,mode=0700
 
 volumes:
   cms-repository:
   cms-secrets:
+  cms-index:
 ```
 
 ---
@@ -99,13 +102,22 @@ To set the initial password explicitly instead, pass
 | `CMS_IDP_KEYSTORE_PASSWORD` | no | Password for the auto-generated IdP keystore. If unset, a random one is generated and written to `/data/repository/IDP_KEYSTORE_PASSWORD.txt`. Stored AES-encrypted in `etc/idp.yml` either way. |
 | `MINTJAMS_CMS_SECRET_KEY_PATH` | no | Path to the AES master key. Defaults to `/data/secrets/secret-key.yml`. |
 | `CMS_CLUSTER_ENABLED` | no | `true` or `false`. Selects the clustered or standalone configuration files placed on first start, and when set overrides `etc/repository.yml`. See [`docker/README.md`](docker/README.md#bundled-assets-and-configuration). |
+| `CMS_DB_HOST`, `CMS_DB_PORT`, `CMS_DB_USER`, `CMS_DB_PASSWORD` | cluster | The shared database the clustered configuration files point at. `CMS_DB_PASSWORD_FILE` reads the password from a file (a Docker secret) instead. See [`docker/README.md`](docker/README.md#configuration-values-from-the-environment). |
+| `CMS_SEARCH_INDEX_PATH` | no | Where this node keeps its search index. Defaults to `/data/index`. Node-local — never shared storage. |
+| `CMS_JAVA_OPTS` | no | Extra JVM flags (e.g. `-Xmx4g`), appended to the image's own. Set this rather than `JAVA_TOOL_OPTIONS`, which replaces what the entrypoint assembles. |
+
+A configuration file can take a value from the environment with
+`${env.NAME}` (or `${env.NAME:-default}`), from a file with `NAME_FILE`, or
+carry it encrypted as `ENC[v1:...]` — see
+[`docker/README.md`](docker/README.md#configuration-values-from-the-environment).
 
 ### Persistent volumes
 
 | Mount | Why it must persist |
 |---|---|
 | `/data/repository` | JCR content, generated SP/IdP keystores (`*.p12`), and the auto-generated `etc/saml2.yml` / `etc/idp.yml`. Losing this means starting from an empty repository. |
-| `/data/secrets`    | The AES master key that encrypts keystore passwords in the YAML files. **Losing this volume makes the encrypted values in `saml2.yml` / `idp.yml` unrecoverable.** Back it up separately. |
+| `/data/secrets`    | The AES master key that encrypts keystore passwords in the YAML files and any `ENC[...]` value. **Losing this volume makes those encrypted values unrecoverable.** Back it up separately. |
+| `/data/index`      | This node's search index. Rebuilt automatically from the repository content when empty, so it need not be backed up — but it must stay node-local. |
 
 ### Exposed port
 

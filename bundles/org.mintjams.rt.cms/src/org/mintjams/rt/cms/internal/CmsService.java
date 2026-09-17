@@ -47,6 +47,7 @@ import javax.jcr.security.Privilege;
 import org.apache.commons.io.IOUtils;
 import org.apache.felix.webconsole.WebConsoleSecurityProvider;
 import org.mintjams.cms.security.Encryptor;
+import org.mintjams.cms.security.Encryptors;
 import org.mintjams.cms.security.SecretKeyProvider;
 import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.AccessControlList;
@@ -71,12 +72,10 @@ import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceFacetProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
-import org.mintjams.rt.cms.internal.security.CmsEncryptor;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.DefaultIdentityProvider;
 import org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider;
 import org.mintjams.rt.cms.internal.security.FelixWebConsoleSecurityProvider;
-import org.mintjams.rt.cms.internal.security.FileSecretKeyProvider;
 import org.mintjams.rt.cms.internal.security.ServiceUserAuthenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Authenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider;
@@ -169,8 +168,6 @@ public class CmsService {
 	 */
 	private final java.util.Set<String> fStartedWorkspaces = java.util.concurrent.ConcurrentHashMap.newKeySet();
 	private final Closer fCloser = Closer.create();
-	private SecretKeyProvider fSecretKeyProvider;
-	private Encryptor fEncryptor;
 	private JobManager fJobManager;
 	private WorkspaceReconciler fWorkspaceReconciler;
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
@@ -211,8 +208,9 @@ public class CmsService {
 				UUID.fromString(fBootIdentifier);
 			}
 
-			fSecretKeyProvider = new FileSecretKeyProvider();
-			fEncryptor = new CmsEncryptor();
+			// Read (or mint) the secret key now, so an unreadable key file
+			// fails the start instead of the first request that needs it.
+			Encryptors.getSecretKeyProvider();
 
 			fProperties = Properties.create(config);
 			open();
@@ -913,11 +911,11 @@ public class CmsService {
 	}
 
 	public static SecretKeyProvider getSecretKeyProvider() {
-		return getDefault().fSecretKeyProvider;
+		return Encryptors.getSecretKeyProvider();
 	}
 
 	public static Encryptor getEncryptor() {
-		return getDefault().fEncryptor;
+		return Encryptors.getDefault();
 	}
 
 	public static JobManager getJobManager() {

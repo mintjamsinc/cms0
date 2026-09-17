@@ -1,5 +1,14 @@
+# Process engine database. Shared by every node exactly like the JCR
+# datasource, with its own database per workspace, and configured the same
+# way: ${env.NAME} reads the environment variable NAME, and the password may
+# instead come from CMS_DB_PASSWORD_FILE or be written here as ENC[v1:…]
+# (docker exec -i cms cms-encrypt). See etc/jcr/jcr.yml and
+# documents/clustering.md.
+#
+# Set `enabled: false` for a workspace that runs no processes; no database is
+# then needed for it.
 enabled: true
-jdbcURL: jdbc:postgresql://<host>:<port>/bpm_${workspace.name}
-username: <username>
-password: <password>
+jdbcURL: jdbc:postgresql://${env.CMS_DB_HOST}:${env.CMS_DB_PORT:-5432}/bpm_${workspace.name}
+username: ${env.CMS_DB_USER}
+password: ${env.CMS_DB_PASSWORD}
 driverClassName: org.postgresql.Driver

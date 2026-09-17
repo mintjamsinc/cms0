@@ -34,6 +34,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+import org.mintjams.cms.config.ConfigValues;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.ExpressionContext;
 import org.mintjams.tools.collections.AdaptableMap;
@@ -99,15 +100,15 @@ public class JcrWorkspaceProviderConfiguration {
 	 * (e.g. PostgreSQL).
 	 */
 	public String getDatasourceJdbcUrl(String defaultJdbcUrl) {
-		return replaceVariables(getDatasourceString("jdbcURL", defaultJdbcUrl));
+		return resolve(getDatasourceString("jdbcURL", defaultJdbcUrl), "jcr.yml#datasource.jdbcURL");
 	}
 
 	public String getDatasourceUsername(String defaultUsername) {
-		return replaceVariables(getDatasourceString("username", defaultUsername));
+		return resolve(getDatasourceString("username", defaultUsername), "jcr.yml#datasource.username");
 	}
 
 	public String getDatasourcePassword(String defaultPassword) {
-		return replaceVariables(getDatasourceString("password", defaultPassword));
+		return resolve(getDatasourceString("password", defaultPassword), "jcr.yml#datasource.password");
 	}
 
 	/**
@@ -118,7 +119,7 @@ public class JcrWorkspaceProviderConfiguration {
 	 * bundle and are not discoverable through {@code java.sql.DriverManager}.
 	 */
 	public String getDatasourceDriverClassName() {
-		return getDatasourceString("driverClassName", null);
+		return resolve(getDatasourceString("driverClassName", null), "jcr.yml#datasource.driverClassName");
 	}
 
 	private String getDatasourceString(String name, String defaultValue) {
@@ -155,14 +156,14 @@ public class JcrWorkspaceProviderConfiguration {
 	 * this must resolve to storage shared by all nodes.
 	 */
 	public Path getBlobStoreDirectory(Path defaultDirectory) {
-		try {
-			String value = ExpressionContext.create().setVariable("config", fConfig)
-					.defaultString("config.blobstore.directory", null);
-			if (Strings.isNotEmpty(value)) {
-				return Path.of(replaceVariables(value.trim())).normalize();
-			}
-		} catch (Throwable ignore) {}
-		return defaultDirectory;
+		String value = getConfigString("config.blobstore.directory");
+		if (Strings.isEmpty(value)) {
+			return defaultDirectory;
+		}
+		// Resolution errors are deliberately not caught: a directory that is
+		// configured but unresolvable must fail the workspace, not quietly
+		// send the blobs of a clustered node to its own disk.
+		return Path.of(resolve(value.trim(), "jcr.yml#blobstore.directory")).normalize();
 	}
 
 	/**
@@ -174,27 +175,47 @@ public class JcrWorkspaceProviderConfiguration {
 	 * this must resolve to a per-node directory.
 	 */
 	public Path getSearchIndexPath() {
+		String value = getConfigString("config.search.indexPath");
+		if (Strings.isEmpty(value)) {
+			return null;
+		}
+		return Path.of(resolve(value.trim(), "jcr.yml#search.indexPath")).normalize();
+	}
+
+	/**
+	 * Reads a configured string, or {@code null} when the file does not carry
+	 * it. Only the read is guarded: whatever it returns is resolved by the
+	 * caller, so a resolution failure is not mistaken for an absent setting.
+	 */
+	private String getConfigString(String expression) {
 		try {
-			String value = ExpressionContext.create().setVariable("config", fConfig)
-					.defaultString("config.search.indexPath", null);
-			if (Strings.isNotEmpty(value)) {
-				return Path.of(replaceVariables(value.trim())).normalize();
-			}
+			return ExpressionContext.create().setVariable("config", fConfig).defaultString(expression, null);
 		} catch (Throwable ignore) {}
 		return null;
 	}
 
-	private String replaceVariables(String value) {
+	/**
+	 * Substitutes the {@code ${...}} variables of a configured value and
+	 * decrypts it when it is an {@code ENC[...]} one.
+	 *
+	 * @param source the setting the value came from, for error messages
+	 */
+	private String resolve(String value, String source) {
 		if (value == null) {
 			return null;
 		}
-		return Configuration.create(Activator.getDefault().getBundleContext())
+		String resolved = Configuration.create(Activator.getDefault().getBundleContext())
 				.with(new VariableProviderImpl()).replaceVariables(value);
+		return ConfigValues.decrypt(resolved, source);
 	}
 
 	private class VariableProviderImpl implements VariableProvider {
 		@Override
 		public Object getVariable(String name) {
+			if (ConfigValues.isEnvironmentVariable(name)) {
+				return ConfigValues.getEnvironmentVariable(name);
+			}
+
 			if ("repository.home".equals(name)) {
 				return Activator.getDefault().getRepository().getConfiguration().getRepositoryPath().toString();
 			}

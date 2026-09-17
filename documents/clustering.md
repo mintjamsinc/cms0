@@ -178,9 +178,9 @@ effect on a standalone node (the poller does not run).
 
 ```yaml
 datasource:
-  jdbcURL: jdbc:postgresql://db:5432/jcr_${workspace.name}
-  username: jcr
-  password: secret
+  jdbcURL: jdbc:postgresql://${env.CMS_DB_HOST}:${env.CMS_DB_PORT:-5432}/jcr_${workspace.name}
+  username: ${env.CMS_DB_USER}
+  password: ${env.CMS_DB_PASSWORD}
   driverClassName: org.postgresql.Driver
 
 blobstore:
@@ -188,13 +188,63 @@ blobstore:
   directory: /mnt/shared/cms/blobs/${workspace.name}
 
 search:
-  indexPath: /var/lib/cms/search/${workspace.name}   # node-local fast storage
+  indexPath: ${env.CMS_SEARCH_INDEX_PATH}/${workspace.name}/nodes/${cluster.nodeId}
 ```
 
 `${...}` variables are substituted in `jdbcURL`, `username`, `password`,
-`blobstore.directory`, and `search.indexPath`: `${repository.home}`,
-`${workspace.home}`, `${workspace.name}`, `${cluster.nodeId}`, plus OSGi
-framework and system properties.
+`driverClassName`, `blobstore.directory`, and `search.indexPath`:
+`${repository.home}`, `${workspace.home}`, `${workspace.name}`,
+`${cluster.nodeId}`, `${env.NAME}`, plus OSGi framework and system
+properties. A variable that resolves to nothing fails the workspace
+rather than falling back to a default, so a missing setting is visible.
+
+#### Values that differ per environment or per node
+
+With the repository directory on shared storage there is **one** copy of
+this file for the whole cluster, so anything that differs between
+deployments or between nodes is named in the file and supplied from
+outside:
+
+- `${env.NAME}` reads the environment variable `NAME`, and
+  `${env.NAME:-default}` falls back to a default when it is unset or
+  empty — the `:-` of a shell, spelled the same way.
+- When the environment variable `NAME_FILE` is set, the value is read
+  from the file it names instead, with one trailing line terminator
+  removed. This is how a Docker secret or a mounted Kubernetes Secret
+  reaches the configuration without appearing in `docker inspect`. It
+  takes precedence over `NAME`.
+
+#### Secrets
+
+A password has three interchangeable forms, all ending up in the same
+field:
+
+| Form | Where the secret lives |
+|---|---|
+| `password: ${env.CMS_DB_PASSWORD}` | the environment of the process |
+| `password: ${env.CMS_DB_PASSWORD}` with `CMS_DB_PASSWORD_FILE=/run/secrets/…` | a file, e.g. a Docker secret |
+| `password: ENC[v1:…]` | this file, encrypted with the installation's secret key |
+
+`ENC[...]` values are produced by the `cms-encrypt` tool of the container
+image, which reads the value from standard input so it never reaches the
+process list or the shell history:
+
+```console
+$ docker exec -i cms cms-encrypt
+<the value, on one line>
+ENC[v1:...]
+```
+
+The key is `secrets/secret-key.yml`, which every node shares already (see
+*Identity files*), so an encrypted value works on all of them. The tool
+creates the key file when it does not exist yet, which is what lets a new
+cluster put an encrypted password into its configuration **before** its
+first node starts. The value of an environment variable may itself be an
+`ENC[...]` one.
+
+Do not pass secrets as `-D` system properties: the JVM echoes
+`JAVA_TOOL_OPTIONS` to stderr at every start, which puts them in the
+container log.
 
 Notes:
 
@@ -208,16 +258,20 @@ Notes:
   (standalone) or `<workspace>/var/search/nodes/<nodeId>` (cluster). A
   node that starts with an empty index directory builds its index from
   the repository content automatically; pointing this at node-local disk
-  avoids running Lucene over NFS.
+  avoids running Lucene over NFS. In the container image
+  `CMS_SEARCH_INDEX_PATH` is the node-local volume `/data/index`.
 
 ### `<workspace>/etc/bpm/bpm.yml` (per workspace)
 
 ```yaml
-jdbcURL: jdbc:postgresql://db:5432/bpm_${workspace.name}
-username: bpm
-password: secret
+jdbcURL: jdbc:postgresql://${env.CMS_DB_HOST}:${env.CMS_DB_PORT:-5432}/bpm_${workspace.name}
+username: ${env.CMS_DB_USER}
+password: ${env.CMS_DB_PASSWORD}
 driverClassName: org.postgresql.Driver
 ```
+
+The same variables, `NAME_FILE` files and `ENC[...]` values as in
+`jcr.yml` apply here.
 
 Camunda handles distributed job execution and locking by itself once all
 nodes share the database (see `documents/bpm-configuration.md`).
@@ -460,7 +514,12 @@ stopping every node and starting them all on the new image.
    `blobstore.directory` points at other shared storage.
 4. Configure `jcr.yml#datasource` and `bpm.yml#jdbcURL` identically on
    all nodes; configure `search.indexPath` (or accept the per-node
-   default).
+   default). With the shared configuration these are written once, and
+   the per-deployment values come from the environment
+   (`${env.CMS_DB_HOST}` and friends). To keep the database password out
+   of the environment as well, encrypt it first — `cms-encrypt` mints
+   the secret key when it is missing, so this can be done before any
+   node has ever started.
 5. Ensure all nodes share the identity files (see above); on first boot,
    start one node alone first.
 6. Enable `cluster.enabled` and give each node a unique `nodeId`

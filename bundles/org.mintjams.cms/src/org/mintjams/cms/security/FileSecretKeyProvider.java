@@ -20,13 +20,15 @@
  * SOFTWARE.
  */
 
-package org.mintjams.rt.cms.internal.security;
+package org.mintjams.cms.security;
 
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Writer;
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,9 +43,6 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.mintjams.cms.security.SecretKeyProvider;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.snakeyaml.engine.v2.api.Dump;
 import org.snakeyaml.engine.v2.api.DumpSettings;
 import org.snakeyaml.engine.v2.api.Load;
@@ -52,7 +51,7 @@ import org.snakeyaml.engine.v2.common.FlowStyle;
 
 public class FileSecretKeyProvider implements SecretKeyProvider {
 
-	private static final Logger log = LoggerFactory.getLogger(FileSecretKeyProvider.class);
+	private static final Logger log = System.getLogger(FileSecretKeyProvider.class.getName());
 
 	public static final String SYSTEM_PROPERTY = "mintjams.cms.secret-key.path";
 	public static final String ENV_VARIABLE = "MINTJAMS_CMS_SECRET_KEY_PATH";
@@ -92,7 +91,9 @@ public class FileSecretKeyProvider implements SecretKeyProvider {
 				file.setReadable(true, true);
 				file.setWritable(true, true);
 			} catch (Throwable ex) {
-				log.warn("Failed to set file permissions for secret key file '{}'. please ensure that the file is only accessible by the owner.", path.toFile().getAbsolutePath(), ex);
+				log.log(Level.WARNING, "Failed to set file permissions for secret key file '"
+						+ path.toFile().getAbsolutePath()
+						+ "'. please ensure that the file is only accessible by the owner.", ex);
 			}
 			return;
 		}
@@ -127,7 +128,7 @@ public class FileSecretKeyProvider implements SecretKeyProvider {
 	 * The override is essential for containerized deployments where the file
 	 * must live on a volume that survives container recreation.
 	 */
-	private static Path resolveKeyPath() {
+	public static Path resolveKeyPath() {
 		String override = System.getProperty(SYSTEM_PROPERTY);
 		if (override == null || override.isBlank()) {
 			override = System.getenv(ENV_VARIABLE);

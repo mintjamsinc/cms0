@@ -6,9 +6,11 @@ container with zero manual SAML configuration on first boot.
 ## Files
 
 - `Dockerfile`   — runtime image based on `eclipse-temurin:17-jre`
-- `entrypoint.sh` — startup script that prepares persistent dirs and validates
-   `CMS_PUBLIC_BASE_URL`
-- `docker-compose.yml` — example compose file with the two named volumes
+- `entrypoint.sh` — startup script that prepares persistent dirs, validates
+   `CMS_PUBLIC_BASE_URL` and assembles `JAVA_TOOL_OPTIONS`
+- `cms-encrypt.sh` — installed as `cms-encrypt`; turns a value read from
+   standard input into the `ENC[...]` form the configuration files accept
+- `docker-compose.yml` — example compose file with the named volumes
 - `seed/` — bundled assets and default configuration shipped in the image
   (see [Bundled assets and configuration](#bundled-assets-and-configuration))
 
@@ -23,12 +25,75 @@ container with zero manual SAML configuration on first boot.
 | `CMS_IDP_KEYSTORE_PASSWORD` | Optional. Password for the auto-generated IdP keystore (`etc/idp-keystore.p12`). If unset, a random password is generated on first boot and written to `/data/repository/IDP_KEYSTORE_PASSWORD.txt` (mode 0600). Stored AES-encrypted in `etc/idp.yml` either way. |
 | `CMS_CLUSTER_ENABLED` | Optional, `true` or `false`. Selects the clustered or the standalone configuration files placed on first start, and when set overrides `etc/repository.yml#cluster.enabled`. See [Bundled assets and configuration](#bundled-assets-and-configuration). |
 
+## Configuration values from the environment
+
+A configuration file can name an environment variable instead of carrying a
+value: `${env.NAME}`, or `${env.NAME:-default}` to fall back when it is unset
+or empty. When `NAME_FILE` is set, the value is read from the file it names
+(one trailing line terminator removed) and that wins over `NAME` — which is
+how a Docker secret reaches the configuration without showing up in
+`docker inspect`. A value may also be written as `ENC[v1:…]`, encrypted with
+this installation's secret key; see
+[Encrypting a value](#encrypting-a-value).
+
+This matters most for a cluster, where the whole cluster shares one copy of
+each configuration file. The clustered seed uses it for the database:
+
+| Env var | Purpose |
+|---|---|
+| `CMS_DB_HOST` | Database host for `jcr.yml` / `bpm.yml`. **Required** with `CMS_CLUSTER_ENABLED=true`. |
+| `CMS_DB_PORT` | Database port. Defaults to `5432`. |
+| `CMS_DB_USER` | Database user. **Required** with `CMS_CLUSTER_ENABLED=true`. |
+| `CMS_DB_PASSWORD` / `CMS_DB_PASSWORD_FILE` | Database password, directly or from a file. Not needed when the password is written into the configuration as `ENC[...]`. |
+| `CMS_SEARCH_INDEX_PATH` | Where this node keeps its search index. Default in this image: `/data/index`. Node-local — never point it at shared storage. |
+
+These names are the seed's convention, not a fixed list: `${env.ANYTHING}`
+works in any of the fields listed in
+[`documents/clustering.md`](../documents/clustering.md).
+
+## JVM options
+
+The image no longer sets `JAVA_TOOL_OPTIONS` itself — `entrypoint.sh` builds
+it from the repository path, the secret key path, `CMS_JVM_DEFAULT_OPTS` and
+`CMS_JAVA_OPTS`, in that order.
+
+| Env var | Purpose |
+|---|---|
+| `CMS_JAVA_OPTS` | Extra JVM flags, appended last (e.g. `-Xmx4g`). This is the one to set. |
+| `CMS_JVM_DEFAULT_OPTS` | The image's own flags (`-XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0`). Replace them only deliberately. |
+
+Setting `JAVA_TOOL_OPTIONS` in a compose file replaces everything the
+entrypoint assembled, including the repository path, and breaks the
+container. Use `CMS_JAVA_OPTS`. Never put a secret in either: the JVM echoes
+`JAVA_TOOL_OPTIONS` to stderr at every start.
+
 ## Volumes
 
 | Mount | Why it must be persistent |
 |---|---|
 | `/data/repository` | JCR content, generated SP/IdP keystores (`*.p12`), and the auto-generated `saml2.yml` / `idp.yml`. Losing this means starting from a blank repository. |
-| `/data/secrets` | The AES key that encrypts the keystore passwords in `*.yml`. **Losing this makes the encrypted values in `saml2.yml` / `idp.yml` unrecoverable** — back it up on its own schedule. |
+| `/data/secrets` | The AES key that encrypts the keystore passwords in `*.yml` and any `ENC[...]` value. **Losing this makes those encrypted values unrecoverable** — back it up on its own schedule. |
+| `/data/index` | This node's search index. Rebuildable (a node that starts with an empty index directory builds it from the repository content), so it need not be backed up — but it must be **node-local**, never shared between nodes. |
+
+In a cluster, `/data/repository` and `/data/secrets` are the shared storage
+every node mounts; `/data/index` is each node's own.
+
+## Encrypting a value
+
+```console
+$ docker exec -i cms cms-encrypt
+<the value, on one line>
+ENC[v1:...]
+```
+
+The value is read from standard input, never taken as an argument, so it does
+not reach the process list or the shell history. Paste the result into
+`jcr.yml` / `bpm.yml` and restart.
+
+`cms-encrypt` creates the secret key when it does not exist yet, so a new
+clustered installation can encrypt its database password before its first
+node starts: run it once with only the secrets volume mounted, write the
+result into the configuration, then bring the first node up.
 
 ## Bundled assets and configuration
 
@@ -67,11 +132,13 @@ paths the image owns: those files are skipped with a warning.
 `etc/workspace-template/`, and the system workspace's `etc/` files.
 `CMS_CLUSTER_ENABLED=true` places `config/cluster`, whose `repository.yml`
 enables clustering and whose `jcr.yml` / `bpm.yml` point at a shared
-PostgreSQL database with `<host>`, `<username>`, and `<password>`
-placeholders. Put your completed copies into the repository before the first
-start (they are kept as they are), or edit the placed files and restart. A
-setting a later release introduces takes its default until you add it; the
-files are never rewritten for you. See
+PostgreSQL database named by `${env.CMS_DB_HOST}` and the other variables of
+[Configuration values from the environment](#configuration-values-from-the-environment).
+Those files are meant to be used as placed: set the variables and the cluster
+starts. Put your own copies into the repository before the first start if you
+would rather write the values in (they are kept as they are), or edit the
+placed files and restart. A setting a later release introduces takes its
+default until you add it; the files are never rewritten for you. See
 [`documents/clustering.md`](../documents/clustering.md) for the rest of a
 clustered deployment.
 

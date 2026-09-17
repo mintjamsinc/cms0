@@ -9,9 +9,10 @@
 #   - conf/config.properties
 #   - bundle/  (auto-deploy bundles, including this project's bundles)
 #
-# Two named volumes are expected at runtime:
+# Three named volumes are expected at runtime:
 #   /data/repository  - JCR repository, etc/*.yml, *.p12 keystores (persistent)
 #   /data/secrets     - secret-key.yml (persistent, restricted permissions)
+#   /data/index       - this node's search index (node-local, rebuildable)
 #
 # Two environment variables drive the SAML configuration:
 #   CMS_PUBLIC_BASE_URL              - external HTTP URL (e.g. http://localhost:8080)
@@ -57,21 +58,25 @@ RUN set -e; \
     groupadd --gid ${FELIX_GID} ${FELIX_USER}; \
     useradd --uid ${FELIX_UID} --gid ${FELIX_GID} --create-home --shell /bin/bash ${FELIX_USER}
 
+# JAVA_TOOL_OPTIONS is deliberately NOT set here: setting it in the image
+# means a compose file that wants one extra JVM flag has to restate the
+# repository path and the GC settings, and silently breaks the container when
+# it does not. entrypoint.sh assembles it instead, from CMS_REPOSITORY_PATH,
+# MINTJAMS_CMS_SECRET_KEY_PATH, CMS_JVM_DEFAULT_OPTS and CMS_JAVA_OPTS.
 ENV FELIX_HOME=/opt/felix \
     CMS_REPOSITORY_PATH=/data/repository \
+    CMS_SEARCH_INDEX_PATH=/data/index \
     MINTJAMS_CMS_SECRET_KEY_PATH=/data/secrets/secret-key.yml \
     MINTJAMS_CMS_SEED_PATH=/opt/cms/seed \
-    JAVA_TOOL_OPTIONS="-Dorg.mintjams.jcr.repository.rootdir=/data/repository \
-                        -Dmintjams.cms.secret-key.path=/data/secrets/secret-key.yml \
-                        -XX:+UseG1GC \
-                        -XX:+UseContainerSupport \
-                        -XX:MaxRAMPercentage=75.0"
+    CMS_JVM_DEFAULT_OPTS="-XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 
-# Both volumes are empty in the image: entrypoint.sh places the configuration
-# files from the seed, and secret-key.yml is created on first run by
-# FileSecretKeyProvider. Only the directories need to exist with felix ownership.
-RUN mkdir -p /data/repository /data/secrets \
- && chown ${FELIX_USER}:${FELIX_USER} /data /data/repository /data/secrets
+# All three volumes are empty in the image: entrypoint.sh places the
+# configuration files from the seed, and secret-key.yml is created on first run
+# by FileSecretKeyProvider. Only the directories need to exist with felix
+# ownership. /data/index holds this node's search index, which is node-local
+# even in a cluster and must never be put on the shared storage.
+RUN mkdir -p /data/repository /data/secrets /data/index \
+ && chown ${FELIX_USER}:${FELIX_USER} /data /data/repository /data/secrets /data/index
 
 # The seed, read-only at runtime (see docker/README.md, "Bundled assets and
 # configuration"):
@@ -106,10 +111,13 @@ COPY --chown=${FELIX_USER}:${FELIX_USER} felix-dist/ ${FELIX_HOME}/
 COPY --chown=${FELIX_USER}:${FELIX_USER} docker/THIRD_PARTY_LICENSES.md ${FELIX_HOME}/THIRD_PARTY_LICENSES.md
 
 COPY --chown=root:root docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 0755 /usr/local/bin/entrypoint.sh
+COPY --chown=root:root docker/cms-encrypt.sh /usr/local/bin/cms-encrypt
+RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/cms-encrypt
 
-# Volumes for state that must survive container recreation.
-VOLUME ["/data/repository", "/data/secrets"]
+# Volumes for state that must survive container recreation. /data/repository
+# and /data/secrets are shared by every node of a cluster; /data/index is this
+# node's own.
+VOLUME ["/data/repository", "/data/secrets", "/data/index"]
 
 EXPOSE 8080
 
