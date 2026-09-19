@@ -26,7 +26,7 @@
  * keys without editing each other's files. Units must keep their keys in
  * disjoint namespaces.
  *
- * **2. App bundles — `/content/webtop/apps/<appId>/i18n/<locale>.json`.**
+ * **2. App bundles — `<webtop root>/apps/<appId>/i18n/<locale>.json`.**
  * Each app ships its own bundle files inside its app folder, so the app's
  * strings deploy (and hot-reload) with the app itself. App bundles are
  * **scoped**: they are kept per app and consulted only when a lookup carries
@@ -120,6 +120,7 @@ export class I18nService {
 	#loaded = false;
 	#contentService: ContentServiceGraphQL;
 	#eventHub: EventHub | null;
+	#appsPath: string;
 	#unwatchNode: (() => void) | null = null;
 	#unwatchApps: (() => void) | null = null;
 	#refreshDebounceTimer: number | null = null;
@@ -128,9 +129,10 @@ export class I18nService {
 	// (app scope) so the same id may compile differently per scope.
 	#formatterCache = new Map<string, IntlMessageFormat>();
 
-	constructor(contentService: ContentServiceGraphQL, eventHub: EventHub | null) {
+	constructor(contentService: ContentServiceGraphQL, eventHub: EventHub | null, rootPath: string) {
 		this.#contentService = contentService;
 		this.#eventHub = eventHub;
+		this.#appsPath = UrlUtils.getAppsPath(rootPath);
 	}
 
 	get loaded(): boolean {
@@ -400,7 +402,7 @@ export class I18nService {
 	 */
 	async #loadAppBundles(): Promise<Map<string, Map<string, Record<string, string>>>> {
 		const appBundles = new Map<string, Map<string, Record<string, string>>>();
-		const appsPath = UrlUtils.getAppsPath();
+		const appsPath = this.#appsPath;
 		try {
 			const appFolders: string[] = [];
 			for await (const batch of this.#contentService.listAllChildren(appsPath, 50)) {
@@ -507,7 +509,7 @@ export class I18nService {
 			false, // shallow - direct children only
 		);
 
-		const appsPath = UrlUtils.getAppsPath();
+		const appsPath = this.#appsPath;
 		const i18nPathPattern = new RegExp(`^${appsPath}/[^/]+/${APP_I18N_FOLDER}(/|$)`);
 		this.#unwatchApps = this.#eventHub.watchNode(
 			appsPath,

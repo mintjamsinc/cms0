@@ -408,7 +408,7 @@ const App = {
 			const client = createGraphQLClient(this._workspace);
 			this._bpm = this.$markRaw(new BpmServiceGraphQL(client));
 			this._eip = this.$markRaw(new EipServiceGraphQL(client));
-			this._webtop = this.$markRaw(new WebtopServiceGraphQL(client, { isAdmin: this.isAdmin }));
+			this._webtop = this.$markRaw(new WebtopServiceGraphQL(client, { isAdmin: this.isAdmin, rootPath: this.instance.api.context.rootPath }));
 		},
 
 		// Resolve once whether the Workspace Manager app is deployed in this

@@ -1,143 +1,89 @@
 /**
  * URL Utilities
  *
- * Utility class for deriving API URLs from the current page URL.
+ * Derives where the webtop is mounted from where it is served, instead of
+ * assuming a fixed repository location. The caller passes the webtop root URL
+ * — the shell uses the directory of its own bundle (webtop.js always sits at
+ * the webtop root), i.e. `new URL('./', import.meta.url)`.
  *
- * URL Pattern:
- *   https://example.com/bin/cms.cgi/{workspace}/content/webtop/index.html
+ * The CMS serves repository content as `{cmsBasePath}/{workspace}{jcrPath}`,
+ * so a root URL such as
+ *   https://example.com/bin/cms.cgi/system/content/webtop/
+ * splits into:
+ *   - Workspace: "system"
+ *   - Webtop root path (JCR): "/content/webtop"
  *
- * From this URL, we can derive:
- *   - Workspace: {workspace} (e.g., "system")
- *   - GraphQL API URL: /bin/graphql.cgi/{workspace}
- *   - SSE Stream URL: /bin/graphql.cgi/{workspace}/stream
+ * The webtop root may sit at any depth; only the CMS servlet mount
+ * ({@link CMS_BASE_PATH}) is a fixed server contract.
  */
 
+/** Mount point of the CMS content servlet. */
+export const CMS_BASE_PATH = '/bin/cms.cgi';
+
 export interface UrlInfo {
-  /** The workspace name extracted from URL (e.g., "system") */
+  /** The workspace the webtop is served from (e.g. "system") */
   workspace: string;
-  /** The base path to cms.cgi (e.g., "/bin/cms.cgi") */
+  /** The base path to cms.cgi (e.g. "/bin/cms.cgi") */
   cmsBasePath: string;
-  /** The webtop root path (e.g., "/system/webtop") */
+  /** JCR path of the webtop root within the workspace (e.g. "/content/webtop") */
   webtopRootPath: string;
-  /** Full URL to the webtop root */
+  /** Absolute URL of the webtop root, with a trailing slash */
   webtopRootUrl: string;
-  /** The webtop content path (e.g., "/content/webtop") */
-  webtopContentPath: string;
 }
 
 export class UrlUtils {
   /**
-   * Extract URL information from the current page URL.
+   * Split a webtop root URL into its workspace and repository path.
    *
-   * Expected URL format:
-   *   /bin/cms.cgi/{workspace}/content/webtop/...
-   *   /bin/cms.cgi/{workspace}/content/webtop/index.html
-   *
-   * @param url - Optional URL to parse (defaults to current location)
-   * @returns UrlInfo object with extracted information
+   * @param rootUrl - URL of the webtop root directory
+   *   (e.g. "https://example.com/bin/cms.cgi/system/content/webtop/")
+   * @returns UrlInfo describing where the webtop is mounted
+   * @throws Error when the URL is not served by the CMS content servlet
    */
-  static getUrlInfo(url: string = window.location.href): UrlInfo {
-    const parsedUrl = new URL(url, window.location.origin);
-    const pathname = parsedUrl.pathname;
-
-    // Match pattern: /bin/cms.cgi/{workspace}/content/webtop/...
-    const match = pathname.match(/^(\/bin\/cms\.cgi)\/([^/]+)\/([^/]+)\/([^/]+)(\/.*)?$/);
-
-    if (!match) {
-      // Fallback to default workspace if pattern doesn't match
-      console.warn('[UrlUtils] URL pattern not matched, using default workspace');
-      return {
-        workspace: 'system',
-        cmsBasePath: '/bin/cms.cgi',
-        webtopRootPath: '/system/content/webtop',
-        webtopRootUrl: `${parsedUrl.origin}/bin/cms.cgi/system/content/webtop`,
-        webtopContentPath: '/content/webtop',
-      };
+  static getUrlInfo(rootUrl: string | URL): UrlInfo {
+    const parsedUrl = new URL('./', rootUrl);
+    const pathname = decodeURI(parsedUrl.pathname);
+    const prefix = CMS_BASE_PATH + '/';
+    if (!pathname.startsWith(prefix)) {
+      throw new Error(`[UrlUtils] Webtop is not served under ${CMS_BASE_PATH}: ${parsedUrl.href}`);
     }
 
-    const cmsBasePath = match[1]; // /bin/cms.cgi
-    const workspace = match[2]; // system, webpub, etc.
-    const contentPath = match[3]; // content or other path segment
-    const webtopPath = match[4]; // webtop
+    // {workspace}/{jcr path}/ — the trailing slash comes from resolving './'.
+    const rest = pathname.substring(prefix.length);
+    const slash = rest.indexOf('/');
+    const workspace = rest.substring(0, slash);
+    if (!workspace) {
+      throw new Error(`[UrlUtils] Workspace missing from webtop URL: ${parsedUrl.href}`);
+    }
 
     return {
       workspace,
-      cmsBasePath,
-      webtopRootPath: `/${workspace}/${webtopPath}`,
-      webtopRootUrl: `${parsedUrl.origin}${cmsBasePath}/${workspace}/${webtopPath}`,
-      webtopContentPath: `/${contentPath}/${webtopPath}`,
+      cmsBasePath: CMS_BASE_PATH,
+      webtopRootPath: rest.substring(slash).replace(/\/$/, ''),
+      webtopRootUrl: parsedUrl.href,
     };
   }
 
   /**
-   * Get the workspace name from the current URL.
+   * Get the URL of the webtop root in another workspace. The webtop is
+   * deployed at the same repository path in every workspace.
    *
-   * @param url - Optional URL to parse (defaults to current location)
-   * @returns Workspace name (e.g., "system")
+   * @param info - Location of the current webtop
+   * @param workspace - Target workspace name
+   * @returns Root-relative URL (e.g. "/bin/cms.cgi/webpub/content/webtop/")
    */
-  static getWorkspace(url?: string): string {
-    return this.getUrlInfo(url).workspace;
-  }
-
-  /**
-   * Get the GraphQL API endpoint URL for the current workspace.
-   *
-   * @param url - Optional URL to parse (defaults to current location)
-   * @returns GraphQL API URL (e.g., "/bin/graphql.cgi/system")
-   */
-  static getGraphQLEndpoint(url?: string): string {
-    const workspace = this.getWorkspace(url);
-    return `/bin/graphql.cgi/${workspace}`;
-  }
-
-  /**
-   * Get the SSE stream endpoint URL for the current workspace.
-   *
-   * @param url - Optional URL to parse (defaults to current location)
-   * @returns SSE stream URL (e.g., "/bin/graphql.cgi/system/stream")
-   */
-  static getSSEEndpoint(url?: string): string {
-    const workspace = this.getWorkspace(url);
-    return `/bin/graphql.cgi/${workspace}/stream`;
+  static getWorkspaceRootUrl(info: UrlInfo, workspace: string): string {
+    return `${info.cmsBasePath}/${encodeURIComponent(workspace)}${encodeURI(info.webtopRootPath)}/`;
   }
 
   /**
    * Get the apps directory path within the webtop.
    *
-   * Note: The content structure does not include workspace name in the path.
-   * Content is stored at /content/webtop/apps regardless of workspace.
-   *
-   * @param url - Optional URL to parse (defaults to current location)
-   * @returns Apps directory path (e.g., "/content/webtop/apps")
+   * @param rootPath - JCR path of the webtop root (e.g. "/content/webtop")
+   * @returns Apps directory path (e.g. "/content/webtop/apps")
    */
-  static getAppsPath(url?: string): string {
-    // Content path does not include workspace name
-    return '/content/webtop/apps';
-  }
-
-  /**
-   * Get the relative path from webtop root for a full content path.
-   *
-   * @param contentPath - Full content path (e.g., "/system/content/webtop/apps/content-browser")
-   * @param url - Optional URL to parse (defaults to current location)
-   * @returns Relative path (e.g., "content-browser")
-   */
-  static getRelativeAppPath(contentPath: string, url?: string): string {
-    const appsPath = this.getAppsPath(url);
-    if (contentPath.startsWith(appsPath + '/')) {
-      return contentPath.substring(appsPath.length + 1);
-    }
-    return contentPath;
-  }
-
-  /**
-   * Convert a relative app path to a URL for loading resources.
-   *
-   * @param relPath - Relative path within apps (e.g., "content-browser")
-   * @returns URL path for loading (e.g., "./apps/content-browser")
-   */
-  static getAppResourceUrl(relPath: string): string {
-    return `./apps/${relPath}`;
+  static getAppsPath(rootPath: string): string {
+    return `${rootPath}/apps`;
   }
 }
 

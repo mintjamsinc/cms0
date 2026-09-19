@@ -4,11 +4,13 @@ import { Application, ApplicationInstance } from './services/webtop-service.js';
 import { WebtopUtil } from './services/webtop-util.js';
 import type { MetadataDefinitionCache } from './services/metadata-cache.js';
 import type { I18nService } from './services/webtop-i18n-service.js';
+import type { UrlInfo } from './utils/url.js';
 
 export interface WebtopContext {
 	readonly api: WebtopAPI;
 	readonly util: WebtopUtil;
 	readonly resourcePaths: Record<string, string>;
+	readonly urlInfo: UrlInfo;
 	readonly rootPath: string;
 	currentUser: User;
 	apps: Application[];

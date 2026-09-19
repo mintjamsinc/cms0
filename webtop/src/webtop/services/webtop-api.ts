@@ -16,9 +16,6 @@ import { IdpServiceGraphQL } from './idp-service-graphql.js';
 import { User } from './user-service.js';
 import type { PreferenceChangeEvent, WallpaperChangeEvent, AvatarChangeEvent } from '../graphql/types.js';
 
-// Utilities
-import { UrlUtils } from '../utils/url.js';
-
 export class WebtopAPI {
 	#context;
 	#workspace: string;
@@ -48,8 +45,8 @@ export class WebtopAPI {
 
 	constructor(context, workspace?: string) {
 		this.#context = context;
-		// Auto-detect workspace from URL if not specified
-		this.#workspace = workspace ?? UrlUtils.getWorkspace();
+		// Default to the workspace the webtop is served from
+		this.#workspace = workspace ?? context.urlInfo.workspace;
 
 		this.#db = new WebtopDatabase();
 		this.#theme = new ThemeManager(this);

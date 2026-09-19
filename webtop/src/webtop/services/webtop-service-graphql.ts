@@ -235,9 +235,9 @@ export class WebtopServiceGraphQL {
   #appsPath: string;
   #isAdmin: boolean;
 
-  constructor(client: GraphQLClient, options: { isAdmin?: boolean, rootPath?: string } = {}) {
+  constructor(client: GraphQLClient, options: { isAdmin?: boolean, rootPath: string }) {
     this.#client = client;
-    this.#appsPath = options.rootPath ? options.rootPath + '/apps' : UrlUtils.getAppsPath();
+    this.#appsPath = UrlUtils.getAppsPath(options.rootPath);
     this.#isAdmin = options.isAdmin ?? false;
   }
 

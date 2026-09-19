@@ -8,7 +8,7 @@ import { WebtopUtil } from './services/webtop-util.js';
 import './components/wt-window.js';
 import './components/wt-desktop-icons.js';
 import { loadSavedWindowSize } from './components/wt-window.js';
-import { UrlUtils } from './utils/url.js';
+import { UrlUtils, type UrlInfo } from './utils/url.js';
 import { BUILD_VERSION } from './utils/build-version.js';
 import { MetadataDefinitionCache } from './services/metadata-cache.js';
 import { I18nService } from './services/webtop-i18n-service.js';
@@ -719,8 +719,7 @@ const WtDesktop = {
 			if (!workspace || workspace === window.Webtop.api.workspace) {
 				return;
 			}
-			const urlInfo = UrlUtils.getUrlInfo();
-			window.location.href = `${urlInfo.cmsBasePath}/${workspace}/content/webtop/index.gsp`;
+			window.location.href = UrlUtils.getWorkspaceRootUrl(window.Webtop.urlInfo, workspace) + 'index.gsp';
 		},
 		iconURL(app: Application) {
 			if (!app?.icon) {
@@ -2287,6 +2286,7 @@ const WtDesktop = {
 export class Webtop implements WebtopContext {
 	#api: WebtopAPI;
 	#util: WebtopUtil;
+	#urlInfo: UrlInfo;
 	#rootPath: string;
 	#resourcePaths: Record<string, string>; // リソースID -> リソースパス（相対パス）
 	#currentUser: User;
@@ -2295,9 +2295,9 @@ export class Webtop implements WebtopContext {
 	#i18n: I18nService | null = null;
 
 	constructor() {
-		// URLからワークスペースを取得してrootPathを動的に設定
-		const urlInfo = UrlUtils.getUrlInfo();
-		this.#rootPath = urlInfo.webtopContentPath;
+		// webtop.js は webtop ルートに配置されるため、自身の配信位置からルートを導出する
+		this.#urlInfo = UrlUtils.getUrlInfo(new URL('./', import.meta.url));
+		this.#rootPath = this.#urlInfo.webtopRootPath;
 		this.#resourcePaths = {
 			// アセットを廃止
 			// 'asset:logo:light': 'assets/icons/logo_light.svg',
@@ -2315,6 +2315,8 @@ export class Webtop implements WebtopContext {
 	get util(): WebtopUtil { return this.#util; }
 
 	get resourcePaths(): Record<string, string> { return this.#resourcePaths; }
+
+	get urlInfo(): UrlInfo { return this.#urlInfo; }
 
 	get rootPath(): string { return this.#rootPath; }
 
@@ -2353,6 +2355,7 @@ export class Webtop implements WebtopContext {
 		this.#i18n = new I18nService(
 			this.#api.content,
 			this.#api.eventHub,
+			this.#rootPath,
 		);
 		await this.#i18n.initialize();
 		console.log('[Webtop] I18n bundles cache initialized');
