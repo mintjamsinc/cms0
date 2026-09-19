@@ -4,11 +4,11 @@
 # The seed's assets/ tree is applied to every workspace on every start of the
 # container (see docker/README.md). This script fills in the parts that are
 # build output rather than sources, from one built Webtop:
-#   assets/system/deploy/content/webtop/     the Webtop with every app
-#   assets/workspace/deploy/content/webtop/  the Webtop for the other workspaces,
-#                                            without SYSTEM_ONLY_APPS
-#   assets/workspace/deploy/etc/i18n/        the global message bundles, copied
-#                                            from assets/system
+#   assets/system/deploy/usr/share/webtop/     the Webtop with every app
+#   assets/workspace/deploy/usr/share/webtop/  the Webtop for the other workspaces,
+#                                              without SYSTEM_ONLY_APPS
+#   assets/workspace/deploy/etc/i18n/          the global message bundles, copied
+#                                              from assets/system
 #
 # Build the Webtop first (cd webtop && npm run build:prod).
 
@@ -53,10 +53,10 @@ copy_tree() {
     cp -R "$1/." "$2/"
 }
 
-copy_tree "${WEBTOP_DIST}" "${SEED_ASSETS}/system/deploy/content/webtop"
-copy_tree "${WEBTOP_DIST}" "${SEED_ASSETS}/workspace/deploy/content/webtop"
+copy_tree "${WEBTOP_DIST}" "${SEED_ASSETS}/system/deploy/usr/share/webtop"
+copy_tree "${WEBTOP_DIST}" "${SEED_ASSETS}/workspace/deploy/usr/share/webtop"
 for app in "${SYSTEM_ONLY_APPS[@]}"; do
-    rm -rf "${SEED_ASSETS}/workspace/deploy/content/webtop/apps/${app}"
+    rm -rf "${SEED_ASSETS}/workspace/deploy/usr/share/webtop/apps/${app}"
 done
 copy_tree "${SEED_ASSETS}/system/deploy/etc/i18n" "${SEED_ASSETS}/workspace/deploy/etc/i18n"
 

@@ -7,12 +7,12 @@
     the container (see docker/README.md). This script fills in the parts that
     are build output rather than sources, from one built Webtop:
 
-      assets/system/deploy/content/webtop/     the Webtop with every app
-      assets/workspace/deploy/content/webtop/  the Webtop for the other
-                                               workspaces, without
-                                               $SystemOnlyApps
-      assets/workspace/deploy/etc/i18n/        the global message bundles,
-                                               copied from assets/system
+      assets/system/deploy/usr/share/webtop/     the Webtop with every app
+      assets/workspace/deploy/usr/share/webtop/  the Webtop for the other
+                                                 workspaces, without
+                                                 $SystemOnlyApps
+      assets/workspace/deploy/etc/i18n/          the global message bundles,
+                                                 copied from assets/system
 
     Build the Webtop first (cd webtop; npm run build:prod).
 
@@ -52,10 +52,10 @@ function Copy-Tree([string]$Source, [string]$Destination) {
     Copy-Item -Recurse -Force -Path (Join-Path $Source "*") -Destination $Destination
 }
 
-Copy-Tree $WebtopDist "$SeedAssets/system/deploy/content/webtop"
-Copy-Tree $WebtopDist "$SeedAssets/workspace/deploy/content/webtop"
+Copy-Tree $WebtopDist "$SeedAssets/system/deploy/usr/share/webtop"
+Copy-Tree $WebtopDist "$SeedAssets/workspace/deploy/usr/share/webtop"
 foreach ($app in $SystemOnlyApps) {
-    $appPath = "$SeedAssets/workspace/deploy/content/webtop/apps/$app"
+    $appPath = "$SeedAssets/workspace/deploy/usr/share/webtop/apps/$app"
     if (Test-Path $appPath) {
         Remove-Item -Recurse -Force $appPath
     }

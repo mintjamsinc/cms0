@@ -90,7 +90,7 @@ COPY docker/seed/ /opt/cms/seed/
 RUN set -e; \
     cd /opt/cms/seed; \
     for assets in system workspace; do \
-        if [ ! -f "assets/${assets}/deploy/content/webtop/webtop.js" ]; then \
+        if [ ! -f "assets/${assets}/deploy/usr/share/webtop/webtop.js" ]; then \
             echo "ERROR: docker/seed/assets/${assets} has no Webtop. Run scripts/assemble-seed.sh first." >&2; \
             exit 1; \
         fi; \

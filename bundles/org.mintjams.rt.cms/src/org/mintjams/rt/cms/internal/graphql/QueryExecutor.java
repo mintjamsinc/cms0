@@ -1094,7 +1094,7 @@ public class QueryExecutor {
 	 * time). The whole page is returned in a single round trip.
 	 *
 	 * Example:
-	 * {@code apps(path: "/content/webtop/apps", first: 100, after: "cursor") {
+	 * {@code apps(path: "/usr/share/webtop/apps", first: 100, after: "cursor") {
 	 *   edges { node { identifier name title icon path relPath modified editor
 	 *     contentTypes enableStartMenu isAdminOnly singleton customWindowControls
 	 *     minimumWidth minimumHeight actions { identifier label icon } } cursor }

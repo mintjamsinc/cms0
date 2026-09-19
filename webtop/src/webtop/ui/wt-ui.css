@@ -10,7 +10,7 @@
  * button.wt / input.wt, and the wt-* component styles via its own @imports).
  * Forms therefore render with exact visual parity to the apps, and there is
  * no second style source to keep in sync. The paths are relative to the
- * deployed content tree (…/content/webtop/ui/ → …/content/webtop/assets/…).
+ * deployed content tree (…/usr/share/webtop/ui/ → …/usr/share/webtop/assets/…).
  * ========================================================================== */
 
 @import url("../assets/css/webtop-app.css?v=__BUILD_VERSION__");

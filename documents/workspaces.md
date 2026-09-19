@@ -183,8 +183,12 @@ before or at the workspace's first start:
   the bundled assets, which every start applies to every workspace from
   the image (see `docker/README.md`, "Bundled assets and
   configuration"). Outside the image, place the webtop distribution
-  here (`etc/jcr/deploy/content/webtop/**` plus
-  `etc/jcr/deploy/etc/i18n/**`).
+  here (`etc/jcr/deploy/usr/share/webtop/**` plus
+  `etc/jcr/deploy/etc/i18n/**`), and copy the image's
+  `docker/seed/assets/workspace/provisioning/webtop.yml` into
+  `etc/jcr/provisioning/`: it grants `anonymous` read on
+  `/usr/share/webtop`, which the Webtop needs to send a signed-out
+  visitor to the sign-in page.
 - `etc/search/` — full-text search analyzer configuration
   (`search.yml`, `userdict.txt`, `stopwords.txt`, `stoptags.txt`,
   `mapping.txt`). Without it the generated `search.yml` is empty and
@@ -204,7 +208,7 @@ with generated defaults — identical to dropping a bare directory under
 ## Switching workspaces in the webtop
 
 The desktop (shell and apps) is served from the workspace it operates
-on: the URL `/bin/cms.cgi/<workspace>/content/webtop/` determines which
+on: the URL `/bin/cms.cgi/<workspace>/usr/share/webtop/` determines which
 workspace every app's data client talks to. The menubar workspace
 switcher therefore navigates to the target workspace's webtop rather
 than swapping endpoints in place. A workspace only appears usable in

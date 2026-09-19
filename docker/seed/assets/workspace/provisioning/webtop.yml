@@ -1,0 +1,27 @@
+# Provisioning for the Webtop desktop (/usr/share/webtop).
+#
+# Applied idempotently on every boot by Session.deploy(); see README.md in this
+# folder for the mechanism.
+#
+# Authorization model:
+#   - The workspace root grants jcr:read to everyone and denies jcr:all to
+#     anonymous (jcr.yml defaultNodes), so signed-in users can already read the
+#     Webtop.
+#   - Anonymous needs jcr:read as well: the Webtop itself sends an anonymous
+#     visitor to the sign-in page (index.gsp / webtop.js check
+#     currentUser.isAnonymous), so it must be served before sign-in. The folder
+#     holds only the distribution (HTML, scripts, styles, icons); the data the
+#     apps show is still protected by the ACLs of that data.
+#   - Nothing else is granted: the folder is deployed with the image and stays
+#     writable by administrators only.
+#
+# The node is created here because provisioning runs before the bundled assets
+# are deployed into it.
+
+nodes:
+  - path: /usr/share/webtop
+    primaryType: nt:folder
+    acl:
+      - user: anonymous
+        privileges: jcr:read
+        effect: allow

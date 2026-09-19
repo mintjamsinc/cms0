@@ -1148,8 +1148,8 @@ export const App = {
 
 				get workspace(): string { return vm.workspace; },
 
-				// Absolute URL of the webtop root (…/content/webtop/), derived
-				// from this app's own location (…/content/webtop/apps/tasks/).
+				// Absolute URL of the webtop root (…/usr/share/webtop/), derived
+				// from this app's own location (…/usr/share/webtop/apps/tasks/).
 				// Forms join it to load webtop's stylesheets, fonts and icons —
 				// the whole point of dropping the iframe sandbox.
 				get webtopBaseUrl(): string { return new URL('../../', window.location.href).href; },

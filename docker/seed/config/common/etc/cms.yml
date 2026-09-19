@@ -1,4 +1,4 @@
-startWebURI: /bin/cms.cgi/system/content/webtop/
+startWebURI: /bin/cms.cgi/system/usr/share/webtop/
 maxScriptCachePerScriptEngine: 32
 nativeEcmaPoolSizePerScriptEngine: 0
 classLoaderRefreshInterval: 3

@@ -35,5 +35,5 @@ hs_err_pid*
 /felix-dist/
 
 # Docker seed: the Webtop laid down by scripts/assemble-seed.* before a build.
-/docker/seed/assets/*/deploy/content/webtop/
+/docker/seed/assets/*/deploy/usr/share/webtop/
 /docker/seed/assets/workspace/deploy/etc/i18n/

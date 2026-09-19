@@ -32,9 +32,9 @@ Bundles are flat JSON files in **two locations**. The locale of a file is the
 
 ```
 # App-scoped bundles — inside each app's folder, deployed WITH the app
-/content/webtop/apps/content-browser/i18n/en.json   → locale "en"
-/content/webtop/apps/content-browser/i18n/ja.json   → locale "ja"
-/content/webtop/apps/commerce-orders/i18n/ja.json   → locale "ja"   (add-on app)
+/usr/share/webtop/apps/content-browser/i18n/en.json   → locale "en"
+/usr/share/webtop/apps/content-browser/i18n/ja.json   → locale "ja"
+/usr/share/webtop/apps/commerce-orders/i18n/ja.json   → locale "ja"   (add-on app)
 
 # Global bundles — /etc/i18n/, for keys visible outside a single app
 /etc/i18n/en.json                  → locale "en"   (cms0 core: common.* + webtop.* + cms.*)
