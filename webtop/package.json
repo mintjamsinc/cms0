@@ -96,7 +96,7 @@
 		"typescript": "^6.0.3"
 	},
 	"dependencies": {
-		"@mintjamsinc/ichigojs": "^0.1.82",
+		"@mintjamsinc/ichigojs": "^0.1.83",
 		"@tiptap/extension-image": "^3.27.1",
 		"intl-messageformat": "^11.2.6"
 	}
