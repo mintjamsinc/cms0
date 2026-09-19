@@ -144,8 +144,9 @@ function makeConfig({
 // Standard webtop app config: src/webtop/apps/<name>/app.ts ->
 // dist/webtop/apps/<name>/app.js, with index.html/assets/app.yml and the
 // app-scoped i18n bundles copied, and any CSS under assets/css/ minified in
-// production builds.
-function makeAppConfig(name) {
+// production builds. `extraCopyTargets` adds app-specific runtime files
+// (e.g. a library's worker and data files) that cannot be bundled.
+function makeAppConfig(name, { extraCopyTargets = [] } = {}) {
   return makeConfig({
     name,
     input: `src/webtop/apps/${name}/app.ts`,
@@ -157,6 +158,7 @@ function makeAppConfig(name) {
       // App-scoped message bundles (<app>/i18n/<locale>.json) deploy with the
       // app itself; the shell's I18nService discovers them per app folder.
       { src: `src/webtop/apps/${name}/i18n`, dest: `dist/webtop/apps/${name}` },
+      ...extraCopyTargets,
     ],
     cssMinifyTargets: [
       {
@@ -240,6 +242,29 @@ const uiStandaloneConfig = makeConfig({
   ],
 });
 
+// PDF Viewer: pdf.js runs its parser in a Web Worker and loads CMaps (CJK
+// text), standard fonts, ICC profiles and wasm image decoders at runtime, so
+// these ship next to the app instead of inside app.js. The worker is renamed
+// from .mjs to .js because it is started as a module worker, which requires a
+// JavaScript MIME type, and the server maps .js but not .mjs. It must come
+// from the same pdfjs-dist version as the bundled library (pdf.js checks).
+const PDFJS_DIST = 'node_modules/pdfjs-dist';
+const PDFJS_VENDOR = 'dist/webtop/apps/pdf-viewer/vendor/pdfjs';
+const pdfViewerConfig = makeAppConfig('pdf-viewer', {
+  extraCopyTargets: [
+    { src: `${PDFJS_DIST}/build/pdf.worker.min.mjs`, dest: PDFJS_VENDOR, rename: 'pdf.worker.min.js' },
+    { src: `${PDFJS_DIST}/cmaps`, dest: PDFJS_VENDOR },
+    { src: `${PDFJS_DIST}/standard_fonts`, dest: PDFJS_VENDOR },
+    { src: `${PDFJS_DIST}/iccs`, dest: PDFJS_VENDOR },
+    { src: `${PDFJS_DIST}/wasm`, dest: PDFJS_VENDOR },
+    // Text layer / annotation layer styles; its url(images/...) references
+    // resolve against the copied images/ folder beside it.
+    { src: `${PDFJS_DIST}/web/pdf_viewer.css`, dest: PDFJS_VENDOR },
+    { src: `${PDFJS_DIST}/web/images`, dest: PDFJS_VENDOR },
+    { src: `${PDFJS_DIST}/LICENSE`, dest: PDFJS_VENDOR },
+  ],
+});
+
 export default [
   webtopCoreConfig,
   uiStandaloneConfig,
@@ -247,6 +272,7 @@ export default [
   makeAppConfig('memo'),
   makeAppConfig('text-editor'),
   makeAppConfig('text-editor-preview'),
+  pdfViewerConfig,
   makeAppConfig('bpmn-modeler'),
   makeAppConfig('eip-modeler'),
   makeAppConfig('schema-manager'),

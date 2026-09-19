@@ -258,7 +258,7 @@ The English + Japanese rollout is complete across the platform:
 3. ~~**Apps**~~ — done. Every standard app is fully localized under its
    `app.<appId>.*` namespace: preferences, content-browser, tasks, dashboard,
    identity-manager, schema-manager, osgi-console, bpm-console, eip-console,
-   text-editor, text-editor-preview, eip-modeler, bpmn-modeler.
+   text-editor, text-editor-preview, pdf-viewer, eip-modeler, bpmn-modeler.
 4. ~~**Shared components**~~ — done. The reusable Inspector custom element
    (`components/wt-inspector.ts`), embedded by multiple apps (content-browser,
    text-editor), is localized under the `webtop.inspector.*` namespace and

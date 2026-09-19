@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>PDF Viewer</title>
+	<!-- The document <title> is intentionally left as a static literal: it is
+	     the browser/tab title, not app chrome, and is replaced by the shell. -->
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- pdf.js text / annotation layer styles (copied from pdfjs-dist; see
+	     pdfViewerConfig in webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="./vendor/pdfjs/pdf_viewer.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link rel="stylesheet" href="../../components/wt-inspector.css?v=__BUILD_VERSION__">
+</head>
+
+<body>
+	<div id="app" class="d-flex flex-column"
+		:class="{ 'is-resizing': sidebarResizing }"
+		@mounted="onMounted" @unmount="onUnmount"
+		@dragover.prevent="onAppDragOver" @drop.prevent>
+
+		<!-- Readiness gate (see text-editor): the screen is compiled only after
+		     appLaunch() has loaded the component templates. The gated markup is
+		     intentionally not re-indented. -->
+		<template v-if="isReady">
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: page navigation -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="previousPage"
+					:disabled="!hasDocument || currentFile.pageNumber <= 1"
+					:title="t('app.pdf-viewer.toolbar.previousPage', undefined, 'Previous Page')">
+					<i class="bi bi-chevron-up"></i>
+				</button>
+				<span class="page-nav">
+					<input type="text" class="page-input" inputmode="numeric" v-model="pageInput"
+						:disabled="!hasDocument"
+						:title="t('app.pdf-viewer.toolbar.pageNumber', undefined, 'Page')"
+						@focus="onPageInputFocus($event)" @blur="onPageInputBlur"
+						@keydown.enter="commitPageInput">
+					<span class="page-count">/ {{ hasDocument ? currentFile.pagesCount : '-' }}</span>
+				</span>
+				<button class="btn-icon" @click="nextPage"
+					:disabled="!hasDocument || currentFile.pageNumber >= currentFile.pagesCount"
+					:title="t('app.pdf-viewer.toolbar.nextPage', undefined, 'Next Page')">
+					<i class="bi bi-chevron-down"></i>
+				</button>
+			</div>
+
+			<!-- Left: zoom -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="zoomOut" :disabled="!hasDocument"
+					:title="t('app.pdf-viewer.toolbar.zoomOut', undefined, 'Zoom Out (Ctrl+-)')">
+					<i class="bi bi-zoom-out"></i>
+				</button>
+				<button class="btn-icon" @click="zoomIn" :disabled="!hasDocument"
+					:title="t('app.pdf-viewer.toolbar.zoomIn', undefined, 'Zoom In (Ctrl++)')">
+					<i class="bi bi-zoom-in"></i>
+				</button>
+				<button class="btn-icon" @click="fitWidth" :disabled="!hasDocument"
+					:class="{ active: hasDocument && currentFile.scaleValue === 'page-width' }"
+					:title="t('app.pdf-viewer.toolbar.fitWidth', undefined, 'Fit to Width')">
+					<i class="bi bi-arrows"></i>
+				</button>
+				<button class="btn-icon" @click="fitPage" :disabled="!hasDocument"
+					:class="{ active: hasDocument && currentFile.scaleValue === 'page-fit' }"
+					:title="t('app.pdf-viewer.toolbar.fitPage', undefined, 'Fit Page (Ctrl+0)')">
+					<i class="bi bi-arrows-vertical"></i>
+				</button>
+			</div>
+
+			<!-- Left: rotation -->
+			<div class="toolbar-group rotate-group">
+				<button class="btn-icon" @click="rotate(-90)" :disabled="!hasDocument"
+					:title="t('app.pdf-viewer.toolbar.rotateCcw', undefined, 'Rotate Counterclockwise')">
+					<i class="bi bi-arrow-counterclockwise"></i>
+				</button>
+				<button class="btn-icon" @click="rotate(90)" :disabled="!hasDocument"
+					:title="t('app.pdf-viewer.toolbar.rotateCw', undefined, 'Rotate Clockwise')">
+					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: file actions -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="downloadFile" :disabled="!currentFile"
+					:title="t('app.pdf-viewer.toolbar.download', undefined, 'Download')">
+					<i class="bi bi-download"></i>
+				</button>
+				<button class="btn-icon" @click="openInBrowser" :disabled="!currentFile"
+					:title="t('app.pdf-viewer.toolbar.openInBrowser', undefined, 'Open in Browser Tab (for printing)')">
+					<i class="bi bi-box-arrow-up-right"></i>
+				</button>
+			</div>
+
+			<!-- Right: Pane Toggles -->
+			<div class="pane-toggles">
+				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
+					@click="toggleSidebarPanel" :title="t('app.pdf-viewer.toolbar.toggleSidebar', undefined, 'Toggle Sidebar')">
+					<i class="bi bi-layout-sidebar-inset"></i>
+				</button>
+				<button class="btn-icon pane-toggle-btn" :class="{active: detailPanelVisible}"
+					@click="toggleDetailPanel" :title="t('app.pdf-viewer.toolbar.toggleInspector', undefined, 'Toggle Inspector (Ctrl+I)')">
+					<i class="bi bi-layout-sidebar-inset-reverse"></i>
+				</button>
+			</div>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize', undefined, 'Minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize', undefined, 'Maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close', undefined, 'Close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Content body (3-pane) -->
+		<div class="content-body">
+
+			<!-- Left pane: find / outline -->
+			<div v-if="sidebarPanelVisible" class="sidebar-panel island"
+				:style="{ width: sidebarPanelWidth + 'px' }"
+				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+				<!-- Plain section markup: wt-search-box / wt-tree are not nested in
+				     another component's slot (e.g. <wt-section>), where they do not
+				     receive their props. -->
+				<section class="sidebar-section find-section">
+					<div class="sidebar-section-title">{{ t('app.pdf-viewer.find.title', undefined, 'Find') }}</div>
+					<div class="find-form" @keydown="onFindKeyDown($event)">
+						<wt-search-box v-model="findQuery" @change="onFindInput"
+							:placeholder="t('app.pdf-viewer.find.placeholder', undefined, 'Find in document...')"></wt-search-box>
+						<div class="find-actions">
+							<button class="btn-icon" :class="{active: findCaseSensitive}" @click="toggleFindCaseSensitive"
+								:title="t('app.pdf-viewer.find.matchCase', undefined, 'Match case')">
+								<i class="bi bi-type"></i>
+							</button>
+							<button class="btn-icon" :class="{active: findWholeWord}" @click="toggleFindWholeWord"
+								:title="t('app.pdf-viewer.find.wholeWord', undefined, 'Whole word')">
+								<i class="bi bi-fonts"></i>
+							</button>
+							<span class="nav-spacer"></span>
+							<button class="btn-icon" @click="findPrevious" :disabled="!findQuery || !hasDocument"
+								:title="t('app.pdf-viewer.find.previous', undefined, 'Previous (Shift+Enter)')">
+								<i class="bi bi-chevron-up"></i>
+							</button>
+							<button class="btn-icon" @click="findNext" :disabled="!findQuery || !hasDocument"
+								:title="t('app.pdf-viewer.find.next', undefined, 'Next (Enter)')">
+								<i class="bi bi-chevron-down"></i>
+							</button>
+						</div>
+						<div class="find-status" :class="{ 'text-warning': findNotFound }">
+							<i v-if="findNotFound" class="bi bi-exclamation-circle me-1"></i>{{ findStatus }}
+						</div>
+					</div>
+				</section>
+				<section class="sidebar-section outline-section">
+					<div class="sidebar-section-title">{{ t('app.pdf-viewer.outline.title', undefined, 'Outline') }}</div>
+					<wt-tree v-if="currentFile && currentFile.outline.length > 0"
+						:items="currentFile.outline" :expanded="currentFile.outlineExpanded"
+						@select="onOutlineSelect($event.detail)"
+						@toggle="onOutlineToggle($event.detail)">
+						<template v-slot:item="n">
+							<span class="wt-tree-label" :title="n.node.label">{{ n.node.label }}</span>
+							<i v-if="n.node.isLink" class="bi bi-box-arrow-up-right ms-1 text-muted"></i>
+						</template>
+					</wt-tree>
+					<p v-else-if="hasDocument" class="outline-empty text-muted">
+						{{ t('app.pdf-viewer.outline.empty', undefined, 'This document has no outline') }}
+					</p>
+				</section>
+			</div>
+
+			<!-- Sidebar resize handle -->
+			<wt-splitter v-if="sidebarPanelVisible" v-model:size="sidebarPanelWidth" :min="180" :max="600"
+				@resize-start="sidebarResizing = true" @resize-end="onSidebarResizeEnd"></wt-splitter>
+
+			<!-- Center pane: viewer -->
+			<div class="content-main island p-0"
+				@dragover.prevent.stop="onCenterPaneDragOver" @drop.prevent.stop="onCenterPaneDrop">
+
+				<!-- Header: file tabs -->
+				<wt-file-tabs v-if="files.length > 0" :model-value="currentFileIndex" :items="fileTabItems"
+					:addable="false"
+					:close-title="t('common.close', undefined, 'Close')"
+					@select="selectTab($event.detail)"
+					@close="closeFile($event.detail)"></wt-file-tabs>
+
+				<!-- Body: one pdf.js viewer container per tab, created by app.ts
+				     inside #viewer-host (only the active one is visible). -->
+				<div class="viewer-area">
+					<div id="viewer-host" ref="viewerHost"></div>
+
+					<wt-empty-state v-if="files.length === 0" icon="bi-file-earmark-pdf">
+						{{ t('app.pdf-viewer.empty.message', undefined, 'Drop a PDF file here to open it') }}
+					</wt-empty-state>
+
+					<wt-spinner v-if="currentFile && currentFile.isLoading && !hasDocument && !passwordDialog.visible" overlay size="lg"></wt-spinner>
+
+					<div v-if="currentFile && currentFile.error" class="viewer-message">
+						<i class="bi bi-exclamation-triangle-fill text-warning fs-2 mb-3"></i>
+						<span>{{ currentFile.error }}</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- Detail Resize Handle -->
+			<wt-splitter v-if="detailPanelVisible" reverse v-model:size="detailPanelWidth"
+				:min="detailPanelMinWidth" :max="detailPanelMaxWidth"
+				@resize-end="persistPanelState"></wt-splitter>
+
+			<!-- Inspector Panel — targets the active tab's file (see text-editor). -->
+			<wt-inspector v-if="detailPanelVisible"
+				:target="inspectorTarget"
+				:api="inspectorApi"
+				:view-options="inspectorOptions"
+				:width="detailPanelWidth"
+				:localization="localization"
+				@reveal-item="onInspectorRevealItem($event.detail)"
+				@overlay-changed="onInspectorOverlayChanged($event.detail)"
+				@content-reverted="onInspectorContentReverted($event.detail)"></wt-inspector>
+
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group" v-if="hasDocument">
+				<span class="status-item">{{ t('app.pdf-viewer.statusbar.page', { page: currentFile.pageNumber, pages: currentFile.pagesCount }, 'Page {page} of {pages}') }}</span>
+				<span class="status-divider"></span>
+				<span class="status-item">{{ zoomPercent }}</span>
+				<template v-if="sizeLabel">
+					<span class="status-divider"></span>
+					<span class="status-item">{{ sizeLabel }}</span>
+				</template>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group" v-if="currentFile">
+				<span v-if="loadingLabel" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ loadingLabel }}</span>
+				<span v-else-if="!currentFile.path" class="status-item"><i class="bi bi-pc-display me-1"></i>{{ t('app.pdf-viewer.statusbar.localFile', undefined, 'Local file') }}</span>
+			</div>
+		</div>
+
+		<!-- Password Dialog — no ✕ / Escape: the choice is explicit. -->
+		<wt-dialog :open="passwordDialog.visible" size="sm" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-lock-fill me-2"></i>{{ t('app.pdf-viewer.password.title', undefined, 'Password Required') }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0">{{ t('app.pdf-viewer.password.message', { name: passwordDialog.fileName }, '"{name}" is password protected. Enter the password to open it.') }}</p>
+				<p v-if="passwordDialog.incorrect" class="text-warning">
+					<i class="bi bi-exclamation-circle me-1"></i>{{ t('app.pdf-viewer.password.incorrect', undefined, 'Incorrect password. Please try again.') }}
+				</p>
+				<label class="dialog-label">{{ t('app.pdf-viewer.password.label', undefined, 'Password') }}</label>
+				<input type="password" class="wt w-100" v-model="passwordDialog.value" autocomplete="off"
+					@keydown.enter="onPasswordDialogAction(true)" />
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="onPasswordDialogAction(false)">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-primary" @click="onPasswordDialogAction(true)">{{ t('app.pdf-viewer.password.open', undefined, 'Open') }}</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Error Overlay (file could not be opened at all) -->
+		<div v-if="errorMessage" class="error-overlay flex-column text-center">
+			<i class="bi bi-exclamation-triangle-fill text-warning fs-2 mb-3"></i>
+			<span class="mb-3">{{ errorMessage }}</span>
+			<button type="button" class="wt" @click="dismissError">{{ t('common.close', undefined, 'Close') }}</button>
+		</div>
+
+		</template>
+		<!-- /Readiness gate -->
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

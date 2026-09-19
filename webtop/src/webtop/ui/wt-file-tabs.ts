@@ -22,6 +22,9 @@ defineComponent('wt-file-tabs', {
 		modelValue: { type: Number, default: -1 },
 		/** Tabs: [{ key?, label, modified?, title? }]. */
 		items: { type: Array, default: () => [] },
+		/** Whether to show the add (+) button. Viewers with no "new
+		 *  document" action (pdf-viewer) pass false. */
+		addable: { type: Boolean, default: true },
 		/** Tooltip for the add (+) button. */
 		addTitle: { type: String, default: '' },
 		/** Tooltip for each tab's close (×) button. */

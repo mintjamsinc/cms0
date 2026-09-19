@@ -35,6 +35,8 @@
 		"build:text-editor:prod": "cross-env BUILD=production TARGETS=text-editor rollup -c",
 		"build:text-editor-preview": "cross-env BUILD=development TARGETS=text-editor-preview rollup -c",
 		"build:text-editor-preview:prod": "cross-env BUILD=production TARGETS=text-editor-preview rollup -c",
+		"build:pdf-viewer": "cross-env BUILD=development TARGETS=pdf-viewer rollup -c",
+		"build:pdf-viewer:prod": "cross-env BUILD=production TARGETS=pdf-viewer rollup -c",
 		"build:workspace-manager": "cross-env BUILD=development TARGETS=workspace-manager rollup -c",
 		"build:workspace-manager:prod": "cross-env BUILD=production TARGETS=workspace-manager rollup -c",
 		"build:webtop-ui-standalone": "cross-env BUILD=development TARGETS=webtop-ui-standalone rollup -c",
@@ -87,13 +89,14 @@
 		"esbuild": "^0.28.0",
 		"inter-ui": "^4.1.1",
 		"marked": "^18.0.3",
+		"pdfjs-dist": "^6.3.289",
 		"rollup": "^4.60.4",
 		"rollup-plugin-copy": "^3.5.0",
 		"rollup-plugin-typescript2": "^0.37.0",
 		"typescript": "^6.0.3"
 	},
 	"dependencies": {
-		"@mintjamsinc/ichigojs": "^0.1.80",
+		"@mintjamsinc/ichigojs": "^0.1.82",
 		"@tiptap/extension-image": "^3.27.1",
 		"intl-messageformat": "^11.2.6"
 	}
