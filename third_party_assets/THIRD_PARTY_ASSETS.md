@@ -9,7 +9,7 @@
   package (pinned in `webtop/package.json`), which mirrors the upstream
   [rsms/inter](https://github.com/rsms/inter) v4.1 release. The variable
   woff2 files and the upstream `LICENSE.txt` are copied into
-  `webtop/dist/webtop/assets/vendor/inter/` at build time by
+  `webtop/dist/webtop/vendor/inter/` at build time by
   `webtop/rollup.config.js`.
 - Licensed under the SIL Open Font License 1.1.
 
@@ -22,7 +22,7 @@
   Noto Sans JP variable font as Google Fonts' unicode-range subsets. The
   package's `index.css`, its `files/` directory of variable woff2 subsets
   and the upstream `LICENSE` are copied into
-  `webtop/dist/webtop/assets/vendor/noto-sans-jp/` at build time by
+  `webtop/dist/webtop/vendor/noto-sans-jp/` at build time by
   `webtop/rollup.config.js`. `style.css` and `webtop-app.css` `@import` the
   vendored `index.css`; browsers fetch only the subsets a page actually uses.
 - Licensed under the SIL Open Font License 1.1.
@@ -31,7 +31,7 @@
 
 - Bundled from the [bootstrap-icons](https://icons.getbootstrap.com/) npm
   package (pinned in `webtop/package.json`) and copied into
-  `webtop/dist/webtop/assets/vendor/bootstrap-icons/` at build time by
+  `webtop/dist/webtop/vendor/bootstrap-icons/` at build time by
   `webtop/rollup.config.js`. The package's `LICENSE` file is copied alongside
   the bundled assets.
 - Licensed under the MIT License.

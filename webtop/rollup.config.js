@@ -191,28 +191,28 @@ const webtopCoreConfig = makeConfig({
     // Bundle Bootstrap Icons (CSS + fonts) so apps can load it locally
     // instead of relying on a CDN. The CSS references fonts via the
     // relative path "fonts/bootstrap-icons.{woff,woff2}", so the resolved
-    // layout under dist/webtop/assets/vendor/bootstrap-icons/ mirrors the
+    // layout under dist/webtop/vendor/bootstrap-icons/ mirrors the
     // upstream package directly.
-    { src: 'node_modules/bootstrap-icons/font/bootstrap-icons.css', dest: 'dist/webtop/assets/vendor/bootstrap-icons' },
-    { src: 'node_modules/bootstrap-icons/font/bootstrap-icons.min.css', dest: 'dist/webtop/assets/vendor/bootstrap-icons' },
-    { src: 'node_modules/bootstrap-icons/font/fonts', dest: 'dist/webtop/assets/vendor/bootstrap-icons' },
-    { src: 'node_modules/bootstrap-icons/LICENSE', dest: 'dist/webtop/assets/vendor/bootstrap-icons' },
+    { src: 'node_modules/bootstrap-icons/font/bootstrap-icons.css', dest: 'dist/webtop/vendor/bootstrap-icons' },
+    { src: 'node_modules/bootstrap-icons/font/bootstrap-icons.min.css', dest: 'dist/webtop/vendor/bootstrap-icons' },
+    { src: 'node_modules/bootstrap-icons/font/fonts', dest: 'dist/webtop/vendor/bootstrap-icons' },
+    { src: 'node_modules/bootstrap-icons/LICENSE', dest: 'dist/webtop/vendor/bootstrap-icons' },
     // Bundle Inter (variable woff2) so deployments no longer need to
     // manually drop fonts under assets/fonts/. style.css and webtop-app.css
-    // reference these via ../vendor/inter/.
-    { src: 'node_modules/inter-ui/variable/InterVariable.woff2', dest: 'dist/webtop/assets/vendor/inter' },
-    { src: 'node_modules/inter-ui/variable/InterVariable-Italic.woff2', dest: 'dist/webtop/assets/vendor/inter' },
-    { src: 'node_modules/inter-ui/LICENSE.txt', dest: 'dist/webtop/assets/vendor/inter' },
+    // reference these via ../../vendor/inter/.
+    { src: 'node_modules/inter-ui/variable/InterVariable.woff2', dest: 'dist/webtop/vendor/inter' },
+    { src: 'node_modules/inter-ui/variable/InterVariable-Italic.woff2', dest: 'dist/webtop/vendor/inter' },
+    { src: 'node_modules/inter-ui/LICENSE.txt', dest: 'dist/webtop/vendor/inter' },
     // Bundle Noto Sans JP (variable woff2) for Japanese coverage. Unlike
     // Inter, the upstream package ships ~120 unicode-range subsets, so the
     // @font-face blocks are not inlined into our stylesheets: index.css is
     // copied verbatim and @import-ed by style.css and webtop-app.css. Its
     // font URLs are relative ("./files/..."), so the resolved layout under
-    // dist/webtop/assets/vendor/noto-sans-jp/ mirrors the upstream package
+    // dist/webtop/vendor/noto-sans-jp/ mirrors the upstream package
     // directly. Browsers download only the subsets a page actually needs.
-    { src: 'node_modules/@fontsource-variable/noto-sans-jp/index.css', dest: 'dist/webtop/assets/vendor/noto-sans-jp' },
-    { src: 'node_modules/@fontsource-variable/noto-sans-jp/files', dest: 'dist/webtop/assets/vendor/noto-sans-jp' },
-    { src: 'node_modules/@fontsource-variable/noto-sans-jp/LICENSE', dest: 'dist/webtop/assets/vendor/noto-sans-jp' },
+    { src: 'node_modules/@fontsource-variable/noto-sans-jp/index.css', dest: 'dist/webtop/vendor/noto-sans-jp' },
+    { src: 'node_modules/@fontsource-variable/noto-sans-jp/files', dest: 'dist/webtop/vendor/noto-sans-jp' },
+    { src: 'node_modules/@fontsource-variable/noto-sans-jp/LICENSE', dest: 'dist/webtop/vendor/noto-sans-jp' },
     // Bundle the default wallpaper from third_party_assets/ so the webtop
     // runtime can resolve /assets/wallpapers/wallpaper-default.jpg without
     // an additional manual upload at deploy time.

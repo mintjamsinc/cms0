@@ -9,7 +9,7 @@
 	<title>Webtop</title>
 
 	<!-- Bootstrap Icons (bundled locally; see rollup.config.js) -->
-	<link rel="stylesheet" href="./assets/vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+	<link rel="stylesheet" href="./vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
 
 	<!-- Default CSS -->
 	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />

@@ -15,7 +15,7 @@
 
 @import url("../assets/css/webtop-app.css?v=__BUILD_VERSION__");
 /* Icons used inside wt-* templates (chevrons, inline-message icons). */
-@import url("../assets/vendor/bootstrap-icons/bootstrap-icons.min.css");
+@import url("../vendor/bootstrap-icons/bootstrap-icons.min.css");
 
 /* ----------------------------------------------------------------------------
  * Form-only rules
