@@ -933,11 +933,39 @@ type NodeConnection {
   edges: [NodeEdge!]!
   pageInfo: PageInfo!
   totalCount: Int!
+  """
+  Results of the statement's `facet` / `facet accumulate` clause. Only the
+  query fields (xpath, query) can produce them; every other connection returns
+  an empty list. Computed only when selected, over the same set of nodes the
+  caller is allowed to read.
+  """
+  facets: [Facet!]!
 }
 
 type NodeEdge {
   node: Node!
   cursor: String!
+}
+
+"""
+One facet dimension: the property name of a `facet @prop` / range facet, or the
+statistics dimension of a `facet accumulate` clause.
+"""
+type Facet {
+  dimension: String!
+  entries: [FacetEntry!]!
+}
+
+"""One label of a facet dimension."""
+type FacetEntry {
+  label: String!
+  """Document count (plain and range facets). For a statistic this is the value narrowed to an integer."""
+  count: Int!
+  """
+  Decimal value of a `facet accumulate` statistic (sum, avg, percentile, ...).
+  Null when the statistic is undefined because no values were found.
+  """
+  number: Float
 }
 
 """Relay-style pagination info."""

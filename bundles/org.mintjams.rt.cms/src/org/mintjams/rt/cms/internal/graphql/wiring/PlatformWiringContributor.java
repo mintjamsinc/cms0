@@ -26,9 +26,11 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -61,6 +63,7 @@ import javax.jcr.version.VersionIterator;
 import javax.jcr.version.VersionManager;
 
 import org.mintjams.jcr.JcrPath;
+import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
@@ -81,6 +84,8 @@ import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
 import org.mintjams.rt.cms.internal.util.ISO8601;
+import org.mintjams.searchindex.SearchIndex;
+import org.mintjams.tools.adapter.Adaptables;
 import org.osgi.service.event.Event;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
@@ -374,7 +379,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 
 	/** Shared node-query connection (xpath / generic). */
 	private static Object queryConnection(Session session, String statement, String language,
-			DataFetchingEnvironment environment) throws RepositoryException {
+			DataFetchingEnvironment environment) throws Exception {
 		int first = first(environment);
 		int start = startPosition(environment.getArgument("after"));
 		PrincipalDisplayNameResolver resolver = new PrincipalDisplayNameResolver(session);
@@ -384,7 +389,90 @@ public final class PlatformWiringContributor implements WiringContributor {
 		NodeIterator iterator = queryManager.createQuery(statement, language).execute().getNodes();
 		long totalCount = iterator.getSize();
 		List<Map<String, Object>> edges = nodeEdges(iterator, start, first, nodeSelection, resolver);
-		return connection(edges, iterator.hasNext(), start > 0, totalCount);
+		Map<String, Object> connection = connection(edges, iterator.hasNext(), start > 0, totalCount);
+		// The JCR QueryResult carries nodes only; the facet clause's results stay
+		// in the index. Fetched only when selected, so a plain page costs nothing.
+		if (environment.getSelectionSet().contains("facets")) {
+			connection.put("facets", facets(session, statement, language));
+		}
+		return connection;
+	}
+
+	/**
+	 * Results of the statement's {@code facet} / {@code facet accumulate} clause.
+	 * Re-runs the statement against the index with {@code limit=0}: no document
+	 * is materialised, only the facet counts are collected (the same approach as
+	 * the script API's Query.FacetResult). The caller's principals are applied
+	 * exactly as the JCR query layer applies them, so the counts cover the same
+	 * nodes the edges do. Empty when the statement has no facet clause or the
+	 * index is unavailable.
+	 */
+	private static List<Map<String, Object>> facets(Session session, String statement, String language)
+			throws Exception {
+		if (!Query.XPATH.equals(language)) {
+			return Collections.emptyList();
+		}
+		SearchIndex searchIndex = Adaptables.getAdapter(session, SearchIndex.class);
+		if (searchIndex == null) {
+			return Collections.emptyList();
+		}
+
+		SearchIndex.Query indexQuery = searchIndex.createQuery(statement, "jcr:xpath").setOffset(0).setLimit(0);
+		Principal[] authorizables = queryAuthorizables(session);
+		if (authorizables.length > 0) {
+			indexQuery.setAuthorizables(authorizables);
+		}
+		SearchIndex.QueryResult.FacetResult facetResult = indexQuery.execute().getFacetResult();
+		if (facetResult == null) {
+			return Collections.emptyList();
+		}
+
+		List<Map<String, Object>> facets = new ArrayList<>();
+		for (String dimension : facetResult.getDimensions()) {
+			SearchIndex.QueryResult.FacetResult.Facet facet = facetResult.getFacet(dimension);
+			if (facet == null) {
+				continue;
+			}
+			List<Map<String, Object>> entries = new ArrayList<>();
+			for (Map.Entry<String, Number> e : facet.getNumbers().entrySet()) {
+				Number value = e.getValue();
+				double number = (value != null) ? value.doubleValue() : Double.NaN;
+				Map<String, Object> entry = new HashMap<>();
+				entry.put("label", e.getKey());
+				entry.put("count", (value != null) ? value.intValue() : 0);
+				// graphql-java's Float scalar rejects NaN/Infinity: an undefined
+				// statistic (avg of an empty set) is reported as null.
+				entry.put("number", Double.isFinite(number) ? Double.valueOf(number) : null);
+				entries.add(entry);
+			}
+			Map<String, Object> facetMap = new HashMap<>();
+			facetMap.put("dimension", dimension);
+			facetMap.put("entries", entries);
+			facets.add(facetMap);
+		}
+		return facets;
+	}
+
+	/**
+	 * The principals the JCR query layer restricts index queries to for this
+	 * session: none for system / service / admin sessions, everyone for a guest,
+	 * everyone plus the user and its groups otherwise.
+	 */
+	private static Principal[] queryAuthorizables(Session session) {
+		if (!(session instanceof org.mintjams.jcr.Session)) {
+			return new Principal[0];
+		}
+		org.mintjams.jcr.Session jcrSession = (org.mintjams.jcr.Session) session;
+		if (jcrSession.isSystem() || jcrSession.isService() || jcrSession.isAdmin()) {
+			return new Principal[0];
+		}
+		List<Principal> authorizables = new ArrayList<>();
+		authorizables.add(new EveryonePrincipal());
+		if (!jcrSession.isGuest()) {
+			authorizables.addAll(jcrSession.getGroups());
+			authorizables.add(jcrSession.getUserPrincipal());
+		}
+		return authorizables.toArray(Principal[]::new);
 	}
 
 	/**
@@ -2679,6 +2767,8 @@ public final class PlatformWiringContributor implements WiringContributor {
 		if (totalCount != null) {
 			connection.put("totalCount", totalCount);
 		}
+		// Only the query connections can carry facets; they overwrite this.
+		connection.put("facets", Collections.emptyList());
 		return connection;
 	}
 
