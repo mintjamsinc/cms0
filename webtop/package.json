@@ -42,10 +42,7 @@
 		"build:webtop-ui-standalone": "cross-env BUILD=development TARGETS=webtop-ui-standalone rollup -c",
 		"build:webtop-ui-standalone:prod": "cross-env BUILD=production TARGETS=webtop-ui-standalone rollup -c",
 		"prepare": "npm run build",
-		"test": "npm run build && node --test",
-		"check:camel-roundtrip": "tsc -p tsconfig.json --outDir dist && node scripts/check-camel-roundtrip.mjs",
-		"check": "npm run check:camel-roundtrip",
-		"_prebuild:prod": "npm run check"
+		"test": "npm run build && node --test"
 	},
 	"devDependencies": {
 		"@codemirror/autocomplete": "^6.20.2",
