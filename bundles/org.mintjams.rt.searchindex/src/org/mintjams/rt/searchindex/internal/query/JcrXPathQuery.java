@@ -133,7 +133,11 @@ public class JcrXPathQuery extends SearchIndexQuery {
 	}
 
 	private final String fStatement;
-	private List<Clause> fClauses;
+	// One clause list per union branch (the statement split at top-level '|'),
+	// in statement order. Path and constraint clauses restrict their own
+	// branch; the trailing order by / facet accumulate / auto complete clauses
+	// apply to the whole query and are only accepted after the last branch.
+	private List<List<Clause>> fBranches;
 	private String fCompiled;
 	private OrderByClause fOrderByClause;
 	private FacetAccumulateClause fFacetAccumulateClause;
@@ -345,65 +349,173 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 	private String getCompiled() {
 		if (fCompiled == null) {
-			if (fClauses == null) {
-				fClauses = new ArrayList<>();
-				for (String stmt = fStatement; !Strings.isBlank(stmt);) {
-					boolean matches = false;
-					for (ClauseExtractor clause : ClauseExtractor.values()) {
-						if (clause.match(stmt)) {
-							matches = true;
-							stmt = clause.extract(stmt, fClauses, this);
-							break;
+			if (fBranches == null) {
+				fBranches = new ArrayList<>();
+				List<String> branches = splitUnion(fStatement);
+				for (int b = 0; b < branches.size(); b++) {
+					List<Clause> clauses = new ArrayList<>();
+					String branch = branches.get(b).trim();
+					if (branch.isEmpty()) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					for (String stmt = branch; !Strings.isBlank(stmt);) {
+						boolean matches = false;
+						for (ClauseExtractor clause : ClauseExtractor.values()) {
+							if (clause.match(stmt)) {
+								matches = true;
+								stmt = clause.extract(stmt, clauses, this);
+								break;
+							}
+						}
+						if (matches) {
+							continue;
+						}
+
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+
+					if (b < branches.size() - 1) {
+						// Trailing clauses belong to the query as a whole, so
+						// "/a order by @x | /b" is rejected rather than silently
+						// ordering only one branch.
+						for (Clause e : clauses) {
+							if (!(e instanceof PathClause || e instanceof ConstraintClause)) {
+								throw new InvalidQuerySyntaxException(fStatement);
+							}
 						}
 					}
-					if (matches) {
+					fBranches.add(clauses);
+				}
+			}
+
+			List<String> branches = new ArrayList<>();
+			for (List<Clause> clauses : fBranches) {
+				StringBuilder buf = new StringBuilder();
+				for (Clause e : clauses) {
+					String q = e.compile();
+					if (e instanceof OrderByClause) {
+						fOrderByClause = (OrderByClause) e;
+						continue;
+					}
+					if (e instanceof FacetAccumulateClause) {
+						fFacetAccumulateClause = (FacetAccumulateClause) e;
+						continue;
+					}
+					if (e instanceof AutoCompleteClause) {
+						fAutoCompleteClause = (AutoCompleteClause) e;
 						continue;
 					}
 
-					throw new InvalidQuerySyntaxException(fStatement);
+					if (Strings.isEmpty(q)) {
+						continue;
+					}
+
+					if (buf.length() > 0) {
+						buf.append(" AND ");
+					}
+					buf.append(q);
 				}
+				branches.add(buf.toString());
 			}
 
 			StringBuilder stmt = new StringBuilder();
 			stmt.append(getAuthorizablesStatement());
-			for (Clause e : fClauses) {
-				String q = e.compile();
-				if (e instanceof OrderByClause) {
-					fOrderByClause = (OrderByClause) e;
-					continue;
-				}
-				if (e instanceof FacetAccumulateClause) {
-					fFacetAccumulateClause = (FacetAccumulateClause) e;
-					continue;
-				}
-				if (e instanceof AutoCompleteClause) {
-					fAutoCompleteClause = (AutoCompleteClause) e;
-					continue;
-				}
-
-				if (Strings.isEmpty(q)) {
-					continue;
-				}
-
+			String union = toUnion(branches);
+			if (Strings.isNotEmpty(union)) {
 				if (stmt.length() > 0) {
 					stmt.append(" AND ");
 				}
-				stmt.append(q);
+				stmt.append(union);
 			}
 			fCompiled = stmt.toString();
 		}
 		return fCompiled;
 	}
 
-	private Map<String, PointsConfig> getPointsConfigMap() {
-		Map<String, PointsConfig> map = new HashMap<>();
-		for (Clause e : fClauses) {
-			if (e instanceof PathClause) {
-				map.putAll(((PathClause) e).getPointsConfigMap());
+	// Splits the statement at every '|' (the XPath union operator) that is not
+	// inside a quoted literal, a predicate, a function call or a brace group.
+	// A statement without a union comes back as its single branch, so this is
+	// a no-op for every query written before the operator was supported.
+	private List<String> splitUnion(String statement) {
+		List<String> branches = new ArrayList<>();
+		char[] chars = statement.toCharArray();
+		int nest = 0;
+		int beginIndex = 0;
+		for (int i = 0; i < chars.length; i++) {
+			char c = chars[i];
+
+			if (c == '"' || c == '\'') {
+				char quart = c;
+				for (i++;; i++) {
+					if (i >= chars.length) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					c = chars[i];
+					if (c == quart) {
+						break;
+					}
+					if (c == '\\') {
+						i++;
+						continue;
+					}
+				}
 				continue;
 			}
-			if (e instanceof ConstraintClause) {
-				map.putAll(((ConstraintClause) e).getPointsConfigMap());
+
+			if (c == '(' || c == '[' || c == '{') {
+				nest++;
+				continue;
+			}
+			if (c == ')' || c == ']' || c == '}') {
+				if (nest > 0) {
+					nest--;
+				}
+				continue;
+			}
+
+			if (c == '|' && nest == 0) {
+				branches.add(statement.substring(beginIndex, i));
+				beginIndex = i + 1;
+			}
+		}
+		branches.add(statement.substring(beginIndex));
+		return branches;
+	}
+
+	// Joins the compiled branches with OR. A branch that compiled to nothing
+	// (e.g. an empty predicate) or to the match-all query places no restriction
+	// on its part of the union, so the whole union matches everything. A single
+	// branch is returned as it is, which keeps the compiled form of a query
+	// without a union unchanged.
+	private String toUnion(List<String> branches) {
+		if (branches.size() == 1) {
+			return branches.get(0);
+		}
+
+		StringBuilder buf = new StringBuilder();
+		for (String q : branches) {
+			if (Strings.isEmpty(q) || q.equals("*:*")) {
+				return "*:*";
+			}
+			if (buf.length() > 0) {
+				buf.append(" OR ");
+			}
+			buf.append("(").append(q).append(")");
+		}
+		return "(" + buf + ")";
+	}
+
+	private Map<String, PointsConfig> getPointsConfigMap() {
+		Map<String, PointsConfig> map = new HashMap<>();
+		for (List<Clause> clauses : fBranches) {
+			for (Clause e : clauses) {
+				if (e instanceof PathClause) {
+					map.putAll(((PathClause) e).getPointsConfigMap());
+					continue;
+				}
+				if (e instanceof ConstraintClause) {
+					map.putAll(((ConstraintClause) e).getPointsConfigMap());
+				}
 			}
 		}
 		return map;
@@ -1210,7 +1322,12 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			if (Strings.isEmpty(stmt)) {
 				return null;
 			}
-			return stmt;
+			// The predicate is ANDed with the path clause (and with the other
+			// union branches' text), and the Lucene query parser applies no
+			// precedence between AND and OR: "path AND a OR b" makes a required
+			// and b optional. Wrapping keeps a top-level "or" inside the
+			// predicate, e.g. [@a='x' or @b='y'], scoped to the predicate.
+			return "(" + stmt + ")";
 		}
 
 		protected Map<String, PointsConfig> getPointsConfigMap() {
@@ -1783,6 +1900,40 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					}
 
 					return escape(getFieldName(propertyName)) + ":" + toLuceneWildcard(arg1.toString());
+				}
+
+				if (value.startsWith("fn:starts-with(") || value.startsWith("starts-with(")) {
+					if (!value.endsWith(")")) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+
+					String argsString = value.substring(value.indexOf("(") + 1, value.length() - 1).trim();
+					List<String> args = parseArguments(argsString);
+					if (args.size() != 2) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					String propertyName = args.get(0);
+					// Like jcr:like, starts-with tests a single property, so the
+					// first argument must name one (typically jcr:path).
+					if (!(propertyName.startsWith("@") || propertyName.startsWith("jcr:"))) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					Object arg1 = toJavaValue(args.get(1));
+					if (!(arg1 instanceof String)) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+					if (Strings.isEmpty(arg1.toString())) {
+						throw new InvalidQuerySyntaxException(fStatement);
+					}
+
+					// String properties are exact, untokenized terms (StringField),
+					// so a prefix followed by an unescaped '*' is a PrefixQuery over
+					// the whole stored value. The prefix itself is escaped, which
+					// keeps a literal '*' or '?' in it from acting as a wildcard.
+					// Note that the test is plain string semantics, as in XPath:
+					// starts-with(jcr:path, '/content') also matches /content2; end
+					// the prefix with '/' to restrict it to one subtree.
+					return escape(getFieldName(propertyName)) + ":" + escape(arg1.toString()) + "*";
 				}
 
 				return null;
