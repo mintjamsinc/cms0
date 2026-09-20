@@ -308,7 +308,14 @@ class FacetStatistics {
 	 * raw long (size, depth, or epoch milliseconds) rather than the
 	 * sortable-double encoding used for numeric user properties.
 	 */
-	private static boolean isRawLongField(String fieldName) {
+	/**
+	 * Whether {@code fieldName} is an internal field whose numeric doc values
+	 * hold the value itself, rather than the double-encoded form
+	 * ({@code NumericUtils.doubleToSortableLong}) that {@code IndexableDocument}
+	 * writes for a numeric property value. Both this class and the range facets
+	 * of {@code JcrXPathQuery} have to decode these fields as plain longs.
+	 */
+	static boolean isRawLongField(String fieldName) {
 		return fieldName.equals("_size") || fieldName.equals("_depth")
 				|| fieldName.equals("_created") || fieldName.equals("_lastModified");
 	}

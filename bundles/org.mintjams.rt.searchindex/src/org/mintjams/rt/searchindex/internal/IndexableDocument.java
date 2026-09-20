@@ -283,16 +283,28 @@ public class IndexableDocument implements SearchIndex.Document {
 			fulltext.append("\n").append(fName);
 		}
 
+		// The string-valued internal fields carry a FacetField as well, so a count
+		// facet works on a built-in property exactly as it does on an ordinary
+		// string property: a query resolves jcr:mimeType (with or without the
+		// leading "@") to _mimeType, and for jcr:createdBy and jcr:lastModifiedBy
+		// these fields are the only place the value is indexed at all, since
+		// JournalObserver keeps them out of the generic property loop. The
+		// high-cardinality fields (_path, _name, _identifier) deliberately get
+		// none: a facet over them would be a taxonomy the size of the repository.
 		if (fMimeType != null) {
 			String mimeType = Strings.defaultIfEmpty(fMimeType, "application/octet-stream");
 			doc.add(new StringField("_mimeType", mimeType, Field.Store.NO));
 			doc.add(new SortedDocValuesField("_mimeType", new BytesRef(mimeType)));
+			doc.add(new FacetField("_mimeType", mimeType));
 			fulltext.append("\n").append(mimeType);
 		}
 
 		if (fEncoding != null) {
 			doc.add(new StringField("_encoding", fEncoding, Field.Store.NO));
 			doc.add(new SortedDocValuesField("_encoding", new BytesRef(fEncoding)));
+			if (Strings.isNotEmpty(fEncoding)) {
+				doc.add(new FacetField("_encoding", fEncoding));
+			}
 			fulltext.append("\n").append(Strings.defaultIfEmpty(fEncoding, StandardCharsets.UTF_8.toString()));
 		}
 
@@ -311,6 +323,9 @@ public class IndexableDocument implements SearchIndex.Document {
 		if (fCreatedBy != null) {
 			doc.add(new StringField("_createdBy", fCreatedBy, Field.Store.NO));
 			doc.add(new SortedDocValuesField("_createdBy", new BytesRef(fCreatedBy)));
+			if (Strings.isNotEmpty(fCreatedBy)) {
+				doc.add(new FacetField("_createdBy", fCreatedBy));
+			}
 			fulltext.append("\n").append(Strings.defaultIfEmpty(fCreatedBy, StandardCharsets.UTF_8.toString()));
 		}
 
@@ -323,6 +338,9 @@ public class IndexableDocument implements SearchIndex.Document {
 		if (fLastModifiedBy != null) {
 			doc.add(new StringField("_lastModifiedBy", fLastModifiedBy, Field.Store.NO));
 			doc.add(new SortedDocValuesField("_lastModifiedBy", new BytesRef(fLastModifiedBy)));
+			if (Strings.isNotEmpty(fLastModifiedBy)) {
+				doc.add(new FacetField("_lastModifiedBy", fLastModifiedBy));
+			}
 			fulltext.append("\n").append(Strings.defaultIfEmpty(fLastModifiedBy, StandardCharsets.UTF_8.toString()));
 		}
 

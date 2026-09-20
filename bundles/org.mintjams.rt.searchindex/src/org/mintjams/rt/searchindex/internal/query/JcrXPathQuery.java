@@ -88,6 +88,73 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			.put("jcr:lastModifiedBy", "_lastModifiedBy")
 			.put("jcr:score", "_score")
 			.build();
+	/**
+	 * Resolves a field reference as written in a query statement to the name the
+	 * field is actually indexed under.
+	 *
+	 * <p>The leading {@code @} of an XPath attribute reference is decoration
+	 * only: {@code @jcr:created} and {@code jcr:created} mean the same field.
+	 * A name listed in {@link #JCR_FIELDS} always resolves to the internal field
+	 * that carries it ({@code _created}, {@code _size}, ...), because that is
+	 * where the indexer puts it: the built-in properties are kept out of the
+	 * generic property loop (see {@code JournalObserver}) and only ever reach the
+	 * index through their internal field. Every other name, including a
+	 * {@code jcr:} name with no built-in mapping such as {@code jcr:mixinTypes},
+	 * is an ordinary property name and is used as written.
+	 *
+	 * <p>Every clause resolves through this one method, so the same reference
+	 * means the same field in a predicate, in {@code order by} and in either
+	 * facet syntax.
+	 */
+	private static String resolveFieldName(String field) {
+		field = field.trim();
+		if (field.startsWith("@")) {
+			field = field.substring(1);
+		}
+		String resolved = JCR_FIELDS.get(field);
+		return (resolved != null) ? resolved : field;
+	}
+
+	/**
+	 * The point type each internal numeric field is indexed with (see
+	 * {@code IndexableDocument}: they are all {@code LongPoint}s). For these
+	 * fields the field decides the type, not the literal the statement happens
+	 * to carry, so {@code @jcr:contentLength > 1024} builds a long range even
+	 * though {@code 1024} parses as a decimal. Asking for a double range over a
+	 * {@code LongPoint} field matches nothing at all.
+	 */
+	private static final Map<String, Class<? extends Number>> INTERNAL_POINT_TYPES = AdaptableMap.<String, Class<? extends Number>>newBuilder()
+			.put("_depth", Long.class)
+			.put("_size", Long.class)
+			.put("_created", Long.class)
+			.put("_lastModified", Long.class)
+			.build();
+
+	/**
+	 * The point type a field of the given value domain is indexed with (see
+	 * {@code IndexableDocument}): numeric property values are
+	 * {@code DoublePoint}s, dates and booleans are {@code LongPoint}s and
+	 * {@code IntPoint}s. A string field has no point field and gets no entry, so
+	 * the parser builds an ordinary term query for it.
+	 *
+	 * <p>{@code BigDecimal} is what the {@link SearchIndex.FieldTypeProvider}
+	 * reports for a declared numeric facet, {@code Number} is the fallback
+	 * derived from the literal, and both name the same {@code DoublePoint}
+	 * field.
+	 */
+	private static Class<? extends Number> toPointType(Class<?> fieldType) {
+		if (fieldType.equals(Number.class) || fieldType.equals(BigDecimal.class)) {
+			return Double.class;
+		}
+		if (fieldType.equals(java.util.Date.class)) {
+			return Long.class;
+		}
+		if (fieldType.equals(Boolean.class)) {
+			return Integer.class;
+		}
+		return null;
+	}
+
 	private static final Map<String, SortField.Type> SORT_TYPES = AdaptableMap.<String, SortField.Type>newBuilder()
 			.put("_identifier", SortField.Type.STRING)
 			.put("_path", SortField.Type.STRING)
@@ -96,7 +163,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			.put("_mimeType", SortField.Type.STRING)
 			.put("_encoding", SortField.Type.STRING)
 			.put("jcr:primaryType", SortField.Type.STRING)
-			.put("_contentLength", SortField.Type.LONG)
+			.put("_size", SortField.Type.LONG)
 			.put("_created", SortField.Type.LONG)
 			.put("_createdBy", SortField.Type.STRING)
 			.put("_lastModified", SortField.Type.LONG)
@@ -846,17 +913,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 		}
 
 		protected String getFieldName(String field) {
-			field = field.trim();
-			if (field.startsWith("@")) {
-				field = field.substring(1);
-			} else if (field.startsWith("jcr:")) {
-				if (JCR_FIELDS.containsKey(field)) {
-					field = JCR_FIELDS.get(field);
-				} else {
-					throw new InvalidQuerySyntaxException(fStatement);
-				}
-			}
-			return field;
+			return resolveFieldName(field);
 		}
 
 		protected List<String> parseArguments(String argsString) {
@@ -1535,32 +1592,14 @@ public class JcrXPathQuery extends SearchIndexQuery {
 							String right = cnd.substring(opIndex + operator.length()).trim();
 							String name, value;
 							if (left.startsWith("@") || left.startsWith("jcr:")) {
-								name = left;
-								if (name.startsWith("@")) {
-									name = name.substring(1);
-								} else if (name.startsWith("jcr:")) {
-									if (JCR_FIELDS.containsKey(name)) {
-										name = JCR_FIELDS.get(name);
-									} else {
-										throw new InvalidQuerySyntaxException(fStatement);
-									}
-								}
+								name = getFieldName(left);
 								value = right;
 							} else if (right.startsWith("@") || right.startsWith("jcr:")) {
 								if (operator.equals("like")) {
 									throw new InvalidQuerySyntaxException(fStatement);
 								}
 
-								name = right;
-								if (name.startsWith("@")) {
-									name = name.substring(1);
-								} else if (name.startsWith("jcr:")) {
-									if (JCR_FIELDS.containsKey(name)) {
-										name = JCR_FIELDS.get(name);
-									} else {
-										throw new InvalidQuerySyntaxException(fStatement);
-									}
-								}
+								name = getFieldName(right);
 								switch (operator) {
 								case "<":
 									operator = ">";
@@ -1648,6 +1687,33 @@ public class JcrXPathQuery extends SearchIndexQuery {
 								javaValue = toJavaValue(value);
 							}
 
+							// The point type is settled before the query text is built,
+							// because the open end of a one-sided comparison has to be
+							// the widest value of THAT type: Double.MAX_VALUE written
+							// into a long range would not parse back.
+							Class<? extends Number> pointType = INTERNAL_POINT_TYPES.get(name);
+							if (pointType == null) {
+								Class<?> fieldType = null;
+								if (fAdaptable != null) {
+									SearchIndex.FieldTypeProvider fieldTypeProvider = Adaptables.getAdapter(fAdaptable, SearchIndex.FieldTypeProvider.class);
+									if (fieldTypeProvider != null) {
+										fieldType = fieldTypeProvider.getFieldType(name);
+									}
+								}
+								if (fieldType == null) {
+									if (javaValue instanceof Number) {
+										fieldType = Number.class;
+									} else if (javaValue instanceof java.util.Date) {
+										fieldType = java.util.Date.class;
+									} else if (javaValue instanceof Boolean) {
+										fieldType = Boolean.class;
+									} else {
+										fieldType = String.class;
+									}
+								}
+								pointType = toPointType(fieldType);
+							}
+
 							switch (operator) {
 							case "like":
 								buf.append(escape(name)).append(":").append(escape(javaValue.toString(), "*"));
@@ -1675,43 +1741,21 @@ public class JcrXPathQuery extends SearchIndexQuery {
 								buf.append("NOT(").append(escape(name)).append(":").append(toLuceneRangedValue(javaValue)).append(")");
 								break;
 							case "<":
-								buf.append(escape(name)).append(":[").append(toLuceneMinValue(javaValue)).append(" TO ").append(toLuceneValue(javaValue)).append("}");
+								buf.append(escape(name)).append(":[").append(toLuceneMinValue(pointType)).append(" TO ").append(toLuceneValue(javaValue)).append("}");
 								break;
 							case "<=":
-								buf.append(escape(name)).append(":[").append(toLuceneMinValue(javaValue)).append(" TO ").append(toLuceneValue(javaValue)).append("]");
+								buf.append(escape(name)).append(":[").append(toLuceneMinValue(pointType)).append(" TO ").append(toLuceneValue(javaValue)).append("]");
 								break;
 							case ">=":
-								buf.append(escape(name)).append(":").append("[").append(toLuceneValue(javaValue)).append(" TO ").append(toLuceneMaxValue(javaValue)).append("]");
+								buf.append(escape(name)).append(":").append("[").append(toLuceneValue(javaValue)).append(" TO ").append(toLuceneMaxValue(pointType)).append("]");
 								break;
 							case ">":
-								buf.append(escape(name)).append(":").append("{").append(toLuceneValue(javaValue)).append(" TO ").append(toLuceneMaxValue(javaValue)).append("]");
+								buf.append(escape(name)).append(":").append("{").append(toLuceneValue(javaValue)).append(" TO ").append(toLuceneMaxValue(pointType)).append("]");
 								break;
 							}
 
-							Class<?> fieldType = null;
-							if (fAdaptable != null) {
-								SearchIndex.FieldTypeProvider fieldTypeProvider = Adaptables.getAdapter(fAdaptable, SearchIndex.FieldTypeProvider.class);
-								if (fieldTypeProvider != null) {
-									fieldType = fieldTypeProvider.getFieldType(name);
-								}
-							}
-							if (fieldType == null) {
-								if (javaValue instanceof Number) {
-									fieldType = Number.class;
-								} else if (javaValue instanceof java.util.Date) {
-									fieldType = java.util.Date.class;
-								} else if (javaValue instanceof Boolean) {
-									fieldType = Boolean.class;
-								} else {
-									fieldType = String.class;
-								}
-							}
-							if (fieldType.equals(Number.class)) {
-								fPointsConfigMap.put(name, new PointsConfig(new DecimalFormat(), Double.class));
-							} else if (fieldType.equals(java.util.Date.class)) {
-								fPointsConfigMap.put(name, new PointsConfig(new DecimalFormat(), Long.class));
-							} else if (fieldType.equals(Boolean.class)) {
-								fPointsConfigMap.put(name, new PointsConfig(new DecimalFormat(), Integer.class));
+							if (pointType != null) {
+								fPointsConfigMap.put(name, new PointsConfig(new DecimalFormat(), pointType));
 							}
 						} else {
 							do {
@@ -1780,20 +1824,15 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				return toLuceneValue(value);
 			}
 
-			private String toLuceneMinValue(Object value) {
-				if (value instanceof BigDecimal) {
-					return escape(BigDecimal.valueOf(-Double.MAX_VALUE).toPlainString());
-				}
-
-				if (value instanceof java.util.Date) {
-					return escape(BigDecimal.valueOf(Long.MIN_VALUE).toPlainString());
-				}
-
-				if (value instanceof Boolean) {
-					return escape("0");
-				}
-
-				if (value instanceof String) {
+			/**
+			 * The open lower bound of a one-sided comparison, in the domain of
+			 * the point type the field is indexed with. It follows the field, not
+			 * the literal: a long field gets {@code Long.MIN_VALUE} even when the
+			 * statement compared it against a decimal, because the parser reads
+			 * this bound back with that field's {@code PointsConfig}.
+			 */
+			private String toLuceneMinValue(Class<? extends Number> pointType) {
+				if (pointType == null) {
 					// String properties are indexed as exact, untokenized terms
 					// (StringField + SortedDocValues), so a one-sided inequality
 					// maps to a half-open lexicographic TermRangeQuery. The open
@@ -1802,29 +1841,40 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					return "*";
 				}
 
-				throw new IllegalArgumentException("Could not get minimum value of " + value.getClass().getName() + ".");
+				if (pointType.equals(Double.class)) {
+					return escape(BigDecimal.valueOf(-Double.MAX_VALUE).toPlainString());
+				}
+
+				if (pointType.equals(Long.class)) {
+					return escape(BigDecimal.valueOf(Long.MIN_VALUE).toPlainString());
+				}
+
+				if (pointType.equals(Integer.class)) {
+					return escape("0");
+				}
+
+				throw new IllegalArgumentException("Could not get minimum value of " + pointType.getName() + ".");
 			}
 
-			private String toLuceneMaxValue(Object value) {
-				if (value instanceof BigDecimal) {
-					return escape(BigDecimal.valueOf(Double.MAX_VALUE).toPlainString());
-				}
-
-				if (value instanceof java.util.Date) {
-					return escape(BigDecimal.valueOf(Long.MAX_VALUE).toPlainString());
-				}
-
-				if (value instanceof Boolean) {
-					return escape("1");
-				}
-
-				if (value instanceof String) {
-					// See toLuceneMinValue: open upper bound for lexicographic
-					// string ranges.
+			/** See {@link #toLuceneMinValue}: the open upper bound. */
+			private String toLuceneMaxValue(Class<? extends Number> pointType) {
+				if (pointType == null) {
 					return "*";
 				}
 
-				throw new IllegalArgumentException("Could not get maximum value of " + value.getClass().getName() + ".");
+				if (pointType.equals(Double.class)) {
+					return escape(BigDecimal.valueOf(Double.MAX_VALUE).toPlainString());
+				}
+
+				if (pointType.equals(Long.class)) {
+					return escape(BigDecimal.valueOf(Long.MAX_VALUE).toPlainString());
+				}
+
+				if (pointType.equals(Integer.class)) {
+					return escape("1");
+				}
+
+				throw new IllegalArgumentException("Could not get maximum value of " + pointType.getName() + ".");
 			}
 
 			private String toLuceneExistsValue(Class<?> type) {
@@ -2188,25 +2238,16 @@ public class JcrXPathQuery extends SearchIndexQuery {
 
 			Map<String, Facet> l = new HashMap<>();
 			for (String cnd : cnds) {
-				if (cnd.startsWith("@")) {
-					TopFacetParams f = new TopFacetParams(cnd.substring(1));
+				// A bare field reference, with or without the leading "@". The
+				// aggregate, top( and range( syntaxes below all start with a
+				// function name, so they cannot be mistaken for one.
+				if (cnd.startsWith("@") || cnd.startsWith("jcr:")) {
+					TopFacetParams f = new TopFacetParams(getFieldName(cnd));
 					if (l.containsKey(f.getFieldName())) {
 						throw new InvalidQuerySyntaxException(fStatement);
 					}
 					l.put(f.getFieldName(), new Facet(f));
 					continue;
-				}
-
-				if (cnd.startsWith("jcr:") && cnd.indexOf("jcr:") == -1) {
-					if (JCR_FIELDS.containsKey(cnd)) {
-						TopFacetParams f = new TopFacetParams(JCR_FIELDS.get(cnd));
-						if (l.containsKey(f.getFieldName())) {
-							throw new InvalidQuerySyntaxException(fStatement);
-						}
-						l.put(f.getFieldName(), new Facet(f));
-						continue;
-					}
-					throw new InvalidQuerySyntaxException(fStatement);
 				}
 
 				if (cnd.startsWith("top(") && cnd.endsWith(")")) {
@@ -2240,23 +2281,13 @@ public class JcrXPathQuery extends SearchIndexQuery {
 						l.put(statsParams.getDimension(), new Facet(statsParams));
 						continue;
 					}
-					if (fieldName.startsWith("@")) {
-						TopFacetParams f = new TopFacetParams(fieldName.substring(1), limit);
+					if (fieldName.startsWith("@") || fieldName.startsWith("jcr:")) {
+						TopFacetParams f = new TopFacetParams(getFieldName(fieldName), limit);
 						if (l.containsKey(f.getFieldName())) {
 							throw new InvalidQuerySyntaxException(fStatement);
 						}
 						l.put(f.getFieldName(), new Facet(f));
 						continue;
-					}
-					if (fieldName.startsWith("jcr:")) {
-						if (JCR_FIELDS.containsKey(fieldName)) {
-							TopFacetParams f = new TopFacetParams(JCR_FIELDS.get(fieldName), limit);
-							if (l.containsKey(f.getFieldName())) {
-								throw new InvalidQuerySyntaxException(fStatement);
-							}
-							l.put(f.getFieldName(), new Facet(f));
-							continue;
-						}
 					}
 					throw new InvalidQuerySyntaxException(fStatement);
 				}
@@ -2740,7 +2771,12 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			public Class<?> getFieldType() {
 				Class<?> valueType = getValueType();
 				if (valueType.equals(BigDecimal.class)) {
-					return BigDecimal.class;
+					// _size and friends store the value itself rather than the
+					// double-encoded form, so a numeric range over them has to be
+					// counted as a long range: a DoubleRangeFacetCounts would compare
+					// the stored 1024 against the bit pattern of 1024.0 and match
+					// nothing.
+					return FacetStatistics.isRawLongField(getFieldName()) ? Long.class : BigDecimal.class;
 				}
 				if (valueType.equals(java.util.Date.class)) {
 					return Long.class;
@@ -2755,7 +2791,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				Class<?> valueType = getValueType();
 				if (fMinValue == null) {
 					if (valueType.equals(BigDecimal.class)) {
-						return new BigDecimal("0");
+						return getFieldType().equals(Long.class) ? Long.valueOf(0) : new BigDecimal("0");
 					}
 					if (valueType.equals(java.util.Date.class)) {
 						return Long.parseLong("0");
@@ -2767,7 +2803,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				}
 
 				if (valueType.equals(BigDecimal.class)) {
-					return fMinValue;
+					return getFieldType().equals(Long.class) ? Long.valueOf(((BigDecimal) fMinValue).longValue()) : fMinValue;
 				}
 				if (valueType.equals(java.util.Date.class)) {
 					return Long.valueOf(((java.util.Date) fMinValue).getTime());
@@ -2786,7 +2822,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				Class<?> valueType = getValueType();
 				if (fMaxValue == null) {
 					if (valueType.equals(BigDecimal.class)) {
-						return BigDecimal.valueOf(Double.MAX_VALUE);
+						return getFieldType().equals(Long.class) ? Long.valueOf(Long.MAX_VALUE) : BigDecimal.valueOf(Double.MAX_VALUE);
 					}
 					if (valueType.equals(java.util.Date.class)) {
 						return Long.valueOf(Long.MAX_VALUE);
@@ -2798,7 +2834,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				}
 
 				if (valueType.equals(BigDecimal.class)) {
-					return fMaxValue;
+					return getFieldType().equals(Long.class) ? Long.valueOf(((BigDecimal) fMaxValue).longValue()) : fMaxValue;
 				}
 				if (valueType.equals(java.util.Date.class)) {
 					return Long.valueOf(((java.util.Date) fMaxValue).getTime());
