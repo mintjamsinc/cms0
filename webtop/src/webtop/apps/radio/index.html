@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Radio</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. -->
+		<template v-if="isReady">
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<!-- Left: view switcher -->
+			<div class="toolbar-group">
+				<button v-for="tab of viewTabs" :key="tab.key" class="btn-icon" :class="{active: view === tab.key}"
+					@click="selectView(tab.key)" :title="tab.label">
+					<i class="bi" :class="tab.icon"></i>
+				</button>
+			</div>
+
+			<!-- Station name search. Same pill as the Content Browser toolbar
+			     search: Enter or the magnifier runs it; emptying the box (or Esc)
+			     drops the name condition. -->
+			<div class="rd-searchbar">
+				<div class="input-group">
+					<input type="search" v-model="searchText"
+						:placeholder="t('app.radio.search.placeholder', undefined, 'Search stations by name')"
+						@keydown.enter.prevent="onSearch(searchText)"
+						@keydown.escape.prevent="onSearchClear"
+						@input="onSearchInput($event.target.value)">
+					<div class="input-group-actions">
+						<button type="button" class="input-group-btn" @click="onSearch(searchText)"
+							:disabled="!searchText.trim()" :title="t('app.radio.search.run', undefined, 'Search')">
+							<i class="bi bi-search"></i>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<!-- Body: the panes above the player bar. The 0.75rem gap applies only
+		     inside this block, so the toolbar and the status bar keep the same
+		     spacing as every other app. -->
+		<div class="rd-body">
+
+			<!-- Content body: filters | station list | now playing -->
+			<div class="content-body">
+
+				<!-- Left: directory filters. Selecting one switches to Discover;
+				     country, language and tag combine with each other and with the
+				     search text. Clicking the selected row again clears it. -->
+				<aside class="rd-side island">
+
+					<!-- Order -->
+					<section class="rd-facet">
+						<div class="rd-pane-title">{{ t('app.radio.order.title', undefined, 'Sort by') }}</div>
+						<div class="rd-order">
+							<button v-for="o of orderItems" :key="o.key" type="button" class="rd-order-btn"
+								:class="{active: order === o.key}" @click="setOrder(o.key)">
+								<i class="bi me-1" :class="o.icon"></i>{{ o.label }}
+							</button>
+						</div>
+					</section>
+
+					<!-- Country / region -->
+					<section class="rd-facet">
+						<div class="rd-facet-head">
+							<span class="rd-pane-title">{{ t('app.radio.facet.country', undefined, 'Country / region') }}</span>
+							<span v-if="countries.length" class="rd-count">{{ countries.length }}</span>
+						</div>
+						<input v-if="countries.length" type="search" class="wt rd-facet-filter" v-model="facetFilter.country"
+							:placeholder="t('app.radio.facet.filterCountry', undefined, 'Find a country')">
+						<div class="rd-facet-list">
+							<button v-for="c of visibleCountries" :key="c.value" type="button" class="rd-facet-item"
+								:class="{active: filters.country === c.value}" @click="toggleFilter('country', c.value)" :title="c.name">
+								<span class="rd-code">{{ c.code }}</span>
+								<span class="rd-facet-label text-truncate">{{ countryLabel(c.code, c.name) }}</span>
+								<span class="rd-count">{{ formatCount(c.stationcount) }}</span>
+							</button>
+						</div>
+						<button v-if="facetHasMore('country', countries)" type="button" class="rd-more" @click="toggleExpanded('country')">
+							{{ expanded.country ? t('app.radio.facet.less', undefined, 'Show less') : t('app.radio.facet.more', undefined, 'Show more') }}
+						</button>
+					</section>
+
+					<!-- Language -->
+					<section class="rd-facet">
+						<div class="rd-facet-head">
+							<span class="rd-pane-title">{{ t('app.radio.facet.language', undefined, 'Language') }}</span>
+							<span v-if="languages.length" class="rd-count">{{ languages.length }}</span>
+						</div>
+						<input v-if="languages.length" type="search" class="wt rd-facet-filter" v-model="facetFilter.language"
+							:placeholder="t('app.radio.facet.filterLanguage', undefined, 'Find a language')">
+						<div class="rd-facet-list">
+							<button v-for="l of visibleLanguages" :key="l.value" type="button" class="rd-facet-item"
+								:class="{active: filters.language === l.value}" @click="toggleFilter('language', l.value)" :title="l.name">
+								<span class="rd-code">{{ l.code || '··' }}</span>
+								<span class="rd-facet-label text-truncate">{{ languageLabel(l.value, l.code) }}</span>
+								<span class="rd-count">{{ formatCount(l.stationcount) }}</span>
+							</button>
+						</div>
+						<button v-if="facetHasMore('language', languages)" type="button" class="rd-more" @click="toggleExpanded('language')">
+							{{ expanded.language ? t('app.radio.facet.less', undefined, 'Show less') : t('app.radio.facet.more', undefined, 'Show more') }}
+						</button>
+					</section>
+
+					<!-- Tags (genres) -->
+					<section class="rd-facet">
+						<div class="rd-pane-title">{{ t('app.radio.facet.tag', undefined, 'Tags') }}</div>
+						<div class="rd-chips">
+							<button v-for="tag of visibleTags" :key="tag.value" type="button" class="rd-chip"
+								:class="{active: filters.tag === tag.value}" @click="toggleFilter('tag', tag.value)"
+								:title="formatCount(tag.stationcount)">#{{ tag.name }}</button>
+						</div>
+						<button v-if="facetHasMore('tag', tags)" type="button" class="rd-more" @click="toggleExpanded('tag')">
+							{{ expanded.tag ? t('app.radio.facet.less', undefined, 'Show less') : t('app.radio.facet.more', undefined, 'Show more') }}
+						</button>
+					</section>
+				</aside>
+
+				<!-- Main: station list -->
+				<div class="content-main island rd-main">
+					<div class="rd-main-header">
+						<h2 class="rd-main-title text-truncate">{{ listTitle }}</h2>
+						<div class="rd-main-actions">
+							<span v-if="listStations.length" class="text-muted fs-small">{{ t('app.radio.status.stations', { count: listStations.length }, listStations.length + ' stations') }}</span>
+							<button v-if="view === 'mine'" type="button" class="wt wt-primary" @click="openAddStation">
+								<i class="bi bi-plus-lg me-1"></i>{{ t('app.radio.mine.add', undefined, 'Add station') }}
+							</button>
+							<button v-if="view === 'recent' && library.recents.length" type="button" class="wt" @click="clearRecents">
+								{{ t('app.radio.recent.clear', undefined, 'Clear history') }}
+							</button>
+							<button v-if="view === 'discover' && directoryError" type="button" class="wt" @click="loadDirectory">
+								<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.radio.discover.retry', undefined, 'Retry') }}
+							</button>
+						</div>
+					</div>
+
+					<!-- Conditions in effect (Discover) -->
+					<div v-if="view === 'discover' && activeConditions.length" class="rd-conditions">
+						<span v-for="c of activeConditions" :key="c.key" class="rd-condition">
+							<i class="bi" :class="c.icon"></i>
+							<span class="text-truncate">{{ c.label }}</span>
+							<button type="button" class="rd-condition-remove" @click="removeCondition(c.key)"
+								:title="t('app.radio.discover.removeCondition', undefined, 'Remove this condition')"><i class="bi bi-x"></i></button>
+						</span>
+						<button type="button" class="rd-more" @click="clearConditions">{{ t('app.radio.discover.clearAll', undefined, 'Clear all') }}</button>
+					</div>
+
+					<div v-if="view === 'discover' && directoryError" class="rd-notice">
+						<wt-inline-message type="warning">{{ t('app.radio.discover.unavailable', undefined, 'The station directory could not be reached.') }}</wt-inline-message>
+					</div>
+
+					<div class="rd-list">
+						<div v-if="isListLoading" class="rd-list-loading">
+							<wt-spinner></wt-spinner>
+							<span>{{ t('app.radio.discover.loading', undefined, 'Loading the station directory…') }}</span>
+						</div>
+						<wt-empty-state v-else-if="!listStations.length" icon="bi-broadcast">{{ listEmptyMessage }}</wt-empty-state>
+						<template v-else>
+							<div v-for="s of listStations" :key="s.id" class="rd-station" :class="{active: isCurrent(s)}"
+								@dblclick="playStation(s)">
+								<div class="rd-art">
+									<img v-if="s.favicon && !brokenIcons[s.id]" :src="s.favicon" alt="" loading="lazy" @error="onIconError(s)">
+									<i v-else class="bi bi-broadcast"></i>
+								</div>
+								<div class="rd-station-body">
+									<div class="rd-station-name text-truncate">{{ s.name }}</div>
+									<div class="rd-station-meta text-truncate">{{ stationSubtitle(s) }}</div>
+								</div>
+								<div class="rd-station-badges">
+									<span v-if="stationMetric(s)" class="rd-metric" :title="stationMetric(s).title">
+										<i class="bi" :class="stationMetric(s).icon"></i>{{ stationMetric(s).value }}
+									</span>
+									<span v-if="s.hls" class="rd-tech">HLS</span>
+									<span v-if="s.codec" class="rd-tech">{{ s.codec }}</span>
+									<span v-if="s.bitrate" class="rd-tech">{{ t('app.radio.unit.kbps', { bitrate: s.bitrate }, s.bitrate + ' kbps') }}</span>
+								</div>
+								<div class="rd-station-actions">
+									<button type="button" class="btn-icon" @click.stop="toggleFavorite(s)"
+										:title="isFavorite(s.id) ? t('app.radio.station.unfavorite', undefined, 'Remove from favorites') : t('app.radio.station.favorite', undefined, 'Add to favorites')">
+										<i class="bi" :class="isFavorite(s.id) ? 'bi-heart-fill rd-fav' : 'bi-heart'"></i>
+									</button>
+									<button v-if="s.source === 'custom'" type="button" class="btn-icon" @click.stop="openEditStation(s)"
+										:title="t('app.radio.mine.edit', undefined, 'Edit station')">
+										<i class="bi bi-pencil"></i>
+									</button>
+									<button v-if="s.source === 'custom'" type="button" class="btn-icon" @click.stop="removeCustomStation(s)"
+										:title="t('app.radio.mine.remove', undefined, 'Remove station')">
+										<i class="bi bi-trash"></i>
+									</button>
+									<button type="button" class="btn-icon rd-play-btn" @click.stop="togglePlayStation(s)"
+										:title="isCurrent(s) && isActive ? t('app.radio.station.stop', undefined, 'Stop') : t('app.radio.station.play', undefined, 'Play')">
+										<i class="bi" :class="isCurrent(s) && isActive ? 'bi-stop-fill' : 'bi-play-fill'"></i>
+									</button>
+								</div>
+							</div>
+						</template>
+					</div>
+				</div>
+
+				<!-- Right: now playing -->
+				<aside class="rd-now island">
+					<div class="rd-now-header">
+						<span class="rd-pane-title mb-0">{{ t('app.radio.now.title', undefined, 'Now playing') }}</span>
+						<span class="rd-live" :class="{on: player.state === 'playing', loading: player.state === 'loading'}">
+							<span class="rd-live-dot"></span>{{ stateLabel }}
+						</span>
+					</div>
+
+					<template v-if="current">
+						<div class="rd-now-art">
+							<img v-if="current.favicon && !brokenIcons[current.id]" :src="current.favicon" alt="" @error="onIconError(current)">
+							<i v-else class="bi bi-broadcast"></i>
+						</div>
+						<div class="rd-now-name">{{ current.name }}</div>
+						<div class="rd-now-track" :class="{muted: !now.title}">{{ now.title || t('app.radio.now.noTitle', undefined, 'Track title is not provided by this station.') }}</div>
+						<div class="rd-now-meta text-muted">{{ stationSubtitle(current) }}</div>
+						<div class="rd-now-tech">
+							<span v-if="current.codec" class="rd-tech">{{ current.codec }}</span>
+							<span v-if="nowBitrate" class="rd-tech">{{ t('app.radio.unit.kbps', { bitrate: nowBitrate }, nowBitrate + ' kbps') }}</span>
+							<span v-if="now.genre" class="rd-tech">{{ now.genre }}</span>
+						</div>
+
+						<canvas class="rd-spectrum" @mounted="onSpectrumMounted" @unmount="onSpectrumUnmount"></canvas>
+						<div v-if="player.state === 'playing' && !player.analyser" class="rd-hint">{{ t('app.radio.now.visualizerUnavailable', undefined, 'The station does not allow the spectrum view.') }}</div>
+						<div v-if="now.elapsed" class="rd-hint">{{ t('app.radio.now.since', { duration: now.elapsed }, 'Playing for ' + now.elapsed) }}</div>
+
+						<wt-inline-message v-if="player.state === 'error'" type="error">{{ errorMessage }}</wt-inline-message>
+
+						<div class="rd-now-actions">
+							<button type="button" class="wt" @click="toggleFavorite(current)">
+								<i class="bi me-1" :class="isFavorite(current.id) ? 'bi-heart-fill rd-fav' : 'bi-heart'"></i>{{ isFavorite(current.id) ? t('app.radio.station.unfavorite', undefined, 'Remove from favorites') : t('app.radio.station.favorite', undefined, 'Add to favorites') }}
+							</button>
+							<button v-if="current.homepage" type="button" class="wt" @click="openHomepage(current)">
+								<i class="bi bi-box-arrow-up-right me-1"></i>{{ t('app.radio.station.openHomepage', undefined, 'Open homepage') }}
+							</button>
+						</div>
+
+						<div class="rd-sleep">
+							<span class="rd-sleep-label"><i class="bi bi-moon-stars me-1"></i>{{ t('app.radio.sleep.title', undefined, 'Sleep timer') }}</span>
+							<wt-select v-model="sleepMinutes" :items="sleepItems" @change="onSleepChange(sleepMinutes)"></wt-select>
+							<span v-if="sleep.remaining" class="text-muted fs-small">{{ t('app.radio.sleep.remaining', { minutes: sleep.remaining }, 'Stops in ' + sleep.remaining + ' min') }}</span>
+						</div>
+					</template>
+					<wt-empty-state v-else icon="bi-music-note-beamed">{{ t('app.radio.now.idle', undefined, 'Pick a station to start listening.') }}</wt-empty-state>
+				</aside>
+			</div>
+
+			<!-- Persistent player bar -->
+			<div class="rd-player island">
+				<div class="rd-player-info">
+					<div class="rd-art rd-art-sm">
+						<img v-if="current && current.favicon && !brokenIcons[current.id]" :src="current.favicon" alt="">
+						<i v-else class="bi bi-broadcast"></i>
+					</div>
+					<div class="rd-player-text">
+						<div class="text-truncate fw-semibold">{{ current ? current.name : t('app.radio.now.idle', undefined, 'Pick a station to start listening.') }}</div>
+						<div class="text-truncate text-muted fs-small">{{ now.title || (current ? stationSubtitle(current) : '') }}</div>
+					</div>
+				</div>
+				<div class="rd-player-controls">
+					<button type="button" class="rd-hero" :class="{playing: isActive}" :disabled="!current" @click="togglePlay"
+						:title="isActive ? t('app.radio.station.stop', undefined, 'Stop') : t('app.radio.station.play', undefined, 'Play')">
+						<wt-spinner v-if="player.state === 'loading'" size="sm"></wt-spinner>
+						<i v-else class="bi" :class="isActive ? 'bi-stop-fill' : 'bi-play-fill'"></i>
+					</button>
+				</div>
+				<div class="rd-player-right">
+					<button type="button" class="btn-icon" @click="toggleMute"
+						:title="muted ? t('app.radio.player.unmute', undefined, 'Unmute') : t('app.radio.player.mute', undefined, 'Mute')">
+						<i class="bi" :class="muted ? 'bi-volume-mute-fill' : (volume > 50 ? 'bi-volume-up-fill' : 'bi-volume-down-fill')"></i>
+					</button>
+					<input type="range" class="rd-volume" min="0" max="100" step="1" :value="volume" @input="onVolumeInput"
+						:title="t('app.radio.player.volume', undefined, 'Volume')">
+				</div>
+			</div>
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span v-if="statusMessage" class="status-item">{{ statusMessage }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group">
+				<span class="status-item">Powered by Radio Browser API</span>
+			</div>
+		</div>
+
+		<!-- Add / edit station dialog -->
+		<wt-dialog v-model:open="stationDialog.visible" size="md" @close="closeStationDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-broadcast me-2"></i>{{ stationDialog.id ? t('app.radio.mine.edit', undefined, 'Edit station') : t('app.radio.mine.add', undefined, 'Add station') }}
+			</template>
+			<template v-slot="d">
+				<div class="rd-form">
+					<wt-field :label="t('app.radio.station.name', undefined, 'Name')" required :error="stationDialog.errors.name">
+						<input type="text" class="wt w-100" v-model="stationDialog.name" @keydown.enter="saveStationDialog">
+					</wt-field>
+					<wt-field :label="t('app.radio.station.url', undefined, 'Stream URL')" required
+						:hint="t('app.radio.station.urlHint', undefined, 'Direct stream address (MP3 / AAC / Ogg) or an HLS playlist (.m3u8).')" :error="stationDialog.errors.url">
+						<input type="url" class="wt w-100" v-model="stationDialog.url" placeholder="https://" @keydown.enter="saveStationDialog">
+					</wt-field>
+					<wt-field :label="t('app.radio.station.homepage', undefined, 'Homepage')">
+						<input type="url" class="wt w-100" v-model="stationDialog.homepage" placeholder="https://">
+					</wt-field>
+					<wt-field :label="t('app.radio.station.tags', undefined, 'Tags')" :hint="t('app.radio.station.tagsHint', undefined, 'Comma separated')">
+						<input type="text" class="wt w-100" v-model="stationDialog.tags">
+					</wt-field>
+				</div>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeStationDialog">{{ t('common.cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="saveStationDialog">{{ t('common.save') }}</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Confirmation dialog -->
+		<wt-dialog v-model:open="confirmDialog.visible" size="sm" @close="closeConfirmDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-question-circle me-2"></i>{{ confirmDialog.title }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-0">{{ confirmDialog.message }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeConfirmDialog">{{ t('common.cancel') }}</button>
+				<button type="button" class="wt wt-danger" @click="acceptConfirmDialog">{{ t('common.ok') }}</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+		<!-- /Readiness gate -->
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+</html>
