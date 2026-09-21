@@ -8,7 +8,7 @@
 	"app.memo.toolbar.undo": "Undo (Ctrl+Z)",
 	"app.memo.toolbar.redo": "Redo (Ctrl+Y)",
 	"app.memo.toolbar.toggleInspector": "Toggle Inspector (Ctrl+I)",
-	"app.memo.toolbar.toggleSearch": "Find & Replace (Ctrl+F)",
+	"app.memo.toolbar.toggleSidebar": "Toggle Sidebar",
 	"app.memo.tabs.newMemo": "New memo",
 	"app.memo.find.find": "Find",
 	"app.memo.find.findPlaceholder": "Find...",
