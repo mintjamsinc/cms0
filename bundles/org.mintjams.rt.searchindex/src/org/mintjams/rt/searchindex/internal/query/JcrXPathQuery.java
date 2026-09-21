@@ -500,7 +500,8 @@ public class JcrXPathQuery extends SearchIndexQuery {
 	}
 
 	// Splits the statement at every '|' (the XPath union operator) that is not
-	// inside a quoted literal, a predicate, a function call or a brace group.
+	// escaped with a backslash or inside a quoted literal, a predicate, a
+	// function call or a brace group.
 	// A statement without a union comes back as its single branch, so this is
 	// a no-op for every query written before the operator was supported.
 	private List<String> splitUnion(String statement) {
@@ -526,6 +527,11 @@ public class JcrXPathQuery extends SearchIndexQuery {
 						continue;
 					}
 				}
+				continue;
+			}
+
+			if (c == '\\') {
+				i++;
 				continue;
 			}
 
@@ -667,6 +673,11 @@ public class JcrXPathQuery extends SearchIndexQuery {
 								continue;
 							}
 						}
+						continue;
+					}
+
+					if (c == '\\') {
+						i++;
 						continue;
 					}
 
@@ -1290,7 +1301,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					}
 					if (paths[1].indexOf("/") == -1) {
 						paths[0] = "_path:" + toLucenePath(paths[0] + "/*");
-						paths[1] = "_name:" + escape(paths[1]);
+						paths[1] = "_name:" + escapeName(paths[1]);
 						buf.append("(").append(paths[0]).append(" AND ").append(paths[1]).append(")");
 					} else {
 						String path0 = paths[0] + "/" + paths[1];
@@ -1307,7 +1318,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				if (buf.length() > 0) {
 					buf.append(" AND ");
 				}
-				buf.append("_name:").append(escape(filename));
+				buf.append("_name:").append(escapeName(filename));
 			}
 			if (Strings.isNotEmpty(nodeType)) {
 				if (buf.length() > 0) {
@@ -1355,9 +1366,29 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					continue;
 				}
 
-				buf.append("\\/").append(escape(e));
+				buf.append("\\/").append(escapeName(e));
 			}
 			return buf.toString();
+		}
+
+		// A backslash in a path step escapes the next character, e.g. \{ or \,
+		// keeps it out of brace expansion. The backslash itself is not part of
+		// the name, so it is dropped before the name is escaped for Lucene.
+		private String escapeName(String name) {
+			if (name.indexOf('\\') == -1) {
+				return escape(name);
+			}
+
+			StringBuilder buf = new StringBuilder();
+			char[] chars = name.toCharArray();
+			for (int i = 0; i < chars.length; i++) {
+				char c = chars[i];
+				if (c == '\\' && (i + 1) < chars.length) {
+					c = chars[++i];
+				}
+				buf.append(c);
+			}
+			return escape(buf.toString());
 		}
 
 		protected Map<String, PointsConfig> getPointsConfigMap() {
