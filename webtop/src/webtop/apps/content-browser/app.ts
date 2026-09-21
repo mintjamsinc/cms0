@@ -1,5 +1,5 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import { type Node, type JobStatus } from "../../graphql/types.js";
+import { type Node, type JobStatus, type ContentLengthEvent } from "../../graphql/types.js";
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from "../../services/content-delete.js";
 import { downloadContentAsZip, importContentArchive, type ArchiveJobHandle, type ArchiveJobProgress, type ImportArchiveProgress } from "../../services/content-archive.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
@@ -74,15 +74,30 @@ function nodeToContentItem(node: Node): ContentItem {
 		...nodeToInspectorTarget(node),
 		exists: true,
 		hasChildren: node.hasChildren || false,
+		folderSize: null,
 		attributes: {},
 	};
 }
 
+/**
+ * A folder's total content size in the list: null until requested, 'pending'
+ * while the server computes it, then the result (whose size is null when the
+ * server could not determine it).
+ */
+type FolderSizeState = null | 'pending' | { size: number | null; fileCount: number | null };
+
 interface ContentItem extends InspectorTarget {
 	exists: boolean;
 	hasChildren: boolean;
+	folderSize: FolderSizeState;
 	attributes: Record<string, any>;
 }
+
+/** The server accepts at most this many paths per contentLengths subscription. */
+const FOLDER_SIZE_BATCH = 1000;
+
+/** Folder sizes arriving within this window are applied to the list together. */
+const FOLDER_SIZE_FLUSH_MS = 100;
 
 // ---------------------------------------------------------------------------
 // Full-text search query parser.
@@ -603,6 +618,10 @@ export const App = {
 			// recognise a path-free DELETED drop signal for the folder we are viewing.
 			_currentFolderId: null as string | null,
 			flashingItems: [] as string[],
+			// Folder size requests for the current list. Bumping the sequence
+			// discards results still in flight for a list no longer shown.
+			_folderSizeSeq: 0,
+			_folderSizeUnsubscribes: [] as (() => void)[],
 			// Set when the currently displayed folder has been deleted out from
 			// under us (by another user/process). The list area shows a notice
 			// and the user can navigate elsewhere to continue working.
@@ -1144,6 +1163,7 @@ export const App = {
 				vm._parentWatchUnsubscribe();
 				vm._parentWatchUnsubscribe = null;
 			}
+			vm._cancelFolderSizes();
 		},
 		async load(path: string, skipStack: boolean = false) {
 			const vm = this;
@@ -1174,6 +1194,7 @@ export const App = {
 				}
 			}
 			vm.clearSelection();
+			vm._cancelFolderSizes();
 			vm.items = [];
 
 			// Enter the navigating state. A transparent shield (rendered while
@@ -1219,6 +1240,11 @@ export const App = {
 
 				vm.items = items;
 				vm.sortItems(vm.sortColumn, vm.sortDirection);
+				// Sizes follow the list: it is shown first, and each folder's
+				// total fills in as the server computes it.
+				if (vm._navSeq === seq) {
+					vm._requestFolderSizes(items.filter(i => i.isCollection).map(i => i.path));
+				}
 			} catch (error: any) {
 				const message = error?.message || String(error) || vm.t('app.content-browser.error.fetchFailed', undefined, 'Failed to fetch data');
 				vm.errorMessage = message;
@@ -1322,6 +1348,7 @@ export const App = {
 			const vm = this;
 			if (vm.currentFolderDeleted) return;
 			vm.currentFolderDeleted = true;
+			vm._cancelFolderSizes();
 			vm.items = [];
 			vm.clearSelection();
 			vm._pendingNodeEvents = [];
@@ -1329,6 +1356,77 @@ export const App = {
 			if (vm._nodeWatchUnsubscribe) {
 				vm._nodeWatchUnsubscribe();
 				vm._nodeWatchUnsubscribe = null;
+			}
+		},
+		/**
+		 * Ask the server for the total content size of the given folders in the
+		 * list. The server computes them one at a time and streams each result
+		 * over the contentLengths subscription; results are applied to the list in
+		 * small batches so a large folder listing does not re-render per row.
+		 */
+		_requestFolderSizes(paths: string[]) {
+			const vm = this;
+			const eventHub = vm.instance?.api?.eventHub;
+			if (!eventHub || paths.length === 0) return;
+
+			const seq = vm._folderSizeSeq;
+			const requested = new Set(paths);
+			for (const item of vm.items as ContentItem[]) {
+				if (item.isCollection && requested.has(item.path)) {
+					item.folderSize = 'pending';
+				}
+			}
+
+			const received = new Map<string, FolderSizeState>();
+			let flushTimer: number | null = null;
+			const flush = () => {
+				flushTimer = null;
+				if (seq !== vm._folderSizeSeq) return;
+				for (const item of vm.items as ContentItem[]) {
+					const value = received.get(item.path);
+					if (value !== undefined && item.isCollection) {
+						item.folderSize = value;
+					}
+				}
+				received.clear();
+			};
+			const accept = (path: string, value: FolderSizeState) => {
+				if (seq !== vm._folderSizeSeq) return;
+				received.set(path, value);
+				if (flushTimer === null) {
+					flushTimer = window.setTimeout(flush, FOLDER_SIZE_FLUSH_MS);
+				}
+			};
+
+			for (let i = 0; i < paths.length; i += FOLDER_SIZE_BATCH) {
+				const batch = paths.slice(i, i + FOLDER_SIZE_BATCH);
+				const answered = new Set<string>();
+				vm._folderSizeUnsubscribes.push(eventHub.watchContentLengths(
+					batch,
+					(event: ContentLengthEvent) => {
+						answered.add(event.path);
+						accept(event.path, { size: event.size, fileCount: event.fileCount });
+					},
+					() => {
+						// The server ended the request (done, or refused when busy):
+						// whatever it did not answer stays unknown rather than pending.
+						for (const path of batch) {
+							if (!answered.has(path)) {
+								accept(path, { size: null, fileCount: null });
+							}
+						}
+					},
+				));
+			}
+		},
+		/** Stop the folder size requests of the current list and ignore their late results. */
+		_cancelFolderSizes() {
+			const vm = this;
+			vm._folderSizeSeq++;
+			const unsubscribes = vm._folderSizeUnsubscribes;
+			vm._folderSizeUnsubscribes = [];
+			for (const unsubscribe of unsubscribes) {
+				try { unsubscribe(); } catch { /* noop */ }
 			}
 		},
 		/**
@@ -1387,6 +1485,8 @@ export const App = {
 			}
 
 			const flashIds: string[] = [];
+			// Folders added or replaced below; a replaced item has lost its size.
+			const changedFolderPaths: string[] = [];
 
 			for (const evt of deduplicated) {
 				const path = evt.path;
@@ -1438,6 +1538,9 @@ export const App = {
 								vm.sortItems(vm.sortColumn, vm.sortDirection);
 							}
 							flashIds.push(item.id);
+							if (item.isCollection) {
+								changedFolderPaths.push(item.path);
+							}
 						} else {
 							// Node no longer exists — remove it
 							const idx = vm.items.findIndex((i: any) => i.path === path);
@@ -1455,6 +1558,10 @@ export const App = {
 						}
 					}
 				}
+			}
+
+			if (changedFolderPaths.length > 0) {
+				vm._requestFolderSizes(changedFolderPaths);
 			}
 
 			// Trigger flash animation for changed items
@@ -1569,6 +1676,16 @@ export const App = {
 		displaySize(item: any) {
 			return displaySizeUtil(item);
 		},
+		// A folder's total content size, or '' while it is pending or unknown.
+		displayFolderSize(item: ContentItem): string {
+			const state = item.folderSize;
+			if (!state || state === 'pending' || state.size === null) return '';
+			return this.instance.util.bytes.format(state.size, { short: true });
+		},
+		_folderSizeBytes(item: ContentItem): number {
+			const state = item.folderSize;
+			return (state && state !== 'pending' && state.size !== null) ? state.size : -1;
+		},
 		displayDate(item: any) {
 			const options = {
 				format: 'friendly',
@@ -1640,8 +1757,10 @@ export const App = {
 					av = ad.toLowerCase();
 					bv = bd.toLowerCase();
 				} else if (column == 'size') {
-					av = a.contentLength ?? 0;
-					bv = b.contentLength ?? 0;
+					// Folders sort by their total once it has arrived; one still
+					// unknown sorts as the smallest.
+					av = a.isCollection ? this._folderSizeBytes(a) : (a.contentLength ?? 0);
+					bv = b.isCollection ? this._folderSizeBytes(b) : (b.contentLength ?? 0);
 				}
 				if (av < bv) return -1 * dir;
 				if (av > bv) return 1 * dir;
@@ -4464,6 +4583,7 @@ export const App = {
 			if (!vm.hasSearchInput) {
 				return;
 			}
+			vm._cancelFolderSizes();
 			vm.items = [];
 			vm.xpathSearchLoading = true;
 			vm.xpathSearchError = '';

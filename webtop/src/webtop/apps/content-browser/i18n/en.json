@@ -70,6 +70,7 @@
 	"app.content-browser.column.version": "Version",
 	"app.content-browser.column.kind": "Kind",
 	"app.content-browser.column.size": "Size",
+	"app.content-browser.folderSize.fileCount": "{count} files",
 	"app.content-browser.column.lockedByYou": "Locked by you",
 	"app.content-browser.column.lockedBy": "Locked by {name}",
 	"app.content-browser.column.you": "You",

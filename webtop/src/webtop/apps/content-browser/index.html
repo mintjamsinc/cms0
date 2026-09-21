@@ -614,6 +614,8 @@
 						<td class="size-column">
 							<div class="size-block pe-1 text-truncate">
 								<span v-if="!item.isCollection" :class="{ 'text-muted': (item.contentLength == 0) }">{{ displaySize(item) }}</span>
+								<span v-else-if="item.folderSize === 'pending'" class="text-small text-muted">&hellip;</span>
+								<span v-else-if="displayFolderSize(item)" class="text-muted" :title="t('app.content-browser.folderSize.fileCount', { count: item.folderSize.fileCount })">{{ displayFolderSize(item) }}</span>
 								<span v-else class="text-small text-muted">&mdash;</span>
 							</div>
 						</td>

@@ -18,6 +18,7 @@ import type {
   RouteStateEvent,
   JobProgressEvent,
   WorkspaceChangeEvent,
+  ContentLengthEvent,
 } from '../graphql/types.js';
 
 export type EventHandler<T = unknown> = (data: T) => void;
@@ -35,6 +36,7 @@ const SELECTIONS = {
   wallpaper: 'userId action filename timestamp',
   avatar: 'userId timestamp',
   workspace: 'workspace timestamp',
+  contentLength: 'path size fileCount',
   job:
     'jobId status itemsTotal itemsProcessed itemsDeleted itemsArchived itemsImported ' +
     'itemsNew itemsOverwritten itemsSkipped itemsError errorSamples dryRunHasErrors ' +
@@ -312,6 +314,24 @@ export class EventHub {
     return this.#client.subscribe(
       subscriptionDoc(`taskAssigned(assignee: ${gqlString(userId)})`, SELECTIONS.task),
       handler
+    );
+  }
+
+  /**
+   * Request the total content size of each folder (its files at any depth) or
+   * file (the file itself). The server computes them one at a time and emits
+   * one event per path, then completes (`onComplete`); unsubscribing before
+   * then drops the paths not yet computed. At most 1000 paths per call.
+   */
+  watchContentLengths(
+    paths: string[],
+    handler: EventHandler<ContentLengthEvent>,
+    onComplete?: () => void
+  ): () => void {
+    return this.#client.subscribe(
+      subscriptionDoc(`contentLengths(paths: [${paths.map(gqlString).join(', ')}])`, SELECTIONS.contentLength),
+      handler,
+      onComplete
     );
   }
 

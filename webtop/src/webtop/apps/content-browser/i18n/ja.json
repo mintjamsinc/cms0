@@ -70,6 +70,7 @@
 	"app.content-browser.column.version": "バージョン",
 	"app.content-browser.column.kind": "種類",
 	"app.content-browser.column.size": "サイズ",
+	"app.content-browser.folderSize.fileCount": "{count} ファイル",
 	"app.content-browser.column.lockedByYou": "あなたがロック中",
 	"app.content-browser.column.lockedBy": "{name} がロック中",
 	"app.content-browser.column.you": "あなた",

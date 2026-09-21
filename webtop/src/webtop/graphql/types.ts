@@ -834,6 +834,16 @@ export interface NodeChangeEvent {
   userId: string;
 }
 
+/** One folder's or file's total content size, as emitted by the `contentLengths` subscription. */
+export interface ContentLengthEvent {
+  /** The folder or file path, exactly as requested. */
+  path: string;
+  /** Total bytes of every nt:file under the folder, or of the file itself; null when it could not be determined. */
+  size: number | null;
+  /** Number of files counted in `size` (1 for a file); null together with `size`. */
+  fileCount: number | null;
+}
+
 // =============================================================================
 // Background jobs
 // =============================================================================

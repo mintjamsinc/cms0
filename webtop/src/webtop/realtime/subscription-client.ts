@@ -35,6 +35,7 @@ export interface SubscriptionClientOptions {
 interface ActiveOperation {
   document: string;
   handler: SubscriptionHandler;
+  onComplete?: () => void;
 }
 
 /**
@@ -71,11 +72,13 @@ export class SubscriptionClient {
 
   /**
    * Add a subscription. `document` is a full `subscription { … }` query; the handler
-   * receives the single root field value from each event.
+   * receives the single root field value from each event. `onComplete` runs when the
+   * server ends the operation (a finite subscription finished, or it failed to start);
+   * it does not run when the caller unsubscribes.
    */
-  subscribe<T>(document: string, handler: SubscriptionHandler<T>): () => void {
+  subscribe<T>(document: string, handler: SubscriptionHandler<T>, onComplete?: () => void): () => void {
     const operationId = String(++this.#operationSeq);
-    this.#operations.set(operationId, { document, handler: handler as SubscriptionHandler });
+    this.#operations.set(operationId, { document, handler: handler as SubscriptionHandler, onComplete });
     void this.#startOperation(operationId);
     return () => {
       void this.#unsubscribe(operationId);
@@ -222,7 +225,9 @@ export class SubscriptionClient {
       return;
     }
     if (message?.id) {
+      const operation = this.#operations.get(message.id);
       this.#operations.delete(message.id);
+      operation?.onComplete?.();
     }
   }
 

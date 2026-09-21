@@ -230,6 +230,9 @@ type Subscription {
   """JCR node changes under a path (`deep` extends beyond direct children). A metadata-only "re-check" signal — node content is not included; the client re-queries under its own session, where JCR ACLs apply. This is what lets a client drop an item the instant it becomes unreadable (the MODIFIED event still arrives, the re-query then returns nothing)."""
   nodeChanged(path: String = "/", deep: Boolean = false): NodeChangeEvent!
 
+  """Total content size of each given path, computed from the search index: for a folder, every nt:file under it at any depth; for an nt:file, the file itself. Emits one ContentLength per path as it is computed (in no guaranteed order) and completes after the last. Nothing is persisted: cancelling the subscription drops the paths not yet computed. Only nt:file nodes the subscriber can read are counted. At most 1000 paths."""
+  contentLengths(paths: [String!]!): ContentLength!
+
   """Changes to the signed-in user's preferences. The `userId` argument is accepted for wire-compat but ignored — the subscriber is resolved from the session."""
   preferenceChanged(userId: String): PreferenceChangedEvent!
 
@@ -320,6 +323,16 @@ type AvatarChangedEvent {
 type WorkspaceChangedEvent {
   workspace: String
   timestamp: DateTime
+}
+
+"""The total content size of one folder or file, as emitted by `contentLengths`."""
+type ContentLength {
+  """The folder or file path, exactly as requested."""
+  path: String!
+  """Sum of the content length of every nt:file under the folder, at any depth, or the content length of the file itself, in bytes. Null when it could not be determined (unreadable path, unavailable index)."""
+  size: Long
+  """Number of nt:file nodes counted in `size` (1 for a file). Null together with `size`."""
+  fileCount: Long
 }
 
 """A snapshot of an async job's progress (flat payload, mirrors the handmade SSE event)."""

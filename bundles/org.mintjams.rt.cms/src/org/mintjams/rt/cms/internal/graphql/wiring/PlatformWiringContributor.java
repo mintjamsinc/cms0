@@ -32,9 +32,11 @@ import java.util.Base64;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.jcr.Binary;
 import javax.jcr.Node;
@@ -95,6 +97,7 @@ import graphql.schema.DataFetchingEnvironment;
 import graphql.schema.DataFetchingFieldSelectionSet;
 import graphql.schema.SelectedField;
 import org.mintjams.rt.cms.internal.graphql.event.CmsEventPublisher;
+import org.mintjams.rt.cms.internal.graphql.event.ContentLengthPublisher;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutionContext;
 import org.mintjams.rt.cms.internal.graphql.event.OsgiEventPublisher;
 import org.mintjams.rt.cms.internal.graphql.type.PropertyValueTypeResolver;
@@ -137,7 +140,9 @@ import org.mintjams.rt.cms.internal.graphql.type.PropertyValueTypeResolver;
  * {@code workspaceChanged} — {@code Publisher}s bridged from the workspace
  * CmsEvent feed, served over the legacy SSE envelope; preference/wallpaper/avatar
  * resolve the user from the session; nodeChanged is a metadata-only re-check
- * signal, content being ACL-protected at the client's re-query), plus the BPM
+ * signal, content being ACL-protected at the client's re-query), the one-shot
+ * {@code contentLengths} (computed from the search index on a bounded worker pool,
+ * completing after its last folder), plus the BPM
  * subscriptions ({@code taskAssigned}/{@code taskCompleted}/{@code taskUpdated}/
  * {@code processStarted}/{@code processEnded}) bridged from the Camunda
  * EventAdmin topics via {@link OsgiEventPublisher}.
@@ -231,6 +236,8 @@ public final class PlatformWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformWiringContributor::jobProgress)
 				.dataFetcher("Subscription", "nodeChanged",
 						(DataFetcher<Object>) PlatformWiringContributor::nodeChanged)
+				.dataFetcher("Subscription", "contentLengths",
+						(DataFetcher<Object>) PlatformWiringContributor::contentLengths)
 				.dataFetcher("Subscription", "preferenceChanged",
 						(DataFetcher<Object>) PlatformWiringContributor::preferenceChanged)
 				.dataFetcher("Subscription", "wallpaperChanged",
@@ -2110,6 +2117,47 @@ public final class PlatformWiringContributor implements WiringContributor {
 		} catch (Throwable t) {
 			return false;
 		}
+	}
+
+	/**
+	 * {@code Subscription.contentLengths(paths)} — the total content size of each
+	 * path (a folder's files, or a file itself), streamed one path at a time and
+	 * completed after the last. The caller session is released as soon as this
+	 * fetcher returns, so everything the computation needs from it is captured
+	 * here: which paths the subscriber can read, which of them are files, and
+	 * the principals the index query is restricted to (the same ones
+	 * {@link #facets} applies).
+	 */
+	private static Object contentLengths(DataFetchingEnvironment environment) {
+		List<String> paths = environment.getArgument("paths");
+		if (paths == null || paths.isEmpty()) {
+			throw new IllegalArgumentException("paths is required");
+		}
+		if (paths.size() > ContentLengthPublisher.MAX_PATHS) {
+			throw new IllegalArgumentException("Too many paths: " + paths.size() + " (at most "
+					+ ContentLengthPublisher.MAX_PATHS + ")");
+		}
+		for (String path : paths) {
+			if (path == null || !path.startsWith("/")) {
+				throw new IllegalArgumentException("Invalid path: " + path);
+			}
+		}
+
+		Session session = GraphQLExecutionContext.from(environment).getCallerSession();
+		Set<String> unreadablePaths = new HashSet<>();
+		Set<String> filePaths = new HashSet<>();
+		for (String path : paths) {
+			try {
+				if (session.getNode(path).isNodeType("nt:file")) {
+					filePaths.add(path);
+				}
+			} catch (Throwable ex) {
+				unreadablePaths.add(path);
+			}
+		}
+		SearchIndex searchIndex = Adaptables.getAdapter(session, SearchIndex.class);
+		return new ContentLengthPublisher(searchIndex, queryAuthorizables(session), paths, unreadablePaths,
+				filePaths);
 	}
 
 	/** {@code Subscription.preferenceChanged} — the userId arg is ignored; the subscriber is the session user. */
