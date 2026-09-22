@@ -106,11 +106,11 @@
 							:class="{ active: labelFilter.color === c }" :style="{ background: colorHex(c) }"
 							:title="colorLabel(c)" @click="toggleLabelFilter('color', c)"></button>
 					</div>
-					<button v-for="tag of labels.tags" :key="'tag-' + tag" type="button" class="ml-nav-item"
-						:class="{ active: labelFilter.tag === tag }" @click="toggleLabelFilter('tag', tag)">
-						<i class="bi bi-tag"></i>
-						<span class="text-truncate">{{ tag }}</span>
-					</button>
+					<div v-if="labels.tags.length" class="ml-tag-chips">
+						<button v-for="tag of labels.tags" :key="'tag-' + tag" type="button" class="ml-tag-chip"
+							:class="{ active: labelFilter.tag === tag }" :title="tag"
+							@click="toggleLabelFilter('tag', tag)">#{{ tag }}</button>
+					</div>
 				</div>
 
 				<div v-if="!accounts.length" class="ml-side-empty">
@@ -407,21 +407,11 @@
 					<div class="ml-message-head">
 						<h1 class="ml-message-subject">{{ current.subject || t('app.mail.message.noSubject', undefined, '(no subject)') }}</h1>
 						<div class="ml-message-meta">
-							<div class="ml-meta-row">
-								<span class="ml-meta-label">{{ t('app.mail.message.from', undefined, 'From') }}</span>
-								<span class="ml-meta-value">{{ addressList(current.from) }}</span>
-							</div>
-							<div v-if="current.to.length" class="ml-meta-row">
-								<span class="ml-meta-label">{{ t('app.mail.message.to', undefined, 'To') }}</span>
-								<span class="ml-meta-value">{{ addressList(current.to) }}</span>
-							</div>
-							<div v-if="current.cc.length" class="ml-meta-row">
-								<span class="ml-meta-label">{{ t('app.mail.message.cc', undefined, 'Cc') }}</span>
-								<span class="ml-meta-value">{{ addressList(current.cc) }}</span>
-							</div>
-							<div v-if="current.replyTo.length" class="ml-meta-row">
-								<span class="ml-meta-label">{{ t('app.mail.message.replyTo', undefined, 'Reply-To') }}</span>
-								<span class="ml-meta-value">{{ addressList(current.replyTo) }}</span>
+							<div v-for="row in addressRows" :key="row.key" class="ml-meta-row">
+								<span class="ml-meta-label">{{ row.label }}</span>
+								<span class="ml-meta-value">
+									<span v-for="(a, i) in row.list" :key="i" class="ml-address">{{ addressLabel(a) }}<button v-if="canSaveAddress(a)" type="button" class="ml-address-save" :title="t('app.mail.address.save', undefined, 'Save for suggestions')" @click="saveAddress(a)"><i class="bi bi-person-plus"></i></button><span v-if="i < row.list.length - 1">, </span></span>
+								</span>
 							</div>
 							<div class="ml-meta-row">
 								<span class="ml-meta-label">{{ t('app.mail.message.date', undefined, 'Date') }}</span>

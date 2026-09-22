@@ -482,4 +482,16 @@ class MailApi {
 		return compose().listRecipients();
 	}
 
+	List<Map> listSavedAddresses() {
+		return compose().listSavedAddresses();
+	}
+
+	boolean saveAddress(String name, String address) {
+		return compose().saveAddress(name, address);
+	}
+
+	boolean forgetAddress(String address) {
+		return compose().forgetAddress(address);
+	}
+
 }

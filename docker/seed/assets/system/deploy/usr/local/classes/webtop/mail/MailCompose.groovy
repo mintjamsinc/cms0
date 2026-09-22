@@ -28,6 +28,7 @@ class MailCompose {
 	static final int MAX_ATTACHMENTS = 50;
 	static final int MAX_RECIPIENTS = 100;
 	static final int MAX_REMEMBERED = 500;
+	static final int MAX_SAVED = 1000;
 	static final long MAX_TOTAL_SIZE = 25L * 1024 * 1024;
 
 	def context;
@@ -438,19 +439,86 @@ class MailCompose {
 			if (known.size() > MAX_REMEMBERED) {
 				known = known.subList(0, MAX_REMEMBERED);
 			}
-			def file = session.getResource(recipientsPath);
-			if (!file.exists()) {
-				file.getParent().getOrCreateFolder();
-				file.createFile();
-			}
-			file.write(JSON.stringify([recipients: known]));
-			file.setContentType('application/json');
-			file.setContentEncoding('UTF-8');
+			writeJson(recipientsPath, [recipients: known]);
 			session.commit();
 		} catch (Throwable ex) {
 			log?.warn("Mail recipients could not be remembered: ${ex.message}".toString());
 			session.rollback();
 		}
+	}
+
+	// --- saved addresses --------------------------------------------------------------
+
+	String getSavedAddressesPath() {
+		return "${api.accounts.root}/addresses.json".toString();
+	}
+
+	/** Addresses the user saved from mail they read, the most recent first. */
+	List<Map> listSavedAddresses() {
+		def file = session.getResource(savedAddressesPath);
+		if (!file.exists()) {
+			return [];
+		}
+		try {
+			return ((JSON.parse(file.getContent()) as Map).addresses ?: []) as List<Map>;
+		} catch (Throwable ex) {
+			return [];
+		}
+	}
+
+	/** Saves an address for suggestions; saving it again updates its name. */
+	boolean saveAddress(String name, String address) {
+		address = address?.trim();
+		if (!(address ==~ /[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+/)) {
+			throw new IllegalArgumentException("Not a mail address: ${address}".toString());
+		}
+		List<Map> saved = listSavedAddresses();
+		String key = address.toLowerCase();
+		saved.removeAll { (it.address as String)?.toLowerCase() == key };
+		if (saved.size() >= MAX_SAVED) {
+			throw new IllegalStateException("No more than ${MAX_SAVED} addresses can be saved.".toString());
+		}
+		saved.add(0, [name: name?.trim() ?: null, address: address]);
+		writeJson(savedAddressesPath, [addresses: saved]);
+		session.commit();
+		return true;
+	}
+
+	/**
+	 * Removes an address from the suggestions: from the saved addresses and from
+	 * those mail was sent to. Returns false when it was in neither.
+	 */
+	boolean forgetAddress(String address) {
+		String key = address?.trim()?.toLowerCase();
+		if (!key) {
+			return false;
+		}
+		boolean removed = false;
+		List<Map> saved = listSavedAddresses();
+		if (saved.removeAll { (it.address as String)?.toLowerCase() == key }) {
+			writeJson(savedAddressesPath, [addresses: saved]);
+			removed = true;
+		}
+		List<Map> known = listRecipients();
+		if (known.removeAll { (it.address as String)?.toLowerCase() == key }) {
+			writeJson(recipientsPath, [recipients: known]);
+			removed = true;
+		}
+		if (removed) {
+			session.commit();
+		}
+		return removed;
+	}
+
+	private void writeJson(String path, Map value) {
+		def file = session.getResource(path);
+		if (!file.exists()) {
+			file.getParent().getOrCreateFolder();
+			file.createFile();
+		}
+		file.write(JSON.stringify(value));
+		file.setContentType('application/json');
+		file.setContentEncoding('UTF-8');
 	}
 
 }

@@ -256,6 +256,8 @@ extend type Query {
   mailDraft(id: ID!): MailDraft
   """Addresses mail was sent to, the most recent first."""
   mailRecipients: [MailAddress!]!
+  """Addresses saved from mail read, the most recent first."""
+  mailSavedAddresses: [MailAddress!]!
 }
 
 extend type Mutation {
@@ -283,4 +285,9 @@ extend type Mutation {
   Webtop (not on the mail server) and removes the draft. Returns the id of the
   copy."""
   sendMailDraft(id: ID!): ID
+  """Saves an address for suggestions; saving it again updates its name."""
+  saveMailAddress(name: String, address: String!): Boolean!
+  """Removes an address from the suggestions: from the saved addresses and from
+  those mail was sent to. Returns false when it was in neither."""
+  forgetMailAddress(address: String!): Boolean!
 }

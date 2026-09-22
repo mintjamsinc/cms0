@@ -370,6 +370,26 @@ export class MailApi {
 			`query { mailRecipients { ${ADDRESS_FIELDS} } }`);
 		return data.mailRecipients;
 	}
+
+	async listSavedAddresses(): Promise<MailAddress[]> {
+		const data = await this.#client.query<{ mailSavedAddresses: MailAddress[] }>(
+			`query { mailSavedAddresses { ${ADDRESS_FIELDS} } }`);
+		return data.mailSavedAddresses;
+	}
+
+	async saveAddress(a: MailAddress): Promise<boolean> {
+		const data = await this.#client.mutation<{ saveMailAddress: boolean }>(
+			'mutation ($name: String, $address: String!) { saveMailAddress(name: $name, address: $address) }',
+			{ name: a.name, address: a.address });
+		return data.saveMailAddress;
+	}
+
+	/** Removes the address from the saved addresses and from those mail was sent to. */
+	async forgetAddress(address: string): Promise<boolean> {
+		const data = await this.#client.mutation<{ forgetMailAddress: boolean }>(
+			'mutation ($address: String!) { forgetMailAddress(address: $address) }', { address });
+		return data.forgetMailAddress;
+	}
 }
 
 /**

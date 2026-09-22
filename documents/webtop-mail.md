@@ -98,7 +98,10 @@ message, opens the compose pane in place of the reader.
 - **Drafts** are saved as one types, in the Webtop only (the server's Drafts
   folder is not used). Closing the pane keeps the draft; *Drafts* in the left
   pane lists them.
-- **Recipients** are suggested from the addresses mail was sent to before.
+- **Recipients** are suggested from the saved addresses and from the addresses
+  mail was sent to before. In a message you read, the button after an address
+  saves it; saved addresses and one's own have no button. The × of a suggestion
+  removes that address from both lists at once, without asking.
 
 What was sent is kept **in the Webtop only**: the copy is listed under *Sent*
 but is not appended to the server's Sent folder. Removing the account removes
@@ -144,6 +147,7 @@ whichever workspace the Webtop runs in.
 | `/home/users/<user>/mail/drafts/<draft>.json` | Drafts; the files uploaded for a draft are in the folder `drafts/<draft>/` next to it. |
 | `/home/users/<user>/mail/labels.json` | The tags used so far, for suggestions and the filter list. |
 | `/home/users/<user>/mail/recipients.json` | Addresses mail was sent to, for suggestions (the latest 500). |
+| `/home/users/<user>/mail/addresses.json` | Addresses saved from mail read, for suggestions (up to 1000). |
 | `/var/lock/mail/<user>/<account>.lock` | One lock per account, so a pass runs on one cluster node at a time. |
 | `/etc/eip/routes/webtop/mail.xml` | The timer route (every minute). |
 | `/usr/local/classes/webtop/mail/` | The synchronization, the API and sending (`MailSync`, `MailScheduler`, `MailApi`, `MailCompose` …). |

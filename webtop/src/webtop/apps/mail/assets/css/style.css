@@ -186,7 +186,7 @@
 	align-items: center;
 	gap: 0.25rem;
 	max-width: 50%;
-	padding: 0 0.25rem 0 0.5rem;
+	padding: 0.25rem 0.5rem;
 	border-radius: 9999px;
 	background: var(--item-hover-bg);
 	font-size: 12px;
@@ -459,6 +459,26 @@
 	overflow-wrap: anywhere;
 }
 
+.ml-address-save {
+	display: inline-flex;
+	align-items: center;
+	margin-left: 0.25rem;
+	padding: 0 0.125rem;
+	border: 0;
+	border-radius: 3px;
+	background: none;
+	color: var(--text-muted-color);
+	font-size: 12px;
+	line-height: 1;
+	vertical-align: baseline;
+	cursor: pointer;
+}
+
+.ml-address-save:hover {
+	background: var(--item-hover-bg);
+	color: inherit;
+}
+
 .ml-meta-account {
 	flex-shrink: 0;
 	color: var(--text-muted-color);
@@ -596,6 +616,38 @@
 .ml-color-dot.active {
 	border-color: var(--island-bg);
 	box-shadow: 0 0 0 2px var(--text-color);
+}
+
+.ml-tag-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.375rem;
+	padding: 0.125rem 0.5rem 0.375rem;
+}
+
+.ml-tag-chip {
+	max-width: 100%;
+	overflow: hidden;
+	padding: 0.2rem 0.65rem;
+	border: 1px solid var(--island-border-color);
+	border-radius: 9999px;
+	background-color: var(--badge-bg);
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.ml-tag-chip:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.ml-tag-chip.active {
+	border-color: transparent;
+	background-color: var(--primary-color);
+	color: #fff;
 }
 
 .ml-action-divider {

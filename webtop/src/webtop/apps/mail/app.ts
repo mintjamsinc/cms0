@@ -211,6 +211,7 @@ const App = {
 			compose: emptyCompose(),
 			drafts: [] as MailDraft[],
 			recipients: [] as MailAddress[],
+			savedAddresses: [] as MailAddress[],
 			addressSuggest: { field: '' as '' | AddressField, items: [] as MailAddress[], index: -1 },
 		};
 	},
@@ -228,6 +229,24 @@ const App = {
 				{ key: 'drafts', icon: 'bi-pencil-square', label: this.t('app.mail.box.drafts', undefined, 'Drafts') },
 				{ key: 'trash', icon: 'bi-trash', label: this.t('app.mail.box.trash', undefined, 'Trash') },
 			];
+		},
+		/** The address rows of the open message; From is always shown. */
+		addressRows(): { key: string; label: string; list: MailAddress[] }[] {
+			const m = this.current as MailMessage | null;
+			if (!m) return [];
+			return [
+				{ key: 'from', label: this.t('app.mail.message.from', undefined, 'From'), list: m.from },
+				{ key: 'to', label: this.t('app.mail.message.to', undefined, 'To'), list: m.to },
+				{ key: 'cc', label: this.t('app.mail.message.cc', undefined, 'Cc'), list: m.cc },
+				{ key: 'replyTo', label: this.t('app.mail.message.replyTo', undefined, 'Reply-To'), list: m.replyTo },
+			].filter((r) => r.key === 'from' || r.list.length);
+		},
+		/** Saved and own addresses, lower-cased; these get no save button. */
+		unsavable(): Record<string, true> {
+			const map: Record<string, true> = {};
+			for (const a of this.savedAddresses as MailAddress[]) map[a.address.toLowerCase()] = true;
+			for (const a of this.accounts as MailAccount[]) if (a.address) map[a.address.toLowerCase()] = true;
+			return map;
 		},
 		accountById(): Record<string, MailAccount> {
 			const map: Record<string, MailAccount> = {};
@@ -1213,9 +1232,38 @@ const App = {
 		async loadRecipients() {
 			if (!api) return;
 			try {
-				this.recipients = await api.listRecipients();
+				const [recipients, saved] = await Promise.all([api.listRecipients(), api.listSavedAddresses()]);
+				this.recipients = recipients;
+				this.savedAddresses = saved;
 			} catch (e) {
 				console.warn('[Mail] Recipients could not be loaded:', e);
+			}
+		},
+		canSaveAddress(a: MailAddress): boolean {
+			return !this.unsavable[a.address.toLowerCase()];
+		},
+		async saveAddress(a: MailAddress) {
+			if (!api || !this.canSaveAddress(a)) return;
+			const saved = { name: a.name, address: a.address };
+			this.savedAddresses = [saved, ...(this.savedAddresses as MailAddress[])];
+			try {
+				await api.saveAddress(saved);
+				this.showStatus(this.t('app.mail.address.saved', { address: a.address }, 'Saved {address} for suggestions.'));
+			} catch (e) {
+				this.savedAddresses = (this.savedAddresses as MailAddress[]).filter((s) => s !== saved);
+				this.showStatus(errorText(e));
+			}
+		},
+		async forgetAddress(a: MailAddress) {
+			if (!api) return;
+			const key = a.address.toLowerCase();
+			this.savedAddresses = (this.savedAddresses as MailAddress[]).filter((s) => s.address.toLowerCase() !== key);
+			this.recipients = (this.recipients as MailAddress[]).filter((s) => s.address.toLowerCase() !== key);
+			try {
+				await api.forgetAddress(a.address);
+			} catch (e) {
+				this.showStatus(errorText(e));
+				this.loadRecipients();
 			}
 		},
 		ownAddresses(): Set<string> {
@@ -1583,11 +1631,21 @@ const App = {
 		refreshAddressSuggestions(field: AddressField) {
 			const { token } = currentToken(this.compose[field]);
 			const query = token.toLowerCase();
-			const items = !query ? [] : (this.recipients as MailAddress[]).
+			const items = !query ? [] : this.suggestableAddresses().
 				filter((r) => r.address.toLowerCase().includes(query) || (r.name || '').toLowerCase().includes(query)).
 				slice(0, ADDRESS_SUGGESTIONS);
 			this.addressSuggest = { field, items, index: -1 };
 			this.showAddressSuggestions();
+		},
+		/** Saved addresses first, then those mail was sent to. */
+		suggestableAddresses(): MailAddress[] {
+			const seen = new Set<string>();
+			return [...(this.savedAddresses as MailAddress[]), ...(this.recipients as MailAddress[])].filter((r) => {
+				const key = r.address.toLowerCase();
+				if (seen.has(key)) return false;
+				seen.add(key);
+				return true;
+			});
 		},
 		showAddressSuggestions() {
 			const s = this.addressSuggest;
@@ -1595,7 +1653,8 @@ const App = {
 				this.closeAddressSuggestions();
 				return;
 			}
-			const items = (s.items as MailAddress[]).map((r, i) => ({ id: String(i), label: formatAddress(r), highlighted: i === s.index }));
+			const remove = { id: 'forget', icon: 'bi bi-x-lg', title: this.t('app.mail.address.forget', undefined, 'Remove from suggestions'), danger: true };
+			const items = (s.items as MailAddress[]).map((r, i) => ({ id: String(i), label: formatAddress(r), highlighted: i === s.index, actions: [remove] }));
 			if (addressPopupHandle) {
 				addressPopupHandle.update(items);
 				return;
@@ -1611,6 +1670,13 @@ const App = {
 				minWidth: Math.max(rect.width, 240),
 				maxHeight: 360,
 				items,
+				onAction: (itemId) => {
+					const r = this.addressSuggest.items[Number(itemId)];
+					if (!r) return;
+					this.forgetAddress(r);
+					this.refreshAddressSuggestions(field);
+					el.focus();
+				},
 			});
 			addressPopupHandle!.result.then((picked: any) => {
 				addressPopupHandle = null;
@@ -1683,8 +1749,8 @@ const App = {
 			}
 			return displayName(m.from || '') || this.t('app.mail.list.unknownSender', undefined, '(unknown sender)');
 		},
-		addressList(list: { name: string | null; address: string }[]): string {
-			return (list || []).map((a) => a.name ? `${a.name} <${a.address}>` : a.address).join(', ');
+		addressLabel(a: MailAddress): string {
+			return a.name ? `${a.name} <${a.address}>` : a.address;
 		},
 		displayLocale(): string {
 			return this.localization.locale || navigator.language || 'en';
