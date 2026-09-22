@@ -1429,26 +1429,6 @@
 	flex-shrink: 0;
 }
 
-/* Keep the import dialog inside the content-browser viewport: cap the frame at
-   90% of the app height and lay frame > island > body out as a flex column so
-   the body scrolls instead of the header/footer being clipped in a short window.
-   (.dialog-body already carries flex:1 / overflow-y:auto; the min-height:0 here
-   lets these flex children actually shrink below their content height.) */
-.import-dialog .dialog-frame {
-	max-height: 90%;
-	display: flex;
-	flex-direction: column;
-}
-.import-dialog .dialog-frame > .island {
-	flex: 1 1 auto;
-	min-height: 0;
-	display: flex;
-	flex-direction: column;
-}
-.import-dialog .dialog-body {
-	min-height: 0;
-}
-
 /* Import dialog form — mirrors the identity-manager right-panel form so the
    two read the same way. Flex-based so field spacing is easy to tune. */
 .import-form {
