@@ -59,7 +59,8 @@ public class TestRunner {
 			NamespaceRegistrationValidationTest.class,
 			JcrConcurrentNodeCreationTest.class,
 			JcrReferenceIndexTest.class,
-			JcrRemoveChildTreesTest.class
+			JcrRemoveChildTreesTest.class,
+			JcrPropertyNullAndEmptyTest.class
 		};
 
 		// Run tests

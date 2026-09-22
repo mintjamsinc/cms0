@@ -891,24 +891,36 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public Property setProperty(String name, String[] value) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(value), PropertyType.STRING);
 	}
 
 	@Override
 	public Property setProperty(String name, String value) throws ValueFormatException, VersionException, LockException,
 			ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(value), PropertyType.STRING);
 	}
 
 	@Override
 	public Property setProperty(String name, InputStream value) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(value), PropertyType.BINARY);
 	}
 
 	@Override
 	public Property setProperty(String name, Binary value) throws ValueFormatException, VersionException, LockException,
 			ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(value), PropertyType.BINARY);
 	}
 
@@ -927,6 +939,9 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public Property setProperty(String name, BigDecimal value) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(value), PropertyType.DECIMAL);
 	}
 
@@ -939,18 +954,28 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public Property setProperty(String name, Calendar value) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(value), PropertyType.DATE);
 	}
 
 	@Override
 	public Property setProperty(String name, Node value) throws ValueFormatException, VersionException, LockException,
 			ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(value), PropertyType.REFERENCE);
 	}
 
 	@Override
 	public Property setProperty(String name, Value value, int type) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
+
 		fSession.checkPrivileges(getPath(), Privilege.JCR_MODIFY_PROPERTIES);
 		checkWritable();
 		validateNamePrefixRegistered(name);
@@ -979,8 +1004,11 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public Property setProperty(String name, Value[] values, int type) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
-		if (values == null || values.length == 0) {
-			throw new ValueFormatException("Values array cannot be null or empty.");
+		// A null array removes the property; an empty one, or one of nulls only (null
+		// elements are dropped), leaves a multi-valued property without values
+		// (JCR 2.0, 10.4.2).
+		if (values == null) {
+			return removePropertyIfExists(name);
 		}
 
 		fSession.checkPrivileges(getPath(), Privilege.JCR_MODIFY_PROPERTIES);
@@ -995,6 +1023,10 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 					type = v.getType();
 					break;
 				}
+			}
+			if (type == PropertyType.UNDEFINED) {
+				// No value to take the type from.
+				type = PropertyType.STRING;
 			}
 		}
 		for (Value v : values) {
@@ -1018,13 +1050,30 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	@Override
 	public Property setProperty(String name, String value, int type) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
+		if (value == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(value, type), type);
 	}
 
 	@Override
 	public Property setProperty(String name, String[] values, int type) throws ValueFormatException, VersionException,
 			LockException, ConstraintViolationException, RepositoryException {
+		if (values == null) {
+			return removePropertyIfExists(name);
+		}
 		return setProperty(name, getValueFactory().createValue(values, type), type);
+	}
+
+	/**
+	 * setProperty with a null value removes the property (JCR 2.0, 10.4.2.1).
+	 * Removing a property that does not exist is not an error.
+	 */
+	private Property removePropertyIfExists(String name) throws RepositoryException {
+		if (hasProperty(name)) {
+			getProperty(name).remove();
+		}
+		return null;
 	}
 
 	private void validateNamespaceRegistration(Value value, int type) throws RepositoryException {

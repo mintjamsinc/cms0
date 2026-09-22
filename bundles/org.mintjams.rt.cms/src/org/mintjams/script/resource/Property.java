@@ -412,7 +412,8 @@ public class Property {
 		try {
 			if (getProperty().getType() == PropertyType.STRING) {
 				if (getProperty().isMultiple()) {
-					return Mask.isMasked(getProperty().getValues()[0].getString());
+					Value[] values = getProperty().getValues();
+					return values.length > 0 && Mask.isMasked(values[0].getString());
 				}
 				return Mask.isMasked(getProperty().getString());
 			}
