@@ -1219,6 +1219,10 @@ const App = {
 				const accountId = this.selection.accountId;
 				this.drafts = accountId ? list.filter((d) => d.accountId === accountId) : list;
 				this.messages = [];
+				// Nothing in the drafts box is read in the reader, so a message
+				// left over from another box must not show through.
+				this.current = null;
+				this.currentId = '';
 				this.hasMore = false;
 				this.listError = '';
 			} catch (e) {
@@ -1524,6 +1528,9 @@ const App = {
 				this.t('app.mail.compose.discardConfirm', undefined, 'Discard this draft and its attachments?'),
 				async () => {
 					const id = c.id;
+					// Where the discarded draft sat, so the one that takes its
+					// place can be opened.
+					const index = (this.drafts as MailDraft[]).findIndex((d) => d.id === id);
 					await this.closeCompose({ discard: true });
 					if (id && api) {
 						try {
@@ -1533,7 +1540,12 @@ const App = {
 							this.showError(e);
 						}
 					}
-					if (this.selection.box === 'drafts') this.loadDrafts();
+					if (this.selection.box === 'drafts') {
+						await this.loadDrafts();
+						const rest = this.drafts as MailDraft[];
+						const next = index < 0 ? null : rest[Math.min(index, rest.length - 1)];
+						if (next) this.openDraft(next);
+					}
 				},
 			);
 		},
