@@ -68,7 +68,7 @@
 	flex-direction: column;
 	flex-shrink: 0;
 	min-height: 0;
-	padding: 0.75rem 0.5rem;
+	padding: 0.75rem 0.75rem;
 	overflow-y: auto;
 	gap: 0.75rem;
 }
@@ -170,8 +170,9 @@
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
-	padding: 0.5rem 0.75rem;
+	padding: 0 0.75rem;
 	border-bottom: 1px solid var(--island-border-color);
+	height: 2.5rem;
 }
 
 .ml-list-title {
@@ -388,8 +389,9 @@
 	display: flex;
 	align-items: center;
 	gap: 0.125rem;
-	padding: 0.25rem 0.5rem;
+	padding: 0 0.5rem;
 	border-bottom: 1px solid var(--island-border-color);
+	height: 2.5rem;
 }
 
 .ml-message-actions .btn-icon.active {
