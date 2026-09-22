@@ -37,3 +37,9 @@ hs_err_pid*
 # Docker seed: the Webtop laid down by scripts/assemble-seed.* before a build.
 /docker/seed/assets/*/deploy/usr/share/webtop/
 /docker/seed/assets/workspace/deploy/etc/i18n/
+/docker/seed/assets/workspace/deploy/content/WEB-INF/web.xml
+/docker/seed/assets/workspace/deploy/provisioning/webtop.yml
+/docker/seed/assets/workspace/deploy/etc/eip/routes/webtop/mail.xml
+/docker/seed/assets/workspace/deploy/etc/graphql/webtop/mail/
+/docker/seed/assets/workspace/deploy/usr/local/classes/webtop/mail/
+/docker/seed/assets/workspace/deploy/provisioning/mail.yml

@@ -61,6 +61,14 @@ foreach ($app in $SystemOnlyApps) {
     }
 }
 Copy-Tree "$SeedAssets/system/deploy/etc/i18n" "$SeedAssets/workspace/deploy/etc/i18n"
+# webtop
+Copy-Tree "$WebtopDist/system/deploy/content/WEB-INF/web.xml" "$SeedAssets/workspace/deploy/content/WEB-INF/web.xml"
+Copy-Tree "$WebtopDist/system/provisioning/webtop.yml" "$SeedAssets/workspace/provisioning/webtop.yml"
+# mail app: Server-side assets
+Copy-Tree "$WebtopDist/system/deploy/etc/eip/routes/webtop/mail.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/mail.xml"
+Copy-Tree "$WebtopDist/system/deploy/etc/graphql/webtop/mail" "$SeedAssets/workspace/deploy/etc/graphql/webtop/mail"
+Copy-Tree "$WebtopDist/system/deploy/usr/local/classes/webtop/mail" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/mail"
+Copy-Tree "$WebtopDist/system/provisioning/mail.yml" "$SeedAssets/workspace/provisioning/mail.yml"
 
 $systemFiles = (Get-ChildItem -Recurse -File "$SeedAssets/system").Count
 $workspaceFiles = (Get-ChildItem -Recurse -File "$SeedAssets/workspace").Count

@@ -59,6 +59,14 @@ for app in "${SYSTEM_ONLY_APPS[@]}"; do
     rm -rf "${SEED_ASSETS}/workspace/deploy/usr/share/webtop/apps/${app}"
 done
 copy_tree "${SEED_ASSETS}/system/deploy/etc/i18n" "${SEED_ASSETS}/workspace/deploy/etc/i18n"
+# webtop
+copy_tree "${WEBTOP_DIST}/system/deploy/content/WEB-INF/web.xml" "${SEED_ASSETS}/workspace/deploy/content/WEB-INF/web.xml"
+copy_tree "${WEBTOP_DIST}/system/provisioning/webtop.yml" "${SEED_ASSETS}/workspace/provisioning/webtop.yml"
+# mail app: Server-side assets
+copy_tree "${WEBTOP_DIST}/system/deploy/etc/eip/routes/webtop/mail.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/mail.xml"
+copy_tree "${WEBTOP_DIST}/system/deploy/etc/graphql/webtop/mail" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/mail"
+copy_tree "${WEBTOP_DIST}/system/deploy/usr/local/classes/webtop/mail" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/mail"
+copy_tree "${WEBTOP_DIST}/system/provisioning/mail.yml" "${SEED_ASSETS}/workspace/provisioning/mail.yml"
 
 echo "OK: seed assets laid down from ${WEBTOP_DIST}"
 echo "  system:    $(find "${SEED_ASSETS}/system" -type f | wc -l) files"
