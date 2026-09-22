@@ -1,0 +1,286 @@
+# Webtop Mail app (webtop/src/webtop/apps/mail).
+#
+# Every field works on the caller's own mail in the caller's home; the logic is
+# in webtop.mail.MailApi (/usr/local/classes/webtop/mail). A message is
+# addressed by the path of its .eml file. Changes are stored at once and
+# carried to the mail server by the background synchronization
+# (/etc/eip/routes/webtop/mail.xml); nothing here deletes mail on the server.
+
+type MailServer {
+  host: String!
+  port: Int!
+  """ssl, starttls or none."""
+  security: String!
+  username: String
+  """Outgoing only: log in with the incoming server's user and password."""
+  sameAuthentication: Boolean
+}
+
+type MailSyncStatus {
+  """never, idle, syncing or error."""
+  state: String!
+  lastRun: DateTime
+  lastSuccess: DateTime
+  lastError: String
+  progressFolder: String
+  progressDone: Int
+  progressTotal: Int
+  """True while a large download is being spread over several passes."""
+  more: Boolean!
+  """Days of older mail waiting to be fetched."""
+  fetchOlderDays: Int
+  """Mail is downloaded from this date on."""
+  oldestDate: DateTime
+}
+
+type MailAccount {
+  id: ID!
+  name: String!
+  address: String!
+  personal: String
+  color: String
+  enabled: Boolean!
+  incoming: MailServer!
+  outgoing: MailServer!
+  """Days of mail the first synchronization downloads."""
+  initialDays: Int!
+  intervalMinutes: Int!
+  hasIncomingPassword: Boolean!
+  hasOutgoingPassword: Boolean!
+  status: MailSyncStatus!
+}
+
+input MailServerInput {
+  host: String!
+  port: Int
+  security: String
+  username: String
+  sameAuthentication: Boolean
+}
+
+input MailAccountInput {
+  """Omit to create an account."""
+  id: ID
+  name: String
+  address: String!
+  personal: String
+  color: String
+  enabled: Boolean
+  incoming: MailServerInput!
+  outgoing: MailServerInput!
+  """Leave empty to keep the stored password."""
+  incomingPassword: String
+  outgoingPassword: String
+  initialDays: Int
+  intervalMinutes: Int
+}
+
+type MailTestResult {
+  ok: Boolean!
+  messages: [String!]!
+  folders: [String!]!
+}
+
+input MailMessageFilter {
+  """All accounts when empty."""
+  accountIds: [ID!]
+  """inbox or sent; both when omitted."""
+  role: String
+  """all (default), unread, flagged or trash."""
+  view: String
+  """Words to find in the subject, the addresses or the full text."""
+  text: String
+  color: String
+  tag: String
+  """Only locked messages."""
+  locked: Boolean
+}
+
+type MailMessageSummary {
+  id: ID!
+  accountId: ID!
+  folder: String!
+  role: String!
+  subject: String!
+  from: String
+  fromAddress: String
+  to: String
+  preview: String
+  sentDate: DateTime
+  receivedDate: DateTime
+  size: Long
+  hasAttachments: Boolean!
+  seen: Boolean!
+  flagged: Boolean!
+  answered: Boolean!
+  trashed: Boolean!
+  """A key of the Webtop swatch palette: tomato, tangerine, banana, basil, sage,
+  peacock, blueberry, lavender, grape, flamingo or graphite."""
+  color: String
+  tags: [String!]!
+  """Locked messages cannot be moved to the trash."""
+  locked: Boolean!
+  """Set when the message could not be read completely."""
+  error: String
+}
+
+type MailMessagePage {
+  items: [MailMessageSummary!]!
+  hasMore: Boolean!
+  offset: Int!
+}
+
+type MailAddress {
+  name: String
+  address: String!
+}
+
+type MailAttachment {
+  index: Int!
+  name: String!
+  mimeType: String!
+  inline: Boolean!
+  contentId: String
+}
+
+type MailMessage {
+  id: ID!
+  accountId: ID!
+  folder: String!
+  role: String!
+  subject: String!
+  from: [MailAddress!]!
+  to: [MailAddress!]!
+  cc: [MailAddress!]!
+  bcc: [MailAddress!]!
+  replyTo: [MailAddress!]!
+  sentDate: DateTime
+  receivedDate: DateTime
+  size: Long
+  messageId: String
+  inReplyTo: [String!]!
+  references: [String!]!
+  text: String
+  """Cleaned HTML; show it sandboxed."""
+  html: String
+  attachments: [MailAttachment!]!
+  hasAttachments: Boolean!
+  seen: Boolean!
+  flagged: Boolean!
+  answered: Boolean!
+  trashed: Boolean!
+  color: String
+  tags: [String!]!
+  locked: Boolean!
+  error: String
+}
+
+type MailLabels {
+  colors: [String!]!
+  """Every tag used so far."""
+  tags: [String!]!
+}
+
+type MailDraftAttachment {
+  key: ID!
+  name: String!
+  mimeType: String!
+  size: Long
+  """True for an attachment of a stored message, read from it when sent."""
+  forwarded: Boolean!
+  messageId: ID
+  index: Int
+}
+
+type MailDraft {
+  id: ID!
+  accountId: ID!
+  """new, reply, replyAll or forward."""
+  mode: String!
+  """The message replied to or forwarded."""
+  originalId: ID
+  """Addresses separated by commas."""
+  to: String
+  cc: String
+  bcc: String
+  subject: String
+  """text or html."""
+  format: String!
+  """The body as text; with the html format, its text alternative."""
+  text: String
+  html: String
+  inReplyTo: [String!]!
+  references: [String!]!
+  attachments: [MailDraftAttachment!]!
+  created: DateTime!
+  modified: DateTime!
+}
+
+input MailDraftAttachmentInput {
+  """A file uploaded into /home/users/<user>/mail/drafts/<draft>/<key>."""
+  key: ID
+  name: String!
+  mimeType: String
+  size: Long
+  """Or an attachment of a stored message."""
+  messageId: ID
+  index: Int
+}
+
+input MailDraftInput {
+  """Omit to create a draft."""
+  id: ID
+  accountId: ID
+  """new (default), reply, replyAll or forward; set when the draft is created."""
+  mode: String
+  originalId: ID
+  inReplyTo: [String!]
+  references: [String!]
+  to: String
+  cc: String
+  bcc: String
+  subject: String
+  format: String
+  text: String
+  html: String
+  """Replaces the attachments when given."""
+  attachments: [MailDraftAttachmentInput!]
+}
+
+extend type Query {
+  mailAccounts: [MailAccount!]!
+  mailMessages(filter: MailMessageFilter, offset: Int = 0, limit: Int = 50): MailMessagePage!
+  mailMessage(id: ID!): MailMessage
+  mailLabels: MailLabels!
+  mailDrafts: [MailDraft!]!
+  mailDraft(id: ID!): MailDraft
+  """Addresses mail was sent to, the most recent first."""
+  mailRecipients: [MailAddress!]!
+}
+
+extend type Mutation {
+  saveMailAccount(input: MailAccountInput!): MailAccount!
+  """Removes the account and its downloaded mail from the Webtop only."""
+  removeMailAccount(id: ID!): Boolean!
+  testMailAccount(input: MailAccountInput!): MailTestResult!
+  """Asks for a synchronization of one account, or of all when omitted."""
+  syncMail(accountId: ID): Boolean!
+  """Fetches `days` more days of mail before the oldest fetched so far."""
+  fetchOlderMail(accountId: ID!, days: Int!): Boolean!
+  """Returns the number of messages changed."""
+  setMailFlags(ids: [ID!]!, seen: Boolean, flagged: Boolean): Int!
+  """Moves messages to or out of the Webtop trash; the server copy stays. Locked
+  messages are not moved to the trash."""
+  trashMail(ids: [ID!]!, trashed: Boolean!): Int!
+  """Sets the color ("" removes it) and adds or removes tags."""
+  setMailLabels(ids: [ID!]!, color: String, addTags: [String!], removeTags: [String!]): Int!
+  """Locks or unlocks messages. A locked message cannot be moved to the trash."""
+  setMailLocked(ids: [ID!]!, locked: Boolean!): Int!
+  saveMailDraft(input: MailDraftInput!): MailDraft!
+  """Removes the draft and the files uploaded for it."""
+  removeMailDraft(id: ID!): Boolean!
+  """Sends the draft through the account's outgoing server, keeps a copy in the
+  Webtop (not on the mail server) and removes the draft. Returns the id of the
+  copy."""
+  sendMailDraft(id: ID!): ID
+}

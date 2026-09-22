@@ -1,0 +1,17 @@
+identifier: 40f8fa91-c42a-4a3c-8b96-c47a88df20a8
+title: Mail
+icon: assets/icons/icon.svg
+# IMAP mail for several accounts side by side. The server downloads the mail in
+# the background (/etc/eip/routes/webtop/mail.xml, webtop.mail.* in
+# /usr/local/classes): the first time only the last N days, set per account,
+# older mail when asked for, then what is new. Mail is kept per user under
+# /home/users/<user>/mail/ in the system workspace. attachment.groovy next to
+# this descriptor serves attachments from there.
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 960
+minimumHeight: 600
+customWindowControls: true
+singleton: true

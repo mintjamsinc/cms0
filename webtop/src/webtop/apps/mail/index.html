@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Mail</title>
+
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" :class="{ 'is-resizing': isResizing }" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Readiness gate: compiled only after appLaunch() has loaded the
+		     component templates. -->
+		<template v-if="isReady">
+
+		<!-- Toolbar -->
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="newMessage" :title="t('app.mail.toolbar.compose', undefined, 'New message')">
+					<i class="bi bi-pencil-square"></i>
+				</button>
+				<button class="btn-icon" @click="syncNow" :title="t('app.mail.toolbar.sync', undefined, 'Check for new mail (F5)')">
+					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+			</div>
+
+			<div class="ml-searchbar">
+				<div class="input-group">
+					<input type="search" v-model="searchText"
+						:placeholder="t('app.mail.search.placeholder', undefined, 'Search mail')"
+						@keydown.enter.prevent="onSearch"
+						@keydown.escape.prevent="onSearchClear"
+						@input="onSearchInput($event.target.value)">
+					<div class="input-group-actions">
+						<button type="button" class="input-group-btn" @click="onSearch"
+							:disabled="!searchText.trim()" :title="t('app.mail.search.run', undefined, 'Search')">
+							<i class="bi bi-search"></i>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="openAccounts" :title="t('app.mail.toolbar.accounts', undefined, 'Accounts')">
+					<i class="bi bi-gear"></i>
+				</button>
+			</div>
+
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<div class="content-body">
+
+			<!-- Left: accounts and boxes -->
+			<aside class="ml-side island" :style="{ width: sidePanelWidth + 'px' }">
+				<div class="ml-nav">
+					<div class="ml-nav-title">{{ t('app.mail.allAccounts', undefined, 'All accounts') }}</div>
+					<button v-for="b of boxes" :key="'all-' + b.key" type="button" class="ml-nav-item"
+						:class="{ active: isSelected('', b.key) }" @click="select('', b.key)">
+						<i class="bi" :class="b.icon"></i>
+						<span class="text-truncate">{{ b.label }}</span>
+					</button>
+					<button v-for="v of views" :key="'view-' + v.key" type="button" class="ml-nav-item"
+						:class="{ active: isSelected('', v.key) }" @click="select('', v.key)">
+						<i class="bi" :class="v.icon"></i>
+						<span class="text-truncate">{{ v.label }}</span>
+					</button>
+				</div>
+
+				<div v-for="a of accounts" :key="a.id" class="ml-nav">
+					<div class="ml-nav-title ml-account-title" :title="a.address">
+						<span class="ml-dot" :style="{ background: a.color || 'var(--primary-color)' }"></span>
+						<span class="text-truncate">{{ a.name }}</span>
+						<i v-if="statusIcon(a)" class="bi ms-auto" :class="statusIcon(a)"
+							:title="a.status.state === 'error' ? a.status.lastError : ''"></i>
+					</div>
+					<button v-for="b of boxes" :key="a.id + '-' + b.key" type="button" class="ml-nav-item"
+						:class="{ active: isSelected(a.id, b.key) }" @click="select(a.id, b.key)">
+						<i class="bi" :class="b.icon"></i>
+						<span class="text-truncate">{{ b.label }}</span>
+					</button>
+				</div>
+
+				<!-- Labels narrow whatever box is selected -->
+				<div v-if="accounts.length" class="ml-nav">
+					<div class="ml-nav-title">{{ t('app.mail.labels', undefined, 'Labels') }}</div>
+					<div class="ml-colors">
+						<button v-for="c of labels.colors" :key="'filter-' + c" type="button" class="ml-color-dot"
+							:class="{ active: labelFilter.color === c }" :style="{ background: colorHex(c) }"
+							:title="colorLabel(c)" @click="toggleLabelFilter('color', c)"></button>
+					</div>
+					<button v-for="tag of labels.tags" :key="'tag-' + tag" type="button" class="ml-nav-item"
+						:class="{ active: labelFilter.tag === tag }" @click="toggleLabelFilter('tag', tag)">
+						<i class="bi bi-tag"></i>
+						<span class="text-truncate">{{ tag }}</span>
+					</button>
+				</div>
+
+				<div v-if="!accounts.length" class="ml-side-empty">
+					<button type="button" class="wt wt-primary w-100" @click="openAccounts">
+						<i class="bi bi-plus-lg me-1"></i>{{ t('app.mail.account.add', undefined, 'Add account') }}
+					</button>
+				</div>
+			</aside>
+
+			<wt-splitter v-model:size="sidePanelWidth" :min="160" :max="360"
+				@resize-start="isResizing = true" @resize-end="isResizing = false"></wt-splitter>
+
+			<!-- Middle: message list -->
+			<section class="ml-list island p-0" :style="{ width: listPanelWidth + 'px' }">
+				<div class="ml-list-head">
+					<span class="ml-list-title text-truncate">{{ listTitle }}</span>
+					<span v-if="searchQuery" class="ml-chip">
+						<i class="bi bi-search"></i>{{ searchQuery }}
+						<button type="button" class="ml-chip-x" @click="onSearchClear" :title="t('app.mail.search.clear', undefined, 'Clear search')">
+							<i class="bi bi-x"></i>
+						</button>
+					</span>
+					<span v-if="labelFilter.color" class="ml-chip">
+						<span class="ml-dot" :style="{ background: colorHex(labelFilter.color) }"></span>{{ colorLabel(labelFilter.color) }}
+						<button type="button" class="ml-chip-x" @click="clearLabelFilter('color')" :title="t('app.mail.labels.clear', undefined, 'Clear')">
+							<i class="bi bi-x"></i>
+						</button>
+					</span>
+					<span v-if="labelFilter.tag" class="ml-chip">
+						<i class="bi bi-tag"></i>{{ labelFilter.tag }}
+						<button type="button" class="ml-chip-x" @click="clearLabelFilter('tag')" :title="t('app.mail.labels.clear', undefined, 'Clear')">
+							<i class="bi bi-x"></i>
+						</button>
+					</span>
+				</div>
+
+				<div v-if="checkedIds.length && selection.box !== 'drafts'" class="ml-bulk">
+					<span>{{ t('app.mail.bulk.selected', { count: checkedIds.length }, '{count} selected') }}</span>
+					<span class="nav-spacer"></span>
+					<button class="btn-icon" @click="checkedAction('read')" :title="t('app.mail.action.markRead', undefined, 'Mark as read')"><i class="bi bi-envelope-open"></i></button>
+					<button class="btn-icon" @click="checkedAction('unread')" :title="t('app.mail.action.markUnread', undefined, 'Mark as unread')"><i class="bi bi-envelope"></i></button>
+					<button class="btn-icon" @click="checkedAction('flag')" :title="t('app.mail.action.flag', undefined, 'Flag')"><i class="bi bi-flag-fill"></i></button>
+					<button class="btn-icon" @click="checkedAction('unflag')" :title="t('app.mail.action.unflag', undefined, 'Remove flag')"><i class="bi bi-flag"></i></button>
+					<button v-if="selection.box !== 'trash'" class="btn-icon" @click="checkedAction('trash')" :title="t('app.mail.action.trash', undefined, 'Move to trash')"><i class="bi bi-trash"></i></button>
+					<button v-else class="btn-icon" @click="checkedAction('restore')" :title="t('app.mail.action.restore', undefined, 'Restore')"><i class="bi bi-arrow-counterclockwise"></i></button>
+					<button class="btn-icon" @click="openColorMenu('checked', $event)" :title="t('app.mail.labels.color', undefined, 'Color')"><i class="bi bi-palette"></i></button>
+					<button class="btn-icon" @click="setLocked(checkedIds, true)" :title="t('app.mail.lock.action', undefined, 'Lock')"><i class="bi bi-lock"></i></button>
+					<button class="btn-icon" @click="setLocked(checkedIds, false)" :title="t('app.mail.lock.unlock', undefined, 'Unlock')"><i class="bi bi-unlock"></i></button>
+					<button class="btn-icon" @click="clearChecked" :title="t('app.mail.bulk.clear', undefined, 'Clear selection')"><i class="bi bi-x-lg"></i></button>
+				</div>
+				<div v-if="checkedIds.length && selection.box !== 'drafts'" class="ml-bulk-tag">
+					<i class="bi bi-tag"></i>
+					<input type="text" class="ml-tag-input" v-model="bulkTag" ref="bulkTagInput" autocomplete="off"
+						:placeholder="t('app.mail.labels.addTagTo', { count: checkedIds.length }, 'Add a tag to {count} selected')"
+						@input="refreshTagSuggestions('bulk')" @focus="refreshTagSuggestions('bulk')"
+						@blur="onTagBlur" @keydown="onTagKeydown('bulk', $event)">
+				</div>
+
+				<!-- Drafts -->
+				<div v-if="selection.box === 'drafts'" class="ml-list-scroll">
+					<div v-if="listError" class="ml-empty">
+						<i class="bi bi-exclamation-triangle"></i>
+						<span>{{ listError }}</span>
+					</div>
+					<div v-else-if="!drafts.length" class="ml-empty">
+						<i class="bi bi-pencil-square"></i>
+						<span>{{ t('app.mail.drafts.empty', undefined, 'No drafts.') }}</span>
+					</div>
+					<div v-for="d of drafts" :key="d.id" class="ml-item" :class="{ selected: compose.active && compose.id === d.id }"
+						@click="openDraft(d)">
+						<span class="ml-item-bar" :style="{ background: accountColor(d.accountId) || 'transparent' }"></span>
+						<div class="ml-item-body">
+							<div class="ml-item-row">
+								<span class="ml-item-from text-truncate">{{ d.to || t('app.mail.drafts.noRecipient', undefined, '(no recipient)') }}</span>
+								<i v-if="d.attachments.length" class="bi bi-paperclip ml-item-icon"></i>
+								<span class="ml-item-date">{{ formatListDate(d.modified) }}</span>
+							</div>
+							<div class="ml-item-subject text-truncate">
+								<i v-if="d.mode === 'reply' || d.mode === 'replyAll'" class="bi bi-reply-fill ml-item-icon"></i>
+								<i v-if="d.mode === 'forward'" class="bi bi-forward-fill ml-item-icon"></i>
+								{{ d.subject || t('app.mail.message.noSubject', undefined, '(no subject)') }}
+							</div>
+							<div class="ml-item-preview text-truncate">
+								<span v-if="!selectedAccount && accounts.length > 1" class="ml-item-account">{{ accountName(d.accountId) }}</span>
+								{{ d.text }}
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div v-else class="ml-list-scroll" @scroll="onListScroll">
+					<div v-if="isListLoading && !messages.length" class="ml-empty">
+						<wt-spinner size="sm"></wt-spinner>
+						<span>{{ t('app.mail.list.loading', undefined, 'Loading…') }}</span>
+					</div>
+					<div v-else-if="listError" class="ml-empty">
+						<i class="bi bi-exclamation-triangle"></i>
+						<span>{{ listError }}</span>
+					</div>
+					<div v-else-if="!messages.length" class="ml-empty">
+						<i class="bi bi-inbox"></i>
+						<span>{{ searchQuery ? t('app.mail.list.noMatch', undefined, 'No mail matches the search.') : t('app.mail.list.empty', undefined, 'No mail here.') }}</span>
+					</div>
+
+					<div v-for="m of messages" :key="m.id" :data-id="m.id" class="ml-item"
+						:class="{ selected: m.id === currentId, unread: !m.seen, checked: !!checked[m.id] }"
+						@click="open(m)">
+						<span class="ml-item-bar" :style="{ background: accountColor(m.accountId) || 'transparent' }"></span>
+						<input type="checkbox" class="wt ml-item-check" :checked="!!checked[m.id]"
+							@click.stop="toggleChecked(m.id)" :title="t('app.mail.bulk.select', undefined, 'Select')">
+						<div class="ml-item-body">
+							<div class="ml-item-row">
+								<span v-if="m.color" class="ml-dot" :style="{ background: colorHex(m.color) }"></span>
+								<span class="ml-item-from text-truncate">{{ senderLabel(m) }}</span>
+								<i v-if="m.locked" class="bi bi-lock-fill ml-item-icon" :title="t('app.mail.lock.locked', undefined, 'Locked')"></i>
+								<i v-if="m.hasAttachments" class="bi bi-paperclip ml-item-icon"></i>
+								<i v-if="m.flagged" class="bi bi-flag-fill ml-item-flag"></i>
+								<span class="ml-item-date">{{ formatListDate(m.receivedDate) }}</span>
+							</div>
+							<div class="ml-item-subject text-truncate">
+								<i v-if="m.answered" class="bi bi-reply-fill ml-item-icon"></i>
+								{{ m.subject || t('app.mail.message.noSubject', undefined, '(no subject)') }}
+							</div>
+							<div class="ml-item-preview text-truncate">
+								<span v-if="!selectedAccount && accounts.length > 1" class="ml-item-account">{{ accountName(m.accountId) }}</span>
+								<span v-for="tag of m.tags.slice(0, 3)" :key="tag" class="ml-item-tag">{{ tag }}</span>
+								{{ m.preview }}
+							</div>
+						</div>
+					</div>
+
+					<div v-if="isListLoading && messages.length" class="ml-empty ml-more">
+						<wt-spinner size="sm"></wt-spinner>
+					</div>
+
+					<!-- Where downloaded mail ends, and how to get more -->
+					<div v-if="!hasMore && accounts.length && selection.box !== 'trash'" class="ml-older">
+						<span v-if="oldestDateLabel">{{ t('app.mail.older.since', { date: oldestDateLabel }, 'Mail since {date} is downloaded.') }}</span>
+						<button type="button" class="wt wt-slim" @click="openOlder()">
+							<i class="bi bi-clock-history me-1"></i>{{ t('app.mail.older.fetch', undefined, 'Download older mail') }}
+						</button>
+					</div>
+				</div>
+			</section>
+
+			<wt-splitter v-model:size="listPanelWidth" :min="260" :max="640"
+				@resize-start="isResizing = true" @resize-end="isResizing = false"></wt-splitter>
+
+			<!-- Right: reader -->
+			<section class="ml-reader island p-0">
+				<!-- Compose: takes the reader's place; kept as a draft in the Webtop -->
+				<div v-if="compose.active" class="ml-compose" @dragover.prevent @drop="onComposeDrop($event)">
+					<div class="ml-message-actions">
+						<button type="button" class="wt wt-primary wt-slim" :disabled="compose.sending || compose.uploading > 0" @click="sendCompose">
+							<wt-spinner v-if="compose.sending" size="sm" class="me-1"></wt-spinner><i v-else class="bi bi-send me-1"></i>{{ t('app.mail.compose.send', undefined, 'Send') }}
+						</button>
+						<button class="btn-icon" @click="pickFiles" :title="t('app.mail.compose.attach', undefined, 'Attach files')">
+							<i class="bi bi-paperclip"></i>
+						</button>
+						<input type="file" multiple class="d-none" ref="composeFile" @change="onFilesPicked($event)">
+						<div class="ml-segment">
+							<button type="button" :class="{ active: compose.format === 'text' }" @click="setComposeFormat('text')">{{ t('app.mail.message.text', undefined, 'Text') }}</button>
+							<button type="button" :class="{ active: compose.format === 'html' }" @click="setComposeFormat('html')">HTML</button>
+						</div>
+						<span class="nav-spacer"></span>
+						<span class="ml-compose-state">
+							<template v-if="compose.uploading">{{ t('app.mail.compose.uploading', undefined, 'Uploading…') }}</template>
+							<template v-else-if="compose.saving">{{ t('app.mail.compose.saving', undefined, 'Saving…') }}</template>
+							<template v-else-if="compose.savedAt">{{ t('app.mail.compose.saved', { time: compose.savedAt }, 'Saved {time}') }}</template>
+						</span>
+						<button class="btn-icon" @click="confirmDiscard" :title="t('app.mail.compose.discard', undefined, 'Discard draft')">
+							<i class="bi bi-trash"></i>
+						</button>
+						<button class="btn-icon" @click="closeCompose()" :title="t('app.mail.compose.close', undefined, 'Close (kept in Drafts)')">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+
+					<div class="ml-compose-fields">
+						<div v-if="accounts.length > 1" class="ml-compose-row">
+							<span class="ml-meta-label">{{ t('app.mail.message.from', undefined, 'From') }}</span>
+							<div class="ml-compose-select">
+								<wt-select v-model="compose.accountId" :items="fromItems" @change="markDirty"></wt-select>
+							</div>
+						</div>
+						<label class="ml-compose-row">
+							<span class="ml-meta-label">{{ t('app.mail.message.to', undefined, 'To') }}</span>
+							<input type="text" class="ml-compose-input" v-model="compose.to" ref="composeTo" autocomplete="off"
+								@input="markDirty(); refreshAddressSuggestions('to')" @blur="onAddressBlur" @keydown="onAddressKeydown('to', $event)">
+							<button v-if="!compose.showCc" type="button" class="ml-link" @click="compose.showCc = true">{{ t('app.mail.compose.showCc', undefined, 'Cc/Bcc') }}</button>
+						</label>
+						<label v-if="compose.showCc" class="ml-compose-row">
+							<span class="ml-meta-label">{{ t('app.mail.message.cc', undefined, 'Cc') }}</span>
+							<input type="text" class="ml-compose-input" v-model="compose.cc" ref="composeCc" autocomplete="off"
+								@input="markDirty(); refreshAddressSuggestions('cc')" @blur="onAddressBlur" @keydown="onAddressKeydown('cc', $event)">
+						</label>
+						<label v-if="compose.showCc" class="ml-compose-row">
+							<span class="ml-meta-label">{{ t('app.mail.compose.bcc', undefined, 'Bcc') }}</span>
+							<input type="text" class="ml-compose-input" v-model="compose.bcc" ref="composeBcc" autocomplete="off"
+								@input="markDirty(); refreshAddressSuggestions('bcc')" @blur="onAddressBlur" @keydown="onAddressKeydown('bcc', $event)">
+						</label>
+						<label class="ml-compose-row">
+							<span class="ml-meta-label">{{ t('app.mail.compose.subject', undefined, 'Subject') }}</span>
+							<input type="text" class="ml-compose-input" v-model="compose.subject" @input="markDirty">
+						</label>
+					</div>
+
+					<div v-if="compose.attachments.length" class="ml-attachments">
+						<span v-for="(a, i) in compose.attachments" :key="a.key || ('f' + i)" class="ml-attachment" :title="a.mimeType">
+							<i class="bi" :class="a.forwarded ? 'bi-forward' : 'bi-paperclip'"></i>
+							<span class="text-truncate">{{ a.name }}</span>
+							<span v-if="a.size != null" class="ml-attachment-size">{{ formatSize(a.size) }}</span>
+							<button type="button" class="ml-chip-x" @click="removeAttachment(i)" :title="t('app.mail.compose.removeAttachment', undefined, 'Remove')">
+								<i class="bi bi-x"></i>
+							</button>
+						</span>
+					</div>
+
+					<div v-if="compose.format === 'html'" class="ml-compose-toolbar">
+						<button class="btn-icon" @click="editorCommand('bold')" :title="t('app.mail.compose.bold', undefined, 'Bold')"><i class="bi bi-type-bold"></i></button>
+						<button class="btn-icon" @click="editorCommand('italic')" :title="t('app.mail.compose.italic', undefined, 'Italic')"><i class="bi bi-type-italic"></i></button>
+						<button class="btn-icon" @click="editorCommand('underline')" :title="t('app.mail.compose.underline', undefined, 'Underline')"><i class="bi bi-type-underline"></i></button>
+						<button class="btn-icon" @click="editorCommand('strike')" :title="t('app.mail.compose.strike', undefined, 'Strikethrough')"><i class="bi bi-type-strikethrough"></i></button>
+						<span class="ml-action-divider"></span>
+						<button class="btn-icon" @click="editorCommand('bulletList')" :title="t('app.mail.compose.bulletList', undefined, 'Bulleted list')"><i class="bi bi-list-ul"></i></button>
+						<button class="btn-icon" @click="editorCommand('orderedList')" :title="t('app.mail.compose.orderedList', undefined, 'Numbered list')"><i class="bi bi-list-ol"></i></button>
+						<button class="btn-icon" @click="editorCommand('blockquote')" :title="t('app.mail.compose.quote', undefined, 'Quote')"><i class="bi bi-quote"></i></button>
+						<span class="ml-action-divider"></span>
+						<button class="btn-icon" @click="editorCommand('clear')" :title="t('app.mail.compose.clear', undefined, 'Clear formatting')"><i class="bi bi-eraser"></i></button>
+					</div>
+
+					<div v-if="compose.error" class="ml-banner ml-banner-warn">
+						<i class="bi bi-exclamation-triangle me-1"></i>{{ compose.error }}
+					</div>
+
+					<textarea v-show="compose.format === 'text'" class="ml-compose-text" v-model="compose.text" ref="composeText"
+						:placeholder="t('app.mail.compose.placeholder', undefined, 'Write your message')" @input="markDirty"></textarea>
+					<div v-show="compose.format === 'html'" class="ml-compose-editor" ref="composeEditorHost"></div>
+				</div>
+
+				<div v-else-if="isMessageLoading && !current" class="ml-empty">
+					<wt-spinner size="sm"></wt-spinner>
+				</div>
+				<div v-else-if="messageError" class="ml-empty">
+					<i class="bi bi-exclamation-triangle"></i>
+					<span>{{ messageError }}</span>
+				</div>
+				<div v-else-if="!current" class="ml-empty">
+					<i class="bi bi-envelope-paper"></i>
+					<span>{{ t('app.mail.message.none', undefined, 'Select a message to read it.') }}</span>
+				</div>
+				<div v-else class="ml-message">
+					<div class="ml-message-actions">
+						<button class="btn-icon" @click="replyCurrent('reply')" :title="t('app.mail.action.reply', undefined, 'Reply')">
+							<i class="bi bi-reply"></i>
+						</button>
+						<button class="btn-icon" @click="replyCurrent('replyAll')" :title="t('app.mail.action.replyAll', undefined, 'Reply all')">
+							<i class="bi bi-reply-all"></i>
+						</button>
+						<button class="btn-icon" @click="replyCurrent('forward')" :title="t('app.mail.action.forward', undefined, 'Forward')">
+							<i class="bi bi-forward"></i>
+						</button>
+						<span class="ml-action-divider"></span>
+						<button class="btn-icon" @click="markCurrentUnread"
+							:title="current.seen ? t('app.mail.action.markUnread', undefined, 'Mark as unread') : t('app.mail.action.markRead', undefined, 'Mark as read')">
+							<i class="bi" :class="current.seen ? 'bi-envelope' : 'bi-envelope-open'"></i>
+						</button>
+						<button class="btn-icon" :class="{ active: current.flagged }" @click="toggleCurrentFlag"
+							:title="current.flagged ? t('app.mail.action.unflag', undefined, 'Remove flag') : t('app.mail.action.flag', undefined, 'Flag')">
+							<i class="bi" :class="current.flagged ? 'bi-flag-fill' : 'bi-flag'"></i>
+						</button>
+						<button class="btn-icon" @click="trashCurrent" :disabled="current.locked && !current.trashed"
+							:title="current.locked && !current.trashed ? t('app.mail.lock.notTrashed', undefined, 'Locked mail is not moved to the trash.') : (current.trashed ? t('app.mail.action.restore', undefined, 'Restore') : t('app.mail.action.trash', undefined, 'Move to trash'))">
+							<i class="bi" :class="current.trashed ? 'bi-arrow-counterclockwise' : 'bi-trash'"></i>
+						</button>
+						<span class="ml-action-divider"></span>
+						<button class="btn-icon" @click="openColorMenu('current', $event)" :title="t('app.mail.labels.color', undefined, 'Color')">
+								<i class="bi bi-palette" :style="{ color: colorHex(current.color) || null }"></i>
+						</button>
+						<button class="btn-icon" :class="{ 'active-lock': current.locked }" @click="toggleCurrentLock"
+							:title="current.locked ? t('app.mail.lock.unlock', undefined, 'Unlock') : t('app.mail.lock.action', undefined, 'Lock')">
+							<i class="bi" :class="current.locked ? 'bi-lock-fill' : 'bi-lock'"></i>
+						</button>
+						<span class="nav-spacer"></span>
+						<div v-if="current.html != null && current.text" class="ml-segment">
+							<button type="button" :class="{ active: view === 'html' }" @click="view = 'html'">HTML</button>
+							<button type="button" :class="{ active: view === 'text' }" @click="view = 'text'">{{ t('app.mail.message.text', undefined, 'Text') }}</button>
+						</div>
+						<a class="btn-icon" :href="rawHref()" :title="t('app.mail.action.download', undefined, 'Download message (.eml)')">
+							<i class="bi bi-download"></i>
+						</a>
+					</div>
+
+					<div class="ml-message-head">
+						<h1 class="ml-message-subject">{{ current.subject || t('app.mail.message.noSubject', undefined, '(no subject)') }}</h1>
+						<div class="ml-message-meta">
+							<div class="ml-meta-row">
+								<span class="ml-meta-label">{{ t('app.mail.message.from', undefined, 'From') }}</span>
+								<span class="ml-meta-value">{{ addressList(current.from) }}</span>
+							</div>
+							<div v-if="current.to.length" class="ml-meta-row">
+								<span class="ml-meta-label">{{ t('app.mail.message.to', undefined, 'To') }}</span>
+								<span class="ml-meta-value">{{ addressList(current.to) }}</span>
+							</div>
+							<div v-if="current.cc.length" class="ml-meta-row">
+								<span class="ml-meta-label">{{ t('app.mail.message.cc', undefined, 'Cc') }}</span>
+								<span class="ml-meta-value">{{ addressList(current.cc) }}</span>
+							</div>
+							<div v-if="current.replyTo.length" class="ml-meta-row">
+								<span class="ml-meta-label">{{ t('app.mail.message.replyTo', undefined, 'Reply-To') }}</span>
+								<span class="ml-meta-value">{{ addressList(current.replyTo) }}</span>
+							</div>
+							<div class="ml-meta-row">
+								<span class="ml-meta-label">{{ t('app.mail.message.date', undefined, 'Date') }}</span>
+								<span class="ml-meta-value">{{ formatFullDate(current.sentDate || current.receivedDate) }}</span>
+								<span class="ml-meta-account">{{ accountName(current.accountId) }}</span>
+							</div>
+						</div>
+						<div class="ml-tags">
+							<span v-if="current.color" class="ml-dot" :style="{ background: colorHex(current.color) }" :title="colorLabel(current.color)"></span>
+							<span v-for="tag of current.tags" :key="tag" class="ml-tag">
+								{{ tag }}
+								<button type="button" class="ml-chip-x" @click="removeTag([current.id], tag)" :title="t('app.mail.labels.removeTag', undefined, 'Remove tag')">
+									<i class="bi bi-x"></i>
+								</button>
+							</span>
+							<input type="text" class="ml-tag-input" v-model="tagInput" ref="tagInput" autocomplete="off"
+								:placeholder="t('app.mail.labels.addTag', undefined, 'Add a tag')"
+								@input="refreshTagSuggestions('current')" @focus="refreshTagSuggestions('current')"
+								@blur="onTagBlur" @keydown="onTagKeydown('current', $event)">
+						</div>
+					</div>
+
+
+					<div v-if="current.error" class="ml-banner ml-banner-warn">
+						<i class="bi bi-exclamation-triangle me-1"></i>{{ t('app.mail.message.partial', undefined, 'Part of this message could not be read. Download it to see all of it.') }}
+					</div>
+					<div v-if="view === 'html' && currentHasRemoteContent && !showRemote" class="ml-banner">
+						<i class="bi bi-image me-1"></i>{{ t('app.mail.message.remoteBlocked', undefined, 'Remote images are not shown.') }}
+						<button type="button" class="wt wt-slim ms-2" @click="showRemote = true">{{ t('app.mail.message.showRemote', undefined, 'Show images') }}</button>
+					</div>
+
+					<div v-if="visibleAttachments.length" class="ml-attachments">
+						<a v-for="a of visibleAttachments" :key="a.index" class="ml-attachment" :href="attachmentHref(a.index)" :title="a.mimeType">
+							<i class="bi bi-paperclip"></i><span class="text-truncate">{{ a.name }}</span>
+						</a>
+					</div>
+
+					<!-- The body runs sandboxed: no scripts, no access to this page. Links
+					     open in a new tab. -->
+					<iframe class="ml-frame" :srcdoc="messageDocument"
+						sandbox="allow-popups allow-popups-to-escape-sandbox"
+						referrerpolicy="no-referrer"></iframe>
+				</div>
+			</section>
+		</div>
+
+		<!-- Status bar -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span v-if="statusMessage" class="status-item">{{ statusMessage }}</span>
+				<span v-else-if="syncSummary" class="status-item">
+					<i v-if="syncingAccounts.length" class="bi bi-arrow-repeat mail-spin me-1"></i>{{ syncSummary }}
+				</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group">
+				<span v-if="errorAccounts.length" class="status-item text-danger" :title="errorAccounts[0].status.lastError">
+					<i class="bi bi-exclamation-triangle-fill me-1"></i>{{ t('app.mail.status.error', { account: errorAccounts[0].name }, '{account}: synchronization failed') }}
+				</span>
+			</div>
+		</div>
+
+		<!-- Accounts dialog (wider than the shared sizes: account list + form) -->
+		<div class="ml-accounts-dialog">
+		<wt-dialog v-model:open="accountsDialog.visible" size="xl" @close="closeAccounts">
+			<template v-slot:title="d">
+				<i class="bi bi-gear me-2"></i>{{ t('app.mail.toolbar.accounts', undefined, 'Accounts') }}
+			</template>
+			<template v-slot="d">
+				<div class="ml-accounts">
+					<div class="ml-accounts-list">
+						<button v-for="a of accounts" :key="a.id" type="button" class="ml-nav-item"
+							:class="{ active: accountForm.id === a.id }" @click="editAccount(a)">
+							<span class="ml-dot" :style="{ background: a.color || 'var(--primary-color)' }"></span>
+							<span class="text-truncate">{{ a.name }}</span>
+						</button>
+						<button type="button" class="ml-nav-item" :class="{ active: accountForm.visible && !accountForm.id }" @click="newAccount">
+							<i class="bi bi-plus-lg"></i><span>{{ t('app.mail.account.add', undefined, 'Add account') }}</span>
+						</button>
+					</div>
+
+					<div v-if="accountForm.visible" class="ml-accounts-form" @input="onFormInput">
+						<div class="ml-form-grid">
+							<wt-field :label="t('app.mail.account.address', undefined, 'Mail address')" required>
+								<input type="email" class="wt w-100" v-model="accountForm.address" @input="onAddressInput" :disabled="!!accountForm.id">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.name', undefined, 'Account name')">
+								<input type="text" class="wt w-100" v-model="accountForm.name" :placeholder="accountForm.address">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.personal', undefined, 'Your name')">
+								<input type="text" class="wt w-100" v-model="accountForm.personal">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.color', undefined, 'Color')">
+								<input type="color" class="ml-color" v-model="accountForm.color">
+							</wt-field>
+						</div>
+
+						<div class="ml-form-section">{{ t('app.mail.account.incoming', undefined, 'Incoming mail (IMAP)') }}</div>
+						<div class="ml-form-grid">
+							<wt-field :label="t('app.mail.account.host', undefined, 'Server')" required>
+								<input type="text" class="wt w-100" v-model="accountForm.incoming.host" @blur="onHostBlur('incoming')" placeholder="imap.example.com">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.security', undefined, 'Security')">
+								<wt-select v-model="accountForm.incoming.security" :items="securityItems" @change="onSecurityChange('incoming')"></wt-select>
+							</wt-field>
+							<wt-field :label="t('app.mail.account.port', undefined, 'Port')">
+								<input type="number" class="wt w-100" min="1" max="65535" v-model.number="accountForm.incoming.port">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.username', undefined, 'User name')">
+								<input type="text" class="wt w-100" v-model="accountForm.incoming.username" :placeholder="accountForm.address" autocomplete="off">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.password', undefined, 'Password')"
+								:hint="accountForm.hasIncomingPassword ? t('app.mail.account.passwordKept', undefined, 'Leave empty to keep the saved password.') : ''">
+								<input type="password" class="wt w-100" v-model="accountForm.incomingPassword" autocomplete="new-password">
+							</wt-field>
+						</div>
+
+						<div class="ml-form-section">{{ t('app.mail.account.outgoing', undefined, 'Outgoing mail (SMTP)') }}</div>
+						<div class="ml-form-grid">
+							<wt-field :label="t('app.mail.account.host', undefined, 'Server')" required>
+								<input type="text" class="wt w-100" v-model="accountForm.outgoing.host" @blur="onHostBlur('outgoing')" placeholder="smtp.example.com">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.security', undefined, 'Security')">
+								<wt-select v-model="accountForm.outgoing.security" :items="securityItems" @change="onSecurityChange('outgoing')"></wt-select>
+							</wt-field>
+							<wt-field :label="t('app.mail.account.port', undefined, 'Port')">
+								<input type="number" class="wt w-100" min="1" max="65535" v-model.number="accountForm.outgoing.port">
+							</wt-field>
+							<div class="ml-form-wide">
+								<wt-checkbox v-model="accountForm.outgoing.sameAuthentication"
+									:label="t('app.mail.account.sameAuth', undefined, 'Sign in with the incoming server user name and password')"></wt-checkbox>
+							</div>
+							<wt-field v-if="!accountForm.outgoing.sameAuthentication" :label="t('app.mail.account.username', undefined, 'User name')">
+								<input type="text" class="wt w-100" v-model="accountForm.outgoing.username" :placeholder="accountForm.address" autocomplete="off">
+							</wt-field>
+							<wt-field v-if="!accountForm.outgoing.sameAuthentication" :label="t('app.mail.account.password', undefined, 'Password')"
+								:hint="accountForm.hasOutgoingPassword ? t('app.mail.account.passwordKept', undefined, 'Leave empty to keep the saved password.') : ''">
+								<input type="password" class="wt w-100" v-model="accountForm.outgoingPassword" autocomplete="new-password">
+							</wt-field>
+						</div>
+
+						<div class="ml-form-section">{{ t('app.mail.account.sync', undefined, 'Synchronization') }}</div>
+						<div class="ml-form-grid">
+							<wt-field :label="t('app.mail.account.initialDays', undefined, 'Download mail of the last (days)')"
+								:hint="t('app.mail.account.initialDaysHint', undefined, 'Used for the first download. Older mail can be downloaded later.')">
+								<input type="number" class="wt w-100" min="1" max="3650" v-model.number="accountForm.initialDays" :disabled="!!accountForm.id">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.interval', undefined, 'Check every (minutes)')">
+								<input type="number" class="wt w-100" min="1" max="1440" v-model.number="accountForm.intervalMinutes">
+							</wt-field>
+							<div class="ml-form-wide">
+								<wt-checkbox v-model="accountForm.enabled" :label="t('app.mail.account.enabled', undefined, 'Synchronize this account')"></wt-checkbox>
+							</div>
+						</div>
+
+						<div v-if="accountForm.testResult" class="ml-banner" :class="accountForm.testResult.ok ? 'ml-banner-ok' : 'ml-banner-warn'">
+							<div v-for="line of accountForm.testResult.messages" :key="line">{{ line }}</div>
+						</div>
+						<div v-if="accountForm.error" class="ml-banner ml-banner-warn">{{ accountForm.error }}</div>
+					</div>
+				</div>
+			</template>
+			<template v-slot:footer="d">
+				<button v-if="accountForm.id" type="button" class="wt wt-danger me-auto" @click="confirmRemoveAccount">
+					{{ t('app.mail.account.remove', undefined, 'Remove account') }}
+				</button>
+				<button type="button" class="wt" :disabled="accountForm.testing || !accountForm.visible" @click="testAccount">
+					<wt-spinner v-if="accountForm.testing" size="sm" class="me-1"></wt-spinner>{{ t('app.mail.account.test', undefined, 'Test connection') }}
+				</button>
+				<button type="button" class="wt" @click="closeAccounts">{{ t('common.close') }}</button>
+				<button type="button" class="wt wt-primary" :disabled="accountForm.saving || !accountForm.visible" @click="saveAccount">
+					<wt-spinner v-if="accountForm.saving" size="sm" class="me-1"></wt-spinner>{{ t('common.save') }}
+				</button>
+			</template>
+		</wt-dialog>
+		</div>
+
+		<!-- Older mail dialog -->
+		<wt-dialog v-model:open="olderDialog.visible" size="sm" @close="closeOlder">
+			<template v-slot:title="d">
+				<i class="bi bi-clock-history me-2"></i>{{ t('app.mail.older.fetch', undefined, 'Download older mail') }}
+			</template>
+			<template v-slot="d">
+				<wt-field :label="t('app.mail.older.account', undefined, 'Account')">
+					<wt-select v-model="olderDialog.accountId" :items="olderAccountItems()"></wt-select>
+				</wt-field>
+				<wt-field :label="t('app.mail.older.period', undefined, 'Further back by')"
+					:hint="t('app.mail.older.hint', undefined, 'Counted back from the oldest mail downloaded so far. Large periods take a while and run in the background.')">
+					<wt-select v-model="olderDialog.days" :items="olderItems"></wt-select>
+				</wt-field>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeOlder">{{ t('common.cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="fetchOlder">{{ t('app.mail.older.start', undefined, 'Download') }}</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Confirmation dialog -->
+		<wt-dialog v-model:open="confirmDialog.visible" size="sm" @close="closeConfirmDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-question-circle me-2"></i>{{ confirmDialog.title }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-0">{{ confirmDialog.message }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeConfirmDialog">{{ t('common.cancel') }}</button>
+				<button type="button" class="wt wt-danger" @click="acceptConfirmDialog">{{ t('common.ok') }}</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+		<!-- /Readiness gate -->
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+</html>

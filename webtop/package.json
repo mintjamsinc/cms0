@@ -41,6 +41,8 @@
 		"build:workspace-manager:prod": "cross-env BUILD=production TARGETS=workspace-manager rollup -c",
 		"build:radio": "cross-env BUILD=development TARGETS=radio rollup -c",
 		"build:radio:prod": "cross-env BUILD=production TARGETS=radio rollup -c",
+		"build:mail": "cross-env BUILD=development TARGETS=mail rollup -c",
+		"build:mail:prod": "cross-env BUILD=production TARGETS=mail rollup -c",
 		"build:webtop-ui-standalone": "cross-env BUILD=development TARGETS=webtop-ui-standalone rollup -c",
 		"build:webtop-ui-standalone:prod": "cross-env BUILD=production TARGETS=webtop-ui-standalone rollup -c",
 		"prepare": "npm run build",

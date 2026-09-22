@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<camel>
+
+    <!--
+        Background synchronization for the Webtop Mail app.
+
+        Every minute this route runs the passes that are due (an account's
+        interval has elapsed, or the app asked for a run: new settings, the
+        Refresh button, a flag change, older mail). webtop.mail.MailScheduler
+        picks them from the account index and runs each one as the account's
+        owner under a per-account lock, so the timer firing on every cluster
+        node still runs a pass once. A pass is capped in messages and time and
+        asks for the next tick when work is left, so a large first download
+        never holds a round for long.
+
+        To run a pass by hand, set mail:requested=true on the account's entry
+        under /var/lib/mail/accounts/<user>/.
+    -->
+    <route id="webtop-mail-sync">
+        <routeProperty key="mi:history" value="failure"/>
+        <from id="webtop-mail-sync-timer" uri="timer:webtop-mail-sync?period=60000&amp;delay=60000"/>
+
+        <setProperty id="webtop-mail-sync-run-as" name="runAs">
+            <constant>mail-service-user</constant>
+        </setProperty>
+
+        <doTry id="webtop-mail-sync-try">
+            <script id="webtop-mail-sync-open">
+                <groovy>
+                <![CDATA[
+                    def context = ScriptAPI.createServiceUserContext(exchange.getProperty('runAs'));
+                    exchange.setProperty('mi:cms.context', context);
+                ]]>
+                </groovy>
+            </script>
+
+            <script id="webtop-mail-sync-run">
+                <groovy>
+                <![CDATA[
+                    webtop.mail.MailScheduler.create(context).runDue();
+                ]]>
+                </groovy>
+            </script>
+
+            <doCatch id="webtop-mail-sync-catch">
+                <exception>java.lang.Exception</exception>
+                <log id="webtop-mail-sync-log" loggingLevel="ERROR" message="${exception.message} ${exception.stacktrace}"/>
+            </doCatch>
+
+            <doFinally id="webtop-mail-sync-finally">
+                <script id="webtop-mail-sync-close">
+                    <groovy>
+                    <![CDATA[
+                        // Taken off the exchange before it is closed: closing clears the
+                        // context's bindings, and a later script that still found the
+                        // property would run without ScriptAPI or log.
+                        def cmsContext = exchange.getProperty('mi:cms.context');
+                        exchange.removeProperty('mi:cms.context');
+                        cmsContext?.close();
+                    ]]>
+                    </groovy>
+                </script>
+            </doFinally>
+        </doTry>
+    </route>
+
+</camel>

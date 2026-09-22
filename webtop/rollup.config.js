@@ -267,6 +267,12 @@ const pdfViewerConfig = makeAppConfig('pdf-viewer', {
 
 // Radio: icy.groovy runs on the server next to the app (it reads the ICY
 // metadata a browser cannot see) and is copied with the static files.
+const mailConfig = makeAppConfig('mail', {
+  extraCopyTargets: [
+    { src: 'src/webtop/apps/mail/attachment.groovy', dest: 'dist/webtop/apps/mail' },
+  ],
+});
+
 const radioConfig = makeAppConfig('radio', {
   extraCopyTargets: [
     { src: 'src/webtop/apps/radio/icy.groovy', dest: 'dist/webtop/apps/radio' },
@@ -293,4 +299,5 @@ export default [
   makeAppConfig('dashboard'),
   makeAppConfig('workspace-manager'),
   radioConfig,
+  mailConfig,
 ].filter(Boolean);

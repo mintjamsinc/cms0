@@ -182,6 +182,13 @@ task shows every node live and supports abort and re-running failed
 nodes. See
 [`documents/search-index-rebuild.md`](documents/search-index-rebuild.md).
 
+### Webtop Mail
+
+The Webtop **Mail** app downloads IMAP mail in the background, the first time
+only for a period set per account, and never deletes mail on the server. Where
+the mail is kept, how the synchronization runs and how to run a pass by hand is
+described in [`documents/webtop-mail.md`](documents/webtop-mail.md).
+
 ---
 
 ## Platform support

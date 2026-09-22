@@ -1,0 +1,46 @@
+# Provisioning for the Webtop Mail app.
+#
+# The mail of a user lives in the user's home (/home/users/<user>/mail), which
+# the user already owns. What is provisioned here is for the background
+# synchronization (etc/eip/routes/webtop/mail.xml):
+#
+#   - mail-service-user runs the timer route. It owns the account index and the
+#     pass locks below and nothing else; each pass then runs as the account's
+#     owner, so the service user never reads a home.
+#   - /var/lib/mail/accounts: one entry per account (user id, account id,
+#     interval, "run now" requests), because the service user cannot list the
+#     homes to find the accounts. The Mail app writes it through the service
+#     user; it holds no settings and no secrets.
+#   - /var/lock/mail: the pass locks (one file per account), kept out of the
+#     folders they guard so taking a lock raises no event there.
+#
+# The mail: namespace names the message and account properties.
+
+namespaces:
+  - prefix: mail
+    uri: http://www.mintjams.jp/webtop/mail/1.0
+
+groups:
+  - { id: mail-service-group, displayName: Mail Service }
+
+users:
+  - id: mail-service-user
+    service: true
+    displayName: Mail Service
+    memberOf: [mail-service-group]
+
+nodes:
+  - path: /var/lib/mail
+    primaryType: nt:folder
+    acl:
+      - group: mail-service-group
+        privileges: jcr:all
+        effect: allow
+  - path: /var/lib/mail/accounts
+    primaryType: nt:folder
+  - path: /var/lock/mail
+    primaryType: nt:folder
+    acl:
+      - group: mail-service-group
+        privileges: jcr:all
+        effect: allow
