@@ -41,6 +41,19 @@ public class IdpUser {
 	private List<String> fGroups = new ArrayList<>();
 	private List<String> fRoles = new ArrayList<>();
 	private Map<String, List<String>> fAttributes = new HashMap<>();
+	private String fAuthnContextClassRef;
+
+	/**
+	 * The SAML authentication context class the user satisfied at sign-in
+	 * (password, password plus TOTP, or passkey); null until the flow completes.
+	 */
+	public String getAuthnContextClassRef() {
+		return fAuthnContextClassRef;
+	}
+
+	public void setAuthnContextClassRef(String authnContextClassRef) {
+		fAuthnContextClassRef = authnContextClassRef;
+	}
 
 	public String getUsername() {
 		return fUsername;

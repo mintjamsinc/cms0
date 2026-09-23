@@ -20,40 +20,22 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.internal.auth;
-
-import org.mintjams.idp.internal.model.IdpUser;
+package org.mintjams.idp.internal.webauthn;
 
 /**
- * Abstraction for user authentication and lookup.
+ * A WebAuthn ceremony that failed verification. The message names the check
+ * that failed; it is meant for the log, not for the browser.
  */
-public interface UserStore {
+public class WebAuthnException extends Exception {
 
-	/**
-	 * Authenticates a user by username and password.
-	 *
-	 * @param username the username
-	 * @param password the plain text password
-	 * @return the authenticated user, or null if authentication fails
-	 */
-	IdpUser authenticate(String username, String password);
+	private static final long serialVersionUID = 1L;
 
-	/**
-	 * Looks up a user by username without authentication.
-	 *
-	 * @param username the username
-	 * @return the user, or null if not found
-	 */
-	IdpUser findUser(String username);
+	public WebAuthnException(String message) {
+		super(message);
+	}
 
-	/**
-	 * Looks up a user that is allowed to sign in: one that exists, is enabled
-	 * and is not a service account. Used by flows that authenticate without a
-	 * password (passkeys) and by second-factor enrollment.
-	 *
-	 * @param username the username
-	 * @return the user, or null when it does not exist or may not sign in
-	 */
-	IdpUser findSignInUser(String username);
+	public WebAuthnException(String message, Throwable cause) {
+		super(message, cause);
+	}
 
 }

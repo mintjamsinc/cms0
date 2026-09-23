@@ -20,40 +20,44 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.internal.auth;
+package org.mintjams.cms.security.mfa;
 
-import org.mintjams.idp.internal.model.IdpUser;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Abstraction for user authentication and lookup.
+ * A user's second-factor enrollment state.
  */
-public interface UserStore {
+public final class MultiFactorStatus {
 
-	/**
-	 * Authenticates a user by username and password.
-	 *
-	 * @param username the username
-	 * @param password the plain text password
-	 * @return the authenticated user, or null if authentication fails
-	 */
-	IdpUser authenticate(String username, String password);
+	private final boolean fTotpEnabled;
+	private final int fBackupCodesRemaining;
+	private final List<PasskeyInfo> fPasskeys;
+	private final boolean fPasskeysAvailable;
 
-	/**
-	 * Looks up a user by username without authentication.
-	 *
-	 * @param username the username
-	 * @return the user, or null if not found
-	 */
-	IdpUser findUser(String username);
+	public MultiFactorStatus(boolean totpEnabled, int backupCodesRemaining, List<PasskeyInfo> passkeys, boolean passkeysAvailable) {
+		fTotpEnabled = totpEnabled;
+		fBackupCodesRemaining = backupCodesRemaining;
+		fPasskeys = passkeys == null ? Collections.emptyList() : List.copyOf(passkeys);
+		fPasskeysAvailable = passkeysAvailable;
+	}
 
-	/**
-	 * Looks up a user that is allowed to sign in: one that exists, is enabled
-	 * and is not a service account. Used by flows that authenticate without a
-	 * password (passkeys) and by second-factor enrollment.
-	 *
-	 * @param username the username
-	 * @return the user, or null when it does not exist or may not sign in
-	 */
-	IdpUser findSignInUser(String username);
+	public boolean isTotpEnabled() {
+		return fTotpEnabled;
+	}
+
+	/** Unused backup codes left; 0 when TOTP is not enabled. */
+	public int getBackupCodesRemaining() {
+		return fBackupCodesRemaining;
+	}
+
+	public List<PasskeyInfo> getPasskeys() {
+		return fPasskeys;
+	}
+
+	/** Whether the server is configured for WebAuthn (a relying-party id is known). */
+	public boolean isPasskeysAvailable() {
+		return fPasskeysAvailable;
+	}
 
 }

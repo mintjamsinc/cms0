@@ -266,6 +266,16 @@ public class Saml2Auth {
 	}
 
 	/**
+	 * Gets the authentication context class the IdP reported (how the user
+	 * was authenticated: password, one-time password, passkey, ...).
+	 *
+	 * @return the AuthnContextClassRef URI, or null
+	 */
+	public String getAuthnContextClassRef() {
+		return samlResponse != null ? samlResponse.getAuthnContextClassRef() : null;
+	}
+
+	/**
 	 * Gets the last validation exception.
 	 *
 	 * @return the last validation exception, or null

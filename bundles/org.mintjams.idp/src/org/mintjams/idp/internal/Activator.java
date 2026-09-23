@@ -43,9 +43,12 @@ import org.mintjams.cms.CmsService;
 import org.mintjams.cms.security.BCrypt;
 import org.mintjams.cms.security.Encryptor;
 import org.mintjams.cms.security.PasswordGenerator;
+import org.mintjams.cms.security.UserCredentials;
+import org.mintjams.cms.security.mfa.MultiFactorService;
 import org.mintjams.cms.security.saml2.LocalIdentityProvider;
 import org.mintjams.idp.internal.auth.JcrUserStore;
 import org.mintjams.idp.internal.auth.UserStore;
+import org.mintjams.idp.internal.mfa.MultiFactorServiceImpl;
 import org.mintjams.idp.internal.security.FileKeyStoreManager;
 import org.mintjams.idp.internal.security.IdpServiceCredentials;
 import org.mintjams.idp.internal.security.KeyStoreManager;
@@ -55,6 +58,7 @@ import org.mintjams.idp.internal.servlet.SpApiServlet;
 import org.mintjams.idp.internal.servlet.LoginServlet;
 import org.mintjams.idp.internal.servlet.MetadataServlet;
 import org.mintjams.idp.internal.servlet.SsoServlet;
+import org.mintjams.idp.internal.servlet.WebAuthnApiServlet;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.osgi.Registration;
@@ -187,11 +191,18 @@ public class Activator implements BundleActivator {
 			httpService.registerServlet(fConfig.getLogoutApiPath(), new LogoutApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSpApiPath(), new SpApiServlet(), null, sharedContext);
 			httpService.registerServlet(fConfig.getSsoPath(), new SsoServlet(), null, sharedContext);
+			httpService.registerServlet(fConfig.getWebAuthnApiPath(), new WebAuthnApiServlet(), null, sharedContext);
 
 			// Publish ourselves so the co-located SP (org.mintjams.rt.cms) can
 			// resolve idp.* metadata at runtime without any entry in saml2.yml.
 			fCloser.register(Registration.newBuilder(LocalIdentityProvider.class)
 					.setService(new LocalIdpServiceImpl())
+					.setBundleContext(fBundleContext)
+					.build());
+
+			// Second-factor enrollment for the platform GraphQL layer (preferences).
+			fCloser.register(Registration.newBuilder(MultiFactorService.class)
+					.setService(new MultiFactorServiceImpl())
 					.setBundleContext(fBundleContext)
 					.build());
 
@@ -219,6 +230,7 @@ public class Activator implements BundleActivator {
 			if (jcrSession.hasPendingChanges()) {
 				jcrSession.save();
 			}
+			UserCredentials.ensureRoot(jcrSession);
 
 			initializeAdminRole(rolesFolder);
 			initializeSupervisorRole(rolesFolder);
@@ -311,7 +323,6 @@ public class Activator implements BundleActivator {
 		JCRs.setProperty(profileFile, "displayName", "Administrator");
 		JCRs.setProperty(profileFile, "mail", "admin@example.com");
 		JCRs.setProperty(profileFile, "enabled", true);
-		JCRs.setProperty(profileFile, "password", passwordHash);
 
 		// Assign administrator role as WEAKREFERENCE
 		Node adminRoleProfile = rolesFolder.getNode("administrator/profile");
@@ -321,6 +332,10 @@ public class Activator implements BundleActivator {
 
 		JCRs.getOrCreateFolder(adminFolder, "preferences");
 		JCRs.getOrCreateFolder(adminFolder, "Desktop");
+
+		// The hash goes to the credential store, which only system, service and
+		// administrator sessions can read.
+		UserCredentials.setPasswordHash(jcrSession, "admin", passwordHash);
 
 		// Surface the password without ever putting it in the log stream.
 		// If it was provided by the operator (env var or -D), just acknowledge.

@@ -22,22 +22,22 @@
 
 package org.mintjams.idp.internal.servlet;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
+import javax.jcr.Session;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
-import org.apache.commons.io.IOUtils;
 import org.mintjams.idp.internal.Activator;
-import org.mintjams.idp.internal.IdpConfiguration;
-import org.mintjams.idp.internal.model.AuthnRequest;
+import org.mintjams.idp.internal.mfa.BackupCodes;
+import org.mintjams.idp.internal.mfa.CredentialStore;
+import org.mintjams.idp.internal.mfa.Totp;
 import org.mintjams.idp.internal.model.IdpUser;
-import org.mintjams.idp.internal.saml.AuthnRequestParser;
 import org.mintjams.idp.internal.saml.SamlResponseBuilder;
 import org.mintjams.tools.collections.AdaptableMap;
 import org.mintjams.tools.lang.Strings;
@@ -45,21 +45,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * REST API servlet for authentication at {@code /idp/api/login}.
+ * The password sign-in API at {@code /idp/api/login}.
  *
- * <p>Accepts POST with JSON body containing username and password.
- * On successful authentication, retrieves the pending SAML request from the
- * HTTP session, builds a signed SAML Response, and returns the data needed
- * for the custom login page SPA to perform the POST redirect to the SP.</p>
+ * <p>{@code GET} describes the sign-in methods the login page may offer:</p>
+ * <pre>{"status": "success", "data": {"password": true, "webauthn": true}}</pre>
  *
- * <p>Request body:</p>
- * <pre>{"username": "...", "password": "..."}</pre>
- *
- * <p>Success response:</p>
+ * <p>{@code POST} with {@code {"username": "...", "password": "..."}} verifies
+ * the password. When the user has no second factor the sign-in completes and
+ * the response carries what the page posts to the service provider:</p>
  * <pre>{"status": "success", "data": {"acsUrl": "...", "samlResponse": "...", "relayState": "..."}}</pre>
+ * <p>When the user has TOTP enabled the response is instead</p>
+ * <pre>{"status": "mfa_required", "data": {"methods": ["totp", "backupCode"]}}</pre>
+ * <p>and the page continues with {@code POST /idp/api/login/mfa} carrying
+ * {@code {"method": "totp" | "backupCode", "code": "..."}}, which completes
+ * the sign-in with the same success payload.</p>
  *
- * <p>Error response:</p>
- * <pre>{"status": "error", "message": "..."}</pre>
+ * <p>Errors are {@code {"status": "error", "message": "...", "code": "..."}}.
+ * After too many failed second-factor attempts the code is {@code RESTART}
+ * and the page has to start over from the password.</p>
  */
 public class LoginApiServlet extends HttpServlet {
 
@@ -67,109 +70,132 @@ public class LoginApiServlet extends HttpServlet {
 	private static final Logger LOG = LoggerFactory.getLogger(LoginApiServlet.class);
 
 	@Override
+	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		Map<String, Object> data = new LinkedHashMap<>();
+		data.put("password", true);
+		data.put("webauthn", Strings.isNotEmpty(Activator.getDefault().getConfiguration().getWebAuthnRpId()));
+		AuthnFlow.sendSuccess(response, data);
+	}
+
+	@Override
 	protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
-		response.setContentType("application/json; charset=UTF-8");
-		response.setHeader("Cache-Control", "no-store");
-
-		// Read JSON body
-		String body;
-		try (BufferedReader in = request.getReader()) {
-			body = IOUtils.toString(in);
+		String pathInfo = request.getPathInfo();
+		if (pathInfo == null || pathInfo.isEmpty() || "/".equals(pathInfo)) {
+			password(request, response);
+			return;
 		}
+		if ("/mfa".equals(pathInfo)) {
+			secondFactor(request, response);
+			return;
+		}
+		AuthnFlow.sendError(response, HttpServletResponse.SC_NOT_FOUND, "Unknown endpoint.");
+	}
 
-		Map<String, Object> requestBody = Activator.getDefault().parseJSON(body);
-		AdaptableMap<String, Object> jsonBody = AdaptableMap.<String, Object>newBuilder().putAll(requestBody).build();
-		String username = jsonBody.getString("username");
-		String password = jsonBody.getString("password");
-
+	private void password(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		AdaptableMap<String, Object> body = AdaptableMap.<String, Object>newBuilder().putAll(AuthnFlow.readJson(request)).build();
+		String username = body.getString("username");
+		String password = body.getString("password");
 		if (Strings.isBlank(username) || Strings.isBlank(password)) {
-			sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Username and password are required.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Username and password are required.");
 			return;
 		}
 
-		// Authenticate
 		IdpUser user = Activator.getDefault().getUserStore().authenticate(username, password);
 		if (user == null) {
 			LOG.warn("Authentication failed for user: {}", username);
-			sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid username or password.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid username or password.");
+			return;
+		}
+
+		boolean totpEnabled;
+		try {
+			Session session = CredentialStore.openSession();
+			try {
+				totpEnabled = CredentialStore.readTotp(session, username).isEnabled();
+			} finally {
+				session.logout();
+			}
+		} catch (Exception ex) {
+			LOG.error("Failed to read the second-factor state of {}", username, ex);
+			AuthnFlow.sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.");
+			return;
+		}
+
+		HttpSession session = request.getSession(true);
+		if (totpEnabled) {
+			AuthnFlow.startSecondFactor(session, user);
+			LOG.info("Password verified for user: {}; second factor required", username);
+			AuthnFlow.sendStatus(response, "mfa_required", Map.of("methods", List.of("totp", "backupCode")));
 			return;
 		}
 
 		LOG.info("User authenticated via API: {}", username);
+		AuthnFlow.complete(request, response, user, SamlResponseBuilder.AUTHN_CONTEXT_PASSWORD);
+	}
 
-		// Store user in session
-		HttpSession session = request.getSession(true);
-		session.setAttribute(LoginServlet.SESSION_USER, user);
-
-		// Retrieve pending SAML request from session
-		String samlRequest = (String) session.getAttribute(LoginServlet.SESSION_SAML_REQUEST);
-		if (samlRequest == null) {
-			sendError(response, HttpServletResponse.SC_BAD_REQUEST, "No pending authentication request.");
+	private void secondFactor(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		HttpSession session = request.getSession(false);
+		IdpUser user = session == null ? null : AuthnFlow.pendingUser(session);
+		if (user == null) {
+			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Please sign in with your password first.", "RESTART");
 			return;
 		}
 
-		String relayState = (String) session.getAttribute(LoginServlet.SESSION_RELAY_STATE);
-		String binding = (String) session.getAttribute(LoginServlet.SESSION_BINDING);
-
-		// Clean up session
-		session.removeAttribute(LoginServlet.SESSION_SAML_REQUEST);
-		session.removeAttribute(LoginServlet.SESSION_RELAY_STATE);
-		session.removeAttribute(LoginServlet.SESSION_BINDING);
-
-		try {
-			IdpConfiguration config = Activator.getDefault().getConfiguration();
-
-			// Parse the AuthnRequest
-			AuthnRequestParser parser = new AuthnRequestParser();
-			AuthnRequest authnRequest;
-			if ("POST".equals(binding)) {
-				authnRequest = parser.parsePostBinding(samlRequest, relayState);
-			} else {
-				authnRequest = parser.parseRedirectBinding(samlRequest, relayState);
-			}
-
-			// Validate trusted SP
-			if (!config.isTrustedSP(authnRequest.getIssuer())) {
-				LOG.warn("Untrusted SP: {}", authnRequest.getIssuer());
-				sendError(response, HttpServletResponse.SC_FORBIDDEN, "Untrusted Service Provider.");
-				return;
-			}
-
-			// Build signed SAML Response
-			SamlResponseBuilder builder = new SamlResponseBuilder(config);
-			String base64Response = builder.buildBase64Response(authnRequest, user);
-
-			// Send success response
-			sendSuccess(response, authnRequest.getAssertionConsumerServiceUrl(), base64Response, authnRequest.getRelayState());
-
-		} catch (Exception e) {
-			LOG.error("Failed to build SAML response", e);
-			sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.");
+		AdaptableMap<String, Object> body = AdaptableMap.<String, Object>newBuilder().putAll(AuthnFlow.readJson(request)).build();
+		String method = body.getString("method");
+		String code = body.getString("code");
+		if (Strings.isBlank(code)) {
+			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "A code is required.");
+			return;
 		}
-	}
 
-	private void sendSuccess(HttpServletResponse response, String acsUrl, String samlResponse, String relayState) throws IOException {
-		response.setStatus(HttpServletResponse.SC_OK);
-		Map<String, Object> successResponse = Map.of(
-			"status", "success",
-			"data", Map.of(
-				"acsUrl", acsUrl,
-				"samlResponse", samlResponse,
-				"relayState", relayState
-			)
-		);
-		PrintWriter out = response.getWriter();
-		out.write(Activator.getDefault().toJSON(successResponse));
-	}
+		boolean verified;
+		try {
+			Session jcrSession = CredentialStore.openSession();
+			try {
+				CredentialStore.TotpState state = CredentialStore.readTotp(jcrSession, user.getUsername());
+				if (!state.isEnabled()) {
+					// TOTP was switched off between the two steps; the password alone suffices.
+					AuthnFlow.complete(request, response, user, SamlResponseBuilder.AUTHN_CONTEXT_PASSWORD);
+					return;
+				}
+				if ("backupCode".equals(method)) {
+					int index = BackupCodes.match(state.getBackupCodeHashes(), code);
+					verified = index >= 0;
+					if (verified) {
+						List<String> remaining = new java.util.ArrayList<>(state.getBackupCodeHashes());
+						remaining.remove(index);
+						CredentialStore.setBackupCodeHashes(jcrSession, user.getUsername(), remaining);
+						LOG.info("Backup code used by user: {} ({} left)", user.getUsername(), remaining.size());
+					}
+				} else {
+					long counter = Totp.verify(state.getSecret(), code, state.getLastCounter());
+					verified = counter >= 0;
+					if (verified) {
+						CredentialStore.setLastCounter(jcrSession, user.getUsername(), counter);
+					}
+				}
+			} finally {
+				jcrSession.logout();
+			}
+		} catch (Exception ex) {
+			LOG.error("Failed to verify the second factor of {}", user.getUsername(), ex);
+			AuthnFlow.sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.");
+			return;
+		}
 
-	private void sendError(HttpServletResponse response, int statusCode, String message) throws IOException {
-		response.setStatus(statusCode);
-		Map<String, Object> errorResponse = Map.of(
-			"status", "error",
-			"message", message
-		);
-		PrintWriter out = response.getWriter();
-		out.write(Activator.getDefault().toJSON(errorResponse));
+		if (!verified) {
+			LOG.warn("Second factor rejected for user: {}", user.getUsername());
+			if (AuthnFlow.recordFailedAttempt(session)) {
+				AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "The code is not valid.", "INVALID_CODE");
+			} else {
+				AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Too many attempts. Please sign in again.", "RESTART");
+			}
+			return;
+		}
+
+		LOG.info("User authenticated via API with a second factor: {}", user.getUsername());
+		AuthnFlow.complete(request, response, user, SamlResponseBuilder.AUTHN_CONTEXT_TIME_SYNC_TOKEN);
 	}
 
 }

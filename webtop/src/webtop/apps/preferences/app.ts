@@ -9,6 +9,9 @@
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
+import { SecurityServiceGraphQL, createPasskey, isWebAuthnSupported } from "../../services/security-service-graphql.js";
+import type { IdpMutationError, Passkey, UserSecurity } from "../../graphql/types.js";
+import qrcode from 'qrcode-generator';
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -206,6 +209,49 @@ const App = {
 			passwordMessage: '',
 			passwordMessageType: 'success',
 
+			// Security - second factors
+			securityService: null as SecurityServiceGraphQL | null,
+			security: null as UserSecurity | null,
+			securityLoading: false,
+			securityBusy: false,
+			securityMessage: '',
+			securityMessageType: 'success',
+			webauthnSupported: isWebAuthnSupported(),
+			passwordPrompt: {
+				visible: false,
+				title: '',
+				message: '',
+				confirmLabel: 'OK',
+				danger: false,
+				password: '',
+				error: '',
+				busy: false,
+				onSubmit: null as ((password: string) => Promise<string | null>) | null,
+			},
+			totpDialog: {
+				visible: false,
+				qrSvg: '',
+				secretGrouped: '',
+				code: '',
+				error: '',
+				busy: false,
+			},
+			codesDialog: {
+				visible: false,
+				codes: [] as string[],
+				message: '',
+			},
+			passkeyNameDialog: {
+				visible: false,
+				title: '',
+				message: '',
+				cancelLabel: '',
+				passkeyId: '',
+				name: '',
+				error: '',
+				busy: false,
+			},
+
 			// Sessions
 			sessionList: [] as { id: string; displayName: string; savedAt: string }[],
 			sessionsLoading: false,
@@ -302,6 +348,7 @@ const App = {
 			window.appLaunch = async (instance: ApplicationInstance) => {
 				vm.instance = this.$markRaw(instance);
 				vm.idp = this.$markRaw(new IdpServiceGraphQL());
+				vm.securityService = this.$markRaw(new SecurityServiceGraphQL());
 				refreshLocalization(vm.localization, vm.instance);
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
@@ -342,6 +389,8 @@ const App = {
 			this.section = section;
 			if (section === 'sessions') {
 				await this.loadSessions();
+			} else if (section === 'security') {
+				await this.loadSecurity();
 			}
 		},
 
@@ -1020,6 +1069,380 @@ const App = {
 			} finally {
 				vm.passwordSaving = false;
 			}
+		},
+
+		// =====================================================================
+		// Security: second factors (TOTP, backup codes, passkeys)
+		// =====================================================================
+
+		async loadSecurity() {
+			const vm = this;
+			if (!vm.instance || !vm.securityService) return;
+			vm.securityLoading = true;
+			try {
+				vm.security = await vm.securityService.getUserSecurity(vm.instance.currentUser.id);
+			} catch (e: any) {
+				console.warn('[Preferences] security load failed:', e);
+				vm.securityMessage = vm.t('app.preferences.msg.securityLoadFailed', undefined, 'Failed to load security settings.');
+				vm.securityMessageType = 'error';
+			} finally {
+				vm.securityLoading = false;
+			}
+		},
+
+		/** Shows an in-band mutation error in the section, mapping the codes users can act on. */
+		securityError(errors: IdpMutationError[] | null | undefined, fallbackKey: string, fallback: string): string {
+			const code = errors && errors.length ? errors[0].code : null;
+			switch (code) {
+				case 'INVALID_CREDENTIALS':
+					return this.t('app.preferences.msg.wrongPassword', undefined, 'The password is incorrect.');
+				case 'INVALID_CODE':
+					return this.t('app.preferences.msg.invalidCode', undefined, 'The code is not valid.');
+				case 'NOT_ENROLLED':
+					return this.t('app.preferences.msg.enrollmentExpired', undefined, 'The setup took too long. Start again.');
+				default:
+					return (errors && errors.length && errors[0].message) || this.t(fallbackKey, undefined, fallback);
+			}
+		},
+
+		setSecurityMessage(message: string, type: 'success' | 'error' = 'success') {
+			this.securityMessage = message;
+			this.securityMessageType = type;
+		},
+
+		// ---- password prompt (re-authentication) ----
+
+		openPasswordPrompt(opts: { title: string; message: string; confirmLabel?: string; danger?: boolean;
+				onSubmit: (password: string) => Promise<string | null> }) {
+			this.passwordPrompt.title = opts.title;
+			this.passwordPrompt.message = opts.message;
+			this.passwordPrompt.confirmLabel = opts.confirmLabel || this.t('common.ok', undefined, 'OK');
+			this.passwordPrompt.danger = !!opts.danger;
+			this.passwordPrompt.password = '';
+			this.passwordPrompt.error = '';
+			this.passwordPrompt.busy = false;
+			this.passwordPrompt.onSubmit = opts.onSubmit;
+			this.passwordPrompt.visible = true;
+		},
+		closePasswordPrompt() {
+			this.passwordPrompt.visible = false;
+			this.passwordPrompt.password = '';
+			this.passwordPrompt.onSubmit = null;
+		},
+		onPasswordPromptKeydown(e: KeyboardEvent) {
+			if (e.key === 'Enter') this.submitPasswordPrompt();
+		},
+		async submitPasswordPrompt() {
+			const vm = this;
+			const cb = vm.passwordPrompt.onSubmit;
+			if (!cb || !vm.passwordPrompt.password || vm.passwordPrompt.busy) return;
+			vm.passwordPrompt.busy = true;
+			vm.passwordPrompt.error = '';
+			try {
+				// The callback returns an error to keep the prompt open, or null to close it.
+				const error = await cb(vm.passwordPrompt.password);
+				if (error) {
+					vm.passwordPrompt.error = error;
+				} else {
+					vm.closePasswordPrompt();
+				}
+			} catch (e: any) {
+				vm.passwordPrompt.error = e?.message || vm.t('app.preferences.msg.securityFailed', undefined, 'The change could not be saved.');
+			} finally {
+				vm.passwordPrompt.busy = false;
+			}
+		},
+
+		// ---- TOTP ----
+
+		startTotpEnrollment() {
+			const vm = this;
+			vm.securityMessage = '';
+			vm.openPasswordPrompt({
+				title: vm.t('app.preferences.security.totp.confirmPasswordTitle', undefined, 'Confirm your password'),
+				message: vm.t('app.preferences.security.totp.confirmPasswordMessage', undefined, 'Enter your current password to set up two-step verification.'),
+				confirmLabel: vm.t('app.preferences.security.continue', undefined, 'Continue'),
+				onSubmit: async (password: string) => {
+					const result = await vm.securityService!.beginTotpEnrollment({
+						username: vm.instance!.currentUser.id,
+						currentPassword: password,
+					});
+					if (result.errors?.length || !result.otpauthUri || !result.secret) {
+						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					}
+					vm.openTotpDialog(result.otpauthUri, result.secret);
+					return null;
+				},
+			});
+		},
+		openTotpDialog(otpauthUri: string, secret: string) {
+			const qr = qrcode(0, 'M');
+			qr.addData(otpauthUri);
+			qr.make();
+			this.totpDialog.qrSvg = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+			this.totpDialog.secretGrouped = secret.replace(/(.{4})/g, '$1 ').trim();
+			this.totpDialog.code = '';
+			this.totpDialog.error = '';
+			this.totpDialog.busy = false;
+			this.totpDialog.visible = true;
+		},
+		closeTotpDialog() {
+			this.totpDialog.visible = false;
+			this.totpDialog.qrSvg = '';
+			this.totpDialog.secretGrouped = '';
+			this.totpDialog.code = '';
+		},
+		onTotpDialogKeydown(e: KeyboardEvent) {
+			if (e.key === 'Enter') this.confirmTotpEnrollment();
+		},
+		async confirmTotpEnrollment() {
+			const vm = this;
+			if (!vm.totpDialog.code || vm.totpDialog.busy) return;
+			vm.totpDialog.busy = true;
+			vm.totpDialog.error = '';
+			try {
+				const result = await vm.securityService!.confirmTotpEnrollment({
+					username: vm.instance!.currentUser.id,
+					code: vm.totpDialog.code.trim(),
+				});
+				if (result.errors?.length) {
+					vm.totpDialog.error = vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					if (result.errors[0].code === 'NOT_ENROLLED') {
+						vm.closeTotpDialog();
+						vm.setSecurityMessage(vm.totpDialog.error, 'error');
+					}
+					return;
+				}
+				if (result.security) vm.security = result.security;
+				vm.closeTotpDialog();
+				vm.setSecurityMessage(vm.t('app.preferences.msg.totpEnabled', undefined, 'Two-step verification is on.'));
+				vm.openCodesDialog(result.backupCodes || []);
+			} catch (e: any) {
+				vm.totpDialog.error = e?.message || vm.t('app.preferences.msg.securityFailed', undefined, 'The change could not be saved.');
+			} finally {
+				vm.totpDialog.busy = false;
+			}
+		},
+		askDisableTotp() {
+			const vm = this;
+			vm.securityMessage = '';
+			vm.openPasswordPrompt({
+				title: vm.t('app.preferences.security.totp.disableTitle', undefined, 'Turn off two-step verification'),
+				message: vm.t('app.preferences.security.totp.disableMessage', undefined, 'Enter your current password to continue.'),
+				confirmLabel: vm.t('app.preferences.security.totp.turnOff', undefined, 'Turn off'),
+				danger: true,
+				onSubmit: async (password: string) => {
+					const result = await vm.securityService!.disableTotp({
+						username: vm.instance!.currentUser.id,
+						currentPassword: password,
+					});
+					if (result.errors?.length) {
+						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					}
+					if (result.security) vm.security = result.security;
+					vm.setSecurityMessage(vm.t('app.preferences.msg.totpDisabled', undefined, 'Two-step verification is off.'));
+					return null;
+				},
+			});
+		},
+		askRegenerateBackupCodes() {
+			const vm = this;
+			vm.securityMessage = '';
+			vm.openPasswordPrompt({
+				title: vm.t('app.preferences.security.backupCodes.regenerateTitle', undefined, 'Get new backup codes'),
+				message: vm.t('app.preferences.security.backupCodes.regenerateMessage', undefined, 'Enter your current password to continue.'),
+				confirmLabel: vm.t('app.preferences.security.backupCodes.regenerate', undefined, 'Get new codes'),
+				onSubmit: async (password: string) => {
+					const result = await vm.securityService!.regenerateBackupCodes({
+						username: vm.instance!.currentUser.id,
+						currentPassword: password,
+					});
+					if (result.errors?.length) {
+						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					}
+					if (result.security) vm.security = result.security;
+					vm.setSecurityMessage(vm.t('app.preferences.msg.backupCodesRegenerated', undefined, 'New backup codes issued.'));
+					vm.openCodesDialog(result.backupCodes || []);
+					return null;
+				},
+			});
+		},
+
+		// ---- backup codes dialog ----
+
+		openCodesDialog(codes: string[]) {
+			this.codesDialog.codes = codes;
+			this.codesDialog.message = '';
+			this.codesDialog.visible = true;
+		},
+		closeCodesDialog() {
+			this.codesDialog.visible = false;
+			this.codesDialog.codes = [];
+		},
+		backupCodesText(): string {
+			const header = this.t('app.preferences.security.backupCodes.fileHeader', {
+				username: this.instance?.currentUser.id || '',
+				date: new Date().toLocaleString(),
+			}, 'Backup codes');
+			return header + '\n\n' + this.codesDialog.codes.join('\n') + '\n';
+		},
+		async copyBackupCodes() {
+			try {
+				await navigator.clipboard.writeText(this.codesDialog.codes.join('\n'));
+				this.codesDialog.message = this.t('app.preferences.security.backupCodes.copied', undefined, 'Copied to the clipboard.');
+			} catch (e) {
+				console.warn('[Preferences] clipboard write failed:', e);
+			}
+		},
+		downloadBackupCodes() {
+			const blob = new Blob([this.backupCodesText()], { type: 'text/plain;charset=utf-8' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = 'backup-codes-' + (this.instance?.currentUser.id || 'user') + '.txt';
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		},
+
+		// ---- passkeys ----
+
+		startPasskeyRegistration() {
+			const vm = this;
+			vm.securityMessage = '';
+			vm.openPasswordPrompt({
+				title: vm.t('app.preferences.security.passkeys.addTitle', undefined, 'Add a passkey'),
+				message: vm.t('app.preferences.security.passkeys.addMessage', undefined, 'Enter your current password. Your browser then asks you to create the passkey.'),
+				confirmLabel: vm.t('app.preferences.security.continue', undefined, 'Continue'),
+				onSubmit: async (password: string) => {
+					const started = await vm.securityService!.beginPasskeyRegistration({
+						username: vm.instance!.currentUser.id,
+						currentPassword: password,
+					});
+					if (started.errors?.length || !started.options) {
+						return vm.securityError(started.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					}
+					// Close the prompt before the browser's own passkey dialog opens.
+					vm.closePasswordPrompt();
+					await vm.createPasskey(started.options);
+					return null;
+				},
+			});
+		},
+		async createPasskey(options: Record<string, unknown>) {
+			const vm = this;
+			vm.securityBusy = true;
+			try {
+				let credential: Record<string, unknown>;
+				try {
+					credential = await createPasskey(options);
+				} catch (e: any) {
+					if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) {
+						vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyCancelled', undefined, 'The passkey prompt was closed before the passkey was created.'), 'error');
+					} else if (e && e.name === 'InvalidStateError') {
+						vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyCreateFailed', undefined, 'The passkey could not be created.') + ' ' + (e.message || ''), 'error');
+					} else {
+						console.warn('[Preferences] passkey creation failed:', e);
+						vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyCreateFailed', undefined, 'The passkey could not be created.'), 'error');
+					}
+					return;
+				}
+				const result = await vm.securityService!.finishPasskeyRegistration({
+					username: vm.instance!.currentUser.id,
+					credential,
+				});
+				if (result.errors?.length || !result.passkey) {
+					vm.setSecurityMessage(vm.securityError(result.errors, 'app.preferences.msg.passkeyCreateFailed', 'The passkey could not be created.'), 'error');
+					return;
+				}
+				if (result.security) vm.security = result.security;
+				vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyAdded', undefined, 'Passkey added.'));
+				vm.openPasskeyNameDialog({
+					title: vm.t('app.preferences.security.passkeys.nameNewTitle', undefined, 'Name this passkey'),
+					message: vm.t('app.preferences.security.passkeys.nameNewMessage', undefined, 'Give it a name you will recognize.'),
+					cancelLabel: vm.t('app.preferences.security.passkeys.skipName', undefined, 'Keep the default name'),
+					passkeyId: result.passkey.id,
+					name: result.passkey.displayName,
+				});
+			} finally {
+				vm.securityBusy = false;
+			}
+		},
+		askRenamePasskey(pk: Passkey) {
+			this.securityMessage = '';
+			this.openPasskeyNameDialog({
+				title: this.t('app.preferences.security.passkeys.renameTitle', undefined, 'Rename passkey'),
+				message: '',
+				cancelLabel: this.t('common.cancel', undefined, 'Cancel'),
+				passkeyId: pk.id,
+				name: pk.displayName,
+			});
+		},
+		openPasskeyNameDialog(opts: { title: string; message: string; cancelLabel: string; passkeyId: string; name: string }) {
+			this.passkeyNameDialog.title = opts.title;
+			this.passkeyNameDialog.message = opts.message;
+			this.passkeyNameDialog.cancelLabel = opts.cancelLabel;
+			this.passkeyNameDialog.passkeyId = opts.passkeyId;
+			this.passkeyNameDialog.name = opts.name;
+			this.passkeyNameDialog.error = '';
+			this.passkeyNameDialog.busy = false;
+			this.passkeyNameDialog.visible = true;
+		},
+		closePasskeyNameDialog() {
+			this.passkeyNameDialog.visible = false;
+			this.passkeyNameDialog.passkeyId = '';
+		},
+		onPasskeyNameKeydown(e: KeyboardEvent) {
+			if (e.key === 'Enter') this.submitPasskeyName();
+		},
+		async submitPasskeyName() {
+			const vm = this;
+			const name = vm.passkeyNameDialog.name.trim();
+			if (!name || vm.passkeyNameDialog.busy) return;
+			vm.passkeyNameDialog.busy = true;
+			vm.passkeyNameDialog.error = '';
+			try {
+				const result = await vm.securityService!.renamePasskey({
+					username: vm.instance!.currentUser.id,
+					id: vm.passkeyNameDialog.passkeyId,
+					displayName: name,
+				});
+				if (result.errors?.length) {
+					vm.passkeyNameDialog.error = vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					return;
+				}
+				if (result.security) vm.security = result.security;
+				vm.closePasskeyNameDialog();
+				vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyRenamed', undefined, 'Passkey renamed.'));
+			} catch (e: any) {
+				vm.passkeyNameDialog.error = e?.message || vm.t('app.preferences.msg.securityFailed', undefined, 'The change could not be saved.');
+			} finally {
+				vm.passkeyNameDialog.busy = false;
+			}
+		},
+		askDeletePasskey(pk: Passkey) {
+			const vm = this;
+			vm.securityMessage = '';
+			vm.openPasswordPrompt({
+				title: vm.t('app.preferences.security.passkeys.deleteTitle', undefined, 'Delete passkey'),
+				message: vm.t('app.preferences.security.passkeys.deleteMessage', { name: pk.displayName || vm.t('app.preferences.security.passkeys.unnamed', undefined, 'Passkey') }, 'Enter your current password to continue.'),
+				confirmLabel: vm.t('common.delete', undefined, 'Delete'),
+				danger: true,
+				onSubmit: async (password: string) => {
+					const result = await vm.securityService!.deletePasskey({
+						username: vm.instance!.currentUser.id,
+						id: pk.id,
+						currentPassword: password,
+					});
+					if (result.errors?.length) {
+						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					}
+					if (result.security) vm.security = result.security;
+					vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyDeleted', undefined, 'Passkey deleted.'));
+					return null;
+				},
+			});
 		},
 
 		// =====================================================================

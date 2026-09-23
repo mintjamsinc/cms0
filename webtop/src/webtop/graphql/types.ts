@@ -1236,7 +1236,12 @@ export type IdpErrorCode =
   | 'HAS_CHILDREN'
   | 'HAS_MEMBERS'
   | 'CIRCULAR_REFERENCE'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  | 'INVALID_CODE'
+  | 'NOT_ENROLLED'
+  | 'INVALID_STATE'
+  | 'INVALID_CREDENTIAL'
+  | 'NOT_AVAILABLE';
 
 export type UserOrderField = 'USERNAME' | 'DISPLAY_NAME' | 'MAIL' | 'CREATED' | 'LAST_LOGIN';
 export type RoleOrderField = 'ROLE_ID' | 'DISPLAY_NAME' | 'CREATED';
@@ -1557,4 +1562,102 @@ export interface HistoryExchange {
   bodySize: number | null;
   headers: Record<string, unknown> | null;
   steps: HistoryStep[];
+}
+
+// ============================================================================
+// Account security (second factors) — security-schema.graphqls
+// ============================================================================
+
+/** A registered passkey (WebAuthn credential); `id` is opaque. */
+export interface Passkey {
+  id: string;
+  displayName: string;
+  created: string | null;
+  lastUsed: string | null;
+  transports: string[];
+  backedUp: boolean;
+}
+
+/** A user's enrolled second factors. */
+export interface UserSecurity {
+  username: string;
+  totpEnabled: boolean;
+  backupCodesRemaining: number;
+  passkeysAvailable: boolean;
+  passkeys: Passkey[];
+}
+
+export interface BeginTotpEnrollmentInput {
+  username: string;
+  currentPassword: string;
+}
+
+export interface TotpEnrollmentPayload {
+  secret: string | null;
+  otpauthUri: string | null;
+  issuer: string | null;
+  accountName: string | null;
+  errors: IdpMutationError[] | null;
+}
+
+export interface ConfirmTotpEnrollmentInput {
+  username: string;
+  code: string;
+}
+
+export interface BackupCodesPayload {
+  backupCodes: string[] | null;
+  security: UserSecurity | null;
+  errors: IdpMutationError[] | null;
+}
+
+export interface DisableTotpInput {
+  username: string;
+  currentPassword?: string;
+}
+
+export interface RegenerateBackupCodesInput {
+  username: string;
+  currentPassword: string;
+}
+
+export interface UserSecurityPayload {
+  security: UserSecurity | null;
+  errors: IdpMutationError[] | null;
+}
+
+export interface BeginPasskeyRegistrationInput {
+  username: string;
+  currentPassword: string;
+}
+
+export interface PasskeyRegistrationPayload {
+  /** PublicKeyCredentialCreationOptions with base64url-encoded binary members. */
+  options: Record<string, unknown> | null;
+  errors: IdpMutationError[] | null;
+}
+
+export interface FinishPasskeyRegistrationInput {
+  username: string;
+  /** The PublicKeyCredential as JSON with base64url-encoded binary members. */
+  credential: Record<string, unknown>;
+  displayName?: string;
+}
+
+export interface PasskeyPayload {
+  passkey: Passkey | null;
+  security: UserSecurity | null;
+  errors: IdpMutationError[] | null;
+}
+
+export interface RenamePasskeyInput {
+  username: string;
+  id: string;
+  displayName: string;
+}
+
+export interface DeletePasskeyInput {
+  username: string;
+  id: string;
+  currentPassword?: string;
 }

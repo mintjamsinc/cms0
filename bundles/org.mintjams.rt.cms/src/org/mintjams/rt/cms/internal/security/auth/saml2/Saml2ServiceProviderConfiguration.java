@@ -396,6 +396,31 @@ public class Saml2ServiceProviderConfiguration {
 		return fBundleContext.getService(ref);
 	}
 
+	/**
+	 * Maps the IdP's authentication context class to the factor list carried
+	 * by the session and the authentication token. {@code saml2} is always
+	 * present (the assertion itself); the rest names what the user proved to
+	 * the IdP. Classes come from the SAML 2.0 authentication context
+	 * specification, plus the MintJams IdP's own class for passkeys, for which
+	 * the specification has none.
+	 */
+	static String authenticatedFactors(String authnContextClassRef) {
+		if (authnContextClassRef == null) {
+			return "saml2";
+		}
+		switch (authnContextClassRef) {
+		case "urn:oasis:names:tc:SAML:2.0:ac:classes:Password":
+		case "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport":
+			return "saml2,password";
+		case "urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken":
+			return "saml2,password,totp";
+		case "urn:mintjams:idp:ac:classes:WebAuthn":
+			return "saml2,webauthn";
+		default:
+			return "saml2";
+		}
+	}
+
 	private static String resolveIdpField(ExpressionContext el, String yamlPath, LocalIdentityProvider localIdp,
 			java.util.function.Function<LocalIdentityProvider, String> fallback) {
 		String value = el.getString(yamlPath);
@@ -507,10 +532,12 @@ public class Saml2ServiceProviderConfiguration {
 
 					Saml2Credentials credentials = new Saml2Credentials(auth);
 					request.getSession().setAttribute(Credentials.class.getName(), credentials);
-					request.getSession().setAttribute(Webs.AUTHENTICATED_FACTORS_ATTRIBUTE, "saml2");
+					String factors = authenticatedFactors(auth.getAuthnContextClassRef());
+					CmsService.getLogger(getClass()).info("SAML authentication context: " + auth.getAuthnContextClassRef() + " -> factors: " + factors);
+					request.getSession().setAttribute(Webs.AUTHENTICATED_FACTORS_ATTRIBUTE, factors);
 					// Make the login portable across cluster nodes (and across
 					// restarts of this one).
-					AuthToken.issue(request, response, credentials, "saml2", fConfig.getAuthTokenTtlMillis());
+					AuthToken.issue(request, response, credentials, factors, fConfig.getAuthTokenTtlMillis());
 
 					String relayState = getRelayState(request);
 					if (Strings.isNotEmpty(relayState)) {

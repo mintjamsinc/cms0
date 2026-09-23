@@ -25,7 +25,6 @@ package org.mintjams.rt.cms.internal.graphql.wiring;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -46,7 +45,7 @@ import javax.jcr.Session;
 import javax.jcr.Value;
 import javax.jcr.security.Privilege;
 
-import org.mintjams.cms.security.BCrypt;
+import org.mintjams.cms.security.UserCredentials;
 import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.util.JCRs;
@@ -500,9 +499,6 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		Node userFolder = JCRs.getOrCreateFolder(usersFolder, username);
 		Node profileFile = JCRs.createFile(userFolder, "profile");
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.user");
-		if (password != null && !password.isEmpty()) {
-			JCRs.setProperty(profileFile, "password", "{bcrypt}" + BCrypt.hash(password));
-		}
 
 		Node contentNode = JCRs.getContentNode(profileFile);
 		contentNode.setProperty("identifier", username);
@@ -536,6 +532,12 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 			}
 		}, true, Privilege.JCR_ALL);
 		session.save();
+
+		// The caller's session has just proven it may create users; the hash itself
+		// goes to the credential store, which only a service session can write.
+		if (password != null && !password.isEmpty()) {
+			storePassword(username, password);
+		}
 
 		Node savedProfile = session.getNode(USERS_ROOT + "/" + username + "/profile");
 		return userResult(mapUser(session, username, savedProfile, JCRs.getContentNode(savedProfile)));
@@ -592,6 +594,22 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		}
 		session.getNode(userFolderPath).remove();
 		session.save();
+		// Second factors first (the IdP also keeps a passkey index outside the
+		// user's folder), then the folder with the password.
+		try {
+			org.mintjams.cms.security.mfa.MultiFactorService mfa = PlatformSecurityWiringContributor.service();
+			if (mfa != null) {
+				mfa.removeAll(username);
+			}
+		} catch (Exception ex) {
+			CmsService.getLogger(PlatformIdpWiringContributor.class).warn("Failed to remove the second factors of " + username, ex);
+		}
+		Session systemSession = systemSession();
+		try {
+			UserCredentials.remove(systemSession, username);
+		} finally {
+			systemSession.logout();
+		}
 		// The identity home lives in system; each content workspace also holds the
 		// user's working area (Desktop), created lazily — remove those too.
 		removeWorkspaceHomes(session, username);
@@ -614,15 +632,24 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		if (!session.nodeExists(profilePath)) {
 			return errorResult("User not found: " + username, "NOT_FOUND");
 		}
-		Node contentNode = JCRs.getContentNode(session.getNode(profilePath));
-		if (currentPassword != null) {
-			if (!contentNode.hasProperty("password")
-					|| !verifyPassword(currentPassword, contentNode.getProperty("password").getString())) {
-				return errorResult("Current password is incorrect", "INVALID_CREDENTIALS");
-			}
+		// The credential store is not reachable from the caller's session, so the
+		// authorization the profile ACL used to provide is made explicit here: a
+		// user changes their own password, an administrator anyone's.
+		boolean self = username.equals(session.getUserID());
+		if (!self && !isAdmin(session)) {
+			return errorResult("Not allowed to change this user's password", "PERMISSION_DENIED");
 		}
-		contentNode.setProperty("password", "{bcrypt}" + BCrypt.hash(newPassword));
-		session.save();
+		Session systemSession = systemSession();
+		try {
+			if (currentPassword != null || self) {
+				if (!UserCredentials.verifyPassword(systemSession, username, currentPassword)) {
+					return errorResult("Current password is incorrect", "INVALID_CREDENTIALS");
+				}
+			}
+			UserCredentials.setPassword(systemSession, username, newPassword);
+		} finally {
+			systemSession.logout();
+		}
 		Node savedProfile = session.getNode(profilePath);
 		return userResult(mapUser(session, username, savedProfile, JCRs.getContentNode(savedProfile)));
 	}
@@ -639,11 +666,33 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		if (!session.nodeExists(profilePath)) {
 			return errorResult("User not found: " + username, "NOT_FOUND");
 		}
-		Node contentNode = JCRs.getContentNode(session.getNode(profilePath));
-		contentNode.setProperty("password", "{bcrypt}" + BCrypt.hash(newPassword));
-		session.save();
+		if (!isAdmin(session)) {
+			return errorResult("Only an administrator can reset a password", "PERMISSION_DENIED");
+		}
+		storePassword(username, newPassword);
 		Node savedProfile = session.getNode(profilePath);
 		return userResult(mapUser(session, username, savedProfile, JCRs.getContentNode(savedProfile)));
+	}
+
+	/**
+	 * Writes the password to the credential store under a service session.
+	 * Callers authorize the operation before calling this.
+	 */
+	private static void storePassword(String username, String password) throws Exception {
+		Session systemSession = systemSession();
+		try {
+			UserCredentials.setPassword(systemSession, username, password);
+		} finally {
+			systemSession.logout();
+		}
+	}
+
+	private static Session systemSession() throws Exception {
+		return CmsService.getRepository().login(new CmsServiceCredentials(), "system");
+	}
+
+	private static boolean isAdmin(Session session) {
+		return org.mintjams.jcr.Session.class.cast(session).isAdmin();
 	}
 
 	// ---- role-assignment mutations (mirror IdpMutationExecutor) ------------
@@ -1292,27 +1341,6 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 			} catch (Exception ignore) {}
 		}
 		return false;
-	}
-
-	private static boolean verifyPassword(String input, String stored) {
-		if (stored.startsWith("{bcrypt}")) {
-			return BCrypt.verify(input, stored.substring("{bcrypt}".length()));
-		}
-		try {
-			MessageDigest md = MessageDigest.getInstance("SHA-256");
-			byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-			StringBuilder sb = new StringBuilder();
-			for (byte b : hash) {
-				sb.append(String.format("%02x", b));
-			}
-			String hex = sb.toString();
-			if (stored.startsWith("{sha256}")) {
-				return hex.equalsIgnoreCase(stored.substring("{sha256}".length()));
-			}
-			return hex.equalsIgnoreCase(stored);
-		} catch (Exception ex) {
-			return false;
-		}
 	}
 
 	// ---- mappers (mirror IdpQueryExecutor) ---------------------------------

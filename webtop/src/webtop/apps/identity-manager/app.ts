@@ -11,6 +11,7 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import { initUi } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
+import { SecurityServiceGraphQL } from "../../services/security-service-graphql.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -24,6 +25,8 @@ import type {
 	IdpRoleTreeNode,
 	IdpGroup,
 	IdpGroupTreeNode,
+	Passkey,
+	UserSecurity,
 } from "../../graphql/types.js";
 
 type SectionName = 'users' | 'groups' | 'roles';
@@ -91,6 +94,10 @@ export const App = {
 			passwordForm: {
 				newPassword: '',
 			},
+			// Second factors of the selected user (null when not loaded / not visible)
+			securityService: null as SecurityServiceGraphQL | null,
+			userSecurity: null as UserSecurity | null,
+			securityLoading: false,
 			pendingRoleChanges: {} as Record<string, boolean>,
 
 			// Groups
@@ -303,6 +310,7 @@ export const App = {
 				vm.instance = vm.$markRaw(instance);
 				vm.currentUserId = instance.currentUser?.id || '';
 				vm.idp = vm.$markRaw(new IdpServiceGraphQL());
+				vm.securityService = vm.$markRaw(new SecurityServiceGraphQL());
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
@@ -461,6 +469,7 @@ export const App = {
 				};
 				this.passwordForm.newPassword = '';
 				this.pendingRoleChanges = {};
+				await this.loadUserSecurity();
 			} catch (err) {
 				this.errorMessage = err instanceof Error ? err.message : String(err);
 			}
@@ -553,6 +562,47 @@ export const App = {
 			} catch (err) {
 				this.errorMessage = err instanceof Error ? err.message : String(err);
 			}
+		},
+
+		// ---- second factors (recovery) ----
+
+		async loadUserSecurity() {
+			this.userSecurity = null;
+			if (!this.selectedUser || this.selectedUser.isService || this.isSelf || !this.securityService) return;
+			this.securityLoading = true;
+			try {
+				this.userSecurity = await this.securityService.getUserSecurity(this.selectedUser.username);
+			} catch (err) {
+				console.warn('[IdentityManager] security load failed:', err);
+			} finally {
+				this.securityLoading = false;
+			}
+		},
+
+		confirmDisableTotp() {
+			if (!this.selectedUser) return;
+			this.dialog = {
+				type: 'confirmDelete',
+				data: {
+					message: this.t('app.identity-manager.dialog.disableTotpConfirm', { name: this.selectedUser.username }, `Turn off two-step verification for "${this.selectedUser.username}"? Their authenticator app entry and backup codes stop working.`),
+					target: 'totp',
+					id: this.selectedUser.username,
+				},
+			};
+		},
+
+		confirmDeletePasskey(passkey: Passkey) {
+			if (!this.selectedUser) return;
+			const name = passkey.displayName || this.t('app.identity-manager.user.passkeyUnnamed', undefined, 'Passkey');
+			this.dialog = {
+				type: 'confirmDelete',
+				data: {
+					message: this.t('app.identity-manager.dialog.deletePasskeyConfirm', { name, user: this.selectedUser.username }, `Delete the passkey "${name}" of "${this.selectedUser.username}"? It will no longer sign them in.`),
+					target: 'passkey',
+					id: this.selectedUser.username,
+					passkeyId: passkey.id,
+				},
+			};
 		},
 
 		confirmDeleteUser() {
@@ -1152,7 +1202,7 @@ export const App = {
 		// =====================================================================
 
 		async executeDelete() {
-			const { target, id } = this.dialog.data;
+			const { target, id, passkeyId } = this.dialog.data;
 			this.closeDialog();
 
 			try {
@@ -1181,6 +1231,20 @@ export const App = {
 					}
 					this.selectedRole = null;
 					await this.loadRoleTree();
+				} else if (target === 'totp') {
+					const result = await this.securityService!.disableTotp({ username: id as string });
+					if (result.errors) {
+						this.errorMessage = result.errors.map((e: { message: string }) => e.message).join(', ');
+						return;
+					}
+					this.userSecurity = result.security;
+				} else if (target === 'passkey') {
+					const result = await this.securityService!.deletePasskey({ username: id as string, id: passkeyId as string });
+					if (result.errors) {
+						this.errorMessage = result.errors.map((e: { message: string }) => e.message).join(', ');
+						return;
+					}
+					this.userSecurity = result.security;
 				}
 			} catch (err) {
 				this.errorMessage = err instanceof Error ? err.message : String(err);

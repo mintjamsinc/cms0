@@ -256,6 +256,46 @@
 										</button>
 									</div>
 								</div>
+
+								<!-- Second factors: an administrator can only remove them (account recovery). -->
+								<div class="property-group" v-if="!selectedUser.isService">
+									<div class="property-group-title">{{ t('app.identity-manager.user.secondFactors', undefined, 'Two-step verification and passkeys') }}</div>
+									<wt-inline-message v-if="isSelf" type="info">{{ t('app.identity-manager.user.secondFactorsSelfNote', undefined, 'Manage your own second factors from Preferences.') }}</wt-inline-message>
+									<template v-else>
+										<div v-if="securityLoading" class="text-muted">{{ t('common.loading', undefined, 'Loading…') }}</div>
+										<div v-else-if="!userSecurity" class="text-muted">{{ t('app.identity-manager.user.secondFactorsUnavailable', undefined, 'Not available.') }}</div>
+										<template v-else>
+											<div class="factor-row">
+												<div class="factor-label">
+													<i :class="['bi', 'me-2', userSecurity.totpEnabled ? 'bi-shield-fill-check text-success' : 'bi-shield']"></i>
+													<span>{{ t('app.identity-manager.user.totp', undefined, 'Authenticator app (TOTP)') }}</span>
+													<span class="text-muted ms-2">{{ userSecurity.totpEnabled ? t('app.identity-manager.user.totpOn', { count: userSecurity.backupCodesRemaining }, 'On') : t('app.identity-manager.user.totpOff', undefined, 'Off') }}</span>
+												</div>
+												<button v-if="userSecurity.totpEnabled" class="wt wt-danger wt-outlined wt-slim" @click="confirmDisableTotp">
+													<i class="bi bi-x-lg me-1"></i>{{ t('app.identity-manager.action.disableTotp', undefined, 'Turn off') }}
+												</button>
+											</div>
+											<div class="factor-row" v-if="userSecurity.passkeys.length === 0">
+												<div class="factor-label">
+													<i class="bi bi-key me-2"></i>
+													<span>{{ t('app.identity-manager.user.passkeys', undefined, 'Passkeys') }}</span>
+													<span class="text-muted ms-2">{{ t('app.identity-manager.user.noPasskeys', undefined, 'None registered') }}</span>
+												</div>
+											</div>
+											<div class="factor-row" v-for="pk in userSecurity.passkeys" :key="pk.id">
+												<div class="factor-label">
+													<i class="bi bi-key-fill me-2"></i>
+													<span>{{ pk.displayName || t('app.identity-manager.user.passkeyUnnamed', undefined, 'Passkey') }}</span>
+													<span class="text-muted ms-2">{{ t('app.identity-manager.user.passkeyMeta', { created: pk.created ? formatDate(pk.created) : '—', lastUsed: pk.lastUsed ? formatDate(pk.lastUsed) : t('app.identity-manager.user.passkeyNeverUsed', undefined, 'never used') }, 'Added {created} · Last used {lastUsed}') }}</span>
+												</div>
+												<button class="wt wt-danger wt-outlined wt-slim" @click="confirmDeletePasskey(pk)">
+													<i class="bi bi-trash me-1"></i>{{ t('app.identity-manager.action.delete', undefined, 'Delete') }}
+												</button>
+											</div>
+											<div class="text-muted fs-small mt-2">{{ t('app.identity-manager.user.secondFactorsHint', undefined, 'Use this when a user has lost their authenticator or device. Turning a factor off here needs no password; the user re-enrolls from Preferences.') }}</div>
+										</template>
+									</template>
+								</div>
 							</template>
 
 							<!-- Membership sub-tab -->

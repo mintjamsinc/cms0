@@ -145,6 +145,7 @@ are also available from the upstream project links below.
 | `bundle/jackson-annotations-2.13.3.jar` | Jackson Annotations 2.13.3 | Apache License 2.0 |
 | `bundle/jackson-core-2.13.3.jar` | Jackson Core 2.13.3 | Apache License 2.0 |
 | `bundle/jackson-databind-2.13.3.jar` | Jackson Databind 2.13.3 | Apache License 2.0 |
+| `bundle/jackson-dataformat-cbor-2.13.3.jar` | Jackson Dataformat CBOR 2.13.3 (WebAuthn attestation and COSE key decoding in the IdP) | Apache License 2.0 |
 
 ---
 

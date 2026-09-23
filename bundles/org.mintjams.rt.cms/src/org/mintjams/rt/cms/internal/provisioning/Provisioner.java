@@ -43,7 +43,7 @@ import javax.jcr.Value;
 import javax.jcr.security.AccessControlEntry;
 import javax.jcr.security.Privilege;
 
-import org.mintjams.cms.security.BCrypt;
+import org.mintjams.cms.security.UserCredentials;
 import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
@@ -335,9 +335,6 @@ public class Provisioner implements Closeable {
 		Node userFolder = getOrCreateJcrFolder(session, userFolderPath);
 		Node profile = JCRs.createFile(userFolder, "profile");
 		JCRs.setProperty(profile, "jcr:mimeType", USER_CONTENT_TYPE);
-		if (Strings.isNotEmpty(password)) {
-			JCRs.setProperty(profile, "password", "{bcrypt}" + BCrypt.hash(password));
-		}
 
 		Node contentNode = JCRs.getContentNode(profile);
 		contentNode.setProperty("identifier", id);
@@ -360,6 +357,9 @@ public class Provisioner implements Closeable {
 		// Identity Manager so the account behaves consistently afterwards.
 		JCRs.setAccessControlEntry(userFolder, userPrincipal(id), true, Privilege.JCR_ALL);
 		session.save();
+		if (Strings.isNotEmpty(password)) {
+			UserCredentials.setPassword(session, id, password);
+		}
 		CmsService.getLogger(getClass()).info("Provisioned user: " + id);
 	}
 

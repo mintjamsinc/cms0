@@ -22,9 +22,6 @@
 
 package org.mintjams.idp.internal.auth;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
@@ -33,7 +30,7 @@ import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.Value;
 
-import org.mintjams.cms.security.BCrypt;
+import org.mintjams.cms.security.UserCredentials;
 import org.mintjams.idp.internal.Activator;
 import org.mintjams.idp.internal.model.IdpUser;
 import org.mintjams.idp.internal.security.IdpServiceCredentials;
@@ -47,11 +44,12 @@ import org.slf4j.LoggerFactory;
  * <p>User profiles are stored at {@code /home/users/{username}/profile}
  * in the system workspace with the following properties:</p>
  * <ul>
- *   <li>{@code password} - hashed password with prefix ({bcrypt} or {sha256})</li>
  *   <li>{@code displayName} - display name</li>
  *   <li>{@code mail} - email address</li>
  *   <li>{@code memberOf} - multi-value string array of role names</li>
  * </ul>
+ * <p>The password hash lives in the credential store
+ * ({@link UserCredentials}), not on the profile.</p>
  */
 public class JcrUserStore implements UserStore {
 
@@ -73,17 +71,10 @@ public class JcrUserStore implements UserStore {
 			}
 
 			Node contentNode = JCRs.getContentNode(jcrSession.getNode(profilePath));
-			// Service accounts are non-interactive identities (assumed only via
-			// runAs) and must never sign in, regardless of any stored credential.
-			if (contentNode.hasProperty("isService") && contentNode.getProperty("isService").getBoolean()) {
+			if (!isSignInAllowed(contentNode)) {
 				return null;
 			}
-			if (!contentNode.hasProperty("password")) {
-				return null;
-			}
-
-			String stored = contentNode.getProperty("password").getString();
-			if (!verifyPassword(password, stored)) {
+			if (!UserCredentials.verifyPassword(jcrSession, username, password)) {
 				return null;
 			}
 
@@ -96,6 +87,47 @@ public class JcrUserStore implements UserStore {
 				 jcrSession.logout();
 			} catch (Throwable ignore) {}
 		}
+	}
+
+	@Override
+	public IdpUser findSignInUser(String username) {
+		Session jcrSession = null;
+		try {
+			jcrSession = Activator.getDefault().getRepository().login(new IdpServiceCredentials(), "system");
+
+			String profilePath = USERS_ROOT + "/" + username + "/profile";
+			if (!jcrSession.nodeExists(profilePath)) {
+				return null;
+			}
+
+			Node contentNode = JCRs.getContentNode(jcrSession.getNode(profilePath));
+			if (!isSignInAllowed(contentNode)) {
+				return null;
+			}
+			return buildUser(username, contentNode);
+		} catch (RepositoryException e) {
+			LOG.error("Failed to find user: {}", username, e);
+			throw new RuntimeException(e);
+		} finally {
+			try {
+				jcrSession.logout();
+			} catch (Throwable ignore) {}
+		}
+	}
+
+	/**
+	 * Service accounts are non-interactive identities (assumed only via runAs)
+	 * and must never sign in, regardless of any stored credential; a disabled
+	 * user must not sign in either.
+	 */
+	private static boolean isSignInAllowed(Node contentNode) throws RepositoryException {
+		if (contentNode.hasProperty("isService") && contentNode.getProperty("isService").getBoolean()) {
+			return false;
+		}
+		if (contentNode.hasProperty("enabled") && !contentNode.getProperty("enabled").getBoolean()) {
+			return false;
+		}
+		return true;
 	}
 
 	@Override
@@ -173,33 +205,6 @@ public class JcrUserStore implements UserStore {
 		} catch (Exception e) {
 			LOG.error("Failed to resolve weak reference", e);
 			return null;
-		}
-	}
-
-	private boolean verifyPassword(String input, String stored) {
-		if (stored.startsWith("{bcrypt}")) {
-			String hash = stored.substring("{bcrypt}".length());
-			return BCrypt.verify(input, hash);
-		}
-		if (stored.startsWith("{sha256}")) {
-			String hash = stored.substring("{sha256}".length());
-			return hash.equalsIgnoreCase(sha256Hex(input));
-		}
-		// Fallback: no prefix is treated as SHA-256
-		return stored.equalsIgnoreCase(sha256Hex(input));
-	}
-
-	private String sha256Hex(String input) {
-		try {
-			MessageDigest md = MessageDigest.getInstance("SHA-256");
-			byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-			StringBuilder sb = new StringBuilder();
-			for (byte b : hash) {
-				sb.append(String.format("%02x", b));
-			}
-			return sb.toString();
-		} catch (Exception e) {
-			throw new RuntimeException("SHA-256 not available", e);
 		}
 	}
 

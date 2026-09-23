@@ -299,6 +299,96 @@
 								</wt-inline-message>
 							</div>
 						</div>
+
+						<!-- Two-step verification (TOTP) -->
+						<div class="property-group">
+							<div class="property-group-title mb-2">{{ t('app.preferences.security.totp.title') }}</div>
+							<div class="text-muted fs-small mb-3">{{ t('app.preferences.security.totp.desc') }}</div>
+							<div v-if="securityLoading" class="text-muted fs-small">{{ t('common.loading') }}</div>
+							<template v-else-if="security">
+								<div class="pref-factor-row">
+									<div class="pref-factor-status" :class="{ on: security.totpEnabled }">
+										<i :class="['bi', security.totpEnabled ? 'bi-shield-fill-check' : 'bi-shield']"></i>
+										<span>{{ security.totpEnabled ? t('app.preferences.security.totp.on') : t('app.preferences.security.totp.off') }}</span>
+									</div>
+									<div class="pref-factor-actions">
+										<button v-if="!security.totpEnabled" class="wt wt-primary" @click="startTotpEnrollment" :disabled="securityBusy">
+											{{ t('app.preferences.security.totp.turnOn') }}
+										</button>
+										<button v-else class="wt wt-outlined wt-danger-outline" @click="askDisableTotp" :disabled="securityBusy">
+											{{ t('app.preferences.security.totp.turnOff') }}
+										</button>
+									</div>
+								</div>
+								<div v-if="security.totpEnabled" class="pref-factor-row pref-factor-sub">
+									<div>
+										<div>{{ t('app.preferences.security.backupCodes.title') }}</div>
+										<div class="text-muted fs-small">
+											{{ t('app.preferences.security.backupCodes.remaining', { count: security.backupCodesRemaining }) }}
+											<span v-if="security.backupCodesRemaining <= 2" class="text-warning ms-1">
+												<i class="bi bi-exclamation-triangle-fill me-1"></i>{{ t('app.preferences.security.backupCodes.low') }}
+											</span>
+										</div>
+									</div>
+									<div class="pref-factor-actions">
+										<button class="wt wt-outlined wt-slim" @click="askRegenerateBackupCodes" :disabled="securityBusy">
+											<i class="bi bi-arrow-repeat me-1"></i>{{ t('app.preferences.security.backupCodes.regenerate') }}
+										</button>
+									</div>
+								</div>
+							</template>
+							<wt-inline-message v-if="securityMessage" class="mt-2"
+								:type="securityMessageType === 'success' ? 'success' : 'error'">
+								{{ securityMessage }}
+							</wt-inline-message>
+						</div>
+
+						<!-- Passkeys -->
+						<div class="property-group">
+							<div class="property-group-title mb-2">{{ t('app.preferences.security.passkeys.title') }}</div>
+							<div class="text-muted fs-small mb-3">{{ t('app.preferences.security.passkeys.desc') }}</div>
+							<template v-if="security">
+								<div v-if="!security.passkeysAvailable" class="text-muted fs-small">
+									<i class="bi bi-info-circle me-1"></i>{{ t('app.preferences.security.passkeys.unavailable') }}
+								</div>
+								<div v-else-if="!webauthnSupported" class="text-muted fs-small">
+									<i class="bi bi-info-circle me-1"></i>{{ t('app.preferences.security.passkeys.unsupported') }}
+								</div>
+								<template v-else>
+									<div v-if="security.passkeys.length === 0" class="text-muted fs-small mb-3">
+										{{ t('app.preferences.security.passkeys.empty') }}
+									</div>
+									<div v-else class="pref-passkey-list mb-3">
+										<div v-for="pk in security.passkeys" :key="pk.id" class="pref-passkey-item">
+											<div class="pref-passkey-icon"><i class="bi bi-key-fill"></i></div>
+											<div class="pref-passkey-meta">
+												<div class="pref-passkey-name">
+													{{ pk.displayName || t('app.preferences.security.passkeys.unnamed') }}
+													<span v-if="pk.backedUp" class="pref-passkey-badge" :title="t('app.preferences.security.passkeys.backedUpHint')">
+														<i class="bi bi-cloud-check me-1"></i>{{ t('app.preferences.security.passkeys.backedUp') }}
+													</span>
+												</div>
+												<div class="text-muted fs-small">
+													{{ t('app.preferences.security.passkeys.created') }}: {{ pk.created ? formatDate(pk.created) : '—' }}
+													<span class="ms-2">{{ t('app.preferences.security.passkeys.lastUsed') }}: {{ pk.lastUsed ? formatDate(pk.lastUsed) : t('app.preferences.security.passkeys.neverUsed') }}</span>
+												</div>
+											</div>
+											<div class="pref-factor-actions">
+												<button class="btn-icon" @click="askRenamePasskey(pk)" :title="t('app.preferences.security.passkeys.rename')" :disabled="securityBusy">
+													<i class="bi bi-pencil"></i>
+												</button>
+												<button class="btn-icon pref-passkey-delete" @click="askDeletePasskey(pk)" :title="t('app.preferences.security.passkeys.delete')" :disabled="securityBusy">
+													<i class="bi bi-trash3"></i>
+												</button>
+											</div>
+										</div>
+									</div>
+									<button class="wt wt-primary" @click="startPasskeyRegistration" :disabled="securityBusy">
+										<i class="bi bi-plus-lg me-1"></i>{{ t('app.preferences.security.passkeys.add') }}
+									</button>
+								</template>
+							</template>
+						</div>
 					</template>
 
 					<!-- ========== Sessions ========== -->
@@ -349,6 +439,101 @@
 					:class="confirmDialog.danger ? 'wt-danger' : 'wt-primary'"
 					@click="acceptConfirmDialog">
 					{{ confirmDialog.confirmLabel || t('common.ok') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Password prompt (re-authentication before a security change) -->
+		<wt-dialog v-model:open="passwordPrompt.visible" size="sm" @close="closePasswordPrompt">
+			<template v-slot:title="d">
+				<i class="bi bi-shield-lock me-2"></i>{{ passwordPrompt.title }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-3">{{ passwordPrompt.message }}</p>
+				<wt-field :label="t('app.preferences.security.currentPassword')">
+					<input type="password" class="wt w-100" v-model="passwordPrompt.password"
+						autocomplete="current-password" @keydown="onPasswordPromptKeydown">
+				</wt-field>
+				<wt-inline-message v-if="passwordPrompt.error" type="error" class="mt-2">{{ passwordPrompt.error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closePasswordPrompt">{{ t('common.cancel') }}</button>
+				<button class="wt" :class="passwordPrompt.danger ? 'wt-danger' : 'wt-primary'"
+					@click="submitPasswordPrompt" :disabled="!passwordPrompt.password || passwordPrompt.busy">
+					{{ passwordPrompt.confirmLabel }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- TOTP enrollment: scan, then confirm with a first code -->
+		<wt-dialog v-model:open="totpDialog.visible" size="sm" @close="closeTotpDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-qr-code me-2"></i>{{ t('app.preferences.security.totp.setupTitle') }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-3">{{ t('app.preferences.security.totp.setupStep1') }}</p>
+				<div class="pref-qr" v-html="totpDialog.qrSvg"></div>
+				<div class="pref-secret">
+					<div class="text-muted fs-small">{{ t('app.preferences.security.totp.manualEntry') }}</div>
+					<code class="pref-secret-value">{{ totpDialog.secretGrouped }}</code>
+				</div>
+				<p class="mb-2">{{ t('app.preferences.security.totp.setupStep2') }}</p>
+				<wt-field :label="t('app.preferences.security.totp.code')">
+					<input type="text" class="wt w-100 pref-code-input" v-model="totpDialog.code" inputmode="numeric"
+						autocomplete="one-time-code" placeholder="000000" maxlength="7" @keydown="onTotpDialogKeydown">
+				</wt-field>
+				<wt-inline-message v-if="totpDialog.error" type="error" class="mt-2">{{ totpDialog.error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closeTotpDialog">{{ t('common.cancel') }}</button>
+				<button class="wt wt-primary" @click="confirmTotpEnrollment" :disabled="!totpDialog.code || totpDialog.busy">
+					{{ t('app.preferences.security.totp.activate') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Backup codes (shown once) -->
+		<wt-dialog v-model:open="codesDialog.visible" size="sm" @close="closeCodesDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-key me-2"></i>{{ t('app.preferences.security.backupCodes.title') }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-3">{{ t('app.preferences.security.backupCodes.intro') }}</p>
+				<div class="pref-codes">
+					<code v-for="c in codesDialog.codes" :key="c" class="pref-code">{{ c }}</code>
+				</div>
+				<div class="d-flex gap-2 mt-3">
+					<button class="wt wt-outlined wt-slim" @click="copyBackupCodes">
+						<i class="bi bi-clipboard me-1"></i>{{ t('app.preferences.security.backupCodes.copy') }}
+					</button>
+					<button class="wt wt-outlined wt-slim" @click="downloadBackupCodes">
+						<i class="bi bi-download me-1"></i>{{ t('app.preferences.security.backupCodes.download') }}
+					</button>
+				</div>
+				<wt-inline-message v-if="codesDialog.message" type="success" class="mt-2">{{ codesDialog.message }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt wt-primary" @click="closeCodesDialog">{{ t('app.preferences.security.backupCodes.saved') }}</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Passkey name (after registration, and rename) -->
+		<wt-dialog v-model:open="passkeyNameDialog.visible" size="sm" @close="closePasskeyNameDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-key-fill me-2"></i>{{ passkeyNameDialog.title }}
+			</template>
+			<template v-slot="d">
+				<p v-if="passkeyNameDialog.message" class="mt-0 mb-3">{{ passkeyNameDialog.message }}</p>
+				<wt-field :label="t('app.preferences.security.passkeys.name')">
+					<input type="text" class="wt w-100" v-model="passkeyNameDialog.name" maxlength="64"
+						:placeholder="t('app.preferences.security.passkeys.namePlaceholder')" @keydown="onPasskeyNameKeydown">
+				</wt-field>
+				<wt-inline-message v-if="passkeyNameDialog.error" type="error" class="mt-2">{{ passkeyNameDialog.error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closePasskeyNameDialog">{{ passkeyNameDialog.cancelLabel }}</button>
+				<button class="wt wt-primary" @click="submitPasskeyName" :disabled="!passkeyNameDialog.name.trim() || passkeyNameDialog.busy">
+					{{ t('common.save') }}
 				</button>
 			</template>
 		</wt-dialog>

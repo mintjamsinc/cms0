@@ -20,40 +20,42 @@
  * SOFTWARE.
  */
 
-package org.mintjams.idp.internal.auth;
-
-import org.mintjams.idp.internal.model.IdpUser;
+package org.mintjams.cms.security.mfa;
 
 /**
- * Abstraction for user authentication and lookup.
+ * A TOTP enrollment that is waiting for the user to confirm it with a first
+ * valid code. The secret is shown to the user exactly once, here.
  */
-public interface UserStore {
+public final class TotpEnrollment {
 
-	/**
-	 * Authenticates a user by username and password.
-	 *
-	 * @param username the username
-	 * @param password the plain text password
-	 * @return the authenticated user, or null if authentication fails
-	 */
-	IdpUser authenticate(String username, String password);
+	private final String fSecret;
+	private final String fIssuer;
+	private final String fAccountName;
+	private final String fOtpauthUri;
 
-	/**
-	 * Looks up a user by username without authentication.
-	 *
-	 * @param username the username
-	 * @return the user, or null if not found
-	 */
-	IdpUser findUser(String username);
+	public TotpEnrollment(String secret, String issuer, String accountName, String otpauthUri) {
+		fSecret = secret;
+		fIssuer = issuer;
+		fAccountName = accountName;
+		fOtpauthUri = otpauthUri;
+	}
 
-	/**
-	 * Looks up a user that is allowed to sign in: one that exists, is enabled
-	 * and is not a service account. Used by flows that authenticate without a
-	 * password (passkeys) and by second-factor enrollment.
-	 *
-	 * @param username the username
-	 * @return the user, or null when it does not exist or may not sign in
-	 */
-	IdpUser findSignInUser(String username);
+	/** The shared secret, Base32-encoded, for manual entry. */
+	public String getSecret() {
+		return fSecret;
+	}
+
+	public String getIssuer() {
+		return fIssuer;
+	}
+
+	public String getAccountName() {
+		return fAccountName;
+	}
+
+	/** The {@code otpauth://totp/...} URI for QR-code enrollment. */
+	public String getOtpauthUri() {
+		return fOtpauthUri;
+	}
 
 }

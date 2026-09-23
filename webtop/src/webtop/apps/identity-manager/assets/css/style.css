@@ -420,3 +420,22 @@
 @keyframes spin {
 	to { transform: rotate(360deg); }
 }
+
+/* ---- Security: second factors (recovery) ---- */
+.factor-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 8px 0;
+	border-bottom: 1px solid var(--wt-border-color, rgba(128, 128, 128, 0.15));
+}
+.factor-row:last-of-type {
+	border-bottom: none;
+}
+.factor-label {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	min-width: 0;
+}

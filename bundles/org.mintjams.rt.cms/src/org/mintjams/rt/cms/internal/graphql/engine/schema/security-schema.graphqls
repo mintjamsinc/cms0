@@ -1,0 +1,154 @@
+# =============================================================================
+# Platform account-security GraphQL schema
+# =============================================================================
+# Contributed by PlatformSecurityWiringContributor, merged into the same
+# graphql-java schema as the core platform SDL. It `extend`s the core
+# Query/Mutation roots and reuses the core scalars (DateTime, JSON) and the
+# IdP schema's IdpMutationError.
+#
+# Second factors (TOTP with backup codes, passkeys) are enrolled here; the
+# identity provider verifies them at sign-in. The wiring authorizes the
+# caller (a user manages their own factors; an administrator may inspect and
+# remove anyone's) and delegates to the IdP's MultiFactorService, which keeps
+# the secrets in the credential store. Steps that make a sign-in weaker or
+# start a new enrollment ask for the caller's current password.
+#
+# Validation failures are returned in-band as an `errors` list; on success
+# `errors` is null.
+# =============================================================================
+
+extend type Query {
+  """The second-factor state of a user: the caller's own, or anyone's for an administrator. Null when the caller may not see it."""
+  userSecurity(username: String!): UserSecurity
+}
+
+"""A user's enrolled second factors."""
+type UserSecurity {
+  username: String!
+  """Whether a one-time password from an authenticator app is required after the password."""
+  totpEnabled: Boolean!
+  """Unused backup codes left; 0 when TOTP is off."""
+  backupCodesRemaining: Int!
+  """Whether this server is configured for passkeys."""
+  passkeysAvailable: Boolean!
+  passkeys: [Passkey!]!
+}
+
+"""A registered passkey (WebAuthn credential). `id` is opaque."""
+type Passkey {
+  id: String!
+  displayName: String!
+  created: DateTime
+  lastUsed: DateTime
+  """Authenticator transports reported at registration (usb, nfc, ble, internal, hybrid)."""
+  transports: [String!]!
+  """Whether the authenticator reports the passkey as backed up (synced)."""
+  backedUp: Boolean!
+}
+
+extend type Mutation {
+  """Start enrolling an authenticator app: returns the secret to show once (QR code / manual entry). Self only; requires the current password."""
+  beginTotpEnrollment(input: BeginTotpEnrollmentInput!): TotpEnrollmentPayload!
+
+  """Confirm the enrollment with a first code from the app; turns TOTP on and returns the backup codes (shown once)."""
+  confirmTotpEnrollment(input: ConfirmTotpEnrollmentInput!): BackupCodesPayload!
+
+  """Turn TOTP off and discard its secret and backup codes. Self with current password, or an administrator for another user."""
+  disableTotp(input: DisableTotpInput!): UserSecurityPayload!
+
+  """Replace the backup codes (shown once). Self only; requires the current password."""
+  regenerateBackupCodes(input: RegenerateBackupCodesInput!): BackupCodesPayload!
+
+  """Start registering a passkey: returns the PublicKeyCredentialCreationOptions (binary members base64url). Self only; requires the current password."""
+  beginPasskeyRegistration(input: BeginPasskeyRegistrationInput!): PasskeyRegistrationPayload!
+
+  """Finish registering a passkey with the credential the browser created (binary members base64url)."""
+  finishPasskeyRegistration(input: FinishPasskeyRegistrationInput!): PasskeyPayload!
+
+  """Rename a passkey. Self only."""
+  renamePasskey(input: RenamePasskeyInput!): UserSecurityPayload!
+
+  """Delete a passkey. Self with current password, or an administrator for another user."""
+  deletePasskey(input: DeletePasskeyInput!): UserSecurityPayload!
+}
+
+input BeginTotpEnrollmentInput {
+  username: String!
+  currentPassword: String!
+}
+
+input ConfirmTotpEnrollmentInput {
+  username: String!
+  code: String!
+}
+
+input DisableTotpInput {
+  username: String!
+  """Required when disabling your own TOTP; ignored for an administrator acting on another user."""
+  currentPassword: String
+}
+
+input RegenerateBackupCodesInput {
+  username: String!
+  currentPassword: String!
+}
+
+input BeginPasskeyRegistrationInput {
+  username: String!
+  currentPassword: String!
+}
+
+input FinishPasskeyRegistrationInput {
+  username: String!
+  """The PublicKeyCredential as JSON (id, rawId, type, authenticatorAttachment, response{clientDataJSON, attestationObject, transports})."""
+  credential: JSON!
+  displayName: String
+}
+
+input RenamePasskeyInput {
+  username: String!
+  id: String!
+  displayName: String!
+}
+
+input DeletePasskeyInput {
+  username: String!
+  id: String!
+  """Required when deleting your own passkey; ignored for an administrator acting on another user."""
+  currentPassword: String
+}
+
+"""The secret of a TOTP enrollment in progress; shown to the user exactly once."""
+type TotpEnrollmentPayload {
+  """Base32 secret for manual entry."""
+  secret: String
+  """otpauth://totp/... URI for a QR code."""
+  otpauthUri: String
+  issuer: String
+  accountName: String
+  errors: [IdpMutationError!]
+}
+
+"""Freshly issued backup codes (plain text, shown once) and the refreshed state."""
+type BackupCodesPayload {
+  backupCodes: [String!]
+  security: UserSecurity
+  errors: [IdpMutationError!]
+}
+
+type UserSecurityPayload {
+  security: UserSecurity
+  errors: [IdpMutationError!]
+}
+
+"""Options for navigator.credentials.create(); `options` is null on error."""
+type PasskeyRegistrationPayload {
+  options: JSON
+  errors: [IdpMutationError!]
+}
+
+type PasskeyPayload {
+  passkey: Passkey
+  security: UserSecurity
+  errors: [IdpMutationError!]
+}

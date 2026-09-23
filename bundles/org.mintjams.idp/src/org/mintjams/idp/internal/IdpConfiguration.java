@@ -75,6 +75,8 @@ public class IdpConfiguration {
 	public static final String DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM = "SHA256withRSA";
 	public static final int DEFAULT_CERTIFICATE_VALIDITY = 7300;
 	public static final int DEFAULT_ASSERTION_VALIDITY_SECONDS = 300;
+	public static final String DEFAULT_WEBAUTHN_RP_NAME = "MintJams";
+	public static final String DEFAULT_TOTP_ISSUER = "MintJams";
 
 	private Map<String, Object> fConfig;
 
@@ -122,6 +124,14 @@ public class IdpConfiguration {
 								"validity", DEFAULT_CERTIFICATE_VALIDITY // Validity period of the self-signed certificate in days (default: 7300, i.e., 20 years)
 								),
 							"assertionValiditySeconds", DEFAULT_ASSERTION_VALIDITY_SECONDS, // Validity period of SAML assertions in seconds (default: 300)
+							"webauthn", Map.of(
+								"rpId", "", // Relying-party id for passkeys; blank means the host of the base URL
+								"rpName", DEFAULT_WEBAUTHN_RP_NAME, // Relying-party name shown by authenticators
+								"origins", Collections.emptyList() // Extra allowed origins; the base URL is always allowed
+								),
+							"totp", Map.of(
+								"issuer", DEFAULT_TOTP_ISSUER // Issuer shown in authenticator apps
+								),
 							"trustedSPs", Collections.emptyList() // List of trusted Service Providers (default: empty list)
 						));
 					out.append(yamlString);
@@ -352,6 +362,95 @@ public class IdpConfiguration {
 
 	public String getSpApiPath() {
 		return geContextPath() + "/api/sp";
+	}
+
+	public String getWebAuthnApiPath() {
+		return geContextPath() + "/api/webauthn";
+	}
+
+	/**
+	 * The WebAuthn relying-party id: {@code webauthn.rpId} when set, otherwise
+	 * the host name of the base URL. Passkeys are bound to this value, so
+	 * changing it invalidates every registered passkey.
+	 */
+	public String getWebAuthnRpId() {
+		try {
+			String configured = ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.getString("config.webauthn.rpId");
+			if (Strings.isNotEmpty(configured)) {
+				return configured.trim();
+			}
+		} catch (Throwable ex) {
+			log.warn("The webauthn.rpId parameter is invalid. Default values will be used instead.");
+		}
+		try {
+			String host = java.net.URI.create(getBaseURL()).getHost();
+			if (Strings.isNotEmpty(host)) {
+				return host;
+			}
+		} catch (Throwable ignore) {}
+		return null;
+	}
+
+	/**
+	 * The human-readable relying-party name shown by authenticators
+	 * ({@code webauthn.rpName}).
+	 */
+	public String getWebAuthnRpName() {
+		try {
+			return ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.defaultIfEmpty("config.webauthn.rpName", DEFAULT_WEBAUTHN_RP_NAME);
+		} catch (Throwable ex) {
+			log.warn("The webauthn.rpName parameter is invalid. Default values will be used instead.");
+		}
+		return DEFAULT_WEBAUTHN_RP_NAME;
+	}
+
+	/**
+	 * The origins a WebAuthn ceremony may come from ({@code webauthn.origins}).
+	 * The base URL's origin is always included.
+	 */
+	public List<String> getWebAuthnOrigins() {
+		List<String> origins = new ArrayList<>();
+		try {
+			java.net.URI base = java.net.URI.create(getBaseURL());
+			StringBuilder origin = new StringBuilder(base.getScheme()).append("://").append(base.getHost());
+			if (base.getPort() > 0) {
+				origin.append(":").append(base.getPort());
+			}
+			origins.add(origin.toString());
+		} catch (Throwable ignore) {}
+		try {
+			List<?> configured = ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.getList("config.webauthn.origins");
+			if (configured != null) {
+				for (Object o : configured) {
+					if (o != null && Strings.isNotEmpty(o.toString()) && !origins.contains(o.toString().trim())) {
+						origins.add(o.toString().trim());
+					}
+				}
+			}
+		} catch (Throwable ex) {
+			log.warn("The webauthn.origins parameter is invalid. Default values will be used instead.");
+		}
+		return origins;
+	}
+
+	/**
+	 * The issuer shown in authenticator apps for TOTP ({@code totp.issuer}).
+	 */
+	public String getTotpIssuer() {
+		try {
+			return ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.defaultIfEmpty("config.totp.issuer", DEFAULT_TOTP_ISSUER);
+		} catch (Throwable ex) {
+			log.warn("The totp.issuer parameter is invalid. Default values will be used instead.");
+		}
+		return DEFAULT_TOTP_ISSUER;
 	}
 
 	public String getCustomLoginPageURL() {

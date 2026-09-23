@@ -355,3 +355,130 @@
 .pref-session-delete {
 	color: var(--danger-color);
 }
+
+/* ---- Security: second factors ---- */
+.pref-factor-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 0;
+}
+.pref-factor-sub {
+	border-top: 1px solid var(--wt-border-color, rgba(128, 128, 128, 0.2));
+	margin-top: 4px;
+}
+.pref-factor-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-weight: 500;
+}
+.pref-factor-status .bi {
+	font-size: 1.15em;
+	opacity: 0.6;
+}
+.pref-factor-status.on .bi {
+	color: var(--wt-success, #2f9e44);
+	opacity: 1;
+}
+.pref-factor-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+}
+.pref-passkey-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.pref-passkey-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--wt-border-color, rgba(128, 128, 128, 0.2));
+	border-radius: 8px;
+}
+.pref-passkey-icon {
+	flex: none;
+	width: 34px;
+	height: 34px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 8px;
+	background: rgba(128, 128, 128, 0.12);
+}
+.pref-passkey-meta {
+	flex: 1;
+	min-width: 0;
+}
+.pref-passkey-name {
+	font-weight: 500;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+.pref-passkey-badge {
+	font-size: 0.75em;
+	font-weight: 400;
+	padding: 1px 8px;
+	border-radius: 100px;
+	background: rgba(128, 128, 128, 0.15);
+	color: inherit;
+	opacity: 0.85;
+}
+.pref-passkey-delete:hover {
+	color: var(--wt-danger, #d9480f);
+}
+.pref-qr {
+	display: flex;
+	justify-content: center;
+	margin: 0 auto 12px;
+	padding: 12px;
+	background: #fff;
+	border-radius: 8px;
+	max-width: 220px;
+}
+.pref-qr svg {
+	width: 100%;
+	height: auto;
+	display: block;
+}
+.pref-secret {
+	text-align: center;
+	margin-bottom: 16px;
+}
+.pref-secret-value {
+	display: inline-block;
+	margin-top: 4px;
+	padding: 4px 8px;
+	font-size: 0.95em;
+	letter-spacing: 0.08em;
+	user-select: all;
+	border-radius: 4px;
+	background: rgba(128, 128, 128, 0.12);
+}
+.pref-code-input {
+	font-size: 1.3em;
+	letter-spacing: 0.3em;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+.pref-codes {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 6px 16px;
+}
+.pref-code {
+	font-size: 1em;
+	letter-spacing: 0.06em;
+	padding: 4px 6px;
+	border-radius: 4px;
+	background: rgba(128, 128, 128, 0.12);
+	text-align: center;
+	user-select: all;
+}

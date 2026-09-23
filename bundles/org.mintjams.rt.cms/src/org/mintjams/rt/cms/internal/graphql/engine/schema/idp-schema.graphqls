@@ -222,7 +222,7 @@ extend type Mutation {
   """Delete a user (identity home plus per-workspace working areas)."""
   deleteUser(input: DeleteUserInput!): DeleteUserPayload!
 
-  """Change a user's password (verifies currentPassword when supplied)."""
+  """Change a password. A user changing their own password must supply currentPassword; an administrator may change anyone's (currentPassword is verified when supplied)."""
   changePassword(input: ChangePasswordInput!): UserMutationPayload!
 
   """Reset a user's password without the current one (admin)."""

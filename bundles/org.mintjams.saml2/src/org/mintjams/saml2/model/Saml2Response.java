@@ -38,6 +38,7 @@ public class Saml2Response {
 	private String nameId;
 	private String nameIdFormat;
 	private String sessionIndex;
+	private String authnContextClassRef;
 	private Map<String, List<String>> attributes;
 	private boolean authenticated;
 	private List<String> errors;
@@ -85,6 +86,20 @@ public class Saml2Response {
 
 	public void setSessionIndex(String sessionIndex) {
 		this.sessionIndex = sessionIndex;
+	}
+
+	/**
+	 * Gets the authentication context class the IdP reported in the first
+	 * AuthnStatement (how the user was authenticated), or null when absent.
+	 *
+	 * @return the AuthnContextClassRef URI
+	 */
+	public String getAuthnContextClassRef() {
+		return authnContextClassRef;
+	}
+
+	public void setAuthnContextClassRef(String authnContextClassRef) {
+		this.authnContextClassRef = authnContextClassRef;
 	}
 
 	/**

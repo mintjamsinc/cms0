@@ -75,7 +75,12 @@ public class SamlResponseBuilder {
 	private static final String SAML2_ASSERTION_NS = "urn:oasis:names:tc:SAML:2.0:assertion";
 	private static final String STATUS_SUCCESS = "urn:oasis:names:tc:SAML:2.0:status:Success";
 	private static final String NAMEID_FORMAT_UNSPECIFIED = "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified";
-	private static final String AUTHN_CONTEXT_PASSWORD = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport";
+	/** Password over TLS: the class reported when only a password was verified. */
+	public static final String AUTHN_CONTEXT_PASSWORD = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport";
+	/** Password plus a time-based one-time password. */
+	public static final String AUTHN_CONTEXT_TIME_SYNC_TOKEN = "urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken";
+	/** A passkey (WebAuthn assertion with user verification); SAML defines no class for this, so it is ours. */
+	public static final String AUTHN_CONTEXT_WEBAUTHN = "urn:mintjams:idp:ac:classes:WebAuthn";
 	private static final String CM_BEARER = "urn:oasis:names:tc:SAML:2.0:cm:bearer";
 
 	private final IdpConfiguration config;
@@ -225,7 +230,7 @@ public class SamlResponseBuilder {
 		authnStatement.appendChild(authnContext);
 
 		Element authnContextClassRef = document.createElementNS(SAML2_ASSERTION_NS, "saml:AuthnContextClassRef");
-		authnContextClassRef.setTextContent(AUTHN_CONTEXT_PASSWORD);
+		authnContextClassRef.setTextContent(user.getAuthnContextClassRef() != null ? user.getAuthnContextClassRef() : AUTHN_CONTEXT_PASSWORD);
 		authnContext.appendChild(authnContextClassRef);
 
 		// AttributeStatement

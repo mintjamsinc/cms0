@@ -135,6 +135,72 @@ new value retargets both SP and IdP. To federate with an external IdP, edit
 `etc/saml2.yml` after first boot; values written there take precedence over
 the auto-generated defaults.
 
+### Sign-in methods and second factors
+
+The built-in IdP offers two ways to sign in, chosen on the login page:
+
+- **Passkey** (WebAuthn): face or fingerprint recognition, a device PIN, or
+  a security key. Passkeys are registered as discoverable credentials with
+  user verification, so no user name is typed and a passkey alone counts as
+  two factors.
+- **Password**, followed by a 6-digit code from an authenticator app when
+  the user has turned on two-step verification (TOTP, RFC 6238). Ten
+  single-use backup codes are issued with it for when the app is not at
+  hand.
+
+Users manage both in **Preferences › Security** (turn TOTP on or off, get
+new backup codes and download them, add, rename and remove passkeys). Every
+step that starts an enrollment or weakens a sign-in asks for the current
+password again. An administrator can turn off a user's TOTP and remove their
+passkeys for account recovery from the **Identity Manager** (user › Security),
+or through the GraphQL mutations `disableTotp` and `deletePasskey`; neither
+needs the user's password.
+
+The SAML assertion tells the SP how the user authenticated
+(`AuthnContextClassRef`: `PasswordProtectedTransport`, `TimeSyncToken`, or
+`urn:mintjams:idp:ac:classes:WebAuthn`), and the SP records the factors in
+the session and the authentication token (`saml2,password`,
+`saml2,password,totp`, `saml2,webauthn`).
+
+`etc/idp.yml` settings (all optional; the defaults are written on first
+boot):
+
+| Key | Default | Purpose |
+|---|---|---|
+| `webauthn.rpId` | host of `baseUrl` | The WebAuthn relying-party id. Passkeys are bound to it; changing it invalidates every registered passkey. Leave blank unless the IdP is served under a different host than the one users see. |
+| `webauthn.rpName` | `MintJams` | The name authenticators show when a passkey is created. |
+| `webauthn.origins` | `[]` | Extra origins allowed to run WebAuthn ceremonies. The origin of `baseUrl` is always allowed. |
+| `totp.issuer` | `MintJams` | The issuer shown in authenticator apps. |
+| `customLoginPageUrl` | (unset) | Serve your own login page instead of the bundled one; see below. |
+
+Password hashes, TOTP secrets, backup codes and passkeys live in the system
+workspace under `/home/credentials`, which denies every privilege to
+`everyone`; only system, service and administrator sessions can read it.
+User profiles under `/home/users` carry no credentials.
+
+### Branding the login page
+
+The login page is a small single-page application: the sign-in flow
+(method choice, password, verification code, passkey) is served by the IdP
+at `/idp/login/app.js` and renders itself into an element with the id
+`idp-login`; the page around it is yours. Start from the bundled template,
+which the Webtop ships at `/content/public/auth/login.html` in the system
+workspace (reachable as
+`/bin/cms.cgi/system/content/public/auth/login.html`): change the logo,
+colours (the `--idp-*` custom properties theme the flow), background and
+footer, keep the `idp-login` element and the module script, and point the
+IdP at it:
+
+```yaml
+customLoginPageUrl: /bin/cms.cgi/system/content/public/auth/login.html
+```
+
+Because the flow lives in `app.js`, a branded page keeps working when a
+later release adds a step. The flow reads `<html lang>` (English and
+Japanese are built in); `window.IDP_LOGIN = { lang, labels, mount }` set
+before the script loads overrides the language, individual labels, or the
+mount element.
+
 ---
 
 ## Upgrading
@@ -166,6 +232,15 @@ volumes instead:
 
 Until 1.0, a release may again require a fresh installation; such releases
 are announced in this section.
+
+### Installations before the credential store
+
+The release that introduced passkeys and two-step verification moved
+password hashes out of the user profiles into `/home/credentials` (see
+[Sign-in methods and second factors](#sign-in-methods-and-second-factors)).
+Passwords stored on profiles by earlier releases are not read any more, so
+nobody, `admin` included, can sign in to an upgraded repository. Install
+this release on new, empty volumes following the steps above.
 
 ---
 

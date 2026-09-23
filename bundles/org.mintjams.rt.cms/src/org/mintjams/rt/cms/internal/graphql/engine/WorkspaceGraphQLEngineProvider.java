@@ -41,6 +41,7 @@ import org.mintjams.rt.cms.internal.graphql.resolver.GroovyDataFetcher;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformBpmWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformEipWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformIdpWiringContributor;
+import org.mintjams.rt.cms.internal.graphql.wiring.PlatformSecurityWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformWorkspaceWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.WiringContributor;
@@ -346,7 +347,7 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	private static List<WiringContributor> platformContributors() {
 		return List.of(new PlatformWiringContributor(), new PlatformBpmWiringContributor(),
 				new PlatformWorkspaceWiringContributor(), new PlatformIdpWiringContributor(),
-				new PlatformEipWiringContributor());
+				new PlatformSecurityWiringContributor(), new PlatformEipWiringContributor());
 	}
 
 	/**

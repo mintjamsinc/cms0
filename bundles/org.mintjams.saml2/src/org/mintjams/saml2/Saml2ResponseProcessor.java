@@ -182,7 +182,8 @@ public class Saml2ResponseProcessor {
 	}
 
 	/**
-	 * Processes the Subject element to extract NameID and SessionIndex.
+	 * Processes the Subject element to extract NameID, SessionIndex and the
+	 * authentication context class.
 	 */
 	private void processSubject(Element assertion, Saml2Response response) throws ValidationException {
 		Element subject = XmlUtils.getFirstElement(assertion, XmlUtils.getAssertionNamespace(), "Subject");
@@ -204,6 +205,14 @@ public class Saml2ResponseProcessor {
 			Element authnStatement = (Element) authnStatements.item(0);
 			String sessionIndex = XmlUtils.getAttribute(authnStatement, "SessionIndex");
 			response.setSessionIndex(sessionIndex);
+
+			Element authnContext = XmlUtils.getFirstElement(authnStatement, XmlUtils.getAssertionNamespace(), "AuthnContext");
+			if (authnContext != null) {
+				Element classRef = XmlUtils.getFirstElement(authnContext, XmlUtils.getAssertionNamespace(), "AuthnContextClassRef");
+				if (classRef != null && classRef.getTextContent() != null) {
+					response.setAuthnContextClassRef(classRef.getTextContent().trim());
+				}
+			}
 		}
 	}
 

@@ -23,36 +23,41 @@
 package org.mintjams.idp.internal.servlet;
 
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
 
 import org.mintjams.idp.internal.Activator;
-import org.mintjams.idp.internal.IdpConfiguration;
-import org.mintjams.idp.internal.model.AuthnRequest;
-import org.mintjams.idp.internal.model.IdpUser;
-import org.mintjams.idp.internal.saml.AuthnRequestParser;
 import org.mintjams.tools.lang.Strings;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * Login form servlet at {@code /idp/login}.
+ * The login page at {@code /idp/login}.
  *
- * <p>GET displays the login form. POST authenticates the user. On successful
- * authentication, when a pending SAMLRequest is in the session (placed there
- * by {@link SsoServlet} after it verified the SP signature), the
- * SAMLResponse is built and returned directly as an auto-submit POST form.
- * We do not redirect back to {@code /idp/sso} because that would drop the
- * original {@code SigAlg}/{@code Signature} query parameters and fail
- * SP-signature verification on re-entry.</p>
- *
- * <p>Session attributes used:</p>
+ * <p>The page is a small single-page application. Its logic and markup live in
+ * {@code /idp/login/app.js}, which this servlet serves from the bundle
+ * together with the framework it needs, so that a page can be replaced for
+ * branding without copying the sign-in flow:</p>
  * <ul>
- *   <li>{@code idp.user} - the authenticated {@link IdpUser}</li>
+ *   <li>{@code GET /idp/login} serves the bundled default page, or redirects
+ *       to {@code customLoginPageUrl} when one is configured. A custom page is
+ *       a plain HTML document that provides an element with the id
+ *       {@code idp-login} and loads {@code /idp/login/app.js} as a module;
+ *       everything else on the page is free.</li>
+ *   <li>{@code GET /idp/login/app.js} and {@code GET /idp/login/ichigo.esm.min.js}
+ *       serve the application and its framework.</li>
+ * </ul>
+ *
+ * <p>Authentication itself goes through {@link LoginApiServlet} and
+ * {@link WebAuthnApiServlet}; this servlet accepts no credentials.</p>
+ *
+ * <p>Session attributes (shared with {@link SsoServlet} and the API servlets):</p>
+ * <ul>
+ *   <li>{@code idp.user} - the authenticated {@link org.mintjams.idp.internal.model.IdpUser}</li>
  *   <li>{@code idp.samlRequest} - the original SAMLRequest parameter</li>
  *   <li>{@code idp.relayState} - the original RelayState parameter</li>
  *   <li>{@code idp.binding} - the original binding ("REDIRECT" or "POST")</li>
@@ -61,151 +66,96 @@ import org.slf4j.LoggerFactory;
 public class LoginServlet extends HttpServlet {
 
 	private static final long serialVersionUID = 1L;
-	private static final Logger LOG = LoggerFactory.getLogger(LoginServlet.class);
 
 	static final String SESSION_USER = "idp.user";
 	static final String SESSION_SAML_REQUEST = "idp.samlRequest";
 	static final String SESSION_RELAY_STATE = "idp.relayState";
 	static final String SESSION_BINDING = "idp.binding";
 
+	private static final String RESOURCE_BASE = "/org/mintjams/idp/internal/web/";
+
+	private static final Map<String, String> ASSETS = Map.of(
+			"/app.js", "text/javascript; charset=UTF-8",
+			"/ichigo.esm.min.js", "text/javascript; charset=UTF-8");
+
+	private final Map<String, Resource> fCache = new ConcurrentHashMap<>();
+
 	@Override
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
-		// Redirect to custom login page if configured
-		String customLoginPageURL = Activator.getDefault().getConfiguration().getCustomLoginPageURL();
-		if (Strings.isNotBlank(customLoginPageURL)) {
-			response.sendRedirect(customLoginPageURL);
+		String pathInfo = request.getPathInfo();
+		if (pathInfo == null || pathInfo.isEmpty() || "/".equals(pathInfo)) {
+			String customLoginPageURL = Activator.getDefault().getConfiguration().getCustomLoginPageURL();
+			if (Strings.isNotBlank(customLoginPageURL)) {
+				response.sendRedirect(customLoginPageURL);
+				return;
+			}
+			serve(request, response, "login.html", "text/html; charset=UTF-8");
 			return;
 		}
-		renderLoginForm(response, null);
+		String contentType = ASSETS.get(pathInfo);
+		if (contentType == null) {
+			response.sendError(HttpServletResponse.SC_NOT_FOUND);
+			return;
+		}
+		serve(request, response, pathInfo.substring(1), contentType);
 	}
 
 	@Override
 	protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
-		IdpConfiguration config = Activator.getDefault().getConfiguration();
+		response.setHeader("Allow", "GET");
+		response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED, "Sign in through the login page.");
+	}
 
-		String username = request.getParameter("username");
-		String password = request.getParameter("password");
-
-		if (username == null || password == null || username.isEmpty() || password.isEmpty()) {
-			renderLoginForm(response, "Username and password are required.");
-			return;
-		}
-
-		IdpUser user = Activator.getDefault().getUserStore().authenticate(username, password);
-		if (user == null) {
-			LOG.warn("Authentication failed for user: {}", username);
-			renderLoginForm(response, "Invalid username or password.");
-			return;
-		}
-
-		LOG.info("User authenticated: {}", username);
-
-		// Store user in session
-		HttpSession session = request.getSession(true);
-		session.setAttribute(SESSION_USER, user);
-
-		// Check if there's a pending SAML request
-		String samlRequest = (String) session.getAttribute(SESSION_SAML_REQUEST);
-		if (samlRequest != null) {
-			String binding = (String) session.getAttribute(SESSION_BINDING);
-			String relayState = (String) session.getAttribute(SESSION_RELAY_STATE);
-
-			// Clean up session
-			session.removeAttribute(SESSION_SAML_REQUEST);
-			session.removeAttribute(SESSION_RELAY_STATE);
-			session.removeAttribute(SESSION_BINDING);
-
-			// Build the SAMLResponse here instead of redirecting back to
-			// /idp/sso. Redirecting would drop the SP's SigAlg/Signature
-			// query parameters (we cannot reconstruct the signature) and the
-			// SsoServlet would reject the re-entry with a 403. The SP
-			// signature was already verified by SsoServlet on the initial hit
-			// before storing the SAMLRequest in this session.
-			try {
-				AuthnRequestParser parser = new AuthnRequestParser();
-				AuthnRequest authnRequest;
-				if ("POST".equals(binding)) {
-					authnRequest = parser.parsePostBinding(samlRequest, relayState);
-				} else {
-					authnRequest = parser.parseRedirectBinding(samlRequest, relayState);
-				}
-				SsoServlet.writeSamlResponse(response, authnRequest, user, config);
-			} catch (Exception ex) {
-				LOG.error("Failed to build SAMLResponse after login", ex);
-				response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-						"Failed to build SAMLResponse");
+	private void serve(HttpServletRequest request, HttpServletResponse response, String name, String contentType) throws IOException {
+		Resource resource = fCache.get(name);
+		if (resource == null) {
+			resource = load(name);
+			if (resource == null) {
+				response.sendError(HttpServletResponse.SC_NOT_FOUND);
+				return;
 			}
-		} else {
-			// No pending SAML request - just show success
-			response.setContentType("text/html; charset=UTF-8");
-			PrintWriter out = response.getWriter();
-			out.println("<!DOCTYPE html><html><head><meta charset=\"UTF-8\">");
-			out.println("<title>MintJams IdP</title></head><body>");
-			out.println("<h2>Logged in as: " + escapeHtml(username) + "</h2>");
-			out.println("<p>No pending authentication request.</p>");
-			out.println("</body></html>");
+			fCache.put(name, resource);
+		}
+		response.setHeader("Cache-Control", "no-cache");
+		response.setHeader("ETag", resource.etag);
+		if (resource.etag.equals(request.getHeader("If-None-Match"))) {
+			response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+			return;
+		}
+		response.setContentType(contentType);
+		response.setContentLength(resource.bytes.length);
+		response.getOutputStream().write(resource.bytes);
+	}
+
+	private static Resource load(String name) throws IOException {
+		try (InputStream in = LoginServlet.class.getResourceAsStream(RESOURCE_BASE + name)) {
+			if (in == null) {
+				return null;
+			}
+			byte[] bytes = in.readAllBytes();
+			String etag;
+			try {
+				byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+				StringBuilder sb = new StringBuilder("\"");
+				for (int i = 0; i < 16; i++) {
+					sb.append(String.format("%02x", digest[i]));
+				}
+				etag = sb.append('"').toString();
+			} catch (Exception ex) {
+				etag = "\"" + bytes.length + "\"";
+			}
+			return new Resource(bytes, etag);
 		}
 	}
 
-	private void renderLoginForm(HttpServletResponse response, String errorMessage) throws IOException {
-		response.setContentType("text/html; charset=UTF-8");
-		PrintWriter out = response.getWriter();
+	private static final class Resource {
+		final byte[] bytes;
+		final String etag;
 
-		out.println("<!DOCTYPE html>");
-		out.println("<html><head>");
-		out.println("<meta charset=\"UTF-8\">");
-		out.println("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">");
-		out.println("<title>Sign In - MintJams IdP</title>");
-		out.println("<style>");
-		out.println("* { margin: 0; padding: 0; box-sizing: border-box; }");
-		out.println("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;");
-		out.println("  background: #f5f5f5; display: flex; justify-content: center; align-items: center;");
-		out.println("  min-height: 100vh; }");
-		out.println(".login-card { background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);");
-		out.println("  padding: 2rem; width: 100%; max-width: 380px; }");
-		out.println(".login-card h1 { font-size: 1.4rem; color: #333; margin-bottom: 1.5rem; text-align: center; }");
-		out.println(".form-group { margin-bottom: 1rem; }");
-		out.println(".form-group label { display: block; font-size: 0.875rem; color: #555; margin-bottom: 0.25rem; }");
-		out.println(".form-group input { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #ddd;");
-		out.println("  border-radius: 4px; font-size: 1rem; }");
-		out.println(".form-group input:focus { outline: none; border-color: #4a90d9; box-shadow: 0 0 0 2px rgba(74,144,217,0.2); }");
-		out.println(".btn { width: 100%; padding: 0.7rem; background: #4a90d9; color: #fff; border: none;");
-		out.println("  border-radius: 4px; font-size: 1rem; cursor: pointer; margin-top: 0.5rem; }");
-		out.println(".btn:hover { background: #357abd; }");
-		out.println(".error { background: #fee; color: #c33; border: 1px solid #fcc; border-radius: 4px;");
-		out.println("  padding: 0.5rem 0.75rem; margin-bottom: 1rem; font-size: 0.875rem; }");
-		out.println(".footer { text-align: center; margin-top: 1.5rem; font-size: 0.75rem; color: #999; }");
-		out.println("</style>");
-		out.println("</head><body>");
-		out.println("<div class=\"login-card\">");
-		out.println("<h1>Sign In</h1>");
-
-		if (errorMessage != null) {
-			out.println("<div class=\"error\">" + escapeHtml(errorMessage) + "</div>");
+		Resource(byte[] bytes, String etag) {
+			this.bytes = bytes;
+			this.etag = etag;
 		}
-
-		out.println("<form method=\"POST\">");
-		out.println("<div class=\"form-group\">");
-		out.println("<label for=\"username\">Username</label>");
-		out.println("<input type=\"text\" id=\"username\" name=\"username\" autocomplete=\"username\" required autofocus>");
-		out.println("</div>");
-		out.println("<div class=\"form-group\">");
-		out.println("<label for=\"password\">Password</label>");
-		out.println("<input type=\"password\" id=\"password\" name=\"password\" autocomplete=\"current-password\" required>");
-		out.println("</div>");
-		out.println("<button type=\"submit\" class=\"btn\">Sign In</button>");
-		out.println("</form>");
-		out.println("<div class=\"footer\">MintJams Identity Provider</div>");
-		out.println("</div>");
-		out.println("</body></html>");
-	}
-
-	private static String escapeHtml(String s) {
-		if (s == null) return "";
-		return s.replace("&", "&amp;")
-				.replace("<", "&lt;")
-				.replace(">", "&gt;")
-				.replace("\"", "&quot;");
 	}
 
 }
