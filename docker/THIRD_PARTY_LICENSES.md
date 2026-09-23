@@ -56,7 +56,7 @@ are also available from the upstream project links below.
 | `bundle/org.apache.felix.metatype-1.2.4.jar` | Apache Felix Metatype Service | Apache License 2.0 |
 | `bundle/org.apache.felix.scr-2.2.0.jar` | Apache Felix Declarative Services (SCR) | Apache License 2.0 |
 | `bundle/org.apache.felix.utils-1.11.0.jar` | Apache Felix Utils | Apache License 2.0 |
-| `bundle/org.apache.felix.webconsole_4.8.2.jar` | Apache Felix Web Console | Apache License 2.0 |
+| `bundle/org.apache.felix.webconsole_5.0.18.jar` | Apache Felix Web Console | Apache License 2.0 |
 | `bundle/org.apache.felix.webconsole.plugins.ds-2.3.0.jar` | Apache Felix Web Console - DS Plugin | Apache License 2.0 |
 | `bundle/org.apache.felix.webconsole.plugins.event-1.2.0.jar` | Apache Felix Web Console - Event Plugin | Apache License 2.0 |
 | `bundle/org.apache.felix.webconsole.plugins.memoryusage-1.1.0.jar` | Apache Felix Web Console - Memory Usage Plugin | Apache License 2.0 |

@@ -58,6 +58,11 @@ public class FelixWebConsoleSecurityProvider implements WebConsoleSecurityProvid
 			Scripts.prepareAPIs(context);
 
 			if (context.getSession().isAdmin()) {
+				// Web Console 5 takes the signed-in user from this attribute after a
+				// legacy (javax) provider answers true; without it the request is
+				// treated as unauthenticated and refused with 403. Web Console 4
+				// tolerated a missing user.
+				request.setAttribute(USER_ATTRIBUTE, context.getSession().getUserID());
 				return true;
 			}
 		} catch (Throwable ex) {
