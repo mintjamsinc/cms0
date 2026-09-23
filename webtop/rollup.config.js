@@ -265,17 +265,19 @@ const pdfViewerConfig = makeAppConfig('pdf-viewer', {
   ],
 });
 
-// Radio: icy.groovy runs on the server next to the app (it reads the ICY
-// metadata a browser cannot see) and is copied with the static files.
 const mailConfig = makeAppConfig('mail', {
   extraCopyTargets: [
     { src: 'src/webtop/apps/mail/attachment.groovy', dest: 'dist/webtop/apps/mail' },
   ],
 });
 
+// Radio: two scripts run on the server next to the app and are copied with
+// the static files. icy.groovy reads the ICY metadata a browser cannot see;
+// stream.groovy relays a plain-http station to an https desktop.
 const radioConfig = makeAppConfig('radio', {
   extraCopyTargets: [
     { src: 'src/webtop/apps/radio/icy.groovy', dest: 'dist/webtop/apps/radio' },
+    { src: 'src/webtop/apps/radio/stream.groovy', dest: 'dist/webtop/apps/radio' },
   ],
 });
 

@@ -2,8 +2,10 @@
  * Audio engine for the Radio app.
  *
  * A live stream is played by an HTMLAudioElement whose src is the station's
- * stream URL; the browser decodes MP3 / AAC / Ogg itself and no server sits
- * in between. Two elements are kept:
+ * stream URL; the browser decodes MP3 / AAC / Ogg itself. Normally no server
+ * sits in between; the one exception is a plain-http station played from an
+ * https desktop, whose bytes are relayed by stream.groovy so the browser sees
+ * a same-origin URL instead of blocked mixed content. Two elements are kept:
  *
  * - the CORS element (`crossOrigin = "anonymous"`) is routed through the Web
  *   Audio API so an AnalyserNode can feed the spectrum view. That only works
@@ -133,12 +135,19 @@ export class RadioPlayer {
 		this.#detach();
 		this.#station = station;
 
-		const url = station.url;
-		if (window.location.protocol === 'https:' && /^http:/i.test(url)) {
-			this.#fail('mixedContent');
-			return;
-		}
+		let url = station.url;
 		const hls = isHlsStation(station);
+		if (window.location.protocol === 'https:' && /^http:/i.test(url)) {
+			// A plain-http station cannot be played from an https page, so
+			// the audio is relayed by stream.groovy next to this app. An HLS
+			// playlist would need its segment URLs rewritten too, so those
+			// stay blocked.
+			if (hls) {
+				this.#fail('mixedContent');
+				return;
+			}
+			url = `stream.groovy?url=${encodeURIComponent(url)}`;
+		}
 		const nativeHls = hls && !!this.#plainEl.canPlayType('application/vnd.apple.mpegurl');
 		if (hls && !nativeHls && !Hls.isSupported()) {
 			this.#fail('hls');

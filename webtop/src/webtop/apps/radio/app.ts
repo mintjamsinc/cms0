@@ -229,7 +229,7 @@ const App = {
 			const fallbacks: Record<string, string> = {
 				network: 'The station did not respond.',
 				unsupported: 'This browser cannot decode the stream format.',
-				mixedContent: 'This station streams over plain http and the desktop is served over https, so the browser blocks it.',
+				mixedContent: 'This station streams HLS over plain http and the desktop is served over https, so the browser blocks it.',
 				hls: 'This browser cannot play HLS streams.',
 				hlsNetwork: 'The HLS stream could not be loaded. The station may be off the air, or it does not allow the browser to fetch the stream.',
 			};

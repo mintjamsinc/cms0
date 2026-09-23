@@ -48,7 +48,7 @@
 	"app.radio.error.generic": "ストリームを再生できませんでした。",
 	"app.radio.error.network": "局から応答がありません。",
 	"app.radio.error.unsupported": "このブラウザでは再生できない形式です。",
-	"app.radio.error.mixedContent": "この局は http 配信で、デスクトップは https で表示されているため、ブラウザが再生をブロックしました。",
+	"app.radio.error.mixedContent": "この局は http の HLS 配信で、デスクトップは https で表示されているため、ブラウザが再生をブロックしました。",
 	"app.radio.error.hls": "このブラウザは HLS 配信を再生できません。",
 	"app.radio.status.saved": "ライブラリを保存しました",
 	"app.radio.status.saveFailed": "ライブラリをサーバに保存できませんでした",

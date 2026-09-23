@@ -48,7 +48,7 @@
 	"app.radio.error.generic": "The stream could not be played.",
 	"app.radio.error.network": "The station did not respond.",
 	"app.radio.error.unsupported": "This browser cannot decode the stream format.",
-	"app.radio.error.mixedContent": "This station streams over plain http and the desktop is served over https, so the browser blocks it.",
+	"app.radio.error.mixedContent": "This station streams HLS over plain http and the desktop is served over https, so the browser blocks it.",
 	"app.radio.error.hls": "This browser cannot play HLS streams.",
 	"app.radio.status.saved": "Library saved",
 	"app.radio.status.saveFailed": "Library could not be saved to the server",
