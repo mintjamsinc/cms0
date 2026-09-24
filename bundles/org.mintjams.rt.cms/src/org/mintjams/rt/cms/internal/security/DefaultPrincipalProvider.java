@@ -87,6 +87,10 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 
 			// Not found
 			throw new PrincipalNotFoundException(name);
+		} catch (PrincipalNotFoundException ex) {
+			// Not an error: the caller decides what an unknown name means
+			// (e.g. an event raised by a system principal).
+			throw ex;
 		} catch (RepositoryException ex) {
 			CmsService.getLogger(getClass()).error("Failed to get principal: " + name, ex);
 			throw new PrincipalNotFoundException(name, ex);

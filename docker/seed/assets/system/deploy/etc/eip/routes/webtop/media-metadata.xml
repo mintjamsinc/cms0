@@ -32,7 +32,14 @@
                     event.getTopic(), event.getProperty('type') as String, properties);
                 exchange.setProperty('selected', selected);
                 exchange.setProperty('path', event.getProperty('path') as String);
-                exchange.setProperty('runAs', event.getProperty('user_id') as String);
+                // The system principals (the CMS runtime and the IdP) are not
+                // users of the repository, so their changes run as the system
+                // without trying to log in as them first.
+                def runAs = event.getProperty('user_id') as String;
+                if (runAs in ['internal', 'idp']) {
+                    runAs = null;
+                }
+                exchange.setProperty('runAs', runAs);
             ]]>
             </groovy>
         </script>
