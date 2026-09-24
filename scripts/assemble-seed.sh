@@ -49,8 +49,14 @@ SEED_ASSETS="docker/seed/assets"
 # Replaces the destination directory with a copy of the source directory.
 copy_tree() {
     rm -rf "$2"
-    mkdir -p "$2"
-    cp -R "$1/." "$2/"
+
+    if [ -d "$1" ]; then
+        mkdir -p "$2"
+        cp -R "$1/." "$2/"
+    else
+        mkdir -p "$(dirname "$2")"
+        cp "$1" "$2"
+    fi
 }
 
 copy_tree "${WEBTOP_DIST}" "${SEED_ASSETS}/system/deploy/usr/share/webtop"
@@ -60,15 +66,15 @@ for app in "${SYSTEM_ONLY_APPS[@]}"; do
 done
 copy_tree "${SEED_ASSETS}/system/deploy/etc/i18n" "${SEED_ASSETS}/workspace/deploy/etc/i18n"
 # webtop
-copy_tree "${WEBTOP_DIST}/system/deploy/content/WEB-INF/web.xml" "${SEED_ASSETS}/workspace/deploy/content/WEB-INF/web.xml"
-copy_tree "${WEBTOP_DIST}/system/provisioning/webtop.yml" "${SEED_ASSETS}/workspace/provisioning/webtop.yml"
+copy_tree "${SEED_ASSETS}/system/deploy/content/WEB-INF/web.yml" "${SEED_ASSETS}/workspace/deploy/content/WEB-INF/web.yml"
+copy_tree "${SEED_ASSETS}/system/provisioning/webtop.yml" "${SEED_ASSETS}/workspace/provisioning/webtop.yml"
 # content browser app: Server-side assets
-copy_tree "${WEBTOP_DIST}/system/deploy/etc/eip/routes/webtop/media-metadata.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/media-metadata.xml"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/media-metadata.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/media-metadata.xml"
 # mail app: Server-side assets
-copy_tree "${WEBTOP_DIST}/system/deploy/etc/eip/routes/webtop/mail.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/mail.xml"
-copy_tree "${WEBTOP_DIST}/system/deploy/etc/graphql/webtop/mail" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/mail"
-copy_tree "${WEBTOP_DIST}/system/deploy/usr/local/classes/webtop/mail" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/mail"
-copy_tree "${WEBTOP_DIST}/system/provisioning/mail.yml" "${SEED_ASSETS}/workspace/provisioning/mail.yml"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/mail.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/mail.xml"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/webtop/mail" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/mail"
+copy_tree "${SEED_ASSETS}/system/deploy/usr/local/classes/webtop/mail" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/mail"
+copy_tree "${SEED_ASSETS}/system/provisioning/mail.yml" "${SEED_ASSETS}/workspace/provisioning/mail.yml"
 
 echo "OK: seed assets laid down from ${WEBTOP_DIST}"
 echo "  system:    $(find "${SEED_ASSETS}/system" -type f | wc -l) files"
