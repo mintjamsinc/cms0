@@ -132,6 +132,11 @@ public class DownloadServlet extends HttpServlet {
 			}
 
 			RangeHeader rangeHeader = null;
+			// The range as prepareRange resolved it against the file's size:
+			// { contentLength, start, end, length }. The header alone does not
+			// know the length of an open-ended range ("bytes=0-", which browsers
+			// send for media) and does not clamp an end beyond the file.
+			long[] range = null;
 			if (Webs.isNormalRequest(request)) {
 				long lastModified = getLastModified(node).getTime();
 				String eTag = HttpCaching.toETag(lastModified);
@@ -182,7 +187,7 @@ public class DownloadServlet extends HttpServlet {
 			}
 
 			if (rangeHeader != null) {
-				long[] range = prepareRange(node, rangeHeader, response);
+				range = prepareRange(node, rangeHeader, response);
 				if (range == null) {
 					return;
 				}
@@ -201,7 +206,7 @@ public class DownloadServlet extends HttpServlet {
 				if (rangeHeader == null) {
 					IOs.copy(in, response.getOutputStream());
 				} else {
-					IOs.copy(in, response.getOutputStream(), rangeHeader.getStart(), rangeHeader.getLength());
+					IOs.copy(in, response.getOutputStream(), range[1], range[3]);
 				}
 			}
 		} catch (Throwable ex) {
