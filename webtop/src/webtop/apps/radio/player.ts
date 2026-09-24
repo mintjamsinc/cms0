@@ -32,6 +32,7 @@
 
 import Hls, { ErrorTypes, Events, type ErrorData } from 'hls.js/light';
 import type { Station } from './library.js';
+import { drawSpectrum, DEFAULT_SPECTRUM_COLORS, type SpectrumColors } from '../../lib/spectrum-canvas.js';
 
 export type PlayerState = 'idle' | 'loading' | 'playing' | 'stopped' | 'error';
 export type PlayerErrorKind = 'generic' | 'network' | 'unsupported' | 'mixedContent' | 'hls' | 'hlsNetwork';
@@ -57,7 +58,6 @@ interface PlayError {
 }
 
 const CONNECT_TIMEOUT_MS = 15000;
-const BAR_COUNT = 48;
 
 export class RadioPlayer {
 	#events: PlayerEvents;
@@ -80,7 +80,7 @@ export class RadioPlayer {
 
 	#canvas: HTMLCanvasElement | null = null;
 	#raf = 0;
-	#colors = { from: '#8b5cf6', to: '#06b6d4', idle: 'rgba(128, 128, 128, 0.25)' };
+	#colors: SpectrumColors = { ...DEFAULT_SPECTRUM_COLORS };
 
 	constructor(events: PlayerEvents) {
 		this.#events = events;
@@ -126,7 +126,7 @@ export class RadioPlayer {
 		}
 	}
 
-	setColors(colors: Partial<{ from: string; to: string; idle: string }>): void {
+	setColors(colors: Partial<SpectrumColors>): void {
 		this.#colors = { ...this.#colors, ...colors };
 	}
 
@@ -472,50 +472,12 @@ export class RadioPlayer {
 	#draw(): void {
 		const canvas = this.#canvas;
 		if (!canvas) return;
-		const dpr = window.devicePixelRatio || 1;
-		const width = canvas.clientWidth;
-		const height = canvas.clientHeight;
-		if (!width || !height) return;
-		if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
-			canvas.width = Math.round(width * dpr);
-			canvas.height = Math.round(height * dpr);
-		}
-		const g = canvas.getContext('2d');
-		if (!g) return;
-		g.setTransform(dpr, 0, 0, dpr, 0, 0);
-		g.clearRect(0, 0, width, height);
-
-		const gap = 2;
-		const barWidth = (width - gap * (BAR_COUNT - 1)) / BAR_COUNT;
 		const live = this.analyserAvailable && this.#active && !this.#active.paused;
-
 		if (live && this.#analyser && this.#spectrum) {
 			this.#analyser.getByteFrequencyData(this.#spectrum);
-			const gradient = g.createLinearGradient(0, 0, width, 0);
-			gradient.addColorStop(0, this.#colors.from);
-			gradient.addColorStop(1, this.#colors.to);
-			g.fillStyle = gradient;
-			// Only the lower ~70% of the bins carry audible energy for music;
-			// map the bars onto that range so the view is not half empty.
-			const usable = Math.floor(this.#spectrum.length * 0.7);
-			for (let i = 0; i < BAR_COUNT; i++) {
-				const bin = Math.floor((i / BAR_COUNT) * usable);
-				const value = this.#spectrum[bin] / 255;
-				const h = Math.max(2, value * height);
-				const x = i * (barWidth + gap);
-				g.beginPath();
-				g.roundRect(x, height - h, barWidth, h, barWidth / 2);
-				g.fill();
-			}
-			return;
-		}
-
-		g.fillStyle = this.#colors.idle;
-		for (let i = 0; i < BAR_COUNT; i++) {
-			const x = i * (barWidth + gap);
-			g.beginPath();
-			g.roundRect(x, height - 3, barWidth, 3, 1.5);
-			g.fill();
+			drawSpectrum(canvas, this.#spectrum, this.#colors);
+		} else {
+			drawSpectrum(canvas, null, this.#colors);
 		}
 	}
 }

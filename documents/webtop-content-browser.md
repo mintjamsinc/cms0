@@ -2,8 +2,8 @@
 
 Notes on the parts of the **Content Browser** that are not obvious from its
 source: how a search result is paged and sorted, the labels a user can put on a
-file, and the orientation of images and videos that a background route
-maintains.
+file, the orientation of images and videos that a background route
+maintains, and what the Inspector shows for a video or audio file.
 
 ## Search results
 
@@ -172,3 +172,38 @@ the class over a query from a script or a route, for example
 
 and call `webtop.media.MediaMetadata.create(context).update(path)` for each
 path.
+
+## Video and audio in the Inspector
+
+The preview at the top of the Inspector shows an image as it is; a file whose
+MIME type is `video/*` or `audio/*` gets the browser's own player instead
+(`<video controls>`, or a spectrum view above an `<audio controls>`). The
+player loads the same download URL the image preview uses, with
+`preload="metadata"`, so selecting a file fetches only its header. The
+download servlet answers Range requests, so seeking and playback stream the
+part that is needed rather than the whole file.
+
+Nothing is decoded on the server: the browser plays what it can. A file the
+browser cannot play (an AVI, a WMV, a codec the platform lacks) raises the
+element's `error` event and the preview falls back to the file icon, the same
+way a broken image does.
+
+The spectrum of the audio preview is drawn with the Web Audio API: on the
+first play the `<audio>` element is routed through an `AnalyserNode`
+(`lib/spectrum-canvas.ts` draws the bars; the Radio app draws its spectrum with
+the same module). The context is created inside the play gesture, so it starts
+running, and the element stays connected while the audio preview is shown.
+Where Web Audio is unavailable the file plays without the spectrum.
+
+Once the player has read the file's header, the *Info* section shows what the
+browser knows:
+
+| Row | Source | Shown when |
+| --- | --- | --- |
+| Duration | `HTMLMediaElement.duration`, as m:ss or h:mm:ss | finite and above zero (a live stream has none) |
+| Dimensions | `videoWidth` × `videoHeight` | a video, unless the *Orientation* row already shows `mi:width` × `mi:height` |
+| Bitrate | file size × 8 ÷ duration, as kbps or Mbps, marked *average* | duration and size are known |
+
+The codec, the sample rate and the channel count are not available to the
+browser. They would come from Tika through the `webtop-media-metadata` route,
+the way the orientation does, in properties of their own.

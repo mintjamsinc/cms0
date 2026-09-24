@@ -52,9 +52,25 @@
 		<div v-else class="detail-panel-content">
 
 			<!-- Section 1: Preview (no header) -->
+			<!-- Images show as-is; a video or audio file gets the browser's own
+			     player on the same download URL (the server answers Range
+			     requests, so seeking streams only what is needed). A file the
+			     browser cannot play falls back to the icon through the error
+			     event, like a broken image does. The audio preview draws a
+			     spectrum of what plays through the Web Audio API. -->
 			<div class="detail-preview-area">
 				<img v-if="isSelectedItemImage" :src="selectedItemPreviewURL"
 					class="detail-preview-image" @error="onPreviewImageError" />
+				<video v-else-if="isSelectedItemVideo" :src="selectedItemPreviewURL"
+					class="detail-preview-video" controls preload="metadata"
+					@loadedmetadata="onPreviewMediaLoaded" @error="onPreviewMediaError"></video>
+				<div v-else-if="isSelectedItemAudio" class="detail-preview-audio">
+					<canvas class="detail-preview-spectrum" @mounted="onSpectrumMounted" @unmount="onSpectrumUnmount"></canvas>
+					<audio :src="selectedItemPreviewURL" class="detail-preview-audio-player" controls preload="metadata"
+						@unmount="onPreviewAudioUnmount"
+						@loadedmetadata="onPreviewMediaLoaded" @error="onPreviewMediaError"
+						@play="onPreviewMediaPlay" @pause="onPreviewMediaPause" @ended="onPreviewMediaPause"></audio>
+				</div>
 				<div v-else class="detail-preview-icon">
 					<i :class="[getFileIcon(singleTarget), getFileIconClass(singleTarget), 'detail-preview-icon-large']"></i>
 					<span class="detail-preview-type">{{ displayType(singleTarget) }}</span>
@@ -188,6 +204,23 @@
 					<template v-slot:value="p">
 						<span>{{ orientationLabel(singleTarget.orientation) }}</span>
 						<small v-if="singleTarget.imageWidth && singleTarget.imageHeight" class="text-muted ms-1">{{ singleTarget.imageWidth }} × {{ singleTarget.imageHeight }}</small>
+					</template>
+				</wt-property-row>
+
+				<!-- Duration, pixel size and average bitrate of an audio or video
+				     file, read by the browser from the file's header when the
+				     preview loads it; absent until then, and for a file the
+				     browser cannot play. The pixel size defers to mi:width /
+				     mi:height when the Orientation row already shows them. -->
+				<wt-property-row v-if="previewMedia.duration" :name="t('webtop.inspector.field.duration')"
+					:model-value="displayDuration(previewMedia.duration)"></wt-property-row>
+				<wt-property-row v-if="previewMedia.width && previewMedia.height && !(singleTarget.orientation && singleTarget.imageWidth && singleTarget.imageHeight)"
+					:name="t('webtop.inspector.field.dimensions')"
+					:model-value="previewMedia.width + ' × ' + previewMedia.height"></wt-property-row>
+				<wt-property-row v-if="previewMediaBitrate" :name="t('webtop.inspector.field.bitrate')">
+					<template v-slot:value="p">
+						<span>{{ previewMediaBitrate }}</span>
+						<small class="text-muted ms-1">{{ t('webtop.inspector.bitrate.average') }}</small>
 					</template>
 				</wt-property-row>
 

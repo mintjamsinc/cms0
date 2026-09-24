@@ -45,6 +45,7 @@ import { defineComponent } from '@mintjamsinc/ichigojs';
 import { MimeTypes } from '../utils/mime-types.js';
 import { Encodings } from '../utils/encodings.js';
 import { Dates } from '../utils/dates.js';
+import { drawSpectrum } from '../lib/spectrum-canvas.js';
 import type { LocalizationSnapshot } from '../composables/use-localization.js';
 import { translate, createLocalizationSnapshot } from '../composables/use-localization.js';
 import {
@@ -442,6 +443,18 @@ defineComponent('wt-inspector', {
 				keydownListener: null as ((e: KeyboardEvent) => void) | null,
 				lastCommandNonce: 0,
 				targetReloadSeq: 0,
+				// Audio preview: the Web Audio graph behind the spectrum view. One
+				// AudioContext per Inspector, created on the first play (a user
+				// gesture) and closed with the component. The <audio> element is
+				// connected once (a media element can be connected only once) and
+				// stays connected while the audio preview is shown.
+				audioCtx: null as AudioContext | null,
+				audioSource: null as MediaElementAudioSourceNode | null,
+				analyser: null as AnalyserNode | null,
+				spectrumData: null as Uint8Array<ArrayBuffer> | null,
+				spectrumCanvas: null as HTMLCanvasElement | null,
+				spectrumRaf: 0,
+				audioEl: null as HTMLAudioElement | null,
 			}),
 			// Tick bumped when i18n bundles change so validation computeds re-run.
 			_i18nTick: 0,
@@ -464,6 +477,16 @@ defineComponent('wt-inspector', {
 			],
 			// Preview image error state
 			previewImageError: false,
+			// Video / audio preview: set when the browser cannot play the file
+			// (the preview then falls back to the icon), and what the browser
+			// read from the file's header once the player loaded it.
+			previewMediaError: false,
+			previewMedia: {
+				duration: 0,
+				width: 0,
+				height: 0,
+				playing: false,
+			},
 			// Detail panel: properties section
 			detailProperties: [] as { name: string; value: string; items: string[]; type: string; isArray: boolean }[],
 			detailPropertiesLoading: false,
@@ -637,6 +660,29 @@ defineComponent('wt-inspector', {
 			if (!item || item.isCollection || this.previewImageError) return false;
 			const mimeType = item.mimeType || '';
 			return mimeType.startsWith('image/');
+		},
+		isSelectedItemVideo(this: any): boolean {
+			const item = this.singleTarget;
+			if (!item || item.isCollection || this.previewMediaError) return false;
+			return (item.mimeType || '').startsWith('video/');
+		},
+		isSelectedItemAudio(this: any): boolean {
+			const item = this.singleTarget;
+			if (!item || item.isCollection || this.previewMediaError) return false;
+			return (item.mimeType || '').startsWith('audio/');
+		},
+		// Average bitrate of the previewed media, from the file size and the
+		// duration the browser read ('' until both are known). Rendered as kbps
+		// below 1 Mbps, Mbps above.
+		previewMediaBitrate(this: any): string {
+			const item = this.singleTarget;
+			const duration = this.previewMedia.duration;
+			if (!item || !item.contentLength || !duration) return '';
+			const bps = (item.contentLength * 8) / duration;
+			if (bps >= 1_000_000) {
+				return (bps / 1_000_000).toFixed(1) + ' Mbps';
+			}
+			return Math.round(bps / 1000) + ' kbps';
 		},
 		// The swatches of the Color row, in palette order.
 		swatchColors(this: any): { key: string; label: string; value: string }[] {
@@ -1075,6 +1121,7 @@ defineComponent('wt-inspector', {
 			this.cancelEncodingEdit?.();
 			this.selectedSchemaKey = '';
 			this.previewImageError = false;
+			this.resetPreviewMedia();
 			this.actionErrorMessage = '';
 			this.actionConfirm = '';
 			this.versionHistoryDialog.confirmVersionName = '';
@@ -1163,6 +1210,19 @@ defineComponent('wt-inspector', {
 				vm._.keydownListener = null;
 			}
 			vm.destroyCodeMirrorEditor();
+			vm.stopSpectrum();
+			if (vm._.audioSource) {
+				try { vm._.audioSource.disconnect(); } catch { /* ignore */ }
+				vm._.audioSource = null;
+			}
+			if (vm._.audioCtx) {
+				try { vm._.audioCtx.close(); } catch { /* ignore */ }
+				vm._.audioCtx = null;
+				vm._.analyser = null;
+				vm._.spectrumData = null;
+			}
+			vm._.audioEl = null;
+			vm._.spectrumCanvas = null;
 			if (vm.cmEscHandler) {
 				document.removeEventListener('keydown', vm.cmEscHandler, true);
 				vm.cmEscHandler = null;
@@ -1351,6 +1411,144 @@ defineComponent('wt-inspector', {
 		},
 		onPreviewImageError(this: any) {
 			this.previewImageError = true;
+		},
+		// ────────────────────────────────────────────────────────────────────
+		// Video / audio preview
+		// ────────────────────────────────────────────────────────────────────
+		resetPreviewMedia(this: any) {
+			this.previewMediaError = false;
+			this.previewMedia.duration = 0;
+			this.previewMedia.width = 0;
+			this.previewMedia.height = 0;
+			this.previewMedia.playing = false;
+			this.stopSpectrum();
+		},
+		// loadedmetadata: the browser has read the header. A live stream has an
+		// infinite duration, which is not a duration to show.
+		onPreviewMediaLoaded(this: any, event: Event) {
+			const el = event?.target as HTMLMediaElement | null;
+			if (!el) return;
+			this.previewMedia.duration = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
+			const video = el as HTMLVideoElement;
+			this.previewMedia.width = video.videoWidth || 0;
+			this.previewMedia.height = video.videoHeight || 0;
+		},
+		onPreviewMediaError(this: any) {
+			this.previewMediaError = true;
+			this.previewMedia.playing = false;
+			this.stopSpectrum();
+		},
+		onPreviewMediaPlay(this: any, event: Event) {
+			const el = event?.target as HTMLAudioElement | null;
+			this.previewMedia.playing = true;
+			if (el) this.connectSpectrum(el);
+			this.startSpectrum();
+		},
+		onPreviewMediaPause(this: any) {
+			this.previewMedia.playing = false;
+			this.stopSpectrum();
+		},
+		onPreviewAudioUnmount(this: any) {
+			const vm = this;
+			vm.previewMedia.playing = false;
+			vm.stopSpectrum();
+			if (vm._.audioSource) {
+				try { vm._.audioSource.disconnect(); } catch { /* ignore */ }
+				vm._.audioSource = null;
+			}
+			vm._.audioEl = null;
+		},
+		onSpectrumMounted(this: any, $ctx: any) {
+			this._.spectrumCanvas = $ctx?.element || null;
+			this.drawSpectrumFrame();
+		},
+		onSpectrumUnmount(this: any) {
+			this.stopSpectrum();
+			this._.spectrumCanvas = null;
+		},
+		// Routes the <audio> element through an AnalyserNode. Called on play, so
+		// the AudioContext is created inside a user gesture and starts running.
+		// When Web Audio is unavailable the element keeps playing on its own,
+		// just without the spectrum.
+		connectSpectrum(this: any, el: HTMLAudioElement) {
+			const vm = this;
+			if (vm._.audioEl === el && vm._.audioSource) {
+				if (vm._.audioCtx?.state === 'suspended') {
+					vm._.audioCtx.resume().catch(() => { /* stays suspended until the next gesture */ });
+				}
+				return;
+			}
+			try {
+				if (!vm._.audioCtx) {
+					const Ctor = window.AudioContext || (window as any).webkitAudioContext;
+					if (!Ctor) return;
+					vm._.audioCtx = new Ctor();
+				}
+				const ctx: AudioContext = vm._.audioCtx;
+				if (vm._.audioSource) {
+					try { vm._.audioSource.disconnect(); } catch { /* ignore */ }
+					vm._.audioSource = null;
+				}
+				if (!vm._.analyser) {
+					const analyser = ctx.createAnalyser();
+					analyser.fftSize = 256;
+					analyser.smoothingTimeConstant = 0.82;
+					analyser.connect(ctx.destination);
+					vm._.analyser = analyser;
+					vm._.spectrumData = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
+				}
+				const source = ctx.createMediaElementSource(el);
+				source.connect(vm._.analyser);
+				vm._.audioSource = source;
+				vm._.audioEl = el;
+				if (ctx.state === 'suspended') {
+					ctx.resume().catch(() => { /* stays suspended until the next gesture */ });
+				}
+			} catch (err) {
+				console.warn('[Inspector] Web Audio is unavailable; playing without the spectrum view.', err);
+			}
+		},
+		startSpectrum(this: any) {
+			const vm = this;
+			if (vm._.spectrumRaf) return;
+			const frame = () => {
+				vm._.spectrumRaf = 0;
+				vm.drawSpectrumFrame();
+				if (vm._.spectrumCanvas && vm.previewMedia.playing) {
+					vm._.spectrumRaf = requestAnimationFrame(frame);
+				}
+			};
+			vm._.spectrumRaf = requestAnimationFrame(frame);
+		},
+		stopSpectrum(this: any) {
+			const vm = this;
+			if (vm._.spectrumRaf) {
+				cancelAnimationFrame(vm._.spectrumRaf);
+				vm._.spectrumRaf = 0;
+			}
+			vm.drawSpectrumFrame();
+		},
+		drawSpectrumFrame(this: any) {
+			const vm = this;
+			const canvas: HTMLCanvasElement | null = vm._.spectrumCanvas;
+			if (!canvas) return;
+			const live = vm.previewMedia.playing && vm._.analyser && vm._.spectrumData &&
+				vm._.audioEl && !vm._.audioEl.paused;
+			if (live) {
+				vm._.analyser.getByteFrequencyData(vm._.spectrumData);
+				drawSpectrum(canvas, vm._.spectrumData);
+			} else {
+				drawSpectrum(canvas, null);
+			}
+		},
+		// m:ss, or h:mm:ss from an hour.
+		displayDuration(this: any, seconds: number): string {
+			const total = Math.round(seconds);
+			const h = Math.floor(total / 3600);
+			const m = Math.floor((total % 3600) / 60);
+			const sec = total % 60;
+			const two = (n) => String(n).padStart(2, '0');
+			return h > 0 ? h + ':' + two(m) + ':' + two(sec) : m + ':' + two(sec);
 		},
 		// ────────────────────────────────────────────────────────────────────
 		// Main detail loader
