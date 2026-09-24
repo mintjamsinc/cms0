@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<camel>
+
+    <!--
+        Orientation of images and videos for the Content Browser.
+
+        The repository posts a javax/jcr/Node event for every node change. This
+        route takes the events of files whose content arrived or changed, reads
+        the file's pixel size through Tika and stores mi:orientation (portrait /
+        landscape / square / panorama), mi:width and mi:height on the file
+        (webtop.media.MediaMetadata), where the search index counts them.
+
+        The write raises a CHANGED event of its own; that one names only the
+        properties written, not jcr:data, so isContentChange() drops it and
+        the route does not answer itself. Every other change to the file's
+        properties (color, tags, ...) is dropped the same way.
+
+        The file is read and written as the user who made the change, so the
+        route never touches what that user could not. A change without a user
+        (a deployment, a system job) runs as the system.
+    -->
+    <route id="webtop-media-metadata">
+        <routeProperty key="mi:history" value="failure"/>
+        <from id="webtop-media-metadata-events" uri="eventadmin:javax/jcr/Node/*?filter=(type=nt:file)&amp;maxQueueSize=10000&amp;rejectedPolicy=Discard"/>
+
+        <script id="webtop-media-metadata-select">
+            <groovy>
+            <![CDATA[
+                def event = exchange.getIn().getBody();
+                def properties = event.getProperty('properties') as String[];
+                boolean selected = webtop.media.MediaMetadata.isContentChange(
+                    event.getTopic(), event.getProperty('type') as String, properties);
+                exchange.setProperty('selected', selected);
+                exchange.setProperty('path', event.getProperty('path') as String);
+                exchange.setProperty('runAs', event.getProperty('user_id') as String);
+            ]]>
+            </groovy>
+        </script>
+
+        <filter id="webtop-media-metadata-selected">
+            <simple>${exchangeProperty.selected} == true</simple>
+
+            <doTry id="webtop-media-metadata-try">
+                <script id="webtop-media-metadata-open">
+                    <groovy>
+                    <![CDATA[
+                        def runAs = exchange.getProperty('runAs') as String;
+                        def context = null;
+                        if (runAs) {
+                            try {
+                                context = ScriptAPI.createServiceUserContext(runAs);
+                            } catch (Throwable ex) {
+                                // Not a user of the repository (a system principal):
+                                // the change came from the system, so run as it.
+                                context = null;
+                            }
+                        }
+                        if (context == null) {
+                            context = ScriptAPI.createInternalContext();
+                        }
+                        exchange.setProperty('mi:cms.context', context);
+                    ]]>
+                    </groovy>
+                </script>
+
+                <script id="webtop-media-metadata-run">
+                    <groovy>
+                    <![CDATA[
+                        webtop.media.MediaMetadata.create(context).update(exchange.getProperty('path') as String);
+                    ]]>
+                    </groovy>
+                </script>
+
+                <doCatch id="webtop-media-metadata-catch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="webtop-media-metadata-log" loggingLevel="WARN" message="Media metadata of ${exchangeProperty.path} not updated: ${exception.message}"/>
+                </doCatch>
+
+                <doFinally id="webtop-media-metadata-finally">
+                    <script id="webtop-media-metadata-close">
+                        <groovy>
+                        <![CDATA[
+                            // Taken off the exchange before it is closed: closing clears the
+                            // context's bindings, and a later script that still found the
+                            // property would run without ScriptAPI or log.
+                            def cmsContext = exchange.getProperty('mi:cms.context');
+                            exchange.removeProperty('mi:cms.context');
+                            cmsContext?.close();
+                        ]]>
+                        </groovy>
+                    </script>
+                </doFinally>
+            </doTry>
+        </filter>
+    </route>
+
+</camel>

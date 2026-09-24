@@ -65,13 +65,13 @@ import javax.jcr.version.VersionIterator;
 import javax.jcr.version.VersionManager;
 
 import org.mintjams.jcr.JcrPath;
-import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
 import org.mintjams.rt.cms.internal.graphql.ClusterQueryExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
 import org.mintjams.rt.cms.internal.graphql.MultipartUploadManager;
+import org.mintjams.rt.cms.internal.security.QueryAuthorizables;
 import org.mintjams.rt.cms.internal.graphql.type.NodeMapper;
 import org.mintjams.rt.cms.internal.graphql.type.PrincipalDisplayNameResolver;
 import org.mintjams.rt.cms.internal.graphql.type.PropertyValue;
@@ -425,10 +425,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		}
 
 		SearchIndex.Query indexQuery = searchIndex.createQuery(statement, "jcr:xpath").setOffset(0).setLimit(0);
-		Principal[] authorizables = queryAuthorizables(session);
-		if (authorizables.length > 0) {
-			indexQuery.setAuthorizables(authorizables);
-		}
+		QueryAuthorizables.apply(indexQuery, session);
 		SearchIndex.QueryResult.FacetResult facetResult = indexQuery.execute().getFacetResult();
 		if (facetResult == null) {
 			return Collections.emptyList();
@@ -458,28 +455,6 @@ public final class PlatformWiringContributor implements WiringContributor {
 			facets.add(facetMap);
 		}
 		return facets;
-	}
-
-	/**
-	 * The principals the JCR query layer restricts index queries to for this
-	 * session: none for system / service / admin sessions, everyone for a guest,
-	 * everyone plus the user and its groups otherwise.
-	 */
-	private static Principal[] queryAuthorizables(Session session) {
-		if (!(session instanceof org.mintjams.jcr.Session)) {
-			return new Principal[0];
-		}
-		org.mintjams.jcr.Session jcrSession = (org.mintjams.jcr.Session) session;
-		if (jcrSession.isSystem() || jcrSession.isService() || jcrSession.isAdmin()) {
-			return new Principal[0];
-		}
-		List<Principal> authorizables = new ArrayList<>();
-		authorizables.add(new EveryonePrincipal());
-		if (!jcrSession.isGuest()) {
-			authorizables.addAll(jcrSession.getGroups());
-			authorizables.add(jcrSession.getUserPrincipal());
-		}
-		return authorizables.toArray(Principal[]::new);
 	}
 
 	/**
@@ -2156,7 +2131,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 			}
 		}
 		SearchIndex searchIndex = Adaptables.getAdapter(session, SearchIndex.class);
-		return new ContentLengthPublisher(searchIndex, queryAuthorizables(session), paths, unreadablePaths,
+		return new ContentLengthPublisher(searchIndex, QueryAuthorizables.of(session), paths, unreadablePaths,
 				filePaths);
 	}
 

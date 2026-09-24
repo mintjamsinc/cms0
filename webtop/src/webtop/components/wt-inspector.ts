@@ -68,6 +68,10 @@ import { marked } from 'marked';
 // Shared, stateless CodeMirror building blocks (theme, highlight palette,
 // structured-text formatter, language resolution) — see lib/codemirror-helpers.
 import { cmTheme, cmHighlight, formatStructuredText, getLanguageExtensionForEditorType } from '../lib/codemirror-helpers.js';
+// The swatch palette a file's color is chosen from (shared with Mail, Memo and
+// the EIP Console), and the names of the label properties.
+import { SWATCH_COLORS } from '../lib/color-palette.js';
+import { COLOR_PROPERTY, TAGS_PROPERTY } from '../lib/inspector-target.js';
 
 // Module-scope popup handles for autocomplete popups, mirroring the
 // content-browser implementation. PopupHandle stores an un-Proxied result
@@ -75,6 +79,17 @@ import { cmTheme, cmHighlight, formatStructuredText, getLanguageExtensionForEdit
 let mimeTypePopupHandle: any = null;
 let encodingPopupHandle: any = null;
 let principalPopupHandle: any = null;
+let tagPopupHandle: any = null;
+
+// Tag limits, the same as the Mail app's: at most this many tags on one file,
+// each at most this long (whitespace collapsed).
+const MAX_TAGS = 20;
+const MAX_TAG_LENGTH = 50;
+// The suggestion popup lists at most this many known tags.
+const TAG_SUGGESTIONS = 12;
+// Known tags come from a count facet over every file the user can read; the
+// statement fetches no node (see ContentServiceGraphQL.xpathFacets).
+const KNOWN_TAGS_STATEMENT = `//element(*, nt:file) facet accumulate top(@${TAGS_PROPERTY}, 200)`;
 
 // CodeMirror theme, highlight palette, linters, structured-text formatter and
 // language resolution now live in lib/codemirror-helpers.ts (shared with the
@@ -562,6 +577,14 @@ defineComponent('wt-inspector', {
 			encodingSuggestions: [] as { name: string; description: string }[],
 			encodingSaving: false,
 			encodingHighlightIndex: -1,
+			// Color / tags (mi:color, mi:tags) editor state. `knownTags` is the
+			// tags in use across the files the user can read, loaded on the
+			// first suggestion and refreshed after a tag is added.
+			labelsSaving: false,
+			tagInput: '',
+			tagSuggestions: [] as string[],
+			tagHighlightIndex: -1,
+			knownTags: null as string[] | null,
 			// CodeMirror structured-text editor state
 			cmEditor: null as EditorView | null,
 			cmLanguageCompartment: null as Compartment | null,
@@ -614,6 +637,10 @@ defineComponent('wt-inspector', {
 			if (!item || item.isCollection || this.previewImageError) return false;
 			const mimeType = item.mimeType || '';
 			return mimeType.startsWith('image/');
+		},
+		// The swatches of the Color row, in palette order.
+		swatchColors(this: any): { key: string; label: string; value: string }[] {
+			return SWATCH_COLORS;
 		},
 		selectedItemPreviewURL(this: any): string {
 			const item = this.singleTarget;
@@ -1810,6 +1837,178 @@ defineComponent('wt-inspector', {
 				console.error('Failed to update encoding:', err);
 				vm.encodingSaving = false;
 			}
+		},
+		// ────────────────────────────────────────────────────────────────────
+		// Color and tags (mi:color / mi:tags)
+		//
+		// Both are stored on the file's jcr:content through setProperties, the
+		// same way the MIME type is. A cleared value removes the property (the
+		// repository refuses an empty multi-value, and the search index has
+		// nothing to count for it). The target is patched in place after the
+		// save, as the MIME type editor does, so the host's list shows the
+		// change at once.
+		// ────────────────────────────────────────────────────────────────────
+		colorLabel(this: any, key: string): string {
+			const swatch = SWATCH_COLORS.find(c => c.key === key);
+			return this.t(`webtop.inspector.color.${key}`, undefined, swatch?.label || key);
+		},
+		orientationLabel(this: any, orientation: string): string {
+			return this.t(`webtop.inspector.orientation.${orientation}`, undefined, orientation);
+		},
+		normalizeTag(this: any, value: string): string {
+			const tag = (value || '').replace(/\s+/g, ' ').trim();
+			return tag.length > MAX_TAG_LENGTH ? tag.substring(0, MAX_TAG_LENGTH).trim() : tag;
+		},
+		async setColor(this: any, key: string) {
+			const item = this.singleTarget;
+			if (!item || item.isCollection || this.labelsSaving) return;
+			const color = SWATCH_COLORS.some(c => c.key === key) ? key : '';
+			if (color === (item.color || '')) return;
+			const value = color ? { stringValue: color } : null;
+			await this.saveLabels([{ name: COLOR_PROPERTY, value }], () => { item.color = color; });
+		},
+		async addTag(this: any, value: string) {
+			const item = this.singleTarget;
+			const tag = this.normalizeTag(value);
+			if (!item || item.isCollection || this.labelsSaving || !tag) return;
+			const current: string[] = item.tags || [];
+			if (current.includes(tag) || current.length >= MAX_TAGS) return;
+			const tags = [...current, tag];
+			await this.saveLabels([{ name: TAGS_PROPERTY, value: { stringArrayValue: tags } }], () => { item.tags = tags; });
+			// A tag this file introduced is offered on the next file.
+			if (this.knownTags && !this.knownTags.includes(tag)) {
+				this.knownTags = [...this.knownTags, tag].sort((a, b) => a.localeCompare(b));
+			}
+		},
+		async removeTag(this: any, tag: string) {
+			const item = this.singleTarget;
+			if (!item || item.isCollection || this.labelsSaving) return;
+			const tags = (item.tags || []).filter((t: string) => t !== tag);
+			if (tags.length === (item.tags || []).length) return;
+			const value = tags.length ? { stringArrayValue: tags } : null;
+			await this.saveLabels([{ name: TAGS_PROPERTY, value }], () => { item.tags = tags; });
+		},
+		async saveLabels(this: any, properties: { name: string; value: any }[], apply: () => void) {
+			const item = this.singleTarget;
+			const vm = this;
+			vm.labelsSaving = true;
+			try {
+				await vm.api.content.setProperties(item.path, properties);
+				apply();
+			} catch (err: any) {
+				console.error('Failed to update labels:', err);
+			} finally {
+				vm.labelsSaving = false;
+			}
+		},
+		// The tags in use, for the suggestion popup. Loaded once per panel; a
+		// failure (no index, no permission) leaves the popup empty.
+		async loadKnownTags(this: any) {
+			const vm = this;
+			if (vm.knownTags !== null) return;
+			vm.knownTags = [];
+			try {
+				const result = await vm.api.content.xpathFacets(KNOWN_TAGS_STATEMENT);
+				const facet = (result.facets || []).find((f: any) => f.dimension === TAGS_PROPERTY);
+				const tags = (facet?.entries || []).map((e: any) => String(e.label)).filter((t: string) => t);
+				vm.knownTags = tags.sort((a: string, b: string) => a.localeCompare(b));
+			} catch (err: any) {
+				console.warn('Could not load the tags in use:', err);
+			}
+			vm.updateTagSuggestions();
+		},
+		updateTagSuggestions(this: any) {
+			const vm = this;
+			const item = vm.singleTarget;
+			if (!item) return;
+			if (vm.knownTags === null) {
+				vm.loadKnownTags();
+				return;
+			}
+			const query = vm.tagInput.trim().toLowerCase();
+			const taken: string[] = item.tags || [];
+			vm.tagSuggestions = (vm.knownTags as string[]).
+				filter((t: string) => !taken.includes(t) && (!query || t.toLowerCase().includes(query))).
+				slice(0, TAG_SUGGESTIONS);
+			vm.tagHighlightIndex = -1;
+			vm.refreshTagSuggestionsPopup();
+		},
+		refreshTagSuggestionsPopup(this: any) {
+			const vm = this;
+			if (vm.tagSuggestions.length === 0 || document.activeElement !== vm.$refs.tagInput) {
+				vm.closeTagSuggestionsPopup();
+				return;
+			}
+			const items = (vm.tagSuggestions as string[]).map((t: string, i: number) => ({
+				id: t,
+				label: t,
+				highlighted: i === vm.tagHighlightIndex,
+			}));
+			if (tagPopupHandle) {
+				tagPopupHandle.update(items);
+				return;
+			}
+			const input = vm.$refs.tagInput as HTMLInputElement | undefined;
+			const popup = vm.api?.popup;
+			if (!input || !popup) return;
+			const rect = input.getBoundingClientRect();
+			tagPopupHandle = popup.open({
+				anchor: rect,
+				placement: 'bottom-start',
+				minWidth: Math.max(rect.width, 200),
+				maxHeight: 360,
+				items,
+			});
+			tagPopupHandle.result.then((picked: any) => {
+				tagPopupHandle = null;
+				if (picked == null) return;
+				vm.tagInput = '';
+				vm.tagSuggestions = [];
+				vm.addTag(String(picked));
+			});
+		},
+		closeTagSuggestionsPopup(this: any) {
+			if (tagPopupHandle) {
+				tagPopupHandle.close();
+				tagPopupHandle = null;
+			}
+		},
+		handleTagKeydown(this: any, e: KeyboardEvent) {
+			const vm = this;
+			if (e.key === 'Escape') {
+				vm.closeTagSuggestionsPopup();
+				vm.tagInput = '';
+				return;
+			}
+			if (e.key === 'ArrowDown' && vm.tagSuggestions.length) {
+				e.preventDefault();
+				vm.tagHighlightIndex = Math.min(vm.tagHighlightIndex + 1, vm.tagSuggestions.length - 1);
+				vm.refreshTagSuggestionsPopup();
+				return;
+			}
+			if (e.key === 'ArrowUp' && vm.tagSuggestions.length) {
+				e.preventDefault();
+				vm.tagHighlightIndex = Math.max(vm.tagHighlightIndex - 1, -1);
+				vm.refreshTagSuggestionsPopup();
+				return;
+			}
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				const value = vm.tagHighlightIndex >= 0 ? vm.tagSuggestions[vm.tagHighlightIndex] : vm.tagInput;
+				vm.closeTagSuggestionsPopup();
+				vm.tagInput = '';
+				vm.tagSuggestions = [];
+				vm.addTag(value);
+			}
+		},
+		onTagInputBlur(this: any) {
+			// Later than the popup's own click, which would otherwise be lost.
+			const vm = this;
+			setTimeout(() => {
+				if (document.activeElement !== vm.$refs.tagInput) {
+					vm.closeTagSuggestionsPopup();
+				}
+			}, 200);
 		},
 		// ────────────────────────────────────────────────────────────────────
 		// Schema picker dropdowns

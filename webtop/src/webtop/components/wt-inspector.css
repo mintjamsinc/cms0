@@ -1539,3 +1539,101 @@ wt-inspector {
 	border: none;
 	background: var(--body-bg);
 }
+
+/* --- color and tags (mi:color / mi:tags) --- */
+.insp-labels-saving {
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+.insp-color-dots {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.125rem 0;
+}
+
+.insp-color-dot {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1rem;
+	height: 1rem;
+	padding: 0;
+	border: 2px solid transparent;
+	border-radius: 50%;
+	cursor: pointer;
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
+.insp-color-dot:hover {
+	transform: scale(1.15);
+}
+
+.insp-color-dot.active {
+	border-color: var(--island-bg);
+	box-shadow: 0 0 0 2px var(--text-color);
+}
+
+.insp-color-none {
+	background: var(--badge-bg);
+	color: var(--text-muted-color);
+	font-size: 0.6rem;
+}
+
+.insp-tags {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.25rem 0.375rem;
+}
+
+.insp-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.125rem;
+	max-width: 100%;
+	padding: 0 0.125rem 0 0.5rem;
+	border-radius: 9999px;
+	background: var(--item-hover-bg);
+	font-size: 12px;
+}
+
+.insp-tag-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.insp-tag-remove {
+	display: inline-flex;
+	align-items: center;
+	padding: 0 0.125rem;
+	border: none;
+	background: none;
+	color: var(--text-muted-color);
+	cursor: pointer;
+}
+
+.insp-tag-remove:hover {
+	color: var(--text-color);
+}
+
+.insp-tag-input {
+	flex: 1;
+	min-width: 6rem;
+	padding: 0.125rem 0.25rem;
+	border: none;
+	border-bottom: 1px dashed var(--input-border-color);
+	background: none;
+	color: var(--text-color);
+	font: inherit;
+	font-size: 12px;
+	outline: none;
+}
+
+.insp-tag-input:focus {
+	border-bottom-style: solid;
+	border-bottom-color: var(--input-focus-border-color);
+}

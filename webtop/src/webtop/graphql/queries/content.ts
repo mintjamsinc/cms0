@@ -128,6 +128,8 @@ const LIST_NODE_FIELDS = `
               propertyValue {
                 __typename
                 ... on StringPropertyValue { type value }
+                ... on StringPropertyValueArray { type values }
+                ... on LongPropertyValue { type value }
               }
             }`;
 
@@ -315,6 +317,28 @@ ${LIST_NODE_FIELDS}
           endCursor
         }
         totalCount
+      }
+    }
+  `,
+
+  /**
+   * The facet counts of an XPath statement's `facet accumulate` clause, with no
+   * node fetched (first: 0). A dimension is named as the statement wrote it
+   * (`jcr:mimeType`, `mi:tags`, ...), and the counts cover only the nodes the
+   * caller may read.
+   */
+  XPATH_FACETS: `
+    query XPathFacets($query: String!) {
+      xpath(query: $query, first: 0) {
+        totalCount
+        facets {
+          dimension
+          entries {
+            label
+            count
+            number
+          }
+        }
       }
     }
   `,

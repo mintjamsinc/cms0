@@ -48,7 +48,7 @@
 						@keydown.enter.prevent="xpathExecuteSearch">
 					<div class="input-group-actions">
 						<button class="input-group-btn" @click="xpathExecuteSearch"
-							:disabled="listLoading || !hasSearchInput"
+							:disabled="listLoading"
 							:title="t('app.content-browser.search.search')">
 							<i class="bi bi-search"></i>
 						</button>
@@ -161,8 +161,9 @@
 					</div>
 				</div>
 
-				<!-- Favorites section -->
-				<div class="sidebar-section">
+				<!-- Favorites section (hidden while a search result is listed: the
+				     facets take the place of this and the next two sections) -->
+				<div v-if="!xpathSearchActive" class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('favorites')">
 						<i class="bi" :class="sidebarSectionExpanded.favorites ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
 						<span>{{ t('app.content-browser.sidebar.favorites') }}</span>
@@ -186,7 +187,7 @@
 				</div>
 
 				<!-- Smart Folders section -->
-				<div class="sidebar-section">
+				<div v-if="!xpathSearchActive" class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('smartFolders')">
 						<i class="bi" :class="sidebarSectionExpanded.smartFolders ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
 						<span>{{ t('app.content-browser.sidebar.smartFolders') }}</span>
@@ -233,7 +234,7 @@
 				</div>
 
 				<!-- XPath Search section -->
-				<div class="sidebar-section">
+				<div v-if="!xpathSearchActive" class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('xpathSearch')">
 						<i class="bi" :class="sidebarSectionExpanded.xpathSearch ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
 						<span>{{ t('app.content-browser.search.title') }}</span>
@@ -380,6 +381,114 @@
 					</div>
 				</div>
 
+				<!-- Facets: shown while a search result is listed, in place of the
+				     favorites, smart folders and search sections. Each entry shows
+				     how many results choosing it leaves (see the Facets section of
+				     app.ts). -->
+				<div v-if="xpathSearchActive" class="facet-panel" :class="{ 'facet-panel-loading': facetLoading }">
+					<div class="facet-toolbar">
+						<span class="facet-toolbar-title">{{ t('app.content-browser.facet.title') }}</span>
+						<div class="facet-toolbar-actions">
+							<button v-if="facetSelectionCount > 0" class="facet-clear-btn" @click="facetClearAll" :title="t('app.content-browser.facet.clearHint')">
+								<i class="bi bi-eraser me-1"></i>{{ t('app.content-browser.facet.clear') }}
+							</button>
+							<!-- The search section's "Save as smart folder" is hidden while
+							     the facets show, so the facets offer it here: the folder
+							     keeps the keyword, the conditions and the selection. -->
+							<button class="facet-clear-btn" @click="smartFolderSaveCurrent" :disabled="!smartFolderCanSave"
+								:title="t('app.content-browser.facet.saveHint')">
+								<i class="bi bi-folder-plus me-1"></i>{{ t('app.content-browser.facet.save') }}
+							</button>
+						</div>
+					</div>
+
+					<!-- Kind (single choice) -->
+					<div class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('kind')">
+							<i class="bi" :class="facetSectionExpanded.kind ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.kind') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.kind" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="kind in facetKinds()" :key="'facet-kind-' + kind" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('kind', kind), 'facet-item-empty': !facetCount('kind', kind) }"
+								@click="facetSelectKind(kind)">
+								<i class="bi facet-icon" :class="facetKindIcon(kind)"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.kind.' + kind) }}</span>
+								<span class="facet-count">{{ facetCount('kind', kind) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Orientation (images and videos) -->
+					<div v-if="facetShowsOrientation" class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('orientation')">
+							<i class="bi" :class="facetSectionExpanded.orientation ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.orientation') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.orientation" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="orientation in facetOrientations()" :key="'facet-orientation-' + orientation" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('orientation', orientation), 'facet-item-empty': !facetCount('orientation', orientation) }"
+								@click="facetToggle('orientation', orientation)">
+								<i class="bi facet-icon" :class="facetIsSelected('orientation', orientation) ? 'bi-check-square' : 'bi-square'"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.orientation.' + orientation) }}</span>
+								<span class="facet-count">{{ facetCount('orientation', orientation) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Format (documents) -->
+					<div v-if="facetShowsFormat" class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('format')">
+							<i class="bi" :class="facetSectionExpanded.format ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.format') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.format" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="format in facetFormats()" :key="'facet-format-' + format" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('format', format), 'facet-item-empty': !facetCount('format', format) }"
+								@click="facetToggle('format', format)">
+								<i class="bi facet-icon" :class="facetIsSelected('format', format) ? 'bi-check-square' : 'bi-square'"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.format.' + format) }}</span>
+								<span class="facet-count">{{ facetCount('format', format) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Color (mi:color) -->
+					<div class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('color')">
+							<i class="bi" :class="facetSectionExpanded.color ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.color') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.color" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="c in facetColors()" :key="'facet-color-' + c.key" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('color', c.key), 'facet-item-empty': !facetCount('color', c.key) }"
+								@click="facetToggle('color', c.key)">
+								<span class="facet-color-dot" :style="{ backgroundColor: c.value }"></span>
+								<span class="facet-label">{{ t('app.content-browser.color.' + c.key) }}</span>
+								<span class="facet-count">{{ facetCount('color', c.key) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Tags (mi:tags): the selected ones, then the most frequent -->
+					<div class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('tag')">
+							<i class="bi" :class="facetSectionExpanded.tag ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.tag') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.tag" class="sidebar-section-body sidebar-section-body-list">
+							<div v-if="facetTagEntries.length === 0" class="sidebar-placeholder ps-3">{{ t('app.content-browser.facet.noTags') }}</div>
+							<div v-for="e in facetTagEntries" :key="'facet-tag-' + e.tag" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('tag', e.tag), 'facet-item-empty': !e.count }"
+								@click="facetToggle('tag', e.tag)" :title="e.tag">
+								<i class="bi facet-icon" :class="facetIsSelected('tag', e.tag) ? 'bi-check-square' : 'bi-square'"></i>
+								<span class="facet-label">{{ e.tag }}</span>
+								<span class="facet-count">{{ e.count }}</span>
+							</div>
+						</div>
+					</div>
+				</div>
+
 			</div>
 		</div>
 
@@ -413,7 +522,8 @@
 					<span class="xpath-search-bar-text">
 						{{ t('app.content-browser.search.searchingIn') }} <span class="xpath-search-bar-path">{{ currentPath }}</span>
 					</span>
-					<span v-if="!xpathSearchLoading" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.results', { count: xpathSearchTotalCount }) }}</span>
+					<span v-if="!xpathSearchLoading && !xpathSearchHasMore" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.results', { count: xpathSearchTotalCount }) }}</span>
+					<span v-if="!xpathSearchLoading && xpathSearchHasMore" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.resultsLoaded', { loaded: items.length, count: xpathSearchTotalCount }) }}</span>
 					<span v-if="xpathSearchLoading" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.searchingEllipsis') }}</span>
 				</div>
 				<button class="xpath-search-bar-close" @click="xpathClearSearch" :title="t('app.content-browser.search.closeSearch')">
@@ -500,7 +610,7 @@
 		<input type="file" ref="importArchiveInput" accept=".zip,application/zip" class="cb-upload-input"
 			@change="onImportInputChange" />
 
-		<div class="content-list" @mousedown="onContentMouseDown" @contextmenu="onBackgroundContextMenu">
+		<div class="content-list" ref="contentList" @scroll="onContentListScroll" @mousedown="onContentMouseDown" @contextmenu="onBackgroundContextMenu">
 			<div v-if="currentFolderDeleted" class="folder-deleted-notice">
 				<i class="bi bi-exclamation-triangle"></i>
 				<div class="folder-deleted-notice-text">
@@ -576,7 +686,9 @@
 						</td>
 						<td class="title-column">
 							<div class="title-block pe-1 text-truncate">
+								<span v-if="item.color" class="item-color-dot" :style="{ backgroundColor: colorHex(item.color) }"></span>
 								<span>{{ item.name }}</span>
+								<span v-for="tag in (item.tags || []).slice(0, 3)" :key="tag" class="item-tag">{{ tag }}</span>
 							</div>
 						</td>
 						<td class="date-column">
@@ -622,6 +734,11 @@
 					</tr>
 				</tbody>
 			</table>
+			<!-- Search paging: the next page is fetched as the list is scrolled
+			     to its end (onContentListScroll); this row shows while it loads. -->
+			<div v-if="xpathSearchActive && xpathSearchLoadingMore" class="xpath-search-more">
+				<span class="spinner-border spinner-border-sm me-2"></span>{{ t('app.content-browser.search.loadingMore') }}
+			</div>
 			<!-- Drag selection rectangle -->
 			<div v-if="dragSelection.active" class="selection-rect" :style="{
 				left: selectionRect.left + 'px',

@@ -32,6 +32,7 @@ import java.util.Map;
 import javax.jcr.NodeIterator;
 import javax.jcr.RepositoryException;
 
+import org.mintjams.rt.cms.internal.security.QueryAuthorizables;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.script.resource.ResourceImpl;
@@ -181,20 +182,47 @@ public class Query implements Adaptable {
 		}
 	}
 
+	/**
+	 * Results of the statement's {@code facet accumulate} clause, re-run against
+	 * the index with {@code limit=0} so no node is materialised. The query is
+	 * restricted to what the session may read, exactly as the JCR query layer
+	 * restricts the nodes, so the counts cover the same documents as
+	 * {@link QueryResult#getResources()}.
+	 *
+	 * <p>A dimension is named as the statement wrote it: {@code jcr:mimeType}
+	 * for {@code facet accumulate @jcr:mimeType}, {@code mi:tags} for
+	 * {@code top(@mi:tags, 20)}, and the normalised expression for a
+	 * statistic ({@code stats(jcr:contentLength)}).
+	 */
 	public class FacetResult {
 		private final SearchIndex.QueryResult.FacetResult fFacetResult;
 
 		private FacetResult() throws IOException {
-			fFacetResult = adaptTo(SearchIndex.class).createQuery(fJcrQuery.getStatement(), "jcr:xpath")
-					.setOffset(0).setLimit(0).execute().getFacetResult();
+			fFacetResult = indexQuery().execute().getFacetResult();
 		}
 
 		public String[] getDimensions() {
 			return fFacetResult.getDimensions();
 		}
 
+		/**
+		 * The facet of a dimension, with or without the leading {@code @}, or
+		 * {@code null} when the statement declared no such facet.
+		 */
 		public Facet getFacet(String dimension) {
-			return new Facet(fFacetResult.getFacet(dimension));
+			if (dimension == null) {
+				return null;
+			}
+			dimension = dimension.trim();
+			if (dimension.startsWith("@")) {
+				dimension = dimension.substring(1);
+			}
+			for (String e : fFacetResult.getDimensions()) {
+				if (e.equals(dimension)) {
+					return new Facet(fFacetResult.getFacet(dimension));
+				}
+			}
+			return null;
 		}
 
 		public class Facet {
@@ -236,13 +264,22 @@ public class Query implements Adaptable {
 		private final SearchIndex.QueryResult.SuggestionResult fSuggestionResult;
 
 		private SuggestionResult() throws IOException {
-			fSuggestionResult = adaptTo(SearchIndex.class).createQuery(fJcrQuery.getStatement(), "jcr:xpath")
-					.setOffset(0).setLimit(0).execute().getSuggestionResult();
+			fSuggestionResult = indexQuery().execute().getSuggestionResult();
 		}
 
 		public String[] getSuggestions() {
 			return fSuggestionResult.getSuggestions();
 		}
+	}
+
+	/**
+	 * The statement as an index-only query (no documents fetched), restricted
+	 * to the principals of the session that created this query.
+	 */
+	private SearchIndex.Query indexQuery() throws IOException {
+		SearchIndex.Query indexQuery = adaptTo(SearchIndex.class).createQuery(fJcrQuery.getStatement(), "jcr:xpath")
+				.setOffset(0).setLimit(0);
+		return QueryAuthorizables.apply(indexQuery, fQueryManager.adaptTo(javax.jcr.Session.class));
 	}
 
 }

@@ -64,6 +64,8 @@ Copy-Tree "$SeedAssets/system/deploy/etc/i18n" "$SeedAssets/workspace/deploy/etc
 # webtop
 Copy-Tree "$WebtopDist/system/deploy/content/WEB-INF/web.xml" "$SeedAssets/workspace/deploy/content/WEB-INF/web.xml"
 Copy-Tree "$WebtopDist/system/provisioning/webtop.yml" "$SeedAssets/workspace/provisioning/webtop.yml"
+# content browser app: Server-side assets
+Copy-Tree "$WebtopDist/system/deploy/etc/eip/routes/webtop/media-metadata.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/media-metadata.xml"
 # mail app: Server-side assets
 Copy-Tree "$WebtopDist/system/deploy/etc/eip/routes/webtop/mail.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/mail.xml"
 Copy-Tree "$WebtopDist/system/deploy/etc/graphql/webtop/mail" "$SeedAssets/workspace/deploy/etc/graphql/webtop/mail"

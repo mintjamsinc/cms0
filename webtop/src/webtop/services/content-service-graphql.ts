@@ -10,6 +10,7 @@ import { resolveLocale } from './webtop-i18n-service.js';
 import type {
   Node,
   NodeConnection,
+  FacetConnection,
   PropertyInput,
   SetPropertiesResult,
   AccessControl,
@@ -205,6 +206,20 @@ export class ContentServiceGraphQL {
         first: options.first ?? 50,
         after: options.after,
       }
+    );
+    return data.xpath;
+  }
+
+  /**
+   * The facet counts of an XPath statement's `facet accumulate` clause. No
+   * node is fetched; `totalCount` is the number of nodes the statement matches
+   * for the caller, and each facet lists the labels of one dimension with the
+   * number of matching nodes carrying that label.
+   */
+  async xpathFacets(query: string): Promise<FacetConnection> {
+    const data = await this.#client.query<{ xpath: FacetConnection }>(
+      CONTENT_QUERIES.XPATH_FACETS,
+      { query }
     );
     return data.xpath;
   }

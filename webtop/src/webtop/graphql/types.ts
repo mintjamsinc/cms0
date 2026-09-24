@@ -303,6 +303,26 @@ export interface NodeConnection {
   totalCount: number;
 }
 
+/** One label of a facet dimension and the number of matching nodes carrying it. */
+export interface FacetEntry {
+  label: string;
+  count: number;
+  /** Decimal value of a `facet accumulate` statistic; null when undefined. */
+  number: number | null;
+}
+
+/** One facet dimension of a query's `facet accumulate` clause. */
+export interface Facet {
+  dimension: string;
+  entries: FacetEntry[];
+}
+
+/** The count and facets of a query, with no node fetched. */
+export interface FacetConnection {
+  totalCount: number;
+  facets: Facet[];
+}
+
 export interface PropertyValueInput {
   stringValue?: string;
   stringArrayValue?: string[];

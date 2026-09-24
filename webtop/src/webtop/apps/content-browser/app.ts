@@ -6,6 +6,7 @@ import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { Dates } from "../../utils/dates.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
+import { SWATCH_COLORS, SWATCH_COLOR_MAP } from "../../lib/color-palette.js";
 import { readArchiveManifest } from "./archive-manifest.js";
 import {
 	createLocalizationSnapshot,
@@ -98,6 +99,118 @@ const FOLDER_SIZE_BATCH = 1000;
 
 /** Folder sizes arriving within this window are applied to the list together. */
 const FOLDER_SIZE_FLUSH_MS = 100;
+
+/** Search results are fetched a page at a time; the next page loads as the list is scrolled. */
+const SEARCH_PAGE_SIZE = 100;
+
+/** The next search page is requested when the list is scrolled to within this many pixels of its end. */
+const SEARCH_LOAD_MORE_MARGIN = 200;
+
+/**
+ * The list columns the search index can order by, and the XPath field each one
+ * orders on. A search result is sorted by the server (the `order by` clause of
+ * the statement), because only the first page is loaded and a client-side sort
+ * of one page would disagree with the pages that follow. The remaining columns
+ * (lock owner, version) are not indexed, so they still sort what has been
+ * loaded on the client.
+ */
+const SEARCH_SORT_FIELDS: Record<string, string> = {
+	name: '@jcr:name',
+	date: '@jcr:lastModified',
+	modifiedBy: '@jcr:lastModifiedBy',
+	kind: '@jcr:mimeType',
+	size: '@jcr:contentLength',
+};
+
+// ---------------------------------------------------------------------------
+// Facets of a search result.
+//
+// While a search result is listed, the sidebar shows facets in place of the
+// favorites, smart folders and search sections: the kind of file (from the
+// MIME type), the orientation of images and videos, the format of documents,
+// the color and the tags. Each entry carries the number of results it would
+// leave. The counts come from the index's `facet accumulate` clause (see
+// documents/search-facets.md), fetched with no node: one count-only statement
+// with every filter applied, plus one per dimension that has a selection with
+// that dimension's own filter left out, so an unselected value still shows
+// what choosing it instead would give. Tags are the exception: selecting one
+// narrows to files carrying all of them, so their counts come from the fully
+// filtered set.
+// ---------------------------------------------------------------------------
+
+type FacetDimension = 'kind' | 'orientation' | 'format' | 'color' | 'tag';
+
+/** The Kind facet, in display order. Anything that is not image, video or audio is a document. */
+const FACET_KINDS = ['image', 'video', 'audio', 'document'];
+
+/** The MIME type prefix of each media kind. */
+const FACET_MEDIA_PREFIXES: Record<string, string> = { image: 'image/', video: 'video/', audio: 'audio/' };
+
+/** The Orientation facet (mi:orientation, set by the media-metadata route). */
+const FACET_ORIENTATIONS = ['portrait', 'landscape', 'square', 'panorama'];
+
+/** The Format entry for documents of no listed format. */
+const FACET_FORMAT_OTHER = 'other';
+
+/** The Format facet of documents: each format and the MIME types that make it up. */
+const FACET_DOCUMENT_FORMATS: { key: string; mimeTypes: string[] }[] = [
+	{ key: 'pdf', mimeTypes: ['application/pdf'] },
+	{ key: 'text', mimeTypes: ['text/plain'] },
+	{ key: 'markdown', mimeTypes: ['text/markdown', 'text/x-markdown'] },
+	// A GSP template is a web page too: it is what the server renders as one.
+	{ key: 'web', mimeTypes: ['text/html', 'application/xhtml+xml', 'application/x-gsp'] },
+	{ key: 'memo', mimeTypes: ['application/vnd.mintjams.cms.memo+json'] },
+	{ key: 'richtext', mimeTypes: [
+		'application/rtf',
+		'text/rtf',
+		'application/msword',
+		'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+		'application/vnd.oasis.opendocument.text',
+	] },
+	// Every other document (scripts, templates, archives, ...): no MIME type
+	// of its own, it is what the listed ones leave.
+	{ key: FACET_FORMAT_OTHER, mimeTypes: [] },
+];
+
+/** The Tags facet lists at most this many tags (the most frequent). */
+const FACET_TAG_LIMIT = 50;
+
+/** The facet clause every count-only statement carries. */
+const FACET_CLAUSE = `facet accumulate @jcr:mimeType, @mi:orientation, @mi:color, top(@mi:tags, ${FACET_TAG_LIMIT})`;
+
+/** An XPath string literal. A value with an apostrophe is double-quoted instead. */
+function xpathString(value: string): string {
+	if (value.includes("'")) {
+		return '"' + value.replace(/"/g, '') + '"';
+	}
+	return "'" + value + "'";
+}
+
+/** The kind a MIME type belongs to. */
+function facetKindOf(mimeType: string): string {
+	const type = (mimeType || '').toLowerCase();
+	for (const kind of Object.keys(FACET_MEDIA_PREFIXES)) {
+		if (type.startsWith(FACET_MEDIA_PREFIXES[kind])) {
+			return kind;
+		}
+	}
+	return 'document';
+}
+
+/** The document format a MIME type belongs to; FACET_FORMAT_OTHER when it is none of the listed ones. */
+function facetFormatOf(mimeType: string): string {
+	const type = (mimeType || '').toLowerCase();
+	const format = FACET_DOCUMENT_FORMATS.find(f => f.mimeTypes.includes(type));
+	return format ? format.key : FACET_FORMAT_OTHER;
+}
+
+function emptyFacetSelection() {
+	return { kind: '', orientation: [] as string[], format: [] as string[], color: [] as string[], tag: [] as string[] };
+}
+
+function emptyFacetCounts(): Record<FacetDimension, Record<string, number>> {
+	return { kind: {}, orientation: {}, format: {}, color: {}, tag: {} };
+}
 
 // ---------------------------------------------------------------------------
 // Full-text search query parser.
@@ -553,6 +666,30 @@ export const App = {
 			xpathSearchLoading: false,
 			xpathSearchError: '' as string,
 			xpathSearchTotalCount: 0,
+			// Server-side paging of the search result: the cursor of the last
+			// loaded page, whether a page follows it, and whether that page is
+			// being fetched (scrolling the list to its end requests it).
+			xpathSearchCursor: null as string | null,
+			xpathSearchHasMore: false,
+			xpathSearchLoadingMore: false,
+			// Monotonic search id: a page that arrives for an earlier search (or
+			// after the search was closed) is dropped instead of appended.
+			_xpathSearchSeq: 0,
+			// The facets of the search result (see the Facets section at the
+			// top): what the user selected, the counts the sidebar shows, and
+			// whether the counts are being fetched. The sections' open state is
+			// not persisted; they open with every search.
+			facetSelection: emptyFacetSelection(),
+			facetCounts: emptyFacetCounts(),
+			facetLoading: false,
+			_facetSeq: 0,
+			facetSectionExpanded: {
+				kind: true,
+				orientation: true,
+				format: true,
+				color: true,
+				tag: true,
+			} as Record<string, boolean>,
 			// Full-text search keyword (combined with schema conditions in the Search section)
 			fullTextKeyword: '' as string,
 			// Smart folders (saved XPath queries)
@@ -563,6 +700,9 @@ export const App = {
 				schemaKey: string;
 				conditions: any[];
 				fullTextKeyword?: string;
+				// The facet selection (see the Facets section); absent on folders
+				// saved before facets existed, and when nothing was selected.
+				facets?: ReturnType<typeof emptyFacetSelection>;
 			}[],
 			smartFolderNextID: 1,
 			smartFolderEditing: null as number | null,
@@ -703,8 +843,10 @@ export const App = {
 		listLoading(): boolean {
 			return (this.isNavigating as boolean) || (this.xpathSearchLoading as boolean);
 		},
-		xpathBuiltQuery(): string {
-			const path = this.currentPath === '/' ? '//' : `/jcr:root${this.currentPath}//`;
+		// The XPath predicates of the search inputs: the full-text expression
+		// and the schema conditions of the sidebar's Search section. The facet
+		// selection adds its own on top (see _xpathStatement).
+		xpathBaseConditions(): string[] {
 			const conditions: string[] = [];
 			const ft = (this.fullTextCompiled as any) as { predicate: string | null; error: string | null };
 			if (ft.predicate) {
@@ -767,8 +909,53 @@ export const App = {
 					}
 				}
 			}
-			const predicate = conditions.length > 0 ? `[${conditions.join(' and ')}]` : '';
-			return `${path}element(*, nt:file)${predicate}`;
+			return conditions;
+		},
+		// The statement of the list: the search inputs narrowed by every facet
+		// the user selected.
+		xpathBuiltQuery(): string {
+			return this._xpathStatement(null);
+		},
+		// The facet dimensions the sidebar shows for the current selection: the
+		// orientation of images and videos, the format of documents.
+		facetShowsOrientation(): boolean {
+			const kind = this.facetSelection.kind as string;
+			return kind === 'image' || kind === 'video';
+		},
+		facetShowsFormat(): boolean {
+			return this.facetSelection.kind === 'document';
+		},
+		facetSelectionCount(): number {
+			const s = this.facetSelection;
+			return (s.kind ? 1 : 0) + s.orientation.length + s.format.length + s.color.length + s.tag.length;
+		},
+		// The tags the Tags facet lists: the selected ones first, then the most
+		// frequent among the remaining results.
+		facetTagEntries(): { tag: string; count: number }[] {
+			const counts = this.facetCounts.tag as Record<string, number>;
+			const selected = this.facetSelection.tag as string[];
+			const entries = selected.map(tag => ({ tag, count: counts[tag] || 0 }));
+			const rest = Object.keys(counts).
+				filter(tag => !selected.includes(tag)).
+				map(tag => ({ tag, count: counts[tag] })).
+				sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+			return entries.concat(rest);
+		},
+		// Whether the current sort column is one the index orders by (see
+		// SEARCH_SORT_FIELDS). When it is, the search result arrives in order
+		// and the client must not re-sort the loaded pages.
+		xpathSortIsServerSide(): boolean {
+			return !!SEARCH_SORT_FIELDS[this.sortColumn as string];
+		},
+		// The statement sent to the server: the built query plus the order the
+		// list is showing, so every page continues the previous one.
+		xpathSearchStatement(): string {
+			const field = SEARCH_SORT_FIELDS[this.sortColumn as string];
+			if (!field) {
+				return this.xpathBuiltQuery as string;
+			}
+			const direction = this.sortDirection === 'desc' ? 'descending' : 'ascending';
+			return `${this.xpathBuiltQuery} order by ${field} ${direction}`;
 		},
 		breadcrumb(): { name: string; path: string }[] {
 			const parts = this.currentPath.split('/').filter(p => p);
@@ -1178,6 +1365,12 @@ export const App = {
 			vm.xpathSearchActive = false;
 			vm.xpathSearchTotalCount = 0;
 			vm.xpathSearchError = '';
+			// A search page still in flight must not land on this folder's list.
+			vm._xpathSearchSeq++;
+			vm.xpathSearchCursor = null;
+			vm.xpathSearchHasMore = false;
+			vm.xpathSearchLoadingMore = false;
+			vm._facetReset();
 			vm.currentPath = path;
 			vm.addToPathHistory(path);
 			// Update browser-style navigation stack
@@ -1714,6 +1907,10 @@ export const App = {
 		getFileIcon(item: any): string {
 			return getFileIconUtil(item);
 		},
+		// The hex of a file's color (a swatch key of the shared palette).
+		colorHex(key: string): string {
+			return SWATCH_COLOR_MAP[key] || 'transparent';
+		},
 		getFileIconClass(item: any): string {
 			return getFileIconClassUtil(item);
 		},
@@ -1726,6 +1923,18 @@ export const App = {
 			} else {
 				this.sortColumn = column;
 				this.sortDirection = 'asc';
+			}
+
+			// A search result is ordered by the server, one page at a time, so a
+			// column the index sorts by re-runs the search in the new order (a
+			// header click) or leaves the loaded pages as they came (a re-sort
+			// after a list update). Only a column the index cannot sort by is
+			// sorted here, over what has been loaded.
+			if (this.xpathSearchActive && SEARCH_SORT_FIELDS[column]) {
+				if (!direction) {
+					this.xpathExecuteSearch();
+				}
+				return;
 			}
 
 			const dir = this.sortDirection === 'asc' ? 1 : -1;
@@ -4580,40 +4789,301 @@ export const App = {
 				vm.items = [];
 				return;
 			}
-			if (!vm.hasSearchInput) {
-				return;
-			}
+			// No input at all lists every file under the current folder, which
+			// is what the facets then narrow.
 			vm._cancelFolderSizes();
 			vm.items = [];
+			const seq = ++vm._xpathSearchSeq;
 			vm.xpathSearchLoading = true;
+			vm.xpathSearchLoadingMore = false;
 			vm.xpathSearchError = '';
 			vm.xpathSearchActive = true;
+			vm.xpathSearchCursor = null;
+			vm.xpathSearchHasMore = false;
+			// The counts are fetched alongside the first page, not after it.
+			vm.loadFacetCounts();
 			try {
 				const contentService = vm.instance.api.content;
-				const query = vm.xpathBuiltQuery;
-				const items: ContentItem[] = [];
-				let after: string | undefined;
-				let totalCount = 0;
-				// Paginate through all results
-				while (true) {
-					const result = await contentService.xpath(query, { first: 50, after });
-					totalCount = result.totalCount;
-					for (const edge of result.edges) {
-						const item = nodeToContentItem(edge.node);
-						item.attributes.displayDate = vm.displayDate(item);
-						items.push(item);
-					}
-					if (!result.pageInfo.hasNextPage) break;
-					after = result.pageInfo.endCursor;
+				// Only the first page is fetched here. The server orders the
+				// result (see xpathSearchStatement), so the page is shown as it
+				// comes; xpathLoadMore fetches the pages that follow as the list
+				// is scrolled, and the total comes from the index's exact count.
+				const result = await contentService.xpath(vm.xpathSearchStatement, { first: SEARCH_PAGE_SIZE });
+				if (seq !== vm._xpathSearchSeq) {
+					return;
 				}
-				vm.items = items;
-				vm.xpathSearchTotalCount = totalCount;
-				vm.sortItems(vm.sortColumn, vm.sortDirection);
+				vm.items = vm._xpathPageItems(result.edges);
+				vm.xpathSearchTotalCount = result.totalCount;
+				vm.xpathSearchCursor = result.pageInfo.endCursor ?? null;
+				vm.xpathSearchHasMore = !!result.pageInfo.hasNextPage;
+				if (!vm.xpathSortIsServerSide) {
+					vm.sortItems(vm.sortColumn, vm.sortDirection);
+				}
 			} catch (error: any) {
-				vm.xpathSearchError = error?.message || String(error);
+				if (seq === vm._xpathSearchSeq) {
+					vm.xpathSearchError = error?.message || String(error);
+				}
 			} finally {
-				vm.xpathSearchLoading = false;
+				if (seq === vm._xpathSearchSeq) {
+					vm.xpathSearchLoading = false;
+					vm._xpathFillViewport();
+				}
 			}
+		},
+		// ---- Facets ----
+		//
+		// The statement of the list, or of a count: the search inputs plus the
+		// predicate of every selected facet except `exclude`. The orientation
+		// and format predicates apply only with the kind they belong to.
+		_xpathStatement(exclude: FacetDimension | null): string {
+			const path = this.currentPath === '/' ? '//' : `/jcr:root${this.currentPath}//`;
+			const conditions = (this.xpathBaseConditions as string[]).slice();
+			for (const dimension of ['kind', 'orientation', 'format', 'color', 'tag'] as FacetDimension[]) {
+				if (dimension === exclude) continue;
+				// The orientation and format narrow a kind, so a count that asks
+				// what another kind would give leaves them out as well.
+				if (exclude === 'kind' && (dimension === 'orientation' || dimension === 'format')) continue;
+				const predicate = this._facetPredicate(dimension);
+				if (predicate) conditions.push(predicate);
+			}
+			const predicate = conditions.length > 0 ? `[${conditions.join(' and ')}]` : '';
+			return `${path}element(*, nt:file)${predicate}`;
+		},
+		_facetPredicate(dimension: FacetDimension): string | null {
+			const s = this.facetSelection;
+			const anyOf = (parts: string[]) => parts.length === 1 ? parts[0] : `(${parts.join(' or ')})`;
+			if (dimension === 'kind') {
+				if (!s.kind) return null;
+				const media = Object.keys(FACET_MEDIA_PREFIXES).map(kind =>
+					`jcr:like(@jcr:mimeType, '${FACET_MEDIA_PREFIXES[kind]}%')`);
+				if (s.kind === 'document') {
+					return `(${media.map(p => `not(${p})`).join(' and ')})`;
+				}
+				return `jcr:like(@jcr:mimeType, '${FACET_MEDIA_PREFIXES[s.kind]}%')`;
+			}
+			if (dimension === 'orientation') {
+				if (!this.facetShowsOrientation || s.orientation.length === 0) return null;
+				return anyOf(s.orientation.map((v: string) => `@mi:orientation=${xpathString(v)}`));
+			}
+			if (dimension === 'format') {
+				if (!this.facetShowsFormat || s.format.length === 0) return null;
+				const ofFormats = (keys: string[]) => FACET_DOCUMENT_FORMATS.
+					filter(f => keys.includes(f.key)).
+					flatMap(f => f.mimeTypes).
+					map(m => `@jcr:mimeType=${xpathString(m)}`);
+				const chosen = ofFormats(s.format);
+				if (s.format.includes(FACET_FORMAT_OTHER)) {
+					// "Other" is what no listed format claims.
+					const listed = ofFormats(FACET_DOCUMENT_FORMATS.map(f => f.key));
+					chosen.push(`not(${anyOf(listed)})`);
+				}
+				if (chosen.length === 0) return null;
+				return anyOf(chosen);
+			}
+			if (dimension === 'color') {
+				if (s.color.length === 0) return null;
+				return anyOf(s.color.map((v: string) => `@mi:color=${xpathString(v)}`));
+			}
+			if (dimension === 'tag') {
+				if (s.tag.length === 0) return null;
+				// Every selected tag: a multi-valued property matches when any of
+				// its values does, so one predicate per tag narrows to files
+				// carrying all of them.
+				return s.tag.map((v: string) => `@mi:tags=${xpathString(v)}`).join(' and ');
+			}
+			return null;
+		},
+		// Fetches the counts of every facet for the current inputs and
+		// selection. Runs alongside the list's first page; a result for an
+		// earlier selection is dropped.
+		async loadFacetCounts() {
+			const vm = this;
+			const seq = ++vm._facetSeq;
+			vm.facetLoading = true;
+			try {
+				const contentService = vm.instance.api.content;
+				const s = vm.facetSelection;
+				// The variants to fetch: every filter applied (null), and one per
+				// dimension with a selection, without that dimension's filter.
+				// Tags read the fully filtered set (see the Facets section).
+				const variants: (FacetDimension | null)[] = [null];
+				if (s.kind) variants.push('kind');
+				if (vm.facetShowsOrientation && s.orientation.length) variants.push('orientation');
+				if (vm.facetShowsFormat && s.format.length) variants.push('format');
+				if (s.color.length) variants.push('color');
+				const results = await Promise.all(variants.map(exclude =>
+					contentService.xpathFacets(`${vm._xpathStatement(exclude)} ${FACET_CLAUSE}`)));
+				if (seq !== vm._facetSeq || !vm.xpathSearchActive) {
+					return;
+				}
+				const facetOf = (exclude: FacetDimension, dimension: string): Record<string, number> => {
+					const idx = Math.max(variants.indexOf(exclude), 0);
+					const facet = (results[idx].facets || []).find((f: any) => f.dimension === dimension);
+					const counts: Record<string, number> = {};
+					for (const e of facet?.entries || []) {
+						counts[String(e.label)] = e.count;
+					}
+					return counts;
+				};
+				const counts = emptyFacetCounts();
+				// Kinds and formats are groups of MIME types, summed from the
+				// jcr:mimeType facet of their variant.
+				for (const [mimeType, n] of Object.entries(facetOf('kind', 'jcr:mimeType'))) {
+					const kind = facetKindOf(mimeType);
+					counts.kind[kind] = (counts.kind[kind] || 0) + n;
+				}
+				for (const [mimeType, n] of Object.entries(facetOf('format', 'jcr:mimeType'))) {
+					const format = facetFormatOf(mimeType);
+					counts.format[format] = (counts.format[format] || 0) + n;
+				}
+				counts.orientation = facetOf('orientation', 'mi:orientation');
+				counts.color = facetOf('color', 'mi:color');
+				counts.tag = facetOf('tag', 'mi:tags');
+				vm.facetCounts = counts;
+			} catch (error: any) {
+				if (seq === vm._facetSeq) {
+					console.warn('Facet counts not loaded:', error);
+				}
+			} finally {
+				if (seq === vm._facetSeq) {
+					vm.facetLoading = false;
+				}
+			}
+		},
+		facetCount(dimension: FacetDimension, value: string): number {
+			return (this.facetCounts[dimension] as Record<string, number>)[value] || 0;
+		},
+		facetIsSelected(dimension: FacetDimension, value: string): boolean {
+			if (dimension === 'kind') return this.facetSelection.kind === value;
+			return (this.facetSelection[dimension] as string[]).includes(value);
+		},
+		// The kind is a single choice; choosing it again clears it. The
+		// orientation and format belong to a kind, so they go with it.
+		facetSelectKind(kind: string) {
+			const s = this.facetSelection;
+			s.kind = s.kind === kind ? '' : kind;
+			s.orientation = [];
+			s.format = [];
+			this.xpathExecuteSearch();
+		},
+		facetToggle(dimension: FacetDimension, value: string) {
+			if (dimension === 'kind') {
+				this.facetSelectKind(value);
+				return;
+			}
+			const values = this.facetSelection[dimension] as string[];
+			const idx = values.indexOf(value);
+			if (idx >= 0) {
+				values.splice(idx, 1);
+			} else {
+				values.push(value);
+			}
+			this.xpathExecuteSearch();
+		},
+		facetClearAll() {
+			if (this.facetSelectionCount === 0) return;
+			this.facetSelection = emptyFacetSelection();
+			this.xpathExecuteSearch();
+		},
+		// Forgets the selection and counts without running a search: the
+		// search is over, or a new one starts from scratch.
+		_facetReset() {
+			this._facetSeq++;
+			this.facetSelection = emptyFacetSelection();
+			this.facetCounts = emptyFacetCounts();
+			this.facetLoading = false;
+		},
+		toggleFacetSection(name: string) {
+			this.facetSectionExpanded[name] = !this.facetSectionExpanded[name];
+		},
+		facetKindIcon(kind: string): string {
+			return { image: 'bi-image', video: 'bi-film', audio: 'bi-music-note-beamed', document: 'bi-file-earmark-text' }[kind] || 'bi-file-earmark';
+		},
+		facetKinds(): string[] {
+			return FACET_KINDS;
+		},
+		facetOrientations(): string[] {
+			return FACET_ORIENTATIONS;
+		},
+		facetFormats(): string[] {
+			return FACET_DOCUMENT_FORMATS.map(f => f.key);
+		},
+		facetColors(): { key: string; value: string }[] {
+			return SWATCH_COLORS;
+		},
+		// The items of one search page, in the order the server returned them.
+		_xpathPageItems(edges: { node: Node }[]): ContentItem[] {
+			const items: ContentItem[] = [];
+			for (const edge of edges) {
+				const item = nodeToContentItem(edge.node);
+				item.attributes.displayDate = this.displayDate(item);
+				items.push(item);
+			}
+			return items;
+		},
+		// Fetches the page after the last one loaded and appends it. A no-op
+		// while a search or another page is in flight, or when nothing follows.
+		async xpathLoadMore() {
+			const vm = this;
+			if (!vm.xpathSearchActive || !vm.xpathSearchHasMore || vm.xpathSearchLoading || vm.xpathSearchLoadingMore) {
+				return;
+			}
+			const seq = vm._xpathSearchSeq;
+			const after = vm.xpathSearchCursor ?? undefined;
+			vm.xpathSearchLoadingMore = true;
+			try {
+				const contentService = vm.instance.api.content;
+				const result = await contentService.xpath(vm.xpathSearchStatement, { first: SEARCH_PAGE_SIZE, after });
+				if (seq !== vm._xpathSearchSeq || !vm.xpathSearchActive) {
+					return;
+				}
+				// An item that arrived twice (the result shifted between two
+				// pages) is kept once, under its first position.
+				const known = new Set((vm.items as ContentItem[]).map(i => i.id));
+				const appended = vm._xpathPageItems(result.edges).filter((i: ContentItem) => !known.has(i.id));
+				vm.items = (vm.items as ContentItem[]).concat(appended);
+				vm.xpathSearchTotalCount = result.totalCount;
+				const nextCursor = result.pageInfo.endCursor ?? null;
+				// A cursor that did not advance would fetch the same page forever.
+				vm.xpathSearchHasMore = !!result.pageInfo.hasNextPage && !!nextCursor && nextCursor !== vm.xpathSearchCursor;
+				vm.xpathSearchCursor = nextCursor;
+				if (!vm.xpathSortIsServerSide) {
+					vm.sortItems(vm.sortColumn, vm.sortDirection);
+				}
+			} catch (error: any) {
+				if (seq === vm._xpathSearchSeq) {
+					vm.xpathSearchError = error?.message || String(error);
+				}
+			} finally {
+				if (seq === vm._xpathSearchSeq) {
+					vm.xpathSearchLoadingMore = false;
+					vm._xpathFillViewport();
+				}
+			}
+		},
+		// Scrolling the list to its end asks for the next search page.
+		onContentListScroll(event: Event) {
+			if (!this.xpathSearchActive || !this.xpathSearchHasMore) {
+				return;
+			}
+			const el = event.target as HTMLElement;
+			if (el.scrollTop + el.clientHeight >= el.scrollHeight - SEARCH_LOAD_MORE_MARGIN) {
+				this.xpathLoadMore();
+			}
+		},
+		// A page too short to scroll can never ask for the next one, so pages
+		// keep coming until the list overflows its viewport (or runs out).
+		_xpathFillViewport() {
+			const vm = this;
+			vm.$nextTick(() => {
+				if (!vm.xpathSearchActive || !vm.xpathSearchHasMore) {
+					return;
+				}
+				const el = vm.$refs.contentList as HTMLElement | undefined;
+				if (el && el.scrollHeight <= el.clientHeight + 1) {
+					vm.xpathLoadMore();
+				}
+			});
 		},
 		// Re-run whatever produced the current list. Two different queries back
 		// the list, and xpathSearchActive is what says which one is showing.
@@ -4636,27 +5106,69 @@ export const App = {
 			this.xpathSearchError = '';
 		},
 		// Smart folder methods
+		// Whether there is a search to save: a schema condition, a keyword or
+		// a facet selection.
+		smartFolderCanSave(): boolean {
+			return (this.hasSearchInput as boolean) || (this.facetSelectionCount as number) > 0;
+		},
 		smartFolderSaveCurrent() {
 			const hasSchemaCondition = this.xpathSelectedSchema && this.xpathConditions.length > 0;
 			const fullText = (this.fullTextKeyword as string).trim();
-			if (!hasSchemaCondition && !fullText) return;
-			let displayName: string;
+			const facets = this.facetSelectionCount > 0 ? JSON.parse(JSON.stringify(this.facetSelection)) : null;
+			if (!hasSchemaCondition && !fullText && !facets) return;
+			// The name says what the folder searches for: the schema or the
+			// keyword, then each facet chosen, then where.
+			const parts: string[] = [];
 			if (hasSchemaCondition) {
 				const schema = (this.availableSchemas as any[]).find(s => s.key === this.xpathSelectedSchema);
-				displayName = schema ? schema.label : this.xpathSelectedSchema;
-			} else {
-				displayName = fullText.length > 32 ? fullText.slice(0, 32) + '…' : fullText;
+				parts.push(schema ? schema.label : this.xpathSelectedSchema);
+			} else if (fullText) {
+				parts.push(fullText.length > 32 ? fullText.slice(0, 32) + '…' : fullText);
 			}
+			if (facets) {
+				parts.push(...this.facetSelectionLabels());
+			}
+			const join = this.t('app.content-browser.smartFolders.nameJoin', undefined, ' · ');
 			const folder = {
 				id: this.smartFolderNextID++,
-				name: `${displayName} — ${this.currentPath}`,
+				name: `${parts.join(join)} — ${this.currentPath}`,
 				path: this.currentPath,
 				schemaKey: this.xpathSelectedSchema,
 				conditions: JSON.parse(JSON.stringify(this.xpathConditions)),
 				fullTextKeyword: fullText,
+				...(facets ? { facets } : {}),
 			};
 			this.smartFolders.push(folder);
 			this.persistSmartFolders();
+		},
+		// The selected facets as the labels the sidebar shows them with, in
+		// the sidebar's order.
+		facetSelectionLabels(): string[] {
+			const s = this.facetSelection;
+			const labels: string[] = [];
+			if (s.kind) labels.push(this.t('app.content-browser.facet.kind.' + s.kind));
+			if (this.facetShowsOrientation) {
+				labels.push(...s.orientation.map((v: string) => this.t('app.content-browser.facet.orientation.' + v)));
+			}
+			if (this.facetShowsFormat) {
+				labels.push(...s.format.map((v: string) => this.t('app.content-browser.facet.format.' + v)));
+			}
+			labels.push(...s.color.map((v: string) => this.t('app.content-browser.color.' + v)));
+			labels.push(...s.tag.map((v: string) => '#' + v));
+			return labels;
+		},
+		// A saved facet selection, made safe to restore: only the known
+		// dimensions, each of the type the sidebar expects.
+		_facetSelectionFrom(saved: any) {
+			const selection = emptyFacetSelection();
+			if (!saved || typeof saved !== 'object') return selection;
+			const strings = (v: any) => Array.isArray(v) ? v.filter((e: any) => typeof e === 'string') : [];
+			selection.kind = typeof saved.kind === 'string' && FACET_KINDS.includes(saved.kind) ? saved.kind : '';
+			selection.orientation = strings(saved.orientation);
+			selection.format = strings(saved.format);
+			selection.color = strings(saved.color);
+			selection.tag = strings(saved.tag);
+			return selection;
 		},
 		smartFolderDelete(id: number) {
 			this.smartFolders = this.smartFolders.filter((f: any) => f.id !== id);
@@ -4708,6 +5220,10 @@ export const App = {
 			// Open XPath section
 			this.sidebarSectionExpanded.xpathSearch = true;
 			this.persistSidebarPanelState();
+			// The facets the folder was saved with; none for a folder saved
+			// without any (or before facets existed).
+			this._facetReset();
+			this.facetSelection = this._facetSelectionFrom(folder.facets);
 			// Execute
 			await this.xpathExecuteSearch();
 		},

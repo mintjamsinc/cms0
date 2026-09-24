@@ -291,7 +291,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					if (!facet.isRange()) {
 						FacetAccumulateClause.TopFacetParams params = facet.getTopFacetParams();
 						Facets facets = new FastTaxonomyFacetCounts(taxonomyReader, fSearchIndex.getFacetsConfig(), collector);
-						result.addFacetResult(facets.getTopChildren(params.getLimit(), params.getFieldName()));
+						result.addFacetResult(withDimension(facets.getTopChildren(params.getLimit(), params.getFieldName()), facet.getDisplayName()));
 						continue;
 					}
 
@@ -324,10 +324,10 @@ public class JcrXPathQuery extends SearchIndexQuery {
 					}
 					if (ranges.get(0).getClass().equals(DoubleRange.class)) {
 						Facets facets = new DoubleRangeFacetCounts(facet.getFieldName(), collector, ranges.toArray(DoubleRange[]::new));
-						result.addFacetResult(facets.getAllChildren(facet.getFieldName()));
+						result.addFacetResult(withDimension(facets.getAllChildren(facet.getFieldName()), facet.getDisplayName()));
 					} else {
 						Facets facets = new LongRangeFacetCounts(facet.getFieldName(), collector, ranges.toArray(LongRange[]::new));
-						result.addFacetResult(facets.getAllChildren(facet.getFieldName()));
+						result.addFacetResult(withDimension(facets.getAllChildren(facet.getFieldName()), facet.getDisplayName()));
 					}
 				}
 
@@ -606,6 +606,28 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			return fFacetAccumulateClause.listFacets();
 		}
 		return new ArrayList<>();
+	}
+
+	/**
+	 * Reports a facet under the name the statement wrote. Lucene labels the
+	 * result with the field it was collected from, which for a built-in
+	 * property is an internal field ({@code _mimeType} for {@code @jcr:mimeType});
+	 * a reader asked for {@code jcr:mimeType} and finds it under that name.
+	 */
+	private static org.apache.lucene.facet.FacetResult withDimension(org.apache.lucene.facet.FacetResult facetResult, String dimension) {
+		if (facetResult == null) {
+			// Lucene answers null for a dimension no matching document carries,
+			// and for one the index has never seen. The statement asked for the
+			// dimension, so it is reported with no labels rather than left out:
+			// a reader then tells "nothing counted" from "no such facet".
+			return new org.apache.lucene.facet.FacetResult(dimension, new String[0], 0,
+					new org.apache.lucene.facet.LabelAndValue[0], 0);
+		}
+		if (dimension == null || dimension.equals(facetResult.dim)) {
+			return facetResult;
+		}
+		return new org.apache.lucene.facet.FacetResult(dimension, facetResult.path, facetResult.value,
+				facetResult.labelValues, facetResult.childCount);
 	}
 
 	private boolean hasAutoCompleteQuery() {
@@ -1536,7 +1558,13 @@ public class JcrXPathQuery extends SearchIndexQuery {
 							throw new InvalidQuerySyntaxException(fStatement);
 						}
 
-						buf.append("NOT(").append(new Condition(stmt.substring(4, endIndex - 1).trim(), fAdaptable).compile()).append(")");
+						// A Lucene boolean clause made of prohibitions alone matches
+						// nothing: "NOT(a) AND NOT(b)" as a group, or a predicate that
+						// is only "not(...)", finds no document at all. Anchoring the
+						// negation on every document ("*:* AND NOT(...)") gives the
+						// group a positive clause, so a predicate such as
+						// [not(jcr:like(@jcr:mimeType, 'image/%'))] means what it says.
+						buf.append("(*:* AND NOT(").append(new Condition(stmt.substring(4, endIndex - 1).trim(), fAdaptable).compile()).append("))");
 						stmt = stmt.substring(endIndex).trim();
 						continue;
 					}
@@ -2273,7 +2301,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				// aggregate, top( and range( syntaxes below all start with a
 				// function name, so they cannot be mistaken for one.
 				if (cnd.startsWith("@") || cnd.startsWith("jcr:")) {
-					TopFacetParams f = new TopFacetParams(getFieldName(cnd));
+					TopFacetParams f = new TopFacetParams(getFieldName(cnd), toDisplayName(cnd));
 					if (l.containsKey(f.getFieldName())) {
 						throw new InvalidQuerySyntaxException(fStatement);
 					}
@@ -2313,7 +2341,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 						continue;
 					}
 					if (fieldName.startsWith("@") || fieldName.startsWith("jcr:")) {
-						TopFacetParams f = new TopFacetParams(getFieldName(fieldName), limit);
+						TopFacetParams f = new TopFacetParams(getFieldName(fieldName), toDisplayName(fieldName), limit);
 						if (l.containsKey(f.getFieldName())) {
 							throw new InvalidQuerySyntaxException(fStatement);
 						}
@@ -2402,7 +2430,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 							throw new InvalidQuerySyntaxException(fStatement);
 						}
 
-						RangeFacetParams f = new RangeFacetParams(label, getFieldName(field), minValue, minInclusive, maxValue, maxInclusive);
+						RangeFacetParams f = new RangeFacetParams(label, getFieldName(field), toDisplayName(field), minValue, minInclusive, maxValue, maxInclusive);
 						Facet facet = l.get(f.getFieldName());
 						if (facet == null) {
 							facet = new Facet();
@@ -2463,7 +2491,7 @@ public class JcrXPathQuery extends SearchIndexQuery {
 							}
 						}
 
-						RangeFacetParams f = new RangeFacetParams(label, getFieldName(field), minValue, minInclusive, maxValue, maxInclusive);
+						RangeFacetParams f = new RangeFacetParams(label, getFieldName(field), toDisplayName(field), minValue, minInclusive, maxValue, maxInclusive);
 						Facet facet = l.get(f.getFieldName());
 						if (facet == null) {
 							facet = new Facet();
@@ -2725,6 +2753,17 @@ public class JcrXPathQuery extends SearchIndexQuery {
 				return fFacetParams.get(0).getFieldName();
 			}
 
+			/**
+			 * The dimension the facet is reported under: the property name as the
+			 * statement wrote it (without the leading {@code @}), not the internal
+			 * field it resolved to. A count facet over {@code @jcr:mimeType} is
+			 * collected from {@code _mimeType} but comes back as {@code jcr:mimeType},
+			 * so a reader looks it up by the name it asked for.
+			 */
+			public String getDisplayName() {
+				return fFacetParams.get(0).getDisplayName();
+			}
+
 			public boolean isRange() {
 				return (fFacetParams.get(0) instanceof RangeFacetParams);
 			}
@@ -2746,27 +2785,46 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			}
 		}
 
+		/**
+		 * The name a facet is reported under: the reference as written, trimmed
+		 * and without the leading {@code @}. Distinct from the resolved field
+		 * name, which for a built-in property is an internal field.
+		 */
+		private static String toDisplayName(String field) {
+			field = field.trim();
+			if (field.startsWith("@")) {
+				field = field.substring(1);
+			}
+			return field;
+		}
+
 		private static abstract class FacetParams {
 			private final String fFieldName;
+			private final String fDisplayName;
 
-			public FacetParams(String fieldName) {
+			public FacetParams(String fieldName, String displayName) {
 				fFieldName = fieldName;
+				fDisplayName = displayName;
 			}
 
 			public String getFieldName() {
 				return fFieldName;
+			}
+
+			public String getDisplayName() {
+				return fDisplayName;
 			}
 		}
 
 		private static class TopFacetParams extends FacetParams {
 			private final int fLimit;
 
-			public TopFacetParams(String fieldName) {
-				this(fieldName, Integer.MAX_VALUE);
+			public TopFacetParams(String fieldName, String displayName) {
+				this(fieldName, displayName, Integer.MAX_VALUE);
 			}
 
-			public TopFacetParams(String fieldName, int limit) {
-				super(fieldName);
+			public TopFacetParams(String fieldName, String displayName, int limit) {
+				super(fieldName, displayName);
 				fLimit = limit;
 			}
 
@@ -2782,8 +2840,8 @@ public class JcrXPathQuery extends SearchIndexQuery {
 			private final Object fMaxValue;
 			private final boolean fMaxInclusive;
 
-			public RangeFacetParams(String label, String fieldName, Object minValue, boolean minInclusive, Object maxValue, boolean maxInclusive) {
-				super(fieldName);
+			public RangeFacetParams(String label, String fieldName, String displayName, Object minValue, boolean minInclusive, Object maxValue, boolean maxInclusive) {
+				super(fieldName, displayName);
 				fLabel = label;
 				fMinValue = minValue;
 				fMinInclusive = minInclusive;

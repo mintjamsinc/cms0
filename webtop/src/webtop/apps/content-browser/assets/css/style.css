@@ -1536,3 +1536,136 @@
 	color: var(--text-muted-color);
 	word-break: break-all;
 }
+
+/* Search paging: shown under the list while the next page of a search result
+   is being fetched (the list scrolled to its end). */
+.xpath-search-more {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.75rem;
+	color: var(--text-muted-color);
+	font-size: 0.85em;
+}
+
+/* Labels in the list: the file's color as a dot before the name, and up to
+   three of its tags after it (the inspector shows and edits the rest). */
+.item-color-dot {
+	display: inline-block;
+	width: 0.6rem;
+	height: 0.6rem;
+	margin-right: 0.375rem;
+	border-radius: 50%;
+	vertical-align: middle;
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
+.item-tag {
+	display: inline-block;
+	max-width: 8rem;
+	margin-left: 0.375rem;
+	padding: 0 0.5rem;
+	border-radius: 9999px;
+	background: var(--item-hover-bg);
+	color: var(--text-muted-color);
+	font-size: 0.8em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	vertical-align: middle;
+	white-space: nowrap;
+}
+
+/* Facets of a search result (sidebar, in place of favorites / smart folders /
+   search while a result is listed). */
+.facet-panel-loading .facet-item {
+	opacity: 0.6;
+}
+
+.facet-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.25rem 0 0.5rem;
+	color: var(--text-soft-color);
+	font-size: 0.85em;
+}
+
+.facet-clear-btn {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.05rem 0.5rem;
+	border: 1px solid var(--island-border-color);
+	border-radius: 9999px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.facet-clear-btn:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.facet-item {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.5rem;
+	border-radius: 0.5rem;
+	cursor: pointer;
+	user-select: none;
+}
+
+.facet-item:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.facet-item-active {
+	background-color: var(--item-selected-bg);
+}
+
+.facet-item-empty:not(.facet-item-active) {
+	color: var(--text-muted-color);
+}
+
+.facet-icon {
+	flex-shrink: 0;
+	padding-left: 0.25rem;
+}
+
+.facet-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.facet-count {
+	flex-shrink: 0;
+	min-width: 1.5rem;
+	text-align: right;
+	font-size: 11px;
+	color: var(--text-soft-color);
+}
+
+.facet-color-dot {
+	flex-shrink: 0;
+	width: 0.75rem;
+	height: 0.75rem;
+	margin-left: 0.25rem;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
+.facet-toolbar-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.facet-clear-btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}

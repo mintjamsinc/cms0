@@ -137,6 +137,60 @@
 					</template>
 				</wt-property-row>
 
+				<!-- Color (mi:color): one click on a swatch sets it, a click on the
+				     current swatch or on the "none" dot clears it. Files only: the
+				     property lives on jcr:content, which a folder has none of. -->
+				<wt-property-row v-if="!singleTarget.isCollection" :name="t('webtop.inspector.field.color')">
+					<template v-slot:value="p">
+						<div class="insp-color-dots" :class="{ 'insp-labels-saving': labelsSaving }">
+							<button v-for="c in swatchColors" :key="c.key" type="button" class="insp-color-dot"
+								:class="{ active: singleTarget.color === c.key }"
+								:style="{ backgroundColor: c.value }"
+								:title="colorLabel(c.key)"
+								:disabled="labelsSaving"
+								@click="setColor(singleTarget.color === c.key ? '' : c.key)"></button>
+							<button type="button" class="insp-color-dot insp-color-none"
+								:class="{ active: !singleTarget.color }"
+								:title="t('webtop.inspector.color.none')"
+								:disabled="labelsSaving"
+								@click="setColor('')"><i class="bi bi-x-lg"></i></button>
+						</div>
+					</template>
+				</wt-property-row>
+
+				<!-- Tags (mi:tags): chips with a remove button and an input that
+				     adds on Enter; the suggestion popup lists the tags already in
+				     use across the files the user can read. -->
+				<wt-property-row v-if="!singleTarget.isCollection" :name="t('webtop.inspector.field.tags')">
+					<template v-slot:value="p">
+						<div class="insp-tags" :class="{ 'insp-labels-saving': labelsSaving }">
+							<span v-for="tag in singleTarget.tags" :key="tag" class="insp-tag">
+								<span class="insp-tag-label">{{ tag }}</span>
+								<button type="button" class="insp-tag-remove" :disabled="labelsSaving"
+									:title="t('webtop.inspector.tags.remove', { tag: tag })" @click="removeTag(tag)">
+									<i class="bi bi-x"></i>
+								</button>
+							</span>
+							<input type="text" class="insp-tag-input" v-model="tagInput" ref="tagInput"
+								:placeholder="t('webtop.inspector.tags.placeholder')"
+								:disabled="labelsSaving"
+								@focus="updateTagSuggestions"
+								@input="updateTagSuggestions"
+								@keydown="handleTagKeydown"
+								@blur="onTagInputBlur" />
+						</div>
+					</template>
+				</wt-property-row>
+
+				<!-- Orientation (mi:orientation): set in the background for images
+				     and videos, so it is shown only once it exists. -->
+				<wt-property-row v-if="singleTarget.orientation" :name="t('webtop.inspector.field.orientation')">
+					<template v-slot:value="p">
+						<span>{{ orientationLabel(singleTarget.orientation) }}</span>
+						<small v-if="singleTarget.imageWidth && singleTarget.imageHeight" class="text-muted ms-1">{{ singleTarget.imageWidth }} × {{ singleTarget.imageHeight }}</small>
+					</template>
+				</wt-property-row>
+
 				<wt-property-row :name="t('webtop.inspector.field.size')"
 					:model-value="singleTarget.isCollection ? '—' : displaySize(singleTarget)"
 					:muted="singleTarget.isCollection"></wt-property-row>

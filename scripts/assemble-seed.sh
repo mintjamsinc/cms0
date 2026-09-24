@@ -62,6 +62,8 @@ copy_tree "${SEED_ASSETS}/system/deploy/etc/i18n" "${SEED_ASSETS}/workspace/depl
 # webtop
 copy_tree "${WEBTOP_DIST}/system/deploy/content/WEB-INF/web.xml" "${SEED_ASSETS}/workspace/deploy/content/WEB-INF/web.xml"
 copy_tree "${WEBTOP_DIST}/system/provisioning/webtop.yml" "${SEED_ASSETS}/workspace/provisioning/webtop.yml"
+# content browser app: Server-side assets
+copy_tree "${WEBTOP_DIST}/system/deploy/etc/eip/routes/webtop/media-metadata.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/media-metadata.xml"
 # mail app: Server-side assets
 copy_tree "${WEBTOP_DIST}/system/deploy/etc/eip/routes/webtop/mail.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/mail.xml"
 copy_tree "${WEBTOP_DIST}/system/deploy/etc/graphql/webtop/mail" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/mail"
