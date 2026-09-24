@@ -49,9 +49,10 @@ choosing it would leave.
 
 | Facet | Values | Choice | Predicate |
 | --- | --- | --- | --- |
-| Kind | Images, Videos, Audio, Documents | one | `jcr:like(@jcr:mimeType, 'image/%')` etc.; a document is anything that is none of the three media kinds |
+| Kind | Images, Videos, Audio, Scripts, Documents | one | `jcr:like(@jcr:mimeType, 'image/%')` etc. for the media kinds; a script is a file of any script MIME type (`FACET_SCRIPT_FORMATS` in `app.ts`, `@jcr:mimeType='…'` over all of them); a document is anything that is neither a media kind nor a script |
 | Orientation (with Images or Videos) | Portrait, Landscape, Square, Panorama | several, OR | `@mi:orientation='…'` |
-| Format (with Documents) | PDF, Text, Markdown, Web, Memo, Rich text, Other | several, OR | `@jcr:mimeType='…'` over the MIME types of each format (`FACET_DOCUMENT_FORMATS` in `app.ts`); *Other* is `not(…)` of every listed MIME type, so scripts, templates, archives and the like land there |
+| Format (with Documents) | PDF, Text, Markdown, Web, Memo, Rich text, Other | several, OR | `@jcr:mimeType='…'` over the MIME types of each format (`FACET_DOCUMENT_FORMATS` in `app.ts`); *Other* is `not(…)` of every listed MIME type, so templates, archives and the like land there |
+| Format (with Scripts) | Groovy, TypeScript, JavaScript, Python, Shell | several, OR | `@jcr:mimeType='…'` over the MIME types of each language (`FACET_SCRIPT_FORMATS`); the languages together are what the Script kind matches, so there is no *Other* |
 | Color | the swatch palette | several, OR | `@mi:color='…'` |
 | Tags | the selected tags, then the 50 most frequent | several, AND | one `@mi:tags='…'` per tag |
 
@@ -80,7 +81,8 @@ with *Images* chosen, *Videos* still shows the number of videos. The kind's
 statement also leaves out the orientation and format, which belong to it.
 
 Kinds and formats are groups of MIME types: their counts are the
-`jcr:mimeType` facet summed per group (`facetKindOf`, `facetFormatOf`). The
+`jcr:mimeType` facet summed per group (`facetKindOf`, `facetFormatOf`; the
+formats are those of the chosen kind). The
 statements run alongside the list's first page; a result for an earlier
 choice is dropped (`_facetSeq`).
 

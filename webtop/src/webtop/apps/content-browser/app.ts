@@ -127,24 +127,34 @@ const SEARCH_SORT_FIELDS: Record<string, string> = {
 //
 // While a search result is listed, the sidebar shows facets in place of the
 // favorites, smart folders and search sections: the kind of file (from the
-// MIME type), the orientation of images and videos, the format of documents,
-// the color and the tags. Each entry carries the number of results it would
-// leave. The counts come from the index's `facet accumulate` clause (see
-// documents/search-facets.md), fetched with no node: one count-only statement
-// with every filter applied, plus one per dimension that has a selection with
-// that dimension's own filter left out, so an unselected value still shows
-// what choosing it instead would give. Tags are the exception: selecting one
-// narrows to files carrying all of them, so their counts come from the fully
-// filtered set.
+// MIME type), the orientation of images and videos, the format of documents
+// and the language of scripts, the color and the tags. Each entry carries
+// the number of results it would leave. The counts come from the index's
+// `facet accumulate` clause (see documents/search-facets.md), fetched with no
+// node: one count-only statement with every filter applied, plus one per
+// dimension that has a selection with that dimension's own filter left out,
+// so an unselected value still shows what choosing it instead would give.
+// Tags are the exception: selecting one narrows to files carrying all of
+// them, so their counts come from the fully filtered set.
 // ---------------------------------------------------------------------------
 
 type FacetDimension = 'kind' | 'orientation' | 'format' | 'color' | 'tag';
 
-/** The Kind facet, in display order. Anything that is not image, video or audio is a document. */
-const FACET_KINDS = ['image', 'video', 'audio', 'document'];
+/**
+ * The Kind facet, in display order. A script is a file of one of the listed
+ * script MIME types; anything that is neither a media kind nor a script is a
+ * document.
+ */
+const FACET_KINDS = ['image', 'video', 'audio', 'script', 'document'];
 
 /** The MIME type prefix of each media kind. */
 const FACET_MEDIA_PREFIXES: Record<string, string> = { image: 'image/', video: 'video/', audio: 'audio/' };
+
+/** A Format facet entry: a format (or language) and the MIME types that make it up. */
+interface FacetFormat {
+	key: string;
+	mimeTypes: string[];
+}
 
 /** The Orientation facet (mi:orientation, set by the media-metadata route). */
 const FACET_ORIENTATIONS = ['portrait', 'landscape', 'square', 'panorama'];
@@ -153,7 +163,7 @@ const FACET_ORIENTATIONS = ['portrait', 'landscape', 'square', 'panorama'];
 const FACET_FORMAT_OTHER = 'other';
 
 /** The Format facet of documents: each format and the MIME types that make it up. */
-const FACET_DOCUMENT_FORMATS: { key: string; mimeTypes: string[] }[] = [
+const FACET_DOCUMENT_FORMATS: FacetFormat[] = [
 	{ key: 'pdf', mimeTypes: ['application/pdf'] },
 	{ key: 'text', mimeTypes: ['text/plain'] },
 	{ key: 'markdown', mimeTypes: ['text/markdown', 'text/x-markdown'] },
@@ -167,10 +177,39 @@ const FACET_DOCUMENT_FORMATS: { key: string; mimeTypes: string[] }[] = [
 		'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 		'application/vnd.oasis.opendocument.text',
 	] },
-	// Every other document (scripts, templates, archives, ...): no MIME type
-	// of its own, it is what the listed ones leave.
+	// Every other document (templates, archives, ...): no MIME type of its
+	// own, it is what the listed ones leave.
 	{ key: FACET_FORMAT_OTHER, mimeTypes: [] },
 ];
+
+/**
+ * The Format facet of scripts: each language and the MIME types that make it
+ * up. Together they define the Script kind, so a file of any other MIME type
+ * is never a script (and there is no "other" entry). The server names a
+ * Groovy file application/x-groovy (etc/mime.types); the rest are the
+ * registered and the common legacy names.
+ */
+const FACET_SCRIPT_FORMATS: FacetFormat[] = [
+	{ key: 'groovy', mimeTypes: ['application/x-groovy', 'application/groovy', 'text/x-groovy', 'text/groovy'] },
+	{ key: 'typescript', mimeTypes: ['text/typescript', 'application/typescript', 'text/x-typescript', 'application/x-typescript'] },
+	{ key: 'javascript', mimeTypes: [
+		'application/javascript',
+		'text/javascript',
+		'application/x-javascript',
+		'text/x-javascript',
+		'application/ecmascript',
+		'text/ecmascript',
+		'application/x-ecmascript',
+	] },
+	{ key: 'python', mimeTypes: ['text/x-python', 'application/x-python', 'text/x-python3', 'application/x-python-code'] },
+	{ key: 'shell', mimeTypes: ['application/x-sh', 'application/x-shellscript', 'text/x-sh', 'text/x-shellscript', 'application/x-csh'] },
+];
+
+/** The Format facet of each kind that has one. */
+const FACET_FORMATS_BY_KIND: Record<string, FacetFormat[]> = {
+	document: FACET_DOCUMENT_FORMATS,
+	script: FACET_SCRIPT_FORMATS,
+};
 
 /** The Tags facet lists at most this many tags (the most frequent). */
 const FACET_TAG_LIMIT = 50;
@@ -194,14 +233,24 @@ function facetKindOf(mimeType: string): string {
 			return kind;
 		}
 	}
+	if (FACET_SCRIPT_FORMATS.some(f => f.mimeTypes.includes(type))) {
+		return 'script';
+	}
 	return 'document';
 }
 
-/** The document format a MIME type belongs to; FACET_FORMAT_OTHER when it is none of the listed ones. */
-function facetFormatOf(mimeType: string): string {
+/**
+ * The format of `kind` a MIME type belongs to. A document of no listed format
+ * is FACET_FORMAT_OTHER; a MIME type that is no script at all has no script
+ * format (null), and a kind without formats has none either.
+ */
+function facetFormatOf(kind: string, mimeType: string): string | null {
+	const formats = FACET_FORMATS_BY_KIND[kind];
+	if (!formats) return null;
 	const type = (mimeType || '').toLowerCase();
-	const format = FACET_DOCUMENT_FORMATS.find(f => f.mimeTypes.includes(type));
-	return format ? format.key : FACET_FORMAT_OTHER;
+	const format = formats.find(f => f.mimeTypes.includes(type));
+	if (format) return format.key;
+	return kind === 'document' ? FACET_FORMAT_OTHER : null;
 }
 
 function emptyFacetSelection() {
@@ -917,13 +966,13 @@ export const App = {
 			return this._xpathStatement(null);
 		},
 		// The facet dimensions the sidebar shows for the current selection: the
-		// orientation of images and videos, the format of documents.
+		// orientation of images and videos, the format of documents and scripts.
 		facetShowsOrientation(): boolean {
 			const kind = this.facetSelection.kind as string;
 			return kind === 'image' || kind === 'video';
 		},
 		facetShowsFormat(): boolean {
-			return this.facetSelection.kind === 'document';
+			return (this.facetSelection.kind as string) in FACET_FORMATS_BY_KIND;
 		},
 		facetSelectionCount(): number {
 			const s = this.facetSelection;
@@ -4856,8 +4905,15 @@ export const App = {
 				if (!s.kind) return null;
 				const media = Object.keys(FACET_MEDIA_PREFIXES).map(kind =>
 					`jcr:like(@jcr:mimeType, '${FACET_MEDIA_PREFIXES[kind]}%')`);
+				const script = anyOf(FACET_SCRIPT_FORMATS.
+					flatMap(f => f.mimeTypes).
+					map(m => `@jcr:mimeType=${xpathString(m)}`));
+				if (s.kind === 'script') {
+					return script;
+				}
 				if (s.kind === 'document') {
-					return `(${media.map(p => `not(${p})`).join(' and ')})`;
+					// A document is what is neither a media kind nor a script.
+					return `(${media.concat(script).map(p => `not(${p})`).join(' and ')})`;
 				}
 				return `jcr:like(@jcr:mimeType, '${FACET_MEDIA_PREFIXES[s.kind]}%')`;
 			}
@@ -4867,14 +4923,15 @@ export const App = {
 			}
 			if (dimension === 'format') {
 				if (!this.facetShowsFormat || s.format.length === 0) return null;
-				const ofFormats = (keys: string[]) => FACET_DOCUMENT_FORMATS.
+				const formats = FACET_FORMATS_BY_KIND[s.kind];
+				const ofFormats = (keys: string[]) => formats.
 					filter(f => keys.includes(f.key)).
 					flatMap(f => f.mimeTypes).
 					map(m => `@jcr:mimeType=${xpathString(m)}`);
 				const chosen = ofFormats(s.format);
-				if (s.format.includes(FACET_FORMAT_OTHER)) {
+				if (s.kind === 'document' && s.format.includes(FACET_FORMAT_OTHER)) {
 					// "Other" is what no listed format claims.
-					const listed = ofFormats(FACET_DOCUMENT_FORMATS.map(f => f.key));
+					const listed = ofFormats(formats.map(f => f.key));
 					chosen.push(`not(${anyOf(listed)})`);
 				}
 				if (chosen.length === 0) return null;
@@ -4932,9 +4989,12 @@ export const App = {
 					const kind = facetKindOf(mimeType);
 					counts.kind[kind] = (counts.kind[kind] || 0) + n;
 				}
-				for (const [mimeType, n] of Object.entries(facetOf('format', 'jcr:mimeType'))) {
-					const format = facetFormatOf(mimeType);
-					counts.format[format] = (counts.format[format] || 0) + n;
+				if (vm.facetShowsFormat) {
+					for (const [mimeType, n] of Object.entries(facetOf('format', 'jcr:mimeType'))) {
+						const format = facetFormatOf(s.kind, mimeType);
+						if (format === null) continue;
+						counts.format[format] = (counts.format[format] || 0) + n;
+					}
 				}
 				counts.orientation = facetOf('orientation', 'mi:orientation');
 				counts.color = facetOf('color', 'mi:color');
@@ -4997,7 +5057,13 @@ export const App = {
 			this.facetSectionExpanded[name] = !this.facetSectionExpanded[name];
 		},
 		facetKindIcon(kind: string): string {
-			return { image: 'bi-image', video: 'bi-film', audio: 'bi-music-note-beamed', document: 'bi-file-earmark-text' }[kind] || 'bi-file-earmark';
+			return {
+				image: 'bi-image',
+				video: 'bi-film',
+				audio: 'bi-music-note-beamed',
+				script: 'bi-file-earmark-code',
+				document: 'bi-file-earmark-text',
+			}[kind] || 'bi-file-earmark';
 		},
 		facetKinds(): string[] {
 			return FACET_KINDS;
@@ -5005,8 +5071,9 @@ export const App = {
 		facetOrientations(): string[] {
 			return FACET_ORIENTATIONS;
 		},
+		// The formats of the selected kind; none while the kind has no Format facet.
 		facetFormats(): string[] {
-			return FACET_DOCUMENT_FORMATS.map(f => f.key);
+			return (FACET_FORMATS_BY_KIND[this.facetSelection.kind] || []).map(f => f.key);
 		},
 		facetColors(): { key: string; value: string }[] {
 			return SWATCH_COLORS;
