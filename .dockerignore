@@ -12,6 +12,7 @@
 # Container packaging files referenced by the Dockerfile.
 !docker/Dockerfile
 !docker/entrypoint.sh
+!docker/cms-encrypt.sh
 !docker/THIRD_PARTY_LICENSES.md
 !docker/seed/
 !docker/seed/**
