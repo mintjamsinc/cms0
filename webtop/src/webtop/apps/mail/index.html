@@ -98,15 +98,19 @@
 					</button>
 				</div>
 
-				<!-- Labels narrow whatever box is selected -->
+				<!-- Colors and tags narrow whatever box is selected -->
 				<div v-if="accounts.length" class="ml-nav">
-					<div class="ml-nav-title">{{ t('app.mail.labels', undefined, 'Labels') }}</div>
+					<div class="ml-nav-title">{{ t('app.mail.labels.color', undefined, 'Color') }}</div>
 					<div class="ml-colors">
 						<button v-for="c of labels.colors" :key="'filter-' + c" type="button" class="ml-color-dot"
 							:class="{ active: labelFilter.color === c }" :style="{ background: colorHex(c) }"
 							:title="colorLabel(c)" @click="toggleLabelFilter('color', c)"></button>
 					</div>
-					<div v-if="labels.tags.length" class="ml-tag-chips">
+				</div>
+
+				<div v-if="accounts.length && labels.tags.length" class="ml-nav">
+					<div class="ml-nav-title">{{ t('app.mail.labels.tags', undefined, 'Tags') }}</div>
+					<div class="ml-tag-chips">
 						<button v-for="tag of labels.tags" :key="'tag-' + tag" type="button" class="ml-tag-chip"
 							:class="{ active: labelFilter.tag === tag }" :title="tag"
 							@click="toggleLabelFilter('tag', tag)">#{{ tag }}</button>
