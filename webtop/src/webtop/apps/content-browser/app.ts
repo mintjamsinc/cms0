@@ -5,7 +5,7 @@ import { downloadContentAsZip, importContentArchive, type ArchiveJobHandle, type
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { Dates } from "../../utils/dates.js";
-import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
+import { nodeToInspectorTarget, THUMBNAIL_PROPERTY, type InspectorTarget } from "../../lib/inspector-target.js";
 import { SWATCH_COLORS, SWATCH_COLOR_MAP } from "../../lib/color-palette.js";
 import { readArchiveManifest } from "./archive-manifest.js";
 import {
@@ -666,6 +666,12 @@ export const App = {
 			// Full history overlay panel
 			fullHistoryPanelOpen: false,
 			historySearchKeyword: '',
+			// The file list as rows with columns, or as a grid of tiles with a
+			// thumbnail. Kept per user, like the panes.
+			listViewMode: 'list' as 'list' | 'grid',
+			// Items whose grid picture the browser could not load; their tiles
+			// show the icon instead. Emptied with the list.
+			gridMediaErrors: [] as string[],
 			// Sidebar panel (left pane: filter, favorites, smart folders, XPath search)
 			sidebarPanelVisible: false,
 			sidebarPanelWidth: 260,
@@ -1314,6 +1320,7 @@ export const App = {
 				await vm.loadPersistedNavData();
 				await vm.loadDetailPanelState();
 				await vm.loadSidebarPanelState();
+				await vm.loadListViewState();
 				await vm.loadSmartFolders();
 				await vm.loadServerPreferences();
 
@@ -1438,6 +1445,7 @@ export const App = {
 			vm.clearSelection();
 			vm._cancelFolderSizes();
 			vm.items = [];
+			vm.gridMediaErrors = [];
 
 			// Enter the navigating state. A transparent shield (rendered while
 			// isNavigating is true) now blocks clicks / right-clicks on the
@@ -1772,8 +1780,11 @@ export const App = {
 							item.attributes.displayDate = vm.displayDate(item);
 							const existingIdx = vm.items.findIndex((i: any) => i.path === path);
 							if (existingIdx !== -1) {
-								// Update existing item in-place
+								// Update existing item in-place. Its picture may have
+								// changed (a thumbnail made, content replaced), so a
+								// tile that had given up on it tries again.
 								vm.items.splice(existingIdx, 1, item);
+								vm.gridMediaErrors = vm.gridMediaErrors.filter((id: string) => id !== item.id);
 							} else {
 								// New item — add and re-sort
 								vm.items.push(item);
@@ -1866,7 +1877,7 @@ export const App = {
 			this.selectionAnchorID = item.id;
 			this.focusedItemID = item.id;
 			this.$nextTick(() => {
-				const row = document.querySelector('.content-list tbody tr.item-selected');
+				const row = document.querySelector('.content-list .item.item-selected');
 				row?.scrollIntoView({ block: 'nearest' });
 			});
 		},
@@ -2507,7 +2518,13 @@ export const App = {
 				next = delta > 0 ? 0 : list.length - 1;
 			} else {
 				next = current + delta;
-				if (next < 0 || next >= list.length) return;
+				if (next < 0 || next >= list.length) {
+					// A single step past either end stays put; a row step in the
+					// grid lands on the first / last tile instead.
+					if (Math.abs(delta) === 1) return;
+					next = delta > 0 ? list.length - 1 : 0;
+					if (next === current) return;
+				}
 			}
 
 			vm.focusRow(next, extend, focusOnly);
@@ -2560,23 +2577,23 @@ export const App = {
 			}
 		},
 		// Keep the cursor row on screen. Rows carry no id of their own, but the
-		// tbody renders `filteredItems` in order, so the visible index is the
-		// row index.
+		// list (the tbody, or the grid) renders `filteredItems` in order, so the
+		// visible index is the row index.
 		scrollFocusedIntoView() {
 			const vm = this;
 			const index = vm.visibleIndexOf(vm.focusedItemID);
 			if (index < 0) return;
 			vm.$nextTick(() => {
-				const rows = document.querySelectorAll('.content-list tbody tr.item');
+				const rows = document.querySelectorAll('.content-list .item');
 				rows[index]?.scrollIntoView({ block: 'nearest' });
 			});
 		},
 		// Drag selection methods
 		onContentMouseDown(event: MouseEvent) {
 			const vm = this;
-			// Only start drag selection if clicking on empty area (not on a row)
+			// Only start drag selection if clicking on empty area (not on a row or tile)
 			const target = event.target as HTMLElement;
-			const row = target.closest('tr.item');
+			const row = target.closest('.content-list .item');
 			if (row) {
 				// Clicked on a row, don't start drag selection
 				return;
@@ -2619,8 +2636,11 @@ export const App = {
 			// Calculate selection rectangle
 			const selRect = vm.selectionRect;
 
-			// Find items that intersect with selection rectangle
-			const rows = contentList.querySelectorAll('tr.item');
+			// Find items that intersect with selection rectangle. The rows (or
+			// the grid's tiles) render `filteredItems` in order, so the element
+			// index is the index into that list.
+			const rows = contentList.querySelectorAll('.item');
+			const visible = vm.filteredItems as any[];
 			const newSelection: string[] = [];
 
 			rows.forEach((row: Element, index: number) => {
@@ -2633,7 +2653,7 @@ export const App = {
 				// Check intersection
 				if (!(selRect.right < rowLeft || selRect.left > rowRight ||
 					selRect.bottom < rowTop || selRect.top > rowBottom)) {
-					const item = vm.items[index];
+					const item = visible[index];
 					if (item) {
 						newSelection.push(item.id);
 					}
@@ -2793,9 +2813,9 @@ export const App = {
 		// Context menu for empty area (background)
 		onBackgroundContextMenu(event: MouseEvent) {
 			const vm = this;
-			// Only handle if click was on empty area (not on item row)
+			// Only handle if click was on empty area (not on an item row or tile)
 			const target = event.target as HTMLElement;
-			if (target.closest('tr.item')) {
+			if (target.closest('.content-list .item')) {
 				return;
 			}
 			event.preventDefault();
@@ -2834,6 +2854,18 @@ export const App = {
 		handleContextMenuAction(action: string) {
 			const vm = this;
 			const selectedItemObjects = vm.items.filter((i: any) => vm.selectedItems.includes(i.id));
+
+			// The grid view's sort menu (openGridSortMenu): a column keeps the
+			// current direction, a direction keeps the current column.
+			if (action.startsWith('sort:')) {
+				const choice = action.substring('sort:'.length);
+				if (choice === 'asc' || choice === 'desc') {
+					vm.applySort(vm.sortColumn, choice);
+				} else if (choice) {
+					vm.applySort(choice, vm.sortDirection);
+				}
+				return;
+			}
 
 			switch (action) {
 				case 'new-folder':
@@ -5387,6 +5419,150 @@ export const App = {
 				console.warn('[ContentBrowser] Failed to sync preferences to server:', e);
 			}
 		},
+		// =====================================================================
+		// List / grid view
+		// =====================================================================
+		setListViewMode(mode: 'list' | 'grid') {
+			if (this.listViewMode === mode) return;
+			this.listViewMode = mode;
+			this.persistListViewState();
+			this.scrollFocusedIntoView();
+		},
+		async persistListViewState() {
+			const vm = this;
+			const db = vm.instance?.api?.db;
+			const userID = vm.instance?.currentUser?.id || '*';
+			if (!db) return;
+			try {
+				await db.setUserSetting(userID, 'content-browser', 'listView', { mode: vm.listViewMode });
+			} catch (e) {
+				// Silently ignore errors
+			}
+		},
+		async loadListViewState() {
+			const vm = this;
+			const db = vm.instance.api.db;
+			const userID = vm.instance.currentUser?.id || '*';
+			try {
+				const state = await db.getUserSetting(userID, 'content-browser', 'listView');
+				if (state && (state.mode === 'list' || state.mode === 'grid')) {
+					vm.listViewMode = state.mode;
+				}
+			} catch (e) {
+				// Silently ignore errors
+			}
+		},
+		// The sort menu of the grid view, which has no column headers to click.
+		// Uses the desktop's context menu; the choice comes back through
+		// handleContextMenuAction as 'sort:<column>' or 'sort:<direction>'.
+		openGridSortMenu(event: MouseEvent) {
+			const vm = this;
+			const columns: [string, string][] = [
+				['name', 'app.content-browser.column.name'],
+				['date', 'app.content-browser.column.dateModified'],
+				['modifiedBy', 'app.content-browser.column.modifiedBy'],
+				['lockOwner', 'app.content-browser.column.lockOwner'],
+				['version', 'app.content-browser.column.version'],
+				['kind', 'app.content-browser.column.kind'],
+				['size', 'app.content-browser.column.size'],
+			];
+			// `selected` puts the desktop menu's check mark on the current choice.
+			const menuItems: { id: string; label: string; selected?: boolean; type?: string }[] = columns.map(([column, key]) => ({
+				id: 'sort:' + column,
+				label: vm.t(key),
+				selected: vm.sortColumn === column,
+			}));
+			menuItems.push({ type: 'separator', id: '', label: '' });
+			menuItems.push({ id: 'sort:asc', label: vm.t('app.content-browser.toolbar.sortAscending', undefined, 'Ascending'), selected: vm.sortDirection === 'asc' });
+			menuItems.push({ id: 'sort:desc', label: vm.t('app.content-browser.toolbar.sortDescending', undefined, 'Descending'), selected: vm.sortDirection === 'desc' });
+
+			// Below the button rather than at the pointer, like a dropdown.
+			const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+			window.parent.postMessage({
+				type: 'show-context-menu',
+				x: rect ? rect.left : event.clientX,
+				y: rect ? rect.bottom + 4 : event.clientY,
+				items: menuItems,
+				sourceAppId: vm.instance?.id
+			}, window.location.origin);
+		},
+		// Sorts as a header click would: a search result the index can order
+		// by is re-run in the new order, anything else is sorted in place.
+		applySort(column: string, direction: string) {
+			const vm = this;
+			if (vm.xpathSearchActive && SEARCH_SORT_FIELDS[column]) {
+				vm.sortColumn = column;
+				vm.sortDirection = direction;
+				vm.xpathExecuteSearch();
+				return;
+			}
+			vm.sortItems(column, direction);
+		},
+		// The URL of a file's thumbnail (mi:thumbnail, through the download
+		// servlet's property mode), '' when it has none. The version pins the
+		// URL to the picture: a remade thumbnail gets a new URL, and one whose
+		// version equals the file's modification time is cached immutably.
+		thumbnailURL(item: any): string {
+			if (!item?.downloadURL || item.thumbnailVersion == null) return '';
+			const base = item.downloadURL.replace(/[?&]attachment$/, '');
+			return base + (base.includes('?') ? '&' : '?') + 'property=' + encodeURIComponent(THUMBNAIL_PROPERTY) + '&v=' + item.thumbnailVersion;
+		},
+		// The file itself, pinned to its modification time as the Inspector's
+		// preview is (see selectedItemPreviewURL there).
+		previewURL(item: any): string {
+			if (!item?.downloadURL) return '';
+			const base = item.downloadURL.replace(/[?&]attachment$/, '');
+			const v = item.lastModified ? new Date(item.lastModified).getTime() : Date.now();
+			return base + (base.includes('?') ? '&' : '?') + 'v=' + v;
+		},
+		// What a grid tile shows: the thumbnail, or the image itself while it
+		// has none, as an <img>; a video's first frame as a <video>; otherwise
+		// the file's icon (a folder, any other kind, or a picture the browser
+		// could not load).
+		gridMediaKind(item: any): 'image' | 'video' | 'icon' {
+			if (!item || item.isCollection || !item.downloadURL) return 'icon';
+			if (this.gridMediaErrors.includes(item.id)) return 'icon';
+			if (item.thumbnailVersion != null) return 'image';
+			const mimeType = item.mimeType || '';
+			if (mimeType.startsWith('image/')) return 'image';
+			if (mimeType.startsWith('video/')) return 'video';
+			return 'icon';
+		},
+		gridImageURL(item: any): string {
+			return this.thumbnailURL(item) || this.previewURL(item);
+		},
+		// The first frame. The time fragment makes a browser that shows nothing
+		// at t=0 (Safari) seek to a frame.
+		gridVideoURL(item: any): string {
+			return this.previewURL(item) + '#t=0.1';
+		},
+		isAudioItem(item: any): boolean {
+			return !!item && !item.isCollection && (item.mimeType || '').startsWith('audio/');
+		},
+		onGridMediaError(item: any) {
+			if (item && !this.gridMediaErrors.includes(item.id)) {
+				this.gridMediaErrors.push(item.id);
+			}
+		},
+		// A <video> tile is rendered without a src and gets it (from data-src)
+		// the first time it scrolls into view, so a folder of many videos does
+		// not fetch every header at once.
+		onGridVideoIntersection(entries: IntersectionObserverEntry[], $ctx: any) {
+			const el = $ctx?.element as HTMLVideoElement | undefined;
+			if (!el || !entries.some((e) => e.isIntersecting)) return;
+			const src = el.dataset.src;
+			if (src && !el.getAttribute('src')) {
+				el.preload = 'metadata';
+				el.src = src;
+			}
+		},
+		// Tiles per row of the grid, for Up / Down to step a whole row.
+		gridColumnCount(): number {
+			const grid = document.querySelector('.content-list .content-grid') as HTMLElement | null;
+			if (!grid) return 1;
+			const tracks = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length;
+			return Math.max(1, tracks);
+		},
 		// Sidebar panel methods
 		toggleSidebarPanel() {
 			this.sidebarPanelVisible = !this.sidebarPanelVisible;
@@ -5639,7 +5815,19 @@ export const App = {
 			if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
 				if ((vm.filteredItems as any[]).length > 0) {
 					event.preventDefault();
-					vm.moveSelection(event.key === 'ArrowDown' ? 1 : -1,
+					// In the grid a row is a row of tiles, so Up / Down step a whole row.
+					const step = vm.listViewMode === 'grid' ? vm.gridColumnCount() : 1;
+					vm.moveSelection((event.key === 'ArrowDown' ? 1 : -1) * step,
+						event.shiftKey, event.ctrlKey || event.metaKey);
+				}
+				return;
+			}
+			// Left / Right: the neighbouring tile of the grid (Alt+Arrow, the
+			// history, was taken above). The list has nothing beside a row.
+			if (vm.listViewMode === 'grid' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+				if ((vm.filteredItems as any[]).length > 0) {
+					event.preventDefault();
+					vm.moveSelection(event.key === 'ArrowRight' ? 1 : -1,
 						event.shiftKey, event.ctrlKey || event.metaKey);
 				}
 				return;

@@ -58,6 +58,25 @@
 
 			<span class="nav-spacer"></span>
 
+			<!-- Sort, for the grid view, which has no column headers to click -->
+			<div v-if="listViewMode === 'grid'" class="toolbar-group">
+				<button class="btn-icon" @click="openGridSortMenu(event)" :title="t('app.content-browser.toolbar.sort')">
+					<i class="bi bi-sort-down"></i>
+				</button>
+			</div>
+
+			<!-- List / grid view -->
+			<div class="pane-toggles">
+				<button class="btn-icon pane-toggle-btn" :class="{active: listViewMode === 'list'}"
+					@click="setListViewMode('list')" :title="t('app.content-browser.toolbar.viewList')">
+					<i class="bi bi-list-ul"></i>
+				</button>
+				<button class="btn-icon pane-toggle-btn" :class="{active: listViewMode === 'grid'}"
+					@click="setListViewMode('grid')" :title="t('app.content-browser.toolbar.viewGrid')">
+					<i class="bi bi-grid-3x3-gap-fill"></i>
+				</button>
+			</div>
+
 			<!-- Pane Toggles -->
 			<div class="pane-toggles">
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
@@ -636,7 +655,7 @@
 					<i class="bi bi-arrow-clockwise me-1"></i>{{ t('app.content-browser.list.retry', undefined, 'Retry') }}
 				</button>
 			</div>
-			<table v-if="!currentFolderDeleted" class="wt w-100">
+			<table v-if="!currentFolderDeleted && listViewMode === 'list'" class="wt w-100">
 				<thead>
 					<tr>
 						<th></th>
@@ -734,6 +753,26 @@
 					</tr>
 				</tbody>
 			</table>
+			<!-- Grid view: the same items as tiles. A tile carries the classes and
+			     handlers of a row, so selection, the keyboard cursor, drag and
+			     drop and the context menu work as in the list. The picture is
+			     the thumbnail the media-metadata route made (an image, or the
+			     cover art of an audio file), the image itself while it has none,
+			     a video's first frame, or the file's icon. -->
+			<div v-if="!currentFolderDeleted && listViewMode === 'grid'" class="content-grid">
+				<div v-for="item in filteredItems" :key="item.id" class="item grid-item c-pointer item-on-hover" :class="{ 'item-selected': isSelected(item), 'item-focused': item.id === focusedItemID, 'item-flash': flashingItems.includes(item.id), 'item-cut': isClipboardCutItem(item.path), 'item-drop-target': dragOverFolderID === item.id }" :title="item.name" :draggable="true" @dragstart="onFileDragStart(item, event)" @dragend="onInternalDragEnd" @dragenter.prevent @dragover.prevent="onItemDragOver(item, event)" @dragleave="onItemDragLeave(item)" @drop.prevent="onItemDrop(item, event)" @click="selectItem(item, event)" @dblclick="openItem(item)" @contextmenu="onContextMenu(item, event)">
+					<div class="grid-thumb">
+						<img v-if="gridMediaKind(item) === 'image'" class="grid-thumb-image" :src="gridImageURL(item)" loading="lazy" decoding="async" draggable="false" @error="onGridMediaError(item)">
+						<video v-else-if="gridMediaKind(item) === 'video'" class="grid-thumb-video" :data-src="gridVideoURL(item)" muted playsinline preload="none" draggable="false" v-intersection="onGridVideoIntersection" :options.intersection="{ rootMargin: '200px' }" @error="onGridMediaError(item)"></video>
+						<i v-else :class="[getFileIcon(item), getFileIconClass(item), 'grid-thumb-icon']"></i>
+						<i v-if="isAudioItem(item) && gridMediaKind(item) === 'image'" class="bi bi-music-note-beamed grid-thumb-badge"></i>
+						<i v-else-if="gridMediaKind(item) === 'video'" class="bi bi-play-fill grid-thumb-badge"></i>
+					</div>
+					<div class="grid-name">
+						<span v-if="item.color" class="item-color-dot" :style="{ backgroundColor: colorHex(item.color) }"></span><span>{{ item.name }}</span>
+					</div>
+				</div>
+			</div>
 			<!-- Search paging: the next page is fetched as the list is scrolled
 			     to its end (onContentListScroll); this row shows while it loads. -->
 			<div v-if="xpathSearchActive && xpathSearchLoadingMore" class="xpath-search-more">

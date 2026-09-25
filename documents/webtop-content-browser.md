@@ -2,8 +2,9 @@
 
 Notes on the parts of the **Content Browser** that are not obvious from its
 source: how a search result is paged and sorted, the labels a user can put on a
-file, the orientation of images and videos that a background route
-maintains, and what the Inspector shows for a video or audio file.
+file, the grid view and where its thumbnails come from, the orientation of
+images and videos that a background route maintains, and what the Inspector
+shows for a video or audio file.
 
 ## Search results
 
@@ -115,20 +116,70 @@ a search can filter on them (`@mi:color='tomato'`, `@mi:tags='draft'`, which
 matches any value of the multi-value) and count them (`facet accumulate
 @mi:color, top(@mi:tags, 20)`).
 
-## Orientation of images and videos
+## List and grid view
+
+The two buttons left of the pane toggles switch the file list between
+**rows with columns** (the default) and a **grid of tiles**. The choice is
+kept per user (`content-browser/listView` in the settings store), like the
+panes. A tile is the same item as a row: selection, the rubber band, the
+keyboard cursor, drag and drop, the context menu and the real-time updates
+work unchanged, because the tiles carry the classes and handlers of the rows
+and both render `filteredItems` in order. In the grid, Left and Right move
+the cursor by one tile and Up and Down by a row of tiles (the grid's track
+count); the sort button that appears beside the view buttons opens the
+column and direction choices the headers offer in the list.
+
+What a tile shows (`gridMediaKind` in `app.ts`):
+
+| File | Picture |
+| --- | --- |
+| Image with `mi:thumbnail` | The thumbnail, through the download URL's property mode (`?property=mi:thumbnail&v=<mi:thumbnailVersion>`). |
+| Image without one yet | The image itself, lazily (`loading="lazy"`): a file uploaded before the route ran, or one ImageIO cannot decode (WebP, HEIC). |
+| Video | Its first frame in a `<video>` that gets its `src` only when the tile scrolls into view (`v-intersection`), so a folder of videos does not fetch every header at once. |
+| Audio with `mi:thumbnail` | The embedded cover art, with a note badge. |
+| Anything else, or a picture the browser could not load | The file's icon. |
+
+The `v` in the thumbnail URL is `mi:thumbnailVersion`, the file's
+modification time the picture was made from. It exists because the download
+servlet validates a property binary by the file's `jcr:lastModified`, which a
+property write does not touch: without it a thumbnail remade after the
+content was replaced would be answered with a 304 from the browser's cache.
+While the route is still working on a replaced file, the version is the old
+modification time, so the URL is new for that content and served
+`no-cache`; once the route has written the new picture the version equals
+the file's modification time and the servlet caches it immutably
+(`HttpCaching.applyAndCheckNotModifiedContentAddressed`).
+
+## Orientation and thumbnails of media files
 
 The route `webtop-media-metadata`
 (`etc/eip/routes/webtop/media-metadata.xml`, class
-`webtop.media.MediaMetadata` under `/usr/local/classes`) keeps three
-properties on every image and video file:
+`webtop.media.MediaMetadata` under `/usr/local/classes`) keeps these
+properties on every image, video and audio file:
 
-| Property | Type | Value |
-| --- | --- | --- |
-| `mi:orientation` | String | `portrait`, `landscape`, `square` (sides within 5 % of each other) or `panorama` (long side at least twice the short side). |
-| `mi:width` | Long | Pixels, after the EXIF rotation is applied. |
-| `mi:height` | Long | Pixels, after the EXIF rotation is applied. |
+| Property | Type | Files | Value |
+| --- | --- | --- | --- |
+| `mi:orientation` | String | image, video | `portrait`, `landscape`, `square` (sides within 5 % of each other) or `panorama` (long side at least twice the short side). |
+| `mi:width` | Long | image, video | Pixels, after the EXIF rotation is applied. |
+| `mi:height` | Long | image, video | Pixels, after the EXIF rotation is applied. |
+| `mi:thumbnail` | Binary | image, audio | A JPEG of at most 320 pixels on its long side (`THUMBNAIL_SIZE`), quality 0.82, drawn on white: the image, turned the way its EXIF orientation says, or the cover art embedded in the audio file. Absent when there is none or it could not be decoded. |
+| `mi:thumbnailVersion` | Long | image, audio | The file's `jcr:lastModified` in epoch milliseconds when the thumbnail was made (see *List and grid view*). |
 
-The Inspector shows them as an *Orientation* row once they exist.
+The Inspector shows the first three as an *Orientation* row once they
+exist. The search index stores a Binary as an empty keyword, so the
+thumbnail costs the index nothing; the GraphQL `properties` of a listed
+node report it as a `BinaryPropertyValue` (its MIME type detected from the
+first bytes, `NodeMapper.getBinaryPropertyMetadata`) without its bytes.
+
+The thumbnail is decoded with ImageIO (JPEG, PNG, GIF, BMP), subsampled so
+that no more than about twice the thumbnail size is materialised
+(`decodeScaled`), halved step by step and then drawn bilinearly (`fit`). The
+cover art is read from the container without Tika, which does not extract
+pictures: the `APIC` (v2.3, v2.4) or `PIC` (v2.2) frame of an ID3v2 tag,
+the `moov/udta/meta/ilst/covr` item of an MP4 or M4A, or the `PICTURE` block
+of a FLAC file, preferring the front cover (type 3) when there are several.
+An Ogg or WAV file yields none. A video gets no thumbnail: nothing on the
+server decodes video, and the browser shows the first frame instead.
 
 ### How the route works
 
@@ -150,7 +201,10 @@ the header of a PNG, GIF, BMP or WebP, the track header of an MP4 or
 QuickTime file. EXIF orientations 5 to 8 are a quarter turn, so their sides
 are swapped. A file the parser cannot read, or larger than
 `MediaMetadata.MAX_BYTES` (512 MB), keeps whatever it had; a file whose MIME
-type is no longer `image/*` or `video/*` loses the three properties.
+type is no longer `image/*`, `video/*` or `audio/*` loses every property, an
+audio file the orientation, a video the thumbnail. The thumbnail is remade on
+every content change, and removed when the new content yields none, so the
+picture never outlives the content it was made from.
 
 The file is read and written **as the user who made the change**
 (`ScriptAPI.createServiceUserContext(user_id)`), so the route never touches
@@ -165,15 +219,16 @@ own content needs the same route deployed there.
 ### Existing files
 
 The route reacts to changes, so files that were already in the repository
-have no orientation until their content is next written. To fill them in, run
-the class over a query from a script or a route, for example
+have no orientation or thumbnail until their content is next written; the
+grid shows such an image itself and such an audio file as its icon. To fill
+them in, run the class over a query from a script or a route, for example
 
 ```
-/jcr:root/content//element(*, nt:file)[jcr:like(@jcr:mimeType, 'image/%') and not(@mi:orientation)]
+/jcr:root/content//element(*, nt:file)[jcr:like(@jcr:mimeType, 'image/%') and not(@mi:thumbnailVersion)]
 ```
 
-and call `webtop.media.MediaMetadata.create(context).update(path)` for each
-path.
+(or `audio/%` for the cover art) and call
+`webtop.media.MediaMetadata.create(context).update(path)` for each path.
 
 ## Video and audio in the Inspector
 

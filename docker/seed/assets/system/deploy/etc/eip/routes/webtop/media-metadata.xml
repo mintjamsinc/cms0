@@ -2,13 +2,16 @@
 <camel>
 
     <!--
-        Orientation of images and videos for the Content Browser.
+        Orientation and thumbnails of media files for the Content Browser.
 
         The repository posts a javax/jcr/Node event for every node change. This
         route takes the events of files whose content arrived or changed, reads
         the file's pixel size through Tika and stores mi:orientation (portrait /
         landscape / square / panorama), mi:width and mi:height on the file
-        (webtop.media.MediaMetadata), where the search index counts them.
+        (webtop.media.MediaMetadata), where the search index counts them. An
+        image, and an audio file with embedded cover art, also get a small
+        JPEG in mi:thumbnail (with mi:thumbnailVersion), which the Content
+        Browser's grid view shows.
 
         The write raises a CHANGED event of its own; that one names only the
         properties written, not jcr:data, so isContentChange() drops it and

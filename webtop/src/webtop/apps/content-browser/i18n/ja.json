@@ -1,6 +1,11 @@
 {
 	"app.content-browser.title": "コンテンツブラウザー",
 	"app.content-browser.toolbar.refresh": "再読み込み",
+	"app.content-browser.toolbar.viewList": "リスト表示",
+	"app.content-browser.toolbar.viewGrid": "グリッド表示",
+	"app.content-browser.toolbar.sort": "並べ替え",
+	"app.content-browser.toolbar.sortAscending": "昇順",
+	"app.content-browser.toolbar.sortDescending": "降順",
 	"app.content-browser.toolbar.toggleSidebar": "サイドバーの切り替え",
 	"app.content-browser.toolbar.toggleInspector": "インスペクターの切り替え (Ctrl+I)",
 	"app.content-browser.toolbar.minimize": "最小化",

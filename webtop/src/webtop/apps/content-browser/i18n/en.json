@@ -1,6 +1,11 @@
 {
 	"app.content-browser.title": "Content Browser",
 	"app.content-browser.toolbar.refresh": "Refresh",
+	"app.content-browser.toolbar.viewList": "List view",
+	"app.content-browser.toolbar.viewGrid": "Grid view",
+	"app.content-browser.toolbar.sort": "Sort by",
+	"app.content-browser.toolbar.sortAscending": "Ascending",
+	"app.content-browser.toolbar.sortDescending": "Descending",
 	"app.content-browser.toolbar.toggleSidebar": "Toggle Sidebar",
 	"app.content-browser.toolbar.toggleInspector": "Toggle Inspector (Ctrl+I)",
 	"app.content-browser.toolbar.minimize": "Minimize",

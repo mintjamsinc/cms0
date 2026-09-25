@@ -36,6 +36,12 @@ export interface InspectorTarget {
 	orientation: string;
 	imageWidth: number | null;
 	imageHeight: number | null;
+	// Set in the background for images and for audio files with embedded
+	// cover art: mi:thumbnail holds a JPEG the list shows in its grid, and
+	// mi:thumbnailVersion the file's modification time it was made from,
+	// which the thumbnail URL carries so a remade picture is fetched anew.
+	// null while there is no thumbnail.
+	thumbnailVersion: number | null;
 }
 
 /** The mi:color property name. */
@@ -48,6 +54,10 @@ export const ORIENTATION_PROPERTY = 'mi:orientation';
 export const WIDTH_PROPERTY = 'mi:width';
 /** The mi:height property name. */
 export const HEIGHT_PROPERTY = 'mi:height';
+/** The mi:thumbnail property name (a Binary; fetched through the download URL's `property` parameter). */
+export const THUMBNAIL_PROPERTY = 'mi:thumbnail';
+/** The mi:thumbnailVersion property name. */
+export const THUMBNAIL_VERSION_PROPERTY = 'mi:thumbnailVersion';
 
 // The single string value of a node property, '' when absent or not a string.
 function stringProperty(node: Node, name: string): string {
@@ -111,5 +121,6 @@ export function nodeToInspectorTarget(node: Node): InspectorTarget {
 		orientation: stringProperty(node, ORIENTATION_PROPERTY),
 		imageWidth: longProperty(node, WIDTH_PROPERTY),
 		imageHeight: longProperty(node, HEIGHT_PROPERTY),
+		thumbnailVersion: longProperty(node, THUMBNAIL_VERSION_PROPERTY),
 	};
 }
