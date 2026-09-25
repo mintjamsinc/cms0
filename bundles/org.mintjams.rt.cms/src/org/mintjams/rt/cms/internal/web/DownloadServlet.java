@@ -210,8 +210,19 @@ public class DownloadServlet extends HttpServlet {
 				}
 			}
 		} catch (Throwable ex) {
+			if (isClientAbort(ex, response)) {
+				// The client closed the connection while the body was being
+				// streamed (a seek in a media player, a cancelled download).
+				// Nothing is wrong on the server side, and the response can no
+				// longer be changed, so neither an error log nor sendError applies.
+				CmsService.getLogger(getClass()).debug("Download aborted by client", ex);
+				return;
+			}
+
 			CmsService.getLogger(getClass()).error("Download execution failed", ex);
-			response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Internal server error: " + ex.getMessage());
+			if (!response.isCommitted()) {
+				response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Internal server error: " + ex.getMessage());
+			}
 		} finally {
 			if (jcrSession != null && jcrSession.isLive()) {
 				try {
@@ -220,6 +231,29 @@ public class DownloadServlet extends HttpServlet {
 				jcrSession.logout();
 			}
 		}
+	}
+
+	/**
+	 * Returns whether the failure was the client dropping the connection while
+	 * the body was being written. Headers and status go out when the response
+	 * is committed, so an I/O failure after that point comes from streaming the
+	 * body, and in practice that is the peer going away. The check stays on the
+	 * servlet API and java.io so it does not depend on the container's
+	 * exception classes.
+	 */
+	private static boolean isClientAbort(Throwable ex, HttpServletResponse response) {
+		if (!response.isCommitted()) {
+			return false;
+		}
+		for (Throwable t = ex; t != null; t = t.getCause()) {
+			if (t instanceof IOException) {
+				return true;
+			}
+			if (t.getCause() == t) {
+				break;
+			}
+		}
+		return false;
 	}
 
 	/**
