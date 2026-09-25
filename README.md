@@ -1,4 +1,4 @@
-# MintJams CMS (cms0)
+# MintJams CMS
 
 A lightweight Content Management System built on a simplified implementation
 of the **Content Repository for Java Technology API 2.0 (JSR 283)**.
