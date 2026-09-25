@@ -60,7 +60,8 @@ public class TestRunner {
 			JcrConcurrentNodeCreationTest.class,
 			JcrReferenceIndexTest.class,
 			JcrRemoveChildTreesTest.class,
-			JcrPropertyNullAndEmptyTest.class
+			JcrPropertyNullAndEmptyTest.class,
+			JcrStoredBinaryTest.class
 		};
 
 		// Run tests

@@ -200,13 +200,21 @@ public class DownloadServlet extends HttpServlet {
 				long length = range[3];
 				response.setContentLengthLong(length);
 				response.setHeader("Content-Range", "bytes " + start + "-" + end + "/" + contentLength);
+			} else if (Webs.isNormalRequest(request)) {
+				// Tell a media player it may seek, and how long the file is,
+				// on the plain response too; otherwise a player that did not
+				// ask for a range from the start has to download the whole
+				// file to find out.
+				response.setHeader("Accept-Ranges", "bytes");
+				response.setContentLengthLong(getContentLength(node));
 			}
 
 			try (InputStream in = JCRs.getContentAsStream(node)) {
 				if (rangeHeader == null) {
 					IOs.copy(in, response.getOutputStream());
 				} else {
-					IOs.copy(in, response.getOutputStream(), range[1], range[3]);
+					skipFully(in, range[1]);
+					IOs.copy(in, response.getOutputStream(), 0, range[3]);
 				}
 			}
 		} catch (Throwable ex) {
@@ -457,12 +465,29 @@ public class DownloadServlet extends HttpServlet {
 	}
 
 	/**
-	 * Get content length of the node
+	 * Get content length of the node. The recorded length of jcr:data, which
+	 * costs a row lookup; obtaining a Binary for it would open the blob.
 	 */
-	private long getContentLength(Node node) throws RepositoryException, IOException {
-		try (org.mintjams.jcr.Binary value = (org.mintjams.jcr.Binary) node.getNode(Node.JCR_CONTENT)
-				.getProperty(Property.JCR_DATA).getBinary()) {
-			return value.getSize();
+	private long getContentLength(Node node) throws RepositoryException {
+		return JCRs.getContentLength(node);
+	}
+
+	/**
+	 * Advances the stream to the start of a range. A single skip() may stop
+	 * short of what was asked (a buffered stream skips only what it holds),
+	 * so this keeps going until the offset is reached.
+	 */
+	private static void skipFully(InputStream in, long offset) throws IOException {
+		for (long remaining = offset; remaining > 0;) {
+			long skipped = in.skip(remaining);
+			if (skipped > 0) {
+				remaining -= skipped;
+				continue;
+			}
+			if (in.read() == -1) {
+				throw new java.io.EOFException("Range start beyond end of content");
+			}
+			remaining--;
 		}
 	}
 

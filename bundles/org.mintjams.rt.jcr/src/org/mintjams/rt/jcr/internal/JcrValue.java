@@ -364,6 +364,16 @@ public class JcrValue implements Value, Adaptable {
 			QName qName = (QName) fValue;
 			if (STRING_NS_URI.equals(qName.getNamespaceURI())) {
 				v = qName.getLocalPart();
+			} else if (adapterType.equals(Binary.class) || adapterType.equals(org.mintjams.jcr.Binary.class)) {
+				// A Binary over a stored blob reads it in place. Going through
+				// the stream below would copy the whole blob into a temporary
+				// file before the first byte could be read (JcrBinary), which
+				// is what a download of a large file must not pay per request.
+				try {
+					return (AdapterType) fAdaptable.adaptTo(WorkspaceQuery.class).files().getBinary(qName.getLocalPart());
+				} catch (Throwable ex) {
+					throw Cause.create(ex).wrap(ValueFormatException.class);
+				}
 			} else {
 				try {
 					v = fAdaptable.adaptTo(WorkspaceQuery.class).files().getInputStream(qName.getLocalPart());

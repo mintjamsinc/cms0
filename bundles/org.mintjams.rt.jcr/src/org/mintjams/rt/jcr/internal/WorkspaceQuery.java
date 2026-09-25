@@ -511,7 +511,7 @@ public class WorkspaceQuery implements Adaptable {
 			return fFilesEntity;
 		}
 
-		public void createFile(String id, JcrBinary data) throws IOException, SQLException, RepositoryException {
+		public void createFile(String id, org.mintjams.jcr.Binary data) throws IOException, SQLException, RepositoryException {
 			long size;
 			try (InputStream in = data.getStream()) {
 				size = adaptTo(BlobStore.class).write(id, in);
@@ -560,6 +560,15 @@ public class WorkspaceQuery implements Adaptable {
 
 		public InputStream getInputStream(String id) throws IOException {
 			return adaptTo(BlobStore.class).read(id);
+		}
+
+		/**
+		 * A binary that reads the stored blob in place, without copying it
+		 * to a temporary file first. Its size is the recorded one, so this
+		 * neither opens nor scans the blob.
+		 */
+		public BlobBinary getBinary(String id) throws IOException, SQLException {
+			return BlobBinary.create(adaptTo(BlobStore.class), id, getSize(id));
 		}
 
 		/**
@@ -2236,7 +2245,7 @@ public class WorkspaceQuery implements Adaptable {
 					propertiesEntity().create(r).execute();
 					syncReferences(params.getItemId(), id, params.getPropertyType(), params.getPropertyValues());
 
-					for (Map.Entry<String, JcrBinary> e : params.getBinaries()) {
+					for (Map.Entry<String, org.mintjams.jcr.Binary> e : params.getBinaries()) {
 						files().createFile(e.getKey(), e.getValue());
 					}
 
@@ -2259,7 +2268,7 @@ public class WorkspaceQuery implements Adaptable {
 					propertiesEntity().updateByPrimaryKey(r).execute();
 					syncReferences(params.getItemId(), id, params.getPropertyType(), params.getPropertyValues());
 
-					for (Map.Entry<String, JcrBinary> e : params.getBinaries()) {
+					for (Map.Entry<String, org.mintjams.jcr.Binary> e : params.getBinaries()) {
 						files().createFile(e.getKey(), e.getValue());
 					}
 
@@ -2718,7 +2727,7 @@ public class WorkspaceQuery implements Adaptable {
 		private final int fPropertyType;
 		private final List<String> fPropertyValues = new ArrayList<>();
 		private final boolean fMultiple;
-		private final Map<String, JcrBinary> fBinaries = new HashMap<>();
+		private final Map<String, org.mintjams.jcr.Binary> fBinaries = new HashMap<>();
 		private final Closer fCloser = Closer.create();
 
 		private PropertyParameters(String itemId, String relPath, int type, boolean multiple, Value... values)
@@ -2735,12 +2744,12 @@ public class WorkspaceQuery implements Adaptable {
 				}
 
 				QName propertyValue = null;
-				JcrBinary binary = null;
+				org.mintjams.jcr.Binary binary = null;
 				try {
 					if (type == PropertyType.BINARY || relPath.equals(JcrProperty.JCR_DATA_NAME)) {
 						propertyValue = new QName(JcrValue.BINARY_NS_URI, UUID.randomUUID().toString(),
 								XMLConstants.DEFAULT_NS_PREFIX);
-						binary = fCloser.register((JcrBinary) ((JcrValue) value).adapt(Binary.class));
+						binary = fCloser.register((org.mintjams.jcr.Binary) ((JcrValue) value).adapt(Binary.class));
 					} else if (type == PropertyType.BOOLEAN || type == PropertyType.DATE || type == PropertyType.DECIMAL
 							|| type == PropertyType.DOUBLE || type == PropertyType.LONG || type == PropertyType.STRING
 							|| type == PropertyType.NAME || type == PropertyType.PATH || type == PropertyType.URI) {
@@ -2804,7 +2813,7 @@ public class WorkspaceQuery implements Adaptable {
 			return fPropertyValues.toArray(String[]::new);
 		}
 
-		public Set<Map.Entry<String, JcrBinary>> getBinaries() {
+		public Set<Map.Entry<String, org.mintjams.jcr.Binary>> getBinaries() {
 			return fBinaries.entrySet();
 		}
 
