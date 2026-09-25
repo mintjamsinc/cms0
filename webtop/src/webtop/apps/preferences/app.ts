@@ -195,6 +195,8 @@ const App = {
 			avatarDragOver: false,
 			displayName: '',
 			originalDisplayName: '',
+			mail: '',
+			originalMail: '',
 			profileSaving: false,
 			profileMessage: '',
 			profileMessageType: 'success',
@@ -281,6 +283,9 @@ const App = {
 	computed: {
 		displayNameChanged() {
 			return this.displayName !== this.originalDisplayName;
+		},
+		mailChanged() {
+			return this.mail.trim() !== this.originalMail;
 		},
 		// Item lists for the localization wt-selects. '' encodes each "Auto"
 		// choice (the label helpers already render the auto wording for '').
@@ -791,6 +796,8 @@ const App = {
 				if (me) {
 					vm.displayName = me.displayName || '';
 					vm.originalDisplayName = vm.displayName;
+					vm.mail = me.mail || '';
+					vm.originalMail = vm.mail;
 				}
 			} catch (e) {
 				console.warn('[Preferences] Failed to load profile:', e);
@@ -819,8 +826,7 @@ const App = {
 			vm.profileMessage = '';
 			try {
 				const username = vm.instance.currentUser.id;
-				const result = await vm.idp.updateUser({
-					username,
+				const result = await vm.idp.updateMyProfile({
 					displayName: vm.displayName,
 				});
 				if (result.errors?.length) {
@@ -836,6 +842,36 @@ const App = {
 						category: 'profile',
 						data: { displayName: vm.displayName },
 					}).catch(e => console.warn('[Preferences] Failed to sync display name:', e));
+				}
+			} catch (e: any) {
+				vm.profileMessage = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
+				vm.profileMessageType = 'error';
+			} finally {
+				vm.profileSaving = false;
+			}
+		},
+
+		async saveMail() {
+			const vm = this;
+			const mail = vm.mail.trim();
+			if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+				vm.profileMessage = vm.t('app.preferences.msg.invalidEmail', undefined, 'Enter a valid email address.');
+				vm.profileMessageType = 'error';
+				return;
+			}
+			vm.profileSaving = true;
+			vm.profileMessage = '';
+			try {
+				const result = await vm.idp.updateMyProfile({ mail });
+				if (result.errors?.length) {
+					vm.profileMessage = result.errors[0].message;
+					vm.profileMessageType = 'error';
+				} else {
+					vm.mail = result.user?.mail || '';
+					vm.originalMail = vm.mail;
+					vm.profileMessage = vm.t('app.preferences.msg.emailUpdated', undefined, 'Email address updated.');
+					vm.profileMessageType = 'success';
+					vm.instance.api.webtop.postMessage({ type: 'profile-changed', mail: vm.mail });
 				}
 			} catch (e: any) {
 				vm.profileMessage = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');

@@ -17,6 +17,7 @@ import type {
   CreateUserInput,
   CreateUserPayload,
   UpdateUserInput,
+  UpdateMyProfileInput,
   UpdateUserPayload,
   DeleteUserInput,
   DeleteUserPayload,
@@ -214,6 +215,14 @@ export class IdpServiceGraphQL {
       { input }
     );
     return data.updateUser;
+  }
+
+  async updateMyProfile(input: UpdateMyProfileInput): Promise<UpdateUserPayload> {
+    const data = await this.#client.mutation<{ updateMyProfile: UpdateUserPayload }>(
+      IDP_MUTATIONS.UPDATE_MY_PROFILE,
+      { input }
+    );
+    return data.updateMyProfile;
   }
 
   async deleteUser(input: DeleteUserInput): Promise<DeleteUserPayload> {

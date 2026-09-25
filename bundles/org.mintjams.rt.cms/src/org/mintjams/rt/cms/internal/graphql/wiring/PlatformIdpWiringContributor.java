@@ -34,6 +34,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
@@ -93,6 +94,9 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 	static final String ROLES_ROOT = "/home/roles";
 	static final String GROUPS_ROOT = "/home/groups";
 
+	/** Loose shape check for a self-service email address: one @, no whitespace, a dotted domain. */
+	private static final Pattern MAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+
 	@Override
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
@@ -108,6 +112,8 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 				.dataFetcher("Query", "groupTree", (DataFetcher<Object>) PlatformIdpWiringContributor::groupTree)
 				.dataFetcher("Mutation", "createUser", (DataFetcher<Object>) PlatformIdpWiringContributor::createUser)
 				.dataFetcher("Mutation", "updateUser", (DataFetcher<Object>) PlatformIdpWiringContributor::updateUser)
+				.dataFetcher("Mutation", "updateMyProfile",
+						(DataFetcher<Object>) PlatformIdpWiringContributor::updateMyProfile)
 				.dataFetcher("Mutation", "deleteUser", (DataFetcher<Object>) PlatformIdpWiringContributor::deleteUser)
 				.dataFetcher("Mutation", "changePassword",
 						(DataFetcher<Object>) PlatformIdpWiringContributor::changePassword)
@@ -570,6 +576,40 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 			boolean enabled = (Boolean) input.get("enabled");
 			contentNode.setProperty("enabled", enabled);
 		}
+		session.save();
+		Node savedProfile = session.getNode(profilePath);
+		return userResult(mapUser(session, username, savedProfile, JCRs.getContentNode(savedProfile)));
+	}
+
+
+	/**
+	 * Self-service profile update. {@code updateUser} refuses to touch the caller's
+	 * own account (self-lockout guard), so the fields a user may safely change
+	 * about themselves (display name, email) are written here against the
+	 * caller's own profile only; {@code enabled} and the name parts stay
+	 * administrator-only.
+	 */
+	private static Object updateMyProfile(DataFetchingEnvironment environment) throws Exception {
+		Session session = callerSession(environment);
+		Map<String, Object> input = new HashMap<>(inputArg(environment));
+		String username = session.getUserID();
+		String profilePath = USERS_ROOT + "/" + username + "/profile";
+		if (username == null || !session.nodeExists(profilePath)) {
+			return errorResult("User not found: " + username, "NOT_FOUND");
+		}
+		if (input.get("mail") instanceof String) {
+			String mail = ((String) input.get("mail")).trim();
+			if (!mail.isEmpty() && !MAIL_PATTERN.matcher(mail).matches()) {
+				return errorResult("Invalid email address", "INVALID_INPUT");
+			}
+			input.put("mail", mail);
+		}
+		if (input.get("displayName") instanceof String) {
+			input.put("displayName", ((String) input.get("displayName")).trim());
+		}
+		Node contentNode = JCRs.getContentNode(session.getNode(profilePath));
+		setStringIfPresent(contentNode, "displayName", input);
+		setStringIfPresent(contentNode, "mail", input);
 		session.save();
 		Node savedProfile = session.getNode(profilePath);
 		return userResult(mapUser(session, username, savedProfile, JCRs.getContentNode(savedProfile)));

@@ -449,6 +449,19 @@ export const IDP_MUTATIONS = {
     }
   `,
 
+  UPDATE_MY_PROFILE: `
+    mutation UpdateMyProfile($input: UpdateMyProfileInput!) {
+      updateMyProfile(input: $input) {
+        user {
+          ${USER_FULL_FIELDS}
+        }
+        errors {
+          ${MUTATION_ERROR_FIELDS}
+        }
+      }
+    }
+  `,
+
   DELETE_USER: `
     mutation DeleteUser($input: DeleteUserInput!) {
       deleteUser(input: $input) {

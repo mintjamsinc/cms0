@@ -261,11 +261,27 @@
 									</button>
 								</div>
 							</wt-field>
-							<wt-inline-message v-if="profileMessage" class="mt-2"
-								:type="profileMessageType === 'success' ? 'success' : 'error'">
-								{{ profileMessage }}
-							</wt-inline-message>
 						</div>
+
+						<!-- Email -->
+						<div class="property-group">
+							<wt-field :label="t('app.preferences.profile.email')">
+								<div class="d-flex gap-2 align-items-center">
+									<input type="email" class="wt pref-input" v-model="mail" autocomplete="email"
+										:placeholder="t('app.preferences.profile.emailPlaceholder')">
+									<button class="wt wt-primary" @click="saveMail"
+										:disabled="!mailChanged || profileSaving">
+										{{ t('common.save') }}
+									</button>
+								</div>
+								<div class="text-muted fs-small mt-2">{{ t('app.preferences.profile.emailHint') }}</div>
+							</wt-field>
+						</div>
+
+						<wt-inline-message v-if="profileMessage" class="mt-2"
+							:type="profileMessageType === 'success' ? 'success' : 'error'">
+							{{ profileMessage }}
+						</wt-inline-message>
 					</template>
 
 					<!-- ========== Security ========== -->

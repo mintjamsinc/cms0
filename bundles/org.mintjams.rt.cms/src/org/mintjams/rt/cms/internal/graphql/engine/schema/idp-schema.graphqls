@@ -219,6 +219,9 @@ extend type Mutation {
   """Update a user's editable profile fields (only the fields present are written)."""
   updateUser(input: UpdateUserInput!): UserMutationPayload!
 
+  """Update the caller's own profile (display name, email). Self-service counterpart of updateUser, which refuses self-modification; only the fields present are written."""
+  updateMyProfile(input: UpdateMyProfileInput!): UserMutationPayload!
+
   """Delete a user (identity home plus per-workspace working areas)."""
   deleteUser(input: DeleteUserInput!): DeleteUserPayload!
 
@@ -251,6 +254,12 @@ input UpdateUserInput {
   displayName: String
   mail: String
   enabled: Boolean
+}
+
+input UpdateMyProfileInput {
+  displayName: String
+  """An empty string clears the address."""
+  mail: String
 }
 
 input DeleteUserInput {

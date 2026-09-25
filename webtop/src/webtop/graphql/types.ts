@@ -14,6 +14,13 @@ export interface PageInfo {
   endCursor: string | null;
 }
 
+/** Self-service profile update: the caller's own display name and email. */
+export interface UpdateMyProfileInput {
+  displayName?: string;
+  /** An empty string clears the address. */
+  mail?: string;
+}
+
 export type SortOrder = 'ASC' | 'DESC';
 
 // =============================================================================

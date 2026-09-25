@@ -79,13 +79,17 @@ public class MultiFactorServiceImpl implements MultiFactorService {
 
 	@Override
 	public TotpEnrollment beginTotpEnrollment(String username) throws MultiFactorException {
-		IdpUser user = requireUser(username);
+		requireUser(username);
 		Session session = openSession();
 		try {
 			String secret = Totp.generateSecret();
 			CredentialStore.setPendingTotpSecret(session, username, secret);
 			String issuer = config().getTotpIssuer();
-			String account = Strings.isNotEmpty(user.getEmail()) ? user.getEmail() : username;
+			// The account label is what the authenticator app shows next to the
+			// code. Use the sign-in name, not the email: the email is optional,
+			// changeable from Preferences, and would otherwise leave the label
+			// stale after a change.
+			String account = username;
 			return new TotpEnrollment(secret, issuer, account, Totp.buildOtpauthUri(issuer, account, secret));
 		} catch (Exception ex) {
 			throw wrap("Failed to start TOTP enrollment for " + username, ex);
