@@ -953,37 +953,6 @@
 	max-width: 32rem;
 }
 
-.memo-dataset-field {
-	display: flex;
-	flex-direction: column;
-	gap: 0.25rem;
-}
-
-.memo-dataset-field > span {
-	font-size: 0.75rem;
-	color: var(--text-soft-color);
-}
-
-.memo-dataset-check {
-	flex-direction: row;
-	align-items: center;
-	gap: 0.5rem;
-}
-
-.memo-dataset-check > span {
-	/* font-size: 0.875rem; */
-	color: var(--text-color);
-}
-
-/* The type picker in the column form: a full-width button whose menu is the
-   same popup as the header's pickers. */
-.memo-dataset-form-picker {
-	display: flex;
-	align-items: center;
-	width: 100%;
-	text-align: left;
-}
-
 /* Choices in the column form: one line per value with its swatch dot; the
    dot opens the palette (the Inspector's eleven swatches and none). */
 

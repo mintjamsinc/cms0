@@ -2231,8 +2231,8 @@ class DatasetNodeView implements NodeView {
 		if (!this.dataset) return;
 		const panel = el('div', 'memo-dataset-panel');
 		panel.appendChild(el('div', 'memo-dataset-panel-title', this.t('app.memo.dataset.rename', undefined, 'Rename dataset…').replace(/…$/, '')));
-		const field = el('label', 'memo-dataset-field');
-		field.appendChild(el('span', undefined, this.t('app.memo.dataset.form.label', undefined, 'Label')));
+		const field = el('label', 'wt-field');
+		field.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.label', undefined, 'Label')));
 		const input = el('input', 'wt');
 		input.type = 'text';
 		input.value = this.dataset.label || '';
@@ -2282,23 +2282,23 @@ class DatasetNodeView implements NodeView {
 			? this.t('app.memo.dataset.editColumn', undefined, 'Edit column…').replace(/…$/, '')
 			: this.t('app.memo.dataset.addColumn', undefined, 'Add column')));
 
-		const labelField = el('label', 'memo-dataset-field');
-		labelField.appendChild(el('span', undefined, this.t('app.memo.dataset.form.label', undefined, 'Label')));
+		const labelField = el('label', 'wt-field');
+		labelField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.label', undefined, 'Label')));
 		const labelInput = el('input', 'wt');
 		labelInput.type = 'text';
 		labelInput.value = column ? (column.label || '') : '';
 		labelField.appendChild(labelInput);
 		panel.appendChild(labelField);
 
-		const keyField = el('label', 'memo-dataset-field');
-		keyField.appendChild(el('span', undefined, this.t('app.memo.dataset.form.key', undefined, 'Key')));
+		const keyField = el('label', 'wt-field');
+		keyField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.key', undefined, 'Key')));
 		const keyInput = el('input', 'wt');
 		keyInput.type = 'text';
 		keyInput.value = column ? column.key : '';
 		keyInput.disabled = !!column;
 		keyInput.placeholder = 'status';
 		keyField.appendChild(keyInput);
-		const keyHint = el('div', 'memo-dataset-hint', column
+		const keyHint = el('div', 'wt-field-hint', column
 			? this.t('app.memo.dataset.form.keyFixed', { name: column.name }, `Stored as ${column.name}`)
 			: this.t('app.memo.dataset.form.keyHint', undefined, 'Letters, digits and underscores; cannot be changed later.'));
 		keyField.appendChild(keyHint);
@@ -2311,26 +2311,28 @@ class DatasetNodeView implements NodeView {
 		keyInput.addEventListener('input', () => { keyTouched = keyInput.value !== ''; });
 
 		// The type: a picker that opens the same menu as the header's controls,
-		// not a native select. Fixed once the column exists.
-		const typeField = el('div', 'memo-dataset-field');
-		typeField.appendChild(el('span', undefined, this.t('app.memo.dataset.form.type', undefined, 'Type')));
+		// not a native select, drawn as the shared .wt-select trigger like the
+		// other form dropdowns. Fixed once the column exists.
+		const typeField = el('div', 'wt-field');
+		typeField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.type', undefined, 'Type')));
 		let selectedType: DatasetPropertyType = column ? column.type : 'STRING';
 		const typeLabel = (type: DatasetPropertyType) => this.t('app.memo.dataset.type.' + type, undefined, type);
-		const typeButton = el('button', 'wt memo-dataset-btn memo-dataset-picker memo-dataset-form-picker');
+		const typeSelect = el('div', 'wt-select' + (column ? ' disabled' : ''));
+		const typeButton = el('button', 'wt-select-trigger');
 		typeButton.type = 'button';
 		typeButton.disabled = !!column;
-		const typeText = el('span', undefined, typeLabel(selectedType));
+		const typeText = el('span', 'wt-select-value', typeLabel(selectedType));
 		typeButton.appendChild(icon(typeIcon(selectedType)));
 		typeButton.appendChild(typeText);
-		typeButton.appendChild(el('span', 'memo-dataset-spacer'));
-		typeButton.appendChild(icon('bi-chevron-down ms-1'));
+		typeButton.appendChild(icon('bi-chevron-down wt-select-chevron'));
+		typeSelect.appendChild(typeButton);
 		typeButton.addEventListener('click', () => {
 			const popup = this.host.popup();
 			if (!popup) return;
 			const handle = popup.open({
 				anchor: anchorOf(typeButton),
 				placement: 'bottom-start',
-				minWidth: Math.max(180, typeButton.getBoundingClientRect().width),
+				minWidth: typeButton.getBoundingClientRect().width,
 				items: TYPES.map(type => ({ id: type, label: typeLabel(type), icon: 'bi ' + typeIcon(type), selected: type === selectedType })),
 			});
 			handle.result.then((id: string | null) => {
@@ -2341,40 +2343,40 @@ class DatasetNodeView implements NodeView {
 				syncChoices();
 			});
 		});
-		typeField.appendChild(typeButton);
+		typeField.appendChild(typeSelect);
 		panel.appendChild(typeField);
 
-		const multipleField = el('label', 'memo-dataset-field memo-dataset-check');
-		const multipleInput = el('input');
+		const multipleField = el('label', 'wt-checkbox' + (column ? ' disabled' : ''));
+		const multipleInput = el('input', 'wt');
 		multipleInput.type = 'checkbox';
 		multipleInput.checked = column ? column.multiple : false;
 		multipleInput.disabled = !!column;
 		multipleField.appendChild(multipleInput);
-		multipleField.appendChild(el('span', undefined, this.t('app.memo.dataset.form.multiple', undefined, 'Multiple values')));
+		multipleField.appendChild(el('span', 'wt-checkbox-text', this.t('app.memo.dataset.form.multiple', undefined, 'Multiple values')));
 		panel.appendChild(multipleField);
 
-		const requiredField = el('label', 'memo-dataset-field memo-dataset-check');
-		const requiredInput = el('input');
+		const requiredField = el('label', 'wt-checkbox');
+		const requiredInput = el('input', 'wt');
 		requiredInput.type = 'checkbox';
 		requiredInput.checked = column ? column.required : false;
 		requiredField.appendChild(requiredInput);
-		requiredField.appendChild(el('span', undefined, this.t('app.memo.dataset.form.required', undefined, 'Required')));
+		requiredField.appendChild(el('span', 'wt-checkbox-text', this.t('app.memo.dataset.form.required', undefined, 'Required')));
 		panel.appendChild(requiredField);
 
-		const printField = el('label', 'memo-dataset-field memo-dataset-check');
-		const printInput = el('input');
+		const printField = el('label', 'wt-checkbox');
+		const printInput = el('input', 'wt');
 		printInput.type = 'checkbox';
 		printInput.checked = column ? isPrinted(column) : true;
 		printField.appendChild(printInput);
-		printField.appendChild(el('span', undefined, this.t('app.memo.dataset.form.print', undefined, 'Print')));
+		printField.appendChild(el('span', 'wt-checkbox-text', this.t('app.memo.dataset.form.print', undefined, 'Print')));
 		panel.appendChild(printField);
 
 		// Choices: one row per value, with its label and its swatch.
 		const choices: ChoiceDraft[] = column
 			? column.choices.map(c => ({ value: c.value, label: c.label && c.label !== c.value ? c.label : '', color: swatchKeyOf(c.color) }))
 			: [];
-		const choicesField = el('div', 'memo-dataset-field');
-		choicesField.appendChild(el('span', undefined, this.t('app.memo.dataset.form.choices', undefined, 'Choices')));
+		const choicesField = el('div', 'wt-field');
+		choicesField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.choices', undefined, 'Choices')));
 		const choicesList = el('div', 'memo-dataset-choices');
 		choicesField.appendChild(choicesList);
 		const addChoice = button('wt wt-slim memo-dataset-choice-add', '', 'bi-plus-lg', this.t('app.memo.dataset.form.addChoice', undefined, 'Add choice'));
