@@ -34,14 +34,16 @@ function minifyCss(contents) {
   return transformSync(contents.toString(), { loader: 'css', minify: true }).code;
 }
 
-// Cache-busting version stamp. A single token is computed once per rollup
-// invocation and substituted into both copied HTML files (via the copy
-// plugin's transform hook) and emitted JS chunks (via renderChunk below).
-// Filenames stay constant so rebuilds never leave orphan files behind;
-// callers append "?v=<BUILD_VERSION>" to asset URLs so browsers refetch
-// after each build.
-const BUILD_VERSION = Date.now().toString(36);
-console.log(`[rollup] BUILD_VERSION=${BUILD_VERSION}`);
+// Cache-busting version stamp. A single token is computed once per build
+// and substituted into both copied HTML files (via the copy plugin's
+// transform hook) and emitted JS chunks (via renderChunk below). Filenames
+// stay constant so rebuilds never leave orphan files behind; callers append
+// "?v=<BUILD_VERSION>" to asset URLs so browsers refetch after each build.
+// scripts/build.mjs runs one rollup process per target and passes the stamp
+// in BUILD_VERSION so every target of one build shares it; a bare `rollup -c`
+// makes its own.
+const BUILD_VERSION = process.env.BUILD_VERSION || Date.now().toString(36);
+if (!process.env.BUILD_VERSION) console.log(`[rollup] BUILD_VERSION=${BUILD_VERSION}`);
 
 // Replace __BUILD_VERSION__ tokens in copied text assets (HTML).
 function stampVersion(contents) {
@@ -61,12 +63,18 @@ function versionStampPlugin() {
   };
 }
 
-// Shared TypeScript plugin options.
+// Shared TypeScript plugin options. The plugin only transpiles: type
+// checking is done once for the whole of src/ by scripts/build.mjs (tsc
+// --noEmit) rather than once per target, which is what made a full build
+// slow and, with a program per target held in one process, run out of heap.
+// A bare `rollup -c` therefore does not report type errors; run
+// `npm run typecheck` or the build script.
 function tsPlugin() {
   return typescript({
     tsconfig: './tsconfig.json',
     useTsconfigDeclarationDir: false,
     clean: true,
+    check: false,
   });
 }
 
@@ -281,25 +289,46 @@ const radioConfig = makeAppConfig('radio', {
   ],
 });
 
-export default [
-  webtopCoreConfig,
-  uiStandaloneConfig,
-  makeAppConfig('content-browser'),
-  makeAppConfig('memo'),
-  makeAppConfig('text-editor'),
-  makeAppConfig('text-editor-preview'),
-  pdfViewerConfig,
-  makeAppConfig('bpmn-modeler'),
-  makeAppConfig('eip-modeler'),
-  makeAppConfig('schema-manager'),
-  makeAppConfig('identity-manager'),
-  makeAppConfig('preferences'),
-  makeAppConfig('bpm-console'),
-  makeAppConfig('eip-console'),
-  makeAppConfig('tasks'),
-  makeAppConfig('osgi-console'),
-  makeAppConfig('dashboard'),
-  makeAppConfig('workspace-manager'),
-  radioConfig,
-  mailConfig,
-].filter(Boolean);
+// Every target by name, in build order. scripts/build.mjs reads this list to
+// run one rollup process per target, so a target added here is picked up by
+// `npm run build` without a second list to keep in sync. Targets with extra
+// copy steps are built above; the rest are plain makeAppConfig targets.
+const specialConfigs = {
+  'webtop': webtopCoreConfig,
+  'webtop-ui-standalone': uiStandaloneConfig,
+  'pdf-viewer': pdfViewerConfig,
+  'radio': radioConfig,
+  'mail': mailConfig,
+};
+export const TARGET_NAMES = [
+  'webtop',
+  'webtop-ui-standalone',
+  'content-browser',
+  'memo',
+  'text-editor',
+  'text-editor-preview',
+  'pdf-viewer',
+  'bpmn-modeler',
+  'eip-modeler',
+  'schema-manager',
+  'identity-manager',
+  'preferences',
+  'bpm-console',
+  'eip-console',
+  'tasks',
+  'osgi-console',
+  'dashboard',
+  'workspace-manager',
+  'radio',
+  'mail',
+];
+
+if (targetFilter) {
+  for (const name of targetFilter) {
+    if (!TARGET_NAMES.includes(name)) console.warn(`[rollup] Unknown target in TARGETS: ${name}`);
+  }
+}
+
+export default TARGET_NAMES
+  .map(name => (name in specialConfigs ? specialConfigs[name] : makeAppConfig(name)))
+  .filter(Boolean);
