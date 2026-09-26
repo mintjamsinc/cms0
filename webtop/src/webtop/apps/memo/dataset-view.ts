@@ -40,7 +40,7 @@ import type { ChartConfiguration } from 'chart.js';
 import {
 	CHART_KINDS, CHART_ICONS, AGGREGATES, BUCKETS,
 	buildChartModel, buildChartConfig, chartValueLabel, formatChartNumber,
-	chartXColumns, chartYColumns, chartSeriesColumns, isNumericColumn,
+	chartXColumns, chartYColumns, chartSeriesColumns, chartDateColumns, isNumericColumn,
 } from './dataset-chart.js';
 import type { ChartKind, Aggregate, Bucket, ChartSpec } from './dataset-chart.js';
 
@@ -66,6 +66,12 @@ const VIEWS = ['table', 'board', 'calendar', 'chart'] as const;
 type ViewKind = typeof VIEWS[number];
 const VIEW_ICONS: Record<ViewKind, string> = { table: 'bi-table', board: 'bi-kanban', calendar: 'bi-calendar3', chart: 'bi-bar-chart' };
 const DEFAULT_CHART_KIND: ChartKind = 'bar';
+// The height of a Gantt chart's canvas: a slot per row, the time axis, the
+// legend when there is one, and never less than a few rows' worth.
+const GANTT_ROW_HEIGHT = 26;
+const GANTT_AXIS_HEIGHT = 48;
+const GANTT_LEGEND_HEIGHT = 32;
+const GANTT_MIN_HEIGHT = 160;
 const DEFAULT_BUCKET: Bucket = 'month';
 // Table column widths, in pixels. The name column has no descriptor key, so
 // its width is stored under a key no column can have (keys start with a
@@ -128,13 +134,16 @@ export interface DatasetViewAttrs {
 	date: string;
 	// The chart: its kind, the category column (x), the value column (y; ''
 	// counts rows) and how it is aggregated, the column that splits it into
-	// series ('' for one), and the bucket of a date category.
+	// series ('' for one), the bucket of a date category, and the date
+	// columns a Gantt chart's bars start and end at.
 	chart: ChartKind;
 	x: string;
 	y: string;
 	agg: Aggregate;
 	series: string;
 	bucket: Bucket;
+	start: string;
+	end: string;
 	// Table column widths in pixels by key (NAME_COLUMN_KEY for the name
 	// column); a column not listed has its default width.
 	widths: Record<string, number>;
@@ -220,6 +229,8 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 				agg: { default: 'count', rendered: false },
 				series: { default: '', rendered: false },
 				bucket: { default: DEFAULT_BUCKET, rendered: false },
+				start: { default: '', rendered: false },
+				end: { default: '', rendered: false },
 				widths: { default: {}, rendered: false },
 				order: { default: [], rendered: false },
 				wide: { default: false, rendered: false },
@@ -248,6 +259,8 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 						agg: (AGGREGATES as readonly string[]).includes(agg) ? agg : 'count',
 						series: el.getAttribute('data-series') || '',
 						bucket: (BUCKETS as readonly string[]).includes(bucket) ? bucket : DEFAULT_BUCKET,
+						start: el.getAttribute('data-start') || '',
+						end: el.getAttribute('data-end') || '',
 						widths: parseJSONAttribute(el.getAttribute('data-widths'), {}),
 						order: parseJSONAttribute(el.getAttribute('data-order'), []),
 						wide: el.hasAttribute('data-wide'),
@@ -272,6 +285,8 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 				'data-agg': attrs.agg && attrs.agg !== 'count' ? attrs.agg : null,
 				'data-series': attrs.series || null,
 				'data-bucket': attrs.bucket && attrs.bucket !== DEFAULT_BUCKET ? attrs.bucket : null,
+				'data-start': attrs.start || null,
+				'data-end': attrs.end || null,
 				'data-widths': attrs.widths && Object.keys(attrs.widths).length ? JSON.stringify(attrs.widths) : null,
 				'data-order': attrs.order && attrs.order.length ? JSON.stringify(attrs.order) : null,
 				'data-wide': attrs.wide ? '' : null,
@@ -450,6 +465,7 @@ class DatasetNodeView implements NodeView {
 			|| before.view !== after.view || before.group !== after.group || before.date !== after.date
 			|| before.chart !== after.chart || before.x !== after.x || before.y !== after.y
 			|| before.agg !== after.agg || before.series !== after.series || before.bucket !== after.bucket
+			|| before.start !== after.start || before.end !== after.end
 			|| before.widths !== after.widths || before.order !== after.order || before.wide !== after.wide) {
 			this.render();
 		}
@@ -1635,12 +1651,17 @@ class DatasetNodeView implements NodeView {
 		return chartSeriesColumns(kind, this.dataset?.properties || []);
 	}
 
+	private chartDateColumns(): DatasetProperty[] {
+		return chartDateColumns(this.dataset?.properties || []);
+	}
+
 	// The chart as configured, with columns that no longer fit the kind (a
 	// text column under a scatter, say) dropped.
 	private chartSpec(): ChartSpec {
 		const attrs = this.attrs;
 		const kind = this.chartKind();
 		const y = this.columnByKey(attrs.y, this.chartYColumns());
+		const dates = kind === 'gantt' ? this.chartDateColumns() : [];
 		return {
 			kind,
 			x: this.columnByKey(attrs.x, this.chartXColumns(kind)),
@@ -1649,13 +1670,24 @@ class DatasetNodeView implements NodeView {
 			agg: y ? ((AGGREGATES as readonly string[]).includes(attrs.agg) && attrs.agg !== 'count' ? attrs.agg : 'sum') : 'count',
 			series: this.columnByKey(attrs.series, this.chartSeriesColumns(kind)),
 			bucket: (BUCKETS as readonly string[]).includes(attrs.bucket) ? attrs.bucket : DEFAULT_BUCKET,
+			start: this.columnByKey(attrs.start, dates),
+			end: this.columnByKey(attrs.end, dates),
 		};
 	}
 
 	// Columns for a chart kind when the stored ones do not fit it: the first
-	// usable X column, and for a scatter a second number column as Y.
+	// usable X column, for a scatter a second number column as Y, and for a
+	// Gantt chart the first two date columns as start and end.
 	private chartDefaults(kind: ChartKind): Partial<DatasetViewAttrs> {
 		const patch: Partial<DatasetViewAttrs> = {};
+		if (kind === 'gantt') {
+			const dates = this.chartDateColumns();
+			const start = this.columnByKey(this.attrs.start, dates) || dates[0] || null;
+			if (start && start.key !== this.attrs.start) patch.start = start.key;
+			const ends = dates.filter(p => p.key !== start?.key);
+			if (!this.columnByKey(this.attrs.end, dates) && ends.length > 0) patch.end = ends[0].key;
+			return patch;
+		}
 		const xs = this.chartXColumns(kind);
 		let x = this.columnByKey(this.attrs.x, xs);
 		if (!x && xs.length > 0) {
@@ -1709,7 +1741,21 @@ class DatasetNodeView implements NodeView {
 			CHART_KINDS.map(k => ({ id: k, label: kindLabel(k), icon: CHART_ICONS[k] })), kind,
 			id => this.switchChartKind(id as ChartKind)));
 
-		if (kind !== 'number') {
+		if (kind === 'gantt') {
+			// Where the bars start and end: two date columns.
+			const dates = this.chartDateColumns();
+			const items = dates.map(p => ({ id: p.key, label: p.label || p.key, icon: columnIcon(p) }));
+			header.appendChild(this.renderOptionPicker(
+				this.t('app.memo.dataset.chart.start', undefined, 'Start'),
+				spec.start ? (spec.start.label || spec.start.key) : '',
+				items, spec.start?.key || '',
+				key => this.setAttrs({ start: key })));
+			header.appendChild(this.renderOptionPicker(
+				this.t('app.memo.dataset.chart.end', undefined, 'End'),
+				spec.end ? (spec.end.label || spec.end.key) : '',
+				items, spec.end?.key || '',
+				key => this.setAttrs({ end: key })));
+		} else if (kind !== 'number') {
 			const xs = this.chartXColumns(kind);
 			header.appendChild(this.renderOptionPicker(
 				this.t('app.memo.dataset.chart.x', undefined, 'X axis'),
@@ -1718,17 +1764,19 @@ class DatasetNodeView implements NodeView {
 				key => this.setAttrs({ x: key })));
 		}
 
-		const ys = this.chartYColumns().filter(p => kind !== 'scatter' || p.key !== spec.x?.key);
-		const countLabel = this.t('app.memo.dataset.chart.agg.count', undefined, 'Count');
-		const yItems = (kind === 'scatter' ? [] : [{ id: '', label: countLabel, icon: 'bi-hash' }])
-			.concat(ys.map(p => ({ id: p.key, label: p.label || p.key, icon: columnIcon(p) })));
-		header.appendChild(this.renderOptionPicker(
-			this.t('app.memo.dataset.chart.y', undefined, 'Value'),
-			spec.y ? (spec.y.label || spec.y.key) : (kind === 'scatter' ? '' : countLabel),
-			yItems, spec.y?.key || '',
-			key => this.setAttrs({ y: key, agg: key && this.attrs.agg !== 'count' ? this.attrs.agg : (key ? 'sum' : 'count') })));
+		if (kind !== 'gantt') {
+			const ys = this.chartYColumns().filter(p => kind !== 'scatter' || p.key !== spec.x?.key);
+			const countLabel = this.t('app.memo.dataset.chart.agg.count', undefined, 'Count');
+			const yItems = (kind === 'scatter' ? [] : [{ id: '', label: countLabel, icon: 'bi-hash' }])
+				.concat(ys.map(p => ({ id: p.key, label: p.label || p.key, icon: columnIcon(p) })));
+			header.appendChild(this.renderOptionPicker(
+				this.t('app.memo.dataset.chart.y', undefined, 'Value'),
+				spec.y ? (spec.y.label || spec.y.key) : (kind === 'scatter' ? '' : countLabel),
+				yItems, spec.y?.key || '',
+				key => this.setAttrs({ y: key, agg: key && this.attrs.agg !== 'count' ? this.attrs.agg : (key ? 'sum' : 'count') })));
+		}
 
-		if (spec.y && kind !== 'scatter') {
+		if (spec.y && kind !== 'scatter' && kind !== 'gantt') {
 			const aggLabel = (a: Aggregate) => this.t('app.memo.dataset.chart.agg.' + a, undefined, a);
 			const aggs = AGGREGATES.filter(a => a !== 'count');
 			header.appendChild(this.renderOptionPicker('', aggLabel(spec.agg),
@@ -1779,13 +1827,21 @@ class DatasetNodeView implements NodeView {
 					? this.t('app.memo.dataset.chart.scatterNeedsNumbers', undefined, 'A scatter chart needs two number columns. Add them in the Inspector.')
 					: this.t('app.memo.dataset.chart.pickColumns', undefined, 'Choose the columns for the X axis and the value.'));
 			}
+		} else if (spec.kind === 'gantt') {
+			if (!spec.start || !spec.end) {
+				return note(this.chartDateColumns().length === 0
+					? this.t('app.memo.dataset.chart.ganttNeedsDates', undefined, 'A Gantt chart needs date columns for the start and the end. Add them in the Inspector.')
+					: this.t('app.memo.dataset.chart.pickDates', undefined, 'Choose the columns for the start and the end.'));
+			}
 		} else if (spec.kind !== 'number' && !spec.x) {
 			return note(this.chartXColumns(spec.kind).length === 0
 				? this.t('app.memo.dataset.chart.noColumn', undefined, 'A chart needs a column for the X axis. Add one in the Inspector.')
 				: this.t('app.memo.dataset.chart.pickColumn', undefined, 'Choose the column for the X axis.'));
 		}
 
-		const model = buildChartModel(spec, this.rows, ctx);
+		// A Gantt chart draws the rows one by one, in the block's sort order;
+		// the other kinds aggregate them, so their order does not matter.
+		const model = buildChartModel(spec, spec.kind === 'gantt' ? this.sortedRows() : this.rows, ctx);
 
 		if (spec.kind === 'number') {
 			const tile = el('div', 'memo-dataset-number');
@@ -1804,6 +1860,12 @@ class DatasetNodeView implements NodeView {
 		canvas.setAttribute('role', 'img');
 		canvas.setAttribute('aria-label', `${model.valueLabel}${spec.x ? ' · ' + (spec.x.label || spec.x.key) : ''}`);
 		canvasBox.appendChild(canvas);
+		// A Gantt chart is as tall as its rows, with room for the time axis
+		// and, with several series, the legend; the other kinds have a fixed
+		// height from the stylesheet.
+		if (spec.kind === 'gantt') {
+			canvasBox.style.height = Math.max(GANTT_MIN_HEIGHT, GANTT_AXIS_HEIGHT + model.labels.length * GANTT_ROW_HEIGHT + (model.bars.length >= 2 ? GANTT_LEGEND_HEIGHT : 0)) + 'px';
+		}
 		box.appendChild(canvasBox);
 		// The chart is created once the canvas is in the document, so Chart.js
 		// measures a laid-out box rather than a detached one.

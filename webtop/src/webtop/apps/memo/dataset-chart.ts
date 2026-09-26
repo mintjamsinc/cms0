@@ -7,7 +7,9 @@
 // date columns make categories (dates in day / week / month / year buckets),
 // number columns make values, and a number column on the X axis is binned
 // into ranges (a histogram); a scatter chart takes two number columns as
-// they are. The rows are aggregated here, in the client, from the same list
+// they are. A Gantt chart is the one kind that does not aggregate: it draws
+// one bar per row, from the row's start date to its end date, on a time
+// axis. The rows are aggregated here, in the client, from the same list
 // the table shows, so the chart follows every edit and live update the way
 // the other views do.
 //
@@ -33,7 +35,7 @@ import {
 	Tooltip,
 	Legend,
 } from 'chart.js';
-import type { ChartConfiguration, TooltipItem } from 'chart.js';
+import type { ChartConfiguration, Plugin, TooltipItem } from 'chart.js';
 import type { DatasetProperty } from '../../graphql/types.js';
 import { SWATCH_COLOR_MAP } from '../../lib/color-palette.js';
 import { withAlpha } from '../../lib/chart-theme.js';
@@ -46,7 +48,7 @@ Chart.register(
 	LinearScale, CategoryScale, Tooltip, Legend,
 );
 
-export const CHART_KINDS = ['bar', 'hbar', 'line', 'pie', 'scatter', 'number'] as const;
+export const CHART_KINDS = ['bar', 'hbar', 'line', 'pie', 'scatter', 'gantt', 'number'] as const;
 export type ChartKind = typeof CHART_KINDS[number];
 export const CHART_ICONS: Record<ChartKind, string> = {
 	bar: 'bi-bar-chart',
@@ -54,6 +56,7 @@ export const CHART_ICONS: Record<ChartKind, string> = {
 	line: 'bi-graph-up',
 	pie: 'bi-pie-chart',
 	scatter: 'bi-dice-5',
+	gantt: 'bi-calendar-range',
 	number: 'bi-123',
 };
 
@@ -75,6 +78,9 @@ export interface ChartSpec {
 	series: DatasetProperty | null;
 	// How a date X column is bucketed.
 	bucket: Bucket;
+	// A Gantt chart's date columns: where each row's bar starts and ends.
+	start: DatasetProperty | null;
+	end: DatasetProperty | null;
 }
 
 // What the chart needs from a row: the same shape as the block's Row.
@@ -101,6 +107,11 @@ export interface ChartModel {
 	series: { label: string; color: string; values: (number | null)[] }[];
 	// A scatter's points, per series.
 	points: { label: string; color: string; data: { x: number; y: number; title: string }[] }[];
+	// A Gantt chart's bars, per series: one entry per row (the labels), the
+	// [start, end] instants of the rows in that series, null in the others.
+	bars: { label: string; color: string; data: ([number, number] | null)[] }[];
+	// The instants a Gantt chart's bars span, null without a bar.
+	range: { min: number; max: number } | null;
 	// What the values are: "Count", "Sum · Amount".
 	valueLabel: string;
 	// The single figure of a number tile.
@@ -135,7 +146,7 @@ export function isNumericColumn(column: DatasetProperty): boolean {
 // Columns a chart kind can put on its X axis.
 export function chartXColumns(kind: ChartKind, columns: DatasetProperty[]): DatasetProperty[] {
 	switch (kind) {
-		case 'number': return [];
+		case 'number': case 'gantt': return [];
 		case 'scatter': return columns.filter(isNumericColumn);
 		default: return columns;
 	}
@@ -145,6 +156,11 @@ export function chartXColumns(kind: ChartKind, columns: DatasetProperty[]): Data
 // others count rows when none is chosen.
 export function chartYColumns(columns: DatasetProperty[]): DatasetProperty[] {
 	return columns.filter(isNumericColumn);
+}
+
+// Columns a Gantt chart can take its start and end from: dates.
+export function chartDateColumns(columns: DatasetProperty[]): DatasetProperty[] {
+	return columns.filter(p => p.type === 'DATE');
 }
 
 // Columns whose values can split the data into series: a known, small set of
@@ -171,6 +187,14 @@ function numberOf(row: ChartRow, column: DatasetProperty): number | null {
 	if (s == null) return null;
 	const n = Number(s);
 	return Number.isFinite(n) ? n : null;
+}
+
+// The first date a row stores in a column, as an instant; null when none.
+function instantOf(row: ChartRow, column: DatasetProperty): number | null {
+	const s = stringsOf(row, column)[0];
+	if (s == null) return null;
+	const d = Dates.toDate(s);
+	return d ? d.getTime() : null;
 }
 
 // ---- categories ----
@@ -395,6 +419,10 @@ function addTo(cells: Map<string, Cell>, key: string, value: number): void {
 }
 
 export function chartValueLabel(spec: ChartSpec, ctx: ChartContext): string {
+	if (spec.kind === 'gantt') {
+		const name = (p: DatasetProperty | null) => p ? (p.label || p.key) : '';
+		return `${name(spec.start)} – ${name(spec.end)}`;
+	}
 	const agg = spec.y ? spec.agg : 'count';
 	const aggLabel = ctx.t('app.memo.dataset.chart.agg.' + agg, undefined, agg);
 	return spec.y && agg !== 'count' ? `${aggLabel} · ${spec.y.label || spec.y.key}` : aggLabel;
@@ -404,7 +432,7 @@ export function chartValueLabel(spec: ChartSpec, ctx: ChartContext): string {
 export function buildChartModel(spec: ChartSpec, rows: ChartRow[], ctx: ChartContext): ChartModel {
 	const agg: Aggregate = spec.y ? spec.agg : 'count';
 	const label = chartValueLabel(spec, ctx);
-	const model: ChartModel = { kind: spec.kind, labels: [], categoryColors: null, series: [], points: [], valueLabel: label, total: null, skipped: 0 };
+	const model: ChartModel = { kind: spec.kind, labels: [], categoryColors: null, series: [], points: [], bars: [], range: null, valueLabel: label, total: null, skipped: 0 };
 
 	// The value a row contributes: 1 for a count, its Y value otherwise.
 	const valueOf = (row: ChartRow): number | null => {
@@ -440,6 +468,39 @@ export function buildChartModel(spec: ChartSpec, rows: ChartRow[], ctx: ChartCon
 			const data = bySeries.get(k) || [];
 			if (seriesDim && data.length === 0) continue;
 			model.points.push({
+				label: seriesDim ? seriesDim.label(k) : label,
+				color: swatch(seriesColors ? seriesColors.get(k) : DEFAULT_SWATCH),
+				data,
+			});
+		}
+		return model;
+	}
+
+	if (spec.kind === 'gantt') {
+		if (!spec.start || !spec.end) return model;
+		const seriesDim = spec.series ? dimensionOf(spec.series, rows, spec.bucket, ctx, null) : null;
+		const seriesColors = seriesDim ? assignColors(seriesDim) : null;
+		const keys = seriesDim ? seriesDim.keys : ['all'];
+		const bySeries = new Map<string, ([number, number] | null)[]>(keys.map(k => [k, []]));
+		let min = Infinity;
+		let max = -Infinity;
+		// One slot per row, in the order the rows come (the block's sort);
+		// the row's bar sits in its series, the other series have a gap.
+		for (const row of rows) {
+			const start = instantOf(row, spec.start);
+			const end = instantOf(row, spec.end);
+			if (start == null || end == null) { model.skipped++; continue; }
+			model.labels.push(row.title);
+			const k = seriesDim ? seriesDim.keysOf(row)[0] : 'all';
+			for (const key of keys) bySeries.get(key)!.push(key === k ? [start, end] : null);
+			min = Math.min(min, start, end);
+			max = Math.max(max, start, end);
+		}
+		if (model.labels.length > 0) model.range = { min, max };
+		for (const k of keys) {
+			const data = bySeries.get(k) || [];
+			if (seriesDim && data.every(v => v == null)) continue;
+			model.bars.push({
 				label: seriesDim ? seriesDim.label(k) : label,
 				color: swatch(seriesColors ? seriesColors.get(k) : DEFAULT_SWATCH),
 				data,
@@ -510,6 +571,32 @@ export type DatasetChartConfiguration =
 	| ChartConfiguration<'line'>
 	| ChartConfiguration<'pie'>
 	| ChartConfiguration<'scatter'>;
+
+// The ticks of a Gantt chart's time axis: the boundaries of the day, week,
+// month or year buckets that cover the bars, in the user's time zone, so the
+// grid falls on calendar lines rather than on round numbers of milliseconds.
+// The axis runs from the bucket the first bar starts in to the end of the
+// bucket the last bar ends in.
+export function ganttTimeAxis(range: { min: number; max: number }, ctx: ChartContext): { min: number; max: number; ticks: number[]; bucket: Bucket } {
+	const tz = ctx.timeZone;
+	const days = (range.max - range.min) / DAY_MS;
+	const bucket: Bucket = days <= 21 ? 'day' : days <= 130 ? 'week' : days <= 1100 ? 'month' : 'year';
+	const instantOfKey = (key: string): number => {
+		const d = Dates.fromZonedInputValue(key + 'T00:00', tz);
+		return d ? d.getTime() : NaN;
+	};
+	const ticks: number[] = [];
+	let key = dateBucketKey(new Date(range.min).toISOString(), bucket, tz);
+	if (key) {
+		for (let t = instantOfKey(key); ticks.length <= MAX_FILLED_BUCKETS; key = nextBucketKey(key, bucket), t = instantOfKey(key)) {
+			if (!Number.isFinite(t)) break;
+			ticks.push(t);
+			if (t > range.max) break;
+		}
+	}
+	if (ticks.length < 2) return { min: range.min, max: Math.max(range.max, range.min + DAY_MS), ticks: [], bucket };
+	return { min: ticks[0], max: ticks[ticks.length - 1], ticks, bucket };
+}
 
 export function buildChartConfig(model: ChartModel, theme: ChartTheme, ctx: ChartContext): DatasetChartConfiguration {
 	const locale = ctx.locale;
@@ -610,6 +697,95 @@ export function buildChartConfig(model: ChartModel, theme: ChartTheme, ctx: Char
 					},
 				},
 			},
+		};
+		return config;
+	}
+
+	if (model.kind === 'gantt') {
+		const tz = ctx.timeZone || undefined;
+		const axis = ganttTimeAxis(model.range || { min: Date.now(), max: Date.now() }, ctx);
+		const tickFormat = new Intl.DateTimeFormat(locale || undefined,
+			axis.bucket === 'year' ? { year: 'numeric', timeZone: tz }
+			: axis.bucket === 'month' ? { year: 'numeric', month: 'short', timeZone: tz }
+			: { month: 'short', day: 'numeric', timeZone: tz });
+		const dateFormat = new Intl.DateTimeFormat(locale || undefined, { dateStyle: 'medium', timeZone: tz });
+		const fmtDate = (v: number) => dateFormat.format(new Date(v));
+		// A dashed line at the present moment, when the axis covers it.
+		const today: Plugin<'bar'> = {
+			id: 'ganttToday',
+			afterDatasetsDraw(chart) {
+				const scale = chart.scales.x;
+				const now = Date.now();
+				if (!scale || now < scale.min || now > scale.max) return;
+				const px = scale.getPixelForValue(now);
+				const { top, bottom } = chart.chartArea;
+				const c = chart.ctx;
+				c.save();
+				c.strokeStyle = withAlpha(theme.text, 0.5);
+				c.lineWidth = 1;
+				c.setLineDash([3, 3]);
+				c.beginPath();
+				c.moveTo(px, top);
+				c.lineTo(px, bottom);
+				c.stroke();
+				c.restore();
+			},
+		};
+		const config: ChartConfiguration<'bar'> = {
+			type: 'bar',
+			data: {
+				labels: model.labels,
+				datasets: model.bars.map(s => ({
+					label: s.label,
+					data: s.data,
+					backgroundColor: s.color,
+					borderWidth: 0,
+					borderRadius: 3,
+					borderSkipped: false,
+					// A bar that starts and ends at the same instant still shows.
+					minBarLength: 4,
+					maxBarThickness: 18,
+					skipNull: true,
+				})),
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				animation: false,
+				indexAxis: 'y',
+				interaction: { mode: 'nearest', intersect: true },
+				layout: { padding: { top: 8, right: 12, bottom: 0, left: 0 } },
+				scales: {
+					// Series share the row's slot (stacked on the row axis) but
+					// are not added up along the time axis.
+					x: {
+						type: 'linear',
+						stacked: false,
+						min: axis.min,
+						max: axis.max,
+						afterBuildTicks: (scale: { ticks: { value: number }[] }) => { if (axis.ticks.length) scale.ticks = axis.ticks.map(value => ({ value })); },
+						grid: { color: theme.grid },
+						border: { color: theme.axis },
+						ticks: { ...ticks, autoSkip: true, maxRotation: 0, autoSkipPadding: 12, callback: (v: string | number) => tickFormat.format(new Date(Number(v))) },
+					},
+					y: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { ...ticks, autoSkip: false } },
+				},
+				plugins: {
+					legend: legend(model.bars.length >= 2),
+					tooltip: {
+						...tooltip,
+						callbacks: {
+							label: (item: TooltipItem<'bar'>) => {
+								const raw = item.raw as [number, number] | null;
+								if (!raw) return '';
+								const period = `${fmtDate(raw[0])} – ${fmtDate(raw[1])}`;
+								return model.bars.length >= 2 ? ` ${item.dataset.label}: ${period}` : ` ${period}`;
+							},
+						},
+					},
+				},
+			},
+			plugins: [today],
 		};
 		return config;
 	}

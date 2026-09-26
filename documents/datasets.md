@@ -163,20 +163,22 @@ block shows the folder; the rows and their values stay in the repository.
 | `sort` | `{ key, dir }`; an empty key sorts by name. Applies to every view. |
 | `group` | Board: key of the single-valued `STRING` column with choices whose values are the lanes. |
 | `date` | Calendar: key of the `DATE` column rows are placed by. |
-| `chart` | Chart: its kind, `bar`, `hbar` (horizontal), `line`, `pie`, `scatter` or `number`. Absent means `bar`. |
+| `chart` | Chart: its kind, `bar`, `hbar` (horizontal), `line`, `pie`, `scatter`, `gantt` or `number`. Absent means `bar`. |
 | `x` | Chart: key of the category column (the X axis, the slices); a number column for a scatter. |
 | `y` | Chart: key of the number column the values come from; absent counts rows. |
 | `agg` | Chart: how `y` is aggregated per category, `sum`, `avg`, `min` or `max`. Absent means `count`. |
 | `series` | Chart: key of the single-valued choice or `BOOLEAN` column whose values split the data into series; absent for one series. |
 | `bucket` | Chart: the bucket of a `DATE` category, `day`, `week`, `month` or `year`. Absent means `month`. |
+| `start`, `end` | Gantt chart: keys of the `DATE` columns a row's bar starts and ends at. |
 | `widths` | Table: column widths in pixels by key (`$name` for the name column); a column not listed has its default width. |
 | `order` | Table: keys in display order; columns not listed follow in descriptor order. The name column is always first. |
 | `wide` | Stretch the table, board or chart to the editor's width instead of the memo's text column (a calendar keeps the text column). |
 
 In the HTML round-trip form the block is `<div data-dataset-view data-path=…
 data-view=… data-hidden=… data-sort=… data-group=… data-date=… data-chart=…
-data-x=… data-y=… data-agg=… data-series=… data-bucket=… data-widths=…
-data-order=… data-wide>`; an attribute at its default is left out.
+data-x=… data-y=… data-agg=… data-series=… data-bucket=… data-start=…
+data-end=… data-widths=… data-order=… data-wide>`; an attribute at its
+default is left out.
 
 **Active block.** The block has two faces. In the document it shows the
 rows; its header — the view dropdown (table / board / calendar / chart), the
@@ -242,7 +244,22 @@ is drawn:
 | number column | count / aggregate | — | A histogram: bins of a nice width (1, 2 or 5 × 10ⁿ) covering the values. |
 | any of the above | count / aggregate | a single-valued choice or `BOOLEAN` column | Bars stack, lines overlay; one series per value in use, in the series column's colours. |
 | number column (scatter) | number column | optional | One point per row at (x, y), coloured by series. |
+| — (gantt) | — | optional | One horizontal bar per row, from its `start` date to its `end` date, on a time axis; see below. |
 | — (number) | count / aggregate | — | A single figure with what it is under it. |
+
+A Gantt chart is the one kind that does not aggregate. The header picks two
+`DATE` columns, the start and the end (the first two date columns when the
+kind is chosen), and optionally the series column that colours the bars. One
+row is one bar, labelled with the row's name, in the block's sort order (sort
+the table by the start column to get a timeline). The time axis runs in the
+user's time zone with its grid on calendar boundaries — days, weeks, months
+or years, whichever keeps the bars readable for the span — from the boundary
+before the first start to the one after the last end, and a dashed line marks
+the present moment when the axis covers it. The canvas grows with the rows,
+one slot each. A row without a start or an end is left out and counted under
+the chart; a bar whose start and end coincide keeps a minimum width so it can
+still be seen and hovered. A multi-valued date column contributes its first
+date.
 
 Colours are the shared swatches: a value whose choice declares a colour keeps
 it (the board's lanes, the table's chips and the chart agree), values without
