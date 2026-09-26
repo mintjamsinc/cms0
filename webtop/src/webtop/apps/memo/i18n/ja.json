@@ -5,6 +5,7 @@
 	"app.memo.hint.slash": "「/」でコマンド、またはそのまま入力してください…",
 	"app.memo.toolbar.save": "保存 (Ctrl+S)",
 	"app.memo.toolbar.saveAs": "名前を付けて保存...",
+	"app.memo.toolbar.print": "印刷 (Ctrl+P)",
 	"app.memo.toolbar.undo": "元に戻す (Ctrl+Z)",
 	"app.memo.toolbar.redo": "やり直し (Ctrl+Y)",
 	"app.memo.toolbar.toggleInspector": "インスペクターの切り替え (Ctrl+I)",

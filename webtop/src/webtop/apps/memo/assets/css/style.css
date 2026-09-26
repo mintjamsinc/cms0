@@ -647,19 +647,6 @@
 	/* color: var(--text-muted-color); */
 }
 
-/* Printing: columns the descriptor marks print: false, and the block's
-   controls, stay off the page. */
-@media print {
-	.memo-dataset .is-noprint,
-	.memo-dataset-header,
-	.memo-dataset-resizer,
-	.memo-dataset-new-row,
-	.memo-dataset-day-add,
-	.memo-dataset-status {
-		display: none !important;
-	}
-}
-
 /* Chart */
 
 .memo-dataset-chart {
@@ -1385,4 +1372,205 @@
 .memo-dataset-undated-label {
 	font-size: 0.75rem;
 	color: var(--text-muted-color);
+}
+
+/* ============================================================================
+ * Printing (the toolbar's Print button, Ctrl+P; see printMemo in app.ts)
+ *
+ * The page shows the active memo's document and nothing else: the app chrome
+ * goes, the scroll containers open up so the document flows across pages,
+ * and the editing state (selection, search highlights, resize grips, the
+ * placeholder) stays off paper. app.ts switches the theme to light for the
+ * duration, so the tokens below resolve to their light values.
+ * ============================================================================ */
+@media print {
+	@page {
+		margin: 15mm;
+	}
+
+	html,
+	body {
+		height: auto !important;
+		overflow: visible !important;
+		background: #fff !important;
+	}
+
+	/* App chrome: toolbars, tabs, panes, status bar, dialogs, overlays. */
+	.nav-bar,
+	.format-bar,
+	wt-file-tabs,
+	.sidebar-panel,
+	wt-splitter,
+	wt-inspector,
+	.status-bar,
+	wt-dialog,
+	wt-spinner,
+	.error-overlay,
+	.memo-drag-handle,
+	.editor-hint {
+		display: none !important;
+	}
+
+	/* The flex frame becomes plain flow, without a fixed height or clipping,
+	   so the whole document is laid out and paginated. */
+	#app,
+	.content-body,
+	.content-main,
+	.editor-area,
+	#editor-host {
+		display: block !important;
+		height: auto !important;
+		min-height: 0 !important;
+		overflow: visible !important;
+		padding: 0 !important;
+		margin: 0 !important;
+	}
+
+	.island {
+		background: transparent !important;
+		border: none !important;
+		border-radius: 0 !important;
+		box-shadow: none !important;
+	}
+
+	.memo-editor-mount {
+		min-height: 0;
+	}
+
+	/* The page margins are the document's margins; the text column is the
+	   page width. Backgrounds (highlights, table headers, board lanes) print
+	   as shown, whatever the browser's "background graphics" setting. */
+	.ProseMirror {
+		max-width: none;
+		padding: 0;
+		-webkit-print-color-adjust: exact;
+		print-color-adjust: exact;
+	}
+
+	/* Editing state. */
+	.memo-search-match,
+	.memo-search-match-current {
+		background-color: transparent;
+		box-shadow: none;
+	}
+
+	.ProseMirror p.is-editor-empty:first-child::before,
+	.ProseMirror .is-empty::before,
+	.ProseMirror .selectedCell::after,
+	.ProseMirror .column-resize-handle,
+	.ProseMirror [data-resize-handle] {
+		display: none !important;
+	}
+
+	.ProseMirror .ProseMirror-selectednode,
+	.ProseMirror [data-resize-container].ProseMirror-selectednode img {
+		outline: none !important;
+		box-shadow: none !important;
+	}
+
+	/* Pagination: a heading stays with what follows it; a picture, a code
+	   block, a quote or a table row is not split across pages. Code wraps
+	   instead of running off the page. */
+	.ProseMirror h1,
+	.ProseMirror h2,
+	.ProseMirror h3 {
+		break-after: avoid;
+	}
+
+	.ProseMirror img,
+	.ProseMirror pre,
+	.ProseMirror blockquote,
+	.ProseMirror tr {
+		break-inside: avoid;
+	}
+
+	.ProseMirror pre {
+		white-space: pre-wrap;
+		overflow: visible;
+	}
+
+	.ProseMirror .tableWrapper {
+		overflow: visible;
+	}
+
+	.ProseMirror img {
+		max-width: 100%;
+		height: auto;
+	}
+
+	/* Dataset blocks: the rows alone. The header, the resizers, the new-row
+	   inputs, the status line and the columns the descriptor marks
+	   print: false stay off the page. */
+	.memo-dataset .is-noprint,
+	.memo-dataset-header,
+	.memo-dataset-resizer,
+	.memo-dataset-new-row,
+	.memo-dataset-day-add,
+	.memo-dataset-status {
+		display: none !important;
+	}
+
+	.memo-dataset {
+		overflow: visible;
+	}
+
+	.memo-dataset.is-selected {
+		box-shadow: none;
+	}
+
+	.memo-dataset.is-wide {
+		width: auto;
+		margin-left: 0;
+	}
+
+	/* The table fits the page: the stored column widths (sized for the
+	   screen) give way to the content, and the empty filler column goes. */
+	.memo-dataset-scroll {
+		overflow: visible;
+	}
+
+	.memo-dataset-table {
+		table-layout: auto;
+		width: 100%;
+	}
+
+	.memo-dataset-table col {
+		width: auto !important;
+	}
+
+	.memo-dataset-filler-col,
+	.memo-dataset-filler {
+		display: none !important;
+	}
+
+	.memo-dataset-th {
+		position: static;
+	}
+
+	.memo-dataset-card,
+	.memo-dataset-day {
+		break-inside: avoid;
+	}
+
+	/* The board's lanes wrap onto further rows instead of scrolling. */
+	.memo-dataset-board {
+		flex-wrap: wrap;
+		overflow: visible;
+	}
+
+	.memo-dataset-lane {
+		flex: 1 1 12rem;
+		max-width: 100%;
+	}
+
+	/* The chart canvas is sized for the screen (Chart.js writes its pixel
+	   size inline); on paper it scales to the box it is in. */
+	.memo-dataset-chart {
+		break-inside: avoid;
+	}
+
+	.memo-dataset-canvas canvas {
+		width: 100% !important;
+		height: 100% !important;
+	}
 }

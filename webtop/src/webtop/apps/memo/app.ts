@@ -136,6 +136,11 @@ let activeNodeWatchUnsubscribe: (() => void) | null = null;
 // be stored in reactive data().
 let saveAsChannelRef: BroadcastChannel | null = null;
 
+// What the document carries for the duration of the print dialog in place of
+// its own title and theme, restored by afterprint (see attachPrintHandlers).
+// Module-scoped: transient state, not something the screen renders.
+let printRestore: { title: string; theme: string | undefined } | null = null;
+
 // The dataset block that holds the cursor, if any (see DatasetPane in
 // dataset-view.ts). Module-scoped: it carries DOM elements and a callback into
 // a ProseMirror node view, none of which may be wrapped in a reactive Proxy.
@@ -450,8 +455,14 @@ export const App = {
 					// toolbar / Ctrl+B still cover inline formatting.
 					e.preventDefault();
 					vm.toggleDetailPanel();
+				} else if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P') && !e.shiftKey && !e.altKey) {
+					// Ctrl+P prints the memo. Left to the browser it would print the
+					// whole desktop (the top-level page), not this document.
+					e.preventDefault();
+					vm.printMemo();
 				}
 			});
+			vm.attachPrintHandlers();
 
 			window.appLaunch = async (instance: ApplicationInstance, options?: LaunchOptions) => {
 				vm.instance = vm.$markRaw(instance);
@@ -1759,6 +1770,59 @@ export const App = {
 			}));
 			event.dataTransfer.setData('text/plain', fileName);
 			setTimeout(() => { this.saveAsDialog.visible = false; }, 100);
+		},
+		// ---- Printing ----
+		// Prints the active memo: the browser's print dialog over this iframe's
+		// document, where the print stylesheet (style.css, @media print) keeps
+		// only the document itself on the page. Choosing "Save as PDF" there
+		// writes the memo as a PDF, named after the memo since the document
+		// title carries the memo's name for the duration.
+		async printMemo() {
+			const vm = this;
+			const ed = vm.activeEditor();
+			if (!ed) return;
+			// The dataset block header and the selection ring only show while
+			// the block is active; drop them so the page shows the rows alone.
+			vm.deactivateDatasetPane();
+			try { ed.commands.blur(); } catch { /* ignore */ }
+			vm.preparePrint();
+			// The dataset charts follow the theme switch through a
+			// MutationObserver, which runs only once this call stack unwinds;
+			// window.print() takes its snapshot synchronously, so give them a
+			// task to redraw in the light colours first.
+			await new Promise<void>((resolve) => setTimeout(resolve, 0));
+			try { window.print(); } catch (e) { console.warn('[Memo] print failed:', e); }
+		},
+		// For the duration of the print dialog the document carries the memo's
+		// name as its title (the header line and the PDF file name) and the
+		// light theme: paper is white, and the dataset charts redraw on the
+		// theme switch (see the theme observer in dataset-view.ts). afterprint
+		// restores both.
+		preparePrint() {
+			const vm = this;
+			if (printRestore) return;
+			const root = document.documentElement;
+			printRestore = { title: document.title, theme: root.dataset.theme };
+			const extension = new RegExp('\\.' + MEMO_EXTENSION + '$', 'i');
+			const base = (vm.currentFile.name || '').replace(extension, '');
+			if (base) document.title = base;
+			root.dataset.theme = 'light';
+		},
+		attachPrintHandlers() {
+			const vm = this;
+			// A print not started by printMemo (the browser's own menu) still
+			// gets the title and the theme; the charts may keep the screen
+			// colours, since nothing runs between this event and the snapshot.
+			window.addEventListener('beforeprint', () => vm.preparePrint());
+			window.addEventListener('afterprint', () => {
+				const saved = printRestore;
+				if (!saved) return;
+				printRestore = null;
+				document.title = saved.title;
+				const root = document.documentElement;
+				if (saved.theme === undefined) delete root.dataset.theme;
+				else root.dataset.theme = saved.theme;
+			});
 		},
 		// ---- Undo / Redo ----
 		undo() { this.activeEditor()?.chain().focus().undo().run(); },

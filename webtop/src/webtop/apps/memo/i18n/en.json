@@ -5,6 +5,7 @@
 	"app.memo.hint.slash": "Type '/' for commands, or just start writing…",
 	"app.memo.toolbar.save": "Save (Ctrl+S)",
 	"app.memo.toolbar.saveAs": "Save As...",
+	"app.memo.toolbar.print": "Print (Ctrl+P)",
 	"app.memo.toolbar.undo": "Undo (Ctrl+Z)",
 	"app.memo.toolbar.redo": "Redo (Ctrl+Y)",
 	"app.memo.toolbar.toggleInspector": "Toggle Inspector (Ctrl+I)",
