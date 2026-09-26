@@ -1089,15 +1089,24 @@ class DatasetNodeView implements NodeView {
 		// Fixed layout: every column has the width the block stores (or its
 		// default), the last, empty column takes what is left of the block's
 		// width, and the wrapper scrolls sideways when the columns exceed it.
+		// On paper the table is the page width, and each printed column keeps
+		// its share of the printed columns' total: that share goes on the col
+		// as --memo-print-width for the print stylesheet, so the proportions
+		// set on screen carry over. A column that is not printed has no share
+		// and prints at zero width.
 		const colgroup = el('colgroup');
 		const cols = new Map<string, HTMLTableColElement>();
+		const printedTotal = this.columnWidth(null) + columns.filter(isPrinted).reduce((sum, c) => sum + this.columnWidth(c), 0);
+		const printShare = (width: number) => (width / printedTotal * 100).toFixed(3) + '%';
 		const nameCol = el('col');
 		nameCol.style.width = this.columnWidth(null) + 'px';
+		nameCol.style.setProperty('--memo-print-width', printShare(this.columnWidth(null)));
 		cols.set(NAME_COLUMN_KEY, nameCol);
 		colgroup.appendChild(nameCol);
 		for (const column of columns) {
 			const col = el('col');
 			col.style.width = this.columnWidth(column) + 'px';
+			if (isPrinted(column)) col.style.setProperty('--memo-print-width', printShare(this.columnWidth(column)));
 			cols.set(column.key, col);
 			colgroup.appendChild(col);
 		}

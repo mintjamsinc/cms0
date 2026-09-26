@@ -1523,22 +1523,27 @@
 		margin-left: 0;
 	}
 
-	/* The table fits the page: the stored column widths (sized for the
-	   screen) give way to the content, and the empty filler column goes. */
+	/* The table is the page width, and the columns keep the proportions set
+	   on screen: each printed col carries its share of the printed columns'
+	   total as --memo-print-width (see renderTable in dataset-view.ts). The
+	   filler column and the columns that are not printed have no share and
+	   take no width. The footer row (the new-row input) goes with the
+	   filler: it spans every column, so its border would otherwise run on
+	   past the last printed one. */
 	.memo-dataset-scroll {
 		overflow: visible;
 	}
 
 	.memo-dataset-table {
-		table-layout: auto;
+		table-layout: fixed;
 		width: 100%;
 	}
 
 	.memo-dataset-table col {
-		width: auto !important;
+		width: var(--memo-print-width, 0) !important;
 	}
 
-	.memo-dataset-filler-col,
+	.memo-dataset-table tfoot,
 	.memo-dataset-filler {
 		display: none !important;
 	}
