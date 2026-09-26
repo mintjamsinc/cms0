@@ -158,23 +158,31 @@ block shows the folder; the rows and their values stay in the repository.
 | Attribute | Stored in the memo |
 | --- | --- |
 | `path` | The dataset folder. `''` while the block is being set up. |
-| `view` | `table`, `board` or `calendar`. |
+| `view` | `table`, `board`, `calendar` or `chart`. |
 | `hidden` | Keys of the columns the block hides (table columns, board card fields). |
 | `sort` | `{ key, dir }`; an empty key sorts by name. Applies to every view. |
 | `group` | Board: key of the single-valued `STRING` column with choices whose values are the lanes. |
 | `date` | Calendar: key of the `DATE` column rows are placed by. |
+| `chart` | Chart: its kind, `bar`, `hbar` (horizontal), `line`, `pie`, `scatter` or `number`. Absent means `bar`. |
+| `x` | Chart: key of the category column (the X axis, the slices); a number column for a scatter. |
+| `y` | Chart: key of the number column the values come from; absent counts rows. |
+| `agg` | Chart: how `y` is aggregated per category, `sum`, `avg`, `min` or `max`. Absent means `count`. |
+| `series` | Chart: key of the single-valued choice or `BOOLEAN` column whose values split the data into series; absent for one series. |
+| `bucket` | Chart: the bucket of a `DATE` category, `day`, `week`, `month` or `year`. Absent means `month`. |
 | `widths` | Table: column widths in pixels by key (`$name` for the name column); a column not listed has its default width. |
 | `order` | Table: keys in display order; columns not listed follow in descriptor order. The name column is always first. |
-| `wide` | Stretch the table or board to the editor's width instead of the memo's text column (a calendar keeps the text column). |
+| `wide` | Stretch the table, board or chart to the editor's width instead of the memo's text column (a calendar keeps the text column). |
 
 In the HTML round-trip form the block is `<div data-dataset-view data-path=…
-data-view=… data-hidden=… data-sort=… data-group=… data-date=…
-data-widths=… data-order=… data-wide>`.
+data-view=… data-hidden=… data-sort=… data-group=… data-date=… data-chart=…
+data-x=… data-y=… data-agg=… data-series=… data-bucket=… data-widths=…
+data-order=… data-wide>`; an attribute at its default is left out.
 
 **Active block.** The block has two faces. In the document it shows the
-rows; its header — the view dropdown (table / board / calendar), the view's
-own controls (the board's group column; the calendar's month, "Today" and
-date column) and the "⋯" block menu — appears only while the block is
+rows; its header — the view dropdown (table / board / calendar / chart), the
+view's own controls (the board's group column; the calendar's month, "Today"
+and date column; the chart's kind and columns) and the "⋯" block menu —
+appears only while the block is
 *active*: the cursor is in it. The block is moved like any other block, with
 the editor's drag handle in the left gutter (`apps/memo/drag-handle.ts`). A block becomes active on a
 click, a right click, focus moving into one of its inputs, or a ProseMirror
@@ -216,6 +224,35 @@ rows without a date in a tray below. Dragging a chip to another day keeps the
 row's time of day and changes the date; the "+" of a day creates a row dated
 at midnight of that day. Chips of a multi-valued date column cannot be
 dragged, since one chip does not say which of the dates to move.
+
+**Chart.** An aggregation of the rows over one column, drawn with Chart.js
+(`apps/memo/dataset-chart.ts`; only the controllers and scales the block
+uses are registered). The header picks the kind, the X column, the value
+(the row count, or a number column with sum / average / minimum / maximum),
+an optional column to split the data into series, and, for a date X column,
+the bucket (day / week / month / year). Each picker offers only the columns
+whose type fits its role, so the kind and the columns together decide what
+is drawn:
+
+| X column | Y | Series | Drawn as |
+| --- | --- | --- | --- |
+| `STRING` with choices, `BOOLEAN` | count, or a number column aggregated | — | One bar / slice per value, in the choices' order and colours; a "No value" entry when rows lack one. |
+| `STRING` without choices (tags too) | count / aggregate | — | One bar per value, biggest first; a multi-valued column counts a row once per value. |
+| `DATE` | count / aggregate | — | One point or bar per bucket; the gaps between the first and last bucket are filled with zeros (up to 400 buckets). |
+| number column | count / aggregate | — | A histogram: bins of a nice width (1, 2 or 5 × 10ⁿ) covering the values. |
+| any of the above | count / aggregate | a single-valued choice or `BOOLEAN` column | Bars stack, lines overlay; one series per value in use, in the series column's colours. |
+| number column (scatter) | number column | optional | One point per row at (x, y), coloured by series. |
+| — (number) | count / aggregate | — | A single figure with what it is under it. |
+
+Colours are the shared swatches: a value whose choice declares a colour keeps
+it (the board's lanes, the table's chips and the chart agree), values without
+one take swatches from a fixed order, and "No value" is graphite. The axis,
+grid and tooltip colours follow the shell theme (`lib/chart-theme.ts`, shared
+with the EIP Console) and are redrawn when the theme switches. The rows are
+aggregated in the client from the same list the table shows, so the chart
+follows every edit and live update; rows that lack the X value (dates,
+numbers) or the Y value are left out and counted under the chart. A chart is
+printed as it is drawn; the header's pickers are not.
 
 **Setup.** A new block offers to create a folder next to the memo (a folder
 plus an empty descriptor with a generated id), or takes a folder dropped from

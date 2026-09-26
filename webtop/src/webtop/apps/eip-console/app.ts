@@ -78,6 +78,8 @@ import {
 	Tooltip,
 } from "chart.js";
 import type { ActiveElement, ChartConfiguration, ChartData, TooltipItem } from "chart.js";
+import { resolveChartTheme } from "../../lib/chart-theme.js";
+import type { ChartTheme } from "../../lib/chart-theme.js";
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip);
 
@@ -116,16 +118,6 @@ type DetailType = 'none' | 'route' | 'exchange';
 // History list sortable columns (mapped to HistoryExchangeSummary fields in
 // compareHistorySummary). 'started' sorts by createdAt.
 type HistorySortColumn = 'exchangeId' | 'businessKey' | 'started' | 'status' | 'elapsed' | 'route';
-
-/** Theme colours resolved from CSS variables for the Chart.js canvas. */
-interface ChartTheme {
-	muted: string;
-	text: string;
-	axis: string;
-	grid: string;
-	tooltipBg: string;
-	tooltipBorder: string;
-}
 
 /** One rendered elapsed band (slider segment + chart series + legend row). */
 interface BandSegment {
@@ -1069,15 +1061,7 @@ export const App = {
 		 * sees a computed `rgb()` / `rgba()` string.
 		 */
 		chartTheme(): ChartTheme {
-			const muted = resolveCssColor('--text-muted-color', 'rgba(128, 128, 128, 0.5)');
-			return {
-				muted,
-				text: resolveCssColor('--body-color', '#1a1b1f'),
-				axis: withAlpha(muted, 0.4),
-				grid: withAlpha(muted, 0.15),
-				tooltipBg: resolveCssColor('--body-bg', '#ffffff'),
-				tooltipBorder: withAlpha(muted, 0.35),
-			};
+			return resolveChartTheme();
 		},
 
 		/** Re-read the theme colours into the live chart (shell theme switch). */
@@ -2616,41 +2600,7 @@ function bandIndexOf(elapsed: number, boundaries: number[]): number {
 	return boundaries.length;
 }
 
-/**
- * Resolve a CSS custom property to a colour string Chart.js can parse.
- *
- * The webtop theme declares colours in the modern space-separated form
- * (`rgb(26 27 31 / 0.5)`), which Chart.js's colour parser does not accept, so
- * the raw value is round-tripped through a probe element and read back as the
- * browser's computed `rgb()` / `rgba()` form.
- */
-function resolveCssColor(varName: string, fallback: string): string {
-	try {
-		const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
-		if (!raw) return fallback;
-		const probe = document.createElement('span');
-		probe.style.display = 'none';
-		probe.style.color = raw;
-		document.body.appendChild(probe);
-		const resolved = getComputedStyle(probe).color;
-		probe.remove();
-		return resolved || fallback;
-	} catch {
-		return fallback;
-	}
-}
 
-/**
- * Re-alpha a computed `rgb()` / `rgba()` colour. Used to derive the axis and
- * grid tints from the single muted text colour, the way the SVG chart did with
- * a stroke opacity.
- */
-function withAlpha(color: string, alpha: number): string {
-	const m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.]+))?\s*\)$/i.exec(color);
-	if (!m) return color;
-	const baseAlpha = m[4] !== undefined ? Number(m[4]) : 1;
-	return `rgba(${m[1]}, ${m[2]}, ${m[3]}, ${(baseAlpha * alpha).toFixed(3)})`;
-}
 
 function formatNumber(v: number): string {
 	if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M';

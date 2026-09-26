@@ -660,6 +660,57 @@
 	}
 }
 
+/* Chart */
+
+.memo-dataset-chart {
+	padding: 0.5rem 0.75rem 0.75rem;
+}
+
+/* The canvas box has the height; Chart.js fills it and follows its width.
+   The height includes the axis labels and the legend, so nothing is cut. */
+.memo-dataset-canvas {
+	position: relative;
+	height: 320px;
+}
+
+.memo-dataset.is-wide .memo-dataset-canvas {
+	height: 400px;
+}
+
+.memo-dataset-chart[data-kind="pie"] .memo-dataset-canvas {
+	height: 360px;
+}
+
+.memo-dataset-canvas canvas {
+	display: block;
+}
+
+.memo-dataset-chart-note {
+	margin-top: 0.375rem;
+	font-size: 11px;
+	color: var(--text-muted-color);
+	text-align: right;
+}
+
+/* The number tile: one figure with what it is under it. */
+.memo-dataset-number {
+	padding: 1rem 0.25rem;
+	text-align: left;
+}
+
+.memo-dataset-number-value {
+	font-size: 2.5rem;
+	line-height: 1.1;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+}
+
+.memo-dataset-number-label {
+	margin-top: 0.25rem;
+	font-size: 0.8125rem;
+	color: var(--text-muted-color);
+}
+
 /* Table */
 
 .memo-dataset-scroll {

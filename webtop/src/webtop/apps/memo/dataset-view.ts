@@ -3,16 +3,18 @@
 // A dataset is a folder carrying a `.dataset.yml` descriptor (see
 // Datasets.java); its direct child files are rows and the descriptor declares
 // the typed properties (columns) each row carries. This block embeds one such
-// folder in a memo and shows it three ways: a table with editable cells, a
-// board whose lanes are the choices of one text column, and a calendar placing
-// rows on the days of one date column. The rows are read through the search
+// folder in a memo and shows it four ways: a table with editable cells, a
+// board whose lanes are the choices of one text column, a calendar placing
+// rows on the days of one date column, and a chart aggregating the rows over
+// one column (dataset-chart.ts). The rows are read through the search
 // index (an XPath statement over the folder), every edit goes to the row's
 // properties through setProperties, and the descriptor is rewritten when a
 // column is added, changed or removed. The memo itself stores only where the
 // dataset lives and how the block shows it (path, view, hidden columns, sort,
 // column order and widths, the board's group column, the calendar's date
-// column, full width); the data stays in the repository, where every other
-// memo, the Content Browser and the Inspector see the same rows.
+// column, the chart's kind and columns, full width); the data stays in the
+// repository, where every other memo, the Content Browser and the Inspector
+// see the same rows.
 //
 // The block has two faces. In the document it shows the rows, with a header
 // (view switch, the view's own controls, the block menu) that appears only
@@ -32,6 +34,15 @@ import type { NodeView } from '@tiptap/pm/view';
 import type { Node as GNode, Dataset, DatasetProperty, DatasetPropertyType, PropertyInput } from '../../graphql/types.js';
 import { Dates } from '../../utils/dates.js';
 import { SWATCH_COLORS, SWATCH_COLOR_MAP, SWATCH_HIGHLIGHT_COLOR_MAP } from '../../lib/color-palette.js';
+import { resolveChartTheme } from '../../lib/chart-theme.js';
+import { Chart } from 'chart.js';
+import type { ChartConfiguration } from 'chart.js';
+import {
+	CHART_KINDS, CHART_ICONS, AGGREGATES, BUCKETS,
+	buildChartModel, buildChartConfig, chartValueLabel, formatChartNumber,
+	chartXColumns, chartYColumns, chartSeriesColumns, isNumericColumn,
+} from './dataset-chart.js';
+import type { ChartKind, Aggregate, Bucket, ChartSpec } from './dataset-chart.js';
 
 export const DATASET_VIEW_NODE = 'datasetView';
 export const DATASET_DESCRIPTOR_NAME = '.dataset.yml';
@@ -51,9 +62,11 @@ export const DATASET_DROP_HANDLER = '__datasetDrop';
 // file-drop handling ignores them.
 const ROW_DRAG_TYPE = 'application/x-memo-dataset-row';
 const COLUMN_DRAG_TYPE = 'application/x-memo-dataset-column';
-const VIEWS = ['table', 'board', 'calendar'] as const;
+const VIEWS = ['table', 'board', 'calendar', 'chart'] as const;
 type ViewKind = typeof VIEWS[number];
-const VIEW_ICONS: Record<ViewKind, string> = { table: 'bi-table', board: 'bi-kanban', calendar: 'bi-calendar3' };
+const VIEW_ICONS: Record<ViewKind, string> = { table: 'bi-table', board: 'bi-kanban', calendar: 'bi-calendar3', chart: 'bi-bar-chart' };
+const DEFAULT_CHART_KIND: ChartKind = 'bar';
+const DEFAULT_BUCKET: Bucket = 'month';
 // Table column widths, in pixels. The name column has no descriptor key, so
 // its width is stored under a key no column can have (keys start with a
 // letter).
@@ -113,6 +126,15 @@ export interface DatasetViewAttrs {
 	group: string;
 	// Key of the date column the calendar places rows by.
 	date: string;
+	// The chart: its kind, the category column (x), the value column (y; ''
+	// counts rows) and how it is aggregated, the column that splits it into
+	// series ('' for one), and the bucket of a date category.
+	chart: ChartKind;
+	x: string;
+	y: string;
+	agg: Aggregate;
+	series: string;
+	bucket: Bucket;
 	// Table column widths in pixels by key (NAME_COLUMN_KEY for the name
 	// column); a column not listed has its default width.
 	widths: Record<string, number>;
@@ -192,6 +214,12 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 				sort: { default: null, rendered: false },
 				group: { default: '', rendered: false },
 				date: { default: '', rendered: false },
+				chart: { default: DEFAULT_CHART_KIND, rendered: false },
+				x: { default: '', rendered: false },
+				y: { default: '', rendered: false },
+				agg: { default: 'count', rendered: false },
+				series: { default: '', rendered: false },
+				bucket: { default: DEFAULT_BUCKET, rendered: false },
 				widths: { default: {}, rendered: false },
 				order: { default: [], rendered: false },
 				wide: { default: false, rendered: false },
@@ -204,6 +232,9 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 				getAttrs: (element) => {
 					const el = element as HTMLElement;
 					const view = el.getAttribute('data-view') || 'table';
+					const chart = el.getAttribute('data-chart') || DEFAULT_CHART_KIND;
+					const agg = el.getAttribute('data-agg') || 'count';
+					const bucket = el.getAttribute('data-bucket') || DEFAULT_BUCKET;
 					return {
 						path: el.getAttribute('data-path') || '',
 						view: (VIEWS as readonly string[]).includes(view) ? view : 'table',
@@ -211,6 +242,12 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 						sort: parseJSONAttribute(el.getAttribute('data-sort'), null),
 						group: el.getAttribute('data-group') || '',
 						date: el.getAttribute('data-date') || '',
+						chart: (CHART_KINDS as readonly string[]).includes(chart) ? chart : DEFAULT_CHART_KIND,
+						x: el.getAttribute('data-x') || '',
+						y: el.getAttribute('data-y') || '',
+						agg: (AGGREGATES as readonly string[]).includes(agg) ? agg : 'count',
+						series: el.getAttribute('data-series') || '',
+						bucket: (BUCKETS as readonly string[]).includes(bucket) ? bucket : DEFAULT_BUCKET,
 						widths: parseJSONAttribute(el.getAttribute('data-widths'), {}),
 						order: parseJSONAttribute(el.getAttribute('data-order'), []),
 						wide: el.hasAttribute('data-wide'),
@@ -229,6 +266,12 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 				'data-sort': attrs.sort ? JSON.stringify(attrs.sort) : null,
 				'data-group': attrs.group || null,
 				'data-date': attrs.date || null,
+				'data-chart': attrs.chart && attrs.chart !== DEFAULT_CHART_KIND ? attrs.chart : null,
+				'data-x': attrs.x || null,
+				'data-y': attrs.y || null,
+				'data-agg': attrs.agg && attrs.agg !== 'count' ? attrs.agg : null,
+				'data-series': attrs.series || null,
+				'data-bucket': attrs.bucket && attrs.bucket !== DEFAULT_BUCKET ? attrs.bucket : null,
 				'data-widths': attrs.widths && Object.keys(attrs.widths).length ? JSON.stringify(attrs.widths) : null,
 				'data-order': attrs.order && attrs.order.length ? JSON.stringify(attrs.order) : null,
 				'data-wide': attrs.wide ? '' : null,
@@ -357,6 +400,12 @@ class DatasetNodeView implements NodeView {
 	// The Inspector face (see DatasetPane); rendered together with the block.
 	private readonly paneEl: HTMLElement;
 	private readonly pane: DatasetPane;
+	// The Chart.js instance of the chart view, while one is drawn. Destroyed
+	// before every re-render, so a canvas never outlives its chart.
+	private chart: Chart | null = null;
+	// Redraws the chart when the shell switches theme: a canvas cannot follow
+	// CSS variables on its own.
+	private themeObserver: MutationObserver | null = null;
 
 	constructor(
 		private readonly host: DatasetViewHost,
@@ -378,6 +427,12 @@ class DatasetNodeView implements NodeView {
 		this.dom.addEventListener('click', () => this.activate());
 		this.dom.addEventListener('contextmenu', () => this.activate());
 		this.dom.addEventListener('focusin', () => this.activate());
+		if (typeof MutationObserver === 'function') {
+			this.themeObserver = new MutationObserver(() => {
+				if (this.chart && this.attrs.view === 'chart') this.render();
+			});
+			this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+		}
 		this.render();
 		this.connect();
 	}
@@ -393,6 +448,8 @@ class DatasetNodeView implements NodeView {
 			this.connect();
 		} else if (before.sort !== after.sort || before.hidden !== after.hidden
 			|| before.view !== after.view || before.group !== after.group || before.date !== after.date
+			|| before.chart !== after.chart || before.x !== after.x || before.y !== after.y
+			|| before.agg !== after.agg || before.series !== after.series || before.bucket !== after.bucket
 			|| before.widths !== after.widths || before.order !== after.order || before.wide !== after.wide) {
 			this.render();
 		}
@@ -426,6 +483,11 @@ class DatasetNodeView implements NodeView {
 		this.destroyed = true;
 		this.deactivate();
 		this.disconnect();
+		this.destroyChart();
+		if (this.themeObserver) {
+			this.themeObserver.disconnect();
+			this.themeObserver = null;
+		}
 	}
 
 	// ---- activation ----
@@ -483,6 +545,7 @@ class DatasetNodeView implements NodeView {
 		if (view === 'calendar' && !this.dateColumn()) {
 			patch.date = this.dateColumns()[0]?.key || '';
 		}
+		if (view === 'chart') Object.assign(patch, this.chartDefaults(this.chartKind()));
 		this.setAttrs(patch);
 	}
 
@@ -698,12 +761,13 @@ class DatasetNodeView implements NodeView {
 	// ---- rendering ----
 
 	private render(): void {
+		this.destroyChart();
 		this.dom.replaceChildren();
 		this.editingCell = null;
 		const attrs = this.attrs;
 		this.dom.dataset.view = attrs.view;
-		// Full width applies to the table and the board; a calendar keeps the
-		// memo's text column.
+		// Full width applies to the table, the board and the chart; a calendar
+		// keeps the memo's text column.
 		this.dom.classList.toggle('is-wide', !!attrs.wide && attrs.view !== 'calendar');
 		this.dom.appendChild(this.renderHeader());
 		// A form opened while the block is inactive (the Inspector is closed,
@@ -724,6 +788,7 @@ class DatasetNodeView implements NodeView {
 			switch (attrs.view) {
 				case 'board': this.dom.appendChild(this.renderBoard()); break;
 				case 'calendar': this.dom.appendChild(this.renderCalendar()); break;
+				case 'chart': this.dom.appendChild(this.renderChart()); break;
 				default: this.dom.appendChild(this.renderTable());
 			}
 		}
@@ -772,6 +837,8 @@ class DatasetNodeView implements NodeView {
 				header.appendChild(this.renderColumnPicker(
 					this.t('app.memo.dataset.calendar.date', undefined, 'Date'),
 					this.dateColumn(), this.dateColumns(), key => this.setAttrs({ date: key })));
+			} else if (attrs.view === 'chart') {
+				this.renderChartControls(header);
 			}
 		} else {
 			header.appendChild(icon('bi-database memo-dataset-icon'));
@@ -1534,6 +1601,216 @@ class DatasetNodeView implements NodeView {
 		const current = this.valuesOf(row, column)[0];
 		const time = current ? (Dates.toZonedInputValue(current, this.host.timeZone()).slice(11, 16) || '00:00') : '00:00';
 		return this.storeValue(row, column, `${day}T${time}`);
+	}
+
+	// ---- chart view ----
+
+	private chartKind(): ChartKind {
+		const kind = this.attrs.chart;
+		return (CHART_KINDS as readonly string[]).includes(kind) ? kind : DEFAULT_CHART_KIND;
+	}
+
+	private columnByKey(key: string, candidates: DatasetProperty[]): DatasetProperty | null {
+		return key ? candidates.find(p => p.key === key) || null : null;
+	}
+
+	private chartXColumns(kind: ChartKind): DatasetProperty[] {
+		return chartXColumns(kind, this.dataset?.properties || []);
+	}
+
+	private chartYColumns(): DatasetProperty[] {
+		return chartYColumns(this.dataset?.properties || []);
+	}
+
+	private chartSeriesColumns(kind: ChartKind): DatasetProperty[] {
+		return chartSeriesColumns(kind, this.dataset?.properties || []);
+	}
+
+	// The chart as configured, with columns that no longer fit the kind (a
+	// text column under a scatter, say) dropped.
+	private chartSpec(): ChartSpec {
+		const attrs = this.attrs;
+		const kind = this.chartKind();
+		const y = this.columnByKey(attrs.y, this.chartYColumns());
+		return {
+			kind,
+			x: this.columnByKey(attrs.x, this.chartXColumns(kind)),
+			y,
+			// A value column is aggregated; "count" belongs to no column.
+			agg: y ? ((AGGREGATES as readonly string[]).includes(attrs.agg) && attrs.agg !== 'count' ? attrs.agg : 'sum') : 'count',
+			series: this.columnByKey(attrs.series, this.chartSeriesColumns(kind)),
+			bucket: (BUCKETS as readonly string[]).includes(attrs.bucket) ? attrs.bucket : DEFAULT_BUCKET,
+		};
+	}
+
+	// Columns for a chart kind when the stored ones do not fit it: the first
+	// usable X column, and for a scatter a second number column as Y.
+	private chartDefaults(kind: ChartKind): Partial<DatasetViewAttrs> {
+		const patch: Partial<DatasetViewAttrs> = {};
+		const xs = this.chartXColumns(kind);
+		let x = this.columnByKey(this.attrs.x, xs);
+		if (!x && xs.length > 0) {
+			// A chart of counts over a choice column is the most likely want;
+			// then any text or date column; then whatever there is.
+			x = xs.find(p => p.type === 'STRING' && p.choices.length > 0) || xs.find(p => !isNumericColumn(p)) || xs[0];
+			patch.x = x.key;
+		}
+		if (kind === 'scatter') {
+			const ys = this.chartYColumns().filter(p => p.key !== (x ? x.key : this.attrs.x));
+			if (!this.columnByKey(this.attrs.y, ys) && ys.length > 0) patch.y = ys[0].key;
+		}
+		return patch;
+	}
+
+	private switchChartKind(kind: ChartKind): void {
+		if (kind === this.chartKind()) return;
+		this.setAttrs({ chart: kind, ...this.chartDefaults(kind) });
+	}
+
+	// A picker in the header: a caption, the current choice, a menu of items.
+	private renderOptionPicker(caption: string, current: string, items: { id: string; label: string; icon?: string }[], currentId: string, choose: (id: string) => void): HTMLElement {
+		const btn = el('button', 'wt wt-slim memo-dataset-btn memo-dataset-picker');
+		btn.type = 'button';
+		if (caption) btn.appendChild(el('span', 'memo-dataset-picker-caption', caption + ': '));
+		btn.appendChild(el('span', undefined, current || '—'));
+		btn.appendChild(icon('bi-chevron-down ms-1'));
+		btn.addEventListener('click', () => {
+			const popup = this.host.popup();
+			if (!popup || items.length === 0) return;
+			const handle = popup.open({
+				anchor: anchorOf(btn),
+				placement: 'bottom-start',
+				minWidth: 180,
+				items: items.map(i => ({ id: i.id, label: i.label, icon: i.icon ? 'bi ' + i.icon : undefined, selected: i.id === currentId })),
+			});
+			handle.result.then((id: string | null) => { if (id != null) choose(String(id)); });
+		});
+		return btn;
+	}
+
+	// The chart's controls in the header: kind, X column, value (count or a
+	// number column with its aggregate), series column, date bucket. Each
+	// picker offers only the columns whose type fits its role.
+	private renderChartControls(header: HTMLElement): void {
+		const spec = this.chartSpec();
+		const kind = spec.kind;
+		const none = this.t('app.memo.dataset.chart.none', undefined, 'None');
+		const kindLabel = (k: ChartKind) => this.t('app.memo.dataset.chart.type.' + k, undefined, k);
+		header.appendChild(this.renderOptionPicker('', kindLabel(kind),
+			CHART_KINDS.map(k => ({ id: k, label: kindLabel(k), icon: CHART_ICONS[k] })), kind,
+			id => this.switchChartKind(id as ChartKind)));
+
+		if (kind !== 'number') {
+			const xs = this.chartXColumns(kind);
+			header.appendChild(this.renderOptionPicker(
+				this.t('app.memo.dataset.chart.x', undefined, 'X axis'),
+				spec.x ? (spec.x.label || spec.x.key) : '',
+				xs.map(p => ({ id: p.key, label: p.label || p.key, icon: columnIcon(p) })), spec.x?.key || '',
+				key => this.setAttrs({ x: key })));
+		}
+
+		const ys = this.chartYColumns().filter(p => kind !== 'scatter' || p.key !== spec.x?.key);
+		const countLabel = this.t('app.memo.dataset.chart.agg.count', undefined, 'Count');
+		const yItems = (kind === 'scatter' ? [] : [{ id: '', label: countLabel, icon: 'bi-hash' }])
+			.concat(ys.map(p => ({ id: p.key, label: p.label || p.key, icon: columnIcon(p) })));
+		header.appendChild(this.renderOptionPicker(
+			this.t('app.memo.dataset.chart.y', undefined, 'Value'),
+			spec.y ? (spec.y.label || spec.y.key) : (kind === 'scatter' ? '' : countLabel),
+			yItems, spec.y?.key || '',
+			key => this.setAttrs({ y: key, agg: key && this.attrs.agg !== 'count' ? this.attrs.agg : (key ? 'sum' : 'count') })));
+
+		if (spec.y && kind !== 'scatter') {
+			const aggLabel = (a: Aggregate) => this.t('app.memo.dataset.chart.agg.' + a, undefined, a);
+			const aggs = AGGREGATES.filter(a => a !== 'count');
+			header.appendChild(this.renderOptionPicker('', aggLabel(spec.agg),
+				aggs.map(a => ({ id: a, label: aggLabel(a) })), spec.agg,
+				id => this.setAttrs({ agg: id as Aggregate })));
+		}
+
+		const seriesColumns = this.chartSeriesColumns(kind).filter(p => p.key !== spec.x?.key);
+		if (seriesColumns.length > 0) {
+			header.appendChild(this.renderOptionPicker(
+				this.t('app.memo.dataset.chart.series', undefined, 'Split by'),
+				spec.series ? (spec.series.label || spec.series.key) : none,
+				[{ id: '', label: none }].concat(seriesColumns.map(p => ({ id: p.key, label: p.label || p.key, icon: columnIcon(p) }))), spec.series?.key || '',
+				key => this.setAttrs({ series: key })));
+		}
+
+		if (spec.x && spec.x.type === 'DATE' && kind !== 'scatter') {
+			const bucketLabel = (b: Bucket) => this.t('app.memo.dataset.chart.bucket.' + b, undefined, b);
+			header.appendChild(this.renderOptionPicker(
+				this.t('app.memo.dataset.chart.bucket', undefined, 'Interval'),
+				bucketLabel(spec.bucket), BUCKETS.map(b => ({ id: b, label: bucketLabel(b) })), spec.bucket,
+				id => this.setAttrs({ bucket: id as Bucket })));
+		}
+	}
+
+	private destroyChart(): void {
+		if (!this.chart) return;
+		try { this.chart.destroy(); } catch { /* a detached canvas */ }
+		this.chart = null;
+	}
+
+	private renderChart(): HTMLElement {
+		const box = el('div', 'memo-dataset-chart');
+		box.dataset.kind = this.chartKind();
+		const spec = this.chartSpec();
+		const ctx = { t: (k: string, p?: Record<string, any>, f?: string) => this.t(k, p, f), locale: this.host.locale() || undefined, timeZone: this.host.timeZone() };
+
+		const note = (text: string): HTMLElement => {
+			const msg = el('div', 'memo-dataset-message');
+			msg.appendChild(icon('bi-info-circle me-1'));
+			msg.appendChild(document.createTextNode(text));
+			box.appendChild(msg);
+			return box;
+		};
+		if (spec.kind === 'scatter') {
+			if (!spec.x || !spec.y) {
+				return note(this.chartYColumns().length < 2
+					? this.t('app.memo.dataset.chart.scatterNeedsNumbers', undefined, 'A scatter chart needs two number columns. Add them in the Inspector.')
+					: this.t('app.memo.dataset.chart.pickColumns', undefined, 'Choose the columns for the X axis and the value.'));
+			}
+		} else if (spec.kind !== 'number' && !spec.x) {
+			return note(this.chartXColumns(spec.kind).length === 0
+				? this.t('app.memo.dataset.chart.noColumn', undefined, 'A chart needs a column for the X axis. Add one in the Inspector.')
+				: this.t('app.memo.dataset.chart.pickColumn', undefined, 'Choose the column for the X axis.'));
+		}
+
+		const model = buildChartModel(spec, this.rows, ctx);
+
+		if (spec.kind === 'number') {
+			const tile = el('div', 'memo-dataset-number');
+			tile.appendChild(el('div', 'memo-dataset-number-value', formatChartNumber(model.total, ctx.locale)));
+			tile.appendChild(el('div', 'memo-dataset-number-label', chartValueLabel(spec, ctx)));
+			box.appendChild(tile);
+			return box;
+		}
+
+		if (this.rows.length === 0 && !this.loading) {
+			return note(this.t('app.memo.dataset.chart.noRows', undefined, 'No rows to chart yet.'));
+		}
+
+		const canvasBox = el('div', 'memo-dataset-canvas');
+		const canvas = el('canvas');
+		canvas.setAttribute('role', 'img');
+		canvas.setAttribute('aria-label', `${model.valueLabel}${spec.x ? ' · ' + (spec.x.label || spec.x.key) : ''}`);
+		canvasBox.appendChild(canvas);
+		box.appendChild(canvasBox);
+		// The chart is created once the canvas is in the document, so Chart.js
+		// measures a laid-out box rather than a detached one.
+		requestAnimationFrame(() => {
+			if (this.destroyed || !canvas.isConnected) return;
+			this.destroyChart();
+			try {
+				this.chart = new Chart(canvas, buildChartConfig(model, resolveChartTheme(), ctx) as ChartConfiguration);
+			} catch (e: any) {
+				canvasBox.replaceChildren(el('div', 'memo-dataset-message text-danger', e?.message || String(e)));
+			}
+		});
+		if (model.skipped > 0) {
+			box.appendChild(el('div', 'memo-dataset-chart-note', this.t('app.memo.dataset.chart.skipped', { count: model.skipped }, `${model.skipped} rows without a value are not shown`)));
+		}
+		return box;
 	}
 
 	// ---- cell editing ----
