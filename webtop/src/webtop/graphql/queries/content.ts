@@ -179,6 +179,23 @@ export const CONTENT_QUERIES = {
           outputs
           documentRoot
         }
+        dataset {
+          id
+          path
+          label
+          description
+          properties {
+            key
+            name
+            label
+            description
+            type
+            multiple
+            required
+            print
+            choices { value label color }
+          }
+        }
         hasChildren
         isLocked
         lockInfo {

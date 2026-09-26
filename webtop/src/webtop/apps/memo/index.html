@@ -59,6 +59,14 @@
 
 			<span class="nav-spacer"></span>
 
+			<!-- Right: editor width (the memo's text column or the whole pane) -->
+			<div class="toolbar-group">
+				<button class="btn-icon" :class="{active: editorWide}" @click="toggleEditorWide"
+					:title="t('app.memo.toolbar.wideEditor', undefined, 'Full-width page')">
+					<i class="bi bi-arrows-expand-vertical"></i>
+				</button>
+			</div>
+
 			<!-- Right: Pane Toggles -->
 			<div class="pane-toggles">
 				<button class="btn-icon pane-toggle-btn" :class="{active: sidebarPanelVisible}"
@@ -231,7 +239,7 @@
 				<!-- Body: editor host. Per-tab Tiptap editors are mounted here by
 				     app.ts; the framework leaves this subtree alone (no child
 				     bindings), exactly as the Text Editor does for CodeMirror. -->
-				<div class="editor-area">
+				<div class="editor-area" :class="{ 'is-wide': editorWide }">
 					<div id="editor-host" ref="editorHost"></div>
 				</div>
 			</div>
@@ -242,7 +250,10 @@
 				@resize-end="persistDetailPanelState"></wt-splitter>
 
 			<!-- Inspector Panel — wt-inspector custom element, same contract as the
-			     Text Editor. Targets the active tab's backing node. -->
+			     Text Editor. Targets the active tab's backing node. While a
+			     dataset block holds the cursor (inspectorOptions.pane), the
+			     Inspector shows the `pane` slot instead: the block's own element
+			     is placed into the host below by attachDatasetPane. -->
 			<wt-inspector v-if="detailPanelVisible"
 				:target="inspectorTarget"
 				:api="inspectorApi"
@@ -251,7 +262,11 @@
 				:localization="localization"
 				@reveal-item="onInspectorRevealItem($event.detail)"
 				@overlay-changed="onInspectorOverlayChanged($event.detail)"
-				@content-reverted="onInspectorContentReverted($event.detail)"></wt-inspector>
+				@content-reverted="onInspectorContentReverted($event.detail)">
+				<template v-slot:pane>
+					<div class="memo-dataset-pane-host" ref="datasetPaneHost" @mounted="attachDatasetPane"></div>
+				</template>
+			</wt-inspector>
 
 		</div>
 
@@ -357,6 +372,23 @@
 				</button>
 				<button class="wt wt-primary" @click="submitCheckin" :disabled="checkinDialog.isLoading">
 					<i class="bi bi-box-arrow-in-down-left me-1"></i>{{ t('app.memo.checkin.checkin', undefined, 'Checkin') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Dataset delete confirmation (a dataset block's "Remove block and
+		     delete dataset…") — no ✕ / Escape: the choice is explicit. -->
+		<wt-dialog :open="datasetDeleteDialog.visible" :closable="false" :esc-close="false">
+			<template v-slot:title="d">
+				<i class="bi bi-trash me-2"></i>{{ datasetDeleteDialog.title }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-0">{{ datasetDeleteDialog.message }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="onDatasetDeleteDialogAction(false)">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-danger" @click="onDatasetDeleteDialogAction(true)">
+					<i class="bi bi-trash me-1"></i>{{ t('app.memo.dataset.delete', undefined, 'Delete') }}
 				</button>
 			</template>
 		</wt-dialog>

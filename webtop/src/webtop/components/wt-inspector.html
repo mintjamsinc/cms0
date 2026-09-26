@@ -25,11 +25,18 @@
 
 		<!-- Panel Header -->
 		<div class="detail-panel-header">
-			<span class="detail-panel-title">{{ t('webtop.inspector.title') }}</span>
+			<span class="detail-panel-title">{{ panelTitle }}</span>
 		</div>
 
-		<!-- Regular Inspector view (hidden while any sub-view overlay is open) -->
-		<template v-if="!detailVersionHistoryVisible && !detailACLEditorVisible && !detailPropertyEditorVisible">
+		<!-- Host pane (viewOptions.pane): the host's own body in place of the
+		     node view, e.g. the memo's dataset details. The slot content is
+		     the host's and is moved here while the pane is active. -->
+		<div v-if="paneActive" class="detail-panel-content detail-pane-host">
+			<slot name="pane"></slot>
+		</div>
+
+		<!-- Regular Inspector view (hidden while a host pane or any sub-view overlay is open) -->
+		<template v-if="!paneActive && !detailVersionHistoryVisible && !detailACLEditorVisible && !detailPropertyEditorVisible">
 
 		<!-- No Selection State -->
 		<div v-if="!singleTarget && multiTargets.length === 0" class="detail-panel-empty">
@@ -302,7 +309,7 @@
 				</div>
 				<template v-else>
 					<!-- Schema selector -->
-					<div v-if="availableSchemas.length > 0" class="schema-selector">
+					<div v-if="effectiveSchemas.length > 0" class="schema-selector">
 						<div class="wt-select detail-schema-dropdown">
 							<button type="button" class="wt-select-trigger" @click.stop="openDetailSchemaDropdown(event)">
 								<span class="wt-select-value" :class="{placeholder: !selectedSchemaKey}">
@@ -594,7 +601,7 @@
 		</template>
 
 		<!-- Version History view (replaces Inspector content) -->
-		<div v-if="detailVersionHistoryVisible" class="detail-overlay">
+		<div v-if="!paneActive && detailVersionHistoryVisible" class="detail-overlay">
 			<div class="detail-overlay-header">
 				<button class="detail-overlay-back-btn" @click="closeDetailVersionHistory" :title="t('webtop.inspector.back')">
 					<i class="bi bi-arrow-left"></i>
@@ -668,7 +675,7 @@
 		</div>
 
 		<!-- ACL Editor view (replaces Inspector content) -->
-		<div v-if="detailACLEditorVisible" class="detail-overlay">
+		<div v-if="!paneActive && detailACLEditorVisible" class="detail-overlay">
 			<div class="detail-overlay-header">
 				<button class="detail-overlay-back-btn" @click="closeDetailACLEditor" :title="t('webtop.inspector.back')">
 					<i class="bi bi-arrow-left"></i>
@@ -828,7 +835,7 @@
 		</div>
 
 		<!-- Property Editor view (replaces Inspector content) -->
-		<div v-if="detailPropertyEditorVisible" class="detail-overlay">
+		<div v-if="!paneActive && detailPropertyEditorVisible" class="detail-overlay">
 			<div class="detail-overlay-header">
 				<button class="detail-overlay-back-btn" @click="closeDetailPropertyEditor" :title="t('webtop.inspector.back')">
 					<i class="bi bi-arrow-left"></i>
@@ -869,7 +876,7 @@
 					<div class="mb-3">{{ singleTarget && singleTarget.name }}</div>
 
 					<!-- Schema selector -->
-					<div v-if="availableSchemas.length > 0" class="detail-section schema-selector mb-1">
+					<div v-if="effectiveSchemas.length > 0" class="detail-section schema-selector mb-1">
 						<div class="wt-select prop-editor-schema-dropdown">
 							<button type="button" class="wt-select-trigger" @click.stop="openPropEditorSchemaDropdown(event)">
 								<span class="wt-select-value" :class="{placeholder: !propEditorSchemaKey}">

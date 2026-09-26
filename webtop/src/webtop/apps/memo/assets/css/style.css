@@ -155,14 +155,53 @@
 	overflow: auto;
 }
 
-/* Each per-tab mount fills the host; only the active one is shown. */
+/* Each per-tab mount fills the host; only the active one is shown. It is
+   positioned so the block drag handle (see drag-handle.ts) can sit next to a
+   block by the block's own coordinates. */
 .memo-editor-mount {
 	min-height: 100%;
 	display: none;
+	position: relative;
 }
 
 .memo-editor-mount.is-active {
 	display: block;
+}
+
+/* Full-width page (the toolbar's width toggle): the document uses the whole
+   pane instead of the memo's text column. */
+.editor-area.is-wide .ProseMirror {
+	max-width: none;
+}
+
+/* Block drag handle: the grip in the left gutter next to the hovered
+   top-level block. Shown by drag-handle.ts, which also positions it. */
+.memo-drag-handle {
+	position: absolute;
+	display: none;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	border-radius: 0.25rem;
+	color: var(--text-muted-color);
+	cursor: grab;
+	user-select: none;
+	z-index: 3;
+}
+
+.memo-drag-handle.is-visible {
+	display: flex;
+}
+
+.memo-drag-handle:hover {
+	background-color: var(--item-hover-bg);
+	color: var(--text-color);
+}
+
+.memo-drag-handle:active,
+.memo-drag-handle.is-dragging {
+	cursor: grabbing;
 }
 
 /* Empty-document hint, shown until the user starts typing. */
@@ -515,3 +554,780 @@
 }
 
 .fs-2 { font-size: 1.5rem !important; }
+
+
+/* ---- Dataset block (see dataset-view.ts) ---- */
+
+/* The editor host is the size container a full-width block measures itself
+   against (cqw): the pane, not the memo's text column. */
+#editor-host {
+	container-type: inline-size;
+}
+
+.memo-dataset {
+	margin: 1rem 0;
+	border: 1px solid var(--input-border-color);
+	border-radius: 0.5rem;
+	background-color: var(--body-bg);
+	font-size: 0.875rem;
+	overflow: hidden;
+	box-sizing: border-box;
+}
+
+.memo-dataset.is-selected {
+	box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+/* Full width (table and board): as wide as the editor host less a gutter,
+   whatever the text column. The block's containing block is the text column,
+   so 50% is half of it and 50cqw half the host; their difference is how far
+   the column's left edge sits from the host's. */
+.memo-dataset.is-wide {
+	width: calc(100cqw - 2rem);
+	margin-left: calc(50% - 50cqw + 1rem);
+}
+
+/* The header shows only while the cursor is in the block (.is-active); it is
+   one small row: view switch, the view's controls, the block menu. */
+.memo-dataset-header {
+	display: none;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.25rem 0.5rem;
+	border-bottom: 1px solid var(--input-border-color);
+	background-color: var(--item-hover-bg);
+	font-size: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.memo-dataset.is-active > .memo-dataset-header {
+	display: flex;
+}
+
+.memo-dataset-header .wt.wt-slim {
+	font-size: inherit;
+	padding: 0.125rem 0.5rem;
+	line-height: 1.5;
+	min-height: 0;
+}
+
+.memo-dataset-icon {
+	color: var(--text-soft-color);
+}
+
+.memo-dataset-title {
+	font-weight: 600;
+}
+
+.memo-dataset-spacer {
+	flex: 1;
+}
+
+.memo-dataset-btn {
+	white-space: nowrap;
+}
+
+.memo-dataset-nav {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.memo-dataset-month {
+	min-width: 7rem;
+	text-align: center;
+	font-weight: 600;
+}
+
+.memo-dataset-picker-caption {
+	/* color: var(--text-muted-color); */
+}
+
+/* Printing: columns the descriptor marks print: false, and the block's
+   controls, stay off the page. */
+@media print {
+	.memo-dataset .is-noprint,
+	.memo-dataset-header,
+	.memo-dataset-resizer,
+	.memo-dataset-new-row,
+	.memo-dataset-day-add,
+	.memo-dataset-status {
+		display: none !important;
+	}
+}
+
+/* Table */
+
+.memo-dataset-scroll {
+	overflow-x: auto;
+}
+
+/* Fixed layout: each column is as wide as the block stores (or its default),
+   the empty last column takes what is left, and the wrapper scrolls sideways
+   when the columns exceed the block. */
+.memo-dataset-table {
+	border-collapse: collapse;
+	table-layout: fixed;
+	width: 100%;
+}
+
+.memo-dataset-table.is-resizing {
+	user-select: none;
+	cursor: col-resize;
+}
+
+.memo-dataset-table th,
+.memo-dataset-table td {
+	border-bottom: 1px solid var(--input-border-color);
+	border-right: 1px solid var(--input-border-color);
+	padding: 0;
+	vertical-align: top;
+	text-align: left;
+}
+
+.memo-dataset-table th:last-child,
+.memo-dataset-table td:last-child {
+	border-right: none;
+}
+
+.memo-dataset-filler {
+	padding: 0;
+}
+
+.memo-dataset-th {
+	position: relative;
+	background-color: var(--item-hover-bg);
+	font-weight: 600;
+	white-space: nowrap;
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+.memo-dataset-th.is-drop-target {
+	box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+
+.memo-dataset-head {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.375rem 0.5rem;
+	cursor: pointer;
+	user-select: none;
+	overflow: hidden;
+}
+
+.memo-dataset-head:hover {
+	background-color: rgb(from var(--primary-color) r g b / 0.08);
+}
+
+.memo-dataset-head.is-dragging {
+	opacity: 0.5;
+}
+
+.memo-dataset-head-icon {
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+	flex: none;
+}
+
+.memo-dataset-head-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.memo-dataset-sort {
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+	flex: none;
+}
+
+/* The resize handle straddles the header cell's right border. */
+.memo-dataset-resizer {
+	position: absolute;
+	top: 0;
+	right: -4px;
+	width: 8px;
+	height: 100%;
+	cursor: col-resize;
+	z-index: 2;
+}
+
+.memo-dataset-resizer:hover {
+	background-color: rgb(from var(--primary-color) r g b / 0.4);
+}
+
+.memo-dataset-link {
+	display: block;
+	padding: 0.375rem 0.5rem;
+	color: var(--primary-color);
+	text-decoration: none;
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+
+.memo-dataset-link:hover {
+	text-decoration: underline;
+}
+
+.memo-dataset-cell {
+	cursor: text;
+	overflow: hidden;
+}
+
+.memo-dataset-cell:focus {
+	outline: 2px solid var(--primary-color);
+	outline-offset: -2px;
+}
+
+.memo-dataset-cell.is-editing {
+	padding: 0;
+}
+
+.memo-dataset-cell.is-saving {
+	opacity: 0.6;
+}
+
+.memo-dataset-cell.is-error {
+	box-shadow: inset 0 0 0 2px var(--danger-color);
+}
+
+.memo-dataset-cell > input[type="checkbox"] {
+	margin: 0.375rem 0.5rem;
+}
+
+.memo-dataset-value {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+	padding: 0.375rem 0.5rem;
+	min-height: 1.75rem;
+	box-sizing: border-box;
+	overflow-wrap: anywhere;
+	line-height: 1.5;
+}
+
+.memo-dataset-value.is-empty {
+	min-height: 1.75rem;
+}
+
+/* A chip carries its choice's swatch tint inline (see renderChip). */
+.memo-dataset-chip {
+	display: inline-block;
+	padding: 0 0.5rem;
+	border-radius: 9999px;
+	background-color: var(--badge-bg);
+	line-height: 1.5;
+	white-space: nowrap;
+}
+
+.memo-dataset-input {
+	width: 100%;
+	box-sizing: border-box;
+	margin: 0;
+	border-radius: 0;
+	border: none;
+	padding: 0.375rem 0.5rem;
+	background-color: var(--body-bg);
+	outline: 2px solid var(--primary-color);
+	outline-offset: -2px;
+}
+
+.memo-dataset-empty {
+	padding: 0.75rem 0.5rem;
+	color: var(--text-muted-color);
+	text-align: center;
+}
+
+.memo-dataset-new-row {
+	width: 100%;
+	box-sizing: border-box;
+	border: none;
+	background: transparent;
+	padding: 0.375rem 0.5rem;
+	color: var(--text-color);
+}
+
+.memo-dataset-new-row::placeholder {
+	color: var(--text-muted-color);
+}
+
+.memo-dataset-new-row:focus {
+	outline: 2px solid var(--primary-color);
+	outline-offset: -2px;
+}
+
+.memo-dataset-status {
+	padding: 0.25rem 0.5rem;
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+}
+
+.memo-dataset-message {
+	padding: 0.5rem;
+	font-size: 0.8125rem;
+}
+
+.memo-dataset-hint {
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+}
+
+.memo-dataset-setup {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 0.75rem;
+}
+
+.memo-dataset-setup-label {
+	font-weight: 500;
+}
+
+.memo-dataset-setup-row {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+}
+
+.memo-dataset-setup-row input {
+	flex: 1;
+}
+
+/* Forms and confirmations: in the Inspector pane while the block is active,
+   under the header otherwise. */
+
+.memo-dataset-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	padding: 0.75rem;
+	border-bottom: 1px solid var(--input-border-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.04);
+}
+
+.memo-dataset-panel-title {
+	font-weight: 600;
+}
+
+.memo-dataset-panel-text {
+	line-height: 1.5;
+}
+
+.memo-dataset-panel-buttons {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.memo-dataset-form {
+	max-width: 32rem;
+}
+
+.memo-dataset-field {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.memo-dataset-field > span {
+	font-size: 0.75rem;
+	color: var(--text-soft-color);
+}
+
+.memo-dataset-check {
+	flex-direction: row;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.memo-dataset-check > span {
+	font-size: 0.875rem;
+	color: var(--text-color);
+}
+
+/* Choices in the column form: one line per value with its swatch dot; the
+   dot opens the palette (the Inspector's eleven swatches and none). */
+
+.memo-dataset-choices {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.memo-dataset-choice-line {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.memo-dataset-choice-line input {
+	flex: 1;
+	min-width: 0;
+}
+
+.memo-dataset-choice-dot {
+	flex: none;
+	width: 1rem;
+	height: 1rem;
+	padding: 0;
+	border: 2px solid transparent;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+	background-color: var(--badge-bg);
+	cursor: pointer;
+}
+
+.memo-dataset-choice-dot.is-none {
+	background: repeating-linear-gradient(45deg, var(--badge-bg) 0 2px, var(--input-border-color) 2px 4px);
+}
+
+.memo-dataset-choice-colors {
+	padding: 0.25rem 0 0.25rem 1.25rem;
+}
+
+.memo-dataset-choice-remove {
+	flex: none;
+}
+
+.memo-dataset-choice-add {
+	align-self: flex-start;
+}
+
+/* Inspector pane (the block's face in the Inspector; see renderPane) */
+
+.memo-dataset-pane-host {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.memo-dataset-pane {
+	display: flex;
+	flex-direction: column;
+	font-size: 0.875rem;
+}
+
+.memo-dataset-pane-info {
+	gap: 0.25rem;
+}
+
+.memo-dataset-pane-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.memo-dataset-pane-path {
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+	overflow-wrap: anywhere;
+}
+
+.memo-dataset-pane-rows {
+	color: var(--text-soft-color);
+	font-size: 0.8125rem;
+}
+
+.memo-dataset-pane-columns {
+	padding: 0.5rem;
+}
+
+.memo-dataset-pane-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.memo-dataset-pane-col {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0.5rem;
+	border-radius: 0.375rem;
+	cursor: pointer;
+}
+
+.memo-dataset-pane-col:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.memo-dataset-pane-col-icon {
+	flex: none;
+	width: 1rem;
+	text-align: center;
+	color: var(--text-muted-color);
+}
+
+.memo-dataset-pane-col-text {
+	flex: 1;
+	min-width: 0;
+}
+
+.memo-dataset-pane-col-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.memo-dataset-pane-col-meta {
+	color: var(--text-muted-color);
+	font-size: 0.6875rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.memo-dataset-pane-col-flags {
+	display: inline-flex;
+	gap: 0.25rem;
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+}
+
+.memo-dataset-pane-noprint {
+	opacity: 0.6;
+	text-decoration: line-through;
+}
+
+.memo-dataset-pane-col-menu {
+	flex: none;
+	opacity: 0;
+}
+
+.memo-dataset-pane-col:hover .memo-dataset-pane-col-menu,
+.memo-dataset-pane-col-menu:focus-visible {
+	opacity: 1;
+}
+
+.memo-dataset-pane .memo-dataset-panel {
+	border: none;
+	border-radius: 0.375rem;
+	padding: 0.5rem;
+}
+
+.memo-dataset-pane .memo-dataset-form {
+	max-width: none;
+}
+
+/* Board */
+
+.memo-dataset-board {
+	display: flex;
+	gap: 0.75rem;
+	padding: 0.75rem;
+	overflow-x: auto;
+	align-items: flex-start;
+}
+
+.memo-dataset-lane {
+	flex: 0 0 15rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+	padding: 0.5rem;
+	border-radius: 0.5rem;
+	background-color: var(--item-hover-bg);
+	min-height: 6rem;
+}
+
+.memo-dataset-lane.is-drop-target {
+	box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+
+.memo-dataset-lane-head {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	font-weight: 600;
+}
+
+.memo-dataset-lane-count {
+	color: var(--text-muted-color);
+	font-weight: 400;
+	font-size: 0.75rem;
+}
+
+.memo-dataset-cards {
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+	min-height: 1.5rem;
+}
+
+.memo-dataset-card {
+	padding: 0.5rem;
+	border-radius: 0.375rem;
+	background-color: var(--body-bg);
+	border: 1px solid var(--input-border-color);
+	cursor: grab;
+}
+
+.memo-dataset-card:active {
+	cursor: grabbing;
+}
+
+.memo-dataset-card.is-dragging {
+	opacity: 0.5;
+}
+
+.memo-dataset-card .memo-dataset-link {
+	padding: 0 0 0.25rem 0;
+}
+
+.memo-dataset-card-field {
+	display: flex;
+	align-items: baseline;
+	gap: 0.25rem;
+	font-size: 0.75rem;
+	color: var(--text-soft-color);
+}
+
+.memo-dataset-card-field .memo-dataset-value {
+	padding: 0;
+	min-height: 0;
+}
+
+.memo-dataset-card-label {
+	color: var(--text-muted-color);
+	white-space: nowrap;
+}
+
+.memo-dataset-lane .memo-dataset-new-row {
+	border-radius: 0.375rem;
+}
+
+.memo-dataset-lane .memo-dataset-new-row:hover,
+.memo-dataset-lane .memo-dataset-new-row:focus {
+	background-color: var(--body-bg);
+}
+
+/* Calendar */
+
+.memo-dataset-calendar {
+	padding: 0.5rem;
+}
+
+.memo-dataset-grid {
+	display: grid;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+	border-left: 1px solid var(--input-border-color);
+	border-top: 1px solid var(--input-border-color);
+}
+
+.memo-dataset-weekday {
+	padding: 0.25rem;
+	text-align: center;
+	font-size: 0.75rem;
+	color: var(--text-muted-color);
+	border-right: 1px solid var(--input-border-color);
+	border-bottom: 1px solid var(--input-border-color);
+	background-color: var(--item-hover-bg);
+}
+
+.memo-dataset-day {
+	min-height: 5.5rem;
+	padding: 0.25rem;
+	border-right: 1px solid var(--input-border-color);
+	border-bottom: 1px solid var(--input-border-color);
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
+	min-width: 0;
+}
+
+.memo-dataset-day.is-outside {
+	background-color: rgb(from var(--text-color) r g b / 0.03);
+}
+
+.memo-dataset-day.is-outside .memo-dataset-day-number {
+	color: var(--text-muted-color);
+}
+
+.memo-dataset-day.is-drop-target {
+	box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+
+.memo-dataset-day-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.memo-dataset-day-number {
+	font-size: 0.75rem;
+	padding: 0 0.25rem;
+}
+
+.memo-dataset-day.is-today .memo-dataset-day-number {
+	background-color: var(--primary-color);
+	color: var(--button-primary-color);
+	border-radius: 9999px;
+	font-weight: 600;
+}
+
+.memo-dataset-day-add {
+	border: none;
+	background: transparent;
+	color: var(--text-muted-color);
+	padding: 0 0.125rem;
+	line-height: 1;
+	cursor: pointer;
+	opacity: 0;
+}
+
+.memo-dataset-day:hover .memo-dataset-day-add {
+	opacity: 1;
+}
+
+.memo-dataset-day-input {
+	font-size: 0.75rem;
+	padding: 0.125rem 0.25rem;
+	border-radius: 0.25rem;
+	background-color: var(--body-bg);
+	border: 1px solid var(--input-border-color);
+}
+
+.memo-dataset-event {
+	display: flex;
+	align-items: baseline;
+	gap: 0.125rem;
+	padding: 0.0625rem 0.25rem;
+	border-radius: 0.25rem;
+	background-color: rgb(from var(--primary-color) r g b / 0.1);
+	font-size: 0.75rem;
+	min-width: 0;
+	cursor: grab;
+}
+
+.memo-dataset-event.is-dragging {
+	opacity: 0.5;
+}
+
+.memo-dataset-event .memo-dataset-link {
+	padding: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 500;
+}
+
+.memo-dataset-event-time {
+	color: var(--text-muted-color);
+	white-space: nowrap;
+}
+
+.memo-dataset-undated {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.5rem 0.25rem 0;
+}
+
+.memo-dataset-undated .memo-dataset-event {
+	display: inline-flex;
+}
+
+.memo-dataset-undated-label {
+	font-size: 0.75rem;
+	color: var(--text-muted-color);
+}

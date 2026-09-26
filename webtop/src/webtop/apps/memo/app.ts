@@ -39,6 +39,11 @@ import {
 	memoReplaceAll,
 	type SearchOptions,
 } from "./search.js";
+// Dataset block: a folder of memos shown as an editable table; see
+// dataset-view.ts.
+import { createDatasetViewExtension, DATASET_VIEW_NODE, DATASET_DROP_HANDLER, type DatasetPane } from "./dataset-view.js";
+// Block drag handle (the grip in the left gutter); see drag-handle.ts.
+import { createDragHandleExtension } from "./drag-handle.js";
 
 // ----------------------------------------------------------------------------
 // Native memo document format
@@ -130,6 +135,13 @@ let activeNodeWatchUnsubscribe: (() => void) | null = null;
 // Save As response channel. Native objects with privileged internals must not
 // be stored in reactive data().
 let saveAsChannelRef: BroadcastChannel | null = null;
+
+// The dataset block that holds the cursor, if any (see DatasetPane in
+// dataset-view.ts). Module-scoped: it carries DOM elements and a callback into
+// a ProseMirror node view, none of which may be wrapped in a reactive Proxy.
+// The reactive mirror is `datasetPane` in data(), which switches the Inspector
+// to the block's pane.
+let activeDatasetPane: DatasetPane | null = null;
 
 function unwatchActiveNode(): void {
 	if (activeNodeWatchUnsubscribe) {
@@ -270,6 +282,23 @@ export const App = {
 			detailPanelMaxWidth: 500,
 			inspectorApi: null as any,
 			inspectorOverlayOpen: false,
+			// Set while a dataset block holds the cursor: the Inspector then shows
+			// the block's pane (viewOptions.pane + the `pane` slot) instead of the
+			// memo's own details. The pane element itself is activeDatasetPane.el.
+			// No pane title is given on purpose: the header stays "Inspector",
+			// and the pane body carries its own "Dataset" section header.
+			datasetPane: false,
+			// "Remove block and delete dataset…" confirmation, a dialog like the
+			// unsaved-changes one; the block awaits the promise.
+			datasetDeleteDialog: {
+				visible: false,
+				title: '',
+				message: '',
+				resolve: null as null | ((ok: boolean) => void),
+			},
+			// Editor width: false keeps the memo's text column (max-width 48rem),
+			// true lets the document use the whole pane. Persisted per user.
+			editorWide: false,
 			// Checkout / checkin / close dialogs (version control flow, identical
 			// in spirit to the Text Editor's).
 			checkoutDialog: {
@@ -328,12 +357,22 @@ export const App = {
 			return {
 				showOpenItem: false,
 				hasUnsavedChanges: !!(this as any).currentFile.isModified,
+				pane: (this as any).datasetPane ? {} : null,
 			};
 		},
 	},
 	watch: {
 		dockSubtitle(val: string) {
 			(this as any).instance?.setDisplayInfo({ subtitle: val });
+		},
+		// The pane host in the Inspector's slot exists only while a pane is
+		// set and the panel is open; (re)attach the block's element once the
+		// DOM has caught up.
+		datasetPane() {
+			(this as any).$nextTick(() => (this as any).attachDatasetPane());
+		},
+		detailPanelVisible(visible: boolean) {
+			if (visible) (this as any).$nextTick(() => (this as any).attachDatasetPane());
 		},
 	},
 	methods: {
@@ -449,8 +488,9 @@ export const App = {
 				vm.isReady = true;
 				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 				vm.attachEditorHostErrorHandler();
+				vm.attachEditorHostPointerHandler();
 
-				await vm.loadDetailPanelState();
+				await Promise.all([vm.loadDetailPanelState(), vm.loadEditorState()]);
 
 				instance.setBeforeCloseCallback(async () => vm.confirmClose());
 
@@ -474,6 +514,7 @@ export const App = {
 		onUnmount() {
 			const vm = this;
 			unwatchActiveNode();
+			activeDatasetPane = null;
 			if (vm.messageListener) window.removeEventListener('message', vm.messageListener);
 			for (const ed of editors.values()) {
 				try { ed.destroy(); } catch { /* ignore */ }
@@ -620,6 +661,47 @@ export const App = {
 				}
 			} catch { /* ignore */ }
 		},
+		// ---- Editor width ----
+		toggleEditorWide() {
+			this.editorWide = !this.editorWide;
+			this.persistEditorState();
+		},
+		async persistEditorState() {
+			const vm = this;
+			const db = vm.instance?.api?.db;
+			const userID = vm.instance?.currentUser?.id || '*';
+			if (!db) return;
+			try {
+				await db.setUserSetting(userID, 'memo', 'editor', { wide: vm.editorWide });
+			} catch { /* ignore */ }
+		},
+		async loadEditorState() {
+			const vm = this;
+			const db = vm.instance?.api?.db;
+			const userID = vm.instance?.currentUser?.id || '*';
+			if (!db) return;
+			try {
+				const state = await db.getUserSetting(userID, 'memo', 'editor');
+				if (state) vm.editorWide = state.wide === true;
+			} catch { /* ignore */ }
+		},
+		// ---- Dataset delete confirmation ----
+		confirmDatasetDelete(title: string, message: string): Promise<boolean> {
+			const vm = this;
+			const dialog = vm.datasetDeleteDialog;
+			if (dialog.resolve) dialog.resolve(false);
+			dialog.title = title;
+			dialog.message = message;
+			dialog.visible = true;
+			return new Promise((resolve) => { dialog.resolve = resolve; });
+		},
+		onDatasetDeleteDialogAction(ok: boolean) {
+			const vm = this;
+			const dialog = vm.datasetDeleteDialog;
+			if (dialog.resolve) dialog.resolve(ok);
+			dialog.visible = false;
+			dialog.resolve = null;
+		},
 		onInspectorOverlayChanged(open: boolean) { this.inspectorOverlayOpen = !!open; },
 		onInspectorRevealItem(target: any) {
 			const path = target?.path;
@@ -722,6 +804,85 @@ export const App = {
 			this.reloadFileContent(path, true);
 			this.refreshActiveFileMetadata(path);
 		},
+		// ---- Dataset pane (a dataset block's face in the Inspector) ----
+		// A block that gains the cursor hands its pane here; the one that had
+		// it is told to let go. Only the reactive mirror goes into data().
+		activateDatasetPane(pane: DatasetPane) {
+			const vm = this;
+			const previous = activeDatasetPane;
+			if (previous === pane) return;
+			// A click on a row link opens another tab before the click reaches
+			// the block; a block whose tab is no longer shown cannot hold the
+			// cursor.
+			if (!pane.blockEl.closest('.memo-editor-mount.is-active')) {
+				pane.deactivate();
+				return;
+			}
+			activeDatasetPane = pane;
+			if (previous) previous.deactivate();
+			vm.datasetPane = true;
+		},
+		// Clear the pane, but only when it is still the active one: a block
+		// being destroyed must not unseat the block that replaced it.
+		deactivateDatasetPane(pane?: DatasetPane) {
+			const vm = this;
+			const current = activeDatasetPane;
+			if (!current) return;
+			if (pane && pane !== current) return;
+			activeDatasetPane = null;
+			vm.datasetPane = false;
+			if (!pane) current.deactivate();
+		},
+		// A block asked for a form that lives in its pane: make sure the
+		// Inspector is open to show it.
+		revealDatasetPane() {
+			const vm = this;
+			if (vm.detailPanelVisible) return;
+			vm.detailPanelVisible = true;
+			vm.persistDetailPanelState();
+		},
+		// Put the active block's pane element into the Inspector's slot host
+		// (see index.html). Idempotent: called whenever the pane or the panel's
+		// visibility changes, and when the host element mounts.
+		attachDatasetPane() {
+			const vm = this;
+			const host = (vm.$refs.datasetPaneHost as HTMLElement | undefined)
+				|| (document.querySelector('.memo-dataset-pane-host') as HTMLElement | null);
+			if (!host) return;
+			const pane = activeDatasetPane;
+			if (!pane) {
+				host.replaceChildren();
+				return;
+			}
+			if (pane.el.parentElement !== host) host.replaceChildren(pane.el);
+		},
+		// A mousedown in the editor outside the active block moves the cursor
+		// elsewhere in the document. Clicks in the Inspector, the toolbars and
+		// the shell's popups are not in the editor host and leave it alone.
+		attachEditorHostPointerHandler(): void {
+			const vm = this as any;
+			const editorHost = vm.$refs.editorHost as HTMLElement | undefined;
+			if (!editorHost) return;
+			editorHost.addEventListener('mousedown', (e: MouseEvent) => {
+				const pane = activeDatasetPane;
+				if (!pane) return;
+				if (pane.blockEl.contains(e.target as globalThis.Node | null)) return;
+				pane.deactivate();
+			}, true);
+		},
+		// The editor's selection moved (arrow keys, a click the pointer handler
+		// let through): unless it landed on the active block itself, or focus
+		// is in one of the block's inputs, the cursor has left the block.
+		checkDatasetSelection(ed: Editor) {
+			const pane = activeDatasetPane;
+			if (!pane) return;
+			const view = ed.view;
+			if (!view.hasFocus()) return;
+			if (pane.blockEl.contains(document.activeElement)) return;
+			const selection: any = ed.state.selection;
+			if (selection?.node?.type?.name === DATASET_VIEW_NODE && view.nodeDOM(selection.from) === pane.blockEl) return;
+			pane.deactivate();
+		},
 		// ---- Editor lifecycle ----
 		buildExtensions() {
 			const vm = this;
@@ -767,6 +928,25 @@ export const App = {
 				}),
 				Placeholder.configure({ placeholder }),
 				vm.buildSlashExtension(),
+				// Dataset block (see dataset-view.ts). The host callbacks read the
+				// component lazily so the node view never captures a reactive Proxy.
+				createDatasetViewExtension({
+					api: () => vm.instance?.api,
+					popup: () => vm.instance?.popup,
+					t: (key: string, params?: Record<string, any>, fallback?: string) => vm.t(key, params, fallback),
+					timeZone: () => vm.localization?.timeZone || undefined,
+					locale: () => vm.localization?.locale || undefined,
+					openPath: (path: string) => { void vm.loadFile(path); },
+					activeMemoPath: () => vm.currentFile?.path || '',
+					activatePane: (pane: DatasetPane) => vm.activateDatasetPane(pane),
+					deactivatePane: (pane: DatasetPane) => vm.deactivateDatasetPane(pane),
+					revealPane: () => vm.revealDatasetPane(),
+					confirmDelete: (title: string, message: string) => vm.confirmDatasetDelete(title, message),
+				}),
+				// The grip next to the hovered block that drags it elsewhere.
+				createDragHandleExtension({
+					title: () => vm.t('app.memo.dragHandle', undefined, 'Drag to move, click to select'),
+				}),
 				// Find & Replace (highlights + match registry); see search.ts.
 				createSearchExtension(),
 			];
@@ -815,7 +995,11 @@ export const App = {
 				content,
 				autofocus: false,
 				onUpdate: () => vm.onEditorUpdate(file.id),
-				onSelectionUpdate: () => { if (file.id === vm.activeId()) vm.refreshActiveState(); },
+				onSelectionUpdate: () => {
+					if (file.id !== vm.activeId()) return;
+					vm.refreshActiveState();
+					vm.checkDatasetSelection(ed!);
+				},
 			});
 			editors.set(file.id, ed);
 			return ed;
@@ -1048,6 +1232,7 @@ export const App = {
 				{ key: 'quote', icon: 'bi-quote', title: vm.t('app.memo.slash.quote', undefined, 'Quote'), desc: vm.t('app.memo.slash.quoteDesc', undefined, 'Block quotation'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).toggleBlockquote().run() },
 				{ key: 'code', icon: 'bi-code-square', title: vm.t('app.memo.slash.code', undefined, 'Code block'), desc: vm.t('app.memo.slash.codeDesc', undefined, 'Preformatted code'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).toggleCodeBlock().run() },
 				{ key: 'table', icon: 'bi-table', title: vm.t('app.memo.slash.table', undefined, 'Table'), desc: vm.t('app.memo.slash.tableDesc', undefined, '3×3 table with header'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
+				{ key: 'dataset', icon: 'bi-database', title: vm.t('app.memo.slash.dataset', undefined, 'Dataset'), desc: vm.t('app.memo.slash.datasetDesc', undefined, 'Folder of memos as an editable table'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).insertContent({ type: DATASET_VIEW_NODE, attrs: { path: '' } }).run() },
 				{ key: 'divider', icon: 'bi-dash-lg', title: vm.t('app.memo.slash.divider', undefined, 'Divider'), desc: vm.t('app.memo.slash.dividerDesc', undefined, 'Horizontal rule'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).setHorizontalRule().run() },
 			];
 			const q = (query || '').toLowerCase().trim();
@@ -1190,6 +1375,8 @@ export const App = {
 			const vm = this;
 			const file = vm.files[index];
 			if (!file) return;
+			// The cursor leaves the previous tab's document, dataset block included.
+			vm.deactivateDatasetPane();
 			vm.currentFile.path = file.path;
 			vm.currentFile.name = file.name;
 			vm.currentFile.mimeType = file.mimeType;
@@ -1305,6 +1492,13 @@ export const App = {
 				event.dataTransfer.dropEffect = 'none';
 				return;
 			}
+			// The editor's own drag (a block by its handle, a selection, a
+			// draggable node): ProseMirror handles the drop, so the effect must
+			// stay allowed here or the browser never delivers it.
+			if (this.activeEditor()?.view.dragging) {
+				event.dataTransfer.dropEffect = 'move';
+				return;
+			}
 			const isFileDrop = event.dataTransfer.types.includes('Files')
 				|| event.dataTransfer.types.includes('application/x-webtop-file')
 				|| event.dataTransfer.types.includes('application/x-webtop-files');
@@ -1346,11 +1540,17 @@ export const App = {
 				catch (e) { console.error('Failed to parse webtop file data:', e); }
 			}
 			if (items.length > 0) {
+				// A drop onto a dataset block hands the block the dropped folder
+				// (the block links to it) instead of opening anything.
+				const block = (event.target as HTMLElement | null)?.closest?.('[data-dataset-view]') as any;
+				if (block && typeof block[DATASET_DROP_HANDLER] === 'function' && block[DATASET_DROP_HANDLER](items)) {
+					return;
+				}
 				const isImg = (it: any) => it && !it.isCollection && isImageFile(it.mimeType, it.name);
 				const images = items.filter(isImg);
 				if (images.length > 0) await vm.insertImagesAtDrop(images, event);
 				for (const it of items) {
-					if (!isImg(it) && it?.path) await vm.loadFile(it.path);
+					if (!isImg(it) && !it.isCollection && it?.path) await vm.loadFile(it.path);
 				}
 				return;
 			}

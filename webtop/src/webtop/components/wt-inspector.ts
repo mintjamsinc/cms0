@@ -20,10 +20,21 @@
 //               host is holding unsaved edits for the target; destructive
 //               quick actions (version restore, cancel checkout) then warn
 //               that those edits will be discarded before proceeding.
+//               pane (default null) hands the panel body to the host: while
+//               it is set ({ title? }), the node sections and the overlays
+//               are not rendered and the `pane` slot shows in their place,
+//               inside the same frame and header (the header shows
+//               pane.title when given). The host keeps `target` bound so the
+//               node view is ready the moment the pane is cleared. The memo
+//               app uses this to show a dataset block's details while the
+//               cursor is in the block.
 //               NOTE: bound as `:view-options` — the attribute name `options`
 //               is reserved by ichigojs for directive options, so a plain
 //               `:options` binding is silently ignored.
 //     width   — optional pixel width applied to the panel root
+//   slots:
+//     pane    — the host's own panel body, shown while viewOptions.pane is
+//               set. Compiled in the host's scope, as ichigojs slots are.
 //   emits:
 //     open-item     { target }
 //     navigate-path { path }
@@ -46,6 +57,7 @@ import { MimeTypes } from '../utils/mime-types.js';
 import { Encodings } from '../utils/encodings.js';
 import { Dates } from '../utils/dates.js';
 import { drawSpectrum } from '../lib/spectrum-canvas.js';
+import { isFolderNode, type Node, type Dataset, type DatasetProperty } from '../graphql/types.js';
 import type { LocalizationSnapshot } from '../composables/use-localization.js';
 import { translate, createLocalizationSnapshot } from '../composables/use-localization.js';
 import {
@@ -443,6 +455,10 @@ defineComponent('wt-inspector', {
 				keydownListener: null as ((e: KeyboardEvent) => void) | null,
 				lastCommandNonce: 0,
 				targetReloadSeq: 0,
+				// Key of the dataset schema the pickers were last switched to on
+				// their own, so a row's columns are preselected once per target and
+				// a user's explicit "No schema" survives the next node refresh.
+				datasetAutoKey: '',
 				// Audio preview: the Web Audio graph behind the spectrum view. One
 				// AudioContext per Inspector, created on the first play (a user
 				// gesture) and closed with the component. The <audio> element is
@@ -460,6 +476,12 @@ defineComponent('wt-inspector', {
 			_i18nTick: 0,
 			// Available metadata schemas (loaded from the shell cache).
 			availableSchemas: [] as any[],
+			// The dataset the target row belongs to, as a schema in the same shape
+			// as availableSchemas (key "dataset:<id>"), or null when the target is
+			// not a file directly inside a dataset folder. Built from node.dataset
+			// each time the node is fetched, and offered first in the schema
+			// pickers: the columns a folder declares are the schema of its rows.
+			datasetSchema: null as any | null,
 			// Property type options for the "Add new property" form.
 			propTypeOptions: [
 				{ id: 'STRING', label: 'String' },
@@ -655,6 +677,17 @@ defineComponent('wt-inspector', {
 		hostHasUnsavedChanges(this: any): boolean {
 			return this.viewOptions?.hasUnsavedChanges === true;
 		},
+		// Whether the host has taken the panel over with viewOptions.pane: the
+		// node sections and overlays step aside and the `pane` slot shows.
+		paneActive(this: any): boolean {
+			return !!this.viewOptions?.pane;
+		},
+		// The header title while a host pane is shown: the pane's own title, or
+		// the Inspector's when it gives none.
+		panelTitle(this: any): string {
+			const pane = this.viewOptions?.pane;
+			return (pane && typeof pane === 'object' && pane.title) ? String(pane.title) : this.t('webtop.inspector.title');
+		},
 		isSelectedItemImage(this: any): boolean {
 			const item = this.singleTarget;
 			if (!item || item.isCollection || this.previewImageError) return false;
@@ -728,9 +761,14 @@ defineComponent('wt-inspector', {
 		propEditorModifiedCount(this: any): number {
 			return (this.propEditorItems as any[]).filter((p: any) => p.isModified || p.isDeleted || p.isNew).length;
 		},
+		// The schemas the pickers offer for the current target: the dataset the
+		// row belongs to (when it does), then the workspace's metadata schemas.
+		effectiveSchemas(this: any): any[] {
+			return this.datasetSchema ? [this.datasetSchema, ...(this.availableSchemas as any[])] : this.availableSchemas;
+		},
 		propEditorDisplayItems(this: any): any[] {
 			if (!this.propEditorSchemaKey) return this.propEditorItems;
-			const schema = (this.availableSchemas as any[]).find((s: any) => s.key === this.propEditorSchemaKey);
+			const schema = (this.effectiveSchemas as any[]).find((s: any) => s.key === this.propEditorSchemaKey);
 			if (!schema) return this.propEditorItems;
 
 			const propMap = new Map<string, any>();
@@ -912,7 +950,7 @@ defineComponent('wt-inspector', {
 			if (!this.selectedSchemaKey || this.detailProperties.length === 0) {
 				return { schemaProps: [], extraProps: [] };
 			}
-			const schema = (this.availableSchemas as any[]).find((s: any) => s.key === this.selectedSchemaKey);
+			const schema = (this.effectiveSchemas as any[]).find((s: any) => s.key === this.selectedSchemaKey);
 			if (!schema) {
 				return { schemaProps: [], extraProps: [] };
 			}
@@ -1085,7 +1123,7 @@ defineComponent('wt-inspector', {
 			const required: any[] = [];
 			const optional: any[] = [];
 			if (!this.propEditorSchemaKey) return { required, optional };
-			const schema = (this.availableSchemas as any[]).find((s: any) => s.key === this.propEditorSchemaKey);
+			const schema = (this.effectiveSchemas as any[]).find((s: any) => s.key === this.propEditorSchemaKey);
 			if (!schema) return { required, optional };
 			const existingNames = new Set<string>();
 			for (const p of this.propEditorItems as any[]) {
@@ -1120,6 +1158,8 @@ defineComponent('wt-inspector', {
 			this.cancelMimeTypeEdit?.();
 			this.cancelEncodingEdit?.();
 			this.selectedSchemaKey = '';
+			this.datasetSchema = null;
+			this._.datasetAutoKey = '';
 			this.previewImageError = false;
 			this.resetPreviewMedia();
 			this.actionErrorMessage = '';
@@ -1262,6 +1302,41 @@ defineComponent('wt-inspector', {
 		},
 		onSchemasUpdated(this: any) {
 			this.loadAvailableSchemas();
+		},
+		// Turn the dataset a fetched node belongs to into the schema its row is
+		// edited with, and preselect it once per target. The dataset's columns
+		// are keyed by their stored property name (`<id>_<key>`), which is what
+		// the schema machinery matches node properties against; the label is
+		// what the user sees. A folder is the dataset itself, not a row, so it
+		// gets no schema.
+		applyDataset(this: any, node: Node | null) {
+			const vm = this;
+			const dataset: Dataset | null | undefined = node && !isFolderNode(node) ? node.dataset : null;
+			if (!dataset) {
+				vm.datasetSchema = null;
+				return;
+			}
+			const key = 'dataset:' + dataset.id;
+			vm.datasetSchema = {
+				key,
+				label: dataset.label || dataset.id,
+				properties: dataset.properties.map((p: DatasetProperty) => ({
+					key: p.name,
+					label: p.label || p.key,
+					type: p.type || 'STRING',
+					required: p.required,
+					multiple: p.multiple || undefined,
+					choices: p.choices.length > 0
+						? p.choices.map(c => ({ value: c.value, label: c.label || c.value }))
+						: undefined,
+					readOnly: false,
+				})),
+			};
+			if (vm._.datasetAutoKey !== key) {
+				vm._.datasetAutoKey = key;
+				if (!vm.selectedSchemaKey) vm.selectedSchemaKey = key;
+				if (!vm.propEditorSchemaKey) vm.propEditorSchemaKey = key;
+			}
 		},
 		loadAvailableSchemas(this: any) {
 			const vm = this;
@@ -1607,6 +1682,7 @@ defineComponent('wt-inspector', {
 				const contentService = vm.api.content;
 				const node = await contentService.getNode(item.path);
 				if (seq !== vm._.targetReloadSeq) return;
+				vm.applyDataset(node);
 				if (!node || !node.properties) {
 					vm.detailProperties = [];
 					return;
@@ -2223,7 +2299,7 @@ defineComponent('wt-inspector', {
 				label: vm.t('webtop.inspector.schema.none', undefined, '— No schema —'),
 				selected: !currentKey,
 			}];
-			for (const s of vm.availableSchemas as any[]) {
+			for (const s of vm.effectiveSchemas as any[]) {
 				items.push({
 					id: s.key,
 					label: s.label,
@@ -2247,7 +2323,7 @@ defineComponent('wt-inspector', {
 			if (value) this.loadQueriesForSchema(value);
 		},
 		detailSchemaLabel(this: any): string {
-			const s = (this.availableSchemas as any[]).find((x: any) => x.key === this.selectedSchemaKey);
+			const s = (this.effectiveSchemas as any[]).find((x: any) => x.key === this.selectedSchemaKey);
 			return s ? s.label : '';
 		},
 		async openPropEditorSchemaDropdown(this: any, event: MouseEvent) {
@@ -2257,7 +2333,7 @@ defineComponent('wt-inspector', {
 			if (value) this.loadQueriesForSchema(value);
 		},
 		propEditorSchemaLabel(this: any): string {
-			const s = (this.availableSchemas as any[]).find((x: any) => x.key === this.propEditorSchemaKey);
+			const s = (this.effectiveSchemas as any[]).find((x: any) => x.key === this.propEditorSchemaKey);
 			return s ? s.label : '';
 		},
 		async openPropEditChoicesMultiDropdown(this: any, prop: any, event: MouseEvent) {
@@ -2912,6 +2988,7 @@ defineComponent('wt-inspector', {
 			try {
 				const contentService = vm.api.content;
 				const node = await contentService.getNode(item.path);
+				vm.applyDataset(node);
 				if (!node || !node.properties) {
 					vm.propEditorItems = [];
 					return;
@@ -3398,7 +3475,7 @@ defineComponent('wt-inspector', {
 		async loadQueriesForSchema(this: any, schemaKey: string) {
 			const vm = this;
 			if (!schemaKey) return;
-			const schema = (vm.availableSchemas as any[]).find((s: any) => s.key === schemaKey);
+			const schema = (vm.effectiveSchemas as any[]).find((s: any) => s.key === schemaKey);
 			if (!schema) return;
 			const promises: Promise<void>[] = [];
 			for (const sp of schema.properties) {
@@ -4156,7 +4233,7 @@ defineComponent('wt-inspector', {
 
 			let schemaProp: any = null;
 			if (vm.propEditorSchemaKey) {
-				const schema = (vm.availableSchemas as any[]).find((s: any) => s.key === vm.propEditorSchemaKey);
+				const schema = (vm.effectiveSchemas as any[]).find((s: any) => s.key === vm.propEditorSchemaKey);
 				schemaProp = schema?.properties?.find((p: any) => p.key === name);
 			}
 

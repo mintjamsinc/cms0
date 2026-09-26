@@ -795,6 +795,13 @@ type Node {
   """How this file is rendered when served over the web (nt:file)."""
   webRender: WebRender
 
+  """
+  The dataset this node belongs to: a folder's own .dataset.yml descriptor, or
+  the parent folder's for a file directly inside it. Null when there is none,
+  and for the descriptor file itself.
+  """
+  dataset: Dataset
+
   """Non-jcr: prefixed properties (read from jcr:content for nt:file, otherwise from the node)."""
   properties: [Property!]!
 }
@@ -822,6 +829,51 @@ type WebRender {
   outputs: [String!]!
   """Nearest ancestor document-root path (site.root: true), or null."""
   documentRoot: String
+}
+
+"""
+A dataset: a folder carrying a .dataset.yml descriptor, whose direct child
+files are its rows. The descriptor declares the typed properties (columns)
+each row may carry; see Datasets.java for the descriptor format.
+"""
+type Dataset {
+  """The descriptor's id, and the prefix of every stored property name. Fixed for the dataset's lifetime."""
+  id: String!
+  """Path of the dataset folder."""
+  path: String!
+  """Display name; falls back to the id."""
+  label: String!
+  description: String
+  """The columns, in declaration order."""
+  properties: [DatasetProperty!]!
+}
+
+"""One column of a dataset."""
+type DatasetProperty {
+  """The key as written in the descriptor."""
+  key: String!
+  """The property name the value is stored under on each row: "<dataset id>_<key>"."""
+  name: String!
+  """Display name; falls back to the key."""
+  label: String!
+  description: String
+  """One of STRING, LONG, DOUBLE, DECIMAL, BOOLEAN, DATE."""
+  type: String!
+  """Whether the property is multi-valued."""
+  multiple: Boolean!
+  required: Boolean!
+  """Whether the column is included when the rows are printed; true unless the descriptor says otherwise."""
+  print: Boolean!
+  """Allowed values; empty when any value of the type is allowed."""
+  choices: [DatasetChoice!]!
+}
+
+"""One allowed value of a dataset column."""
+type DatasetChoice {
+  value: String!
+  label: String!
+  """The name of a swatch in the client's palette the value is shown with, or null for none."""
+  color: String
 }
 
 """Access control list of a node."""

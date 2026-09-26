@@ -59,6 +59,7 @@ export interface Node {
   downloadUrl?: string;
   scriptable?: boolean;
   webRender?: WebRender;
+  dataset?: Dataset | null;
   hasChildren?: boolean;
   isLocked?: boolean;
   lockInfo?: LockInfo;
@@ -97,6 +98,53 @@ export interface WebRender {
    * references (e.g. `/docs/css/docs.css`) beneath it for the active mount point.
    */
   documentRoot?: string | null;
+}
+
+/**
+ * A dataset: a folder carrying a `.dataset.yml` descriptor, whose direct child
+ * files are its rows. The server resolves it for the folder itself and for
+ * every file directly inside it, so a client looking at one row sees the
+ * columns declared in the folder (see Datasets.java for the descriptor format).
+ */
+export interface Dataset {
+  /** The descriptor's id, and the prefix of every stored property name. Fixed for the dataset's lifetime. */
+  id: string;
+  /** Path of the dataset folder. */
+  path: string;
+  /** Display name; falls back to the id. */
+  label: string;
+  description?: string | null;
+  /** The columns, in declaration order. */
+  properties: DatasetProperty[];
+}
+
+/** JCR property types a dataset column may declare. */
+export type DatasetPropertyType = 'STRING' | 'LONG' | 'DOUBLE' | 'DECIMAL' | 'BOOLEAN' | 'DATE';
+
+/** One column of a dataset. */
+export interface DatasetProperty {
+  /** The key as written in the descriptor. */
+  key: string;
+  /** The property name the value is stored under on each row: `<dataset id>_<key>`. */
+  name: string;
+  /** Display name; falls back to the key. */
+  label: string;
+  description?: string | null;
+  type: DatasetPropertyType;
+  multiple: boolean;
+  required: boolean;
+  /** Whether the column is included when the rows are printed; true unless the descriptor says `print: false`. */
+  print: boolean;
+  /** Allowed values; empty when any value of the type is allowed. */
+  choices: DatasetChoice[];
+}
+
+/** One allowed value of a dataset column. */
+export interface DatasetChoice {
+  value: string;
+  label: string;
+  /** A swatch key from the shared palette (lib/color-palette) the value is shown with; null for none. */
+  color?: string | null;
 }
 
 /**

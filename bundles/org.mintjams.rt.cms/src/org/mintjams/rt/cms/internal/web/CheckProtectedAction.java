@@ -24,6 +24,7 @@ package org.mintjams.rt.cms.internal.web;
 
 import javax.servlet.http.HttpServletResponse;
 
+import org.mintjams.rt.cms.internal.dataset.Datasets;
 import org.mintjams.tools.util.Action;
 import org.mintjams.tools.util.ActionChain;
 import org.mintjams.tools.util.ActionContext;
@@ -42,13 +43,14 @@ public class CheckProtectedAction implements Action {
 			return;
 		}
 
-		// Per-folder rendering descriptors are configuration, not content, and
-		// must never be served. Protection is keyed on this reserved name only,
-		// deliberately NOT on a "leading dot" rule, so dot-prefixed paths such as
-		// /.well-known/ (ACME / Let's Encrypt) remain publicly served.
+		// Per-folder descriptors (rendering, dataset) are configuration, not
+		// content, and must never be served. Protection is keyed on these
+		// reserved names only, deliberately NOT on a "leading dot" rule, so
+		// dot-prefixed paths such as /.well-known/ (ACME / Let's Encrypt) remain
+		// publicly served.
 		int p = resourcePath.lastIndexOf('/');
 		String lastSegment = (p == -1) ? resourcePath : resourcePath.substring(p + 1);
-		if (lastSegment.equals(Webs.WEB_DESCRIPTOR_NAME)) {
+		if (lastSegment.equals(Webs.WEB_DESCRIPTOR_NAME) || lastSegment.equals(Datasets.DESCRIPTOR_NAME)) {
 			Webs.getResponse(context).setStatus(HttpServletResponse.SC_NOT_FOUND);
 			return;
 		}

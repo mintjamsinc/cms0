@@ -46,6 +46,7 @@ import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.dataset.Datasets;
 import org.mintjams.rt.cms.internal.graphql.ast.SelectionSet;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
 import org.mintjams.rt.cms.internal.util.ISO8601;
@@ -153,6 +154,16 @@ public class NodeMapper {
 		if (includeAll || selectionSet.hasField("properties")) {
 			SelectionSet propertiesSelection = selectionSet != null ? selectionSet.getNestedSelectionSet("properties") : null;
 			addProperties(node, result, propertiesSelection, includeAll);
+		}
+
+		// The dataset the node belongs to: a folder carrying a .dataset.yml
+		// descriptor (the dataset itself), or a file directly inside one (a row).
+		// Resolved server-side for the same reason as webRender: the declaration
+		// lives in the folder, which a client looking at one row cannot see.
+		// Deliberately before the per-type mapping below, since both folders and
+		// files carry it.
+		if (includeAll || selectionSet.hasField("dataset")) {
+			result.put("dataset", Datasets.describe(node));
 		}
 
 		// Processing based on node type

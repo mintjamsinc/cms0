@@ -99,6 +99,13 @@ wt-inspector {
 	overflow-y: auto;
 }
 
+/* Host pane (viewOptions.pane + the `pane` slot): fills the frame like the
+   node view does; what it holds is the host's. */
+.detail-pane-host {
+	flex: 1;
+	min-height: 0;
+}
+
 /* --- detail preview area --- */
 .detail-preview-area {
 	display: flex;
