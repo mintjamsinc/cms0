@@ -150,9 +150,6 @@ export interface DatasetViewAttrs {
 	// Keys in the order the table shows them; columns not listed follow in
 	// descriptor order. The name column is always first.
 	order: string[];
-	// Stretch the table or board to the editor's width instead of the memo's
-	// text column.
-	wide: boolean;
 }
 
 interface Row {
@@ -233,7 +230,6 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 				end: { default: '', rendered: false },
 				widths: { default: {}, rendered: false },
 				order: { default: [], rendered: false },
-				wide: { default: false, rendered: false },
 			};
 		},
 
@@ -263,7 +259,6 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 						end: el.getAttribute('data-end') || '',
 						widths: parseJSONAttribute(el.getAttribute('data-widths'), {}),
 						order: parseJSONAttribute(el.getAttribute('data-order'), []),
-						wide: el.hasAttribute('data-wide'),
 					};
 				},
 			}];
@@ -289,7 +284,6 @@ export function createDatasetViewExtension(host: DatasetViewHost) {
 				'data-end': attrs.end || null,
 				'data-widths': attrs.widths && Object.keys(attrs.widths).length ? JSON.stringify(attrs.widths) : null,
 				'data-order': attrs.order && attrs.order.length ? JSON.stringify(attrs.order) : null,
-				'data-wide': attrs.wide ? '' : null,
 			})];
 		},
 
@@ -372,7 +366,11 @@ function isPrinted(column: DatasetProperty): boolean {
 // The icon a column shows in lists: what kind of value it holds.
 function columnIcon(column: DatasetProperty): string {
 	if (column.choices.length > 0) return 'bi-tag';
-	switch (column.type) {
+	return typeIcon(column.type);
+}
+
+function typeIcon(type: DatasetPropertyType): string {
+	switch (type) {
 		case 'LONG': case 'DOUBLE': case 'DECIMAL': return 'bi-123';
 		case 'BOOLEAN': return 'bi-check2-square';
 		case 'DATE': return 'bi-calendar-event';
@@ -466,7 +464,7 @@ class DatasetNodeView implements NodeView {
 			|| before.chart !== after.chart || before.x !== after.x || before.y !== after.y
 			|| before.agg !== after.agg || before.series !== after.series || before.bucket !== after.bucket
 			|| before.start !== after.start || before.end !== after.end
-			|| before.widths !== after.widths || before.order !== after.order || before.wide !== after.wide) {
+			|| before.widths !== after.widths || before.order !== after.order) {
 			this.render();
 		}
 		return true;
@@ -782,9 +780,6 @@ class DatasetNodeView implements NodeView {
 		this.editingCell = null;
 		const attrs = this.attrs;
 		this.dom.dataset.view = attrs.view;
-		// Full width applies to the table, the board and the chart; a calendar
-		// keeps the memo's text column.
-		this.dom.classList.toggle('is-wide', !!attrs.wide && attrs.view !== 'calendar');
 		this.dom.appendChild(this.renderHeader());
 		// A form opened while the block is inactive (the Inspector is closed,
 		// say) shows under the header; the active block shows it in the pane.
@@ -2096,9 +2091,6 @@ class DatasetNodeView implements NodeView {
 			if (hidden.length > 0) {
 				items.push({ id: 'showAll', label: this.t('app.memo.dataset.showAllColumns', { count: hidden.length }, `Show hidden columns (${hidden.length})`), icon: 'bi bi-eye' });
 			}
-			if (attrs.view !== 'calendar') {
-				items.push({ id: 'wide', label: this.t('app.memo.dataset.wide', undefined, 'Full width'), icon: 'bi bi-arrows-expand-vertical', selected: !!attrs.wide });
-			}
 			items.push({ id: 'rename', label: this.t('app.memo.dataset.rename', undefined, 'Rename dataset…'), icon: 'bi bi-pencil' });
 		}
 		if (attrs.path) {
@@ -2118,7 +2110,6 @@ class DatasetNodeView implements NodeView {
 			switch (id) {
 				case 'reload': void this.reload(); break;
 				case 'showAll': this.setAttrs({ hidden: [] }); break;
-				case 'wide': this.setAttrs({ wide: !attrs.wide }); break;
 				case 'rename': this.openRenameForm(); break;
 				case 'unlink': this.setAttrs({ path: '' }); break;
 				case 'remove': this.removeBlock(); break;
@@ -2319,17 +2310,38 @@ class DatasetNodeView implements NodeView {
 		});
 		keyInput.addEventListener('input', () => { keyTouched = keyInput.value !== ''; });
 
-		const typeField = el('label', 'memo-dataset-field');
+		// The type: a picker that opens the same menu as the header's controls,
+		// not a native select. Fixed once the column exists.
+		const typeField = el('div', 'memo-dataset-field');
 		typeField.appendChild(el('span', undefined, this.t('app.memo.dataset.form.type', undefined, 'Type')));
-		const typeSelect = el('select', 'wt');
-		for (const type of TYPES) {
-			const opt = el('option', undefined, this.t('app.memo.dataset.type.' + type, undefined, type));
-			opt.value = type;
-			typeSelect.appendChild(opt);
-		}
-		typeSelect.value = column ? column.type : 'STRING';
-		typeSelect.disabled = !!column;
-		typeField.appendChild(typeSelect);
+		let selectedType: DatasetPropertyType = column ? column.type : 'STRING';
+		const typeLabel = (type: DatasetPropertyType) => this.t('app.memo.dataset.type.' + type, undefined, type);
+		const typeButton = el('button', 'wt memo-dataset-btn memo-dataset-picker memo-dataset-form-picker');
+		typeButton.type = 'button';
+		typeButton.disabled = !!column;
+		const typeText = el('span', undefined, typeLabel(selectedType));
+		typeButton.appendChild(icon(typeIcon(selectedType)));
+		typeButton.appendChild(typeText);
+		typeButton.appendChild(el('span', 'memo-dataset-spacer'));
+		typeButton.appendChild(icon('bi-chevron-down ms-1'));
+		typeButton.addEventListener('click', () => {
+			const popup = this.host.popup();
+			if (!popup) return;
+			const handle = popup.open({
+				anchor: anchorOf(typeButton),
+				placement: 'bottom-start',
+				minWidth: Math.max(180, typeButton.getBoundingClientRect().width),
+				items: TYPES.map(type => ({ id: type, label: typeLabel(type), icon: 'bi ' + typeIcon(type), selected: type === selectedType })),
+			});
+			handle.result.then((id: string | null) => {
+				if (id == null || !(TYPES as readonly string[]).includes(id) || id === selectedType) return;
+				selectedType = id as DatasetPropertyType;
+				typeText.textContent = typeLabel(selectedType);
+				typeButton.replaceChild(icon(typeIcon(selectedType)), typeButton.firstChild!);
+				syncChoices();
+			});
+		});
+		typeField.appendChild(typeButton);
 		panel.appendChild(typeField);
 
 		const multipleField = el('label', 'memo-dataset-field memo-dataset-check');
@@ -2384,8 +2396,7 @@ class DatasetNodeView implements NodeView {
 			renderChoices(choices.length - 1);
 		});
 		renderChoices();
-		const syncChoices = () => { choicesField.style.display = typeSelect.value === 'STRING' ? '' : 'none'; };
-		typeSelect.addEventListener('change', syncChoices);
+		const syncChoices = () => { choicesField.style.display = selectedType === 'STRING' ? '' : 'none'; };
 		syncChoices();
 
 		const errorLine = el('div', 'memo-dataset-message text-danger');
@@ -2423,7 +2434,7 @@ class DatasetNodeView implements NodeView {
 				fail(this.t('app.memo.dataset.error.duplicateKey', { key }, `A column with the key "${key}" already exists.`));
 				return;
 			}
-			const type = typeSelect.value;
+			const type = selectedType;
 			const declared: DescriptorChoice[] = [];
 			if (type === 'STRING') {
 				for (const choice of choices) {

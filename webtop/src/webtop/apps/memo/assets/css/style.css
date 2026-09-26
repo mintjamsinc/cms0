@@ -582,15 +582,6 @@
 	box-shadow: 0 0 0 2px var(--primary-color);
 }
 
-/* Full width (table and board): as wide as the editor host less a gutter,
-   whatever the text column. The block's containing block is the text column,
-   so 50% is half of it and 50cqw half the host; their difference is how far
-   the column's left edge sits from the host's. */
-.memo-dataset.is-wide {
-	width: calc(100cqw - 2rem);
-	margin-left: calc(50% - 50cqw + 1rem);
-}
-
 /* The header shows only while the cursor is in the block (.is-active); it is
    one small row: view switch, the view's controls, the block menu. */
 .memo-dataset-header {
@@ -658,10 +649,6 @@
 .memo-dataset-canvas {
 	position: relative;
 	height: 320px;
-}
-
-.memo-dataset.is-wide .memo-dataset-canvas {
-	height: 400px;
 }
 
 .memo-dataset-chart[data-kind="pie"] .memo-dataset-canvas {
@@ -986,6 +973,15 @@
 .memo-dataset-check > span {
 	/* font-size: 0.875rem; */
 	color: var(--text-color);
+}
+
+/* The type picker in the column form: a full-width button whose menu is the
+   same popup as the header's pickers. */
+.memo-dataset-form-picker {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	text-align: left;
 }
 
 /* Choices in the column form: one line per value with its swatch dot; the
@@ -1516,11 +1512,6 @@
 
 	.memo-dataset.is-selected {
 		box-shadow: none;
-	}
-
-	.memo-dataset.is-wide {
-		width: auto;
-		margin-left: 0;
 	}
 
 	/* The table is the page width, and the columns keep the proportions set

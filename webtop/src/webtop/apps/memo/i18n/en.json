@@ -204,7 +204,6 @@
 	"app.memo.dataset.calendar.noColumn": "A calendar needs a date column. Add one in the Inspector.",
 	"app.memo.dataset.calendar.pickColumn": "Choose the date column.",
 	"app.memo.dataset.view.switch": "View",
-	"app.memo.dataset.wide": "Full width",
 	"app.memo.dataset.resize": "Drag to resize",
 	"app.memo.dataset.showColumn": "Show column",
 	"app.memo.dataset.removeBlockAndDataset": "Remove block and delete dataset…",

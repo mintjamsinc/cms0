@@ -204,7 +204,6 @@
 	"app.memo.dataset.calendar.noColumn": "カレンダーには日時の列が必要です。インスペクターで追加してください。",
 	"app.memo.dataset.calendar.pickColumn": "日付の列を選んでください。",
 	"app.memo.dataset.view.switch": "表示",
-	"app.memo.dataset.wide": "横幅いっぱいに表示",
 	"app.memo.dataset.resize": "ドラッグして幅を変更",
 	"app.memo.dataset.showColumn": "列を表示",
 	"app.memo.dataset.removeBlockAndDataset": "ブロックを削除（データセットも削除する）…",
