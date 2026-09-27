@@ -32,7 +32,7 @@ ARG FELIX_GID=1000
 ARG IMAGE_VERSION=0.0.0-dev
 ARG IMAGE_REVISION=unknown
 ARG IMAGE_CREATED=
-ARG IMAGE_SOURCE=https://github.com/mintjamsinc/cms0-dev
+ARG IMAGE_SOURCE=https://github.com/mintjamsinc/cms0
 
 LABEL org.opencontainers.image.title="MintJams CMS" \
       org.opencontainers.image.description="MintJams CMS runtime on Apache Felix with zero-configuration SAML." \
