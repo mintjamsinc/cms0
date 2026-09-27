@@ -53,10 +53,16 @@ public class GspScriptEngine extends AbstractScriptEngine {
 		String scriptName = ResourceScript.getScriptName(reader);
 		long lastModified = ResourceScript.getLastModified(reader);
 
+		// A template is linked to the classes of the class loader generation it was
+		// compiled with. Once the workspace class loader has been reloaded, that
+		// generation is closed and can no longer load a class it has not loaded yet,
+		// so a template compiled with a previous generation is compiled again.
+		GroovyClassLoader classLoader = Adaptables.getAdapter(getFactory(), GroovyClassLoader.class);
+
 		script = cache.getScript(scriptName);
-		if (script == null || script.getLastModified() != lastModified) {
+		if (script == null || script.getLastModified() != lastModified || ((GspScript) script).fClassLoader != classLoader) {
 			try {
-				script = new GspScript(reader);
+				script = new GspScript(reader, classLoader);
 			} catch (Throwable ex) {
 				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile script: " + ex.getMessage());
 			}
@@ -70,11 +76,12 @@ public class GspScriptEngine extends AbstractScriptEngine {
 		private final String fScriptName;
 		private final Template fTemplate;
 		private final long fLastModified;
+		private final GroovyClassLoader fClassLoader;
 
-		private GspScript(Reader scriptReader) throws ScriptException, IOException {
+		private GspScript(Reader scriptReader, GroovyClassLoader classLoader) throws ScriptException, IOException {
 			fScriptName = getScriptName(scriptReader);
+			fClassLoader = classLoader;
 			try {
-				GroovyClassLoader classLoader = Adaptables.getAdapter(getFactory(), GroovyClassLoader.class);
 				fTemplate = new GStringTemplateEngine(classLoader).createTemplate(scriptReader);
 			} catch (Throwable ex) {
 				throw Cause.create(ex).wrap(ScriptException.class, "Unable to compile GSP script: " + ex.getMessage());

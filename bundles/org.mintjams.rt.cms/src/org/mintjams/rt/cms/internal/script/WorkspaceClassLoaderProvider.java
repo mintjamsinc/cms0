@@ -69,8 +69,11 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 	// class-loading path), and swapped under fCachedFiles by reload(); volatile so
 	// the swap publishes safely and readers never see a stale reference.
 	private volatile WorkspaceClassLoader fWorkspaceClassLoader;
-	private volatile ScriptCacheManager fScriptCacheManager;
 	private volatile GroovyClassLoader fGroovyClassLoader;
+	// One instance for the life of the provider: the script engine factories
+	// register their caches once, at construction, so the registrations have to
+	// outlive every reload for the caches to be cleared each time.
+	private final ScriptCacheManager fScriptCacheManager = new ScriptCacheManager();
 	private boolean fHasChanges;
 
 	public WorkspaceClassLoaderProvider(String workspaceName) throws IOException {
@@ -120,14 +123,10 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			IOs.closeQuietly(fWorkspaceClassLoader);
 			fWorkspaceClassLoader = null;
 		}
-		if (fScriptCacheManager != null) {
-			fScriptCacheManager.clearCache();
-			fScriptCacheManager = null;
-		}
+		fScriptCacheManager.clearCache();
 	}
 
 	private void openClassLoader() {
-		ScriptCacheManager scriptCacheManager = new ScriptCacheManager();
 		WorkspaceClassLoader workspaceClassLoader;
 		try {
 			List<URL> urls = new ArrayList<>();
@@ -142,11 +141,10 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 		}
 		GroovyClassLoader groovyClassLoader = new GroovyClassLoader(new WorkspaceDelegatingClassLoader(fWorkspaceName));
 
-		// Publish the sibling loaders first and the workspace class loader last:
+		// Publish the sibling loader first and the workspace class loader last:
 		// getClassLoader() keys off fWorkspaceClassLoader, so by the time a reader
-		// can observe it the ScriptCacheManager and GroovyClassLoader that a caller
-		// may adapt to from it are already in place.
-		fScriptCacheManager = scriptCacheManager;
+		// can observe it the GroovyClassLoader that a caller may adapt to from it
+		// is already in place.
 		fGroovyClassLoader = groovyClassLoader;
 		fWorkspaceClassLoader = workspaceClassLoader;
 	}
@@ -167,7 +165,6 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			// momentary null that a close-then-open would expose. The previous
 			// generation keeps serving until the replacement is ready, and is only
 			// retired once it can no longer be handed out.
-			ScriptCacheManager previousScriptCacheManager = fScriptCacheManager;
 			GroovyClassLoader previousGroovyClassLoader = fGroovyClassLoader;
 			WorkspaceClassLoader previousWorkspaceClassLoader = fWorkspaceClassLoader;
 
@@ -179,9 +176,7 @@ public class WorkspaceClassLoaderProvider implements Closeable, Adaptable {
 			if (previousWorkspaceClassLoader != null) {
 				IOs.closeQuietly(previousWorkspaceClassLoader);
 			}
-			if (previousScriptCacheManager != null) {
-				previousScriptCacheManager.clearCache();
-			}
+			fScriptCacheManager.clearCache();
 
 			CmsService.getLogger(getClass()).info("The class loader has been reloaded successfully.");
 		}
