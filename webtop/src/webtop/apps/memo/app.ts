@@ -148,6 +148,12 @@ let printRestore: { title: string; theme: string | undefined } | null = null;
 // to the block's pane.
 let activeDatasetPane: DatasetPane | null = null;
 
+// Where a colour picked in the shell swatch grid a dataset block raised goes
+// (see pickDatasetColor). Module-scoped for the same reason: a callback into
+// a node view. Replaced by the next open; left behind when the grid is
+// dismissed, since the shell reports nothing then.
+let datasetColorApply: ((key: string) => void) | null = null;
+
 function unwatchActiveNode(): void {
 	if (activeNodeWatchUnsubscribe) {
 		try { activeNodeWatchUnsubscribe(); } catch { /* ignore */ }
@@ -439,7 +445,8 @@ export const App = {
 					return;
 				}
 				// Colour chosen from a shell swatch-grid menu. The action id encodes
-				// which menu raised it: `text:<key|__clear__>` or `highlight:<…>`.
+				// which menu raised it: `text:<key|__clear__>`, `highlight:<…>` or
+				// `choice:<…>` (a dataset block's choice colour).
 				if (type === 'context-menu-action') {
 					vm.applyColorAction(payload.action as string);
 					return;
@@ -1008,6 +1015,7 @@ export const App = {
 					revealPane: () => vm.revealDatasetPane(),
 					confirmDelete: (title: string, message: string) => vm.confirmDatasetDelete(title, message),
 					promptRename: (name: string, apply: (name: string) => Promise<void>) => vm.promptDatasetRename(name, apply),
+					pickColor: (anchor: HTMLElement, current: string, apply: (key: string) => void) => vm.pickDatasetColor(anchor, current, apply),
 				}),
 				// The grip next to the hovered block that drags it elsewhere.
 				createDragHandleExtension({
@@ -1258,16 +1266,54 @@ export const App = {
 				}, window.location.origin);
 			} catch { /* parent unavailable */ }
 		},
+		// A dataset block's choice colour: the same swatch grid, anchored to the
+		// choice's dot, with a trailing "No color" cell. The pick comes back as
+		// `choice:<paletteKey|__clear__>` and goes to `apply` ('' for none).
+		pickDatasetColor(anchor: HTMLElement, current: string, apply: (key: string) => void) {
+			const vm = this;
+			const items: any[] = SWATCH_COLORS.map((c) => ({
+				id: `choice:${c.key}`,
+				label: vm.t('app.memo.color.' + c.key, undefined, c.label),
+				swatch: c.value,
+				selected: c.key === current,
+			}));
+			items.push({
+				id: `choice:${COLOR_CLEAR}`,
+				label: vm.t('app.memo.dataset.color.none', undefined, 'No color'),
+				icon: 'bi-x-lg',
+				selected: !current,
+			});
+			datasetColorApply = apply;
+			const r = anchor.getBoundingClientRect();
+			try {
+				window.parent.postMessage({
+					type: 'show-context-menu',
+					x: r.left,
+					y: r.bottom + 4,
+					variant: 'swatch-grid',
+					columns: 6,
+					items,
+					sourceAppId: vm.instance?.id,
+				}, window.location.origin);
+			} catch { /* parent unavailable */ }
+		},
 		// Apply a colour chosen from the shell swatch grid. `action` is
 		// `<kind>:<paletteKey|__clear__>`.
 		applyColorAction(action: string) {
 			const vm = this;
-			const ed = vm.activeEditor();
-			if (!ed || !action) return;
+			if (!action) return;
 			const sep = action.indexOf(':');
 			if (sep < 0) return;
 			const kind = action.slice(0, sep);
 			const key = action.slice(sep + 1);
+			if (kind === 'choice') {
+				const apply = datasetColorApply;
+				datasetColorApply = null;
+				if (apply) apply(key === COLOR_CLEAR ? '' : key);
+				return;
+			}
+			const ed = vm.activeEditor();
+			if (!ed) return;
 			if (kind === 'text') {
 				if (key === COLOR_CLEAR) ed.chain().focus().unsetColor().run();
 				else {

@@ -33,7 +33,7 @@ import type { Node as PMNode } from '@tiptap/pm/model';
 import type { NodeView } from '@tiptap/pm/view';
 import type { Node as GNode, Dataset, DatasetProperty, DatasetPropertyType, PropertyInput } from '../../graphql/types.js';
 import { Dates } from '../../utils/dates.js';
-import { SWATCH_COLORS, SWATCH_COLOR_MAP, SWATCH_HIGHLIGHT_COLOR_MAP } from '../../lib/color-palette.js';
+import { SWATCH_COLOR_MAP, SWATCH_HIGHLIGHT_COLOR_MAP } from '../../lib/color-palette.js';
 import { resolveChartTheme } from '../../lib/chart-theme.js';
 import { Chart } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
@@ -115,6 +115,10 @@ export interface DatasetViewHost {
 	// `name`. `apply` does the renaming; when it rejects, the dialog shows the
 	// error and stays open.
 	promptRename(name: string, apply: (name: string) => Promise<void>): void;
+	// Raise the shell's swatch grid below `anchor` with `current` (a palette
+	// key, '' for none) marked. `apply` gets the pick, '' for "No color"; it
+	// is not called when the grid is dismissed.
+	pickColor(anchor: HTMLElement, current: string, apply: (key: string) => void): void;
 }
 
 // The block's Inspector face, handed to the host while the block is active.
@@ -2583,9 +2587,9 @@ class DatasetNodeView implements NodeView {
 		setTimeout(() => labelInput.focus(), 0);
 	}
 
-	// One choice in the column form: its swatch (a dot that opens the palette
-	// below the row), value, label and a remove button. Edits go straight
-	// into the draft.
+	// One choice in the column form: its swatch (a dot that opens the shell's
+	// swatch grid), value, label and a remove button. Edits go straight into
+	// the draft.
 	private renderChoiceRow(choice: ChoiceDraft, remove: () => void): HTMLElement {
 		const row = el('div', 'memo-dataset-choice');
 		const line = el('div', 'memo-dataset-choice-line');
@@ -2612,29 +2616,10 @@ class DatasetNodeView implements NodeView {
 		del.addEventListener('click', remove);
 		line.appendChild(del);
 		row.appendChild(line);
-
-		// The palette: the Inspector's eleven swatches and "no color".
-		const palette = el('div', 'insp-color-dots memo-dataset-choice-colors');
-		palette.style.display = 'none';
-		const pick = (key: string) => {
+		dot.addEventListener('click', () => this.host.pickColor(dot, choice.color, key => {
 			choice.color = key;
 			paintDot();
-			palette.style.display = 'none';
-			for (const b of Array.from(palette.children)) b.classList.toggle('active', (b as HTMLElement).dataset.color === key);
-		};
-		for (const swatch of SWATCH_COLORS) {
-			const b = button('insp-color-dot' + (choice.color === swatch.key ? ' active' : ''), this.t('app.memo.color.' + swatch.key, undefined, swatch.label), null);
-			b.style.backgroundColor = swatch.value;
-			b.dataset.color = swatch.key;
-			b.addEventListener('click', () => pick(swatch.key));
-			palette.appendChild(b);
-		}
-		const none = button('insp-color-dot insp-color-none' + (choice.color ? '' : ' active'), this.t('app.memo.dataset.color.none', undefined, 'No color'), 'bi-x');
-		none.dataset.color = '';
-		none.addEventListener('click', () => pick(''));
-		palette.appendChild(none);
-		row.appendChild(palette);
-		dot.addEventListener('click', () => { palette.style.display = palette.style.display === 'none' ? '' : 'none'; });
+		}));
 		return row;
 	}
 
