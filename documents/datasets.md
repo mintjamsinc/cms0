@@ -305,7 +305,10 @@ column made required later) stays empty until one is given. A stored value
 that is no longer among the choices is offered in the select next to them.
 
 **Columns.** The pane's "+" button, its column list and the table's column
-menu add, edit and delete columns by rewriting the descriptor. The key and
+menu add, edit and delete columns by rewriting the descriptor. The form
+offers two number types, "Integer" (`LONG`) and "Number (with decimals)"
+(`DECIMAL`, which keeps the digits as they were typed); `DOUBLE` is not
+offered, and a column a descriptor declares as `DOUBLE` works as before. The key and
 the type are fixed once a column exists (see "Why the id prefix"); label,
 required, print and the choices (value, label, color) can change. Deleting a
 column removes it from the descriptor only: the values already stored on the

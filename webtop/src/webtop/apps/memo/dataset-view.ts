@@ -52,7 +52,10 @@ const MEMO_EXTENSION = 'memo';
 // Rows read per block. A dataset is a working list, not an archive; past this
 // the pane says how many rows it left out.
 const ROW_LIMIT = 500;
-const TYPES: DatasetPropertyType[] = ['STRING', 'LONG', 'DOUBLE', 'DECIMAL', 'BOOLEAN', 'DATE'];
+// Types offered for a new column. DOUBLE is left out: a number that may have
+// a fraction is a DECIMAL, which keeps the digits as they were typed. A column
+// a descriptor declares as DOUBLE still works.
+const TYPES: DatasetPropertyType[] = ['STRING', 'LONG', 'DECIMAL', 'BOOLEAN', 'DATE'];
 const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 // Marks the block's root so the memo's drop handler can hand a dropped folder
 // to the block instead of opening it (see handleDropEvent in app.ts).
@@ -2438,10 +2441,20 @@ class DatasetNodeView implements NodeView {
 				selectedType = id as DatasetPropertyType;
 				typeText.textContent = typeLabel(selectedType);
 				typeButton.replaceChild(icon(typeIcon(selectedType)), typeButton.firstChild!);
+				syncTypeHint();
 				syncChoices();
 			});
 		});
 		typeField.appendChild(typeSelect);
+		// What the type is for, where the name alone does not tell.
+		const typeHint = el('div', 'wt-field-hint');
+		const syncTypeHint = () => {
+			const hinted = selectedType === 'LONG' || selectedType === 'DECIMAL';
+			typeHint.textContent = hinted ? this.t('app.memo.dataset.typeHint.' + selectedType) : '';
+			typeHint.hidden = !hinted;
+		};
+		syncTypeHint();
+		typeField.appendChild(typeHint);
 		panel.appendChild(typeField);
 
 		const multipleField = el('label', 'wt-checkbox' + (column ? ' disabled' : ''));
