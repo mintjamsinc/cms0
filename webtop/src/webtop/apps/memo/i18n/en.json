@@ -149,8 +149,6 @@
 	"app.memo.dataset.type.DECIMAL": "Number (with decimals)",
 	"app.memo.dataset.type.BOOLEAN": "Checkbox",
 	"app.memo.dataset.type.DATE": "Date and time",
-	"app.memo.dataset.typeHint.LONG": "Quantities, counts, ranks, serial numbers",
-	"app.memo.dataset.typeHint.DECIMAL": "Amounts of money, weights, ratios, measurements",
 	"app.memo.dataset.error.notFound": "Folder not found: {path}",
 	"app.memo.dataset.error.notDataset": "Not a dataset folder: {path}",
 	"app.memo.dataset.error.staleShell": "The desktop is running an older version that does not know datasets. Reload the browser page and try again.",

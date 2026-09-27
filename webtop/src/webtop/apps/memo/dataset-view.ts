@@ -2441,20 +2441,10 @@ class DatasetNodeView implements NodeView {
 				selectedType = id as DatasetPropertyType;
 				typeText.textContent = typeLabel(selectedType);
 				typeButton.replaceChild(icon(typeIcon(selectedType)), typeButton.firstChild!);
-				syncTypeHint();
 				syncChoices();
 			});
 		});
 		typeField.appendChild(typeSelect);
-		// What the type is for, where the name alone does not tell.
-		const typeHint = el('div', 'wt-field-hint');
-		const syncTypeHint = () => {
-			const hinted = selectedType === 'LONG' || selectedType === 'DECIMAL';
-			typeHint.textContent = hinted ? this.t('app.memo.dataset.typeHint.' + selectedType) : '';
-			typeHint.hidden = !hinted;
-		};
-		syncTypeHint();
-		typeField.appendChild(typeHint);
 		panel.appendChild(typeField);
 
 		const multipleField = el('label', 'wt-checkbox' + (column ? ' disabled' : ''));

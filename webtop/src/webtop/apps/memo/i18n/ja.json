@@ -149,8 +149,6 @@
 	"app.memo.dataset.type.DECIMAL": "数値 (小数可)",
 	"app.memo.dataset.type.BOOLEAN": "チェックボックス",
 	"app.memo.dataset.type.DATE": "日時",
-	"app.memo.dataset.typeHint.LONG": "個数、件数、順位、連番など",
-	"app.memo.dataset.typeHint.DECIMAL": "金額、重さ、割合、測定値など",
 	"app.memo.dataset.error.notFound": "フォルダーが見つかりません: {path}",
 	"app.memo.dataset.error.notDataset": "データセットのフォルダーではありません: {path}",
 	"app.memo.dataset.error.staleShell": "デスクトップが古いバージョンのまま動いていて、データセットを認識できません。ブラウザーのページを再読み込みしてからやり直してください。",
