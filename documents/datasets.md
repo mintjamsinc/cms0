@@ -44,7 +44,7 @@ properties:
 | `properties[].key` | Same shape as the id. The value is stored on the row's `jcr:content` under the property name `<id>_<key>`. |
 | `properties[].type` | One of `STRING`, `LONG`, `DOUBLE`, `DECIMAL`, `BOOLEAN`, `DATE`; defaults to `STRING`. |
 | `properties[].multiple` | Multi-valued property. |
-| `properties[].required` | Reported to the Inspector as a required property. |
+| `properties[].required` | Reported to the Inspector as a required property; the Memo block does not let a cell of the column be emptied. |
 | `properties[].print` | `false` leaves the column out when the rows are printed (the Memo app hides it under `@media print`); absent means printed. |
 | `properties[].choices` | Allowed values, each `{ value, label, color }` or a bare scalar. `color` names a swatch of the shared palette (`webtop/src/webtop/lib/color-palette.ts`: `tomato`, `tangerine`, `banana`, `basil`, `sage`, `peacock`, `blueberry`, `lavender`, `grape`, `flamingo`, `graphite`); the server carries it, the client tints the value's chip with it, and an unknown name shows as no color. |
 
@@ -281,14 +281,28 @@ first; a dropped folder works either way.
 status line says how many were left out) and filtered of the descriptor.
 The name column is the file name without `.memo` and opens the row in a tab.
 "+ New row" creates an empty memo in the folder; the row's context menu
-deletes it.
+renames it (in the app's dialog; the file is renamed, and its values go with
+it) or deletes it.
 
 **Cells.** A click edits the cell with an editor chosen by the column: a
 select for choices, `datetime-local` for `DATE` (stored as an ISO instant in
 the user's preference time zone, as the Inspector does), a number input for
-the numeric types, a checkbox for `BOOLEAN`, a text input otherwise, with
-comma-separated values for a multi-valued column. Each commit is one
+the numeric types, a checkbox for `BOOLEAN`, a textarea otherwise, with
+values separated by commas or line breaks for a multi-valued column. The
+textarea fills the cell, wraps and grows with its text. Enter commits;
+Shift+Enter breaks the line in a single-valued `STRING` column, and the cell
+shows the line breaks. Each commit is one
 `setProperties` call on the row; an empty value deletes the property.
+Leaving an editor without changing its value writes nothing. While a cell is
+being edited the block does not reload its rows (a reload redraws the table
+and would take the editor with it); a reload that comes due, from the block's
+own write or from someone else's, runs once the edit is finished. A
+`required` column is never emptied from the block: its select offers no empty
+choice once the cell has a value, committing an empty input leaves the cell
+as it was, an unchecked `BOOLEAN` is stored as `false`, and the board's
+"No value" lane takes no cards. A row that has no value yet (a new row, a
+column made required later) stays empty until one is given. A stored value
+that is no longer among the choices is offered in the select next to them.
 
 **Columns.** The pane's "+" button, its column list and the table's column
 menu add, edit and delete columns by rewriting the descriptor. The key and

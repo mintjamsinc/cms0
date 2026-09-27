@@ -397,6 +397,28 @@
 			</template>
 		</wt-dialog>
 
+		<!-- Dataset row rename (a dataset block's row menu, "Rename…"). -->
+		<wt-dialog :open="datasetRenameDialog.visible" size="sm" @close="closeDatasetRenameDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-pencil me-2"></i>{{ t('app.memo.dataset.row.renameDialog.title', undefined, 'Rename') }}
+			</template>
+			<template v-slot="d">
+				<label class="dialog-label">{{ t('app.memo.dataset.nameColumn', undefined, 'Name') }}</label>
+				<input type="text" class="wt w-100" ref="datasetRenameInput" v-model="datasetRenameDialog.name"
+					:disabled="datasetRenameDialog.isLoading"
+					@keydown="onDatasetRenameKeydown" />
+				<div v-if="datasetRenameDialog.errorMessage" class="text-danger mt-2">
+					<i class="bi bi-exclamation-circle me-1"></i>{{ datasetRenameDialog.errorMessage }}
+				</div>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closeDatasetRenameDialog" :disabled="datasetRenameDialog.isLoading">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-primary" @click="submitDatasetRename" :disabled="datasetRenameDialog.isLoading || !datasetRenameDialog.name.trim()">
+					<i class="bi bi-check-lg me-1"></i>{{ t('app.memo.dataset.row.renameDialog.submit', undefined, 'Rename') }}
+				</button>
+			</template>
+		</wt-dialog>
+
 		<!-- Close Confirmation Dialog — no ✕ / Escape: the choice is explicit. -->
 		<wt-dialog :open="closeConfirmDialog.visible" :closable="false" :esc-close="false">
 			<template v-slot:title="d">

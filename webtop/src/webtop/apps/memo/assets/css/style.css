@@ -835,6 +835,7 @@
 	box-sizing: border-box;
 	overflow-wrap: anywhere;
 	line-height: 1.5;
+	white-space: pre-wrap;
 }
 
 .memo-dataset-value.is-empty {
@@ -861,6 +862,18 @@
 	background-color: var(--body-bg);
 	outline: 2px solid var(--primary-color);
 	outline-offset: -2px;
+}
+
+/* The text editor wraps and is as tall as its text, like the value it
+   replaces (see startCellEdit). */
+textarea.memo-dataset-input {
+	display: block;
+	min-height: 1.75rem;
+	font: inherit;
+	line-height: 1.5;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	resize: none;
 }
 
 .memo-dataset-empty {

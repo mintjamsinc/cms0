@@ -301,6 +301,16 @@ export const App = {
 				message: '',
 				resolve: null as null | ((ok: boolean) => void),
 			},
+			// A dataset row's "Rename…": the block hands over the current name
+			// and what to do with the new one; the dialog stays open, with the
+			// error, when that fails.
+			datasetRenameDialog: {
+				visible: false,
+				name: '',
+				errorMessage: '',
+				isLoading: false,
+				apply: null as null | ((name: string) => Promise<void>),
+			},
 			// Editor width: false keeps the memo's text column (max-width 48rem),
 			// true lets the document use the whole pane. Persisted per user.
 			editorWide: false,
@@ -713,6 +723,50 @@ export const App = {
 			dialog.visible = false;
 			dialog.resolve = null;
 		},
+		// ---- Dataset row rename ----
+		promptDatasetRename(name: string, apply: (name: string) => Promise<void>) {
+			const vm = this;
+			const dialog = vm.datasetRenameDialog;
+			dialog.name = name;
+			dialog.errorMessage = '';
+			dialog.isLoading = false;
+			dialog.apply = apply;
+			dialog.visible = true;
+			vm.$nextTick(() => {
+				const input = vm.$refs.datasetRenameInput as HTMLInputElement | undefined;
+				input?.focus();
+				input?.select();
+			});
+		},
+		closeDatasetRenameDialog() {
+			const vm = this;
+			const dialog = vm.datasetRenameDialog;
+			if (dialog.isLoading) return;
+			dialog.visible = false;
+			dialog.apply = null;
+		},
+		async submitDatasetRename() {
+			const vm = this;
+			const dialog = vm.datasetRenameDialog;
+			const name = dialog.name.trim();
+			if (!name || dialog.isLoading || !dialog.apply) return;
+			dialog.isLoading = true;
+			dialog.errorMessage = '';
+			try {
+				await dialog.apply(name);
+				dialog.visible = false;
+				dialog.apply = null;
+			} catch (e: any) {
+				dialog.errorMessage = e?.message || String(e);
+			} finally {
+				dialog.isLoading = false;
+			}
+		},
+		onDatasetRenameKeydown(e: KeyboardEvent) {
+			// Keys that belong to an input method composing text are not ours.
+			if (e.isComposing) return;
+			if (e.key === 'Enter') { e.preventDefault(); void this.submitDatasetRename(); }
+		},
 		onInspectorOverlayChanged(open: boolean) { this.inspectorOverlayOpen = !!open; },
 		onInspectorRevealItem(target: any) {
 			const path = target?.path;
@@ -953,6 +1007,7 @@ export const App = {
 					deactivatePane: (pane: DatasetPane) => vm.deactivateDatasetPane(pane),
 					revealPane: () => vm.revealDatasetPane(),
 					confirmDelete: (title: string, message: string) => vm.confirmDatasetDelete(title, message),
+					promptRename: (name: string, apply: (name: string) => Promise<void>) => vm.promptDatasetRename(name, apply),
 				}),
 				// The grip next to the hovered block that drags it elsewhere.
 				createDragHandleExtension({

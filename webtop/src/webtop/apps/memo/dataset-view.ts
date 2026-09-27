@@ -108,6 +108,10 @@ export interface DatasetViewHost {
 	// Ask the user to confirm a deletion in the app's own dialog (the same
 	// kind as the unsaved-changes one). Resolves to whether they confirmed.
 	confirmDelete(title: string, message: string): Promise<boolean>;
+	// Ask the user for a row's new name in the app's own dialog, starting from
+	// `name`. `apply` does the renaming; when it rejects, the dialog shows the
+	// error and stays open.
+	promptRename(name: string, apply: (name: string) => Promise<void>): void;
 }
 
 // The block's Inspector face, handed to the host while the block is active.
@@ -404,6 +408,9 @@ class DatasetNodeView implements NodeView {
 	// typed.
 	private panel: HTMLElement | null = null;
 	private editingCell: { rowPath: string; name: string } | null = null;
+	// A reload that came due while a cell was being edited. Rendering replaces
+	// the table, and with it the editor, so it waits for the edit to finish.
+	private reloadPending = false;
 	// The month the calendar shows ("yyyy-mm"); the current month until the
 	// user navigates. Not stored in the memo: where a reader lands is today.
 	private month: string | null = null;
@@ -600,6 +607,10 @@ class DatasetNodeView implements NodeView {
 		if (this.reloadTimer) clearTimeout(this.reloadTimer);
 		this.reloadTimer = setTimeout(() => {
 			this.reloadTimer = null;
+			if (this.editingCell) {
+				this.reloadPending = true;
+				return;
+			}
 			void this.reload();
 		}, 300);
 	}
@@ -648,7 +659,10 @@ class DatasetNodeView implements NodeView {
 		} finally {
 			if (seq === this.loadSeq && !this.destroyed) {
 				this.loading = false;
-				this.render();
+				// An edit begun while the rows were loading keeps its editor; the
+				// rows are read again once it is finished.
+				if (this.editingCell) this.reloadPending = true;
+				else this.render();
 			}
 		}
 	}
@@ -778,6 +792,10 @@ class DatasetNodeView implements NodeView {
 		this.destroyChart();
 		this.dom.replaceChildren();
 		this.editingCell = null;
+		if (this.reloadPending) {
+			this.reloadPending = false;
+			this.scheduleReload();
+		}
 		const attrs = this.attrs;
 		this.dom.dataset.view = attrs.view;
 		this.dom.appendChild(this.renderHeader());
@@ -1310,7 +1328,9 @@ class DatasetNodeView implements NodeView {
 			box.type = 'checkbox';
 			box.checked = stored ? (stored.value === true || stored.value === 'true') : false;
 			box.addEventListener('change', () => {
-				void this.writeCell(row, column, box.checked ? 'true' : '', td);
+				// Unchecked is no value, except in a required column, which
+				// stores false.
+				void this.writeCell(row, column, box.checked ? 'true' : (column.required ? 'false' : ''), td);
 			});
 			td.appendChild(box);
 			return td;
@@ -1418,10 +1438,14 @@ class DatasetNodeView implements NodeView {
 				lane.value !== null ? { column, text: lane.value } : undefined,
 				this.t('app.memo.dataset.board.newRow', undefined, '+ New'),
 			));
-			this.acceptRowDrops(laneEl, (row) => {
-				if ((this.valuesOf(row, column)[0] ?? null) === lane.value) return Promise.resolve();
-				return this.storeValue(row, column, lane.value ?? '');
-			});
+			// The "No value" lane of a required column takes no cards: a drop
+			// there would delete the value.
+			if (lane.value !== null || !column.required) {
+				this.acceptRowDrops(laneEl, (row) => {
+					if ((this.valuesOf(row, column)[0] ?? null) === lane.value) return Promise.resolve();
+					return this.storeValue(row, column, lane.value ?? '');
+				});
+			}
 			board.appendChild(laneEl);
 		}
 		return board;
@@ -1890,28 +1914,59 @@ class DatasetNodeView implements NodeView {
 		td.classList.add('is-editing');
 
 		let input: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+		// What the editor showed when it opened: leaving it untouched writes
+		// nothing.
+		let initial = '';
+		let multiline = false;
+		const fitHeight = (area: HTMLTextAreaElement) => {
+			area.style.height = 'auto';
+			area.style.height = area.scrollHeight + 'px';
+		};
 		const finish = (commit: boolean) => {
 			if (!this.editingCell) return;
 			this.editingCell = null;
 			td.classList.remove('is-editing');
-			if (commit) {
+			// A required column is never emptied: committing nothing leaves the
+			// cell as it was.
+			if (commit && input.value !== initial && !(column.required && this.toPropertyValue(column, input.value) == null)) {
 				void this.writeCell(row, column, input.value, td);
 			} else {
 				td.replaceChildren(this.renderValue(column, row.values[column.name]));
+			}
+			if (this.reloadPending) {
+				this.reloadPending = false;
+				this.scheduleReload();
 			}
 		};
 
 		if (column.choices.length > 0 && !column.multiple) {
 			const select = el('select', 'wt memo-dataset-input');
-			const none = el('option', undefined, '');
-			none.value = '';
-			select.appendChild(none);
+			const value = current[0] != null ? String(current[0]) : '';
+			// A required column offers no empty choice. A cell that has no value
+			// yet still shows one, since the select has to show that state, but
+			// it cannot be picked.
+			if (!column.required || value === '') {
+				const none = el('option', undefined, '');
+				none.value = '';
+				if (column.required) {
+					none.disabled = true;
+					none.hidden = true;
+				}
+				select.appendChild(none);
+			}
 			for (const c of column.choices) {
 				const opt = el('option', undefined, c.label || c.value);
 				opt.value = c.value;
 				select.appendChild(opt);
 			}
-			select.value = current[0] != null ? String(current[0]) : '';
+			// A stored value that is no longer a choice stays selectable, so
+			// closing the select without picking anything keeps it.
+			if (value !== '' && !column.choices.some(c => c.value === value)) {
+				const opt = el('option', undefined, value);
+				opt.value = value;
+				select.appendChild(opt);
+			}
+			select.value = value;
 			select.addEventListener('change', () => finish(true));
 			input = select;
 		} else if (column.type === 'DATE') {
@@ -1927,21 +1982,35 @@ class DatasetNodeView implements NodeView {
 			num.value = current[0] != null ? String(current[0]) : '';
 			input = num;
 		} else {
-			const text = el('input', 'wt memo-dataset-input');
-			text.type = 'text';
+			// A textarea as tall as its text: it wraps the way the cell shows
+			// the value, so the row keeps its height when the editor opens.
+			const text = el('textarea', 'wt memo-dataset-input');
+			text.rows = 1;
 			text.value = current.filter(v => v != null).map(String).join(column.multiple ? ', ' : '');
 			if (column.multiple) text.placeholder = this.t('app.memo.dataset.multiplePlaceholder', undefined, 'value, value, …');
+			text.addEventListener('input', () => fitHeight(text));
+			// Only a single text value holds line breaks.
+			multiline = column.type === 'STRING' && !column.multiple;
 			input = text;
 		}
 		input.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+			// Keys that belong to an input method composing text are not ours.
+			if (e.isComposing) return;
+			if (e.key === 'Enter') {
+				// Shift+Enter breaks the line where the value can hold one.
+				if (e.shiftKey && multiline) return;
+				e.preventDefault();
+				finish(true);
+			}
 			else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
 			else if (e.key === 'Tab') { finish(true); }
 		});
 		input.addEventListener('blur', () => finish(true));
+		initial = input.value;
 		td.appendChild(input);
+		if (input instanceof HTMLTextAreaElement) fitHeight(input);
 		input.focus();
-		if (input instanceof HTMLInputElement && input.type === 'text') input.select();
+		if (input instanceof HTMLTextAreaElement) input.select();
 	}
 
 	// Store one cell and repaint it.
@@ -1980,7 +2049,7 @@ class DatasetNodeView implements NodeView {
 	}
 
 	private splitMultiple(text: string): string[] {
-		return text.split(',').map(s => s.trim()).filter(s => s !== '');
+		return text.split(/[,\n]/).map(s => s.trim()).filter(s => s !== '');
 	}
 
 	private toPropertyValue(column: DatasetProperty, text: string): any | null {
@@ -2034,10 +2103,7 @@ class DatasetNodeView implements NodeView {
 	// (a board lane's value, a calendar day).
 	private async createRow(title: string, preset?: { column: DatasetProperty; text: string }): Promise<void> {
 		const path = this.attrs.path;
-		const name = title.toLowerCase().endsWith('.' + MEMO_EXTENSION) ? title : `${title}.${MEMO_EXTENSION}`;
-		if (name.includes('/')) {
-			throw new Error(this.t('app.memo.dataset.error.badName', undefined, 'A name cannot contain "/".'));
-		}
+		const name = this.rowFileName(title);
 		const content = this.host.api().content;
 		const body = JSON.stringify({ version: 1, type: 'tiptap', doc: { type: 'doc', content: [{ type: 'paragraph' }] } });
 		const created: GNode = await content.createFile(path, name, MEMO_MIME, toBase64(body));
@@ -2046,6 +2112,36 @@ class DatasetNodeView implements NodeView {
 			await this.storeValue(row, preset.column, preset.text);
 		}
 		this.scheduleReload();
+	}
+
+	// The file name a row's title stands for.
+	private rowFileName(title: string): string {
+		const name = title.toLowerCase().endsWith('.' + MEMO_EXTENSION) ? title : `${title}.${MEMO_EXTENSION}`;
+		if (name.includes('/')) {
+			throw new Error(this.t('app.memo.dataset.error.badName', undefined, 'A name cannot contain "/".'));
+		}
+		return name;
+	}
+
+	// Rename the row's memo. The values are properties of the file, so they
+	// move with it.
+	private async renameRow(row: Row, title: string): Promise<void> {
+		const name = this.rowFileName(title);
+		if (name === row.name) return;
+		const content = this.host.api().content;
+		const renamed: GNode = await content.renameNode(row.path, name);
+		row.path = renamed?.path || row.path.slice(0, row.path.length - row.name.length) + name;
+		row.name = name;
+		row.title = memoTitle(name);
+	}
+
+	// Asked in the app's dialog, which shows what went wrong and stays open
+	// when the renaming fails.
+	private openRowRenameDialog(row: Row): void {
+		this.host.promptRename(row.title, async (title) => {
+			await this.renameRow(row, title);
+			if (!this.destroyed) this.render();
+		});
 	}
 
 	private async deleteRow(row: Row): Promise<void> {
@@ -2064,11 +2160,13 @@ class DatasetNodeView implements NodeView {
 			minWidth: 200,
 			items: [
 				{ id: 'open', label: this.t('app.memo.dataset.row.open', undefined, 'Open'), icon: 'bi bi-box-arrow-up-right' },
+				{ id: 'rename', label: this.t('app.memo.dataset.row.rename', undefined, 'Rename…'), icon: 'bi bi-pencil' },
 				{ id: 'delete', label: this.t('app.memo.dataset.row.delete', undefined, 'Delete row…'), icon: 'bi bi-trash', danger: true },
 			],
 		});
 		handle.result.then((id: string | null) => {
 			if (id === 'open') this.host.openPath(row.path);
+			else if (id === 'rename') this.openRowRenameDialog(row);
 			else if (id === 'delete') this.confirm(
 				this.t('app.memo.dataset.row.deleteConfirm', { name: row.title }, `Delete "${row.title}"? The memo and its values are removed.`),
 				this.t('app.memo.dataset.delete', undefined, 'Delete'),
