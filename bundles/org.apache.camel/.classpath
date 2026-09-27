@@ -49,9 +49,9 @@
 	<classpathentry exported="true" kind="lib" path="lib/camel-yaml-dsl-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-yaml-dsl-common-4.18.1.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/camel-yaml-dsl-deserializers-4.18.1.jar"/>
-	<classpathentry exported="true" kind="lib" path="lib/jackson-annotations-2.19.4.jar"/>
-	<classpathentry exported="true" kind="lib" path="lib/jackson-core-2.19.4.jar"/>
-	<classpathentry exported="true" kind="lib" path="lib/jackson-databind-2.19.4.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/jackson-annotations-2.22.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/jackson-core-2.22.3.jar"/>
+	<classpathentry exported="true" kind="lib" path="lib/jackson-databind-2.22.3.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/jakarta.activation-api-2.1.4.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/jakarta.xml.bind-api-4.0.5.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/joor-0.9.15.jar"/>

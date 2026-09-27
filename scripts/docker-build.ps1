@@ -16,6 +16,11 @@
     Image version tag. Defaults to `git describe --tags --always --dirty`,
     falling back to "0.0.0-dev".
 
+.PARAMETER Revision
+    Commit hash for the OCI revision label. Defaults to `git rev-parse HEAD`;
+    pass it when the build context is a copy outside the checkout (felix-dist
+    is not tracked, so the context is often copied to the build host).
+
 .PARAMETER ImageName
     Image name without tag. Defaults to "mintjams/cms".
 
@@ -44,6 +49,7 @@
 [CmdletBinding()]
 param(
     [string]$Version,
+    [string]$Revision,
     [string]$ImageName = "mintjams/cms",
     [string]$Platforms = "linux/amd64,linux/arm64",
     [switch]$Push,
@@ -66,8 +72,10 @@ if (-not $Version) {
     if (-not $Version) { $Version = "0.0.0-dev" }
 }
 
-$Revision = (git rev-parse HEAD 2>$null)
-if (-not $Revision) { $Revision = "unknown" }
+if (-not $Revision) {
+    $Revision = (git rev-parse HEAD 2>$null)
+    if (-not $Revision) { $Revision = "unknown" }
+}
 
 $Created = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 

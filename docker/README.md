@@ -207,7 +207,12 @@ Both wrappers call `docker buildx build` and:
 
 - Bootstrap a `docker-container` buildx builder named `cms-builder`.
 - Stamp the image with OCI metadata (`org.opencontainers.image.version`,
-  `revision`, `created`) derived from git.
+  `revision`, `created`) derived from git. `felix-dist/` is not tracked, so
+  the build context is often a copy on another host where `git` has nothing
+  to answer; the revision then reads `unknown`. Pass the commit from the
+  checkout instead: `-r "$(git rev-parse HEAD)"` (bash) or
+  `-Revision (git rev-parse HEAD)` (PowerShell). The bash wrapper also reads
+  the `IMAGE_REVISION` environment variable.
 - Target both `linux/amd64` and `linux/arm64` by default — see
   "Platform support" below.
 

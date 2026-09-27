@@ -96,9 +96,9 @@ separate jars are shipped for those.
 | `camel-yaml-dsl-deserializers-4.18.1.jar` | Apache Camel | Apache License 2.0 |
 | `accessors-smart-2.6.0.jar` | [Netplex json-smart](https://github.com/netplex/json-smart-v2) | Apache License 2.0 |
 | `asm-9.7.1.jar` | [OW2 ASM](https://asm.ow2.io/) | BSD 3-Clause |
-| `jackson-annotations-2.19.4.jar` | [FasterXML Jackson](https://github.com/FasterXML/jackson) | Apache License 2.0 |
-| `jackson-core-2.19.4.jar` | FasterXML Jackson | Apache License 2.0 |
-| `jackson-databind-2.19.4.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jackson-annotations-2.22.jar` | [FasterXML Jackson](https://github.com/FasterXML/jackson) | Apache License 2.0 |
+| `jackson-core-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jackson-databind-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
 | `jakarta.activation-api-2.1.4.jar` | [Jakarta Activation](https://github.com/jakartaee/jaf-api) | Eclipse Distribution License 1.0 (BSD 3-Clause) |
 | `jakarta.xml.bind-api-4.0.5.jar` | [Jakarta XML Binding](https://github.com/jakartaee/jaxb-api) | Eclipse Distribution License 1.0 (BSD 3-Clause) |
 | `joor-0.9.15.jar` | [jOOR](https://github.com/jOOQ/jOOR) | Apache License 2.0 |
@@ -157,11 +157,11 @@ separate jars are shipped for those.
 | `gpars-1.2.1.jar` | [GPars](http://gpars.org/) | Apache License 2.0 |
 | `hamcrest-core-1.3.jar` | [Hamcrest](https://hamcrest.org/) | BSD 3-Clause |
 | `ivy-2.5.3.jar` | [Apache Ivy](https://ant.apache.org/ivy/) | Apache License 2.0 |
-| `jackson-annotations-2.18.2.jar` | FasterXML Jackson | Apache License 2.0 |
-| `jackson-core-2.18.2.jar` | FasterXML Jackson | Apache License 2.0 |
-| `jackson-databind-2.18.2.jar` | FasterXML Jackson | Apache License 2.0 |
-| `jackson-dataformat-toml-2.18.2.jar` | FasterXML Jackson | Apache License 2.0 |
-| `jackson-dataformat-yaml-2.18.2.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jackson-annotations-2.22.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jackson-core-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jackson-databind-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jackson-dataformat-toml-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jackson-dataformat-yaml-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
 | `jansi-2.4.1.jar` | [Jansi](https://github.com/fusesource/jansi) | Apache License 2.0 |
 | `javaparser-core-3.26.3.jar` | [JavaParser](https://github.com/javaparser/javaparser) | Dual: Apache License 2.0 / LGPL 3.0 |
 | `jcommander-1.78.jar` | [JCommander](https://jcommander.org/) | Apache License 2.0 |
@@ -179,7 +179,7 @@ separate jars are shipped for those.
 | `opentest4j-1.3.0.jar` | [OpenTest4J](https://github.com/ota4j-team/opentest4j) | Apache License 2.0 |
 | `org.abego.treelayout.core-1.0.3.jar` | [abego TreeLayout](http://treelayout.sourceforge.net/) | BSD 3-Clause |
 | `qdox-1.12.1.jar` | [QDox](https://github.com/codehaus/qdox) | Apache License 2.0 |
-| `snakeyaml-2.3.jar` | [SnakeYAML](https://bitbucket.org/snakeyaml/snakeyaml) | Apache License 2.0 |
+| `snakeyaml-2.5.jar` | [SnakeYAML](https://bitbucket.org/snakeyaml/snakeyaml) | Apache License 2.0 |
 | `testng-7.5.1.jar` | [TestNG](https://testng.org/) | Apache License 2.0 |
 | `xstream-1.4.21.jar` | [XStream](https://x-stream.github.io/) | BSD 3-Clause |
 
@@ -187,7 +187,7 @@ separate jars are shipped for those.
 
 ## bundles/org.apache.tika
 
-- **Upstream project:** [Apache Tika](https://tika.apache.org/) 2.6.0
+- **Upstream project:** [Apache Tika](https://tika.apache.org/) 3.3.2
 - **Primary license:** Apache License 2.0
 - **Upstream LICENSE / NOTICE:**
   - <https://github.com/apache/tika/blob/main/LICENSE.txt>
@@ -195,7 +195,7 @@ separate jars are shipped for those.
 
 | JAR | Project | License |
 | --- | --- | --- |
-| `tika-app-2.6.0.jar` | Apache Tika (uber-jar) | Apache License 2.0 |
+| `tika-app-3.3.2.jar` | Apache Tika (uber-jar) | Apache License 2.0 |
 
 `tika-app` is a fat JAR that re-bundles a large number of transitive
 dependencies. The complete list of embedded third-party components and
@@ -214,7 +214,7 @@ links above). Notable categories include:
 - SLF4J: MIT License
 
 Refer to `META-INF/LICENSE` and `META-INF/NOTICE` inside
-`tika-app-2.6.0.jar` for the authoritative attribution list.
+`tika-app-3.3.2.jar` for the authoritative attribution list.
 
 ---
 
@@ -242,16 +242,13 @@ Refer to `META-INF/LICENSE` and `META-INF/NOTICE` inside
 | `camunda-engine-feel-juel-7.17.0.jar` | Camunda Platform | Apache License 2.0 |
 | `camunda-engine-feel-scala-7.17.0.jar` | Camunda Platform | Apache License 2.0 |
 | `camunda-engine-plugin-connect-7.17.0.jar` | Camunda Platform | Apache License 2.0 |
-| `camunda-engine-plugin-spin-7.17.0.jar` | Camunda Platform | Apache License 2.0 |
 | `camunda-identity-ldap-7.17.0.jar` | Camunda Platform | Apache License 2.0 |
-| `camunda-spin-core-1.14.0.jar` | [Camunda Spin](https://github.com/camunda/camunda-spin) | Apache License 2.0 |
-| `camunda-spin-dataformat-all-1.14.0.jar` | Camunda Spin | Apache License 2.0 |
 | `camunda-template-engines-freemarker-2.1.0.jar` | [Camunda Template Engines](https://github.com/camunda/camunda-template-engines) | Apache License 2.0 |
 | `camunda-xml-model-7.17.0.jar` | Camunda Platform | Apache License 2.0 |
 | `feel-engine-1.13.3-scala-shaded.jar` | [Camunda FEEL Engine](https://github.com/camunda/feel-scala) | Apache License 2.0 |
-| `freemarker-2.3.31.jar` | [Apache FreeMarker](https://freemarker.apache.org/) | Apache License 2.0 |
+| `freemarker-2.3.35.jar` | [Apache FreeMarker](https://freemarker.apache.org/) | Apache License 2.0 |
 | `graal-sdk-21.1.0.jar` | [GraalVM SDK](https://www.graalvm.org/) | Universal Permissive License (UPL) 1.0 |
-| `groovy-all-2.4.13.jar` | Apache Groovy 2.4 | Apache License 2.0 |
+| `groovy-all-2.4.21.jar` | Apache Groovy 2.4 | Apache License 2.0 |
 | `icu4j-68.2.jar` | [ICU4J](https://icu.unicode.org/) | ICU License (Unicode-3.0 compatible) |
 | `java-uuid-generator-3.2.0.jar` | [Java UUID Generator](https://github.com/cowtowncoder/java-uuid-generator) | Apache License 2.0 |
 | `joda-time-2.1.jar` | [Joda-Time](https://www.joda.org/joda-time/) | Apache License 2.0 |

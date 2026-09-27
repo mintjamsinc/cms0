@@ -15,9 +15,9 @@ Import-Package: javax.jcr;version="2.0.0",
  org.mintjams.jcr.util;version="[1.0.0,2.0.0)",
  org.snakeyaml.engine.v2.api;version="2.3.0",
  org.snakeyaml.engine.v2.common;version="2.3.0"
-Require-Bundle: bcpkix;bundle-version="1.83.0",
- bcprov;bundle-version="1.83.0",
- bcutil;bundle-version="1.83.0"
+Require-Bundle: bcpkix;bundle-version="1.86.0",
+ bcprov;bundle-version="1.86.0",
+ bcutil;bundle-version="1.86.0"
 Automatic-Module-Name: org.mintjams.cms
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-ActivationPolicy: lazy

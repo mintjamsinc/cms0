@@ -12,7 +12,7 @@ Bundle-Version / Implementation-Version manifest headers of the JARs
 themselves.
 
 Four bundles in this image — `org.apache.camel_4.18.1.jar`,
-`org.apache.groovy_4.0.25.jar`, `org.apache.tika_2.6.0.jar`, and
+`org.apache.groovy_4.0.25.jar`, `org.apache.tika_3.3.2.jar`, and
 `org.camunda.bpm_7.17.0.jar` — are MintJams-repackaged OSGi wrappers
 that embed the upstream JARs as nested `lib/*.jar` entries. The full
 inventory of the JARs they embed is recorded in
@@ -110,9 +110,9 @@ are also available from the upstream project links below.
 
 | JAR | Component | License |
 | --- | --- | --- |
-| `bundle/bcprov-jdk18on-1.83.jar` | Bouncy Castle Provider (JDK 1.8+) | Bouncy Castle License (MIT-style) |
-| `bundle/bcpkix-jdk18on-1.83.jar` | Bouncy Castle PKIX / CMS / EAC / TSP / PKCS / OCSP / CMP / CRMF APIs | Bouncy Castle License (MIT-style) |
-| `bundle/bcutil-jdk18on-1.83.jar` | Bouncy Castle ASN.1 / Crypto Utilities | Bouncy Castle License (MIT-style) |
+| `bundle/bcprov-jdk18on-1.86.jar` | Bouncy Castle Provider (JDK 1.8+) | Bouncy Castle License (MIT-style) |
+| `bundle/bcpkix-jdk18on-1.86.jar` | Bouncy Castle PKIX / CMS / EAC / TSP / PKCS / OCSP / CMP / CRMF APIs | Bouncy Castle License (MIT-style) |
+| `bundle/bcutil-jdk18on-1.86.jar` | Bouncy Castle ASN.1 / Crypto Utilities | Bouncy Castle License (MIT-style) |
 
 ---
 
@@ -126,10 +126,10 @@ are also available from the upstream project links below.
 | `bundle/commons-cli-1.9.0.jar` | [Apache Commons CLI](https://commons.apache.org/proper/commons-cli/) 1.9.0 | Apache License 2.0 |
 | `bundle/commons-codec-1.18.0.jar` | [Apache Commons Codec](https://commons.apache.org/proper/commons-codec/) 1.18.0 | Apache License 2.0 |
 | `bundle/commons-compress-1.27.1.jar` | [Apache Commons Compress](https://commons.apache.org/proper/commons-compress/) 1.27.1 | Apache License 2.0 |
-| `bundle/commons-fileupload-1.5.jar` | [Apache Commons FileUpload](https://commons.apache.org/proper/commons-fileupload/) 1.5 | Apache License 2.0 |
+| `bundle/commons-fileupload-1.6.0.jar` | [Apache Commons FileUpload](https://commons.apache.org/proper/commons-fileupload/) 1.6.0 | Apache License 2.0 |
 | `bundle/commons-io-2.19.0.jar` | [Apache Commons IO](https://commons.apache.org/proper/commons-io/) 2.19.0 | Apache License 2.0 |
 | `bundle/commons-jexl3-3.5.0.jar` | [Apache Commons JEXL](https://commons.apache.org/proper/commons-jexl/) 3.5.0 | Apache License 2.0 |
-| `bundle/commons-lang3-3.17.0.jar` | [Apache Commons Lang](https://commons.apache.org/proper/commons-lang/) 3.17.0 | Apache License 2.0 |
+| `bundle/commons-lang3-3.20.0.jar` | [Apache Commons Lang](https://commons.apache.org/proper/commons-lang/) 3.20.0 | Apache License 2.0 |
 | `bundle/commons-pool2-2.12.1.jar` | [Apache Commons Pool](https://commons.apache.org/proper/commons-pool/) 2.12.1 | Apache License 2.0 |
 | `bundle/commons-text-1.13.1.jar` | [Apache Commons Text](https://commons.apache.org/proper/commons-text/) 1.13.1 | Apache License 2.0 |
 
@@ -142,10 +142,10 @@ are also available from the upstream project links below.
 
 | JAR | Component | License |
 | --- | --- | --- |
-| `bundle/jackson-annotations-2.13.3.jar` | Jackson Annotations 2.13.3 | Apache License 2.0 |
-| `bundle/jackson-core-2.13.3.jar` | Jackson Core 2.13.3 | Apache License 2.0 |
-| `bundle/jackson-databind-2.13.3.jar` | Jackson Databind 2.13.3 | Apache License 2.0 |
-| `bundle/jackson-dataformat-cbor-2.13.3.jar` | Jackson Dataformat CBOR 2.13.3 (WebAuthn attestation and COSE key decoding in the IdP) | Apache License 2.0 |
+| `bundle/jackson-annotations-2.22.jar` | Jackson Annotations 2.22 | Apache License 2.0 |
+| `bundle/jackson-core-2.22.3.jar` | Jackson Core 2.22.3 | Apache License 2.0 |
+| `bundle/jackson-databind-2.22.3.jar` | Jackson Databind 2.22.3 | Apache License 2.0 |
+| `bundle/jackson-dataformat-cbor-2.22.3.jar` | Jackson Dataformat CBOR 2.22.3 (WebAuthn attestation and COSE key decoding in the IdP) | Apache License 2.0 |
 
 ---
 
@@ -175,7 +175,7 @@ section below.
 | `bundle/jansi-1.18.jar` | [Jansi](https://github.com/fusesource/jansi) 1.18 | Apache License 2.0 |
 | `bundle/javax.activation-1.2.0.jar` | [JavaBeans Activation Framework](https://github.com/javaee/activation) 1.2.0 (GlassFish) | Eclipse Distribution License 1.0 (BSD 3-Clause) |
 | `bundle/javax.mail-1.6.2.jar` | [JavaMail](https://javaee.github.io/javamail/) 1.6.2 | CDDL-1.1 / GPL-2.0-with-Classpath-Exception (dual) |
-| `bundle/jline-3.13.2.jar` | [JLine 3](https://github.com/jline/jline3) 3.13.2 | BSD 3-Clause |
+| `bundle/jline-3.30.17.jar` | [JLine 3](https://github.com/jline/jline3) 3.30.17 | BSD 3-Clause |
 | `bundle/snakeyaml-engine-2.3.jar` | [SnakeYAML Engine](https://bitbucket.org/snakeyaml/snakeyaml-engine) 2.3 | Apache License 2.0 |
 
 ---
@@ -192,7 +192,7 @@ only the wrapper artifact is shown here.
 | --- | --- | --- |
 | `bundle/org.apache.camel_4.18.1.jar` | [Apache Camel](https://camel.apache.org/) 4.18.1 | Apache License 2.0 |
 | `bundle/org.apache.groovy_4.0.25.jar` | [Apache Groovy](https://groovy.apache.org/) 4.0.25 | Apache License 2.0 |
-| `bundle/org.apache.tika_2.6.0.jar` | [Apache Tika](https://tika.apache.org/) 2.6.0 | Apache License 2.0 |
+| `bundle/org.apache.tika_3.3.2.jar` | [Apache Tika](https://tika.apache.org/) 3.3.2 | Apache License 2.0 |
 | `bundle/org.camunda.bpm_7.17.0.jar` | [Camunda Platform 7](https://camunda.com/products/camunda-platform-7/) 7.17.0 Community Edition | Apache License 2.0 |
 
 ---

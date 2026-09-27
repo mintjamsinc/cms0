@@ -51,12 +51,12 @@ Require-Bundle: org.apache.camel;bundle-version="4.0.0",
  org.apache.commons.lang3;bundle-version="3.12.0",
  org.apache.commons.text;bundle-version="1.13.1",
  javax.jcr;bundle-version="2.0.0",
- bcpkix;bundle-version="1.83.0",
- bcprov;bundle-version="1.83.0",
- bcutil;bundle-version="1.83.0",
+ bcpkix;bundle-version="1.86.0",
+ bcprov;bundle-version="1.86.0",
+ bcutil;bundle-version="1.86.0",
  org.mintjams.saml2;bundle-version="1.0.0",
  org.mintjams.searchindex;bundle-version="1.0.0",
- org.apache.tika;bundle-version="2.6.0",
+ org.apache.tika;bundle-version="3.3.2",
  graphql-java;bundle-version="22.3.0"
 Bundle-ClassPath: .
 Bundle-ActivationPolicy: lazy

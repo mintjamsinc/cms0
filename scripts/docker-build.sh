@@ -16,6 +16,7 @@ IMAGE_NAME="${IMAGE_NAME:-mintjams/cms}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 BUILDER_NAME="${BUILDER_NAME:-cms-builder}"
 VERSION=""
+REVISION="${IMAGE_REVISION:-}"
 PUSH=false
 LATEST=false
 
@@ -23,6 +24,8 @@ usage() {
     cat <<EOF
 Usage: $0 [options]
   -v, --version VERSION    Image version tag. Defaults to git describe.
+  -r, --revision SHA       Commit for the OCI revision label. Defaults to git rev-parse HEAD;
+                           pass it when the build context is a copy outside the checkout.
   -n, --name NAME          Image name (default: ${IMAGE_NAME}).
   -p, --platforms LIST     Comma-separated platforms (default: ${PLATFORMS}).
       --push               Push to registry. Default loads into local daemon.
@@ -43,6 +46,7 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -v|--version)   VERSION="$2"; shift 2 ;;
+        -r|--revision)  REVISION="$2"; shift 2 ;;
         -n|--name)      IMAGE_NAME="$2"; shift 2 ;;
         -p|--platforms) PLATFORMS="$2"; shift 2 ;;
         --push)         PUSH=true; shift ;;
@@ -65,7 +69,9 @@ if [[ -z "${VERSION}" ]]; then
     VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")"
 fi
 
-REVISION="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
+if [[ -z "${REVISION}" ]]; then
+    REVISION="$(git rev-parse HEAD 2>/dev/null || echo "unknown")"
+fi
 CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Bootstrap a docker-container builder so we are multi-platform ready.
