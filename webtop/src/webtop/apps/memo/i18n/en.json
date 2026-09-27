@@ -212,7 +212,7 @@
 	"app.memo.dataset.removeBlockAndDataset": "Remove block and delete dataset…",
 	"app.memo.dataset.deleteDialog.title": "Delete dataset",
 	"app.memo.dragHandle": "Drag to move, click to select",
-	"app.memo.toolbar.wideEditor": "Full-width page",
+	"app.memo.toolbar.wideEditor": "Fit to page width",
 	"app.memo.dataset.removeBlockAndDatasetConfirm":"Delete the dataset folder \"{label}\" with every row in it, and remove this block? This cannot be undone.",
 	"app.memo.dataset.pane.unlinked": "This block is not linked to a dataset folder yet.",
 	"app.memo.dataset.pane.columns": "Columns ({count})",

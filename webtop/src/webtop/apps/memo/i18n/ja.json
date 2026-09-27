@@ -212,7 +212,7 @@
 	"app.memo.dataset.removeBlockAndDataset": "ブロックを削除（データセットも削除する）…",
 	"app.memo.dataset.deleteDialog.title": "データセットを削除",
 	"app.memo.dragHandle": "ドラッグして移動、クリックで選択",
-	"app.memo.toolbar.wideEditor": "ページ幅いっぱいに表示",
+	"app.memo.toolbar.wideEditor": "ページ幅に合わせて表示",
 	"app.memo.dataset.removeBlockAndDatasetConfirm":"データセット「{label}」のフォルダーを、その中のすべての行ごと削除し、このブロックも削除しますか？ この操作は元に戻せません。",
 	"app.memo.dataset.pane.unlinked": "このブロックはまだデータセットのフォルダーに関連付けられていません。",
 	"app.memo.dataset.pane.columns": "列 ({count})",
