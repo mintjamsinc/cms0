@@ -419,6 +419,94 @@
 			</template>
 		</wt-dialog>
 
+		<!-- Dataset column add / edit (a dataset block's "Add column" and
+		     "Edit column…"). A column that exists keeps its key, type and
+		     multiplicity; the fields show them disabled. -->
+		<wt-dialog :open="datasetColumnDialog.visible" @close="closeDatasetColumnDialog">
+			<template v-slot:title="d">
+				<template v-if="datasetColumnDialog.storedName">
+					<i class="bi bi-pencil me-2"></i>{{ t('app.memo.dataset.columnDialog.editTitle', undefined, 'Edit column') }}
+				</template>
+				<template v-else>
+					<i class="bi bi-plus-lg me-2"></i>{{ t('app.memo.dataset.addColumn', undefined, 'Add column') }}
+				</template>
+			</template>
+			<template v-slot="d">
+				<div class="wt-fields" @keydown="onDatasetColumnKeydown($event)">
+					<div class="wt-field">
+						<span class="wt-field-label">{{ t('app.memo.dataset.form.label', undefined, 'Label') }}</span>
+						<input type="text" class="wt w-100" ref="datasetColumnLabelInput" v-model="datasetColumnDialog.label"
+							:disabled="datasetColumnDialog.isLoading"
+							@input="onDatasetColumnLabelInput($event)" />
+					</div>
+					<div class="wt-field">
+						<span class="wt-field-label">{{ t('app.memo.dataset.form.key', undefined, 'Key') }}</span>
+						<input type="text" class="wt w-100" v-model="datasetColumnDialog.key" placeholder="status"
+							:disabled="!!datasetColumnDialog.storedName || datasetColumnDialog.isLoading"
+							@input="onDatasetColumnKeyInput($event)" />
+						<span v-if="datasetColumnDialog.storedName" class="wt-field-hint">{{ t('app.memo.dataset.form.keyFixed', { name: datasetColumnDialog.storedName }, 'Stored as {name}') }}</span>
+						<span v-else class="wt-field-hint">{{ t('app.memo.dataset.form.keyHint', undefined, 'Letters, digits and underscores; cannot be changed later.') }}</span>
+					</div>
+					<div class="wt-field">
+						<span class="wt-field-label">{{ t('app.memo.dataset.form.type', undefined, 'Type') }}</span>
+						<div class="wt-select" :class="{ disabled: !!datasetColumnDialog.storedName }">
+							<button type="button" class="wt-select-trigger"
+								:disabled="!!datasetColumnDialog.storedName || datasetColumnDialog.isLoading"
+								@click="openDatasetColumnTypeMenu($event)">
+								<i class="bi" :class="datasetTypeIcon(datasetColumnDialog.type)"></i>
+								<span class="wt-select-value">{{ datasetTypeLabel(datasetColumnDialog.type) }}</span>
+								<i class="bi bi-chevron-down wt-select-chevron"></i>
+							</button>
+						</div>
+					</div>
+					<div class="wt-field-options">
+						<wt-checkbox v-model="datasetColumnDialog.multiple"
+							:disabled="!!datasetColumnDialog.storedName || datasetColumnDialog.isLoading"
+							:label="t('app.memo.dataset.form.multiple', undefined, 'Multiple values')"></wt-checkbox>
+						<wt-checkbox v-model="datasetColumnDialog.required" :disabled="datasetColumnDialog.isLoading"
+							:label="t('app.memo.dataset.form.required', undefined, 'Required')"></wt-checkbox>
+						<wt-checkbox v-model="datasetColumnDialog.print" :disabled="datasetColumnDialog.isLoading"
+							:label="t('app.memo.dataset.form.print', undefined, 'Print')"></wt-checkbox>
+					</div>
+					<!-- Choices: only a text column has them. One line per value,
+					     with its swatch dot (the shell's swatch grid), value and label. -->
+					<div v-if="datasetColumnDialog.type === 'STRING'" class="wt-field">
+						<span class="wt-field-label">{{ t('app.memo.dataset.form.choices', undefined, 'Choices') }}</span>
+						<div class="memo-dataset-choices">
+							<div v-for="(choice, index) in datasetColumnDialog.choices" :key="index" class="memo-dataset-choice-line">
+								<button type="button" class="memo-dataset-choice-dot" :class="{ 'is-none': !choice.color }"
+									:style="{ backgroundColor: datasetChoiceColor(choice.color) }"
+									:title="t('app.memo.dataset.form.choiceColor', undefined, 'Color')"
+									:disabled="datasetColumnDialog.isLoading"
+									@click="pickDatasetChoiceColor($event, choice)"></button>
+								<input type="text" class="wt memo-dataset-choice-value" v-model="choice.value"
+									:placeholder="t('app.memo.dataset.form.choiceValue', undefined, 'Value')"
+									:disabled="datasetColumnDialog.isLoading" />
+								<input type="text" class="wt" v-model="choice.label"
+									:placeholder="t('app.memo.dataset.form.choiceLabel', undefined, 'Label')"
+									:disabled="datasetColumnDialog.isLoading" />
+								<button type="button" class="detail-section-header-btn memo-dataset-choice-remove"
+									:title="t('app.memo.dataset.form.removeChoice', undefined, 'Remove choice')"
+									:disabled="datasetColumnDialog.isLoading"
+									@click="removeDatasetColumnChoice(index)"><i class="bi bi-x-lg"></i></button>
+							</div>
+						</div>
+						<button type="button" class="wt wt-slim memo-dataset-choice-add" :disabled="datasetColumnDialog.isLoading"
+							@click="addDatasetColumnChoice"><i class="bi bi-plus-lg"></i> {{ t('app.memo.dataset.form.addChoice', undefined, 'Add choice') }}</button>
+					</div>
+					<div v-if="datasetColumnDialog.errorMessage" class="text-danger">
+						<i class="bi bi-exclamation-circle me-1"></i>{{ datasetColumnDialog.errorMessage }}
+					</div>
+				</div>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closeDatasetColumnDialog" :disabled="datasetColumnDialog.isLoading">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-primary" @click="submitDatasetColumn" :disabled="datasetColumnDialog.isLoading">
+					<i class="bi bi-check-lg me-1"></i>{{ t('common.save', undefined, 'Save') }}
+				</button>
+			</template>
+		</wt-dialog>
+
 		<!-- Close Confirmation Dialog — no ✕ / Escape: the choice is explicit. -->
 		<wt-dialog :open="closeConfirmDialog.visible" :closable="false" :esc-close="false">
 			<template v-slot:title="d">

@@ -20,9 +20,10 @@
 // (view switch, the view's own controls, the block menu) that appears only
 // while the block is active: the cursor is in it. While it is active the
 // block also hands the host a pane — the dataset's name, path and row count,
-// and the column list with its add / edit / delete forms — which the host
-// shows in the Inspector in place of the memo's own details. Both faces are
-// rendered here, so the pane is only ever a second view of the same state.
+// and the column list — which the host shows in the Inspector in place of the
+// memo's own details. Both faces are rendered here, so the pane is only ever a
+// second view of the same state. A column is added or edited in the host's
+// dialog; the block fills it in and writes what comes back.
 //
 // The block is a Tiptap atom node with a hand-written node view: the editor
 // never looks inside it, so the inputs and selects it renders are not part of
@@ -55,7 +56,7 @@ const ROW_LIMIT = 500;
 // Types offered for a new column. DOUBLE is left out: a number that may have
 // a fraction is a DECIMAL, which keeps the digits as they were typed. A column
 // a descriptor declares as DOUBLE still works.
-const TYPES: DatasetPropertyType[] = ['STRING', 'LONG', 'DECIMAL', 'BOOLEAN', 'DATE'];
+export const COLUMN_TYPES: DatasetPropertyType[] = ['STRING', 'LONG', 'DECIMAL', 'BOOLEAN', 'DATE'];
 const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 // Marks the block's root so the memo's drop handler can hand a dropped folder
 // to the block instead of opening it (see handleDropEvent in app.ts).
@@ -115,10 +116,12 @@ export interface DatasetViewHost {
 	// `name`. `apply` does the renaming; when it rejects, the dialog shows the
 	// error and stays open.
 	promptRename(name: string, apply: (name: string) => Promise<void>): void;
-	// Raise the shell's swatch grid below `anchor` with `current` (a palette
-	// key, '' for none) marked. `apply` gets the pick, '' for "No color"; it
-	// is not called when the grid is dismissed.
-	pickColor(anchor: HTMLElement, current: string, apply: (key: string) => void): void;
+	// Ask the user for a column's settings in the app's own dialog, starting
+	// from `draft`. `column` is the column edited, null for a new one; once a
+	// column exists its key, type and multiplicity are fixed. `apply` checks
+	// and writes the settings; when it rejects, the dialog shows the error and
+	// stays open.
+	editColumn(column: DatasetProperty | null, draft: ColumnDraft, apply: (draft: ColumnDraft) => Promise<void>): void;
 }
 
 // The block's Inspector face, handed to the host while the block is active.
@@ -203,11 +206,23 @@ interface DescriptorChoice {
 	color?: string;
 }
 
-// A choice while it is edited in the column form.
-interface ChoiceDraft {
+// A choice while it is edited in the column dialog; `color` is a swatch key,
+// '' for none.
+export interface ChoiceDraft {
 	value: string;
 	label: string;
 	color: string;
+}
+
+// A column while it is edited in the column dialog.
+export interface ColumnDraft {
+	label: string;
+	key: string;
+	type: DatasetPropertyType;
+	multiple: boolean;
+	required: boolean;
+	print: boolean;
+	choices: ChoiceDraft[];
 }
 
 export function createDatasetViewExtension(host: DatasetViewHost) {
@@ -327,7 +342,7 @@ export function generateDatasetId(): string {
 
 // The key a label suggests: ASCII letters, digits and underscores only. A
 // label with none of those (e.g. Japanese) yields '' and the caller numbers it.
-function suggestKey(label: string): string {
+export function suggestKey(label: string): string {
 	const s = label.normalize('NFKD').replace(/[^A-Za-z0-9_ ]+/g, '').trim().replace(/\s+/g, '_');
 	return NAME_PATTERN.test(s) ? s : (s ? 'c_' + s : '');
 }
@@ -380,7 +395,7 @@ function columnIcon(column: DatasetProperty): string {
 	return typeIcon(column.type);
 }
 
-function typeIcon(type: DatasetPropertyType): string {
+export function typeIcon(type: DatasetPropertyType): string {
 	switch (type) {
 		case 'LONG': case 'DOUBLE': case 'DECIMAL': return 'bi-123';
 		case 'BOOLEAN': return 'bi-check2-square';
@@ -409,7 +424,7 @@ class DatasetNodeView implements NodeView {
 	private unwatch: (() => void) | null = null;
 	private reloadTimer: ReturnType<typeof setTimeout> | null = null;
 	private destroyed = false;
-	// The form or confirmation in progress (column add/edit, rename, delete).
+	// The form or confirmation in progress (rename, delete).
 	// Shown in the Inspector pane while the block is active, under the header
 	// otherwise; kept as one element so a re-render never loses what the user
 	// typed.
@@ -2376,175 +2391,42 @@ class DatasetNodeView implements NodeView {
 		setTimeout(() => { input.focus(); input.select(); }, 0);
 	}
 
-	// Add a column, or edit one. The key and the type are fixed once a column
-	// exists: the stored property name is derived from the key, and the search
-	// index types a name once for the whole repository.
+	// Add a column, or edit one, in the host's dialog. The key and the type
+	// are fixed once a column exists: the stored property name is derived from
+	// the key, and the search index types a name once for the whole
+	// repository.
 	private openColumnForm(column: DatasetProperty | null): void {
 		if (!this.dataset) return;
 		const dataset = this.dataset;
-		const panel = el('div', 'memo-dataset-panel memo-dataset-form');
-		panel.appendChild(el('div', 'memo-dataset-panel-title', column
-			? this.t('app.memo.dataset.editColumn', undefined, 'Edit column…').replace(/…$/, '')
-			: this.t('app.memo.dataset.addColumn', undefined, 'Add column')));
-
-		const labelField = el('label', 'wt-field');
-		labelField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.label', undefined, 'Label')));
-		const labelInput = el('input', 'wt');
-		labelInput.type = 'text';
-		labelInput.value = column ? (column.label || '') : '';
-		labelField.appendChild(labelInput);
-		panel.appendChild(labelField);
-
-		const keyField = el('label', 'wt-field');
-		keyField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.key', undefined, 'Key')));
-		const keyInput = el('input', 'wt');
-		keyInput.type = 'text';
-		keyInput.value = column ? column.key : '';
-		keyInput.disabled = !!column;
-		keyInput.placeholder = 'status';
-		keyField.appendChild(keyInput);
-		const keyHint = el('div', 'wt-field-hint', column
-			? this.t('app.memo.dataset.form.keyFixed', { name: column.name }, `Stored as ${column.name}`)
-			: this.t('app.memo.dataset.form.keyHint', undefined, 'Letters, digits and underscores; cannot be changed later.'));
-		keyField.appendChild(keyHint);
-		panel.appendChild(keyField);
-		let keyTouched = !!column;
-		labelInput.addEventListener('input', () => {
-			if (keyTouched) return;
-			keyInput.value = suggestKey(labelInput.value);
-		});
-		keyInput.addEventListener('input', () => { keyTouched = keyInput.value !== ''; });
-
-		// The type: a picker that opens the same menu as the header's controls,
-		// not a native select, drawn as the shared .wt-select trigger like the
-		// other form dropdowns. Fixed once the column exists.
-		const typeField = el('div', 'wt-field');
-		typeField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.type', undefined, 'Type')));
-		let selectedType: DatasetPropertyType = column ? column.type : 'STRING';
-		const typeLabel = (type: DatasetPropertyType) => this.t('app.memo.dataset.type.' + type, undefined, type);
-		const typeSelect = el('div', 'wt-select' + (column ? ' disabled' : ''));
-		const typeButton = el('button', 'wt-select-trigger');
-		typeButton.type = 'button';
-		typeButton.disabled = !!column;
-		const typeText = el('span', 'wt-select-value', typeLabel(selectedType));
-		typeButton.appendChild(icon(typeIcon(selectedType)));
-		typeButton.appendChild(typeText);
-		typeButton.appendChild(icon('bi-chevron-down wt-select-chevron'));
-		typeSelect.appendChild(typeButton);
-		typeButton.addEventListener('click', () => {
-			const popup = this.host.popup();
-			if (!popup) return;
-			const handle = popup.open({
-				anchor: anchorOf(typeButton),
-				placement: 'bottom-start',
-				minWidth: typeButton.getBoundingClientRect().width,
-				items: TYPES.map(type => ({ id: type, label: typeLabel(type), icon: 'bi ' + typeIcon(type), selected: type === selectedType })),
-			});
-			handle.result.then((id: string | null) => {
-				if (id == null || !(TYPES as readonly string[]).includes(id) || id === selectedType) return;
-				selectedType = id as DatasetPropertyType;
-				typeText.textContent = typeLabel(selectedType);
-				typeButton.replaceChild(icon(typeIcon(selectedType)), typeButton.firstChild!);
-				syncChoices();
-			});
-		});
-		typeField.appendChild(typeSelect);
-		panel.appendChild(typeField);
-
-		const multipleField = el('label', 'wt-checkbox' + (column ? ' disabled' : ''));
-		const multipleInput = el('input', 'wt');
-		multipleInput.type = 'checkbox';
-		multipleInput.checked = column ? column.multiple : false;
-		multipleInput.disabled = !!column;
-		multipleField.appendChild(multipleInput);
-		multipleField.appendChild(el('span', 'wt-checkbox-text', this.t('app.memo.dataset.form.multiple', undefined, 'Multiple values')));
-		panel.appendChild(multipleField);
-
-		const requiredField = el('label', 'wt-checkbox');
-		const requiredInput = el('input', 'wt');
-		requiredInput.type = 'checkbox';
-		requiredInput.checked = column ? column.required : false;
-		requiredField.appendChild(requiredInput);
-		requiredField.appendChild(el('span', 'wt-checkbox-text', this.t('app.memo.dataset.form.required', undefined, 'Required')));
-		panel.appendChild(requiredField);
-
-		const printField = el('label', 'wt-checkbox');
-		const printInput = el('input', 'wt');
-		printInput.type = 'checkbox';
-		printInput.checked = column ? isPrinted(column) : true;
-		printField.appendChild(printInput);
-		printField.appendChild(el('span', 'wt-checkbox-text', this.t('app.memo.dataset.form.print', undefined, 'Print')));
-		panel.appendChild(printField);
-
-		// Choices: one row per value, with its label and its swatch.
-		const choices: ChoiceDraft[] = column
-			? column.choices.map(c => ({ value: c.value, label: c.label && c.label !== c.value ? c.label : '', color: swatchKeyOf(c.color) }))
-			: [];
-		const choicesField = el('div', 'wt-field');
-		choicesField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.form.choices', undefined, 'Choices')));
-		const choicesList = el('div', 'memo-dataset-choices');
-		choicesField.appendChild(choicesList);
-		const addChoice = button('wt wt-slim memo-dataset-choice-add', '', 'bi-plus-lg', this.t('app.memo.dataset.form.addChoice', undefined, 'Add choice'));
-		choicesField.appendChild(addChoice);
-		panel.appendChild(choicesField);
-		const renderChoices = (focusIndex?: number) => {
-			choicesList.replaceChildren();
-			choices.forEach((choice, index) => choicesList.appendChild(this.renderChoiceRow(choice, () => {
-				choices.splice(index, 1);
-				renderChoices();
-			})));
-			if (focusIndex != null) {
-				const row = choicesList.children[focusIndex] as HTMLElement | undefined;
-				(row?.querySelector('input[type="text"]') as HTMLInputElement | null)?.focus();
+		const draft: ColumnDraft = column
+			? {
+				label: column.label || '',
+				key: column.key,
+				type: column.type,
+				multiple: column.multiple,
+				required: column.required,
+				print: isPrinted(column),
+				choices: column.choices.map(c => ({ value: c.value, label: c.label && c.label !== c.value ? c.label : '', color: swatchKeyOf(c.color) })),
 			}
-		};
-		addChoice.addEventListener('click', () => {
-			choices.push({ value: '', label: '', color: '' });
-			renderChoices(choices.length - 1);
-		});
-		renderChoices();
-		const syncChoices = () => { choicesField.style.display = selectedType === 'STRING' ? '' : 'none'; };
-		syncChoices();
-
-		const errorLine = el('div', 'memo-dataset-message text-danger');
-		errorLine.style.display = 'none';
-		const buttons = el('div', 'memo-dataset-panel-buttons');
-		const save = el('button', 'wt wt-primary wt-slim', this.t('app.memo.dataset.save', undefined, 'Save'));
-		save.type = 'button';
-		const cancel = el('button', 'wt wt-slim', this.t('app.memo.dataset.cancel', undefined, 'Cancel'));
-		cancel.type = 'button';
-		buttons.appendChild(save);
-		buttons.appendChild(cancel);
-		panel.appendChild(buttons);
-		panel.appendChild(errorLine);
-
-		const fail = (message: string) => {
-			errorLine.textContent = message;
-			errorLine.style.display = '';
-			save.disabled = false;
-		};
-		const submit = async () => {
-			save.disabled = true;
-			errorLine.style.display = 'none';
-			const label = labelInput.value.trim();
-			let key = column ? column.key : keyInput.value.trim();
+			: { label: '', key: '', type: 'STRING', multiple: false, required: false, print: true, choices: [] };
+		this.host.editColumn(column, draft, async (values) => {
+			const label = values.label.trim();
+			let key = column ? column.key : values.key.trim();
 			if (!column && !key) {
 				key = 'c' + (dataset.properties.length + 1);
 				let n = dataset.properties.length + 1;
 				while (dataset.properties.some(p => p.key === key)) key = 'c' + (++n);
 			}
 			if (!NAME_PATTERN.test(key)) {
-				fail(this.t('app.memo.dataset.error.badKey', undefined, 'The key must start with a letter and contain only letters, digits and underscores.'));
-				return;
+				throw new Error(this.t('app.memo.dataset.error.badKey', undefined, 'The key must start with a letter and contain only letters, digits and underscores.'));
 			}
 			if (!column && dataset.properties.some(p => p.key === key)) {
-				fail(this.t('app.memo.dataset.error.duplicateKey', { key }, `A column with the key "${key}" already exists.`));
-				return;
+				throw new Error(this.t('app.memo.dataset.error.duplicateKey', { key }, `A column with the key "${key}" already exists.`));
 			}
-			const type = selectedType;
+			const type = column ? column.type : values.type;
 			const declared: DescriptorChoice[] = [];
 			if (type === 'STRING') {
-				for (const choice of choices) {
+				for (const choice of values.choices) {
 					const value = choice.value.trim();
 					if (!value || declared.some(c => c.value === value)) continue;
 					const entry: DescriptorChoice = { value };
@@ -2554,73 +2436,24 @@ class DatasetNodeView implements NodeView {
 					declared.push(entry);
 				}
 			}
-			try {
-				await this.rewriteDescriptor(doc => {
-					const properties = Array.isArray(doc.properties) ? doc.properties : [];
-					let entry = properties.find(p => p && p.key === key);
-					if (!entry) {
-						entry = { key, type };
-						properties.push(entry);
-					}
-					if (label) entry.label = label; else delete entry.label;
-					if (!column) {
-						entry.type = type;
-						if (multipleInput.checked) entry.multiple = true; else delete entry.multiple;
-					}
-					if (requiredInput.checked) entry.required = true; else delete entry.required;
-					if (printInput.checked) delete entry.print; else entry.print = false;
-					if (declared.length > 0) entry.choices = declared; else delete entry.choices;
-					doc.properties = properties;
-				});
-				this.closePanel();
-			} catch (e: any) {
-				fail(e?.message || String(e));
-			}
-		};
-		save.addEventListener('click', () => { void submit(); });
-		cancel.addEventListener('click', () => this.closePanel());
-		panel.addEventListener('keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Escape') { e.preventDefault(); this.closePanel(); }
-			else if (e.key === 'Enter' && (e.target as HTMLElement | null)?.tagName === 'INPUT') { e.preventDefault(); void submit(); }
+			await this.rewriteDescriptor(doc => {
+				const properties = Array.isArray(doc.properties) ? doc.properties : [];
+				let entry = properties.find(p => p && p.key === key);
+				if (!entry) {
+					entry = { key, type };
+					properties.push(entry);
+				}
+				if (label) entry.label = label; else delete entry.label;
+				if (!column) {
+					entry.type = type;
+					if (values.multiple) entry.multiple = true; else delete entry.multiple;
+				}
+				if (values.required) entry.required = true; else delete entry.required;
+				if (values.print) delete entry.print; else entry.print = false;
+				if (declared.length > 0) entry.choices = declared; else delete entry.choices;
+				doc.properties = properties;
+			});
 		});
-		this.showPanel(panel);
-		setTimeout(() => labelInput.focus(), 0);
-	}
-
-	// One choice in the column form: its swatch (a dot that opens the shell's
-	// swatch grid), value, label and a remove button. Edits go straight into
-	// the draft.
-	private renderChoiceRow(choice: ChoiceDraft, remove: () => void): HTMLElement {
-		const row = el('div', 'memo-dataset-choice');
-		const line = el('div', 'memo-dataset-choice-line');
-		const dot = button('memo-dataset-choice-dot', this.t('app.memo.dataset.form.choiceColor', undefined, 'Color'), null);
-		const paintDot = () => {
-			dot.style.backgroundColor = choice.color ? SWATCH_COLOR_MAP[choice.color] : '';
-			dot.classList.toggle('is-none', !choice.color);
-		};
-		paintDot();
-		line.appendChild(dot);
-		const value = el('input', 'wt');
-		value.type = 'text';
-		value.placeholder = this.t('app.memo.dataset.form.choiceValue', undefined, 'Value');
-		value.value = choice.value;
-		value.addEventListener('input', () => { choice.value = value.value; });
-		line.appendChild(value);
-		const label = el('input', 'wt');
-		label.type = 'text';
-		label.placeholder = this.t('app.memo.dataset.form.choiceLabel', undefined, 'Label');
-		label.value = choice.label;
-		label.addEventListener('input', () => { choice.label = label.value; });
-		line.appendChild(label);
-		const del = button('detail-section-header-btn memo-dataset-choice-remove', this.t('app.memo.dataset.form.removeChoice', undefined, 'Remove choice'), 'bi-x-lg');
-		del.addEventListener('click', remove);
-		line.appendChild(del);
-		row.appendChild(line);
-		dot.addEventListener('click', () => this.host.pickColor(dot, choice.color, key => {
-			choice.color = key;
-			paintDot();
-		}));
-		return row;
 	}
 
 	// ---- descriptor ----

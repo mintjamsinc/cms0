@@ -3,7 +3,7 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
-import { SWATCH_COLORS, SWATCH_HIGHLIGHT_COLORS } from "../../lib/color-palette.js";
+import { SWATCH_COLORS, SWATCH_COLOR_MAP, SWATCH_HIGHLIGHT_COLORS } from "../../lib/color-palette.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -41,7 +41,10 @@ import {
 } from "./search.js";
 // Dataset block: a folder of memos shown as an editable table; see
 // dataset-view.ts.
-import { createDatasetViewExtension, DATASET_VIEW_NODE, DATASET_DROP_HANDLER, type DatasetPane } from "./dataset-view.js";
+import {
+	createDatasetViewExtension, DATASET_VIEW_NODE, DATASET_DROP_HANDLER, COLUMN_TYPES, suggestKey, typeIcon,
+	type DatasetPane, type ChoiceDraft, type ColumnDraft,
+} from "./dataset-view.js";
 // Block drag handle (the grip in the left gutter); see drag-handle.ts.
 import { createDragHandleExtension } from "./drag-handle.js";
 
@@ -316,6 +319,27 @@ export const App = {
 				errorMessage: '',
 				isLoading: false,
 				apply: null as null | ((name: string) => Promise<void>),
+			},
+			// A dataset block's "Add column" / "Edit column…": the block hands
+			// over the column's settings and what to do with them; the dialog
+			// stays open, with the error, when that fails. `storedName` is the
+			// property name of an existing column ('' for a new one, whose key,
+			// type and multiplicity are still open); `keyTouched` stops the
+			// label from suggesting a key once the user typed one.
+			datasetColumnDialog: {
+				visible: false,
+				storedName: '',
+				label: '',
+				key: '',
+				type: 'STRING' as ColumnDraft['type'],
+				multiple: false,
+				required: false,
+				print: true,
+				choices: [] as ChoiceDraft[],
+				keyTouched: false,
+				errorMessage: '',
+				isLoading: false,
+				apply: null as null | ((draft: ColumnDraft) => Promise<void>),
 			},
 			// Editor width: false keeps the memo's text column (max-width 48rem),
 			// true lets the document use the whole pane. Persisted per user.
@@ -774,6 +798,116 @@ export const App = {
 			if (e.isComposing) return;
 			if (e.key === 'Enter') { e.preventDefault(); void this.submitDatasetRename(); }
 		},
+		// ---- Dataset column add / edit ----
+		promptDatasetColumn(column: { name: string } | null, draft: ColumnDraft, apply: (draft: ColumnDraft) => Promise<void>) {
+			const vm = this;
+			const dialog = vm.datasetColumnDialog;
+			dialog.storedName = column ? column.name : '';
+			dialog.label = draft.label;
+			dialog.key = draft.key;
+			dialog.type = draft.type;
+			dialog.multiple = draft.multiple;
+			dialog.required = draft.required;
+			dialog.print = draft.print;
+			dialog.choices = draft.choices.map((c) => ({ ...c }));
+			dialog.keyTouched = !!column;
+			dialog.errorMessage = '';
+			dialog.isLoading = false;
+			dialog.apply = apply;
+			dialog.visible = true;
+			vm.$nextTick(() => (vm.$refs.datasetColumnLabelInput as HTMLInputElement | undefined)?.focus());
+		},
+		closeDatasetColumnDialog() {
+			const vm = this;
+			const dialog = vm.datasetColumnDialog;
+			if (dialog.isLoading) return;
+			dialog.visible = false;
+			dialog.apply = null;
+		},
+		async submitDatasetColumn() {
+			const vm = this;
+			const dialog = vm.datasetColumnDialog;
+			if (dialog.isLoading || !dialog.apply) return;
+			dialog.isLoading = true;
+			dialog.errorMessage = '';
+			try {
+				await dialog.apply({
+					label: dialog.label,
+					key: dialog.key,
+					type: dialog.type,
+					multiple: dialog.multiple,
+					required: dialog.required,
+					print: dialog.print,
+					choices: dialog.choices.map((c: ChoiceDraft) => ({ value: c.value, label: c.label, color: c.color })),
+				});
+				dialog.visible = false;
+				dialog.apply = null;
+			} catch (e: any) {
+				dialog.errorMessage = e?.message || String(e);
+			} finally {
+				dialog.isLoading = false;
+			}
+		},
+		// Enter in any of the dialog's text inputs saves.
+		onDatasetColumnKeydown(e: KeyboardEvent) {
+			if (e.isComposing) return;
+			if (e.key === 'Enter' && (e.target as HTMLElement | null)?.tagName === 'INPUT') {
+				e.preventDefault();
+				void this.submitDatasetColumn();
+			}
+		},
+		// A new column's key follows its label until the user types one.
+		onDatasetColumnLabelInput(e: Event) {
+			const dialog = this.datasetColumnDialog;
+			if (dialog.keyTouched) return;
+			dialog.key = suggestKey((e.target as HTMLInputElement).value);
+		},
+		onDatasetColumnKeyInput(e: Event) {
+			this.datasetColumnDialog.keyTouched = (e.target as HTMLInputElement).value !== '';
+		},
+		datasetTypeLabel(type: string): string {
+			return this.t('app.memo.dataset.type.' + type, undefined, type);
+		},
+		datasetTypeIcon(type: string): string {
+			return typeIcon(type as ColumnDraft['type']);
+		},
+		// The type picker: the same menu as the block header's controls, with
+		// each type's icon, rather than a plain wt-select.
+		openDatasetColumnTypeMenu(event: MouseEvent) {
+			const vm = this;
+			const dialog = vm.datasetColumnDialog;
+			const popup = vm.instance?.popup;
+			if (!popup || dialog.storedName) return;
+			const trigger = event.currentTarget as HTMLElement;
+			const r = trigger.getBoundingClientRect();
+			const handle = popup.open({
+				anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height },
+				placement: 'bottom-start',
+				minWidth: r.width,
+				items: COLUMN_TYPES.map((type) => ({ id: type, label: vm.datasetTypeLabel(type), icon: 'bi ' + typeIcon(type), selected: type === dialog.type })),
+			});
+			handle.result.then((id: string | null) => {
+				if (id == null || !(COLUMN_TYPES as readonly string[]).includes(id)) return;
+				dialog.type = id as ColumnDraft['type'];
+			});
+		},
+		addDatasetColumnChoice() {
+			const vm = this;
+			vm.datasetColumnDialog.choices.push({ value: '', label: '', color: '' });
+			vm.$nextTick(() => {
+				const inputs = document.querySelectorAll<HTMLInputElement>('.memo-dataset-choice-value');
+				inputs[inputs.length - 1]?.focus();
+			});
+		},
+		removeDatasetColumnChoice(index: number) {
+			this.datasetColumnDialog.choices.splice(index, 1);
+		},
+		datasetChoiceColor(key: string): string {
+			return key ? (SWATCH_COLOR_MAP[key] || '') : '';
+		},
+		pickDatasetChoiceColor(event: MouseEvent, choice: ChoiceDraft) {
+			this.pickDatasetColor(event.currentTarget as HTMLElement, choice.color, (key: string) => { choice.color = key; });
+		},
 		onInspectorOverlayChanged(open: boolean) { this.inspectorOverlayOpen = !!open; },
 		onInspectorRevealItem(target: any) {
 			const path = target?.path;
@@ -1015,7 +1149,7 @@ export const App = {
 					revealPane: () => vm.revealDatasetPane(),
 					confirmDelete: (title: string, message: string) => vm.confirmDatasetDelete(title, message),
 					promptRename: (name: string, apply: (name: string) => Promise<void>) => vm.promptDatasetRename(name, apply),
-					pickColor: (anchor: HTMLElement, current: string, apply: (key: string) => void) => vm.pickDatasetColor(anchor, current, apply),
+					editColumn: (column: { name: string } | null, draft: ColumnDraft, apply: (draft: ColumnDraft) => Promise<void>) => vm.promptDatasetColumn(column, draft, apply),
 				}),
 				// The grip next to the hovered block that drags it elsewhere.
 				createDragHandleExtension({
@@ -1266,8 +1400,8 @@ export const App = {
 				}, window.location.origin);
 			} catch { /* parent unavailable */ }
 		},
-		// A dataset block's choice colour: the same swatch grid, anchored to the
-		// choice's dot, with a trailing "No color" cell. The pick comes back as
+		// A dataset column choice's colour: the same swatch grid, anchored to
+		// the choice's dot, with a trailing "No color" cell. The pick comes back as
 		// `choice:<paletteKey|__clear__>` and goes to `apply` ('' for none).
 		pickDatasetColor(anchor: HTMLElement, current: string, apply: (key: string) => void) {
 			const vm = this;

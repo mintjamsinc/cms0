@@ -197,10 +197,11 @@ While a block is active, the Memo app hands its *pane* to the Inspector
 (`viewOptions.pane` and the `pane` slot, see above): the dataset's name and
 path, the row count (and how many rows were left out), and the column list.
 Columns are added, edited and deleted there; the table's column menu still
-offers "Edit column…" and "Delete column…", which open the same forms in the
-pane. The forms and confirmations (column, rename, delete) open in the pane
-and, when the Inspector is closed, open it; a form left open when the block
-loses the cursor is discarded. Switching to a board or a calendar picks the
+offers "Edit column…" and "Delete column…". Adding or editing a column opens
+the app's own dialog, from the pane or the column menu alike. The other forms
+and confirmations (rename, delete column) open in the pane and, when the
+Inspector is closed, open it; a form left open when the block loses the
+cursor is discarded. Switching to a board or a calendar picks the
 first usable column when none is set, and the header's picker changes it. The
 month a calendar shows is not stored: a reader lands on the current month.
 
@@ -305,8 +306,8 @@ column made required later) stays empty until one is given. A stored value
 that is no longer among the choices is offered in the select next to them.
 
 **Columns.** The pane's "+" button, its column list and the table's column
-menu add, edit and delete columns by rewriting the descriptor. The form
-offers two number types, "Integer" (`LONG`) and "Number (with decimals)"
+menu add, edit and delete columns by rewriting the descriptor. The column
+dialog offers two number types, "Integer" (`LONG`) and "Number (with decimals)"
 (`DECIMAL`, which keeps the digits as they were typed); `DOUBLE` is not
 offered, and a column a descriptor declares as `DOUBLE` works as before. The key and
 the type are fixed once a column exists (see "Why the id prefix"); label,

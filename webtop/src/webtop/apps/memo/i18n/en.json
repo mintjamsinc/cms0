@@ -97,6 +97,7 @@
 	"app.memo.dataset.column": "Column",
 	"app.memo.dataset.addColumn": "Add column",
 	"app.memo.dataset.editColumn": "Edit column…",
+	"app.memo.dataset.columnDialog.editTitle": "Edit column",
 	"app.memo.dataset.deleteColumn": "Delete column…",
 	"app.memo.dataset.deleteColumnConfirm": "Delete column \"{label}\"? Values already stored on rows are kept.",
 	"app.memo.dataset.hideColumn": "Hide column",

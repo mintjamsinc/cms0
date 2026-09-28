@@ -97,6 +97,7 @@
 	"app.memo.dataset.column": "列",
 	"app.memo.dataset.addColumn": "列を追加",
 	"app.memo.dataset.editColumn": "列を編集…",
+	"app.memo.dataset.columnDialog.editTitle": "列を編集",
 	"app.memo.dataset.deleteColumn": "列を削除…",
 	"app.memo.dataset.deleteColumnConfirm": "列「{label}」を削除しますか？ 各行に保存済みの値はそのまま残ります。",
 	"app.memo.dataset.hideColumn": "列を隠す",
