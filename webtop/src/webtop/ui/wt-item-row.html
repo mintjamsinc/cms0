@@ -1,0 +1,16 @@
+<template id="wt-item-row">
+	<div class="wt-item-row" :class="[state ? 'wt-item-row-' + state : '', {clickable: clickable}]">
+		<div class="wt-item-row-head" @click="onClick">
+			<i v-if="icon" class="wt-item-row-icon" :class="icon"></i>
+			<div class="wt-item-row-text">
+				<div class="wt-item-row-label" :title="label">{{ label }}</div>
+				<div v-if="meta" class="wt-item-row-meta" :title="meta">{{ meta }}</div>
+			</div>
+			<span class="wt-item-row-flags"><slot name="flags"></slot></span>
+			<button v-if="menu" type="button" class="wt-item-row-menu" :title="menuTitle" @click.stop="onMenu($event)">
+				<i class="bi bi-three-dots"></i>
+			</button>
+		</div>
+		<div class="wt-item-row-body"><slot></slot></div>
+	</div>
+</template>

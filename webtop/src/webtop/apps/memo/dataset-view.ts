@@ -35,6 +35,7 @@ import type { NodeView } from '@tiptap/pm/view';
 import type { Node as GNode, Dataset, DatasetProperty, DatasetPropertyType, PropertyInput } from '../../graphql/types.js';
 import { Dates } from '../../utils/dates.js';
 import { SWATCH_COLOR_MAP, SWATCH_HIGHLIGHT_COLOR_MAP } from '../../lib/color-palette.js';
+import { propertyTypeIcon } from '../../lib/property-icons.js';
 import { resolveChartTheme } from '../../lib/chart-theme.js';
 import { Chart } from 'chart.js';
 import type { ChartConfiguration } from 'chart.js';
@@ -396,12 +397,7 @@ function columnIcon(column: DatasetProperty): string {
 }
 
 export function typeIcon(type: DatasetPropertyType): string {
-	switch (type) {
-		case 'LONG': case 'DOUBLE': case 'DECIMAL': return 'bi-123';
-		case 'BOOLEAN': return 'bi-check2-square';
-		case 'DATE': return 'bi-calendar-event';
-		default: return 'bi-fonts';
-	}
+	return propertyTypeIcon(type);
 }
 
 // Calendar day arithmetic on "yyyy-mm-dd" strings, done in UTC so the
@@ -1076,15 +1072,17 @@ class DatasetNodeView implements NodeView {
 		pane.appendChild(body);
 	}
 
+	// One column of the pane, in the shared item row look (ui/wt-item-row).
 	private renderPaneColumn(column: DatasetProperty): HTMLElement {
-		const row = el('div', 'memo-dataset-pane-col');
-		row.appendChild(icon(columnIcon(column) + ' memo-dataset-pane-col-icon'));
-		const text = el('div', 'memo-dataset-pane-col-text');
-		text.appendChild(el('div', 'memo-dataset-pane-col-label', column.label || column.key));
+		const row = el('div', 'wt-item-row clickable');
+		const head = el('div', 'wt-item-row-head');
+		head.appendChild(icon(columnIcon(column) + ' wt-item-row-icon'));
+		const text = el('div', 'wt-item-row-text');
+		text.appendChild(el('div', 'wt-item-row-label', column.label || column.key));
 		const meta = this.t('app.memo.dataset.type.' + column.type, undefined, column.type) + (column.multiple ? ' []' : '') + ' · ' + column.key;
-		text.appendChild(el('div', 'memo-dataset-pane-col-meta', meta));
-		row.appendChild(text);
-		const flags = el('span', 'memo-dataset-pane-col-flags');
+		text.appendChild(el('div', 'wt-item-row-meta', meta));
+		head.appendChild(text);
+		const flags = el('span', 'wt-item-row-flags');
 		if (this.isHidden(column)) {
 			const f = icon('bi-eye-slash');
 			f.title = this.t('app.memo.dataset.pane.hidden', undefined, 'Hidden in this block');
@@ -1095,11 +1093,12 @@ class DatasetNodeView implements NodeView {
 			f.title = this.t('app.memo.dataset.pane.noPrint', undefined, 'Not printed');
 			flags.appendChild(f);
 		}
-		row.appendChild(flags);
-		const menu = button('detail-section-header-btn memo-dataset-pane-col-menu', this.t('app.memo.dataset.menu', undefined, 'Block menu'), 'bi-three-dots');
+		head.appendChild(flags);
+		const menu = button('wt-item-row-menu', this.t('app.memo.dataset.pane.columnMenu', undefined, 'More actions'), 'bi-three-dots');
 		menu.addEventListener('click', (e) => { e.stopPropagation(); this.openPaneColumnMenu(menu, column); });
-		row.appendChild(menu);
-		row.addEventListener('click', () => this.openColumnForm(column));
+		head.appendChild(menu);
+		head.addEventListener('click', () => this.openColumnForm(column));
+		row.appendChild(head);
 		return row;
 	}
 

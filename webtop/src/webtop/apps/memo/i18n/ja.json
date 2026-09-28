@@ -220,6 +220,7 @@
 	"app.memo.dataset.pane.noColumns": "まだ列がありません。「+」で追加してください。",
 	"app.memo.dataset.pane.hidden": "このブロックでは隠しています",
 	"app.memo.dataset.pane.noPrint": "印刷しない",
+	"app.memo.dataset.pane.columnMenu": "その他の操作",
 	"app.memo.slash.empty": "一致するブロックがありません",
 	"app.memo.statusbar.words": "{count} 語",
 	"app.memo.statusbar.chars": "{count} 文字",

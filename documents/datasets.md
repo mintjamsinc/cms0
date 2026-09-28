@@ -128,11 +128,11 @@ the folder's dataset.
 
 `wt-inspector` turns `node.dataset` into a metadata schema of the same shape
 as the ones from `/etc/metadata/schemas` (key `dataset:<id>`, columns keyed
-by their stored property name) and offers it first in the schema pickers of
-the detail view and the property editor. The first time a row is shown, the
-dataset schema is selected on its own, so the row's columns appear with their
-labels, choices and types, and the property editor's "add all missing
-properties" creates the columns the row does not carry yet. A user who
+by their stored property name) and offers it first in the schema picker of
+the Properties section. The first time a row is shown, the dataset schema is
+selected on its own, so the row's columns appear with their labels, choices
+and types, and the section's "add all missing properties" creates the columns
+the row does not carry yet. A user who
 switches to "No schema" keeps that choice through the row's next refresh.
 
 A folder is the dataset, not a row, so the Inspector gives it no schema.

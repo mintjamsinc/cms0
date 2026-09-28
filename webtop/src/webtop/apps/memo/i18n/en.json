@@ -220,6 +220,7 @@
 	"app.memo.dataset.pane.noColumns": "No columns yet. Add one with \"+\".",
 	"app.memo.dataset.pane.hidden": "Hidden in this block",
 	"app.memo.dataset.pane.noPrint": "Not printed",
+	"app.memo.dataset.pane.columnMenu": "More actions",
 	"app.memo.slash.empty": "No matching blocks",
 	"app.memo.statusbar.words": "{count} words",
 	"app.memo.statusbar.chars": "{count} characters",

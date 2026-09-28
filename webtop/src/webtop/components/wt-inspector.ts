@@ -52,6 +52,11 @@
 //   - Schemas are read from the shell's window.parent.Webtop.metadataDefinitions
 //     cache, and refreshed when the shell broadcasts a postMessage of
 //     type 'metadata-definitions-updated' (see §10.3).
+//   - Properties and access control are read and edited in the same list.
+//     A row's "…" menu opens a dialog; the dialog either hands its result to
+//     the list as an unsaved change ("Change" / "Add") or writes it to the
+//     server at once ("… and save"). Unsaved changes are saved or discarded
+//     with the bar at the top of the section.
 import { defineComponent } from '@mintjamsinc/ichigojs';
 import { MimeTypes } from '../utils/mime-types.js';
 import { Encodings } from '../utils/encodings.js';
@@ -85,6 +90,7 @@ import { cmTheme, cmHighlight, formatStructuredText, getLanguageExtensionForEdit
 // the EIP Console), and the names of the label properties.
 import { SWATCH_COLORS } from '../lib/color-palette.js';
 import { COLOR_PROPERTY, TAGS_PROPERTY } from '../lib/inspector-target.js';
+import { propertyTypeIcon } from '../lib/property-icons.js';
 
 // Module-scope popup handles for autocomplete popups, mirroring the
 // content-browser implementation. PopupHandle stores an un-Proxied result
@@ -455,6 +461,14 @@ defineComponent('wt-inspector', {
 				keydownListener: null as ((e: KeyboardEvent) => void) | null,
 				lastCommandNonce: 0,
 				targetReloadSeq: 0,
+				aclReloadSeq: 0,
+				// The path the panel last loaded for, to tell a new target from
+				// the same one handed over again (the host rebuilds `target`
+				// when the node changes).
+				targetPath: '',
+				// The access control load in flight, awaited before the dialog
+				// copies the entries.
+				aclLoad: null as Promise<void> | null,
 				// Key of the dataset schema the pickers were last switched to on
 				// their own, so a row's columns are preselected once per target and
 				// a user's explicit "No schema" survives the next node refresh.
@@ -509,22 +523,16 @@ defineComponent('wt-inspector', {
 				height: 0,
 				playing: false,
 			},
-			// Detail panel: properties section
-			detailProperties: [] as { name: string; value: string; items: string[]; type: string; isArray: boolean }[],
-			detailPropertiesLoading: false,
-			detailPropertiesError: '',
-			selectedSchemaKey: '' as string,
-			detailPropertiesFilter: '' as string,
+			// Properties section. `propEditorItems` (below) is the one list the
+			// section shows and edits.
 			propEditorFilter: '' as string,
 			propEditorErrorFilter: '' as '' | 'mismatch' | 'choice' | 'validation',
-			// Detail panel: ACL summary
-			detailACL: [] as { path: string; entries: { principal: string; privileges: string[]; allow: boolean }[] }[],
+			// Access control section: the effective policies, nearest first.
+			detailACL: [] as { path: string; entries: { principal: any; privileges: string[]; allow: boolean }[] }[],
 			detailACLLoading: false,
 			detailACLError: '',
-			// Detail panel: overlays
+			// Version history sub-view
 			detailVersionHistoryVisible: false,
-			detailACLEditorVisible: false,
-			detailPropertyEditorVisible: false,
 			// Quick action (lock / version control) state. actionConfirm holds
 			// the id of the destructive action awaiting confirmation in the
 			// confirmation dialog ('uncheckout'; '' = none).
@@ -542,14 +550,15 @@ defineComponent('wt-inspector', {
 				isLoading: false,
 				errorMessage: '',
 			},
-			// ACL dialog
+			// Access control editing. pendingEntries is the item's own entries as
+			// the section shows them and originalEntries what the server holds;
+			// they differ while a change is unsaved. The dialog works on
+			// draftEntries and hands them over on "Change".
 			aclDialog: {
 				visible: false,
-				item: null as any,
-				effectivePolicies: [] as { path: string; entries: { principal: any; privileges: string[]; allow: boolean }[] }[],
-				isLoading: false,
 				isSaving: false,
 				errorMessage: '',
+				draftEntries: [] as { principal: any; privileges: string[]; allow: boolean }[],
 				pendingEntries: [] as { principal: any; privileges: string[]; allow: boolean }[],
 				originalEntries: [] as { principal: any; privileges: string[]; allow: boolean }[],
 				addEntry: {
@@ -566,7 +575,9 @@ defineComponent('wt-inspector', {
 				},
 			},
 			aclSearchDebounceTimer: null as ReturnType<typeof setTimeout> | null,
-			// Property editor overlay state
+			// Properties: the list and its unsaved changes. Each item carries its
+			// stored value (original*) and its current one; isModified / isNew /
+			// isDeleted mark what is not saved yet.
 			propEditorSchemaKey: '' as string,
 			propEditorItems: [] as any[],
 			propEditorLoading: false,
@@ -578,15 +589,22 @@ defineComponent('wt-inspector', {
 			propEditorEditInput: '',
 			propEditorEditValues: [] as string[],
 			propEditorEditNewChip: '',
-			propEditorAddingNew: false,
 			propEditorNewName: '',
 			propEditorNewType: 'STRING',
-			propEditorNewIsArray: false,
-			propEditorNewValue: '',
-			propEditorNewValues: [] as string[],
-			propEditorNewChip: '',
 			propEditorSaving: false,
 			propEditorSaveError: '',
+			// Property dialog. 'edit' works on the property named by
+			// propEditorEditingName, 'add' on a draft built from
+			// propEditorNewName / propEditorNewType. schemaMatchKey is the key of
+			// the schema property a new name matches ('' = none); its type then
+			// comes from the schema.
+			propDialog: {
+				visible: false,
+				mode: 'edit' as 'edit' | 'add',
+				saving: false,
+				errorMessage: '',
+				schemaMatchKey: '',
+			},
 			// Query-based reference selection
 			propEditorQueryItems: [] as { value: string; label: string }[],
 			propEditorQueryLoading: false,
@@ -761,154 +779,33 @@ defineComponent('wt-inspector', {
 		propEditorModifiedCount(this: any): number {
 			return (this.propEditorItems as any[]).filter((p: any) => p.isModified || p.isDeleted || p.isNew).length;
 		},
+		// Properties are stored on a file's jcr:content, which a folder has
+		// none of: a folder's properties are shown, not edited.
+		canEditProperties(this: any): boolean {
+			const item = this.singleTarget;
+			return !!item && !item.isCollection;
+		},
 		// The schemas the pickers offer for the current target: the dataset the
 		// row belongs to (when it does), then the workspace's metadata schemas.
 		effectiveSchemas(this: any): any[] {
 			return this.datasetSchema ? [this.datasetSchema, ...(this.availableSchemas as any[])] : this.availableSchemas;
 		},
 		propEditorDisplayItems(this: any): any[] {
-			if (!this.propEditorSchemaKey) return this.propEditorItems;
-			const schema = (this.effectiveSchemas as any[]).find((s: any) => s.key === this.propEditorSchemaKey);
+			const schema = this.propEditorSchema;
 			if (!schema) return this.propEditorItems;
 
 			const propMap = new Map<string, any>();
 			for (const p of this.propEditorItems as any[]) {
 				propMap.set(p.name, p);
 			}
-
-			const allPropsRaw = new Map<string, { value: any; values: any[] }>();
-			for (const p of this.propEditorItems as any[]) {
-				const val = p.isArray ? (p.currentValues.length > 0 ? p.currentValues[0] : null) : (p.currentValue || null);
-				const vals = p.isArray ? [...p.currentValues] : [p.currentValue];
-				allPropsRaw.set(p.name, { value: val, values: vals });
-			}
-
-			const schemaPropsMap = new Map<string, any>();
-			for (const sp of schema.properties) {
-				schemaPropsMap.set(sp.key, sp);
-			}
-
-			const enrichItem = (item: any, schemaProp: any): any => {
-				let schemaLabel: string | null = schemaProp.label || schemaProp.key;
-				let formattedValue: string | null = null;
-				let formatError: string | null = null;
-				let choiceLabel: string | null = null;
-				let choiceLabels: string[] | null = null;
-
-				if (schemaProp.displayFormat) {
-					const compatProp = {
-						isArray: item.isArray,
-						items: item.currentValues || [],
-						value: item.currentValue || '',
-					};
-					try {
-						formattedValue = this.executeDisplayFormat(
-							schemaProp.displayFormat, compatProp, allPropsRaw, schemaProp.key
-						);
-					} catch (e: any) {
-						formatError = e.message || String(e);
-					}
-				}
-
-				if (!formattedValue && !formatError && schemaProp.choices && schemaProp.choices.length > 0) {
-					const choiceMap = new Map<string, string>();
-					for (const c of schemaProp.choices) {
-						choiceMap.set(c.value, c.label || c.value);
-					}
-					if (item.isArray) {
-						choiceLabels = (item.currentValues as string[]).map(
-							(v: string) => choiceMap.get(v) ?? v
-						);
-					} else {
-						choiceLabel = choiceMap.get(item.currentValue) ?? null;
-					}
-				}
-
-				const readOnly = schemaProp.readOnly ?? false;
-				const schemaMultiple = schemaProp.multiple;
-				const editorType = schemaProp.editorType;
-				const editorRows = schemaProp.rows;
-				const queryConfig = schemaProp.query;
-
-				let enrichedItem = { ...item };
-				if (queryConfig && (item.type === 'REFERENCE' || item.type === 'WEAKREFERENCE')) {
-					const cached = this.propEditorQueryCache[queryConfig.xpath];
-					if (cached) {
-						const labelMap = new Map<string, string>();
-						for (const qi of cached) {
-							labelMap.set(qi.value, qi.label);
-						}
-						if (item.isArray) {
-							enrichedItem.displayValues = (item.currentValues as string[]).map(
-								(v: string) => labelMap.get(v) ?? item.displayValues?.[item.currentValues.indexOf(v)] ?? v
-							);
-						} else {
-							enrichedItem.displayValue = labelMap.get(item.currentValue) ?? item.displayValue ?? item.currentValue;
-						}
-					}
-				}
-
-				const schemaChoices = schemaProp.choices;
-				const schemaType = schemaProp.type;
-				const schemaRequired = schemaProp.required ?? false;
-				const schemaMinLength = schemaProp.minLength;
-				const schemaMaxLength = schemaProp.maxLength;
-				const schemaPattern = schemaProp.pattern;
-				const schemaMinValue = schemaProp.minValue;
-				const schemaMaxValue = schemaProp.maxValue;
-				const schemaValidation = schemaProp.validation;
-				const enrichedWithMeta: any = {
-					...enrichedItem,
-					schemaLabel, formattedValue, formatError, choiceLabel, choiceLabels,
-					readOnly, schemaMultiple, editorType, editorRows, queryConfig, schemaChoices,
-					schemaType, schemaRequired, schemaMinLength, schemaMaxLength, schemaPattern,
-					schemaMinValue, schemaMaxValue, schemaValidation,
-				};
-				if (schemaType && item.type && item.type !== schemaType
-					&& schemaType !== 'BINARY' && schemaType !== 'REFERENCE' && schemaType !== 'WEAKREFERENCE'
-					&& item.type !== 'BINARY' && item.type !== 'REFERENCE' && item.type !== 'WEAKREFERENCE') {
-					enrichedWithMeta.typeMismatch = true;
-					enrichedWithMeta.mismatchMessage = this.t('webtop.inspector.mismatch.type', { stored: item.type, expected: schemaType });
-				}
-				if (schemaChoices && schemaChoices.length > 0
-					&& item.type !== 'REFERENCE' && item.type !== 'WEAKREFERENCE'
-					&& schemaType !== 'REFERENCE' && schemaType !== 'WEAKREFERENCE') {
-					const allowedValues = new Set(schemaChoices.map((c: any) => String(c.value)));
-					const valuesToCheck = item.isArray ? (item.currentValues || []) : [item.currentValue];
-					const offending: string[] = [];
-					for (const cv of valuesToCheck) {
-						if (cv == null || String(cv).trim() === '') continue;
-						if (!allowedValues.has(String(cv))) offending.push(String(cv));
-					}
-					if (offending.length > 0) {
-						enrichedWithMeta.choiceMismatch = true;
-						enrichedWithMeta.choiceMismatchMessage = offending.length === 1
-							? this.t('webtop.inspector.mismatch.choiceOne', { value: offending[0] })
-							: this.t('webtop.inspector.mismatch.choiceMany', { count: offending.length, values: offending.map((v) => `"${v}"`).join(', ') });
-					}
-				}
-				void (this as any)._i18nTick;
-				const currentValues = item.isArray ? (item.currentValues || []) : [item.currentValue ?? ''];
-				const i18nFormat = (err: any): string => {
-					const i18n = (window.parent as any)?.Webtop?.i18n;
-					if (i18n && typeof i18n.formatValidationError === 'function') {
-						return i18n.formatValidationError(err);
-					}
-					return err.fallbackMessage || err.messageId || this.t('webtop.inspector.validation.failed', undefined, 'Validation failed');
-				};
-				const validationError = validatePropertyValues(enrichedWithMeta, currentValues, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone, (id, params, fallback) => this.t(id, params, fallback));
-				if (validationError) {
-					enrichedWithMeta.validationError = validationError;
-				}
-				return enrichedWithMeta;
-			};
+			const allPropsRaw = this.propsRawLookup();
 
 			const ordered: any[] = [];
 			const matched = new Set<string>();
 			for (const schemaProp of schema.properties) {
 				const item = propMap.get(schemaProp.key);
 				if (item) {
-					ordered.push(enrichItem(item, schemaProp));
+					ordered.push(this.enrichPropItem(item, schemaProp, allPropsRaw));
 					matched.add(schemaProp.key);
 				}
 			}
@@ -919,14 +816,38 @@ defineComponent('wt-inspector', {
 			}
 			return ordered;
 		},
-		aclInheritedPolicies(this: any): any[] {
-			const item = this.aclDialog.item;
-			const policies = this.aclDialog.effectivePolicies;
-			if (!item || !policies || policies.length === 0) return [];
-			if (policies[0].path === item.path) {
-				return policies.slice(1);
+		// The selected schema, or null.
+		propEditorSchema(this: any): any | null {
+			if (!this.propEditorSchemaKey) return null;
+			return (this.effectiveSchemas as any[]).find((s: any) => s.key === this.propEditorSchemaKey) || null;
+		},
+		// What the property dialog edits, as a list of one so the template can
+		// name it `prop` the way the rows do: the property being edited, or the
+		// draft of the one being added. Empty while the dialog is closed.
+		propDialogProps(this: any): any[] {
+			if (!this.propDialog.visible) return [];
+			if (this.propDialog.mode === 'add') {
+				const name = (this.propEditorNewName as string).trim();
+				const draft = this.buildDraftProp(name);
+				const schemaProp = this.findSchemaProp(name);
+				const prop = schemaProp ? this.enrichPropItem(draft, schemaProp, this.propsRawLookup()) : draft;
+				return [{ ...prop, dialogKey: '+' + prop.type + ':' + (schemaProp ? schemaProp.key : '') }];
 			}
-			return policies;
+			const prop = (this.propEditorDisplayItems as any[]).find((p: any) => p.name === this.propEditorEditingName);
+			return prop ? [{ ...prop, dialogKey: '=' + prop.name }] : [];
+		},
+		propDialogCanApply(this: any): boolean {
+			if (this.propDialog.saving || this.binaryEditIsUploading || this.propEditorEditError) return false;
+			return this.propDialog.mode === 'edit' || (this.propEditorNewName as string).trim() !== '';
+		},
+		// The open entry form has its own Add / Cancel; the footer waits for it.
+		aclDialogCanApply(this: any): boolean {
+			return !this.aclDialog.isSaving && !this.aclDialog.addEntry.visible;
+		},
+		aclInheritedPolicies(this: any): any[] {
+			const item = this.singleTarget;
+			if (!item) return [];
+			return (this.detailACL as any[]).filter((policy: any) => policy.path !== item.path);
 		},
 		aclHasChanges(this: any): boolean {
 			const pending = this.aclDialog.pendingEntries;
@@ -945,115 +866,6 @@ defineComponent('wt-inspector', {
 				if (sortedP.some((v, idx) => v !== sortedO[idx])) return true;
 			}
 			return false;
-		},
-		schemaDisplayProperties(this: any): { schemaProps: any[]; extraProps: any[] } {
-			if (!this.selectedSchemaKey || this.detailProperties.length === 0) {
-				return { schemaProps: [], extraProps: [] };
-			}
-			const schema = (this.effectiveSchemas as any[]).find((s: any) => s.key === this.selectedSchemaKey);
-			if (!schema) {
-				return { schemaProps: [], extraProps: [] };
-			}
-
-			const propMap = new Map<string, any>();
-			for (const p of this.detailProperties) {
-				propMap.set(p.name, p);
-			}
-
-			const allPropsRaw = new Map<string, { value: any; values: any[] }>();
-			for (const p of this.detailProperties) {
-				const val = p.isArray ? (p.items.length > 0 ? p.items[0] : null) : (p.value || null);
-				const vals = p.isArray ? [...p.items] : [p.value];
-				allPropsRaw.set(p.name, { value: val, values: vals });
-			}
-
-			const schemaProps: any[] = [];
-			const matched = new Set<string>();
-
-			for (const schemaProp of schema.properties) {
-				const detailProp = propMap.get(schemaProp.key);
-				if (!detailProp) continue;
-
-				matched.add(schemaProp.key);
-				let formattedValue: string | null = null;
-				let formatError: string | null = null;
-
-				if (schemaProp.displayFormat) {
-					try {
-						formattedValue = this.executeDisplayFormat(
-							schemaProp.displayFormat, detailProp, allPropsRaw, schemaProp.key
-						);
-					} catch (e: any) {
-						formatError = e.message || String(e);
-					}
-				}
-
-				let choiceLabel: string | null = null;
-				let choiceLabels: string[] | null = null;
-				if (schemaProp.choices && schemaProp.choices.length > 0) {
-					const choiceMap = new Map<string, string>();
-					for (const c of schemaProp.choices) {
-						choiceMap.set(c.value, c.label || c.value);
-					}
-					if (detailProp.isArray) {
-						choiceLabels = (detailProp.items as string[]).map(
-							(v: string) => choiceMap.get(v) ?? v
-						);
-					} else {
-						choiceLabel = choiceMap.get(detailProp.value) ?? null;
-					}
-				}
-
-				let resolvedProp = detailProp;
-				if (schemaProp.query && (detailProp.type === 'REFERENCE' || detailProp.type === 'WEAKREFERENCE')) {
-					const cached = this.propEditorQueryCache[schemaProp.query.xpath];
-					if (cached) {
-						const labelMap = new Map<string, string>();
-						for (const qi of cached) {
-							labelMap.set(qi.value, qi.label);
-						}
-						resolvedProp = { ...detailProp };
-						if (detailProp.isArray) {
-							resolvedProp.items = (detailProp.uuids as string[]).map(
-								(v: string) => labelMap.get(v) ?? detailProp.items[(detailProp.uuids as string[]).indexOf(v)] ?? v
-							);
-						} else {
-							resolvedProp.value = labelMap.get(detailProp.uuid) ?? detailProp.value;
-						}
-					}
-				}
-
-				schemaProps.push({
-					...resolvedProp,
-					schemaLabel: schemaProp.label || schemaProp.key,
-					formattedValue,
-					formatError,
-					choiceLabel,
-					choiceLabels,
-				});
-			}
-
-			const extraProps = this.detailProperties.filter((p: any) => !matched.has(p.name));
-			return { schemaProps, extraProps };
-		},
-		filteredDetailProperties(this: any): any[] {
-			const q = (this.detailPropertiesFilter || '').trim().toLowerCase();
-			if (!q) return this.detailProperties;
-			return (this.detailProperties as any[]).filter((p: any) =>
-				p.name.toLowerCase().includes(q)
-			);
-		},
-		filteredSchemaDisplayProperties(this: any): { schemaProps: any[]; extraProps: any[] } {
-			const q = (this.detailPropertiesFilter || '').trim().toLowerCase();
-			const { schemaProps, extraProps } = this.schemaDisplayProperties;
-			if (!q) return { schemaProps, extraProps };
-			const match = (p: any) =>
-				p.name.toLowerCase().includes(q) ||
-				(p.schemaLabel && String(p.schemaLabel).toLowerCase().includes(q));
-			return {
-				schemaProps: schemaProps.filter(match),
-				extraProps: extraProps.filter(match),
-			};
 		},
 		filteredPropEditorDisplayItems(this: any): any[] {
 			const q = (this.propEditorFilter || '').trim().toLowerCase();
@@ -1074,26 +886,13 @@ defineComponent('wt-inspector', {
 		},
 		propEditorEditError(this: any): string {
 			void (this as any)._i18nTick;
-			if (!this.propEditorEditingName) return '';
-			const prop = (this.propEditorDisplayItems as any[]).find((p: any) => p.name === this.propEditorEditingName);
+			const prop = (this.propDialogProps as any[])[0];
 			if (!prop) return '';
 			const isArray = this.propEditorEditIsArray as boolean;
 			const values: string[] = isArray
 				? [...(this.propEditorEditValues as string[])]
 				: [this.propEditorEditInput as string];
-			const allPropsRaw = new Map<string, { value: any; values: any[] }>();
-			const editingName = this.propEditorEditingName;
-			for (const p of this.propEditorItems as any[]) {
-				if (p.isDeleted) continue;
-				if (p.name === editingName) {
-					const val = isArray ? (values.length > 0 ? values[0] : null) : (values[0] || null);
-					allPropsRaw.set(p.name, { value: val, values: [...values] });
-				} else {
-					const val = p.isArray ? (p.currentValues.length > 0 ? p.currentValues[0] : null) : (p.currentValue || null);
-					const vals = p.isArray ? [...p.currentValues] : [p.currentValue];
-					allPropsRaw.set(p.name, { value: val, values: vals });
-				}
-			}
+			const allPropsRaw = this.propsRawLookup({ name: prop.name, isArray, values });
 			const i18nFormat = (err: any): string => {
 				const i18n = (window.parent as any)?.Webtop?.i18n;
 				if (i18n && typeof i18n.formatValidationError === 'function') {
@@ -1104,8 +903,7 @@ defineComponent('wt-inspector', {
 			return validatePropertyValues({ ...prop, isArray }, values, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone, (id, params, fallback) => this.t(id, params, fallback));
 		},
 		propEditorEditChoiceMismatch(this: any): string {
-			if (!this.propEditorEditingName) return '';
-			const prop = (this.propEditorDisplayItems as any[]).find((p: any) => p.name === this.propEditorEditingName);
+			const prop = (this.propDialogProps as any[])[0];
 			if (!prop || !prop.schemaChoices || prop.schemaChoices.length === 0) return '';
 			if (prop.type === 'REFERENCE' || prop.type === 'WEAKREFERENCE') return '';
 			const allowed = new Set((prop.schemaChoices as any[]).map((c: any) => String(c.value)));
@@ -1122,8 +920,7 @@ defineComponent('wt-inspector', {
 		propEditorMissingProperties(this: any): { required: any[]; optional: any[] } {
 			const required: any[] = [];
 			const optional: any[] = [];
-			if (!this.propEditorSchemaKey) return { required, optional };
-			const schema = (this.effectiveSchemas as any[]).find((s: any) => s.key === this.propEditorSchemaKey);
+			const schema = this.propEditorSchema;
 			if (!schema) return { required, optional };
 			const existingNames = new Set<string>();
 			for (const p of this.propEditorItems as any[]) {
@@ -1153,18 +950,26 @@ defineComponent('wt-inspector', {
 		},
 	},
 	watch: {
-		target(this: any, _newVal: any, _oldVal: any) {
-			// Reset transient per-target UI state when the target changes.
+		target(this: any, newVal: any, _oldVal: any) {
+			// The host hands over a new target object when the node changes as
+			// well as when the selection does. Only a different path is a
+			// different item: that drops what belongs to the previous one,
+			// unsaved changes and open dialogs included.
+			const single = Array.isArray(newVal) ? (newVal.length === 1 ? newVal[0] : null) : (newVal || null);
+			const path = single?.path || '';
+			const samePath = path !== '' && path === this._.targetPath;
+			this._.targetPath = path;
+
 			this.cancelMimeTypeEdit?.();
 			this.cancelEncodingEdit?.();
-			this.selectedSchemaKey = '';
-			this.datasetSchema = null;
-			this._.datasetAutoKey = '';
 			this.previewImageError = false;
 			this.resetPreviewMedia();
 			this.actionErrorMessage = '';
 			this.actionConfirm = '';
 			this.versionHistoryDialog.confirmVersionName = '';
+			if (!samePath) {
+				this.resetSectionState();
+			}
 			this.resubscribeNodeWatch();
 			this.loadDetailData();
 		},
@@ -1202,36 +1007,39 @@ defineComponent('wt-inspector', {
 			};
 			window.addEventListener('message', vm._.messageListener);
 
-			// Close any open overlay on Escape. The component owns its overlay
-			// state, so it handles its own Escape and stops propagation (capture
-			// phase) to keep the host's global Escape handling from also firing.
+			// Close the open dialog or sub-view on Escape. The component owns
+			// that state, so it handles its own Escape and stops propagation
+			// (capture phase) to keep the host's global Escape handling from
+			// also firing. The maximized CodeMirror editor has its own handler.
 			vm._.keydownListener = (e: KeyboardEvent) => {
-				if (e.key !== 'Escape') return;
-				if (vm.detailPropertyEditorVisible) {
+				if (e.key !== 'Escape' || vm.cmExpanded) return;
+				if (vm.propDialog.visible) {
 					e.preventDefault();
 					e.stopPropagation();
-					vm.closeDetailPropertyEditor();
+					if (!vm.propDialog.saving) vm.closePropDialog();
+				} else if (vm.aclDialog.visible) {
+					e.preventDefault();
+					e.stopPropagation();
+					if (vm.aclDialog.isSaving) return;
+					if (vm.aclDialog.addEntry.visible) {
+						vm.closeAddAclEntryDialog();
+					} else {
+						vm.closeAclDialog();
+					}
 				} else if (vm.detailVersionHistoryVisible) {
 					e.preventDefault();
 					e.stopPropagation();
 					vm.closeDetailVersionHistory();
-				} else if (vm.detailACLEditorVisible) {
-					e.preventDefault();
-					e.stopPropagation();
-					if (vm.aclDialog.addEntry.visible) {
-						vm.closeAddAclEntryDialog();
-					} else {
-						vm.closeDetailACLEditor();
-					}
 				}
 			};
 			document.addEventListener('keydown', vm._.keydownListener, true);
 
+			vm._.targetPath = vm.singleTarget?.path || '';
 			vm.loadAvailableSchemas();
 			vm.resubscribeNodeWatch();
 			vm.loadDetailData();
 			// Act on a command that was set before the component mounted (e.g.
-			// the host opened the panel and asked for the Permissions overlay
+			// the host opened the panel and asked for the permissions dialog
 			// in the same tick).
 			vm.applyCommand(vm.command);
 		},
@@ -1249,6 +1057,11 @@ defineComponent('wt-inspector', {
 				document.removeEventListener('keydown', vm._.keydownListener, true);
 				vm._.keydownListener = null;
 			}
+			if (vm.aclSearchDebounceTimer) {
+				clearTimeout(vm.aclSearchDebounceTimer);
+				vm.aclSearchDebounceTimer = null;
+			}
+			vm.closePrincipalSuggestionsPopup();
 			vm.destroyCodeMirrorEditor();
 			vm.stopSpectrum();
 			if (vm._.audioSource) {
@@ -1282,23 +1095,10 @@ defineComponent('wt-inspector', {
 				vm.onTargetNodeChanged();
 			}, false);
 		},
+		// The node changed on the server. loadDetailData leaves a section with
+		// unsaved changes, or with its dialog open, as it is.
 		onTargetNodeChanged(this: any) {
-			const vm = this;
-			// When the Property Editor is open and the user has unsaved edits,
-			// avoid clobbering propEditorItems. Refresh only read-only summaries.
-			const editorActive = vm.detailPropertyEditorVisible &&
-				(vm.propEditorEditingName !== null
-					|| vm.propEditorAddingNew
-					|| (vm.propEditorItems as any[]).some((p: any) => p.isModified || p.isDeleted || p.isNew));
-			if (editorActive) {
-				const item = vm.singleTarget;
-				if (item) {
-					vm.loadDetailProperties(item);
-					vm.loadDetailACL(item);
-				}
-				return;
-			}
-			vm.loadDetailData();
+			this.loadDetailData();
 		},
 		onSchemasUpdated(this: any) {
 			this.loadAvailableSchemas();
@@ -1334,7 +1134,6 @@ defineComponent('wt-inspector', {
 			};
 			if (vm._.datasetAutoKey !== key) {
 				vm._.datasetAutoKey = key;
-				if (!vm.selectedSchemaKey) vm.selectedSchemaKey = key;
 				if (!vm.propEditorSchemaKey) vm.propEditorSchemaKey = key;
 			}
 		},
@@ -1406,12 +1205,12 @@ defineComponent('wt-inspector', {
 		emitRequestClose(this: any) {
 			this._dispatch('request-close');
 		},
-		// Notify the host whenever the overlay open-state changes so it can
-		// suppress its own global keyboard shortcuts while an overlay is up.
+		// Notify the host whenever a dialog or sub-view opens or closes so it
+		// can suppress its own global keyboard shortcuts meanwhile.
 		_notifyOverlayState(this: any) {
 			const open = !!(this.detailVersionHistoryVisible
-				|| this.detailACLEditorVisible
-				|| this.detailPropertyEditorVisible);
+				|| this.propDialog.visible
+				|| this.aclDialog.visible);
 			this._dispatch('overlay-changed', open);
 		},
 		// Apply a host-issued command. Guarded by nonce so the same action can
@@ -1425,17 +1224,26 @@ defineComponent('wt-inspector', {
 					this.showDetailVersionHistory();
 					break;
 				case 'permissions':
-					this.showDetailACLEditor();
+					this.openAclDialog();
 					break;
 				case 'properties':
-					this.showDetailPropertyEditor();
+					this.revealPropertiesSection();
 					break;
 				case 'close-overlays':
 					if (this.detailVersionHistoryVisible) this.closeDetailVersionHistory();
-					if (this.detailACLEditorVisible) this.closeDetailACLEditor();
-					if (this.detailPropertyEditorVisible) this.closeDetailPropertyEditor();
+					if (this.aclDialog.visible) this.closeAclDialog();
+					if (this.propDialog.visible) this.closePropDialog();
 					break;
 			}
+		},
+		// Bring the Properties section into view (the 'properties' command).
+		revealPropertiesSection(this: any) {
+			const vm = this;
+			if (vm.detailVersionHistoryVisible) vm.closeDetailVersionHistory();
+			vm.$nextTick(() => {
+				const header = vm.$refs.propertiesSection as HTMLElement | undefined;
+				header?.scrollIntoView({ block: 'start' });
+			});
 		},
 		// Inline clipboard helper — replaces the host's copyToClipboard().
 		async copyPathToClipboard(this: any, event?: MouseEvent) {
@@ -1628,31 +1436,29 @@ defineComponent('wt-inspector', {
 		// ────────────────────────────────────────────────────────────────────
 		// Main detail loader
 		// ────────────────────────────────────────────────────────────────────
+		// Loads what the panel shows for the target. A section is left as it is
+		// while it holds unsaved changes or its dialog is open, so a node
+		// update from the server does not take the user's edits away; saving
+		// or discarding loads it again.
 		loadDetailData(this: any) {
 			const vm = this;
 			vm.cancelMimeTypeEdit?.();
 			const item = vm.singleTarget;
 			if (!item) {
-				vm.detailProperties = [];
-				vm.detailPropertiesLoading = false;
-				vm.detailACL = [];
-				vm.detailACLLoading = false;
+				vm.resetSectionState();
 				if (vm.detailVersionHistoryVisible) {
 					vm.versionHistoryDialog.item = null;
 					vm.versionHistoryDialog.versions = [];
 					vm.versionHistoryDialog.isLoading = false;
 				}
-				if (vm.detailACLEditorVisible) {
-					vm.aclDialog.item = null;
-					vm.aclDialog.effectivePolicies = [];
-					vm.aclDialog.pendingEntries = [];
-					vm.aclDialog.originalEntries = [];
-					vm.aclDialog.isLoading = false;
-				}
 				return;
 			}
-			vm.loadDetailProperties(item);
-			vm.loadDetailACL(item);
+			if (!vm.propDialog.visible && vm.propEditorModifiedCount === 0) {
+				vm.loadPropEditorData(item);
+			}
+			if (!vm.aclDialog.visible && !vm.aclHasChanges) {
+				vm.loadDetailACL(item);
+			}
 			if (vm.detailVersionHistoryVisible) {
 				vm.versionHistoryDialog.item = item;
 				if (item.isVersionable) {
@@ -1663,119 +1469,54 @@ defineComponent('wt-inspector', {
 					vm.versionHistoryDialog.errorMessage = '';
 				}
 			}
-			if (vm.detailACLEditorVisible) {
-				vm.aclDialog.item = item;
-				vm.refreshDetailACLEditor();
-			}
-			if (vm.detailPropertyEditorVisible) {
-				vm.loadPropEditorData(item);
-			}
 		},
-		async loadDetailProperties(this: any, item: any) {
+		// Forget what the Properties and Access Control sections hold: their
+		// lists, unsaved changes and dialogs. For a new target, or none.
+		resetSectionState(this: any) {
 			const vm = this;
-			const seq = ++vm._.targetReloadSeq;
-			vm.detailPropertiesLoading = true;
-			vm.detailPropertiesError = '';
-			vm.detailProperties = [];
-
-			try {
-				const contentService = vm.api.content;
-				const node = await contentService.getNode(item.path);
-				if (seq !== vm._.targetReloadSeq) return;
-				vm.applyDataset(node);
-				if (!node || !node.properties) {
-					vm.detailProperties = [];
-					return;
-				}
-
-				const systemPrefixes = ['jcr:', 'rep:', 'oak:'];
-				const filtered = node.properties.filter((p: any) =>
-					!systemPrefixes.some(prefix => p.name.startsWith(prefix))
-				);
-
-				vm.detailProperties = filtered.map((p: any) => {
-					const pv = p.propertyValue;
-					const type = (pv.type || 'STRING').toUpperCase();
-					const isArray = 'values' in pv && Array.isArray(pv.values);
-					let value = '';
-					let items: string[] = [];
-
-					if (type === 'REFERENCE' || type === 'WEAKREFERENCE') {
-						if (isArray) {
-							const uuids: string[] = pv.values || [];
-							const paths: (string | null)[] = pv.paths || [];
-							items = uuids.map((uuid: string, i: number) => paths[i] || uuid);
-							value = items.join(', ');
-							return { name: p.name, type, isArray, value, items, uuids };
-						} else {
-							const uuid = String(pv.value ?? '');
-							value = pv.path || uuid;
-							return { name: p.name, type, isArray, value, items, uuid };
-						}
-					}
-
-					if (type === 'BINARY') {
-						if (pv.__typename === 'BinaryPropertyValueArray') {
-							const mimeTypeList: string[] = pv.mimeTypes || [];
-							const sizeList: number[] = pv.sizes || [];
-							const sizesFormatted: string[] = sizeList.map((s: number) => vm._formatBytes(s));
-							const isImages: boolean[] = mimeTypeList.map((m: string) => m.startsWith('image/'));
-							const propertyDownloadURLs: string[] = [];
-							if (node.downloadUrl) {
-								const sep = node.downloadUrl.includes('?') ? '&' : '?';
-								const baseURL = node.downloadUrl + sep + 'property=' + encodeURIComponent(p.name);
-								for (let i = 0; i < mimeTypeList.length; i++) {
-									propertyDownloadURLs.push(baseURL + '&index=' + i);
-								}
-							}
-							return { name: p.name, type, isArray: true, value: '', items: [], mimeTypes: mimeTypeList, sizes: sizeList, sizesFormatted, isImages, propertyDownloadURLs };
-						}
-						const mimeType = pv.mimeType || 'application/octet-stream';
-						const size = pv.size ?? 0;
-						const sizeFormatted = vm._formatBytes(size);
-						const isImage = mimeType.startsWith('image/');
-						let propertyDownloadURL = '';
-						if (node.downloadUrl) {
-							const sep = node.downloadUrl.includes('?') ? '&' : '?';
-							propertyDownloadURL = node.downloadUrl + sep + 'property=' + encodeURIComponent(p.name);
-						}
-						return { name: p.name, type, isArray: false, value: '', items: [], mimeType, size, sizeFormatted, isImage, propertyDownloadURL };
-					}
-
-					if (isArray) {
-						// Keep DATE values as raw ISO so the template can format
-						// them reactively against the current preference time zone
-						// via displayPropItem(); other types are emitted as plain
-						// strings as before.
-						items = (pv.values || []).map((v: string) => String(v));
-						value = items.join(', ');
-					} else if ('value' in pv) {
-						// DATE: store raw ISO; reactive formatting happens at
-						// display time. Other types unchanged.
-						value = String(pv.value ?? '');
-					}
-					return { name: p.name, type, isArray, value, items };
-				});
-			} catch (error: any) {
-				vm.detailPropertiesError = error?.message || vm.t('webtop.inspector.propertyEditor.loadFailed', undefined, 'Failed to load properties');
-			} finally {
-				vm.detailPropertiesLoading = false;
-			}
+			if (vm.propDialog.visible) vm.closePropDialog();
+			if (vm.aclDialog.visible) vm.closeAclDialog();
+			vm._.targetReloadSeq++;
+			vm._.aclReloadSeq++;
+			vm.releasePropPreviews(vm.propEditorItems);
+			vm.propEditorItems = [];
+			vm.propEditorLoading = false;
+			vm.propEditorError = '';
+			vm.propEditorSaveError = '';
+			vm.propEditorFilter = '';
+			vm.propEditorErrorFilter = '';
+			vm.propEditorSchemaKey = '';
+			vm.datasetSchema = null;
+			vm._.datasetAutoKey = '';
+			vm.detailACL = [];
+			vm.detailACLLoading = false;
+			vm.detailACLError = '';
+			vm.aclDialog.pendingEntries = [];
+			vm.aclDialog.originalEntries = [];
+			vm.aclDialog.errorMessage = '';
 		},
-		async loadDetailACL(this: any, item: any) {
+		loadDetailACL(this: any, item: any): Promise<void> {
 			const vm = this;
+			const seq = ++vm._.aclReloadSeq;
 			vm.detailACLLoading = true;
 			vm.detailACLError = '';
-			vm.detailACL = [];
-
-			try {
-				const contentService = vm.api.content;
-				vm.detailACL = await contentService.getEffectiveAccessControl(item.path);
-			} catch (error: any) {
-				vm.detailACLError = error?.message || vm.t('webtop.inspector.acl.loadFailed', undefined, 'Failed to load access control');
-			} finally {
-				vm.detailACLLoading = false;
-			}
+			const load = (async () => {
+				try {
+					const policies = await vm.api.content.getEffectiveAccessControl(item.path);
+					if (seq !== vm._.aclReloadSeq) return;
+					vm.detailACL = policies || [];
+					vm._syncAclPendingEntries();
+				} catch (error: any) {
+					if (seq !== vm._.aclReloadSeq) return;
+					vm.detailACL = [];
+					vm._syncAclPendingEntries();
+					vm.detailACLError = error?.message || vm.t('webtop.inspector.acl.loadFailed', undefined, 'Failed to load access control');
+				} finally {
+					if (seq === vm._.aclReloadSeq) vm.detailACLLoading = false;
+				}
+			})();
+			vm._.aclLoad = load;
+			return load;
 		},
 		// Simple byte formatter (used inside loaders; same shape as Bytes.format short)
 		_formatBytes(this: any, bytes: number): string {
@@ -1786,6 +1527,147 @@ defineComponent('wt-inspector', {
 			while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
 			return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 		},
+		// The current value of every property, by name, as schema scripts read
+		// them (ctx.get and friends). `override` stands in for the property
+		// being edited in the dialog, whose value is not in the list yet.
+		propsRawLookup(this: any, override?: { name: string; isArray: boolean; values: string[] }): Map<string, { value: any; values: any[] }> {
+			const map = new Map<string, { value: any; values: any[] }>();
+			for (const p of this.propEditorItems as any[]) {
+				if (p.isDeleted) continue;
+				const val = p.isArray ? (p.currentValues.length > 0 ? p.currentValues[0] : null) : (p.currentValue || null);
+				const vals = p.isArray ? [...p.currentValues] : [p.currentValue];
+				map.set(p.name, { value: val, values: vals });
+			}
+			if (override) {
+				const values = override.values;
+				const val = override.isArray ? (values.length > 0 ? values[0] : null) : (values[0] || null);
+				map.set(override.name, { value: val, values: [...values] });
+			}
+			return map;
+		},
+		// The schema property of the selected schema with this key, or null.
+		findSchemaProp(this: any, key: string): any | null {
+			const schema = this.propEditorSchema;
+			if (!schema || !key) return null;
+			return (schema.properties as any[]).find((p: any) => p.key === key) || null;
+		},
+		// A property item with what its schema property says about it: label,
+		// formatted value, choices, editor hints, constraints, and the
+		// mismatch / validation findings.
+		enrichPropItem(this: any, item: any, schemaProp: any, allPropsRaw: Map<string, { value: any; values: any[] }>): any {
+			let schemaLabel: string | null = schemaProp.label || schemaProp.key;
+			let formattedValue: string | null = null;
+			let formatError: string | null = null;
+			let choiceLabel: string | null = null;
+			let choiceLabels: string[] | null = null;
+
+			if (schemaProp.displayFormat) {
+				const compatProp = {
+					isArray: item.isArray,
+					items: item.currentValues || [],
+					value: item.currentValue || '',
+				};
+				try {
+					formattedValue = this.executeDisplayFormat(
+						schemaProp.displayFormat, compatProp, allPropsRaw, schemaProp.key
+					);
+				} catch (e: any) {
+					formatError = e.message || String(e);
+				}
+			}
+
+			if (!formattedValue && !formatError && schemaProp.choices && schemaProp.choices.length > 0) {
+				const choiceMap = new Map<string, string>();
+				for (const c of schemaProp.choices) {
+					choiceMap.set(c.value, c.label || c.value);
+				}
+				if (item.isArray) {
+					choiceLabels = (item.currentValues as string[]).map(
+						(v: string) => choiceMap.get(v) ?? v
+					);
+				} else {
+					choiceLabel = choiceMap.get(item.currentValue) ?? null;
+				}
+			}
+
+			const readOnly = schemaProp.readOnly ?? false;
+			const schemaMultiple = schemaProp.multiple;
+			const editorType = schemaProp.editorType;
+			const editorRows = schemaProp.rows;
+			const queryConfig = schemaProp.query;
+
+			let enrichedItem = { ...item };
+			if (queryConfig && (item.type === 'REFERENCE' || item.type === 'WEAKREFERENCE')) {
+				const cached = this.propEditorQueryCache[queryConfig.xpath];
+				if (cached) {
+					const labelMap = new Map<string, string>();
+					for (const qi of cached) {
+						labelMap.set(qi.value, qi.label);
+					}
+					if (item.isArray) {
+						enrichedItem.displayValues = (item.currentValues as string[]).map(
+							(v: string) => labelMap.get(v) ?? item.displayValues?.[item.currentValues.indexOf(v)] ?? v
+						);
+					} else {
+						enrichedItem.displayValue = labelMap.get(item.currentValue) ?? item.displayValue ?? item.currentValue;
+					}
+				}
+			}
+
+			const schemaChoices = schemaProp.choices;
+			const schemaType = schemaProp.type;
+			const schemaRequired = schemaProp.required ?? false;
+			const schemaMinLength = schemaProp.minLength;
+			const schemaMaxLength = schemaProp.maxLength;
+			const schemaPattern = schemaProp.pattern;
+			const schemaMinValue = schemaProp.minValue;
+			const schemaMaxValue = schemaProp.maxValue;
+			const schemaValidation = schemaProp.validation;
+			const enrichedWithMeta: any = {
+				...enrichedItem,
+				schemaLabel, formattedValue, formatError, choiceLabel, choiceLabels,
+				readOnly, schemaMultiple, editorType, editorRows, queryConfig, schemaChoices,
+				schemaType, schemaRequired, schemaMinLength, schemaMaxLength, schemaPattern,
+				schemaMinValue, schemaMaxValue, schemaValidation,
+			};
+			if (schemaType && item.type && item.type !== schemaType
+				&& schemaType !== 'BINARY' && schemaType !== 'REFERENCE' && schemaType !== 'WEAKREFERENCE'
+				&& item.type !== 'BINARY' && item.type !== 'REFERENCE' && item.type !== 'WEAKREFERENCE') {
+				enrichedWithMeta.typeMismatch = true;
+				enrichedWithMeta.mismatchMessage = this.t('webtop.inspector.mismatch.type', { stored: item.type, expected: schemaType });
+			}
+			if (schemaChoices && schemaChoices.length > 0
+				&& item.type !== 'REFERENCE' && item.type !== 'WEAKREFERENCE'
+				&& schemaType !== 'REFERENCE' && schemaType !== 'WEAKREFERENCE') {
+				const allowedValues = new Set(schemaChoices.map((c: any) => String(c.value)));
+				const valuesToCheck = item.isArray ? (item.currentValues || []) : [item.currentValue];
+				const offending: string[] = [];
+				for (const cv of valuesToCheck) {
+					if (cv == null || String(cv).trim() === '') continue;
+					if (!allowedValues.has(String(cv))) offending.push(String(cv));
+				}
+				if (offending.length > 0) {
+					enrichedWithMeta.choiceMismatch = true;
+					enrichedWithMeta.choiceMismatchMessage = offending.length === 1
+						? this.t('webtop.inspector.mismatch.choiceOne', { value: offending[0] })
+						: this.t('webtop.inspector.mismatch.choiceMany', { count: offending.length, values: offending.map((v) => `"${v}"`).join(', ') });
+				}
+			}
+			void (this as any)._i18nTick;
+			const currentValues = item.isArray ? (item.currentValues || []) : [item.currentValue ?? ''];
+			const i18nFormat = (err: any): string => {
+				const i18n = (window.parent as any)?.Webtop?.i18n;
+				if (i18n && typeof i18n.formatValidationError === 'function') {
+					return i18n.formatValidationError(err);
+				}
+				return err.fallbackMessage || err.messageId || this.t('webtop.inspector.validation.failed', undefined, 'Validation failed');
+			};
+			const validationError = validatePropertyValues(enrichedWithMeta, currentValues, allPropsRaw, i18nFormat, this.scriptItem, this.localization?.locale, this.localization?.timeZone, (id, params, fallback) => this.t(id, params, fallback));
+			if (validationError) {
+				enrichedWithMeta.validationError = validationError;
+			}
+			return enrichedWithMeta;
+		},
 		executeDisplayFormat(this: any, script: string, prop: any, allPropsRaw: Map<string, { value: any; values: any[] }>, propertyName: string): string {
 			const isArray = !!prop.isArray;
 			const value = isArray
@@ -1795,7 +1677,7 @@ defineComponent('wt-inspector', {
 
 			// Reading `this.localization` here registers a dependency on the
 			// reactive snapshot, so the computeds that call this method
-			// (schemaDisplayProperties, propEditorDisplayItems) re-evaluate
+			// (propEditorDisplayItems, propDialogProps) re-evaluate
 			// when the user changes Preferences > Localization, and the
 			// `displayFormat` script is re-run with the new defaults.
 			const loc = this.localization as { locale?: string; timeZone?: string } | undefined;
@@ -2316,16 +2198,6 @@ defineComponent('wt-inspector', {
 			if (result == null) return undefined;
 			return result === NONE ? '' : String(result);
 		},
-		async openDetailSchemaDropdown(this: any, event: MouseEvent) {
-			const value = await this.openSchemaPicker(event, this.selectedSchemaKey);
-			if (value === undefined) return;
-			this.selectedSchemaKey = value;
-			if (value) this.loadQueriesForSchema(value);
-		},
-		detailSchemaLabel(this: any): string {
-			const s = (this.effectiveSchemas as any[]).find((x: any) => x.key === this.selectedSchemaKey);
-			return s ? s.label : '';
-		},
 		async openPropEditorSchemaDropdown(this: any, event: MouseEvent) {
 			const value = await this.openSchemaPicker(event, this.propEditorSchemaKey);
 			if (value === undefined) return;
@@ -2333,7 +2205,7 @@ defineComponent('wt-inspector', {
 			if (value) this.loadQueriesForSchema(value);
 		},
 		propEditorSchemaLabel(this: any): string {
-			const s = (this.effectiveSchemas as any[]).find((x: any) => x.key === this.propEditorSchemaKey);
+			const s = this.propEditorSchema;
 			return s ? s.label : '';
 		},
 		async openPropEditChoicesMultiDropdown(this: any, prop: any, event: MouseEvent) {
@@ -2481,6 +2353,7 @@ defineComponent('wt-inspector', {
 			const result = await handle.result;
 			if (result == null) return;
 			vm.propEditorNewType = String(result);
+			vm.resetAddEditor();
 		},
 		propEditNewTypeLabel(this: any): string {
 			const o = (this.propTypeOptions as any[]).find((x: any) => x.id === this.propEditorNewType);
@@ -2493,9 +2366,8 @@ defineComponent('wt-inspector', {
 			const vm = this;
 			const item = vm.singleTarget;
 			if (!item) return;
-			if (vm.detailACLEditorVisible) {
-				vm.detailACLEditorVisible = false;
-			}
+			if (vm.propDialog.visible) vm.closePropDialog();
+			if (vm.aclDialog.visible) vm.closeAclDialog();
 			const panel = vm.$refs.detailPanel as HTMLElement | undefined;
 			if (panel) panel.scrollTop = 0;
 			vm.detailVersionHistoryVisible = true;
@@ -2658,78 +2530,87 @@ defineComponent('wt-inspector', {
 			}
 		},
 		// ────────────────────────────────────────────────────────────────────
-		// ACL Editor overlay
+		// Access control
 		// ────────────────────────────────────────────────────────────────────
-		async showDetailACLEditor(this: any) {
+		// The row menu: a popup against the "…" button. Resolves to the id of
+		// the chosen item, or null.
+		async openRowMenu(this: any, detail: any, items: any[]): Promise<string | null> {
+			const popup = this.api?.popup;
+			if (!popup || !detail?.anchor) return null;
+			const handle = popup.open({
+				anchor: detail.anchor,
+				placement: 'bottom-end',
+				minWidth: 200,
+				items,
+			});
+			const result = await handle.result;
+			return result == null ? null : String(result);
+		},
+		async openAclOwnMenu(this: any, detail: any) {
+			const vm = this;
+			const id = await vm.openRowMenu(detail, [
+				{ id: 'edit', label: vm.t('webtop.inspector.acl.editMenu', undefined, 'Edit permissions…'), icon: 'bi bi-pencil' },
+			]);
+			if (id === 'edit') vm.openAclDialog();
+		},
+		async openAclInheritedMenu(this: any, policy: any, detail: any) {
+			const vm = this;
+			const id = await vm.openRowMenu(detail, [
+				{ id: 'navigate', label: vm.t('webtop.inspector.acl.navigate'), icon: 'bi bi-box-arrow-up-right' },
+			]);
+			if (id === 'navigate') vm.emitNavigatePath(policy.path);
+		},
+		aclEntryKey(this: any, entry: any): string {
+			const id = typeof entry.principal === 'object' ? entry.principal.id : entry.principal;
+			return (entry.allow ? 'allow:' : 'deny:') + id;
+		},
+		_cloneAclEntries(this: any, entries: any[]): any[] {
+			return entries.map((e: any) => ({
+				principal: e.principal,
+				privileges: [...e.privileges],
+				allow: e.allow,
+			}));
+		},
+		// Takes the item's own entries from the loaded policies as both the
+		// stored and the shown state.
+		_syncAclPendingEntries(this: any) {
+			const vm = this;
+			const item = vm.singleTarget;
+			const own = item ? (vm.detailACL as any[]).find((policy: any) => policy.path === item.path) : null;
+			const entries = own?.entries || [];
+			vm.aclDialog.pendingEntries = vm._cloneAclEntries(entries);
+			vm.aclDialog.originalEntries = vm._cloneAclEntries(entries);
+		},
+		async openAclDialog(this: any) {
 			const vm = this;
 			const item = vm.singleTarget;
 			if (!item) return;
-			if (vm.detailVersionHistoryVisible) {
-				vm.detailVersionHistoryVisible = false;
+			if (vm.propDialog.visible) vm.closePropDialog();
+			if (vm.detailVersionHistoryVisible) vm.closeDetailVersionHistory();
+			// The entries must be there before they are copied.
+			if (vm._.aclLoad) {
+				try { await vm._.aclLoad; } catch { /* shown by the section */ }
 			}
-			const panel = vm.$refs.detailPanel as HTMLElement | undefined;
-			if (panel) panel.scrollTop = 0;
-			vm.detailACLEditorVisible = true;
-			vm.aclDialog.item = item;
-			vm._notifyOverlayState();
-			await vm.refreshDetailACLEditor();
-		},
-		async refreshDetailACLEditor(this: any) {
-			const vm = this;
-			const item = vm.aclDialog.item;
-			if (!item) return;
-			vm.aclDialog.isLoading = true;
-			vm.aclDialog.errorMessage = '';
-			vm.aclDialog.effectivePolicies = [];
-			vm.aclDialog.pendingEntries = [];
-			vm.aclDialog.originalEntries = [];
-
-			try {
-				const contentService = vm.api.content;
-				vm.aclDialog.effectivePolicies = await contentService.getEffectiveAccessControl(item.path);
-				vm._syncAclPendingEntries();
-			} catch (error: any) {
-				vm.aclDialog.errorMessage = error?.message || vm.t('webtop.inspector.acl.loadFailed', undefined, 'Failed to load access control');
-			} finally {
-				vm.aclDialog.isLoading = false;
-			}
-		},
-		closeDetailACLEditor(this: any) {
-			const vm = this;
-			vm.detailACLEditorVisible = false;
-			vm.aclDialog.item = null;
-			vm.aclDialog.effectivePolicies = [];
-			vm.aclDialog.pendingEntries = [];
-			vm.aclDialog.originalEntries = [];
-			vm.aclDialog.isLoading = false;
+			if (vm.singleTarget?.path !== item.path) return;
 			vm.aclDialog.isSaving = false;
 			vm.aclDialog.errorMessage = '';
+			vm.aclDialog.draftEntries = vm._cloneAclEntries(vm.aclDialog.pendingEntries);
+			vm.closeAddAclEntryDialog();
+			vm.aclDialog.visible = true;
+			vm._notifyOverlayState();
+		},
+		closeAclDialog(this: any) {
+			const vm = this;
+			vm.aclDialog.visible = false;
+			vm.aclDialog.isSaving = false;
+			vm.aclDialog.errorMessage = '';
+			vm.aclDialog.draftEntries = [];
 			vm.closeAddAclEntryDialog();
 			if (vm.aclSearchDebounceTimer) {
 				clearTimeout(vm.aclSearchDebounceTimer);
 				vm.aclSearchDebounceTimer = null;
 			}
-			const selectedItem = vm.singleTarget;
-			if (selectedItem) {
-				vm.loadDetailACL(selectedItem);
-			}
 			vm._notifyOverlayState();
-		},
-		_syncAclPendingEntries(this: any) {
-			const vm = this;
-			const item = vm.aclDialog.item;
-			const policies = vm.aclDialog.effectivePolicies;
-			let ownEntries: any[] = [];
-			if (item && policies.length > 0 && policies[0].path === item.path) {
-				ownEntries = policies[0].entries || [];
-			}
-			const clone = (entries: any[]) => entries.map(e => ({
-				principal: e.principal,
-				privileges: [...e.privileges],
-				allow: e.allow,
-			}));
-			vm.aclDialog.pendingEntries = clone(ownEntries);
-			vm.aclDialog.originalEntries = clone(ownEntries);
 		},
 		showAddAclEntryDialog(this: any) {
 			const vm = this;
@@ -2863,6 +2744,7 @@ defineComponent('wt-inspector', {
 				vm.aclDialog.addEntry.privileges.push(privilege);
 			}
 		},
+		// The entry form's Add: puts the entry into the draft.
 		submitAclEntry(this: any) {
 			const vm = this;
 			const { principal, privileges, allow, principalDisplayName } = vm.aclDialog.addEntry;
@@ -2876,106 +2758,114 @@ defineComponent('wt-inspector', {
 				return;
 			}
 
-			const id = principal.trim();
-			vm.aclDialog.pendingEntries.push({
-				principal: { id, displayName: principalDisplayName || null, isGroup: vm.aclDialog.addEntry.principalIsGroup },
+			vm.aclDialog.draftEntries.push({
+				principal: { id: principal.trim(), displayName: principalDisplayName || null, isGroup: vm.aclDialog.addEntry.principalIsGroup },
 				privileges: [...privileges],
 				allow,
 			});
 			vm.closeAddAclEntryDialog();
 		},
-		deleteAclEntry(this: any, principalID: string) {
+		deleteAclEntry(this: any, entry: any) {
 			const vm = this;
-			const idx = vm.aclDialog.pendingEntries.findIndex((e: any) => {
-				const id = typeof e.principal === 'object' ? e.principal.id : e.principal;
-				return id === principalID;
-			});
+			const key = vm.aclEntryKey(entry);
+			const idx = (vm.aclDialog.draftEntries as any[]).findIndex((e: any) => vm.aclEntryKey(e) === key);
 			if (idx !== -1) {
-				vm.aclDialog.pendingEntries.splice(idx, 1);
+				vm.aclDialog.draftEntries.splice(idx, 1);
 			}
 		},
-		async saveAclChanges(this: any) {
+		// The dialog's footer. Without `save` the entries go to the section as
+		// an unsaved change; with it they are written to the server.
+		async applyAclDialog(this: any, save: boolean) {
 			const vm = this;
+			if (!vm.aclDialogCanApply) return;
+			vm.aclDialog.errorMessage = '';
+			const entries = vm._cloneAclEntries(vm.aclDialog.draftEntries);
+			if (save) {
+				if (!(await vm._saveAclEntries(entries))) return;
+				vm.closeAclDialog();
+				return;
+			}
+			vm.aclDialog.pendingEntries = entries;
+			vm.closeAclDialog();
+		},
+		// Writes the item's own entries and loads the policies again. False
+		// (with aclDialog.errorMessage set) when the server refuses.
+		async _saveAclEntries(this: any, pending: any[]): Promise<boolean> {
+			const vm = this;
+			const item = vm.singleTarget;
+			if (!item) return false;
 			vm.aclDialog.isSaving = true;
 			vm.aclDialog.errorMessage = '';
-
 			try {
-				const contentService = vm.api.content;
-				const entries = vm.aclDialog.pendingEntries.map((e: any) => ({
+				const entries = pending.map((e: any) => ({
 					principal: typeof e.principal === 'object' ? e.principal.id : e.principal,
 					privileges: e.privileges,
 					allow: e.allow,
 				}));
-				await contentService.setAccessControl(vm.aclDialog.item.path, { entries });
-				await vm.refreshDetailACLEditor();
+				await vm.api.content.setAccessControl(item.path, { entries });
+				await vm.loadDetailACL(item);
+				return true;
 			} catch (error: any) {
 				vm.aclDialog.errorMessage = error?.message || vm.t('webtop.inspector.acl.saveFailed', undefined, 'Failed to save access control');
+				return false;
 			} finally {
 				vm.aclDialog.isSaving = false;
 			}
 		},
+		async saveAclChanges(this: any) {
+			await this._saveAclEntries(this.aclDialog.pendingEntries);
+		},
 		discardAclChanges(this: any) {
 			const vm = this;
-			vm.aclDialog.pendingEntries = vm.aclDialog.originalEntries.map((e: any) => ({
-				principal: e.principal,
-				privileges: [...e.privileges],
-				allow: e.allow,
-			}));
+			vm.aclDialog.pendingEntries = vm._cloneAclEntries(vm.aclDialog.originalEntries);
 			vm.aclDialog.errorMessage = '';
 		},
 		// ────────────────────────────────────────────────────────────────────
-		// Property Editor overlay
+		// Properties
 		// ────────────────────────────────────────────────────────────────────
-		async showDetailPropertyEditor(this: any) {
+		propIcon(this: any, prop: any): string {
+			const hasChoices = !!(prop.schemaChoices && prop.schemaChoices.length > 0);
+			return 'bi ' + (hasChoices ? 'bi-tag' : propertyTypeIcon(prop.type));
+		},
+		// The line under a row's label: the type, the time zone a date shows
+		// in, and the property name where the label is the schema's.
+		propMeta(this: any, prop: any): string {
+			const parts: string[] = [prop.isArray ? prop.type + '[]' : prop.type];
+			if (prop.type === 'DATE') parts.push(this.localTZ);
+			if (prop.schemaLabel && prop.schemaLabel !== prop.name) parts.push(prop.name);
+			return parts.join(' · ');
+		},
+		propState(this: any, prop: any): string {
+			if (prop.isDeleted) return 'deleted';
+			if (prop.validationError) return 'invalid';
+			if (prop.isNew) return 'new';
+			if (prop.isModified) return 'modified';
+			return '';
+		},
+		propCanEdit(this: any, prop: any): boolean {
+			return this.canEditProperties && !prop.readOnly && !prop.isDeleted;
+		},
+		async openPropertyMenu(this: any, prop: any, detail: any) {
 			const vm = this;
-			const item = vm.singleTarget;
-			if (!item) return;
-			if (vm.detailVersionHistoryVisible) {
-				vm.detailVersionHistoryVisible = false;
-				vm.versionHistoryDialog.item = null;
-				vm.versionHistoryDialog.versions = [];
-			}
-			if (vm.detailACLEditorVisible) {
-				vm.detailACLEditorVisible = false;
-			}
-			const panel = vm.$refs.detailPanel as HTMLElement | undefined;
-			if (panel) panel.scrollTop = 0;
-			vm.detailPropertyEditorVisible = true;
-			vm.propEditorSchemaKey = vm.selectedSchemaKey || '';
-			vm.propEditorQueryCache = {};
-			vm._notifyOverlayState();
-			await vm.loadPropEditorData(item);
-			if (vm.propEditorSchemaKey) {
-				vm.loadQueriesForSchema(vm.propEditorSchemaKey);
+			const items = prop.isDeleted
+				? [
+					{ id: 'restore', label: vm.t('webtop.inspector.propertyEditor.restoreProp'), icon: 'bi bi-arrow-counterclockwise' },
+				]
+				: [
+					{ id: 'edit', label: vm.t('webtop.inspector.properties.editMenu', undefined, 'Edit property…'), icon: 'bi bi-pencil' },
+					{ id: 'delete', label: vm.t('webtop.inspector.propertyEditor.deleteProp'), icon: 'bi bi-trash', danger: true },
+				];
+			const id = await vm.openRowMenu(detail, items);
+			switch (id) {
+				case 'edit': vm.openEditPropertyDialog(prop); break;
+				case 'delete': vm.markPropertyDeleted(prop); break;
+				case 'restore': vm.unmarkPropertyDeleted(prop); break;
 			}
 		},
-		closeDetailPropertyEditor(this: any) {
-			const vm = this;
-			vm.detailPropertyEditorVisible = false;
-			vm.propEditorItems = [];
-			vm.propEditorLoading = false;
-			vm.propEditorError = '';
-			vm.propEditorEditingName = null;
-			vm.propEditorAddingNew = false;
-			vm.propEditorSaving = false;
-			vm.propEditorSaveError = '';
-			vm._notifyOverlayState();
-		},
-		async loadPropEditorData(this: any, item: any) {
-			const vm = this;
-			vm.propEditorEditingName = null;
-			vm.propEditorAddingNew = false;
-			vm.propEditorSaveError = '';
-
-			if (!item || item.isCollection) {
-				vm.propEditorItems = [];
-				vm.propEditorLoading = false;
-				return;
-			}
-
-			vm.propEditorLoading = true;
-			vm.propEditorError = '';
-			for (const prop of (vm.propEditorItems as any[])) {
+		// Object URLs made for binary values that were uploaded but are not
+		// kept: released with the items that hold them.
+		releasePropPreviews(this: any, items: any[]) {
+			for (const prop of items) {
 				if (prop.binaryPreviewURL) {
 					URL.revokeObjectURL(prop.binaryPreviewURL);
 				}
@@ -2983,21 +2873,33 @@ defineComponent('wt-inspector', {
 					for (const u of prop.binaryPreviewURLs) { if (u) URL.revokeObjectURL(u); }
 				}
 			}
-			vm.propEditorItems = [];
+		},
+		// Loads the target's properties into the list. With `keepPending` the
+		// unsaved changes stay on top of what the server returns (all but
+		// `exclude`, the property that was just saved).
+		async loadPropEditorData(this: any, item: any, options?: { keepPending?: boolean; exclude?: string }) {
+			const vm = this;
+			if (!item) return;
+			const seq = ++vm._.targetReloadSeq;
+			const previous = vm.propEditorItems as any[];
+			const pending = options?.keepPending
+				? previous.filter((p: any) => (p.isModified || p.isDeleted || p.isNew) && p.name !== options.exclude)
+				: [];
+
+			vm.propEditorSaveError = '';
+			vm.propEditorLoading = true;
+			vm.propEditorError = '';
 
 			try {
 				const contentService = vm.api.content;
 				const node = await contentService.getNode(item.path);
+				if (seq !== vm._.targetReloadSeq) return;
 				vm.applyDataset(node);
-				if (!node || !node.properties) {
-					vm.propEditorItems = [];
-					return;
-				}
 				const systemPrefixes = ['jcr:', 'rep:', 'oak:'];
-				const filtered = node.properties.filter((p: any) =>
+				const filtered = (node?.properties || []).filter((p: any) =>
 					!systemPrefixes.some((prefix: string) => p.name.startsWith(prefix))
 				);
-				vm.propEditorItems = filtered.map((p: any) => {
+				const loaded: any[] = filtered.map((p: any) => {
 					const pv = p.propertyValue;
 					const isArray = 'values' in pv && Array.isArray(pv.values);
 					const type = (pv.type || 'STRING').toUpperCase();
@@ -3071,11 +2973,181 @@ defineComponent('wt-inspector', {
 						isNew: false,
 					};
 				});
+
+				// An unsaved change takes the place of the stored property. One
+				// whose property is gone from the server goes with it, unless it
+				// is a new property.
+				for (const p of pending) {
+					const idx = loaded.findIndex((l: any) => l.name === p.name);
+					if (idx !== -1) {
+						loaded.splice(idx, 1, p);
+					} else if (p.isNew) {
+						loaded.push(p);
+					}
+				}
+				vm.releasePropPreviews(previous.filter((p: any) => !loaded.includes(p)));
+				vm.propEditorItems = loaded;
+				if (vm.propEditorSchemaKey) {
+					vm.loadQueriesForSchema(vm.propEditorSchemaKey);
+				}
 			} catch (error: any) {
+				if (seq !== vm._.targetReloadSeq) return;
 				vm.propEditorError = error?.message || vm.t('webtop.inspector.propertyEditor.loadFailed', undefined, 'Failed to load properties');
 			} finally {
-				vm.propEditorLoading = false;
+				if (seq === vm._.targetReloadSeq) vm.propEditorLoading = false;
 			}
+		},
+		openEditPropertyDialog(this: any, prop: any) {
+			const vm = this;
+			if (!vm.propCanEdit(prop)) return;
+			if (vm.aclDialog.visible) vm.closeAclDialog();
+			vm.propDialog.mode = 'edit';
+			vm.propDialog.saving = false;
+			vm.propDialog.errorMessage = '';
+			vm.propDialog.schemaMatchKey = '';
+			vm.startEditingProperty(prop);
+			vm.propDialog.visible = true;
+			vm._notifyOverlayState();
+		},
+		openAddPropertyDialog(this: any) {
+			const vm = this;
+			if (!vm.canEditProperties) return;
+			if (vm.aclDialog.visible) vm.closeAclDialog();
+			vm.propDialog.mode = 'add';
+			vm.propDialog.saving = false;
+			vm.propDialog.errorMessage = '';
+			vm.propEditorNewName = '';
+			vm.propEditorNewType = 'STRING';
+			vm.resetAddEditor();
+			vm.propDialog.visible = true;
+			vm._notifyOverlayState();
+			vm.$nextTick(() => {
+				(vm.$refs.propDialogNameInput as HTMLInputElement | undefined)?.focus();
+			});
+		},
+		closePropDialog(this: any) {
+			const vm = this;
+			vm.cancelPropertyEdit();
+			vm.propDialog.visible = false;
+			vm.propDialog.saving = false;
+			vm.propDialog.errorMessage = '';
+			vm.propDialog.schemaMatchKey = '';
+			vm.binaryEditPreviewURL = '';
+			vm.binaryEditPreviewURLs = [];
+			vm.binaryEditFileMimeTypes = [];
+			vm._notifyOverlayState();
+		},
+		// The item a new property starts as: what the selected schema declares
+		// for the name (type, multiplicity, default value), or an empty value
+		// of the chosen type.
+		buildDraftProp(this: any, name: string): any {
+			const vm = this;
+			const schemaProp = vm.findSchemaProp(name);
+			if (!schemaProp) {
+				return {
+					name,
+					type: vm.propEditorNewType,
+					isArray: false,
+					originalValue: '',
+					originalValues: [],
+					currentValue: '',
+					currentValues: [],
+					isModified: true,
+					isDeleted: false,
+					isNew: true,
+				};
+			}
+			const draft = vm.buildNewPropItemFromSchema(schemaProp);
+			if (schemaProp.defaultValue && schemaProp.defaultValue.type === 'CALCULATED' && schemaProp.defaultValue.value) {
+				const result = vm.evaluateCalculatedDefault(schemaProp.defaultValue.value, vm.propsRawLookup(), schemaProp.key);
+				if (result != null) {
+					if (draft.isArray) draft.currentValues = [result];
+					else draft.currentValue = result;
+				}
+			}
+			return draft;
+		},
+		// 'add' mode: starts the value editor over for the draft, after the
+		// type changed or the name began or stopped matching the schema.
+		resetAddEditor(this: any) {
+			const vm = this;
+			const name = (vm.propEditorNewName as string).trim();
+			const schemaProp = vm.findSchemaProp(name);
+			vm.propDialog.schemaMatchKey = schemaProp ? schemaProp.key : '';
+			if (schemaProp) vm.propEditorNewType = schemaProp.type || 'STRING';
+			const draft = vm.buildDraftProp(name);
+			vm.startEditingProperty(schemaProp ? vm.enrichPropItem(draft, schemaProp, vm.propsRawLookup()) : draft);
+			vm.propEditorEditingName = null;
+		},
+		onPropDialogNameInput(this: any, value: string) {
+			const vm = this;
+			vm.propEditorNewName = value;
+			vm.propDialog.errorMessage = '';
+			const schemaProp = vm.findSchemaProp(String(value).trim());
+			if ((schemaProp ? schemaProp.key : '') !== vm.propDialog.schemaMatchKey) {
+				vm.resetAddEditor();
+			}
+		},
+		// The dialog's footer. Without `save` the property goes to the list as
+		// an unsaved change; with it this one property is written to the
+		// server, and the other unsaved changes stay as they are.
+		async applyPropDialog(this: any, save: boolean) {
+			const vm = this;
+			const item = vm.singleTarget;
+			if (!item || !vm.propDialogCanApply) return;
+			vm.propDialog.errorMessage = '';
+
+			let base: any;
+			let schemaType: string | undefined;
+			if (vm.propDialog.mode === 'add') {
+				const name = (vm.propEditorNewName as string).trim();
+				if ((vm.propEditorItems as any[]).some((p: any) => p.name === name)) {
+					vm.propDialog.errorMessage = vm.t('webtop.inspector.propertyEditor.nameExists', { name }, `A property named "${name}" already exists`);
+					return;
+				}
+				base = vm.buildDraftProp(name);
+				schemaType = vm.findSchemaProp(name)?.type;
+			} else {
+				const name = vm.propEditorEditingName;
+				base = (vm.propEditorItems as any[]).find((p: any) => p.name === name);
+				if (!base) {
+					vm.closePropDialog();
+					return;
+				}
+				schemaType = vm.findSchemaProp(name)?.type;
+			}
+			const update = vm._buildEditedPropItem(base, schemaType);
+
+			if (save) {
+				if (update.isModified || update.isNew) {
+					vm.propDialog.saving = true;
+					try {
+						const result = await vm.api.content.setProperties(item.path, [
+							{ name: update.name, value: vm.buildPropertyValueInput(update) },
+						]);
+						if (result?.errors?.length > 0) {
+							vm.propDialog.errorMessage = result.errors.map((e: any) => e.message).join(', ');
+							return;
+						}
+					} catch (error: any) {
+						vm.propDialog.errorMessage = error?.message || vm.t('webtop.inspector.propertyEditor.saveFailed', undefined, 'Failed to save properties');
+						return;
+					} finally {
+						vm.propDialog.saving = false;
+					}
+				}
+				vm.closePropDialog();
+				await vm.loadPropEditorData(item, { keepPending: true, exclude: update.name });
+				return;
+			}
+
+			const idx = (vm.propEditorItems as any[]).findIndex((p: any) => p.name === update.name);
+			if (idx === -1) {
+				(vm.propEditorItems as any[]).push(update);
+			} else {
+				(vm.propEditorItems as any[]).splice(idx, 1, update);
+			}
+			vm.closePropDialog();
 		},
 		startEditingProperty(this: any, prop: any) {
 			const vm = this;
@@ -3216,17 +3288,11 @@ defineComponent('wt-inspector', {
 				vm.cmPreview = false;
 			}
 		},
-		confirmPropertyEdit(this: any) {
+		// The item as the value editor leaves it: `source` with the edited
+		// value, and with the schema's type where the stored one differs.
+		_buildEditedPropItem(this: any, source: any, schemaType?: string): any {
 			const vm = this;
-			if (vm.propEditorEditError) return;
-			const name = vm.propEditorEditingName;
-			if (!name) return;
-			const idx = (vm.propEditorItems as any[]).findIndex((p: any) => p.name === name);
-			if (idx === -1) return;
-			const prop = vm.propEditorItems[idx];
-
-			const enriched = (vm.propEditorDisplayItems as any[]).find((p: any) => p.name === name);
-			const schemaType = enriched?.schemaType as string | undefined;
+			const prop = { ...source };
 			let typeChanged = false;
 			if (schemaType && schemaType !== prop.type) {
 				prop.type = schemaType;
@@ -3246,7 +3312,7 @@ defineComponent('wt-inspector', {
 					}
 				}
 				const newValues = [...(vm.propEditorEditValues as string[])];
-				const changed = typeChanged || JSON.stringify(newValues) !== JSON.stringify(prop.originalValues) || !prop.isArray;
+				const changed = typeChanged || JSON.stringify(newValues) !== JSON.stringify(prop.originalValues) || !source.isArray;
 				const update: any = {
 					...prop,
 					isArray: true,
@@ -3262,50 +3328,39 @@ defineComponent('wt-inspector', {
 					update.binaryFileNames = [...(vm.binaryEditFileNames as string[])];
 					update.binaryFileSizesFormatted = [...(vm.binaryEditFileSizesFormatted as string[])];
 					update.binaryFileMimeTypes = [...(vm.binaryEditFileMimeTypes as string[])];
-					vm.binaryEditPreviewURLs = [];
-					vm.binaryEditFileMimeTypes = [];
 				}
-				(vm.propEditorItems as any[]).splice(idx, 1, update);
-			} else {
-				let newValue = isRef ? (vm.propEditorEditInput as string) : (vm.propEditorEditInput as string);
-				if (prop.type === 'DATE' && newValue) {
-					newValue = vm.editInputDateToISO(newValue);
-				}
-				const isKeptBinary = prop.type === 'BINARY' && typeof newValue === 'string' && newValue.startsWith('__keep:');
-				const changed = isKeptBinary ? false : (typeChanged || newValue !== prop.originalValue || prop.isArray);
-				const update: any = {
-					...prop,
-					isArray: false,
-					currentValue: newValue,
-					currentValues: [],
-					isModified: changed || prop.isNew,
-				};
-				if (isRef) {
-					update.displayValue = vm.propEditorEditDisplayValue as string;
-				}
-				if (prop.type === 'BINARY' && newValue) {
-					update.binaryPreviewURL = vm.binaryEditPreviewURL as string;
-					update.binaryFileName = vm.binaryEditFileName as string;
-					update.binaryFileSizeFormatted = vm.binaryEditFileSizeFormatted as string;
-					update.binaryFileMimeType = (vm.binaryEditFileMimeTypes as string[])[0] || '';
-					// A kept server item carries its download URL in binaryPreviewURL;
-					// surface it as propertyDownloadURL so the single read-mode shows a
-					// download link (e.g. after converting BINARY[] back to BINARY).
-					if (typeof newValue === 'string' && newValue.startsWith('__keep:')) {
-						update.propertyDownloadURL = update.binaryPreviewURL;
-					}
-					vm.binaryEditPreviewURL = '';
-				}
-				(vm.propEditorItems as any[]).splice(idx, 1, update);
+				return update;
 			}
-			vm.propEditorEditingName = null;
-			vm.destroyCodeMirrorEditor();
-			if (vm.cmEscHandler) {
-				document.removeEventListener('keydown', vm.cmEscHandler, true);
-				vm.cmEscHandler = null;
+
+			let newValue = vm.propEditorEditInput as string;
+			if (prop.type === 'DATE' && newValue) {
+				newValue = vm.editInputDateToISO(newValue);
 			}
-			vm.cmExpanded = false;
-			vm.cmPreview = false;
+			const isKeptBinary = prop.type === 'BINARY' && typeof newValue === 'string' && newValue.startsWith('__keep:');
+			const changed = isKeptBinary ? false : (typeChanged || newValue !== prop.originalValue || source.isArray);
+			const update: any = {
+				...prop,
+				isArray: false,
+				currentValue: newValue,
+				currentValues: [],
+				isModified: changed || prop.isNew,
+			};
+			if (isRef) {
+				update.displayValue = vm.propEditorEditDisplayValue as string;
+			}
+			if (prop.type === 'BINARY' && newValue) {
+				update.binaryPreviewURL = vm.binaryEditPreviewURL as string;
+				update.binaryFileName = vm.binaryEditFileName as string;
+				update.binaryFileSizeFormatted = vm.binaryEditFileSizeFormatted as string;
+				update.binaryFileMimeType = (vm.binaryEditFileMimeTypes as string[])[0] || '';
+				// A kept server item carries its download URL in binaryPreviewURL;
+				// surface it as propertyDownloadURL so the single read-mode shows a
+				// download link (e.g. after converting BINARY[] back to BINARY).
+				if (typeof newValue === 'string' && newValue.startsWith('__keep:')) {
+					update.propertyDownloadURL = update.binaryPreviewURL;
+				}
+			}
+			return update;
 		},
 		cancelPropertyEdit(this: any) {
 			const vm = this as any;
@@ -3442,28 +3497,6 @@ defineComponent('wt-inspector', {
 				timeZone: loc?.timeZone || undefined,
 			}) || val;
 		},
-
-		// Display helpers for the detail-panel Properties section. `prop.value`
-		// and `prop.items` hold raw ISO strings for DATE so we format here
-		// against the reactive Localization snapshot — switching Preferences
-		// > Localization repaints these cells without touching the rest.
-		detailPropDisplayValue(this: any, prop: any): string {
-			if (prop.value === '' || prop.value == null) return '—';
-			if (prop.type === 'DATE') return this.formatDateLocal(prop.value) || '—';
-			return prop.value;
-		},
-		detailPropDisplayItem(this: any, prop: any, item: any): string {
-			if (item === '' || item == null) return '—';
-			if (prop.type === 'DATE') return this.formatDateLocal(item) || '—';
-			return item;
-		},
-		// Badges for a property's wt-property-row: TZ (DATE only) + type.
-		// Same shape as bpm-console's varBadges so both panels read alike.
-		detailPropBadges(this: any, prop: any): { label: string }[] {
-			const badges: { label: string }[] = prop.type === 'DATE' ? [{ label: this.localTZ }] : [];
-			badges.push({ label: prop.isArray ? prop.type + '[]' : prop.type });
-			return badges;
-		},
 		moveEditChip(this: any, idx: number, dir: number) {
 			const arr = this.propEditorEditValues as string[];
 			const target = idx + dir;
@@ -3472,22 +3505,49 @@ defineComponent('wt-inspector', {
 			arr.splice(idx, 1);
 			arr.splice(target, 0, tmp);
 		},
+		// Runs the queries of a schema's reference properties so the list can
+		// show their labels. Fills the cache only: the dialog's query state is
+		// executeQueryForRef's.
 		async loadQueriesForSchema(this: any, schemaKey: string) {
 			const vm = this;
 			if (!schemaKey) return;
 			const schema = (vm.effectiveSchemas as any[]).find((s: any) => s.key === schemaKey);
 			if (!schema) return;
-			const promises: Promise<void>[] = [];
+			const promises: Promise<any>[] = [];
 			for (const sp of schema.properties) {
 				if (sp.query && !vm.propEditorQueryCache[sp.query.xpath]) {
-					promises.push(vm.executeQueryForRef(sp.query).then(() => {}));
+					promises.push(vm.fetchQueryItems(sp.query).catch((e: any) => {
+						console.error('Failed to execute query for reference:', e);
+					}));
 				}
 			}
-			if (promises.length > 0) {
-				await Promise.all(promises);
-			} else {
-				vm.propEditorQueryCache = { ...vm.propEditorQueryCache };
+			await Promise.all(promises);
+		},
+		async fetchQueryItems(this: any, queryConfig: { xpath: string; labelKey: string }): Promise<{ value: string; label: string }[]> {
+			const vm = this;
+			const cached = vm.propEditorQueryCache[queryConfig.xpath];
+			if (cached) return cached;
+			const result = await vm.api.content.xpathWithProperties(queryConfig.xpath, { first: 100 });
+			const items: { value: string; label: string }[] = [];
+			for (const edge of result.edges) {
+				const node = edge.node;
+				const value = node.uuid || '';
+				if (!value) continue;
+				let label = '';
+				if (queryConfig.labelKey === 'jcr:name') {
+					label = node.name;
+				} else if (queryConfig.labelKey === 'jcr:path' || queryConfig.labelKey === 'path') {
+					label = node.path;
+				} else {
+					const prop = node.properties.find((p: any) => p.name === queryConfig.labelKey);
+					if (prop?.propertyValue) {
+						label = String((prop.propertyValue as any).value ?? '');
+					}
+				}
+				items.push({ value, label: label || node.name });
 			}
+			vm.propEditorQueryCache = { ...vm.propEditorQueryCache, [queryConfig.xpath]: items };
+			return items;
 		},
 		async executeQueryForRef(this: any, queryConfig: { xpath: string; labelKey: string }) {
 			const vm = this;
@@ -3501,28 +3561,8 @@ defineComponent('wt-inspector', {
 			vm.propEditorQueryLoading = true;
 			vm.propEditorQueryItems = [];
 			try {
-				const contentService = vm.api.content;
-				const result = await contentService.xpathWithProperties(queryConfig.xpath, { first: 100 });
-				const items: { value: string; label: string }[] = [];
-				for (const edge of result.edges) {
-					const node = edge.node;
-					const value = node.uuid || '';
-					if (!value) continue;
-					let label = '';
-					if (queryConfig.labelKey === 'jcr:name') {
-						label = node.name;
-					} else if (queryConfig.labelKey === 'jcr:path' || queryConfig.labelKey === 'path') {
-						label = node.path;
-					} else {
-						const prop = node.properties.find((p: any) => p.name === queryConfig.labelKey);
-						if (prop?.propertyValue) {
-							label = String((prop.propertyValue as any).value ?? '');
-						}
-					}
-					items.push({ value, label: label || node.name });
-				}
-				vm.propEditorQueryItems = items;
-				vm.propEditorQueryCache = { ...vm.propEditorQueryCache, [queryConfig.xpath]: items };
+				const items = await vm.fetchQueryItems(queryConfig);
+				if (vm.propEditorQueryConfig === queryConfig) vm.propEditorQueryItems = items;
 			} catch (e: any) {
 				console.error('Failed to execute query for reference:', e);
 			} finally {
@@ -4074,13 +4114,10 @@ defineComponent('wt-inspector', {
 			return Dates.toZonedInputValue(isoStr, tz) || isoStr.substring(0, 16);
 		},
 		// ────────────────────────────────────────────────────────────────────
-		// Property add/delete/save
+		// Property delete / restore / save
 		// ────────────────────────────────────────────────────────────────────
 		markPropertyDeleted(this: any, prop: any) {
 			const vm = this;
-			if (vm.propEditorEditingName === prop.name) {
-				vm.propEditorEditingName = null;
-			}
 			const idx = (vm.propEditorItems as any[]).findIndex((p: any) => p.name === prop.name);
 			if (idx === -1) return;
 			if (vm.propEditorItems[idx].isNew) {
@@ -4098,19 +4135,6 @@ defineComponent('wt-inspector', {
 				? JSON.stringify(p.currentValues) !== JSON.stringify(p.originalValues)
 				: p.currentValue !== p.originalValue;
 			(vm.propEditorItems as any[]).splice(idx, 1, { ...p, isDeleted: false, isModified });
-		},
-		startAddingProperty(this: any) {
-			const vm = this;
-			vm.propEditorAddingNew = true;
-			vm.propEditorNewName = '';
-			vm.propEditorNewType = 'STRING';
-			vm.propEditorNewIsArray = false;
-			vm.propEditorNewValue = '';
-			vm.propEditorNewValues = [];
-			vm.propEditorNewChip = '';
-		},
-		cancelAddProperty(this: any) {
-			this.propEditorAddingNew = false;
 		},
 		buildNewPropItemFromSchema(this: any, schemaProp: any): any {
 			const isArray = typeof schemaProp.multiple === 'boolean' ? schemaProp.multiple : false;
@@ -4206,74 +4230,14 @@ defineComponent('wt-inspector', {
 				}
 			}
 
-			const buildLookup = () => {
-				const map = new Map<string, { value: any; values: any[] }>();
-				for (const p of vm.propEditorItems as any[]) {
-					if (p.isDeleted) continue;
-					const val = p.isArray ? (p.currentValues.length > 0 ? p.currentValues[0] : null) : (p.currentValue || null);
-					const vals = p.isArray ? [...p.currentValues] : [p.currentValue];
-					map.set(p.name, { value: val, values: vals });
-				}
-				return map;
-			};
 			for (const ci of ordered) {
-				const lookup = buildLookup();
+				const lookup = vm.propsRawLookup();
 				const result = vm.evaluateCalculatedDefault(ci.schemaProp.defaultValue.value, lookup, ci.schemaProp.key);
 				if (result != null) {
 					if (ci.item.isArray) ci.item.currentValues = [result];
 					else ci.item.currentValue = result;
 				}
 			}
-		},
-		confirmAddProperty(this: any) {
-			const vm = this;
-			const name = (vm.propEditorNewName as string).trim();
-			if (!name) return;
-			if ((vm.propEditorItems as any[]).some((p: any) => p.name === name)) return;
-
-			let schemaProp: any = null;
-			if (vm.propEditorSchemaKey) {
-				const schema = (vm.effectiveSchemas as any[]).find((s: any) => s.key === vm.propEditorSchemaKey);
-				schemaProp = schema?.properties?.find((p: any) => p.key === name);
-			}
-
-			let newProp: any;
-			if (schemaProp) {
-				newProp = vm.buildNewPropItemFromSchema(schemaProp);
-				if (schemaProp.defaultValue && schemaProp.defaultValue.type === 'CALCULATED' && schemaProp.defaultValue.value) {
-					const lookup = new Map<string, { value: any; values: any[] }>();
-					for (const p of vm.propEditorItems as any[]) {
-						if (p.isDeleted) continue;
-						const val = p.isArray ? (p.currentValues.length > 0 ? p.currentValues[0] : null) : (p.currentValue || null);
-						const vals = p.isArray ? [...p.currentValues] : [p.currentValue];
-						lookup.set(p.name, { value: val, values: vals });
-					}
-					const result = vm.evaluateCalculatedDefault(schemaProp.defaultValue.value, lookup, schemaProp.key);
-					if (result != null) {
-						if (newProp.isArray) newProp.currentValues = [result];
-						else newProp.currentValue = result;
-					}
-				}
-			} else {
-				newProp = {
-					name,
-					type: vm.propEditorNewType,
-					isArray: vm.propEditorNewIsArray,
-					originalValue: '',
-					originalValues: [],
-					currentValue: '',
-					currentValues: [],
-					isModified: true,
-					isDeleted: false,
-					isNew: true,
-				};
-			}
-			(vm.propEditorItems as any[]).push(newProp);
-			vm.propEditorAddingNew = false;
-			vm.$nextTick(() => {
-				const enriched = (vm.propEditorDisplayItems as any[]).find((p: any) => p.name === name);
-				vm.startEditingProperty(enriched || newProp);
-			});
 		},
 		displayPropValue(this: any, prop: any): string {
 			if (prop.isDeleted) return '(deleted)';
@@ -4365,7 +4329,6 @@ defineComponent('wt-inspector', {
 				}
 
 				await vm.loadPropEditorData(item);
-				vm.loadDetailProperties(item);
 			} catch (error: any) {
 				vm.propEditorSaveError = error?.message || vm.t('webtop.inspector.propertyEditor.saveFailed', undefined, 'Failed to save properties');
 			} finally {

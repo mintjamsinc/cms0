@@ -33,6 +33,7 @@ import './wt-dialog.js';
 import './wt-tabs.js';
 import './wt-section.js';
 import './wt-property-row.js';
+import './wt-item-row.js';
 import './wt-tree.js';
 import './wt-splitter.js';
 import './wt-file-tabs.js';
@@ -57,6 +58,7 @@ const COMPONENT_TAGS = [
 	'wt-tabs',
 	'wt-section',
 	'wt-property-row',
+	'wt-item-row',
 	'wt-tree',
 	'wt-splitter',
 	'wt-file-tabs',
