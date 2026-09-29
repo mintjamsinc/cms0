@@ -195,19 +195,30 @@ separate jars are shipped for those.
 
 | JAR | Project | License |
 | --- | --- | --- |
-| `tika-app-3.3.2.jar` | Apache Tika (uber-jar) | Apache License 2.0 |
+| `tika-app-3.3.2.jar` | Apache Tika (uber-jar, repackaged without Jackson and jsoup) | Apache License 2.0 |
+| `jackson-annotations-2.22.jar` | [FasterXML Jackson](https://github.com/FasterXML/jackson) | Apache License 2.0 |
+| `jackson-core-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jackson-databind-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
+| `jsoup-1.23.2.jar` | [jsoup](https://jsoup.org/) | MIT License |
 
 `tika-app` is a fat JAR that re-bundles a large number of transitive
 dependencies. The complete list of embedded third-party components and
 their respective licenses is enumerated in the LICENSE and NOTICE files
 included inside the JAR (and mirrored at the upstream LICENSE / NOTICE
-links above). Notable categories include:
+links above).
+
+The JAR shipped here differs from the upstream `tika-app-3.3.2.jar`: the
+embedded Jackson 2.22.1 (annotations / core / databind) and jsoup 1.22.2
+classes and their Maven metadata were removed, and the fixed releases
+listed above are placed next to it on the `Bundle-ClassPath` instead.
+Nothing else in the JAR was changed. When Tika is upgraded, repeat this
+only if the new uber-jar still embeds a vulnerable release.
+
+Notable categories that remain embedded include:
 
 - Apache Commons (compress, codec, io, lang3, ...): Apache License 2.0
 - Apache POI: Apache License 2.0
 - PDFBox, FontBox: Apache License 2.0
-- Jackson (annotations / core / databind): Apache License 2.0
-- Jsoup: MIT License
 - Bouncy Castle: Bouncy Castle License (MIT-style)
 - ICU4J: ICU License (Unicode-3.0 compatible)
 - ASM: BSD 3-Clause
