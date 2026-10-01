@@ -28,12 +28,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.mintjams.rt.cms.internal.CmsService;
 import org.snakeyaml.engine.v2.api.Load;
@@ -43,20 +39,20 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
  * Configuration of the MCP server, read from {@code <repository>/etc/mcp.yml}.
  *
  * <p>The file is generated with its defaults on first use and re-read whenever
- * its modification time changes, so revoking a token or disabling the endpoint
- * takes effect on the next request without a restart.
+ * its modification time changes, so cutting every connection off or disabling
+ * the endpoint takes effect on the next request without a restart.
  *
  * <p>A file that exists but cannot be read or parsed <strong>disables the
  * endpoint</strong> rather than falling back to the defaults: the file carries
- * the revocation list, and serving requests without it would silently
- * re-admit every revoked token.
+ * {@code token.notBefore}, and serving requests without it would silently
+ * re-admit every connection it had cut off.
  */
 public final class McpConfiguration {
 
 	public static final String FILE_NAME = "mcp.yml";
 
-	public static final long DEFAULT_TOKEN_TTL_SECONDS = 7L * 24 * 60 * 60;
-	public static final long DEFAULT_MAX_TOKEN_TTL_SECONDS = 90L * 24 * 60 * 60;
+	public static final long DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 60L * 60;
+	public static final long DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 90L * 24 * 60 * 60;
 
 	private static final String TEMPLATE = String.join("\n",
 			"# MCP (Model Context Protocol) server. See documents/mcp-server.md.",
@@ -65,23 +61,24 @@ public final class McpConfiguration {
 			"# Serve /bin/mcp.cgi/{workspace}. When false the endpoint answers 404.",
 			"enabled: true",
 			"",
-			"token:",
-			"    # Lifetime, in seconds, of a token whose issuer did not choose one.",
-			"    defaultTtl: " + DEFAULT_TOKEN_TTL_SECONDS,
-			"    # Longest lifetime, in seconds, an issuer may choose.",
-			"    maxTtl: " + DEFAULT_MAX_TOKEN_TTL_SECONDS,
-			"    # Whether tokens with the \"write\" scope may be issued and used.",
-			"    allowWrite: true",
-			"    # Reject every token issued before this instant (ISO-8601, e.g.",
-			"    # 2026-10-01T00:00:00Z). Set it to now to revoke all tokens at once.",
-			"    notBefore:",
-			"    # Ids of individually revoked tokens (shown when a token is issued).",
-			"    revoked: []",
+			"# Short label that tells this server from your others (e.g. prod, staging).",
+			"# It is part of the server name shown to MCP clients. Defaults to the host",
+			"# name the client connects to.",
+			"serverName:",
 			"",
-			"# Extra browser origins (e.g. https://app.example.org) allowed to call the",
-			"# endpoint. Requests from the origin the CMS is served on, and requests",
-			"# without an Origin header (non-browser clients), are always allowed.",
-			"allowedOrigins: []",
+			"token:",
+			"    # Lifetime, in seconds, of an access token. A connected client renews it",
+			"    # by itself; a connection turned off stops within this time at the latest.",
+			"    accessTtl: " + DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
+			"    # How long, in seconds, a client stays connected before the user has to",
+			"    # authorize it again in the browser.",
+			"    refreshTtl: " + DEFAULT_REFRESH_TOKEN_TTL_SECONDS,
+			"    # Whether connections may change content. When false every connection",
+			"    # is read-only, whatever its user chose.",
+			"    allowWrite: true",
+			"    # Cut off every connection authorized before this instant (ISO-8601, e.g.",
+			"    # 2026-10-01T00:00:00Z). Set it to now to make every client authorize again.",
+			"    notBefore:",
 			"");
 
 	private static volatile McpConfiguration fCached;
@@ -89,12 +86,11 @@ public final class McpConfiguration {
 	private final long fLastModified;
 	private final String fError;
 	private final boolean fEnabled;
-	private final long fDefaultTokenTtlSeconds;
-	private final long fMaxTokenTtlSeconds;
+	private final String fServerName;
+	private final long fAccessTokenTtlSeconds;
+	private final long fRefreshTokenTtlSeconds;
 	private final boolean fWriteAllowed;
 	private final long fTokensNotBeforeMillis;
-	private final Set<String> fRevokedTokenIds;
-	private final List<String> fAllowedOrigins;
 
 	/** The current configuration, reloaded when {@code mcp.yml} changed on disk. */
 	public static McpConfiguration get() {
@@ -161,13 +157,12 @@ public final class McpConfiguration {
 		Map<?, ?> token = (root.get("token") instanceof Map) ? (Map<?, ?>) root.get("token") : Collections.emptyMap();
 
 		fEnabled = (error == null) && asBoolean(root.get("enabled"), true);
-		long maxTtl = asPositiveLong(token.get("maxTtl"), DEFAULT_MAX_TOKEN_TTL_SECONDS);
-		fMaxTokenTtlSeconds = maxTtl;
-		fDefaultTokenTtlSeconds = Math.min(asPositiveLong(token.get("defaultTtl"), DEFAULT_TOKEN_TTL_SECONDS), maxTtl);
+		String serverName = (root.get("serverName") == null) ? "" : root.get("serverName").toString().trim();
+		fServerName = serverName.isEmpty() ? null : serverName;
+		fAccessTokenTtlSeconds = asPositiveLong(token.get("accessTtl"), DEFAULT_ACCESS_TOKEN_TTL_SECONDS);
+		fRefreshTokenTtlSeconds = asPositiveLong(token.get("refreshTtl"), DEFAULT_REFRESH_TOKEN_TTL_SECONDS);
 		fWriteAllowed = asBoolean(token.get("allowWrite"), true);
 		fTokensNotBeforeMillis = asInstantMillis(token.get("notBefore"));
-		fRevokedTokenIds = Collections.unmodifiableSet(new HashSet<>(asStringList(token.get("revoked"))));
-		fAllowedOrigins = Collections.unmodifiableList(asStringList(root.get("allowedOrigins")));
 	}
 
 	public boolean isEnabled() {
@@ -179,30 +174,28 @@ public final class McpConfiguration {
 		return fError;
 	}
 
-	public long getDefaultTokenTtlSeconds() {
-		return fDefaultTokenTtlSeconds;
+	/** The configured label of this server, or {@code null} to derive one from the host name. */
+	public String getServerName() {
+		return fServerName;
 	}
 
-	public long getMaxTokenTtlSeconds() {
-		return fMaxTokenTtlSeconds;
+	public long getAccessTokenTtlSeconds() {
+		return fAccessTokenTtlSeconds;
 	}
 
-	/** Whether {@code write}-scoped tokens may be issued and honoured. */
+	/** How long after its authorization a client may keep renewing its access token. */
+	public long getRefreshTokenTtlSeconds() {
+		return fRefreshTokenTtlSeconds;
+	}
+
+	/** Whether connections may change content at all. */
 	public boolean isWriteAllowed() {
 		return fWriteAllowed;
 	}
 
-	/** Tokens issued before this instant are rejected; {@code 0} when unset. */
+	/** Connections authorized before this instant are rejected; {@code 0} when unset. */
 	public long getTokensNotBeforeMillis() {
 		return fTokensNotBeforeMillis;
-	}
-
-	public Set<String> getRevokedTokenIds() {
-		return fRevokedTokenIds;
-	}
-
-	public List<String> getAllowedOrigins() {
-		return fAllowedOrigins;
 	}
 
 	private static boolean asBoolean(Object value, boolean defaultValue) {
@@ -250,25 +243,6 @@ public final class McpConfiguration {
 			return 0;
 		}
 		return Instant.parse(s).toEpochMilli();
-	}
-
-	private static List<String> asStringList(Object value) {
-		List<String> result = new ArrayList<>();
-		if (value == null) {
-			return result;
-		}
-		if (value instanceof List) {
-			for (Object item : (List<?>) value) {
-				if (item != null && !item.toString().trim().isEmpty()) {
-					result.add(item.toString().trim());
-				}
-			}
-			return result;
-		}
-		if (!value.toString().trim().isEmpty()) {
-			result.add(value.toString().trim());
-		}
-		return result;
 	}
 
 }

@@ -20,6 +20,7 @@
  * SOFTWARE.
  */
 
+
 package org.mintjams.rt.cms.internal.mcp;
 
 import java.io.ByteArrayOutputStream;
@@ -60,23 +61,35 @@ import com.google.gson.JsonParser;
  * <p>Each request is authenticated on its own, one of two ways:
  *
  * <ul>
- * <li>{@code Authorization: Bearer <token>} — an {@link McpAccessToken} the user
- * issued at {@code /bin/mcp.cgi/{workspace}/token} (see {@link McpTokenPage}).
- * This is how an external MCP client connects.</li>
+ * <li>{@code Authorization: Bearer <token>} — an {@link McpAccessToken} the
+ * client obtained through the authorization flow served below the endpoint
+ * (see {@link McpOAuth}). This is how an external MCP client connects. The
+ * token is honoured while the user's connection to the workspace is on (see
+ * {@link McpConnections}).</li>
  * <li>the CMS login of the browser (session or authentication cookie) — for
  * pages served by the CMS itself. Such a request acts with the user's full
  * rights.</li>
  * </ul>
  *
  * <p>There is no anonymous access: an unauthenticated request is answered 401,
- * never run as the guest user. Requests carrying an {@code Origin} header are
- * accepted only from the CMS's own origin or one listed in
- * {@code mcp.yml#allowedOrigins}, and the body must be {@code application/json}
+ * never run as the guest user, and the answer tells the client where the
+ * authorization flow starts. The browser login is honoured only for requests
+ * from the CMS's own origin, and the body must be {@code application/json}
  * — together these keep another website from driving the endpoint through a
  * signed-in user's browser.
+ *
+ * <p>The servlet also answers under {@code /.well-known/}, where a client looks
+ * up the authorization metadata of an endpoint by inserting the well-known
+ * name in front of the endpoint's path.
  */
 @Component(service = Servlet.class, property = {
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=" + CmsConfiguration.MCP_CGI_PATH + "/*",
+		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=/" + McpOAuth.WELL_KNOWN + "/"
+				+ McpOAuth.PROTECTED_RESOURCE + "/*",
+		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=/" + McpOAuth.WELL_KNOWN + "/"
+				+ McpOAuth.AUTHORIZATION_SERVER + "/*",
+		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=/" + McpOAuth.WELL_KNOWN + "/"
+				+ McpOAuth.OPENID_CONFIGURATION + "/*",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=("
 				+ HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)" })
 public class McpServlet extends HttpServlet {
@@ -87,8 +100,6 @@ public class McpServlet extends HttpServlet {
 
 	/** JSON-RPC error code used for transport-level refusals (authentication, origin). */
 	private static final int UNAUTHORIZED = -32001;
-
-	static final String TOKEN_PATH = "token";
 
 	private volatile McpServer fServer;
 
@@ -107,9 +118,27 @@ public class McpServlet extends HttpServlet {
 			}
 
 			String pathInfo = Webs.getEffectivePathInfo(request);
+			String wellKnownPrefix = "/" + McpOAuth.WELL_KNOWN + "/";
+			if (request.getServletPath().startsWith(wellKnownPrefix)) {
+				// /.well-known/{name}/bin/mcp.cgi/{workspace}
+				String workspaceName = null;
+				if (pathInfo != null && pathInfo.startsWith(CmsConfiguration.MCP_CGI_PATH + "/")) {
+					workspaceName = pathInfo.substring(CmsConfiguration.MCP_CGI_PATH.length() + 1)
+							.replaceAll("/+$", "");
+				}
+				if (workspaceName == null || workspaceName.isEmpty() || workspaceName.indexOf('/') != -1
+						|| CmsService.getWorkspaceGraphQLEngineProvider(workspaceName) == null) {
+					sendError(response, HttpServletResponse.SC_NOT_FOUND, McpServer.INVALID_REQUEST, "Not found.");
+					return;
+				}
+				handleWellKnown(request, response, request.getServletPath().substring(wellKnownPrefix.length()),
+						new McpOAuth(workspaceName, config));
+				return;
+			}
+
 			String[] segments = (pathInfo == null) ? new String[0]
 					: pathInfo.replaceAll("^/+|/+$", "").split("/");
-			if (segments.length == 0 || segments[0].isEmpty() || segments.length > 2) {
+			if (segments.length == 0 || segments[0].isEmpty() || segments.length > 3) {
 				sendError(response, HttpServletResponse.SC_NOT_FOUND, McpServer.INVALID_REQUEST,
 						"The endpoint is " + CmsConfiguration.MCP_CGI_PATH + "/{workspace}.");
 				return;
@@ -121,16 +150,28 @@ public class McpServlet extends HttpServlet {
 				return;
 			}
 
-			if (segments.length == 2) {
-				if (!TOKEN_PATH.equals(segments[1])) {
-					sendError(response, HttpServletResponse.SC_NOT_FOUND, McpServer.INVALID_REQUEST, "Not found.");
-					return;
-				}
-				new McpTokenPage(workspaceName, config).handle(request, response);
+			if (segments.length == 1) {
+				handleMcp(request, response, workspaceName, config);
 				return;
 			}
 
-			handleMcp(request, response, workspaceName, config);
+			McpOAuth oauth = new McpOAuth(workspaceName, config);
+			if (segments.length == 3) {
+				if (McpOAuth.WELL_KNOWN.equals(segments[1])) {
+					handleWellKnown(request, response, segments[2], oauth);
+					return;
+				}
+			} else if (McpOAuth.AUTHORIZE_PATH.equals(segments[1])) {
+				oauth.authorize(request, response);
+				return;
+			} else if (McpOAuth.TOKEN_PATH.equals(segments[1])) {
+				oauth.token(request, response);
+				return;
+			} else if (McpOAuth.REGISTER_PATH.equals(segments[1])) {
+				oauth.register(request, response);
+				return;
+			}
+			sendError(response, HttpServletResponse.SC_NOT_FOUND, McpServer.INVALID_REQUEST, "Not found.");
 		} catch (Throwable ex) {
 			CmsService.getLogger(getClass()).error("MCP request failed", ex);
 			if (!response.isCommitted()) {
@@ -139,28 +180,33 @@ public class McpServlet extends HttpServlet {
 		}
 	}
 
+	private void handleWellKnown(HttpServletRequest request, HttpServletResponse response, String name,
+			McpOAuth oauth) throws IOException {
+		if (McpOAuth.PROTECTED_RESOURCE.equals(name)) {
+			oauth.protectedResourceMetadata(request, response);
+		} else if (McpOAuth.AUTHORIZATION_SERVER.equals(name) || McpOAuth.OPENID_CONFIGURATION.equals(name)) {
+			oauth.authorizationServerMetadata(request, response);
+		} else {
+			sendError(response, HttpServletResponse.SC_NOT_FOUND, McpServer.INVALID_REQUEST, "Not found.");
+		}
+	}
+
 	private void handleMcp(HttpServletRequest request, HttpServletResponse response, String workspaceName,
 			McpConfiguration config) throws IOException {
+		// A request that names another origin is served, but never on the browser
+		// login: a client such as Claude sends its own origin with every call, and
+		// what must not happen is another website acting through the cookie of a
+		// signed-in user. A bearer token has to be presented on purpose.
 		String origin = request.getHeader("Origin");
-		boolean crossOriginAllowed = false;
-		if (origin != null) {
-			if (isOwnOrigin(request, origin)) {
-				// Same origin: no CORS headers needed.
-			} else if (config.getAllowedOrigins().contains(origin)) {
-				crossOriginAllowed = true;
-			} else {
-				sendError(response, HttpServletResponse.SC_FORBIDDEN, UNAUTHORIZED,
-						"Requests from this origin are not allowed.");
-				return;
-			}
-		}
-		if (crossOriginAllowed) {
-			// Bearer tokens only: credentials (cookies) are deliberately not allowed cross-origin.
+		boolean crossOrigin = origin != null && !isOwnOrigin(request, origin);
+		if (crossOrigin) {
+			// Credentials (cookies) are deliberately not allowed cross-origin.
 			response.setHeader("Access-Control-Allow-Origin", origin);
 			response.setHeader("Vary", "Origin");
 			response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
 			response.setHeader("Access-Control-Allow-Headers",
 					"Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id");
+			response.setHeader("Access-Control-Expose-Headers", "WWW-Authenticate");
 			response.setHeader("Access-Control-Max-Age", "600");
 		}
 
@@ -170,6 +216,21 @@ public class McpServlet extends HttpServlet {
 			response.setStatus(HttpServletResponse.SC_NO_CONTENT);
 			return;
 		}
+
+		// Before anything else that could refuse the request: a client finds out
+		// how to authorize from the answer to its first, unauthenticated call.
+		String authorization = request.getHeader("Authorization");
+		boolean bearer = authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7);
+		McpCallContext context;
+		try {
+			context = authenticate(request, bearer ? authorization.substring(7).trim() : null, workspaceName, config,
+					crossOrigin);
+		} catch (McpAuthException ex) {
+			response.setHeader("WWW-Authenticate", McpOAuth.challenge(request, workspaceName, bearer));
+			sendError(response, HttpServletResponse.SC_UNAUTHORIZED, UNAUTHORIZED, ex.getMessage());
+			return;
+		}
+
 		if (!"POST".equalsIgnoreCase(method)) {
 			// No server-initiated stream (GET) and no session to terminate (DELETE).
 			response.setHeader("Allow", "POST, OPTIONS");
@@ -181,15 +242,6 @@ public class McpServlet extends HttpServlet {
 		if (!"application/json".equals(Webs.extractMimeType(request.getContentType()))) {
 			sendError(response, HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE, McpServer.INVALID_REQUEST,
 					"Content-Type must be application/json.");
-			return;
-		}
-
-		McpCallContext context;
-		try {
-			context = authenticate(request, workspaceName, config, crossOriginAllowed);
-		} catch (McpAuthException ex) {
-			response.setHeader("WWW-Authenticate", "Bearer realm=\"MintJams CMS MCP\", error=\"invalid_token\"");
-			sendError(response, HttpServletResponse.SC_UNAUTHORIZED, UNAUTHORIZED, ex.getMessage());
 			return;
 		}
 
@@ -225,28 +277,43 @@ public class McpServlet extends HttpServlet {
 
 	/**
 	 * Resolves the caller. A bearer token wins over the browser login, and a
-	 * request allowed cross-origin must use one: its cookies are not trusted.
+	 * request from another origin must use one: its cookies are not trusted.
 	 */
-	private McpCallContext authenticate(HttpServletRequest request, String workspaceName, McpConfiguration config,
-			boolean bearerOnly) throws McpAuthException {
-		String authorization = request.getHeader("Authorization");
-		if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
-			McpAccessToken.Verified verified = McpAccessToken.verify(CmsService.getEncryptor(),
-					authorization.substring(7).trim(), workspaceName, config, System.currentTimeMillis());
-			return new McpCallContext(workspaceName, verified.getCredentials(), verified.getCredentials().getName(),
-					verified.canWrite());
+	private McpCallContext authenticate(HttpServletRequest request, String token, String workspaceName,
+			McpConfiguration config, boolean bearerOnly) throws McpAuthException {
+		String serverLabel = McpOAuth.serverLabel(request, config);
+
+		if (token != null) {
+			McpAccessToken.Verified verified = McpAccessToken.verify(CmsService.getEncryptor(), token, workspaceName,
+					config, System.currentTimeMillis());
+			String userId = verified.getCredentials().getName();
+
+			// The token only says who the client works as. Whether it still may,
+			// and what it may do, is the user's connection as it is right now.
+			McpConnections.Connection connection;
+			try {
+				connection = McpConnections.get(workspaceName, userId);
+			} catch (Throwable ex) {
+				CmsService.getLogger(getClass()).error("Could not read the MCP connection of " + userId, ex);
+				throw new McpAuthException("The MCP connection could not be verified.");
+			}
+			if (!connection.isEnabled() || connection.getGeneration() != verified.getGeneration()) {
+				throw new McpAuthException("The MCP connection has been turned off. Its user can turn it on again in "
+						+ "Preferences; the client then has to be authorized again.");
+			}
+			return new McpCallContext(workspaceName, verified.getCredentials(), userId,
+					connection.isWrite() && config.isWriteAllowed(), serverLabel);
 		}
 
 		if (!bearerOnly) {
 			Credentials credentials = getBrowserCredentials(request);
 			if (credentials != null) {
-				return new McpCallContext(workspaceName, credentials, userIdOf(credentials), true);
+				return new McpCallContext(workspaceName, credentials, userIdOf(credentials), true, serverLabel);
 			}
 		}
 
-		throw new McpAuthException("Authentication required. Send an access token issued at "
-				+ CmsConfiguration.MCP_CGI_PATH + "/" + workspaceName + "/" + TOKEN_PATH
-				+ " as \"Authorization: Bearer <token>\".");
+		throw new McpAuthException("Authorization required. The WWW-Authenticate header names the metadata that "
+				+ "describes how to authorize.");
 	}
 
 	/** The CMS login carried by the browser (session or authentication cookie), or {@code null}. */

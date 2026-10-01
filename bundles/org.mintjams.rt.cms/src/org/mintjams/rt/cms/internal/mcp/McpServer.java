@@ -180,7 +180,7 @@ public final class McpServer {
 
 		JsonObject serverInfo = new JsonObject();
 		serverInfo.addProperty("name", "mintjams-cms");
-		serverInfo.addProperty("title", "MintJams CMS");
+		serverInfo.addProperty("title", "MintJams CMS (" + context.getServerLabel() + ")");
 		serverInfo.addProperty("version", fServerVersion);
 		result.add("serverInfo", serverInfo);
 
@@ -190,8 +190,11 @@ public final class McpServer {
 
 	private String instructions(McpCallContext context) {
 		StringBuilder sb = new StringBuilder();
-		sb.append("MintJams CMS content repository (JCR), workspace \"").append(context.getWorkspaceName())
+		sb.append("MintJams CMS content repository (JCR) on the server \"").append(context.getServerLabel())
+				.append("\", workspace \"").append(context.getWorkspaceName())
 				.append("\", signed in as \"").append(context.getUserId()).append("\". ");
+		sb.append("The user may have other servers connected (development, staging, production): say which "
+				+ "server you are about to change when it matters. ");
 		sb.append("Every call runs as that user: the repository's access control decides what is visible and "
 				+ "changeable, and a node you cannot read looks like a node that does not exist. ");
 		sb.append("Paths are absolute repository paths. Files are nt:file nodes, folders nt:folder. ");
@@ -244,7 +247,8 @@ public final class McpServer {
 		if (tool.isWrite() && !context.canWrite()) {
 			// Checked here, not only in tools/list: hiding a tool is not access control.
 			toolResult = McpToolResult.error("The tool " + tool.getName()
-					+ " changes content, and this connection is read-only. Use an access token with the write scope.");
+					+ " changes content, and this connection is read-only. Its user can allow changes in the MCP "
+					+ "section of Preferences.");
 		} else {
 			try {
 				toolResult = tool.call(arguments, context);

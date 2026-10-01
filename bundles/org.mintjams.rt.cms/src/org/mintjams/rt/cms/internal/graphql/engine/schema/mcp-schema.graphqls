@@ -1,0 +1,57 @@
+# =============================================================================
+# Platform MCP GraphQL schema
+# =============================================================================
+# Contributed by PlatformMcpWiringContributor, merged into the same
+# graphql-java schema as the core platform SDL. It `extend`s the core
+# Query/Mutation roots and reuses the core scalar DateTime.
+#
+# A user's MCP connection to the workspace this endpoint is bound to: whether
+# MCP clients (such as Claude) may work in the workspace as that user. The
+# user turns it on and off for themselves; while it is on, a client the user
+# authorizes in the browser keeps working after the user signs out, until the
+# connection is turned off. See documents/mcp-server.md.
+# =============================================================================
+
+extend type Query {
+  """The caller's MCP connection to this workspace."""
+  mcpConnection: McpConnection!
+}
+
+extend type Mutation {
+  """Turn the caller's MCP connection to this workspace on or off, and set whether its clients may change content. Turning it off stops every client at once."""
+  setMcpConnection(input: SetMcpConnectionInput!): McpConnection!
+}
+
+"""A user's MCP connection to a workspace."""
+type McpConnection {
+  """False when the MCP server is disabled on this server (mcp.yml). The connection cannot be turned on then."""
+  available: Boolean!
+  enabled: Boolean!
+  """Whether the user lets clients change content."""
+  write: Boolean!
+  """False when this server keeps every connection read-only (mcp.yml#token.allowWrite); `write` then has no effect."""
+  writeAllowed: Boolean!
+  """When the connection was turned on; null while it is off."""
+  enabledAt: DateTime
+  """The label that tells this server from the user's others, when one is configured (mcp.yml#serverName). Null: go by the host name."""
+  serverName: String
+  """Path of the workspace's MCP endpoint on this server, e.g. /bin/mcp.cgi/web."""
+  endpointPath: String!
+  """The clients authorized since the connection was turned on, most recent first."""
+  clients: [McpClient!]!
+}
+
+"""A client the user authorized."""
+type McpClient {
+  """The name the client registered under. It is the client's own claim."""
+  name: String!
+  """Where the authorization was delivered: the origin of the client's redirect URI."""
+  redirectTarget: String!
+  authorizedAt: DateTime!
+}
+
+input SetMcpConnectionInput {
+  enabled: Boolean!
+  """Whether clients may change content. Defaults to false."""
+  write: Boolean
+}

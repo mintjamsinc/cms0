@@ -20,61 +20,50 @@
  * SOFTWARE.
  */
 
+
 package org.mintjams.rt.cms.internal.mcp;
 
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 import org.mintjams.cms.security.Encryptor;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Credentials;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 /**
  * The bearer token an MCP client presents in {@code Authorization: Bearer …}.
  *
- * <p>An MCP client is not a browser: it cannot follow the SAML redirect flow or
- * hold the session cookie. A signed-in user therefore issues a token for
- * themselves (see {@link McpTokenPage}) and hands it to the client. The token
- * carries the user's identity exactly as the login established it, so every
- * call runs as that user and the repository ACLs decide what it can reach.
+ * <p>A client obtains it through the authorization flow (see {@link McpOAuth})
+ * and renews it by itself; the user never sees it. The token carries the
+ * user's identity exactly as the login established it, so every call runs as
+ * that user and the repository ACLs decide what it can reach.
  *
- * <p>Like the cluster-portable authentication cookie
- * ({@code AuthToken}), the token is the identity encrypted with the
- * cluster-shared secret key (AES/GCM through the CMS encryptor: confidential
- * and tamper-evident), so any node can verify it without shared state. It adds
- * what a credential handed to a third-party program needs:
+ * <p>It is sealed with the cluster-shared secret key (see {@link McpSealed}),
+ * so any node can verify it without shared state. What it adds to the identity
+ * is what ties it to the connection the user turned on:
  *
  * <ul>
- * <li><b>scope</b> — {@code read} confines the client to the read-only tools,
- * whatever the user's own privileges are;</li>
  * <li><b>workspace binding</b> — the token is only valid at the workspace it
  * was issued for;</li>
- * <li><b>revocation</b> — an id that {@code mcp.yml} can list as revoked, and
- * an issue time that {@code token.notBefore} can cut off.</li>
+ * <li><b>generation</b> — the generation of the user's connection (see
+ * {@link McpConnections}) at the time the client was authorized. Turning the
+ * connection off ends that generation, and every token of it with it;</li>
+ * <li><b>authorization time</b> — when the user approved the client, which
+ * {@code mcp.yml#token.notBefore} can cut off for everyone at once.</li>
  * </ul>
  *
+ * <p>The token is short-lived and says nothing about whether the client may
+ * change content: that is read from the connection on every request, so a
+ * change made in Preferences applies to the next call.
+ *
  * <p>The payload deliberately shares no field name with the authentication
- * cookie's, and is tagged {@code "t":"mcp"}: a token presented as the cookie
- * fails the cookie's validation, and the cookie presented as a token fails this
- * one. A read-only token therefore cannot be upgraded into a full session by
- * replaying it somewhere else.
+ * cookie's, and is tagged with its type: a token presented as the cookie fails
+ * the cookie's validation, and the cookie presented as a token fails this one.
  */
 public final class McpAccessToken {
 
 	/** Makes the token recognisable in logs and secret scanners. */
 	public static final String PREFIX = "mjmcp_";
-
-	public static final String SCOPE_READ = "read";
-	public static final String SCOPE_WRITE = "write";
 
 	private static final String TYPE = "mcp";
 	private static final SecureRandom fRandom = new SecureRandom();
@@ -85,11 +74,8 @@ public final class McpAccessToken {
 	 * Issues a token for {@code credentials}, valid at {@code workspaceName} for
 	 * {@code ttlSeconds} from {@code nowMillis}.
 	 */
-	public static Issued issue(Encryptor encryptor, Saml2Credentials credentials, String workspaceName, String scope,
-			long ttlSeconds, long nowMillis) {
-		if (!SCOPE_READ.equals(scope) && !SCOPE_WRITE.equals(scope)) {
-			throw new IllegalArgumentException("Unknown scope: " + scope);
-		}
+	public static Issued issue(Encryptor encryptor, Saml2Credentials credentials, String workspaceName,
+			long generation, long authorizedAtMillis, long ttlSeconds, long nowMillis) {
 		if (ttlSeconds <= 0) {
 			throw new IllegalArgumentException("ttlSeconds must be positive");
 		}
@@ -103,34 +89,22 @@ public final class McpAccessToken {
 		long expires = nowMillis + ttlSeconds * 1000L;
 
 		JsonObject payload = new JsonObject();
-		payload.addProperty("t", TYPE);
 		payload.addProperty("id", id.toString());
-		payload.addProperty("sub", credentials.getName());
-		JsonObject attributes = new JsonObject();
-		for (Map.Entry<String, List<String>> e : credentials.getAttributes().entrySet()) {
-			JsonArray values = new JsonArray();
-			if (e.getValue() != null) {
-				for (String value : e.getValue()) {
-					values.add(value);
-				}
-			}
-			attributes.add(e.getKey(), values);
-		}
-		payload.add("attr", attributes);
+		McpSealed.putIdentity(payload, credentials);
 		payload.addProperty("ws", workspaceName);
-		payload.addProperty("scp", scope);
-		payload.addProperty("iat", nowMillis);
+		payload.addProperty("gen", generation);
+		payload.addProperty("aat", authorizedAtMillis);
 		payload.addProperty("exp", expires);
 
-		String token = PREFIX + Base64.getUrlEncoder().withoutPadding()
-				.encodeToString(encryptor.encrypt(payload.toString()).getBytes(StandardCharsets.UTF_8));
-		return new Issued(token, id.toString(), scope, expires);
+		return new Issued(McpSealed.seal(encryptor, PREFIX, TYPE, payload), id.toString(), expires);
 	}
 
 	/**
 	 * Validates {@code token} for a request to {@code workspaceName} at
-	 * {@code nowMillis}. The failure message is returned to the client, so it
-	 * names the reason without echoing anything from the token.
+	 * {@code nowMillis}. Whether the connection it belongs to is still on is the
+	 * caller's check (see {@link Verified#getGeneration()}). The failure message
+	 * is returned to the client, so it names the reason without echoing
+	 * anything from the token.
 	 */
 	public static Verified verify(Encryptor encryptor, String token, String workspaceName, McpConfiguration config,
 			long nowMillis) throws McpAuthException {
@@ -138,76 +112,50 @@ public final class McpAccessToken {
 			throw new McpAuthException("The access token is not an MCP access token.");
 		}
 
-		JsonObject payload;
-		try {
-			String decrypted = encryptor.decrypt(new String(
-					Base64.getUrlDecoder().decode(token.substring(PREFIX.length())), StandardCharsets.UTF_8));
-			payload = JsonParser.parseString(decrypted).getAsJsonObject();
-		} catch (Throwable ex) {
+		JsonObject payload = McpSealed.open(encryptor, PREFIX, TYPE, token);
+		if (payload == null) {
 			throw new McpAuthException("The access token is invalid.");
 		}
 
 		String id;
-		String name;
+		Saml2Credentials credentials;
 		String workspace;
-		String scope;
-		long issued;
+		long generation;
+		long authorizedAt;
 		long expires;
-		Map<String, List<String>> attributes = new HashMap<>();
 		try {
-			if (!TYPE.equals(payload.get("t").getAsString())) {
-				throw new IllegalArgumentException();
-			}
 			id = payload.get("id").getAsString();
-			name = payload.get("sub").getAsString();
+			credentials = McpSealed.getIdentity(payload);
 			workspace = payload.get("ws").getAsString();
-			scope = payload.get("scp").getAsString();
-			issued = payload.get("iat").getAsLong();
+			generation = payload.get("gen").getAsLong();
+			authorizedAt = payload.get("aat").getAsLong();
 			expires = payload.get("exp").getAsLong();
-			for (Map.Entry<String, JsonElement> e : payload.getAsJsonObject("attr").entrySet()) {
-				List<String> values = new ArrayList<>();
-				for (JsonElement value : e.getValue().getAsJsonArray()) {
-					values.add(value.isJsonNull() ? null : value.getAsString());
-				}
-				attributes.put(e.getKey(), values);
-			}
-			if (name.isEmpty() || id.isEmpty()) {
-				throw new IllegalArgumentException();
-			}
-			if (!SCOPE_READ.equals(scope) && !SCOPE_WRITE.equals(scope)) {
-				throw new IllegalArgumentException();
-			}
 		} catch (Throwable ex) {
 			throw new McpAuthException("The access token is invalid.");
 		}
 
 		if (expires < nowMillis) {
-			throw new McpAuthException("The access token has expired. Issue a new one.");
+			throw new McpAuthException("The access token has expired.");
 		}
-		if (issued < config.getTokensNotBeforeMillis() || config.getRevokedTokenIds().contains(id)) {
-			throw new McpAuthException("The access token has been revoked.");
+		if (authorizedAt < config.getTokensNotBeforeMillis()) {
+			throw new McpAuthException("The connection has been revoked. Authorize the client again.");
 		}
 		if (!workspace.equals(workspaceName)) {
 			throw new McpAuthException("The access token was not issued for this workspace.");
 		}
-		if (SCOPE_WRITE.equals(scope) && !config.isWriteAllowed()) {
-			throw new McpAuthException("Write-scoped access tokens are disabled on this server.");
-		}
 
-		return new Verified(new Saml2Credentials(name, attributes), id, scope, expires);
+		return new Verified(credentials, id, generation, expires);
 	}
 
-	/** A freshly issued token. The token string is shown once and never stored. */
+	/** A freshly issued token. It is stored nowhere on the server. */
 	public static final class Issued {
 		private final String fToken;
 		private final String fId;
-		private final String fScope;
 		private final long fExpiresMillis;
 
-		private Issued(String token, String id, String scope, long expiresMillis) {
+		private Issued(String token, String id, long expiresMillis) {
 			fToken = token;
 			fId = id;
-			fScope = scope;
 			fExpiresMillis = expiresMillis;
 		}
 
@@ -215,13 +163,9 @@ public final class McpAccessToken {
 			return fToken;
 		}
 
-		/** The id to list under {@code token.revoked} to revoke this token. */
+		/** A short id that names the token in the log without revealing it. */
 		public String getId() {
 			return fId;
-		}
-
-		public String getScope() {
-			return fScope;
 		}
 
 		public long getExpiresMillis() {
@@ -233,13 +177,13 @@ public final class McpAccessToken {
 	public static final class Verified {
 		private final Saml2Credentials fCredentials;
 		private final String fId;
-		private final String fScope;
+		private final long fGeneration;
 		private final long fExpiresMillis;
 
-		private Verified(Saml2Credentials credentials, String id, String scope, long expiresMillis) {
+		private Verified(Saml2Credentials credentials, String id, long generation, long expiresMillis) {
 			fCredentials = credentials;
 			fId = id;
-			fScope = scope;
+			fGeneration = generation;
 			fExpiresMillis = expiresMillis;
 		}
 
@@ -251,8 +195,9 @@ public final class McpAccessToken {
 			return fId;
 		}
 
-		public boolean canWrite() {
-			return SCOPE_WRITE.equals(fScope);
+		/** The generation of the connection the token was issued under. */
+		public long getGeneration() {
+			return fGeneration;
 		}
 
 		public long getExpiresMillis() {

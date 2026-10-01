@@ -49,6 +49,10 @@
 					@click="selectSection('sessions')" :title="t('app.preferences.nav.sessions')">
 					<i class="bi bi-layout-text-window-reverse"></i>
 				</button>
+				<button class="btn-icon section-toggle" :class="{active: section === 'mcp'}"
+					@click="selectSection('mcp')" :title="t('app.preferences.nav.mcp')">
+					<i class="bi bi-plug"></i>
+				</button>
 			</div>
 
 			<span class="nav-spacer"></span>
@@ -431,6 +435,92 @@
 								:type="sessionMessageType === 'success' ? 'success' : 'error'">
 								{{ sessionMessage }}
 							</wt-inline-message>
+						</div>
+					</template>
+
+					<!-- ========== MCP ========== -->
+					<template v-if="section === 'mcp'">
+						<h2 class="pref-section-title">{{ t('app.preferences.mcp.title') }}</h2>
+						<div class="text-muted fs-small mb-3">{{ t('app.preferences.mcp.desc') }}</div>
+
+						<wt-field class="pref-select mb-3" :label="t('app.preferences.mcp.workspace')">
+							<wt-select v-model="mcpWorkspace" :items="mcpWorkspaceItems" @change="loadMcpConnection"></wt-select>
+						</wt-field>
+
+						<div class="property-group">
+							<div v-if="mcpLoading" class="text-muted fs-small">{{ t('common.loading') }}</div>
+							<template v-else-if="mcp">
+								<div v-if="!mcp.available" class="text-muted fs-small">
+									<i class="bi bi-info-circle me-1"></i>{{ t('app.preferences.mcp.unavailable') }}
+								</div>
+								<template v-else>
+									<div class="pref-factor-row">
+										<div class="pref-factor-status" :class="{ on: mcp.enabled }">
+											<i :class="['bi', mcp.enabled ? 'bi-plug-fill' : 'bi-plug']"></i>
+											<span>{{ mcp.enabled ? t('app.preferences.mcp.on') : t('app.preferences.mcp.off') }}</span>
+										</div>
+										<div class="pref-factor-actions">
+											<button v-if="!mcp.enabled" class="wt wt-primary" @click="turnOnMcp" :disabled="mcpBusy">
+												{{ t('app.preferences.mcp.turnOn') }}
+											</button>
+											<button v-else class="wt wt-outlined wt-danger-outline" @click="askTurnOffMcp" :disabled="mcpBusy">
+												{{ t('app.preferences.mcp.turnOff') }}
+											</button>
+										</div>
+									</div>
+
+									<template v-if="mcp.enabled">
+										<div class="pref-factor-row pref-factor-sub">
+											<wt-checkbox v-model="mcpWrite" :disabled="mcpBusy || !mcp.writeAllowed"
+												:label="t('app.preferences.mcp.allowWrite')" @change="onMcpWriteChange"></wt-checkbox>
+										</div>
+										<div v-if="!mcp.writeAllowed" class="text-muted fs-small mb-2">
+											<i class="bi bi-info-circle me-1"></i>{{ t('app.preferences.mcp.writeNotAllowed') }}
+										</div>
+
+										<div class="pref-mcp-connect">
+											<wt-field :label="t('app.preferences.mcp.url')" :hint="t('app.preferences.mcp.urlHint')">
+												<div class="d-flex gap-2 align-items-center">
+													<input type="text" class="wt pref-mcp-value" readonly :value="mcpUrl" @focus="onMcpValueFocus">
+													<button class="wt wt-outlined pref-mcp-copy" @click="copyMcp('url')">
+														<i :class="['bi', 'me-1', mcpCopied === 'url' ? 'bi-check-lg' : 'bi-clipboard']"></i>{{ mcpCopied === 'url' ? t('app.preferences.mcp.copied') : t('app.preferences.mcp.copy') }}
+													</button>
+												</div>
+											</wt-field>
+											<wt-field :label="t('app.preferences.mcp.command')" :hint="t('app.preferences.mcp.commandHint')">
+												<div class="d-flex gap-2 align-items-center">
+													<input type="text" class="wt pref-mcp-value" readonly :value="mcpCommand" @focus="onMcpValueFocus">
+													<button class="wt wt-outlined pref-mcp-copy" @click="copyMcp('command')">
+														<i :class="['bi', 'me-1', mcpCopied === 'command' ? 'bi-check-lg' : 'bi-clipboard']"></i>{{ mcpCopied === 'command' ? t('app.preferences.mcp.copied') : t('app.preferences.mcp.copy') }}
+													</button>
+												</div>
+											</wt-field>
+											<div class="text-muted fs-small">{{ t('app.preferences.mcp.connectHint') }}</div>
+										</div>
+									</template>
+								</template>
+							</template>
+							<wt-inline-message v-if="mcpMessage" class="mt-2"
+								:type="mcpMessageType === 'success' ? 'success' : 'error'">
+								{{ mcpMessage }}
+							</wt-inline-message>
+						</div>
+
+						<div v-if="mcp && mcp.enabled" class="property-group">
+							<div class="property-group-title mb-2">{{ t('app.preferences.mcp.clients') }}</div>
+							<div v-if="mcp.clients.length === 0" class="text-muted fs-small">{{ t('app.preferences.mcp.noClients') }}</div>
+							<div v-else class="pref-passkey-list">
+								<div v-for="c in mcp.clients" :key="c.name + '|' + c.redirectTarget" class="pref-passkey-item">
+									<div class="pref-passkey-icon"><i class="bi bi-robot"></i></div>
+									<div class="pref-passkey-meta">
+										<div class="pref-passkey-name">{{ c.name }}</div>
+										<div class="text-muted fs-small">
+											{{ c.redirectTarget }}
+											<span class="ms-2">{{ t('app.preferences.mcp.authorized') }}: {{ formatDate(c.authorizedAt) }}</span>
+										</div>
+									</div>
+								</div>
+							</div>
 						</div>
 					</template>
 

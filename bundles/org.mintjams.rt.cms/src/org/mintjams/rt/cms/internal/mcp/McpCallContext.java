@@ -54,12 +54,15 @@ public class McpCallContext {
 	private final Credentials fCredentials;
 	private final String fUserId;
 	private final boolean fCanWrite;
+	private final String fServerLabel;
 
-	public McpCallContext(String workspaceName, Credentials credentials, String userId, boolean canWrite) {
+	public McpCallContext(String workspaceName, Credentials credentials, String userId, boolean canWrite,
+			String serverLabel) {
 		fWorkspaceName = workspaceName;
 		fCredentials = credentials;
 		fUserId = userId;
 		fCanWrite = canWrite;
+		fServerLabel = serverLabel;
 	}
 
 	public String getWorkspaceName() {
@@ -74,6 +77,11 @@ public class McpCallContext {
 	/** Whether the caller may use tools that change the repository. */
 	public boolean canWrite() {
 		return fCanWrite;
+	}
+
+	/** The label that tells this server from the user's others (e.g. {@code prod}, or its host name). */
+	public String getServerLabel() {
+		return fServerLabel;
 	}
 
 	/**

@@ -98,8 +98,14 @@ public final class AuthToken {
 				return null;
 			}
 
-			String decrypted = CmsService.getEncryptor().decrypt(
-					new String(Base64.getUrlDecoder().decode(token), StandardCharsets.UTF_8));
+			String sealed = new String(Base64.getUrlDecoder().decode(token), StandardCharsets.UTF_8);
+			// The encryptor hands back anything that is not one of its envelopes
+			// unchanged. Without this check a payload written in the clear would
+			// be read as if this server had issued it.
+			if (!CmsService.getEncryptor().isEncrypted(sealed)) {
+				return null;
+			}
+			String decrypted = CmsService.getEncryptor().decrypt(sealed);
 
 			@SuppressWarnings("unchecked")
 			Map<String, Object> payload = fObjectMapper.readValue(decrypted, Map.class);

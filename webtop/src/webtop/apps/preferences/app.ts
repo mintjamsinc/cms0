@@ -3,14 +3,15 @@
  *
  * User personalization settings: appearance (theme, wallpaper),
  * localization, profile (display name, avatar), security (password),
- * and saved sessions.
+ * saved sessions, and the MCP connection.
  */
 
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { SecurityServiceGraphQL, createPasskey, isWebAuthnSupported } from "../../services/security-service-graphql.js";
-import type { IdpMutationError, Passkey, UserSecurity } from "../../graphql/types.js";
+import { McpServiceGraphQL, mcpServerName } from "../../services/mcp-service-graphql.js";
+import type { IdpMutationError, McpConnection, McpWorkspace, Passkey, UserSecurity } from "../../graphql/types.js";
 import qrcode from 'qrcode-generator';
 import {
 	createLocalizationSnapshot,
@@ -260,6 +261,20 @@ const App = {
 			sessionMessage: '',
 			sessionMessageType: 'success',
 
+			// MCP
+			mcpService: null as McpServiceGraphQL | null,
+			mcpWorkspaces: [] as McpWorkspace[],
+			mcpWorkspace: 'system',
+			mcp: null as McpConnection | null,
+			mcpWrite: false,
+			mcpUrl: '',
+			mcpCommand: '',
+			mcpLoading: false,
+			mcpBusy: false,
+			mcpMessage: '',
+			mcpMessageType: 'success',
+			mcpCopied: '',
+
 			// Confirmation dialog
 			confirmDialog: {
 				visible: false,
@@ -313,6 +328,9 @@ const App = {
 				...this.availableCurrencies.map((c: any) => ({ value: c.code, label: this.t(c.labelKey) })),
 			];
 		},
+		mcpWorkspaceItems() {
+			return this.mcpWorkspaces.map((w: McpWorkspace) => ({ value: w.name, label: w.displayName || w.name }));
+		},
 		canChangePassword() {
 			return this.passwordForm.current
 				&& this.passwordForm.newPassword
@@ -354,6 +372,7 @@ const App = {
 				vm.instance = this.$markRaw(instance);
 				vm.idp = this.$markRaw(new IdpServiceGraphQL());
 				vm.securityService = this.$markRaw(new SecurityServiceGraphQL());
+				vm.mcpService = this.$markRaw(new McpServiceGraphQL());
 				refreshLocalization(vm.localization, vm.instance);
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
@@ -396,6 +415,8 @@ const App = {
 				await this.loadSessions();
 			} else if (section === 'security') {
 				await this.loadSecurity();
+			} else if (section === 'mcp') {
+				await this.loadMcp();
 			}
 		},
 
@@ -1522,6 +1543,136 @@ const App = {
 			} catch (e: any) {
 				vm.sessionMessage = e.message || vm.t('app.preferences.msg.sessionDeleteFailed', undefined, 'Failed to delete session.');
 				vm.sessionMessageType = 'error';
+			}
+		},
+
+		// =====================================================================
+		// MCP
+		// =====================================================================
+
+		async loadMcp() {
+			const vm = this;
+			if (!vm.instance || !vm.mcpService) return;
+			vm.mcpMessage = '';
+			if (vm.mcpWorkspaces.length === 0) {
+				vm.mcpLoading = true;
+				try {
+					vm.mcpWorkspaces = await vm.mcpService.listWorkspaces();
+				} catch (e: any) {
+					console.warn('[Preferences] workspace list failed:', e);
+					vm.setMcpMessage(vm.t('app.preferences.msg.mcpLoadFailed', undefined, 'Failed to load the MCP connection.'), 'error');
+					vm.mcpLoading = false;
+					return;
+				}
+				if (!vm.mcpWorkspaces.some((w: McpWorkspace) => w.name === vm.mcpWorkspace)) {
+					vm.mcpWorkspace = vm.mcpWorkspaces.length ? vm.mcpWorkspaces[0].name : '';
+				}
+			}
+			await vm.loadMcpConnection();
+		},
+
+		async loadMcpConnection() {
+			const vm = this;
+			if (!vm.mcpService || !vm.mcpWorkspace) {
+				vm.mcpLoading = false;
+				return;
+			}
+			const workspace = vm.mcpWorkspace;
+			vm.mcpLoading = true;
+			vm.mcpMessage = '';
+			vm.mcp = null;
+			try {
+				const connection = await vm.mcpService.getConnection(workspace);
+				// The user may have picked another workspace while this one loaded.
+				if (workspace !== vm.mcpWorkspace) return;
+				vm.applyMcpConnection(connection);
+			} catch (e: any) {
+				console.warn('[Preferences] MCP connection load failed:', e);
+				if (workspace === vm.mcpWorkspace) {
+					vm.setMcpMessage(vm.t('app.preferences.msg.mcpLoadFailed', undefined, 'Failed to load the MCP connection.'), 'error');
+				}
+			} finally {
+				if (workspace === vm.mcpWorkspace) vm.mcpLoading = false;
+			}
+		},
+
+		applyMcpConnection(connection: McpConnection) {
+			this.mcp = connection;
+			this.mcpWrite = connection.write;
+			this.mcpUrl = window.location.origin + connection.endpointPath;
+			this.mcpCommand = 'claude mcp add --transport http '
+				+ mcpServerName(connection.serverName, window.location.hostname, this.mcpWorkspace)
+				+ ' ' + this.mcpUrl;
+			this.mcpCopied = '';
+		},
+
+		setMcpMessage(message: string, type: 'success' | 'error' = 'success') {
+			this.mcpMessage = message;
+			this.mcpMessageType = type;
+		},
+
+		async saveMcpConnection(enabled: boolean, write: boolean, successMessage: string) {
+			const vm = this;
+			const workspace = vm.mcpWorkspace;
+			vm.mcpBusy = true;
+			vm.mcpMessage = '';
+			try {
+				const connection = await vm.mcpService!.setConnection(workspace, { enabled, write });
+				if (workspace !== vm.mcpWorkspace) return;
+				vm.applyMcpConnection(connection);
+				vm.setMcpMessage(successMessage);
+			} catch (e: any) {
+				console.warn('[Preferences] MCP connection save failed:', e);
+				// The checkbox may have moved ahead of what the server holds.
+				if (vm.mcp) vm.mcpWrite = vm.mcp.write;
+				vm.setMcpMessage(e?.message || vm.t('app.preferences.msg.mcpSaveFailed', undefined, 'The change could not be saved.'), 'error');
+			} finally {
+				vm.mcpBusy = false;
+			}
+		},
+
+		turnOnMcp() {
+			return this.saveMcpConnection(true, false,
+				this.t('app.preferences.msg.mcpTurnedOn', undefined, 'The MCP connection is on.'));
+		},
+
+		askTurnOffMcp() {
+			const vm = this;
+			vm.openConfirmDialog({
+				title: vm.t('app.preferences.mcp.turnOffTitle', undefined, 'Turn off the MCP connection'),
+				message: vm.t('app.preferences.mcp.turnOffMessage', undefined, 'Every connected client stops working in this workspace. Continue?'),
+				confirmLabel: vm.t('app.preferences.mcp.turnOff', undefined, 'Turn off'),
+				danger: true,
+				iconClass: 'bi-exclamation-triangle-fill text-warning',
+				onConfirm: () => vm.saveMcpConnection(false, false,
+					vm.t('app.preferences.msg.mcpTurnedOff', undefined, 'The MCP connection is off.')),
+			});
+		},
+
+		onMcpWriteChange() {
+			// The checkbox state is read from its v-model, not from the handler's
+			// argument: the listener is handed an event, and may be reached twice
+			// for one click (the component's change and the input's own).
+			const write = this.mcpWrite === true;
+			if (!this.mcp || !this.mcp.enabled || this.mcpBusy || write === this.mcp.write) return;
+			return this.saveMcpConnection(true, write, write
+				? this.t('app.preferences.msg.mcpWriteOn', undefined, 'Clients may now change content.')
+				: this.t('app.preferences.msg.mcpWriteOff', undefined, 'Clients are now read-only.'));
+		},
+
+		onMcpValueFocus(event: FocusEvent) {
+			(event.target as HTMLInputElement).select();
+		},
+
+		async copyMcp(which: 'url' | 'command') {
+			const vm = this;
+			try {
+				await navigator.clipboard.writeText(which === 'url' ? vm.mcpUrl : vm.mcpCommand);
+				vm.mcpCopied = which;
+				if (vm.mcpCopiedTimer) clearTimeout(vm.mcpCopiedTimer);
+				vm.mcpCopiedTimer = setTimeout(() => { vm.mcpCopied = ''; }, 2000);
+			} catch (e) {
+				console.warn('[Preferences] clipboard write failed:', e);
 			}
 		},
 

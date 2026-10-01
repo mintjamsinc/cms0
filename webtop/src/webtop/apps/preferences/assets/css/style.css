@@ -482,3 +482,23 @@
 	text-align: center;
 	user-select: all;
 }
+
+/* ---- MCP ---- */
+.pref-mcp-connect {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	margin-top: 12px;
+	padding-top: 14px;
+	border-top: 1px solid var(--wt-border-color, rgba(128, 128, 128, 0.2));
+}
+.pref-mcp-value {
+	flex: 1;
+	min-width: 0;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.9em;
+}
+.pref-mcp-copy {
+	flex: none;
+	white-space: nowrap;
+}

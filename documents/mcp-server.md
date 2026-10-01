@@ -2,11 +2,11 @@
 
 The CMS is an MCP (Model Context Protocol) server. An AI client such as Claude
 connects to a workspace and works in it with tools — browse, read, search,
-diagnose, and (when allowed) change content — as the user who authorized it.
+diagnose, and (when allowed) change content — as the user who connected it.
 
 ```
 POST /bin/mcp.cgi/{workspace}          the MCP endpoint
-GET  /bin/mcp.cgi/{workspace}/token    where a signed-in user issues an access token
+     /bin/mcp.cgi/{workspace}/…        the authorization flow a client goes through to connect
 ```
 
 This document covers how to connect, what the tools do, what an MCP client is
@@ -14,37 +14,44 @@ and is not allowed to do, and why it is built the way it is.
 
 ## Quick start
 
-1. Sign in to the CMS in a browser, then open
-   `https://<cms>/bin/mcp.cgi/<workspace>/token`.
-2. Choose a scope (**Read** unless the client has to change content) and a
-   lifetime, and press **Issue token**. The page shows the token once, together
-   with the command and the `.mcp.json` entry to paste.
-3. Register the server with the client. For Claude Code:
+1. Sign in to the CMS, open **Preferences › MCP**, choose the workspace and
+   press **Turn on**. Tick **Allow clients to change content** if the client
+   has to do more than read.
+2. Copy what the page shows and give it to the client:
 
-   ```bash
-   claude mcp add --transport http cms-web https://cms.example.org/bin/mcp.cgi/web \
-     --header "Authorization: Bearer mjmcp_…"
-   ```
+   - **Claude desktop app, claude.ai** — copy the **Server URL** and paste it
+     into *Settings › Connectors › Add custom connector*.
+   - **Claude Code** — copy the command and run it in a terminal:
 
-   or, in a project's `.mcp.json`:
+     ```bash
+     claude mcp add --transport http cms-prod-web https://cms.example.org/bin/mcp.cgi/web
+     ```
 
-   ```json
-   {
-     "mcpServers": {
-       "cms-web": {
-         "type": "http",
-         "url": "https://cms.example.org/bin/mcp.cgi/web",
-         "headers": { "Authorization": "Bearer mjmcp_…" }
-       }
-     }
-   }
-   ```
-
+3. The browser opens on a page of the CMS that names the client and what it
+   will be allowed to do. Press **Allow**. There is no token to copy.
 4. Ask. "Why does `/content/docs/index.html` return 404?" is answered by one
    call to `explain_web_render`.
 
-A server entry is per workspace: connect to `system` and to `web` as two
-servers, each with its own token.
+The client keeps working as you after you sign out of the browser — which is
+what lets it wait for something, or watch over it — until you press **Turn
+off** in Preferences.
+
+A connection is per workspace: turn it on for `system` and for `web`
+separately, and connect each as its own server.
+
+Claude's desktop app and claude.ai connect from Anthropic's network, not from
+your computer, so they reach only a CMS that is reachable from the internet.
+Claude Code connects from the computer it runs on.
+
+### Server names
+
+A client knows each server by a name, and with more than one CMS — development,
+staging, production — the name is what tells the client, and the person
+approving its actions, which one a tool call is about to change. The command
+Preferences shows names the server `cms-<server>-<workspace>`, where
+`<server>` is `serverName` from `mcp.yml` when it is set (`prod`), and the host
+name otherwise (`cms-example-org`). The same label is in the server's title and
+at the start of the instructions it gives the client.
 
 ## Transport
 
@@ -76,69 +83,133 @@ A request must be `Content-Type: application/json` (`415` otherwise) and at most
 There is no anonymous access. An unauthenticated request is answered `401`; it
 is never run as the guest user.
 
-### Access tokens
+### The connection
 
-An MCP client is not a browser: it cannot follow the SAML redirect flow or hold
-the session cookie. A signed-in user therefore issues a token for themselves at
-`/bin/mcp.cgi/{workspace}/token` and gives it to the client, which sends it as
-`Authorization: Bearer <token>`.
-
-The token carries the user's identity exactly as the login established it. It
-adds the three things a credential handed to a third-party program needs:
+Whether MCP clients may work in a workspace as a user is that user's own
+switch: the **MCP connection**, in Preferences. It holds three things.
 
 | | |
 | --- | --- |
-| **Scope** | `read` confines the client to the tools that change nothing, whatever the user's own privileges are. `write` also allows the tools that change content, and GraphQL mutations. |
-| **Workspace binding** | The token is valid only at the workspace it was issued for. |
-| **Revocation** | Each token has an id, shown when it is issued. Listing the id under `token.revoked` in `mcp.yml` revokes that token; setting `token.notBefore` revokes every token issued before that instant. |
+| **On / off** | While it is off no client can be authorized, and none that was works. Turning it off stops every client of that user in that workspace at once. |
+| **Read, or read and change** | Whether clients may use the tools that change content, and GraphQL mutations. It can be changed while clients are connected and applies to their next call. |
+| **Connected clients** | The clients authorized since it was turned on, for the user to look at. |
 
-Like the cluster-portable authentication cookie, the token is the identity
-encrypted with the cluster-shared secret key (AES/GCM through the CMS
-encryptor), so it is confidential, tamper-evident, and verifiable by any node
-without shared state. The token is not stored on the server and cannot be shown
-again after the page that issued it.
+The connection is the only state the MCP server keeps. It is a small file in
+the workspace it belongs to, `/var/mcp/connections/<user>.json`, written with a
+service session: every cluster node reads the same answer, and deleting the
+file is how an administrator turns someone's connection off.
 
-A token is not a session. The user is looked up on every request, so a token
-whose user has been disabled or deleted stops working at once, and a change to
-the user's roles applies to the next call.
+Turning the connection on starts a new *generation*. Everything issued to a
+client carries the generation it was issued under and is honoured only while
+that is the current one, so nothing survives an off-and-on.
 
-The token and the authentication cookie are not interchangeable. Their payloads
-share no field name and the token is tagged with its type, so a token presented
-as the cookie fails the cookie's validation and the cookie presented as a token
-fails this one. A read-only token cannot be turned into a full session by
-replaying it against `/bin/graphql.cgi`.
+### Authorizing a client
 
-### Issuing is guarded
+An MCP client is not a browser: it cannot follow the SAML redirect flow or hold
+the session cookie. It connects through the authorization flow of the MCP
+specification — OAuth 2.1 with PKCE — which hands the sign-in to a browser and
+the result to the client, without the user handling a token.
 
-Issuing turns a browser login into a long-lived credential, so:
+```
+GET  {endpoint}/.well-known/oauth-protected-resource     where to authorize
+GET  {endpoint}/.well-known/oauth-authorization-server   how to authorize
+POST {endpoint}/register                                 the client introduces itself
+GET  {endpoint}/authorize                                the user approves, in the browser
+POST {endpoint}/token                                    the client collects, then renews, its token
+```
 
-- only the browser login is accepted at the token page — a token cannot mint
-  another token, so a leaked token dies at its own expiry;
-- the form post must come from the page itself: same origin, and carrying the
-  per-session value the form was rendered with (a reload of the result page
-  does not issue a second token);
-- the lifetime is capped by `token.maxTtl`, and the write scope is offered only
-  while `token.allowWrite` permits it;
-- every issue is logged with the user, the token id, the scope and the expiry —
-  never the token.
+1. The client calls the endpoint and is answered `401` with a
+   `WWW-Authenticate` header that names the metadata.
+2. It reads the metadata and registers itself: a name, and the address the
+   result is to be delivered to (dynamic client registration).
+3. It opens the browser at `authorize`. The CMS signs the user in if they are
+   not, checks that their connection to the workspace is on, and shows the
+   approval page: the client's name, the server, the workspace, the user,
+   what the client may do, and where the result goes.
+4. On **Allow** the browser is sent back to the client with a one-minute
+   authorization code, which the client exchanges at `token` — proving with
+   PKCE that it is the one that started the flow — for an access token and a
+   refresh token.
 
-The page is plain server-rendered HTML with no script: it works before any
-Webtop application knows about MCP, and carries nothing that could read the
-token it displays.
+Each workspace endpoint is its own authorization server, so the workspace a
+client is authorized for is the one in the URL it connected to.
+
+The metadata is also served where a client looks for it by inserting the
+well-known name in front of the endpoint's path
+(`/.well-known/oauth-authorization-server/bin/mcp.cgi/{workspace}`). A reverse
+proxy in front of the CMS has to pass `/.well-known/oauth-*` and
+`/.well-known/openid-configuration/*` through as well as `/bin/mcp.cgi/`.
+
+### What a client holds
+
+| | Lifetime | |
+| --- | --- | --- |
+| **Access token** | `token.accessTtl` (1 hour) | Sent as `Authorization: Bearer …` with every call. |
+| **Refresh token** | `token.refreshTtl` (90 days) from the approval | Exchanged for a new access token when the old one expires. It is not extended: after that time the user approves the client again, in the browser. |
+
+Both carry the user's identity exactly as the sign-in established it, the
+workspace, the generation of the connection and the time of the approval. They
+are encrypted with the cluster-shared secret key (AES/GCM through the CMS
+encryptor), like the cluster-portable authentication cookie, so they are
+confidential, tamper-evident, and verifiable by any node without shared state.
+Neither is stored on the server; neither says what the client may do.
+
+On every call the server reads the user's connection and looks the user up:
+
+- the connection is off, or has moved on to another generation → `401`;
+- the approval is older than `token.notBefore` → `401`;
+- the user has been disabled or deleted → the call fails as it would for
+  anyone; a change to the user's roles applies to the next call;
+- the connection is read-only, or `token.allowWrite` is `false` → the client
+  is confined to the tools that change nothing.
+
+The identity in a token is as old as the approval. Group memberships that come
+from the identity provider at sign-in are therefore confirmed again when the
+refresh token runs out, not before; `token.refreshTtl` is how long that may be.
+
+The credentials of the flow are not interchangeable with each other or with the
+authentication cookie. Each kind is tagged, and is accepted only as the kind it
+is: a refresh token is not an access token, and neither restores a browser
+session at `/bin/graphql.cgi`.
+
+### Clients are not trusted to be who they say
+
+Registration is open, as the specification requires, and a registration is not
+stored: the client id is the registration itself, encrypted. A client's name
+is therefore its own claim, and anyone can register a client named "Claude".
+What cannot be chosen freely afterwards is where the authorization is
+delivered. A redirect address is fixed at registration — `https`, `http` on
+the loopback interface, or an application's own scheme — and the approval page
+shows it, as does the list of connected clients in Preferences.
+
+### The approval is guarded
+
+- The page is plain server-rendered HTML with no script, and may not be framed.
+- The decision must come from the page itself: same origin, and carrying the
+  per-session value the page was rendered with. A reload of the result does
+  not approve a second time.
+- An authorization code is good for one minute and for one exchange, by the
+  client it was issued to, at the address it was issued for.
+- A request whose client and redirect address do not belong together is shown
+  to the user as an error; nothing is sent to that address.
+- Every approval is logged with the user, the workspace, the client's name and
+  where the result was delivered — never a code or a token.
 
 ### The browser login
 
 A request without a bearer token is authenticated by the CMS login of the
 browser (session or authentication cookie), so that a page served by the CMS
-can call the endpoint. Such a request acts with the user's full rights.
+can call the endpoint. Such a request acts with the user's full rights, and
+does not depend on the connection being on.
 
-Two rules keep another website from driving the endpoint through a signed-in
-user's browser:
+What keeps another website from driving the endpoint through a signed-in
+user's browser is that the browser login is honoured for the CMS's own origin
+only. A request that carries the `Origin` of another site is served — a
+client such as Claude sends its own with every call — but only on a bearer
+token, which has to be presented on purpose; its cookies are ignored.
 
-- a request carrying an `Origin` header is accepted only from the CMS's own
-  origin or one listed in `allowedOrigins` (`403` otherwise);
-- an origin allowed through `allowedOrigins` must use a bearer token; the
-  browser login is honoured for the CMS's own origin only.
+The metadata, registration and token endpoints carry no cookie and may be read
+from any origin.
 
 ## Authorization
 
@@ -148,16 +219,22 @@ privileged session. The repository's access control is therefore the authority
 on what an MCP client can see and change, exactly as it is for Webtop, and a
 node the user cannot read looks to the client like a node that does not exist.
 
-The scope only narrows that. It is enforced in three places that cannot
-disagree, because all three derive from one flag on the tool:
+The connection only narrows that: while it is read-only, the client is confined
+to the tools that change nothing, whatever the user's own privileges are. That
+is enforced in three places that cannot disagree, because all three derive from
+one flag on the tool:
 
-1. `tools/list` does not show a read-scoped client the tools that write;
+1. `tools/list` does not show a read-only client the tools that write;
 2. `tools/call` refuses them anyway — hiding a tool is not access control;
 3. the tool's `readOnlyHint` tells the client whether a call needs confirming.
 
+A client lists the tools when it connects. After changes are allowed in
+Preferences the calls are accepted at once, but a client that is already
+running may have to reconnect before it sees the tools.
+
 ## Tools
 
-| Tool | Scope | What it does |
+| Tool | Needs | What it does |
 | --- | --- | --- |
 | `get_node` | read | Metadata of a file or folder: type, size, MIME type, creation and modification, lock and version state, custom properties, and how a file is rendered over the web. |
 | `list_children` | read | The children of a folder. Paged. |
@@ -172,7 +249,7 @@ disagree, because all three derive from one flag on the tool:
 | `move_node` | write | Move, rename, or both. |
 | `copy_node` | write | Deep copy. |
 | `delete_node` | write | Permanent delete. |
-| `graphql` | read / write | Any operation of the workspace GraphQL schema. Mutations need the write scope. |
+| `graphql` | read / write | Any operation of the workspace GraphQL schema. Mutations need a connection that allows changes. |
 
 Paths are absolute repository paths. A relative path, or one containing `.` or
 `..`, is refused rather than guessed at.
@@ -220,7 +297,7 @@ authorization enforced by the resolvers. Rather than mirror each field as a
 tool, `graphql` hands the client the schema itself: it can introspect, then
 query.
 
-The scope still holds. A read-scoped client may only run an operation that is
+The read-only limit still holds. A read-only client may only run an operation that is
 *provably* a query: a mutation, a subscription, or a document whose operation
 cannot be determined (unparseable, or several operations and no
 `operationName`) is refused before execution. This is as strong as the schema's
@@ -330,59 +407,69 @@ re-read whenever it changes; no restart is needed.
 ```yaml
 enabled: true
 
-token:
-    defaultTtl: 604800      # seconds; the lifetime the token page proposes (7 days)
-    maxTtl: 7776000         # seconds; the longest lifetime an issuer may choose (90 days)
-    allowWrite: true        # whether write-scoped tokens may be issued and used
-    notBefore:              # ISO-8601 instant; tokens issued before it are rejected
-    revoked: []             # ids of individually revoked tokens
+serverName:                 # label that tells this server from your others (prod, staging)
 
-allowedOrigins: []          # extra browser origins allowed to call the endpoint
+token:
+    accessTtl: 3600         # seconds; lifetime of an access token (1 hour)
+    refreshTtl: 7776000     # seconds; how long a client stays connected before it is approved again (90 days)
+    allowWrite: true        # whether connections may change content
+    notBefore:              # ISO-8601 instant; connections approved before it are cut off
 ```
 
 | Key | Effect |
 | --- | --- |
-| `enabled` | `false` makes the endpoint and the token page answer `404`. |
-| `token.defaultTtl`, `token.maxTtl` | Lifetimes in seconds. The default is capped by the maximum. |
-| `token.allowWrite` | `false` removes the write scope from the token page and rejects write-scoped tokens already issued. |
-| `token.notBefore` | Set it to the current time to revoke every token at once. |
-| `token.revoked` | Token ids, as shown on the token page and in the log line written when the token was issued. |
-| `allowedOrigins` | Origins such as `https://app.example.org`. Requests without an `Origin` header (every non-browser client) are not affected. |
+| `enabled` | `false` makes the endpoint and the authorization flow answer `404`, and Preferences says MCP is not enabled. |
+| `serverName` | Part of the name clients know the server by (see *Server names*). Defaults to the host name. |
+| `token.accessTtl` | A client renews its access token by itself, so this does not limit how long it stays connected. |
+| `token.refreshTtl` | Counted from the user's approval and not extended by use. |
+| `token.allowWrite` | `false` makes every connection read-only, whatever its user chose, from the next call. |
+| `token.notBefore` | Set it to the current time to cut off every client of every user in every workspace at once. Clients approved after that instant work; the connections stay on, so users only have to approve their clients again. |
 
 **A file that cannot be parsed, or holds a value of the wrong shape, disables
-the endpoint** rather than falling back to the defaults. The file carries the
-revocation list, and serving requests without it would silently re-admit every
-revoked token. The reason is written to the log.
+the endpoint** rather than falling back to the defaults. The file carries
+`token.notBefore`, and serving requests without it would silently re-admit
+every client it had cut off. The reason is written to the log.
 
-Revocation is by configuration because the tokens are stateless. There is no
-list of issued tokens to browse; the log line written at issue time is the
-record of which ids exist.
+To stop one user's clients, turn that user's connection off: the user in
+Preferences, or an administrator by deleting
+`/var/mcp/connections/<user>.json` in the workspace.
 
 ### Clustering
 
-Tokens verify on every node, because every node shares the secret key.
+Tokens verify on every node, because every node shares the secret key, and the
+connection is read from the repository, which every node shares.
 
 `mcp.yml` lives in the repository's `etc` directory. Where that directory is
-not on shared storage, keep the file identical on all nodes: a token revoked on
-one node only is still accepted by the others.
+not on shared storage, keep the file identical on all nodes: a `notBefore` set
+on one node only is not applied by the others.
 
-The token page keeps its form value in the node-local HTTP session. Without
-sticky sessions the form post can land on another node, which answers that the
-form had expired; nothing is issued, and submitting again succeeds.
+The approval page keeps its form value in the node-local HTTP session. Without
+sticky sessions the decision can land on another node, which answers that the
+page had expired; nothing is approved, and pressing **Allow** again succeeds.
+The record of redeemed authorization codes is node-local too: a code replayed
+on another node within its one minute is stopped by PKCE, not by that record.
+
+The endpoint's address is taken from the request (`Host`, and the scheme the
+servlet sees), and a client compares it with the URL it connected to. Behind a
+TLS-terminating proxy the scheme has to reach the CMS (the Felix SSL filter
+takes it from `X-Forwarded-Proto`), or the metadata names `http://` and the
+client refuses it.
 
 ## Logging
 
-Every change made through MCP is logged at `INFO` with the user, the workspace
-and the path, in addition to the modification metadata the repository records
-on the node — the node can tell you who changed it, not that the change came
-through MCP.
+Turning a connection on or off, approving a client, and every change made
+through MCP are logged at `INFO` with the user and the workspace. The
+modification metadata the repository records on a node can tell you who
+changed it, not that the change came through MCP; the log can.
 
 ```
-MCP access token issued: user=admin workspace=web id=bbbf0f70d7f5 scope=write expires=2026-12-30T06:12:42.588Z
+MCP connection turned on: user=admin workspace=web write=false
+MCP client authorized: user=admin workspace=web client=Claude redirect=https://claude.ai
 MCP write_file: user=admin workspace=web path=/content/docs/.web.yml bytes=47 (replaced)
 MCP set_properties: user=admin workspace=web /content/docs/index.md [web.template]
 MCP delete_node: user=admin workspace=web /content/a
 MCP graphql mutation: user=admin workspace=web operation=(anonymous)
+MCP connection turned off: user=admin workspace=web
 ```
 
 Read-only calls are not logged.
@@ -397,42 +484,62 @@ requests that are malformed at the protocol level.
 | Status | Meaning |
 | --- | --- |
 | `400` | The body is not JSON, or `MCP-Protocol-Version` names an unsupported revision. |
-| `401` | No credentials, or a token that is invalid, expired, revoked, issued for another workspace, or write-scoped while `allowWrite` is off. The message says which. |
-| `403` | The `Origin` is not allowed. |
+| `401` | No credentials, or a token that is invalid, expired, issued for another workspace, older than `notBefore`, or whose connection has been turned off. The message says which, and `WWW-Authenticate` names the metadata to authorize with. |
 | `404` | The endpoint is disabled, or the workspace is unknown or stopped. |
 | `405` | Not `POST`. |
 | `413`, `415` | The body is too large, or not `application/json`. |
 
+The authorization flow reports its errors the way OAuth defines them: as
+`error` and `error_description` in a JSON body from `register` and `token`,
+and as parameters on the redirect from `authorize`.
+
 ## Trying it with curl
 
+The metadata needs no credentials:
+
 ```bash
-TOKEN=mjmcp_…
 URL=https://cms.example.org/bin/mcp.cgi/web
 
-curl -s -X POST "$URL" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+curl -si -X POST "$URL" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'      # 401, WWW-Authenticate: Bearer … resource_metadata="…"
 
-curl -s -X POST "$URL" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"explain_web_render","arguments":{"path":"/content/docs/index.html"}}}'
+curl -s "$URL/.well-known/oauth-protected-resource"
+curl -s "$URL/.well-known/oauth-authorization-server"
+```
+
+Calling a tool takes an access token, which only the flow issues. A page of the
+CMS can call the endpoint with the browser login instead; from the browser's
+console, signed in:
+
+```js
+await (await fetch('/bin/mcp.cgi/web', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+    params: { name: 'explain_web_render', arguments: { path: '/content/docs/index.html' } } }),
+})).json();
 ```
 
 ## Not included
 
-- **OAuth.** Clients that only connect through the MCP authorization flow
-  (OAuth 2.1 with dynamic client registration) cannot connect yet; a client must
-  be able to send a fixed `Authorization` header. The token format and the
-  scopes are what an OAuth access token would carry, so the flow can be added in
-  front of them without changing the tools.
+- **Clients that cannot run the authorization flow.** There is no token to
+  paste into a client's configuration or a script: a client has to be able to
+  open a browser for the user and receive the result.
+- **Client ID metadata documents.** A client is known by its dynamic
+  registration only; a client id that is a URL is not fetched.
 - **Dedicated BPM and EIP tools.** Starting a process, completing a task or
-  triggering a route is possible today through `graphql`. Tools that resolve
-  "start the approval for this document" into the right definition and
+  starting and stopping a route is possible today through `graphql`. Sending a
+  message into a route is not: the schema has no mutation for it. Tools that
+  resolve "start the approval for this document" into the right definition and
   variables, and that confirm before starting, are the next step.
 - **Server-initiated messages.** No notifications and no subscriptions: a
   client cannot be told that a task was assigned or a process ended; it has to
-  ask.
+  ask. A connection that outlives the browser session is what lets it keep
+  asking.
 - **Resources and prompts.** Content is reached through tools only.
-- **Per-token listing and self-service revocation.** Revoking a token is an
-  administrator's edit of `mcp.yml`.
+- **Stopping one client.** A connection is turned off as a whole; its other
+  clients are approved again afterwards. When a client was last used is not
+  recorded.
 
 ## Implementation
 
@@ -440,7 +547,7 @@ curl -s -X POST "$URL" -H "Authorization: Bearer $TOKEN" -H "Content-Type: appli
 
 | Class | Role |
 | --- | --- |
-| `McpServlet` | The endpoint: transport, origin check, authentication. Registered through `OSGI-INF/org.mintjams.rt.cms.internal.mcp.McpServlet.xml`. |
+| `McpServlet` | The endpoint: transport, origin check, authentication, and the routing of the authorization flow. Registered through `OSGI-INF/org.mintjams.rt.cms.internal.mcp.McpServlet.xml`. |
 | `McpServer` | The protocol: JSON-RPC in, JSON-RPC out. Knows nothing about HTTP, authentication or the repository. |
 | `McpTool`, `McpToolResult` | A tool's description, argument handling and result. |
 | `McpCallContext` | Who is calling, where, and with what limits. The only way a tool reaches the repository — always as the caller. |
@@ -448,9 +555,15 @@ curl -s -X POST "$URL" -H "Authorization: Bearer $TOKEN" -H "Content-Type: appli
 | `WebRenderTools` | `explain_web_render`. |
 | `GraphQLTools` | `graphql`. |
 | `McpGraphQL` | The GraphQL the content tools are built from, and the reshaping of its responses into something compact for a model. |
-| `McpAccessToken` | Issuing and verifying tokens. |
-| `McpTokenPage` | The token page. |
+| `McpOAuth` | The authorization flow: metadata, registration, the approval page, the token endpoint. |
+| `McpConnections` | A user's connection to a workspace. |
+| `McpAccessToken` | Issuing and verifying access tokens. |
+| `McpSealed` | The encrypted envelope every credential of the flow travels in. |
 | `McpConfiguration` | `mcp.yml`. |
+
+Preferences reads and changes the connection through the workspace's GraphQL
+schema (`mcpConnection`, `setMcpConnection`; `mcp-schema.graphqls`, wired by
+`PlatformMcpWiringContributor`). Both act on the caller's own connection.
 
 The content tools go through the workspace GraphQL schema wherever a field or
 mutation already exists. That keeps an MCP client's view of a node identical to
@@ -460,5 +573,5 @@ content, overwriting a file, and the walk `explain_web_render` performs.
 
 To add a tool, build it with `McpTool.named(…)` and return it from one of the
 `*Tools.all()` methods. Mark it `write()` or `destructive()` if it changes the
-repository: that one flag hides it from read-scoped clients, refuses their
+repository: that one flag hides it from read-only clients, refuses their
 calls and sets its hints.

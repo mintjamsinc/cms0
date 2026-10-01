@@ -1736,3 +1736,44 @@ export interface DeletePasskeyInput {
   id: string;
   currentPassword?: string;
 }
+
+// ============================================================================
+// MCP connection — mcp-schema.graphqls
+// ============================================================================
+
+/** A client the user authorized. */
+export interface McpClient {
+  /** The name the client registered under; the client's own claim. */
+  name: string;
+  /** Where the authorization was delivered: the origin of the client's redirect URI. */
+  redirectTarget: string;
+  authorizedAt: string;
+}
+
+/** The signed-in user's MCP connection to a workspace. */
+export interface McpConnection {
+  /** False when the MCP server is disabled on this server. */
+  available: boolean;
+  enabled: boolean;
+  /** Whether the user lets clients change content. */
+  write: boolean;
+  /** False when this server keeps every connection read-only. */
+  writeAllowed: boolean;
+  enabledAt: string | null;
+  /** The configured label of this server, or null to go by the host name. */
+  serverName: string | null;
+  /** Path of the workspace's MCP endpoint, e.g. /bin/mcp.cgi/web. */
+  endpointPath: string;
+  clients: McpClient[];
+}
+
+export interface SetMcpConnectionInput {
+  enabled: boolean;
+  write?: boolean;
+}
+
+/** A workspace an MCP connection can be made to. */
+export interface McpWorkspace {
+  name: string;
+  displayName: string | null;
+}
