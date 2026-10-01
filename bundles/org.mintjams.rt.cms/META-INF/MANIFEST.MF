@@ -7,6 +7,7 @@ Automatic-Module-Name: org.mintjams.rt.cms
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: %Plugin.provider
 Service-Component: OSGI-INF/org.mintjams.rt.cms.CmsService.xml,
+ OSGI-INF/org.mintjams.rt.cms.internal.mcp.McpServlet.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.ArchiveDownloadServlet.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.DownloadServlet.xml,
  OSGI-INF/org.mintjams.rt.cms.internal.web.GraphQLServlet.xml,
