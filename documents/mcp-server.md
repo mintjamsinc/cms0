@@ -40,8 +40,9 @@ A connection is per workspace: turn it on for `system` and for `web`
 separately, and connect each as its own server.
 
 Claude's desktop app and claude.ai connect from Anthropic's network, not from
-your computer, so they reach only a CMS that is reachable from the internet.
-Claude Code connects from the computer it runs on.
+your computer, so they reach only a CMS that is reachable from the internet
+(see *Behind a reverse proxy* for what that takes). Claude Code connects from
+the computer it runs on.
 
 ### Server names
 
@@ -423,7 +424,7 @@ token:
 | `token.accessTtl` | A client renews its access token by itself, so this does not limit how long it stays connected. |
 | `token.refreshTtl` | Counted from the user's approval and not extended by use. |
 | `token.allowWrite` | `false` makes every connection read-only, whatever its user chose, from the next call. |
-| `token.notBefore` | Set it to the current time to cut off every client of every user in every workspace at once. Clients approved after that instant work; the connections stay on, so users only have to approve their clients again. |
+| `token.notBefore` | Set it to the current time to cut off every client of every user in every workspace at once. Clients approved after that instant work; the connections stay on, so users only have to approve their clients again. The instant is UTC (`Z`) unless it carries an offset (`2026-10-01T12:00:00+09:00`); one that lies in the future rejects every client approved until then, with a token that was issued a moment before. |
 
 **A file that cannot be parsed, or holds a value of the wrong shape, disables
 the endpoint** rather than falling back to the defaults. The file carries
@@ -454,6 +455,71 @@ servlet sees), and a client compares it with the URL it connected to. Behind a
 TLS-terminating proxy the scheme has to reach the CMS (the Felix SSL filter
 takes it from `X-Forwarded-Proto`), or the metadata names `http://` and the
 client refuses it.
+
+### Behind a reverse proxy
+
+A proxy that publishes the endpoint has to get four things right. Each of them
+fails at a different step of adding the connector.
+
+- **Port 443.** Claude's desktop app and claude.ai did not connect when a
+  custom non-standard port was used — no packet reached the server, and
+  the connector reported that the address could not be reached.
+  Publish the endpoint on the default HTTPS port. Claude Code, which connects
+  from the user's computer, works on any port.
+- **The paths.** `/bin/mcp.cgi/`, `/.well-known/oauth-protected-resource/`,
+  `/.well-known/oauth-authorization-server/` and
+  `/.well-known/openid-configuration/`, plus `/bin/auth.cgi/saml2/login`, where
+  a browser that is not signed in is sent from the approval page. Nothing else
+  of the CMS has to be published on that port.
+- **`Host` and the scheme.** Pass `Host` as the client sent it and set
+  `X-Forwarded-Proto`; the endpoint's address in the metadata is built from
+  them.
+- **The host name of the sign-in.** The login is a cookie of the host the SAML
+  service provider answers on (`sp.rootURL` in `saml2.yml`). The approval page
+  reads that cookie, so the endpoint has to be published under the same host
+  name. The port may differ — a cookie is not bound to one — but under another
+  host name, a subdomain included, the browser signs in and is sent back to
+  the sign-in page again and again.
+
+For a CMS whose users sign in at `https://cms.example.org:8443`, publishing
+the endpoint on port 443 of the same host looks like this in nginx:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name cms.example.org;
+
+    location /bin/mcp.cgi/ {
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_pass http://localhost:8080;
+    }
+    location /.well-known/oauth-protected-resource/bin/mcp.cgi/ {
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://localhost:8080;
+    }
+    location /.well-known/oauth-authorization-server/bin/mcp.cgi/ {
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://localhost:8080;
+    }
+    location /.well-known/openid-configuration/bin/mcp.cgi/ {
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://localhost:8080;
+    }
+    location = /bin/auth.cgi/saml2/login {
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://localhost:8080;
+    }
+}
+```
+
+The connector is then added with `https://cms.example.org/bin/mcp.cgi/{workspace}`.
 
 ## Logging
 
