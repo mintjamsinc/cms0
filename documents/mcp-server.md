@@ -14,8 +14,8 @@ and is not allowed to do, and why it is built the way it is.
 
 ## Quick start
 
-1. Sign in to the CMS, open **Preferences › MCP**, choose the workspace and
-   press **Turn on**. Tick **Allow clients to change content** if the client
+1. Sign in to the CMS, open **Preferences › MCP** on the desktop of the
+   workspace to connect, and press **Turn on**. Tick **Allow clients to change content** if the client
    has to do more than read.
 2. Copy what the page shows and give it to the client:
 

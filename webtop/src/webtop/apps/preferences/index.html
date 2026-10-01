@@ -440,11 +440,13 @@
 
 					<!-- ========== MCP ========== -->
 					<template v-if="section === 'mcp'">
-						<h2 class="pref-section-title">{{ t('app.preferences.mcp.title') }}</h2>
-						<div class="text-muted fs-small mb-3">{{ t('app.preferences.mcp.desc') }}</div>
+						<div>
+							<h2 class="pref-section-title">{{ t('app.preferences.mcp.title') }}</h2>
+							<div class="text-muted mt-2">{{ t('app.preferences.mcp.desc') }}</div>
+						</div>
 
-						<wt-field class="pref-select mb-3" :label="t('app.preferences.mcp.workspace')">
-							<wt-select v-model="mcpWorkspace" :items="mcpWorkspaceItems" @change="loadMcpConnection"></wt-select>
+						<wt-field :label="t('app.preferences.mcp.workspace')">
+							<div>{{ mcpWorkspace }}</div>
 						</wt-field>
 
 						<div class="property-group">

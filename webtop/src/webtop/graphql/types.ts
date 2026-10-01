@@ -1771,9 +1771,3 @@ export interface SetMcpConnectionInput {
   enabled: boolean;
   write?: boolean;
 }
-
-/** A workspace an MCP connection can be made to. */
-export interface McpWorkspace {
-  name: string;
-  displayName: string | null;
-}

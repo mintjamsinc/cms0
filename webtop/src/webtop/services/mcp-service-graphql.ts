@@ -7,7 +7,7 @@
 
 import { GraphQLClient, createGraphQLClient } from '../graphql/client.js';
 import { MCP_QUERIES, MCP_MUTATIONS } from '../graphql/queries/mcp.js';
-import type { McpConnection, McpWorkspace, SetMcpConnectionInput } from '../graphql/types.js';
+import type { McpConnection, SetMcpConnectionInput } from '../graphql/types.js';
 
 export class McpServiceGraphQL {
   #clients = new Map<string, GraphQLClient>();
@@ -19,15 +19,6 @@ export class McpServiceGraphQL {
       this.#clients.set(workspace, client);
     }
     return client;
-  }
-
-  /** The workspaces a connection can be made to: the ones that are running. */
-  async listWorkspaces(): Promise<McpWorkspace[]> {
-    const data = await this.#client('system').query<{ workspaces: (McpWorkspace & { state: string })[] }>(
-      MCP_QUERIES.WORKSPACES,
-      {}
-    );
-    return (data.workspaces ?? []).filter(w => w.state === 'ONLINE');
   }
 
   async getConnection(workspace: string): Promise<McpConnection> {

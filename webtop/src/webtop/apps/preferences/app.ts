@@ -11,7 +11,7 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { SecurityServiceGraphQL, createPasskey, isWebAuthnSupported } from "../../services/security-service-graphql.js";
 import { McpServiceGraphQL, mcpServerName } from "../../services/mcp-service-graphql.js";
-import type { IdpMutationError, McpConnection, McpWorkspace, Passkey, UserSecurity } from "../../graphql/types.js";
+import type { IdpMutationError, McpConnection, Passkey, UserSecurity } from "../../graphql/types.js";
 import qrcode from 'qrcode-generator';
 import {
 	createLocalizationSnapshot,
@@ -263,8 +263,7 @@ const App = {
 
 			// MCP
 			mcpService: null as McpServiceGraphQL | null,
-			mcpWorkspaces: [] as McpWorkspace[],
-			mcpWorkspace: 'system',
+			mcpWorkspace: '',
 			mcp: null as McpConnection | null,
 			mcpWrite: false,
 			mcpUrl: '',
@@ -328,9 +327,6 @@ const App = {
 				...this.availableCurrencies.map((c: any) => ({ value: c.code, label: this.t(c.labelKey) })),
 			];
 		},
-		mcpWorkspaceItems() {
-			return this.mcpWorkspaces.map((w: McpWorkspace) => ({ value: w.name, label: w.displayName || w.name }));
-		},
 		canChangePassword() {
 			return this.passwordForm.current
 				&& this.passwordForm.newPassword
@@ -373,6 +369,7 @@ const App = {
 				vm.idp = this.$markRaw(new IdpServiceGraphQL());
 				vm.securityService = this.$markRaw(new SecurityServiceGraphQL());
 				vm.mcpService = this.$markRaw(new McpServiceGraphQL());
+				vm.mcpWorkspace = instance.api.workspace;
 				refreshLocalization(vm.localization, vm.instance);
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
@@ -1552,47 +1549,17 @@ const App = {
 
 		async loadMcp() {
 			const vm = this;
-			if (!vm.instance || !vm.mcpService) return;
-			vm.mcpMessage = '';
-			if (vm.mcpWorkspaces.length === 0) {
-				vm.mcpLoading = true;
-				try {
-					vm.mcpWorkspaces = await vm.mcpService.listWorkspaces();
-				} catch (e: any) {
-					console.warn('[Preferences] workspace list failed:', e);
-					vm.setMcpMessage(vm.t('app.preferences.msg.mcpLoadFailed', undefined, 'Failed to load the MCP connection.'), 'error');
-					vm.mcpLoading = false;
-					return;
-				}
-				if (!vm.mcpWorkspaces.some((w: McpWorkspace) => w.name === vm.mcpWorkspace)) {
-					vm.mcpWorkspace = vm.mcpWorkspaces.length ? vm.mcpWorkspaces[0].name : '';
-				}
-			}
-			await vm.loadMcpConnection();
-		},
-
-		async loadMcpConnection() {
-			const vm = this;
-			if (!vm.mcpService || !vm.mcpWorkspace) {
-				vm.mcpLoading = false;
-				return;
-			}
-			const workspace = vm.mcpWorkspace;
+			if (!vm.instance || !vm.mcpService || !vm.mcpWorkspace) return;
 			vm.mcpLoading = true;
 			vm.mcpMessage = '';
 			vm.mcp = null;
 			try {
-				const connection = await vm.mcpService.getConnection(workspace);
-				// The user may have picked another workspace while this one loaded.
-				if (workspace !== vm.mcpWorkspace) return;
-				vm.applyMcpConnection(connection);
+				vm.applyMcpConnection(await vm.mcpService.getConnection(vm.mcpWorkspace));
 			} catch (e: any) {
 				console.warn('[Preferences] MCP connection load failed:', e);
-				if (workspace === vm.mcpWorkspace) {
-					vm.setMcpMessage(vm.t('app.preferences.msg.mcpLoadFailed', undefined, 'Failed to load the MCP connection.'), 'error');
-				}
+				vm.setMcpMessage(vm.t('app.preferences.msg.mcpLoadFailed', undefined, 'Failed to load the MCP connection.'), 'error');
 			} finally {
-				if (workspace === vm.mcpWorkspace) vm.mcpLoading = false;
+				vm.mcpLoading = false;
 			}
 		},
 
@@ -1613,12 +1580,10 @@ const App = {
 
 		async saveMcpConnection(enabled: boolean, write: boolean, successMessage: string) {
 			const vm = this;
-			const workspace = vm.mcpWorkspace;
 			vm.mcpBusy = true;
 			vm.mcpMessage = '';
 			try {
-				const connection = await vm.mcpService!.setConnection(workspace, { enabled, write });
-				if (workspace !== vm.mcpWorkspace) return;
+				const connection = await vm.mcpService!.setConnection(vm.mcpWorkspace, { enabled, write });
 				vm.applyMcpConnection(connection);
 				vm.setMcpMessage(successMessage);
 			} catch (e: any) {

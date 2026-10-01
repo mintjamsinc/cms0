@@ -28,17 +28,6 @@ export const MCP_QUERIES = {
       }
     }
   `,
-
-  /** The workspaces a connection can be made to, with what is needed to offer the choice. */
-  WORKSPACES: `
-    query McpWorkspaces {
-      workspaces {
-        name
-        displayName
-        state
-      }
-    }
-  `,
 };
 
 export const MCP_MUTATIONS = {
