@@ -63,7 +63,7 @@ import com.google.gson.JsonObject;
 public final class McpAccessToken {
 
 	/** Makes the token recognisable in logs and secret scanners. */
-	public static final String PREFIX = "mjmcp_";
+	public static final String PREFIX = "mimcp_";
 
 	private static final String TYPE = "mcp";
 	private static final SecureRandom fRandom = new SecureRandom();

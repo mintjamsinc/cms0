@@ -98,11 +98,11 @@ final class McpOAuth {
 	static final String AUTHORIZATION_SERVER = "oauth-authorization-server";
 	static final String OPENID_CONFIGURATION = "openid-configuration";
 
-	private static final String CLIENT_PREFIX = "mjmcpc_";
+	private static final String CLIENT_PREFIX = "mimcpc_";
 	private static final String CLIENT_TYPE = "mcp-client";
-	private static final String CODE_PREFIX = "mjmcpa_";
+	private static final String CODE_PREFIX = "mimcpa_";
 	private static final String CODE_TYPE = "mcp-code";
-	private static final String REFRESH_PREFIX = "mjmcpr_";
+	private static final String REFRESH_PREFIX = "mimcpr_";
 	private static final String REFRESH_TYPE = "mcp-refresh";
 
 	private static final String SCOPE_READ = "read";
