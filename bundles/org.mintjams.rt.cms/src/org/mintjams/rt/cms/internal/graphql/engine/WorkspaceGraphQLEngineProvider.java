@@ -35,6 +35,7 @@ import javax.jcr.Session;
 
 import org.dataloader.DataLoaderRegistry;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.WorkspaceUserHomes;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutionContext;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
 import org.mintjams.rt.cms.internal.graphql.resolver.GroovyDataFetcher;
@@ -265,6 +266,11 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 		// One caller session shared by platform (Java) and application (Groovy)
 		// resolvers; the script context owns and closes it.
 		Session callerSession = scriptContext.adaptTo(Session.class);
+
+		// Content workspaces hold the user's working area (Desktop); it is
+		// created on the user's first request to the workspace.
+		WorkspaceUserHomes.ensureUserHome(callerSession);
+
 		DataLoaderRegistry dataLoaderRegistry = new DataLoaderRegistry();
 		GraphQLExecutionContext executionContext = new GraphQLExecutionContext(getWorkspaceName(), callerSession,
 				dataLoaderRegistry);
