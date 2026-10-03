@@ -62,6 +62,8 @@ let directTimer: ReturnType<typeof setTimeout> | null = null;
 // Stops watching for mentions of the user.
 let unwatchMentions: (() => void) | null = null;
 let confirmAction: (() => void) | null = null;
+// Called when the conversation opened at launch has been read, or could not be.
+let launchThreadSettled: (() => void) | null = null;
 // The channels being watched, by their folder.
 const watches = new Map<string, () => void>();
 // Sequence numbers of the latest searches; older replies are dropped.
@@ -80,6 +82,8 @@ const SEARCH_DELAY_MS = 250;
 // A window coming to the front reads the list again, to find new invitations.
 const FOCUS_RELOAD_INTERVAL_MS = 30 * 1000;
 const MEMBER_SUGGESTIONS = 10;
+// How long the window waits, at launch, for the conversation it opens.
+const LAUNCH_THREAD_WAIT_MS = 5000;
 
 function emptyChannelDialog() {
 	return {
@@ -303,18 +307,27 @@ const App = {
 				vm.watchMentions();
 
 				vm.isReady = true;
+
+				// The window is shown once the sidebar and the conversation it
+				// opens are in: shown empty first, it looks as if the
+				// conversations were gone.
+				lastFocusReload = Date.now();
+				await Promise.all([vm.loadChannels(), vm.loadThreads()]);
+				const threadSettled = new Promise<void>((resolve) => { launchThreadSettled = resolve; });
+				if (options?.channelId || options?.fileId) {
+					await vm.applyLaunchOptions(options);
+				} else if (vm.channels.length) {
+					vm.selectChannel(vm.mostRecent().id);
+				}
+				if (vm.currentRef) {
+					await Promise.race([threadSettled, new Promise<void>((resolve) => setTimeout(resolve, LAUNCH_THREAD_WAIT_MS))]);
+				}
+				launchThreadSettled = null;
+
 				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 				this.$nextTick(() => {
 					instance.notifyLaunched();
 				});
-
-				lastFocusReload = Date.now();
-				await Promise.all([vm.loadChannels(), vm.loadThreads()]);
-				if (options?.channelId || options?.fileId) {
-					vm.applyLaunchOptions(options);
-				} else if (vm.channels.length) {
-					vm.selectChannel(vm.mostRecent().id);
-				}
 			};
 		},
 		onUnmount() {
@@ -578,6 +591,7 @@ const App = {
 		// =====================================================================
 
 		onThreadLoaded(conversation: ChatConversation) {
+			launchThreadSettled?.();
 			if (conversation.fileId) {
 				if (conversation.fileId !== this.currentFileId) return;
 				this.conversation = conversation;
@@ -597,6 +611,7 @@ const App = {
 			}
 		},
 		onThreadFailed(detail: { message: string }) {
+			launchThreadSettled?.();
 			this.showStatus(detail.message);
 			this.closeCurrent();
 			this.loadChannels();
