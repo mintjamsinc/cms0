@@ -49,6 +49,7 @@ import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.PrincipalProvider;
 import org.mintjams.jcr.security.UserPrincipal;
+import org.mintjams.rt.cms.internal.security.UserHomeAccess;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
@@ -216,6 +217,25 @@ public class Provisioner implements Closeable {
 		}
 	}
 
+	/**
+	 * Closes the homes of the workspace being deployed to everyone but their
+	 * owners (see {@link UserHomeAccess}). Homes are created closed; this brings
+	 * along those created before they were, and is a no-op once every home is.
+	 */
+	public void protectUserHomes() throws IOException {
+		try {
+			javax.jcr.Session session = fSession.adaptTo(javax.jcr.Session.class);
+			int changed = UserHomeAccess.protectAll(session);
+			if (changed > 0) {
+				session.save();
+				CmsService.getLogger(getClass()).info("Closed user homes to other users: " + changed
+						+ " access control list(s) changed (" + fWorkspaceName + ")");
+			}
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
 	// =========================================================================
 	// Namespace provisioning (current workspace)
 	// =========================================================================
@@ -356,6 +376,9 @@ public class Provisioner implements Closeable {
 		// Grant the user full control over their own home, mirroring the
 		// Identity Manager so the account behaves consistently afterwards.
 		JCRs.setAccessControlEntry(userFolder, userPrincipal(id), true, Privilege.JCR_ALL);
+		// The root lets everyone read: close the home, and leave the profile open.
+		UserHomeAccess.protect(userFolder, id);
+		UserHomeAccess.publishProfile(profile);
 		session.save();
 		if (Strings.isNotEmpty(password)) {
 			UserCredentials.setPassword(session, id, password);

@@ -224,6 +224,26 @@ only the user's working area: on a user's first request to a workspace,
 granted `jcr:all` on their home folder. Deleting a user removes the
 identity home and the per-workspace homes in every workspace.
 
+A home is **closed to everyone but its owner**. The root of a workspace
+grants `jcr:read` to everyone, so each home denies it again before granting
+its owner `jcr:all`; whatever an application later stores in a home (the
+desktop, preferences, mail, uploads) is private without the application
+doing anything. The one exception is the `profile` in the `system`
+workspace, which every signed-in user can read: the names of other users
+are shown throughout (an assignee, an author).
+
+| Node | Entries, in order |
+| --- | --- |
+| `/home/users/<id>` | deny `everyone` `jcr:read`; allow `<id>` `jcr:all` |
+| `/home/users/<id>/profile` (`system` only) | allow `everyone` `jcr:read`; deny `anonymous` `jcr:read` |
+
+Homes created before this rule carried the owner's grant only. Every boot
+checks the homes of each workspace and closes those that are still open,
+keeping any other entry an administrator added to them; a home that is
+already closed is left alone. Because a user cannot read the other homes,
+the `users` identity query lists the user names with service privileges and
+reads each profile in the caller's own session.
+
 ## Per-workspace service toggles
 
 Both engines run per workspace and are enabled by default. Workspaces

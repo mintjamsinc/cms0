@@ -36,9 +36,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import javax.jcr.AccessDeniedException;
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
+import javax.jcr.PathNotFoundException;
 import javax.jcr.Property;
 import javax.jcr.PropertyIterator;
 import javax.jcr.PropertyType;
@@ -53,6 +55,7 @@ import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.WorkspaceUserHomes;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.rt.cms.internal.security.UserHomeAccess;
 import org.mintjams.rt.cms.internal.util.ISO8601;
 
 import graphql.schema.DataFetcher;
@@ -183,16 +186,22 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 			return emptyConnection();
 		}
 
+		// A home is closed to everyone but its owner, so the caller cannot list
+		// the homes. The names are listed with service privileges; each profile is
+		// then read in the caller's own session, which decides what is seen.
 		List<Node[]> entries = new ArrayList<>();
-		NodeIterator it = session.getNode(USERS_ROOT).getNodes();
-		while (it.hasNext()) {
-			Node userFolder = it.nextNode();
-			if (!userFolder.hasNode("profile")) {
+		for (String uname : userNames()) {
+			String profilePath = USERS_ROOT + "/" + uname + "/profile";
+			Node profileNode;
+			try {
+				if (!session.nodeExists(profilePath)) {
+					continue;
+				}
+				profileNode = session.getNode(profilePath);
+			} catch (AccessDeniedException | PathNotFoundException ignore) {
 				continue;
 			}
-			Node profileNode = userFolder.getNode("profile");
 			Node contentNode = JCRs.getContentNode(profileNode);
-			String uname = userFolder.getName();
 
 			// Filter: query (username, displayName, mail)
 			if (query != null && !query.isEmpty()) {
@@ -219,9 +228,31 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		}
 
 		return buildConnection(entries, first, afterCursor, entry -> {
-			String uname = entry[0].getParent().getName();
+			// The name is taken from the path: the home itself cannot be read.
+			String path = entry[0].getPath();
+			String uname = path.substring(USERS_ROOT.length() + 1, path.lastIndexOf('/'));
 			return mapUser(session, uname, entry[0], entry[1]);
 		});
+	}
+
+	/** The names of every user, in the order of the identity store. */
+	private static List<String> userNames() throws Exception {
+		List<String> names = new ArrayList<>();
+		Session systemSession = systemSession();
+		try {
+			if (!systemSession.nodeExists(USERS_ROOT)) {
+				return names;
+			}
+			for (NodeIterator i = systemSession.getNode(USERS_ROOT).getNodes(); i.hasNext();) {
+				Node userFolder = i.nextNode();
+				if (userFolder.hasNode("profile")) {
+					names.add(userFolder.getName());
+				}
+			}
+		} finally {
+			systemSession.logout();
+		}
+		return names;
 	}
 
 	// ---- role queries (mirror IdpQueryExecutor) ----------------------------
@@ -537,6 +568,9 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 				return principalName;
 			}
 		}, true, Privilege.JCR_ALL);
+		// The root lets everyone read: close the home, and leave the profile open.
+		UserHomeAccess.protect(userFolder, username);
+		UserHomeAccess.publishProfile(profileFile);
 		session.save();
 
 		// The caller's session has just proven it may create users; the hash itself

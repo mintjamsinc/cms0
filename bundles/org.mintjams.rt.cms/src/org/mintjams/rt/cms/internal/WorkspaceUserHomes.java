@@ -33,6 +33,7 @@ import javax.jcr.security.Privilege;
 
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.rt.cms.internal.security.UserHomeAccess;
 
 /**
  * Lazily materialises a user's home directory in a content workspace.
@@ -114,7 +115,14 @@ public class WorkspaceUserHomes {
 					}
 				}, true, Privilege.JCR_ALL);
 				session.save();
+			}
 
+			// The root lets everyone read; the home is the owner's alone.
+			if (UserHomeAccess.protect(userFolder, userId)) {
+				session.save();
+			}
+
+			if (created) {
 				CmsService.getLogger(WorkspaceUserHomes.class)
 						.info("User home directory has been created: " + userFolder.getPath() + " (" + workspaceName + ")");
 			}

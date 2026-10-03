@@ -93,7 +93,9 @@ by provisioning are indistinguishable from those created in the UI:
   `password` (`{bcrypt}…`), `identifier`, `isGroup=false`, `isService`,
   `enabled`, optional `sn`/`givenName`/`displayName`/`mail`, and `roles` /
   `memberOf` as weak references; plus `preferences` and `Desktop` folders and a
-  `jcr:all` self-grant on the user's home.
+  `jcr:all` self-grant on the user's home. The home is closed to everyone
+  else and the `profile` is left readable (see
+  [workspaces](workspaces.md#user-home-directories)).
 - Group: `/home/groups/{id}/profile` (`application/vnd.webtop.group`),
   `mix:referenceable`, `identifier`, `isGroup=true`.
 - Role: `/home/roles/{id}/profile` (`application/vnd.webtop.role`),

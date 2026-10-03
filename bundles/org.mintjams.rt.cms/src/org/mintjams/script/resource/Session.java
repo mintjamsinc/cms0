@@ -255,6 +255,7 @@ public class Session implements Closeable, Adaptable {
 					provisioner.provision(seed.getProvisioningPath());
 				}
 				provisioner.provision(jcrPath.resolve("provisioning"));
+				provisioner.protectUserHomes();
 			}
 			Set<String> seedPaths = Collections.emptySet();
 			if (seed != null) {
