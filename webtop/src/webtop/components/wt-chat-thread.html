@@ -1,0 +1,225 @@
+<template id="wt-chat-thread">
+	<!--
+	  One conversation: the messages, oldest first, and the box to post into.
+	  The host names the conversation and gives the element its place; the
+	  element fills that place and scrolls the messages inside it.
+
+	  Files dropped anywhere on the thread go to the message being written:
+	  the one under edit, or else the new one.
+	-->
+	<div class="wt-chat-thread" :class="{ 'wt-chat-dragover': isDragOver }"
+		@mount.stop="onMount" @mounted.stop="onMounted" @unmount.stop="onUnmount"
+		@dragover="onDragOver($event)" @dragleave="onDragLeave($event)" @drop="onDrop($event)">
+
+		<div class="wt-chat-scroll" ref="scroll" @scroll="onScroll($event)">
+			<div v-if="isLoading" class="wt-chat-state">
+				<wt-spinner size="sm"></wt-spinner>
+			</div>
+			<div v-else-if="errorMessage" class="wt-chat-state">
+				<i class="bi bi-exclamation-triangle"></i>
+				<span>{{ errorMessage }}</span>
+			</div>
+			<div v-else-if="info && !messages.length" class="wt-chat-state">
+				<i class="bi bi-chat-dots"></i>
+				<span>{{ t('webtop.chat.empty', undefined, 'No messages yet.') }}</span>
+			</div>
+
+			<div v-if="isLoadingOlder" class="wt-chat-older">
+				<wt-spinner size="sm"></wt-spinner>
+			</div>
+			<div v-if="info && messages.length && !hasMore" class="wt-chat-start">
+				{{ t('webtop.chat.start', undefined, 'This is the start of the conversation.') }}
+			</div>
+
+			<div v-for="row of rows" :key="row.key" class="wt-chat-row">
+				<div v-if="row.day" class="wt-chat-day"><span>{{ row.day }}</span></div>
+
+				<div class="wt-chat-msg" :data-id="row.m.id" :class="{ 'wt-chat-msg-head': row.head, 'wt-chat-msg-editing': editing.id === row.m.id, 'wt-chat-msg-focus': row.focus }">
+					<div class="wt-chat-gutter">
+						<img v-if="row.head && avatars[row.m.author]" class="wt-chat-avatar" :src="avatars[row.m.author]" alt="">
+						<span v-if="row.head && !avatars[row.m.author]" class="wt-chat-avatar"></span>
+						<span v-if="!row.head" class="wt-chat-gutter-time" :title="row.fullTime">{{ row.time }}</span>
+					</div>
+
+					<div class="wt-chat-main">
+						<div v-if="row.head" class="wt-chat-head">
+							<span class="wt-chat-author" :title="row.m.author">{{ row.m.authorName || row.m.author }}</span>
+							<span class="wt-chat-time" :title="row.fullTime">{{ row.time }}</span>
+						</div>
+
+						<div v-if="row.m.deleted" class="wt-chat-deleted">
+							<i class="bi bi-slash-circle"></i>{{ t('webtop.chat.message.deleted', undefined, 'This message was deleted.') }}
+						</div>
+
+						<!-- The author's own message, being changed -->
+						<div v-else-if="editing.id === row.m.id" class="wt-chat-edit">
+							<textarea class="wt w-100" ref="editor" rows="2" v-model="editing.text" :disabled="editing.saving"
+								@keydown="onEditKeydown($event)" @paste="onPaste($event)"
+								@compositionstart="onCompositionStart" @compositionend="onCompositionEnd"></textarea>
+
+							<div v-if="editing.attachments.length || editing.links.length || editing.pending.uploads.length || editing.pending.files.length || editing.pending.uploading" class="wt-chat-pending">
+								<span v-for="a of editing.attachments" :key="'kept-' + a.name" class="wt-chat-chip" :title="a.name">
+									<i :class="fileIcon(a)"></i>
+									<span class="wt-chat-chip-name">{{ a.name }}</span>
+									<button type="button" class="wt-chat-chip-x" @click="removeEditAttachment(a)" :title="t('common.remove')"><i class="bi bi-x"></i></button>
+								</span>
+								<span v-for="l of editing.links" :key="'link-' + l.id" class="wt-chat-chip" :title="l.path || ''">
+									<i class="bi" :class="l.accessible ? 'bi-link-45deg' : 'bi-lock'"></i>
+									<span class="wt-chat-chip-name">{{ l.accessible ? l.name : t('webtop.chat.link.denied', undefined, 'You do not have access to this file.') }}</span>
+									<button type="button" class="wt-chat-chip-x" @click="removeEditLink(l)" :title="t('common.remove')"><i class="bi bi-x"></i></button>
+								</span>
+								<span v-for="u of editing.pending.uploads" :key="'up-' + u.key" class="wt-chat-chip" :title="u.name">
+									<i :class="fileIcon(u)"></i>
+									<span class="wt-chat-chip-name">{{ u.name }}</span>
+									<span class="wt-chat-chip-meta">{{ formatSize(u.size) }}</span>
+									<button type="button" class="wt-chat-chip-x" @click="removeUpload(editing.pending, u)" :title="t('common.remove')"><i class="bi bi-x"></i></button>
+								</span>
+								<span v-for="f of editing.pending.files" :key="'file-' + f.id" class="wt-chat-chip" :title="f.path">
+									<i class="bi" :class="f.mode === 'link' ? 'bi-link-45deg' : 'bi-paperclip'"></i>
+									<span class="wt-chat-chip-name">{{ f.name }}</span>
+									<button v-if="!f.isCollection" type="button" class="wt-chat-chip-mode" @click="toggleFileMode(editing.pending, f)"
+										:title="t('webtop.chat.attach.modeHint', undefined, 'A link shows the file as it is now, to those who can read it. A copy is a snapshot everyone in the conversation can read.')">
+										{{ f.mode === 'link' ? t('webtop.chat.attach.asLink', undefined, 'Link') : t('webtop.chat.attach.asCopy', undefined, 'Copy') }}
+									</button>
+									<button type="button" class="wt-chat-chip-x" @click="removeFile(editing.pending, f)" :title="t('common.remove')"><i class="bi bi-x"></i></button>
+								</span>
+								<span v-if="editing.pending.uploading" class="wt-chat-chip"><wt-spinner size="sm"></wt-spinner></span>
+							</div>
+							<div v-if="editing.pending.error" class="wt-chat-error">{{ editing.pending.error }}</div>
+							<div v-if="editing.error" class="wt-chat-error">{{ editing.error }}</div>
+
+							<div class="wt-chat-edit-actions">
+								<button v-if="canAttach" type="button" class="btn-icon wt-chat-edit-attach" :disabled="editing.saving" @click="pickFiles"
+									:title="t('webtop.chat.attach.pick', undefined, 'Attach files')">
+									<i class="bi bi-paperclip"></i>
+								</button>
+								<button type="button" class="wt wt-slim" :disabled="editing.saving" @click="cancelEdit">{{ t('common.cancel') }}</button>
+								<button type="button" class="wt wt-slim wt-primary" :disabled="!canSaveEdit" @click="saveEdit">{{ t('common.save') }}</button>
+							</div>
+						</div>
+
+						<div v-else class="wt-chat-content">
+							<div v-if="row.html" class="wt-chat-body" v-html="row.html"></div>
+							<span v-if="row.m.editedAt" class="wt-chat-edited">{{ t('webtop.chat.message.edited', undefined, '(edited)') }}</span>
+
+							<!-- Attachments: copies kept with the message -->
+							<div v-if="row.m.attachments.length" class="wt-chat-files">
+								<div v-for="a of row.m.attachments" :key="a.path" class="wt-chat-file">
+									<img v-if="isImage(a)" class="wt-chat-file-preview" :src="fileUrl(a)" :alt="a.name" loading="lazy" @click="openAttachment(a)">
+									<div class="wt-chat-file-row">
+										<i :class="fileIcon(a)"></i>
+										<button type="button" class="wt-chat-file-name" @click="openAttachment(a)" :title="a.name">{{ a.name }}</button>
+										<span class="wt-chat-file-size">{{ formatSize(a.size) }}</span>
+										<a class="btn-icon" :href="fileUrl(a, true)" :download="a.name" :title="t('webtop.chat.attach.download', undefined, 'Download')">
+											<i class="bi bi-download"></i>
+										</a>
+									</div>
+								</div>
+							</div>
+
+							<!-- Links: references, shown as far as the reader's own access goes -->
+							<div v-if="row.m.links.length" class="wt-chat-files">
+								<div v-for="l of row.m.links" :key="l.id" class="wt-chat-link" :class="{ 'wt-chat-link-denied': !l.accessible }">
+									<i v-if="l.accessible" :class="fileIcon(l)"></i>
+									<i v-if="!l.accessible" class="bi bi-lock"></i>
+									<div class="wt-chat-link-text">
+										<button v-if="l.accessible" type="button" class="wt-chat-file-name" @click="openLink(l)" :title="l.path">{{ l.name }}</button>
+										<span v-if="l.accessible" class="wt-chat-link-path" :title="l.path">{{ folderOf(l.path) }}</span>
+										<span v-if="!l.accessible">{{ t('webtop.chat.link.denied', undefined, 'You do not have access to this file.') }}</span>
+									</div>
+									<button v-if="l.accessible && !l.isCollection" type="button" class="wt wt-slim" @click="openLink(l)">{{ t('webtop.chat.link.open', undefined, 'Open') }}</button>
+									<button v-if="l.accessible" type="button" class="wt wt-slim" @click="revealLink(l)">{{ t('webtop.chat.link.reveal', undefined, 'Show in folder') }}</button>
+								</div>
+							</div>
+						</div>
+
+						<div v-if="confirmDeleteId === row.m.id" class="wt-chat-confirm">
+							<span>{{ t('webtop.chat.message.deleteConfirm', undefined, 'Delete this message?') }}</span>
+							<button type="button" class="wt wt-slim" @click="cancelDelete">{{ t('common.cancel') }}</button>
+							<button type="button" class="wt wt-slim wt-danger" @click="deleteMessage(row.m)">{{ t('common.delete') }}</button>
+						</div>
+					</div>
+
+					<div v-if="row.m.mine && !row.m.deleted && canPost && editing.id !== row.m.id" class="wt-chat-actions">
+						<button type="button" class="btn-icon" @click="startEdit(row.m)" :title="t('webtop.chat.message.edit', undefined, 'Edit')">
+							<i class="bi bi-pencil"></i>
+						</button>
+						<button type="button" class="btn-icon" @click="askDelete(row.m)" :title="t('common.delete')">
+							<i class="bi bi-trash"></i>
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div v-if="isLoadingNewer" class="wt-chat-older">
+			<wt-spinner size="sm"></wt-spinner>
+		</div>
+
+		<button v-if="newBelow || hasMoreAfter" type="button" class="wt-chat-new" @click="jumpToLatest">
+			<i class="bi bi-arrow-down"></i>{{ newBelow ? t('webtop.chat.newMessages', undefined, 'New messages') : t('webtop.chat.toLatest', undefined, 'Jump to the latest') }}
+		</button>
+
+		<div v-if="isDragOver" class="wt-chat-drop">
+			<i class="bi bi-paperclip"></i>
+			<span>{{ t('webtop.chat.attach.drop', undefined, 'Drop files to add them to the message') }}</span>
+		</div>
+
+		<!-- One picker serves the new message and the one under edit. -->
+		<input v-if="canAttach" type="file" multiple class="wt-chat-picker" ref="filePicker" @change="onFilesPicked($event)">
+
+		<div v-if="info && canPost" class="wt-chat-composer">
+			<div v-if="sendError" class="wt-chat-error">{{ sendError }}</div>
+			<div v-if="compose.error" class="wt-chat-error">{{ compose.error }}</div>
+			<!-- Users the @name being typed may be -->
+			<div v-if="mention.open && mention.items.length" class="wt-chat-mentions">
+				<button v-for="(u, i) of mention.items" :key="u.id" type="button" class="wt-chat-mentions-item" :class="{ active: i === mention.index }"
+					@mousedown.prevent @click="pickMention(u)">
+					<i class="bi bi-person"></i>
+					<span class="wt-chat-mentions-name">{{ u.name }}</span>
+					<span class="wt-chat-mentions-id">{{ u.id }}</span>
+				</button>
+			</div>
+			<div class="wt-chat-composer-box">
+				<div v-if="compose.uploads.length || compose.files.length || compose.uploading" class="wt-chat-pending">
+					<span v-for="u of compose.uploads" :key="'up-' + u.key" class="wt-chat-chip" :title="u.name">
+						<i :class="fileIcon(u)"></i>
+						<span class="wt-chat-chip-name">{{ u.name }}</span>
+						<span class="wt-chat-chip-meta">{{ formatSize(u.size) }}</span>
+						<button type="button" class="wt-chat-chip-x" @click="removeUpload(compose, u)" :title="t('common.remove')"><i class="bi bi-x"></i></button>
+					</span>
+					<span v-for="f of compose.files" :key="'file-' + f.id" class="wt-chat-chip" :title="f.path">
+						<i class="bi" :class="f.mode === 'link' ? 'bi-link-45deg' : 'bi-paperclip'"></i>
+						<span class="wt-chat-chip-name">{{ f.name }}</span>
+						<button v-if="!f.isCollection" type="button" class="wt-chat-chip-mode" @click="toggleFileMode(compose, f)"
+							:title="t('webtop.chat.attach.modeHint', undefined, 'A link shows the file as it is now, to those who can read it. A copy is a snapshot everyone in the conversation can read.')">
+							{{ f.mode === 'link' ? t('webtop.chat.attach.asLink', undefined, 'Link') : t('webtop.chat.attach.asCopy', undefined, 'Copy') }}
+						</button>
+						<button type="button" class="wt-chat-chip-x" @click="removeFile(compose, f)" :title="t('common.remove')"><i class="bi bi-x"></i></button>
+					</span>
+					<span v-if="compose.uploading" class="wt-chat-chip"><wt-spinner size="sm"></wt-spinner></span>
+				</div>
+				<div class="wt-chat-composer-row">
+					<button v-if="canAttach" type="button" class="btn-icon wt-chat-attach" :disabled="isSending" @click="pickFiles"
+						:title="t('webtop.chat.attach.pick', undefined, 'Attach files')">
+						<i class="bi bi-paperclip"></i>
+					</button>
+					<textarea ref="composer" rows="1" v-model="draft"
+						:placeholder="t('webtop.chat.composer.placeholder', undefined, 'Write a message')"
+						@input="onComposerInput" @keydown="onComposerKeydown($event)" @paste="onPaste($event)" @blur="closeMentions"
+						@compositionstart="onCompositionStart" @compositionend="onCompositionEnd"></textarea>
+					<button type="button" class="btn-icon wt-chat-send" :disabled="!canSend" @click="send"
+						:title="t('webtop.chat.composer.send', undefined, 'Send (Enter)')">
+						<i class="bi bi-send-fill"></i>
+					</button>
+				</div>
+			</div>
+			<div class="wt-chat-hint">{{ t('webtop.chat.composer.hint', undefined, 'Enter to send, Shift+Enter for a new line') }}</div>
+		</div>
+		<div v-if="info && !canPost" class="wt-chat-closed">
+			<i class="bi bi-archive"></i>
+			<span v-if="isArchived">{{ t('webtop.chat.archived', undefined, 'This channel is archived. It can be read but not posted to.') }}</span>
+			<span v-else>{{ t('webtop.chat.readOnly', undefined, 'You cannot post to this conversation.') }}</span>
+		</div>
+	</div>
+</template>

@@ -1296,7 +1296,7 @@ export const App = {
 			window.addEventListener('message', vm.messageListener);
 
 			// register appLaunch
-			window.appLaunch = async (instance: ApplicationInstance, options?: { initialPath?: string; [key: string]: any }) => {
+			window.appLaunch = async (instance: ApplicationInstance, options?: { initialPath?: string; select?: string; [key: string]: any }) => {
 				// Mark instance as raw (non-reactive) to prevent Proxy wrapping
 				// This is necessary because ApplicationInstance has private fields (#id, etc.)
 				vm.instance = this.$markRaw(instance);
@@ -1357,6 +1357,12 @@ export const App = {
 				vm.loadAvailableSchemas();
 
 				await vm.load(vm.currentPath);
+
+				// `select` names an item to open the browser on: its folder is shown
+				// (whatever initialPath says) with the item selected.
+				if (options?.select) {
+					await vm.onInspectorRevealItem({ path: options.select });
+				}
 
 				// Allow server sync after initialization
 				vm._suppressServerSync = false;

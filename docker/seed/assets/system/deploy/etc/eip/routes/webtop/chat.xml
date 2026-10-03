@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<camel>
+
+    <!--
+        Removes the conversation of a file when the file is deleted.
+
+        The conversation of a file is kept apart from the file, under
+        /var/lib/chat/files/<identifier>, so deleting the file does not take
+        it along. The repository posts a javax/jcr/Node/REMOVED event for
+        every node removed, one per node even when a whole folder goes, and
+        each carries the identifier the conversation is kept by. This route
+        removes the conversation of that identifier, with its signals, as the
+        chat service user (webtop.chat.ChatStore.nodeRemoved).
+
+        A move or a rename is not a removal: the identifier stays, and the
+        conversation with it.
+
+        The queue is kept short and what does not fit is dropped, so removing
+        a large tree never holds the repository up. A conversation left behind
+        that way belongs to no file anybody can open; it is found by the
+        identifier no longer resolving.
+    -->
+    <route id="webtop-chat-file-removed">
+        <routeProperty key="mi:history" value="failure"/>
+        <from id="webtop-chat-file-removed-events" uri="eventadmin:javax/jcr/Node/REMOVED?maxQueueSize=1000&amp;rejectedPolicy=Discard"/>
+
+        <doTry id="webtop-chat-file-removed-try">
+            <script id="webtop-chat-file-removed-run">
+                <groovy>
+                <![CDATA[
+                    def event = exchange.getIn().getBody();
+                    exchange.setProperty('path', event.getProperty('path') as String);
+                    webtop.chat.ChatStore.nodeRemoved(ScriptAPI,
+                        event.getProperty('identifier') as String, event.getProperty('path') as String);
+                ]]>
+                </groovy>
+            </script>
+
+            <doCatch id="webtop-chat-file-removed-catch">
+                <exception>java.lang.Exception</exception>
+                <log id="webtop-chat-file-removed-log" loggingLevel="WARN" message="Conversation of ${exchangeProperty.path} not removed: ${exception.message}"/>
+            </doCatch>
+        </doTry>
+    </route>
+
+</camel>

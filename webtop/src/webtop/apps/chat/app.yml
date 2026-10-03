@@ -1,0 +1,15 @@
+identifier: 32acb962-c97a-41cd-8e9f-7ae0b2e2e85a
+title: Chat
+icon: assets/icons/icon.svg
+# Conversations in channels. The server side is the Chat GraphQL schema
+# (/etc/graphql/webtop/chat, webtop.chat.* in /usr/local/classes) of the
+# workspace the Webtop runs in: conversations are kept per workspace, under
+# /var/lib/chat, and written by the chat service user only.
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 720
+minimumHeight: 480
+customWindowControls: true
+singleton: true

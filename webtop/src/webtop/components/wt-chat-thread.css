@@ -1,0 +1,632 @@
+/*
+ * Styles for the wt-chat-thread custom element.
+ *
+ * Loaded by each host via
+ *   <link rel="stylesheet" href="../../components/wt-chat-thread.css">
+ * Theme tokens come from webtop-app.css, which every app loads.
+ */
+
+/* --- host element --- */
+/* The element takes the place its host gives it: the host sizes
+ * <wt-chat-thread> (a flex child, a fixed height, ...) and the thread fills
+ * it, scrolling the messages inside. */
+wt-chat-thread {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+
+.wt-chat-thread {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	font-size: 13px;
+	user-select: text;
+}
+
+/* --- messages --- */
+
+.wt-chat-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 0.5rem 0 0.75rem;
+}
+
+.wt-chat-state {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	height: 100%;
+	min-height: 6rem;
+	padding: 1rem;
+	color: var(--text-muted-color);
+	text-align: center;
+}
+
+.wt-chat-state .bi {
+	font-size: 1.75rem;
+	opacity: 0.6;
+}
+
+.wt-chat-older {
+	display: flex;
+	justify-content: center;
+	padding: 0.5rem;
+}
+
+.wt-chat-start {
+	padding: 0.75rem 1rem 0.25rem;
+	color: var(--text-muted-color);
+	font-size: 12px;
+	text-align: center;
+}
+
+.wt-chat-day {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin: 0.75rem 1rem 0.25rem;
+	color: var(--text-soft-color);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.wt-chat-day::before,
+.wt-chat-day::after {
+	content: "";
+	flex: 1;
+	height: 1px;
+	background: var(--menu-divider-color);
+}
+
+.wt-chat-msg {
+	position: relative;
+	display: flex;
+	align-items: flex-start;
+	gap: 0.625rem;
+	padding: 0.125rem 1rem;
+}
+
+.wt-chat-msg-head {
+	padding-top: 0.5rem;
+}
+
+.wt-chat-msg:hover,
+.wt-chat-msg-editing {
+	background: var(--item-even-bg);
+}
+
+/* The message the reader was brought to, for a moment. */
+.wt-chat-msg-focus {
+	background: var(--item-selected-bg);
+	transition: background 0.6s ease-out;
+}
+
+.wt-chat-mention {
+	padding: 0 0.2rem;
+	border-radius: 4px;
+	background: var(--item-even-bg);
+	color: var(--primary-color);
+	font-weight: 600;
+}
+
+.wt-chat-mention-me {
+	background: var(--item-selected-bg);
+}
+
+.wt-chat-gutter {
+	flex-shrink: 0;
+	width: 2rem;
+	text-align: center;
+}
+
+.wt-chat-avatar {
+	display: block;
+	width: 2rem;
+	height: 2rem;
+	border-radius: 6px;
+	background: var(--badge-bg);
+}
+
+/* The time of a message that follows its author's previous one shows in the
+   gutter while the pointer is on the message. */
+.wt-chat-gutter-time {
+	visibility: hidden;
+	color: var(--text-muted-color);
+	font-size: 10px;
+	line-height: 1.6;
+	white-space: nowrap;
+}
+
+.wt-chat-msg:hover .wt-chat-gutter-time {
+	visibility: visible;
+}
+
+.wt-chat-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.wt-chat-head {
+	display: flex;
+	align-items: baseline;
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+.wt-chat-author {
+	overflow: hidden;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wt-chat-time {
+	flex-shrink: 0;
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.wt-chat-body {
+	line-height: 1.55;
+	overflow-wrap: anywhere;
+}
+
+.wt-chat-body p,
+.wt-chat-body ul,
+.wt-chat-body blockquote,
+.wt-chat-body pre {
+	margin: 0;
+}
+
+.wt-chat-body p + p,
+.wt-chat-body p + ul,
+.wt-chat-body ul + p,
+.wt-chat-body * + blockquote,
+.wt-chat-body blockquote + *,
+.wt-chat-body * + pre,
+.wt-chat-body pre + * {
+	margin-top: 0.375rem;
+}
+
+.wt-chat-body ul {
+	padding-left: 1.25rem;
+}
+
+.wt-chat-body blockquote {
+	padding-left: 0.625rem;
+	border-left: 3px solid var(--menu-divider-color);
+	color: var(--text-soft-color);
+}
+
+.wt-chat-body code {
+	padding: 0.05rem 0.25rem;
+	border-radius: 4px;
+	background: var(--badge-bg);
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+}
+
+.wt-chat-body pre {
+	padding: 0.5rem 0.625rem;
+	border-radius: 6px;
+	background: var(--badge-bg);
+	overflow-x: auto;
+}
+
+.wt-chat-body pre code {
+	padding: 0;
+	background: none;
+	white-space: pre;
+}
+
+.wt-chat-body a {
+	color: var(--primary-color);
+}
+
+.wt-chat-edited {
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.wt-chat-deleted {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	color: var(--text-muted-color);
+	font-style: italic;
+}
+
+/* --- attachments and links of a message --- */
+
+.wt-chat-files {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0.25rem;
+	margin-top: 0.375rem;
+}
+
+.wt-chat-file,
+.wt-chat-link {
+	max-width: min(100%, 28rem);
+	border: 1px solid var(--island-border-color);
+	border-radius: 8px;
+	background: var(--body-bg);
+	overflow: hidden;
+}
+
+.wt-chat-file-preview {
+	display: block;
+	max-width: 100%;
+	max-height: 15rem;
+	cursor: pointer;
+}
+
+.wt-chat-file-row,
+.wt-chat-link {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+	padding: 0.25rem 0.75rem 0.25rem 0.625rem;
+}
+
+.wt-chat-file-row > .bi,
+.wt-chat-link > .bi {
+	flex-shrink: 0;
+	color: var(--text-soft-color);
+}
+
+.wt-chat-file-name {
+	min-width: 0;
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--primary-color);
+	font: inherit;
+	text-align: left;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.wt-chat-file-name:hover {
+	text-decoration: underline;
+}
+
+.wt-chat-file-size {
+	flex-shrink: 0;
+	margin-left: auto;
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.wt-chat-link {
+	padding-top: 0.375rem;
+	padding-bottom: 0.375rem;
+}
+
+.wt-chat-link-text {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+}
+
+.wt-chat-link-path {
+	color: var(--text-muted-color);
+	font-size: 11px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wt-chat-link-denied {
+	color: var(--text-muted-color);
+}
+
+/* --- what a message being written carries --- */
+
+.wt-chat-pending {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+	padding: 0.125rem 0.125rem 0.25rem;
+}
+
+.wt-chat-edit .wt-chat-pending {
+	padding: 0.375rem 0 0;
+}
+
+.wt-chat-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	max-width: 18rem;
+	padding: 0.125rem 0.25rem 0.125rem 0.5rem;
+	border-radius: 6px;
+	background: var(--badge-bg);
+	font-size: 12px;
+}
+
+.wt-chat-chip-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wt-chat-chip-meta {
+	flex-shrink: 0;
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.wt-chat-chip-mode {
+	flex-shrink: 0;
+	padding: 0 0.375rem;
+	border: 1px solid var(--input-border-color);
+	border-radius: 9999px;
+	background: none;
+	color: var(--primary-color);
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.wt-chat-chip-x {
+	display: inline-flex;
+	flex-shrink: 0;
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--text-soft-color);
+	cursor: pointer;
+}
+
+.wt-chat-picker {
+	display: none;
+}
+
+.wt-chat-dragover {
+	outline: 2px dashed var(--primary-color);
+	outline-offset: -4px;
+}
+
+.wt-chat-drop {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	background: var(--island-bg);
+	color: var(--primary-color);
+	font-size: 13px;
+	pointer-events: none;
+}
+
+.wt-chat-drop .bi {
+	font-size: 1.75rem;
+}
+
+.wt-chat-edit-attach {
+	margin-right: auto;
+}
+
+/* --- changing one's own message --- */
+
+.wt-chat-actions {
+	position: absolute;
+	top: -0.625rem;
+	right: 0.75rem;
+	display: none;
+	padding: 0.125rem;
+	border: 1px solid var(--island-border-color);
+	border-radius: 6px;
+	background: var(--body-bg);
+	box-shadow: var(--context-menu-shadow);
+}
+
+.wt-chat-msg:hover .wt-chat-actions,
+.wt-chat-actions:focus-within {
+	display: flex;
+}
+
+.wt-chat-edit textarea {
+	display: block;
+	resize: vertical;
+	font: inherit;
+}
+
+.wt-chat-edit-actions,
+.wt-chat-confirm {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.375rem;
+	margin-top: 0.375rem;
+}
+
+.wt-chat-confirm {
+	justify-content: flex-start;
+	color: var(--text-soft-color);
+}
+
+.wt-chat-error {
+	margin: 0.25rem 0;
+	color: var(--danger-color);
+	font-size: 12px;
+}
+
+/* --- new messages below --- */
+
+.wt-chat-new {
+	position: absolute;
+	left: 50%;
+	bottom: 5.5rem;
+	transform: translateX(-50%);
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	padding: 0.25rem 0.75rem;
+	border: none;
+	border-radius: 9999px;
+	background: var(--primary-color);
+	color: var(--button-primary-color);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	box-shadow: var(--context-menu-shadow);
+}
+
+/* --- posting --- */
+
+.wt-chat-mentions {
+	display: flex;
+	flex-direction: column;
+	margin-bottom: 0.25rem;
+	padding: 0.25rem;
+	border: 1px solid var(--island-border-color);
+	border-radius: 8px;
+	background: var(--body-bg);
+	box-shadow: var(--context-menu-shadow);
+}
+
+.wt-chat-mentions-item {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.5rem;
+	border: none;
+	border-radius: 6px;
+	background: none;
+	color: var(--text-color);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.wt-chat-mentions-item.active,
+.wt-chat-mentions-item:hover {
+	background: var(--item-hover-bg);
+}
+
+.wt-chat-mentions-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wt-chat-mentions-id {
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.wt-chat-composer {
+	flex-shrink: 0;
+	padding: 0 1rem 0.5rem;
+}
+
+.wt-chat-composer-box {
+	display: flex;
+	flex-direction: column;
+	padding: 0.25rem;
+	border: 1px solid var(--input-border-color);
+	border-radius: 10px;
+	background: var(--input-bg);
+}
+
+.wt-chat-composer-box:focus-within {
+	border-color: var(--input-focus-border-color);
+	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
+}
+
+.wt-chat-composer-row {
+	display: flex;
+	align-items: flex-end;
+	gap: 0.25rem;
+}
+
+.wt-chat-attach {
+	flex-shrink: 0;
+}
+
+.wt-chat-composer-box textarea {
+	flex: 1;
+	min-width: 0;
+	padding: 0.3rem 0.25rem;
+	border: none;
+	outline: none;
+	background: none;
+	color: var(--text-color);
+	font: inherit;
+	line-height: 1.5;
+	resize: none;
+}
+
+.wt-chat-send {
+	flex-shrink: 0;
+	color: var(--primary-color);
+}
+
+.wt-chat-send:disabled {
+	color: var(--text-muted-color);
+}
+
+.wt-chat-hint {
+	padding: 0.25rem 0.25rem 0;
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.wt-chat-closed {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	flex-shrink: 0;
+	padding: 0.75rem 1rem;
+	border-top: 1px solid var(--island-border-color);
+	color: var(--text-muted-color);
+	font-size: 12px;
+}
+
+@media print {
+	/* What is not for paper: the box to post into, the edit and delete
+	   buttons, and the buttons on the attachments and links. The name of a
+	   file stays; where it leads does not. */
+	.wt-chat-composer,
+	.wt-chat-mentions,
+	.wt-chat-drop,
+	.wt-chat-closed,
+	.wt-chat-actions,
+	.wt-chat-new,
+	.wt-chat-file-row .btn-icon,
+	.wt-chat-link button.wt {
+		display: none !important;
+	}
+
+	.wt-chat-scroll {
+		overflow: visible;
+	}
+
+	/* On paper the thread is as long as its messages. */
+	wt-chat-thread,
+	.wt-chat-thread {
+		display: block;
+	}
+}

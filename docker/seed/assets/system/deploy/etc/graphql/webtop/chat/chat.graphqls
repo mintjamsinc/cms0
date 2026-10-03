@@ -1,0 +1,236 @@
+# Webtop Chat app (webtop/src/webtop/apps/chat).
+#
+# A conversation is a channel or the conversation of a file; both are read and
+# written through the same fields, addressed by a ChatRef. The logic is in
+# webtop.chat.ChatApi (/usr/local/classes/webtop/chat).
+#
+# These mutations are the only way to write a conversation: each one checks
+# what the caller may do and then writes as the chat service user. The caller
+# holds no write access to /var/lib/chat (provisioning/chat.yml).
+#
+# There is no subscription here. A client watches `watchPath` with the
+# platform's nodeChanged and reads again when something under it changes.
+
+"""Names a conversation: give exactly one of the two."""
+input ChatRef {
+  channelId: ID
+  """The identifier of a file (Node.id)."""
+  fileId: ID
+}
+
+type ChatChannel {
+  id: ID!
+  title: String!
+  description: String
+  """public, private or dm (the direct messages of two users)."""
+  kind: String!
+  """An archived channel can be read but not posted to."""
+  archived: Boolean!
+  """Whether the caller administers the channel."""
+  isAdmin: Boolean!
+  """Whether the caller added the channel to the sidebar (public channels)."""
+  following: Boolean!
+  """For a dm: the other user. The title is that user's name."""
+  peerId: ID
+  """The folder to watch with nodeChanged (deep) for new and changed messages."""
+  watchPath: String!
+  lastMessageAt: DateTime
+  """How far the caller has read; unread when lastMessageAt is later."""
+  readAt: DateTime
+}
+
+type ChatMember {
+  """The user id or the group id; `everyone` in a public channel."""
+  id: ID!
+  displayName: String
+  isGroup: Boolean!
+  isAdmin: Boolean!
+}
+
+"""The file or folder a conversation is about."""
+type ChatFile {
+  """Its identifier (Node.id), which a move or a rename does not change."""
+  id: ID!
+  name: String!
+  """Where it is now."""
+  path: String!
+  mimeType: String
+  isCollection: Boolean!
+}
+
+type ChatConversation {
+  channelId: ID
+  fileId: ID
+  channel: ChatChannel
+  """The file the conversation is about, for the conversation of a file."""
+  file: ChatFile
+  """
+  The principals granted on the channel. Empty for the conversation of a file,
+  which is read by whoever can read the file.
+  """
+  members: [ChatMember!]!
+  canPost: Boolean!
+  """Whether the conversation is in the caller's sidebar."""
+  following: Boolean!
+  """
+  What to watch with nodeChanged (deep). For a channel, its folder: a change
+  under messages/ is a message. For the conversation of a file, a folder that
+  gets an empty child whenever the conversation changes.
+  """
+  watchPath: String!
+  lastMessageAt: DateTime
+  readAt: DateTime
+}
+
+type ChatMessage {
+  """Sorts in the order the messages were posted."""
+  id: ID!
+  """The user id of the author."""
+  author: String
+  authorName: String
+  postedAt: DateTime!
+  editedAt: DateTime
+  """A deleted message keeps its place and has no body."""
+  deleted: Boolean!
+  """user or system."""
+  kind: String!
+  """Markdown."""
+  body: String!
+  """Whether the caller is the author."""
+  mine: Boolean!
+  """The user ids written as @name in the body."""
+  mentions: [String!]!
+  """Copies kept with the message; readable by whoever reads the conversation."""
+  attachments: [ChatAttachment!]!
+  """References to files and folders, as the caller's own session reads them."""
+  links: [ChatLink!]!
+}
+
+"""A file copied next to the message when it was posted: a snapshot."""
+type ChatAttachment {
+  name: String!
+  path: String!
+  mimeType: String
+  size: Long
+}
+
+"""
+A reference to a file or folder, by identifier, so it survives a move or a
+rename. It gives no access: for a caller who cannot read what is linked,
+`accessible` is false and nothing else is told, not even the name.
+"""
+type ChatLink {
+  """The identifier of the file or folder (Node.id)."""
+  id: ID!
+  accessible: Boolean!
+  name: String
+  """Where it is now."""
+  path: String
+  mimeType: String
+  isCollection: Boolean
+}
+
+"""A file uploaded into /home/users/<user>/chat/uploads/<draftId>/<key>."""
+input ChatUploadInput {
+  key: ID!
+  """The name the attachment gets."""
+  name: String!
+}
+
+type ChatMessagePage {
+  """Oldest first."""
+  items: [ChatMessage!]!
+  """Whether there are older messages before the page."""
+  hasMore: Boolean!
+  """Whether there are newer messages after the page."""
+  hasMoreAfter: Boolean!
+}
+
+"""A message found by chatSearch, with the conversation it is in."""
+type ChatSearchHit {
+  channelId: ID
+  fileId: ID
+  channel: ChatChannel
+  file: ChatFile
+  message: ChatMessage!
+}
+
+type ChatSearchPage {
+  """Newest first."""
+  items: [ChatSearchHit!]!
+  hasMore: Boolean!
+  """To pass as `after` for the next page; null on the last."""
+  cursor: String
+}
+
+input ChatChannelInput {
+  title: String!
+  description: String
+  """public or private (default)."""
+  kind: String
+}
+
+input ChatChannelUpdateInput {
+  title: String
+  description: String
+  """Replaces the administrators when given; at least one user."""
+  admins: [ID!]
+}
+
+extend type Query {
+  """The channels of the caller's sidebar: the private channels the caller
+  takes part in and the public channels the caller added."""
+  chatChannels: [ChatChannel!]!
+  """The channels to pick from, narrowed to those whose name or description
+  contains the keyword: the public channels and, with includeArchived, also
+  the archived private channels the caller takes part in."""
+  chatPublicChannels(keyword: String, includeArchived: Boolean = false): [ChatChannel!]!
+  chatConversation(ref: ChatRef!): ChatConversation!
+  """The conversations of files in the caller's sidebar, the most recently
+  active first: those the caller posted to or added."""
+  chatFollowedThreads: [ChatConversation!]!
+  """The latest messages, those before a message, those after a message, or
+  those around a message (which is then in the page)."""
+  chatMessages(ref: ChatRef!, before: ID, after: ID, around: ID, first: Int = 50): ChatMessagePage!
+  """Messages whose text contains every word: in the channels the caller
+  takes part in, and in the conversations of the files the caller can read."""
+  chatSearch(text: String!, first: Int = 20, after: String): ChatSearchPage!
+  """The folder to watch with nodeChanged (deep) for mentions of the caller:
+  a mark is added under it whenever a message names the caller as @user."""
+  chatMentionWatchPath: String!
+}
+
+extend type Mutation {
+  """Anyone can create a channel; the creator is its first administrator."""
+  chatCreateChannel(input: ChatChannelInput!): ChatChannel!
+  chatUpdateChannel(channelId: ID!, input: ChatChannelUpdateInput!): ChatChannel!
+  """An archived channel leaves every sidebar and takes no more messages."""
+  chatArchiveChannel(channelId: ID!, archived: Boolean!): ChatChannel!
+  """Lets users and groups into a private channel."""
+  chatAddMembers(channelId: ID!, principals: [ID!]!): ChatConversation!
+  chatRemoveMembers(channelId: ID!, principals: [ID!]!): ChatConversation!
+  chatLeaveChannel(channelId: ID!): Boolean!
+  """The direct messages with the user: a dm channel of the two, created the
+  first time. Always the same one for the same two users."""
+  chatOpenDirectMessage(userId: ID!): ChatChannel!
+  """
+  Posts a message. The body may be empty when something is attached or linked.
+  uploads: files the caller uploaded for this message (draftId names their
+  folder), moved next to the message. copies: identifiers of repository files
+  to attach a copy of. links: identifiers of files or folders to link. The
+  caller must be able to read whatever is copied or linked.
+  """
+  chatPostMessage(ref: ChatRef!, body: String!, draftId: ID, uploads: [ChatUploadInput!], copies: [ID!], links: [ID!]): ChatMessage!
+  """
+  The author's own messages only. uploads and copies are added to the
+  attachments, removeAttachments names those to take off, and links, when
+  given, replaces the links of the message.
+  """
+  chatEditMessage(ref: ChatRef!, messageId: ID!, body: String!, draftId: ID, uploads: [ChatUploadInput!], copies: [ID!], links: [ID!], removeAttachments: [String!]): ChatMessage!
+  chatDeleteMessage(ref: ChatRef!, messageId: ID!): ChatMessage!
+  """Remembers that the caller has read the conversation up to now."""
+  chatMarkRead(ref: ChatRef!): DateTime!
+  """Adds the conversation to the caller's sidebar."""
+  chatFollow(ref: ChatRef!): Boolean!
+  chatUnfollow(ref: ChatRef!): Boolean!
+}

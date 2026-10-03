@@ -26,6 +26,26 @@
 		<!-- Panel Header -->
 		<div class="detail-panel-header">
 			<span class="detail-panel-title">{{ panelTitle }}</span>
+			<!-- Details / Conversation, for a single file or folder. The
+			     conversation is the same one the Chat app shows for the item. -->
+			<div v-if="conversationAvailable" class="detail-panel-tabs">
+				<button type="button" class="detail-panel-tab" :class="{ active: inspectorTab !== 'conversation' }" @click="showDetailsTab">
+					{{ t('webtop.inspector.tab.details', undefined, 'Details') }}
+				</button>
+				<button type="button" class="detail-panel-tab" :class="{ active: inspectorTab === 'conversation' }" @click="showConversationTab">
+					{{ t('webtop.inspector.tab.conversation', undefined, 'Conversation') }}
+					<span v-if="conversationUnread" class="detail-panel-tab-dot" :title="t('webtop.inspector.tab.unread', undefined, 'Unread messages')"></span>
+				</button>
+			</div>
+		</div>
+
+		<!-- The conversation of the item, in place of the node view -->
+		<div v-if="conversationShown" class="detail-panel-content detail-conversation">
+			<wt-chat-thread
+				:conversation="conversationRef"
+				:api="conversationApi"
+				:localization="localization"
+				@read="onConversationRead"></wt-chat-thread>
 		</div>
 
 		<!-- Host pane (viewOptions.pane): the host's own body in place of the
@@ -36,7 +56,7 @@
 		</div>
 
 		<!-- Regular Inspector view (hidden while a host pane or the version history is open) -->
-		<template v-if="!paneActive && !detailVersionHistoryVisible">
+		<template v-if="!paneActive && !detailVersionHistoryVisible && !conversationShown">
 
 		<!-- No Selection State -->
 		<div v-if="!singleTarget && multiTargets.length === 0" class="detail-panel-empty">
@@ -614,7 +634,7 @@
 							@row-menu="openAclOwnMenu($event.detail)">
 							<template v-slot="b">
 								<div v-if="aclDialog.pendingEntries.length > 0" class="detail-acl">
-									<div v-for="entry in aclDialog.pendingEntries" :key="aclEntryKey(entry)" class="detail-acl-entry">
+									<div v-for="entry in aclDialog.pendingEntries" :key="entry.key" class="detail-acl-entry">
 										<div class="detail-acl-principal">
 											<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id || entry.principal }}
 										</div>
@@ -637,7 +657,7 @@
 							@row-menu="openAclInheritedMenu(policy, $event.detail)">
 							<template v-slot="b">
 								<div class="detail-acl">
-									<div v-for="entry in policy.entries" :key="aclEntryKey(entry)" class="detail-acl-entry">
+									<div v-for="(entry, index) in policy.entries" :key="index" class="detail-acl-entry">
 										<div class="detail-acl-principal">
 											<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id }}
 										</div>
@@ -1198,13 +1218,22 @@
 							<span class="text-break">{{ singleTarget && singleTarget.path }}</span>
 						</div>
 
-						<!-- The item's own entries -->
+						<!-- The item's own entries, in evaluation order -->
 						<div>
+							<div v-if="aclDialog.draftEntries.length > 0" class="detail-acl-order-hint">
+								<i class="bi bi-info-circle me-1"></i>{{ t('webtop.inspector.acl.orderHint', undefined, 'Lower entries take precedence.') }}
+							</div>
 							<div v-if="aclDialog.draftEntries.length > 0" class="detail-acl">
-								<div v-for="entry in aclDialog.draftEntries" :key="aclEntryKey(entry)" class="detail-acl-entry">
+								<div v-for="(entry, index) in aclDialog.draftEntries" :key="entry.key" class="detail-acl-entry">
 									<div class="detail-acl-principal d-flex align-items-center">
 										<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id || entry.principal }}
-										<button class="filter-input-clear-sm ms-auto" @click="deleteAclEntry(entry)" :disabled="aclDialog.isSaving" :title="t('common.delete')">
+										<button class="filter-input-clear-sm ms-auto" @click="moveAclEntry(index, -1)" :disabled="aclDialog.isSaving || index === 0" :title="t('webtop.inspector.acl.moveUp', undefined, 'Move up')">
+											<i class="bi bi-chevron-up"></i>
+										</button>
+										<button class="filter-input-clear-sm" @click="moveAclEntry(index, 1)" :disabled="aclDialog.isSaving || index === aclDialog.draftEntries.length - 1" :title="t('webtop.inspector.acl.moveDown', undefined, 'Move down')">
+											<i class="bi bi-chevron-down"></i>
+										</button>
+										<button class="filter-input-clear-sm" @click="deleteAclEntry(index)" :disabled="aclDialog.isSaving" :title="t('common.delete')">
 											<i class="bi bi-x"></i>
 										</button>
 									</div>

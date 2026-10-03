@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chat Maintenance — Result</title>
+<style>
+	[v-cloak] { display: none; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ t('result.title', null, 'Chat Maintenance Result') }}</h1>
+		<p class="wt-form-subtitle">{{ t('result.subtitle', null, 'What the run removed in this workspace.') }}</p>
+	</div>
+
+	<div class="wt-form-body">
+		<table v-if="summary" class="wt wt-rows">
+			<tbody>
+				<tr><td>{{ t('result.days', null, 'Days of messages removed') }}</td><td style="text-align: right">{{ summary.days }}</td></tr>
+				<tr><td>{{ t('result.conversations', null, 'Conversations they were removed from') }}</td><td style="text-align: right">{{ summary.conversations }}</td></tr>
+				<tr><td>{{ t('result.signalDays', null, 'Days of signals removed') }}</td><td style="text-align: right">{{ summary.signalDays }}</td></tr>
+				<tr><td>{{ t('result.mentionDays', null, 'Days of mention marks removed') }}</td><td style="text-align: right">{{ summary.mentionDays }}</td></tr>
+				<tr><td>{{ t('result.orphans', null, 'Conversations of deleted files removed') }}</td><td style="text-align: right">{{ summary.orphans }}</td></tr>
+				<tr v-if="summary.errors"><td class="text-danger">{{ t('result.errors', null, 'Folders that could not be removed (see the server log)') }}</td><td class="text-danger" style="text-align: right">{{ summary.errors }}</td></tr>
+			</tbody>
+		</table>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<div class="wt-form-actions">
+			<button class="wt wt-primary" :disabled="busy" @click="onClose">{{ t('result.close', null, 'Complete task') }}</button>
+		</div>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.webtop.chat.';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	const App = {
+		data() {
+			return {
+				summary: null,
+				busy: false,
+				errorMessage: '',
+				i18nRevision: 0,
+			};
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			async onMounted() {
+				try {
+					const ctx = host.context || {};
+					this.applyTheme(ctx.theme || host.theme);
+					this.applyLocalization(ctx.localization || host.localization);
+					this._unsubscribe = host.subscribe((type, payload) => {
+						if (type === 'theme') this.applyTheme(payload);
+						else if (type === 'localization') this.applyLocalization(payload);
+					});
+					if (ctx.mode !== 'task' || !ctx.task) {
+						this.errorMessage = this.t('result.openFromTask', null, 'Open this form from the "Chat Maintenance Result" task.');
+						return;
+					}
+					const variables = await host.getProcessVariables();
+					for (const v of variables || []) {
+						if (v.name === 'result' && v.value) {
+							try { this.summary = JSON.parse(String(v.value)); } catch { this.summary = null; }
+						}
+					}
+					if (!this.summary) {
+						this.errorMessage = this.t('result.missing', null, 'The run left no result.');
+					}
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					host.notifyReady();
+				}
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+			},
+			async onClose() {
+				this.busy = true;
+				try {
+					await host.completeTask([]);
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					this.busy = false;
+				}
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

@@ -75,6 +75,14 @@ copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/mail.xml" "${SEED_
 copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/webtop/mail" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/mail"
 copy_tree "${SEED_ASSETS}/system/deploy/usr/local/classes/webtop/mail" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/mail"
 copy_tree "${SEED_ASSETS}/system/provisioning/mail.yml" "${SEED_ASSETS}/workspace/provisioning/mail.yml"
+# chat app: Server-side assets
+copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/chat.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/chat.xml"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/chat"
+copy_tree "${SEED_ASSETS}/system/deploy/usr/local/classes/webtop/chat" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/chat"
+copy_tree "${SEED_ASSETS}/system/provisioning/chat.yml" "${SEED_ASSETS}/workspace/provisioning/chat.yml"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/processes/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/bpm/processes/webtop/chat"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/scripts/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/bpm/scripts/webtop/chat"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/forms/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/bpm/forms/webtop/chat"
 
 echo "OK: seed assets laid down from ${WEBTOP_DIST}"
 echo "  system:    $(find "${SEED_ASSETS}/system" -type f | wc -l) files"

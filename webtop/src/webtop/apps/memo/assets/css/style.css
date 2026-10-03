@@ -582,6 +582,68 @@
 	box-shadow: 0 0 0 2px var(--primary-color);
 }
 
+/* ----------------------------------------------------------------------------
+ * Conversation block (chat-view.ts): a heading and the shared wt-chat-thread.
+ * -------------------------------------------------------------------------- */
+
+.memo-chat {
+	margin: 1rem 0;
+	border: 1px solid var(--input-border-color);
+	border-radius: 0.5rem;
+	overflow: hidden;
+	box-sizing: border-box;
+}
+
+.memo-chat.is-selected {
+	box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.memo-chat-head {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+	padding: 0.25rem 0.375rem 0.25rem 0.75rem;
+	border-bottom: 1px solid var(--island-border-color);
+	background: var(--navbar-bg);
+	font-size: 13px;
+	user-select: none;
+}
+
+/* A repository file held over the heading: dropping it shows its conversation. */
+.memo-chat-head.is-drop {
+	outline: 2px dashed var(--primary-color);
+	outline-offset: -2px;
+}
+
+.memo-chat-head > .bi {
+	flex-shrink: 0;
+	color: var(--text-soft-color);
+}
+
+.memo-chat-title {
+	min-width: 0;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.memo-chat-spacer {
+	flex: 1;
+}
+
+.memo-chat-thread > wt-chat-thread {
+	height: 24rem;
+}
+
+.memo-chat-empty {
+	padding: 1.5rem 1rem;
+	color: var(--text-muted-color);
+	font-size: 13px;
+	text-align: center;
+}
+
 /* The header shows only while the cursor is in the block (.is-active); it is
    one small row: view switch, the view's controls, the block menu. */
 .memo-dataset-header {
@@ -1428,6 +1490,24 @@ textarea.memo-dataset-input {
 
 	.memo-dataset.is-selected {
 		box-shadow: none;
+	}
+
+	/* The conversation as it stands, at its full length; the heading's buttons
+	   stay off the page (the box to post into is hidden by the thread). */
+	.memo-chat {
+		overflow: visible;
+	}
+
+	.memo-chat.is-selected {
+		box-shadow: none;
+	}
+
+	.memo-chat-head .btn-icon {
+		display: none !important;
+	}
+
+	.memo-chat-thread > wt-chat-thread {
+		height: auto;
 	}
 
 	/* The table is the page width, and the columns keep the proportions set

@@ -1,0 +1,30 @@
+{
+	"webtop.chat.empty": "No messages yet.",
+	"webtop.chat.start": "This is the start of the conversation.",
+	"webtop.chat.newMessages": "New messages",
+	"webtop.chat.toLatest": "Jump to the latest",
+	"webtop.chat.archived": "This channel is archived. It can be read but not posted to.",
+	"webtop.chat.readOnly": "You cannot post to this conversation.",
+
+	"webtop.chat.message.deleted": "This message was deleted.",
+	"webtop.chat.message.edited": "(edited)",
+	"webtop.chat.message.edit": "Edit",
+	"webtop.chat.message.deleteConfirm": "Delete this message?",
+
+	"webtop.chat.composer.placeholder": "Write a message",
+	"webtop.chat.composer.send": "Send (Enter)",
+	"webtop.chat.composer.hint": "Enter to send, Shift+Enter for a new line",
+
+	"webtop.chat.attach.pick": "Attach files",
+	"webtop.chat.attach.drop": "Drop files to add them to the message",
+	"webtop.chat.attach.download": "Download",
+	"webtop.chat.attach.asLink": "Link",
+	"webtop.chat.attach.asCopy": "Copy",
+	"webtop.chat.attach.modeHint": "A link shows the file as it is now, to those who can read it. A copy is a snapshot everyone in the conversation can read.",
+	"webtop.chat.attach.tooMany": "A message can carry up to {max} attachments.",
+	"webtop.chat.attach.failed": "{name} could not be attached: {error}",
+	"webtop.chat.link.open": "Open",
+	"webtop.chat.link.reveal": "Show in folder",
+	"webtop.chat.link.denied": "You do not have access to this file.",
+	"webtop.chat.link.tooMany": "A message can carry up to {max} links."
+}

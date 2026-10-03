@@ -31,6 +31,8 @@
 //               NOTE: bound as `:view-options` — the attribute name `options`
 //               is reserved by ichigojs for directive options, so a plain
 //               `:options` binding is silently ignored.
+//               `conversation: false` takes away the Conversation tab, which
+//               is otherwise offered for every single file or folder.
 //     width   — optional pixel width applied to the panel root
 //   slots:
 //     pane    — the host's own panel body, shown while viewOptions.pane is
@@ -62,6 +64,11 @@ import { MimeTypes } from '../utils/mime-types.js';
 import { Encodings } from '../utils/encodings.js';
 import { Dates } from '../utils/dates.js';
 import { drawSpectrum } from '../lib/spectrum-canvas.js';
+import { BUILD_VERSION } from '../utils/build-version.js';
+import { createGraphQLClient } from '../graphql/client.js';
+import { ChatServiceGraphQL, chatIsUnread } from '../services/chat-service-graphql.js';
+// Side-effect import: registers the <wt-chat-thread> the Conversation tab shows.
+import { loadChatThreadTemplate } from './wt-chat-thread.js';
 import { isFolderNode, type Node, type Dataset, type DatasetProperty } from '../graphql/types.js';
 import type { LocalizationSnapshot } from '../composables/use-localization.js';
 import { translate, createLocalizationSnapshot } from '../composables/use-localization.js';
@@ -109,6 +116,10 @@ const TAG_SUGGESTIONS = 12;
 // Known tags come from a count facet over every file the user can read; the
 // statement fetches no node (see ContentServiceGraphQL.xpathFacets).
 const KNOWN_TAGS_STATEMENT = `//element(*, nt:file) facet accumulate top(@${TAGS_PROPERTY}, 200)`;
+
+// Access control entries in the editor get a key of their own: a principal may
+// have several entries, even with the same effect, so no field identifies one.
+let aclEntrySeq = 0;
 
 // CodeMirror theme, highlight palette, linters, structured-text formatter and
 // language resolution now live in lib/codemirror-helpers.ts (shared with the
@@ -460,6 +471,8 @@ defineComponent('wt-inspector', {
 				messageListener: null as ((e: MessageEvent) => void) | null,
 				keydownListener: null as ((e: KeyboardEvent) => void) | null,
 				lastCommandNonce: 0,
+				conversationTimer: null as ReturnType<typeof setTimeout> | null,
+				conversationSeq: 0,
 				targetReloadSeq: 0,
 				aclReloadSeq: 0,
 				// The path the panel last loaded for, to tell a new target from
@@ -488,6 +501,17 @@ defineComponent('wt-inspector', {
 			}),
 			// Tick bumped when i18n bundles change so validation computeds re-run.
 			_i18nTick: 0,
+			// Details / Conversation. The conversation is the target's own, by
+			// its identifier; the tab stays chosen while the selection moves
+			// from one item to the next.
+			inspectorTab: 'details' as 'details' | 'conversation',
+			// Set once the thread's template and stylesheet are in the page.
+			conversationReady: false,
+			// What <wt-chat-thread> works with; built on first use, marked raw.
+			conversationApi: null as any,
+			// The reference handed to the thread; replaced only when the target is another item.
+			conversationRef: null as { fileId: string } | null,
+			conversationUnread: false,
 			// Available metadata schemas (loaded from the shell cache).
 			availableSchemas: [] as any[],
 			// The dataset the target row belongs to, as a schema in the same shape
@@ -558,9 +582,9 @@ defineComponent('wt-inspector', {
 				visible: false,
 				isSaving: false,
 				errorMessage: '',
-				draftEntries: [] as { principal: any; privileges: string[]; allow: boolean }[],
-				pendingEntries: [] as { principal: any; privileges: string[]; allow: boolean }[],
-				originalEntries: [] as { principal: any; privileges: string[]; allow: boolean }[],
+				draftEntries: [] as { key: number; principal: any; privileges: string[]; allow: boolean }[],
+				pendingEntries: [] as { key: number; principal: any; privileges: string[]; allow: boolean }[],
+				originalEntries: [] as { key: number; principal: any; privileges: string[]; allow: boolean }[],
 				addEntry: {
 					visible: false,
 					allow: true,
@@ -699,6 +723,15 @@ defineComponent('wt-inspector', {
 		// node sections and overlays step aside and the `pane` slot shows.
 		paneActive(this: any): boolean {
 			return !!this.viewOptions?.pane;
+		},
+		// Whether the Conversation tab is offered: a single file or folder, no
+		// host pane, and the host did not turn it off.
+		conversationAvailable(this: any): boolean {
+			return !!this.singleTarget?.id && !this.paneActive && !this.detailVersionHistoryVisible &&
+				this.viewOptions?.conversation !== false && !!this.api?.eventHub;
+		},
+		conversationShown(this: any): boolean {
+			return this.conversationAvailable && this.inspectorTab === 'conversation' && this.conversationReady && !!this.conversationRef;
 		},
 		// The header title while a host pane is shown: the pane's own title, or
 		// the Inspector's when it gives none.
@@ -972,6 +1005,7 @@ defineComponent('wt-inspector', {
 			}
 			this.resubscribeNodeWatch();
 			this.loadDetailData();
+			this.onConversationTargetChanged();
 		},
 		// Host-issued imperative command (open an overlay, etc.). The host
 		// bumps a nonce so repeated identical actions still re-trigger.
@@ -992,6 +1026,94 @@ defineComponent('wt-inspector', {
 		t(this: any, messageId: string, params?: Record<string, any>, fallback?: string): string {
 			return translate(this.localization || createLocalizationSnapshot(), undefined, messageId, params, fallback);
 		},
+		// =====================================================================
+		// Conversation tab
+		// =====================================================================
+
+		/**
+		 * What the thread needs, built on first use: the Chat service of the
+		 * workspace the host works in, the host's event stream and content
+		 * service, and whose home uploads go to.
+		 */
+		conversationServices(this: any): any {
+			if (!this.conversationApi) {
+				const workspace = this.api.eventHub.workspace;
+				this.conversationApi = this.$markRaw({
+					chat: new ChatServiceGraphQL(createGraphQLClient(workspace)),
+					eventHub: this.api.eventHub,
+					content: this.api.content,
+					workspace,
+					userId: (window.parent as any)?.Webtop?.currentUser?.id || '',
+				});
+			}
+			return this.conversationApi;
+		},
+		showDetailsTab(this: any) {
+			this.inspectorTab = 'details';
+			this.checkConversationUnread();
+		},
+		/** Opens the Conversation tab; the thread's template and styles are fetched the first time. */
+		async showConversationTab(this: any) {
+			const vm = this;
+			vm.inspectorTab = 'conversation';
+			vm.conversationUnread = false;
+			vm.conversationServices();
+			vm.syncConversationRef();
+			if (vm.conversationReady) return;
+			try {
+				if (!document.querySelector('link[data-wt-chat-thread]')) {
+					const link = document.createElement('link');
+					link.rel = 'stylesheet';
+					link.href = new URL(`../../components/wt-chat-thread.css?v=${BUILD_VERSION}`, document.baseURI).href;
+					link.dataset.wtChatThread = '';
+					document.head.appendChild(link);
+				}
+				await loadChatThreadTemplate();
+				vm.conversationReady = true;
+			} catch (e) {
+				console.warn('[wt-inspector] The conversation could not be shown:', e);
+				vm.inspectorTab = 'details';
+			}
+		},
+		/** Points the thread at the target, keeping the reference while the target is the same item. */
+		syncConversationRef(this: any) {
+			const id = this.singleTarget?.id || '';
+			if (!id) {
+				this.conversationRef = null;
+			} else if (this.conversationRef?.fileId !== id) {
+				this.conversationRef = { fileId: id };
+			}
+		},
+		onConversationTargetChanged(this: any) {
+			const vm = this;
+			vm.syncConversationRef();
+			vm.conversationUnread = false;
+			if (vm._.conversationTimer) clearTimeout(vm._.conversationTimer);
+			// The selection may be moving through a list: ask once it rests.
+			vm._.conversationTimer = setTimeout(() => {
+				vm._.conversationTimer = null;
+				vm.checkConversationUnread();
+			}, 400);
+		},
+		/** Marks the Conversation tab when the target's conversation has messages not yet read. */
+		async checkConversationUnread(this: any) {
+			const vm = this;
+			const id = vm.singleTarget?.id || '';
+			if (!id || !vm.conversationAvailable || vm.inspectorTab === 'conversation') return;
+			const seq = ++vm._.conversationSeq;
+			try {
+				const conversation = await vm.conversationServices().chat.getConversation({ fileId: id });
+				if (seq !== vm._.conversationSeq || vm.singleTarget?.id !== id) return;
+				vm.conversationUnread = vm.inspectorTab !== 'conversation' && chatIsUnread(conversation);
+			} catch {
+				// No Chat in this workspace, or the item cannot be read: no mark.
+				if (seq === vm._.conversationSeq) vm.conversationUnread = false;
+			}
+		},
+		onConversationRead(this: any) {
+			this.conversationUnread = false;
+		},
+
 		onMounted(this: any, $ctx: any) {
 			const vm = this;
 			vm._.el = $ctx?.element || null;
@@ -1038,6 +1160,7 @@ defineComponent('wt-inspector', {
 			vm.loadAvailableSchemas();
 			vm.resubscribeNodeWatch();
 			vm.loadDetailData();
+			vm.onConversationTargetChanged();
 			// Act on a command that was set before the component mounted (e.g.
 			// the host opened the panel and asked for the permissions dialog
 			// in the same tick).
@@ -1056,6 +1179,10 @@ defineComponent('wt-inspector', {
 			if (vm._.keydownListener) {
 				document.removeEventListener('keydown', vm._.keydownListener, true);
 				vm._.keydownListener = null;
+			}
+			if (vm._.conversationTimer) {
+				clearTimeout(vm._.conversationTimer);
+				vm._.conversationTimer = null;
 			}
 			if (vm.aclSearchDebounceTimer) {
 				clearTimeout(vm.aclSearchDebounceTimer);
@@ -2560,12 +2687,9 @@ defineComponent('wt-inspector', {
 			]);
 			if (id === 'navigate') vm.emitNavigatePath(policy.path);
 		},
-		aclEntryKey(this: any, entry: any): string {
-			const id = typeof entry.principal === 'object' ? entry.principal.id : entry.principal;
-			return (entry.allow ? 'allow:' : 'deny:') + id;
-		},
 		_cloneAclEntries(this: any, entries: any[]): any[] {
 			return entries.map((e: any) => ({
+				key: ++aclEntrySeq,
 				principal: e.principal,
 				privileges: [...e.privileges],
 				allow: e.allow,
@@ -2759,19 +2883,24 @@ defineComponent('wt-inspector', {
 			}
 
 			vm.aclDialog.draftEntries.push({
+				key: ++aclEntrySeq,
 				principal: { id: principal.trim(), displayName: principalDisplayName || null, isGroup: vm.aclDialog.addEntry.principalIsGroup },
 				privileges: [...privileges],
 				allow,
 			});
 			vm.closeAddAclEntryDialog();
 		},
-		deleteAclEntry(this: any, entry: any) {
-			const vm = this;
-			const key = vm.aclEntryKey(entry);
-			const idx = (vm.aclDialog.draftEntries as any[]).findIndex((e: any) => vm.aclEntryKey(e) === key);
-			if (idx !== -1) {
-				vm.aclDialog.draftEntries.splice(idx, 1);
-			}
+		deleteAclEntry(this: any, index: number) {
+			this.aclDialog.draftEntries.splice(index, 1);
+		},
+		// Entries are evaluated in order, the later ones overriding the earlier,
+		// so where an entry sits decides what it does.
+		moveAclEntry(this: any, index: number, offset: number) {
+			const entries = this.aclDialog.draftEntries;
+			const to = index + offset;
+			if (to < 0 || to >= entries.length) return;
+			const [entry] = entries.splice(index, 1);
+			entries.splice(to, 0, entry);
 		},
 		// The dialog's footer. Without `save` the entries go to the section as
 		// an unsaved change; with it they are written to the server.

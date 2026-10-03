@@ -264,6 +264,14 @@ only for a period set per account, and never deletes mail on the server. Where
 the mail is kept, how the synchronization runs and how to run a pass by hand is
 described in [`documents/webtop-mail.md`](documents/webtop-mail.md).
 
+### Webtop Chat
+
+The Webtop **Chat** app holds conversations in private and public channels,
+kept per workspace. The participants of a channel are the principals that can
+read its folder, and every write goes through a service user. Where the
+conversations are kept and how live updates work is described in
+[`documents/webtop-chat.md`](documents/webtop-chat.md).
+
 ---
 
 ## Platform support

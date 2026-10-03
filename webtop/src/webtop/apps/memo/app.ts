@@ -45,6 +45,11 @@ import {
 	createDatasetViewExtension, DATASET_VIEW_NODE, DATASET_DROP_HANDLER, COLUMN_TYPES, suggestKey, typeIcon,
 	type DatasetPane, type ChoiceDraft, type ColumnDraft,
 } from "./dataset-view.js";
+// Conversation block: a conversation shown inside the memo; see chat-view.ts.
+import { createChatViewExtension, refreshChatViews, CHAT_VIEW_NODE, type ChatThreadApi } from "./chat-view.js";
+import { ChatServiceGraphQL } from "../../services/chat-service-graphql.js";
+// Side-effect import: registers the <wt-chat-thread> the conversation block shows.
+import { loadChatThreadTemplate } from "../../components/wt-chat-thread.js";
 // Block drag handle (the grip in the left gutter); see drag-handle.ts.
 import { createDragHandleExtension } from "./drag-handle.js";
 
@@ -150,6 +155,10 @@ let printRestore: { title: string; theme: string | undefined } | null = null;
 // The reactive mirror is `datasetPane` in data(), which switches the Inspector
 // to the block's pane.
 let activeDatasetPane: DatasetPane | null = null;
+
+// What the conversation blocks' <wt-chat-thread> works with. Module-scoped:
+// the services carry private fields a reactive Proxy cannot call.
+let chatThreadApi: ChatThreadApi | null = null;
 
 // Where a colour picked in the shell swatch grid a dataset block raised goes
 // (see pickDatasetColor). Module-scoped for the same reason: a callback into
@@ -530,10 +539,17 @@ export const App = {
 				// single connectedCallback it gets. Both loads are idempotent
 				// enough for one call per window; appLaunch runs once per iframe.
 				try {
-					await Promise.all([initUi(), loadInspectorTemplate()]);
+					await Promise.all([initUi(), loadInspectorTemplate(), loadChatThreadTemplate()]);
 				} catch (e) {
 					console.warn('[Memo] Failed to load component templates:', e);
 				}
+				chatThreadApi = {
+					chat: new ChatServiceGraphQL(instance.api.graphql),
+					eventHub: instance.api.eventHub,
+					content: instance.api.content,
+					workspace: instance.api.workspace,
+					userId: instance.currentUser?.id || '',
+				};
 
 				// Opening the gate builds the screen. Wait for that DOM before
 				// touching anything inside it ($refs, the editor host).
@@ -958,6 +974,9 @@ export const App = {
 			file.uuid = node.uuid || '';
 			file.modified = nextModified;
 			file.inspectorItem = nodeToInspectorTarget(node);
+			// A memo saved for the first time now has the identifier its
+			// conversation is kept by.
+			refreshChatViews();
 			if (idx === vm.currentFileIndex) {
 				vm.currentFile.mimeType = file.mimeType;
 				vm.currentFile.encoding = file.encoding;
@@ -1090,7 +1109,7 @@ export const App = {
 			pane.deactivate();
 		},
 		// ---- Editor lifecycle ----
-		buildExtensions() {
+		buildExtensions(tabId?: string) {
 			const vm = this;
 			const placeholder = vm.t('app.memo.hint.slash', undefined, "Type '/' for commands, or just start writing…");
 			return [
@@ -1151,6 +1170,20 @@ export const App = {
 					promptRename: (name: string, apply: (name: string) => Promise<void>) => vm.promptDatasetRename(name, apply),
 					editColumn: (column: { name: string } | null, draft: ColumnDraft, apply: (draft: ColumnDraft) => Promise<void>) => vm.promptDatasetColumn(column, draft, apply),
 				}),
+				// Conversation block (see chat-view.ts). The memo's identifier is
+				// that of this editor's own tab, not of whichever tab is in front.
+				createChatViewExtension({
+					api: () => chatThreadApi,
+					popup: () => vm.instance?.popup,
+					t: (key: string, params?: Record<string, any>, fallback?: string) => vm.t(key, params, fallback),
+					localization: () => vm.localization,
+					memoId: () => {
+						const file = (vm.files as MemoFile[]).find((f: MemoFile) => f.id === tabId);
+						const id = file?.inspectorItem?.id || '';
+						// Without an identifier the target falls back to the path, which names no conversation.
+						return id.startsWith('/') ? '' : id;
+					},
+				}),
 				// The grip next to the hovered block that drags it elsewhere.
 				createDragHandleExtension({
 					title: () => vm.t('app.memo.dragHandle', undefined, 'Drag to move, click to select'),
@@ -1199,7 +1232,7 @@ export const App = {
 			mounts.set(file.id, mount);
 			ed = new Editor({
 				element: mount,
-				extensions: vm.buildExtensions(),
+				extensions: vm.buildExtensions(file.id),
 				content,
 				autofocus: false,
 				onUpdate: () => vm.onEditorUpdate(file.id),
@@ -1479,6 +1512,7 @@ export const App = {
 				{ key: 'code', icon: 'bi-code-square', title: vm.t('app.memo.slash.code', undefined, 'Code block'), desc: vm.t('app.memo.slash.codeDesc', undefined, 'Preformatted code'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).toggleCodeBlock().run() },
 				{ key: 'table', icon: 'bi-table', title: vm.t('app.memo.slash.table', undefined, 'Table'), desc: vm.t('app.memo.slash.tableDesc', undefined, '3×3 table with header'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
 				{ key: 'dataset', icon: 'bi-database', title: vm.t('app.memo.slash.dataset', undefined, 'Dataset'), desc: vm.t('app.memo.slash.datasetDesc', undefined, 'Folder of memos as an editable table'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).insertContent({ type: DATASET_VIEW_NODE, attrs: { path: '' } }).run() },
+				{ key: 'chat', icon: 'bi-chat-dots', title: vm.t('app.memo.slash.chat', undefined, 'Conversation'), desc: vm.t('app.memo.slash.chatDesc', undefined, 'The conversation of this memo, live in the page'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).insertContent({ type: CHAT_VIEW_NODE }).run() },
 				{ key: 'divider', icon: 'bi-dash-lg', title: vm.t('app.memo.slash.divider', undefined, 'Divider'), desc: vm.t('app.memo.slash.dividerDesc', undefined, 'Horizontal rule'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).setHorizontalRule().run() },
 			];
 			const q = (query || '').toLowerCase().trim();
@@ -1751,6 +1785,11 @@ export const App = {
 			event.dataTransfer.dropEffect = isFileDrop ? 'copy' : 'none';
 		},
 		async onCenterPaneDrop(event: DragEvent) {
+			// A drop on a conversation block is the block's: on its heading it
+			// picks the conversation, on the messages it goes into a message
+			// (see chat-view.ts and wt-chat-thread). Both handle the event
+			// themselves, and this runs first, in the capture phase.
+			if ((event.target as HTMLElement | null)?.closest?.('[data-chat-view]')) return;
 			const types = event.dataTransfer?.types ?? [];
 			if (types.includes('application/x-webtop-save')) {
 				event.preventDefault();

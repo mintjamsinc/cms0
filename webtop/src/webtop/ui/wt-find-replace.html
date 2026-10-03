@@ -5,7 +5,7 @@
 			<div class="wt-find-replace-field">
 				<input ref="findInput" type="text" class="wt" :value="modelValue"
 					:placeholder="text('findPlaceholder', 'Find...')" spellcheck="false"
-					@input="onTermInput($event.target.value)" @keydown="onTermKeydown($event)">
+					@input="onTermInput($event.target.value)" @change.stop @keydown="onTermKeydown($event)">
 				<button v-if="modelValue" type="button" class="wt-find-replace-clear"
 					@click="clearTerm" :title="text('clear', 'Clear')">
 					<i class="bi bi-x"></i>
@@ -33,7 +33,7 @@
 			<div class="wt-find-replace-field">
 				<input type="text" class="wt" :value="replace"
 					:placeholder="text('replacePlaceholder', 'Replace...')" spellcheck="false"
-					@input="onReplaceInput($event.target.value)" @keydown="onReplaceKeydown($event)">
+					@input="onReplaceInput($event.target.value)" @change.stop @keydown="onReplaceKeydown($event)">
 				<button v-if="replace" type="button" class="wt-find-replace-clear"
 					@click="onReplaceInput('')" :title="text('clear', 'Clear')">
 					<i class="bi bi-x"></i>

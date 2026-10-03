@@ -1,0 +1,80 @@
+# Provisioning for the Webtop Chat app.
+#
+# Every write to a conversation goes through chat-service-user: the GraphQL
+# resolvers (etc/graphql/webtop/chat) check the caller's rights in the caller's
+# session and then write as the service user, so nobody can edit, move or
+# delete a message from the Content Browser.
+#
+#   /var/lib/chat             closed to everyone; the service group owns it
+#   /var/lib/chat/channels    one folder per channel. The participants of a
+#                             channel are the principals granted jcr:read on
+#                             its folder, which the resolvers set
+#   /var/lib/chat/files       the conversations of files, keyed by the file's
+#                             identifier. Nobody is granted anything: they are
+#                             read through the resolvers by whoever can read
+#                             the file
+#   /var/lib/chat/signals     what tells a client that the conversation of a
+#                             file changed: an empty folder per change, under
+#                             the file's identifier, readable by every
+#                             signed-in user. It names no file and holds no
+#                             message
+#   /var/lib/chat/mentions    one folder per user, readable by that user
+#
+# The root of a workspace grants jcr:read to everyone, so the area is closed
+# with an explicit deny. An entry lower down that allows everyone is followed
+# by a deny for anonymous: the allow would otherwise give back what the root
+# denies anonymous.
+#
+# What a user keeps (read positions, the conversations in the sidebar) is in
+# the user's home, /home/users/<user>/chat, written in the user's own session.
+#
+# The maintenance process (etc/bpm/processes/webtop/chat) runs its script as
+# the service user, which must be able to read the script folder. The
+# administrator role of whoever started it is checked inside the script.
+#
+# The chat: namespace names the message and channel properties.
+
+namespaces:
+  - prefix: chat
+    uri: http://www.mintjams.jp/webtop/chat/1.0
+
+groups:
+  - { id: chat-service-group, displayName: Chat Service }
+
+users:
+  - id: chat-service-user
+    service: true
+    displayName: Chat Service
+    memberOf: [chat-service-group]
+
+nodes:
+  - path: /var/lib/chat
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny
+      - group: chat-service-group
+        privileges: jcr:all
+        effect: allow
+  - path: /var/lib/chat/channels
+    primaryType: nt:folder
+  - path: /var/lib/chat/files
+    primaryType: nt:folder
+  - path: /var/lib/chat/signals
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: allow
+      - user: anonymous
+        privileges: jcr:read
+        effect: deny
+  - path: /var/lib/chat/mentions
+    primaryType: nt:folder
+  - path: /etc/bpm/scripts/webtop/chat
+    primaryType: nt:folder
+    acl:
+      - user: chat-service-user
+        privileges: jcr:read
+        effect: allow

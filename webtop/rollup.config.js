@@ -279,6 +279,14 @@ const mailConfig = makeAppConfig('mail', {
   ],
 });
 
+// Chat: attachment.groovy runs on the server next to the app and serves the
+// attachments of conversations the caller cannot fetch from the repository.
+const chatConfig = makeAppConfig('chat', {
+  extraCopyTargets: [
+    { src: 'src/webtop/apps/chat/attachment.groovy', dest: 'dist/webtop/apps/chat' },
+  ],
+});
+
 // Radio: two scripts run on the server next to the app and are copied with
 // the static files. icy.groovy reads the ICY metadata a browser cannot see;
 // stream.groovy relays a plain-http station to an https desktop.
@@ -299,6 +307,7 @@ const specialConfigs = {
   'pdf-viewer': pdfViewerConfig,
   'radio': radioConfig,
   'mail': mailConfig,
+  'chat': chatConfig,
 };
 export const TARGET_NAMES = [
   'webtop',
@@ -321,6 +330,7 @@ export const TARGET_NAMES = [
   'workspace-manager',
   'radio',
   'mail',
+  'chat',
 ];
 
 if (targetFilter) {

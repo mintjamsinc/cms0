@@ -1,0 +1,30 @@
+{
+	"webtop.chat.empty": "まだメッセージはありません。",
+	"webtop.chat.start": "ここが会話の始まりです。",
+	"webtop.chat.newMessages": "新しいメッセージ",
+	"webtop.chat.toLatest": "最新へ移動",
+	"webtop.chat.archived": "このチャネルはアーカイブされています。読むことはできますが、投稿はできません。",
+	"webtop.chat.readOnly": "この会話には投稿できません。",
+
+	"webtop.chat.message.deleted": "このメッセージは削除されました。",
+	"webtop.chat.message.edited": "(編集済み)",
+	"webtop.chat.message.edit": "編集",
+	"webtop.chat.message.deleteConfirm": "このメッセージを削除しますか？",
+
+	"webtop.chat.composer.placeholder": "メッセージを入力",
+	"webtop.chat.composer.send": "送信 (Enter)",
+	"webtop.chat.composer.hint": "Enter で送信、Shift+Enter で改行",
+
+	"webtop.chat.attach.pick": "ファイルを添付",
+	"webtop.chat.attach.drop": "ドロップしてメッセージに追加",
+	"webtop.chat.attach.download": "ダウンロード",
+	"webtop.chat.attach.asLink": "リンク",
+	"webtop.chat.attach.asCopy": "コピー",
+	"webtop.chat.attach.modeHint": "リンクは、元のファイルを読める人に現在の内容を見せます。コピーは貼った時点の内容で、会話を読める全員が読めます。",
+	"webtop.chat.attach.tooMany": "1 つのメッセージに添付できるのは {max} 件までです。",
+	"webtop.chat.attach.failed": "{name} を添付できませんでした: {error}",
+	"webtop.chat.link.open": "開く",
+	"webtop.chat.link.reveal": "場所を開く",
+	"webtop.chat.link.denied": "アクセス権がありません。",
+	"webtop.chat.link.tooMany": "1 つのメッセージに付けられるリンクは {max} 件までです。"
+}

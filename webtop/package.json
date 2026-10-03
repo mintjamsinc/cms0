@@ -44,6 +44,8 @@
 		"build:radio:prod": "node scripts/build.mjs --prod radio",
 		"build:mail": "node scripts/build.mjs mail",
 		"build:mail:prod": "node scripts/build.mjs --prod mail",
+		"build:chat": "node scripts/build.mjs chat",
+		"build:chat:prod": "node scripts/build.mjs --prod chat",
 		"build:webtop-ui-standalone": "node scripts/build.mjs webtop-ui-standalone",
 		"build:webtop-ui-standalone:prod": "node scripts/build.mjs --prod webtop-ui-standalone",
 		"prepare": "npm run build",

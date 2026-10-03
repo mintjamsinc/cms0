@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chat Maintenance — Start</title>
+<style>
+	/* Everything this form draws with comes from wt-ui.css, injected by the
+	   wt-ui.esm.js bundle's initUi() (loaded via the form host's
+	   webtopBaseUrl). [v-cloak] has to stay inline to cover the paint before
+	   that sheet has loaded. */
+	[v-cloak] { display: none; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ t('start.title', null, 'Chat Maintenance') }}</h1>
+		<p class="wt-form-subtitle">{{ t('start.subtitle', null, 'Remove old messages from the conversations of this workspace, and the conversations of files that are gone.') }}</p>
+	</div>
+
+	<div class="wt-form-body">
+		<p class="mt-0">{{ t('start.description', null, 'Messages are never removed on their own. This removes whole days of messages older than the days kept, with their attachments, and the signals and mention marks of the same days. Each day is removed on its own, so a run that is stopped keeps what it removed.') }}</p>
+
+		<wt-field :label="t('start.targets', null, 'Remove old messages from')">
+			<div style="display: flex; flex-direction: column; gap: 0.25rem">
+				<wt-checkbox v-model="channels" :label="t('start.target.channels', null, 'Channels')"></wt-checkbox>
+				<wt-checkbox v-model="direct" :label="t('start.target.dm', null, 'Direct messages')"></wt-checkbox>
+				<wt-checkbox v-model="files" :label="t('start.target.files', null, 'Conversations of files')"></wt-checkbox>
+			</div>
+		</wt-field>
+
+		<wt-field :label="t('start.keepDays', null, 'Days of messages to keep')" :hint="t('start.keepDaysHint', null, 'This many days of messages stay, today included; older ones are removed. Days are UTC days. Leave empty to remove no messages.')"
+			:error="daysInvalid ? t('start.keepDaysInvalid', null, 'Enter a whole number of days, 1 or more.') : ''">
+			<input type="number" class="wt" min="1" step="1" v-model="keepDays" :disabled="!channels && !direct && !files" style="width: 8rem">
+		</wt-field>
+
+		<wt-field :label="t('start.cleanup', null, 'Cleanup')">
+			<wt-checkbox v-model="orphans" :label="t('start.orphans', null, 'Remove the conversations of files that no longer exist')"></wt-checkbox>
+		</wt-field>
+
+		<div class="alert wt-warning">
+			<i class="bi bi-exclamation-triangle"></i>
+			<div>{{ t('start.note.irreversible', null, 'What is removed cannot be brought back.') }}</div>
+		</div>
+
+		<div v-if="isAdmin === false" class="alert wt-danger">
+			<i class="bi bi-shield-lock"></i>
+			<div>{{ t('common.adminRequired', null, 'Administrator role is required to run the chat maintenance.') }}</div>
+		</div>
+
+		<div v-if="started" class="alert wt-success">
+			<i class="bi bi-check-circle"></i>
+			<div>{{ t('start.started', null, 'The maintenance has been started. Open the "Chat Maintenance Result" task from your task list to see what was removed.') }}</div>
+		</div>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<span v-if="isAdmin === null" class="text-muted">{{ t('common.checkingRole', null, 'Checking permissions…') }}</span>
+		<div class="wt-form-actions">
+			<button class="wt wt-danger" :disabled="isAdmin !== true || starting || started || !canStart" @click="onStart">{{ t('start.button', null, 'Remove') }}</button>
+		</div>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.webtop.chat.';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	const App = {
+		data() {
+			return {
+				isAdmin: null,          // null = checking, then true / false
+				starting: false,
+				started: false,
+				errorMessage: '',
+				i18nRevision: 0,
+				channels: true,
+				direct: false,
+				files: true,
+				keepDays: '365',
+				orphans: true,
+			};
+		},
+		computed: {
+			/** The days typed, as a whole number; 0 when empty, -1 when not a number of days. */
+			days() {
+				const text = String(this.keepDays || '').trim();
+				if (text === '') return 0;
+				const n = Number(text);
+				return Number.isFinite(n) && n >= 1 ? Math.floor(n) : -1;
+			},
+			daysInvalid() {
+				return this.days < 0;
+			},
+			/** Something must be asked for, and the days must be a number of days: days to remove from somewhere, or the cleanup. */
+			canStart() {
+				if (this.daysInvalid) return false;
+				const removing = (this.channels || this.direct || this.files) && this.days >= 1;
+				return removing || this.orphans;
+			},
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			onMounted() {
+				const ctx = host.context || {};
+				this.applyTheme(ctx.theme || host.theme);
+				this.applyLocalization(ctx.localization || host.localization);
+				this._unsubscribe = host.subscribe((type, payload) => {
+					if (type === 'theme') this.applyTheme(payload);
+					else if (type === 'localization') this.applyLocalization(payload);
+				});
+				// Display control only — the script enforces the administrator role.
+				host.idp.getMe().then((me) => {
+					const roles = (me && me.roles) || [];
+					this.isAdmin = roles.some((r) => r && (r.name === 'administrator' || r.roleId === 'administrator'));
+				}).catch((e) => {
+					this.isAdmin = false;
+					this.errorMessage = 'Could not resolve your roles: ' + ((e && e.message) || e);
+				}).finally(() => {
+					host.notifyReady();
+				});
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+			},
+			async onStart() {
+				this.starting = true;
+				this.errorMessage = '';
+				try {
+					const targets = [];
+					if (this.channels) targets.push('channels');
+					if (this.direct) targets.push('dm');
+					if (this.files) targets.push('files');
+					const runId = 'chat-maintenance-' + Date.now() + '-'
+							+ Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+					await host.startProcess({
+						businessKey: runId,
+						variables: [
+							{ name: 'targets', value: targets.join(',') },
+							{ name: 'keepDays', value: targets.length && this.days >= 1 ? String(this.days) : '' },
+							{ name: 'orphans', value: this.orphans ? 'true' : 'false' },
+						],
+					});
+					this.started = true;
+				} catch (e) {
+					this.errorMessage = this.t('start.failed', null, 'Could not start the maintenance: ')
+							+ ((e && e.message) || e);
+				} finally {
+					this.starting = false;
+				}
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

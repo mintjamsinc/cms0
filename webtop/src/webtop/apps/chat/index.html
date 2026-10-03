@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Chat</title>
+
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link rel="stylesheet" href="../../components/wt-chat-thread.css?v=__BUILD_VERSION__">
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" :class="{ 'is-resizing': isResizing }" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Readiness gate: compiled only after appLaunch() has loaded the
+		     component templates. -->
+		<template v-if="isReady">
+
+		<!-- Toolbar -->
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="openCreate" :title="t('app.chat.toolbar.create', undefined, 'New channel')">
+					<i class="bi bi-plus-lg"></i>
+				</button>
+				<button class="btn-icon" @click="openBrowse" :title="t('app.chat.toolbar.browse', undefined, 'Browse channels')">
+					<i class="bi bi-search"></i>
+				</button>
+				<button class="btn-icon" @click="openNewDirect" :title="t('app.chat.toolbar.direct', undefined, 'New direct message')">
+					<i class="bi bi-person-plus"></i>
+				</button>
+				<button class="btn-icon" @click="refreshAll" :title="t('app.chat.toolbar.refresh', undefined, 'Refresh (F5)')">
+					<i class="bi bi-arrow-clockwise"></i>
+				</button>
+			</div>
+
+			<div class="ch-searchbar">
+				<div class="input-group">
+					<input type="search" v-model="searchText"
+						:placeholder="t('app.chat.search.placeholder', undefined, 'Search messages')"
+						@keydown.enter.prevent="runSearch"
+						@keydown.escape.prevent="closeSearch">
+					<div class="input-group-actions">
+						<button type="button" class="input-group-btn" @click="runSearch"
+							:disabled="!searchText.trim()" :title="t('common.search')">
+							<i class="bi bi-search"></i>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<div class="content-body">
+
+			<!-- Left: the conversations of the sidebar -->
+			<aside class="ch-side island" :style="{ width: sidePanelWidth + 'px' }">
+				<div class="ch-nav">
+					<div class="ch-nav-title">
+						<span>{{ t('app.chat.side.channels', undefined, 'Channels') }}</span>
+						<button type="button" class="ch-nav-add" @click="openCreate" :title="t('app.chat.toolbar.create', undefined, 'New channel')">
+							<i class="bi bi-plus-lg"></i>
+						</button>
+					</div>
+					<button v-for="c of groupChannels" :key="c.id" type="button" class="ch-nav-item"
+						:class="{ active: c.id === currentId, unread: isUnread(c) }" :title="c.description || c.title" @click="selectChannel(c.id)">
+						<i class="bi" :class="c.kind === 'public' ? 'bi-hash' : 'bi-lock'"></i>
+						<span class="text-truncate">{{ c.title }}</span>
+						<span v-if="isUnread(c)" class="ch-dot" :title="t('app.chat.side.unread', undefined, 'Unread messages')"></span>
+					</button>
+					<div v-if="isChannelsLoaded && !groupChannels.length" class="ch-nav-empty">
+						{{ t('app.chat.side.empty', undefined, 'You are not in any channel yet.') }}
+					</div>
+				</div>
+
+				<!-- Direct messages, under the other user's name -->
+				<div class="ch-nav">
+					<div class="ch-nav-title">
+						<span>{{ t('app.chat.side.direct', undefined, 'Direct messages') }}</span>
+						<button type="button" class="ch-nav-add" @click="openNewDirect" :title="t('app.chat.toolbar.direct', undefined, 'New direct message')">
+							<i class="bi bi-plus-lg"></i>
+						</button>
+					</div>
+					<button v-for="c of directChannels" :key="c.id" type="button" class="ch-nav-item"
+						:class="{ active: c.id === currentId, unread: isUnread(c) }" :title="c.peerId || ''" @click="selectChannel(c.id)">
+						<img v-if="avatars[c.peerId]" class="ch-avatar" :src="avatars[c.peerId]" alt="">
+						<i v-else class="bi bi-person"></i>
+						<span class="text-truncate">{{ c.title }}</span>
+						<span v-if="isUnread(c)" class="ch-dot" :title="t('app.chat.side.unread', undefined, 'Unread messages')"></span>
+					</button>
+					<div v-if="isChannelsLoaded && !directChannels.length" class="ch-nav-empty">
+						{{ t('app.chat.side.noDirect', undefined, 'No direct messages yet.') }}
+					</div>
+				</div>
+
+				<!-- The conversations of files the user follows, the most recently active first -->
+				<div v-if="threads.length" class="ch-nav">
+					<div class="ch-nav-title">
+						<span>{{ t('app.chat.side.files', undefined, 'Files') }}</span>
+					</div>
+					<button v-for="f of threads" :key="f.fileId" type="button" class="ch-nav-item"
+						:class="{ active: f.fileId === currentFileId, unread: isThreadUnread(f) }" :title="f.file ? f.file.path : ''" @click="selectThread(f.fileId)">
+						<i :class="fileIcon(f.file)"></i>
+						<span class="text-truncate">{{ f.file ? f.file.name : f.fileId }}</span>
+						<span v-if="isThreadUnread(f)" class="ch-dot" :title="t('app.chat.side.unread', undefined, 'Unread messages')"></span>
+					</button>
+				</div>
+
+				<div class="ch-nav">
+					<button type="button" class="ch-nav-item" @click="openBrowse">
+						<i class="bi bi-search"></i>
+						<span class="text-truncate">{{ t('app.chat.toolbar.browse', undefined, 'Browse channels') }}</span>
+					</button>
+				</div>
+			</aside>
+
+			<wt-splitter v-model:size="sidePanelWidth" :min="160" :max="360"
+				@resize-start="isResizing = true" @resize-end="isResizing = false"></wt-splitter>
+
+			<!-- Right: the open conversation -->
+			<section class="ch-main island p-0">
+				<!-- Search results -->
+				<div v-if="search.active" class="ch-search">
+					<div class="ch-head">
+						<i class="bi bi-search ch-head-icon"></i>
+						<div class="ch-head-text">
+							<div class="ch-head-title text-truncate">{{ t('app.chat.search.title', { text: search.text }, 'Search: {text}') }}</div>
+						</div>
+						<span class="nav-spacer"></span>
+						<button type="button" class="btn-icon" @click="closeSearch" :title="t('common.close')">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+					<div class="ch-search-list">
+						<div v-if="search.loading && !search.items.length" class="ch-empty">
+							<wt-spinner size="sm"></wt-spinner>
+						</div>
+						<div v-else-if="search.error" class="ch-empty">
+							<i class="bi bi-exclamation-triangle"></i>
+							<span>{{ search.error }}</span>
+						</div>
+						<div v-else-if="!search.items.length" class="ch-empty">
+							<i class="bi bi-search"></i>
+							<span>{{ t('app.chat.search.empty', undefined, 'No message matches.') }}</span>
+						</div>
+						<button v-for="h of search.items" :key="h.message.id" type="button" class="ch-hit" @click="openHit(h)">
+							<div class="ch-hit-where">
+								<i :class="hitIcon(h)"></i>
+								<span class="text-truncate">{{ hitTitle(h) }}</span>
+								<span class="ch-hit-time">{{ formatHitTime(h.message.postedAt) }}</span>
+							</div>
+							<div class="ch-hit-body">
+								<span class="ch-hit-author">{{ h.message.authorName || h.message.author }}</span>
+								<span class="ch-hit-text">{{ h.message.body }}</span>
+							</div>
+						</button>
+						<div v-if="search.cursor" class="ch-search-more">
+							<button type="button" class="wt wt-slim" :disabled="search.loading" @click="moreSearch">
+								{{ t('app.chat.search.more', undefined, 'More results') }}
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<div v-if="!currentRef && !search.active" class="ch-empty">
+					<i class="bi bi-chat-dots"></i>
+					<span v-if="channels.length">{{ t('app.chat.main.select', undefined, 'Select a channel.') }}</span>
+					<span v-else>{{ t('app.chat.main.none', undefined, 'Create a channel, or browse the public ones.') }}</span>
+					<div class="ch-empty-actions">
+						<button type="button" class="wt wt-primary" @click="openCreate">
+							<i class="bi bi-plus-lg me-1"></i>{{ t('app.chat.toolbar.create', undefined, 'New channel') }}
+						</button>
+						<button type="button" class="wt" @click="openBrowse">
+							<i class="bi bi-search me-1"></i>{{ t('app.chat.toolbar.browse', undefined, 'Browse channels') }}
+						</button>
+					</div>
+				</div>
+
+				<div v-if="current && !search.active" class="ch-head">
+					<img v-if="current.kind === 'dm' && avatars[current.peerId]" class="ch-avatar ch-head-icon" :src="avatars[current.peerId]" alt="">
+					<i v-else class="bi ch-head-icon" :class="current.kind === 'public' ? 'bi-hash' : (current.kind === 'dm' ? 'bi-person' : 'bi-lock')"></i>
+					<div class="ch-head-text">
+						<div class="ch-head-title text-truncate">
+							{{ current.title }}
+							<span v-if="current.archived" class="ch-badge">{{ t('app.chat.channel.archived', undefined, 'Archived') }}</span>
+						</div>
+						<div v-if="current.description" class="ch-head-description text-truncate" :title="current.description">{{ current.description }}</div>
+					</div>
+					<span class="nav-spacer"></span>
+					<button v-if="conversation" type="button" class="wt wt-slim" @click="openMembers" :title="t('app.chat.members.title', undefined, 'Participants')">
+						<i class="bi bi-people me-1"></i>{{ membersLabel }}
+					</button>
+					<button type="button" class="btn-icon" @click="openChannelMenu($event)" :title="t('app.chat.channel.menu', undefined, 'Channel menu')">
+						<i class="bi bi-three-dots"></i>
+					</button>
+				</div>
+
+				<!-- The conversation of a file: the file, and the ways to it -->
+				<div v-if="currentFileId && !search.active" class="ch-head">
+					<i class="ch-head-icon" :class="fileIcon(currentFile)"></i>
+					<div class="ch-head-text">
+						<div class="ch-head-title text-truncate">{{ currentFile ? currentFile.name : '' }}</div>
+						<div v-if="currentFile" class="ch-head-description text-truncate" :title="currentFile.path">{{ currentFile.path }}</div>
+					</div>
+					<span class="nav-spacer"></span>
+					<button v-if="currentFile && !currentFile.isCollection" type="button" class="wt wt-slim" @click="openCurrentFile">
+						{{ t('app.chat.file.open', undefined, 'Open') }}
+					</button>
+					<button v-if="currentFile" type="button" class="wt wt-slim" @click="revealCurrentFile">
+						{{ t('app.chat.file.reveal', undefined, 'Show in folder') }}
+					</button>
+					<button v-if="conversation" type="button" class="btn-icon" @click="toggleFollowFile"
+						:title="isFollowingFile ? t('app.chat.channel.unfollow', undefined, 'Remove from sidebar') : t('app.chat.channel.follow', undefined, 'Add to sidebar')">
+						<i class="bi" :class="isFollowingFile ? 'bi-bookmark-fill' : 'bi-bookmark'"></i>
+					</button>
+				</div>
+
+				<!-- A public channel opened from "Browse channels" that is not in the sidebar. -->
+				<div v-if="current && isVisiting && !current.archived && current.kind !== 'dm' && !search.active" class="ch-banner">
+					<span>{{ t('app.chat.channel.visiting', undefined, 'This channel is not in your sidebar.') }}</span>
+					<button type="button" class="wt wt-slim wt-primary" @click="followCurrent">
+						<i class="bi bi-plus-lg me-1"></i>{{ t('app.chat.channel.follow', undefined, 'Add to sidebar') }}
+					</button>
+				</div>
+
+				<wt-chat-thread v-if="currentRef" class="ch-thread" :class="{ 'ch-thread-hidden': search.active }"
+					:conversation="currentRef"
+					:api="threadApi"
+					:localization="localization"
+					:reload="reloadCount"
+					:focus-message="focusMessageId"
+					:focus-on-open="true"
+					@loaded="onThreadLoaded($event.detail)"
+					@failed="onThreadFailed($event.detail)"
+					@activity="onThreadActivity($event.detail)"
+					@read="onThreadRead($event.detail)"
+					@posted="onThreadPosted"></wt-chat-thread>
+			</section>
+		</div>
+
+		<!-- Status bar -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span v-if="statusMessage" class="status-item">{{ statusMessage }}</span>
+			</div>
+		</div>
+
+		<!-- New channel / channel settings -->
+		<wt-dialog v-model:open="channelDialog.visible" size="md" @close="closeChannelDialog">
+			<template v-slot:title="d">
+				<i class="bi me-2" :class="channelDialog.id ? 'bi-gear' : 'bi-plus-lg'"></i>{{ channelDialog.id ? t('app.chat.channel.settings', undefined, 'Channel settings') : t('app.chat.toolbar.create', undefined, 'New channel') }}
+			</template>
+			<template v-slot="d">
+				<wt-field :label="t('app.chat.channel.name', undefined, 'Name')" required>
+					<input type="text" class="wt w-100" ref="channelTitle" v-model="channelDialog.title" maxlength="80"
+						@keydown.enter.prevent="saveChannel">
+				</wt-field>
+				<wt-field :label="t('app.chat.channel.description', undefined, 'Description')">
+					<input type="text" class="wt w-100" v-model="channelDialog.description" maxlength="500"
+						@keydown.enter.prevent="saveChannel">
+				</wt-field>
+				<wt-field v-if="!channelDialog.id" :label="t('app.chat.channel.kind', undefined, 'Who can read it')" :hint="kindHint">
+					<wt-select v-model="channelDialog.kind" :items="kindItems"></wt-select>
+				</wt-field>
+				<wt-inline-message v-if="channelDialog.error" type="error">{{ channelDialog.error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeChannelDialog">{{ t('common.cancel') }}</button>
+				<button type="button" class="wt wt-primary" :disabled="channelDialog.saving || !channelDialog.title.trim()" @click="saveChannel">
+					{{ channelDialog.id ? t('common.save') : t('app.chat.channel.create', undefined, 'Create') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- New direct message -->
+		<wt-dialog v-model:open="directDialog.visible" size="md" @close="closeNewDirect">
+			<template v-slot:title="d">
+				<i class="bi bi-person-plus me-2"></i>{{ t('app.chat.toolbar.direct', undefined, 'New direct message') }}
+			</template>
+			<template v-slot="d">
+				<wt-field :label="t('app.chat.direct.who', undefined, 'Who to talk to')">
+					<input type="search" class="wt w-100" ref="directKeyword" v-model="directDialog.keyword" autocomplete="off"
+						:placeholder="t('app.chat.members.placeholder', undefined, 'Search by name')"
+						@input="scheduleDirectSearch">
+				</wt-field>
+				<div class="ch-members-results">
+					<div v-if="directDialog.searching && !directDialog.results.length" class="ch-browse-empty">
+						<wt-spinner size="sm"></wt-spinner>
+					</div>
+					<div v-else-if="!directDialog.results.length" class="ch-browse-empty">
+						{{ directDialog.keyword.trim() ? t('app.chat.members.noMatch', undefined, 'Nobody found.') : t('app.chat.direct.hint', undefined, 'Type a name to find a user.') }}
+					</div>
+					<button v-for="p of directDialog.results" :key="p.identifier" type="button" class="ch-member ch-member-pick" :disabled="directDialog.busy" @click="openDirectWith(p)">
+						<i class="bi bi-person"></i>
+						<div class="ch-member-text">
+							<span class="text-truncate">{{ p.displayName || p.identifier }}</span>
+							<span class="ch-member-id text-truncate">{{ p.identifier }}</span>
+						</div>
+					</button>
+				</div>
+				<wt-inline-message v-if="directDialog.error" type="error">{{ directDialog.error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeNewDirect">{{ t('common.cancel') }}</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Browse channels -->
+		<wt-dialog v-model:open="browseDialog.visible" size="lg" @close="closeBrowse">
+			<template v-slot:title="d">
+				<i class="bi bi-search me-2"></i>{{ t('app.chat.toolbar.browse', undefined, 'Browse channels') }}
+			</template>
+			<template v-slot="d">
+				<div class="ch-browse-search">
+					<input type="search" class="wt w-100" ref="browseKeyword" v-model="browseDialog.keyword"
+						:placeholder="t('app.chat.browse.placeholder', undefined, 'Search by name or description')"
+						@input="scheduleBrowse" @keydown.enter.prevent="runBrowse">
+					<label class="ch-check">
+						<input type="checkbox" class="wt" :checked="browseDialog.includeArchived" @change="toggleBrowseArchived($event.target.checked)">
+						<span>{{ t('app.chat.browse.archived', undefined, 'Include archived channels') }}</span>
+					</label>
+				</div>
+				<div class="ch-browse-list">
+					<div v-if="browseDialog.loading && !browseDialog.results.length" class="ch-browse-empty">
+						<wt-spinner size="sm"></wt-spinner>
+					</div>
+					<div v-else-if="browseDialog.error" class="ch-browse-empty">{{ browseDialog.error }}</div>
+					<div v-else-if="!browseDialog.results.length" class="ch-browse-empty">
+						{{ t('app.chat.browse.empty', undefined, 'No channel found.') }}
+					</div>
+					<div v-for="c of browseDialog.results" :key="c.id" class="ch-browse-item">
+						<i class="bi" :class="c.kind === 'public' ? 'bi-hash' : 'bi-lock'"></i>
+						<div class="ch-browse-text">
+							<div class="ch-browse-title text-truncate">
+								{{ c.title }}
+								<span v-if="c.archived" class="ch-badge">{{ t('app.chat.channel.archived', undefined, 'Archived') }}</span>
+							</div>
+							<div v-if="c.description" class="ch-browse-description text-truncate" :title="c.description">{{ c.description }}</div>
+						</div>
+						<button v-if="c.kind === 'public' && !c.archived && !c.following" type="button" class="wt wt-slim" @click="followFromBrowse(c)">
+							<i class="bi bi-plus-lg me-1"></i>{{ t('app.chat.channel.follow', undefined, 'Add to sidebar') }}
+						</button>
+						<button type="button" class="wt wt-slim wt-primary" @click="openFromBrowse(c)">{{ t('app.chat.browse.open', undefined, 'Open') }}</button>
+					</div>
+				</div>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeBrowse">{{ t('common.close') }}</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Participants -->
+		<wt-dialog v-model:open="membersDialog.visible" size="lg" @close="closeMembers">
+			<template v-slot:title="d">
+				<i class="bi bi-people me-2"></i>{{ t('app.chat.members.title', undefined, 'Participants') }}
+			</template>
+			<template v-slot="d">
+				<p v-if="current && current.kind === 'public'" class="ch-members-note">
+					{{ t('app.chat.members.public', undefined, 'A public channel can be read and posted to by everyone.') }}
+				</p>
+
+				<div v-if="canManageMembers" class="ch-members-add">
+					<wt-field :label="t('app.chat.members.add', undefined, 'Add users or groups')">
+						<input type="search" class="wt w-100" ref="memberKeyword" v-model="membersDialog.keyword" autocomplete="off"
+							:placeholder="t('app.chat.members.placeholder', undefined, 'Search by name')"
+							@input="scheduleMemberSearch">
+					</wt-field>
+					<div v-if="membersDialog.keyword.trim()" class="ch-members-results">
+						<div v-if="membersDialog.searching && !membersDialog.results.length" class="ch-browse-empty">
+							<wt-spinner size="sm"></wt-spinner>
+						</div>
+						<div v-else-if="!membersDialog.results.length" class="ch-browse-empty">
+							{{ t('app.chat.members.noMatch', undefined, 'Nobody found.') }}
+						</div>
+						<div v-for="p of membersDialog.results" :key="p.identifier" class="ch-member">
+							<i class="bi" :class="p.isGroup ? 'bi-people' : 'bi-person'"></i>
+							<div class="ch-member-text">
+								<span class="text-truncate">{{ p.displayName || p.identifier }}</span>
+								<span class="ch-member-id text-truncate">{{ p.identifier }}</span>
+							</div>
+							<button type="button" class="wt wt-slim" :disabled="membersDialog.busy" @click="addMember(p)">
+								<i class="bi bi-plus-lg me-1"></i>{{ t('common.add') }}
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<div class="ch-members-list">
+					<div v-for="m of members" :key="m.id" class="ch-member">
+						<i class="bi" :class="m.isGroup ? 'bi-people' : 'bi-person'"></i>
+						<div class="ch-member-text">
+							<span class="text-truncate">{{ memberName(m) }}</span>
+							<span v-if="m.id !== 'everyone'" class="ch-member-id text-truncate">{{ m.id }}</span>
+						</div>
+						<span v-if="m.isAdmin" class="ch-badge">{{ t('app.chat.members.admin', undefined, 'Administrator') }}</span>
+						<button v-if="canManageMembers && !m.isGroup" type="button" class="btn-icon" :disabled="membersDialog.busy" @click="toggleAdmin(m)"
+							:title="m.isAdmin ? t('app.chat.members.revokeAdmin', undefined, 'Remove as administrator') : t('app.chat.members.makeAdmin', undefined, 'Make administrator')">
+							<i class="bi" :class="m.isAdmin ? 'bi-shield-fill-check' : 'bi-shield'"></i>
+						</button>
+						<button v-if="canManageMembers" type="button" class="btn-icon" :disabled="membersDialog.busy" @click="removeMember(m)"
+							:title="t('common.remove')">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+				<wt-inline-message v-if="membersDialog.error" type="error">{{ membersDialog.error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeMembers">{{ t('common.close') }}</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Confirmation dialog -->
+		<wt-dialog v-model:open="confirmDialog.visible" size="sm" @close="closeConfirmDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-question-circle me-2"></i>{{ confirmDialog.title }}
+			</template>
+			<template v-slot="d">
+				<p class="mt-0 mb-0">{{ confirmDialog.message }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeConfirmDialog">{{ t('common.cancel') }}</button>
+				<button type="button" class="wt wt-danger" @click="acceptConfirmDialog">{{ t('common.ok') }}</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+		<!-- /Readiness gate -->
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+</html>

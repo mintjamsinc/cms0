@@ -1,0 +1,452 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Chat — layout
+ *
+ * Theme tokens and shared components live in webtop-app.css, the conversation
+ * itself in components/wt-chat-thread.css. This file adds the two panes
+ * (conversations | the open conversation) and the dialogs.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--ch-unread-color: var(--primary-color);
+}
+
+#app {
+	height: 100%;
+}
+
+#app.is-resizing {
+	cursor: col-resize;
+	user-select: none;
+}
+
+.content-body {
+	gap: 0.25rem;
+}
+
+/* Toolbar search pill, as in Mail. */
+.ch-searchbar {
+	width: 20rem;
+	max-width: 36vw;
+}
+
+.ch-searchbar .input-group {
+	width: 100%;
+	border-radius: 9999px;
+	border-color: var(--input-border-color);
+	box-shadow: none;
+}
+
+.ch-searchbar .input-group:focus-within {
+	border-color: var(--input-focus-border-color);
+	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
+}
+
+.ch-searchbar .input-group input {
+	padding-left: 0.75rem;
+}
+
+.ch-searchbar .input-group-actions {
+	padding-right: 0.5rem;
+	border-left: none;
+}
+
+/* ----------------------------------------------------------------------------
+ * Left pane
+ * -------------------------------------------------------------------------- */
+
+.ch-side {
+	display: flex;
+	flex-direction: column;
+	flex-shrink: 0;
+	min-height: 0;
+	padding: 0.75rem 0.75rem;
+	overflow-y: auto;
+	gap: 0.75rem;
+}
+
+.ch-nav {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.ch-nav-title {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.375rem;
+	min-width: 0;
+	padding: 0 0.25rem 0.25rem 0.5rem;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-soft-color);
+}
+
+.ch-nav-add {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.25rem;
+	height: 1.25rem;
+	padding: 0;
+	border: none;
+	border-radius: 4px;
+	background: none;
+	color: inherit;
+	cursor: pointer;
+}
+
+.ch-nav-add:hover {
+	background: var(--btn-icon-hover-bg);
+}
+
+.ch-nav-item {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	width: 100%;
+	min-width: 0;
+	padding: 0.3rem 0.5rem;
+	border: none;
+	border-radius: 6px;
+	background: none;
+	color: var(--text-color);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.ch-nav-item:hover {
+	background: var(--item-hover-bg);
+}
+
+.ch-nav-item.active {
+	background: var(--item-selected-bg);
+	color: var(--nav-current-color);
+	font-weight: 600;
+}
+
+.ch-nav-item.unread {
+	font-weight: 600;
+}
+
+.ch-nav-item .bi {
+	flex-shrink: 0;
+	width: 1rem;
+	text-align: center;
+}
+
+.ch-nav-item .text-truncate {
+	flex: 1;
+	min-width: 0;
+}
+
+.ch-avatar {
+	flex-shrink: 0;
+	width: 1.125rem;
+	height: 1.125rem;
+	border-radius: 4px;
+	background: var(--badge-bg);
+}
+
+.ch-head .ch-avatar {
+	width: 1.5rem;
+	height: 1.5rem;
+}
+
+.ch-dot {
+	flex-shrink: 0;
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--ch-unread-color);
+}
+
+.ch-nav-empty {
+	padding: 0.25rem 0.5rem;
+	color: var(--text-muted-color);
+	font-size: 12px;
+}
+
+/* ----------------------------------------------------------------------------
+ * The open conversation
+ * -------------------------------------------------------------------------- */
+
+.ch-main {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.ch-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.75rem;
+	height: 100%;
+	padding: 1rem;
+	color: var(--text-muted-color);
+	font-size: 13px;
+	text-align: center;
+}
+
+.ch-empty > .bi {
+	font-size: 2rem;
+	opacity: 0.6;
+}
+
+.ch-empty-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.5rem;
+}
+
+.ch-head {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex-shrink: 0;
+	min-height: 2.75rem;
+	padding: 0.375rem 0.75rem 0.375rem 1rem;
+	border-bottom: 1px solid var(--island-border-color);
+}
+
+.ch-head-icon {
+	flex-shrink: 0;
+	color: var(--text-soft-color);
+}
+
+.ch-head-text {
+	min-width: 0;
+}
+
+.ch-head-title {
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.ch-head-description {
+	color: var(--text-soft-color);
+	font-size: 12px;
+}
+
+.ch-badge {
+	display: inline-block;
+	margin-left: 0.375rem;
+	padding: 0.05rem 0.4rem;
+	border-radius: 9999px;
+	background: var(--badge-bg);
+	color: var(--text-soft-color);
+	font-size: 11px;
+	font-weight: 400;
+	white-space: nowrap;
+}
+
+.ch-banner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	flex-shrink: 0;
+	padding: 0.375rem 0.75rem 0.375rem 1rem;
+	border-bottom: 1px solid var(--island-border-color);
+	background: var(--item-even-bg);
+	font-size: 12px;
+}
+
+.ch-thread {
+	flex: 1;
+}
+
+/* The conversation stays mounted, and watching, behind the search results. */
+.ch-thread-hidden {
+	display: none;
+}
+
+/* ----------------------------------------------------------------------------
+ * Search results
+ * -------------------------------------------------------------------------- */
+
+.ch-search {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+}
+
+.ch-search-list {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 0.5rem 0.75rem;
+}
+
+.ch-hit {
+	display: block;
+	width: 100%;
+	padding: 0.5rem 0.625rem;
+	border: none;
+	border-bottom: 1px solid var(--island-border-color);
+	background: none;
+	color: var(--text-color);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.ch-hit:hover {
+	background: var(--item-hover-bg);
+}
+
+.ch-hit-where {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	min-width: 0;
+	color: var(--text-soft-color);
+	font-size: 12px;
+}
+
+.ch-hit-where > .bi {
+	flex-shrink: 0;
+}
+
+.ch-hit-time {
+	flex-shrink: 0;
+	margin-left: auto;
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.ch-hit-body {
+	display: -webkit-box;
+	margin-top: 0.125rem;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	overflow-wrap: anywhere;
+}
+
+.ch-hit-author {
+	margin-right: 0.375rem;
+	font-weight: 600;
+}
+
+.ch-search-more {
+	display: flex;
+	justify-content: center;
+	padding: 0.75rem;
+}
+
+.ch-member-pick {
+	width: 100%;
+	border: none;
+	background: none;
+	color: var(--text-color);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+/* ----------------------------------------------------------------------------
+ * Dialogs
+ * -------------------------------------------------------------------------- */
+
+.ch-browse-search {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.ch-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.ch-browse-list,
+.ch-members-list,
+.ch-members-results {
+	display: flex;
+	flex-direction: column;
+	max-height: 18rem;
+	margin-top: 0.75rem;
+	overflow-y: auto;
+}
+
+.ch-members-results {
+	max-height: 11rem;
+	margin-top: 0;
+	border: 1px solid var(--island-border-color);
+	border-radius: 6px;
+}
+
+.ch-browse-empty {
+	display: flex;
+	justify-content: center;
+	padding: 1rem;
+	color: var(--text-muted-color);
+	font-size: 13px;
+}
+
+.ch-browse-item,
+.ch-member {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+	padding: 0.375rem 0.5rem;
+	border-radius: 6px;
+	font-size: 13px;
+}
+
+.ch-browse-item:hover,
+.ch-member:hover {
+	background: var(--item-even-bg);
+}
+
+.ch-browse-item > .bi,
+.ch-member > .bi:first-child {
+	flex-shrink: 0;
+	width: 1rem;
+	color: var(--text-soft-color);
+	text-align: center;
+}
+
+.ch-browse-text,
+.ch-member-text {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+}
+
+.ch-browse-title {
+	font-weight: 600;
+}
+
+.ch-browse-description,
+.ch-member-id {
+	color: var(--text-soft-color);
+	font-size: 12px;
+}
+
+.ch-members-note {
+	margin: 0 0 0.5rem;
+	color: var(--text-soft-color);
+	font-size: 13px;
+}

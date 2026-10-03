@@ -1,0 +1,33 @@
+{
+	"form.webtop.chat.common.checkingRole": "権限を確認しています…",
+	"form.webtop.chat.common.adminRequired": "チャットのメンテナンスには管理者ロールが必要です。",
+
+	"form.webtop.chat.start.title": "チャットのメンテナンス",
+	"form.webtop.chat.start.subtitle": "このワークスペースの会話から古い発言を削除し、削除済みファイルの会話を掃除します。",
+	"form.webtop.chat.start.description": "発言は自動では削除されません。ここでは、残す日数より古い発言を日付フォルダーごと（添付も含めて）削除し、同じ日付の合図とメンションの印も削除します。日付ごとに確定するので、途中で止まっても削除した分はそのまま残ります。",
+	"form.webtop.chat.start.targets": "古い発言を削除する対象",
+	"form.webtop.chat.start.target.channels": "チャネル",
+	"form.webtop.chat.start.target.dm": "ダイレクトメッセージ",
+	"form.webtop.chat.start.target.files": "ファイルの会話",
+	"form.webtop.chat.start.keepDays": "残す日数",
+	"form.webtop.chat.start.keepDaysHint": "今日を含めてこの日数分の発言を残し、それより古い発言を削除します。日付は UTC で区切ります。空にすると発言は削除しません。",
+	"form.webtop.chat.start.keepDaysInvalid": "1 以上の整数で日数を入力してください。",
+	"form.webtop.chat.start.cleanup": "掃除",
+	"form.webtop.chat.start.orphans": "もう存在しないファイルの会話を削除する",
+	"form.webtop.chat.start.note.irreversible": "削除したものは元に戻せません。",
+	"form.webtop.chat.start.button": "削除を実行",
+	"form.webtop.chat.start.started": "メンテナンスを開始しました。タスク一覧の「Chat Maintenance Result」タスクを開くと、削除した件数を確認できます。",
+	"form.webtop.chat.start.failed": "メンテナンスを開始できませんでした: ",
+
+	"form.webtop.chat.result.title": "チャットのメンテナンス結果",
+	"form.webtop.chat.result.subtitle": "このワークスペースで削除したものです。",
+	"form.webtop.chat.result.days": "削除した発言の日数",
+	"form.webtop.chat.result.conversations": "削除があった会話の数",
+	"form.webtop.chat.result.signalDays": "削除した合図の日数",
+	"form.webtop.chat.result.mentionDays": "削除したメンションの印の日数",
+	"form.webtop.chat.result.orphans": "削除したファイルの会話（削除済みファイルの分）",
+	"form.webtop.chat.result.errors": "削除できなかったフォルダー（サーバーログを参照）",
+	"form.webtop.chat.result.openFromTask": "このフォームは「Chat Maintenance Result」タスクから開いてください。",
+	"form.webtop.chat.result.missing": "実行結果がありません。",
+	"form.webtop.chat.result.close": "タスクを完了"
+}

@@ -1,0 +1,33 @@
+{
+	"form.webtop.chat.common.checkingRole": "Checking permissions…",
+	"form.webtop.chat.common.adminRequired": "Administrator role is required to run the chat maintenance.",
+
+	"form.webtop.chat.start.title": "Chat Maintenance",
+	"form.webtop.chat.start.subtitle": "Remove old messages from the conversations of this workspace, and the conversations of files that are gone.",
+	"form.webtop.chat.start.description": "Messages are never removed on their own. This removes whole days of messages older than the days kept, with their attachments, and the signals and mention marks of the same days. Each day is removed on its own, so a run that is stopped keeps what it removed.",
+	"form.webtop.chat.start.targets": "Remove old messages from",
+	"form.webtop.chat.start.target.channels": "Channels",
+	"form.webtop.chat.start.target.dm": "Direct messages",
+	"form.webtop.chat.start.target.files": "Conversations of files",
+	"form.webtop.chat.start.keepDays": "Days of messages to keep",
+	"form.webtop.chat.start.keepDaysHint": "This many days of messages stay, today included; older ones are removed. Days are UTC days. Leave empty to remove no messages.",
+	"form.webtop.chat.start.keepDaysInvalid": "Enter a whole number of days, 1 or more.",
+	"form.webtop.chat.start.cleanup": "Cleanup",
+	"form.webtop.chat.start.orphans": "Remove the conversations of files that no longer exist",
+	"form.webtop.chat.start.note.irreversible": "What is removed cannot be brought back.",
+	"form.webtop.chat.start.button": "Remove",
+	"form.webtop.chat.start.started": "The maintenance has been started. Open the \"Chat Maintenance Result\" task from your task list to see what was removed.",
+	"form.webtop.chat.start.failed": "Could not start the maintenance: ",
+
+	"form.webtop.chat.result.title": "Chat Maintenance Result",
+	"form.webtop.chat.result.subtitle": "What the run removed in this workspace.",
+	"form.webtop.chat.result.days": "Days of messages removed",
+	"form.webtop.chat.result.conversations": "Conversations they were removed from",
+	"form.webtop.chat.result.signalDays": "Days of signals removed",
+	"form.webtop.chat.result.mentionDays": "Days of mention marks removed",
+	"form.webtop.chat.result.orphans": "Conversations of deleted files removed",
+	"form.webtop.chat.result.errors": "Folders that could not be removed (see the server log)",
+	"form.webtop.chat.result.openFromTask": "Open this form from the \"Chat Maintenance Result\" task.",
+	"form.webtop.chat.result.missing": "The run left no result.",
+	"form.webtop.chat.result.close": "Complete task"
+}
