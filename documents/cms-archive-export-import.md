@@ -318,7 +318,9 @@ mode:
    silently dropped).
 
 ACLs (when present and enabled) are applied in a final pass, after all
-principals' target nodes exist.
+principals' target nodes exist. A node's archived entries replace its
+current list, in their archived order, so importing the same archive again
+leaves the same list.
 
 ## Import options
 

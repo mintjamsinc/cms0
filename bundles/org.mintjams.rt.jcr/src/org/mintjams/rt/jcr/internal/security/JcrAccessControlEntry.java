@@ -94,7 +94,12 @@ public class JcrAccessControlEntry implements AccessControlEntry {
 		if (!(obj instanceof JcrAccessControlEntry)) {
 			return false;
 		}
-		return (hashCode() == obj.hashCode());
+		// The same grant: principal (by name), effect and privileges, in any order.
+		JcrAccessControlEntry other = (JcrAccessControlEntry) obj;
+		return getPrincipal().getName().equals(other.getPrincipal().getName())
+				&& isAllow() == other.isAllow()
+				&& fPrivileges.size() == other.fPrivileges.size()
+				&& fPrivileges.containsAll(other.fPrivileges);
 	}
 
 	@Override

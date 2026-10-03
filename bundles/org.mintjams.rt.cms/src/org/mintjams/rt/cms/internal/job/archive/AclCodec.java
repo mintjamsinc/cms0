@@ -92,7 +92,9 @@ public final class AclCodec {
 
 	/**
 	 * Reapply the access control entries from an {@code acl.ndjson} record onto a
-	 * node.
+	 * node. The record holds the node's whole list, so it replaces the node's
+	 * current entries: their evaluation order is kept, and importing the same
+	 * archive again does not pile up entries.
 	 *
 	 * @param strict when {@code true}, a principal that cannot be resolved in the
 	 *               target installation fails (throws {@link PrincipalNotFoundException});
@@ -106,6 +108,9 @@ public final class AclCodec {
 		if (entries == null || entries.isEmpty()) {
 			return;
 		}
+		org.mintjams.jcr.security.AccessControlList acl =
+				(org.mintjams.jcr.security.AccessControlList) JCRs.getAccessControlList(node);
+		acl.clear();
 		for (Map<String, Object> e : entries) {
 			String principalName = (String) e.get("principal");
 			boolean allow = Boolean.TRUE.equals(e.get("allow"));
@@ -120,9 +125,9 @@ public final class AclCodec {
 				warnings.add("ACL principal not found: " + principalName + " on " + safePath(node));
 				continue;
 			}
-			JCRs.addAccessControlEntry(node, principal, allow,
-					privileges.toArray(new String[0]));
+			acl.addAccessControlEntry(principal, allow, privileges.toArray(new String[0]));
 		}
+		node.getSession().getAccessControlManager().setPolicy(node.getPath(), acl);
 	}
 
 	private static String safePath(Node node) {

@@ -1254,10 +1254,12 @@ public final class PlatformWiringContributor implements WiringContributor {
 				}
 				@SuppressWarnings("unchecked")
 				Map<String, Object> entry = (Map<String, Object>) entryObj;
-				processAccessControlEntry(acm, acl, entry);
+				// Appended as given: a principal may have several entries (e.g.
+				// deny one privilege and allow another), in this order.
+				processAccessControlEntry(acm, acl, entry, false);
 			}
 		} else {
-			processAccessControlEntry(acm, acl, input);
+			processAccessControlEntry(acm, acl, input, true);
 		}
 		acm.setPolicy(path, acl);
 		session.save();
@@ -1452,9 +1454,12 @@ public final class PlatformWiringContributor implements WiringContributor {
 		return acl;
 	}
 
-	/** Mirrors {@code MutationExecutor.processAccessControlEntry} (upsert one principal's entry). */
+	/**
+	 * Mirrors {@code MutationExecutor.processAccessControlEntry}: appends one entry,
+	 * first removing the principal's existing entries when {@code upsert} is set.
+	 */
 	private static void processAccessControlEntry(AccessControlManager acm, AccessControlList acl,
-			Map<String, Object> entryData) throws Exception {
+			Map<String, Object> entryData, boolean upsert) throws Exception {
 		final String principalName = (String) entryData.get("principal");
 		Object privilegesObj = entryData.get("privileges");
 		boolean allow = !Boolean.FALSE.equals(entryData.get("allow"));
@@ -1481,10 +1486,12 @@ public final class PlatformWiringContributor implements WiringContributor {
 		for (int i = 0; i < privilegeNames.size(); i++) {
 			privileges[i] = acm.privilegeFromName(privilegeNames.get(i));
 		}
-		// Remove any existing entry for this principal, then add the new one.
-		for (AccessControlEntry entry : acl.getAccessControlEntries()) {
-			if (entry.getPrincipal().getName().equals(principalName)) {
-				acl.removeAccessControlEntry(entry);
+		if (upsert) {
+			// Remove any existing entry for this principal, then add the new one.
+			for (AccessControlEntry entry : acl.getAccessControlEntries()) {
+				if (entry.getPrincipal().getName().equals(principalName)) {
+					acl.removeAccessControlEntry(entry);
+				}
 			}
 		}
 		if (acl instanceof org.mintjams.jcr.security.AccessControlList) {

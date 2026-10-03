@@ -66,6 +66,14 @@ public class JcrAccessControlList implements AccessControlList, Adaptable {
 
 	@Override
 	public void removeAccessControlEntry(AccessControlEntry ace) throws AccessControlException, RepositoryException {
+		// The entries handed out by getAccessControlEntries() are the list's own, so
+		// the very entry is removed even when an equal one appears earlier.
+		for (Iterator<JcrAccessControlEntry> i = fAccessControlEntries.iterator(); i.hasNext();) {
+			if (i.next() == ace) {
+				i.remove();
+				return;
+			}
+		}
 		if (!fAccessControlEntries.remove(ace)) {
 			throw new AccessControlException("Invalid access control entry.");
 		}
@@ -83,35 +91,23 @@ public class JcrAccessControlList implements AccessControlList, Adaptable {
 			throw new IllegalArgumentException("Principal must not be null.");
 		}
 		if (privileges == null || privileges.length == 0) {
-			throw new IllegalArgumentException("Principal must not be null or empty.");
+			throw new IllegalArgumentException("Privileges must not be null or empty.");
 		}
 
-		boolean modified = false;
-		List<Privilege> privilegeList = new ArrayList<>(Arrays.asList(privileges));
-		for (JcrAccessControlEntry e : fAccessControlEntries) {
-			for (Privilege privilege : privileges) {
-				if (e.getPrincipal().equals(principal) && e.getPrivileges()[0].equals(privilege)) {
-					privilegeList.remove(privilege);
-					if (e.isAllow() != isAllow) {
-						e.setAllow(isAllow);
-						modified = true;
-					}
-				}
-			}
+		JcrAccessControlEntry ace = JcrAccessControlEntry.create(principal).setAllow(isAllow);
+		for (Privilege privilege : privileges) {
+			ace.addPrivilege(privilege);
+		}
 
-			if (privilegeList.isEmpty()) {
-				break;
-			}
+		// Entries are evaluated in definition order, so a new entry always goes to
+		// the end, where it takes precedence over the entries before it. Changing an
+		// existing entry instead would keep its position and alter the meaning of
+		// the list; only a repeat of the last entry is a no-op.
+		if (!fAccessControlEntries.isEmpty() && fAccessControlEntries.get(fAccessControlEntries.size() - 1).equals(ace)) {
+			return false;
 		}
-		if (!privilegeList.isEmpty()) {
-			JcrAccessControlEntry ace = JcrAccessControlEntry.create(principal).setAllow(isAllow);
-			for (Privilege privilege : privilegeList) {
-				ace.addPrivilege(privilege);
-			}
-			fAccessControlEntries.add(ace);
-			modified = true;
-		}
-		return modified;
+		fAccessControlEntries.add(ace);
+		return true;
 	}
 
 	@Override
