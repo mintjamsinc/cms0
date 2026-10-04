@@ -64,7 +64,7 @@ attributes are **omitted when null** rather than set to `null`. Beyond
 | `ProcessInstance` | `processDefinitionId`, `processInstanceId`, `executionId`, `businessKey`, `tenantId` |
 | `ActivityInstance` | `processDefinitionId`, `processInstanceId`, `executionId`, `activityInstanceId`, `activityId`, `activityName`, `businessKey`, `tenantId` |
 | `SequenceFlow` | `processDefinitionId`, `processInstanceId`, `executionId`, `transitionId`, `activityId`, `businessKey`, `tenantId` |
-| `Task` | `taskId`, `taskName`, `taskDefinitionKey`, `assignee`, `eventName`, `processInstanceId`, `processDefinitionId`, `executionId`, `tenantId`, `createTime` |
+| `Task` | `taskId`, `taskName`, `taskDefinitionKey`, `assignee`, `eventName`, `processInstanceId`, `processDefinitionId`, `executionId`, `businessKey`, `tenantId`, `createTime` |
 | `VariableInstance` | `variableInstanceId`, `variableName`, `serializerName`, `scopeActivityInstanceId`, `processInstanceId`, `processDefinitionId`, `executionId` |
 | `Incident` | `incidentId`, `incidentType`, `incidentMessage`, `activityId`, `causeIncidentId`, `processInstanceId`, `processDefinitionId`, `executionId`, `tenantId` |
 

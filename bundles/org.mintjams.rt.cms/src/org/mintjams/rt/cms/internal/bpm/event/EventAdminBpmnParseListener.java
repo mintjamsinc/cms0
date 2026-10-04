@@ -301,6 +301,8 @@ public class EventAdminBpmnParseListener extends AbstractBpmnParseListener {
 			BpmEventDispatcher.put(properties, "processInstanceId", task.getProcessInstanceId());
 			BpmEventDispatcher.put(properties, "processDefinitionId", task.getProcessDefinitionId());
 			BpmEventDispatcher.put(properties, "executionId", task.getExecutionId());
+			DelegateExecution execution = task.getExecution();
+			BpmEventDispatcher.put(properties, "businessKey", execution != null ? execution.getProcessBusinessKey() : null);
 			BpmEventDispatcher.put(properties, "tenantId", task.getTenantId());
 			BpmEventDispatcher.put(properties, "createTime", task.getCreateTime());
 			fDispatcher.dispatchOnCommit(fDispatcher.topic(Task.class, fAction), properties);
