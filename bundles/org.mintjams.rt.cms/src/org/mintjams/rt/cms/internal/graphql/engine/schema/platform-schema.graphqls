@@ -261,7 +261,7 @@ type Subscription {
   processEnded(definitionKey: String): ProcessEvent!
 }
 
-"""A BPM task lifecycle event. `task` is the typed Task (a partial projection — id/name/assignee/taskDefinitionKey/processInstanceId/processDefinitionId — built from the engine event; clients re-query for the rest)."""
+"""A BPM task lifecycle event. `task` is the typed Task (a partial projection — id/name/assignee/taskDefinitionKey/processInstanceId/processDefinitionId, plus processInstance { id definitionId definitionKey businessKey } — built from the engine event; clients re-query for the rest)."""
 type TaskEvent {
   """CREATED / ASSIGNED / COMPLETED / UPDATED / DELETED (the Camunda event action)."""
   eventType: String

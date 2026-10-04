@@ -2322,6 +2322,9 @@ public final class PlatformWiringContributor implements WiringContributor {
 		task.put("taskDefinitionKey", event.getProperty("taskDefinitionKey"));
 		task.put("processInstanceId", event.getProperty("processInstanceId"));
 		task.put("processDefinitionId", event.getProperty("processDefinitionId"));
+		// Task has no businessKey field; like the task queries, it is reached
+		// through the embedded parent `processInstance { businessKey }`.
+		task.put("processInstance", processInstanceOf(event));
 		Map<String, Object> data = new LinkedHashMap<>();
 		data.put("eventType", topicAction(event));
 		data.put("task", task);
@@ -2330,6 +2333,15 @@ public final class PlatformWiringContributor implements WiringContributor {
 	}
 
 	private static Map<String, Object> processEventPayload(Event event) {
+		Map<String, Object> data = new LinkedHashMap<>();
+		data.put("eventType", topicAction(event));
+		data.put("processInstance", processInstanceOf(event));
+		data.put("timestamp", ISO8601.now());
+		return data;
+	}
+
+	/** The ProcessInstance projection both task and process events carry. */
+	private static Map<String, Object> processInstanceOf(Event event) {
 		Map<String, Object> instance = new LinkedHashMap<>();
 		// Keys match the (now typed) ProcessInstance fields: the type exposes
 		// definitionId, not the Camunda-internal processDefinitionId.
@@ -2337,11 +2349,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		instance.put("definitionId", event.getProperty("processDefinitionId"));
 		instance.put("definitionKey", definitionKeyOf(event.getProperty("processDefinitionId")));
 		instance.put("businessKey", event.getProperty("businessKey"));
-		Map<String, Object> data = new LinkedHashMap<>();
-		data.put("eventType", topicAction(event));
-		data.put("processInstance", instance);
-		data.put("timestamp", ISO8601.now());
-		return data;
+		return instance;
 	}
 
 	/** Reads a preference category's current (non-jcr) string properties (mirrors the handmade payload). */
