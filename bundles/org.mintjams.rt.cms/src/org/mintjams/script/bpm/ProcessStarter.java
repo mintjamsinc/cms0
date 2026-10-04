@@ -37,6 +37,7 @@ public class ProcessStarter {
 	private String fMessageName;
 	private String fBusinessKey;
 	private Map<String, Object> fVariables;
+	private String fUserId;
 
 	protected ProcessStarter(ProcessAPI processAPI) {
 		fProcessAPI = processAPI;
@@ -87,38 +88,47 @@ public class ProcessStarter {
 		return this;
 	}
 
+	public ProcessStarter setUserId(String userId) {
+		fUserId = userId;
+		return this;
+	}
+
 	public ProcessInstance start() {
-		RuntimeService runtime = fProcessAPI.getEngine().getRuntimeService();
+		return fProcessAPI.callAsUser(fUserId, () -> {
+			RuntimeService runtime = fProcessAPI.getEngine().getRuntimeService();
 
-		if (!Strings.isEmpty(fProcessDefinitionId)) {
-			if (!Strings.isEmpty(fBusinessKey)) {
-				return runtime.startProcessInstanceById(fProcessDefinitionId, fBusinessKey, fVariables);
+			// The message is checked first: with a definition id as well, it selects the
+			// message start event of that definition rather than its none start event.
+			if (!Strings.isEmpty(fMessageName)) {
+				if (!Strings.isEmpty(fProcessDefinitionId)) {
+					if (!Strings.isEmpty(fBusinessKey)) {
+						return runtime.startProcessInstanceByMessageAndProcessDefinitionId(fMessageName, fProcessDefinitionId, fBusinessKey, fVariables);
+					}
+					return runtime.startProcessInstanceByMessageAndProcessDefinitionId(fMessageName, fProcessDefinitionId, fVariables);
+				}
+
+				if (!Strings.isEmpty(fBusinessKey)) {
+					return runtime.startProcessInstanceByMessage(fMessageName, fBusinessKey, fVariables);
+				}
+				return runtime.startProcessInstanceByMessage(fMessageName, fVariables);
 			}
-			return runtime.startProcessInstanceById(fProcessDefinitionId, fVariables);
-		}
 
-		if (!Strings.isEmpty(fProcessDefinitionKey)) {
-			if (!Strings.isEmpty(fBusinessKey)) {
-				return runtime.startProcessInstanceByKey(fProcessDefinitionKey, fBusinessKey, fVariables);
-			}
-			return runtime.startProcessInstanceByKey(fProcessDefinitionKey, fVariables);
-		}
-
-		if (!Strings.isEmpty(fMessageName)) {
 			if (!Strings.isEmpty(fProcessDefinitionId)) {
 				if (!Strings.isEmpty(fBusinessKey)) {
-					return runtime.startProcessInstanceByMessageAndProcessDefinitionId(fMessageName, fProcessDefinitionId, fBusinessKey, fVariables);
+					return runtime.startProcessInstanceById(fProcessDefinitionId, fBusinessKey, fVariables);
 				}
-				return runtime.startProcessInstanceByMessageAndProcessDefinitionId(fMessageName, fProcessDefinitionId, fVariables);
+				return runtime.startProcessInstanceById(fProcessDefinitionId, fVariables);
 			}
 
-			if (!Strings.isEmpty(fBusinessKey)) {
-				return runtime.startProcessInstanceByMessage(fMessageName, fBusinessKey, fVariables);
+			if (!Strings.isEmpty(fProcessDefinitionKey)) {
+				if (!Strings.isEmpty(fBusinessKey)) {
+					return runtime.startProcessInstanceByKey(fProcessDefinitionKey, fBusinessKey, fVariables);
+				}
+				return runtime.startProcessInstanceByKey(fProcessDefinitionKey, fVariables);
 			}
-			return runtime.startProcessInstanceByMessage(fMessageName, fVariables);
-		}
 
-		throw new IllegalStateException("Could not start BPM process");
+			throw new IllegalStateException("Could not start BPM process");
+		});
 	}
 
 }

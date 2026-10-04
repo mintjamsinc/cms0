@@ -22,10 +22,15 @@
 
 package org.mintjams.script.bpm;
 
+import java.util.function.Supplier;
+
+import org.camunda.bpm.engine.IdentityService;
 import org.camunda.bpm.engine.ProcessEngine;
+import org.camunda.bpm.engine.impl.identity.Authentication;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.script.ScriptingContext;
+import org.mintjams.tools.lang.Strings;
 
 public class ProcessAPI {
 
@@ -49,6 +54,36 @@ public class ProcessAPI {
 
 	public MessageCorrelator createMessageCorrelator() {
 		return new MessageCorrelator(this);
+	}
+
+	public SignalSender createSignalSender() {
+		return new SignalSender(this);
+	}
+
+	/**
+	 * Runs {@code action} with {@code userId} as the engine's authenticated user, so
+	 * Camunda attributes the work to that user (process initiator, operation log).
+	 * The authentication current before the call is restored afterward, so a script
+	 * running inside an engine command does not wipe its caller's identity. Without
+	 * a user id the action runs under whatever authentication is current.
+	 */
+	<T> T callAsUser(String userId, Supplier<T> action) {
+		if (Strings.isEmpty(userId)) {
+			return action.get();
+		}
+
+		IdentityService identity = getEngine().getIdentityService();
+		Authentication previous = identity.getCurrentAuthentication();
+		identity.setAuthenticatedUserId(userId);
+		try {
+			return action.get();
+		} finally {
+			if (previous == null) {
+				identity.clearAuthentication();
+			} else {
+				identity.setAuthentication(previous);
+			}
+		}
 	}
 
 }

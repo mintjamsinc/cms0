@@ -52,6 +52,7 @@ import org.camunda.bpm.dmn.engine.DmnDecisionResult;
 import org.camunda.bpm.engine.DecisionService;
 import org.camunda.bpm.engine.ExternalTaskService;
 import org.camunda.bpm.engine.HistoryService;
+import org.camunda.bpm.engine.IdentityService;
 import org.camunda.bpm.engine.ManagementService;
 import org.camunda.bpm.engine.ProcessEngine;
 import org.camunda.bpm.engine.RepositoryService;
@@ -65,6 +66,7 @@ import org.camunda.bpm.engine.history.HistoricProcessInstance;
 import org.camunda.bpm.engine.history.HistoricProcessInstanceQuery;
 import org.camunda.bpm.engine.history.HistoricVariableInstance;
 import org.camunda.bpm.engine.history.HistoricVariableInstanceQuery;
+import org.camunda.bpm.engine.impl.identity.Authentication;
 import org.camunda.bpm.engine.repository.Deployment;
 import org.camunda.bpm.engine.repository.DeploymentBuilder;
 import org.camunda.bpm.engine.repository.ProcessDefinition;
@@ -322,6 +324,15 @@ public class BpmComponent extends DefaultComponent {
 			throw new UnsupportedOperationException("Could not process BPM endpoint");
 		}
 
+		/**
+		 * Base of every producer.
+		 *
+		 * Parameter common to all operations:
+		 * - authenticatedUserId: Optional id of the user the engine attributes the operation to
+		 *   (process initiator, user operation log, comment author, task identity link history).
+		 *   Not named userId: claimTask, setAssignee and delegateTask already use that for the
+		 *   target user, and a stray userId header would otherwise become the actor.
+		 */
 		private abstract class BpmProducer extends DefaultProducer {
 			protected BpmProducer(Endpoint endpoint) {
 				super(endpoint);
@@ -330,7 +341,27 @@ public class BpmComponent extends DefaultComponent {
 			@Override
 			public void process(Exchange exchange) throws Exception {
 				try (ProcessContext context = new ProcessContext(exchange)) {
-					doProcess(context);
+					String authenticatedUserId = (String) context.getParameter("authenticatedUserId");
+					if (Strings.isEmpty(authenticatedUserId)) {
+						doProcess(context);
+						return;
+					}
+
+					// The authentication current before is restored rather than cleared: a route
+					// called from inside an engine command (a delegate) must not wipe its caller's.
+					IdentityService identity = CmsService.getWorkspaceProcessEngineProvider(fWorkspaceName)
+							.getProcessEngine().getIdentityService();
+					Authentication previous = identity.getCurrentAuthentication();
+					identity.setAuthenticatedUserId(authenticatedUserId);
+					try {
+						doProcess(context);
+					} finally {
+						if (previous == null) {
+							identity.clearAuthentication();
+						} else {
+							identity.setAuthentication(previous);
+						}
+					}
 				}
 			}
 

@@ -40,6 +40,7 @@ public class MessageCorrelator {
 	private String fBusinessKey;
 	private Map<String, Object> fCorrelationKeys;
 	private Map<String, Object> fVariables;
+	private String fUserId;
 
 	protected MessageCorrelator(ProcessAPI processAPI) {
 		fProcessAPI = processAPI;
@@ -120,40 +121,48 @@ public class MessageCorrelator {
 		return this;
 	}
 
+	public MessageCorrelator setUserId(String userId) {
+		fUserId = userId;
+		return this;
+	}
+
 	public void correlate() {
-		if (!Strings.isEmpty(fMessageName)) {
+		if (Strings.isEmpty(fMessageName)) {
 			throw new IllegalStateException("The message name must not be empty");
 		}
 
-		RuntimeService runtime = fProcessAPI.getEngine().getRuntimeService();
+		fProcessAPI.callAsUser(fUserId, () -> {
+			RuntimeService runtime = fProcessAPI.getEngine().getRuntimeService();
 
-		if (!Strings.isEmpty(fProcessInstanceId)) {
-			ExecutionQuery query = runtime.createExecutionQuery()
-					.processInstanceId(fProcessInstanceId)
-					.messageEventSubscriptionName(fMessageName);
-			if (!Strings.isEmpty(fProcessDefinitionKey)) {
-				query.processDefinitionKey(fProcessDefinitionKey);
+			if (!Strings.isEmpty(fProcessInstanceId)) {
+				ExecutionQuery query = runtime.createExecutionQuery()
+						.processInstanceId(fProcessInstanceId)
+						.messageEventSubscriptionName(fMessageName);
+				if (!Strings.isEmpty(fProcessDefinitionKey)) {
+					query.processDefinitionKey(fProcessDefinitionKey);
+				}
+				if (!Strings.isEmpty(fProcessDefinitionId)) {
+					query.processDefinitionId(fProcessDefinitionId);
+				}
+				if (!Strings.isEmpty(fBusinessKey)) {
+					query.processInstanceBusinessKey(fBusinessKey);
+				}
+				Execution execution = query.singleResult();
+				if (execution == null) {
+					throw new IllegalStateException("Could not find waiting process instance with id '" + fProcessInstanceId + "' for message '" + fMessageName + "'");
+				}
+
+				runtime.messageEventReceived(fMessageName, execution.getId(), fVariables);
+				return null;
 			}
-			if (!Strings.isEmpty(fProcessDefinitionId)) {
-				query.processDefinitionId(fProcessDefinitionId);
-			}
+
 			if (!Strings.isEmpty(fBusinessKey)) {
-				query.processInstanceBusinessKey(fBusinessKey);
+				runtime.correlateMessage(fMessageName, fBusinessKey, fCorrelationKeys, fVariables);
+				return null;
 			}
-			Execution execution = query.singleResult();
-			if (execution == null) {
-				throw new IllegalStateException("Could not find waiting process instance with id '" + fProcessInstanceId + "' for message '" + fMessageName + "'");
-			}
-
-			runtime.messageEventReceived(fMessageName, execution.getId(), fVariables);
-			return;
-		}
-
-		if (!Strings.isEmpty(fBusinessKey)) {
-			runtime.correlateMessage(fMessageName, fBusinessKey, fCorrelationKeys, fVariables);
-			return;
-		}
-		runtime.correlateMessage(fMessageName, fCorrelationKeys, fVariables);
+			runtime.correlateMessage(fMessageName, fCorrelationKeys, fVariables);
+			return null;
+		});
 	}
 
 }
