@@ -66,7 +66,9 @@ import javax.jcr.version.VersionManager;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.pubsub.TopicMessages;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
 import org.mintjams.rt.cms.internal.graphql.ClusterQueryExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
@@ -232,6 +234,8 @@ public final class PlatformWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformWiringContributor::abortImportArchive)
 				.dataFetcher("Mutation", "abortSearchIndexRebuild",
 						(DataFetcher<Object>) PlatformWiringContributor::abortSearchIndexRebuild)
+				.dataFetcher("Mutation", "publish",
+						(DataFetcher<Object>) PlatformWiringContributor::publish)
 				.dataFetcher("Subscription", "jobProgress",
 						(DataFetcher<Object>) PlatformWiringContributor::jobProgress)
 				.dataFetcher("Subscription", "nodeChanged",
@@ -256,6 +260,8 @@ public final class PlatformWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformWiringContributor::processStarted)
 				.dataFetcher("Subscription", "processEnded",
 						(DataFetcher<Object>) PlatformWiringContributor::processEnded)
+				.dataFetcher("Subscription", "topicMessage",
+						(DataFetcher<Object>) PlatformWiringContributor::topicMessage)
 				.typeResolver("PropertyValue", new PropertyValueTypeResolver());
 	}
 
@@ -2222,6 +2228,33 @@ public final class PlatformWiringContributor implements WiringContributor {
 					data.put("timestamp", ISO8601.now());
 					return data;
 				});
+	}
+
+	// ---- topic messages ----------------------------------------------------
+	// The general-purpose publish/subscribe channel, see TopicMessages.
+
+	/** {@code Mutation.publish(topic, payload, recipients, path)} — signed-in users only. */
+	private static Object publish(DataFetchingEnvironment environment) throws Exception {
+		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
+		String userId = context.getCallerSession().getUserID();
+		if (userId == null || userId.isEmpty() || GuestPrincipal.NAME.equals(userId)) {
+			throw new IllegalStateException("Sign in to publish.");
+		}
+		String topic = environment.getArgument("topic");
+		Object payload = environment.getArgument("payload");
+		List<String> recipients = environment.getArgument("recipients");
+		String path = environment.getArgument("path");
+		return TopicMessages.publish(context.getWorkspaceName(), topic, payload, userId, recipients, path, true);
+	}
+
+	/** {@code Subscription.topicMessage(topic)} — the messages for the subscriber on matching topics. */
+	private static Object topicMessage(DataFetchingEnvironment environment) {
+		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
+		// Captured at subscribe time on the request thread; the filter runs later
+		// on an event thread, so only this immutable id crosses the boundary.
+		String subscriberId = context.getCallerSession().getUserID();
+		String topic = environment.getArgument("topic");
+		return TopicMessages.subscribe(context.getWorkspaceName(), subscriberId, topic);
 	}
 
 	// ---- BPM subscriptions (Phase 3b) --------------------------------------

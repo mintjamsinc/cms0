@@ -214,6 +214,15 @@ type Mutation {
 
   """Signal one node's search index rebuild job to abort. Rebuild jobs are dispatched by the search-index-rebuild BPMN process (one per cluster node); a job running on another node is marked ABORTING and finalised by that node within its status-poll interval."""
   abortSearchIndexRebuild(input: AbortSearchIndexRebuildInput!): JobRef!
+
+  """
+  Publishes a topic message to the subscribers of this workspace (Subscription.topicMessage), on every node of the cluster.
+  `topic` is a slash-separated name such as `game/reversi/rooms/4f2a`. `payload` is any JSON, at most 16 KB when written out.
+  The audience: `recipients` (user ids) when given, else whoever can read `path` when given, else every subscriber of the workspace.
+  Nothing is stored: a subscriber that is not connected never sees the message. Receivers treat the payload as data from `userId`.
+  Signed-in users only. Returns the id of the message.
+  """
+  publish(topic: String!, payload: JSON, recipients: [ID!], path: String): String!
 }
 
 # =============================================================================
@@ -259,6 +268,23 @@ type Subscription {
 
   """A process instance ended (Camunda ProcessInstance/ENDED)."""
   processEnded(definitionKey: String): ProcessEvent!
+
+  """
+  The topic messages published to this workspace (Mutation.publish, or a script's EventAdminAPI.publish) that the subscriber is in the audience of.
+  `topic` is one topic, a topic followed by `/*` (that topic and everything under it), or `*` for every topic.
+  """
+  topicMessage(topic: String!): TopicMessage!
+}
+
+"""A topic message, as published (Mutation.publish): a notification, not a record."""
+type TopicMessage {
+  topic: String!
+  """What was published, as JSON; null when nothing was."""
+  payload: JSON
+  """Who published it; null when the platform did."""
+  userId: String
+  messageId: String!
+  timestamp: DateTime!
 }
 
 """A BPM task lifecycle event. `task` is the typed Task (a partial projection — id/name/assignee/taskDefinitionKey/processInstanceId/processDefinitionId, plus processInstance { id definitionId definitionKey businessKey } — built from the engine event; clients re-query for the rest)."""

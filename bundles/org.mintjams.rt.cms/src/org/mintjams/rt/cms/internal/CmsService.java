@@ -618,6 +618,17 @@ public class CmsService {
 	}
 
 	/**
+	 * Fans an event out to the other cluster nodes, which re-emit it as a local
+	 * event of the same topic and properties. The local post is the caller's;
+	 * a workspace-wide event is posted locally and broadcast, see
+	 * {@link org.mintjams.rt.cms.internal.pubsub.TopicMessages}. Best-effort,
+	 * and a no-op outside a cluster. The properties must be JSON scalars.
+	 */
+	public static void broadcast(String topic, String workspaceName, Map<String, Object> properties) {
+		broadcastToCluster(topic, workspaceName, properties);
+	}
+
+	/**
 	 * Fans a notification out to the other cluster nodes. The system workspace
 	 * is the repository-wide channel: it runs on every node, so its signal bus
 	 * reaches them all regardless of which workspaces each node runs. Each

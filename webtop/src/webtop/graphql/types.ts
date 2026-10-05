@@ -895,6 +895,19 @@ export type NodeEventType =
   | 'CHECKED_IN'
   | 'CHECKED_OUT';
 
+/**
+ * A topic message (Subscription.topicMessage): a notification published by a
+ * mutation or a script, not a record. The payload is data from `userId`.
+ */
+export interface TopicMessageEvent {
+  topic: string;
+  payload: unknown;
+  // Who published it; null when the platform did.
+  userId: string | null;
+  messageId: string;
+  timestamp: string;
+}
+
 export interface NodeChangeEvent {
   eventType: NodeEventType;
   // Absent on a DELETED drop signal for a node the subscriber cannot read: the

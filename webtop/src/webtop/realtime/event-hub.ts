@@ -19,6 +19,7 @@ import type {
   JobProgressEvent,
   WorkspaceChangeEvent,
   ContentLengthEvent,
+  TopicMessageEvent,
 } from '../graphql/types.js';
 
 export type EventHandler<T = unknown> = (data: T) => void;
@@ -45,6 +46,7 @@ const SELECTIONS = {
   task: 'eventType task { id name assignee taskDefinitionKey processInstanceId processDefinitionId } timestamp',
   process: 'eventType processInstance { id definitionId definitionKey businessKey } timestamp',
   route: 'routeId previousState currentState timestamp error',
+  topic: 'topic payload userId messageId timestamp',
 } as const;
 
 /** Quote and escape a value for inlining as a GraphQL String argument. */
@@ -332,6 +334,21 @@ export class EventHub {
       subscriptionDoc(`contentLengths(paths: [${paths.map(gqlString).join(', ')}])`, SELECTIONS.contentLength),
       handler,
       onComplete
+    );
+  }
+
+  /**
+   * Subscribe to the topic messages the signed-in user is in the audience of
+   * (Mutation.publish / EventAdminAPI.publish). `topic` is one topic, a topic
+   * followed by `/*` (that topic and everything under it), or `*`.
+   */
+  watchTopic(
+    topic: string,
+    handler: EventHandler<TopicMessageEvent>
+  ): () => void {
+    return this.#client.subscribe(
+      subscriptionDoc(`topicMessage(topic: ${gqlString(topic)})`, SELECTIONS.topic),
+      handler
     );
   }
 

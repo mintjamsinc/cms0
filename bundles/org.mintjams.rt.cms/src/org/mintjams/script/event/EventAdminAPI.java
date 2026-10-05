@@ -22,9 +22,13 @@
 
 package org.mintjams.script.event;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.pubsub.TopicMessages;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.script.ScriptingContext;
 import org.osgi.service.event.Event;
@@ -43,6 +47,68 @@ public class EventAdminAPI {
 
 	public void postEvent(String topic, Map<String, ?> properties) {
 		CmsService.postEvent(new Event(topic, properties));
+	}
+
+	/**
+	 * Publishes a topic message to the subscribers of this workspace
+	 * ({@code Subscription.topicMessage}), on every node of the cluster.
+	 * The payload is anything that can be written as JSON. Who publishes it
+	 * is the user of this script's session.
+	 *
+	 * @see #publish(String, Object, Map)
+	 */
+	public String publish(String topic, Object payload) {
+		return publish(topic, payload, null);
+	}
+
+	/**
+	 * Publishes a topic message with options:
+	 * <ul>
+	 *   <li>{@code recipients} — a collection of user ids; only they receive
+	 *       the message;</li>
+	 *   <li>{@code path} — a node of this workspace; only those who can read
+	 *       it receive the message;</li>
+	 *   <li>{@code cluster} — {@code false} to post on this node only (the
+	 *       default is the whole cluster).</li>
+	 * </ul>
+	 * With neither {@code recipients} nor {@code path}, every subscriber of
+	 * the workspace receives it.
+	 *
+	 * @return the id of the message
+	 */
+	@SuppressWarnings("unchecked")
+	public String publish(String topic, Object payload, Map<String, ?> options) {
+		Collection<String> recipients = null;
+		String path = null;
+		boolean cluster = true;
+		if (options != null) {
+			Object value = options.get("recipients");
+			if (value instanceof Collection) {
+				recipients = new ArrayList<>();
+				for (Object id : (Collection<Object>) value) {
+					if (id != null) {
+						recipients.add(id.toString());
+					}
+				}
+			} else if (value != null) {
+				recipients = List.of(value.toString());
+			}
+			Object pathValue = options.get("path");
+			if (pathValue != null) {
+				path = pathValue.toString();
+			}
+			Object clusterValue = options.get("cluster");
+			if (clusterValue != null) {
+				cluster = Boolean.parseBoolean(clusterValue.toString());
+			}
+		}
+		String publisher;
+		try {
+			publisher = fContext.getSession().getUserID();
+		} catch (Throwable ex) {
+			throw new IllegalStateException(ex.getMessage(), ex);
+		}
+		return TopicMessages.publish(fContext.getWorkspaceName(), topic, payload, publisher, recipients, path, cluster);
 	}
 
 	public ResourceEventHandlerRegistration.Builder beginResourceEventHandlerRegistration() {
