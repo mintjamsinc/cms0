@@ -1,0 +1,15 @@
+identifier: d52bf8a8-ec9d-4c21-b37e-bd47c6cfb777
+title: Reversi
+icon: assets/icons/icon.svg
+# Reversi against the computer (four levels, searched in ai-worker.js next to
+# app.js) or between two people at the same desktop. The game in progress
+# and the settings are kept per user in the local webtop database.
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 760
+minimumHeight: 560
+customWindowControls: true
+# The saved game is per user, so a second launch focuses the running one.
+singleton: true

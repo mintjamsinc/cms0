@@ -1,0 +1,438 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Reversi — layout, board and discs
+ *
+ * Theme tokens / shared components live in webtop-app.css. The board's
+ * colours come from the board theme (looks.ts) as --rv-* custom properties
+ * on .rv-stage; a disc's face comes inline from its disc face.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--rv-gap: 0.75rem;
+	--rv-side-width: 15rem;
+}
+
+#app {
+	height: 100%;
+}
+
+.rv-body {
+	gap: var(--rv-gap);
+}
+
+/* ----------------------------------------------------------------------------
+ * Stage and board
+ * -------------------------------------------------------------------------- */
+
+.rv-stage {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--rv-backdrop);
+}
+
+/* The board is drawn as a physical object in its theme's colours; on the
+ * dark desktop only the backdrop around it goes dark. */
+:root[data-theme="dark"] .rv-stage {
+	background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.06), transparent 70%), var(--island-bg);
+}
+
+.rv-board-wrap {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	container-type: size;
+	display: grid;
+	place-items: center;
+	padding: 1.25rem;
+}
+
+.rv-board {
+	--rv-cell-gap: clamp(3px, 1.1cqmin, 7px);
+	width: min(100cqw, 100cqh, 40rem);
+	aspect-ratio: 1;
+	display: grid;
+	grid-template-columns: repeat(var(--rv-size), 1fr);
+	grid-template-rows: repeat(var(--rv-size), 1fr);
+	gap: var(--rv-cell-gap);
+	padding: calc(var(--rv-cell-gap) * 1.8);
+	border-radius: clamp(14px, 4cqmin, 26px);
+	background: var(--rv-frame);
+	box-shadow:
+		inset 0 0 0 2px var(--rv-frame-edge),
+		0 10px 26px rgba(150, 70, 85, 0.14);
+}
+
+.rv-cell {
+	display: grid;
+	place-items: center;
+	min-width: 0;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 24%;
+	background: var(--rv-cell);
+	cursor: pointer;
+	transition: background-color 0.15s ease;
+}
+
+.rv-cell:hover {
+	background: var(--rv-cell-hover);
+}
+
+.rv-board.is-locked .rv-cell {
+	cursor: default;
+}
+
+.rv-board.is-locked .rv-cell:hover {
+	background: var(--rv-cell);
+}
+
+.rv-cell:focus-visible {
+	outline: 2px solid var(--rv-mark);
+	outline-offset: 1px;
+}
+
+.rv-disc {
+	position: relative;
+	width: 80%;
+	height: 80%;
+	border-radius: 50%;
+	box-shadow:
+		0 3px 0 var(--rv-rim),
+		0 6px 10px rgba(77, 44, 49, 0.22);
+}
+
+/* The last move: a small dot in the middle of the disc. */
+.rv-disc.is-last::after {
+	content: '';
+	position: absolute;
+	inset: 41%;
+	border-radius: 50%;
+	background: var(--rv-mark);
+	box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.75);
+}
+
+/* Where the player to move can play; grows into a ghost disc on hover. */
+.rv-hint {
+	width: 24%;
+	height: 24%;
+	border-radius: 50%;
+	background: var(--rv-mark);
+	opacity: 0.32;
+	transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.rv-cell:hover .rv-hint {
+	transform: scale(2.6);
+	opacity: 0.22;
+}
+
+/* ----------------------------------------------------------------------------
+ * Result card and pass notice
+ * -------------------------------------------------------------------------- */
+
+.rv-result {
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 1.25rem 1.75rem;
+	border-radius: 20px;
+	background: var(--island-bg);
+	border: 1px solid var(--island-border-color);
+	box-shadow: 0 16px 40px rgba(77, 44, 49, 0.22);
+	animation: rv-rise 0.35s ease-out;
+}
+
+.rv-result-title {
+	font-size: 1.35rem;
+	font-weight: 800;
+}
+
+.rv-result-score {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	font-size: 1.6rem;
+}
+
+.rv-result-dash {
+	color: var(--text-muted-color);
+}
+
+.rv-result-actions {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.rv-notice {
+	position: absolute;
+	top: 1rem;
+	left: 50%;
+	transform: translateX(-50%);
+	padding: 0.4rem 1.1rem;
+	border-radius: 9999px;
+	background: var(--island-bg);
+	border: 1px solid var(--island-border-color);
+	box-shadow: 0 6px 18px rgba(77, 44, 49, 0.16);
+	white-space: nowrap;
+	animation: rv-notice-in 0.25s ease-out;
+}
+
+@keyframes rv-rise {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+}
+
+@keyframes rv-notice-in {
+	from {
+		opacity: 0;
+		transform: translate(-50%, -6px);
+	}
+}
+
+/* ----------------------------------------------------------------------------
+ * Side panel: players and board theme
+ * -------------------------------------------------------------------------- */
+
+.rv-side {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	width: var(--rv-side-width);
+	flex-shrink: 0;
+	overflow-y: auto;
+}
+
+.rv-seat {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.7rem 0.8rem;
+	border: 1px solid transparent;
+	border-radius: 14px;
+	transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.rv-seat.is-active {
+	background: var(--item-selected-bg);
+	border-color: var(--primary-color);
+}
+
+.rv-mini-disc {
+	display: inline-block;
+	width: 1.6rem;
+	height: 1.6rem;
+	border-radius: 50%;
+	flex-shrink: 0;
+	box-shadow: 0 2px 0 var(--rv-rim), 0 3px 6px rgba(77, 44, 49, 0.2);
+}
+
+.rv-seat-disc {
+	width: 2.2rem;
+	height: 2.2rem;
+}
+
+.rv-seat-text {
+	flex: 1;
+	min-width: 0;
+}
+
+.rv-seat-name {
+	font-weight: 700;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.rv-seat-role {
+	font-size: 0.8rem;
+	color: var(--text-muted-color);
+	min-height: 1.2em;
+}
+
+.rv-seat-count {
+	font-size: 1.5rem;
+	font-weight: 800;
+	font-variant-numeric: tabular-nums;
+}
+
+/* "Thinking" dots */
+.rv-dots {
+	display: inline-flex;
+	gap: 3px;
+	vertical-align: middle;
+}
+
+.rv-dots i {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--primary-color);
+	animation: rv-dot 1s infinite ease-in-out;
+}
+
+.rv-dots i:nth-child(2) {
+	animation-delay: 0.15s;
+}
+
+.rv-dots i:nth-child(3) {
+	animation-delay: 0.3s;
+}
+
+@keyframes rv-dot {
+	0%, 80%, 100% {
+		transform: translateY(0);
+		opacity: 0.4;
+	}
+	40% {
+		transform: translateY(-4px);
+		opacity: 1;
+	}
+}
+
+.rv-side-title {
+	margin-top: 0.75rem;
+	font-size: 0.8rem;
+	font-weight: 700;
+	color: var(--text-muted-color);
+}
+
+.rv-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.rv-swatch {
+	width: 2.4rem;
+	height: 2.4rem;
+	padding: 0;
+	border: 0;
+	border-radius: 10px;
+	cursor: pointer;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+}
+
+.rv-swatch.is-selected {
+	outline-color: var(--primary-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * New game dialog
+ * -------------------------------------------------------------------------- */
+
+.rv-dialog {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.rv-dialog .dialog-label {
+	margin-top: 0.6rem;
+}
+
+.rv-options {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 0.6rem;
+}
+
+.rv-option {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.35rem;
+	padding: 0.9rem 0.5rem;
+	border: 1px solid var(--input-border-color);
+	border-radius: 14px;
+	background: var(--input-bg);
+	color: var(--text-color);
+	font: inherit;
+	cursor: pointer;
+}
+
+.rv-option i {
+	font-size: 1.5rem;
+}
+
+.rv-option.is-selected,
+.rv-chip.is-selected {
+	border-color: var(--primary-color);
+	background: var(--item-selected-bg);
+	box-shadow: 0 0 0 1px var(--primary-color);
+}
+
+.rv-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+}
+
+.rv-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.35rem 0.85rem;
+	border: 1px solid var(--input-border-color);
+	border-radius: 9999px;
+	background: var(--input-bg);
+	color: var(--text-color);
+	font: inherit;
+	cursor: pointer;
+}
+
+.rv-level-pips {
+	display: inline-flex;
+	gap: 2px;
+}
+
+.rv-level-pips i {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--primary-color);
+}
+
+.rv-faces {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.55rem;
+}
+
+.rv-face {
+	width: 2.4rem;
+	height: 2.4rem;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	cursor: pointer;
+	box-shadow: 0 2px 0 var(--rv-rim), 0 3px 6px rgba(77, 44, 49, 0.2);
+	outline: 2px solid transparent;
+	outline-offset: 3px;
+}
+
+.rv-face.is-selected {
+	outline-color: var(--primary-color);
+}
+
+/* The other player's face: picking it swaps the two. */
+.rv-face.is-taken {
+	opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.rv-result,
+	.rv-notice,
+	.rv-dots i {
+		animation: none;
+	}
+}

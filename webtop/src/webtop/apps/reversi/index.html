@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Reversi</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. -->
+		<template v-if="isReady">
+
+		<!-- Top Toolbar (translucent) -->
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="openNewGame" :title="t('app.reversi.toolbar.newGame', undefined, 'New game')">
+					<i class="bi bi-plus-circle"></i>
+				</button>
+				<button class="btn-icon" @click="undo" :disabled="!canUndo" :title="t('app.reversi.toolbar.undo', undefined, 'Undo')">
+					<i class="bi bi-arrow-counterclockwise"></i>
+				</button>
+				<button class="btn-icon" :class="{active: settings.hints}" @click="toggleHints"
+					:title="t('app.reversi.toolbar.hints', undefined, 'Show where you can play')">
+					<i class="bi bi-lightbulb"></i>
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<div class="content-body rv-body">
+
+			<!-- Board -->
+			<div class="content-main island p-0 rv-stage" :style="stageStyle">
+				<div class="rv-board-wrap">
+					<div class="rv-board" :class="{ 'is-locked': !isHumanTurn || busy }" :style="boardStyle">
+						<button v-for="(cell, i) in cells" :key="i" type="button" class="rv-cell" :data-i="i"
+							:aria-label="cellLabel(i, cell)" @click="onCellClick(i)">
+							<span v-if="cell" class="rv-disc" :class="{ 'is-last': i === lastMove }" :style="discStyle(cell)"></span>
+							<span v-else-if="hintMap[i]" class="rv-hint"></span>
+						</button>
+					</div>
+
+					<div v-if="result" class="rv-result">
+						<div class="rv-result-title">{{ resultTitle }}</div>
+						<div class="rv-result-score">
+							<span class="rv-mini-disc" :style="seatCards[0].style"></span>
+							<strong>{{ result.black }}</strong>
+							<span class="rv-result-dash">-</span>
+							<strong>{{ result.white }}</strong>
+							<span class="rv-mini-disc" :style="seatCards[1].style"></span>
+						</div>
+						<div class="rv-result-actions">
+							<button type="button" class="wt" @click="openNewGame">{{ t('app.reversi.result.change', undefined, 'Change settings') }}</button>
+							<button type="button" class="wt wt-primary" @click="startGame">{{ t('app.reversi.result.again', undefined, 'Play again') }}</button>
+						</div>
+					</div>
+				</div>
+
+				<div v-if="notice" class="rv-notice">{{ notice }}</div>
+			</div>
+
+			<!-- Players and board theme -->
+			<aside class="island rv-side">
+				<div v-for="card in seatCards" :key="card.player" class="rv-seat"
+					:class="{ 'is-active': card.active }">
+					<span class="rv-mini-disc rv-seat-disc" :style="card.style"></span>
+					<div class="rv-seat-text">
+						<div class="rv-seat-name">{{ card.name }}</div>
+						<div class="rv-seat-role">
+							<template v-if="card.thinking">
+								<span class="rv-dots"><i></i><i></i><i></i></span>
+							</template>
+							<template v-else>{{ card.role }}</template>
+						</div>
+					</div>
+					<div class="rv-seat-count">{{ card.count }}</div>
+				</div>
+
+				<div class="rv-side-title">{{ t('app.reversi.side.board', undefined, 'Board') }}</div>
+				<div class="rv-swatches">
+					<button v-for="theme in themeOptions" :key="theme.id" type="button" class="rv-swatch"
+						:class="{ 'is-selected': settings.theme === theme.id }" :style="theme.style"
+						:title="theme.label" :aria-label="theme.label" @click="setTheme(theme.id)"></button>
+				</div>
+			</aside>
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ statusText }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group" v-if="hasGame">
+				<span class="status-item">{{ t('app.reversi.status.moves', { n: ply }, 'Move {n}') }}</span>
+			</div>
+		</div>
+
+		<!-- New game -->
+		<wt-dialog :open="dialog.visible" size="md" :closable="hasGame" :esc-close="hasGame" @close="closeNewGame">
+			<template v-slot:title="d">
+				{{ t('app.reversi.dialog.title', undefined, 'New game') }}
+			</template>
+			<template v-slot="d">
+				<div class="rv-dialog">
+					<div class="rv-options">
+						<button type="button" class="rv-option" :class="{ 'is-selected': dialog.mode === 'ai' }" @click="dialog.mode = 'ai'">
+							<i class="bi bi-cpu"></i>
+							<span>{{ t('app.reversi.dialog.vsComputer', undefined, 'Play the computer') }}</span>
+						</button>
+						<button type="button" class="rv-option" :class="{ 'is-selected': dialog.mode === 'local' }" @click="dialog.mode = 'local'">
+							<i class="bi bi-people"></i>
+							<span>{{ t('app.reversi.dialog.twoPlayers', undefined, 'Two players') }}</span>
+						</button>
+					</div>
+
+					<template v-if="dialog.mode === 'ai'">
+						<label class="dialog-label">{{ t('app.reversi.dialog.level', undefined, 'Strength') }}</label>
+						<div class="rv-chips">
+							<button v-for="o in levelOptions" :key="o.level" type="button" class="rv-chip"
+								:class="{ 'is-selected': dialog.level === o.level }" @click="dialog.level = o.level">
+								<span class="rv-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
+							</button>
+						</div>
+						<label class="dialog-label">{{ t('app.reversi.dialog.side', undefined, 'You play') }}</label>
+						<div class="rv-chips">
+							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'black' }" @click="dialog.side = 'black'">
+								{{ t('app.reversi.dialog.sideFirst', undefined, 'First (black)') }}
+							</button>
+							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'white' }" @click="dialog.side = 'white'">
+								{{ t('app.reversi.dialog.sideSecond', undefined, 'Second (white)') }}
+							</button>
+							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'random' }" @click="dialog.side = 'random'">
+								{{ t('app.reversi.dialog.sideRandom', undefined, 'Either') }}
+							</button>
+						</div>
+					</template>
+
+					<template v-else>
+						<label class="dialog-label">{{ t('app.reversi.dialog.facesFirst', undefined, 'Disc for the first player') }}</label>
+						<div class="rv-faces">
+							<button v-for="f in faceOptions" :key="f.id" type="button" class="rv-face"
+								:class="{ 'is-selected': dialog.faces[0] === f.id, 'is-taken': dialog.faces[1] === f.id }"
+								:style="f.style" :title="f.label" :aria-label="f.label" @click="pickFace(0, f.id)"></button>
+						</div>
+						<label class="dialog-label">{{ t('app.reversi.dialog.facesSecond', undefined, 'Disc for the second player') }}</label>
+						<div class="rv-faces">
+							<button v-for="f in faceOptions" :key="f.id" type="button" class="rv-face"
+								:class="{ 'is-selected': dialog.faces[1] === f.id, 'is-taken': dialog.faces[0] === f.id }"
+								:style="f.style" :title="f.label" :aria-label="f.label" @click="pickFace(1, f.id)"></button>
+						</div>
+					</template>
+
+					<label class="dialog-label">{{ t('app.reversi.side.board', undefined, 'Board') }}</label>
+					<div class="rv-swatches">
+						<button v-for="theme in themeOptions" :key="theme.id" type="button" class="rv-swatch"
+							:class="{ 'is-selected': dialog.theme === theme.id }" :style="theme.style"
+							:title="theme.label" :aria-label="theme.label" @click="dialog.theme = theme.id"></button>
+					</div>
+				</div>
+			</template>
+			<template v-slot:footer="d">
+				<button v-if="hasGame" type="button" class="wt" @click="closeNewGame">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirmNewGame">{{ t('app.reversi.dialog.start', undefined, 'Start') }}</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+		<!-- /Readiness gate -->
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

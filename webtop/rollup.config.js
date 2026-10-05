@@ -297,10 +297,23 @@ const radioConfig = makeAppConfig('radio', {
   ],
 });
 
+// Reversi: the computer player searches in a Web Worker so a long think does
+// not freeze the window. The worker is a second bundle next to app.js
+// (started as a module worker); both belong to the one "reversi" target.
+const reversiConfigs = [
+  makeAppConfig('reversi'),
+  makeConfig({
+    name: 'reversi',
+    input: 'src/webtop/apps/reversi/ai-worker.ts',
+    outputFile: 'dist/webtop/apps/reversi/ai-worker.js',
+  }),
+];
+
 // Every target by name, in build order. scripts/build.mjs reads this list to
 // run one rollup process per target, so a target added here is picked up by
 // `npm run build` without a second list to keep in sync. Targets with extra
-// copy steps are built above; the rest are plain makeAppConfig targets.
+// copy steps are built above, as one config or a list of configs (reversi);
+// the rest are plain makeAppConfig targets.
 const specialConfigs = {
   'webtop': webtopCoreConfig,
   'webtop-ui-standalone': uiStandaloneConfig,
@@ -308,6 +321,7 @@ const specialConfigs = {
   'radio': radioConfig,
   'mail': mailConfig,
   'chat': chatConfig,
+  'reversi': reversiConfigs,
 };
 export const TARGET_NAMES = [
   'webtop',
@@ -331,6 +345,7 @@ export const TARGET_NAMES = [
   'radio',
   'mail',
   'chat',
+  'reversi',
 ];
 
 if (targetFilter) {
@@ -340,5 +355,5 @@ if (targetFilter) {
 }
 
 export default TARGET_NAMES
-  .map(name => (name in specialConfigs ? specialConfigs[name] : makeAppConfig(name)))
+  .flatMap(name => (name in specialConfigs ? specialConfigs[name] : makeAppConfig(name)))
   .filter(Boolean);
