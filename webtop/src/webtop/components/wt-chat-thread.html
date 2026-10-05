@@ -102,6 +102,18 @@
 							<div v-if="row.html" class="wt-chat-body" v-html="row.html"></div>
 							<span v-if="row.m.editedAt" class="wt-chat-edited">{{ t('webtop.chat.message.edited', undefined, '(edited)') }}</span>
 
+							<!-- The card: the design's page, in a frame as tall as the page -->
+							<div v-if="row.m.card" class="wt-chat-card">
+								<iframe v-if="row.m.card.accessible" class="wt-chat-card-frame" :src="cardUrl(row.m.card)" :title="row.m.card.label || ''"
+									@mount="bindCard($ctx, row.m)" @unmount="unbindCard($ctx)" @load="onCardLoad($event)"></iframe>
+								<div v-else class="wt-chat-link wt-chat-link-denied">
+									<i class="bi bi-lock"></i>
+									<div class="wt-chat-link-text">
+										<span>{{ t('webtop.chat.card.denied', undefined, 'You do not have access to this card.') }}</span>
+									</div>
+								</div>
+							</div>
+
 							<!-- Attachments: copies kept with the message -->
 							<div v-if="row.m.attachments.length" class="wt-chat-files">
 								<div v-for="a of row.m.attachments" :key="a.path" class="wt-chat-file">
@@ -180,6 +192,66 @@
 					<span class="wt-chat-mentions-id">{{ u.id }}</span>
 				</button>
 			</div>
+			<!-- A card for the message: the designs to choose from, then the fields and a preview -->
+			<div v-if="cardDraft.open" class="wt-chat-cards">
+				<div class="wt-chat-cards-head">
+					<i class="bi bi-postcard"></i>
+					<span class="wt-chat-cards-title">{{ cardDraft.design ? cardDraft.design.label : t('webtop.chat.card.pick', undefined, 'Choose a card') }}</span>
+					<button v-if="cardDraft.design" type="button" class="wt wt-slim" :disabled="isSending" @click="changeCard">{{ t('webtop.chat.card.change', undefined, 'Change') }}</button>
+					<button type="button" class="btn-icon" :disabled="isSending" @click="closeCards" :title="t('webtop.chat.card.remove', undefined, 'Remove the card')">
+						<i class="bi bi-x-lg"></i>
+					</button>
+				</div>
+				<div v-if="cardDraft.error" class="wt-chat-error">{{ cardDraft.error }}</div>
+
+				<div v-if="!cardDraft.design" class="wt-chat-cards-list">
+					<div v-if="cardDraft.loading" class="wt-chat-cards-state"><wt-spinner size="sm"></wt-spinner></div>
+					<div v-else-if="!cardDraft.designs.length && !cardDraft.error" class="wt-chat-cards-state">{{ t('webtop.chat.card.none', undefined, 'No cards are available.') }}</div>
+					<button v-for="d of cardDraft.designs" :key="d.path" type="button" class="wt-chat-cards-item" @click="pickCard(d)">
+						<i class="bi bi-postcard"></i>
+						<span class="wt-chat-cards-item-text">
+							<span class="wt-chat-cards-item-name">{{ d.label }}</span>
+							<span v-if="d.description" class="wt-chat-cards-item-desc">{{ d.description }}</span>
+						</span>
+					</button>
+				</div>
+
+				<div v-else class="wt-chat-cards-body">
+					<div class="wt-chat-cards-fields">
+						<div v-for="f of cardDraft.design.fields" :key="f.key" class="wt-chat-cardfield">
+							<span class="wt-chat-cardfield-label">{{ f.label }}<span v-if="f.required" class="wt-chat-cardfield-required">*</span></span>
+							<!-- Choices: one is a select, several are checkboxes -->
+							<select v-if="f.choices.length && !f.multiple" class="wt" :value="cardValue(f)" :disabled="isSending" @change="setCardValue(f, $event.target.value)">
+								<option value=""></option>
+								<option v-for="c of f.choices" :key="c.value" :value="c.value">{{ c.label }}</option>
+							</select>
+							<div v-else-if="f.choices.length" class="wt-chat-cardfield-checks">
+								<label v-for="c of f.choices" :key="c.value" class="wt-chat-cardfield-check">
+									<input type="checkbox" :checked="hasChoice(f, c.value)" :disabled="isSending" @change="toggleChoice(f, c.value, $event.target.checked)">
+									<span>{{ c.label }}</span>
+								</label>
+							</div>
+							<label v-else-if="f.type === 'BOOLEAN'" class="wt-chat-cardfield-check">
+								<input type="checkbox" :checked="cardValue(f) === 'true'" :disabled="isSending" @change="setCardValue(f, $event.target.checked ? 'true' : '')">
+								<span>{{ f.description || f.label }}</span>
+							</label>
+							<input v-else-if="f.type === 'DATE' && !f.multiple" type="datetime-local" class="wt" :value="cardValue(f)" :disabled="isSending" @input="setCardValue(f, $event.target.value)">
+							<input v-else-if="isNumberField(f) && !f.multiple" type="number" class="wt" :step="cardStep(f)" :value="cardValue(f)" :disabled="isSending" @input="setCardValue(f, $event.target.value)">
+							<textarea v-else class="wt" rows="1" :value="cardValue(f)" :disabled="isSending"
+								:placeholder="f.multiple ? t('webtop.chat.card.multiplePlaceholder', undefined, 'value, value, …') : ''"
+								@input="setCardValue(f, $event.target.value)"></textarea>
+							<span v-if="f.description && f.type !== 'BOOLEAN'" class="wt-chat-cardfield-desc">{{ f.description }}</span>
+						</div>
+						<div v-if="cardProblem" class="wt-chat-cardfield-hint">{{ cardProblem }}</div>
+					</div>
+					<div class="wt-chat-cards-preview">
+						<span class="wt-chat-cards-preview-label">{{ t('webtop.chat.card.preview', undefined, 'Preview') }}</span>
+						<iframe ref="preview" class="wt-chat-card-frame" :src="cardUrl(previewCard)" :title="cardDraft.design.label"
+							@mount="bindCard($ctx, null)" @unmount="unbindCard($ctx)" @load="onCardLoad($event)"></iframe>
+					</div>
+				</div>
+			</div>
+
 			<div class="wt-chat-composer-box">
 				<div v-if="compose.uploads.length || compose.files.length || compose.uploading" class="wt-chat-pending">
 					<span v-for="u of compose.uploads" :key="'up-' + u.key" class="wt-chat-chip" :title="u.name">
@@ -203,6 +275,10 @@
 					<button v-if="canAttach" type="button" class="btn-icon wt-chat-attach" :disabled="isSending" @click="pickFiles"
 						:title="t('webtop.chat.attach.pick', undefined, 'Attach files')">
 						<i class="bi bi-paperclip"></i>
+					</button>
+					<button type="button" class="btn-icon wt-chat-attach" :class="{ 'wt-chat-attach-on': cardDraft.open }" :disabled="isSending" @click="openCards"
+						:title="t('webtop.chat.card.add', undefined, 'Add a card')">
+						<i class="bi bi-postcard"></i>
 					</button>
 					<textarea ref="composer" rows="1" v-model="draft"
 						:placeholder="t('webtop.chat.composer.placeholder', undefined, 'Write a message')"

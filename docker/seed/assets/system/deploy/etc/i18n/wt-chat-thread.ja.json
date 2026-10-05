@@ -26,5 +26,15 @@
 	"webtop.chat.link.open": "開く",
 	"webtop.chat.link.reveal": "場所を開く",
 	"webtop.chat.link.denied": "アクセス権がありません。",
-	"webtop.chat.link.tooMany": "1 つのメッセージに付けられるリンクは {max} 件までです。"
+	"webtop.chat.link.tooMany": "1 つのメッセージに付けられるリンクは {max} 件までです。",
+
+	"webtop.chat.card.add": "カードを追加",
+	"webtop.chat.card.pick": "カードを選択",
+	"webtop.chat.card.none": "使えるカードがありません。",
+	"webtop.chat.card.change": "変更",
+	"webtop.chat.card.remove": "カードを外す",
+	"webtop.chat.card.preview": "プレビュー",
+	"webtop.chat.card.required": "{label} は必須です。",
+	"webtop.chat.card.multiplePlaceholder": "値, 値, …",
+	"webtop.chat.card.denied": "このカードを見る権限がありません。"
 }

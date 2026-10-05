@@ -48,21 +48,35 @@
 // is posted. A repository file dragged in from the Content Browser is linked,
 // which gives nobody access to it, unless the author switches it to a copy.
 //
+// Cards. A message may carry a card: a design (a folder under /etc/chat/cards
+// with card.yml and card.html) and the values of its fields. The design's page
+// is shown in a same-origin frame under the message, as tall as the page, and
+// reaches this element through `window.parent.ChatCardHost.connect(window)`,
+// which hands it the values, the message and the host's theme (ChatCardBridge
+// below). The card button of the composer offers the designs the writer can
+// read, a form made from the design's fields, and the same frame as a preview.
+//
 // The host loads the template (loadChatThreadTemplate) before the element is
 // compiled and links components/wt-chat-thread.css.
 
 import { defineComponent } from '@mintjamsinc/ichigojs';
 import { BUILD_VERSION } from '../utils/build-version.js';
 import { createLocalizationSnapshot, translate } from '../composables/use-localization.js';
+import { createGraphQLClient, type GraphQLClient } from '../graphql/client.js';
 import { sha256Hex } from '../services/webtop-util.js';
 import { Identicon } from '../lib/identicon.js';
 import { renderChatMarkdown } from '../lib/chat-markdown.js';
 import { getFileIcon } from '../lib/inspector-utils.js';
-import { downloadUrl, openFileInEditor, revealInContentBrowser } from '../lib/open-file.js';
+import { downloadUrl, openConversationInChat, openFileInEditor, revealInContentBrowser } from '../lib/open-file.js';
 import { Bytes } from '../utils/bytes.js';
+import { Dates } from '../utils/dates.js';
 import {
 	chatRefKey,
 	type ChatAttachment,
+	type ChatCard,
+	type ChatCardDesign,
+	type ChatCardField,
+	type ChatCardValues,
 	type ChatConversation,
 	type ChatLink,
 	type ChatMessage,
@@ -161,6 +175,100 @@ interface Row {
 	html: string;
 }
 
+// The frame of a card is as tall as its page, up to this.
+const CARD_MAX_HEIGHT_PX = 640;
+// A preview is told of the values being typed this long after the last change.
+const CARD_PREVIEW_DELAY_MS = 250;
+
+/** What a card's page is told of: the host's theme or localization changed, or (a preview) the values did. */
+type CardEventType = 'theme' | 'localization' | 'card';
+type CardListener = (type: CardEventType, payload: unknown) => void;
+
+/**
+ * What a card's page gets from `window.parent.ChatCardHost.connect(window)`.
+ *
+ *     const host = window.parent.ChatCardHost.connect(window);
+ *     render(host.card.fields);
+ *     host.subscribe((type, payload) => { if (type === 'card') render(payload.fields); });
+ *
+ * Everything handed over is plain data: a copy, never the element's own state.
+ * The frame is sized to the page by the element; a page whose height changes
+ * without the document growing (a collapsed section) calls `resize()`.
+ */
+export interface ChatCardBridge {
+	/** Bumped when the shape changes incompatibly. */
+	readonly version: number;
+	/** The workspace the conversation is in. */
+	readonly workspace: string;
+	/** Where the Webtop is served from (…/usr/share/webtop/), to load its stylesheets and fonts. */
+	readonly webtopBaseUrl: string;
+	/** True in the composer, where the page shows the values being typed. */
+	readonly preview: boolean;
+	/** The design's path and the values of its fields. */
+	readonly card: { path: string; fields: ChatCardValues };
+	/** The message the card is on; null for a preview. */
+	readonly message: Record<string, unknown> | null;
+	readonly conversation: { channelId: string | null; fileId: string | null };
+	readonly currentUser: { id: string };
+	/** `light` or `dark`. */
+	readonly theme: string;
+	readonly localization: { locale: string; timeZone: string };
+	/** A client for the workspace, with the reader's credentials. */
+	readonly graphql: GraphQLClient;
+	translate(messageId: string, params?: Record<string, unknown>, fallback?: string): string;
+	/** Told of `theme`, `localization` and, for a preview, `card` ({ fields }). Returns what unsubscribes. */
+	subscribe(listener: CardListener): () => void;
+	/** Fits the frame to the page again. */
+	resize(): void;
+	/** Opens a file of the repository in its editor; false when none takes it. */
+	openFile(path: string, mimeType?: string | null): boolean;
+	/** Opens a conversation in the Chat app. */
+	openConversation(ref: { channelId?: string; fileId?: string }): boolean;
+}
+
+interface CardSlot {
+	bridge: ChatCardBridge;
+	listeners: Set<CardListener>;
+}
+
+// The frames of the cards shown in this window, whichever thread shows them:
+// a page finds its own through its frame.
+const cardSlots = new WeakMap<HTMLIFrameElement, CardSlot>();
+
+/** Publishes `window.ChatCardHost`, through which the pages of the cards reach their frames. */
+function installCardHost() {
+	const w = window as unknown as { ChatCardHost?: unknown };
+	if (w.ChatCardHost) return;
+	w.ChatCardHost = {
+		version: 1,
+		connect(cardWindow: Window): ChatCardBridge {
+			const frame = cardWindow?.frameElement as HTMLIFrameElement | null;
+			const slot = frame ? cardSlots.get(frame) : undefined;
+			if (!slot) throw new Error('This page is not shown as a card of a conversation.');
+			return slot.bridge;
+		},
+	};
+}
+
+/** A copy as plain data: no proxies of this element's state cross into a card's page. */
+function toPlainData<T>(value: T): T {
+	if (value === undefined || value === null) return value;
+	return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** What the composer holds for a card being added to the message. */
+function emptyCardDraft() {
+	return {
+		open: false,
+		loading: false,
+		error: '',
+		designs: [] as ChatCardDesign[],
+		design: null as ChatCardDesign | null,
+		/** What was typed for each field, by key; the values of a multiple field separated by commas. */
+		values: {} as Record<string, string>,
+	};
+}
+
 // Identicons by user id, shared by every thread of the page.
 const avatarCache = new Map<string, string>();
 
@@ -211,6 +319,12 @@ defineComponent('wt-chat-thread', {
 				focusTimer: null as ReturnType<typeof setTimeout> | null,
 				mentionTimer: null as ReturnType<typeof setTimeout> | null,
 				mentionSeq: 0,
+				// The frames of the cards this thread shows, and what fits each
+				// to its page.
+				cardFrames: new Set<HTMLIFrameElement>(),
+				cardObservers: new Map<HTMLIFrameElement, ResizeObserver>(),
+				themeObserver: null as MutationObserver | null,
+				previewTimer: null as ReturnType<typeof setTimeout> | null,
 			}),
 			info: null as ChatConversation | null,
 			messages: [] as ChatMessage[],
@@ -240,6 +354,9 @@ defineComponent('wt-chat-thread', {
 			// An @mention being typed in the message box: the name so far, the
 			// users it may be, and which of them is highlighted.
 			mention: { open: false, query: '', start: -1, items: [] as { id: string; name: string }[], index: 0 },
+
+			// A card being added to the new message.
+			cardDraft: emptyCardDraft(),
 		};
 	},
 	computed: {
@@ -252,7 +369,26 @@ defineComponent('wt-chat-thread', {
 		},
 		canSend(this: any): boolean {
 			const p = this.compose as Pending;
-			return !this.isSending && !p.uploading && (!!String(this.draft || '').trim() || p.uploads.length + p.files.length > 0);
+			if (this.isSending || p.uploading) return false;
+			if (this.cardDraft.design) return !this.cardProblem;
+			return !!String(this.draft || '').trim() || p.uploads.length + p.files.length > 0;
+		},
+		/** What keeps the card being written from being posted: the first required field left empty, or ''. */
+		cardProblem(this: any): string {
+			const design = this.cardDraft.design as ChatCardDesign | null;
+			if (!design) return '';
+			for (const f of design.fields) {
+				if (f.required && !this.cardItems(f).length) {
+					return this.t('webtop.chat.card.required', { label: f.label }, '{label} is required.');
+				}
+			}
+			return '';
+		},
+		/** The card of the composer as a card to show: what the preview frame loads. */
+		previewCard(this: any): ChatCard | null {
+			const design = this.cardDraft.design as ChatCardDesign | null;
+			if (!design) return null;
+			return { path: design.path, accessible: true, label: design.label, version: null, fields: null, bodyFromCard: false };
 		},
 		canSaveEdit(this: any): boolean {
 			const e = this.editing;
@@ -280,6 +416,8 @@ defineComponent('wt-chat-thread', {
 				const newDay = day !== lastDay;
 				const head = newDay || !last || last.author !== m.author || last.kind !== m.kind ||
 					posted.getTime() - new Date(last.postedAt).getTime() > GROUP_WINDOW_MS;
+				// A text that is only the card's summary is said by the card.
+				const cardSays = !!m.card && m.card.accessible && m.card.bodyFromCard;
 				rows.push({
 					key: m.id,
 					m,
@@ -288,7 +426,7 @@ defineComponent('wt-chat-thread', {
 					focus: m.id === this.focusedId,
 					time: time.format(posted),
 					fullTime: full.format(posted),
-					html: m.deleted ? '' : renderChatMarkdown(m.body, { mentions: m.mentions, me: this.api?.userId }),
+					html: (m.deleted || cardSays) ? '' : renderChatMarkdown(m.body, { mentions: m.mentions, me: this.api?.userId }),
 				});
 				lastDay = day;
 				last = m;
@@ -312,6 +450,9 @@ defineComponent('wt-chat-thread', {
 			this.reloadInfo();
 			this.refresh();
 		},
+		localization(this: any) {
+			this.announceCards('localization', this.cardLocalization());
+		},
 		// The host names another message to bring the reader to.
 		focusMessage(this: any, id: string | null) {
 			// Only within the conversation that is open: when the host names
@@ -329,6 +470,8 @@ defineComponent('wt-chat-thread', {
 		// that is not being painted gets no frames. `mounted` covers the props
 		// that were not there yet.
 		onMount(this: any) {
+			installCardHost();
+			this.watchTheme();
 			this.openIfIdle();
 		},
 		onMounted(this: any) {
@@ -346,6 +489,17 @@ defineComponent('wt-chat-thread', {
 			if (this._.focusTimer) {
 				clearTimeout(this._.focusTimer);
 				this._.focusTimer = null;
+			}
+			if (this._.previewTimer) {
+				clearTimeout(this._.previewTimer);
+				this._.previewTimer = null;
+			}
+			if (this._.themeObserver) {
+				this._.themeObserver.disconnect();
+				this._.themeObserver = null;
+			}
+			for (const frame of Array.from(this._.cardFrames as Set<HTMLIFrameElement>)) {
+				this.releaseCard(frame);
 			}
 		},
 
@@ -370,6 +524,7 @@ defineComponent('wt-chat-thread', {
 			vm.closeMentions();
 			vm.sendError = '';
 			vm.compose = makePending();
+			vm.cardDraft = emptyCardDraft();
 			vm.isDragOver = false;
 			vm.cancelEdit();
 			vm.confirmDeleteId = '';
@@ -851,10 +1006,16 @@ defineComponent('wt-chat-thread', {
 			vm.sendError = '';
 			const epoch = vm._.epoch;
 			try {
-				const message = await vm.api.chat.postMessage(vm.conversation, body, vm.contentOf(vm.compose));
+				const content = vm.contentOf(vm.compose) as ChatMessageContent;
+				const design = vm.cardDraft.design as ChatCardDesign | null;
+				if (design) {
+					content.card = { path: design.path, fields: vm.draftValues() };
+				}
+				const message = await vm.api.chat.postMessage(vm.conversation, body, content);
 				if (epoch !== vm._.epoch) return;
 				vm.draft = '';
 				vm.compose = makePending();
+				vm.cardDraft = emptyCardDraft();
 				if (!(vm.messages as ChatMessage[]).some((m) => m.id === message.id)) {
 					vm.messages = (vm.messages as ChatMessage[]).concat([message]);
 				}
@@ -1088,6 +1249,267 @@ defineComponent('wt-chat-thread', {
 		},
 		revealLink(this: any, l: ChatLink) {
 			if (l.accessible && l.path) revealInContentBrowser(l.path, !!l.isCollection);
+		},
+
+		// =====================================================================
+		// Cards shown on messages
+		// =====================================================================
+
+		/** Where the design's page is served from: the CMS HTML servlet, in the conversation's workspace. */
+		cardUrl(this: any, card: ChatCard | null): string {
+			if (!card) return 'about:blank';
+			const workspace = String(this.api?.workspace || '');
+			const base = `/bin/cms.cgi${workspace ? '/' + workspace.replace(/^\//, '') : ''}${card.path}/card.html`;
+			return card.version ? `${base}?v=${card.version}` : base;
+		},
+		/**
+		 * Gives the frame of a card what its page will ask for. Called when the
+		 * frame is set up, before its page can run; the page's own `connect`
+		 * finds the frame it is in. `m` is null for the composer's preview.
+		 */
+		bindCard(this: any, ctx: { element: HTMLElement }, m: ChatMessage | null) {
+			const frame = ctx?.element as HTMLIFrameElement | undefined;
+			if (!frame || frame.tagName !== 'IFRAME') return;
+			const listeners = new Set<CardListener>();
+			cardSlots.set(frame, { bridge: this.buildCardBridge(frame, m ? m.id : null, listeners), listeners });
+			this._.cardFrames.add(frame);
+		},
+		unbindCard(this: any, ctx: { element: HTMLElement }) {
+			const frame = ctx?.element as HTMLIFrameElement | undefined;
+			if (frame) this.releaseCard(frame);
+		},
+		releaseCard(this: any, frame: HTMLIFrameElement) {
+			const observer = this._.cardObservers.get(frame) as ResizeObserver | undefined;
+			if (observer) {
+				observer.disconnect();
+				this._.cardObservers.delete(frame);
+			}
+			this._.cardFrames.delete(frame);
+			cardSlots.delete(frame);
+		},
+		buildCardBridge(this: any, frame: HTMLIFrameElement, messageId: string | null, listeners: Set<CardListener>): ChatCardBridge {
+			const vm = this;
+			let client: GraphQLClient | null = null;
+			const message = (): ChatMessage | null => (messageId === null) ?
+				null : ((vm.messages as ChatMessage[]).find((x) => x.id === messageId) || null);
+			return {
+				version: 1,
+				get workspace(): string { return String(vm.api?.workspace || ''); },
+				get webtopBaseUrl(): string { return new URL('../../', document.baseURI).href; },
+				get preview(): boolean { return messageId === null; },
+				get card(): { path: string; fields: ChatCardValues } {
+					if (messageId === null) {
+						const design = vm.cardDraft.design as ChatCardDesign | null;
+						return { path: design ? design.path : '', fields: vm.draftValues() };
+					}
+					const card = message()?.card;
+					return toPlainData({ path: card?.path || '', fields: card?.fields || {} });
+				},
+				get message(): Record<string, unknown> | null {
+					const m = message();
+					if (!m) return null;
+					const { card, ...rest } = m;
+					void card;
+					return toPlainData(rest as unknown as Record<string, unknown>);
+				},
+				get conversation(): { channelId: string | null; fileId: string | null } {
+					const ref = vm.conversation as ChatRef | null;
+					return { channelId: ref?.channelId || null, fileId: ref?.fileId || null };
+				},
+				get currentUser(): { id: string } { return { id: String(vm.api?.userId || '') }; },
+				get theme(): string { return vm.hostTheme(); },
+				get localization(): { locale: string; timeZone: string } { return vm.cardLocalization(); },
+				get graphql(): GraphQLClient {
+					if (!client) client = createGraphQLClient(String(vm.api?.workspace || ''));
+					return client;
+				},
+				translate(messageId: string, params?: Record<string, unknown>, fallback?: string): string {
+					return vm.t(messageId, params, fallback);
+				},
+				subscribe(listener: CardListener): () => void {
+					if (typeof listener !== 'function') return () => undefined;
+					listeners.add(listener);
+					return () => { listeners.delete(listener); };
+				},
+				resize(): void { vm.fitCard(frame); },
+				openFile(path: string, mimeType?: string | null): boolean {
+					return openFileInEditor(String(path || ''), mimeType ?? null);
+				},
+				openConversation(ref: { channelId?: string; fileId?: string }): boolean {
+					return openConversationInChat(toPlainData(ref || {}));
+				},
+			};
+		},
+		/** The page of a card arrived: the frame takes the page's height, now and as it changes. */
+		onCardLoad(this: any, event: Event) {
+			const vm = this;
+			const frame = event.target as HTMLIFrameElement;
+			const previous = vm._.cardObservers.get(frame) as ResizeObserver | undefined;
+			if (previous) previous.disconnect();
+			vm.fitCard(frame);
+			const doc = frame.contentDocument;
+			const win = frame.contentWindow as (Window & { ResizeObserver?: typeof ResizeObserver }) | null;
+			const Observer = win?.ResizeObserver || ResizeObserver;
+			if (!doc?.documentElement || !Observer) return;
+			const observer = new Observer(() => vm.fitCard(frame));
+			observer.observe(doc.documentElement);
+			if (doc.body) observer.observe(doc.body);
+			vm._.cardObservers.set(frame, observer);
+		},
+		fitCard(this: any, frame: HTMLIFrameElement) {
+			let height = 0;
+			try {
+				const root = frame.contentDocument?.documentElement;
+				if (root) height = Math.ceil(root.getBoundingClientRect().height);
+			} catch {
+				return;
+			}
+			if (height <= 0) return;
+			const next = `${Math.min(height, CARD_MAX_HEIGHT_PX)}px`;
+			if (frame.style.height === next) return;
+			frame.style.height = next;
+			// A card that grew under the reader's view keeps the end in view.
+			if (this._.atBottom && frame.closest('.wt-chat-scroll')) this.scrollToBottom();
+		},
+		hostTheme(this: any): string {
+			return document.documentElement.dataset.theme || 'light';
+		},
+		cardLocalization(this: any): { locale: string; timeZone: string } {
+			return {
+				locale: this.localization?.locale || navigator.language || 'en',
+				timeZone: this.localization?.timeZone || Dates.resolveTimeZone(null),
+			};
+		},
+		/** Follows the host's theme, so the cards do too. */
+		watchTheme(this: any) {
+			const vm = this;
+			if (vm._.themeObserver || typeof MutationObserver === 'undefined') return;
+			vm._.themeObserver = new MutationObserver(() => vm.announceCards('theme', vm.hostTheme()));
+			vm._.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+		},
+		/** Tells the pages of this thread's cards something changed. */
+		announceCards(this: any, type: CardEventType, payload: unknown) {
+			for (const frame of this._.cardFrames as Set<HTMLIFrameElement>) {
+				const slot = cardSlots.get(frame);
+				if (!slot) continue;
+				for (const listener of slot.listeners) {
+					try { listener(type, toPlainData(payload)); } catch (e) { console.warn('[wt-chat-thread] a card failed on', type, e); }
+				}
+			}
+		},
+
+		// =====================================================================
+		// A card added to the new message
+		// =====================================================================
+
+		/** Offers the designs; the panel opens on the list, or on the card already chosen. */
+		async openCards(this: any) {
+			const vm = this;
+			if (!vm.canPost) return;
+			vm.cardDraft.open = true;
+			if (vm.cardDraft.design || vm.cardDraft.loading) return;
+			vm.cardDraft.loading = true;
+			vm.cardDraft.error = '';
+			try {
+				vm.cardDraft.designs = await vm.api.chat.listCards();
+			} catch (e) {
+				vm.cardDraft.error = errorText(e);
+			} finally {
+				vm.cardDraft.loading = false;
+			}
+		},
+		/** Closes the panel and takes the card off the message. */
+		closeCards(this: any) {
+			this.cardDraft = emptyCardDraft();
+		},
+		pickCard(this: any, design: ChatCardDesign) {
+			this.cardDraft.design = design;
+			this.cardDraft.values = {};
+		},
+		/** Back to the list, keeping nothing of what was typed. */
+		changeCard(this: any) {
+			this.cardDraft.design = null;
+			this.cardDraft.values = {};
+			this.openCards();
+		},
+		cardValue(this: any, f: ChatCardField): string {
+			return this.cardDraft.values[f.key] || '';
+		},
+		setCardValue(this: any, f: ChatCardField, text: string) {
+			this.cardDraft.values = { ...this.cardDraft.values, [f.key]: text };
+			this.schedulePreview();
+		},
+		/** The values typed for a field, one per item of a multiple field. */
+		cardItems(this: any, f: ChatCardField): string[] {
+			const text = String(this.cardDraft.values[f.key] || '');
+			if (f.multiple) return text.split(/[,\n]/).map((s) => s.trim()).filter((s) => s !== '');
+			const one = text.trim();
+			return one ? [one] : [];
+		},
+		hasChoice(this: any, f: ChatCardField, value: string): boolean {
+			return this.cardItems(f).includes(value);
+		},
+		/** A multiple field with choices is a row of checkboxes. */
+		toggleChoice(this: any, f: ChatCardField, value: string, checked: boolean) {
+			const items = this.cardItems(f).filter((v: string) => v !== value);
+			if (checked) items.push(value);
+			this.setCardValue(f, items.join(', '));
+		},
+		cardStep(this: any, f: ChatCardField): string {
+			return f.type === 'LONG' ? '1' : 'any';
+		},
+		isNumberField(this: any, f: ChatCardField): boolean {
+			return f.type === 'LONG' || f.type === 'DOUBLE' || f.type === 'DECIMAL';
+		},
+		/**
+		 * The values as they are posted, in the types of the fields, the way a
+		 * dataset's cells are stored: numbers as numbers, DECIMAL as the digits
+		 * typed, BOOLEAN as true, DATE (typed as a wall-clock time in the reader's
+		 * time zone) as an ISO instant. What the server refuses, it says.
+		 */
+		draftValues(this: any): ChatCardValues {
+			const design = this.cardDraft.design as ChatCardDesign | null;
+			const out: ChatCardValues = {};
+			if (!design) return out;
+			const timeZone = this.localization?.timeZone || undefined;
+			const convert = (f: ChatCardField, s: string): unknown => {
+				switch (f.type) {
+					case 'LONG': case 'DOUBLE': {
+						const n = Number(s);
+						return Number.isFinite(n) ? n : s;
+					}
+					case 'BOOLEAN': return s === 'true';
+					case 'DATE': return Dates.fromZonedInputValue(s, timeZone)?.toISOString() ?? s;
+					default: return s;
+				}
+			};
+			for (const f of design.fields) {
+				const items = this.cardItems(f).map((s: string) => convert(f, s));
+				if (!items.length) continue;
+				out[f.key] = f.multiple ? items : items[0];
+			}
+			return out;
+		},
+		/** Tells the preview of the values after the typing pauses. */
+		schedulePreview(this: any) {
+			const vm = this;
+			if (vm._.previewTimer) clearTimeout(vm._.previewTimer);
+			vm._.previewTimer = setTimeout(() => {
+				vm._.previewTimer = null;
+				const frame = vm.$refs.preview as HTMLIFrameElement | HTMLIFrameElement[] | undefined;
+				const el = Array.isArray(frame) ? frame[0] : frame;
+				const slot = el ? cardSlots.get(el) : undefined;
+				if (!slot) return;
+				if (slot.listeners.size) {
+					const payload = toPlainData({ fields: vm.draftValues() });
+					for (const listener of slot.listeners) {
+						try { listener('card', payload); } catch (e) { console.warn('[wt-chat-thread] the preview failed:', e); }
+					}
+				} else {
+					// A page that does not listen is loaded again with the new values.
+					try { el!.contentWindow?.location.reload(); } catch { /* ignore */ }
+				}
+			}, CARD_PREVIEW_DELAY_MS);
 		},
 
 		// =====================================================================

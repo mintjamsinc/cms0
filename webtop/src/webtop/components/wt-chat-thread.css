@@ -539,6 +539,8 @@ wt-chat-thread {
 .wt-chat-composer {
 	flex-shrink: 0;
 	padding: 0 1rem 0.5rem;
+	/* The card panel lays itself out by the composer's width. */
+	container-type: inline-size;
 }
 
 .wt-chat-composer-box {
@@ -603,6 +605,205 @@ wt-chat-thread {
 	border-top: 1px solid var(--island-border-color);
 	color: var(--text-muted-color);
 	font-size: 12px;
+}
+
+/* --- cards --- */
+
+/* The design's page in a frame as tall as the page (wt-chat-thread.ts
+   fitCard); the design draws its own edges, the thread only rounds them. */
+.wt-chat-card {
+	margin-top: 0.375rem;
+	max-width: min(100%, 36rem);
+}
+
+.wt-chat-card-frame {
+	display: block;
+	width: 100%;
+	height: 4rem;
+	border: none;
+	border-radius: 10px;
+	background: transparent;
+	color-scheme: normal;
+}
+
+/* The card being added to the new message: the designs, then the fields
+   beside a preview. */
+.wt-chat-cards {
+	display: flex;
+	flex-direction: column;
+	margin-bottom: 0.375rem;
+	border: 1px solid var(--island-border-color);
+	border-radius: 10px;
+	background: var(--body-bg);
+	overflow: hidden;
+}
+
+.wt-chat-cards-head {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+	border-bottom: 1px solid var(--island-border-color);
+	background: var(--navbar-bg);
+	font-size: 13px;
+}
+
+.wt-chat-cards-head > .bi {
+	color: var(--text-soft-color);
+}
+
+.wt-chat-cards-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+
+.wt-chat-cards .wt-chat-error {
+	margin: 0.375rem 0.75rem 0;
+}
+
+.wt-chat-cards-list {
+	display: flex;
+	flex-direction: column;
+	max-height: 14rem;
+	padding: 0.25rem;
+	overflow-y: auto;
+}
+
+.wt-chat-cards-state {
+	padding: 0.75rem;
+	color: var(--text-muted-color);
+	font-size: 12px;
+	text-align: center;
+}
+
+.wt-chat-cards-item {
+	display: flex;
+	align-items: center;
+	gap: 0.625rem;
+	padding: 0.375rem 0.5rem;
+	border: none;
+	border-radius: 6px;
+	background: none;
+	color: var(--text-color);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.wt-chat-cards-item:hover {
+	background: var(--menu-hover-bg);
+}
+
+.wt-chat-cards-item > .bi {
+	flex-shrink: 0;
+	font-size: 1.25rem;
+	color: var(--text-soft-color);
+}
+
+.wt-chat-cards-item-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.wt-chat-cards-item-name {
+	font-weight: 600;
+}
+
+.wt-chat-cards-item-desc {
+	color: var(--text-muted-color);
+	font-size: 12px;
+}
+
+.wt-chat-cards-body {
+	display: flex;
+	gap: 0.75rem;
+	padding: 0.625rem 0.75rem 0.75rem;
+	max-height: 24rem;
+	overflow-y: auto;
+}
+
+.wt-chat-cards-fields {
+	display: flex;
+	flex: 1 1 16rem;
+	flex-direction: column;
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+.wt-chat-cards-preview {
+	display: flex;
+	flex: 1 1 18rem;
+	flex-direction: column;
+	gap: 0.25rem;
+	min-width: 0;
+}
+
+.wt-chat-cards-preview-label {
+	color: var(--text-muted-color);
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+/* Narrow (a side pane): the preview goes under the fields. */
+@container (max-width: 36rem) {
+	.wt-chat-cards-body {
+		flex-direction: column;
+	}
+}
+
+.wt-chat-cardfield {
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
+	font-size: 13px;
+}
+
+.wt-chat-cardfield-label {
+	color: var(--text-soft-color);
+	font-size: 12px;
+}
+
+.wt-chat-cardfield-required {
+	margin-left: 0.125rem;
+	color: var(--danger-color);
+}
+
+.wt-chat-cardfield-desc {
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.wt-chat-cardfield textarea {
+	resize: vertical;
+	min-height: 2rem;
+}
+
+.wt-chat-cardfield-checks {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem 0.75rem;
+}
+
+.wt-chat-cardfield-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	cursor: pointer;
+}
+
+.wt-chat-cardfield-hint {
+	color: var(--text-muted-color);
+	font-size: 12px;
+}
+
+.wt-chat-attach-on {
+	color: var(--primary-color);
 }
 
 @media print {

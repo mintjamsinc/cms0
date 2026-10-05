@@ -26,5 +26,15 @@
 	"webtop.chat.link.open": "Open",
 	"webtop.chat.link.reveal": "Show in folder",
 	"webtop.chat.link.denied": "You do not have access to this file.",
-	"webtop.chat.link.tooMany": "A message can carry up to {max} links."
+	"webtop.chat.link.tooMany": "A message can carry up to {max} links.",
+
+	"webtop.chat.card.add": "Add a card",
+	"webtop.chat.card.pick": "Choose a card",
+	"webtop.chat.card.none": "No cards are available.",
+	"webtop.chat.card.change": "Change",
+	"webtop.chat.card.remove": "Remove the card",
+	"webtop.chat.card.preview": "Preview",
+	"webtop.chat.card.required": "{label} is required.",
+	"webtop.chat.card.multiplePlaceholder": "value, value, …",
+	"webtop.chat.card.denied": "You do not have access to this card."
 }

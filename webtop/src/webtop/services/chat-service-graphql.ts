@@ -84,6 +84,57 @@ export interface ChatLink {
 	isCollection: boolean | null;
 }
 
+export type ChatCardFieldType = 'STRING' | 'LONG' | 'DOUBLE' | 'DECIMAL' | 'BOOLEAN' | 'DATE';
+
+export interface ChatCardChoice {
+	value: string;
+	label: string;
+	/** A swatch of the shared palette (lib/color-palette), or null. */
+	color: string | null;
+}
+
+/** A field of a card design, declared as a column of a dataset is. */
+export interface ChatCardField {
+	key: string;
+	label: string;
+	description: string | null;
+	type: ChatCardFieldType;
+	multiple: boolean;
+	required: boolean;
+	choices: ChatCardChoice[];
+}
+
+/**
+ * A card design: a folder under /etc/chat/cards holding card.yml (the fields)
+ * and card.html (the page that shows the card).
+ */
+export interface ChatCardDesign {
+	path: string;
+	name: string;
+	label: string;
+	description: string | null;
+	fields: ChatCardField[];
+}
+
+/** The values of a card's fields, by key; a multiple field holds a list. */
+export type ChatCardValues = Record<string, unknown>;
+
+/**
+ * The card a message carries: the design's path and the values of its fields.
+ * The design is resolved in the reader's own session; when the reader cannot
+ * read it, `accessible` is false and only the message's text is shown.
+ */
+export interface ChatCard {
+	path: string;
+	accessible: boolean;
+	label: string | null;
+	/** When the design's page was last changed, to load it fresh. */
+	version: number | null;
+	fields: ChatCardValues | null;
+	/** Whether the message's text is the design's summary, written because none was given. */
+	bodyFromCard: boolean;
+}
+
 /** What a message carries besides its text. */
 export interface ChatMessageContent {
 	/** The folder under /home/users/<user>/chat/uploads the uploads are in. */
@@ -96,6 +147,8 @@ export interface ChatMessageContent {
 	links?: string[];
 	/** On an edit: the names of the attachments to take off. */
 	removeAttachments?: string[];
+	/** On a post: a card design and the values of its fields. */
+	card?: { path: string; fields: ChatCardValues };
 }
 
 export interface ChatMessage {
@@ -112,6 +165,7 @@ export interface ChatMessage {
 	mentions: string[];
 	attachments: ChatAttachment[];
 	links: ChatLink[];
+	card: ChatCard | null;
 }
 
 export interface ChatMessagePage {
@@ -149,6 +203,11 @@ const MESSAGE_FIELDS = `
 	id author authorName postedAt editedAt deleted kind body mine mentions
 	attachments { name path mimeType size }
 	links { id accessible name path mimeType isCollection }
+	card { path accessible label version fields bodyFromCard }
+`;
+const CARD_DESIGN_FIELDS = `
+	path name label description
+	fields { key label description type multiple required choices { value label color } }
 `;
 
 /** The reference as the schema takes it: one of the two ids, nothing else. */
@@ -238,6 +297,20 @@ export class ChatServiceGraphQL {
 		return data.chatMentionWatchPath;
 	}
 
+	/** The card designs the caller can post, by label. */
+	async listCards(): Promise<ChatCardDesign[]> {
+		const data = await this.#client.query<{ chatCards: ChatCardDesign[] }>(
+			`query { chatCards { ${CARD_DESIGN_FIELDS} } }`);
+		return data.chatCards;
+	}
+
+	/** One design, or null when there is none at the path the caller can read. */
+	async getCard(path: string): Promise<ChatCardDesign | null> {
+		const data = await this.#client.query<{ chatCard: ChatCardDesign | null }>(
+			`query ($path: String!) { chatCard(path: $path) { ${CARD_DESIGN_FIELDS} } }`, { path });
+		return data.chatCard;
+	}
+
 	/** The direct messages with the user, created the first time. */
 	async openDirectMessage(userId: string): Promise<ChatChannel> {
 		const data = await this.#client.mutation<{ chatOpenDirectMessage: ChatChannel }>(
@@ -296,8 +369,8 @@ export class ChatServiceGraphQL {
 
 	async postMessage(ref: ChatRef, body: string, content: ChatMessageContent = {}): Promise<ChatMessage> {
 		const data = await this.#client.mutation<{ chatPostMessage: ChatMessage }>(
-			`mutation ($ref: ChatRef!, $body: String!, $draftId: ID, $uploads: [ChatUploadInput!], $copies: [ID!], $links: [ID!]) {
-				chatPostMessage(ref: $ref, body: $body, draftId: $draftId, uploads: $uploads, copies: $copies, links: $links) { ${MESSAGE_FIELDS} }
+			`mutation ($ref: ChatRef!, $body: String!, $draftId: ID, $uploads: [ChatUploadInput!], $copies: [ID!], $links: [ID!], $card: ChatCardInput) {
+				chatPostMessage(ref: $ref, body: $body, draftId: $draftId, uploads: $uploads, copies: $copies, links: $links, card: $card) { ${MESSAGE_FIELDS} }
 			}`,
 			{
 				ref: refInput(ref),
@@ -306,6 +379,7 @@ export class ChatServiceGraphQL {
 				uploads: content.uploads ?? [],
 				copies: content.copies ?? [],
 				links: content.links ?? [],
+				card: content.card ?? null,
 			});
 		return data.chatPostMessage;
 	}
