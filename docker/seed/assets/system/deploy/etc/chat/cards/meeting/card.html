@@ -108,7 +108,7 @@
 			<div id="place"></div>
 		</div>
 		<ul class="agenda" id="agenda"></ul>
-		<a class="join" id="join" target="_blank" rel="noopener noreferrer" hidden>Join the meeting</a>
+		<a class="join" id="join" target="_blank" rel="noopener noreferrer" hidden></a>
 	</div>
 </div>
 <script>
@@ -124,8 +124,10 @@
 		return;
 	}
 
-	const KINDS = { onsite: 'On site', online: 'Online', hybrid: 'Hybrid' };
+	const KINDS = ['onsite', 'online', 'hybrid'];
 	const byId = (id) => document.getElementById(id);
+	// The design's messages, i18n/<locale>.json in its folder.
+	const t = (key, params) => host.translate(key, params);
 
 	function applyTheme(theme) {
 		document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
@@ -136,13 +138,23 @@
 		return p ? p.value : '';
 	}
 
+	// CJK locales run the weekday into the date ("2026年10月5日月曜日"); give it a space.
+	function joinParts(parts) {
+		let out = '';
+		for (const p of parts) {
+			if (p.type === 'weekday' && out && !/[\s,(（、]$/.test(out)) out += ' ';
+			out += p.value;
+		}
+		return out;
+	}
+
 	function render(fields) {
 		const f = fields || {};
 		const loc = host.localization || {};
 		const locale = loc.locale || undefined;
 		const timeZone = loc.timeZone || undefined;
 		document.documentElement.lang = locale || 'en';
-		document.documentElement.dataset.kind = KINDS[f.kind] ? f.kind : 'onsite';
+		document.documentElement.dataset.kind = KINDS.includes(f.kind) ? f.kind : 'onsite';
 
 		const start = f.date ? new Date(f.date) : null;
 		const end = f.end ? new Date(f.end) : null;
@@ -154,7 +166,7 @@
 			byId('weekday').textContent = part(dayParts, start, 'weekday');
 			byId('time').textContent = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', timeZone }).format(start);
 			const full = new Intl.DateTimeFormat(locale, { dateStyle: 'full', timeStyle: 'short', timeZone });
-			byId('range').textContent = valid(end) ? full.formatRange(start, end) : full.format(start);
+			byId('range').textContent = joinParts(valid(end) ? full.formatRangeToParts(start, end) : full.formatToParts(start));
 		} else {
 			byId('month').textContent = '';
 			byId('day').textContent = '?';
@@ -163,9 +175,9 @@
 			byId('range').textContent = '';
 		}
 
-		byId('kind').textContent = KINDS[f.kind] || '';
+		byId('kind').textContent = KINDS.includes(f.kind) ? t('field.kind.choice.' + f.kind) : '';
 		const title = byId('title');
-		title.textContent = f.title || (host.preview ? 'Title' : '');
+		title.textContent = f.title || (host.preview ? t('field.title.label') : '');
 		title.classList.toggle('empty', !f.title);
 		byId('place').textContent = f.place || '';
 
@@ -179,6 +191,7 @@
 		}
 
 		const join = byId('join');
+		join.textContent = t('page.join');
 		const url = typeof f.url === 'string' ? f.url.trim() : '';
 		if (/^https?:\/\//i.test(url)) {
 			join.href = url;

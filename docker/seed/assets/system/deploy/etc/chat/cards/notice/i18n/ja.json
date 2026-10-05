@@ -1,0 +1,14 @@
+{
+	"card.label": "お知らせ",
+	"card.description": "情報・成功・注意・危険のレベルを付けた短いお知らせです。",
+	"card.summary": "{{title}} — {{message}}",
+
+	"field.title.label": "タイトル",
+	"field.message.label": "本文",
+	"field.message.description": "伝えたいこと。数行までにします。",
+	"field.level.label": "レベル",
+	"field.level.choice.info": "情報",
+	"field.level.choice.success": "成功",
+	"field.level.choice.warning": "注意",
+	"field.level.choice.danger": "危険"
+}

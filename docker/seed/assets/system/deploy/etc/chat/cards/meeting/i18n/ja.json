@@ -1,0 +1,21 @@
+{
+	"card.label": "会議",
+	"card.description": "日時・場所・議題を添えて会議に招待します。",
+	"card.summary": "{{title}} — {{date}} {{place}}",
+
+	"field.title.label": "タイトル",
+	"field.date.label": "開始",
+	"field.end.label": "終了",
+	"field.kind.label": "開催形式",
+	"field.kind.choice.onsite": "対面",
+	"field.kind.choice.online": "オンライン",
+	"field.kind.choice.hybrid": "ハイブリッド",
+	"field.place.label": "場所",
+	"field.place.description": "会議室、または集合場所。",
+	"field.url.label": "会議のリンク",
+	"field.url.description": "Web 会議のアドレス（あれば）。",
+	"field.agenda.label": "議題",
+	"field.agenda.description": "1 行に 1 項目、またはカンマで区切ります。",
+
+	"page.join": "会議に参加"
+}

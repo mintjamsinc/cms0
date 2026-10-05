@@ -42,7 +42,16 @@ Bundles are flat JSON files in **two locations**. The locale of a file is the
 /etc/i18n/wt-inspector.en.json     → locale "en"   (shared component, webtop.inspector.*)
 /etc/i18n/searchindex-forms.ja.json→ locale "ja"   (BPMN forms, form.*)
 /etc/i18n/en-US.json               → locale "en-us"
+
+# Chat card bundles — inside each card design's folder
+/etc/chat/cards/notice/i18n/en.json  → locale "en"   (scope "/etc/chat/cards/notice")
+/etc/chat/cards/notice/i18n/ja.json  → locale "ja"
 ```
+
+**Chat card bundles** are scoped like app bundles, the scope being the
+design's folder path: the texts of its `card.yml` and its page's
+`host.translate()` resolve there first, then in the global bundles. See
+`webtop-chat.md`, "Cards".
 
 **App bundles are scoped to their app.** The i18n service keeps them per app
 (the app id is the app folder name, i.e. `relPath`) and consults them only for

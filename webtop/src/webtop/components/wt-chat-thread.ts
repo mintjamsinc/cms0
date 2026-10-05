@@ -215,8 +215,15 @@ export interface ChatCardBridge {
 	readonly localization: { locale: string; timeZone: string };
 	/** A client for the workspace, with the reader's credentials. */
 	readonly graphql: GraphQLClient;
+	/**
+	 * A message in the reader's language: the design's own messages
+	 * (i18n/<locale>.json in its folder) first, then the host's.
+	 */
 	translate(messageId: string, params?: Record<string, unknown>, fallback?: string): string;
-	/** Told of `theme`, `localization` and, for a preview, `card` ({ fields }). Returns what unsubscribes. */
+	/**
+	 * Told of `theme`, `localization` (also when the messages were changed) and,
+	 * for a preview, `card` ({ fields }). Returns what unsubscribes.
+	 */
 	subscribe(listener: CardListener): () => void;
 	/** Fits the frame to the page again. */
 	resize(): void;
@@ -379,7 +386,7 @@ defineComponent('wt-chat-thread', {
 			if (!design) return '';
 			for (const f of design.fields) {
 				if (f.required && !this.cardItems(f).length) {
-					return this.t('webtop.chat.card.required', { label: f.label }, '{label} is required.');
+					return this.t('webtop.chat.card.required', { label: this.cardText(design, f.label) }, '{label} is required.');
 				}
 			}
 			return '';
@@ -389,6 +396,11 @@ defineComponent('wt-chat-thread', {
 			const design = this.cardDraft.design as ChatCardDesign | null;
 			if (!design) return null;
 			return { path: design.path, accessible: true, label: design.label, version: null, fields: null, bodyFromCard: false };
+		},
+		/** The designs to choose from, by their labels in the reader's language. */
+		cardDesigns(this: any): ChatCardDesign[] {
+			const label = (d: ChatCardDesign) => this.cardText(d, d.label);
+			return [...(this.cardDraft.designs as ChatCardDesign[])].sort((a, b) => label(a).localeCompare(label(b)));
 		},
 		canSaveEdit(this: any): boolean {
 			const e = this.editing;
@@ -450,8 +462,12 @@ defineComponent('wt-chat-thread', {
 			this.reloadInfo();
 			this.refresh();
 		},
-		localization(this: any) {
-			this.announceCards('localization', this.cardLocalization());
+		// Deep: the locale, the time zone, and the messages being reloaded.
+		localization: {
+			handler(this: any) {
+				this.announceCards('localization', this.cardLocalization());
+			},
+			deep: true,
 		},
 		// The host names another message to bring the reader to.
 		focusMessage(this: any, id: string | null) {
@@ -464,6 +480,15 @@ defineComponent('wt-chat-thread', {
 	methods: {
 		t(this: any, messageId: string, params?: Record<string, any>, fallback?: string): string {
 			return translate(this.localization || createLocalizationSnapshot(), undefined, messageId, params, fallback);
+		},
+		/**
+		 * A text of a card design (a label, a description) in the reader's
+		 * language: card.yml may write it as a key of the design's messages; a
+		 * text that is no key is shown as written.
+		 */
+		cardText(this: any, card: { path: string } | null, text: string | null | undefined): string {
+			if (!text) return '';
+			return translate(this.localization || createLocalizationSnapshot(), undefined, text, undefined, text, card?.path || undefined);
 		},
 		// The conversation is opened as soon as the element is set up (`mount`),
 		// without waiting for the frame the `mounted` hook is called on: a window
@@ -1009,7 +1034,7 @@ defineComponent('wt-chat-thread', {
 				const content = vm.contentOf(vm.compose) as ChatMessageContent;
 				const design = vm.cardDraft.design as ChatCardDesign | null;
 				if (design) {
-					content.card = { path: design.path, fields: vm.draftValues() };
+					content.card = { path: design.path, fields: vm.draftValues(), locale: vm.cardLocalization().locale };
 				}
 				const message = await vm.api.chat.postMessage(vm.conversation, body, content);
 				if (epoch !== vm._.epoch) return;
@@ -1292,6 +1317,8 @@ defineComponent('wt-chat-thread', {
 			let client: GraphQLClient | null = null;
 			const message = (): ChatMessage | null => (messageId === null) ?
 				null : ((vm.messages as ChatMessage[]).find((x) => x.id === messageId) || null);
+			const cardPath = (): string => (messageId === null) ?
+				((vm.cardDraft.design as ChatCardDesign | null)?.path || '') : (message()?.card?.path || '');
 			return {
 				version: 1,
 				get workspace(): string { return String(vm.api?.workspace || ''); },
@@ -1299,11 +1326,10 @@ defineComponent('wt-chat-thread', {
 				get preview(): boolean { return messageId === null; },
 				get card(): { path: string; fields: ChatCardValues } {
 					if (messageId === null) {
-						const design = vm.cardDraft.design as ChatCardDesign | null;
-						return { path: design ? design.path : '', fields: vm.draftValues() };
+						return { path: cardPath(), fields: vm.draftValues() };
 					}
 					const card = message()?.card;
-					return toPlainData({ path: card?.path || '', fields: card?.fields || {} });
+					return toPlainData({ path: cardPath(), fields: card?.fields || {} });
 				},
 				get message(): Record<string, unknown> | null {
 					const m = message();
@@ -1324,7 +1350,7 @@ defineComponent('wt-chat-thread', {
 					return client;
 				},
 				translate(messageId: string, params?: Record<string, unknown>, fallback?: string): string {
-					return vm.t(messageId, params, fallback);
+					return translate(vm.localization || createLocalizationSnapshot(), undefined, messageId, params, fallback, cardPath() || undefined);
 				},
 				subscribe(listener: CardListener): () => void {
 					if (typeof listener !== 'function') return () => undefined;

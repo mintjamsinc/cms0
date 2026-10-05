@@ -20,8 +20,10 @@ package webtop.chat;
  * when a card is given: the design's summary stands in for it.
  *
  * Options:
- *   card     [path, fields]: a design under /etc/chat/cards and the values of
- *            its fields, checked against the design (ChatCards)
+ *   card     [path, fields, locale]: a design under /etc/chat/cards and the
+ *            values of its fields, checked against the design (ChatCards);
+ *            the summary that stands in for an empty text is written in the
+ *            locale, English when none is given
  *   links    identifiers of files or folders to link
  *   author   the user shown as the author; the service user when absent
  *   kind     `system` unless given
@@ -100,7 +102,7 @@ class ChatSystem {
 		if (design == null) {
 			throw new IllegalArgumentException("No such card: ${input.path}".toString());
 		}
-		return ChatCards.toPost(service, design, input.fields as Map);
+		return ChatCards.toPost(service, session, design, input.fields as Map, input.locale as String);
 	}
 
 	/** The links to carry, [id, path] each; what is linked must exist. */

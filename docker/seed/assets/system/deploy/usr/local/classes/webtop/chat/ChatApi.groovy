@@ -558,7 +558,8 @@ class ChatApi {
 	/**
 	 * The card a message is to carry, from what the caller sent (path and
 	 * fields): the design must be one the caller can read, and the values are
-	 * checked against it. Returns [json, summary] for ChatMessages.
+	 * checked against it. Returns [json, summary] for ChatMessages, the summary
+	 * in the locale the caller writes in.
 	 */
 	private Map cardToPost(Map input) {
 		if (input == null) {
@@ -568,7 +569,7 @@ class ChatApi {
 		if (design == null) {
 			throw new IllegalArgumentException('No such card, or you cannot read it.');
 		}
-		return ChatCards.toPost(context, design, input.fields as Map);
+		return ChatCards.toPost(context, session, design, input.fields as Map, input.locale as String);
 	}
 
 	/**

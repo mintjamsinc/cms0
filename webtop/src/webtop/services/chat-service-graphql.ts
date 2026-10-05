@@ -106,7 +106,10 @@ export interface ChatCardField {
 
 /**
  * A card design: a folder under /etc/chat/cards holding card.yml (the fields)
- * and card.html (the page that shows the card).
+ * and card.html (the page that shows the card). The labels and descriptions
+ * are as card.yml writes them: each may be a key of the design's messages
+ * (i18n/<locale>.json in its folder), resolved in the design's scope of the
+ * i18n service.
  */
 export interface ChatCardDesign {
 	path: string;
@@ -147,8 +150,8 @@ export interface ChatMessageContent {
 	links?: string[];
 	/** On an edit: the names of the attachments to take off. */
 	removeAttachments?: string[];
-	/** On a post: a card design and the values of its fields. */
-	card?: { path: string; fields: ChatCardValues };
+	/** On a post: a card design, the values of its fields and the locale its summary is written in. */
+	card?: { path: string; fields: ChatCardValues; locale?: string };
 }
 
 export interface ChatMessage {

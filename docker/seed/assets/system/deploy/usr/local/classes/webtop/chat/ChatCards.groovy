@@ -43,12 +43,23 @@ import java.util.regex.Pattern;
  * DECIMAL as the digits that were given, BOOLEAN as true or false, DATE as an
  * ISO 8601 instant in UTC; a multiple field as a list. A value that does not
  * fit its field is refused, so the page can trust what it is given.
+ *
+ * A design may keep its messages in its own folder, as an app does:
+ * i18n/<locale>.json, flat JSON of message keys, the locale being the last
+ * dot-delimited segment of the name (en.json, ja.json, notice.ja.json). Any
+ * text of card.yml (the label, the description, the summary, a field's label
+ * and description, a choice's label) may then be a key of those messages; a
+ * text that is no key is shown as it is written. The reader's browser
+ * resolves them in the reader's language; here they are resolved only for
+ * the summary, in the writer's.
  */
 class ChatCards {
 
 	static final String ROOT = '/etc/chat/cards';
 	static final String DESCRIPTOR = 'card.yml';
 	static final String PAGE = 'card.html';
+	static final String MESSAGES = 'i18n';
+	static final String DEFAULT_LOCALE = 'en';
 	static final List<String> TYPES = ['STRING', 'LONG', 'DOUBLE', 'DECIMAL', 'BOOLEAN', 'DATE'];
 	static final int MAX_FIELDS = 50;
 	static final int MAX_VALUES = 100;
@@ -213,18 +224,112 @@ class ChatCards {
 		return value != null && value.toString().trim().equalsIgnoreCase('true');
 	}
 
+	// --- messages ---------------------------------------------------------------
+
+	/**
+	 * The messages of the design in the folder for the locale, as the session
+	 * reads them: those of the language without a region and of English fill
+	 * in for keys the locale does not have, as in the browser. Empty when the
+	 * design has none.
+	 */
+	static Map<String, String> messages(context, session, String path, String locale) {
+		String folder = checkPath(path);
+		def dir = session.getResource("${folder}/${MESSAGES}".toString());
+		if (!dir.exists() || !dir.isCollection()) {
+			return [:];
+		}
+		List files = [];
+		def children = dir.list();
+		while (children.hasNext()) {
+			def r = children.next();
+			if ((r.name as String).endsWith('.json') && readableFile(r)) {
+				files.add(r);
+			}
+		}
+		// Several files of one locale are merged, in the order of their names.
+		files.sort { a, b -> (a.name as String) <=> (b.name as String) };
+		Map<String, Map<String, String>> bundles = [:];
+		files.each { r ->
+			String name = r.name as String;
+			String base = name.substring(0, name.length() - '.json'.length());
+			String loc = base.substring(base.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+			Object parsed;
+			try {
+				parsed = context.getAttribute('JSON').parse(r.getContent() ?: '');
+			} catch (Throwable ignore) {
+				return;
+			}
+			if (!loc || !(parsed instanceof Map)) {
+				return;
+			}
+			Map<String, String> bundle = bundles[loc] ?: [:];
+			(parsed as Map).each { k, v ->
+				if (k != null && v != null) {
+					bundle[k as String] = v.toString();
+				}
+			};
+			bundles[loc] = bundle;
+		};
+		Map<String, String> merged = [:];
+		localeChain(locale).reverse().each { String loc ->
+			if (bundles[loc]) {
+				merged.putAll(bundles[loc]);
+			}
+		};
+		return merged;
+	}
+
+	/** The locale, the language without a region, then English. */
+	private static List<String> localeChain(String locale) {
+		String exact = (locale ?: DEFAULT_LOCALE).trim().toLowerCase(Locale.ROOT).replace('_', '-') ?: DEFAULT_LOCALE;
+		List<String> chain = [exact];
+		int dash = exact.indexOf('-');
+		if (dash > 0) {
+			chain.add(exact.substring(0, dash));
+		}
+		chain.add(DEFAULT_LOCALE);
+		return chain.unique(false);
+	}
+
+	/**
+	 * The design with its texts in the locale: each label, description and the
+	 * summary that is a key of the design's messages replaced by the message.
+	 * The page's messages are left to the page.
+	 */
+	static Map localize(context, session, Map card, String locale) {
+		Map<String, String> m = messages(context, session, card.path as String, locale);
+		if (!m) {
+			return card;
+		}
+		Closure<String> say = { String text -> (text != null && m.containsKey(text)) ? m[text] : text };
+		return card + [
+			label: say(card.label as String),
+			description: say(card.description as String),
+			summary: say(card.summary as String),
+			fields: (card.fields as List<Map>).collect { Map field ->
+				field + [
+					label: say(field.label as String),
+					description: say(field.description as String),
+					choices: (field.choices as List<Map>).collect { Map choice -> choice + [label: say(choice.label as String)] },
+				]
+			},
+		];
+	}
+
 	// --- values -----------------------------------------------------------------
 
 	/**
 	 * What ChatMessages.post takes for a card: the design's path and the
 	 * values, checked against the design and written as JSON, with the text
-	 * that stands in for a message without one. `context` holds the JSON API.
+	 * that stands in for a message without one, in the locale (English when
+	 * none is given). `context` holds the JSON API.
 	 */
-	static Map toPost(context, Map design, Map fields) {
-		Map values = normalize(design, (fields != null) ? fields : [:]);
+	static Map toPost(context, session, Map design, Map fields, String locale) {
+		Map card = localize(context, session, design, locale);
+		Map values = normalize(card, (fields != null) ? fields : [:]);
 		return [
 			json: context.getAttribute('JSON').stringify([path: design.path, fields: values]),
-			summary: summary(design, values),
+			summary: summary(card, values),
 		];
 	}
 

@@ -37,8 +37,15 @@
  * bundles, so shared `common.*` / `webtop.*` keys and not-yet-migrated keys
  * resolve as before.
  *
+ * **3. Chat card bundles — `/etc/chat/cards/<name>/i18n/<locale>.json`.**
+ * A card design keeps its messages in its own folder the same way, scoped
+ * like an app's: the scope is the design's folder path
+ * (`/etc/chat/cards/notice`), which no app id can be. The texts of its
+ * card.yml and its page (`ChatCardHost` → `translate`) look there first.
+ *
  * Supports initial loading, real-time updates via node watch subscriptions
- * (shallow on /etc/i18n, deep on the apps tree filtered to i18n folders),
+ * (shallow on /etc/i18n, deep on the apps tree and the chat cards filtered to
+ * i18n folders),
  * broadcasting to all app iframes, and message formatting via
  * intl-messageformat.
  */
@@ -70,6 +77,9 @@ const GLOBAL_BUNDLES_PATH = '/etc/i18n';
 
 /** Name of the per-app bundle folder inside an app's folder. */
 const APP_I18N_FOLDER = 'i18n';
+
+/** JCR folder holding the chat card designs, each with its own i18n folder. */
+const CHAT_CARDS_PATH = '/etc/chat/cards';
 
 export interface I18nMessageDescriptor {
 	messageId: string;
@@ -115,7 +125,11 @@ export function resolveLocale(): string {
 export class I18nService {
 	/** Global bundles: locale -> merged messages (from /etc/i18n). */
 	#bundles = new Map<string, Record<string, string>>();
-	/** App-scoped bundles: appId -> locale -> messages (from <app>/i18n/). */
+	/**
+	 * Scoped bundles: scope -> locale -> messages. The scope is an app's id
+	 * (from <app>/i18n/) or a chat card design's folder path (from
+	 * /etc/chat/cards/<name>/i18n/).
+	 */
 	#appBundles = new Map<string, Map<string, Record<string, string>>>();
 	#loaded = false;
 	#contentService: ContentServiceGraphQL;
@@ -123,6 +137,7 @@ export class I18nService {
 	#appsPath: string;
 	#unwatchNode: (() => void) | null = null;
 	#unwatchApps: (() => void) | null = null;
+	#unwatchCards: (() => void) | null = null;
 	#refreshDebounceTimer: number | null = null;
 	// Cache of compiled IntlMessageFormat instances keyed by
 	// `g:${locale}:${messageId}` (global) / `a:${appId}:${locale}:${messageId}`
@@ -190,6 +205,10 @@ export class I18nService {
 		if (this.#unwatchApps) {
 			this.#unwatchApps();
 			this.#unwatchApps = null;
+		}
+		if (this.#unwatchCards) {
+			this.#unwatchCards();
+			this.#unwatchCards = null;
 		}
 		if (this.#refreshDebounceTimer) {
 			clearTimeout(this.#refreshDebounceTimer);
@@ -341,17 +360,18 @@ export class I18nService {
 	}
 
 	/**
-	 * Load all bundles: the global /etc/i18n files and every app's i18n
-	 * folder, in parallel. State is swapped in atomically at the end so a
-	 * concurrent format() never sees a half-loaded world.
+	 * Load all bundles: the global /etc/i18n files, every app's i18n folder
+	 * and every chat card's, in parallel. State is swapped in atomically at
+	 * the end so a concurrent format() never sees a half-loaded world.
 	 */
 	async #loadAll(): Promise<void> {
-		const [globalBundles, appBundles] = await Promise.all([
+		const [globalBundles, appBundles, cardBundles] = await Promise.all([
 			this.#loadGlobalBundles(),
 			this.#loadAppBundles(),
+			this.#loadCardBundles(),
 		]);
 		this.#bundles = globalBundles;
-		this.#appBundles = appBundles;
+		this.#appBundles = new Map([...appBundles, ...cardBundles]);
 		this.#formatterCache.clear();
 		this.#loaded = true;
 	}
@@ -426,7 +446,38 @@ export class I18nService {
 	}
 
 	/**
-	 * Load one app's i18n folder into a locale -> messages map. Returns null
+	 * Load every chat card design's scoped bundles from
+	 * `/etc/chat/cards/<name>/i18n/<locale>.json`, keyed by the design's folder
+	 * path. Designs the user cannot read are not listed, so not loaded.
+	 */
+	async #loadCardBundles(): Promise<Map<string, Map<string, Record<string, string>>>> {
+		const cardBundles = new Map<string, Map<string, Record<string, string>>>();
+		try {
+			const root = await this.#contentService.getNode(CHAT_CARDS_PATH);
+			if (!root) return cardBundles;
+
+			const folders: string[] = [];
+			for await (const batch of this.#contentService.listAllChildren(CHAT_CARDS_PATH, 50)) {
+				for (const node of batch) {
+					if (!node.name || node.downloadUrl) continue;
+					folders.push(`${CHAT_CARDS_PATH}/${node.name}`);
+				}
+			}
+
+			await Promise.all(folders.map(async (folder) => {
+				const perLocale = await this.#loadOneAppBundles(`${folder}/${APP_I18N_FOLDER}`);
+				if (perLocale && perLocale.size > 0) {
+					cardBundles.set(folder, perLocale);
+				}
+			}));
+		} catch {
+			// No cards — their texts are shown as card.yml writes them.
+		}
+		return cardBundles;
+	}
+
+	/**
+	 * Load one app's (or card's) i18n folder into a locale -> messages map. Returns null
 	 * when the folder does not exist.
 	 */
 	async #loadOneAppBundles(i18nPath: string): Promise<Map<string, Record<string, string>> | null> {
@@ -496,9 +547,9 @@ export class I18nService {
 
 	/**
 	 * Start watching the bundle locations for changes via EventHub:
-	 * shallow on /etc/i18n (as before) and deep on the apps tree, filtered to
-	 * events under an app's i18n folder so app deployments don't trigger
-	 * needless reloads.
+	 * shallow on /etc/i18n (as before) and deep on the apps tree and the chat
+	 * cards, filtered to events under an i18n folder so app deployments don't
+	 * trigger needless reloads.
 	 */
 	#startWatch(): void {
 		if (!this.#eventHub) return;
@@ -518,6 +569,16 @@ export class I18nService {
 				this.#scheduleRefresh();
 			},
 			true, // deep - i18n files live two levels down
+		);
+
+		const cardPathPattern = new RegExp(`^${CHAT_CARDS_PATH}/[^/]+/${APP_I18N_FOLDER}(/|$)`);
+		this.#unwatchCards = this.#eventHub.watchNode(
+			CHAT_CARDS_PATH,
+			(event: { path?: string }) => {
+				if (!event?.path || !cardPathPattern.test(event.path)) return;
+				this.#scheduleRefresh();
+			},
+			true, // deep - like the apps
 		);
 	}
 

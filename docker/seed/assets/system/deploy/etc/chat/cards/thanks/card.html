@@ -77,7 +77,7 @@
 </head>
 <body>
 <div class="card">
-	<div class="heading">Thank you</div>
+	<div class="heading" id="heading"></div>
 	<div class="to" id="to"></div>
 	<p class="message" id="message"></p>
 	<div class="from" id="from"></div>
@@ -96,6 +96,8 @@
 	}
 
 	const byId = (id) => document.getElementById(id);
+	// The design's messages, i18n/<locale>.json in its folder.
+	const t = (key, params) => host.translate(key, params);
 
 	function applyTheme(theme) {
 		document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
@@ -103,16 +105,18 @@
 
 	function render(fields) {
 		const f = fields || {};
+		document.documentElement.lang = (host.localization && host.localization.locale) || 'en';
+		byId('heading').textContent = t('page.heading');
 		const to = byId('to');
-		to.textContent = f.to ? 'to ' + f.to : (host.preview ? 'to …' : '');
+		to.textContent = f.to ? t('page.to', { name: f.to }) : (host.preview ? t('page.to', { name: '…' }) : '');
 		to.classList.toggle('empty', !f.to);
 		const message = byId('message');
-		message.textContent = f.message || (host.preview ? 'Message' : '');
+		message.textContent = f.message || (host.preview ? t('field.message.label') : '');
 		message.classList.toggle('empty', !f.message);
 		// Signed by whoever posted it; the preview shows who is writing.
 		const m = host.message;
 		const author = m ? (m.authorName || m.author || '') : (host.currentUser && host.currentUser.id) || '';
-		byId('from').textContent = author ? '— ' + author : '';
+		byId('from').textContent = author ? t('page.from', { name: author }) : '';
 	}
 
 	applyTheme(host.theme);
@@ -120,6 +124,7 @@
 	host.subscribe((type, payload) => {
 		if (type === 'theme') applyTheme(payload);
 		else if (type === 'card') render(payload && payload.fields);
+		else if (type === 'localization') render(host.card.fields);
 	});
 })();
 </script>

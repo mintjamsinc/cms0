@@ -1,14 +1,15 @@
-# A thank-you card: a word of thanks that stands out in the conversation.
-label: Thank you
-description: A thank-you card to someone, signed by whoever posts it.
-summary: "Thank you, {{to}}! {{message}}"
+# A thank-you card: a word of thanks that stands out in the conversation. The
+# texts are keys of i18n/<locale>.json in this folder.
+label: card.label
+description: card.description
+summary: card.summary
 fields:
   - key: to
-    label: To
+    label: field.to.label
     type: STRING
     required: true
-    description: Who is thanked.
+    description: field.to.description
   - key: message
-    label: Message
+    label: field.message.label
     type: STRING
     required: true

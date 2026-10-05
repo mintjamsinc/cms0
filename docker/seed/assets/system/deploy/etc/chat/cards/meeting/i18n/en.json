@@ -1,0 +1,21 @@
+{
+	"card.label": "Meeting",
+	"card.description": "Invites to a meeting, with the date, the place and the agenda.",
+	"card.summary": "{{title}} — {{date}} {{place}}",
+
+	"field.title.label": "Title",
+	"field.date.label": "Starts",
+	"field.end.label": "Ends",
+	"field.kind.label": "Where",
+	"field.kind.choice.onsite": "On site",
+	"field.kind.choice.online": "Online",
+	"field.kind.choice.hybrid": "Hybrid",
+	"field.place.label": "Place",
+	"field.place.description": "The room, or where to meet.",
+	"field.url.label": "Meeting link",
+	"field.url.description": "The address of the web meeting, if any.",
+	"field.agenda.label": "Agenda",
+	"field.agenda.description": "One item per line, or separated by commas.",
+
+	"page.join": "Join the meeting"
+}

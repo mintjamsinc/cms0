@@ -3,24 +3,27 @@
 # A card design is a folder under /etc/chat/cards with this descriptor and
 # card.html, the page that shows the card. The fields are declared the way the
 # columns of a dataset are (see documents/webtop-chat.md, "Cards").
-label: Notice
-description: A short notice with a level - information, success, warning or danger.
+#
+# The texts are keys of the design's messages, i18n/<locale>.json in this
+# folder; a text that is no key is shown as it is written.
+label: card.label
+description: card.description
 # The message's text when none is written: the fields by {{key}}.
-summary: "{{title}} — {{message}}"
+summary: card.summary
 fields:
   - key: title
-    label: Title
+    label: field.title.label
     type: STRING
     required: true
   - key: message
-    label: Message
+    label: field.message.label
     type: STRING
-    description: What there is to know. A few lines at most.
+    description: field.message.description
   - key: level
-    label: Level
+    label: field.level.label
     type: STRING
     choices:
-      - { value: info, label: Information, color: peacock }
-      - { value: success, label: Success, color: basil }
-      - { value: warning, label: Warning, color: banana }
-      - { value: danger, label: Danger, color: tomato }
+      - { value: info, label: field.level.choice.info, color: peacock }
+      - { value: success, label: field.level.choice.success, color: basil }
+      - { value: warning, label: field.level.choice.warning, color: banana }
+      - { value: danger, label: field.level.choice.danger, color: tomato }

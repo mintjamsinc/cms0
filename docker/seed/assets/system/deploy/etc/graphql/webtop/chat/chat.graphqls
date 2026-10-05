@@ -111,6 +111,9 @@ type ChatMessage {
 """
 A card design: a folder under /etc/chat/cards holding card.yml (the fields)
 and card.html (the page that shows the card). Offered to whoever can read it.
+The texts (labels, descriptions) are as card.yml writes them: each may be a
+key of the design's messages (i18n/<locale>.json in its folder), which the
+client resolves in the reader's language.
 """
 type ChatCardDesign {
   path: String!
@@ -164,6 +167,12 @@ input ChatCardInput {
   path: String!
   """The values by field key. A multiple field takes a list."""
   fields: JSON
+  """
+  The locale the writer writes in (ja, en-US): the design's messages
+  (i18n/<locale>.json in its folder) the summary is written with when the
+  message has no text. English when absent.
+  """
+  locale: String
 }
 
 """A file copied next to the message when it was posted: a snapshot."""

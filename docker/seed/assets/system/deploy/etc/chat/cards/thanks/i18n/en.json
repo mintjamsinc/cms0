@@ -1,0 +1,13 @@
+{
+	"card.label": "Thank you",
+	"card.description": "A thank-you card to someone, signed by whoever posts it.",
+	"card.summary": "Thank you, {{to}}! {{message}}",
+
+	"field.to.label": "To",
+	"field.to.description": "Who is thanked.",
+	"field.message.label": "Message",
+
+	"page.heading": "Thank you",
+	"page.to": "to {name}",
+	"page.from": "— {name}"
+}

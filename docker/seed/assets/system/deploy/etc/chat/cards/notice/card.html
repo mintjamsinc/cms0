@@ -9,7 +9,8 @@
 	 * The page of the Notice card. It is shown in a frame of the conversation,
 	 * as tall as it is, and gets its values from the frame's host
 	 * (window.parent.ChatCardHost). The page sets no height of its own, so the
-	 * frame can take the page's.
+	 * frame can take the page's. Its texts are the design's messages
+	 * (i18n/<locale>.json), through host.translate.
 	 */
 	:root {
 		color-scheme: light;
@@ -129,13 +130,9 @@
 		return;
 	}
 
-	const LEVELS = {
-		info: { label: 'Information', icon: 'i' },
-		success: { label: 'Success', icon: '✓' },
-		warning: { label: 'Warning', icon: '!' },
-		danger: { label: 'Danger', icon: '✕' },
-	};
+	const ICONS = { info: 'i', success: '✓', warning: '!', danger: '✕' };
 	const byId = (id) => document.getElementById(id);
+	const t = (key, params) => host.translate(key, params);
 
 	function applyTheme(theme) {
 		document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
@@ -143,14 +140,16 @@
 
 	function render(fields) {
 		const f = fields || {};
-		const level = LEVELS[f.level] ? f.level : 'info';
+		document.documentElement.lang = (host.localization && host.localization.locale) || 'en';
+		const level = ICONS[f.level] ? f.level : 'info';
 		document.documentElement.dataset.level = level;
-		byId('icon').textContent = LEVELS[level].icon;
-		byId('level').textContent = LEVELS[level].label;
+		byId('icon').textContent = ICONS[level];
+		// The label of the choice, as the card's fields name it.
+		byId('level').textContent = t('field.level.choice.' + level);
 		const title = byId('title');
 		title.textContent = f.title || '';
 		title.classList.toggle('empty', !f.title);
-		if (!f.title && host.preview) title.textContent = 'Title';
+		if (!f.title && host.preview) title.textContent = t('field.title.label');
 		byId('message').textContent = f.message || '';
 	}
 
@@ -159,6 +158,7 @@
 	host.subscribe((type, payload) => {
 		if (type === 'theme') applyTheme(payload);
 		else if (type === 'card') render(payload && payload.fields);
+		else if (type === 'localization') render(host.card.fields);
 	});
 })();
 </script>

@@ -1,36 +1,37 @@
-# An invitation to a meeting: when, where, what for.
-label: Meeting
-description: Invites to a meeting, with the date, the place and the agenda.
-summary: "{{title}} — {{date}} {{place}}"
+# An invitation to a meeting: when, where, what for. The texts are keys of
+# i18n/<locale>.json in this folder.
+label: card.label
+description: card.description
+summary: card.summary
 fields:
   - key: title
-    label: Title
+    label: field.title.label
     type: STRING
     required: true
   - key: date
-    label: Starts
+    label: field.date.label
     type: DATE
     required: true
   - key: end
-    label: Ends
+    label: field.end.label
     type: DATE
   - key: kind
-    label: Where
+    label: field.kind.label
     type: STRING
     choices:
-      - { value: onsite, label: On site, color: blueberry }
-      - { value: online, label: Online, color: peacock }
-      - { value: hybrid, label: Hybrid, color: grape }
+      - { value: onsite, label: field.kind.choice.onsite, color: blueberry }
+      - { value: online, label: field.kind.choice.online, color: peacock }
+      - { value: hybrid, label: field.kind.choice.hybrid, color: grape }
   - key: place
-    label: Place
+    label: field.place.label
     type: STRING
-    description: The room, or where to meet.
+    description: field.place.description
   - key: url
-    label: Meeting link
+    label: field.url.label
     type: STRING
-    description: The address of the web meeting, if any.
+    description: field.url.description
   - key: agenda
-    label: Agenda
+    label: field.agenda.label
     type: STRING
     multiple: true
-    description: One item per line, or separated by commas.
+    description: field.agenda.description

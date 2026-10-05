@@ -1,0 +1,13 @@
+{
+	"card.label": "ありがとう",
+	"card.description": "誰かに感謝を伝えるカードです。投稿した人の名前が添えられます。",
+	"card.summary": "{{to}} さん、ありがとう！ {{message}}",
+
+	"field.to.label": "宛先",
+	"field.to.description": "感謝を伝える相手。",
+	"field.message.label": "メッセージ",
+
+	"page.heading": "ありがとう",
+	"page.to": "{name} さんへ",
+	"page.from": "— {name}"
+}

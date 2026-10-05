@@ -1,0 +1,14 @@
+{
+	"card.label": "Notice",
+	"card.description": "A short notice with a level - information, success, warning or danger.",
+	"card.summary": "{{title}} — {{message}}",
+
+	"field.title.label": "Title",
+	"field.message.label": "Message",
+	"field.message.description": "What there is to know. A few lines at most.",
+	"field.level.label": "Level",
+	"field.level.choice.info": "Information",
+	"field.level.choice.success": "Success",
+	"field.level.choice.warning": "Warning",
+	"field.level.choice.danger": "Danger"
+}

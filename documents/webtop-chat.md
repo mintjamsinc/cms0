@@ -156,12 +156,13 @@ read in the author's own session and written by the service user.
 A message can carry a **card**: a designed piece — an invitation, a notice, a
 thank-you — shown under the message's text in place of plain Markdown. A card
 is a **design** and the **values** of its fields. The design is a folder under
-`/etc/chat/cards` holding two files:
+`/etc/chat/cards` holding two files, and its messages:
 
 | File | What |
 |---|---|
 | `card.yml` | What the card is (`label`, `description`), the text that stands in for a message without one (`summary`), and the `fields` it takes. |
 | `card.html` | The page that shows the card, in the reader's browser. |
+| `i18n/<locale>.json` | The design's messages, one file per language (optional). |
 
 The fields are declared **the way the columns of a dataset are**
 (`properties` of `.dataset.yml`, see `datasets.md`): `key`, `label`,
@@ -199,6 +200,43 @@ numbers, `DECIMAL` as the digits typed, `BOOLEAN` as true or false, `DATE` as
 an ISO 8601 instant, a multiple field as a list. A value that does not fit its
 field, a required field left empty or a choice that is not offered is refused.
 
+**A design speaks the reader's language** the way an app does: its messages
+are flat JSON files in its own `i18n` folder — `en.json`, `ja.json`, named
+like the bundles of `/etc/i18n` (the locale is the last dot-delimited segment
+of the name) — and are seen only by that design. Every text of `card.yml` (the
+`label`, `description` and `summary`, a field's `label` and `description`, a
+choice's `label`) may be a **message key**; a text that is no key is shown as
+it is written, so a design without messages works as before.
+
+```yaml
+# /etc/chat/cards/notice/card.yml
+label: card.label
+summary: card.summary
+fields:
+  - key: level
+    label: field.level.label
+    choices:
+      - { value: info, label: field.level.choice.info, color: peacock }
+```
+
+```json
+// /etc/chat/cards/notice/i18n/ja.json
+{
+	"card.label": "お知らせ",
+	"card.summary": "{{title}} — {{message}}",
+	"field.level.label": "レベル",
+	"field.level.choice.info": "情報"
+}
+```
+
+The message box shows the designs, the fields and the choices in the writer's
+language; the page gets the same messages through `translate` (below). A
+missing key falls back from the locale (`en-us`) to its language (`en`) and to
+English, then to the key itself. Messages are ICU MessageFormat, as everywhere
+in the Webtop, except the summary, which keeps its `{{key}}` placeholders. The
+messages are loaded with the Webtop's own and reloaded when a file of an
+`i18n` folder changes.
+
 People, files and addresses are not field types: a message names a person as
 `@user` and a file as a link, in its text, as everywhere else in the chat.
 
@@ -206,7 +244,9 @@ People, files and addresses are not field types: a message names a person as
 the search finds, what a mention is found in, what a client that cannot show
 the card shows, and what prints when the card cannot. When the author writes
 none, the design's `summary` — its `{{key}}` placeholders replaced by the
-values — stands in for it, and the card is then shown without the text.
+values — stands in for it, and the card is then shown without the text. That
+text is written once, in the writer's language (the message box sends the
+writer's locale with the card), as if the writer had typed it.
 
 ### Writing a card
 
@@ -235,8 +275,8 @@ through `window.parent.ChatCardHost.connect(window)`, which gives it:
 | `currentUser`, `workspace`, `webtopBaseUrl` | Who reads, where, and where the Webtop's stylesheets are. |
 | `theme`, `localization` | `light` or `dark`; the reader's locale and time zone. |
 | `graphql` | A client for the workspace, with the reader's credentials. |
-| `translate(id, params, fallback)` | The host's message bundles. |
-| `subscribe(listener)` | Told of `theme`, `localization` and, in the preview, `card` (`{ fields }`) as they change. |
+| `translate(id, params, fallback)` | A message in the reader's language: the design's own (`i18n/<locale>.json`), then the Webtop's. |
+| `subscribe(listener)` | Told of `theme`, `localization` (also when the messages change) and, in the preview, `card` (`{ fields }`) as they change. |
 | `resize()` | Fits the frame to the page again, for a page that changes height without growing. |
 | `openFile(path)`, `openConversation(ref)` | Opens a file in its editor, or a conversation in the Chat app. |
 | `preview` | True in the message box. |
@@ -252,8 +292,9 @@ A reader who cannot read the design sees the message's text and a card saying
 so: a card, like a link, gives nobody access to anything.
 
 The designs shipped are *Notice*, *Meeting* and *Thank you*
-(`docker/seed/assets/system/deploy/etc/chat/cards`); an organization adds its
-own next to them, one folder each, in its own language.
+(`docker/seed/assets/system/deploy/etc/chat/cards`), in English and
+Japanese; an organization adds its own next to them, one folder each, with
+the languages it needs.
 
 ### Posting from a script
 
@@ -266,9 +307,13 @@ writes the message as the chat service user, marked `system`:
 webtop.chat.ChatSystem.post(ScriptAPI, [channelId: channelId], null, [
 	card: [path: '/etc/chat/cards/notice',
 	       fields: [title: 'Refund completed', level: 'success',
-	                message: "Order ${orderNo} was refunded in full."]],
+	                message: "Order ${orderNo} was refunded in full."],
+	       locale: 'en'],
 ])
 ```
+
+The card's `locale` is the language the summary is written in when the text
+is empty; English when absent. The card itself is shown in each reader's.
 
 `ScriptAPI` is the binding every script has (a route's Groovy script, the
 script a `CmsDelegate` service task runs). The conversation is named by
