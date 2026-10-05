@@ -28,6 +28,10 @@ class ChatApi {
 	String userId;
 	ChatHome home;
 	private Map<String, String> names = [:];
+	// The card designs read so far in this request, by path; NO_CARD for one
+	// the caller cannot read.
+	private Map<String, Map> cards = [:];
+	private static final Map NO_CARD = [:];
 
 	protected ChatApi(context) {
 		this.context = context;
@@ -133,7 +137,7 @@ class ChatApi {
 	 * Being able to read it is not the same: an administrator reads every
 	 * channel without being a participant of any.
 	 */
-	private static boolean isParticipant(service, String channelId, String user) {
+	static boolean isParticipant(service, String channelId, String user) {
 		List<String> members = ChatChannels.memberIds(service, channelId);
 		if (members.contains(ChatStore.EVERYONE) || members.contains(user)) {
 			return true;
@@ -500,7 +504,71 @@ class ChatApi {
 		message.authorName = displayName(service, message.author as String, false);
 		message.mine = (message.author == userId);
 		message.links = (message.remove('linkIds') as List<String>).collect { String id -> describeLink(id) };
+		message.card = describeCard(message.card as Map);
 		return message;
+	}
+
+	// --- cards ------------------------------------------------------------------
+
+	/** The card designs the caller may post: those under ChatCards.ROOT the caller can read. */
+	List<Map> listCards() {
+		return ChatCards.list(context, session);
+	}
+
+	/** One design, as the caller reads it, or null. */
+	Map getCard(String path) {
+		return ChatCards.read(context, session, path);
+	}
+
+	/** The design at the path as the caller reads it, or null; read once per request. */
+	private Map cardDesign(String path) {
+		Map design = cards[path];
+		if (design == null) {
+			try {
+				design = ChatCards.read(context, session, path) ?: NO_CARD;
+			} catch (Throwable ignore) {
+				design = NO_CARD;
+			}
+			cards[path] = design;
+		}
+		return design.is(NO_CARD) ? null : design;
+	}
+
+	/**
+	 * The card of a message as the caller sees it. The values are the
+	 * message's and are given to whoever reads the message; the design is
+	 * resolved in the caller's session, and whoever cannot read it is told so.
+	 */
+	private Map describeCard(Map stored) {
+		Map card = ChatCards.parse(context, stored);
+		if (card == null) {
+			return null;
+		}
+		Map design = cardDesign(card.path as String);
+		return [
+			path: card.path,
+			accessible: design != null,
+			label: design?.label,
+			version: design?.version,
+			fields: card.fields,
+			bodyFromCard: card.bodyFromCard,
+		];
+	}
+
+	/**
+	 * The card a message is to carry, from what the caller sent (path and
+	 * fields): the design must be one the caller can read, and the values are
+	 * checked against it. Returns [json, summary] for ChatMessages.
+	 */
+	private Map cardToPost(Map input) {
+		if (input == null) {
+			return null;
+		}
+		Map design = ChatCards.read(context, session, input.path as String);
+		if (design == null) {
+			throw new IllegalArgumentException('No such card, or you cannot read it.');
+		}
+		return ChatCards.toPost(context, design, input.fields as Map);
 	}
 
 	/**
@@ -597,10 +665,12 @@ class ChatApi {
 	/**
 	 * Posts a message. content: draftId and uploads (files uploaded into the
 	 * caller's home for this message), copies (identifiers of repository files to
-	 * attach a copy of) and links (identifiers of files or folders to link).
+	 * attach a copy of), links (identifiers of files or folders to link) and
+	 * card (the path of a design and the values of its fields).
 	 */
 	Map postMessage(Map ref, String body, Map content = [:]) {
 		String draftId = content.draftId as String;
+		Map card = cardToPost(content.card as Map);
 		Map message = asService { service ->
 			Map conversation = resolve(service, ref);
 			checkCanPost(conversation);
@@ -608,7 +678,7 @@ class ChatApi {
 			List<Map> links = linkTargets(content.links as List<String>);
 			List<String> mentions = mentionedUsers(service, body);
 			Map posted = ChatMessages.post(service, conversation.root as String, userId, body,
-				ChatMessages.KIND_USER, sources, links, mentions);
+				ChatMessages.KIND_USER, sources, links, mentions, card);
 			changed(service, conversation);
 			notifyMentions(service, conversation, posted.id as String, mentions);
 			// Whoever posts about a file keeps its conversation in the sidebar.

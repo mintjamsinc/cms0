@@ -14,6 +14,14 @@ package webtop.chat;
  * attach. What a message links is kept by identifier only (chat:links): the
  * link gives nobody access, and whoever reads the message sees what their own
  * session can read.
+ *
+ * A message may carry a card (ChatCards): the path of the design and the
+ * values of its fields, as JSON in chat:card. The design's page is loaded by
+ * whoever reads the message, so the message stores no markup. The text of
+ * such a message is still its Markdown; when none was written, the design's
+ * summary stands in for it, and chat:cardBody says so. The JSON is written
+ * and read by the callers, which hold the script context's JSON API; this
+ * class only keeps the text (groovy.json is not available to these classes).
  */
 class ChatMessages {
 
@@ -34,8 +42,12 @@ class ChatMessages {
 	static final String LINKS = 'chat:links';
 	static final String LINK_PATHS = 'chat:linkPaths';
 	static final String MENTIONS = 'chat:mentions';
+	static final String CARD = 'chat:card';
+	static final String CARD_BODY = 'chat:cardBody';
 
 	static final String KIND_USER = 'user';
+	/** Posted by a script (ChatSystem), not by a person in the conversation. */
+	static final String KIND_SYSTEM = 'system';
 
 	/** The names of the folders, or of the files ending with the suffix, sorted. */
 	private static List<String> childNames(folder, boolean collections, String suffix = null) {
@@ -196,10 +208,18 @@ class ChatMessages {
 	 * the session of whoever posts; its content is copied next to the message.
 	 * links: [id, path] each, the identifier of a file or folder and where it was
 	 * when the message was posted.
+	 * card: [json, summary], the design's path and the values as ChatCards
+	 * normalized them, already written as JSON; the summary is the text when
+	 * none was written.
 	 */
 	static Map post(session, String root, String author, String body, String kind = KIND_USER,
-			List<Map> attachments = [], List<Map> links = [], List<String> mentions = []) {
-		String text = checkBody(body, !attachments && !links);
+			List<Map> attachments = [], List<Map> links = [], List<String> mentions = [], Map card = null) {
+		String text = checkBody(body, !attachments && !links && card == null);
+		boolean cardBody = false;
+		if (card != null && !text) {
+			text = checkBody(card.summary as String);
+			cardBody = true;
+		}
 		checkCounts(attachments.size(), links.size());
 		Date now = new Date();
 		String target = path(root, ChatStore.newMessageId(now));
@@ -218,6 +238,7 @@ class ChatMessages {
 				file.setProperty(KIND, kind);
 				setMentions(file, mentions);
 				setLinks(file, links);
+				setCard(file, card, cardBody);
 				addAttachments(file, attachments);
 				session.commit();
 				return toMessage(file);
@@ -242,7 +263,15 @@ class ChatMessages {
 		List<String> kept = attachmentNames(file).findAll { !removed.contains(it) };
 		List<Map> newLinks = (links != null) ? links : linksOf(file);
 		checkCounts(kept.size() + added.size(), newLinks.size());
-		String text = checkBody(body, !kept && !added && !newLinks);
+		Map card = cardOf(file);
+		String text = checkBody(body, !kept && !added && !newLinks && card == null);
+		if (card != null && !text) {
+			// The card stays; without a text of its own the message keeps the
+			// summary it had.
+			text = file.getContent() ?: '';
+		} else if (card != null && file.hasProperty(CARD_BODY)) {
+			file.removeProperty(CARD_BODY);
+		}
 
 		file.write(text);
 		file.setProperty(EDITED_AT, new Date());
@@ -268,6 +297,7 @@ class ChatMessages {
 		file.write('');
 		file.setProperty(DELETED, true);
 		setLinks(file, []);
+		setCard(file, null, false);
 		def folder = filesFolder(file);
 		if (folder.exists()) {
 			folder.remove();
@@ -379,6 +409,43 @@ class ChatMessages {
 		return links;
 	}
 
+	/** Keeps the card on the message, or takes it off; cardBody marks a text that is the card's summary. */
+	private static void setCard(file, Map card, boolean cardBody) {
+		if (card == null) {
+			[CARD, CARD_BODY].each { String name ->
+				if (file.hasProperty(name)) {
+					file.removeProperty(name);
+				}
+			};
+			return;
+		}
+		file.setProperty(CARD, card.json as String);
+		if (cardBody) {
+			file.setProperty(CARD_BODY, true);
+		} else if (file.hasProperty(CARD_BODY)) {
+			file.removeProperty(CARD_BODY);
+		}
+	}
+
+	/**
+	 * The card of the message as [json, bodyFromCard], or null: the design's
+	 * path and the values as they were written, for the caller to parse, and
+	 * whether the text is the design's summary.
+	 */
+	static Map cardOf(file) {
+		if (!file.hasProperty(CARD)) {
+			return null;
+		}
+		String json = file.getProperty(CARD).getString();
+		if (!json) {
+			return null;
+		}
+		return [
+			json: json,
+			bodyFromCard: file.hasProperty(CARD_BODY) && file.getProperty(CARD_BODY).getBoolean(),
+		];
+	}
+
 	static String author(file) {
 		return file.hasProperty(AUTHOR) ? file.getProperty(AUTHOR).getString() : null;
 	}
@@ -392,8 +459,9 @@ class ChatMessages {
 	}
 
 	/**
-	 * The message as the API returns it, but for its links: `linkIds` names what
-	 * is linked, and whoever reads the message resolves them in their own session.
+	 * The message as the API returns it, but for its links and its card:
+	 * `linkIds` names what is linked and `card` the design, and whoever reads the
+	 * message resolves them in their own session.
 	 */
 	static Map toMessage(file) {
 		String name = file.name;
@@ -423,6 +491,7 @@ class ChatMessages {
 			attachments: attachments,
 			linkIds: deleted ? [] : linksOf(file).collect { it.id as String },
 			mentions: deleted ? [] : mentionsOf(file),
+			card: deleted ? null : cardOf(file),
 		];
 	}
 

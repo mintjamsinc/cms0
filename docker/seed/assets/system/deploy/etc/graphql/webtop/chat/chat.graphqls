@@ -104,6 +104,66 @@ type ChatMessage {
   attachments: [ChatAttachment!]!
   """References to files and folders, as the caller's own session reads them."""
   links: [ChatLink!]!
+  """The card the message carries, if any."""
+  card: ChatCard
+}
+
+"""
+A card design: a folder under /etc/chat/cards holding card.yml (the fields)
+and card.html (the page that shows the card). Offered to whoever can read it.
+"""
+type ChatCardDesign {
+  path: String!
+  """The folder's name."""
+  name: String!
+  label: String!
+  description: String
+  fields: [ChatCardField!]!
+}
+
+"""A field of a card, declared as a column of a dataset is."""
+type ChatCardField {
+  key: String!
+  label: String!
+  description: String
+  """STRING, LONG, DOUBLE, DECIMAL, BOOLEAN or DATE."""
+  type: String!
+  multiple: Boolean!
+  required: Boolean!
+  choices: [ChatCardChoice!]!
+}
+
+type ChatCardChoice {
+  value: String!
+  label: String!
+  """A swatch of the shared palette, or null."""
+  color: String
+}
+
+"""
+The card a message carries: the design's path and the values of its fields,
+as JSON keyed by field. The page of the design is loaded by the reader, from
+the path, so the message holds no markup. The design is resolved in the
+caller's own session: `accessible` is false for a reader who cannot read it,
+who then sees the message's text only.
+"""
+type ChatCard {
+  path: String!
+  accessible: Boolean!
+  """The design's label, when accessible."""
+  label: String
+  """When the design's page was last changed, in epoch milliseconds; to load it fresh."""
+  version: Long
+  fields: JSON
+  """Whether the message's text is the design's summary, written because none was given."""
+  bodyFromCard: Boolean!
+}
+
+input ChatCardInput {
+  """The folder of the design."""
+  path: String!
+  """The values by field key. A multiple field takes a list."""
+  fields: JSON
 }
 
 """A file copied next to the message when it was posted: a snapshot."""
@@ -198,6 +258,11 @@ extend type Query {
   """The folder to watch with nodeChanged (deep) for mentions of the caller:
   a mark is added under it whenever a message names the caller as @user."""
   chatMentionWatchPath: String!
+  """The card designs the caller can post: the folders under /etc/chat/cards
+  the caller can read, by label."""
+  chatCards: [ChatCardDesign!]!
+  """One design, or null when there is none at the path the caller can read."""
+  chatCard(path: String!): ChatCardDesign
 }
 
 extend type Mutation {
@@ -214,13 +279,16 @@ extend type Mutation {
   first time. Always the same one for the same two users."""
   chatOpenDirectMessage(userId: ID!): ChatChannel!
   """
-  Posts a message. The body may be empty when something is attached or linked.
+  Posts a message. The body may be empty when something is attached or linked,
+  or a card is given (the design's summary is then the body).
   uploads: files the caller uploaded for this message (draftId names their
   folder), moved next to the message. copies: identifiers of repository files
-  to attach a copy of. links: identifiers of files or folders to link. The
-  caller must be able to read whatever is copied or linked.
+  to attach a copy of. links: identifiers of files or folders to link. card: a
+  design the caller can read and the values of its fields, which are checked
+  against the design. The caller must be able to read whatever is copied or
+  linked.
   """
-  chatPostMessage(ref: ChatRef!, body: String!, draftId: ID, uploads: [ChatUploadInput!], copies: [ID!], links: [ID!]): ChatMessage!
+  chatPostMessage(ref: ChatRef!, body: String!, draftId: ID, uploads: [ChatUploadInput!], copies: [ID!], links: [ID!], card: ChatCardInput): ChatMessage!
   """
   The author's own messages only. uploads and copies are added to the
   attachments, removeAttachments names those to take off, and links, when
