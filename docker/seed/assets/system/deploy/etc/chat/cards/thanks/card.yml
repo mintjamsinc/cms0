@@ -1,0 +1,14 @@
+# A thank-you card: a word of thanks that stands out in the conversation.
+label: Thank you
+description: A thank-you card to someone, signed by whoever posts it.
+summary: "Thank you, {{to}}! {{message}}"
+fields:
+  - key: to
+    label: To
+    type: STRING
+    required: true
+    description: Who is thanked.
+  - key: message
+    label: Message
+    type: STRING
+    required: true

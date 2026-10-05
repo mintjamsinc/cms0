@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notice</title>
+<style>
+	/*
+	 * The page of the Notice card. It is shown in a frame of the conversation,
+	 * as tall as it is, and gets its values from the frame's host
+	 * (window.parent.ChatCardHost). The page sets no height of its own, so the
+	 * frame can take the page's.
+	 */
+	:root {
+		color-scheme: light;
+		--bg: #ffffff;
+		--bg-tint: #f6f8fb;
+		--text: #1f2430;
+		--text-soft: #5b6472;
+		--edge: rgba(31, 36, 48, 0.1);
+		--accent: #039be5;
+		--accent-soft: rgba(3, 155, 229, 0.12);
+	}
+	:root[data-theme="dark"] {
+		color-scheme: dark;
+		--bg: #1e2128;
+		--bg-tint: #23272f;
+		--text: #e8eaee;
+		--text-soft: #a3aab5;
+		--edge: rgba(255, 255, 255, 0.1);
+	}
+	:root[data-level="success"] { --accent: #0b8043; --accent-soft: rgba(11, 128, 67, 0.12); }
+	:root[data-level="warning"] { --accent: #e0a800; --accent-soft: rgba(246, 191, 38, 0.18); }
+	:root[data-level="danger"]  { --accent: #d50000; --accent-soft: rgba(213, 0, 0, 0.12); }
+
+	html, body {
+		margin: 0;
+		padding: 0;
+		background: transparent;
+	}
+	body {
+		font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans JP", sans-serif;
+		color: var(--text);
+	}
+	.card {
+		position: relative;
+		display: flex;
+		gap: 0.875rem;
+		padding: 0.875rem 1rem 0.875rem 1.125rem;
+		border: 1px solid var(--edge);
+		border-radius: 10px;
+		background: linear-gradient(135deg, var(--accent-soft), transparent 55%), linear-gradient(var(--bg-tint), var(--bg));
+		overflow: hidden;
+	}
+	.card::before {
+		content: "";
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: 4px;
+		background: var(--accent);
+	}
+	.icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: 50%;
+		background: var(--accent);
+		color: #fff;
+		font-size: 1.125rem;
+		font-weight: 700;
+	}
+	.text {
+		min-width: 0;
+		flex: 1;
+	}
+	.title {
+		margin: 0.125rem 0 0;
+		font-size: 15px;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		overflow-wrap: anywhere;
+	}
+	.level {
+		display: inline-block;
+		margin-bottom: 0.25rem;
+		padding: 0 0.5rem;
+		border-radius: 999px;
+		background: var(--accent-soft);
+		color: var(--accent);
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+	.message {
+		margin: 0.25rem 0 0;
+		color: var(--text-soft);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.message:empty { display: none; }
+	.empty { color: var(--text-soft); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="card">
+	<div class="icon" id="icon">i</div>
+	<div class="text">
+		<span class="level" id="level"></span>
+		<div class="title" id="title"></div>
+		<p class="message" id="message"></p>
+	</div>
+</div>
+<script>
+(() => {
+	let host = null;
+	try {
+		host = window.parent && window.parent.ChatCardHost ? window.parent.ChatCardHost.connect(window) : null;
+	} catch (e) {
+		host = null;
+	}
+	if (!host) {
+		document.body.textContent = 'This page is shown as a card of a conversation.';
+		return;
+	}
+
+	const LEVELS = {
+		info: { label: 'Information', icon: 'i' },
+		success: { label: 'Success', icon: '✓' },
+		warning: { label: 'Warning', icon: '!' },
+		danger: { label: 'Danger', icon: '✕' },
+	};
+	const byId = (id) => document.getElementById(id);
+
+	function applyTheme(theme) {
+		document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+	}
+
+	function render(fields) {
+		const f = fields || {};
+		const level = LEVELS[f.level] ? f.level : 'info';
+		document.documentElement.dataset.level = level;
+		byId('icon').textContent = LEVELS[level].icon;
+		byId('level').textContent = LEVELS[level].label;
+		const title = byId('title');
+		title.textContent = f.title || '';
+		title.classList.toggle('empty', !f.title);
+		if (!f.title && host.preview) title.textContent = 'Title';
+		byId('message').textContent = f.message || '';
+	}
+
+	applyTheme(host.theme);
+	render(host.card.fields);
+	host.subscribe((type, payload) => {
+		if (type === 'theme') applyTheme(payload);
+		else if (type === 'card') render(payload && payload.fields);
+	});
+})();
+</script>
+</body>
+</html>

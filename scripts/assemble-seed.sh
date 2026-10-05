@@ -83,6 +83,7 @@ copy_tree "${SEED_ASSETS}/system/provisioning/chat.yml" "${SEED_ASSETS}/workspac
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/processes/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/bpm/processes/webtop/chat"
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/scripts/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/bpm/scripts/webtop/chat"
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/forms/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/bpm/forms/webtop/chat"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/chat/cards" "${SEED_ASSETS}/workspace/deploy/etc/chat/cards"
 
 echo "OK: seed assets laid down from ${WEBTOP_DIST}"
 echo "  system:    $(find "${SEED_ASSETS}/system" -type f | wc -l) files"

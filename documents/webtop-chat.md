@@ -151,6 +151,133 @@ message, takes the attachment off and attaches the new file.
 The author must be able to read whatever is attached or linked: the copy is
 read in the author's own session and written by the service user.
 
+## Cards
+
+A message can carry a **card**: a designed piece — an invitation, a notice, a
+thank-you — shown under the message's text in place of plain Markdown. A card
+is a **design** and the **values** of its fields. The design is a folder under
+`/etc/chat/cards` holding two files:
+
+| File | What |
+|---|---|
+| `card.yml` | What the card is (`label`, `description`), the text that stands in for a message without one (`summary`), and the `fields` it takes. |
+| `card.html` | The page that shows the card, in the reader's browser. |
+
+The fields are declared **the way the columns of a dataset are**
+(`properties` of `.dataset.yml`, see `datasets.md`): `key`, `label`,
+`description`, `type` (`STRING`, `LONG`, `DOUBLE`, `DECIMAL`, `BOOLEAN`,
+`DATE`), `multiple`, `required` and `choices`, each choice a `value` with a
+`label` and a `color` of the shared palette, or a bare value.
+
+```yaml
+label: Meeting
+description: Invites to a meeting, with the date, the place and the agenda.
+summary: "{{title}} — {{date}} {{place}}"
+fields:
+  - key: title
+    label: Title
+    required: true
+  - key: date
+    label: Starts
+    type: DATE
+    required: true
+  - key: kind
+    label: Where
+    choices:
+      - { value: onsite, label: On site, color: blueberry }
+      - { value: online, label: Online, color: peacock }
+  - key: agenda
+    label: Agenda
+    multiple: true
+```
+
+**The message stores the design's path and the values, never the page.** The
+page is loaded, as it is now, by whoever reads the message, so a design that
+is improved improves every card already posted, and a date is shown in each
+reader's own time zone. The values are kept in the fields' types: numbers as
+numbers, `DECIMAL` as the digits typed, `BOOLEAN` as true or false, `DATE` as
+an ISO 8601 instant, a multiple field as a list. A value that does not fit its
+field, a required field left empty or a choice that is not offered is refused.
+
+People, files and addresses are not field types: a message names a person as
+`@user` and a file as a link, in its text, as everywhere else in the chat.
+
+**The text of a message with a card** is still its Markdown, and still what
+the search finds, what a mention is found in, what a client that cannot show
+the card shows, and what prints when the card cannot. When the author writes
+none, the design's `summary` — its `{{key}}` placeholders replaced by the
+values — stands in for it, and the card is then shown without the text.
+
+### Writing a card
+
+The card button of the message box offers the designs the writer can read.
+Choosing one shows its fields — a select for a field with choices, checkboxes
+for a multiple one, a checkbox for a `BOOLEAN`, a date and time for a `DATE`,
+a number for a number — beside a **preview**, which is the very frame the
+conversation will show, fed the values as they are typed. The message is
+posted with the card, with or without a text; a required field left empty
+holds it back.
+
+A card is not edited after it is posted: the author edits the text, or deletes
+the message and posts again.
+
+### How a card is shown
+
+The conversation shows `card.html` in a **same-origin frame** under the
+message, as tall as the page, up to a limit. The page reaches the conversation
+through `window.parent.ChatCardHost.connect(window)`, which gives it:
+
+| | |
+|---|---|
+| `card` | `{ path, fields }`: the design's path and the values. |
+| `message` | The message the card is on, as plain data; `null` in the preview. |
+| `conversation` | `{ channelId, fileId }`. |
+| `currentUser`, `workspace`, `webtopBaseUrl` | Who reads, where, and where the Webtop's stylesheets are. |
+| `theme`, `localization` | `light` or `dark`; the reader's locale and time zone. |
+| `graphql` | A client for the workspace, with the reader's credentials. |
+| `translate(id, params, fallback)` | The host's message bundles. |
+| `subscribe(listener)` | Told of `theme`, `localization` and, in the preview, `card` (`{ fields }`) as they change. |
+| `resize()` | Fits the frame to the page again, for a page that changes height without growing. |
+| `openFile(path)`, `openConversation(ref)` | Opens a file in its editor, or a conversation in the Chat app. |
+| `preview` | True in the message box. |
+
+A page sets no height of its own: the frame takes the height of the document.
+A page that does not `subscribe` is loaded again when the preview's values
+change. The frame is **not sandboxed**: the page runs in the reader's session,
+with the reader's rights, as the forms of the Tasks app do. **Who may place a
+design is therefore the trust boundary**: `/etc/chat/cards` is written by
+administrators, and a design placed there is trusted by every reader.
+
+A reader who cannot read the design sees the message's text and a card saying
+so: a card, like a link, gives nobody access to anything.
+
+The designs shipped are *Notice*, *Meeting* and *Thank you*
+(`docker/seed/assets/system/deploy/etc/chat/cards`); an organization adds its
+own next to them, one folder each, in its own language.
+
+### Posting from a script
+
+A card is also how a process or a route tells a conversation something: a
+service task that posts a notice when a refund went through, instead of a user
+task that waits for somebody to press a button. `webtop.chat.ChatSystem.post`
+writes the message as the chat service user, marked `system`:
+
+```groovy
+webtop.chat.ChatSystem.post(ScriptAPI, [channelId: channelId], null, [
+	card: [path: '/etc/chat/cards/notice',
+	       fields: [title: 'Refund completed', level: 'success',
+	                message: "Order ${orderNo} was refunded in full."]],
+])
+```
+
+`ScriptAPI` is the binding every script has (a route's Groovy script, the
+script a `CmsDelegate` service task runs). The conversation is named by
+`channelId` or `fileId`; the text may be empty when a card is given. Options:
+`card`, `links` (identifiers to link), `author` (the user shown; the service
+user when absent) and `kind`. Whoever the text names as `@user` is told, as
+for any message, when they take part in the channel. Nothing is posted to an
+archived channel.
+
 ## Who can do what
 
 Nobody but the chat service user can write under `/var/lib/chat`. Posting,
@@ -182,7 +309,8 @@ Everything is in the workspace the Webtop runs in.
 | `/var/lib/chat` | Closed to everyone (`jcr:read` denied); owned by `chat-service-group`. |
 | `/var/lib/chat/channels/<channel>/` | One folder per channel. Its access control entries are the participants: the invited users and groups, or `everyone` for a public channel. |
 | `/var/lib/chat/channels/<channel>/.channel` | The settings, as `chat:*` properties: `chat:title`, `chat:description`, `chat:channelKind` (`public` / `private`), `chat:admins`, `chat:archived`. Written when the channel is managed, never when a message is posted. |
-| `/var/lib/chat/channels/<channel>/messages/<yyyy>/<MM>/<dd>/<id>.md` | One file per message (`text/markdown`), in the folder of the day (UTC) it was posted. `chat:author` is the user who posted it — `jcr:createdBy` is always the service user — with `chat:postedAt`, `chat:editedAt`, `chat:deleted` and `chat:kind`. `chat:links` holds the identifiers of what the message links, `chat:mentions` the users it names. |
+| `/var/lib/chat/channels/<channel>/messages/<yyyy>/<MM>/<dd>/<id>.md` | One file per message (`text/markdown`), in the folder of the day (UTC) it was posted. `chat:author` is the user who posted it — `jcr:createdBy` is always the service user — with `chat:postedAt`, `chat:editedAt`, `chat:deleted` and `chat:kind` (`user`, or `system` for a script's). `chat:links` holds the identifiers of what the message links, `chat:mentions` the users it names. `chat:card` holds the card, as JSON (`path`, `fields`); `chat:cardBody` marks a text that is the card's summary. |
+| `/etc/chat/cards/<design>/` | A card design: `card.yml` and `card.html`. Written by administrators, read by whoever may post the card and whoever reads a message carrying it. |
 | `/var/lib/chat/channels/<channel>/messages/<yyyy>/<MM>/<dd>/<id>.files/` | The attachments of the message `<id>`, in the same day folder as the message. |
 | `/var/lib/chat/files/<identifier>/messages/…` | The conversation of the file with that identifier, laid out like a channel's. Nobody is granted anything on it. |
 | `/var/lib/chat/channels/dm-<hash>/` | The direct messages of two users; the hash is of the two user ids, so the pair has one channel. |
@@ -191,8 +319,8 @@ Everything is in the workspace the Webtop runs in.
 | `/home/users/<user>/chat/read/<key>` | How far the user has read a conversation (`chat:readAt`). |
 | `/home/users/<user>/chat/following/<key>` | The conversations in the user's sidebar: the public channels the user added (`channel-<id>`) and the conversations of files the user follows (`file-<identifier>`). |
 | `/home/users/<user>/chat/uploads/<draft>/` | Files uploaded for a message not yet posted. Posting copies them next to the message and removes the folder. |
-| `/usr/local/classes/webtop/chat/` | The logic (`ChatApi`, `ChatChannels`, `ChatMessages`, `ChatHome`, `ChatStore`). |
-| `/etc/graphql/webtop/chat/` | The GraphQL schema (`chatChannels`, `chatMessages`, `chatPostMessage` …) and its resolvers. |
+| `/usr/local/classes/webtop/chat/` | The logic (`ChatApi`, `ChatChannels`, `ChatMessages`, `ChatHome`, `ChatStore`, `ChatCards`, `ChatSystem`). |
+| `/etc/graphql/webtop/chat/` | The GraphQL schema (`chatChannels`, `chatMessages`, `chatPostMessage`, `chatCards` …) and its resolvers. |
 | `/usr/share/webtop/apps/chat/` | The app. The conversation itself is the shared element `components/wt-chat-thread`. `attachment.groovy` there serves the attachments of the conversations of files. |
 | `/etc/eip/routes/webtop/chat.xml` | Removes the conversation of a file that is deleted. |
 | `/etc/bpm/{processes,scripts,forms}/webtop/chat/` | The maintenance process, its script (`maintain.groovy`) and forms; messages under `/etc/i18n/chat-forms.*.json`. |
@@ -330,8 +458,8 @@ Uploads for messages that were never posted stay in the users' homes
 ## Deployment notes
 
 - `scripts/assemble-seed` lays the server side (the schema, the classes, the
-  route, the maintenance process with its script and forms, and
-  `provisioning/chat.yml`) into every workspace, next to the app.
+  route, the maintenance process with its script and forms, the card designs
+  and `provisioning/chat.yml`) into every workspace, next to the app.
 - The Webtop build copies `attachment.groovy` next to the app
   (`webtop/rollup.config.js`).
 - A file is uploaded in the user's own session into the user's home, because an

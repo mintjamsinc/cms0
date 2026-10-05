@@ -1,0 +1,26 @@
+# A notice: something to know, told once, at a glance.
+#
+# A card design is a folder under /etc/chat/cards with this descriptor and
+# card.html, the page that shows the card. The fields are declared the way the
+# columns of a dataset are (see documents/webtop-chat.md, "Cards").
+label: Notice
+description: A short notice with a level - information, success, warning or danger.
+# The message's text when none is written: the fields by {{key}}.
+summary: "{{title}} — {{message}}"
+fields:
+  - key: title
+    label: Title
+    type: STRING
+    required: true
+  - key: message
+    label: Message
+    type: STRING
+    description: What there is to know. A few lines at most.
+  - key: level
+    label: Level
+    type: STRING
+    choices:
+      - { value: info, label: Information, color: peacock }
+      - { value: success, label: Success, color: basil }
+      - { value: warning, label: Warning, color: banana }
+      - { value: danger, label: Danger, color: tomato }

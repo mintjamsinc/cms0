@@ -1,0 +1,36 @@
+# An invitation to a meeting: when, where, what for.
+label: Meeting
+description: Invites to a meeting, with the date, the place and the agenda.
+summary: "{{title}} — {{date}} {{place}}"
+fields:
+  - key: title
+    label: Title
+    type: STRING
+    required: true
+  - key: date
+    label: Starts
+    type: DATE
+    required: true
+  - key: end
+    label: Ends
+    type: DATE
+  - key: kind
+    label: Where
+    type: STRING
+    choices:
+      - { value: onsite, label: On site, color: blueberry }
+      - { value: online, label: Online, color: peacock }
+      - { value: hybrid, label: Hybrid, color: grape }
+  - key: place
+    label: Place
+    type: STRING
+    description: The room, or where to meet.
+  - key: url
+    label: Meeting link
+    type: STRING
+    description: The address of the web meeting, if any.
+  - key: agenda
+    label: Agenda
+    type: STRING
+    multiple: true
+    description: One item per line, or separated by commas.
