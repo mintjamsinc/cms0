@@ -132,11 +132,10 @@
 }
 
 /* ----------------------------------------------------------------------------
- * Result card, lobby card and pass notice
+ * Result card and pass notice
  * -------------------------------------------------------------------------- */
 
-.rv-result,
-.rv-lobby {
+.rv-result {
 	position: absolute;
 	display: flex;
 	flex-direction: column;
@@ -431,7 +430,6 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.rv-result,
-	.rv-lobby,
 	.rv-notice,
 	.rv-dots i {
 		animation: none;
@@ -556,27 +554,7 @@
 }
 
 /* Getting ready: each player picks a disc, the host the board. */
-.rv-lobby {
-	gap: 0.9rem;
-	min-width: 18rem;
-	max-width: 24rem;
-}
-
-.rv-lobby-section {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 0.45rem;
-	align-self: stretch;
-}
-
-.rv-lobby-label {
-	font-size: 0.8rem;
-	font-weight: 700;
+.rv-lobby-note {
 	color: var(--text-muted-color);
-}
-
-.rv-lobby .rv-faces,
-.rv-lobby .rv-swatches {
-	justify-content: center;
+	font-size: 0.9rem;
 }

@@ -60,6 +60,7 @@
 	"app.reversi.online.leftYou": "{name} left",
 	"app.reversi.online.lobby": "Getting ready",
 	"app.reversi.online.yourDisc": "Your disc",
+	"app.reversi.online.theirDisc": "{name}'s disc",
 	"app.reversi.online.chooseDisc": "Choose your disc and press Ready!",
 	"app.reversi.online.ready": "Ready!",
 	"app.reversi.online.notReady": "Choose again",

@@ -60,6 +60,7 @@
 	"app.reversi.online.leftYou": "{name}が退出しました",
 	"app.reversi.online.lobby": "準備中",
 	"app.reversi.online.yourDisc": "あなたのディスク",
+	"app.reversi.online.theirDisc": "{name}のディスク",
 	"app.reversi.online.chooseDisc": "ディスクを選んで「準備完了！」を押してください",
 	"app.reversi.online.ready": "準備完了！",
 	"app.reversi.online.notReady": "選びなおす",
