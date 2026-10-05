@@ -1,0 +1,70 @@
+# Webtop Reversi app (webtop/src/webtop/apps/reversi): games between two users.
+#
+# A game is a room of two users. The host invites the other user; the room
+# waits until the other accepts or declines, is played until the game is over
+# or one player resigns, and is then kept for a while. The rules are applied
+# here, on the server (webtop.reversi.ReversiApi, /usr/local/classes/webtop/reversi).
+#
+# These mutations are the only way to write a room: each one checks who the
+# caller is and then writes as the games service user. The caller holds no
+# write access to /var/lib/games (provisioning/reversi.yml).
+#
+# Every change to a room is announced to its two players as a topic message
+# on the room's `topic` (Subscription.topicMessage). A client subscribes to
+# game/reversi/rooms/* once and receives the messages of all its rooms:
+#
+#   { roomId, type: invited | started | declined | cancelled | move | resigned,
+#     by: <user>, ply, move, over, winner }
+#
+# The payload tells what happened; the room is the record, and a client that
+# cannot follow a message reads the room again.
+
+type ReversiPlayer {
+  id: ID!
+  displayName: String
+}
+
+type ReversiRoom {
+  id: ID!
+  """The board size (6, 8 or 10)."""
+  size: Int!
+  """waiting (invitation sent), playing, finished, declined (by the invited user), cancelled (by the host)."""
+  status: String!
+  """The player who moves first."""
+  black: ReversiPlayer!
+  white: ReversiPlayer!
+  """Who sent the invitation."""
+  host: ID!
+  """black or white: the caller's side."""
+  yourSide: String!
+  """The moves so far in coordinate notation (d3). Passes are not recorded."""
+  moves: [String!]!
+  """black, white or draw, once finished."""
+  winner: ID
+  """Who resigned, when the game ended that way."""
+  resignedBy: ID
+  createdAt: DateTime!
+  startedAt: DateTime
+  finishedAt: DateTime
+  """The topic the room's messages are published on."""
+  topic: String!
+}
+
+extend type Query {
+  """The caller's rooms: those waiting or playing, then the ended ones, the newest first."""
+  reversiRooms: [ReversiRoom!]!
+  reversiRoom(id: ID!): ReversiRoom!
+}
+
+extend type Mutation {
+  """Invites a user to a game. `side` is the caller's: black, white or random (the default). `size` is 8 unless given."""
+  reversiInvite(opponentId: ID!, side: String, size: Int): ReversiRoom!
+  """The invited user accepts: the game begins."""
+  reversiAccept(id: ID!): ReversiRoom!
+  """The invited user declines, or the host takes the invitation back."""
+  reversiDecline(id: ID!): ReversiRoom!
+  """Plays a move for the caller. `ply` is the number of moves the caller has seen; a stale value is refused."""
+  reversiPlay(id: ID!, ply: Int!, move: String!): ReversiRoom!
+  """The caller gives up: the other player wins."""
+  reversiResign(id: ID!): ReversiRoom!
+}

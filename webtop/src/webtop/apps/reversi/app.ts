@@ -1,15 +1,22 @@
 /**
  * Reversi Application
  *
- * Reversi against the computer (four levels) or between two people at the
- * same desktop. The rules live in core.ts, the computer player in ai.ts
- * (run in ai-worker.js), the board themes and disc faces in looks.ts and the
- * effects in lib/effects.ts. Each seat is either a person or the computer,
- * so another kind of seat (a player on another desktop) can be added without
- * touching the rules or the board.
+ * Reversi against the computer (four levels), between two people at the
+ * same desktop, or against another user of the Webtop. The rules live in
+ * core.ts, the computer player in ai.ts (run in ai-worker.js), the board
+ * themes and disc faces in looks.ts and the effects in lib/effects.ts. Each
+ * seat is a person at this desktop, the computer, or a player elsewhere.
+ *
+ * A game against another user is a room of the Reversi GraphQL schema
+ * (services/reversi-service-graphql.ts): the server applies the rules and
+ * keeps the moves, this app sends a move and shows what happened. What the
+ * other player does arrives as topic messages on the room's topic; the app
+ * watches game/reversi/rooms/* once and reads the room again whenever a
+ * message cannot be followed.
  *
  * The game in progress and the settings are kept per user in the local
- * webtop database; a game is saved as its move list and replayed on launch.
+ * webtop database; a local game is saved as its move list and replayed on
+ * launch, a game against another user as its room id.
  */
 
 import { VDOM } from '@mintjamsinc/ichigojs';
@@ -22,6 +29,15 @@ import {
 	handleLocalizationMessage,
 	translate,
 } from "../../composables/use-localization.js";
+import type { PrincipalInfo, TopicMessageEvent } from "../../graphql/types.js";
+import {
+	ReversiServiceGraphQL,
+	REVERSI_TOPICS,
+	isReversiMessage,
+	type ReversiMessage,
+	type ReversiRoom,
+	type ReversiSide,
+} from "../../services/reversi-service-graphql.js";
 import { Effects } from '../../lib/effects.js';
 import {
 	ReversiGame,
@@ -42,14 +58,18 @@ import { AiClient } from './ai-client.js';
 import { type AiLevel } from './ai.js';
 import { BOARD_THEMES, DISC_FACES, DEFAULT_THEME, DEFAULT_FACES, findTheme, findFace } from './looks.js';
 
-type Mode = 'ai' | 'local';
+type Mode = 'ai' | 'local' | 'online';
 type Side = 'black' | 'white' | 'random';
 
 interface Seat {
-	kind: 'human' | 'ai';
+	/** A person at this desktop, the computer, or a player elsewhere. */
+	kind: 'human' | 'ai' | 'remote';
 	level: AiLevel;
 	/** Disc face id (looks.ts). */
 	face: string;
+	/** For a game against another user: who sits here. */
+	userId?: string;
+	name?: string;
 }
 
 interface Settings {
@@ -72,6 +92,8 @@ interface SavedState {
 	version: 1;
 	settings: Settings;
 	game: SavedGame | null;
+	/** The room of the game against another user that was open, if any. */
+	roomId?: string | null;
 }
 
 interface GameResult {
@@ -87,18 +109,30 @@ const LEVELS: AiLevel[] = [1, 2, 3, 4];
 /** The computer never answers faster than this, so its move can be followed. */
 const MIN_THINK_MS = 450;
 const NOTICE_MS = 1800;
+const LONG_NOTICE_MS = 4500;
 const FLIP_STAGGER_MS = 70;
+const OPPONENT_SUGGESTIONS = 8;
 
 // Kept outside reactive data: ichigo.js wraps stored objects in deep
-// Proxies, which the game history, the worker and the canvas do not need.
+// Proxies, which the game history, the worker, the canvas and the services
+// (private fields) do not need.
 let game: ReversiGame | null = null;
 let fx: Effects | null = null;
 let ai: AiClient | null = null;
+let reversi: ReversiServiceGraphQL | null = null;
+/** The room of the game against another user shown on the board. */
+let room: ReversiRoom | null = null;
+let unwatchTopics: (() => void) | null = null;
 // Bumped by a new game or an undo; a running animation or an AI answer
 // from an older generation is dropped.
 let generation = 0;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+let searchSeq = 0;
+// Set when a message for the room arrives while a move is being shown or
+// sent; the room is read again once the move is done.
+let pendingSync = false;
 
 function defaultSettings(): Settings {
 	return { mode: 'ai', level: 2, side: 'black', faces: [...DEFAULT_FACES], theme: DEFAULT_THEME, hints: true };
@@ -107,7 +141,7 @@ function defaultSettings(): Settings {
 function normalizeSettings(value: any): Settings {
 	const s = defaultSettings();
 	if (!value || typeof value !== 'object') return s;
-	if (value.mode === 'ai' || value.mode === 'local') s.mode = value.mode;
+	if (value.mode === 'ai' || value.mode === 'local' || value.mode === 'online') s.mode = value.mode;
 	if (LEVELS.includes(value.level)) s.level = value.level;
 	if (['black', 'white', 'random'].includes(value.side)) s.side = value.side;
 	if (Array.isArray(value.faces) && value.faces.length === 2 && value.faces[0] !== value.faces[1] &&
@@ -137,10 +171,24 @@ function discElement(index: number): HTMLElement | null {
 }
 
 /** Squares between two indexes, counted the way a king moves. */
-function distance(a: number, b: number): number {
-	const ar = Math.floor(a / BOARD_SIZE);
-	const br = Math.floor(b / BOARD_SIZE);
-	return Math.max(Math.abs(ar - br), Math.abs((a % BOARD_SIZE) - (b % BOARD_SIZE)));
+function distance(a: number, b: number, size: number): number {
+	const ar = Math.floor(a / size);
+	const br = Math.floor(b / size);
+	return Math.max(Math.abs(ar - br), Math.abs((a % size) - (b % size)));
+}
+
+function errorText(e: unknown): string {
+	return (e instanceof Error) ? e.message : String(e);
+}
+
+function playerOf(side: ReversiSide): Player {
+	return side === 'black' ? BLACK : WHITE;
+}
+
+/** The other player of a room, seen from the user. */
+function opponentOf(r: ReversiRoom, userId: string): { id: string; name: string } {
+	const p = r.black.id === userId ? r.white : r.black;
+	return { id: p.id, name: p.displayName || p.id };
 }
 
 const App = {
@@ -148,9 +196,11 @@ const App = {
 		return {
 			instance: null as ApplicationInstance | null,
 			messageListener: null as ((event: MessageEvent) => void) | null,
+			visibilityListener: null as (() => void) | null,
 			// Reactive Localization snapshot — see composables/use-localization.ts.
 			localization: createLocalizationSnapshot(),
 			isReady: false,
+			userId: '',
 
 			settings: defaultSettings(),
 
@@ -177,6 +227,21 @@ const App = {
 			notice: '',
 			result: null as GameResult | null,
 
+			// The game against another user on the board, and the user's rooms.
+			online: {
+				roomId: null as string | null,
+				status: '' as ReversiRoom['status'] | '',
+				opponentId: '',
+				opponentName: '',
+				// Whether the game ended by resignation, and whose.
+				resignedBy: '' as string,
+				invitations: [] as ReversiRoom[],
+				sent: [] as ReversiRoom[],
+				games: [] as ReversiRoom[],
+				loading: false,
+				error: '',
+			},
+
 			dialog: {
 				visible: false,
 				mode: 'ai' as Mode,
@@ -184,7 +249,16 @@ const App = {
 				side: 'black' as Side,
 				faces: [...DEFAULT_FACES] as [string, string],
 				theme: DEFAULT_THEME,
+				// Choosing an opponent.
+				keyword: '',
+				results: [] as PrincipalInfo[],
+				searching: false,
+				opponent: null as PrincipalInfo | null,
+				busy: false,
+				error: '',
 			},
+
+			resignDialog: { visible: false, busy: false },
 		};
 	},
 	computed: {
@@ -195,16 +269,28 @@ const App = {
 			return { '--rv-size': String(this.size) };
 		},
 		mode(): Mode {
+			if (this.online.roomId) return 'online';
 			return this.seats[0].kind === 'human' && this.seats[1].kind === 'human' ? 'local' : 'ai';
 		},
+		isOnline(): boolean {
+			return !!this.online.roomId;
+		},
 		isHumanTurn(): boolean {
-			return this.hasGame && !this.over && this.seats[this.turn - 1].kind === 'human';
+			if (!this.hasGame || this.over || this.seats[this.turn - 1].kind !== 'human') return false;
+			return !this.isOnline || this.online.status === 'playing';
 		},
 		canUndo(): boolean {
-			if (!this.hasGame || (this.busy && !this.thinking)) return false;
+			if (!this.hasGame || this.isOnline || (this.busy && !this.thinking)) return false;
 			// Against the computer an undo goes back to your own last move.
 			const computerOpened = this.seats[0].kind === 'ai';
 			return this.ply > (computerOpened ? 1 : 0);
+		},
+		canResign(): boolean {
+			return this.isOnline && this.online.status === 'playing' && !this.over;
+		},
+		/** Invitations waiting for the user's answer. */
+		pendingCount(): number {
+			return this.online.invitations.length;
 		},
 		seatCards(): { player: Player; name: string; role: string; count: number; active: boolean; thinking: boolean; style: Record<string, string> }[] {
 			return ([BLACK, WHITE] as Player[]).map((player) => {
@@ -214,21 +300,26 @@ const App = {
 					this.t('app.reversi.seat.second', undefined, 'Moves second');
 				// The panel is narrow: the computer's level goes on the second line.
 				if (seat.kind === 'ai') role += ` · ${this.levelLabel(seat.level)}`;
+				const theirMove = this.isOnline && this.online.status === 'playing' && !this.over && this.turn === player && seat.kind === 'remote';
 				return {
 					player,
 					name: seat.kind === 'ai' ? this.t('app.reversi.seat.computerShort', undefined, 'Computer') : this.seatName(player),
 					role,
 					count: player === BLACK ? this.counts.black : this.counts.white,
 					active: this.hasGame && !this.over && this.turn === player,
-					thinking: this.thinking && this.turn === player && seat.kind === 'ai',
+					thinking: (this.thinking && this.turn === player && seat.kind === 'ai') || theirMove,
 					style: this.faceStyle(seat.face),
 				};
 			});
 		},
 		statusText(): string {
 			if (!this.hasGame) return '';
+			if (this.isOnline && this.online.status === 'waiting') {
+				return this.t('app.reversi.online.waiting', { name: this.online.opponentName }, 'Waiting for {name} to accept…');
+			}
 			if (this.over) return this.resultTitle;
 			if (this.thinking) return this.t('app.reversi.status.thinking', undefined, 'Thinking…');
+			if (this.isHumanTurn && this.isOnline) return this.t('app.reversi.status.yourTurn', undefined, 'Your turn');
 			return this.t('app.reversi.status.turn', { name: this.seatName(this.turn) }, "{name}'s turn");
 		},
 		resultTitle(): string {
@@ -241,7 +332,18 @@ const App = {
 					this.t('app.reversi.result.youWin', undefined, 'You win!') :
 					this.t('app.reversi.result.youLose', undefined, 'The computer wins');
 			}
+			if (this.mode === 'online' && seat.kind === 'human') {
+				return this.t('app.reversi.result.youWin', undefined, 'You win!');
+			}
 			return this.t('app.reversi.result.wins', { name: this.seatName(r.winner) }, '{name} wins!');
+		},
+		/** Why the game ended, when it did not end on the board. */
+		resultNote(): string {
+			if (!this.result || !this.isOnline || !this.online.resignedBy) return '';
+			if (this.online.resignedBy === this.userId) {
+				return this.t('app.reversi.online.youResigned', undefined, 'You resigned');
+			}
+			return this.t('app.reversi.online.resigned', { name: this.online.opponentName }, '{name} resigned');
 		},
 		levelOptions(): { level: AiLevel; label: string; pips: number[] }[] {
 			const names: Record<AiLevel, string> = { 1: 'Chick', 2: 'Songbird', 3: 'Owl', 4: 'Hawk' };
@@ -268,6 +370,34 @@ const App = {
 				style: this.faceStyle(face.id),
 			}));
 		},
+		/** The rooms listed in the dialog, with what the user can do about each. */
+		roomCards(): { room: ReversiRoom; name: string; note: string; side: string; action: 'answer' | 'cancel' | 'resume'; current: boolean }[] {
+			const o = this.online;
+			const notes = {
+				answer: () => this.t('app.reversi.online.invitesYou', undefined, 'Invites you to a game'),
+				resume: (r: ReversiRoom) => this.t('app.reversi.status.moves', { n: r.moves.length }, 'Move {n}'),
+				cancel: () => this.t('app.reversi.online.awaiting', undefined, 'Waiting for an answer'),
+			};
+			const card = (r: ReversiRoom, action: 'answer' | 'cancel' | 'resume') => ({
+				room: r,
+				name: opponentOf(r, this.userId).name,
+				note: notes[action](r),
+				side: r.yourSide === 'black' ?
+					this.t('app.reversi.dialog.sideFirst', undefined, 'First (black)') :
+					this.t('app.reversi.dialog.sideSecond', undefined, 'Second (white)'),
+				action,
+				current: r.id === o.roomId,
+			});
+			return [
+				...o.invitations.map(r => card(r, 'answer')),
+				...o.games.map(r => card(r, 'resume')),
+				...o.sent.map(r => card(r, 'cancel')),
+			];
+		},
+		canStart(): boolean {
+			if (this.dialog.mode !== 'online') return true;
+			return !!this.dialog.opponent && !this.dialog.busy;
+		},
 	},
 	methods: {
 		/** Reactive i18n lookup; repaints on language change. */
@@ -290,9 +420,17 @@ const App = {
 			};
 			window.addEventListener('message', vm.messageListener);
 
+			// A message may have been missed while the desktop was asleep: the
+			// room is read again when the app is looked at.
+			vm.visibilityListener = () => {
+				if (document.visibilityState === 'visible' && vm.online.roomId) vm.reloadRoom();
+			};
+			document.addEventListener('visibilitychange', vm.visibilityListener);
+
 			window.appLaunch = async (instance: ApplicationInstance) => {
 				vm.instance = this.$markRaw(instance);
 				refreshLocalization(vm.localization, vm.instance);
+				vm.userId = instance.currentUser?.id || '';
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;
@@ -306,6 +444,7 @@ const App = {
 
 				fx = new Effects();
 				ai = new AiClient(new URL('./ai-worker.js?v=__BUILD_VERSION__', import.meta.url));
+				reversi = new ReversiServiceGraphQL(instance.api.graphql);
 
 				instance.setBeforeCloseCallback(async () => {
 					await vm.flushSave();
@@ -323,6 +462,9 @@ const App = {
 					instance.notifyLaunched();
 				});
 
+				vm.watchRooms();
+				vm.loadRooms();
+				if (await vm.resumeRoom(saved?.roomId)) return;
 				if (!vm.resumeGame(saved?.game)) {
 					vm.openNewGame();
 				}
@@ -332,15 +474,25 @@ const App = {
 			if (this.messageListener) {
 				window.removeEventListener('message', this.messageListener);
 			}
+			if (this.visibilityListener) {
+				document.removeEventListener('visibilitychange', this.visibilityListener);
+			}
 			this.dispose();
 		},
 		dispose() {
 			generation++;
 			if (noticeTimer) clearTimeout(noticeTimer);
+			if (searchTimer) clearTimeout(searchTimer);
+			if (unwatchTopics) {
+				try { unwatchTopics(); } catch { /* ignore */ }
+				unwatchTopics = null;
+			}
 			ai?.destroy();
 			ai = null;
 			fx?.destroy();
 			fx = null;
+			reversi = null;
+			room = null;
 		},
 
 		// =====================================================================
@@ -364,13 +516,23 @@ const App = {
 		openNewGame() {
 			const s = this.settings;
 			this.dialog = {
+				...this.dialog,
 				visible: true,
 				mode: s.mode,
 				level: s.level,
 				side: s.side,
 				faces: [s.faces[0], s.faces[1]],
 				theme: s.theme,
+				keyword: '',
+				results: [],
+				searching: false,
+				opponent: null,
+				busy: false,
+				error: '',
 			};
+			// An invitation is answered here, so the list is fresh when it opens.
+			if (this.pendingCount) this.dialog.mode = 'online';
+			this.loadRooms();
 		},
 		closeNewGame() {
 			if (this.hasGame) this.dialog.visible = false;
@@ -386,10 +548,14 @@ const App = {
 		confirmNewGame() {
 			const d = this.dialog;
 			this.settings = { ...this.settings, mode: d.mode, level: d.level, side: d.side, faces: [d.faces[0], d.faces[1]], theme: d.theme };
+			if (d.mode === 'online') {
+				this.sendInvitation();
+				return;
+			}
 			this.dialog.visible = false;
 			this.startGame();
 		},
-		/** A new game with the current settings. */
+		/** A new game with the current settings (not against another user). */
 		startGame() {
 			const s = this.settings;
 			let seats: [Seat, Seat];
@@ -406,6 +572,7 @@ const App = {
 				seats[0].face = DEFAULT_FACES[0];
 				seats[1].face = DEFAULT_FACES[1];
 			}
+			this.leaveRoom();
 			this.beginGame(new ReversiGame(BOARD_SIZE), seats);
 		},
 		/** Replays a saved game; false when there is none worth resuming. */
@@ -430,6 +597,8 @@ const App = {
 			ai?.cancel();
 			fx?.clear();
 			game = next;
+			this.size = next.size;
+			pendingSync = false;
 			this.seats = seats;
 			this.hasGame = true;
 			this.busy = false;
@@ -472,6 +641,7 @@ const App = {
 		syncFromGame() {
 			if (!game) return;
 			const pos = game.position;
+			this.size = game.size;
 			this.cells = pos.cells.slice();
 			this.turn = pos.turn;
 			this.over = pos.over;
@@ -508,24 +678,41 @@ const App = {
 				}
 				return;
 			}
-			this.commitMove(index);
+			this.commitMove(index, true);
 		},
 
-		async commitMove(index: number) {
+		/**
+		 * Plays a move on the board. In a game against another user, a move of
+		 * the user's own is sent to the server once shown (`send`); one of the
+		 * other player's is only shown.
+		 */
+		async commitMove(index: number, send: boolean) {
 			if (!game) return;
 			const gen = generation;
+			const plyBefore = game.ply;
+			const roomId = this.online.roomId;
 			this.busy = true;
 			this.hintMap = {};
 			const result = game.play(index);
 			await this.animateMove(result, gen);
 			if (gen !== generation) return;
+			if (roomId && send) {
+				if (!await this.sendMove(roomId, plyBefore, toCoord(index, game.size))) return;
+				if (gen !== generation) return;
+			}
 			this.busy = false;
 			this.syncFromGame();
 			this.scheduleSave();
 			if (this.over) {
 				this.finish();
+			}
+			if (pendingSync && this.online.roomId) {
+				// Something arrived for the room while the move was shown.
+				pendingSync = false;
+				this.reloadRoom();
 				return;
 			}
+			if (this.over) return;
 			if (result.passed) {
 				this.setNotice(this.t('app.reversi.status.pass', { name: this.seatName(result.passed) }, '{name} has no move and passes'));
 				// Let a pass be read before the computer moves again.
@@ -554,7 +741,8 @@ const App = {
 				return;
 			}
 			await delay(120);
-			const order = result.flipped.slice().sort((a, b) => distance(result.index, a) - distance(result.index, b));
+			const size = result.position.size;
+			const order = result.flipped.slice().sort((a, b) => distance(result.index, a, size) - distance(result.index, b, size));
 			await Promise.all(order.map((i, k) => delay(k * FLIP_STAGGER_MS).then(() => {
 				if (gen !== generation || !fx) return;
 				const el = cellElement(i);
@@ -600,19 +788,23 @@ const App = {
 			if (gen !== generation) return;
 			this.thinking = false;
 			if (move < 0) return;
-			this.commitMove(move);
+			this.commitMove(move, false);
 		},
 
 		finish() {
 			if (!game) return;
 			const n = countDiscs(game.position.cells);
 			const result: GameResult = { winner: winner(game.position), black: n.black, white: n.white };
+			this.showResult(result);
+		},
+		showResult(result: GameResult) {
 			this.result = result;
 			this.hintMap = {};
 			this.thinking = false;
+			this.busy = false;
 			const board = document.querySelector('.rv-board');
 			if (!board || !fx) return;
-			const youLost = this.mode === 'ai' && result.winner !== EMPTY && this.seats[result.winner - 1].kind === 'ai';
+			const youLost = this.mode !== 'local' && result.winner !== EMPTY && this.seats[result.winner - 1].kind !== 'human';
 			if (result.winner === EMPTY) {
 				fx.playAt(board, 'hearts');
 			} else if (youLost) {
@@ -621,6 +813,367 @@ const App = {
 				const r = board.getBoundingClientRect();
 				const face = findFace(this.seats[result.winner - 1].face);
 				fx.play('win', r.left + r.width / 2, r.top + r.height / 2, { colors: face.sparks });
+			}
+		},
+		/** The result card's "Play again": a rematch against another user, or the same settings. */
+		playAgain() {
+			if (this.isOnline) {
+				this.rematch();
+				return;
+			}
+			this.startGame();
+		},
+
+		// =====================================================================
+		// Games against another user
+		// =====================================================================
+
+		/** Receives what happens in the user's rooms, for as long as the app runs. */
+		watchRooms() {
+			const hub = this.instance?.api.eventHub;
+			if (!hub || unwatchTopics) return;
+			try {
+				unwatchTopics = hub.watchTopic(REVERSI_TOPICS, (event: TopicMessageEvent) => {
+					if (isReversiMessage(event.payload)) this.onRoomMessage(event.payload);
+				});
+			} catch (e) {
+				console.warn('[Reversi] Rooms cannot be watched:', e);
+			}
+		},
+		async onRoomMessage(m: ReversiMessage) {
+			const mine = !!room && m.roomId === room.id;
+			const byMe = m.by === this.userId;
+			switch (m.type) {
+				case 'invited':
+					await this.loadRooms();
+					if (!byMe) {
+						const r = this.online.invitations.find(x => x.id === m.roomId);
+						if (r) {
+							this.setNotice(this.t('app.reversi.online.invitedYou', { name: opponentOf(r, this.userId).name },
+								'{name} invites you to a game'), LONG_NOTICE_MS);
+						}
+					}
+					return;
+				case 'started':
+					if (mine) await this.reloadRoom();
+					this.loadRooms();
+					return;
+				case 'declined':
+				case 'cancelled':
+					if (mine && !byMe) {
+						const name = this.online.opponentName;
+						this.leaveRoom();
+						this.hasGame = false;
+						this.openNewGame();
+						this.setNotice(m.type === 'declined' ?
+							this.t('app.reversi.online.declinedYou', { name }, '{name} declined') :
+							this.t('app.reversi.online.cancelledYou', { name }, '{name} took the invitation back'), LONG_NOTICE_MS);
+					}
+					this.loadRooms();
+					return;
+				case 'move':
+					if (!mine || !game) return;
+					// The echo of a move made here (or in another window of the
+					// same user) is nothing new once the board has it.
+					if (byMe && typeof m.ply === 'number' && m.ply < game.ply) return;
+					if (this.busy) {
+						pendingSync = true;
+						return;
+					}
+					if (typeof m.ply === 'number' && m.ply === game.ply && m.move) {
+						let index = -1;
+						try {
+							index = fromCoord(m.move, game.size);
+						} catch { /* read the room instead */ }
+						if (index >= 0 && legalMoves(game.position).includes(index)) {
+							this.commitMove(index, false);
+							return;
+						}
+					}
+					await this.reloadRoom();
+					return;
+				case 'resigned':
+					if (mine) await this.reloadRoom();
+					this.loadRooms();
+					return;
+			}
+		},
+
+		/** Reads the user's rooms for the dialog and the badge. */
+		async loadRooms() {
+			if (!reversi) return;
+			const o = this.online;
+			o.loading = true;
+			try {
+				const rooms = await reversi.listRooms();
+				const me = this.userId;
+				o.invitations = rooms.filter(r => r.status === 'waiting' && r.host !== me);
+				o.sent = rooms.filter(r => r.status === 'waiting' && r.host === me);
+				o.games = rooms.filter(r => r.status === 'playing');
+				o.error = '';
+			} catch (e) {
+				o.error = errorText(e);
+			} finally {
+				o.loading = false;
+			}
+		},
+		/** Opens the room that was on the board when the app was last closed. */
+		async resumeRoom(roomId: string | null | undefined): Promise<boolean> {
+			if (!roomId || !reversi) return false;
+			try {
+				const r = await reversi.getRoom(roomId);
+				if (r.status !== 'waiting' && r.status !== 'playing') return false;
+				this.enterRoom(r);
+				return true;
+			} catch (e) {
+				console.warn('[Reversi] The last game could not be reopened:', e);
+				return false;
+			}
+		},
+		/** Shows a room on the board. */
+		enterRoom(r: ReversiRoom) {
+			let restored: ReversiGame;
+			try {
+				restored = ReversiGame.replay(r.size, r.moves);
+			} catch (e) {
+				this.setNotice(this.t('app.reversi.online.error', { message: errorText(e) }, 'Something went wrong: {message}'), LONG_NOTICE_MS);
+				return;
+			}
+			const me = this.userId;
+			const opponent = opponentOf(r, me);
+			const seat = (p: { id: string; displayName: string | null }, face: string): Seat => p.id === me ?
+				{ kind: 'human', level: this.settings.level, face, userId: me } :
+				{ kind: 'remote', level: this.settings.level, face, userId: p.id, name: p.displayName || p.id };
+			room = r;
+			const o = this.online;
+			o.roomId = r.id;
+			o.status = r.status;
+			o.opponentId = opponent.id;
+			o.opponentName = opponent.name;
+			o.resignedBy = r.resignedBy || '';
+			this.dialog.visible = false;
+			this.beginGame(restored, [seat(r.black, this.settings.faces[0]), seat(r.white, this.settings.faces[1])]);
+			if (r.status === 'finished') this.finishRoom(r);
+		},
+		/** Brings the board up to date with a fresh reading of the room. */
+		syncRoom(r: ReversiRoom) {
+			if (!game || !room || r.id !== room.id) return;
+			room = r;
+			const o = this.online;
+			o.status = r.status;
+			o.resignedBy = r.resignedBy || '';
+			if (this.busy) {
+				// A move is still being shown or sent: the room is read again
+				// once it is done (commitMove).
+				pendingSync = true;
+				return;
+			}
+			const known = game.moves;
+			const same = r.moves.length >= known.length && known.every((m, i) => m === r.moves[i]);
+			if (!same) {
+				// The board and the room disagree: start over from the room.
+				this.enterRoom(r);
+				return;
+			}
+			for (let i = known.length; i < r.moves.length; i++) {
+				try {
+					game.play(fromCoord(r.moves[i], game.size));
+				} catch (e) {
+					this.enterRoom(r);
+					return;
+				}
+			}
+			this.syncFromGame();
+			this.scheduleSave();
+			if (r.status === 'finished') {
+				this.finishRoom(r);
+			} else if (r.status === 'playing' && !this.over) {
+				this.updateHints();
+			}
+		},
+		async reloadRoom() {
+			const id = this.online.roomId;
+			if (!id || !reversi) return;
+			try {
+				const r = await reversi.getRoom(id);
+				if (id !== this.online.roomId) return;
+				this.syncRoom(r);
+			} catch (e) {
+				this.setNotice(this.t('app.reversi.online.error', { message: errorText(e) }, 'Something went wrong: {message}'), LONG_NOTICE_MS);
+			}
+		},
+		/** The room is finished: shows the result the server recorded. */
+		finishRoom(r: ReversiRoom) {
+			if (!game) return;
+			const n = countDiscs(game.position.cells);
+			const w: Cell = r.winner === 'black' ? BLACK : r.winner === 'white' ? WHITE : EMPTY;
+			if (this.result && this.result.winner === w) return;
+			this.showResult({ winner: w, black: n.black, white: n.white });
+		},
+		/** Forgets the room on the board (the room itself goes on). */
+		leaveRoom() {
+			room = null;
+			const o = this.online;
+			o.roomId = null;
+			o.status = '';
+			o.opponentId = '';
+			o.opponentName = '';
+			o.resignedBy = '';
+		},
+
+		/** Sends the user's move; false when it was refused, in which case the room is read again. */
+		async sendMove(roomId: string, ply: number, move: string): Promise<boolean> {
+			if (!reversi) return false;
+			try {
+				const r = await reversi.play(roomId, ply, move);
+				if (room && r.id === room.id) {
+					room = r;
+					this.online.status = r.status;
+				}
+				return true;
+			} catch (e) {
+				this.setNotice(this.t('app.reversi.online.error', { message: errorText(e) }, 'Something went wrong: {message}'), LONG_NOTICE_MS);
+				generation++;
+				this.busy = false;
+				await this.reloadRoom();
+				return false;
+			}
+		},
+
+		// --- the dialog: inviting, answering, resuming ---
+
+		onOpponentInput() {
+			const d = this.dialog;
+			d.opponent = null;
+			if (searchTimer) clearTimeout(searchTimer);
+			searchTimer = setTimeout(() => {
+				searchTimer = null;
+				this.searchOpponents();
+			}, 250);
+		},
+		async searchOpponents() {
+			const d = this.dialog;
+			const keyword = d.keyword.trim();
+			const seq = ++searchSeq;
+			if (!keyword || !this.instance) {
+				d.results = [];
+				d.searching = false;
+				return;
+			}
+			d.searching = true;
+			try {
+				const found = await this.instance.api.content.searchPrincipals(keyword, 0, OPPONENT_SUGGESTIONS * 2);
+				if (seq !== searchSeq) return;
+				d.results = found.filter((p: PrincipalInfo) => !p.isGroup && !p.isService && p.identifier !== this.userId)
+					.slice(0, OPPONENT_SUGGESTIONS);
+			} catch (e) {
+				if (seq === searchSeq) {
+					d.results = [];
+					d.error = errorText(e);
+				}
+			} finally {
+				if (seq === searchSeq) d.searching = false;
+			}
+		},
+		chooseOpponent(p: PrincipalInfo) {
+			this.dialog.opponent = p;
+			this.dialog.keyword = p.displayName || p.identifier;
+			this.dialog.results = [];
+		},
+		async sendInvitation() {
+			const d = this.dialog;
+			if (!reversi || !d.opponent || d.busy) return;
+			d.busy = true;
+			d.error = '';
+			try {
+				const r = await reversi.invite(d.opponent.identifier, d.side, BOARD_SIZE);
+				this.enterRoom(r);
+				this.loadRooms();
+				this.setNotice(this.t('app.reversi.online.sent', { name: this.online.opponentName }, 'Invitation sent to {name}'), LONG_NOTICE_MS);
+			} catch (e) {
+				d.error = errorText(e);
+			} finally {
+				d.busy = false;
+			}
+		},
+		async acceptRoom(r: ReversiRoom) {
+			if (!reversi || this.dialog.busy) return;
+			this.dialog.busy = true;
+			this.dialog.error = '';
+			try {
+				this.enterRoom(await reversi.accept(r.id));
+				this.loadRooms();
+			} catch (e) {
+				this.dialog.error = errorText(e);
+				this.loadRooms();
+			} finally {
+				this.dialog.busy = false;
+			}
+		},
+		/** Declines an invitation, or takes back one the user sent. */
+		async declineRoom(r: ReversiRoom) {
+			if (!reversi || this.dialog.busy) return;
+			this.dialog.busy = true;
+			this.dialog.error = '';
+			try {
+				await reversi.decline(r.id);
+				if (r.id === this.online.roomId) {
+					this.leaveRoom();
+					this.hasGame = false;
+				}
+				await this.loadRooms();
+			} catch (e) {
+				this.dialog.error = errorText(e);
+				this.loadRooms();
+			} finally {
+				this.dialog.busy = false;
+			}
+		},
+		resumeRoomFromList(r: ReversiRoom) {
+			if (r.id === this.online.roomId) {
+				this.dialog.visible = false;
+				this.reloadRoom();
+				return;
+			}
+			this.enterRoom(r);
+		},
+		/** Invites the same opponent again, sides swapped. */
+		async rematch() {
+			if (!reversi || !room) return;
+			const opponentId = this.online.opponentId;
+			const side: ReversiSide = room.yourSide === 'black' ? 'white' : 'black';
+			try {
+				const r = await reversi.invite(opponentId, side, room.size);
+				this.enterRoom(r);
+				this.loadRooms();
+				this.setNotice(this.t('app.reversi.online.sent', { name: this.online.opponentName }, 'Invitation sent to {name}'), LONG_NOTICE_MS);
+			} catch (e) {
+				this.setNotice(this.t('app.reversi.online.error', { message: errorText(e) }, 'Something went wrong: {message}'), LONG_NOTICE_MS);
+			}
+		},
+
+		// --- resigning ---
+
+		openResign() {
+			if (!this.canResign) return;
+			this.resignDialog = { visible: true, busy: false };
+		},
+		closeResign() {
+			this.resignDialog.visible = false;
+		},
+		async confirmResign() {
+			const id = this.online.roomId;
+			if (!reversi || !id || this.resignDialog.busy) return;
+			this.resignDialog.busy = true;
+			try {
+				const r = await reversi.resign(id);
+				this.resignDialog.visible = false;
+				this.syncRoom(r);
+				this.loadRooms();
+			} catch (e) {
+				this.setNotice(this.t('app.reversi.online.error', { message: errorText(e) }, 'Something went wrong: {message}'), LONG_NOTICE_MS);
+			} finally {
+				this.resignDialog.busy = false;
 			}
 		},
 
@@ -633,7 +1186,8 @@ const App = {
 			if (seat.kind === 'ai') {
 				return this.t('app.reversi.seat.computer', { level: this.levelLabel(seat.level) }, 'Computer ({level})');
 			}
-			if (this.mode === 'ai') return this.t('app.reversi.seat.you', undefined, 'You');
+			if (seat.kind === 'remote') return seat.name || seat.userId || '';
+			if (this.mode !== 'local') return this.t('app.reversi.seat.you', undefined, 'You');
 			return this.t('app.reversi.seat.player', { n: player }, 'Player {n}');
 		},
 		levelLabel(level: AiLevel): string {
@@ -652,7 +1206,7 @@ const App = {
 			if (cell === EMPTY) return coord;
 			return `${coord} ${this.seatName(cell)}`;
 		},
-		setNotice(text: string) {
+		setNotice(text: string, ms = NOTICE_MS) {
 			if (noticeTimer) clearTimeout(noticeTimer);
 			noticeTimer = null;
 			this.notice = text;
@@ -660,7 +1214,7 @@ const App = {
 				noticeTimer = setTimeout(() => {
 					noticeTimer = null;
 					this.notice = '';
-				}, NOTICE_MS);
+				}, ms);
 			}
 		},
 
@@ -695,14 +1249,18 @@ const App = {
 		async writeState() {
 			const userId = this.instance?.currentUser?.id;
 			if (!userId) return;
+			// A game against another user is kept by the server; only which room
+			// was open is remembered here.
+			const online = !!this.online.roomId;
 			const state: SavedState = {
 				version: 1,
 				settings: JSON.parse(JSON.stringify(this.settings)),
-				game: game ? {
+				game: (game && !online) ? {
 					size: game.size,
 					moves: game.moves.slice(),
 					seats: JSON.parse(JSON.stringify(this.seats)),
 				} : null,
+				roomId: this.online.roomId,
 			};
 			try {
 				await this.instance.api.db.setUserSetting(userId, APP_ID, STATE_KEY, state);

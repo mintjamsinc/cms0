@@ -1,0 +1,45 @@
+# Provisioning for the Webtop Reversi app: games between two users.
+#
+# A game is a room under /var/lib/games/reversi/rooms, written only by
+# games-service-user: the GraphQL resolvers (etc/graphql/webtop/reversi) check
+# in the caller's own session who the caller is and whether it is the caller's
+# turn, and then write as the service user. The two players are granted
+# jcr:read on the room's folder, so a room is read by its players alone.
+#
+#   /var/lib/games                closed to everyone; the service group owns it
+#   /var/lib/games/reversi/rooms  one folder per room: the settings (.room)
+#                                 and one file per move under moves/
+#
+# The root of a workspace grants jcr:read to everyone, so the area is closed
+# with an explicit deny. The moves of a game are announced to its players as
+# topic messages (game/reversi/rooms/<room>), not read from the folder.
+#
+# The reversi: namespace names the room and move properties.
+
+namespaces:
+  - prefix: reversi
+    uri: http://www.mintjams.jp/webtop/reversi/1.0
+
+groups:
+  - { id: games-service-group, displayName: Games Service }
+
+users:
+  - id: games-service-user
+    service: true
+    displayName: Games Service
+    memberOf: [games-service-group]
+
+nodes:
+  - path: /var/lib/games
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny
+      - group: games-service-group
+        privileges: jcr:all
+        effect: allow
+  - path: /var/lib/games/reversi
+    primaryType: nt:folder
+  - path: /var/lib/games/reversi/rooms
+    primaryType: nt:folder

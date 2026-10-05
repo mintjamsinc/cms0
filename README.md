@@ -272,6 +272,24 @@ read its folder, and every write goes through a service user. Where the
 conversations are kept and how live updates work is described in
 [`documents/webtop-chat.md`](documents/webtop-chat.md).
 
+### Webtop Reversi
+
+The Webtop **Reversi** app plays against the computer, between two people at
+one desktop, or against another user of the Webtop. A game against another
+user is a room written by a service user through the app's own GraphQL
+mutations, and its moves reach the other player as topic messages over the
+Webtop's event stream. See
+[`documents/webtop-reversi.md`](documents/webtop-reversi.md).
+
+### Topic messages
+
+Applications tell their clients, live, that something happened by publishing
+**topic messages**: a general-purpose publish/subscribe channel carried on the
+Webtop's event stream (graphql-sse over HTTPS) and, in a cluster, on the
+signal bus. A script or a client publishes to a topic for named recipients,
+for the readers of a node, or for everyone; clients subscribe to a topic or a
+prefix. See [`documents/topic-messages.md`](documents/topic-messages.md).
+
 ---
 
 ## Platform support
