@@ -17,7 +17,7 @@ import java.security.SecureRandom;
  * A move only adds a file, named by its ply: two moves for the same ply
  * cannot both be written, which is what keeps a double click or a stale
  * client from playing twice. The settings file is written when the room
- * changes state (accepted, finished, ...), never for a move.
+ * changes state (accepted, a disc picked, finished, ...), never for a move.
  */
 class ReversiStore {
 
@@ -40,10 +40,15 @@ class ReversiStore {
 	static final String FINISHED_AT = 'reversi:finishedAt';
 	static final String WINNER = 'reversi:winner';
 	static final String RESIGNED_BY = 'reversi:resignedBy';
+	static final String BLACK_FACE = 'reversi:blackFace';
+	static final String WHITE_FACE = 'reversi:whiteFace';
+	static final String THEME = 'reversi:theme';
+	static final String GUEST_READY = 'reversi:guestReady';
 	static final String PLAYER = 'reversi:player';
 	static final String PLAYED_AT = 'reversi:playedAt';
 
 	static final String WAITING = 'waiting';
+	static final String LOBBY = 'lobby';
 	static final String PLAYING = 'playing';
 	static final String FINISHED = 'finished';
 	static final String DECLINED = 'declined';
@@ -115,6 +120,7 @@ class ReversiStore {
 		}
 		Closure text = { String name -> file.hasProperty(name) ? file.getProperty(name).getString() : null; };
 		Closure date = { String name -> file.hasProperty(name) ? file.getProperty(name).getDate().time : null; };
+		Closure flag = { String name -> file.hasProperty(name) && file.getProperty(name).getBoolean(); };
 		return [
 			id: id,
 			path: path,
@@ -128,6 +134,10 @@ class ReversiStore {
 			finishedAt: date(FINISHED_AT),
 			winner: text(WINNER),
 			resignedBy: text(RESIGNED_BY),
+			blackFace: text(BLACK_FACE),
+			whiteFace: text(WHITE_FACE),
+			theme: text(THEME),
+			guestReady: flag(GUEST_READY),
 			moves: moves(session, path),
 		];
 	}
@@ -150,8 +160,8 @@ class ReversiStore {
 		return names.collect { String name -> (folder.getResource(name).getContent() ?: '').trim(); };
 	}
 
-	/** Creates a room for the two players and grants them its folder. */
-	static Map create(session, String host, String black, String white, int size) {
+	/** Creates a room for the two players, with their discs and the board, and grants them its folder. */
+	static Map create(session, String host, String black, String white, int size, String blackFace, String whiteFace, String theme) {
 		String id = newId();
 		def folder = session.getResource(path(id));
 		folder.createFolder();
@@ -163,6 +173,10 @@ class ReversiStore {
 		file.setProperty(HOST, host);
 		file.setProperty(STATUS, WAITING);
 		file.setProperty(SIZE, size as long);
+		file.setProperty(BLACK_FACE, blackFace);
+		file.setProperty(WHITE_FACE, whiteFace);
+		file.setProperty(THEME, theme);
+		file.setProperty(GUEST_READY, false);
 		file.setProperty(CREATED_AT, new Date());
 
 		def acl = folder.getAccessControlList();
@@ -174,7 +188,7 @@ class ReversiStore {
 		return read(session, id);
 	}
 
-	/** Writes the given settings of the room: strings, dates, or null to remove. */
+	/** Writes the given settings of the room: strings, dates, booleans, or null to remove. */
 	static Map update(session, String id, Map changes) {
 		def file = session.getResource("${path(id)}/${SETTINGS}".toString());
 		if (!file.exists()) {
@@ -187,6 +201,8 @@ class ReversiStore {
 				}
 			} else if (value instanceof Date) {
 				file.setProperty(name, value as Date);
+			} else if (value instanceof Boolean) {
+				file.setProperty(name, value as boolean);
 			} else {
 				file.setProperty(name, value as String);
 			}
@@ -225,7 +241,7 @@ class ReversiStore {
 		int removed = 0;
 		for (String id : ids(session)) {
 			Map room = read(session, id);
-			if (room == null || room.status in [WAITING, PLAYING]) {
+			if (room == null || room.status in [WAITING, LOBBY, PLAYING]) {
 				continue;
 			}
 			Date ended = (room.finishedAt ?: room.createdAt) as Date;

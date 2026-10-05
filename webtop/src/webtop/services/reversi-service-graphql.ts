@@ -11,7 +11,7 @@
 
 import type { GraphQLClient } from '../graphql/client.js';
 
-export type ReversiStatus = 'waiting' | 'playing' | 'finished' | 'declined' | 'cancelled';
+export type ReversiStatus = 'waiting' | 'lobby' | 'playing' | 'finished' | 'declined' | 'cancelled';
 export type ReversiSide = 'black' | 'white';
 
 export interface ReversiPlayer {
@@ -28,6 +28,13 @@ export interface ReversiRoom {
 	/** Who sent the invitation. */
 	host: string;
 	yourSide: ReversiSide;
+	/** The disc face of each player (looks.ts); the two differ. */
+	blackFace: string;
+	whiteFace: string;
+	/** The board theme (looks.ts), chosen by the host. */
+	theme: string;
+	/** Whether the invited user has said it is ready; the host starts the game once it has. */
+	guestReady: boolean;
 	/** Coordinate notation (d3); passes are not recorded. */
 	moves: string[];
 	/** black, white or draw, once finished. */
@@ -42,8 +49,9 @@ export interface ReversiRoom {
 /** What a room's topic message carries (see reversi.graphqls). */
 export interface ReversiMessage {
 	roomId: string;
-	type: 'invited' | 'started' | 'declined' | 'cancelled' | 'move' | 'resigned';
+	type: 'invited' | 'accepted' | 'changed' | 'ready' | 'started' | 'declined' | 'cancelled' | 'move' | 'resigned';
 	by: string;
+	ready?: boolean;
 	ply?: number;
 	move?: string;
 	over?: boolean;
@@ -54,7 +62,8 @@ export interface ReversiMessage {
 export const REVERSI_TOPICS = 'game/reversi/rooms/*';
 
 const ROOM_FIELDS = `
-	id size status host yourSide moves winner resignedBy createdAt startedAt finishedAt topic
+	id size status host yourSide blackFace whiteFace theme guestReady
+	moves winner resignedBy createdAt startedAt finishedAt topic
 	black { id displayName }
 	white { id displayName }
 `;
@@ -71,7 +80,7 @@ export class ReversiServiceGraphQL {
 		this.#client = client;
 	}
 
-	/** The user's rooms: waiting or playing first, then the ended ones, newest first. */
+	/** The user's rooms: waiting, getting ready or playing first, then the ended ones, newest first. */
 	async listRooms(): Promise<ReversiRoom[]> {
 		const data = await this.#client.query<{ reversiRooms: ReversiRoom[] }>(
 			`query { reversiRooms { ${ROOM_FIELDS} } }`);
@@ -84,23 +93,54 @@ export class ReversiServiceGraphQL {
 		return data.reversiRoom;
 	}
 
-	/** Invites a user; `side` is the caller's, `random` by default. */
-	async invite(opponentId: string, side: ReversiSide | 'random' = 'random', size = 8): Promise<ReversiRoom> {
+	/**
+	 * Invites a user; `side` is the caller's, `random` by default. `face` and
+	 * `theme` are the caller's first choices (changed later with `setup`).
+	 */
+	async invite(opponentId: string, side: ReversiSide | 'random' = 'random', size = 8,
+		face?: string, theme?: string): Promise<ReversiRoom> {
 		const data = await this.#client.mutation<{ reversiInvite: ReversiRoom }>(
-			`mutation ($opponentId: ID!, $side: String, $size: Int) {
-				reversiInvite(opponentId: $opponentId, side: $side, size: $size) { ${ROOM_FIELDS} }
+			`mutation ($opponentId: ID!, $side: String, $size: Int, $face: String, $theme: String) {
+				reversiInvite(opponentId: $opponentId, side: $side, size: $size, face: $face, theme: $theme) { ${ROOM_FIELDS} }
 			}`,
-			{ opponentId, side, size });
+			{ opponentId, side, size, face: face ?? null, theme: theme ?? null });
 		return data.reversiInvite;
 	}
 
-	async accept(id: string): Promise<ReversiRoom> {
+	/** Accepts an invitation: the room is a lobby. `face` is the caller's first choice, unless it is the host's. */
+	async accept(id: string, face?: string): Promise<ReversiRoom> {
 		const data = await this.#client.mutation<{ reversiAccept: ReversiRoom }>(
-			`mutation ($id: ID!) { reversiAccept(id: $id) { ${ROOM_FIELDS} } }`, { id });
+			`mutation ($id: ID!, $face: String) { reversiAccept(id: $id, face: $face) { ${ROOM_FIELDS} } }`,
+			{ id, face: face ?? null });
 		return data.reversiAccept;
 	}
 
-	/** Declines an invitation, or takes back one's own. */
+	/** Changes the caller's disc and, for the host, the board, while the room is waiting or a lobby. */
+	async setup(id: string, face?: string, theme?: string): Promise<ReversiRoom> {
+		const data = await this.#client.mutation<{ reversiSetup: ReversiRoom }>(
+			`mutation ($id: ID!, $face: String, $theme: String) {
+				reversiSetup(id: $id, face: $face, theme: $theme) { ${ROOM_FIELDS} }
+			}`,
+			{ id, face: face ?? null, theme: theme ?? null });
+		return data.reversiSetup;
+	}
+
+	/** The invited user says it is ready, or no longer is. */
+	async ready(id: string, ready: boolean): Promise<ReversiRoom> {
+		const data = await this.#client.mutation<{ reversiReady: ReversiRoom }>(
+			`mutation ($id: ID!, $ready: Boolean) { reversiReady(id: $id, ready: $ready) { ${ROOM_FIELDS} } }`,
+			{ id, ready });
+		return data.reversiReady;
+	}
+
+	/** The host starts the game once the invited user is ready. */
+	async start(id: string): Promise<ReversiRoom> {
+		const data = await this.#client.mutation<{ reversiStart: ReversiRoom }>(
+			`mutation ($id: ID!) { reversiStart(id: $id) { ${ROOM_FIELDS} } }`, { id });
+		return data.reversiStart;
+	}
+
+	/** Declines an invitation or leaves a lobby, or takes back one's own invitation. */
 	async decline(id: string): Promise<ReversiRoom> {
 		const data = await this.#client.mutation<{ reversiDecline: ReversiRoom }>(
 			`mutation ($id: ID!) { reversiDecline(id: $id) { ${ROOM_FIELDS} } }`, { id });

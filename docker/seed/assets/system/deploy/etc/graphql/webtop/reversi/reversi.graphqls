@@ -1,9 +1,12 @@
 # Webtop Reversi app (webtop/src/webtop/apps/reversi): games between two users.
 #
 # A game is a room of two users. The host invites the other user; the room
-# waits until the other accepts or declines, is played until the game is over
-# or one player resigns, and is then kept for a while. The rules are applied
-# here, on the server (webtop.reversi.ReversiApi, /usr/local/classes/webtop/reversi).
+# waits until the other accepts or declines. Once accepted the two get ready
+# in the room: each picks a disc (the two must differ), the host also picks
+# the board, the guest says it is ready and the host starts the game. The
+# room is then played until the game is over or one player resigns, and is
+# kept for a while. The rules are applied here, on the server
+# (webtop.reversi.ReversiApi, /usr/local/classes/webtop/reversi).
 #
 # These mutations are the only way to write a room: each one checks who the
 # caller is and then writes as the games service user. The caller holds no
@@ -13,8 +16,9 @@
 # on the room's `topic` (Subscription.topicMessage). A client subscribes to
 # game/reversi/rooms/* once and receives the messages of all its rooms:
 #
-#   { roomId, type: invited | started | declined | cancelled | move | resigned,
-#     by: <user>, ply, move, over, winner }
+#   { roomId, type: invited | accepted | changed | ready | started | declined
+#                 | cancelled | move | resigned,
+#     by: <user>, ready, ply, move, over, winner }
 #
 # The payload tells what happened; the room is the record, and a client that
 # cannot follow a message reads the room again.
@@ -28,7 +32,7 @@ type ReversiRoom {
   id: ID!
   """The board size (6, 8 or 10)."""
   size: Int!
-  """waiting (invitation sent), playing, finished, declined (by the invited user), cancelled (by the host)."""
+  """waiting (invitation sent), lobby (accepted; getting ready), playing, finished, declined (by the invited user), cancelled (by the host)."""
   status: String!
   """The player who moves first."""
   black: ReversiPlayer!
@@ -37,6 +41,13 @@ type ReversiRoom {
   host: ID!
   """black or white: the caller's side."""
   yourSide: String!
+  """The disc face of each player (a disc id of the app). The two differ."""
+  blackFace: String!
+  whiteFace: String!
+  """The board theme (a board id of the app), chosen by the host."""
+  theme: String!
+  """Whether the invited user has said it is ready; the host starts the game once it has."""
+  guestReady: Boolean!
   """The moves so far in coordinate notation (d3). Passes are not recorded."""
   moves: [String!]!
   """black, white or draw, once finished."""
@@ -51,18 +62,24 @@ type ReversiRoom {
 }
 
 extend type Query {
-  """The caller's rooms: those waiting or playing, then the ended ones, the newest first."""
+  """The caller's rooms: those waiting, getting ready or playing, then the ended ones, the newest first."""
   reversiRooms: [ReversiRoom!]!
   reversiRoom(id: ID!): ReversiRoom!
 }
 
 extend type Mutation {
-  """Invites a user to a game. `side` is the caller's: black, white or random (the default). `size` is 8 unless given."""
-  reversiInvite(opponentId: ID!, side: String, size: Int): ReversiRoom!
-  """The invited user accepts: the game begins."""
-  reversiAccept(id: ID!): ReversiRoom!
-  """The invited user declines, or the host takes the invitation back."""
+  """Invites a user to a game. `side` is the caller's: black, white or random (the default). `size` is 8 unless given. `face` and `theme` are the caller's first choices, changed later with reversiSetup."""
+  reversiInvite(opponentId: ID!, side: String, size: Int, face: String, theme: String): ReversiRoom!
+  """The invited user accepts: the room is getting ready. `face` is the caller's first choice, when it is not the host's."""
+  reversiAccept(id: ID!, face: String): ReversiRoom!
+  """The invited user declines or leaves, or the host takes the invitation back."""
   reversiDecline(id: ID!): ReversiRoom!
+  """Changes the caller's disc (refused when it is the other player's) and, for the host, the board, while the room is waiting or getting ready."""
+  reversiSetup(id: ID!, face: String, theme: String): ReversiRoom!
+  """The invited user says it is ready (or no longer is) while the room is getting ready."""
+  reversiReady(id: ID!, ready: Boolean): ReversiRoom!
+  """The host starts the game once the invited user is ready."""
+  reversiStart(id: ID!): ReversiRoom!
   """Plays a move for the caller. `ply` is the number of moves the caller has seen; a stale value is refused."""
   reversiPlay(id: ID!, ply: Int!, move: String!): ReversiRoom!
   """The caller gives up: the other player wins."""

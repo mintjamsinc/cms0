@@ -4,25 +4,32 @@ package webtop.reversi;
  * What the GraphQL resolvers of the Reversi app do.
  *
  * A game is a room of two users. One invites the other (the room waits), the
- * other accepts (the room is playing) or declines; the players then move in
- * turn until the game is over or one resigns. Every operation first finds,
- * in the caller's own session, who the caller is, then reads and writes the
- * room as the games service user (ReversiStore): the rules are applied here,
- * on the server, and a client is only told what happened.
+ * other accepts (the room is a lobby) or declines. In the lobby each player
+ * picks a disc, the host also picks the board, the guest says it is ready
+ * and the host starts the game (the room is playing); the players then move
+ * in turn until the game is over or one resigns. Every operation first
+ * finds, in the caller's own session, who the caller is, then reads and
+ * writes the room as the games service user (ReversiStore): the rules are
+ * applied here, on the server, and a client is only told what happened.
  *
  * Each change is announced to the two players as a topic message on the
- * room's topic (game/reversi/rooms/<room>): invited, started, declined,
- * cancelled, move, resigned. The room itself is the record; a client that
- * misses a message reads the room again.
+ * room's topic (game/reversi/rooms/<room>): invited, accepted, changed,
+ * ready, started, declined, cancelled, move, resigned. The room itself is
+ * the record; a client that misses a message reads the room again.
  */
 class ReversiApi {
 
-	/** How many rooms of a user may be waiting or playing at once. */
+	/** How many rooms of a user may be waiting, getting ready or playing at once. */
 	static final int MAX_OPEN_ROOMS = 10;
 	/** How many ended rooms a user is shown. */
 	static final int ENDED_SHOWN = 10;
 	/** Ended rooms are removed after this many days. */
 	static final int KEEP_ENDED_DAYS = 7;
+
+	/** The discs and the board the players get when they have not chosen. */
+	static final String DEFAULT_BLACK_FACE = 'black';
+	static final String DEFAULT_WHITE_FACE = 'white';
+	static final String DEFAULT_THEME = 'ichigo';
 
 	def context;
 	def session;
@@ -48,8 +55,8 @@ class ReversiApi {
 	// --- reading ------------------------------------------------------------------
 
 	/**
-	 * The caller's rooms: those waiting or playing, then the ended ones, the
-	 * newest first.
+	 * The caller's rooms: those waiting, getting ready or playing, then the
+	 * ended ones, the newest first.
 	 */
 	List<Map> rooms() {
 		return asService { s ->
@@ -79,9 +86,10 @@ class ReversiApi {
 
 	/**
 	 * Invites a user to a game. The caller plays the given side (black moves
-	 * first), or either when `random`.
+	 * first), or either when `random`, with the given disc on the given
+	 * board; the other player gets a disc that differs.
 	 */
-	Map invite(String opponentId, String side, Object size) {
+	Map invite(String opponentId, String side, Object size, String face, String theme) {
 		String opponent = (opponentId ?: '').trim();
 		if (!opponent) {
 			throw new IllegalArgumentException('Choose an opponent.');
@@ -97,6 +105,9 @@ class ReversiApi {
 		if (mySide == 'random') {
 			mySide = (new Random().nextBoolean()) ? 'black' : 'white';
 		}
+		String myFace = checkLook(face, 'disc') ?: ((mySide == 'black') ? DEFAULT_BLACK_FACE : DEFAULT_WHITE_FACE);
+		String theirFace = otherFace(myFace);
+		String board = checkLook(theme, 'board') ?: DEFAULT_THEME;
 		return asService { s ->
 			if (!ReversiStore.userExists(s, opponent)) {
 				throw new IllegalArgumentException('No such user.');
@@ -112,16 +123,21 @@ class ReversiApi {
 			if (open >= MAX_OPEN_ROOMS) {
 				throw new IllegalStateException("You already have ${MAX_OPEN_ROOMS} games open.".toString());
 			}
-			String black = (mySide == 'black') ? userId : opponent;
-			String white = (mySide == 'black') ? opponent : userId;
-			Map room = ReversiStore.create(s, userId, black, white, boardSize);
+			boolean black = (mySide == 'black');
+			Map room = ReversiStore.create(s, userId,
+				black ? userId : opponent, black ? opponent : userId, boardSize,
+				black ? myFace : theirFace, black ? theirFace : myFace, board);
 			ReversiStore.publish(context, room, [type: 'invited', by: userId]);
 			return toRoom(s, room);
 		} as Map;
 	}
 
-	/** The invited user accepts: the game begins. */
-	Map accept(String id) {
+	/**
+	 * The invited user accepts: the room is a lobby, where the two get
+	 * ready. The caller gets the given disc unless it is the host's.
+	 */
+	Map accept(String id, String face) {
+		String wanted = checkLook(face, 'disc');
 		return asService { s ->
 			Map room = mine(s, id);
 			if (room.status != ReversiStore.WAITING) {
@@ -130,22 +146,99 @@ class ReversiApi {
 			if (room.host == userId) {
 				throw new IllegalStateException('Wait for the other player to accept.');
 			}
-			room = ReversiStore.update(s, id, [(ReversiStore.STATUS): ReversiStore.PLAYING, (ReversiStore.STARTED_AT): new Date()]);
-			ReversiStore.publish(context, room, [type: 'started', by: userId]);
+			Map changes = [(ReversiStore.STATUS): ReversiStore.LOBBY, (ReversiStore.GUEST_READY): false];
+			if (wanted && wanted != faceOf(room, room.host as String)) {
+				changes[faceKey(room, userId)] = wanted;
+			}
+			room = ReversiStore.update(s, id, changes);
+			ReversiStore.publish(context, room, [type: 'accepted', by: userId]);
 			return toRoom(s, room);
 		} as Map;
 	}
 
-	/** The invited user declines, or the host takes the invitation back. */
+	/** The invited user declines or leaves the lobby, or the host takes the invitation back. */
 	Map decline(String id) {
 		return asService { s ->
 			Map room = mine(s, id);
-			if (room.status != ReversiStore.WAITING) {
+			if (!(room.status in [ReversiStore.WAITING, ReversiStore.LOBBY])) {
 				throw new IllegalStateException('The invitation is no longer open.');
 			}
 			String status = (room.host == userId) ? ReversiStore.CANCELLED : ReversiStore.DECLINED;
 			room = ReversiStore.update(s, id, [(ReversiStore.STATUS): status, (ReversiStore.FINISHED_AT): new Date()]);
 			ReversiStore.publish(context, room, [type: status, by: userId]);
+			return toRoom(s, room);
+		} as Map;
+	}
+
+	// --- getting ready ------------------------------------------------------------
+
+	/**
+	 * Changes the caller's disc and, for the host, the board. The host may
+	 * do so while the room waits for an answer; both may in the lobby. The
+	 * other player's disc cannot be taken.
+	 */
+	Map setup(String id, String face, String theme) {
+		String wantedFace = checkLook(face, 'disc');
+		String wantedTheme = checkLook(theme, 'board');
+		return asService { s ->
+			Map room = mine(s, id);
+			boolean host = (room.host == userId);
+			if (!(room.status == ReversiStore.LOBBY || (room.status == ReversiStore.WAITING && host))) {
+				throw new IllegalStateException('The game is not being set up.');
+			}
+			Map changes = [:];
+			if (wantedFace) {
+				if (wantedFace == faceOf(room, otherOf(room, userId))) {
+					throw new IllegalStateException('That disc is taken.');
+				}
+				changes[faceKey(room, userId)] = wantedFace;
+			}
+			if (wantedTheme) {
+				if (!host) {
+					throw new IllegalStateException('The host chooses the board.');
+				}
+				changes[ReversiStore.THEME] = wantedTheme;
+			}
+			if (changes) {
+				room = ReversiStore.update(s, id, changes);
+			}
+			ReversiStore.publish(context, room, [type: 'changed', by: userId]);
+			return toRoom(s, room);
+		} as Map;
+	}
+
+	/** The invited user says it is ready (or, with `false`, no longer is). */
+	Map ready(String id, Object ready) {
+		boolean flag = (ready == null) ? true : (ready as boolean);
+		return asService { s ->
+			Map room = mine(s, id);
+			if (room.status != ReversiStore.LOBBY) {
+				throw new IllegalStateException('The game is not being set up.');
+			}
+			if (room.host == userId) {
+				throw new IllegalStateException('The host starts the game.');
+			}
+			room = ReversiStore.update(s, id, [(ReversiStore.GUEST_READY): flag]);
+			ReversiStore.publish(context, room, [type: 'ready', by: userId, ready: flag]);
+			return toRoom(s, room);
+		} as Map;
+	}
+
+	/** The host starts the game once the invited user is ready. */
+	Map start(String id) {
+		return asService { s ->
+			Map room = mine(s, id);
+			if (room.status != ReversiStore.LOBBY) {
+				throw new IllegalStateException('The game is not being set up.');
+			}
+			if (room.host != userId) {
+				throw new IllegalStateException('Wait for the host to start the game.');
+			}
+			if (!room.guestReady) {
+				throw new IllegalStateException('Wait for the other player to get ready.');
+			}
+			room = ReversiStore.update(s, id, [(ReversiStore.STATUS): ReversiStore.PLAYING, (ReversiStore.STARTED_AT): new Date()]);
+			ReversiStore.publish(context, room, [type: 'started', by: userId]);
 			return toRoom(s, room);
 		} as Map;
 	}
@@ -233,11 +326,42 @@ class ReversiApi {
 	}
 
 	private static boolean isOpen(Map room) {
-		return room.status in [ReversiStore.WAITING, ReversiStore.PLAYING];
+		return room.status in [ReversiStore.WAITING, ReversiStore.LOBBY, ReversiStore.PLAYING];
 	}
 
 	private static int sideOf(Map room, String user) {
 		return (room.black == user) ? ReversiRules.BLACK : ReversiRules.WHITE;
+	}
+
+	private static String otherOf(Map room, String user) {
+		return (room.black == user) ? (room.white as String) : (room.black as String);
+	}
+
+	/** The property that holds the disc of the given player. */
+	private static String faceKey(Map room, String user) {
+		return (room.black == user) ? ReversiStore.BLACK_FACE : ReversiStore.WHITE_FACE;
+	}
+
+	private static String faceOf(Map room, String user) {
+		String face = (room.black == user) ? (room.blackFace as String) : (room.whiteFace as String);
+		return face ?: ((room.black == user) ? DEFAULT_BLACK_FACE : DEFAULT_WHITE_FACE);
+	}
+
+	/** A default disc that differs from the given one. */
+	private static String otherFace(String face) {
+		return (face == DEFAULT_WHITE_FACE) ? DEFAULT_BLACK_FACE : DEFAULT_WHITE_FACE;
+	}
+
+	/** A disc or board id as the app names them; null when none was given. */
+	private static String checkLook(String value, String what) {
+		String id = (value ?: '').trim();
+		if (!id) {
+			return null;
+		}
+		if (!(id ==~ /[a-z0-9_-]{1,32}/)) {
+			throw new IllegalArgumentException("Unknown ${what}: ${value}".toString());
+		}
+		return id;
 	}
 
 	private Map toRoom(s, Map room) {
@@ -249,6 +373,10 @@ class ReversiApi {
 			white: [id: room.white, displayName: ReversiStore.displayName(s, room.white as String)],
 			host: room.host,
 			yourSide: (room.black == userId) ? 'black' : 'white',
+			blackFace: faceOf(room, room.black as String),
+			whiteFace: faceOf(room, room.white as String),
+			theme: room.theme ?: DEFAULT_THEME,
+			guestReady: room.guestReady ? true : false,
 			moves: room.moves,
 			winner: room.winner,
 			resignedBy: room.resignedBy,

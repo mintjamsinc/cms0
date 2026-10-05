@@ -132,10 +132,11 @@
 }
 
 /* ----------------------------------------------------------------------------
- * Result card and pass notice
+ * Result card, lobby card and pass notice
  * -------------------------------------------------------------------------- */
 
-.rv-result {
+.rv-result,
+.rv-lobby {
 	position: absolute;
 	display: flex;
 	flex-direction: column;
@@ -199,7 +200,7 @@
 }
 
 /* ----------------------------------------------------------------------------
- * Side panel: players and board theme
+ * Side panel: players
  * -------------------------------------------------------------------------- */
 
 .rv-side {
@@ -296,13 +297,6 @@
 		transform: translateY(-4px);
 		opacity: 1;
 	}
-}
-
-.rv-side-title {
-	margin-top: 0.75rem;
-	font-size: 0.8rem;
-	font-weight: 700;
-	color: var(--text-muted-color);
 }
 
 .rv-swatches {
@@ -424,13 +418,20 @@
 	outline-color: var(--primary-color);
 }
 
-/* The other player's face: picking it swaps the two. */
+/* The other player's face: in the dialog picking it swaps the two, in the
+ * lobby it cannot be picked. */
 .rv-face.is-taken {
 	opacity: 0.35;
 }
 
+.rv-face:disabled,
+.rv-swatch:disabled {
+	cursor: default;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.rv-result,
+	.rv-lobby,
 	.rv-notice,
 	.rv-dots i {
 		animation: none;
@@ -552,4 +553,30 @@
 	margin-top: -0.4rem;
 	color: var(--text-muted-color);
 	font-size: 0.9rem;
+}
+
+/* Getting ready: each player picks a disc, the host the board. */
+.rv-lobby {
+	gap: 0.9rem;
+	min-width: 18rem;
+	max-width: 24rem;
+}
+
+.rv-lobby-section {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.45rem;
+	align-self: stretch;
+}
+
+.rv-lobby-label {
+	font-size: 0.8rem;
+	font-weight: 700;
+	color: var(--text-muted-color);
+}
+
+.rv-lobby .rv-faces,
+.rv-lobby .rv-swatches {
+	justify-content: center;
 }
