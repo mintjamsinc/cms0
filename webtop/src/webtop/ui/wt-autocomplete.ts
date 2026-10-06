@@ -13,8 +13,9 @@
 // the input keeps the label of the choice.
 //
 // Events: 'pick' (detail = the chosen match), 'change' (detail = the text,
-// fired as the user types — a host that keeps a choice drops it here) and
-// 'escape' (Escape with no dropdown open).
+// fired as the user types — a host that keeps a choice drops it here),
+// 'escape' (Escape with no dropdown open) and 'cancel' (the × that
+// `cancelable` puts inside the field).
 //
 // The dropdown opens through the configured popupAdapter, like wt-select's
 // menu, so it can escape the app window instead of stretching a dialog;
@@ -50,8 +51,11 @@ defineComponent('wt-autocomplete', {
 		/** Focuses the input once it is rendered. */
 		autofocus: { type: Boolean, default: false },
 		disabled: { type: Boolean, default: false },
+		/** Shows an × inside the field that emits 'cancel'. */
+		cancelable: { type: Boolean, default: false },
+		cancelTitle: { type: String, default: 'Cancel' },
 	},
-	emits: ['pick', 'change', 'escape'],
+	emits: ['pick', 'change', 'escape', 'cancel'],
 	data(this: any) {
 		return {
 			text: '',

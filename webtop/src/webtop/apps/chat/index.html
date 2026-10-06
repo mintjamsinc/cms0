@@ -109,10 +109,8 @@
 							:placeholder="t('app.chat.members.placeholder', undefined, 'Search by name')"
 							:empty-text="t('app.chat.members.noMatch', undefined, 'Nobody found.')"
 							@pick="openDirectWith($event.detail.value)" @change="direct.keyword = $event.detail"
-							@escape="cancelDirect"></wt-autocomplete>
-						<button type="button" class="btn-icon" @click="cancelDirect" :title="t('common.cancel')">
-							<i class="bi bi-x-lg"></i>
-						</button>
+							@escape="cancelDirect" cancelable :cancel-title="t('common.cancel')"
+							@cancel="cancelDirect"></wt-autocomplete>
 					</div>
 					<button v-else type="button" class="ch-nav-item ch-nav-link" @click="startDirect">
 						<i class="bi bi-plus-lg"></i>
