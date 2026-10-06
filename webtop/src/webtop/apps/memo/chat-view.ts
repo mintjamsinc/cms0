@@ -229,6 +229,13 @@ class ChatNodeView implements NodeView {
 		this.editor.view.dispatch(this.editor.view.state.tr.setNodeMarkup(pos, undefined, { ...this.node.attrs, ...patch }));
 	}
 
+	private removeBlock(): void {
+		const pos = this.getPos();
+		if (pos == null) return;
+		this.editor.view.dispatch(this.editor.view.state.tr.delete(pos, pos + this.node.nodeSize));
+		this.editor.commands.focus();
+	}
+
 	/** Shows the conversation the attributes name, creating the thread the first time. */
 	render(): void {
 		const api = this.host.api();
@@ -370,10 +377,20 @@ class ChatNodeView implements NodeView {
 						selected: attrs.channel === c.id,
 					})),
 				},
+				{
+					label: this.t('app.memo.chat.menu.block', undefined, 'Block'),
+					items: [{
+						id: 'remove',
+						label: this.t('app.memo.chat.removeBlock', undefined, 'Remove block'),
+						icon: 'bi bi-x-lg',
+					}],
+				},
 			],
 		});
 		const picked = await handle.result;
-		if (picked === 'own') {
+		if (picked === 'remove') {
+			this.removeBlock();
+		} else if (picked === 'own') {
 			this.setAttrs({ file: '', channel: '' });
 		} else if (typeof picked === 'string' && picked.startsWith('channel:')) {
 			this.setAttrs({ file: '', channel: picked.slice('channel:'.length) });

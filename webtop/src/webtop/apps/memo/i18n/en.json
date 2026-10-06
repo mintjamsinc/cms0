@@ -103,6 +103,8 @@
 	"app.memo.chat.menu.memo": "This memo",
 	"app.memo.chat.menu.channels": "Channels",
 	"app.memo.chat.menu.noChannels": "You are not in any channel.",
+	"app.memo.chat.menu.block": "Block",
+	"app.memo.chat.removeBlock": "Remove block",
 	"app.memo.dataset.title": "Dataset",
 	"app.memo.dataset.menu": "Block menu",
 	"app.memo.dataset.column": "Column",

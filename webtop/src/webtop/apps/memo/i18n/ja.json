@@ -103,6 +103,8 @@
 	"app.memo.chat.menu.memo": "このメモ",
 	"app.memo.chat.menu.channels": "チャネル",
 	"app.memo.chat.menu.noChannels": "参加しているチャネルはありません。",
+	"app.memo.chat.menu.block": "ブロック",
+	"app.memo.chat.removeBlock": "ブロックを削除",
 	"app.memo.dataset.title": "データセット",
 	"app.memo.dataset.menu": "ブロックメニュー",
 	"app.memo.dataset.column": "列",
