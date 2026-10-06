@@ -12,6 +12,8 @@
 	<!-- Default CSS -->
 	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
 	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<!-- The room's chat (<wt-chat-thread>) -->
+	<link rel="stylesheet" href="../../components/wt-chat-thread.css?v=__BUILD_VERSION__">
 </head>
 
 <body>
@@ -62,7 +64,7 @@
 			</div>
 		</nav>
 
-		<div class="content-body rv-body">
+		<div class="content-body rv-body" :class="{ 'has-chat': !!chatRef }">
 
 			<!-- Main area: the scene (app.ts `scene`). -->
 
@@ -245,22 +247,29 @@
 			</div>
 
 			<!-- Players: the same panel in every scene. In the lobby it shows
-			     the game being set up as the form is filled in. -->
-			<aside class="island rv-side">
-				<div v-for="card in seatCards" :key="card.player" class="rv-seat"
-					:class="{ 'is-active': card.active }">
-					<span class="rv-mini-disc rv-seat-disc" :style="card.style"></span>
-					<div class="rv-seat-text">
-						<div class="rv-seat-name">{{ card.name }}</div>
-						<div class="rv-seat-role">
-							<template v-if="card.thinking">
-								<span class="rv-dots"><i></i><i></i><i></i></span>
-							</template>
-							<template v-else>{{ card.role }}</template>
+			     the game being set up as the form is filled in. With a room
+			     open, the room's chat is under the players. -->
+			<aside class="island rv-side" :class="{ 'has-chat': !!chatRef }">
+				<div class="rv-seats">
+					<div v-for="card in seatCards" :key="card.player" class="rv-seat"
+						:class="{ 'is-active': card.active }">
+						<span class="rv-mini-disc rv-seat-disc" :style="card.style"></span>
+						<div class="rv-seat-text">
+							<div class="rv-seat-name">{{ card.name }}</div>
+							<div class="rv-seat-role">
+								<template v-if="card.thinking">
+									<span class="rv-dots"><i></i><i></i><i></i></span>
+								</template>
+								<template v-else>{{ card.role }}</template>
+							</div>
 						</div>
+						<div class="rv-seat-count">{{ card.count }}</div>
 					</div>
-					<div class="rv-seat-count">{{ card.count }}</div>
 				</div>
+				<template v-if="chatRef">
+					<div class="rv-chat-head">{{ t('app.reversi.online.chat', undefined, 'Chat') }}</div>
+					<wt-chat-thread class="rv-chat" :conversation="chatRef" :api="threadApi" :localization="localization" :follow="false"></wt-chat-thread>
+				</template>
 			</aside>
 
 			<!-- A passing word (a pass, an invitation, an error), over the

@@ -61,6 +61,7 @@
 	"app.reversi.online.accepted": "{name}が招待を受けました",
 	"app.reversi.online.leftYou": "{name}が退出しました",
 	"app.reversi.online.lobby": "準備中",
+	"app.reversi.online.chat": "チャット",
 	"app.reversi.online.yourDisc": "あなたのディスク",
 	"app.reversi.online.theirDisc": "{name}のディスク",
 	"app.reversi.online.chooseDisc": "ディスクを選んで「準備完了！」を押してください",

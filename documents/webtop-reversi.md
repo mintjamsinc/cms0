@@ -50,6 +50,18 @@ An invitation that arrives while the app is open is announced and marked on
 the *Back to the lobby* button and on the lobby's *Another user* section. A
 game in progress is reopened when the app is launched again.
 
+## The room's chat
+
+A room has a chat, shown under the players from the moment the invitation
+is sent: the host can write while waiting for the answer, the two can talk
+while getting ready and while playing, and the chat stays with the room
+until the room is removed. It is the **conversation of the room's settings
+file** ([`webtop-chat.md`](webtop-chat.md)): the room gives its identifier
+(`chatFileId`), the app shows it in the same `<wt-chat-thread>` the Chat app
+uses, and the Chat schema does the rest. Only the two players can read the
+file, so only they can read or write the chat, and when the room is
+removed its conversation goes with it, as for any file.
+
 ## Where the games are kept
 
 ```

@@ -398,6 +398,7 @@ class ReversiApi {
 			startedAt: room.startedAt,
 			finishedAt: room.finishedAt,
 			topic: ReversiStore.topic(room.id as String),
+			chatFileId: room.fileId,
 		];
 	}
 

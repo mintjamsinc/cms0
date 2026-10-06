@@ -143,6 +143,8 @@ class ReversiStore {
 			theme: text(THEME),
 			guestReady: flag(GUEST_READY),
 			moves: moves(session, path),
+			// The settings file's identifier: the room's chat is its Chat conversation.
+			fileId: file.getIdentifier(),
 		];
 	}
 

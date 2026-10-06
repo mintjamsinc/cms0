@@ -295,9 +295,11 @@ extend type Mutation {
   to attach a copy of. links: identifiers of files or folders to link. card: a
   design the caller can read and the values of its fields, which are checked
   against the design. The caller must be able to read whatever is copied or
-  linked.
+  linked. follow: whether the conversation of a file is then kept in the
+  caller's sidebar (true unless given); an application that shows the
+  conversation itself, such as a game's room, passes false.
   """
-  chatPostMessage(ref: ChatRef!, body: String!, draftId: ID, uploads: [ChatUploadInput!], copies: [ID!], links: [ID!], card: ChatCardInput): ChatMessage!
+  chatPostMessage(ref: ChatRef!, body: String!, draftId: ID, uploads: [ChatUploadInput!], copies: [ID!], links: [ID!], card: ChatCardInput, follow: Boolean): ChatMessage!
   """
   The author's own messages only. uploads and copies are added to the
   attachments, removeAttachments names those to take off, and links, when

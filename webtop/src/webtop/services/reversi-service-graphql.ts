@@ -44,6 +44,8 @@ export interface ReversiRoom {
 	startedAt: string | null;
 	finishedAt: string | null;
 	topic: string;
+	/** The room's chat is the Chat conversation of this file (chat-service-graphql, { fileId }). */
+	chatFileId: string;
 }
 
 /** What a room's topic message carries (see reversi.graphqls). */
@@ -63,7 +65,7 @@ export const REVERSI_TOPICS = 'game/reversi/rooms/*';
 
 const ROOM_FIELDS = `
 	id size status host yourSide blackFace whiteFace theme guestReady
-	moves winner resignedBy createdAt startedAt finishedAt topic
+	moves winner resignedBy createdAt startedAt finishedAt topic chatFileId
 	black { id displayName }
 	white { id displayName }
 `;

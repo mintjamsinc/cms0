@@ -211,6 +211,37 @@
 	overflow-y: auto;
 }
 
+.rv-seats {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	flex-shrink: 0;
+}
+
+/* The room's chat under the players: the panel widens and stops scrolling
+ * as a whole, the thread takes the rest of it and scrolls inside. */
+.rv-body.has-chat {
+	--rv-side-width: 19rem;
+}
+
+.rv-side.has-chat {
+	overflow: hidden;
+}
+
+.rv-chat-head {
+	flex-shrink: 0;
+	margin-top: 0.4rem;
+	padding-top: 0.6rem;
+	border-top: 1px solid var(--island-border-color);
+	font-size: 12px;
+	color: var(--text-soft-color);
+}
+
+.rv-chat {
+	flex: 1;
+	min-height: 0;
+}
+
 .rv-seat {
 	display: flex;
 	align-items: center;

@@ -152,6 +152,12 @@ export interface ChatMessageContent {
 	removeAttachments?: string[];
 	/** On a post: a card design, the values of its fields and the locale its summary is written in. */
 	card?: { path: string; fields: ChatCardValues; locale?: string };
+	/**
+	 * On a post in the conversation of a file: whether the conversation is
+	 * then kept in the user's sidebar (true unless given). An application
+	 * that shows the conversation itself passes false.
+	 */
+	follow?: boolean;
 }
 
 export interface ChatMessage {
@@ -372,8 +378,8 @@ export class ChatServiceGraphQL {
 
 	async postMessage(ref: ChatRef, body: string, content: ChatMessageContent = {}): Promise<ChatMessage> {
 		const data = await this.#client.mutation<{ chatPostMessage: ChatMessage }>(
-			`mutation ($ref: ChatRef!, $body: String!, $draftId: ID, $uploads: [ChatUploadInput!], $copies: [ID!], $links: [ID!], $card: ChatCardInput) {
-				chatPostMessage(ref: $ref, body: $body, draftId: $draftId, uploads: $uploads, copies: $copies, links: $links, card: $card) { ${MESSAGE_FIELDS} }
+			`mutation ($ref: ChatRef!, $body: String!, $draftId: ID, $uploads: [ChatUploadInput!], $copies: [ID!], $links: [ID!], $card: ChatCardInput, $follow: Boolean) {
+				chatPostMessage(ref: $ref, body: $body, draftId: $draftId, uploads: $uploads, copies: $copies, links: $links, card: $card, follow: $follow) { ${MESSAGE_FIELDS} }
 			}`,
 			{
 				ref: refInput(ref),
@@ -383,6 +389,7 @@ export class ChatServiceGraphQL {
 				copies: content.copies ?? [],
 				links: content.links ?? [],
 				card: content.card ?? null,
+				follow: content.follow ?? null,
 			});
 		return data.chatPostMessage;
 	}

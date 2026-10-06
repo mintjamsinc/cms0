@@ -62,6 +62,8 @@ type ReversiRoom {
   finishedAt: DateTime
   """The topic the room's messages are published on."""
   topic: String!
+  """The identifier of the room's settings file. The room's chat is the Chat conversation of this file (chatConversation with fileId), which the two players can read."""
+  chatFileId: ID!
 }
 
 extend type Query {

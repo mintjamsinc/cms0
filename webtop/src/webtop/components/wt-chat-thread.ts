@@ -27,6 +27,10 @@
 //   reload         a number the host raises to have the conversation read
 //                  again: what changed outside it, such as a linked file that
 //                  was moved, raises no event the thread could be watching
+//   follow         false when the conversation of a file is not to be kept in
+//                  the reader's Chat sidebar once the reader posts in it: for
+//                  a host that shows the conversation itself, such as a game's
+//                  room, where the file is the host's own record
 //
 // Events (detail):
 //   loaded     the ChatConversation, when the conversation was read or its
@@ -307,7 +311,7 @@ function errorText(e: unknown): string {
 
 defineComponent('wt-chat-thread', {
 	template: '#wt-chat-thread',
-	props: ['conversation', 'api', 'localization', 'reload', 'focusOnOpen', 'focusMessage'],
+	props: ['conversation', 'api', 'localization', 'reload', 'focusOnOpen', 'focusMessage', 'follow'],
 	emits: ['loaded', 'failed', 'activity', 'read', 'posted'],
 	data(this: any) {
 		return {
@@ -1036,6 +1040,7 @@ defineComponent('wt-chat-thread', {
 				if (design) {
 					content.card = { path: design.path, fields: vm.draftValues(), locale: vm.cardLocalization().locale };
 				}
+				if (vm.follow === false || vm.follow === 'false') content.follow = false;
 				const message = await vm.api.chat.postMessage(vm.conversation, body, content);
 				if (epoch !== vm._.epoch) return;
 				vm.draft = '';

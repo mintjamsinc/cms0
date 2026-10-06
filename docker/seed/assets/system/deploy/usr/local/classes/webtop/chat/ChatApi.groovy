@@ -666,8 +666,10 @@ class ChatApi {
 	/**
 	 * Posts a message. content: draftId and uploads (files uploaded into the
 	 * caller's home for this message), copies (identifiers of repository files to
-	 * attach a copy of), links (identifiers of files or folders to link) and
-	 * card (the path of a design and the values of its fields).
+	 * attach a copy of), links (identifiers of files or folders to link), card
+	 * (the path of a design and the values of its fields) and follow (whether
+	 * the conversation of a file is then kept in the caller's sidebar; true
+	 * unless given).
 	 */
 	Map postMessage(Map ref, String body, Map content = [:]) {
 		String draftId = content.draftId as String;
@@ -682,8 +684,9 @@ class ChatApi {
 				ChatMessages.KIND_USER, sources, links, mentions, card);
 			changed(service, conversation);
 			notifyMentions(service, conversation, posted.id as String, mentions);
-			// Whoever posts about a file keeps its conversation in the sidebar.
-			if (conversation.kind == 'file') {
+			// Whoever posts about a file keeps its conversation in the sidebar,
+			// unless the application that shows the conversation says not to.
+			if (conversation.kind == 'file' && content.follow != false) {
 				home.follow(conversation.key as String);
 			}
 			return toMessage(service, posted);

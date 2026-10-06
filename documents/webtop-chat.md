@@ -63,7 +63,11 @@ is marked when the conversation has messages not yet read.
 In the Chat app, the **Files** section of the sidebar lists the conversations
 the user follows, the most recently active first. Posting to a conversation
 follows it; the bookmark in its heading adds it to the sidebar or takes it out.
-The heading shows the file with **Open** and **Show in folder**.
+The heading shows the file with **Open** and **Show in folder**. An app that
+shows a file's conversation in its own window, where the file is the app's
+own record (the Reversi app's room chat, [`webtop-reversi.md`](webtop-reversi.md)),
+posts without following it (`chatPostMessage(follow: false)`), so the file
+never appears in the Files section.
 
 Another app opens a conversation in the Chat app by launching it with
 `{ fileId }` or `{ channelId }` as its options.

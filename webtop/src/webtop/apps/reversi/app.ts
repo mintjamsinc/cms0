@@ -25,6 +25,11 @@
  * progress for the lobby is confirmed first; a room left this way goes on
  * and can be resumed from the lobby.
  *
+ * A room has a chat, shown in the players' panel from the invitation on:
+ * it is the Chat conversation of the room's settings file (the room's
+ * `chatFileId`), which only the two players can read, in the same
+ * <wt-chat-thread> the Chat app shows a conversation in.
+ *
  * The game in progress and the settings are kept per user in the local
  * webtop database; a local game is saved as its move list and replayed on
  * launch, a game against another user as its room id.
@@ -49,6 +54,9 @@ import {
 	type ReversiRoom,
 	type ReversiSide,
 } from "../../services/reversi-service-graphql.js";
+import { ChatServiceGraphQL } from "../../services/chat-service-graphql.js";
+// Side-effect import: registers the <wt-chat-thread> the room's chat is shown in.
+import { loadChatThreadTemplate } from "../../components/wt-chat-thread.js";
 import { Effects } from '../../lib/effects.js';
 import {
 	ReversiGame,
@@ -213,6 +221,8 @@ const App = {
 			localization: createLocalizationSnapshot(),
 			isReady: false,
 			userId: '',
+			// What the room's <wt-chat-thread> works with; marked raw (see appLaunch).
+			threadApi: null as any,
 
 			settings: defaultSettings(),
 
@@ -253,6 +263,8 @@ const App = {
 				busy: false,
 				// Whether the game ended by resignation, and whose.
 				resignedBy: '' as string,
+				// The room's settings file, whose Chat conversation is the room's chat.
+				chatFileId: '',
 				invitations: [] as ReversiRoom[],
 				sent: [] as ReversiRoom[],
 				games: [] as ReversiRoom[],
@@ -306,6 +318,10 @@ const App = {
 		scene(): 'lobby' | 'game' {
 			if (this.isOnline) return this.inLobby ? 'lobby' : 'game';
 			return this.hasGame ? 'game' : 'lobby';
+		},
+		/** The room's chat, for the panel: the conversation of the room's settings file. */
+		chatRef(): { fileId: string } | null {
+			return this.online.chatFileId ? { fileId: this.online.chatFileId } : null;
 		},
 		/** What leaving the board for the lobby means, for the question asked first. */
 		leaveNote(): string {
@@ -534,7 +550,10 @@ const App = {
 
 				// --- Readiness gate --- (see index.html)
 				try {
-					await initUi({ popupAdapter: createShellPopupAdapter(instance) });
+					await Promise.all([
+						initUi({ popupAdapter: createShellPopupAdapter(instance) }),
+						loadChatThreadTemplate(),
+					]);
 				} catch (e) {
 					console.warn('[Reversi] Failed to load component templates:', e);
 				}
@@ -542,6 +561,17 @@ const App = {
 				fx = new Effects();
 				ai = new AiClient(new URL('./ai-worker.js?v=__BUILD_VERSION__', import.meta.url));
 				reversi = new ReversiServiceGraphQL(instance.api.graphql);
+				// Marked raw so the reactive system never Proxy-wraps the services:
+				// they carry private fields, which throw when called through a Proxy.
+				vm.threadApi = this.$markRaw({
+					chat: new ChatServiceGraphQL(instance.api.graphql),
+					eventHub: instance.api.eventHub,
+					// What attaching files needs: the content service of this
+					// workspace, and whose home the uploads go to.
+					content: instance.api.content,
+					workspace: instance.api.workspace,
+					userId: vm.userId,
+				});
 
 				instance.setBeforeCloseCallback(async () => {
 					await vm.flushSave();
@@ -1125,6 +1155,7 @@ const App = {
 			o.theme = r.theme || '';
 			o.guestReady = !!r.guestReady;
 			o.resignedBy = r.resignedBy || '';
+			o.chatFileId = r.chatFileId || '';
 			const faces = [r.blackFace || DEFAULT_FACES[0], r.whiteFace || DEFAULT_FACES[1]];
 			if (this.seats[0].face !== faces[0] || this.seats[1].face !== faces[1]) {
 				this.seats = [{ ...this.seats[0], face: faces[0] }, { ...this.seats[1], face: faces[1] }];
@@ -1196,6 +1227,7 @@ const App = {
 			o.guestReady = false;
 			o.busy = false;
 			o.resignedBy = '';
+			o.chatFileId = '';
 		},
 
 		/** Sends the user's move; false when it was refused, in which case the room is read again. */
