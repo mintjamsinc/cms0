@@ -22,24 +22,28 @@
 		     element is connected with its <template> already present. -->
 		<template v-if="isReady">
 
-		<!-- Top Toolbar (translucent) -->
+		<!-- Top Toolbar (translucent). Only what can be done now is shown:
+		     nothing in the lobby, the way back to it once a game or a room
+		     is on the board, and the game's own tools in the game scene. -->
 		<nav class="nav-bar window-drag-region">
-			<div class="toolbar-group">
-				<button class="btn-icon rv-toolbar-btn" @click="openNewGame" :title="t('app.reversi.toolbar.newGame', undefined, 'New game')">
-					<i class="bi bi-plus-circle"></i>
-					<!-- An invitation is waiting for an answer. -->
+			<div class="toolbar-group" v-if="hasGame">
+				<button class="btn-icon rv-toolbar-btn" @click="requestLobby" :title="t('app.reversi.toolbar.lobby', undefined, 'Back to the lobby')">
+					<i class="bi bi-box-arrow-left"></i>
+					<!-- An invitation is waiting for an answer in the lobby. -->
 					<span v-if="pendingCount" class="rv-badge" aria-hidden="true"></span>
 				</button>
-				<button class="btn-icon" @click="undo" :disabled="!canUndo" :title="t('app.reversi.toolbar.undo', undefined, 'Undo')">
-					<i class="bi bi-arrow-counterclockwise"></i>
-				</button>
-				<button v-if="isOnline" class="btn-icon" :disabled="!canResign" @click="openResign" :title="t('app.reversi.online.resign', undefined, 'Resign')">
-					<i class="bi bi-flag"></i>
-				</button>
-				<button class="btn-icon" :class="{active: settings.hints}" @click="toggleHints"
-					:title="t('app.reversi.toolbar.hints', undefined, 'Show where you can play')">
-					<i class="bi bi-lightbulb"></i>
-				</button>
+				<template v-if="scene === 'game'">
+					<button v-if="!isOnline" class="btn-icon" @click="undo" :disabled="!canUndo" :title="t('app.reversi.toolbar.undo', undefined, 'Undo')">
+						<i class="bi bi-arrow-counterclockwise"></i>
+					</button>
+					<button v-else class="btn-icon" :disabled="!canResign" @click="openResign" :title="t('app.reversi.online.resign', undefined, 'Resign')">
+						<i class="bi bi-flag"></i>
+					</button>
+					<button class="btn-icon" :class="{active: settings.hints}" @click="toggleHints"
+						:title="t('app.reversi.toolbar.hints', undefined, 'Show where you can play')">
+						<i class="bi bi-lightbulb"></i>
+					</button>
+				</template>
 			</div>
 
 			<span class="nav-spacer"></span>
@@ -60,209 +64,12 @@
 
 		<div class="content-body rv-body">
 
-			<!-- Board -->
-			<div class="content-main island p-0 rv-stage" :style="stageStyle">
-				<div class="rv-board-wrap">
-					<div class="rv-board" :class="{ 'is-locked': !isHumanTurn || busy }" :style="boardStyle">
-						<button v-for="(cell, i) in cells" :key="i" type="button" class="rv-cell" :data-i="i"
-							:aria-label="cellLabel(i, cell)" @click="onCellClick(i)">
-							<span v-if="cell" class="rv-disc" :class="{ 'is-last': i === lastMove }" :style="discStyle(cell)"></span>
-							<span v-else-if="hintMap[i]" class="rv-hint"></span>
-						</button>
-					</div>
-				</div>
+			<!-- Main area: the scene (app.ts `scene`). -->
 
-				<div v-if="notice" class="rv-notice">{{ notice }}</div>
-			</div>
-
-			<!-- Players -->
-			<aside class="island rv-side">
-				<div v-for="card in seatCards" :key="card.player" class="rv-seat"
-					:class="{ 'is-active': card.active }">
-					<span class="rv-mini-disc rv-seat-disc" :style="card.style"></span>
-					<div class="rv-seat-text">
-						<div class="rv-seat-name">{{ card.name }}</div>
-						<div class="rv-seat-role">
-							<template v-if="card.thinking">
-								<span class="rv-dots"><i></i><i></i><i></i></span>
-							</template>
-							<template v-else>{{ card.role }}</template>
-						</div>
-					</div>
-					<div class="rv-seat-count">{{ card.count }}</div>
-				</div>
-			</aside>
-		</div>
-
-		<!-- Bottom Status Bar (translucent) -->
-		<div class="status-bar window-drag-region">
-			<div class="status-group">
-				<span class="status-item">{{ statusText }}</span>
-			</div>
-			<span class="nav-spacer"></span>
-			<div class="status-group" v-if="hasGame">
-				<span class="status-item">{{ t('app.reversi.status.moves', { n: ply }, 'Move {n}') }}</span>
-			</div>
-		</div>
-
-		<!-- Result: closing it leaves the final board in view.
-		     Steps aside while the new game dialog is open. -->
-		<wt-dialog :open="!!result && resultDialog.visible && !dialog.visible" size="sm" :header="false" :footer="false" @close="closeResult">
-			<template v-slot="d">
-				<div class="rv-result">
-					<h3 class="rv-result-title">{{ resultTitle }}</h3>
-					<div v-if="resultNote" class="rv-result-note">{{ resultNote }}</div>
-					<div class="rv-result-score">
-						<span class="rv-mini-disc" :style="seatCards[0].style"></span>
-						<strong>{{ result?.black }}</strong>
-						<span class="rv-result-dash">-</span>
-						<strong>{{ result?.white }}</strong>
-						<span class="rv-mini-disc" :style="seatCards[1].style"></span>
-					</div>
-					<div class="rv-result-actions">
-						<button type="button" class="wt" @click="closeResult">{{ t('common.close', undefined, 'Close') }}</button>
-						<button type="button" class="wt" @click="openNewGame">{{ t('app.reversi.result.change', undefined, 'Change settings') }}</button>
-						<button type="button" class="wt wt-primary" @click="playAgain">
-							{{ isOnline ? t('app.reversi.online.rematch', undefined, 'Rematch') : t('app.reversi.result.again', undefined, 'Play again') }}
-						</button>
-					</div>
-				</div>
-			</template>
-		</wt-dialog>
-
-		<!-- New game -->
-		<wt-dialog :open="dialog.visible" size="md" :closable="hasGame" :esc-close="hasGame" @close="closeNewGame">
-			<template v-slot:title="d">
-				{{ t('app.reversi.dialog.title', undefined, 'New game') }}
-			</template>
-			<template v-slot="d">
-				<div class="rv-dialog">
-					<div class="rv-options rv-options-3">
-						<button type="button" class="rv-option" :class="{ 'is-selected': dialog.mode === 'ai' }" @click="dialog.mode = 'ai'">
-							<i class="bi bi-cpu"></i>
-							<span>{{ t('app.reversi.dialog.vsComputer', undefined, 'Play the computer') }}</span>
-						</button>
-						<button type="button" class="rv-option" :class="{ 'is-selected': dialog.mode === 'local' }" @click="dialog.mode = 'local'">
-							<i class="bi bi-people"></i>
-							<span>{{ t('app.reversi.dialog.twoPlayers', undefined, 'Two players') }}</span>
-						</button>
-						<button type="button" class="rv-option" :class="{ 'is-selected': dialog.mode === 'online' }" @click="dialog.mode = 'online'">
-							<i class="bi bi-globe2"></i>
-							<span>{{ t('app.reversi.dialog.online', undefined, 'Another user') }}</span>
-							<span v-if="pendingCount" class="rv-badge rv-badge-option" aria-hidden="true"></span>
-						</button>
-					</div>
-
-					<template v-if="dialog.mode === 'ai'">
-						<label class="dialog-label">{{ t('app.reversi.dialog.level', undefined, 'Strength') }}</label>
-						<div class="rv-chips">
-							<button v-for="o in levelOptions" :key="o.level" type="button" class="rv-chip"
-								:class="{ 'is-selected': dialog.level === o.level }" @click="dialog.level = o.level">
-								<span class="rv-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
-							</button>
-						</div>
-						<label class="dialog-label">{{ t('app.reversi.dialog.side', undefined, 'You play') }}</label>
-						<div class="rv-chips">
-							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'black' }" @click="dialog.side = 'black'">
-								{{ t('app.reversi.dialog.sideFirst', undefined, 'First (black)') }}
-							</button>
-							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'white' }" @click="dialog.side = 'white'">
-								{{ t('app.reversi.dialog.sideSecond', undefined, 'Second (white)') }}
-							</button>
-							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'random' }" @click="dialog.side = 'random'">
-								{{ t('app.reversi.dialog.sideRandom', undefined, 'Either') }}
-							</button>
-						</div>
-					</template>
-
-					<template v-else-if="dialog.mode === 'online'">
-						<!-- Invitations to answer, games to go back to, invitations sent. -->
-						<div v-if="roomCards.length" class="rv-rooms">
-							<div v-for="c in roomCards" :key="c.room.id" class="rv-room" :class="{ 'is-current': c.current }">
-								<i class="bi" :class="c.action === 'answer' ? 'bi-envelope-heart' : c.action === 'resume' ? 'bi-play-circle' : 'bi-hourglass-split'"></i>
-								<div class="rv-room-text">
-									<span class="text-truncate">{{ c.name }}</span>
-									<span class="rv-room-sub text-truncate">{{ c.note }} · {{ c.side }}</span>
-								</div>
-								<template v-if="c.action === 'answer'">
-									<button type="button" class="wt wt-slim" :disabled="dialog.busy" @click="declineRoom(c.room)">
-										{{ t('app.reversi.online.decline', undefined, 'Decline') }}
-									</button>
-									<button type="button" class="wt wt-slim wt-primary" :disabled="dialog.busy" @click="acceptRoom(c.room)">
-										{{ t('app.reversi.online.accept', undefined, 'Accept') }}
-									</button>
-								</template>
-								<button v-else-if="c.action === 'resume'" type="button" class="wt wt-slim wt-primary" @click="resumeRoomFromList(c.room)">
-									{{ t('app.reversi.online.resume', undefined, 'Resume') }}
-								</button>
-								<button v-else type="button" class="wt wt-slim" :disabled="dialog.busy" @click="declineRoom(c.room)">
-									{{ t('app.reversi.online.cancel', undefined, 'Take back') }}
-								</button>
-							</div>
-						</div>
-
-						<label class="dialog-label">{{ t('app.reversi.online.invite', undefined, 'Invite someone') }}</label>
-						<wt-autocomplete :search="findOpponents"
-							:placeholder="t('app.reversi.online.search', undefined, 'Search by name')"
-							:empty-text="t('app.reversi.online.nobody', undefined, 'Nobody found.')"
-							@pick="chooseOpponent($event.detail.value)" @change="dialog.opponent = null"></wt-autocomplete>
-
-						<label class="dialog-label">{{ t('app.reversi.dialog.side', undefined, 'You play') }}</label>
-						<div class="rv-chips">
-							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'black' }" @click="dialog.side = 'black'">
-								{{ t('app.reversi.dialog.sideFirst', undefined, 'First (black)') }}
-							</button>
-							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'white' }" @click="dialog.side = 'white'">
-								{{ t('app.reversi.dialog.sideSecond', undefined, 'Second (white)') }}
-							</button>
-							<button type="button" class="rv-chip" :class="{ 'is-selected': dialog.side === 'random' }" @click="dialog.side = 'random'">
-								{{ t('app.reversi.dialog.sideRandom', undefined, 'Either') }}
-							</button>
-						</div>
-						<div v-if="dialog.error || online.error" class="rv-error">{{ dialog.error || online.error }}</div>
-					</template>
-
-					<template v-else>
-						<label class="dialog-label">{{ t('app.reversi.dialog.facesFirst', undefined, 'Disc for the first player') }}</label>
-						<div class="rv-faces">
-							<button v-for="f in faceOptions" :key="f.id" type="button" class="rv-face"
-								:class="{ 'is-selected': dialog.faces[0] === f.id, 'is-taken': dialog.faces[1] === f.id }"
-								:style="f.style" :title="f.label" :aria-label="f.label" @click="pickFace(0, f.id)"></button>
-						</div>
-						<label class="dialog-label">{{ t('app.reversi.dialog.facesSecond', undefined, 'Disc for the second player') }}</label>
-						<div class="rv-faces">
-							<button v-for="f in faceOptions" :key="f.id" type="button" class="rv-face"
-								:class="{ 'is-selected': dialog.faces[1] === f.id, 'is-taken': dialog.faces[0] === f.id }"
-								:style="f.style" :title="f.label" :aria-label="f.label" @click="pickFace(1, f.id)"></button>
-						</div>
-					</template>
-
-					<template v-if="dialog.mode !== 'online'">
-						<label class="dialog-label">{{ t('app.reversi.side.board', undefined, 'Board') }}</label>
-						<div class="rv-swatches">
-							<button v-for="theme in themeOptions" :key="theme.id" type="button" class="rv-swatch"
-								:class="{ 'is-selected': dialog.theme === theme.id }" :style="theme.style"
-								:title="theme.label" :aria-label="theme.label" @click="dialog.theme = theme.id"></button>
-						</div>
-					</template>
-				</div>
-			</template>
-			<template v-slot:footer="d">
-				<button v-if="hasGame" type="button" class="wt" @click="closeNewGame">{{ t('common.cancel', undefined, 'Cancel') }}</button>
-				<button type="button" class="wt wt-primary" :disabled="!canStart" @click="confirmNewGame">
-					{{ dialog.mode === 'online' ? t('app.reversi.online.send', undefined, 'Invite') : t('app.reversi.dialog.start', undefined, 'Start') }}
-				</button>
-			</template>
-		</wt-dialog>
-
-		<!-- Getting ready against another user: discs, the board, ready, start.
-		     Steps aside while the new game dialog is open. -->
-		<wt-dialog :open="inLobby && !dialog.visible" size="md" :closable="false" :esc-close="false">
-			<template v-slot:title="d">
-				{{ t('app.reversi.online.lobby', undefined, 'Getting ready') }}
-			</template>
-			<template v-slot="d">
-				<div class="rv-dialog">
+			<!-- Lobby scene, getting ready in a room: discs, the board, ready, start. -->
+			<section v-if="scene === 'lobby' && isOnline" class="content-main island rv-lobby rv-scene">
+				<div class="rv-lobby-body">
+					<h2 class="rv-lobby-title">{{ t('app.reversi.online.lobby', undefined, 'Getting ready') }}</h2>
 					<div class="rv-lobby-note">{{ lobbyNote }}</div>
 					<label class="dialog-label">{{ t('app.reversi.online.yourDisc', undefined, 'Your disc') }}</label>
 					<div class="rv-faces">
@@ -288,19 +95,226 @@
 							:title="theme.label" :aria-label="theme.label" @click="pickRoomTheme(theme.id)"></button>
 					</div>
 				</div>
+				<div class="rv-lobby-actions">
+					<button type="button" class="wt" :disabled="online.busy" @click="leaveLobby">
+						{{ isHost ? t('app.reversi.online.cancel', undefined, 'Take back') : t('app.reversi.online.leave', undefined, 'Leave') }}
+					</button>
+					<button v-if="isHost" type="button" class="wt wt-primary" :disabled="!canStartRoom" @click="startRoom">
+						{{ t('app.reversi.dialog.start', undefined, 'Start') }}
+					</button>
+					<button v-else-if="!online.guestReady" type="button" class="wt wt-primary" :disabled="online.busy" @click="setReady(true)">
+						{{ t('app.reversi.online.ready', undefined, 'Ready!') }}
+					</button>
+					<button v-else type="button" class="wt" :disabled="online.busy" @click="setReady(false)">
+						{{ t('app.reversi.online.notReady', undefined, 'Choose again') }}
+					</button>
+				</div>
+			</section>
+
+			<!-- Lobby scene, setting up the next game. -->
+			<section v-else-if="scene === 'lobby'" class="content-main island rv-lobby rv-scene">
+				<div class="rv-lobby-body">
+					<h2 class="rv-lobby-title">{{ t('app.reversi.dialog.title', undefined, 'New game') }}</h2>
+					<div class="rv-options rv-options-3">
+						<button type="button" class="rv-option" :class="{ 'is-selected': setup.mode === 'ai' }" @click="setup.mode = 'ai'">
+							<i class="bi bi-cpu"></i>
+							<span>{{ t('app.reversi.dialog.vsComputer', undefined, 'Play the computer') }}</span>
+						</button>
+						<button type="button" class="rv-option" :class="{ 'is-selected': setup.mode === 'local' }" @click="setup.mode = 'local'">
+							<i class="bi bi-people"></i>
+							<span>{{ t('app.reversi.dialog.twoPlayers', undefined, 'Two players') }}</span>
+						</button>
+						<button type="button" class="rv-option" :class="{ 'is-selected': setup.mode === 'online' }" @click="setup.mode = 'online'">
+							<i class="bi bi-globe2"></i>
+							<span>{{ t('app.reversi.dialog.online', undefined, 'Another user') }}</span>
+							<span v-if="pendingCount" class="rv-badge rv-badge-option" aria-hidden="true"></span>
+						</button>
+					</div>
+
+					<template v-if="setup.mode === 'ai'">
+						<label class="dialog-label">{{ t('app.reversi.dialog.level', undefined, 'Strength') }}</label>
+						<div class="rv-chips">
+							<button v-for="o in levelOptions" :key="o.level" type="button" class="rv-chip"
+								:class="{ 'is-selected': setup.level === o.level }" @click="setup.level = o.level">
+								<span class="rv-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
+							</button>
+						</div>
+						<label class="dialog-label">{{ t('app.reversi.dialog.side', undefined, 'You play') }}</label>
+						<div class="rv-chips">
+							<button type="button" class="rv-chip" :class="{ 'is-selected': setup.side === 'black' }" @click="setup.side = 'black'">
+								{{ t('app.reversi.dialog.sideFirst', undefined, 'First (black)') }}
+							</button>
+							<button type="button" class="rv-chip" :class="{ 'is-selected': setup.side === 'white' }" @click="setup.side = 'white'">
+								{{ t('app.reversi.dialog.sideSecond', undefined, 'Second (white)') }}
+							</button>
+							<button type="button" class="rv-chip" :class="{ 'is-selected': setup.side === 'random' }" @click="setup.side = 'random'">
+								{{ t('app.reversi.dialog.sideRandom', undefined, 'Either') }}
+							</button>
+						</div>
+					</template>
+
+					<template v-else-if="setup.mode === 'online'">
+						<!-- Invitations to answer, games to go back to, invitations sent. -->
+						<div v-if="roomCards.length" class="rv-rooms">
+							<div v-for="c in roomCards" :key="c.room.id" class="rv-room">
+								<i class="bi" :class="c.action === 'answer' ? 'bi-envelope-heart' : c.action === 'resume' ? 'bi-play-circle' : 'bi-hourglass-split'"></i>
+								<div class="rv-room-text">
+									<span class="text-truncate">{{ c.name }}</span>
+									<span class="rv-room-sub text-truncate">{{ c.note }} · {{ c.side }}</span>
+								</div>
+								<template v-if="c.action === 'answer'">
+									<button type="button" class="wt wt-slim" :disabled="setup.busy" @click="declineRoom(c.room)">
+										{{ t('app.reversi.online.decline', undefined, 'Decline') }}
+									</button>
+									<button type="button" class="wt wt-slim wt-primary" :disabled="setup.busy" @click="acceptRoom(c.room)">
+										{{ t('app.reversi.online.accept', undefined, 'Accept') }}
+									</button>
+								</template>
+								<button v-else-if="c.action === 'resume'" type="button" class="wt wt-slim wt-primary" @click="resumeRoomFromList(c.room)">
+									{{ t('app.reversi.online.resume', undefined, 'Resume') }}
+								</button>
+								<button v-else type="button" class="wt wt-slim" :disabled="setup.busy" @click="declineRoom(c.room)">
+									{{ t('app.reversi.online.cancel', undefined, 'Take back') }}
+								</button>
+							</div>
+						</div>
+
+						<label class="dialog-label">{{ t('app.reversi.online.invite', undefined, 'Invite someone') }}</label>
+						<wt-autocomplete :search="findOpponents"
+							:placeholder="t('app.reversi.online.search', undefined, 'Search by name')"
+							:empty-text="t('app.reversi.online.nobody', undefined, 'Nobody found.')"
+							@pick="chooseOpponent($event.detail.value)" @change="setup.opponent = null"></wt-autocomplete>
+
+						<label class="dialog-label">{{ t('app.reversi.dialog.side', undefined, 'You play') }}</label>
+						<div class="rv-chips">
+							<button type="button" class="rv-chip" :class="{ 'is-selected': setup.side === 'black' }" @click="setup.side = 'black'">
+								{{ t('app.reversi.dialog.sideFirst', undefined, 'First (black)') }}
+							</button>
+							<button type="button" class="rv-chip" :class="{ 'is-selected': setup.side === 'white' }" @click="setup.side = 'white'">
+								{{ t('app.reversi.dialog.sideSecond', undefined, 'Second (white)') }}
+							</button>
+							<button type="button" class="rv-chip" :class="{ 'is-selected': setup.side === 'random' }" @click="setup.side = 'random'">
+								{{ t('app.reversi.dialog.sideRandom', undefined, 'Either') }}
+							</button>
+						</div>
+						<div v-if="setup.error || online.error" class="rv-error">{{ setup.error || online.error }}</div>
+					</template>
+
+					<template v-else>
+						<label class="dialog-label">{{ t('app.reversi.dialog.facesFirst', undefined, 'Disc for the first player') }}</label>
+						<div class="rv-faces">
+							<button v-for="f in faceOptions" :key="f.id" type="button" class="rv-face"
+								:class="{ 'is-selected': setup.faces[0] === f.id, 'is-taken': setup.faces[1] === f.id }"
+								:style="f.style" :title="f.label" :aria-label="f.label" @click="pickFace(0, f.id)"></button>
+						</div>
+						<label class="dialog-label">{{ t('app.reversi.dialog.facesSecond', undefined, 'Disc for the second player') }}</label>
+						<div class="rv-faces">
+							<button v-for="f in faceOptions" :key="f.id" type="button" class="rv-face"
+								:class="{ 'is-selected': setup.faces[1] === f.id, 'is-taken': setup.faces[0] === f.id }"
+								:style="f.style" :title="f.label" :aria-label="f.label" @click="pickFace(1, f.id)"></button>
+						</div>
+					</template>
+
+					<template v-if="setup.mode !== 'online'">
+						<label class="dialog-label">{{ t('app.reversi.side.board', undefined, 'Board') }}</label>
+						<div class="rv-swatches">
+							<button v-for="theme in themeOptions" :key="theme.id" type="button" class="rv-swatch"
+								:class="{ 'is-selected': setup.theme === theme.id }" :style="theme.style"
+								:title="theme.label" :aria-label="theme.label" @click="setup.theme = theme.id"></button>
+						</div>
+					</template>
+				</div>
+				<div class="rv-lobby-actions">
+					<button type="button" class="wt wt-primary" :disabled="!canStart" @click="startFromLobby">
+						{{ setup.mode === 'online' ? t('app.reversi.online.send', undefined, 'Invite') : t('app.reversi.dialog.start', undefined, 'Start') }}
+					</button>
+				</div>
+			</section>
+
+			<!-- Game scene: the board. -->
+			<div v-else class="content-main island p-0 rv-stage rv-scene" :style="stageStyle">
+				<div class="rv-board-wrap">
+					<div class="rv-board" :class="{ 'is-locked': !isHumanTurn || busy }" :style="boardStyle">
+						<button v-for="(cell, i) in cells" :key="i" type="button" class="rv-cell" :data-i="i"
+							:aria-label="cellLabel(i, cell)" @click="onCellClick(i)">
+							<span v-if="cell" class="rv-disc" :class="{ 'is-last': i === lastMove }" :style="discStyle(cell)"></span>
+							<span v-else-if="hintMap[i]" class="rv-hint"></span>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<!-- Players: the same panel in every scene. In the lobby it shows
+			     the game being set up as the form is filled in. -->
+			<aside class="island rv-side">
+				<div v-for="card in seatCards" :key="card.player" class="rv-seat"
+					:class="{ 'is-active': card.active }">
+					<span class="rv-mini-disc rv-seat-disc" :style="card.style"></span>
+					<div class="rv-seat-text">
+						<div class="rv-seat-name">{{ card.name }}</div>
+						<div class="rv-seat-role">
+							<template v-if="card.thinking">
+								<span class="rv-dots"><i></i><i></i><i></i></span>
+							</template>
+							<template v-else>{{ card.role }}</template>
+						</div>
+					</div>
+					<div class="rv-seat-count">{{ card.count }}</div>
+				</div>
+			</aside>
+
+			<!-- A passing word (a pass, an invitation, an error), over the
+			     main area in either scene. -->
+			<div v-if="notice" class="rv-notice">{{ notice }}</div>
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ statusText }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group" v-if="scene === 'game'">
+				<span class="status-item">{{ t('app.reversi.status.moves', { n: ply }, 'Move {n}') }}</span>
+			</div>
+		</div>
+
+		<!-- Result: closing it leaves the final board in view. -->
+		<wt-dialog :open="!!result && resultDialog.visible" size="sm" :header="false" :footer="false" @close="closeResult">
+			<template v-slot="d">
+				<div class="rv-result">
+					<h3 class="rv-result-title">{{ resultTitle }}</h3>
+					<div v-if="resultNote" class="rv-result-note">{{ resultNote }}</div>
+					<div class="rv-result-score">
+						<span class="rv-mini-disc" :style="seatCards[0].style"></span>
+						<strong>{{ result?.black }}</strong>
+						<span class="rv-result-dash">-</span>
+						<strong>{{ result?.white }}</strong>
+						<span class="rv-mini-disc" :style="seatCards[1].style"></span>
+					</div>
+					<div class="rv-result-actions">
+						<button type="button" class="wt" @click="closeResult">{{ t('common.close', undefined, 'Close') }}</button>
+						<button type="button" class="wt" @click="goToLobby(isOnline ? 'online' : undefined)">{{ t('app.reversi.toolbar.lobby', undefined, 'Back to the lobby') }}</button>
+						<button type="button" class="wt wt-primary" @click="playAgain">
+							{{ isOnline ? t('app.reversi.online.rematch', undefined, 'Rematch') : t('app.reversi.result.again', undefined, 'Play again') }}
+						</button>
+					</div>
+				</div>
+			</template>
+		</wt-dialog>
+
+		<!-- Leaving a game in progress for the lobby -->
+		<wt-dialog :open="leaveDialog.visible" size="sm" @close="closeLeave">
+			<template v-slot:title="d">
+				{{ t('app.reversi.toolbar.lobby', undefined, 'Back to the lobby') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">{{ leaveNote }}</p>
 			</template>
 			<template v-slot:footer="d">
-				<button type="button" class="wt" :disabled="online.busy" @click="leaveLobby">
-					{{ isHost ? t('app.reversi.online.cancel', undefined, 'Take back') : t('app.reversi.online.leave', undefined, 'Leave') }}
-				</button>
-				<button v-if="isHost" type="button" class="wt wt-primary" :disabled="!canStartRoom" @click="startRoom">
-					{{ t('app.reversi.dialog.start', undefined, 'Start') }}
-				</button>
-				<button v-else-if="!online.guestReady" type="button" class="wt wt-primary" :disabled="online.busy" @click="setReady(true)">
-					{{ t('app.reversi.online.ready', undefined, 'Ready!') }}
-				</button>
-				<button v-else type="button" class="wt" :disabled="online.busy" @click="setReady(false)">
-					{{ t('app.reversi.online.notReady', undefined, 'Choose again') }}
+				<button type="button" class="wt" @click="closeLeave">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirmLeave">
+					{{ t('app.reversi.toolbar.lobby', undefined, 'Back to the lobby') }}
 				</button>
 			</template>
 		</wt-dialog>

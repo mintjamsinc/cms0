@@ -174,10 +174,13 @@
 	color: var(--text-muted-color);
 }
 
+/* Over the middle of the main area (the body less the players' panel),
+ * whichever scene is shown. */
 .rv-notice {
 	position: absolute;
+	z-index: 2;
 	top: 1rem;
-	left: 50%;
+	left: calc((100% - var(--rv-side-width) - var(--rv-gap)) / 2);
 	transform: translateX(-50%);
 	padding: 0.4rem 1.1rem;
 	border-radius: 9999px;
@@ -317,17 +320,70 @@
 }
 
 /* ----------------------------------------------------------------------------
- * New game dialog
+ * Scenes
+ *
+ * The main area shows one scene: the lobby or the game (app.ts `scene`).
+ * A scene fades in when it takes the place of the other; the players'
+ * panel stays.
  * -------------------------------------------------------------------------- */
 
-.rv-dialog {
+.rv-scene {
+	animation: rv-scene-in 0.25s ease-out;
+}
+
+@keyframes rv-scene-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
+/* ----------------------------------------------------------------------------
+ * Lobby: the form to set up the next game, or to get ready in a room
+ *
+ * The form is a column in the middle of the island; it scrolls when the
+ * window is low, the buttons stay at the bottom.
+ * -------------------------------------------------------------------------- */
+
+.rv-lobby {
+	padding: 0;
+}
+
+.rv-lobby-body {
 	display: flex;
 	flex-direction: column;
 	gap: 0.4rem;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	width: 100%;
+	max-width: 36rem;
+	margin: 0 auto;
+	padding: 1.25rem 1.5rem 1rem;
 }
 
-.rv-dialog .dialog-label {
+.rv-lobby-title {
+	margin: 0 0 0.75rem;
+	font-size: 1.25rem;
+	font-weight: 700;
+}
+
+.rv-lobby-body .dialog-label {
 	margin-top: 0.6rem;
+}
+
+.rv-lobby-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.5rem;
+	width: 100%;
+	max-width: 36rem;
+	margin: 0 auto;
+	padding: 0.75rem 1.5rem 1.25rem;
+}
+
+.rv-lobby-actions button.wt {
+	min-width: 7.5rem;
 }
 
 .rv-options {
@@ -427,6 +483,7 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.rv-notice,
+	.rv-scene,
 	.rv-dots i {
 		animation: none;
 	}
@@ -479,11 +536,6 @@
 	padding: 0.4rem 0.5rem;
 	border: 1px solid transparent;
 	border-radius: 10px;
-}
-
-.rv-room.is-current {
-	border-color: var(--primary-color);
-	background: var(--item-selected-bg);
 }
 
 .rv-room > .bi {

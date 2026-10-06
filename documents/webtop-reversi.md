@@ -8,9 +8,26 @@ the game is over or one resigns.
 
 Rooms are kept **per workspace**, in the workspace the Webtop runs in.
 
+## The lobby and the game
+
+The window shows one of two **scenes** in its main area, with the players'
+panel beside it in both:
+
+| Scene | What it shows |
+|---|---|
+| Lobby | The next game being set up: the computer, two players, or another user, with the strength, the side, the discs and the board. Against another user, once a room is open, the lobby is where the two players get ready (below). The players' panel shows the game as it is being set up. |
+| Game | The board, the moves, the result. |
+
+The app opens in the lobby, or in the game that was in progress when it was
+last closed. *Start* (or *Invite*) leaves the lobby for the game; the
+toolbar's *Back to the lobby* leaves the game. A game in progress is left
+only after a confirmation: a local game is ended, a game against another
+user goes on and is listed in the lobby to be resumed. The window can be
+closed from either scene.
+
 ## Playing another user
 
-*New game* → *Another user*. The dialog lists, for the user:
+In the lobby, *Another user*. The section lists, for the user:
 
 | | What it is | What can be done |
 |---|---|---|
@@ -19,9 +36,9 @@ Rooms are kept **per workspace**, in the workspace the Webtop runs in.
 | Invitations sent | games waiting for the other user's answer | *Take back* |
 
 Below the list, *Invite someone*: search a user by name, choose the side to
-play (first, second or either) and press *Invite*. The board shows the
-opening position until the invitation is answered; a declined or withdrawn
-invitation is announced and the dialog returns.
+play (first, second or either) and press *Invite*. The lobby then waits for
+the answer; a declined or withdrawn invitation is announced and the lobby
+returns to its list.
 
 During a game the user moves when it is their turn; the other player's move
 appears as it is played. *Resign* (the flag in the toolbar) gives the game up.
@@ -30,8 +47,8 @@ the same opponent with the sides swapped. *Undo* is not available against
 another user.
 
 An invitation that arrives while the app is open is announced and marked on
-the *New game* button. A game in progress is reopened when the app is
-launched again.
+the *Back to the lobby* button and on the lobby's *Another user* section. A
+game in progress is reopened when the app is launched again.
 
 ## Where the games are kept
 
