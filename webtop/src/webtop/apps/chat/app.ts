@@ -20,7 +20,7 @@
 
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import { initUi } from "../../ui/index.js";
+import { initUi, type WtAutocompleteItem } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import {
 	createLocalizationSnapshot,
@@ -57,8 +57,6 @@ let chat: ChatServiceGraphQL | null = null;
 let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
 let browseTimer: ReturnType<typeof setTimeout> | null = null;
-let memberTimer: ReturnType<typeof setTimeout> | null = null;
-let directTimer: ReturnType<typeof setTimeout> | null = null;
 // Stops watching for mentions of the user.
 let unwatchMentions: (() => void) | null = null;
 let confirmAction: (() => void) | null = null;
@@ -68,8 +66,6 @@ let launchThreadSettled: (() => void) | null = null;
 const watches = new Map<string, () => void>();
 // Sequence numbers of the latest searches; older replies are dropped.
 let browseSeq = 0;
-let memberSeq = 0;
-let directSeq = 0;
 let searchSeq = 0;
 let lastFocusReload = 0;
 
@@ -82,6 +78,9 @@ const SEARCH_DELAY_MS = 250;
 // A window coming to the front reads the list again, to find new invitations.
 const FOCUS_RELOAD_INTERVAL_MS = 30 * 1000;
 const MEMBER_SUGGESTIONS = 10;
+// The field for starting a direct message closes this long after it loses the
+// focus empty, so a click on one of its matches is not lost.
+const DIRECT_BLUR_DELAY_MS = 200;
 // How long the window waits, at launch, for the conversation it opens.
 const LAUNCH_THREAD_WAIT_MS = 5000;
 
@@ -159,20 +158,17 @@ const App = {
 			},
 			membersDialog: {
 				visible: false,
-				keyword: '',
-				results: [] as PrincipalInfo[],
-				searching: false,
+				// Picked to be added, not added yet.
+				staged: [] as PrincipalInfo[],
 				busy: false,
 				error: '',
 			},
 			confirmDialog: { visible: false, title: '', message: '' },
-			directDialog: {
-				visible: false,
+			// The field at the end of the direct messages, for starting one.
+			direct: {
+				editing: false,
 				keyword: '',
-				results: [] as PrincipalInfo[],
-				searching: false,
 				busy: false,
-				error: '',
 			},
 		};
 	},
@@ -882,61 +878,47 @@ const App = {
 		// Direct messages
 		// =====================================================================
 
-		openNewDirect() {
-			this.directDialog = { visible: true, keyword: '', results: [], searching: false, busy: false, error: '' };
-			this.focusLater('directKeyword');
-		},
-		closeNewDirect() {
-			this.directDialog.visible = false;
-			if (directTimer) {
-				clearTimeout(directTimer);
-				directTimer = null;
-			}
-		},
-		scheduleDirectSearch() {
-			if (directTimer) clearTimeout(directTimer);
-			directTimer = setTimeout(() => {
-				directTimer = null;
-				this.searchDirect();
-			}, SEARCH_DELAY_MS);
-		},
-		/** Users matching the keyword: not groups, not service accounts, not oneself. */
-		async searchDirect() {
-			const d = this.directDialog;
-			const keyword = d.keyword.trim();
-			const seq = ++directSeq;
-			if (!keyword || !this.instance) {
-				d.results = [];
-				d.searching = false;
+		/** Turns the link at the end of the direct messages into a search field. */
+		startDirect() {
+			if (this.direct.editing) {
+				(this.$refs.directPicker as HTMLElement | undefined)?.querySelector('input')?.focus();
 				return;
 			}
-			d.searching = true;
-			try {
-				const me = this.instance.currentUser?.id;
-				const found = await this.instance.api.content.searchPrincipals(keyword, 0, MEMBER_SUGGESTIONS * 2);
-				if (seq !== directSeq) return;
-				d.results = found.filter((p: PrincipalInfo) => !p.isGroup && !p.isService && p.identifier !== me).slice(0, MEMBER_SUGGESTIONS);
-			} catch (e) {
-				if (seq === directSeq) {
-					d.results = [];
-					d.error = errorText(e);
-				}
-			} finally {
-				if (seq === directSeq) d.searching = false;
-			}
+			this.direct = { editing: true, keyword: '', busy: false };
+		},
+		cancelDirect() {
+			this.direct.editing = false;
+		},
+		/** Leaving the field empty puts the link back. */
+		onDirectFocusout() {
+			setTimeout(() => {
+				const d = this.direct;
+				if (!d.editing || d.busy || d.keyword.trim()) return;
+				const picker = this.$refs.directPicker as HTMLElement | undefined;
+				if (picker && document.hasFocus() && picker.contains(document.activeElement)) return;
+				this.cancelDirect();
+			}, DIRECT_BLUR_DELAY_MS);
+		},
+		/** Users matching the keyword, for <wt-autocomplete>: not groups, not service accounts, not oneself. */
+		async findDirectPeers(keyword: string): Promise<WtAutocompleteItem[]> {
+			if (!this.instance) return [];
+			const me = this.instance.currentUser?.id;
+			const found = await this.instance.api.content.searchPrincipals(keyword, 0, MEMBER_SUGGESTIONS * 2);
+			return found.filter((p: PrincipalInfo) => !p.isGroup && !p.isService && p.identifier !== me)
+				.slice(0, MEMBER_SUGGESTIONS)
+				.map((p: PrincipalInfo) => this.principalItem(p));
 		},
 		async openDirectWith(p: PrincipalInfo) {
-			const d = this.directDialog;
+			const d = this.direct;
 			if (!chat || d.busy) return;
 			d.busy = true;
-			d.error = '';
 			try {
 				const channel = await chat.openDirectMessage(p.identifier);
-				this.closeNewDirect();
+				this.cancelDirect();
 				await this.loadChannels();
 				this.selectChannel(channel.id);
 			} catch (e) {
-				d.error = errorText(e);
+				this.showError(e);
 			} finally {
 				d.busy = false;
 			}
@@ -1010,54 +992,36 @@ const App = {
 		// Participants
 		// =====================================================================
 		openMembers() {
-			this.membersDialog = { visible: true, keyword: '', results: [], searching: false, busy: false, error: '' };
+			this.membersDialog = { visible: true, staged: [], busy: false, error: '' };
 			// The list shown may be from when the channel was opened.
 			this.reloadConversation();
-			if (this.canManageMembers) this.focusLater('memberKeyword');
 		},
 		closeMembers() {
 			this.membersDialog.visible = false;
-			if (memberTimer) {
-				clearTimeout(memberTimer);
-				memberTimer = null;
-			}
 		},
 		memberName(m: ChatMember): string {
 			if (m.id === 'everyone') return this.t('app.chat.members.everyone', undefined, 'Everyone');
 			return m.displayName || m.id;
 		},
-		scheduleMemberSearch() {
-			if (memberTimer) clearTimeout(memberTimer);
-			memberTimer = setTimeout(() => {
-				memberTimer = null;
-				this.searchMembers();
-			}, SEARCH_DELAY_MS);
+		/** Users and groups matching the keyword that are neither participants nor picked, for <wt-autocomplete>. */
+		async findNewMembers(keyword: string): Promise<WtAutocompleteItem[]> {
+			if (!this.instance) return [];
+			// Asked for a few more than are shown: participants are left out.
+			const found = await this.instance.api.content.searchPrincipals(keyword, 0, MEMBER_SUGGESTIONS * 2);
+			const taken = new Set([
+				...(this.members as ChatMember[]).map((m) => m.id),
+				...(this.membersDialog.staged as PrincipalInfo[]).map((p) => p.identifier),
+			]);
+			return found.filter((p: PrincipalInfo) => !p.isService && !taken.has(p.identifier))
+				.slice(0, MEMBER_SUGGESTIONS)
+				.map((p: PrincipalInfo) => this.principalItem(p));
 		},
-		/** Users and groups matching the keyword that are not participants yet. */
-		async searchMembers() {
-			const d = this.membersDialog;
-			const keyword = d.keyword.trim();
-			const seq = ++memberSeq;
-			if (!keyword || !this.instance) {
-				d.results = [];
-				d.searching = false;
-				return;
-			}
-			d.searching = true;
-			try {
-				// Asked for a few more than are shown: participants are left out.
-				const found = await this.instance.api.content.searchPrincipals(keyword, 0, MEMBER_SUGGESTIONS * 2);
-				if (seq !== memberSeq) return;
-				const present = new Set((this.members as ChatMember[]).map((m) => m.id));
-				d.results = found.filter((p: PrincipalInfo) => !p.isService && !present.has(p.identifier)).slice(0, MEMBER_SUGGESTIONS);
-			} catch (e) {
-				if (seq === memberSeq) {
-					d.results = [];
-					d.error = errorText(e);
-				}
-			} finally {
-				if (seq === memberSeq) d.searching = false;
-			}
+		stageMember(p: PrincipalInfo) {
+			const staged = this.membersDialog.staged as PrincipalInfo[];
+			if (!staged.some((s) => s.identifier === p.identifier)) staged.push(p);
+		},
+		unstageMember(p: PrincipalInfo) {
+			this.membersDialog.staged = (this.membersDialog.staged as PrincipalInfo[]).filter((s) => s.identifier !== p.identifier);
 		},
 		/** Runs a change of the participants and shows the list it returns. */
 		async changeMembers(change: (id: string) => Promise<ChatConversation | void>) {
@@ -1073,15 +1037,17 @@ const App = {
 				} else {
 					await this.reloadConversation();
 				}
-				d.results = (d.results as PrincipalInfo[]).filter((p) => !(this.members as ChatMember[]).some((m) => m.id === p.identifier));
 			} catch (e) {
 				d.error = errorText(e);
 			} finally {
 				d.busy = false;
 			}
 		},
-		addMember(p: PrincipalInfo) {
-			this.changeMembers((id) => chat!.addMembers(id, [p.identifier]));
+		async addStagedMembers() {
+			const ids = (this.membersDialog.staged as PrincipalInfo[]).map((p) => p.identifier);
+			if (!ids.length) return;
+			await this.changeMembers((id) => chat!.addMembers(id, ids));
+			if (!this.membersDialog.error) this.membersDialog.staged = [];
 		},
 		removeMember(m: ChatMember) {
 			this.changeMembers((id) => chat!.removeMembers(id, [m.id]));
@@ -1098,6 +1064,14 @@ const App = {
 		// Helpers
 		// =====================================================================
 
+		principalItem(p: PrincipalInfo): WtAutocompleteItem {
+			return {
+				value: p,
+				label: p.displayName || p.identifier,
+				description: p.identifier,
+				icon: p.isGroup ? 'bi bi-people' : 'bi bi-person',
+			};
+		},
 		focusLater(ref: string) {
 			// The dialog renders its content when it opens.
 			this.$nextTick(() => setTimeout(() => (this.$refs[ref] as HTMLElement | undefined)?.focus(), 0));

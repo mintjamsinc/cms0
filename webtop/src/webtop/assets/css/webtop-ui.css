@@ -378,6 +378,33 @@
 	}
 
 	/* ------------------------------------------------------------------------
+	 * <wt-autocomplete> — input + matches dropdown. The dropdown is the shell
+	 * popup; the inline fallback borrows the .wt-select-menu look.
+	 * ---------------------------------------------------------------------- */
+	wt-autocomplete {
+		display: block;
+		min-width: 0;
+	}
+	.wt-autocomplete {
+		position: relative;
+	}
+	.wt-autocomplete .input-group > input.wt {
+		width: 100%;
+	}
+	.wt-autocomplete .wt-select-item.highlighted {
+		background-color: var(--btn-icon-hover-bg);
+	}
+	.wt-autocomplete-label {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.wt-autocomplete-description {
+		font-size: 0.85em;
+		opacity: 0.65;
+	}
+
+	/* ------------------------------------------------------------------------
 	 * <wt-dialog> — modal dialog (frame/overlay visuals come from the shared
 	 * .dialog-* classes; the size classes replace inline max-width styles)
 	 * ---------------------------------------------------------------------- */
@@ -739,11 +766,13 @@
 			width: 4px;
 			height: 100%;
 			cursor: col-resize;
+			border-radius: 2px;
 		}
 		&.wt-row {
 			height: 4px;
 			width: 100%;
 			cursor: row-resize;
+			border-radius: 2px;
 		}
 		&:hover,
 		&.is-resizing {

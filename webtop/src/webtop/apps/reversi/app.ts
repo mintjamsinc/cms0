@@ -24,7 +24,7 @@
 
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import { initUi } from "../../ui/index.js";
+import { initUi, type WtAutocompleteItem } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import {
 	createLocalizationSnapshot,
@@ -133,8 +133,6 @@ let unwatchTopics: (() => void) | null = null;
 let generation = 0;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let searchTimer: ReturnType<typeof setTimeout> | null = null;
-let searchSeq = 0;
 // Set when a message for the room arrives while a move is being shown or
 // sent; the room is read again once the move is done.
 let pendingSync = false;
@@ -261,10 +259,7 @@ const App = {
 				side: 'black' as Side,
 				faces: [...DEFAULT_FACES] as [string, string],
 				theme: DEFAULT_THEME,
-				// Choosing an opponent.
-				keyword: '',
-				results: [] as PrincipalInfo[],
-				searching: false,
+				// The opponent chosen to invite.
 				opponent: null as PrincipalInfo | null,
 				busy: false,
 				error: '',
@@ -533,7 +528,6 @@ const App = {
 		dispose() {
 			generation++;
 			if (noticeTimer) clearTimeout(noticeTimer);
-			if (searchTimer) clearTimeout(searchTimer);
 			if (unwatchTopics) {
 				try { unwatchTopics(); } catch { /* ignore */ }
 				unwatchTopics = null;
@@ -574,9 +568,6 @@ const App = {
 				side: s.side,
 				faces: [s.faces[0], s.faces[1]],
 				theme: s.theme,
-				keyword: '',
-				results: [],
-				searching: false,
 				opponent: null,
 				busy: false,
 				error: '',
@@ -1142,43 +1133,16 @@ const App = {
 
 		// --- the dialog: inviting, answering, resuming ---
 
-		onOpponentInput() {
-			const d = this.dialog;
-			d.opponent = null;
-			if (searchTimer) clearTimeout(searchTimer);
-			searchTimer = setTimeout(() => {
-				searchTimer = null;
-				this.searchOpponents();
-			}, 250);
-		},
-		async searchOpponents() {
-			const d = this.dialog;
-			const keyword = d.keyword.trim();
-			const seq = ++searchSeq;
-			if (!keyword || !this.instance) {
-				d.results = [];
-				d.searching = false;
-				return;
-			}
-			d.searching = true;
-			try {
-				const found = await this.instance.api.content.searchPrincipals(keyword, 0, OPPONENT_SUGGESTIONS * 2);
-				if (seq !== searchSeq) return;
-				d.results = found.filter((p: PrincipalInfo) => !p.isGroup && !p.isService && p.identifier !== this.userId)
-					.slice(0, OPPONENT_SUGGESTIONS);
-			} catch (e) {
-				if (seq === searchSeq) {
-					d.results = [];
-					d.error = errorText(e);
-				}
-			} finally {
-				if (seq === searchSeq) d.searching = false;
-			}
+		/** Users matching the keyword, for <wt-autocomplete>: not groups, not service accounts, not oneself. */
+		async findOpponents(keyword: string): Promise<WtAutocompleteItem[]> {
+			if (!this.instance) return [];
+			const found = await this.instance.api.content.searchPrincipals(keyword, 0, OPPONENT_SUGGESTIONS * 2);
+			return found.filter((p: PrincipalInfo) => !p.isGroup && !p.isService && p.identifier !== this.userId)
+				.slice(0, OPPONENT_SUGGESTIONS)
+				.map((p: PrincipalInfo) => ({ value: p, label: p.displayName || p.identifier, description: p.identifier, icon: 'bi bi-person' }));
 		},
 		chooseOpponent(p: PrincipalInfo) {
 			this.dialog.opponent = p;
-			this.dialog.keyword = p.displayName || p.identifier;
-			this.dialog.results = [];
 		},
 		async sendInvitation() {
 			const d = this.dialog;

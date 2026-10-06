@@ -17,7 +17,15 @@ import { BUILD_VERSION } from '../utils/build-version.js';
 import { mergeUiOptions, UiInitOptions } from './ui-config.js';
 
 export { getUiOptions } from './ui-config.js';
-export type { UiInitOptions, UiPopupAdapter, UiSelectPopupRequest } from './ui-config.js';
+export type {
+	UiInitOptions,
+	UiPopupAdapter,
+	UiSelectPopupRequest,
+	UiSuggestionPopupHandle,
+	UiSuggestionPopupItem,
+	UiSuggestionPopupRequest,
+} from './ui-config.js';
+export type { WtAutocompleteItem } from './wt-autocomplete.js';
 
 // Component registrations (side effects). Each module calls defineComponent
 // for one wt-* tag; index.ts is the single place that decides what ships.
@@ -29,6 +37,7 @@ import './wt-field.js';
 import './wt-checkbox.js';
 import './wt-search-box.js';
 import './wt-select.js';
+import './wt-autocomplete.js';
 import './wt-dialog.js';
 import './wt-tabs.js';
 import './wt-section.js';
@@ -54,6 +63,7 @@ const COMPONENT_TAGS = [
 	'wt-checkbox',
 	'wt-search-box',
 	'wt-select',
+	'wt-autocomplete',
 	'wt-dialog',
 	'wt-tabs',
 	'wt-section',

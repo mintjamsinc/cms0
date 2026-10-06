@@ -174,6 +174,21 @@
 	font-size: 12px;
 }
 
+.ch-nav-link {
+	color: var(--text-soft-color);
+}
+
+.ch-nav-direct {
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.125rem 0;
+}
+
+.ch-nav-direct > wt-autocomplete {
+	flex: 1;
+}
+
 /* ----------------------------------------------------------------------------
  * The open conversation
  * -------------------------------------------------------------------------- */
@@ -350,16 +365,6 @@
 	padding: 0.75rem;
 }
 
-.ch-member-pick {
-	width: 100%;
-	border: none;
-	background: none;
-	color: var(--text-color);
-	font: inherit;
-	text-align: left;
-	cursor: pointer;
-}
-
 /* ----------------------------------------------------------------------------
  * Dialogs
  * -------------------------------------------------------------------------- */
@@ -378,9 +383,7 @@
 	cursor: pointer;
 }
 
-.ch-browse-list,
-.ch-members-list,
-.ch-members-results {
+.ch-browse-list {
 	display: flex;
 	flex-direction: column;
 	max-height: 18rem;
@@ -388,11 +391,68 @@
 	overflow-y: auto;
 }
 
-.ch-members-results {
-	max-height: 11rem;
-	margin-top: 0;
-	border: 1px solid var(--island-border-color);
-	border-radius: 6px;
+/* The participants dialog scrolls as a whole: the list has no scroll of its own. */
+.ch-members-list {
+	display: flex;
+	flex-direction: column;
+}
+
+.ch-members-heading {
+	margin: 0 0 0.375rem;
+	color: var(--text-soft-color);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.ch-members-add {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	margin-top: 1rem;
+	padding-top: 0.75rem;
+	border-top: 1px solid var(--island-border-color);
+}
+
+.ch-members-add > .ch-members-heading {
+	margin: 0;
+}
+
+.ch-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.375rem;
+}
+
+.ch-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.375rem;
+	max-width: 100%;
+	padding: 0.2rem 0.25rem 0.2rem 0.625rem;
+	border: 1px solid rgba(from var(--neutral-color) r g b / 0.2);
+	border-radius: 9999px;
+	background: rgba(from var(--neutral-color) r g b / 0.1);
+	font-size: 13px;
+}
+
+.ch-chip-remove {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.125rem;
+	height: 1.125rem;
+	padding: 0;
+	border: none;
+	border-radius: 9999px;
+	background: none;
+	color: inherit;
+	opacity: 0.6;
+	cursor: pointer;
+}
+
+.ch-chip-remove:hover {
+	opacity: 1;
+	background: var(--btn-icon-hover-bg);
 }
 
 .ch-browse-empty {

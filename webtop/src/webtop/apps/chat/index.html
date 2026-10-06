@@ -28,7 +28,7 @@
 				<button class="btn-icon" @click="openBrowse" :title="t('app.chat.toolbar.browse', undefined, 'Browse channels')">
 					<i class="bi bi-search"></i>
 				</button>
-				<button class="btn-icon" @click="openNewDirect" :title="t('app.chat.toolbar.direct', undefined, 'New direct message')">
+				<button class="btn-icon" @click="startDirect" :title="t('app.chat.toolbar.direct', undefined, 'New direct message')">
 					<i class="bi bi-person-plus"></i>
 				</button>
 				<button class="btn-icon" @click="refreshAll" :title="t('app.chat.toolbar.refresh', undefined, 'Refresh (F5)')">
@@ -92,9 +92,6 @@
 				<div class="ch-nav">
 					<div class="ch-nav-title">
 						<span>{{ t('app.chat.side.direct', undefined, 'Direct messages') }}</span>
-						<button type="button" class="ch-nav-add" @click="openNewDirect" :title="t('app.chat.toolbar.direct', undefined, 'New direct message')">
-							<i class="bi bi-plus-lg"></i>
-						</button>
 					</div>
 					<button v-for="c of directChannels" :key="c.id" type="button" class="ch-nav-item"
 						:class="{ active: c.id === currentId, unread: isUnread(c) }" :title="c.peerId || ''" @click="selectChannel(c.id)">
@@ -106,6 +103,21 @@
 					<div v-if="isChannelsLoaded && !directChannels.length" class="ch-nav-empty">
 						{{ t('app.chat.side.noDirect', undefined, 'No direct messages yet.') }}
 					</div>
+					<!-- Starting one: the link turns into a search field in place. -->
+					<div v-if="direct.editing" class="ch-nav-direct" ref="directPicker" @focusout="onDirectFocusout">
+						<wt-autocomplete :search="findDirectPeers" autofocus :disabled="direct.busy"
+							:placeholder="t('app.chat.members.placeholder', undefined, 'Search by name')"
+							:empty-text="t('app.chat.members.noMatch', undefined, 'Nobody found.')"
+							@pick="openDirectWith($event.detail.value)" @change="direct.keyword = $event.detail"
+							@escape="cancelDirect"></wt-autocomplete>
+						<button type="button" class="btn-icon" @click="cancelDirect" :title="t('common.cancel')">
+							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+					<button v-else type="button" class="ch-nav-item ch-nav-link" @click="startDirect">
+						<i class="bi bi-plus-lg"></i>
+						<span class="text-truncate">{{ t('app.chat.toolbar.direct', undefined, 'New direct message') }}</span>
+					</button>
 				</div>
 
 				<!-- The conversations of files the user follows, the most recently active first -->
@@ -287,39 +299,6 @@
 			</template>
 		</wt-dialog>
 
-		<!-- New direct message -->
-		<wt-dialog v-model:open="directDialog.visible" size="md" @close="closeNewDirect">
-			<template v-slot:title="d">
-				<i class="bi bi-person-plus me-2"></i>{{ t('app.chat.toolbar.direct', undefined, 'New direct message') }}
-			</template>
-			<template v-slot="d">
-				<wt-field :label="t('app.chat.direct.who', undefined, 'Who to talk to')">
-					<input type="search" class="wt w-100" ref="directKeyword" v-model="directDialog.keyword" autocomplete="off"
-						:placeholder="t('app.chat.members.placeholder', undefined, 'Search by name')"
-						@input="scheduleDirectSearch">
-				</wt-field>
-				<div class="ch-members-results">
-					<div v-if="directDialog.searching && !directDialog.results.length" class="ch-browse-empty">
-						<wt-spinner size="sm"></wt-spinner>
-					</div>
-					<div v-else-if="!directDialog.results.length" class="ch-browse-empty">
-						{{ directDialog.keyword.trim() ? t('app.chat.members.noMatch', undefined, 'Nobody found.') : t('app.chat.direct.hint', undefined, 'Type a name to find a user.') }}
-					</div>
-					<button v-for="p of directDialog.results" :key="p.identifier" type="button" class="ch-member ch-member-pick" :disabled="directDialog.busy" @click="openDirectWith(p)">
-						<i class="bi bi-person"></i>
-						<div class="ch-member-text">
-							<span class="text-truncate">{{ p.displayName || p.identifier }}</span>
-							<span class="ch-member-id text-truncate">{{ p.identifier }}</span>
-						</div>
-					</button>
-				</div>
-				<wt-inline-message v-if="directDialog.error" type="error">{{ directDialog.error }}</wt-inline-message>
-			</template>
-			<template v-slot:footer="d">
-				<button type="button" class="wt" @click="closeNewDirect">{{ t('common.cancel') }}</button>
-			</template>
-		</wt-dialog>
-
 		<!-- Browse channels -->
 		<wt-dialog v-model:open="browseDialog.visible" size="lg" @close="closeBrowse">
 			<template v-slot:title="d">
@@ -374,32 +353,8 @@
 					{{ t('app.chat.members.public', undefined, 'A public channel can be read and posted to by everyone.') }}
 				</p>
 
-				<div v-if="canManageMembers" class="ch-members-add">
-					<wt-field :label="t('app.chat.members.add', undefined, 'Add users or groups')">
-						<input type="search" class="wt w-100" ref="memberKeyword" v-model="membersDialog.keyword" autocomplete="off"
-							:placeholder="t('app.chat.members.placeholder', undefined, 'Search by name')"
-							@input="scheduleMemberSearch">
-					</wt-field>
-					<div v-if="membersDialog.keyword.trim()" class="ch-members-results">
-						<div v-if="membersDialog.searching && !membersDialog.results.length" class="ch-browse-empty">
-							<wt-spinner size="sm"></wt-spinner>
-						</div>
-						<div v-else-if="!membersDialog.results.length" class="ch-browse-empty">
-							{{ t('app.chat.members.noMatch', undefined, 'Nobody found.') }}
-						</div>
-						<div v-for="p of membersDialog.results" :key="p.identifier" class="ch-member">
-							<i class="bi" :class="p.isGroup ? 'bi-people' : 'bi-person'"></i>
-							<div class="ch-member-text">
-								<span class="text-truncate">{{ p.displayName || p.identifier }}</span>
-								<span class="ch-member-id text-truncate">{{ p.identifier }}</span>
-							</div>
-							<button type="button" class="wt wt-slim" :disabled="membersDialog.busy" @click="addMember(p)">
-								<i class="bi bi-plus-lg me-1"></i>{{ t('common.add') }}
-							</button>
-						</div>
-					</div>
-				</div>
-
+				<!-- Who takes part now, then the means to add more. -->
+				<div v-if="!current || current.kind !== 'public'" class="ch-members-heading">{{ t('app.chat.members.current', { count: members.length }, 'Participants ({count})') }}</div>
 				<div class="ch-members-list">
 					<div v-for="m of members" :key="m.id" class="ch-member">
 						<i class="bi" :class="m.isGroup ? 'bi-people' : 'bi-person'"></i>
@@ -415,6 +370,29 @@
 						<button v-if="canManageMembers" type="button" class="btn-icon" :disabled="membersDialog.busy" @click="removeMember(m)"
 							:title="t('common.remove')">
 							<i class="bi bi-x-lg"></i>
+						</button>
+					</div>
+				</div>
+
+				<!-- Picked first, then added together. -->
+				<div v-if="canManageMembers" class="ch-members-add">
+					<div class="ch-members-heading">{{ t('app.chat.members.add', undefined, 'Add users or groups') }}</div>
+					<wt-autocomplete :search="findNewMembers" clear-on-pick :disabled="membersDialog.busy"
+						:placeholder="t('app.chat.members.placeholder', undefined, 'Search by name')"
+						:empty-text="t('app.chat.members.noMatch', undefined, 'Nobody found.')"
+						@pick="stageMember($event.detail.value)"></wt-autocomplete>
+					<div v-if="membersDialog.staged.length" class="ch-chips">
+						<span v-for="p of membersDialog.staged" :key="p.identifier" class="ch-chip" :title="p.identifier">
+							<i class="bi" :class="p.isGroup ? 'bi-people' : 'bi-person'"></i>
+							<span class="text-truncate">{{ p.displayName || p.identifier }}</span>
+							<button type="button" class="ch-chip-remove" :disabled="membersDialog.busy" @click="unstageMember(p)" :title="t('common.remove')">
+								<i class="bi bi-x"></i>
+							</button>
+						</span>
+					</div>
+					<div v-if="membersDialog.staged.length">
+						<button type="button" class="wt wt-primary" :disabled="membersDialog.busy" @click="addStagedMembers">
+							<i class="bi bi-person-plus me-1"></i>{{ t('app.chat.members.addStaged', { count: membersDialog.staged.length }, 'Add {count}') }}
 						</button>
 					</div>
 				</div>

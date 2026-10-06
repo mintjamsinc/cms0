@@ -1,0 +1,23 @@
+<template id="wt-autocomplete">
+	<div class="wt-autocomplete" @mounted="onMounted" @unmount="onUnmount">
+		<div class="input-group">
+			<input type="search" class="wt" ref="input" :value="text" :placeholder="placeholder" :disabled="disabled"
+				autocomplete="off" @input="onInput($event.target.value)" @change.stop
+				@keydown="onKeydown($event)" @focusout="onFocusout">
+			<div v-if="loading" class="input-group-actions">
+				<wt-spinner size="sm"></wt-spinner>
+			</div>
+		</div>
+		<div v-if="inlineOpen" class="wt-select-menu">
+			<button v-for="(row, index) of rows" :key="index" type="button" class="wt-select-item"
+				:class="{ highlighted: row.highlighted }" :disabled="row.disabled"
+				@mousedown.prevent @click.stop="pick(index)">
+				<i v-if="row.icon" :class="row.icon"></i>
+				<span class="wt-autocomplete-label">
+					<span class="text-truncate">{{ row.label }}</span>
+					<span v-if="row.description" class="wt-autocomplete-description text-truncate">{{ row.description }}</span>
+				</span>
+			</button>
+		</div>
+	</div>
+</template>

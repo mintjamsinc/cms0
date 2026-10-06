@@ -451,8 +451,7 @@
 	margin-bottom: 0.25rem;
 }
 
-.rv-room,
-.rv-person {
+.rv-room {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
@@ -467,8 +466,7 @@
 	background: var(--item-selected-bg);
 }
 
-.rv-room > .bi,
-.rv-person > .bi {
+.rv-room > .bi {
 	flex-shrink: 0;
 	width: 1.2rem;
 	text-align: center;
@@ -486,35 +484,6 @@
 .rv-room-sub {
 	font-size: 0.8rem;
 	color: var(--text-muted-color);
-}
-
-.rv-results {
-	display: flex;
-	flex-direction: column;
-	max-height: 11rem;
-	overflow-y: auto;
-	border: 1px solid var(--island-border-color);
-	border-radius: 10px;
-}
-
-.rv-results-empty {
-	display: flex;
-	justify-content: center;
-	padding: 0.75rem;
-	color: var(--text-muted-color);
-	font-size: 0.85rem;
-}
-
-.rv-person {
-	width: 100%;
-	background: none;
-	color: var(--text-color);
-	font: inherit;
-	cursor: pointer;
-}
-
-.rv-person:hover {
-	background: var(--item-even-bg);
 }
 
 .rv-error {

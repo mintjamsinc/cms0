@@ -20,6 +20,40 @@ export interface UiSelectPopupRequest {
 	onSelect: (value: any) => void;
 }
 
+/** A row of a suggestion popup. */
+export interface UiSuggestionPopupItem {
+	label: string;
+	/** Secondary text under the label. */
+	description?: string;
+	/** Bootstrap icon class (e.g. 'bi bi-person'). */
+	icon?: string;
+	/** The row the keyboard is on. */
+	highlighted?: boolean;
+	disabled?: boolean;
+}
+
+/**
+ * A suggestion popup under a text input (wt-autocomplete). Unlike a select
+ * menu it stays open while the user types, and its rows are replaced as the
+ * results come in.
+ */
+export interface UiSuggestionPopupRequest {
+	/** The input the popup should anchor to. */
+	anchor: HTMLElement;
+	items: UiSuggestionPopupItem[];
+	/** Called with the index of the chosen row. */
+	onPick: (index: number) => void;
+	/** Called when the popup closes without a choice (outside click, Escape). */
+	onDismiss: () => void;
+}
+
+export interface UiSuggestionPopupHandle {
+	/** Replaces the rows of the open popup. */
+	update(items: UiSuggestionPopupItem[]): void;
+	/** Closes the popup; neither onPick nor onDismiss is called. */
+	close(): void;
+}
+
 /**
  * Adapter for menus that must escape the app window. Webtop apps implement
  * this on top of `instance.popup`; environments without a shell (BPMN forms,
@@ -27,6 +61,8 @@ export interface UiSelectPopupRequest {
  */
 export interface UiPopupAdapter {
 	openSelect(request: UiSelectPopupRequest): void;
+	/** Returns null when the popup cannot be shown. */
+	openSuggestions(request: UiSuggestionPopupRequest): UiSuggestionPopupHandle | null;
 }
 
 export interface UiInitOptions {
@@ -40,7 +76,8 @@ export interface UiInitOptions {
 
 	/**
 	 * Adapter for menus that must escape the app window (shell popup API).
-	 * Consumed by wt-select; components fall back to inline menus when absent.
+	 * Consumed by wt-select and wt-autocomplete; components fall back to
+	 * inline menus when absent.
 	 */
 	popupAdapter?: UiPopupAdapter;
 }

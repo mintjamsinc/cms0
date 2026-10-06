@@ -203,23 +203,10 @@
 						</div>
 
 						<label class="dialog-label">{{ t('app.reversi.online.invite', undefined, 'Invite someone') }}</label>
-						<input type="search" class="wt w-100" v-model="dialog.keyword" autocomplete="off"
-							:placeholder="t('app.reversi.online.search', undefined, 'Search by name')" @input="onOpponentInput">
-						<div v-if="dialog.keyword.trim() && !dialog.opponent" class="rv-results">
-							<div v-if="dialog.searching && !dialog.results.length" class="rv-results-empty">
-								<wt-spinner size="sm"></wt-spinner>
-							</div>
-							<div v-else-if="!dialog.results.length" class="rv-results-empty">
-								{{ t('app.reversi.online.nobody', undefined, 'Nobody found.') }}
-							</div>
-							<button v-for="p of dialog.results" :key="p.identifier" type="button" class="rv-person" @click="chooseOpponent(p)">
-								<i class="bi bi-person"></i>
-								<span class="rv-room-text">
-									<span class="text-truncate">{{ p.displayName || p.identifier }}</span>
-									<span class="rv-room-sub text-truncate">{{ p.identifier }}</span>
-								</span>
-							</button>
-						</div>
+						<wt-autocomplete :search="findOpponents"
+							:placeholder="t('app.reversi.online.search', undefined, 'Search by name')"
+							:empty-text="t('app.reversi.online.nobody', undefined, 'Nobody found.')"
+							@pick="chooseOpponent($event.detail.value)" @change="dialog.opponent = null"></wt-autocomplete>
 
 						<label class="dialog-label">{{ t('app.reversi.dialog.side', undefined, 'You play') }}</label>
 						<div class="rv-chips">
