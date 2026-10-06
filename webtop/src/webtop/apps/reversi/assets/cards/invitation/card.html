@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reversi</title>
+<style>
+	/* The page of the Reversi invitation card (see card.yml). A board's
+	 * corner with two discs stands for the game; the text says who invites
+	 * whom and which side the invited user plays; the button opens the game.
+	 * The room's state is read with the reader's credentials, so a card that
+	 * was answered says so; while the room is open it is read again now and
+	 * then, and when the reader comes back to the page, as a card has no
+	 * stream of its own. */
+	:root {
+		color-scheme: light;
+		--bg: #ffffff;
+		--text: #1f2430;
+		--text-soft: #5b6472;
+		--edge: rgba(31, 36, 48, 0.1);
+		--accent: #2e7d32;
+		--accent-2: #66bb6a;
+		--board: #43a047;
+		--board-line: rgba(255, 255, 255, 0.35);
+		--chip: rgba(46, 125, 50, 0.1);
+	}
+	:root[data-theme="dark"] {
+		color-scheme: dark;
+		--bg: #1e2128;
+		--text: #e8eaee;
+		--text-soft: #a3aab5;
+		--edge: rgba(255, 255, 255, 0.1);
+		--accent: #66bb6a;
+		--accent-2: #81c784;
+		--board: #2e7d32;
+		--board-line: rgba(255, 255, 255, 0.25);
+		--chip: rgba(102, 187, 106, 0.18);
+	}
+
+	html, body { margin: 0; padding: 0; background: transparent; }
+	body {
+		font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans JP", sans-serif;
+		color: var(--text);
+	}
+	.card {
+		display: flex;
+		border: 1px solid var(--edge);
+		border-radius: 10px;
+		background: var(--bg);
+		overflow: hidden;
+	}
+	.board {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		grid-template-rows: repeat(3, 1fr);
+		gap: 2px;
+		flex-shrink: 0;
+		width: 5.25rem;
+		padding: 0.75rem;
+		background: linear-gradient(160deg, var(--accent), var(--board));
+	}
+	.board i {
+		display: block;
+		border-radius: 3px;
+		background: var(--board-line);
+	}
+	.board i.disc::after {
+		content: '';
+		display: block;
+		width: 70%;
+		height: 70%;
+		margin: 15%;
+		border-radius: 50%;
+		background: #1f2430;
+		box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+	}
+	.board i.disc.white::after { background: #fafafa; }
+	.body { flex: 1; min-width: 0; padding: 0.75rem 1rem 0.875rem; }
+	.game {
+		display: inline-block;
+		margin-bottom: 0.25rem;
+		padding: 0 0.5rem;
+		border-radius: 999px;
+		background: var(--chip);
+		color: var(--accent);
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+	.title { font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+	.meta { margin-top: 0.25rem; color: var(--text-soft); display: flex; flex-direction: column; gap: 0.125rem; }
+	.meta div:empty { display: none; }
+	.status { margin-top: 0.375rem; font-weight: 600; }
+	.status:empty { display: none; }
+	.open {
+		display: inline-block;
+		margin-top: 0.625rem;
+		padding: 0.3rem 0.875rem;
+		border: 0;
+		border-radius: 6px;
+		background: var(--accent);
+		color: #fff;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.open:hover { filter: brightness(1.08); }
+	.open[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+	<div class="board" aria-hidden="true">
+		<i></i><i></i><i></i>
+		<i></i><i class="disc"></i><i class="disc white"></i>
+		<i></i><i class="disc white"></i><i class="disc"></i>
+	</div>
+	<div class="body">
+		<span class="game" id="game"></span>
+		<div class="title" id="title"></div>
+		<div class="meta">
+			<div id="side"></div>
+			<div id="board"></div>
+		</div>
+		<div class="status" id="status"></div>
+		<button type="button" class="open" id="open" hidden></button>
+	</div>
+</div>
+<script>
+(() => {
+	let host = null;
+	try {
+		host = window.parent && window.parent.ChatCardHost ? window.parent.ChatCardHost.connect(window) : null;
+	} catch (e) {
+		host = null;
+	}
+	if (!host) {
+		document.body.textContent = 'This page is shown as a card of a conversation.';
+		return;
+	}
+
+	const APP = 'reversi';
+	const OPEN = ['waiting', 'lobby', 'playing'];
+	// How often an open room is read again, and how soon after the button.
+	const POLL_MS = 20000;
+	const AFTER_OPEN_MS = 2000;
+	const byId = (id) => document.getElementById(id);
+	// The design's messages, i18n/<locale>.json in this folder.
+	const t = (key, params) => host.translate(key, params);
+	// The room as it is now: null until read, 'gone' when it cannot be.
+	let room = null;
+	let pollTimer = null;
+
+	function applyTheme(theme) {
+		document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+	}
+
+	function render() {
+		const f = host.card.fields || {};
+		const me = (host.currentUser && host.currentUser.id) || '';
+		const isHost = !!f.host && f.host === me;
+		const guestName = f.guestName || f.guest || '';
+		const hostName = f.hostName || f.host || '';
+		const guestFirst = f.side !== 'white';
+		document.documentElement.lang = (host.localization && host.localization.locale) || 'en';
+
+		byId('game').textContent = t('page.title');
+		byId('title').textContent = isHost ? t('page.youInvited', { guestName }) : t('page.invitesYou', { hostName });
+		byId('side').textContent = isHost ?
+			t(guestFirst ? 'page.theyFirst' : 'page.theySecond', { guestName }) :
+			t(guestFirst ? 'page.youFirst' : 'page.youSecond');
+		const size = Number(f.size);
+		byId('board').textContent = (size && size !== 8) ? t('page.board', { size }) : '';
+
+		const status = byId('status');
+		const open = byId('open');
+		if (room === null) {
+			status.textContent = '';
+			open.hidden = true;
+		} else if (room === 'gone' || !OPEN.includes(room.status)) {
+			// A room declined, or left while getting ready, is `declined` either
+			// way: told as not joined, from the reader's side.
+			let text;
+			if (room === 'gone') text = t('page.status.gone');
+			else if (room.status === 'finished') text = t('page.status.finished');
+			else if (room.status === 'declined') text = isHost ? t('page.status.notJoined.them', { guestName }) : t('page.status.notJoined.you');
+			else if (room.status === 'cancelled') text = isHost ? t('page.status.cancelled.you') : t('page.status.cancelled.them', { hostName });
+			else text = t('page.status.gone');
+			status.textContent = text;
+			open.hidden = true;
+		} else {
+			// The invited user, asked: the title says it all, the button answers.
+			const joining = room.status === 'waiting' && !isHost;
+			status.textContent = joining ? '' : t('page.status.' + room.status);
+			open.textContent = joining ? t('page.join') : t('page.open');
+			open.hidden = false;
+		}
+		host.resize();
+	}
+
+	/** Reads the room again later, while it is open. */
+	function schedule(ms) {
+		if (pollTimer) clearTimeout(pollTimer);
+		pollTimer = null;
+		if (room === 'gone' || (room && !OPEN.includes(room.status))) return;
+		pollTimer = setTimeout(() => { pollTimer = null; load(); }, ms);
+	}
+
+	/** Reads the room with the reader's credentials; only its players can. */
+	async function load() {
+		const id = host.card.fields && host.card.fields.roomId;
+		if (!id || host.preview) {
+			room = 'gone';
+			render();
+			return;
+		}
+		try {
+			const data = await host.graphql.query('query ($id: ID!) { reversiRoom(id: $id) { id status host } }', { id });
+			room = (data && data.reversiRoom) || 'gone';
+		} catch (e) {
+			room = 'gone';
+		}
+		render();
+		schedule(POLL_MS);
+	}
+
+	byId('open').addEventListener('click', () => {
+		const id = host.card.fields && host.card.fields.roomId;
+		if (!id) return;
+		host.openApp(APP, { roomId: id });
+		// The invited user accepts on the way in: the card follows shortly.
+		schedule(AFTER_OPEN_MS);
+	});
+	// Back at the page after a while: what happened meanwhile.
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'visible' && room !== null) load();
+	});
+
+	applyTheme(host.theme);
+	render();
+	load();
+	host.subscribe((type, payload) => {
+		if (type === 'theme') applyTheme(payload);
+		else if (type === 'card' || type === 'localization') render();
+	});
+})();
+</script>
+</body>
+</html>

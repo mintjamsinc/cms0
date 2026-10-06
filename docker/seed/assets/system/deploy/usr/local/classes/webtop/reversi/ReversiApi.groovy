@@ -17,6 +17,10 @@ package webtop.reversi;
  * ready, started, declined, cancelled, move, resigned, and expired when an
  * idle room is removed. The room itself is the record; a client that misses
  * a message reads the room again.
+ *
+ * An invitation is also told in the chat: a card in the direct messages of
+ * the two users (webtop.chat.ChatSystem), from the host, whose button opens
+ * the game. The card's design is the app's own (INVITATION_CARD).
  */
 class ReversiApi {
 
@@ -30,6 +34,9 @@ class ReversiApi {
 	static final int KEEP_IDLE_DAYS = 30;
 
 	private static final long DAY_MS = 24L * 3600L * 1000L;
+
+	/** The design of the invitation card: in the app's folder, deployed with the Webtop. */
+	static final String INVITATION_CARD = '/usr/share/webtop/apps/reversi/assets/cards/invitation';
 
 	/** The discs and the board the players get when they have not chosen. */
 	static final String DEFAULT_BLACK_FACE = 'black';
@@ -92,9 +99,10 @@ class ReversiApi {
 	/**
 	 * Invites a user to a game. The caller plays the given side (black moves
 	 * first), or either when `random`, with the given disc on the given
-	 * board; the other player gets a disc that differs.
+	 * board; the other player gets a disc that differs. `locale` is the
+	 * language the invitation card's text is written in.
 	 */
-	Map invite(String opponentId, String side, Object size, String face, String theme) {
+	Map invite(String opponentId, String side, Object size, String face, String theme, String locale = null) {
 		String opponent = (opponentId ?: '').trim();
 		if (!opponent) {
 			throw new IllegalArgumentException('Choose an opponent.');
@@ -133,8 +141,44 @@ class ReversiApi {
 				black ? userId : opponent, black ? opponent : userId, boardSize,
 				black ? myFace : theirFace, black ? theirFace : myFace, board);
 			ReversiStore.publish(context, room, [type: 'invited', by: userId]);
+			inviteInChat(s, room, locale);
 			return toRoom(s, room);
 		} as Map;
+	}
+
+	/**
+	 * Tells the invited user in the chat: a card in the direct messages of
+	 * the two, from the host, whose button opens the game. The invitation
+	 * stands without it, so a chat that cannot take it is only logged.
+	 */
+	private void inviteInChat(s, Map room, String locale) {
+		try {
+			String opponent = ((room.host == room.black) ? room.white : room.black) as String;
+			webtop.chat.ChatStore.withService(context) { chat ->
+				webtop.chat.ChatChannels.openDirect(chat, userId, opponent);
+			};
+			String channelId = webtop.chat.ChatStore.directMessageId(userId, opponent);
+			webtop.chat.ChatSystem.post(context.getAttribute('ScriptAPI'), [channelId: channelId], null, [
+				card: [
+					path: INVITATION_CARD,
+					fields: [
+						roomId: room.id,
+						host: userId,
+						hostName: ReversiStore.displayName(s, userId) ?: userId,
+						guest: opponent,
+						guestName: ReversiStore.displayName(s, opponent) ?: opponent,
+						// The invited user's side.
+						side: (room.host == room.black) ? 'white' : 'black',
+						size: (room.size as Long),
+					],
+					locale: locale,
+				],
+				author: userId,
+				kind: webtop.chat.ChatMessages.KIND_USER,
+			]);
+		} catch (Throwable ex) {
+			context.getAttribute('log')?.warn("The invitation to ${room.id} could not be posted to the chat: ${ex.message}".toString());
+		}
 	}
 
 	/**

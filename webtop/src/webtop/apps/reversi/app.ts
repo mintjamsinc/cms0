@@ -28,7 +28,10 @@
  * A room has a chat, shown in the players' panel from the invitation on:
  * it is the Chat conversation of the room's settings file (the room's
  * `chatFileId`), which only the two players can read, in the same
- * <wt-chat-thread> the Chat app shows a conversation in.
+ * <wt-chat-thread> the Chat app shows a conversation in. An invitation is
+ * also a card in the direct messages of the two (posted by the server, with
+ * the design in assets/cards/invitation): its button launches this app with
+ * `{ roomId }`, on which the invited user accepts and lands in the room.
  *
  * The game in progress and the settings are kept per user in the local
  * webtop database; a local game is saved as its move list and replayed on
@@ -527,6 +530,11 @@ const App = {
 				if (handleLocalizationMessage(type, vm.localization, vm.instance)) {
 					return;
 				}
+				if (type === 'app-reopen') {
+					// The app is a singleton: a card's button reaches it here.
+					vm.openInvitedRoom(payload.options?.roomId);
+					return;
+				}
 				if (type === 'theme-changed') {
 					document.documentElement.dataset.theme = payload.theme;
 				}
@@ -540,7 +548,7 @@ const App = {
 			};
 			document.addEventListener('visibilitychange', vm.visibilityListener);
 
-			window.appLaunch = async (instance: ApplicationInstance) => {
+			window.appLaunch = async (instance: ApplicationInstance, options?: { roomId?: string }) => {
 				vm.instance = this.$markRaw(instance);
 				refreshLocalization(vm.localization, vm.instance);
 				vm.userId = instance.currentUser?.id || '';
@@ -591,6 +599,8 @@ const App = {
 
 				vm.watchRooms();
 				vm.loadRooms();
+				// Launched from an invitation card: that room, before anything saved.
+				if (await vm.openInvitedRoom(options?.roomId)) return;
 				if (await vm.resumeRoom(saved?.roomId)) return;
 				if (!vm.resumeGame(saved?.game)) {
 					vm.showLobby();
@@ -1110,6 +1120,35 @@ const App = {
 				o.loading = false;
 			}
 		},
+		/**
+		 * Opens the room an invitation card names. The invited user accepts
+		 * on the way in, so the card's button leads straight to getting
+		 * ready; the host, or either player later, is taken to the room as
+		 * it is. False when there is no such room to open any more.
+		 */
+		async openInvitedRoom(roomId: string | null | undefined): Promise<boolean> {
+			if (!roomId || !reversi) return false;
+			try {
+				let r = await reversi.getRoom(roomId);
+				if (r.status === 'waiting' && r.host !== this.userId) {
+					r = await reversi.accept(r.id, this.settings.face);
+				}
+				if (r.status !== 'waiting' && r.status !== 'lobby' && r.status !== 'playing') {
+					this.setNotice(this.t('app.reversi.online.gone', undefined, 'This invitation is no longer open'), LONG_NOTICE_MS);
+					return false;
+				}
+				if (r.id === this.online.roomId) {
+					this.syncRoom(r);
+				} else {
+					this.enterRoom(r);
+				}
+				this.loadRooms();
+				return true;
+			} catch (e) {
+				this.setNotice(this.t('app.reversi.online.error', { message: errorText(e) }, 'Something went wrong: {message}'), LONG_NOTICE_MS);
+				return false;
+			}
+		},
 		/** Opens the room that was on the board when the app was last closed. */
 		async resumeRoom(roomId: string | null | undefined): Promise<boolean> {
 			if (!roomId || !reversi) return false;
@@ -1268,7 +1307,7 @@ const App = {
 			d.busy = true;
 			d.error = '';
 			try {
-				const r = await reversi.invite(d.opponent.identifier, d.side, BOARD_SIZE, this.settings.face, this.settings.theme);
+				const r = await reversi.invite(d.opponent.identifier, d.side, BOARD_SIZE, this.settings.face, this.settings.theme, this.localization.locale);
 				this.enterRoom(r);
 				this.loadRooms();
 				this.setNotice(this.t('app.reversi.online.sent', { name: this.online.opponentName }, 'Invitation sent to {name}'), LONG_NOTICE_MS);
@@ -1322,7 +1361,7 @@ const App = {
 			const side: ReversiSide = room.yourSide === 'black' ? 'white' : 'black';
 			const face = room.yourSide === 'black' ? room.blackFace : room.whiteFace;
 			try {
-				const r = await reversi.invite(opponentId, side, room.size, face, room.theme);
+				const r = await reversi.invite(opponentId, side, room.size, face, room.theme, this.localization.locale);
 				this.enterRoom(r);
 				this.loadRooms();
 				this.setNotice(this.t('app.reversi.online.sent', { name: this.online.opponentName }, 'Invitation sent to {name}'), LONG_NOTICE_MS);

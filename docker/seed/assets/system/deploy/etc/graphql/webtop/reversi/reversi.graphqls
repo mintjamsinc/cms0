@@ -73,8 +73,8 @@ extend type Query {
 }
 
 extend type Mutation {
-  """Invites a user to a game. `side` is the caller's: black, white or random (the default). `size` is 8 unless given. `face` and `theme` are the caller's first choices, changed later with reversiSetup."""
-  reversiInvite(opponentId: ID!, side: String, size: Int, face: String, theme: String): ReversiRoom!
+  """Invites a user to a game. `side` is the caller's: black, white or random (the default). `size` is 8 unless given. `face` and `theme` are the caller's first choices, changed later with reversiSetup. The invitation is also posted as a card in the direct messages of the two users; `locale` is the language its text is written in."""
+  reversiInvite(opponentId: ID!, side: String, size: Int, face: String, theme: String, locale: String): ReversiRoom!
   """The invited user accepts: the room is getting ready. `face` is the caller's first choice, when it is not the host's."""
   reversiAccept(id: ID!, face: String): ReversiRoom!
   """The invited user declines or leaves, or the host takes the invitation back."""

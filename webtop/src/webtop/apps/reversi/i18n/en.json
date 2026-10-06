@@ -85,5 +85,6 @@
 	"app.reversi.online.youResigned": "You resigned",
 	"app.reversi.online.rematch": "Rematch",
 	"app.reversi.online.expired": "The game with {name} was closed after a long time without a move",
+	"app.reversi.online.gone": "This invitation is no longer open",
 	"app.reversi.online.error": "Something went wrong: {message}"
 }

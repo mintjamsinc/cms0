@@ -1,0 +1,42 @@
+# The invitation to a game of Reversi, posted by the app to the direct
+# messages of the two players when one invites the other (ReversiApi.invite).
+# The card's button opens the game: the invited user accepts on the way in
+# and lands in the room, getting ready.
+#
+# The design lives in the app's own folder (assets/cards/invitation), so it
+# is deployed with the app; it is not under /etc/chat/cards, so it is not
+# offered when writing a message. The texts are keys of i18n/<locale>.json
+# in this folder.
+label: card.label
+description: card.description
+summary: card.summary
+fields:
+  - key: roomId
+    label: field.roomId.label
+    type: STRING
+    required: true
+  - key: host
+    label: field.host.label
+    type: STRING
+    required: true
+  - key: hostName
+    label: field.hostName.label
+    type: STRING
+    required: true
+  - key: guest
+    label: field.guest.label
+    type: STRING
+    required: true
+  - key: guestName
+    label: field.guestName.label
+    type: STRING
+    required: true
+  - key: side
+    label: field.side.label
+    type: STRING
+    choices:
+      - { value: black, label: field.side.choice.black }
+      - { value: white, label: field.side.choice.white }
+  - key: size
+    label: field.size.label
+    type: LONG

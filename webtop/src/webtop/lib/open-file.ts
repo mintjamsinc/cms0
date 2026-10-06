@@ -69,13 +69,19 @@ export function revealInContentBrowser(path: string, isCollection = false): bool
  * conversation. False when there is no Chat app.
  */
 export function openConversationInChat(ref: { channelId?: string; fileId?: string }): boolean {
-	const chat = shellApps().find((app) => app.relPath === CHAT);
-	if (!chat) return false;
-	window.parent.postMessage({
-		type: 'open-app',
-		appId: chat.id,
-		options: ref.channelId ? { channelId: ref.channelId } : { fileId: ref.fileId },
-	}, window.location.origin);
+	return openApp(CHAT, ref.channelId ? { channelId: ref.channelId } : { fileId: ref.fileId });
+}
+
+/**
+ * Launches an app of the Webtop by the name of its folder (apps/<name>) with
+ * launch options, which reach its appLaunch, or, for a singleton already
+ * running, its window as an `app-reopen` message. False when there is no
+ * such app.
+ */
+export function openApp(relPath: string, options?: Record<string, unknown>): boolean {
+	const app = shellApps().find((a) => a.relPath === relPath);
+	if (!app) return false;
+	window.parent.postMessage({ type: 'open-app', appId: app.id, options: options || {} }, window.location.origin);
 	return true;
 }
 

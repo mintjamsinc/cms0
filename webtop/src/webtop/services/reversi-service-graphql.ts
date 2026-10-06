@@ -98,14 +98,16 @@ export class ReversiServiceGraphQL {
 	/**
 	 * Invites a user; `side` is the caller's, `random` by default. `face` and
 	 * `theme` are the caller's first choices (changed later with `setup`).
+	 * The invitation is also posted as a card in the direct messages of the
+	 * two users; `locale` is the language its text is written in.
 	 */
 	async invite(opponentId: string, side: ReversiSide | 'random' = 'random', size = 8,
-		face?: string, theme?: string): Promise<ReversiRoom> {
+		face?: string, theme?: string, locale?: string): Promise<ReversiRoom> {
 		const data = await this.#client.mutation<{ reversiInvite: ReversiRoom }>(
-			`mutation ($opponentId: ID!, $side: String, $size: Int, $face: String, $theme: String) {
-				reversiInvite(opponentId: $opponentId, side: $side, size: $size, face: $face, theme: $theme) { ${ROOM_FIELDS} }
+			`mutation ($opponentId: ID!, $side: String, $size: Int, $face: String, $theme: String, $locale: String) {
+				reversiInvite(opponentId: $opponentId, side: $side, size: $size, face: $face, theme: $theme, locale: $locale) { ${ROOM_FIELDS} }
 			}`,
-			{ opponentId, side, size, face: face ?? null, theme: theme ?? null });
+			{ opponentId, side, size, face: face ?? null, theme: theme ?? null, locale: locale ?? null });
 		return data.reversiInvite;
 	}
 

@@ -283,6 +283,7 @@ through `window.parent.ChatCardHost.connect(window)`, which gives it:
 | `subscribe(listener)` | Told of `theme`, `localization` (also when the messages change) and, in the preview, `card` (`{ fields }`) as they change. |
 | `resize()` | Fits the frame to the page again, for a page that changes height without growing. |
 | `openFile(path)`, `openConversation(ref)` | Opens a file in its editor, or a conversation in the Chat app. |
+| `openApp(app, options)` | Launches an app of the Webtop (the name of its folder under `apps/`) with launch options: how a card leads into the app that posted it, as the Reversi invitation opens the game. |
 | `preview` | True in the message box. |
 
 A page sets no height of its own: the frame takes the height of the document.
@@ -290,7 +291,11 @@ A page that does not `subscribe` is loaded again when the preview's values
 change. The frame is **not sandboxed**: the page runs in the reader's session,
 with the reader's rights, as the forms of the Tasks app do. **Who may place a
 design is therefore the trust boundary**: `/etc/chat/cards` is written by
-administrators, and a design placed there is trusted by every reader.
+administrators, and a design placed there is trusted by every reader. A
+design posted from a script may live elsewhere the same trust holds, such as
+an app's own folder under `/usr/share/webtop`, deployed with the Webtop
+(the Reversi invitation, `apps/reversi/assets/cards/invitation`); only the
+designs under `/etc/chat/cards` are offered when writing a message.
 
 A reader who cannot read the design sees the message's text and a card saying
 so: a card, like a link, gives nobody access to anything.

@@ -71,7 +71,7 @@ import { sha256Hex } from '../services/webtop-util.js';
 import { Identicon } from '../lib/identicon.js';
 import { renderChatMarkdown } from '../lib/chat-markdown.js';
 import { getFileIcon } from '../lib/inspector-utils.js';
-import { downloadUrl, openConversationInChat, openFileInEditor, revealInContentBrowser } from '../lib/open-file.js';
+import { downloadUrl, openApp, openConversationInChat, openFileInEditor, revealInContentBrowser } from '../lib/open-file.js';
 import { Bytes } from '../utils/bytes.js';
 import { Dates } from '../utils/dates.js';
 import {
@@ -235,6 +235,12 @@ export interface ChatCardBridge {
 	openFile(path: string, mimeType?: string | null): boolean;
 	/** Opens a conversation in the Chat app. */
 	openConversation(ref: { channelId?: string; fileId?: string }): boolean;
+	/**
+	 * Launches an app of the Webtop by the name of its folder (apps/<name>)
+	 * with launch options: how a card leads into the app that posted it, as
+	 * a game's invitation opens the game. False when there is no such app.
+	 */
+	openApp(app: string, options?: Record<string, unknown>): boolean;
 }
 
 interface CardSlot {
@@ -1368,6 +1374,9 @@ defineComponent('wt-chat-thread', {
 				},
 				openConversation(ref: { channelId?: string; fileId?: string }): boolean {
 					return openConversationInChat(toPlainData(ref || {}));
+				},
+				openApp(app: string, options?: Record<string, unknown>): boolean {
+					return openApp(String(app || ''), toPlainData(options || {}));
 				},
 			};
 		},

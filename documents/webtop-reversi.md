@@ -50,6 +50,24 @@ An invitation that arrives while the app is open is announced and marked on
 the *Back to the lobby* button and on the lobby's *Another user* section. A
 game in progress is reopened when the app is launched again.
 
+## The invitation in the chat
+
+An invitation is also a **card in the direct messages** of the two users,
+from the host: *{host} invites you to a game*, with the invited user's side.
+The server posts it when the invitation is sent (`ChatSystem.post`, as the
+host); the card's design is the app's own, in its folder
+(`apps/reversi/assets/cards/invitation`, deployed with the app), and is
+written in the language of the host (`reversiInvite(locale)`). The card
+reads the room with the reader's credentials and says where it stands:
+waiting, getting ready, playing, over, declined or taken back.
+
+Its button launches the app with `{ roomId }` (`ChatCardHost.openApp`). On
+the way in the invited user **accepts**, so the button leads straight to the
+room, getting ready, with its chat; the host, or either player later, is
+taken to the room as it is. An invitation no longer open is announced and
+the app stays where it was. The app is a singleton: a running one receives
+the room as an `app-reopen` message.
+
 ## The room's chat
 
 A room has a chat, shown under the players from the moment the invitation

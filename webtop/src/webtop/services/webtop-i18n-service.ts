@@ -42,6 +42,10 @@
  * like an app's: the scope is the design's folder path
  * (`/etc/chat/cards/notice`), which no app id can be. The texts of its
  * card.yml and its page (`ChatCardHost` → `translate`) look there first.
+ * A design kept elsewhere, such as an app's own folder (the Reversi
+ * invitation, `apps/reversi/assets/cards/invitation`), is loaded the first
+ * time a lookup names its folder as the scope, and the update is broadcast
+ * like any other; it is then kept through reloads.
  *
  * Supports initial loading, real-time updates via node watch subscriptions
  * (shallow on /etc/i18n, deep on the apps tree and the chat cards filtered to
@@ -131,6 +135,12 @@ export class I18nService {
 	 * /etc/chat/cards/<name>/i18n/).
 	 */
 	#appBundles = new Map<string, Map<string, Record<string, string>>>();
+	/**
+	 * Scopes loaded on first use (folders named by a lookup that were not
+	 * loaded up front, such as a card design in an app's folder), with the
+	 * load in progress or done. Kept so a reload takes them in again.
+	 */
+	#lazyScopes = new Map<string, Promise<void>>();
 	#loaded = false;
 	#contentService: ContentServiceGraphQL;
 	#eventHub: EventHub | null;
@@ -238,6 +248,8 @@ export class I18nService {
 		// 1. App scope (closed to the app; wins over global for its own keys).
 		if (appId) {
 			const perLocale = this.#appBundles.get(appId);
+			// A folder not loaded up front: fetched now, for the lookups to come.
+			if (!perLocale && appId.startsWith('/')) this.#loadScopeLater(appId);
 			if (perLocale) {
 				for (const loc of candidates) {
 					const template = perLocale.get(loc)?.[messageId];
@@ -365,15 +377,52 @@ export class I18nService {
 	 * the end so a concurrent format() never sees a half-loaded world.
 	 */
 	async #loadAll(): Promise<void> {
-		const [globalBundles, appBundles, cardBundles] = await Promise.all([
+		const [globalBundles, appBundles, cardBundles, lazyBundles] = await Promise.all([
 			this.#loadGlobalBundles(),
 			this.#loadAppBundles(),
 			this.#loadCardBundles(),
+			this.#loadLazyBundles(),
 		]);
 		this.#bundles = globalBundles;
-		this.#appBundles = new Map([...appBundles, ...cardBundles]);
+		this.#appBundles = new Map([...appBundles, ...cardBundles, ...lazyBundles]);
 		this.#formatterCache.clear();
 		this.#loaded = true;
+	}
+
+	/**
+	 * Loads a scope's bundles (`<scope>/i18n/<locale>.json`) the first time
+	 * a lookup names it; once in, apps are told as for any change, so the
+	 * lookups are made again. A folder without messages is remembered too,
+	 * so it is asked for once.
+	 */
+	#loadScopeLater(scope: string): void {
+		if (this.#lazyScopes.has(scope)) return;
+		const load = (async () => {
+			try {
+				const perLocale = await this.#loadOneAppBundles(`${scope}/${APP_I18N_FOLDER}`);
+				if (!perLocale || perLocale.size === 0) return;
+				this.#appBundles.set(scope, perLocale);
+				this.#formatterCache.clear();
+				this.#broadcastUpdate();
+			} catch {
+				// Unreadable or gone — the texts are shown as they are written.
+			}
+		})();
+		this.#lazyScopes.set(scope, load);
+	}
+
+	/** The scopes loaded on first use, read again for a reload. */
+	async #loadLazyBundles(): Promise<Map<string, Map<string, Record<string, string>>>> {
+		const bundles = new Map<string, Map<string, Record<string, string>>>();
+		await Promise.all(Array.from(this.#lazyScopes.keys()).map(async (scope) => {
+			try {
+				const perLocale = await this.#loadOneAppBundles(`${scope}/${APP_I18N_FOLDER}`);
+				if (perLocale && perLocale.size > 0) bundles.set(scope, perLocale);
+			} catch {
+				// As above.
+			}
+		}));
+		return bundles;
 	}
 
 	/**
