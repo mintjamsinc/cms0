@@ -132,26 +132,15 @@
 }
 
 /* ----------------------------------------------------------------------------
- * Result card and pass notice
+ * Result dialog and pass notice
  * -------------------------------------------------------------------------- */
 
 .rv-result {
-	position: absolute;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 0.75rem;
-	padding: 1.25rem 1.75rem;
-	border-radius: 20px;
-	background: var(--island-bg);
-	border: 1px solid var(--island-border-color);
-	box-shadow: 0 16px 40px rgba(77, 44, 49, 0.22);
-	animation: rv-rise 0.35s ease-out;
-}
-
-.rv-result-title {
-	font-size: 1.35rem;
-	font-weight: 800;
+	gap: 0.5rem;
+	padding: 0.5rem 0;
 }
 
 .rv-result-score {
@@ -163,11 +152,6 @@
 
 .rv-result-dash {
 	color: var(--text-muted-color);
-}
-
-.rv-result-actions {
-	display: flex;
-	gap: 0.5rem;
 }
 
 .rv-notice {
@@ -182,13 +166,6 @@
 	box-shadow: 0 6px 18px rgba(77, 44, 49, 0.16);
 	white-space: nowrap;
 	animation: rv-notice-in 0.25s ease-out;
-}
-
-@keyframes rv-rise {
-	from {
-		opacity: 0;
-		transform: translateY(8px);
-	}
 }
 
 @keyframes rv-notice-in {
@@ -429,7 +406,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.rv-result,
 	.rv-notice,
 	.rv-dots i {
 		animation: none;
@@ -548,7 +524,6 @@
 }
 
 .rv-result-note {
-	margin-top: -0.4rem;
 	color: var(--text-muted-color);
 	font-size: 0.9rem;
 }

@@ -17,8 +17,11 @@
 # game/reversi/rooms/* once and receives the messages of all its rooms:
 #
 #   { roomId, type: invited | accepted | changed | ready | started | declined
-#                 | cancelled | move | resigned,
+#                 | cancelled | move | resigned | expired,
 #     by: <user>, ready, ply, move, over, winner }
+#
+# `expired` says the room was removed: it had been waiting, getting ready or
+# playing without a change or a move for 30 days.
 #
 # The payload tells what happened; the room is the record, and a client that
 # cannot follow a message reads the room again.

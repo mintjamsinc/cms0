@@ -14,8 +14,9 @@ package webtop.reversi;
  *
  * Each change is announced to the two players as a topic message on the
  * room's topic (game/reversi/rooms/<room>): invited, accepted, changed,
- * ready, started, declined, cancelled, move, resigned. The room itself is
- * the record; a client that misses a message reads the room again.
+ * ready, started, declined, cancelled, move, resigned, and expired when an
+ * idle room is removed. The room itself is the record; a client that misses
+ * a message reads the room again.
  */
 class ReversiApi {
 
@@ -25,6 +26,10 @@ class ReversiApi {
 	static final int ENDED_SHOWN = 10;
 	/** Ended rooms are removed after this many days. */
 	static final int KEEP_ENDED_DAYS = 7;
+	/** Rooms waiting, getting ready or playing are removed after this many days without a change or a move. */
+	static final int KEEP_IDLE_DAYS = 30;
+
+	private static final long DAY_MS = 24L * 3600L * 1000L;
 
 	/** The discs and the board the players get when they have not chosen. */
 	static final String DEFAULT_BLACK_FACE = 'black';
@@ -112,7 +117,7 @@ class ReversiApi {
 			if (!ReversiStore.userExists(s, opponent)) {
 				throw new IllegalArgumentException('No such user.');
 			}
-			ReversiStore.purge(s, new Date(System.currentTimeMillis() - KEEP_ENDED_DAYS * 24L * 3600L * 1000L));
+			purge(s);
 			int open = 0;
 			for (String id : ReversiStore.ids(s)) {
 				Map room = ReversiStore.read(s, id);
@@ -311,6 +316,15 @@ class ReversiApi {
 	}
 
 	// --- helpers ------------------------------------------------------------------
+
+	/** Removes the ended rooms and the idle ones; the players of an idle room are told it is gone. */
+	private void purge(s) {
+		long now = System.currentTimeMillis();
+		List<Map> removed = ReversiStore.purge(s, new Date(now - KEEP_ENDED_DAYS * DAY_MS), new Date(now - KEEP_IDLE_DAYS * DAY_MS));
+		removed.findAll { Map room -> isOpen(room) }.each { Map room ->
+			ReversiStore.publish(context, room, [type: 'expired', by: ReversiStore.SERVICE_USER]);
+		};
+	}
 
 	/** The room, which must be one the caller plays in. */
 	private Map mine(s, String id) {

@@ -17,7 +17,9 @@ import java.security.SecureRandom;
  * A move only adds a file, named by its ply: two moves for the same ply
  * cannot both be written, which is what keeps a double click or a stale
  * client from playing twice. The settings file is written when the room
- * changes state (accepted, a disc picked, finished, ...), never for a move.
+ * changes state (accepted, a disc picked, finished, ...), never for a move;
+ * it keeps the time of its last change, and each move the time it was played,
+ * which together tell how long a room has been idle.
  */
 class ReversiStore {
 
@@ -36,6 +38,7 @@ class ReversiStore {
 	static final String STATUS = 'reversi:status';
 	static final String SIZE = 'reversi:size';
 	static final String CREATED_AT = 'reversi:createdAt';
+	static final String UPDATED_AT = 'reversi:updatedAt';
 	static final String STARTED_AT = 'reversi:startedAt';
 	static final String FINISHED_AT = 'reversi:finishedAt';
 	static final String WINNER = 'reversi:winner';
@@ -130,6 +133,7 @@ class ReversiStore {
 			white: text(WHITE),
 			host: text(HOST),
 			createdAt: date(CREATED_AT),
+			updatedAt: date(UPDATED_AT),
 			startedAt: date(STARTED_AT),
 			finishedAt: date(FINISHED_AT),
 			winner: text(WINNER),
@@ -177,7 +181,9 @@ class ReversiStore {
 		file.setProperty(WHITE_FACE, whiteFace);
 		file.setProperty(THEME, theme);
 		file.setProperty(GUEST_READY, false);
-		file.setProperty(CREATED_AT, new Date());
+		Date now = new Date();
+		file.setProperty(CREATED_AT, now);
+		file.setProperty(UPDATED_AT, now);
 
 		def acl = folder.getAccessControlList();
 		[black, white].unique().each { String userId ->
@@ -207,6 +213,7 @@ class ReversiStore {
 				file.setProperty(name, value as String);
 			}
 		};
+		file.setProperty(UPDATED_AT, new Date());
 		session.commit();
 		return read(session, id);
 	}
@@ -236,24 +243,57 @@ class ReversiStore {
 		}
 	}
 
-	/** Removes the rooms that ended before the given time. Returns how many. */
-	static int purge(session, Date before) {
-		int removed = 0;
+	/**
+	 * Removes the rooms that ended before `endedBefore`, and the rooms still
+	 * waiting, getting ready or playing in which nothing happened since
+	 * `idleBefore`. Returns the rooms removed.
+	 */
+	static List<Map> purge(session, Date endedBefore, Date idleBefore) {
+		List<Map> removed = [];
 		for (String id : ids(session)) {
 			Map room = read(session, id);
-			if (room == null || room.status in [WAITING, LOBBY, PLAYING]) {
+			if (room == null) {
 				continue;
 			}
-			Date ended = (room.finishedAt ?: room.createdAt) as Date;
-			if (ended != null && ended.before(before)) {
+			boolean open = room.status in [WAITING, LOBBY, PLAYING];
+			Date since = open ? lastActivity(session, room) : ((room.finishedAt ?: room.createdAt) as Date);
+			if (since != null && since.before(open ? idleBefore : endedBefore)) {
 				session.getResource(room.path as String).remove();
-				removed++;
+				removed.add(room);
 			}
 		}
 		if (removed) {
 			session.commit();
 		}
 		return removed;
+	}
+
+	/** When something last happened in the room: a change of its settings or a move. */
+	static Date lastActivity(session, Map room) {
+		List<Date> times = [room.createdAt, room.updatedAt, room.startedAt, lastPlayedAt(session, room.path as String)];
+		times = times.findAll { it != null };
+		return times ? times.max() : null;
+	}
+
+	/** When the last move of the room was played, or null when none was. */
+	private static Date lastPlayedAt(session, String roomPath) {
+		def folder = session.getResource("${roomPath}/${MOVES}".toString());
+		if (!folder.exists()) {
+			return null;
+		}
+		String last = null;
+		def children = folder.list();
+		while (children.hasNext()) {
+			def r = children.next();
+			if (!r.isCollection() && (last == null || (r.name as String) > last)) {
+				last = r.name as String;
+			}
+		}
+		if (last == null) {
+			return null;
+		}
+		def file = folder.getResource(last);
+		return file.hasProperty(PLAYED_AT) ? file.getProperty(PLAYED_AT).getDate().time : null;
 	}
 
 	/** The principal of that name, or null when there is no such user or group. */

@@ -270,6 +270,7 @@ const App = {
 				error: '',
 			},
 
+			resultDialog: { visible: false },
 			resignDialog: { visible: false, busy: false },
 		};
 	},
@@ -844,6 +845,7 @@ const App = {
 		},
 		showResult(result: GameResult) {
 			this.result = result;
+			this.resultDialog.visible = true;
 			this.hintMap = {};
 			this.thinking = false;
 			this.busy = false;
@@ -860,7 +862,10 @@ const App = {
 				fx.play('win', r.left + r.width / 2, r.top + r.height / 2, { colors: face.sparks });
 			}
 		},
-		/** The result card's "Play again": a rematch against another user, or the same settings. */
+		closeResult() {
+			this.resultDialog.visible = false;
+		},
+		/** The result's "Play again": a rematch against another user, or the same settings. */
 		playAgain() {
 			if (this.isOnline) {
 				this.rematch();
@@ -963,6 +968,18 @@ const App = {
 					return;
 				case 'resigned':
 					if (mine) await this.reloadRoom();
+					this.loadRooms();
+					return;
+				case 'expired':
+					// The room was idle for long and has been removed.
+					if (mine) {
+						const name = this.online.opponentName;
+						this.leaveRoom();
+						this.hasGame = false;
+						this.openNewGame();
+						this.setNotice(this.t('app.reversi.online.expired', { name },
+							'The game with {name} was closed after a long time without a move'), LONG_NOTICE_MS);
+					}
 					this.loadRooms();
 					return;
 			}

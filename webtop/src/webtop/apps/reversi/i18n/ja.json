@@ -81,5 +81,6 @@
 	"app.reversi.online.resigned": "{name}が投了しました",
 	"app.reversi.online.youResigned": "投了しました",
 	"app.reversi.online.rematch": "もう一局",
+	"app.reversi.online.expired": "{name}との対局は、長いあいだ動きがなかったので終了しました",
 	"app.reversi.online.error": "エラー: {message}"
 }

@@ -54,8 +54,13 @@ move in coordinate notation (`d3`) and whose name is its ply (`000`, `001`,
 …). Two moves cannot be written for the same ply, which is what keeps a
 double click or a stale client from playing twice.
 
-Ended rooms are removed seven days later, when a user next sends an
-invitation. A user may have at most ten rooms waiting or playing at once.
+The settings file also keeps the time of its last change
+(`reversi:updatedAt`), and each move the time it was played
+(`reversi:playedAt`). When a user next sends an invitation, rooms that ended
+more than seven days ago are removed, and so are rooms still waiting,
+getting ready or playing with no change and no move for 30 days; the
+players of such a room are told with an `expired` message. A user may have
+at most ten rooms waiting or playing at once.
 
 ## The rules are applied on the server
 
@@ -91,7 +96,8 @@ room it plays in:
 ```
 
 `type` is `invited`, `started`, `declined`, `cancelled`, `move` (with `ply`,
-`move`, `over` and, when over, `winner`) or `resigned` (with `winner`).
+`move`, `over` and, when over, `winner`), `resigned` (with `winner`) or
+`expired` (the room was idle and has been removed).
 
 The app shows a `move` directly when it is the next move of the game on the
 board and is legal there; in every other case, and when it looks at the app

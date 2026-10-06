@@ -49,7 +49,7 @@ export interface ReversiRoom {
 /** What a room's topic message carries (see reversi.graphqls). */
 export interface ReversiMessage {
 	roomId: string;
-	type: 'invited' | 'accepted' | 'changed' | 'ready' | 'started' | 'declined' | 'cancelled' | 'move' | 'resigned';
+	type: 'invited' | 'accepted' | 'changed' | 'ready' | 'started' | 'declined' | 'cancelled' | 'move' | 'resigned' | 'expired';
 	by: string;
 	ready?: boolean;
 	ply?: number;
