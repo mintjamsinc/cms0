@@ -332,22 +332,34 @@ const PRESETS: Record<string, EffectPreset> = {
 		}
 	},
 
-	/** Hearts drifting upwards. */
+	/** Hearts drifting upwards from the point, or rising from the bottom edge without one. */
 	hearts(fx, at, o) {
-		if (!at) return;
-		const { x, y } = at;
 		const colors = o.colors || [fx.palette.primary, fx.palette.pink];
+		if (!at) {
+			const n = fx.count(28);
+			for (let i = 0; i < n; i++) {
+				fx.emit({ shape: 'heart', x: rand(0, fx.width), y: fx.height + rand(10, 40), vx: rand(-0.4, 0.4), vy: rand(-3.5, -2), drag: 0.997, sway: rand(0.4, 0.9), size: rand(12, 20), life: rand(2600, 3400), delay: rand(0, 900), color: pick(colors), pulse: 0.15, fade: 'late' });
+			}
+			return;
+		}
+		const { x, y } = at;
 		const n = fx.count(7);
 		for (let i = 0; i < n; i++) {
 			fx.emit({ shape: 'heart', x: x + rand(-14, 14), y, vx: rand(-0.4, 0.4), vy: rand(-2.2, -1.2), drag: 0.99, sway: rand(0.4, 0.9), size: rand(12, 20), life: rand(900, 1300), delay: i * 70, color: pick(colors), pulse: 0.15 });
 		}
 	},
 
-	/** Cherry petals fluttering out and down. */
+	/** Cherry petals fluttering out and down from the point, or falling from the top edge without one. */
 	petals(fx, at, o) {
-		if (!at) return;
-		const { x, y } = at;
 		const colors = o.colors || ['#FFC4D6', '#FFB0C8', '#FFE0EA'];
+		if (!at) {
+			const n = fx.count(36);
+			for (let i = 0; i < n; i++) {
+				fx.emit({ shape: 'petal', x: rand(0, fx.width), y: rand(-40, -10), vx: rand(-0.8, 0.8), vy: rand(1, 2.5), drag: 0.985, gravity: 0.05, sway: rand(0.6, 1.2), size: rand(10, 15), rot: rand(0, 6), vr: rand(-0.06, 0.06), life: rand(2800, 3600), delay: rand(0, 1200), color: pick(colors), fade: 'late' });
+			}
+			return;
+		}
+		const { x, y } = at;
 		const n = fx.count(10);
 		for (let i = 0; i < n; i++) {
 			const a = rand(-Math.PI, 0);
@@ -470,8 +482,8 @@ export class Effects {
 
 	/**
 	 * Plays an effect at client coordinates (MouseEvent.clientX/Y, the same
-	 * space as getBoundingClientRect). Without a point, confetti, fireworks and
-	 * win cover the whole view; the other effects need a point.
+	 * space as getBoundingClientRect). Without a point, confetti, fireworks,
+	 * win, hearts and petals cover the whole view; the other effects need a point.
 	 */
 	play(name: string, x: number | null = null, y: number | null = null, options: PlayOptions = {}): this {
 		const preset = this.presets[name];

@@ -849,17 +849,16 @@ const App = {
 			this.hintMap = {};
 			this.thinking = false;
 			this.busy = false;
-			const board = document.querySelector('.rv-board');
-			if (!board || !fx) return;
+			if (!fx) return;
+			// Over the whole view: the result dialog covers the board's centre.
 			const youLost = this.mode !== 'local' && result.winner !== EMPTY && this.seats[result.winner - 1].kind !== 'human';
 			if (result.winner === EMPTY) {
-				fx.playAt(board, 'hearts');
+				fx.play('hearts');
 			} else if (youLost) {
-				fx.playAt(board, 'petals');
+				fx.play('petals');
 			} else {
-				const r = board.getBoundingClientRect();
 				const face = findFace(this.seats[result.winner - 1].face);
-				fx.play('win', r.left + r.width / 2, r.top + r.height / 2, { colors: face.sparks });
+				fx.play('win', null, null, { colors: face.sparks });
 			}
 		},
 		closeResult() {
