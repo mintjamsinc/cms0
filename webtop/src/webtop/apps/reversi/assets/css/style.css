@@ -145,7 +145,7 @@
 
 .rv-result-title {
 	margin: 0;
-	font-size: 1.25rem;
+	font-size: 1.5rem;
 	font-weight: 700;
 	text-align: center;
 }
@@ -167,7 +167,7 @@
 }
 
 .rv-result-actions button.wt {
-	min-width: 6.5rem;
+	min-width: 7.5rem;
 }
 
 .rv-result-dash {
