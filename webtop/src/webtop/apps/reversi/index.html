@@ -120,6 +120,7 @@
 						<span class="rv-mini-disc" :style="seatCards[1].style"></span>
 					</div>
 					<div class="rv-result-actions">
+						<button type="button" class="wt" @click="closeResult">{{ t('common.close', undefined, 'Close') }}</button>
 						<button type="button" class="wt" @click="openNewGame">{{ t('app.reversi.result.change', undefined, 'Change settings') }}</button>
 						<button type="button" class="wt wt-primary" @click="playAgain">
 							{{ isOnline ? t('app.reversi.online.rematch', undefined, 'Rematch') : t('app.reversi.result.again', undefined, 'Play again') }}
