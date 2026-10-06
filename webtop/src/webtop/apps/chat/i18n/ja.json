@@ -55,6 +55,7 @@
 	"app.chat.toolbar.direct": "ダイレクトメッセージを開始",
 	"app.chat.side.direct": "ダイレクトメッセージ",
 	"app.chat.side.noDirect": "ダイレクトメッセージはまだありません。",
+	"app.chat.direct.open": "ダイレクトメッセージに追加済み",
 	"app.chat.search.placeholder": "メッセージを検索",
 	"app.chat.search.title": "検索: {text}",
 	"app.chat.search.empty": "一致するメッセージはありません。",

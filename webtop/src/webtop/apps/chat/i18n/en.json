@@ -55,6 +55,7 @@
 	"app.chat.toolbar.direct": "New direct message",
 	"app.chat.side.direct": "Direct messages",
 	"app.chat.side.noDirect": "No direct messages yet.",
+	"app.chat.direct.open": "Already in your direct messages",
 	"app.chat.search.placeholder": "Search messages",
 	"app.chat.search.title": "Search: {text}",
 	"app.chat.search.empty": "No message matches.",

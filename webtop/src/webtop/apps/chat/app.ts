@@ -899,17 +899,30 @@ const App = {
 				this.cancelDirect();
 			}, DIRECT_BLUR_DELAY_MS);
 		},
-		/** Users matching the keyword, for <wt-autocomplete>: not groups, not service accounts, not oneself. */
+		/**
+		 * Users matching the keyword, for <wt-autocomplete>: not groups, not service accounts, not oneself.
+		 * Those already in the direct messages say so; picking one opens that conversation.
+		 */
 		async findDirectPeers(keyword: string): Promise<WtAutocompleteItem[]> {
 			if (!this.instance) return [];
 			const me = this.instance.currentUser?.id;
 			const found = await this.instance.api.content.searchPrincipals(keyword, 0, MEMBER_SUGGESTIONS * 2);
+			const open = new Set((this.directChannels as ChatChannel[]).map((c) => c.peerId));
 			return found.filter((p: PrincipalInfo) => !p.isGroup && !p.isService && p.identifier !== me)
 				.slice(0, MEMBER_SUGGESTIONS)
-				.map((p: PrincipalInfo) => this.principalItem(p));
+				.map((p: PrincipalInfo) => open.has(p.identifier) ? {
+					...this.principalItem(p),
+					description: this.t('app.chat.direct.open', undefined, 'Already in your direct messages'),
+				} : this.principalItem(p));
 		},
 		async openDirectWith(p: PrincipalInfo) {
 			const d = this.direct;
+			const existing = (this.directChannels as ChatChannel[]).find((c) => c.peerId === p.identifier);
+			if (existing) {
+				this.cancelDirect();
+				this.selectChannel(existing.id);
+				return;
+			}
 			if (!chat || d.busy) return;
 			d.busy = true;
 			try {
