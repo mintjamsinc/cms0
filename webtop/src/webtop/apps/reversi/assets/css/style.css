@@ -143,11 +143,31 @@
 	padding: 0.5rem 0;
 }
 
+.rv-result-title {
+	margin: 0;
+	font-size: 1.25rem;
+	font-weight: 700;
+	text-align: center;
+}
+
 .rv-result-score {
 	display: flex;
 	align-items: center;
 	gap: 0.6rem;
 	font-size: 1.6rem;
+}
+
+/* The dialog has no footer: the buttons sit centred under the score. */
+.rv-result-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+}
+
+.rv-result-actions button.wt {
+	min-width: 6.5rem;
 }
 
 .rv-result-dash {

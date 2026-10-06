@@ -35,6 +35,10 @@ defineComponent('wt-dialog', {
 		title: { type: String, default: '' },
 		/** Shows the ✕ close button. */
 		closable: { type: Boolean, default: true },
+		/** Shows the header (title and ✕); false leaves the title to the body. */
+		header: { type: Boolean, default: true },
+		/** Shows the footer; false leaves the buttons to the body. */
+		footer: { type: Boolean, default: true },
 		/** Close on Escape. */
 		escClose: { type: Boolean, default: true },
 		/** Close when the overlay backdrop is clicked. */

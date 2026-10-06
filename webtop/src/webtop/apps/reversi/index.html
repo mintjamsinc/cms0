@@ -107,12 +107,10 @@
 
 		<!-- Result: closing it leaves the final board in view.
 		     Steps aside while the new game dialog is open. -->
-		<wt-dialog :open="!!result && resultDialog.visible && !dialog.visible" size="sm" @close="closeResult">
-			<template v-slot:title="d">
-				{{ resultTitle }}
-			</template>
+		<wt-dialog :open="!!result && resultDialog.visible && !dialog.visible" size="sm" :header="false" :footer="false" @close="closeResult">
 			<template v-slot="d">
 				<div class="rv-result">
+					<h3 class="rv-result-title">{{ resultTitle }}</h3>
 					<div v-if="resultNote" class="rv-result-note">{{ resultNote }}</div>
 					<div class="rv-result-score">
 						<span class="rv-mini-disc" :style="seatCards[0].style"></span>
@@ -121,13 +119,13 @@
 						<strong>{{ result?.white }}</strong>
 						<span class="rv-mini-disc" :style="seatCards[1].style"></span>
 					</div>
+					<div class="rv-result-actions">
+						<button type="button" class="wt" @click="openNewGame">{{ t('app.reversi.result.change', undefined, 'Change settings') }}</button>
+						<button type="button" class="wt wt-primary" @click="playAgain">
+							{{ isOnline ? t('app.reversi.online.rematch', undefined, 'Rematch') : t('app.reversi.result.again', undefined, 'Play again') }}
+						</button>
+					</div>
 				</div>
-			</template>
-			<template v-slot:footer="d">
-				<button type="button" class="wt" @click="openNewGame">{{ t('app.reversi.result.change', undefined, 'Change settings') }}</button>
-				<button type="button" class="wt wt-primary" @click="playAgain">
-					{{ isOnline ? t('app.reversi.online.rematch', undefined, 'Rematch') : t('app.reversi.result.again', undefined, 'Play again') }}
-				</button>
 			</template>
 		</wt-dialog>
 
