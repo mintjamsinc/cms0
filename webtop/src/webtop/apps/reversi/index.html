@@ -135,14 +135,14 @@
 
 					<template v-if="setup.mode === 'ai'">
 						<label class="dialog-label">{{ t('app.reversi.dialog.level', undefined, 'Strength') }}</label>
-						<div class="rv-chips">
+						<div class="rv-chips rv-chips-level">
 							<button v-for="o in levelOptions" :key="o.level" type="button" class="rv-chip"
 								:class="{ 'is-selected': setup.level === o.level }" @click="setup.level = o.level">
 								<span class="rv-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
 							</button>
 						</div>
 						<label class="dialog-label">{{ t('app.reversi.dialog.side', undefined, 'You play') }}</label>
-						<div class="rv-chips">
+						<div class="rv-chips rv-chips-side">
 							<button type="button" class="rv-chip" :class="{ 'is-selected': setup.side === 'black' }" @click="setup.side = 'black'">
 								{{ t('app.reversi.dialog.sideFirst', undefined, 'First (black)') }}
 							</button>
@@ -188,7 +188,7 @@
 							@pick="chooseOpponent($event.detail.value)" @change="setup.opponent = null"></wt-autocomplete>
 
 						<label class="dialog-label">{{ t('app.reversi.dialog.side', undefined, 'You play') }}</label>
-						<div class="rv-chips">
+						<div class="rv-chips rv-chips-side">
 							<button type="button" class="rv-chip" :class="{ 'is-selected': setup.side === 'black' }" @click="setup.side = 'black'">
 								{{ t('app.reversi.dialog.sideFirst', undefined, 'First (black)') }}
 							</button>
