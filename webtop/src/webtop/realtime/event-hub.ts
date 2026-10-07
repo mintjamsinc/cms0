@@ -108,10 +108,22 @@ export class EventHub {
         (event) => {
           if (event.task) {
             taskActions.addTask(event.task);
+            // Shown by the shell as a toast and in the notification
+            // center; the texts are resolved in the reader's language there.
             notificationActions.task(
-              '新しいタスク',
-              `タスク「${event.task.name}」が割り当てられました`,
-              { taskId: event.task.id }
+              { id: 'webtop.notification.task.assigned.title', fallback: 'New task' },
+              {
+                id: 'webtop.notification.task.assigned.body',
+                params: { name: event.task.name },
+                fallback: `Task "${event.task.name}" was assigned to you.`,
+              },
+              {
+                app: 'tasks',
+                options: { scope: 'assigned' },
+                icon: 'bi-check2-square',
+                key: `task:${event.task.id}`,
+                taskId: event.task.id,
+              }
             );
           }
         }

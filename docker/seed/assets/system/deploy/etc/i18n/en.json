@@ -58,5 +58,12 @@
 	"webtop.contextMenu.refresh": "Refresh",
 	"webtop.contextMenu.openInContentBrowser": "Open in Content Browser",
 	"webtop.window.launchFailed": "The application could not be started.",
-	"webtop.workspace.switch": "Switch workspace"
+	"webtop.workspace.switch": "Switch workspace",
+	"webtop.notifications.title": "Notifications",
+	"webtop.notifications.empty": "No notifications",
+	"webtop.notifications.markAllRead": "Mark all as read",
+	"webtop.notifications.clear": "Clear all",
+	"webtop.notifications.dismiss": "Dismiss",
+	"webtop.notification.task.assigned.title": "New task",
+	"webtop.notification.task.assigned.body": "Task \"{name}\" was assigned to you."
 }

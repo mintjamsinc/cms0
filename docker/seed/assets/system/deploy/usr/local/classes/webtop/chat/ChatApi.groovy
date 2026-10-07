@@ -89,6 +89,7 @@ class ChatApi {
 				kind: 'file',
 				fileId: fileId,
 				file: file,
+				fileName: file.name,
 				root: ChatStore.fileRoot(fileId),
 				key: ChatHome.fileKey(fileId),
 				canPost: true,
@@ -683,7 +684,8 @@ class ChatApi {
 			Map posted = ChatMessages.post(service, conversation.root as String, userId, body,
 				ChatMessages.KIND_USER, sources, links, mentions, card);
 			changed(service, conversation);
-			notifyMentions(service, conversation, posted.id as String, mentions);
+			List<String> told = notifyMentions(service, conversation, posted.id as String, mentions);
+			ChatNotices.posted(context.getAttribute('EventAdminAPI'), service, conversation, posted, told);
 			// Whoever posts about a file keeps its conversation in the sidebar,
 			// unless the application that shows the conversation says not to.
 			if (conversation.kind == 'file' && content.follow != false) {
@@ -727,7 +729,8 @@ class ChatApi {
 			Map edited = ChatMessages.edit(service, file, body, sources,
 				(content.removeAttachments ?: []) as List<String>, links, mentions);
 			changed(service, conversation);
-			notifyMentions(service, conversation, messageId, newMentions);
+			List<String> told = notifyMentions(service, conversation, messageId, newMentions);
+			ChatNotices.mentioned(context.getAttribute('EventAdminAPI'), service, conversation, edited, told);
 			return toMessage(service, edited);
 		} as Map;
 		home.removeUploads(draftId);
@@ -779,22 +782,25 @@ class ChatApi {
 		};
 	}
 
-	/** Leaves each mentioned user a mark, except the author. */
 	/**
 	 * Leaves each mentioned user a mark, except the author and those who are
 	 * no participant of the channel: a mention gives no access, and a notice
 	 * of a conversation one cannot open would be noise. Who may read the
 	 * conversation of a file cannot be told for another user here; the
-	 * mentioned user's own listing drops what that user cannot read.
+	 * mentioned user's own listing drops what that user cannot read. Returns
+	 * the users marked.
 	 */
-	private void notifyMentions(service, Map conversation, String messageId, List<String> mentions) {
+	private List<String> notifyMentions(service, Map conversation, String messageId, List<String> mentions) {
 		Map ref = (conversation.kind == 'file') ? [fileId: conversation.fileId] : [channelId: (conversation.channel as Map).id];
+		List<String> told = [];
 		mentions.findAll { it != userId }.each { String mentioned ->
 			if (conversation.kind == 'channel' && !isParticipant(service, (conversation.channel as Map).id as String, mentioned)) {
 				return;
 			}
 			ChatStore.mention(service, mentioned, ref, messageId, userId);
+			told.add(mentioned);
 		};
+		return told;
 	}
 
 	/** Where the caller's own mention marks are: what a client watches for them. */

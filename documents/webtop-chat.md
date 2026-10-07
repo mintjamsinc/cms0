@@ -416,6 +416,14 @@ read the node, so it follows the participants without anything further.
 At most 50 conversations are watched at a time, the most recently active
 first.
 
+All of this lives in the Chat window. For what is for the user in
+particular — a direct message, a mention — the server also publishes a
+**notice** to that user on the Webtop's notification topic
+(`ChatNotices`), which the desktop shows as a toast and keeps in its
+notification center whether or not the Chat app is open; a click opens the
+conversation at the message. Nothing is published for an ordinary message
+in a channel. See [`webtop-notifications.md`](webtop-notifications.md).
+
 ### The conversation of a file
 
 Nobody can read the conversation of a file in the repository, so there is

@@ -19,7 +19,9 @@ import {
 	translate,
 } from './composables/use-localization.js';
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from './services/content-delete.js';
-import type { JobStatus } from './graphql/types.js';
+import type { JobStatus, TopicMessageEvent } from './graphql/types.js';
+import { notificationStore, notificationActions, type Notification, type NotificationText } from './stores/notification-store.js';
+import { NOTIFICATIONS_TOPIC, toNotice, type Notice } from './lib/notifications.js';
 
 // Re-export GraphQL, services, stores, realtime, utilities, and composables for external use
 export * from './graphql/index.js';
@@ -58,6 +60,13 @@ export {
 // Kept at module scope because ichigo.js treats every methods-entry as a
 // function (a null-valued field in methods triggers a binding warning).
 let popupIframeEscHandler: ((e: KeyboardEvent) => void) | null = null;
+
+// How long a toast stays, and how many stack at the corner at once.
+const TOAST_MS = 8000;
+const MAX_TOASTS = 4;
+// The notices the shell has seen in the store, so that a toast is shown for
+// each one that is new, wherever it came from. Module scope: not reactive.
+let knownNoticeIDs = new Set<string>();
 
 async function loadComponent(relPath: string): Promise<void> {
 	const res = await fetch(`./components/${relPath}?v=${BUILD_VERSION}`);
@@ -117,6 +126,20 @@ const WtDesktop = {
 			// preview re-renders when an app updates its state without
 			// requiring the shell to call back into the iframe realm.
 			instanceDisplayInfo: {} as Record<string, { subtitle: string }>,
+			// What each app's window is showing (instance.id -> key), told by
+			// the app with setAppContext(); a notice about it is not raised
+			// while that window is active. See lib/notifications.ts.
+			instanceContext: {} as Record<string, string>,
+			// Notices: a mirror of the notification store (newest first) for
+			// the toasts and the notification center, kept for this session.
+			notifications: [] as Notification[],
+			unreadNotificationCount: 0,
+			// Ids of the notices shown as toasts right now, oldest first.
+			toastIDs: [] as string[],
+			notificationCenterOpen: false,
+			_notificationUnsub: null as null | (() => void),
+			_notificationTopicUnwatch: null as null | (() => void),
+			_toastTimers: {} as Record<string, any>,
 			// Session save overlay
 			showSaveSessionOverlay: false,
 			sessionNameInput: '',
@@ -415,6 +438,11 @@ const WtDesktop = {
 				if (vm.activeAppInstanceID === event.detail.id) {
 					vm.activeAppInstanceID = null;
 				}
+				if (vm.instanceContext[event.detail.id] !== undefined) {
+					const next = { ...vm.instanceContext };
+					delete next[event.detail.id];
+					vm.instanceContext = next;
+				}
 				const mIdx = vm.maximizedWindowIDs.indexOf(event.detail.id);
 				if (mIdx !== -1) {
 					vm.maximizedWindowIDs.splice(mIdx, 1);
@@ -491,6 +519,10 @@ const WtDesktop = {
 					vm.openAppWithOptions(payload);
 				} else if (type === 'window-control') {
 					vm.handleWindowControl(event.source as Window | null, payload);
+				} else if (type === 'notify') {
+					vm.notifyFromApp(event.source as Window | null, payload);
+				} else if (type === 'app-context') {
+					vm.setInstanceContext(event.source as Window | null, payload.key);
 				}
 			});
 
@@ -608,6 +640,9 @@ const WtDesktop = {
 			await i18nReady;
 
 			// 起動完了
+			// Notices for the reader: toasts and the notification center.
+			vm.startNotifications();
+
 			vm.isReady = true;
 
 			// Show webtop screen and hide boot screen
@@ -633,6 +668,7 @@ const WtDesktop = {
 				clearInterval(vm.timerId);
 				vm.timerId = null;
 			}
+			vm.stopNotifications();
 		},
 		onTimer() {
 			const vm = this;
@@ -1329,6 +1365,225 @@ const WtDesktop = {
 				case 'close': instance.requestClose(); break;
 			}
 		},
+		// =====================================================================
+		// Notices: toasts and the notification center
+		// (lib/notifications.ts, stores/notification-store.ts)
+		// =====================================================================
+
+		/**
+		 * Mirrors the notification store into the view-model and listens for
+		 * the notices published to this user on the Webtop's event stream.
+		 */
+		startNotifications() {
+			const vm = this;
+			vm.stopNotifications();
+			const mirror = (state: { notifications: Notification[]; unreadCount: number }) => {
+				vm.notifications = state.notifications.slice();
+				vm.unreadNotificationCount = state.unreadCount;
+			};
+			mirror(notificationStore.state);
+			knownNoticeIDs = new Set(notificationStore.state.notifications.map((n) => n.id));
+			vm._notificationUnsub = notificationStore.subscribe((state) => {
+				mirror(state);
+				// A toast for each notice that is new — a topic message, an
+				// app's notify, the shell's own task notices alike — oldest
+				// first; a toast whose notice is gone (cleared, superseded)
+				// goes with it.
+				const alive = new Set(state.notifications.map((n) => n.id));
+				const fresh = state.notifications.filter((n) => !knownNoticeIDs.has(n.id)).reverse();
+				knownNoticeIDs = alive;
+				for (const id of vm.toastIDs.slice()) {
+					if (!alive.has(id)) vm.dismissToast(id);
+				}
+				for (const n of fresh) vm.showToast(n.id);
+			});
+			try {
+				vm._notificationTopicUnwatch = window.Webtop.api.eventHub.watchTopic(
+					NOTIFICATIONS_TOPIC,
+					(event: TopicMessageEvent) => vm.receiveNotice(toNotice(event.payload)),
+				);
+			} catch (e) {
+				console.warn('[Webtop] Notifications cannot be watched:', e);
+			}
+		},
+		stopNotifications() {
+			const vm = this;
+			if (vm._notificationUnsub) {
+				vm._notificationUnsub();
+				vm._notificationUnsub = null;
+			}
+			if (vm._notificationTopicUnwatch) {
+				try { vm._notificationTopicUnwatch(); } catch { /* ignore */ }
+				vm._notificationTopicUnwatch = null;
+			}
+			for (const id of Object.keys(vm._toastTimers)) {
+				clearTimeout(vm._toastTimers[id]);
+			}
+			vm._toastTimers = {};
+			vm.toastIDs = [];
+		},
+		/** A notice raised by an app's window; the app is the sender's unless named. */
+		notifyFromApp(source: Window | null, payload: Record<string, unknown>) {
+			const vm = this;
+			const notice = toNotice(payload);
+			if (!notice) return;
+			if (!notice.app) {
+				const instance = vm.instanceOfWindow(source);
+				if (instance?.app?.relPath) notice.app = instance.app.relPath;
+			}
+			vm.receiveNotice(notice);
+		},
+		/**
+		 * Takes a notice in: kept in the store, and so shown as a toast and
+		 * in the notification center — unless the reader is looking at what
+		 * it is about, in which case it is dropped.
+		 */
+		receiveNotice(notice: Notice | null) {
+			const vm = this;
+			if (!notice) return;
+			if (notice.context && vm.isContextActive(notice.context)) return;
+			const { title, body, ...data } = notice;
+			notificationActions.info(title, body ?? '', data);
+		},
+		/** Whether the active window reports that it is showing the context. */
+		isContextActive(context: string): boolean {
+			const vm = this;
+			const active = vm.activeAppInstanceID;
+			if (!active || !document.hasFocus()) return false;
+			return vm.instanceContext[active] === context;
+		},
+		/** The app instance whose iframe is the window, or undefined. */
+		instanceOfWindow(source: Window | null): ApplicationInstance | undefined {
+			const vm = this;
+			if (!source) return undefined;
+			for (const iframe of Array.from(document.querySelectorAll('iframe[data-app-id]')) as HTMLIFrameElement[]) {
+				if (iframe.contentWindow === source) {
+					const id = iframe.getAttribute('data-app-id');
+					return vm.appInstances.find((i: ApplicationInstance) => i.id === id);
+				}
+			}
+			return undefined;
+		},
+		setInstanceContext(source: Window | null, key: unknown) {
+			const vm = this;
+			const instance = vm.instanceOfWindow(source);
+			if (!instance) return;
+			const value = typeof key === 'string' ? key : '';
+			if (vm.instanceContext[instance.id] === value) return;
+			vm.instanceContext = { ...vm.instanceContext, [instance.id]: value };
+		},
+
+		// --- toasts ------------------------------------------------------------
+
+		showToast(id: string) {
+			const vm = this;
+			// Only so many at once: the oldest makes room.
+			while (vm.toastIDs.length >= MAX_TOASTS) {
+				vm.dismissToast(vm.toastIDs[0]);
+			}
+			vm.toastIDs = [...vm.toastIDs, id];
+			vm._toastTimers[id] = setTimeout(() => vm.dismissToast(id), TOAST_MS);
+		},
+		dismissToast(id: string) {
+			const vm = this;
+			if (vm._toastTimers[id]) {
+				clearTimeout(vm._toastTimers[id]);
+				delete vm._toastTimers[id];
+			}
+			if (vm.toastIDs.indexOf(id) !== -1) {
+				vm.toastIDs = vm.toastIDs.filter((x: string) => x !== id);
+			}
+		},
+		/** The toasts in the order they stack: newest at the bottom, nearest the corner. */
+		toastNotifications(): Notification[] {
+			const vm = this;
+			const byId = new Map<string, Notification>((vm.notifications as Notification[]).map((n) => [n.id, n]));
+			return (vm.toastIDs as string[]).map((id) => byId.get(id)).filter((n): n is Notification => !!n);
+		},
+
+		// --- what a notice shows -------------------------------------------------
+
+		/** A text of a notice in the reader's language, resolved in the sending app's scope. */
+		noticeText(n: Notification, which: 'title' | 'message'): string {
+			const vm = this;
+			const value: NotificationText = n[which];
+			if (typeof value === 'string') return value;
+			if (!value || !value.id) return '';
+			return translate(vm.localization, window.Webtop, value.id, value.params as Record<string, any> | undefined, value.fallback ?? value.id, n.data?.app);
+		},
+		noticeApp(n: Notification): Application | null {
+			const relPath = n.data?.app;
+			if (!relPath) return null;
+			return (window.Webtop.apps || []).find((a: Application) => a.relPath === relPath) || null;
+		},
+		noticeAppIconURL(n: Notification): string {
+			const app = this.noticeApp(n);
+			return app ? this.iconURL(app) : '';
+		},
+		noticeIcon(n: Notification): string {
+			const icon = n.data?.icon;
+			if (icon) return icon;
+			switch (n.type) {
+				case 'ERROR': return 'bi-exclamation-octagon';
+				case 'WARNING': return 'bi-exclamation-triangle';
+				case 'TASK': return 'bi-check2-square';
+				default: return 'bi-bell';
+			}
+		},
+		/** When the notice came: the time today, the date and time before. */
+		noticeTime(n: Notification): string {
+			const vm = this;
+			const locale = vm.localization.locale || undefined;
+			const timeZone = vm.localization.timeZone || undefined;
+			const at = new Date(n.timestamp);
+			const now = new Date();
+			try {
+				const sameDay = at.toLocaleDateString(locale, { timeZone }) === now.toLocaleDateString(locale, { timeZone });
+				return sameDay
+					? at.toLocaleTimeString(locale, { hour: 'numeric', minute: 'numeric', timeZone })
+					: at.toLocaleString(locale, { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric', timeZone });
+			} catch {
+				return at.toLocaleString();
+			}
+		},
+
+		// --- what a click does ---------------------------------------------------
+
+		/** Opens what the notice is about, and counts it as read. */
+		openNotification(n: Notification) {
+			const vm = this;
+			notificationActions.markAsRead(n.id);
+			vm.dismissToast(n.id);
+			vm.notificationCenterOpen = false;
+			const app = vm.noticeApp(n);
+			if (!app) return;
+			// A plain copy: `n` comes from reactive state, and the options
+			// are posted to the app's window, which a Proxy cannot be.
+			const options = JSON.parse(JSON.stringify(n.data?.options || {}));
+			vm.openAppWithOptions({ appId: app.id, options });
+		},
+		removeNotification(n: Notification) {
+			notificationActions.remove(n.id);
+		},
+		toggleNotificationCenter() {
+			const vm = this;
+			vm.notificationCenterOpen = !vm.notificationCenterOpen;
+			if (vm.notificationCenterOpen) {
+				// The list shows what the toasts were showing.
+				for (const id of vm.toastIDs.slice()) vm.dismissToast(id);
+			}
+		},
+		closeNotificationCenter() {
+			this.notificationCenterOpen = false;
+		},
+		markAllNotificationsRead() {
+			notificationActions.markAllAsRead();
+		},
+		clearNotifications() {
+			notificationActions.clearAll();
+			this.notificationCenterOpen = false;
+		},
+
 		async openFileWithApp(payload: { appId: string; filePath: string; mimeType: string }) {
 			const vm = this;
 			// Find the app by ID

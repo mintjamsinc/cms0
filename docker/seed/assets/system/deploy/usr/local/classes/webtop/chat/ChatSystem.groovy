@@ -56,12 +56,15 @@ class ChatSystem {
 				ChatStore.signal(session, conversation.fileId as String);
 			}
 			Map target = (conversation.kind == 'file') ? [fileId: conversation.fileId] : [channelId: conversation.channelId];
+			List<String> told = [];
 			mentions.findAll { it != author }.each { String mentioned ->
 				if (conversation.kind == 'channel' && !ChatApi.isParticipant(session, conversation.channelId as String, mentioned)) {
 					return;
 				}
 				ChatStore.mention(session, mentioned, target, posted.id as String, author);
+				told.add(mentioned);
 			};
+			ChatNotices.posted(service.getAttribute('EventAdminAPI'), session, conversation, posted, told);
 			return posted;
 		} finally {
 			service.close();
@@ -78,7 +81,11 @@ class ChatSystem {
 			if (!ChatStore.exists(session, fileId)) {
 				throw new IllegalArgumentException("No such file: ${fileId}".toString());
 			}
-			return [kind: 'file', fileId: fileId, root: ChatStore.fileRoot(fileId)];
+			String fileName = '';
+			try {
+				fileName = session.getResourceByIdentifier(fileId).name;
+			} catch (Throwable ignore) {}
+			return [kind: 'file', fileId: fileId, fileName: fileName, root: ChatStore.fileRoot(fileId)];
 		}
 		if (!ref?.channelId) {
 			throw new IllegalArgumentException('Name the conversation by channelId or fileId.');
@@ -90,7 +97,7 @@ class ChatSystem {
 		if (channel.archived) {
 			throw new IllegalStateException('The channel is archived.');
 		}
-		return [kind: 'channel', channelId: channel.id, root: channel.path];
+		return [kind: 'channel', channelId: channel.id, channel: channel, root: channel.path];
 	}
 
 	/** The card to post, checked against its design, or null. */

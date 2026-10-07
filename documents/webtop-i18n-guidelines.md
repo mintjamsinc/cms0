@@ -233,7 +233,11 @@ switching language in Preferences or hot-editing a bundle re-runs every
 
 Remember the scope rule (§2): a key defined in an app bundle is visible only
 inside that app. If the shell or another app must read it, it is a global key —
-put it in a global file under the owning global namespace instead.
+put it in a global file under the owning global namespace instead. The two
+exceptions are resolved by the shell *in the app's scope* on the app's behalf:
+the app's title (`app.<appId>.title`, above) and the texts of a notice the app
+raises (`webtop-notifications.md`), which name their keys with the app — keep
+those in the app's own bundle.
 
 ## 5. Adding a locale
 

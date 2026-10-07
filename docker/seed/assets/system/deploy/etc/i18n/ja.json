@@ -58,5 +58,12 @@
 	"webtop.contextMenu.refresh": "更新",
 	"webtop.contextMenu.openInContentBrowser": "コンテンツブラウザーで開く",
 	"webtop.window.launchFailed": "アプリケーションを起動できませんでした。",
-	"webtop.workspace.switch": "ワークスペースの切り替え"
+	"webtop.workspace.switch": "ワークスペースの切り替え",
+	"webtop.notifications.title": "通知",
+	"webtop.notifications.empty": "通知はありません",
+	"webtop.notifications.markAllRead": "すべて既読にする",
+	"webtop.notifications.clear": "すべて消去",
+	"webtop.notifications.dismiss": "閉じる",
+	"webtop.notification.task.assigned.title": "新しいタスク",
+	"webtop.notification.task.assigned.body": "タスク「{name}」が割り当てられました。"
 }

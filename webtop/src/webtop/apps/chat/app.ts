@@ -46,10 +46,13 @@ import { getFileIcon } from "../../lib/inspector-utils.js";
 import { Identicon } from "../../lib/identicon.js";
 import { sha256Hex } from "../../services/webtop-util.js";
 import { openFileInEditor, revealInContentBrowser } from "../../lib/open-file.js";
+import { setAppContext } from "../../lib/notifications.js";
 
 interface LaunchOptions {
 	channelId?: string;
 	fileId?: string;
+	/** A message of the conversation to bring the reader to. */
+	messageId?: string;
 }
 
 // Kept out of reactive data: ichigo.js wraps data in deep Proxies.
@@ -338,24 +341,43 @@ const App = {
 			}
 			this.stopWatching();
 		},
-		/** Another app asked for a conversation: `{ channelId }` or `{ fileId }`. */
+		/**
+		 * Another app asked for a conversation: `{ channelId }` or `{ fileId }`,
+		 * with `messageId` to bring the reader to a message of it (a notice
+		 * opens the conversation at the message it is about).
+		 */
 		async applyLaunchOptions(options?: LaunchOptions | null) {
+			const messageId = typeof options?.messageId === 'string' ? options.messageId : '';
 			if (options?.fileId) {
 				this.selectThread(options.fileId);
+				if (messageId) this.focusMessageId = messageId;
 				return;
 			}
 			const id = options?.channelId;
 			if (!id || !chat) return;
 			if ((this.channels as ChatChannel[]).some((c) => c.id === id)) {
 				this.selectChannel(id);
-				return;
+			} else {
+				try {
+					const conversation = await chat.getConversation({ channelId: id });
+					if (!conversation.channel) return;
+					this.visit(conversation.channel);
+				} catch (e) {
+					this.showError(e);
+					return;
+				}
 			}
-			try {
-				const conversation = await chat.getConversation({ channelId: id });
-				if (conversation.channel) this.visit(conversation.channel);
-			} catch (e) {
-				this.showError(e);
-			}
+			// Set after the selection, which clears it.
+			if (messageId) this.focusMessageId = messageId;
+		},
+		/**
+		 * Tells the shell which conversation the window shows, so that a
+		 * notice about it is not raised while the reader is looking at it.
+		 * The key is the one the server puts on its notices (ChatNotices).
+		 */
+		announceContext() {
+			const ref = this.currentRef as ChatRef | null;
+			setAppContext(ref?.channelId ? `chat:channel:${ref.channelId}` : ref?.fileId ? `chat:file:${ref.fileId}` : '');
 		},
 
 		// =====================================================================
@@ -444,6 +466,7 @@ const App = {
 			this.currentFileId = '';
 			this.currentId = id;
 			this.currentRef = { channelId: id };
+			this.announceContext();
 		},
 		/** Opens the conversation of a file, whether the sidebar lists it or not. */
 		selectThread(fileId: string) {
@@ -455,6 +478,7 @@ const App = {
 			this.currentId = '';
 			this.currentFileId = fileId;
 			this.currentRef = { fileId };
+			this.announceContext();
 		},
 		isThreadUnread(t: ChatConversation): boolean {
 			return t.fileId !== this.currentFileId && chatIsUnread(t);
@@ -479,6 +503,7 @@ const App = {
 			this.currentFileId = '';
 			this.currentId = channel.id;
 			this.currentRef = { channelId: channel.id };
+			this.announceContext();
 		},
 		closeCurrent() {
 			this.visiting = null;
@@ -486,6 +511,7 @@ const App = {
 			this.currentId = '';
 			this.currentFileId = '';
 			this.currentRef = null;
+			this.announceContext();
 		},
 		/** Puts what is known anew about a channel into the list, or into the visited one. */
 		patchChannel(id: string, fields: Partial<ChatChannel>) {

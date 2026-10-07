@@ -61,6 +61,9 @@
 	"app.chat.search.empty": "一致するメッセージはありません。",
 	"app.chat.search.more": "さらに表示",
 	"app.chat.mention.notice": "メンションされました。",
+	"app.chat.notify.direct.title": "{author}",
+	"app.chat.notify.mention.channel.title": "{author} さんが {channel} であなたをメンションしました",
+	"app.chat.notify.mention.file.title": "{author} さんが {file} であなたをメンションしました",
 
 	"app.chat.error.load": "チャネルを読み込めませんでした。"
 }

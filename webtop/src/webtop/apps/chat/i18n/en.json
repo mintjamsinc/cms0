@@ -61,6 +61,9 @@
 	"app.chat.search.empty": "No message matches.",
 	"app.chat.search.more": "More results",
 	"app.chat.mention.notice": "You were mentioned.",
+	"app.chat.notify.direct.title": "{author}",
+	"app.chat.notify.mention.channel.title": "{author} mentioned you in {channel}",
+	"app.chat.notify.mention.file.title": "{author} mentioned you about {file}",
 
 	"app.chat.error.load": "The channels could not be loaded."
 }

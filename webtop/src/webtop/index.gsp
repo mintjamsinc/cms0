@@ -33,7 +33,16 @@
 				<div class="mx-4 d-flex justify-content-center align-items-center">
 					<span class="user-avatar" :style="{backgroundImage: avatarURL}"><!-- avatar --></span><span class="text ms-2">{{username}}</span>
 				</div>
-				<div class="mx-4 d-flex justify-content-center align-items-center">
+				<!-- Notices: the bell counts what has not been looked at; the bell
+				     and the clock open the notification center. -->
+				<div class="notification-bell px-2 d-flex justify-content-center align-items-center c-pointer menu-on-hover"
+					:class="{ open: notificationCenterOpen }"
+					:title="t('webtop.notifications.title')" @click="toggleNotificationCenter">
+					<i class="bi" :class="unreadNotificationCount > 0 ? 'bi-bell-fill' : 'bi-bell'"></i>
+					<span class="notification-badge" v-if="unreadNotificationCount > 0">{{ unreadNotificationCount > 9 ? '9+' : unreadNotificationCount }}</span>
+				</div>
+				<div class="me-3 px-2 d-flex justify-content-center align-items-center c-pointer menu-on-hover"
+					:class="{ open: notificationCenterOpen }" @click="toggleNotificationCenter">
 					<span class="text">{{displayTime}}</span><span class="text ms-3">{{displayDate}}</span>
 				</div>
 			</header>
@@ -94,6 +103,41 @@
 				<wt-window v-for="appInstance in appInstances" :key="appInstance.id" :appInstance="appInstance" :localization="localization"></wt-window>
 			</main>
 			<div id="dock-overlay" v-if="openDockAppID" @click="closeDockList"></div>
+
+			<!-- Notification center: what the toasts showed, kept for this
+			     session, newest first. See lib/notifications.ts. -->
+			<div id="notification-overlay" v-if="notificationCenterOpen"
+				@click="closeNotificationCenter" @contextmenu.prevent="closeNotificationCenter"></div>
+			<aside id="notification-center" v-if="notificationCenterOpen">
+				<div class="notification-center-header">
+					<span class="notification-center-title">{{ t('webtop.notifications.title') }}</span>
+					<span class="flex-grow-1"></span>
+					<button type="button" class="notification-center-action" v-if="unreadNotificationCount > 0"
+						@click="markAllNotificationsRead">{{ t('webtop.notifications.markAllRead') }}</button>
+					<button type="button" class="notification-center-action" v-if="notifications.length > 0"
+						@click="clearNotifications">{{ t('webtop.notifications.clear') }}</button>
+				</div>
+				<div class="notification-center-empty" v-if="notifications.length === 0">
+					<i class="bi bi-bell-slash"></i>
+					<span>{{ t('webtop.notifications.empty') }}</span>
+				</div>
+				<div class="notification-list" v-else>
+					<div v-for="n in notifications" :key="n.id" class="notification-item"
+						:class="{ unread: !n.read, openable: !!noticeApp(n) }" @click="openNotification(n)">
+						<div class="notification-icon">
+							<img v-if="noticeAppIconURL(n)" :src="noticeAppIconURL(n)">
+							<i v-else class="bi" :class="noticeIcon(n)"></i>
+						</div>
+						<div class="notification-text">
+							<div class="notification-title text-truncate">{{ noticeText(n, 'title') }}</div>
+							<div class="notification-body" v-if="noticeText(n, 'message')">{{ noticeText(n, 'message') }}</div>
+							<div class="notification-time">{{ noticeTime(n) }}</div>
+						</div>
+						<button type="button" class="notification-remove" :title="t('webtop.notifications.dismiss')"
+							@click.stop="removeNotification(n)"><i class="bi bi-x-lg"></i></button>
+					</div>
+				</div>
+			</aside>
 			<!-- Context Menu -->
 			<div id="context-menu-overlay" v-if="contextMenu.visible" @click="hideContextMenu" @contextmenu.prevent="hideContextMenu"></div>
 			<div id="context-menu" v-if="contextMenu.visible"
@@ -393,6 +437,24 @@
 							<button class="wt wt-primary" @click="closeDesktopAlert">{{ t('common.ok') }}</button>
 						</div>
 					</div>
+				</div>
+			</div>
+
+			<!-- Toasts: the latest notices, at the corner for a while. A click
+			     opens what the notice is about. -->
+			<div id="toast-stack">
+				<div v-for="n in toastNotifications()" :key="n.id" class="toast-card"
+					:class="{ openable: !!noticeApp(n) }" @click="openNotification(n)">
+					<div class="notification-icon">
+						<img v-if="noticeAppIconURL(n)" :src="noticeAppIconURL(n)">
+						<i v-else class="bi" :class="noticeIcon(n)"></i>
+					</div>
+					<div class="notification-text">
+						<div class="notification-title text-truncate">{{ noticeText(n, 'title') }}</div>
+						<div class="notification-body" v-if="noticeText(n, 'message')">{{ noticeText(n, 'message') }}</div>
+					</div>
+					<button type="button" class="notification-remove" :title="t('webtop.notifications.dismiss')"
+						@click.stop="dismissToast(n.id)"><i class="bi bi-x-lg"></i></button>
 				</div>
 			</div>
 

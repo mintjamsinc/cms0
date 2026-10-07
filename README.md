@@ -290,6 +290,17 @@ signal bus. A script or a client publishes to a topic for named recipients,
 for the readers of a node, or for everyone; clients subscribe to a topic or a
 prefix. See [`documents/topic-messages.md`](documents/topic-messages.md).
 
+### Webtop notifications
+
+The Webtop shows a **toast** at the corner of the desktop, and keeps it in
+a **notification center** behind the bell in the menubar, when something is
+for the user — a direct message, a mention, a task — whether or not the app
+it concerns is open. Any app raises one by publishing a notice to
+`webtop/notifications` for named recipients, or from its window; the shell
+resolves its texts in the reader's language and a click opens the app at
+what the notice is about. See
+[`documents/webtop-notifications.md`](documents/webtop-notifications.md).
+
 ---
 
 ## Platform support
