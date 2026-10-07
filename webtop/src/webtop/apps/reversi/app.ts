@@ -699,9 +699,13 @@ const App = {
 			this.showLobby(mode);
 			this.scheduleSave();
 		},
-		/** The toolbar's lobby button: a game in progress is left only after asking. */
+		/**
+		 * The toolbar's lobby button: a game in progress is left only after
+		 * asking. A game with a result is over even when the board is not (a
+		 * room ended by resigning).
+		 */
 		requestLobby() {
-			if (this.scene === 'game' && !this.over) {
+			if (this.scene === 'game' && !this.over && !this.result) {
 				this.leaveDialog.visible = true;
 				return;
 			}
