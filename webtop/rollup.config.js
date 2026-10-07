@@ -221,6 +221,17 @@ const webtopCoreConfig = makeConfig({
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/index.css', dest: 'dist/webtop/vendor/noto-sans-jp' },
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/files', dest: 'dist/webtop/vendor/noto-sans-jp' },
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/LICENSE', dest: 'dist/webtop/vendor/noto-sans-jp' },
+    // Bundle M PLUS Rounded 1c (static weights) for the Reversi app, whose
+    // window and invitation card are drawn in the rounded, picture-book tone
+    // of ichigo.js. Packaged like Noto Sans JP: the upstream per-weight
+    // stylesheets are copied verbatim and @import-ed by the app's style.css
+    // and card.html, and only the weights the app uses (400, 500, 700, 800)
+    // and only their woff2 subsets are copied; every browser the Webtop
+    // supports takes the woff2 source, so the woff fallbacks the
+    // stylesheets also name are never requested.
+    { src: 'node_modules/@fontsource/m-plus-rounded-1c/{400,500,700,800}.css', dest: 'dist/webtop/vendor/m-plus-rounded-1c' },
+    { src: 'node_modules/@fontsource/m-plus-rounded-1c/files/*-{400,500,700,800}-normal.woff2', dest: 'dist/webtop/vendor/m-plus-rounded-1c/files' },
+    { src: 'node_modules/@fontsource/m-plus-rounded-1c/LICENSE', dest: 'dist/webtop/vendor/m-plus-rounded-1c' },
     // Bundle the default wallpaper from third_party_assets/ so the webtop
     // runtime can resolve /assets/wallpapers/wallpaper-default.jpg without
     // an additional manual upload at deploy time.

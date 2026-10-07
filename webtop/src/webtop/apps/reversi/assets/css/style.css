@@ -1,5 +1,14 @@
 @charset "utf-8";
 
+/* M PLUS Rounded 1c, the rounded face of ichigo.js. Vendored from
+ * @fontsource/m-plus-rounded-1c (see rollup.config.js); the per-weight
+ * stylesheets are @import-ed as they are, and the browser fetches only the
+ * unicode-range subsets the window actually shows. */
+@import url("../../../../vendor/m-plus-rounded-1c/400.css?v=__BUILD_VERSION__");
+@import url("../../../../vendor/m-plus-rounded-1c/500.css?v=__BUILD_VERSION__");
+@import url("../../../../vendor/m-plus-rounded-1c/700.css?v=__BUILD_VERSION__");
+@import url("../../../../vendor/m-plus-rounded-1c/800.css?v=__BUILD_VERSION__");
+
 /* ============================================================================
  * Reversi — layout, board and discs
  *
@@ -14,8 +23,245 @@
 	--rv-side-width: 15rem;
 }
 
+/* ----------------------------------------------------------------------------
+ * Strawberry milk
+ *
+ * The window is drawn in the tone of the invitation card (and of ichigo.js:
+ * soft, like a picture book). The shared components keep their shape; only
+ * the theme tokens of webtop-app.css are redefined here, outside its layer,
+ * so the toolbar pills, the buttons, the dialogs and the search box all
+ * follow. The few rules after the tokens round the corners a little more
+ * and give the buttons the card's pill with a soft shadow.
+ * -------------------------------------------------------------------------- */
+
+:root[data-theme="light"] {
+	--rv-ink: #4d2c31;
+	--rv-ink-soft: #927076;
+	--rv-primary-deep: #d83a5d;
+	--rv-primary-soft: #ffe3ec;
+	--rv-shadow: rgb(150 70 85 / 0.16);
+
+	--primary-color: #ed5a77;
+	--secondary-color: #57b894;
+	--neutral-color: #927076;
+	--info-color: #6b8bf5;
+	--warning-color: #d97f52;
+	--danger-color: #d83a5d;
+	--success-color: #57b894;
+	--body-bg: #fff8f3;
+	--text-color: var(--rv-ink);
+	--text-muted-color: rgb(77 44 49 / 0.5);
+	--text-soft-color: var(--rv-ink-soft);
+	--button-primary-color: #ffffff;
+	--button-secondary-color: #ffffff;
+	--button-neutral-color: var(--rv-ink);
+	--button-danger-color: #ffffff;
+	--badge-bg: var(--rv-primary-soft);
+	--island-bg: rgb(255 251 248 / 0.96);
+	--island-border-color: #ffffff;
+	--island-shadow: 0 18px 40px -24px rgb(150 70 85 / 0.35);
+	--window-controls-bg: rgb(255 255 255 / 0.7);
+	--window-controls-border-color: #ffffff;
+	--btn-icon-hover-bg: rgb(237 90 119 / 0.12);
+	--pane-toggle-active-bg: #ed5a77;
+	--scrollbar-thumb-bg: #ffd9e3;
+	--dialog-bg: rgb(255 227 236 / 0.5);
+	--dialog-border-color: #ffffff;
+	--dialog-shadow: 0 0 0 1px rgb(150 70 85 / 0.06), 0 30px 80px rgb(150 70 85 / 0.25);
+	--input-bg: #ffffff;
+	--input-border-color: var(--rv-primary-soft);
+	--input-focus-border-color: #ed5a77;
+	--input-focus-ring-color: rgb(237 90 119 / 0.15);
+	--context-menu-bg: rgb(255 251 248 / 0.95);
+	--context-menu-border-color: #ffffff;
+	--context-menu-hover-bg: var(--rv-primary-soft);
+	--context-menu-shadow: 0 10px 24px -8px rgb(150 70 85 / 0.3), 0 0 0 1px rgb(150 70 85 / 0.05);
+	--menu-divider-color: rgb(77 44 49 / 0.1);
+	--navbar-color: var(--rv-ink);
+	--item-hover-bg: rgb(237 90 119 / 0.08);
+	--item-even-bg: rgb(237 90 119 / 0.04);
+	--item-selected-bg: var(--rv-primary-soft);
+	--nav-current-color: #ed5a77;
+	--nav-current-bg: rgb(237 90 119 / 0.06);
+	--nav-current-border-color: rgb(237 90 119 / 0.25);
+	--nav-current-hover-bg: rgb(237 90 119 / 0.12);
+}
+
+:root[data-theme="dark"] {
+	--rv-ink: #ffe9ef;
+	--rv-ink-soft: #c79aa6;
+	--rv-primary-deep: #ff7b94;
+	--rv-primary-soft: rgb(237 90 119 / 0.3);
+	--rv-shadow: rgb(0 0 0 / 0.35);
+
+	--primary-color: #ed5a77;
+	--secondary-color: #57b894;
+	--neutral-color: #c79aa6;
+	--info-color: #8fa8ff;
+	--warning-color: #f7a072;
+	--danger-color: #ff8a80;
+	--success-color: #7fd0ad;
+	--body-bg: #2c191e;
+	--text-color: var(--rv-ink);
+	--text-muted-color: rgb(255 233 239 / 0.5);
+	--text-soft-color: var(--rv-ink-soft);
+	--button-primary-color: #ffffff;
+	--button-secondary-color: #ffffff;
+	--button-neutral-color: var(--rv-ink);
+	--button-danger-color: #2c191e;
+	--badge-bg: rgb(237 90 119 / 0.2);
+	--island-bg: rgb(46 26 32 / 0.95);
+	--island-border-color: rgb(255 255 255 / 0.08);
+	--island-shadow: 0 18px 40px -24px rgb(0 0 0 / 0.6);
+	--window-controls-bg: rgb(255 255 255 / 0.08);
+	--window-controls-border-color: rgb(255 255 255 / 0.1);
+	--btn-icon-hover-bg: rgb(255 123 148 / 0.18);
+	--pane-toggle-active-bg: #ed5a77;
+	--scrollbar-thumb-bg: #5a2f3f;
+	--dialog-bg: rgb(70 35 47 / 0.5);
+	--dialog-border-color: rgb(255 255 255 / 0.1);
+	--dialog-shadow: 0 0 0 1px rgb(255 123 148 / 0.08), 0 30px 80px rgb(0 0 0 / 0.5);
+	--input-bg: rgb(255 255 255 / 0.06);
+	--input-border-color: rgb(255 123 148 / 0.35);
+	--input-focus-border-color: #ff7b94;
+	--input-focus-ring-color: rgb(255 123 148 / 0.2);
+	--context-menu-bg: rgb(44 25 30 / 0.95);
+	--context-menu-border-color: rgb(255 255 255 / 0.1);
+	--context-menu-hover-bg: rgb(237 90 119 / 0.25);
+	--context-menu-shadow: 0 10px 24px -8px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
+	--menu-divider-color: rgb(255 255 255 / 0.1);
+	--navbar-color: var(--rv-ink);
+	--item-hover-bg: rgb(255 123 148 / 0.12);
+	--item-even-bg: rgb(255 123 148 / 0.05);
+	--item-selected-bg: rgb(237 90 119 / 0.28);
+	--nav-current-color: #ff7b94;
+	--nav-current-bg: rgb(255 123 148 / 0.08);
+	--nav-current-border-color: rgb(255 123 148 / 0.3);
+	--nav-current-hover-bg: rgb(255 123 148 / 0.16);
+}
+
+/* Islands: a white edge and rounder corners, as the card. */
+.island {
+	border: 1.5px solid var(--island-border-color);
+	border-radius: 1.25rem;
+}
+
+/* The pills of the toolbar and the window controls float a little. */
+.toolbar-group,
+.window-controls {
+	box-shadow: 0 6px 16px -10px var(--rv-shadow);
+}
+
+.status-bar {
+	color: var(--text-soft-color);
+}
+
+/* Buttons: the card's pills. The plain button is white with a pink edge,
+ * the primary one strawberry with a soft shadow; both lift on hover. */
+button.wt {
+	padding: 0.45rem 1.1rem;
+	border: 1.5px solid var(--rv-primary-soft);
+	background-color: var(--input-bg);
+	color: var(--text-soft-color);
+	font-weight: 700;
+	box-shadow: 0 6px 14px -10px var(--rv-shadow);
+	transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), box-shadow 0.2s, background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+button.wt:hover:not(:disabled) {
+	background-color: var(--input-bg);
+	border-color: var(--primary-color);
+	color: var(--rv-primary-deep);
+	transform: translateY(-2px);
+}
+
+button.wt:active:not(:disabled) {
+	transform: translateY(0);
+}
+
+button.wt:disabled {
+	transform: none;
+	box-shadow: none;
+}
+
+button.wt.wt-slim {
+	padding: 0.25rem 0.8rem;
+}
+
+button.wt.wt-primary {
+	border-color: var(--primary-color);
+	background-color: var(--primary-color);
+	color: var(--button-primary-color);
+	box-shadow: 0 8px 18px -8px var(--primary-color);
+}
+
+button.wt.wt-primary:hover:not(:disabled) {
+	background-color: var(--rv-primary-deep);
+	border-color: var(--rv-primary-deep);
+	color: var(--button-primary-color);
+	box-shadow: 0 12px 22px -8px var(--primary-color);
+}
+
+button.wt.wt-danger {
+	border-color: var(--danger-color);
+	background-color: var(--danger-color);
+	color: var(--button-danger-color);
+	box-shadow: 0 8px 18px -8px var(--danger-color);
+}
+
+button.wt.wt-danger:hover:not(:disabled) {
+	background-color: var(--danger-color);
+	border-color: var(--danger-color);
+	color: var(--button-danger-color);
+	filter: brightness(1.06);
+}
+
+/* Dialogs: rounder, with a bold title. */
+.dialog-frame {
+	border-radius: 1.5rem;
+}
+
+.dialog-header h3 {
+	font-weight: 800;
+}
+
+.dialog-label {
+	font-weight: 700;
+	letter-spacing: 0.02em;
+}
+
+/* The search box of the lobby. */
+.input-group {
+	border-width: 1.5px;
+	border-color: var(--input-border-color);
+	border-radius: 999px;
+	box-shadow: none;
+}
+
+.input-group:focus-within {
+	border-color: var(--input-focus-border-color);
+	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
+}
+
+.input-group input {
+	padding: 0.4rem 0.9rem;
+}
+
+.wt-select-menu {
+	border-radius: 1rem;
+	padding: 0.375rem;
+}
+
+.wt-select-item {
+	border-radius: 0.75rem;
+}
+
+/* The whole window in the rounded face; the shared stack stays behind it
+ * for what the font lacks. Set on #app rather than html, which the shared
+ * stylesheet reserves for itself. */
 #app {
 	height: 100%;
+	font-family: "M PLUS Rounded 1c", "InterVariable", "Noto Sans JP Variable", ui-sans-serif, -apple-system, system-ui, Segoe UI, Helvetica, Apple Color Emoji, Arial, sans-serif, Segoe UI Emoji, Segoe UI Symbol;
 }
 
 .rv-body {
@@ -146,7 +392,7 @@
 .rv-result-title {
 	margin: 0;
 	font-size: 1.5rem;
-	font-weight: 700;
+	font-weight: 800;
 	text-align: center;
 }
 
@@ -185,8 +431,9 @@
 	padding: 0.4rem 1.1rem;
 	border-radius: 9999px;
 	background: var(--island-bg);
-	border: 1px solid var(--island-border-color);
+	border: 1.5px solid var(--island-border-color);
 	box-shadow: 0 6px 18px rgba(77, 44, 49, 0.16);
+	font-weight: 700;
 	white-space: nowrap;
 	animation: rv-notice-in 0.25s ease-out;
 }
@@ -247,14 +494,19 @@
 	align-items: center;
 	gap: 0.75rem;
 	padding: 0.7rem 0.8rem;
-	border: 1px solid transparent;
-	border-radius: 14px;
-	transition: background-color 0.2s ease, border-color 0.2s ease;
+	border: 1.5px solid transparent;
+	border-radius: 16px;
+	transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .rv-seat.is-active {
 	background: var(--item-selected-bg);
 	border-color: var(--primary-color);
+	box-shadow: 0 8px 18px -12px var(--rv-shadow);
+}
+
+.rv-seat.is-active .rv-seat-count {
+	color: var(--primary-color);
 }
 
 .rv-mini-disc {
@@ -395,8 +647,8 @@
 
 .rv-lobby-title {
 	margin: 0 0 0.75rem;
-	font-size: 1.25rem;
-	font-weight: 700;
+	font-size: 1.35rem;
+	font-weight: 800;
 }
 
 .rv-lobby-body .dialog-label {
@@ -429,16 +681,24 @@
 	align-items: center;
 	gap: 0.35rem;
 	padding: 0.9rem 0.5rem;
-	border: 1px solid var(--input-border-color);
-	border-radius: 14px;
+	border: 1.5px solid var(--input-border-color);
+	border-radius: 16px;
 	background: var(--input-bg);
 	color: var(--text-color);
 	font: inherit;
+	font-weight: 600;
 	cursor: pointer;
+	transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+
+.rv-option:hover:not(.is-selected) {
+	border-color: var(--primary-color);
+	transform: translateY(-2px);
 }
 
 .rv-option i {
 	font-size: 1.5rem;
+	color: var(--primary-color);
 }
 
 .rv-option.is-selected,
@@ -460,12 +720,18 @@
 	justify-content: center;
 	gap: 0.4rem;
 	padding: 0.35rem 0.85rem;
-	border: 1px solid var(--input-border-color);
+	border: 1.5px solid var(--input-border-color);
 	border-radius: 9999px;
 	background: var(--input-bg);
 	color: var(--text-color);
 	font: inherit;
+	font-weight: 600;
 	cursor: pointer;
+	transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+
+.rv-chip:hover:not(.is-selected) {
+	border-color: var(--primary-color);
 }
 
 /* Strength and side: chips of one width, centred under the label. */

@@ -353,28 +353,71 @@ function iconMail() {
     svgClose(id);
 }
 
+// Reversi: the strawberry-mint board of the app, tilted a little as on its
+// invitation card, with the chick and the strawberry (the disc faces of
+// src/webtop/apps/reversi/assets/discs/) and a few sparkles in the sky.
 function iconReversi() {
   const id = 'reversi';
+  // A disc face drawn in a 100 x 100 box, placed with its centre at (cx, cy).
+  const disc = (cx, cy, r, rim, face) => `
+      <circle cx="${cx}" cy="${cy + 2.5}" r="${r}" fill="${rim}"/>
+      <g transform="translate(${cx - r} ${cy - r}) scale(${(r * 2) / 100})">${face}</g>`;
+  const chick = `
+        <circle cx="50" cy="50" r="50" fill="url(#fluff-${id})"/>
+        <path d="M46 14 C44 8 48 4 52 6 C50 9 51 12 54 14" fill="none" stroke="#f2b93b" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="36" cy="46" r="5.5" fill="#4d2c31"/>
+        <circle cx="64" cy="46" r="5.5" fill="#4d2c31"/>
+        <circle cx="37.8" cy="44" r="1.8" fill="#ffffff"/>
+        <circle cx="65.8" cy="44" r="1.8" fill="#ffffff"/>
+        <ellipse cx="27" cy="59" rx="7" ry="4.5" fill="#ff9ebb" fill-opacity="0.7"/>
+        <ellipse cx="73" cy="59" rx="7" ry="4.5" fill="#ff9ebb" fill-opacity="0.7"/>
+        <path d="M42 56 L58 56 L50 66 Z" fill="#f7a072" stroke="#e58a5a" stroke-width="2" stroke-linejoin="round"/>
+        <ellipse cx="34" cy="24" rx="10" ry="5" fill="#ffffff" fill-opacity="0.3" transform="rotate(-25 34 24)"/>`;
+  const berry = `
+        <circle cx="50" cy="50" r="50" fill="url(#berry-${id})"/>
+        <g fill="#ffe7a3">
+          <ellipse cx="30" cy="48" rx="2.6" ry="3.6" transform="rotate(-20 30 48)"/>
+          <ellipse cx="46" cy="44" rx="2.6" ry="3.6"/>
+          <ellipse cx="62" cy="47" rx="2.6" ry="3.6" transform="rotate(20 62 47)"/>
+          <ellipse cx="74" cy="58" rx="2.6" ry="3.6" transform="rotate(25 74 58)"/>
+          <ellipse cx="38" cy="62" rx="2.6" ry="3.6" transform="rotate(-10 38 62)"/>
+          <ellipse cx="54" cy="60" rx="2.6" ry="3.6" transform="rotate(10 54 60)"/>
+          <ellipse cx="26" cy="64" rx="2.6" ry="3.6" transform="rotate(-25 26 64)"/>
+          <ellipse cx="46" cy="76" rx="2.6" ry="3.6"/>
+          <ellipse cx="64" cy="73" rx="2.6" ry="3.6" transform="rotate(15 64 73)"/>
+        </g>
+        <path d="M50 30 C44 22 34 20 26 24 C34 26 38 30 40 33 C34 34 28 38 26 44 C34 40 42 38 50 37 C58 38 66 40 74 44 C72 38 66 34 60 33 C62 30 66 26 74 24 C66 20 56 22 50 30 Z" fill="#57b894"/>
+        <path d="M50 30 C50 24 52 18 56 14" fill="none" stroke="#3f9677" stroke-width="4" stroke-linecap="round"/>
+        <ellipse cx="34" cy="26" rx="10" ry="5" fill="#ffffff" fill-opacity="0.18" transform="rotate(-25 34 26)"/>`;
+  const spark = (x, y, s) => `
+    <path transform="translate(${x} ${y}) scale(${s})" fill="white" d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"/>`;
   return svgOpen(id) +
-    bg(id, '#ff9ebb', '#ed5a77') +
+    bg(id, '#ffb6cb', '#ed5a77') +
     `
+  <defs>
+    <radialGradient id="fluff-${id}" cx="0.36" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#fff3b8"/>
+      <stop offset="0.6" stop-color="#ffd659"/>
+      <stop offset="1" stop-color="#f2b93b"/>
+    </radialGradient>
+    <radialGradient id="berry-${id}" cx="0.36" cy="0.32" r="0.8">
+      <stop offset="0" stop-color="#ff9db2"/>
+      <stop offset="0.55" stop-color="#ed5a77"/>
+      <stop offset="1" stop-color="#cf3658"/>
+    </radialGradient>
+  </defs>
   <g clip-path="url(#clip-${id})">
-    <rect x="34" y="34" width="112" height="112" rx="22" fill="#dff3e8"/>
-    <g fill="#eaf8f0">
-      <rect x="42" y="42" width="45" height="45" rx="11"/>
-      <rect x="93" y="42" width="45" height="45" rx="11"/>
-      <rect x="42" y="93" width="45" height="45" rx="11"/>
-      <rect x="93" y="93" width="45" height="45" rx="11"/>
-    </g>
-    <g>
-      <circle cx="64.5" cy="66.5" r="17" fill="#3a2025"/>
-      <circle cx="64.5" cy="64.5" r="17" fill="#4d2c31"/>
-      <circle cx="115.5" cy="117.5" r="17" fill="#3a2025"/>
-      <circle cx="115.5" cy="115.5" r="17" fill="#4d2c31"/>
-      <circle cx="115.5" cy="66.5" r="17" fill="#f0d9cf"/>
-      <circle cx="115.5" cy="64.5" r="17" fill="#fff8f3"/>
-      <circle cx="64.5" cy="117.5" r="17" fill="#f0d9cf"/>
-      <circle cx="64.5" cy="115.5" r="17" fill="#fff8f3"/>
+    <g fill-opacity="0.9">${spark(18, 22, 1.4)}${spark(146, 30, 1.0)}${spark(150, 134, 1.2)}</g>
+    <g transform="rotate(-6 90 90)">
+      <rect x="34" y="40" width="112" height="112" rx="24" fill="#b8304f" fill-opacity="0.22"/>
+      <rect x="34" y="34" width="112" height="112" rx="24" fill="#dff3e8"/>
+      <rect x="36" y="36" width="108" height="108" rx="22" fill="none" stroke="#c4e6d4" stroke-width="2"/>
+      <g fill="#eaf8f0">
+        <rect x="43" y="43" width="44" height="44" rx="12"/>
+        <rect x="93" y="43" width="44" height="44" rx="12"/>
+        <rect x="43" y="93" width="44" height="44" rx="12"/>
+        <rect x="93" y="93" width="44" height="44" rx="12"/>
+      </g>${disc(65, 64, 17.5, '#d9a530', chick)}${disc(115, 64, 17.5, '#b8304f', berry)}${disc(65, 114, 17.5, '#b8304f', berry)}${disc(115, 114, 17.5, '#d9a530', chick)}
     </g>
   </g>` +
     svgClose(id);
