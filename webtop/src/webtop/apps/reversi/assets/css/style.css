@@ -471,7 +471,7 @@
 /* Strength and side: chips of one width, centred under the label. */
 .rv-chips-level,
 .rv-chips-side {
-	justify-content: center;
+	/* justify-content: center; */
 }
 
 .rv-chips-level .rv-chip {
