@@ -33,5 +33,7 @@
 	"page.status.cancelled.them": "{hostName} took the invitation back",
 	"page.status.gone": "No longer open",
 	"page.join": "Join the game",
-	"page.open": "Open the game"
+	"page.open": "Open the game",
+	"page.decline": "Decline",
+	"page.takeBack": "Take back"
 }

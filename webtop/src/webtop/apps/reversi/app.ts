@@ -1060,14 +1060,19 @@ const App = {
 				case 'declined':
 				case 'left':
 				case 'cancelled':
-					if (mine && !byMe) {
+					// The room shown is over, whoever ended it: the other player,
+					// or this user elsewhere (the invitation's card in the chat,
+					// another window). Ended here, the room was already left.
+					if (mine) {
 						const name = this.online.opponentName;
 						this.goToLobby('online');
-						this.setNotice(m.type === 'cancelled' ?
-							this.t('app.reversi.online.cancelledYou', { name }, '{name} took the invitation back') :
-							m.type === 'left' ?
-								this.t('app.reversi.online.leftYou', { name }, '{name} left') :
-								this.t('app.reversi.online.declinedYou', { name }, '{name} declined'), LONG_NOTICE_MS);
+						if (!byMe) {
+							this.setNotice(m.type === 'cancelled' ?
+								this.t('app.reversi.online.cancelledYou', { name }, '{name} took the invitation back') :
+								m.type === 'left' ?
+									this.t('app.reversi.online.leftYou', { name }, '{name} left') :
+									this.t('app.reversi.online.declinedYou', { name }, '{name} declined'), LONG_NOTICE_MS);
+						}
 					}
 					this.loadRooms();
 					return;

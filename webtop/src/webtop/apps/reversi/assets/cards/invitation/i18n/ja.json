@@ -33,5 +33,7 @@
 	"page.status.cancelled.them": "{hostName}が招待を取り消しました",
 	"page.status.gone": "この招待はもう有効ではありません",
 	"page.join": "対戦に参加する",
-	"page.open": "ゲームを開く"
+	"page.open": "ゲームを開く",
+	"page.decline": "断る",
+	"page.takeBack": "取り消す"
 }

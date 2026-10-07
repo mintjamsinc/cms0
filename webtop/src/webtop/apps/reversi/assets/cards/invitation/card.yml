@@ -1,7 +1,8 @@
 # The invitation to a game of Reversi, posted by the app to the direct
 # messages of the two players when one invites the other (ReversiApi.invite).
-# The card's button opens the game: the invited user accepts on the way in
-# and lands in the room, getting ready.
+# The card's first button opens the game: the invited user accepts on the
+# way in and lands in the room, getting ready. While the invitation waits
+# for an answer a second button declines it (for the host, takes it back).
 #
 # The design lives in the app's own folder (assets/cards/invitation), so it
 # is deployed with the app; it is not under /etc/chat/cards, so it is not

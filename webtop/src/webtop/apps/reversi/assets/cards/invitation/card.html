@@ -7,11 +7,12 @@
 <style>
 	/* The page of the Reversi invitation card (see card.yml). A board's
 	 * corner with two discs stands for the game; the text says who invites
-	 * whom and which side the invited user plays; the button opens the game.
-	 * The room's state is read with the reader's credentials, so a card that
-	 * was answered says so; while the room is open it is read again now and
-	 * then, and when the reader comes back to the page, as a card has no
-	 * stream of its own. */
+	 * whom and which side the invited user plays; the buttons answer: the
+	 * first opens the game, the second declines the invitation (the host
+	 * takes it back) while it waits for an answer. The room's state is read
+	 * with the reader's credentials, so a card that was answered says so;
+	 * while the room is open it is read again now and then, and when the
+	 * reader comes back to the page, as a card has no stream of its own. */
 	:root {
 		color-scheme: light;
 		--bg: #ffffff;
@@ -93,20 +94,27 @@
 	.meta div:empty { display: none; }
 	.status { margin-top: 0.375rem; font-weight: 600; }
 	.status:empty { display: none; }
-	.open {
+	.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.625rem; }
+	.actions[hidden] { display: none; }
+	.open, .decline {
 		display: inline-block;
-		margin-top: 0.625rem;
 		padding: 0.3rem 0.875rem;
 		border: 0;
 		border-radius: 6px;
-		background: var(--accent);
-		color: #fff;
 		font: inherit;
 		font-weight: 600;
 		cursor: pointer;
 	}
+	.open { background: var(--accent); color: #fff; }
 	.open:hover { filter: brightness(1.08); }
-	.open[hidden] { display: none; }
+	.decline {
+		border: 1px solid var(--edge);
+		background: transparent;
+		color: var(--text-soft);
+	}
+	.decline:hover { border-color: var(--text-soft); color: var(--text); }
+	.open[hidden], .decline[hidden] { display: none; }
+	.open:disabled, .decline:disabled { opacity: 0.6; cursor: default; }
 </style>
 </head>
 <body>
@@ -124,7 +132,10 @@
 			<div id="board"></div>
 		</div>
 		<div class="status" id="status"></div>
-		<button type="button" class="open" id="open" hidden></button>
+		<div class="actions" id="actions" hidden>
+			<button type="button" class="open" id="open" hidden></button>
+			<button type="button" class="decline" id="decline" hidden></button>
+		</div>
 	</div>
 </div>
 <script>
@@ -174,10 +185,14 @@
 		byId('board').textContent = (size && size !== 8) ? t('page.board', { size }) : '';
 
 		const status = byId('status');
+		const actions = byId('actions');
 		const open = byId('open');
+		const decline = byId('decline');
+		actions.hidden = true;
+		open.hidden = true;
+		decline.hidden = true;
 		if (room === null) {
 			status.textContent = '';
-			open.hidden = true;
 		} else if (room === 'gone' || !OPEN.includes(room.status)) {
 			// Told from the reader's side: who declined, left or took back.
 			let text;
@@ -188,13 +203,18 @@
 			else if (room.status === 'cancelled') text = isHost ? t('page.status.cancelled.you') : t('page.status.cancelled.them', { hostName });
 			else text = t('page.status.gone');
 			status.textContent = text;
-			open.hidden = true;
 		} else {
-			// The invited user, asked: the title says it all, the button answers.
-			const joining = room.status === 'waiting' && !isHost;
+			// The invited user, asked: the title says it all, the buttons answer.
+			const waiting = room.status === 'waiting';
+			const joining = waiting && !isHost;
 			status.textContent = joining ? '' : t('page.status.' + room.status);
 			open.textContent = joining ? t('page.join') : t('page.open');
 			open.hidden = false;
+			// While the invitation waits for an answer, either player may end
+			// it here: the invited user declines, the host takes it back.
+			decline.textContent = isHost ? t('page.takeBack') : t('page.decline');
+			decline.hidden = !waiting;
+			actions.hidden = false;
 		}
 		host.resize();
 	}
@@ -231,6 +251,23 @@
 		host.openApp(APP, { roomId: id });
 		// The invited user accepts on the way in: the card follows shortly.
 		schedule(AFTER_OPEN_MS);
+	});
+	byId('decline').addEventListener('click', async () => {
+		const id = host.card.fields && host.card.fields.roomId;
+		if (!id || host.preview) return;
+		const button = byId('decline');
+		button.disabled = true;
+		try {
+			const data = await host.graphql.mutation('mutation ($id: ID!) { reversiDecline(id: $id) { id status host } }', { id });
+			room = (data && data.reversiDecline) || 'gone';
+			render();
+			schedule(POLL_MS);
+		} catch (e) {
+			// Answered meanwhile, or not reachable: the room as it is now tells.
+			load();
+		} finally {
+			button.disabled = false;
+		}
 	});
 	// Back at the page after a while: what happened meanwhile.
 	document.addEventListener('visibilitychange', () => {

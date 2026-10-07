@@ -61,10 +61,13 @@ written in the language of the host (`reversiInvite(locale)`). The card
 reads the room with the reader's credentials and says where it stands:
 waiting, getting ready, playing, over, declined, left or taken back.
 
-Its button launches the app with `{ roomId }` (`ChatCardHost.openApp`). On
-the way in the invited user **accepts**, so the button leads straight to the
-room, getting ready, with its chat; the host, or either player later, is
-taken to the room as it is. A local game in progress is left for the room
+Its first button launches the app with `{ roomId }` (`ChatCardHost.openApp`).
+On the way in the invited user **accepts**, so the button leads straight to
+the room, getting ready, with its chat; the host, or either player later, is
+taken to the room as it is. While the invitation waits for an answer the card
+also offers to answer without opening the app: *Decline* for the invited user,
+*Take back* for the host (`reversiDecline`, with the reader's credentials);
+the card then says so, and the app, if it is open, is told as usual. A local game in progress is left for the room
 only after a confirmation. An invitation no longer open is announced and
 the app stays where it was. The app is a singleton: a running one receives
 the room as an `app-reopen` message.
