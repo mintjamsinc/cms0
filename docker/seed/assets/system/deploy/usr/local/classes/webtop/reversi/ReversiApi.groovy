@@ -14,8 +14,8 @@ package webtop.reversi;
  *
  * Each change is announced to the two players as a topic message on the
  * room's topic (game/reversi/rooms/<room>): invited, accepted, changed,
- * ready, started, declined, cancelled, move, resigned, and expired when an
- * idle room is removed. The room itself is the record; a client that misses
+ * ready, started, declined, left, cancelled, move, resigned, and expired
+ * when an idle room is removed. The room itself is the record; a client that misses
  * a message reads the room again.
  *
  * An invitation is also told in the chat: a card in the direct messages of
@@ -205,14 +205,19 @@ class ReversiApi {
 		} as Map;
 	}
 
-	/** The invited user declines or leaves the lobby, or the host takes the invitation back. */
+	/**
+	 * The invited user declines (the room is `declined`) or leaves while
+	 * getting ready (`left`), or the host takes the invitation back
+	 * (`cancelled`).
+	 */
 	Map decline(String id) {
 		return asService { s ->
 			Map room = mine(s, id);
 			if (!(room.status in [ReversiStore.WAITING, ReversiStore.LOBBY])) {
 				throw new IllegalStateException('The invitation is no longer open.');
 			}
-			String status = (room.host == userId) ? ReversiStore.CANCELLED : ReversiStore.DECLINED;
+			String status = (room.host == userId) ? ReversiStore.CANCELLED :
+				(room.status == ReversiStore.LOBBY) ? ReversiStore.LEFT : ReversiStore.DECLINED;
 			room = ReversiStore.update(s, id, [(ReversiStore.STATUS): status, (ReversiStore.FINISHED_AT): new Date()]);
 			ReversiStore.publish(context, room, [type: status, by: userId]);
 			return toRoom(s, room);

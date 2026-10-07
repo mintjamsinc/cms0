@@ -328,6 +328,22 @@
 			</template>
 		</wt-dialog>
 
+		<!-- Leaving a game in progress for the room an invitation card names -->
+		<wt-dialog :open="joinDialog.visible" size="sm" @close="closeJoin">
+			<template v-slot:title="d">
+				{{ t('app.reversi.online.join', undefined, 'Join the game') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">{{ joinNote }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeJoin">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirmJoin">
+					{{ t('app.reversi.online.join', undefined, 'Join the game') }}
+				</button>
+			</template>
+		</wt-dialog>
+
 		<!-- Resign -->
 		<wt-dialog :open="resignDialog.visible" size="sm" @close="closeResign">
 			<template v-slot:title="d">

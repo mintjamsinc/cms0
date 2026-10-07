@@ -17,7 +17,7 @@
 # game/reversi/rooms/* once and receives the messages of all its rooms:
 #
 #   { roomId, type: invited | accepted | changed | ready | started | declined
-#                 | cancelled | move | resigned | expired,
+#                 | left | cancelled | move | resigned | expired,
 #     by: <user>, ready, ply, move, over, winner }
 #
 # `expired` says the room was removed: it had been waiting, getting ready or
@@ -35,7 +35,7 @@ type ReversiRoom {
   id: ID!
   """The board size (6, 8 or 10)."""
   size: Int!
-  """waiting (invitation sent), lobby (accepted; getting ready), playing, finished, declined (by the invited user), cancelled (by the host)."""
+  """waiting (invitation sent), lobby (accepted; getting ready), playing, finished, declined (by the invited user), left (the invited user left while getting ready), cancelled (by the host)."""
   status: String!
   """The player who moves first."""
   black: ReversiPlayer!
@@ -77,7 +77,7 @@ extend type Mutation {
   reversiInvite(opponentId: ID!, side: String, size: Int, face: String, theme: String, locale: String): ReversiRoom!
   """The invited user accepts: the room is getting ready. `face` is the caller's first choice, when it is not the host's."""
   reversiAccept(id: ID!, face: String): ReversiRoom!
-  """The invited user declines or leaves, or the host takes the invitation back."""
+  """The invited user declines (declined) or leaves while getting ready (left), or the host takes the invitation back (cancelled)."""
   reversiDecline(id: ID!): ReversiRoom!
   """Changes the caller's disc (refused when it is the other player's) and, for the host, the board, while the room is waiting or getting ready."""
   reversiSetup(id: ID!, face: String, theme: String): ReversiRoom!

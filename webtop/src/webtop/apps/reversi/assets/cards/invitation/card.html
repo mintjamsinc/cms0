@@ -179,12 +179,12 @@
 			status.textContent = '';
 			open.hidden = true;
 		} else if (room === 'gone' || !OPEN.includes(room.status)) {
-			// A room declined, or left while getting ready, is `declined` either
-			// way: told as not joined, from the reader's side.
+			// Told from the reader's side: who declined, left or took back.
 			let text;
 			if (room === 'gone') text = t('page.status.gone');
 			else if (room.status === 'finished') text = t('page.status.finished');
 			else if (room.status === 'declined') text = isHost ? t('page.status.notJoined.them', { guestName }) : t('page.status.notJoined.you');
+			else if (room.status === 'left') text = isHost ? t('page.status.left.them', { guestName }) : t('page.status.left.you');
 			else if (room.status === 'cancelled') text = isHost ? t('page.status.cancelled.you') : t('page.status.cancelled.them', { hostName });
 			else text = t('page.status.gone');
 			status.textContent = text;

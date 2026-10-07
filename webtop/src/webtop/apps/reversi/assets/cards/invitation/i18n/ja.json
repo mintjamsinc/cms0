@@ -27,6 +27,8 @@
 	"page.status.finished": "対局は終了しました",
 	"page.status.notJoined.you": "参加しませんでした",
 	"page.status.notJoined.them": "{guestName}は参加しませんでした",
+	"page.status.left.you": "退出しました",
+	"page.status.left.them": "{guestName}が退出しました",
 	"page.status.cancelled.you": "招待を取り消しました",
 	"page.status.cancelled.them": "{hostName}が招待を取り消しました",
 	"page.status.gone": "この招待はもう有効ではありません",

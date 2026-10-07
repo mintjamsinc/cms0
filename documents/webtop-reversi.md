@@ -59,12 +59,13 @@ host); the card's design is the app's own, in its folder
 (`apps/reversi/assets/cards/invitation`, deployed with the app), and is
 written in the language of the host (`reversiInvite(locale)`). The card
 reads the room with the reader's credentials and says where it stands:
-waiting, getting ready, playing, over, declined or taken back.
+waiting, getting ready, playing, over, declined, left or taken back.
 
 Its button launches the app with `{ roomId }` (`ChatCardHost.openApp`). On
 the way in the invited user **accepts**, so the button leads straight to the
 room, getting ready, with its chat; the host, or either player later, is
-taken to the room as it is. An invitation no longer open is announced and
+taken to the room as it is. A local game in progress is left for the room
+only after a confirmation. An invitation no longer open is announced and
 the app stays where it was. The app is a singleton: a running one receives
 the room as an `app-reopen` message.
 
@@ -94,7 +95,8 @@ caller was checked in the caller's own session, so a game cannot be changed
 from the Content Browser.
 
 The settings file carries the players (`reversi:black`, `reversi:white`), the
-host, the status (`waiting`, `playing`, `finished`, `declined`, `cancelled`),
+host, the status (`waiting`, `lobby`, `playing`, `finished`, `declined`,
+`left`, `cancelled`),
 the board size and the times; once finished, the winner (`black`, `white` or
 `draw`) and who resigned, if anyone. A move is a file whose content is the
 move in coordinate notation (`d3`) and whose name is its ply (`000`, `001`,
@@ -120,7 +122,7 @@ counterpart of the app's `core.ts`: the two must agree on every move.
 |---|---|---|
 | `reversiInvite(opponentId, side, size)` | anyone signed in | the opponent exists and is somebody else; the caller's open rooms |
 | `reversiAccept(id)` | the invited user | the room is waiting |
-| `reversiDecline(id)` | either player | the room is waiting; the host's decline is a `cancelled` |
+| `reversiDecline(id)` | either player | the room is waiting or getting ready; the host's decline is a `cancelled`, a guest's from the lobby a `left` |
 | `reversiPlay(id, ply, move)` | the player to move | the room is playing, `ply` is the number of moves played, the move is legal |
 | `reversiResign(id)` | either player | the room is playing |
 | `reversiRooms`, `reversiRoom(id)` | a player of the room | |
@@ -142,7 +144,8 @@ room it plays in:
 { "roomId": "4f2a…", "type": "move", "by": "alice", "ply": 12, "move": "d3", "over": false }
 ```
 
-`type` is `invited`, `started`, `declined`, `cancelled`, `move` (with `ply`,
+`type` is `invited`, `accepted`, `changed`, `ready`, `started`, `declined`,
+`left` (the invited user left while getting ready), `cancelled`, `move` (with `ply`,
 `move`, `over` and, when over, `winner`), `resigned` (with `winner`) or
 `expired` (the room was idle and has been removed).
 

@@ -55,6 +55,8 @@ class ReversiStore {
 	static final String PLAYING = 'playing';
 	static final String FINISHED = 'finished';
 	static final String DECLINED = 'declined';
+	/** The invited user left while getting ready. */
+	static final String LEFT = 'left';
 	static final String CANCELLED = 'cancelled';
 
 	static final String READ = 'jcr:read';

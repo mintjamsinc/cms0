@@ -86,5 +86,7 @@
 	"app.reversi.online.rematch": "もう一局",
 	"app.reversi.online.expired": "{name}との対局は、長いあいだ動きがなかったので終了しました",
 	"app.reversi.online.gone": "この招待はもう有効ではありません",
+	"app.reversi.online.join": "対局に移る",
+	"app.reversi.online.joinConfirm": "進行中のゲームを終了して、{name}との対局に移りますか？",
 	"app.reversi.online.error": "エラー: {message}"
 }

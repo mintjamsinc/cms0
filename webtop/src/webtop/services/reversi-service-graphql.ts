@@ -11,7 +11,7 @@
 
 import type { GraphQLClient } from '../graphql/client.js';
 
-export type ReversiStatus = 'waiting' | 'lobby' | 'playing' | 'finished' | 'declined' | 'cancelled';
+export type ReversiStatus = 'waiting' | 'lobby' | 'playing' | 'finished' | 'declined' | 'left' | 'cancelled';
 export type ReversiSide = 'black' | 'white';
 
 export interface ReversiPlayer {
@@ -51,7 +51,7 @@ export interface ReversiRoom {
 /** What a room's topic message carries (see reversi.graphqls). */
 export interface ReversiMessage {
 	roomId: string;
-	type: 'invited' | 'accepted' | 'changed' | 'ready' | 'started' | 'declined' | 'cancelled' | 'move' | 'resigned' | 'expired';
+	type: 'invited' | 'accepted' | 'changed' | 'ready' | 'started' | 'declined' | 'left' | 'cancelled' | 'move' | 'resigned' | 'expired';
 	by: string;
 	ready?: boolean;
 	ply?: number;

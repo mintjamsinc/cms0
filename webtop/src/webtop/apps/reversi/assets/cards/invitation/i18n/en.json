@@ -27,6 +27,8 @@
 	"page.status.finished": "The game is over",
 	"page.status.notJoined.you": "You did not join",
 	"page.status.notJoined.them": "{guestName} did not join",
+	"page.status.left.you": "You left",
+	"page.status.left.them": "{guestName} left",
 	"page.status.cancelled.you": "You took the invitation back",
 	"page.status.cancelled.them": "{hostName} took the invitation back",
 	"page.status.gone": "No longer open",

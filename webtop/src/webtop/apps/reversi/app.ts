@@ -292,6 +292,8 @@ const App = {
 			resignDialog: { visible: false, busy: false },
 			// Asks before a game in progress is left for the lobby.
 			leaveDialog: { visible: false },
+			// Asks before a game in progress is left for the room an invitation card names.
+			joinDialog: { visible: false, room: null as ReversiRoom | null },
 		};
 	},
 	computed: {
@@ -325,6 +327,12 @@ const App = {
 		/** The room's chat, for the panel: the conversation of the room's settings file. */
 		chatRef(): { fileId: string } | null {
 			return this.online.chatFileId ? { fileId: this.online.chatFileId } : null;
+		},
+		/** The question asked before a game in progress is left for a room. */
+		joinNote(): string {
+			const r = this.joinDialog.room;
+			const name = r ? opponentOf(r, this.userId).name : '';
+			return this.t('app.reversi.online.joinConfirm', { name }, 'End this game and join the game against {name}?');
 		},
 		/** What leaving the board for the lobby means, for the question asked first. */
 		leaveNote(): string {
@@ -1050,15 +1058,14 @@ const App = {
 					this.loadRooms();
 					return;
 				case 'declined':
+				case 'left':
 				case 'cancelled':
 					if (mine && !byMe) {
 						const name = this.online.opponentName;
-						// A guest that declines from the lobby has left it.
-						const left = m.type === 'declined' && this.online.status === 'lobby';
 						this.goToLobby('online');
 						this.setNotice(m.type === 'cancelled' ?
 							this.t('app.reversi.online.cancelledYou', { name }, '{name} took the invitation back') :
-							left ?
+							m.type === 'left' ?
 								this.t('app.reversi.online.leftYou', { name }, '{name} left') :
 								this.t('app.reversi.online.declinedYou', { name }, '{name} declined'), LONG_NOTICE_MS);
 					}
@@ -1124,18 +1131,34 @@ const App = {
 		 * Opens the room an invitation card names. The invited user accepts
 		 * on the way in, so the card's button leads straight to getting
 		 * ready; the host, or either player later, is taken to the room as
-		 * it is. False when there is no such room to open any more.
+		 * it is. A local game in progress is not dropped for it unasked.
+		 * False when there is no such room to open any more.
 		 */
 		async openInvitedRoom(roomId: string | null | undefined): Promise<boolean> {
 			if (!roomId || !reversi) return false;
+			let r: ReversiRoom;
 			try {
-				let r = await reversi.getRoom(roomId);
+				r = await reversi.getRoom(roomId);
+			} catch (e) {
+				this.setNotice(this.t('app.reversi.online.error', { message: errorText(e) }, 'Something went wrong: {message}'), LONG_NOTICE_MS);
+				return false;
+			}
+			if (r.status !== 'waiting' && r.status !== 'lobby' && r.status !== 'playing') {
+				this.setNotice(this.t('app.reversi.online.gone', undefined, 'This invitation is no longer open'), LONG_NOTICE_MS);
+				return false;
+			}
+			if (this.hasGame && !this.over && !this.isOnline) {
+				this.joinDialog = { visible: true, room: r };
+				return true;
+			}
+			return this.joinRoom(r);
+		},
+		/** Accepts the room, when it is an invitation to the user, and shows it. */
+		async joinRoom(r: ReversiRoom): Promise<boolean> {
+			if (!reversi) return false;
+			try {
 				if (r.status === 'waiting' && r.host !== this.userId) {
 					r = await reversi.accept(r.id, this.settings.face);
-				}
-				if (r.status !== 'waiting' && r.status !== 'lobby' && r.status !== 'playing') {
-					this.setNotice(this.t('app.reversi.online.gone', undefined, 'This invitation is no longer open'), LONG_NOTICE_MS);
-					return false;
 				}
 				if (r.id === this.online.roomId) {
 					this.syncRoom(r);
@@ -1148,6 +1171,14 @@ const App = {
 				this.setNotice(this.t('app.reversi.online.error', { message: errorText(e) }, 'Something went wrong: {message}'), LONG_NOTICE_MS);
 				return false;
 			}
+		},
+		closeJoin() {
+			this.joinDialog = { visible: false, room: null };
+		},
+		confirmJoin() {
+			const r = this.joinDialog.room;
+			this.joinDialog = { visible: false, room: null };
+			if (r) this.joinRoom(r);
 		},
 		/** Opens the room that was on the board when the app was last closed. */
 		async resumeRoom(roomId: string | null | undefined): Promise<boolean> {
