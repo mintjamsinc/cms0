@@ -423,6 +423,47 @@ function iconReversi() {
     svgClose(id);
 }
 
+// Number Place: the strawberry-mint board of the Reversi icon, tilted the
+// same way, as one box of nine cells with numbers in the players' colours
+// (looks.ts) and two cells tinted as taken in a game of territory.
+function iconNumberplace() {
+  const id = 'numberplace';
+  const spark = (x, y, s) => `
+    <path transform="translate(${x} ${y}) scale(${s})" fill="white" d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"/>`;
+  // Row by row: the number, its ink and the cell's tint ('' for none).
+  const cells = [
+    ['5', '#4d2c31', ''], ['', '', ''], ['3', '#e0456a', '#ffd3dd'],
+    ['', '', ''], ['7', '#4d2c31', ''], ['', '', ''],
+    ['1', '#2f9a74', '#d2f0e3'], ['', '', ''], ['9', '#4f6fe0', ''],
+  ];
+  const size = 30;
+  const gap = 4;
+  const x0 = 90 - (size * 3 + gap * 2) / 2;
+  const grid = cells.map(([digit, ink, tint], k) => {
+    const x = x0 + (k % 3) * (size + gap);
+    const y = x0 + Math.floor(k / 3) * (size + gap);
+    const fill = tint || (k % 2 ? '#f1faf5' : '#fbfffd');
+    const text = digit ?
+      `<text x="${x + size / 2}" y="${y + size / 2 + 8}" text-anchor="middle" font-family="'M PLUS Rounded 1c', 'Arial Rounded MT Bold', 'Segoe UI', sans-serif" font-size="23" font-weight="800" fill="${ink}">${digit}</text>` : '';
+    return `
+        <rect x="${x}" y="${y}" width="${size}" height="${size}" rx="8" fill="${fill}"/>${text}`;
+  }).join('');
+  return svgOpen(id) +
+    bg(id, '#ffb6cb', '#ed5a77') +
+    `
+  <g clip-path="url(#clip-${id})">
+    <g fill-opacity="0.9">${spark(18, 22, 1.4)}${spark(146, 30, 1.0)}${spark(150, 134, 1.2)}</g>
+    <g transform="rotate(-6 90 90)">
+      <rect x="34" y="40" width="112" height="112" rx="24" fill="#b8304f" fill-opacity="0.22"/>
+      <rect x="34" y="34" width="112" height="112" rx="24" fill="#dff3e8"/>
+      <rect x="36" y="36" width="108" height="108" rx="22" fill="none" stroke="#c4e6d4" stroke-width="2"/>
+      <g>${grid}
+      </g>
+    </g>
+  </g>` +
+    svgClose(id);
+}
+
 const APP_ICONS = {
   'bpm-manager':     iconBpmManager,
   'bpmn-modeler':    iconBpmnModeler,
@@ -440,6 +481,7 @@ const APP_ICONS = {
   'workspace-manager': iconWorkspaces,
   'mail':            iconMail,
   'reversi':         iconReversi,
+  'numberplace':     iconNumberplace,
 };
 
 const REPO_ROOT = path.resolve(__dirname, '..');

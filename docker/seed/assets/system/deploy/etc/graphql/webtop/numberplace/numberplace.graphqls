@@ -1,0 +1,125 @@
+# Webtop Number Place app (webtop/src/webtop/apps/numberplace): games between two users.
+#
+# A game is a room of two users, who solve one board together (coop) or play
+# against each other: a race to fill the same puzzle on boards of their own
+# (race, time attack), or one board both fill, each cell going to whoever
+# filled it right (territory). The host invites the other user; the room
+# waits until the other accepts or declines. Once accepted the two get ready
+# in the room: each picks a colour (the two must differ), the host also
+# picks the difficulty and the board, the guest says it is ready and the host
+# starts the game with a puzzle its app made. The room is then played until
+# the board is full or one player gives up, and is kept for a while.
+#
+# The server keeps the puzzle's solution and checks every number
+# (webtop.numberplace.NumberPlaceApi, /usr/local/classes/webtop/numberplace):
+# a right number fills the cell, a wrong one makes the player wait 3 seconds.
+# These mutations are the only way to write a room: each one checks who the
+# caller is and then writes as the games service user. The caller holds no
+# write access to /var/lib/games (provisioning/numberplace.yml).
+#
+# Every change to a room is announced to its two players as a topic message
+# on the room's `topic` (Subscription.topicMessage). A client subscribes to
+# game/numberplace/rooms/* once and receives the messages of all its rooms:
+#
+#   { roomId, type: invited | accepted | changed | ready | started | declined
+#                 | left | cancelled | fill | miss | resigned | expired,
+#     by: <user>, ready, board, cell, digit, filled, misses, lockMs, over, winner }
+#
+# `fill` tells the board filled (shared, host or guest) and how many cells
+# the player has filled; on the shared board also the cell and the digit (in
+# a race, not: the other player's numbers are not shown). `miss` tells the
+# player's wrong numbers so far and how long it waits. `expired` says the
+# room was removed: it had been waiting, getting ready or playing without a
+# change or a number for 30 days.
+#
+# The payload tells what happened; the room is the record, and a client that
+# cannot follow a message reads the room again.
+
+type NumberPlacePlayer {
+  id: ID!
+  displayName: String
+  """The player's colour (a colour id of the app). The two differ."""
+  color: String!
+  """The cells the player filled: on the shared board, or on the player's own board in a race."""
+  filled: Int!
+  """The player's wrong numbers so far."""
+  misses: Int!
+  """How long the player still waits after a wrong number, in milliseconds."""
+  lockMs: Int!
+}
+
+type NumberPlaceCell {
+  """0 to 80, row by row."""
+  cell: Int!
+  digit: Int!
+  """Who filled it."""
+  by: ID!
+}
+
+type NumberPlaceRoom {
+  id: ID!
+  """coop (one board, together), race (time attack) or territory."""
+  mode: String!
+  """The puzzle's difficulty, 1 (easy) to 4 (expert), chosen by the host."""
+  level: Int!
+  """waiting (invitation sent), lobby (accepted; getting ready), playing, finished, declined (by the invited user), left (the invited user left while getting ready), cancelled (by the host)."""
+  status: String!
+  """Who sent the invitation."""
+  host: NumberPlacePlayer!
+  """Who was invited."""
+  guest: NumberPlacePlayer!
+  """host or guest: the caller's role."""
+  you: String!
+  """The board theme (a board id of the app), chosen by the host."""
+  theme: String!
+  """Whether the invited user has said it is ready; the host starts the game once it has."""
+  guestReady: Boolean!
+  """The puzzle: 81 digits, row by row, 0 for the cells to fill. Null until the game starts."""
+  givens: String
+  """The cells filled so far: on the shared board, or on the caller's own board in a race."""
+  cells: [NumberPlaceCell!]!
+  """host, guest or draw once a game against each other is over; null in cooperation."""
+  winner: String
+  """Who gave up, when the game ended that way."""
+  resignedBy: ID
+  createdAt: DateTime!
+  startedAt: DateTime
+  finishedAt: DateTime
+  """The time played, in milliseconds: from the start up to now, or to the end."""
+  elapsedMs: Int!
+  """The topic the room's messages are published on."""
+  topic: String!
+  """The identifier of the room's settings file. The room's chat is the Chat conversation of this file (chatConversation with fileId), which the two players can read."""
+  chatFileId: ID!
+}
+
+type NumberPlaceMove {
+  """Whether the number was right: a right number fills the cell, a wrong one makes the player wait."""
+  correct: Boolean!
+  room: NumberPlaceRoom!
+}
+
+extend type Query {
+  """The caller's rooms: those waiting, getting ready or playing, then the ended ones, the newest first."""
+  numberplaceRooms: [NumberPlaceRoom!]!
+  numberplaceRoom(id: ID!): NumberPlaceRoom!
+}
+
+extend type Mutation {
+  """Invites a user to a game. `mode` is coop, race or territory; `level` the difficulty, 2 unless given. `color` and `theme` are the caller's first choices, changed later with numberplaceSetup. The invitation is also posted as a card in the direct messages of the two users; `locale` is the language its text is written in."""
+  numberplaceInvite(opponentId: ID!, mode: String!, level: Int, color: String, theme: String, locale: String): NumberPlaceRoom!
+  """The invited user accepts: the room is getting ready. `color` is the caller's first choice, when it is not the host's."""
+  numberplaceAccept(id: ID!, color: String): NumberPlaceRoom!
+  """The invited user declines (declined) or leaves while getting ready (left), or the host takes the invitation back (cancelled)."""
+  numberplaceDecline(id: ID!): NumberPlaceRoom!
+  """Changes the caller's colour (refused when it is the other player's) and, for the host, the difficulty and the board, while the room is waiting or getting ready."""
+  numberplaceSetup(id: ID!, color: String, level: Int, theme: String): NumberPlaceRoom!
+  """The invited user says it is ready (or no longer is) while the room is getting ready."""
+  numberplaceReady(id: ID!, ready: Boolean): NumberPlaceRoom!
+  """The host starts the game once the invited user is ready, with a puzzle of 81 digits (0 for the cells to fill) that has exactly one solution."""
+  numberplaceStart(id: ID!, givens: String!): NumberPlaceRoom!
+  """Writes a number for the caller: `cell` 0 to 80, row by row; `digit` 1 to 9. Refused while the caller waits after a wrong number, and when the cell is filled already."""
+  numberplacePlay(id: ID!, cell: Int!, digit: Int!): NumberPlaceMove!
+  """The caller gives up: against each other the other player wins; in cooperation the game ends unsolved."""
+  numberplaceResign(id: ID!): NumberPlaceRoom!
+}

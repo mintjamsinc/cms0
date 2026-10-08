@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Number Place</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<!-- The room's chat (<wt-chat-thread>) -->
+	<link rel="stylesheet" href="../../components/wt-chat-thread.css?v=__BUILD_VERSION__">
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. -->
+		<template v-if="isReady">
+
+		<!-- Top Toolbar (translucent). Only what can be done now is shown:
+		     nothing in the lobby, the way back to it once a game or a room
+		     is on the board, and the game's own tools in the game scene. -->
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group" v-if="hasGame">
+				<button class="btn-icon np-toolbar-btn" @click="requestLobby" :title="t('app.numberplace.toolbar.lobby', undefined, 'Back to the lobby')">
+					<i class="bi bi-box-arrow-left"></i>
+					<!-- An invitation is waiting for an answer in the lobby. -->
+					<span v-if="pendingCount" class="np-badge" aria-hidden="true"></span>
+				</button>
+				<template v-if="scene === 'game'">
+					<template v-if="kind === 'solo'">
+						<button class="btn-icon" @click="undo" :disabled="!canUndo" :title="t('app.numberplace.toolbar.undo', undefined, 'Undo')">
+							<i class="bi bi-arrow-counterclockwise"></i>
+						</button>
+						<button class="btn-icon" @click="hint" :disabled="!canPlay" :title="t('app.numberplace.toolbar.hint', undefined, 'Hint')">
+							<i class="bi bi-lightbulb"></i>
+						</button>
+						<button class="btn-icon" :class="{active: settings.showMistakes}" @click="toggleMistakes"
+							:title="t('app.numberplace.toolbar.mistakes', undefined, 'Mark wrong numbers')">
+							<i class="bi bi-check2-circle"></i>
+						</button>
+					</template>
+					<button v-if="isOnline" class="btn-icon" :disabled="!canResign" @click="openResign" :title="t('app.numberplace.online.resign', undefined, 'Give up')">
+						<i class="bi bi-flag"></i>
+					</button>
+				</template>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<div class="content-body np-body" :class="{ 'has-chat': !!chatRef }">
+
+			<!-- Main area: the scene (app.ts `scene`). -->
+
+			<!-- Lobby scene, getting ready in a room: colours, the difficulty, the board, ready, start. -->
+			<section v-if="scene === 'lobby' && isOnline" class="content-main island np-lobby np-scene">
+				<div class="np-lobby-body">
+					<h2 class="np-lobby-title">
+						{{ t('app.numberplace.online.lobby', undefined, 'Getting ready') }}
+						<span class="np-tag">{{ roomModeLabel(online.mode) }}</span>
+					</h2>
+					<div class="np-lobby-note">{{ lobbyNote }}</div>
+					<label class="dialog-label">{{ t('app.numberplace.online.yourColor', undefined, 'Your colour') }}</label>
+					<div class="np-colors">
+						<button v-for="c in colorOptions" :key="c.id" type="button" class="np-color"
+							:class="{ 'is-selected': myColor === c.id, 'is-taken': theirColor === c.id }"
+							:disabled="lobbyLocked || theirColor === c.id"
+							:style="c.style" :title="c.label" :aria-label="c.label" @click="pickRoomColor(c.id)"></button>
+					</div>
+					<!-- The other player's colour, once it has joined; only shown. -->
+					<template v-if="online.status === 'lobby'">
+						<label class="dialog-label">{{ t('app.numberplace.online.theirColor', { name: online.opponentName }, "{name}'s colour") }}</label>
+						<div class="np-colors">
+							<button v-for="c in colorOptions" :key="c.id" type="button" class="np-color" disabled
+								:class="{ 'is-selected': theirColor === c.id, 'is-taken': myColor === c.id }"
+								:style="c.style" :title="c.label" :aria-label="c.label"></button>
+						</div>
+					</template>
+					<!-- The host chooses the difficulty and the board; the guest sees the choice. -->
+					<label class="dialog-label">{{ t('app.numberplace.dialog.level', undefined, 'Difficulty') }}</label>
+					<div class="np-chips np-chips-level">
+						<button v-for="o in levelOptions" :key="o.level" type="button" class="np-chip"
+							:class="{ 'is-selected': online.level === o.level }" :disabled="!isHost || online.busy || preparing"
+							@click="pickRoomLevel(o.level)">
+							<span class="np-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
+						</button>
+					</div>
+					<label class="dialog-label">{{ t('app.numberplace.dialog.board', undefined, 'Board') }}</label>
+					<div class="np-swatches">
+						<button v-for="theme in themeOptions" :key="theme.id" type="button" class="np-swatch"
+							:class="{ 'is-selected': online.theme === theme.id }" :style="theme.style" :disabled="!isHost || online.busy || preparing"
+							:title="theme.label" :aria-label="theme.label" @click="pickRoomTheme(theme.id)"></button>
+					</div>
+				</div>
+				<div class="np-lobby-actions">
+					<button type="button" class="wt" :disabled="online.busy || preparing" @click="leaveLobby">
+						{{ isHost ? t('app.numberplace.online.cancel', undefined, 'Take back') : t('app.numberplace.online.leave', undefined, 'Leave') }}
+					</button>
+					<button v-if="isHost" type="button" class="wt wt-primary" :disabled="!canStartRoom" @click="startRoom">
+						{{ t('app.numberplace.dialog.start', undefined, 'Start') }}
+					</button>
+					<button v-else-if="!online.guestReady" type="button" class="wt wt-primary" :disabled="online.busy" @click="setReady(true)">
+						{{ t('app.numberplace.online.ready', undefined, 'Ready!') }}
+					</button>
+					<button v-else type="button" class="wt" :disabled="online.busy" @click="setReady(false)">
+						{{ t('app.numberplace.online.notReady', undefined, 'Choose again') }}
+					</button>
+				</div>
+			</section>
+
+			<!-- Lobby scene, setting up the next game. -->
+			<section v-else-if="scene === 'lobby'" class="content-main island np-lobby np-scene">
+				<div class="np-lobby-body">
+					<h2 class="np-lobby-title">{{ t('app.numberplace.dialog.title', undefined, 'New game') }}</h2>
+					<div class="np-options">
+						<button type="button" class="np-option" :class="{ 'is-selected': setup.mode === 'solo' }" @click="setup.mode = 'solo'">
+							<i class="bi bi-person"></i>
+							<span>{{ t('app.numberplace.mode.solo', undefined, 'Play alone') }}</span>
+						</button>
+						<button type="button" class="np-option" :class="{ 'is-selected': setup.mode === 'ai' }" @click="setup.mode = 'ai'">
+							<i class="bi bi-cpu"></i>
+							<span>{{ t('app.numberplace.mode.ai', undefined, 'Play the computer') }}</span>
+						</button>
+						<button type="button" class="np-option" :class="{ 'is-selected': setup.mode === 'coop' }" @click="setup.mode = 'coop'">
+							<i class="bi bi-people"></i>
+							<span>{{ t('app.numberplace.mode.coop', undefined, 'Solve together') }}</span>
+							<span v-if="pendingCoop" class="np-badge np-badge-option" aria-hidden="true"></span>
+						</button>
+						<button type="button" class="np-option" :class="{ 'is-selected': setup.mode === 'versus' }" @click="setup.mode = 'versus'">
+							<i class="bi bi-globe2"></i>
+							<span>{{ t('app.numberplace.mode.versus', undefined, 'Play another user') }}</span>
+							<span v-if="pendingVersus" class="np-badge np-badge-option" aria-hidden="true"></span>
+						</button>
+					</div>
+					<div class="np-mode-note">{{ modeNote }}</div>
+
+					<!-- Invitations to answer, games to go back to, invitations sent. -->
+					<template v-if="isOnlineSetup">
+						<div v-if="roomCards.length" class="np-rooms">
+							<div v-for="c in roomCards" :key="c.room.id" class="np-room">
+								<i class="bi" :class="c.action === 'answer' ? 'bi-envelope-heart' : c.action === 'resume' ? 'bi-play-circle' : 'bi-hourglass-split'"></i>
+								<div class="np-room-text">
+									<span class="text-truncate">{{ c.name }}</span>
+									<span class="np-room-sub text-truncate">{{ c.note }}</span>
+								</div>
+								<template v-if="c.action === 'answer'">
+									<button type="button" class="wt wt-slim" :disabled="setup.busy" @click="declineRoom(c.room)">
+										{{ t('app.numberplace.online.decline', undefined, 'Decline') }}
+									</button>
+									<button type="button" class="wt wt-slim wt-primary" :disabled="setup.busy" @click="acceptRoom(c.room)">
+										{{ t('app.numberplace.online.accept', undefined, 'Accept') }}
+									</button>
+								</template>
+								<button v-else-if="c.action === 'resume'" type="button" class="wt wt-slim wt-primary" @click="resumeRoomFromList(c.room)">
+									{{ t('app.numberplace.online.resume', undefined, 'Resume') }}
+								</button>
+								<button v-else type="button" class="wt wt-slim" :disabled="setup.busy" @click="declineRoom(c.room)">
+									{{ t('app.numberplace.online.cancel', undefined, 'Take back') }}
+								</button>
+							</div>
+						</div>
+
+						<label class="dialog-label">{{ t('app.numberplace.online.invite', undefined, 'Invite someone') }}</label>
+						<wt-autocomplete :search="findOpponents"
+							:placeholder="t('app.numberplace.online.search', undefined, 'Search by name')"
+							:empty-text="t('app.numberplace.online.nobody', undefined, 'Nobody found.')"
+							@pick="chooseOpponent($event.detail.value)" @change="setup.opponent = null"></wt-autocomplete>
+					</template>
+
+					<!-- Against the computer or another user: the rules. -->
+					<template v-if="setup.mode === 'ai' || setup.mode === 'versus'">
+						<label class="dialog-label">{{ t('app.numberplace.dialog.rule', undefined, 'Rules') }}</label>
+						<div class="np-chips np-chips-rule">
+							<button type="button" class="np-chip" :class="{ 'is-selected': setup.rule === 'race' }" @click="setup.rule = 'race'">
+								<i class="bi bi-stopwatch"></i>{{ ruleLabel('race') }}
+							</button>
+							<button type="button" class="np-chip" :class="{ 'is-selected': setup.rule === 'territory' }" @click="setup.rule = 'territory'">
+								<i class="bi bi-flag"></i>{{ ruleLabel('territory') }}
+							</button>
+						</div>
+						<div class="np-rule-note">
+							{{ ruleNote }}
+							{{ t('app.numberplace.rule.penalty', undefined, 'A wrong number makes you wait 3 seconds.') }}
+						</div>
+					</template>
+
+					<template v-if="setup.mode === 'ai'">
+						<label class="dialog-label">{{ t('app.numberplace.dialog.strength', undefined, 'Strength') }}</label>
+						<div class="np-chips np-chips-level">
+							<button v-for="o in aiLevelOptions" :key="o.level" type="button" class="np-chip"
+								:class="{ 'is-selected': setup.aiLevel === o.level }" @click="setup.aiLevel = o.level">
+								<span class="np-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
+							</button>
+						</div>
+					</template>
+
+					<label class="dialog-label">{{ t('app.numberplace.dialog.level', undefined, 'Difficulty') }}</label>
+					<div class="np-chips np-chips-level">
+						<button v-for="o in levelOptions" :key="o.level" type="button" class="np-chip"
+							:class="{ 'is-selected': setup.level === o.level }" @click="setup.level = o.level">
+							<span class="np-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
+						</button>
+					</div>
+
+					<!-- With another user the colours and the board are chosen in the room. -->
+					<template v-if="!isOnlineSetup">
+						<label class="dialog-label">{{ t('app.numberplace.dialog.color', undefined, 'Your colour') }}</label>
+						<div class="np-colors">
+							<button v-for="c in colorOptions" :key="c.id" type="button" class="np-color"
+								:class="{ 'is-selected': setup.color === c.id }"
+								:style="c.style" :title="c.label" :aria-label="c.label" @click="setup.color = c.id"></button>
+						</div>
+						<label class="dialog-label">{{ t('app.numberplace.dialog.board', undefined, 'Board') }}</label>
+						<div class="np-swatches">
+							<button v-for="theme in themeOptions" :key="theme.id" type="button" class="np-swatch"
+								:class="{ 'is-selected': setup.theme === theme.id }" :style="theme.style"
+								:title="theme.label" :aria-label="theme.label" @click="setup.theme = theme.id"></button>
+						</div>
+					</template>
+					<div v-if="isOnlineSetup && (setup.error || online.error)" class="np-error">{{ setup.error || online.error }}</div>
+				</div>
+				<div class="np-lobby-actions">
+					<button type="button" class="wt wt-primary" :disabled="!canStart" @click="startFromLobby">
+						<template v-if="preparing">{{ t('app.numberplace.status.preparing', undefined, 'Making a puzzle…') }}</template>
+						<template v-else-if="isOnlineSetup">{{ t('app.numberplace.online.send', undefined, 'Invite') }}</template>
+						<template v-else>{{ t('app.numberplace.dialog.start', undefined, 'Start') }}</template>
+					</button>
+				</div>
+			</section>
+
+			<!-- Game scene: the board and the number pad. -->
+			<div v-else class="content-main island p-0 np-stage np-scene" :style="stageStyle">
+				<div class="np-board-wrap">
+					<div class="np-board" :class="{ 'is-locked': !canPlay, 'is-waiting': !!myLock }">
+						<div v-for="(box, b) in boxes" :key="b" class="np-box">
+							<button v-for="i in box" :key="i" type="button" class="np-cell" :data-i="i"
+								:class="cellViews[i].cls" :style="cellViews[i].style" :aria-label="cellViews[i].label"
+								@click="onCellClick(i)">
+								<span v-if="cellViews[i].digit" class="np-digit">{{ cellViews[i].digit }}</span>
+								<span v-else-if="cellViews[i].notes" class="np-notes"><i v-for="(n, k) in cellViews[i].notes" :key="k">{{ n }}</i></span>
+							</button>
+						</div>
+					</div>
+				</div>
+				<div class="np-pad">
+					<button v-for="p in padDigits" :key="p.digit" type="button" class="np-key"
+						:class="{ 'is-done': !p.left }" :disabled="!canPlay" @click="input(p.digit)">
+						<span class="np-key-digit">{{ p.digit }}</span>
+						<span class="np-key-left">{{ p.left || '' }}</span>
+					</button>
+					<button type="button" class="np-key np-tool" :class="{ 'is-active': notesMode }" :disabled="!canPlay" @click="toggleNotesMode"
+						:title="t('app.numberplace.pad.notesHelp', undefined, 'Notes (N; or Shift with a digit)')" :aria-pressed="notesMode ? 'true' : 'false'">
+						<i class="bi bi-pencil"></i>
+						<span class="np-key-left">{{ t('app.numberplace.pad.notes', undefined, 'Notes') }}</span>
+					</button>
+					<button type="button" class="np-key np-tool" :disabled="!canPlay" @click="erase"
+						:title="t('app.numberplace.pad.eraseHelp', undefined, 'Erase (Backspace)')">
+						<i class="bi bi-eraser"></i>
+						<span class="np-key-left">{{ t('app.numberplace.pad.erase', undefined, 'Erase') }}</span>
+					</button>
+				</div>
+			</div>
+
+			<!-- Players: the same panel in every scene. In the lobby it shows
+			     the game being set up as the form is filled in. With a room
+			     open, the room's chat is under the players. -->
+			<aside class="island np-side" :class="{ 'has-chat': !!chatRef }">
+				<div class="np-seats">
+					<div v-for="card in seatCards" :key="card.key" class="np-seat"
+						:class="{ 'is-waiting': card.waiting }" :style="card.vars">
+						<span class="np-swatch np-seat-swatch" :style="card.style"></span>
+						<div class="np-seat-text">
+							<div class="np-seat-name">{{ card.name }}</div>
+							<div class="np-seat-role">
+								<template v-if="card.thinking">
+									<span class="np-dots"><i></i><i></i><i></i></span>
+								</template>
+								<template v-else>
+									<i v-if="card.waiting" class="bi bi-hourglass-split"></i>
+									{{ card.role }}
+								</template>
+							</div>
+							<div v-if="card.count" class="np-progress"><i :style="{ width: (card.progress * 100) + '%' }"></i></div>
+						</div>
+						<div class="np-seat-count">{{ card.count }}</div>
+					</div>
+				</div>
+				<div v-if="hasGame && !inLobby" class="np-clock" :title="t('app.numberplace.status.time', undefined, 'Time')">
+					<i class="bi bi-stopwatch"></i>{{ clockText }}
+				</div>
+				<template v-if="chatRef">
+					<div class="np-chat-head">{{ t('app.numberplace.online.chat', undefined, 'Chat') }}</div>
+					<wt-chat-thread class="np-chat" :conversation="chatRef" :api="threadApi" :localization="localization" :follow="false"></wt-chat-thread>
+				</template>
+			</aside>
+
+			<!-- A passing word (a wrong number, an invitation, an error), over
+			     the main area in either scene. -->
+			<div v-if="notice" class="np-notice">{{ notice }}</div>
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ statusText }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group" v-if="scene === 'game'">
+				<span class="status-item">{{ levelLabel(level) }}</span>
+				<span v-if="kind === 'solo' && mistakes" class="status-item">{{ t('app.numberplace.status.mistakes', { n: mistakes }, '{n} wrong') }}</span>
+				<span v-if="kind === 'solo' && hints" class="status-item">{{ t('app.numberplace.status.hints', { n: hints }, '{n} hints') }}</span>
+			</div>
+		</div>
+
+		<!-- Result: closing it leaves the final board in view. -->
+		<wt-dialog :open="!!result && resultDialog.visible" size="sm" :header="false" :footer="false" @close="closeResult">
+			<template v-slot="d">
+				<div class="np-result">
+					<h3 class="np-result-title">{{ resultTitle }}</h3>
+					<div v-if="resultNote" class="np-result-note">{{ resultNote }}</div>
+					<div v-if="seatCards.length > 1" class="np-result-score">
+						<span class="np-swatch" :style="seatCards[0].style"></span>
+						<strong>{{ result?.scores[0] }}</strong>
+						<span class="np-result-dash">-</span>
+						<strong>{{ result?.scores[1] }}</strong>
+						<span class="np-swatch" :style="seatCards[1].style"></span>
+					</div>
+					<div class="np-result-time"><i class="bi bi-stopwatch"></i>{{ resultTime }}</div>
+					<div v-if="kind === 'solo'" class="np-result-note">
+						{{ levelLabel(level) }}
+						<template v-if="mistakes"> · {{ t('app.numberplace.status.mistakes', { n: mistakes }, '{n} wrong') }}</template>
+						<template v-if="hints"> · {{ t('app.numberplace.status.hints', { n: hints }, '{n} hints') }}</template>
+					</div>
+					<div class="np-result-actions">
+						<button type="button" class="wt" @click="closeResult">{{ t('common.close', undefined, 'Close') }}</button>
+						<button type="button" class="wt" @click="goToLobby()">{{ t('app.numberplace.toolbar.lobby', undefined, 'Back to the lobby') }}</button>
+						<button type="button" class="wt wt-primary" @click="playAgain">
+							{{ isOnline ? t('app.numberplace.online.rematch', undefined, 'Play again') : t('app.numberplace.result.again', undefined, 'New puzzle') }}
+						</button>
+					</div>
+				</div>
+			</template>
+		</wt-dialog>
+
+		<!-- Leaving a game in progress for the lobby -->
+		<wt-dialog :open="leaveDialog.visible" size="sm" @close="closeLeave">
+			<template v-slot:title="d">
+				{{ t('app.numberplace.toolbar.lobby', undefined, 'Back to the lobby') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">{{ leaveNote }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeLeave">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirmLeave">
+					{{ t('app.numberplace.toolbar.lobby', undefined, 'Back to the lobby') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Leaving a game in progress for the room an invitation card names -->
+		<wt-dialog :open="joinDialog.visible" size="sm" @close="closeJoin">
+			<template v-slot:title="d">
+				{{ t('app.numberplace.online.join', undefined, 'Join the game') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">{{ joinNote }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeJoin">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirmJoin">
+					{{ t('app.numberplace.online.join', undefined, 'Join the game') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Giving up -->
+		<wt-dialog :open="resignDialog.visible" size="sm" @close="closeResign">
+			<template v-slot:title="d">
+				{{ t('app.numberplace.online.resign', undefined, 'Give up') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">
+					{{ kind === 'coop' ?
+						t('app.numberplace.online.resignCoop', { name: online.opponentName }, 'Stop solving this puzzle with {name}?') :
+						t('app.numberplace.online.resignConfirm', { name: online.opponentName }, 'Give up this game against {name}?') }}
+				</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" :disabled="resignDialog.busy" @click="closeResign">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-danger" :disabled="resignDialog.busy" @click="confirmResign">
+					{{ t('app.numberplace.online.resign', undefined, 'Give up') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+		<!-- /Readiness gate -->
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

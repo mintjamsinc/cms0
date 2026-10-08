@@ -1,0 +1,55 @@
+# Provisioning for the Webtop Number Place app: games between two users.
+#
+# A game is a room under /var/lib/games/numberplace/rooms, written only by
+# games-service-user: the GraphQL resolvers (etc/graphql/webtop/numberplace)
+# check in the caller's own session who the caller is, and check every
+# number against the puzzle's solution, then write as the service user. The
+# two players are granted jcr:read on the room's folder, whose settings file
+# carries the room's chat.
+#
+#   /var/lib/games                        closed to everyone; the service group owns it
+#   /var/lib/games/numberplace/rooms      one folder per room: its settings (.room)
+#   /var/lib/games/numberplace/boards     the filled cells of each room, one file per
+#                                         cell; granted to nobody, so in a race neither
+#                                         player can read the other's numbers
+#   /var/lib/games/numberplace/solutions  the solution of each room's puzzle; granted
+#                                         to nobody
+#
+# The root of a workspace grants jcr:read to everyone, so the area is closed
+# with an explicit deny. The group, the service user and /var/lib/games are
+# also provisioned by reversi.yml; provisioning is idempotent, so each app's
+# descriptor stands on its own.
+#
+# The numberplace: namespace names the room and cell properties.
+
+namespaces:
+  - prefix: numberplace
+    uri: http://www.mintjams.jp/webtop/numberplace/1.0
+
+groups:
+  - { id: games-service-group, displayName: Games Service }
+
+users:
+  - id: games-service-user
+    service: true
+    displayName: Games Service
+    memberOf: [games-service-group]
+
+nodes:
+  - path: /var/lib/games
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny
+      - group: games-service-group
+        privileges: jcr:all
+        effect: allow
+  - path: /var/lib/games/numberplace
+    primaryType: nt:folder
+  - path: /var/lib/games/numberplace/rooms
+    primaryType: nt:folder
+  - path: /var/lib/games/numberplace/boards
+    primaryType: nt:folder
+  - path: /var/lib/games/numberplace/solutions
+    primaryType: nt:folder

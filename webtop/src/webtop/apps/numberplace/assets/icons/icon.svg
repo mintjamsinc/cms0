@@ -1,0 +1,41 @@
+<svg viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="numberplace">
+  <defs>
+    <clipPath id="clip-numberplace"><rect x="0" y="0" width="180" height="180" rx="42" ry="42"/></clipPath>
+    <linearGradient id="hl-numberplace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="white" stop-opacity="0.25"/>
+      <stop offset="55%" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <defs><linearGradient id="bg-numberplace" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#ffb6cb"/>
+    <stop offset="100%" stop-color="#ed5a77"/>
+  </linearGradient></defs>
+  <rect x="0" y="0" width="180" height="180" rx="42" ry="42" fill="url(#bg-numberplace)"/>
+  <g clip-path="url(#clip-numberplace)">
+    <g fill-opacity="0.9">
+    <path transform="translate(18 22) scale(1.4)" fill="white" d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"/>
+    <path transform="translate(146 30) scale(1)" fill="white" d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"/>
+    <path transform="translate(150 134) scale(1.2)" fill="white" d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"/></g>
+    <g transform="rotate(-6 90 90)">
+      <rect x="34" y="40" width="112" height="112" rx="24" fill="#b8304f" fill-opacity="0.22"/>
+      <rect x="34" y="34" width="112" height="112" rx="24" fill="#dff3e8"/>
+      <rect x="36" y="36" width="108" height="108" rx="22" fill="none" stroke="#c4e6d4" stroke-width="2"/>
+      <g>
+        <rect x="41" y="41" width="30" height="30" rx="8" fill="#fbfffd"/><text x="56" y="64" text-anchor="middle" font-family="'M PLUS Rounded 1c', 'Arial Rounded MT Bold', 'Segoe UI', sans-serif" font-size="23" font-weight="800" fill="#4d2c31">5</text>
+        <rect x="75" y="41" width="30" height="30" rx="8" fill="#f1faf5"/>
+        <rect x="109" y="41" width="30" height="30" rx="8" fill="#ffd3dd"/><text x="124" y="64" text-anchor="middle" font-family="'M PLUS Rounded 1c', 'Arial Rounded MT Bold', 'Segoe UI', sans-serif" font-size="23" font-weight="800" fill="#e0456a">3</text>
+        <rect x="41" y="75" width="30" height="30" rx="8" fill="#f1faf5"/>
+        <rect x="75" y="75" width="30" height="30" rx="8" fill="#fbfffd"/><text x="90" y="98" text-anchor="middle" font-family="'M PLUS Rounded 1c', 'Arial Rounded MT Bold', 'Segoe UI', sans-serif" font-size="23" font-weight="800" fill="#4d2c31">7</text>
+        <rect x="109" y="75" width="30" height="30" rx="8" fill="#f1faf5"/>
+        <rect x="41" y="109" width="30" height="30" rx="8" fill="#d2f0e3"/><text x="56" y="132" text-anchor="middle" font-family="'M PLUS Rounded 1c', 'Arial Rounded MT Bold', 'Segoe UI', sans-serif" font-size="23" font-weight="800" fill="#2f9a74">1</text>
+        <rect x="75" y="109" width="30" height="30" rx="8" fill="#f1faf5"/>
+        <rect x="109" y="109" width="30" height="30" rx="8" fill="#fbfffd"/><text x="124" y="132" text-anchor="middle" font-family="'M PLUS Rounded 1c', 'Arial Rounded MT Bold', 'Segoe UI', sans-serif" font-size="23" font-weight="800" fill="#4f6fe0">9</text>
+      </g>
+    </g>
+  </g>
+  <g clip-path="url(#clip-numberplace)">
+    <rect x="0" y="0" width="180" height="180" fill="url(#hl-numberplace)"/>
+    <rect x="0.5" y="0.5" width="179" height="179" rx="41.5" ry="41.5"
+          fill="none" stroke="white" stroke-opacity="0.18" stroke-width="1"/>
+  </g>
+</svg>

@@ -296,6 +296,16 @@ mutations, and its moves reach the other player as topic messages over the
 Webtop's event stream. See
 [`documents/webtop-reversi.md`](documents/webtop-reversi.md).
 
+### Webtop Number Place
+
+The Webtop **Number Place** app (sudoku) is played alone, against the
+computer (time attack or territory), or with another user of the Webtop,
+solving one board together or against each other. A game with another user
+is a room written by a service user through the app's own GraphQL mutations,
+which keep the puzzle's solution and check every number; what the other
+player does arrives as topic messages over the Webtop's event stream. See
+[`documents/webtop-numberplace.md`](documents/webtop-numberplace.md).
+
 ### Topic messages
 
 Applications tell their clients, live, that something happened by publishing

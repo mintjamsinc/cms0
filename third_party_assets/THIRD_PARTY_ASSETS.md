@@ -34,12 +34,12 @@
   npm package (pinned in `webtop/package.json`), which repackages the
   upstream [coz-m/MPLUS_FONTS](https://github.com/coz-m/MPLUS_FONTS)
   M PLUS Rounded 1c font as Google Fonts' unicode-range subsets. Only the
-  weights the Reversi app uses (400, 500, 700 and 800) are copied: the
-  package's per-weight stylesheets (`400.css` etc.), those weights' woff2
-  subsets under `files/` and the upstream `LICENSE` go into
+  weights the Reversi and Number Place apps use (400, 500, 700 and 800)
+  are copied: the package's per-weight stylesheets (`400.css` etc.), those
+  weights' woff2 subsets under `files/` and the upstream `LICENSE` go into
   `webtop/dist/webtop/vendor/m-plus-rounded-1c/` at build time by
-  `webtop/rollup.config.js`. The Reversi app's `style.css` and its chat
-  invitation card `@import` the vendored stylesheets; browsers fetch only
+  `webtop/rollup.config.js`. The two apps' `style.css` and their chat
+  invitation cards `@import` the vendored stylesheets; browsers fetch only
   the subsets a page actually uses.
 - Licensed under the SIL Open Font License 1.1.
 

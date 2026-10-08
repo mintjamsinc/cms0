@@ -1,0 +1,45 @@
+# The invitation to a game of Number Place, posted by the app to the direct
+# messages of the two players when one invites the other
+# (NumberPlaceApi.invite). The card's first button opens the game: the
+# invited user accepts on the way in and lands in the room, getting ready.
+# While the invitation waits for an answer a second button declines it (for
+# the host, takes it back).
+#
+# The design lives in the app's own folder (assets/cards/invitation), so it
+# is deployed with the app; it is not under /etc/chat/cards, so it is not
+# offered when writing a message. The texts are keys of i18n/<locale>.json
+# in this folder.
+label: card.label
+description: card.description
+summary: card.summary
+fields:
+  - key: roomId
+    label: field.roomId.label
+    type: STRING
+    required: true
+  - key: host
+    label: field.host.label
+    type: STRING
+    required: true
+  - key: hostName
+    label: field.hostName.label
+    type: STRING
+    required: true
+  - key: guest
+    label: field.guest.label
+    type: STRING
+    required: true
+  - key: guestName
+    label: field.guestName.label
+    type: STRING
+    required: true
+  - key: mode
+    label: field.mode.label
+    type: STRING
+    choices:
+      - { value: coop, label: field.mode.choice.coop }
+      - { value: race, label: field.mode.choice.race }
+      - { value: territory, label: field.mode.choice.territory }
+  - key: level
+    label: field.level.label
+    type: LONG

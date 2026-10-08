@@ -221,9 +221,9 @@ const webtopCoreConfig = makeConfig({
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/index.css', dest: 'dist/webtop/vendor/noto-sans-jp' },
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/files', dest: 'dist/webtop/vendor/noto-sans-jp' },
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/LICENSE', dest: 'dist/webtop/vendor/noto-sans-jp' },
-    // Bundle M PLUS Rounded 1c (static weights) for the Reversi app, whose
-    // window and invitation card are drawn in the rounded, picture-book tone
-    // of ichigo.js. Packaged like Noto Sans JP: the upstream per-weight
+    // Bundle M PLUS Rounded 1c (static weights) for the Reversi and Number
+    // Place apps, whose windows and invitation cards are drawn in the
+    // rounded, picture-book tone of ichigo.js. Packaged like Noto Sans JP: the upstream per-weight
     // stylesheets are copied verbatim and @import-ed by the app's style.css
     // and card.html, and only the weights the app uses (400, 500, 700, 800)
     // and only their woff2 subsets are copied; every browser the Webtop
@@ -320,10 +320,23 @@ const reversiConfigs = [
   }),
 ];
 
+// Number Place: puzzles are made in a Web Worker so a hard one does not
+// freeze the window. The worker is a second bundle next to app.js (started
+// as a module worker); both belong to the one "numberplace" target.
+const numberplaceConfigs = [
+  makeAppConfig('numberplace'),
+  makeConfig({
+    name: 'numberplace',
+    input: 'src/webtop/apps/numberplace/gen-worker.ts',
+    outputFile: 'dist/webtop/apps/numberplace/gen-worker.js',
+  }),
+];
+
 // Every target by name, in build order. scripts/build.mjs reads this list to
 // run one rollup process per target, so a target added here is picked up by
 // `npm run build` without a second list to keep in sync. Targets with extra
-// copy steps are built above, as one config or a list of configs (reversi);
+// copy steps are built above, as one config or a list of configs (reversi,
+// numberplace);
 // the rest are plain makeAppConfig targets.
 const specialConfigs = {
   'webtop': webtopCoreConfig,
@@ -333,6 +346,7 @@ const specialConfigs = {
   'mail': mailConfig,
   'chat': chatConfig,
   'reversi': reversiConfigs,
+  'numberplace': numberplaceConfigs,
 };
 export const TARGET_NAMES = [
   'webtop',
@@ -357,6 +371,7 @@ export const TARGET_NAMES = [
   'mail',
   'chat',
   'reversi',
+  'numberplace',
 ];
 
 if (targetFilter) {

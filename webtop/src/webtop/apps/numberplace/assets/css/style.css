@@ -1,0 +1,1106 @@
+@charset "utf-8";
+
+/* M PLUS Rounded 1c, the rounded face of ichigo.js. Vendored from
+ * @fontsource/m-plus-rounded-1c (see rollup.config.js); the per-weight
+ * stylesheets are @import-ed as they are, and the browser fetches only the
+ * unicode-range subsets the window actually shows. */
+@import url("../../../../vendor/m-plus-rounded-1c/400.css?v=__BUILD_VERSION__");
+@import url("../../../../vendor/m-plus-rounded-1c/500.css?v=__BUILD_VERSION__");
+@import url("../../../../vendor/m-plus-rounded-1c/700.css?v=__BUILD_VERSION__");
+@import url("../../../../vendor/m-plus-rounded-1c/800.css?v=__BUILD_VERSION__");
+
+/* ============================================================================
+ * Number Place — layout, board and number pad
+ *
+ * Theme tokens / shared components live in webtop-app.css. The board's
+ * colours come from the board theme (looks.ts) as --np-* custom properties
+ * on .np-stage; a player's colour comes inline as --np-player.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--np-gap: 0.75rem;
+	--np-side-width: 15rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Strawberry milk
+ *
+ * The window is drawn in the tone of Reversi (and of ichigo.js: soft, like
+ * a picture book). The shared components keep their shape; only the theme
+ * tokens of webtop-app.css are redefined here, outside its layer, so the
+ * toolbar pills, the buttons, the dialogs and the search box all follow.
+ * -------------------------------------------------------------------------- */
+
+:root[data-theme="light"] {
+	--np-text: #4d2c31;
+	--np-text-soft: #927076;
+	--np-primary-deep: #d83a5d;
+	--np-primary-soft: #ffe3ec;
+	--np-shadow: rgb(150 70 85 / 0.16);
+
+	--primary-color: #ed5a77;
+	--secondary-color: #57b894;
+	--neutral-color: #927076;
+	--info-color: #6b8bf5;
+	--warning-color: #d97f52;
+	--danger-color: #d83a5d;
+	--success-color: #57b894;
+	--body-bg: #fff8f3;
+	--text-color: var(--np-text);
+	--text-muted-color: rgb(77 44 49 / 0.5);
+	--text-soft-color: var(--np-text-soft);
+	--button-primary-color: #ffffff;
+	--button-secondary-color: #ffffff;
+	--button-neutral-color: var(--np-text);
+	--button-danger-color: #ffffff;
+	--badge-bg: var(--np-primary-soft);
+	--island-bg: rgb(255 251 248 / 0.96);
+	--island-border-color: #ffffff;
+	--island-shadow: 0 18px 40px -24px rgb(150 70 85 / 0.35);
+	--window-controls-bg: rgb(255 255 255 / 0.7);
+	--window-controls-border-color: #ffffff;
+	--btn-icon-hover-bg: rgb(237 90 119 / 0.12);
+	--pane-toggle-active-bg: #ed5a77;
+	--scrollbar-thumb-bg: #ffd9e3;
+	--dialog-bg: rgb(255 227 236 / 0.5);
+	--dialog-border-color: #ffffff;
+	--dialog-shadow: 0 0 0 1px rgb(150 70 85 / 0.06), 0 30px 80px rgb(150 70 85 / 0.25);
+	--input-bg: #ffffff;
+	--input-border-color: var(--np-primary-soft);
+	--input-focus-border-color: #ed5a77;
+	--input-focus-ring-color: rgb(237 90 119 / 0.15);
+	--context-menu-bg: rgb(255 251 248 / 0.95);
+	--context-menu-border-color: #ffffff;
+	--context-menu-hover-bg: var(--np-primary-soft);
+	--context-menu-shadow: 0 10px 24px -8px rgb(150 70 85 / 0.3), 0 0 0 1px rgb(150 70 85 / 0.05);
+	--menu-divider-color: rgb(77 44 49 / 0.1);
+	--navbar-color: var(--np-text);
+	--item-hover-bg: rgb(237 90 119 / 0.08);
+	--item-even-bg: rgb(237 90 119 / 0.04);
+	--item-selected-bg: var(--np-primary-soft);
+	--nav-current-color: #ed5a77;
+	--nav-current-bg: rgb(237 90 119 / 0.06);
+	--nav-current-border-color: rgb(237 90 119 / 0.25);
+	--nav-current-hover-bg: rgb(237 90 119 / 0.12);
+}
+
+:root[data-theme="dark"] {
+	--np-text: #ffe9ef;
+	--np-text-soft: #c79aa6;
+	--np-primary-deep: #ff7b94;
+	--np-primary-soft: rgb(237 90 119 / 0.3);
+	--np-shadow: rgb(0 0 0 / 0.35);
+
+	--primary-color: #ed5a77;
+	--secondary-color: #57b894;
+	--neutral-color: #c79aa6;
+	--info-color: #8fa8ff;
+	--warning-color: #f7a072;
+	--danger-color: #ff8a80;
+	--success-color: #7fd0ad;
+	--body-bg: #2c191e;
+	--text-color: var(--np-text);
+	--text-muted-color: rgb(255 233 239 / 0.5);
+	--text-soft-color: var(--np-text-soft);
+	--button-primary-color: #ffffff;
+	--button-secondary-color: #ffffff;
+	--button-neutral-color: var(--np-text);
+	--button-danger-color: #2c191e;
+	--badge-bg: rgb(237 90 119 / 0.2);
+	--island-bg: rgb(46 26 32 / 0.95);
+	--island-border-color: rgb(255 255 255 / 0.08);
+	--island-shadow: 0 18px 40px -24px rgb(0 0 0 / 0.6);
+	--window-controls-bg: rgb(255 255 255 / 0.08);
+	--window-controls-border-color: rgb(255 255 255 / 0.1);
+	--btn-icon-hover-bg: rgb(255 123 148 / 0.18);
+	--pane-toggle-active-bg: #ed5a77;
+	--scrollbar-thumb-bg: #5a2f3f;
+	--dialog-bg: rgb(70 35 47 / 0.5);
+	--dialog-border-color: rgb(255 255 255 / 0.1);
+	--dialog-shadow: 0 0 0 1px rgb(255 123 148 / 0.08), 0 30px 80px rgb(0 0 0 / 0.5);
+	--input-bg: rgb(255 255 255 / 0.06);
+	--input-border-color: rgb(255 123 148 / 0.35);
+	--input-focus-border-color: #ff7b94;
+	--input-focus-ring-color: rgb(255 123 148 / 0.2);
+	--context-menu-bg: rgb(44 25 30 / 0.95);
+	--context-menu-border-color: rgb(255 255 255 / 0.1);
+	--context-menu-hover-bg: rgb(237 90 119 / 0.25);
+	--context-menu-shadow: 0 10px 24px -8px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
+	--menu-divider-color: rgb(255 255 255 / 0.1);
+	--navbar-color: var(--np-text);
+	--item-hover-bg: rgb(255 123 148 / 0.12);
+	--item-even-bg: rgb(255 123 148 / 0.05);
+	--item-selected-bg: rgb(237 90 119 / 0.28);
+	--nav-current-color: #ff7b94;
+	--nav-current-bg: rgb(255 123 148 / 0.08);
+	--nav-current-border-color: rgb(255 123 148 / 0.3);
+	--nav-current-hover-bg: rgb(255 123 148 / 0.16);
+}
+
+/* Islands: a white edge and rounder corners. */
+.island {
+	border: 1.5px solid var(--island-border-color);
+	border-radius: 1.25rem;
+}
+
+/* The pills of the toolbar and the window controls float a little. */
+.toolbar-group,
+.window-controls {
+	box-shadow: 0 6px 16px -10px var(--np-shadow);
+}
+
+.status-bar {
+	color: var(--text-soft-color);
+}
+
+/* Buttons: pills. The plain button is white with a pink edge, the primary
+ * one strawberry with a soft shadow; both lift on hover. */
+button.wt {
+	padding: 0.45rem 1.1rem;
+	border: 1.5px solid var(--np-primary-soft);
+	background-color: var(--input-bg);
+	color: var(--text-soft-color);
+	font-weight: 700;
+	box-shadow: 0 6px 14px -10px var(--np-shadow);
+	transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), box-shadow 0.2s, background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+button.wt:hover:not(:disabled) {
+	background-color: var(--input-bg);
+	border-color: var(--primary-color);
+	color: var(--np-primary-deep);
+	transform: translateY(-2px);
+}
+
+button.wt:active:not(:disabled) {
+	transform: translateY(0);
+}
+
+button.wt:disabled {
+	transform: none;
+	box-shadow: none;
+}
+
+button.wt.wt-slim {
+	padding: 0.25rem 0.8rem;
+}
+
+button.wt.wt-primary {
+	border-color: var(--primary-color);
+	background-color: var(--primary-color);
+	color: var(--button-primary-color);
+	box-shadow: 0 8px 18px -8px var(--primary-color);
+}
+
+button.wt.wt-primary:hover:not(:disabled) {
+	background-color: var(--np-primary-deep);
+	border-color: var(--np-primary-deep);
+	color: var(--button-primary-color);
+	box-shadow: 0 12px 22px -8px var(--primary-color);
+}
+
+button.wt.wt-danger {
+	border-color: var(--danger-color);
+	background-color: var(--danger-color);
+	color: var(--button-danger-color);
+	box-shadow: 0 8px 18px -8px var(--danger-color);
+}
+
+button.wt.wt-danger:hover:not(:disabled) {
+	background-color: var(--danger-color);
+	border-color: var(--danger-color);
+	color: var(--button-danger-color);
+	filter: brightness(1.06);
+}
+
+/* Dialogs: rounder, with a bold title. */
+.dialog-frame {
+	border-radius: 1.5rem;
+}
+
+.dialog-header h3 {
+	font-weight: 800;
+}
+
+.dialog-label {
+	font-weight: 700;
+	letter-spacing: 0.02em;
+}
+
+/* The search box of the lobby. */
+.input-group {
+	border-width: 1.5px;
+	border-color: var(--input-border-color);
+	border-radius: 999px;
+	box-shadow: none;
+}
+
+.input-group:focus-within {
+	border-color: var(--input-focus-border-color);
+	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
+}
+
+.input-group input {
+	padding: 0.4rem 0.9rem;
+}
+
+.wt-select-menu {
+	border-radius: 1rem;
+	padding: 0.375rem;
+}
+
+.wt-select-item {
+	border-radius: 0.75rem;
+}
+
+/* The whole window in the rounded face; the shared stack stays behind it
+ * for what the font lacks. Set on #app rather than html, which the shared
+ * stylesheet reserves for itself. */
+#app {
+	height: 100%;
+	font-family: "M PLUS Rounded 1c", "InterVariable", "Noto Sans JP Variable", ui-sans-serif, -apple-system, system-ui, Segoe UI, Helvetica, Apple Color Emoji, Arial, sans-serif, Segoe UI Emoji, Segoe UI Symbol;
+}
+
+.np-body {
+	gap: var(--np-gap);
+}
+
+/* ----------------------------------------------------------------------------
+ * Stage and board
+ *
+ * The board is nine boxes of nine cells. The frame shows between the boxes
+ * (wider) and between the cells (thin); every other box is a shade darker.
+ * A cell's highlights are layers over its colour: the row, column and box
+ * of the chosen cell and the cells with its number (::before), the chosen
+ * cell's ring (::after), and in territory the tint of whoever took it.
+ * -------------------------------------------------------------------------- */
+
+.np-stage {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--np-backdrop);
+}
+
+/* The board is drawn as a physical object in its theme's colours; on the
+ * dark desktop only the backdrop around it goes dark. */
+:root[data-theme="dark"] .np-stage {
+	background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.06), transparent 70%), var(--island-bg);
+}
+
+.np-board-wrap {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	container-type: size;
+	display: grid;
+	place-items: center;
+	padding: 1rem 1.25rem 0.5rem;
+}
+
+.np-board {
+	--np-board-size: min(100cqw, 100cqh, 36rem);
+	--np-cell-size: calc(var(--np-board-size) / 9.6);
+	--np-box-gap: clamp(3px, 0.9cqmin, 6px);
+	width: var(--np-board-size);
+	aspect-ratio: 1;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	grid-template-rows: repeat(3, 1fr);
+	gap: var(--np-box-gap);
+	padding: calc(var(--np-box-gap) * 1.6);
+	border-radius: clamp(14px, 3.5cqmin, 24px);
+	background: var(--np-frame);
+	box-shadow:
+		inset 0 0 0 2px var(--np-frame-edge),
+		0 10px 26px rgba(150, 70, 85, 0.14);
+}
+
+.np-box {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	grid-template-rows: repeat(3, 1fr);
+	gap: 1.5px;
+	border-radius: clamp(6px, 1.6cqmin, 12px);
+	overflow: hidden;
+	background: var(--np-frame-edge);
+}
+
+.np-cell {
+	position: relative;
+	display: grid;
+	place-items: center;
+	min-width: 0;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	background: var(--np-cell);
+	color: var(--np-given);
+	font: inherit;
+	font-size: calc(var(--np-cell-size) * 0.56);
+	font-weight: 700;
+	line-height: 1;
+	cursor: pointer;
+	transition: background-color 0.15s ease;
+}
+
+.np-box:nth-child(even) .np-cell {
+	background-color: var(--np-cell-alt);
+}
+
+.np-cell:hover {
+	background-color: var(--np-cell-hover);
+}
+
+.np-board.is-locked .np-cell {
+	cursor: default;
+}
+
+/* Waiting after a wrong number: the board pales until the user may write again. */
+.np-board.is-waiting .np-cell .np-digit,
+.np-board.is-waiting .np-cell .np-notes {
+	opacity: 0.55;
+}
+
+.np-cell::before,
+.np-cell::after {
+	content: '';
+	position: absolute;
+	pointer-events: none;
+}
+
+.np-cell::before {
+	inset: 0;
+	transition: background-color 0.15s ease;
+}
+
+.np-cell.is-peer::before {
+	background: var(--np-peer);
+}
+
+.np-cell.is-same::before {
+	background: var(--np-same);
+}
+
+.np-cell.is-selected::after {
+	inset: 1px;
+	border-radius: 22%;
+	box-shadow: inset 0 0 0 2.5px var(--np-mark);
+}
+
+.np-cell:focus-visible {
+	outline: 2px solid var(--np-mark);
+	outline-offset: -2px;
+}
+
+/* Territory: the cell takes the colour of whoever filled it. */
+.np-cell.is-owned {
+	background-image: linear-gradient(var(--np-tint), var(--np-tint));
+}
+
+.np-digit {
+	position: relative;
+}
+
+.np-cell.is-given .np-digit {
+	font-weight: 800;
+}
+
+/* Alone: a number that clashes, or (when asked) a wrong one. */
+.np-cell.is-conflict .np-digit,
+.np-cell.is-wrong .np-digit {
+	color: var(--danger-color);
+}
+
+.np-cell.is-wrong .np-digit::after {
+	content: '';
+	position: absolute;
+	left: 15%;
+	right: 15%;
+	bottom: -0.16em;
+	height: 0.08em;
+	border-radius: 999px;
+	background: currentColor;
+}
+
+/* With another user: the number on its way to the server. */
+.np-cell.is-pending .np-digit {
+	opacity: 0.45;
+}
+
+.np-notes {
+	position: absolute;
+	inset: 7%;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	grid-template-rows: repeat(3, 1fr);
+	font-size: calc(var(--np-cell-size) * 0.24);
+	font-weight: 700;
+	color: var(--np-text-soft, #927076);
+}
+
+.np-notes i {
+	display: grid;
+	place-items: center;
+	font-style: normal;
+}
+
+/* ----------------------------------------------------------------------------
+ * Number pad: the nine digits, how many of each are still to be written,
+ * notes and the eraser.
+ * -------------------------------------------------------------------------- */
+
+.np-pad {
+	flex-shrink: 0;
+	display: grid;
+	grid-template-columns: repeat(11, minmax(0, 1fr));
+	gap: 0.4rem;
+	width: min(100%, 38rem);
+	margin: 0 auto;
+	padding: 0.25rem 1.25rem 1rem;
+}
+
+.np-key {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.1rem;
+	height: 3.1rem;
+	padding: 0;
+	border: 1.5px solid #ffffff;
+	border-radius: 14px;
+	background: rgb(255 255 255 / 0.88);
+	color: var(--np-given);
+	font: inherit;
+	font-size: 1.3rem;
+	font-weight: 800;
+	line-height: 1;
+	cursor: pointer;
+	box-shadow: 0 6px 14px -10px rgb(150 70 85 / 0.45);
+	transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.2s, color 0.2s, background-color 0.2s;
+}
+
+.np-key:hover:not(:disabled) {
+	color: var(--np-mark);
+	transform: translateY(-2px);
+}
+
+.np-key:active:not(:disabled) {
+	transform: translateY(0);
+}
+
+.np-key:disabled {
+	cursor: default;
+	opacity: 0.55;
+}
+
+.np-key.is-done {
+	opacity: 0.35;
+}
+
+.np-key-left {
+	min-height: 1em;
+	font-size: 0.6rem;
+	font-weight: 700;
+	color: var(--np-mark);
+}
+
+.np-tool {
+	font-size: 1.05rem;
+}
+
+.np-tool.is-active {
+	border-color: var(--np-mark);
+	background: var(--np-mark);
+	color: #ffffff;
+}
+
+.np-tool.is-active:hover:not(:disabled),
+.np-tool.is-active .np-key-left {
+	color: #ffffff;
+}
+
+/* ----------------------------------------------------------------------------
+ * Result dialog and notices
+ * -------------------------------------------------------------------------- */
+
+.np-result {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0;
+}
+
+.np-result-title {
+	margin: 0;
+	font-size: 1.5rem;
+	font-weight: 800;
+	text-align: center;
+}
+
+.np-result-score {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	font-size: 1.6rem;
+}
+
+.np-result-time {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-size: 1.15rem;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	color: var(--text-soft-color);
+}
+
+/* The dialog has no footer: the buttons sit centred under the score. */
+.np-result-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.5rem;
+	margin-top: 0.5rem;
+}
+
+.np-result-actions button.wt {
+	min-width: 7.5rem;
+}
+
+.np-result-dash {
+	color: var(--text-muted-color);
+}
+
+.np-result-note {
+	color: var(--text-muted-color);
+	font-size: 0.9rem;
+	text-align: center;
+}
+
+/* Over the middle of the main area (the body less the players' panel),
+ * whichever scene is shown. */
+.np-notice {
+	position: absolute;
+	z-index: 2;
+	top: 1rem;
+	left: calc((100% - var(--np-side-width) - var(--np-gap)) / 2);
+	transform: translateX(-50%);
+	padding: 0.4rem 1.1rem;
+	border-radius: 9999px;
+	background: var(--island-bg);
+	border: 1.5px solid var(--island-border-color);
+	box-shadow: 0 6px 18px rgba(77, 44, 49, 0.16);
+	font-weight: 700;
+	white-space: nowrap;
+	animation: np-notice-in 0.25s ease-out;
+}
+
+@keyframes np-notice-in {
+	from {
+		opacity: 0;
+		transform: translate(-50%, -6px);
+	}
+}
+
+/* ----------------------------------------------------------------------------
+ * Side panel: players, the clock, the room's chat
+ * -------------------------------------------------------------------------- */
+
+.np-side {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	width: var(--np-side-width);
+	flex-shrink: 0;
+	overflow-y: auto;
+}
+
+.np-seats {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	flex-shrink: 0;
+}
+
+/* The room's chat under the players: the panel widens and stops scrolling
+ * as a whole, the thread takes the rest of it and scrolls inside. */
+.np-body.has-chat {
+	--np-side-width: 19rem;
+}
+
+.np-side.has-chat {
+	overflow: hidden;
+}
+
+.np-chat-head {
+	flex-shrink: 0;
+	margin-top: 0.4rem;
+	padding-top: 0.6rem;
+	border-top: 1px solid var(--island-border-color);
+	font-size: 12px;
+	color: var(--text-soft-color);
+}
+
+.np-chat {
+	flex: 1;
+	min-height: 0;
+}
+
+.np-seat {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.7rem 0.8rem;
+	border: 1.5px solid transparent;
+	border-radius: 16px;
+	transition: background-color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.np-seat.is-waiting {
+	background: var(--item-even-bg);
+}
+
+.np-seat.is-waiting .np-seat-role {
+	color: var(--warning-color);
+	font-weight: 700;
+}
+
+.np-swatch {
+	display: inline-block;
+	width: 1.6rem;
+	height: 1.6rem;
+	border-radius: 50%;
+	flex-shrink: 0;
+	box-shadow: 0 2px 0 rgb(77 44 49 / 0.18), 0 3px 6px rgba(77, 44, 49, 0.2);
+}
+
+.np-seat-swatch {
+	width: 2.2rem;
+	height: 2.2rem;
+}
+
+.np-seat-text {
+	flex: 1;
+	min-width: 0;
+}
+
+.np-seat-name {
+	font-weight: 700;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.np-seat-role {
+	font-size: 0.8rem;
+	color: var(--text-muted-color);
+	min-height: 1.2em;
+}
+
+.np-seat-count {
+	font-size: 1.5rem;
+	font-weight: 800;
+	font-variant-numeric: tabular-nums;
+	color: var(--np-player, inherit);
+}
+
+/* How far the player got: cells filled of those there were to fill. */
+.np-progress {
+	height: 6px;
+	margin-top: 0.35rem;
+	border-radius: 999px;
+	background: var(--item-selected-bg);
+	overflow: hidden;
+}
+
+.np-progress i {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--np-player, var(--primary-color));
+	transition: width 0.4s ease;
+}
+
+.np-clock {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.45rem;
+	flex-shrink: 0;
+	padding: 0.45rem 0.8rem;
+	border-radius: 999px;
+	background: var(--item-even-bg);
+	font-size: 1.15rem;
+	font-weight: 800;
+	font-variant-numeric: tabular-nums;
+	color: var(--text-soft-color);
+}
+
+/* "Thinking" dots */
+.np-dots {
+	display: inline-flex;
+	gap: 3px;
+	vertical-align: middle;
+}
+
+.np-dots i {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--primary-color);
+	animation: np-dot 1s infinite ease-in-out;
+}
+
+.np-dots i:nth-child(2) {
+	animation-delay: 0.15s;
+}
+
+.np-dots i:nth-child(3) {
+	animation-delay: 0.3s;
+}
+
+@keyframes np-dot {
+	0%, 80%, 100% {
+		transform: translateY(0);
+		opacity: 0.4;
+	}
+	40% {
+		transform: translateY(-4px);
+		opacity: 1;
+	}
+}
+
+/* ----------------------------------------------------------------------------
+ * Scenes
+ *
+ * The main area shows one scene: the lobby or the game (app.ts `scene`).
+ * A scene fades in when it takes the place of the other; the players'
+ * panel stays.
+ * -------------------------------------------------------------------------- */
+
+.np-scene {
+	animation: np-scene-in 0.25s ease-out;
+}
+
+@keyframes np-scene-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
+/* ----------------------------------------------------------------------------
+ * Lobby: the form to set up the next game, or to get ready in a room
+ *
+ * The form is a column in the middle of the island; it scrolls when the
+ * window is low, the buttons stay at the bottom.
+ * -------------------------------------------------------------------------- */
+
+.np-lobby {
+	padding: 0;
+}
+
+.np-lobby-body {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	width: 100%;
+	max-width: 38rem;
+	margin: 0 auto;
+	padding: 1.25rem 1.5rem 1rem;
+}
+
+.np-lobby-title {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	margin: 0 0 0.75rem;
+	font-size: 1.35rem;
+	font-weight: 800;
+}
+
+.np-tag {
+	padding: 0.1rem 0.7rem;
+	border-radius: 999px;
+	background: var(--np-primary-soft);
+	color: var(--np-primary-deep);
+	font-size: 0.8rem;
+	font-weight: 700;
+}
+
+.np-lobby-body .dialog-label {
+	margin-top: 0.6rem;
+}
+
+.np-lobby-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.5rem;
+	width: 100%;
+	max-width: 38rem;
+	margin: 0 auto;
+	padding: 0.75rem 1.5rem 1.25rem;
+}
+
+.np-lobby-actions button.wt {
+	min-width: 7.5rem;
+}
+
+.np-lobby-note,
+.np-mode-note,
+.np-rule-note {
+	color: var(--text-muted-color);
+	font-size: 0.9rem;
+}
+
+.np-mode-note {
+	margin-top: 0.2rem;
+	text-align: center;
+}
+
+.np-options {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 0.6rem;
+}
+
+.np-option {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.35rem;
+	padding: 0.85rem 0.4rem;
+	border: 1.5px solid var(--input-border-color);
+	border-radius: 16px;
+	background: var(--input-bg);
+	color: var(--text-color);
+	font: inherit;
+	font-size: 0.85rem;
+	font-weight: 600;
+	line-height: 1.3;
+	text-align: center;
+	cursor: pointer;
+	transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1), border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+
+.np-option:hover:not(.is-selected) {
+	border-color: var(--primary-color);
+	transform: translateY(-2px);
+}
+
+.np-option i {
+	font-size: 1.5rem;
+	color: var(--primary-color);
+}
+
+.np-option.is-selected,
+.np-chip.is-selected {
+	border-color: var(--primary-color);
+	background: var(--item-selected-bg);
+	box-shadow: 0 0 0 1px var(--primary-color);
+}
+
+.np-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4rem;
+}
+
+.np-chip {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.4rem;
+	padding: 0.35rem 0.85rem;
+	border: 1.5px solid var(--input-border-color);
+	border-radius: 9999px;
+	background: var(--input-bg);
+	color: var(--text-color);
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+	transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+
+.np-chip:hover:not(.is-selected):not(:disabled) {
+	border-color: var(--primary-color);
+}
+
+.np-chip:disabled {
+	cursor: default;
+}
+
+.np-chip:disabled:not(.is-selected) {
+	opacity: 0.55;
+}
+
+.np-chip i {
+	color: var(--primary-color);
+}
+
+.np-chips-level .np-chip {
+	min-width: 7.5rem;
+}
+
+.np-chips-rule .np-chip {
+	min-width: 9rem;
+}
+
+.np-level-pips {
+	display: inline-flex;
+	gap: 2px;
+}
+
+.np-level-pips i {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--primary-color);
+}
+
+.np-colors,
+.np-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.55rem;
+}
+
+.np-color {
+	width: 2.4rem;
+	height: 2.4rem;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	cursor: pointer;
+	box-shadow: 0 2px 0 rgb(77 44 49 / 0.18), 0 3px 6px rgba(77, 44, 49, 0.2);
+	outline: 2px solid transparent;
+	outline-offset: 3px;
+}
+
+.np-swatches .np-swatch {
+	width: 2.4rem;
+	height: 2.4rem;
+	padding: 0;
+	border: 0;
+	border-radius: 10px;
+	cursor: pointer;
+	box-shadow: none;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+}
+
+.np-color.is-selected,
+.np-swatches .np-swatch.is-selected {
+	outline-color: var(--primary-color);
+}
+
+/* The other player's colour cannot be picked. */
+.np-color.is-taken {
+	opacity: 0.35;
+}
+
+.np-color:disabled,
+.np-swatches .np-swatch:disabled {
+	cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.np-notice,
+	.np-scene,
+	.np-dots i {
+		animation: none;
+	}
+	.np-progress i {
+		transition: none;
+	}
+}
+
+/* ----------------------------------------------------------------------------
+ * Games with another user
+ * -------------------------------------------------------------------------- */
+
+.np-toolbar-btn,
+.np-option {
+	position: relative;
+}
+
+/* An invitation is waiting: a dot on the lobby button and on the option. */
+.np-badge {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--primary-color);
+	box-shadow: 0 0 0 2px var(--island-bg);
+}
+
+.np-badge-option {
+	top: 8px;
+	right: 8px;
+}
+
+.np-rooms {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	max-height: 11rem;
+	overflow-y: auto;
+	margin: 0.4rem 0 0.25rem;
+}
+
+.np-room {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+	padding: 0.4rem 0.5rem;
+	border: 1px solid transparent;
+	border-radius: 10px;
+	transition: background-color 0.15s ease;
+}
+
+.np-room:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.np-room button.wt {
+	min-width: 5rem;
+}
+
+.np-room > .bi {
+	flex-shrink: 0;
+	width: 1.2rem;
+	text-align: center;
+	color: var(--text-soft-color);
+}
+
+.np-room-text {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	text-align: left;
+}
+
+.np-room-sub {
+	font-size: 0.8rem;
+	color: var(--text-muted-color);
+}
+
+.np-error {
+	margin-top: 0.5rem;
+	color: var(--danger-color, #c0392b);
+	font-size: 0.85rem;
+}
