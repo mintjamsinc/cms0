@@ -1419,7 +1419,15 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		m.put("name", v.getName());
 		m.put("type", v.getTypeName());
 		Object val = v.getValue();
-		m.put("value", (val instanceof Date) ? formatDate((Date) val) : (val != null ? val.toString() : null));
+		if (val instanceof Date) {
+			m.put("value", formatDate((Date) val));
+		} else if (val instanceof byte[]) {
+			// A bytes variable is how a script passes a text longer than the
+			// 4000 characters a string variable may hold; hand it back as text.
+			m.put("value", new String((byte[]) val, StandardCharsets.UTF_8));
+		} else {
+			m.put("value", val != null ? val.toString() : null);
+		}
 		m.put("valueInfo", null);
 		return m;
 	}
@@ -1583,6 +1591,11 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		} else if (value instanceof Boolean) {
 			m.put("type", "Boolean");
 			m.put("value", value.toString());
+		} else if (value instanceof byte[]) {
+			// A bytes variable is how a script passes a text longer than the
+			// 4000 characters a string variable may hold; hand it back as text.
+			m.put("type", "Bytes");
+			m.put("value", new String((byte[]) value, StandardCharsets.UTF_8));
 		} else {
 			m.put("type", "Object");
 			m.put("value", value.toString());

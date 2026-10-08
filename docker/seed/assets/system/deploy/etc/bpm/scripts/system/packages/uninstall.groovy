@@ -14,7 +14,7 @@
 //   initiator  - set by camunda:initiator on the start event
 //   packageIds - the selected package ids, comma-separated
 // Outputs:
-//   uninstallResult - JSON: packages with counts (UninstallResult); '' on failure
+//   uninstallResult - JSON as UTF-8 bytes: packages with counts (UninstallResult); '' on failure
 //   uninstallError  - the error message; '' on success
 
 import org.camunda.bpm.engine.delegate.BpmnError
@@ -36,8 +36,9 @@ uninstallResult = ''
 uninstallError = ''
 try {
 	def result = PackageAPI.uninstall(packageIds, initiator)
-	uninstallResult = JSON.stringify(result)
-	log.info("Packages '${packageIds}' uninstalled by '${initiator}': ${uninstallResult}")
+	// As bytes: a string variable holds at most 4000 characters.
+	uninstallResult = JSON.stringify(result).getBytes('UTF-8')
+	log.info("Packages '${packageIds}' uninstalled by '${initiator}': ${JSON.stringify(result)}")
 } catch (Throwable ex) {
 	uninstallError = (ex.message ?: ex.class.name).toString()
 	log.error("Packages '${packageIds}' could not be uninstalled by '${initiator}': ${uninstallError}", ex)

@@ -12,7 +12,7 @@
 //   initiator  - set by camunda:initiator on the start event
 //   packageIds - the selected package ids, comma-separated
 // Outputs:
-//   uninstallInspection - JSON: packages, order, findings (UninstallInspection)
+//   uninstallInspection - JSON as UTF-8 bytes: packages, order, findings (UninstallInspection)
 //   uninstallOk         - 'true' when no finding is an error
 //   packageCount        - how many of the selected packages are installed
 
@@ -33,7 +33,9 @@ if (user == null || !user.hasRole('administrator')) {
 // ---- Inspect --------------------------------------------------------------
 def result = PackageAPI.inspectUninstall(packageIds, initiator)
 
-uninstallInspection = JSON.stringify(result)
+// As bytes: a string variable holds at most 4000 characters, and the file
+// lists of the packages are longer. The forms get it back as text.
+uninstallInspection = JSON.stringify(result).getBytes('UTF-8')
 uninstallOk = result.ok ? 'true' : 'false'
 packageCount = result.packages.size().toString()
 

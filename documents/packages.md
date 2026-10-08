@@ -240,6 +240,14 @@ scripts under `etc/bpm/scripts/system/packages/` (`inspect.groovy`,
 `etc/i18n/packages-forms.{en,ja}.json`, and `provisioning/packages.yml`.
 They are seed assets for every workspace.
 
+The inspection travels from the inspect task to the confirm form as a
+process variable. A string variable holds at most 4000 characters (the
+engine's `TEXT_` column), and the file lists of a package are longer, so the
+scripts set it as **bytes** (`JSON.stringify(result).getBytes('UTF-8')`),
+which the engine stores without a limit; the Tasks app's variable queries
+hand a bytes variable back as UTF-8 text, so the form parses it as before.
+Any script that passes a long text through a process variable does the same.
+
 ### Authorization
 
 - The start form shows its button to administrators only; that is display

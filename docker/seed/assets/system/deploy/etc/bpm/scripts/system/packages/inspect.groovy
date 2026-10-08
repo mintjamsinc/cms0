@@ -12,7 +12,7 @@
 //   packagePath     - the staged package, under /var/lib/packages/incoming
 //   packageFileName - the name of the uploaded file, for messages
 // Outputs:
-//   inspection      - JSON: manifest, action, findings, files (PackageInspection)
+//   inspection      - JSON as UTF-8 bytes: manifest, action, findings, files (PackageInspection)
 //   inspectionOk    - 'true' when no finding is an error
 //   packageId, packageTitle, packageVersion - for the task list and messages
 
@@ -34,7 +34,9 @@ if (user == null || !user.hasRole('administrator')) {
 def result = PackageAPI.inspect(packagePath, initiator)
 def manifest = result.manifest ?: [:]
 
-inspection = JSON.stringify(result)
+// As bytes: a string variable holds at most 4000 characters, and the file
+// lists of a package are longer. The forms get it back as text.
+inspection = JSON.stringify(result).getBytes('UTF-8')
 inspectionOk = result.ok ? 'true' : 'false'
 packageId = (manifest.id ?: '').toString()
 packageTitle = (manifest.title ?: result.fileName ?: '').toString()
