@@ -1,0 +1,56 @@
+# Provisioning for the Webtop Minesweeper app: games between two users.
+#
+# A game is a room under /var/lib/games/minesweeper/rooms, written only by
+# games-service-user: the GraphQL resolvers (etc/graphql/webtop/minesweeper)
+# check in the caller's own session who the caller is, make the board and
+# open its cells, then write as the service user. The two players are
+# granted jcr:read on the room's folder, whose settings file carries the
+# room's chat.
+#
+#   /var/lib/games                        closed to everyone; the service group owns it
+#   /var/lib/games/minesweeper/rooms      one folder per room: its settings (.room)
+#   /var/lib/games/minesweeper/boards     what was done on each board of a room: the
+#                                         cells opened and the flags, one file each;
+#                                         granted to nobody, so in a race neither
+#                                         player can see the other's board
+#   /var/lib/games/minesweeper/mines      where the mines of each room's board are;
+#                                         granted to nobody
+#
+# The root of a workspace grants jcr:read to everyone, so the area is closed
+# with an explicit deny. The group, the service user and /var/lib/games are
+# also provisioned by reversi.yml and numberplace.yml; provisioning is
+# idempotent, so each app's descriptor stands on its own.
+#
+# The minesweeper: namespace names the room and board properties.
+
+namespaces:
+  - prefix: minesweeper
+    uri: http://www.mintjams.jp/webtop/minesweeper/1.0
+
+groups:
+  - { id: games-service-group, displayName: Games Service }
+
+users:
+  - id: games-service-user
+    service: true
+    displayName: Games Service
+    memberOf: [games-service-group]
+
+nodes:
+  - path: /var/lib/games
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny
+      - group: games-service-group
+        privileges: jcr:all
+        effect: allow
+  - path: /var/lib/games/minesweeper
+    primaryType: nt:folder
+  - path: /var/lib/games/minesweeper/rooms
+    primaryType: nt:folder
+  - path: /var/lib/games/minesweeper/boards
+    primaryType: nt:folder
+  - path: /var/lib/games/minesweeper/mines
+    primaryType: nt:folder

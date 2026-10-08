@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Minesweeper</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<!-- The room's chat (<wt-chat-thread>) -->
+	<link rel="stylesheet" href="../../components/wt-chat-thread.css?v=__BUILD_VERSION__">
+</head>
+
+<body>
+	<!-- The mine, drawn wherever one is shown: a dark berry with spikes and a
+	     shine. Outside #app, so the template does not compile it. -->
+	<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+		<symbol id="ms-mine-shape" viewBox="0 0 20 20">
+			<g stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+				<path d="M10 2v16M2 10h16M4.4 4.4l11.2 11.2M15.6 4.4 4.4 15.6" />
+			</g>
+			<circle cx="10" cy="10" r="6.2" fill="currentColor" />
+			<circle cx="7.8" cy="7.7" r="1.9" fill="#ffffff" fill-opacity="0.75" />
+		</symbol>
+	</svg>
+
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Readiness gate: the screen is compiled only after appLaunch() has
+		     loaded the component templates and flipped isReady, so every <wt-*>
+		     element is connected with its <template> already present. -->
+		<template v-if="isReady">
+
+		<!-- Top Toolbar (translucent). Only what can be done now is shown:
+		     nothing in the lobby, the way back to it once a game or a room
+		     is on the board, and the game's own tools in the game scene. -->
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group" v-if="hasGame">
+				<button class="btn-icon ms-toolbar-btn" @click="requestLobby" :title="t('app.minesweeper.toolbar.lobby', undefined, 'Back to the lobby')">
+					<i class="bi bi-box-arrow-left"></i>
+					<!-- An invitation is waiting for an answer in the lobby. -->
+					<span v-if="pendingCount" class="ms-badge" aria-hidden="true"></span>
+				</button>
+				<template v-if="scene === 'game'">
+					<button v-if="kind === 'solo'" class="btn-icon" @click="hint" :disabled="!canHint" :title="t('app.minesweeper.toolbar.hint', undefined, 'Hint')">
+						<i class="bi bi-lightbulb"></i>
+					</button>
+					<button v-if="isOnline" class="btn-icon" :disabled="!canResign" @click="openResign" :title="t('app.minesweeper.online.resign', undefined, 'Give up')">
+						<i class="bi bi-flag"></i>
+					</button>
+				</template>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<div class="content-body ms-body" :class="{ 'has-chat': !!chatRef }">
+
+			<!-- Main area: the scene (app.ts `scene`). -->
+
+			<!-- Lobby scene, getting ready in a room: colours, the difficulty, the board, ready, start. -->
+			<section v-if="scene === 'lobby' && isOnline" class="content-main island ms-lobby ms-scene">
+				<div class="ms-lobby-body">
+					<h2 class="ms-lobby-title">
+						{{ t('app.minesweeper.online.lobby', undefined, 'Getting ready') }}
+						<span class="ms-tag">{{ roomModeLabel(online.mode) }}</span>
+					</h2>
+					<div class="ms-lobby-note">{{ lobbyNote }}</div>
+					<label class="dialog-label">{{ t('app.minesweeper.online.yourColor', undefined, 'Your colour') }}</label>
+					<div class="ms-colors">
+						<button v-for="c in colorOptions" :key="c.id" type="button" class="ms-color"
+							:class="{ 'is-selected': myColor === c.id, 'is-taken': theirColor === c.id }"
+							:disabled="lobbyLocked || theirColor === c.id"
+							:style="c.style" :title="c.label" :aria-label="c.label" @click="pickRoomColor(c.id)"></button>
+					</div>
+					<!-- The other player's colour, once it has joined; only shown. -->
+					<template v-if="online.status === 'lobby'">
+						<label class="dialog-label">{{ t('app.minesweeper.online.theirColor', { name: online.opponentName }, "{name}'s colour") }}</label>
+						<div class="ms-colors">
+							<button v-for="c in colorOptions" :key="c.id" type="button" class="ms-color" disabled
+								:class="{ 'is-selected': theirColor === c.id, 'is-taken': myColor === c.id }"
+								:style="c.style" :title="c.label" :aria-label="c.label"></button>
+						</div>
+					</template>
+					<!-- The host chooses the difficulty and the board; the guest sees the choice. -->
+					<label class="dialog-label">{{ t('app.minesweeper.dialog.level', undefined, 'Difficulty') }}</label>
+					<div class="ms-chips ms-chips-level">
+						<button v-for="o in levelOptions" :key="o.level" type="button" class="ms-chip"
+							:class="{ 'is-selected': online.level === o.level }" :disabled="!isHost || online.busy"
+							:title="o.size" @click="pickRoomLevel(o.level)">
+							<span class="ms-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
+						</button>
+					</div>
+					<div class="ms-rule-note">{{ sizeLabel(online.level) }}</div>
+					<label class="dialog-label">{{ t('app.minesweeper.dialog.board', undefined, 'Board') }}</label>
+					<div class="ms-swatches">
+						<button v-for="theme in themeOptions" :key="theme.id" type="button" class="ms-swatch"
+							:class="{ 'is-selected': online.theme === theme.id }" :style="theme.style" :disabled="!isHost || online.busy"
+							:title="theme.label" :aria-label="theme.label" @click="pickRoomTheme(theme.id)"></button>
+					</div>
+				</div>
+				<div class="ms-lobby-actions">
+					<button type="button" class="wt" :disabled="online.busy" @click="leaveLobby">
+						{{ isHost ? t('app.minesweeper.online.cancel', undefined, 'Take back') : t('app.minesweeper.online.leave', undefined, 'Leave') }}
+					</button>
+					<button v-if="isHost" type="button" class="wt wt-primary" :disabled="!canStartRoom" @click="startRoom">
+						{{ t('app.minesweeper.dialog.start', undefined, 'Start') }}
+					</button>
+					<button v-else-if="!online.guestReady" type="button" class="wt wt-primary" :disabled="online.busy" @click="setReady(true)">
+						{{ t('app.minesweeper.online.ready', undefined, 'Ready!') }}
+					</button>
+					<button v-else type="button" class="wt" :disabled="online.busy" @click="setReady(false)">
+						{{ t('app.minesweeper.online.notReady', undefined, 'Choose again') }}
+					</button>
+				</div>
+			</section>
+
+			<!-- Lobby scene, setting up the next game. -->
+			<section v-else-if="scene === 'lobby'" class="content-main island ms-lobby ms-scene">
+				<div class="ms-lobby-body">
+					<h2 class="ms-lobby-title">{{ t('app.minesweeper.dialog.title', undefined, 'New game') }}</h2>
+					<div class="ms-options">
+						<button type="button" class="ms-option" :class="{ 'is-selected': setup.mode === 'solo' }" @click="setup.mode = 'solo'">
+							<i class="bi bi-person"></i>
+							<span>{{ t('app.minesweeper.mode.solo', undefined, 'Play alone') }}</span>
+						</button>
+						<button type="button" class="ms-option" :class="{ 'is-selected': setup.mode === 'ai' }" @click="setup.mode = 'ai'">
+							<i class="bi bi-cpu"></i>
+							<span>{{ t('app.minesweeper.mode.ai', undefined, 'Play the computer') }}</span>
+						</button>
+						<button type="button" class="ms-option" :class="{ 'is-selected': setup.mode === 'coop' }" @click="setup.mode = 'coop'">
+							<i class="bi bi-people"></i>
+							<span>{{ t('app.minesweeper.mode.coop', undefined, 'Clear together') }}</span>
+							<span v-if="pendingCoop" class="ms-badge ms-badge-option" aria-hidden="true"></span>
+						</button>
+						<button type="button" class="ms-option" :class="{ 'is-selected': setup.mode === 'versus' }" @click="setup.mode = 'versus'">
+							<i class="bi bi-globe2"></i>
+							<span>{{ t('app.minesweeper.mode.versus', undefined, 'Play another user') }}</span>
+							<span v-if="pendingVersus" class="ms-badge ms-badge-option" aria-hidden="true"></span>
+						</button>
+					</div>
+					<div class="ms-mode-note">{{ modeNote }}</div>
+
+					<!-- Invitations to answer, games to go back to, invitations sent. -->
+					<template v-if="isOnlineSetup">
+						<div v-if="roomCards.length" class="ms-rooms">
+							<div v-for="c in roomCards" :key="c.room.id" class="ms-room">
+								<i class="bi" :class="c.action === 'answer' ? 'bi-envelope-heart' : c.action === 'resume' ? 'bi-play-circle' : 'bi-hourglass-split'"></i>
+								<div class="ms-room-text">
+									<span class="text-truncate">{{ c.name }}</span>
+									<span class="ms-room-sub text-truncate">{{ c.note }}</span>
+								</div>
+								<template v-if="c.action === 'answer'">
+									<button type="button" class="wt wt-slim" :disabled="setup.busy" @click="declineRoom(c.room)">
+										{{ t('app.minesweeper.online.decline', undefined, 'Decline') }}
+									</button>
+									<button type="button" class="wt wt-slim wt-primary" :disabled="setup.busy" @click="acceptRoom(c.room)">
+										{{ t('app.minesweeper.online.accept', undefined, 'Accept') }}
+									</button>
+								</template>
+								<button v-else-if="c.action === 'resume'" type="button" class="wt wt-slim wt-primary" @click="resumeRoomFromList(c.room)">
+									{{ t('app.minesweeper.online.resume', undefined, 'Resume') }}
+								</button>
+								<button v-else type="button" class="wt wt-slim" :disabled="setup.busy" @click="declineRoom(c.room)">
+									{{ t('app.minesweeper.online.cancel', undefined, 'Take back') }}
+								</button>
+							</div>
+						</div>
+
+						<label class="dialog-label">{{ t('app.minesweeper.online.invite', undefined, 'Invite someone') }}</label>
+						<wt-autocomplete :search="findOpponents"
+							:placeholder="t('app.minesweeper.online.search', undefined, 'Search by name')"
+							:empty-text="t('app.minesweeper.online.nobody', undefined, 'Nobody found.')"
+							@pick="chooseOpponent($event.detail.value)" @change="setup.opponent = null"></wt-autocomplete>
+					</template>
+
+					<!-- Against the computer or another user: the rules. -->
+					<template v-if="setup.mode === 'ai' || setup.mode === 'versus'">
+						<label class="dialog-label">{{ t('app.minesweeper.dialog.rule', undefined, 'Rules') }}</label>
+						<div class="ms-chips ms-chips-rule">
+							<button type="button" class="ms-chip" :class="{ 'is-selected': setup.rule === 'race' }" @click="setup.rule = 'race'">
+								<i class="bi bi-stopwatch"></i>{{ ruleLabel('race') }}
+							</button>
+							<button type="button" class="ms-chip" :class="{ 'is-selected': setup.rule === 'territory' }" @click="setup.rule = 'territory'">
+								<i class="bi bi-flag"></i>{{ ruleLabel('territory') }}
+							</button>
+						</div>
+						<div class="ms-rule-note">{{ ruleNote }} {{ rulePenalty }}</div>
+					</template>
+
+					<template v-if="setup.mode === 'ai'">
+						<label class="dialog-label">{{ t('app.minesweeper.dialog.strength', undefined, 'Strength') }}</label>
+						<div class="ms-chips ms-chips-level">
+							<button v-for="o in aiLevelOptions" :key="o.level" type="button" class="ms-chip"
+								:class="{ 'is-selected': setup.aiLevel === o.level }" @click="setup.aiLevel = o.level">
+								<span class="ms-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
+							</button>
+						</div>
+					</template>
+
+					<label class="dialog-label">{{ t('app.minesweeper.dialog.level', undefined, 'Difficulty') }}</label>
+					<div class="ms-chips ms-chips-level">
+						<button v-for="o in levelOptions" :key="o.level" type="button" class="ms-chip"
+							:class="{ 'is-selected': setup.level === o.level }" :title="o.size" @click="setup.level = o.level">
+							<span class="ms-level-pips"><i v-for="n in o.pips" :key="n"></i></span>{{ o.label }}
+						</button>
+					</div>
+					<div class="ms-rule-note">{{ sizeLabel(setup.level) }}</div>
+
+					<!-- With another user the colours and the board are chosen in the room. -->
+					<template v-if="!isOnlineSetup">
+						<label class="dialog-label">{{ t('app.minesweeper.dialog.color', undefined, 'Your colour') }}</label>
+						<div class="ms-colors">
+							<button v-for="c in colorOptions" :key="c.id" type="button" class="ms-color"
+								:class="{ 'is-selected': setup.color === c.id }"
+								:style="c.style" :title="c.label" :aria-label="c.label" @click="setup.color = c.id"></button>
+						</div>
+						<label class="dialog-label">{{ t('app.minesweeper.dialog.board', undefined, 'Board') }}</label>
+						<div class="ms-swatches">
+							<button v-for="theme in themeOptions" :key="theme.id" type="button" class="ms-swatch"
+								:class="{ 'is-selected': setup.theme === theme.id }" :style="theme.style"
+								:title="theme.label" :aria-label="theme.label" @click="setup.theme = theme.id"></button>
+						</div>
+					</template>
+					<div v-if="isOnlineSetup && (setup.error || online.error)" class="ms-error">{{ setup.error || online.error }}</div>
+				</div>
+				<div class="ms-lobby-actions">
+					<button type="button" class="wt wt-primary" :disabled="!canStart" @click="startFromLobby">
+						<template v-if="isOnlineSetup">{{ t('app.minesweeper.online.send', undefined, 'Invite') }}</template>
+						<template v-else>{{ t('app.minesweeper.dialog.start', undefined, 'Start') }}</template>
+					</button>
+				</div>
+			</section>
+
+			<!-- Game scene: the board, and under it the flag switch and the mines left. -->
+			<div v-else class="content-main island p-0 ms-stage ms-scene" :style="stageStyle">
+				<div class="ms-board-wrap" @contextmenu.prevent>
+					<div class="ms-board" :class="{ 'is-locked': !canPlay, 'is-waiting': !!myLock, 'is-flagging': flagMode }">
+						<button v-for="c in cellViews" :key="c.i" type="button" class="ms-cell" :data-i="c.i"
+							:class="c.cls" :style="c.style" :aria-label="c.label"
+							@click="onCellClick(c.i)" @contextmenu.prevent="onCellFlag(c.i)">
+							<span v-if="c.n" class="ms-count">{{ c.n }}</span>
+							<i v-else-if="c.flag" class="bi bi-flag-fill ms-flag"></i>
+							<svg v-else-if="c.mine" class="ms-mine" aria-hidden="true"><use href="#ms-mine-shape"></use></svg>
+						</button>
+					</div>
+				</div>
+				<div class="ms-pad">
+					<div class="ms-switch" role="group">
+						<button type="button" class="ms-key" :class="{ 'is-active': !flagMode }" :disabled="!canPlay" @click="flagMode = false"
+							:aria-pressed="!flagMode ? 'true' : 'false'" :title="t('app.minesweeper.pad.openHelp', undefined, 'Click to open (Enter)')">
+							<i class="bi bi-hand-index-thumb"></i>
+							<span>{{ t('app.minesweeper.pad.open', undefined, 'Open') }}</span>
+						</button>
+						<button type="button" class="ms-key" :class="{ 'is-active': flagMode }" :disabled="!canPlay" @click="flagMode = true"
+							:aria-pressed="flagMode ? 'true' : 'false'" :title="t('app.minesweeper.pad.flagHelp', undefined, 'Click to put a flag down (right button, F; M switches)')">
+							<i class="bi bi-flag-fill"></i>
+							<span>{{ kind === 'territory' ? t('app.minesweeper.pad.take', undefined, 'Take') : t('app.minesweeper.pad.flag', undefined, 'Flag') }}</span>
+						</button>
+					</div>
+					<div class="ms-left" :title="t('app.minesweeper.pad.minesLeft', undefined, 'Mines left')">
+						<svg class="ms-mine ms-mine-small" aria-hidden="true"><use href="#ms-mine-shape"></use></svg>
+						<strong>{{ minesLeft }}</strong>
+					</div>
+				</div>
+			</div>
+
+			<!-- Players: the same panel in every scene. In the lobby it shows
+			     the game being set up as the form is filled in. With a room
+			     open, the room's chat is under the players. -->
+			<aside class="island ms-side" :class="{ 'has-chat': !!chatRef }">
+				<div class="ms-seats">
+					<div v-for="card in seatCards" :key="card.key" class="ms-seat"
+						:class="{ 'is-waiting': card.waiting }" :style="card.vars">
+						<span class="ms-swatch ms-seat-swatch" :style="card.style"></span>
+						<div class="ms-seat-text">
+							<div class="ms-seat-name">{{ card.name }}</div>
+							<div class="ms-seat-role">
+								<template v-if="card.thinking">
+									<span class="ms-dots"><i></i><i></i><i></i></span>
+								</template>
+								<template v-else>
+									<i v-if="card.waiting" class="bi bi-hourglass-split"></i>
+									{{ card.role }}
+								</template>
+							</div>
+							<div v-if="card.count" class="ms-progress"><i :style="{ width: (card.progress * 100) + '%' }"></i></div>
+						</div>
+						<div class="ms-seat-count">{{ card.count }}</div>
+					</div>
+				</div>
+				<div v-if="hasGame && !inLobby" class="ms-clock" :title="t('app.minesweeper.status.time', undefined, 'Time')">
+					<i class="bi bi-stopwatch"></i>{{ clockText }}
+				</div>
+				<template v-if="chatRef">
+					<div class="ms-chat-head">{{ t('app.minesweeper.online.chat', undefined, 'Chat') }}</div>
+					<wt-chat-thread class="ms-chat" :conversation="chatRef" :api="threadApi" :localization="localization" :follow="false"></wt-chat-thread>
+				</template>
+			</aside>
+
+			<!-- A passing word (an invitation, an error), over the main area in
+			     either scene. -->
+			<div v-if="notice" class="ms-notice">{{ notice }}</div>
+		</div>
+
+		<!-- Bottom Status Bar (translucent) -->
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ statusText }}</span>
+			</div>
+			<span class="nav-spacer"></span>
+			<div class="status-group" v-if="scene === 'game'">
+				<span class="status-item">{{ levelLabel(level) }} · {{ sizeLabel(level) }}</span>
+				<span v-if="kind === 'solo' && hints" class="status-item">{{ t('app.minesweeper.status.hints', { n: hints }, '{n} hints') }}</span>
+			</div>
+		</div>
+
+		<!-- Result: closing it leaves the final board in view. -->
+		<wt-dialog :open="!!result && resultDialog.visible" size="sm" :header="false" :footer="false" @close="closeResult">
+			<template v-slot="d">
+				<div class="ms-result">
+					<h3 class="ms-result-title">{{ resultTitle }}</h3>
+					<div v-if="resultNote" class="ms-result-note">{{ resultNote }}</div>
+					<div v-if="seatCards.length > 1" class="ms-result-score">
+						<span class="ms-swatch" :style="seatCards[0].style"></span>
+						<strong>{{ result?.scores[0] }}</strong>
+						<span class="ms-result-dash">-</span>
+						<strong>{{ result?.scores[1] }}</strong>
+						<span class="ms-swatch" :style="seatCards[1].style"></span>
+					</div>
+					<div class="ms-result-time"><i class="bi bi-stopwatch"></i>{{ resultTime }}</div>
+					<div v-if="kind === 'solo'" class="ms-result-note">
+						{{ levelLabel(level) }}
+						<template v-if="hints"> · {{ t('app.minesweeper.status.hints', { n: hints }, '{n} hints') }}</template>
+					</div>
+					<div class="ms-result-actions">
+						<button type="button" class="wt" @click="closeResult">{{ t('common.close', undefined, 'Close') }}</button>
+						<button type="button" class="wt" @click="goToLobby()">{{ t('app.minesweeper.toolbar.lobby', undefined, 'Back to the lobby') }}</button>
+						<button type="button" class="wt wt-primary" @click="playAgain">
+							{{ isOnline ? t('app.minesweeper.online.rematch', undefined, 'Play again') : t('app.minesweeper.result.again', undefined, 'New board') }}
+						</button>
+					</div>
+				</div>
+			</template>
+		</wt-dialog>
+
+		<!-- Leaving a game in progress for the lobby -->
+		<wt-dialog :open="leaveDialog.visible" size="sm" @close="closeLeave">
+			<template v-slot:title="d">
+				{{ t('app.minesweeper.toolbar.lobby', undefined, 'Back to the lobby') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">{{ leaveNote }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeLeave">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirmLeave">
+					{{ t('app.minesweeper.toolbar.lobby', undefined, 'Back to the lobby') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Leaving a game in progress for the room an invitation card names -->
+		<wt-dialog :open="joinDialog.visible" size="sm" @close="closeJoin">
+			<template v-slot:title="d">
+				{{ t('app.minesweeper.online.join', undefined, 'Join the game') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">{{ joinNote }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeJoin">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirmJoin">
+					{{ t('app.minesweeper.online.join', undefined, 'Join the game') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Giving up -->
+		<wt-dialog :open="resignDialog.visible" size="sm" @close="closeResign">
+			<template v-slot:title="d">
+				{{ t('app.minesweeper.online.resign', undefined, 'Give up') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">
+					{{ kind === 'coop' ?
+						t('app.minesweeper.online.resignCoop', { name: online.opponentName }, 'Stop clearing this board with {name}?') :
+						t('app.minesweeper.online.resignConfirm', { name: online.opponentName }, 'Give up this game against {name}?') }}
+				</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" :disabled="resignDialog.busy" @click="closeResign">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-danger" :disabled="resignDialog.busy" @click="confirmResign">
+					{{ t('app.minesweeper.online.resign', undefined, 'Give up') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+		<!-- /Readiness gate -->
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

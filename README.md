@@ -306,6 +306,17 @@ which keep the puzzle's solution and check every number; what the other
 player does arrives as topic messages over the Webtop's event stream. See
 [`documents/webtop-numberplace.md`](documents/webtop-numberplace.md).
 
+### Webtop Minesweeper
+
+The Webtop **Minesweeper** app is played alone, against the computer (time
+attack or territory), or with another user of the Webtop, clearing one board
+together or against each other. Every board can be cleared without
+guessing. A game with another user is a room written by a service user
+through the app's own GraphQL mutations, which make the board and keep where
+its mines are from both players; what the other player does arrives as
+topic messages over the Webtop's event stream. See
+[`documents/webtop-minesweeper.md`](documents/webtop-minesweeper.md).
+
 ### Topic messages
 
 Applications tell their clients, live, that something happened by publishing

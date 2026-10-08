@@ -221,9 +221,9 @@ const webtopCoreConfig = makeConfig({
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/index.css', dest: 'dist/webtop/vendor/noto-sans-jp' },
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/files', dest: 'dist/webtop/vendor/noto-sans-jp' },
     { src: 'node_modules/@fontsource-variable/noto-sans-jp/LICENSE', dest: 'dist/webtop/vendor/noto-sans-jp' },
-    // Bundle M PLUS Rounded 1c (static weights) for the Reversi and Number
-    // Place apps, whose windows and invitation cards are drawn in the
-    // rounded, picture-book tone of ichigo.js. Packaged like Noto Sans JP: the upstream per-weight
+    // Bundle M PLUS Rounded 1c (static weights) for the Reversi, Number
+    // Place and Minesweeper apps, whose windows and invitation cards are
+    // drawn in the rounded, picture-book tone of ichigo.js. Packaged like Noto Sans JP: the upstream per-weight
     // stylesheets are copied verbatim and @import-ed by the app's style.css
     // and card.html, and only the weights the app uses (400, 500, 700, 800)
     // and only their woff2 subsets are copied; every browser the Webtop
@@ -372,6 +372,7 @@ export const TARGET_NAMES = [
   'chat',
   'reversi',
   'numberplace',
+  'minesweeper',
 ];
 
 if (targetFilter) {

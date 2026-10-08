@@ -1,0 +1,144 @@
+# Webtop Minesweeper app (webtop/src/webtop/apps/minesweeper): games between two users.
+#
+# A game is a room of two users, who clear one board together (coop) or play
+# against each other: a race to clear the same board on boards of their own
+# (race, time attack), or one board both play, where a flag put on a mine
+# takes it (territory). The host invites the other user; the room waits
+# until the other accepts or declines. Once accepted the two get ready in
+# the room: each picks a colour (the two must differ), the host also picks
+# the difficulty and the board, the guest says it is ready and the host
+# starts the game. The room is then played until it is decided or one
+# player gives up, and is kept for a while.
+#
+# The server makes the board (webtop.minesweeper.MinesweeperRules,
+# /usr/local/classes/webtop/minesweeper): every board can be cleared without
+# guessing from its start, which is opened when the game begins, and where
+# the mines are is kept from both players. Together, a mine opened ends the
+# game; against each other it makes the player wait 5 seconds, and so does,
+# in territory, a flag put where there is no mine. These mutations are the
+# only way to write a room: each one checks who the caller is and then
+# writes as the games service user. The caller holds no write access to
+# /var/lib/games (provisioning/minesweeper.yml).
+#
+# Every change to a room is announced to its two players as a topic message
+# on the room's `topic` (Subscription.topicMessage). A client subscribes to
+# game/minesweeper/rooms/* once and receives the messages of all its rooms:
+#
+#   { roomId, type: invited | accepted | changed | ready | started | declined
+#                 | left | cancelled | open | flag | claim | miss | resigned | expired,
+#     by: <user>, ready, board, cell, reveal, mine, blast, flag, opened, found,
+#     misses, lockMs, over, winner }
+#
+# `open` tells the board played (shared, host or guest), the cell clicked
+# and how many cells the player has opened; on the shared board also the
+# cells it opened (`reveal`, [cell, count] pairs) and the mine it opened
+# (`blast`); `mine` says a mine was opened, with the player's misses and
+# how long it waits. In a race an open does not say where: the other
+# player's board is not shown. `flag` tells a flag put down or taken up on
+# the shared board of a game together; `claim` a mine taken in territory,
+# with the mines the player found; `miss` a flag put where there is no
+# mine. `expired` says the room was removed: it had been waiting, getting
+# ready or playing without a change or a move for 30 days.
+#
+# The payload tells what happened; the room is the record, and a client that
+# cannot follow a message reads the room again.
+
+type MinesweeperPlayer {
+  id: ID!
+  displayName: String
+  """The player's colour (a colour id of the app). The two differ."""
+  color: String!
+  """The safe cells the player opened (those its own opening uncovered first): on the shared board, or on the player's own board in a race. The start is nobody's."""
+  opened: Int!
+  """Territory: the mines the player took."""
+  found: Int!
+  """The mines the player opened and, in territory, the flags it put where there was no mine."""
+  misses: Int!
+  """How long the player still waits after a miss, in milliseconds."""
+  lockMs: Int!
+}
+
+type MinesweeperMark {
+  """0 to width x height - 1, row by row."""
+  cell: Int!
+  """Who put the flag down, took the mine or opened it."""
+  by: ID!
+}
+
+type MinesweeperRoom {
+  id: ID!
+  """coop (one board, together), race (time attack) or territory."""
+  mode: String!
+  """The board's difficulty, 1 (easy) to 4 (expert), chosen by the host: 9 x 9 with 10 mines, 12 x 12 with 22, 16 x 16 with 40, 24 x 16 with 72."""
+  level: Int!
+  """waiting (invitation sent), lobby (accepted; getting ready), playing, finished, declined (by the invited user), left (the invited user left while getting ready), cancelled (by the host)."""
+  status: String!
+  """Who sent the invitation."""
+  host: MinesweeperPlayer!
+  """Who was invited."""
+  guest: MinesweeperPlayer!
+  """host or guest: the caller's role."""
+  you: String!
+  """The board theme (a board id of the app), chosen by the host."""
+  theme: String!
+  """Whether the invited user has said it is ready; the host starts the game once it has."""
+  guestReady: Boolean!
+  """The board's size and how many mines it holds, from the difficulty."""
+  width: Int!
+  height: Int!
+  mines: Int!
+  """The cell opened when the game began. Null until the game starts."""
+  start: Int
+  """The board as the caller sees it (the shared one, or its own in a race), one character per cell, row by row: '-' covered, '0' to '8' open, '*' a mine opened; once the game is over, 'm' for every other mine. Null until the game starts."""
+  board: String
+  """The flags on the board shown: shared in cooperation, the caller's own in a race, the mines taken in territory. Only on covered cells."""
+  flags: [MinesweeperMark!]!
+  """The mines opened on the board shown, and who opened them."""
+  blasts: [MinesweeperMark!]!
+  """host, guest or draw once a game against each other is over; null in cooperation (a mine opened, a player giving up, or cleared)."""
+  winner: String
+  """Who gave up, when the game ended that way."""
+  resignedBy: ID
+  createdAt: DateTime!
+  startedAt: DateTime
+  finishedAt: DateTime
+  """The time played, in milliseconds: from the start up to now, or to the end."""
+  elapsedMs: Int!
+  """The topic the room's messages are published on."""
+  topic: String!
+  """The identifier of the room's settings file. The room's chat is the Chat conversation of this file (chatConversation with fileId), which the two players can read."""
+  chatFileId: ID!
+}
+
+type MinesweeperMove {
+  """What came of it: opened (cells opened), mine (a mine opened), found (territory: a mine taken), wrong (territory: a flag where there is no mine), flagged, unflagged, or none (nothing to do: the cell was open or taken already)."""
+  outcome: String!
+  room: MinesweeperRoom!
+}
+
+extend type Query {
+  """The caller's rooms: those waiting, getting ready or playing, then the ended ones, the newest first."""
+  minesweeperRooms: [MinesweeperRoom!]!
+  minesweeperRoom(id: ID!): MinesweeperRoom!
+}
+
+extend type Mutation {
+  """Invites a user to a game. `mode` is coop, race or territory; `level` the difficulty, 1 unless given. `color` and `theme` are the caller's first choices, changed later with minesweeperSetup. The invitation is also posted as a card in the direct messages of the two users; `locale` is the language its text is written in."""
+  minesweeperInvite(opponentId: ID!, mode: String!, level: Int, color: String, theme: String, locale: String): MinesweeperRoom!
+  """The invited user accepts: the room is getting ready. `color` is the caller's first choice, when it is not the host's."""
+  minesweeperAccept(id: ID!, color: String): MinesweeperRoom!
+  """The invited user declines (declined) or leaves while getting ready (left), or the host takes the invitation back (cancelled)."""
+  minesweeperDecline(id: ID!): MinesweeperRoom!
+  """Changes the caller's colour (refused when it is the other player's) and, for the host, the difficulty and the board, while the room is waiting or getting ready."""
+  minesweeperSetup(id: ID!, color: String, level: Int, theme: String): MinesweeperRoom!
+  """The invited user says it is ready (or no longer is) while the room is getting ready."""
+  minesweeperReady(id: ID!, ready: Boolean): MinesweeperRoom!
+  """The host starts the game once the invited user is ready; the server makes the board."""
+  minesweeperStart(id: ID!): MinesweeperRoom!
+  """Opens a cell for the caller (`cell` row by row), or with `chord` the covered cells around an open number whose mines are all marked (flagged, in territory taken, or opened). A flagged or taken cell is not opened. Refused while the caller waits after a miss."""
+  minesweeperOpen(id: ID!, cell: Int!, chord: Boolean): MinesweeperMove!
+  """Puts a flag down (`flag` true) or takes it back up, on a covered cell. In territory a flag takes the cell: refused while the caller waits after a miss."""
+  minesweeperFlag(id: ID!, cell: Int!, flag: Boolean): MinesweeperMove!
+  """The caller gives up: against each other the other player wins; in cooperation the game ends uncleared."""
+  minesweeperResign(id: ID!): MinesweeperRoom!
+}

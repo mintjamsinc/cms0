@@ -50,6 +50,8 @@
 		"build:reversi:prod": "node scripts/build.mjs --prod reversi",
 		"build:numberplace": "node scripts/build.mjs numberplace",
 		"build:numberplace:prod": "node scripts/build.mjs --prod numberplace",
+		"build:minesweeper": "node scripts/build.mjs minesweeper",
+		"build:minesweeper:prod": "node scripts/build.mjs --prod minesweeper",
 		"build:webtop-ui-standalone": "node scripts/build.mjs webtop-ui-standalone",
 		"build:webtop-ui-standalone:prod": "node scripts/build.mjs --prod webtop-ui-standalone",
 		"prepare": "npm run build",

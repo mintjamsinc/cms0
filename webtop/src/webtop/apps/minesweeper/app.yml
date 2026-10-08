@@ -1,0 +1,18 @@
+identifier: 4609baf9-1693-4e0e-80bf-f9c01189eaff
+title: Minesweeper
+icon: assets/icons/icon.svg
+# Minesweeper alone, against the computer (time attack or territory), or
+# with another user of the Webtop: clearing one board together, or against
+# each other over the network. Every board can be cleared without
+# guessing. The window is a lobby, where the next game is set up, or the
+# game itself; the players' panel stays beside both. The game in progress
+# and the settings are kept per user in the local webtop database.
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 760
+minimumHeight: 600
+customWindowControls: true
+# The saved game is per user, so a second launch focuses the running one.
+singleton: true

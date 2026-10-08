@@ -464,6 +464,57 @@ function iconNumberplace() {
     svgClose(id);
 }
 
+// Minesweeper: the strawberry-mint board of the Number Place icon, tilted
+// the same way, as four by four cells: mint tiles still covered, open cells
+// with their counts, and two strawberry flags on the mines found.
+function iconMinesweeper() {
+  const id = 'minesweeper';
+  const spark = (x, y, s) => `
+    <path transform="translate(${x} ${y}) scale(${s})" fill="white" d="M5 0 C5.4 3.2 6.8 4.6 10 5 C6.8 5.4 5.4 6.8 5 10 C4.6 6.8 3.2 5.4 0 5 C3.2 4.6 4.6 3.2 5 0 Z"/>`;
+  // Row by row: '' an empty open cell, a digit an open cell with its count,
+  // 'T' a covered tile, 'F' a tile with a flag.
+  const cells = [
+    '', '1', 'T', 'T',
+    '1', '2', 'F', 'T',
+    'T', 'F', '2', '1',
+    'T', 'T', '1', '',
+  ];
+  const inks = { 1: '#4f6fe0', 2: '#2f9a74' };
+  const size = 22;
+  const gap = 3;
+  const x0 = 90 - (size * 4 + gap * 3) / 2;
+  const grid = cells.map((cell, k) => {
+    const x = x0 + (k % 4) * (size + gap);
+    const y = x0 + Math.floor(k / 4) * (size + gap);
+    if (cell === 'T' || cell === 'F') {
+      const flag = cell === 'F' ? `
+        <line x1="${x + 8}" y1="${y + 5}" x2="${x + 8}" y2="${y + 17}" stroke="#4d2c31" stroke-width="2" stroke-linecap="round"/>
+        <path d="M${x + 9} ${y + 5} L${x + 17} ${y + 8.5} L${x + 9} ${y + 12} Z" fill="#e0456a"/>` : '';
+      return `
+        <rect x="${x}" y="${y + 2}" width="${size}" height="${size}" rx="6" fill="#78c19c"/>
+        <rect x="${x}" y="${y}" width="${size}" height="${size}" rx="6" fill="#a7dfc2"/>${flag}`;
+    }
+    const text = cell ?
+      `<text x="${x + size / 2}" y="${y + size / 2 + 6.5}" text-anchor="middle" font-family="'M PLUS Rounded 1c', 'Arial Rounded MT Bold', 'Segoe UI', sans-serif" font-size="17" font-weight="800" fill="${inks[cell]}">${cell}</text>` : '';
+    return `
+        <rect x="${x}" y="${y}" width="${size}" height="${size}" rx="6" fill="#fbfffd"/>${text}`;
+  }).join('');
+  return svgOpen(id) +
+    bg(id, '#ffb6cb', '#ed5a77') +
+    `
+  <g clip-path="url(#clip-${id})">
+    <g fill-opacity="0.9">${spark(18, 22, 1.4)}${spark(146, 30, 1.0)}${spark(150, 134, 1.2)}</g>
+    <g transform="rotate(-6 90 90)">
+      <rect x="34" y="40" width="112" height="112" rx="24" fill="#b8304f" fill-opacity="0.22"/>
+      <rect x="34" y="34" width="112" height="112" rx="24" fill="#dff3e8"/>
+      <rect x="36" y="36" width="108" height="108" rx="22" fill="none" stroke="#c4e6d4" stroke-width="2"/>
+      <g>${grid}
+      </g>
+    </g>
+  </g>` +
+    svgClose(id);
+}
+
 const APP_ICONS = {
   'bpm-manager':     iconBpmManager,
   'bpmn-modeler':    iconBpmnModeler,
@@ -482,6 +533,7 @@ const APP_ICONS = {
   'mail':            iconMail,
   'reversi':         iconReversi,
   'numberplace':     iconNumberplace,
+  'minesweeper':     iconMinesweeper,
 };
 
 const REPO_ROOT = path.resolve(__dirname, '..');
