@@ -601,17 +601,21 @@ const App = {
 				vm.isReady = true;
 				await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
 
-				this.$nextTick(() => {
-					instance.notifyLaunched();
-				});
-
 				vm.watchRooms();
-				vm.loadRooms();
-				// Launched from an invitation card: that room, before anything saved.
-				if (await vm.openInvitedRoom(options?.roomId)) return;
-				if (await vm.resumeRoom(saved?.roomId)) return;
-				if (!vm.resumeGame(saved?.game)) {
-					vm.showLobby();
+				const roomsLoaded = vm.loadRooms();
+				// The window is shown once the first scene is in place, so it
+				// does not pass through the lobby on its way to a room.
+				try {
+					// Launched from an invitation card: that room, before anything saved.
+					if (!await vm.openInvitedRoom(options?.roomId) && !await vm.resumeRoom(saved?.roomId) &&
+						!vm.resumeGame(saved?.game)) {
+						// The lobby opens on the online section when an invitation is waiting.
+						await roomsLoaded;
+						vm.showLobby();
+					}
+				} finally {
+					await new Promise<void>((resolve) => vm.$nextTick(() => resolve()));
+					instance.notifyLaunched();
 				}
 			};
 		},
