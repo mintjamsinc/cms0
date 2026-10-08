@@ -1,0 +1,50 @@
+# Provisioning for package installation
+# (/etc/bpm/{processes,scripts,forms}/system/packages, PackageAPI).
+#
+# Applied idempotently on every boot by Session.deploy(); see README.md in this
+# folder for the mechanism.
+#
+# Authorization model:
+#   - The BPMN service tasks run as package-service-user (runAs) — without it
+#     the scripts would be evaluated as guest, which cannot read the script
+#     resource. The service account only needs jcr:read on the script folder;
+#     the real gate (the initiator's administrator role) is enforced inside
+#     the scripts and again inside PackageAPI, which does the work in a
+#     service session acting for the initiator.
+#   - /var/lib/packages/incoming is where the start form stages an uploaded
+#     package until it is installed or discarded. Administrators write and
+#     read it (they bypass ACLs); the area is closed to everyone else, since a
+#     package is code. The root of a workspace grants jcr:read to everyone, so
+#     the area is closed with an explicit deny.
+#   - /etc/packages holds the installation records (one folder per package:
+#     the manifest, the list of files placed, when and by whom). Like the rest
+#     of /etc it is deployed with the image and stays writable by
+#     administrators only; nothing is granted to anyone else.
+
+users:
+  # Non-interactive service account for the scripts (BPMN runAs).
+  # No password, cannot sign in; an ordinary principal subject to ACLs.
+  - id: package-service-user
+    service: true
+    displayName: Package Service
+
+nodes:
+  # The scripts must be readable by the service account.
+  - path: /etc/bpm/scripts/system/packages
+    primaryType: nt:folder
+    acl:
+      - user: package-service-user
+        privileges: jcr:read
+        effect: allow
+  # Installation records.
+  - path: /etc/packages
+    primaryType: nt:folder
+  # Staged uploads, closed to everyone but administrators.
+  - path: /var/lib/packages
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny
+  - path: /var/lib/packages/incoming
+    primaryType: nt:folder

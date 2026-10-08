@@ -104,6 +104,38 @@ type Query {
 
   """Current progress snapshot of an async job (delete / downloadArchive / importArchive) — the poll-side complement of the jobProgress subscription. Null when no job record exists for the id."""
   jobProgress(jobId: String!): JobProgressEvent
+
+  """The packages installed in this workspace (the installation records under /etc/packages), sorted by id. See documents/packages.md."""
+  installedPackages: [InstalledPackage!]!
+}
+
+"""An installed package: its installation record under /etc/packages/<id>/."""
+type InstalledPackage {
+  """The package id (reverse-DNS)."""
+  id: String!
+  """The installed version."""
+  version: String
+  title: String
+  """ISO-8601 instant of the installation."""
+  installedAt: String
+  installedBy: String
+  """The version this installation replaced, or null for a first installation."""
+  previousVersion: String
+  """The file name of the package that was installed."""
+  sourceFileName: String
+  """How many files the installation placed."""
+  fileCount: Int!
+  """The packages this package requires, from its manifest."""
+  requires: [PackageRequirement!]!
+  """The ids of the installed packages that require this package."""
+  requiredBy: [String!]!
+}
+
+"""One entry of a package's requires.packages."""
+type PackageRequirement {
+  id: String!
+  """The version constraint, or null when any version is accepted."""
+  constraint: String
 }
 
 # -----------------------------------------------------------------------------

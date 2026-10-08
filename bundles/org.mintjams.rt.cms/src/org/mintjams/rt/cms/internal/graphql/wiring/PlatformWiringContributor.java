@@ -84,6 +84,9 @@ import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
 import org.mintjams.rt.cms.internal.job.archive.ArchiveJob;
 import org.mintjams.rt.cms.internal.job.archive.ImportArchiveJob;
+import org.mintjams.rt.cms.internal.pkg.InstalledPackage;
+import org.mintjams.rt.cms.internal.pkg.PackageRecords;
+import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
@@ -178,6 +181,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 				.dataFetcher("Query", "apps", (DataFetcher<Object>) PlatformWiringContributor::apps)
 				.dataFetcher("Query", "effectiveAccessControl", (DataFetcher<Object>) PlatformWiringContributor::effectiveAccessControl)
 				.dataFetcher("Query", "searchPrincipals", (DataFetcher<Object>) PlatformWiringContributor::searchPrincipals)
+				.dataFetcher("Query", "installedPackages", (DataFetcher<Object>) PlatformWiringContributor::installedPackages)
 				.dataFetcher("Query", "jobProgress", (DataFetcher<Object>) PlatformWiringContributor::jobProgressSnapshot)
 				.dataFetcher("Mutation", "createFolder", (DataFetcher<Object>) PlatformWiringContributor::createFolder)
 				.dataFetcher("Mutation", "createFile", (DataFetcher<Object>) PlatformWiringContributor::createFile)
@@ -577,6 +581,22 @@ public final class PlatformWiringContributor implements WiringContributor {
 	 * lookup). Arguments are passed as variables so the executor's variable-binding path
 	 * is used; {@code offset}/{@code limit} carry their schema defaults (0 / 20).
 	 */
+	/** {@code Query.installedPackages} — the installation records of the workspace (/etc/packages), read as the caller. */
+	private static Object installedPackages(DataFetchingEnvironment environment) throws Exception {
+		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
+		org.mintjams.script.resource.Session session = new org.mintjams.script.resource.Session(
+				context.getCallerSession(), new WorkspaceScriptContext(context.getWorkspaceName()));
+		List<InstalledPackage> installed = new PackageRecords(session).list();
+		Map<String, List<String>> requiredBy = PackageRecords.requiredBy(installed);
+		List<Map<String, Object>> result = new ArrayList<>();
+		for (InstalledPackage p : installed) {
+			Map<String, Object> m = p.toMap();
+			m.put("requiredBy", requiredBy.getOrDefault(p.getId(), List.of()));
+			result.add(m);
+		}
+		return result;
+	}
+
 	private static Object searchPrincipals(DataFetchingEnvironment environment) throws Exception {
 		Session session = session(environment);
 		Map<String, Object> variables = new HashMap<>();

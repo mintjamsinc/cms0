@@ -172,6 +172,27 @@ public class Provisioner implements Closeable {
 			return;
 		}
 
+		List<Map<String, Object>> documents = new ArrayList<>();
+		for (Path descriptor : descriptors) {
+			Map<String, Object> document = load(descriptor);
+			if (document != null) {
+				documents.add(document);
+			}
+		}
+		provision(documents);
+	}
+
+	/**
+	 * Applies descriptors that have already been read, in the same way as
+	 * {@link #provision(Path)}. A descriptor is the mapping of one YAML
+	 * document, so a package or any other source that does not keep its
+	 * descriptors on the file system applies them through this method.
+	 */
+	public void provision(List<Map<String, Object>> documents) throws IOException {
+		if (documents == null || documents.isEmpty()) {
+			return;
+		}
+
 		// Aggregate every descriptor up front, then apply in well-defined phases
 		// (namespaces -> roles -> groups -> users -> nodes) so that references
 		// between authorizables resolve regardless of which file declared them,
@@ -182,8 +203,7 @@ public class Provisioner implements Closeable {
 		List<Map<String, Object>> groups = new ArrayList<>();
 		List<Map<String, Object>> users = new ArrayList<>();
 		List<Map<String, Object>> nodes = new ArrayList<>();
-		for (Path descriptor : descriptors) {
-			Map<String, Object> document = load(descriptor);
+		for (Map<String, Object> document : documents) {
 			if (document == null) {
 				continue;
 			}
@@ -598,19 +618,30 @@ public class Provisioner implements Closeable {
 		return name.endsWith(".yml") || name.endsWith(".yaml");
 	}
 
-	@SuppressWarnings("unchecked")
 	private Map<String, Object> load(Path descriptor) throws IOException {
 		try (InputStream in = new BufferedInputStream(Files.newInputStream(descriptor))) {
-			Object document = new Load(LoadSettings.builder().build()).loadFromInputStream(in);
-			if (document == null) {
-				return null;
-			}
-			if (!(document instanceof Map)) {
-				throw new IOException("A provisioning descriptor must be a mapping: " + descriptor);
-			}
-			return (Map<String, Object>) document;
+			return load(in, descriptor.toString());
 		}
 	}
+
+	/**
+	 * Reads one descriptor. Returns {@code null} for an empty document; a
+	 * document that is not a mapping is rejected, naming {@code source}.
+	 */
+	@SuppressWarnings("unchecked")
+	public static Map<String, Object> load(InputStream in, String source) throws IOException {
+		Object document = new Load(LoadSettings.builder().build()).loadFromInputStream(in);
+		if (document == null) {
+			return null;
+		}
+		if (!(document instanceof Map)) {
+			throw new IOException("A provisioning descriptor must be a mapping: " + source);
+		}
+		return (Map<String, Object>) document;
+	}
+
+	/** The section names a descriptor may declare. */
+	public static final List<String> SECTIONS = List.of("namespaces", "roles", "groups", "users", "nodes");
 
 	@SuppressWarnings("unchecked")
 	private List<Map<String, Object>> section(Map<String, Object> document, String name) throws IOException {

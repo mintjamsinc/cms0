@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Install Package — Start</title>
+<style>
+	/* Everything this form draws with comes from wt-ui.css, injected by the
+	   wt-ui.esm.js bundle's initUi() (loaded via the form host's
+	   webtopBaseUrl). [v-cloak] has to stay inline to cover the paint before
+	   that sheet has loaded. */
+	[v-cloak] { display: none; }
+	/* The native file input is driven by the button next to it; it stays in
+	   the document for the picker and the change event but is not shown. */
+	.package-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ t('start.title', null, 'Install Package') }}</h1>
+		<p class="wt-form-subtitle">{{ t('start.subtitle', null, 'Install an application or an extension into this workspace from a package file.') }}</p>
+	</div>
+
+	<div class="wt-form-body">
+		<p class="mt-0">{{ t('start.description', null, 'Choose the package file (.zip) you obtained from its provider. The package is read and checked first; a confirmation task then shows what it is and what installing it does, and nothing is installed until you confirm there.') }}</p>
+
+		<wt-field :label="t('start.file', null, 'Package file')" :error="fileError">
+			<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap">
+				<input id="package-file" type="file" class="package-file-input" accept=".zip,application/zip" @change="onFileChange" :disabled="starting || started">
+				<button class="wt" type="button" :disabled="starting || started" @click="onChoose">{{ t('start.choose', null, 'Choose file…') }}</button>
+				<span v-if="file" class="text-break">{{ file.name }} <span class="text-muted">({{ formatSize(file.size) }})</span></span>
+				<span v-if="!file" class="text-muted">{{ t('start.noFile', null, 'No file chosen') }}</span>
+			</div>
+		</wt-field>
+
+		<div v-if="starting" class="text-muted">{{ t('start.uploading', { percent: uploadPercent }, 'Uploading…') }}</div>
+
+		<div v-if="isAdmin === false" class="alert wt-danger">
+			<i class="bi bi-shield-lock"></i>
+			<div>{{ t('common.adminRequired', null, 'Administrator role is required to install packages.') }}</div>
+		</div>
+
+		<div v-if="started" class="alert wt-success">
+			<i class="bi bi-check-circle"></i>
+			<div>{{ t('start.started', null, 'The package has been uploaded. Open the "Confirm Package Installation" task from your task list to review and install it.') }}</div>
+		</div>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<span v-if="isAdmin === null" class="text-muted">{{ t('common.checkingRole', null, 'Checking permissions…') }}</span>
+		<div class="wt-form-actions">
+			<button class="wt wt-primary" :disabled="isAdmin !== true || !file || !!fileError || starting || started" @click="onStart">{{ t('start.button', null, 'Continue') }}</button>
+		</div>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.system.packages.';
+// Where the package waits between the upload and the decision. Must match
+// PackageInstaller.STAGING_ROOT; the installer discards only files under it.
+const STAGING_ROOT = '/var/lib/packages/incoming';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		// Host version 2 is the first that holds a loading overlay over this
+		// frame until notifyReady() is called; this form relies on that.
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	// The webtop UI bundle: ichigo.js + wt-* components + wt-ui.css in one
+	// module, resolved through the host so the form stays deploy-agnostic.
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	const App = {
+		data() {
+			return {
+				isAdmin: null,          // null = checking, then true / false
+				file: null,
+				fileError: '',
+				starting: false,
+				started: false,
+				uploadPercent: 0,
+				errorMessage: '',
+				i18nRevision: 0,        // bumped on 'localization' so t() bindings repaint
+			};
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			formatSize(bytes) {
+				const n = Number(bytes) || 0;
+				if (n < 1024) return n + ' B';
+				if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+				return (n / (1024 * 1024)).toFixed(1) + ' MB';
+			},
+			onMounted() {
+				const ctx = host.context || {};
+				this.applyTheme(ctx.theme || host.theme);
+				this.applyLocalization(ctx.localization || host.localization);
+				this._unsubscribe = host.subscribe((type, payload) => {
+					if (type === 'theme') this.applyTheme(payload);
+					else if (type === 'localization') this.applyLocalization(payload);
+				});
+
+				// Display control only — the scripts enforce the administrator
+				// role server-side either way.
+				host.idp.getMe().then((me) => {
+					const roles = (me && me.roles) || [];
+					this.isAdmin = roles.some((r) => r && (r.name === 'administrator' || r.roleId === 'administrator'));
+				}).catch((e) => {
+					this.isAdmin = false;
+					this.errorMessage = 'Could not resolve your roles: ' + ((e && e.message) || e);
+				}).finally(() => {
+					host.notifyReady();
+				});
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+			},
+			onChoose() {
+				const input = document.getElementById('package-file');
+				if (input) input.click();
+			},
+			onFileChange(event) {
+				const files = event && event.target && event.target.files;
+				const file = files && files.length ? files[0] : null;
+				this.file = file;
+				this.fileError = '';
+				this.errorMessage = '';
+				if (file && !/\.zip$/i.test(file.name)) {
+					this.fileError = this.t('start.notZip', null, 'Choose a .zip file.');
+				}
+			},
+			async onStart() {
+				const file = this.file;
+				if (!file || this.fileError) return;
+				this.starting = true;
+				this.uploadPercent = 0;
+				this.errorMessage = '';
+
+				// One folder per upload keeps the original file name; the
+				// installer removes the folder with the file.
+				const stagingId = Date.now() + '-' + Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+				const folder = STAGING_ROOT + '/' + stagingId;
+				const packagePath = folder + '/' + file.name;
+				let uploaded = false;
+				try {
+					const cms = host.cms;
+					const upload = await cms.initiateMultipartUpload();
+					try {
+						await cms.appendMultipartUploadData(upload.uploadId, file, {
+							onProgress: (sent, total) => {
+								this.uploadPercent = total > 0 ? Math.min(100, Math.floor((sent / total) * 100)) : 0;
+							},
+						});
+						await cms.completeMultipartUpload(upload.uploadId, folder, file.name, 'application/zip', true);
+						uploaded = true;
+					} catch (e) {
+						try { await cms.abortMultipartUpload(upload.uploadId); } catch { /* best effort */ }
+						throw e;
+					}
+
+					await host.startProcess({
+						businessKey: stagingId,
+						variables: [
+							{ name: 'packagePath', value: packagePath },
+							{ name: 'packageFileName', value: file.name },
+						],
+					});
+					this.started = true;
+				} catch (e) {
+					this.errorMessage = this.t('start.failed', null, 'Could not start the installation: ')
+							+ ((e && e.message) || e);
+					if (uploaded) {
+						// The process never started, so nothing will discard the
+						// upload; do not leave it in the staging area.
+						try { await host.cms.deleteNode(folder); } catch { /* best effort */ }
+					}
+				} finally {
+					this.starting = false;
+				}
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

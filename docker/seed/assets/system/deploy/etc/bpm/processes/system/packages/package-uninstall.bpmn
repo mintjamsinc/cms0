@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_package_uninstall" targetNamespace="http://bpmn.io/schema/bpmn">
+  <!-- Uninstalls installed packages from this workspace from the Tasks app,
+       several at a time.
+
+       Flow: the start form (administrators only; the form hides the button
+       for everyone else, the scripts enforce it) lists the installed packages
+       (Query.installedPackages), lets the initiator pick, and starts this
+       process with their ids. The inspect service task runs the checks
+       (PackageAPI.inspectUninstall: everything selected is installed, nothing
+       that stays requires it, what its recorded files look like now); the
+       confirm user task shows the packages, their files and the findings and
+       asks for the decision. On "uninstall" the uninstall service task removes
+       them together (PackageAPI.uninstall) and the result user task shows what
+       was removed; otherwise the process just ends.
+
+       The service tasks run asynchronously so the forms return at once and
+       the work runs on the job executor. They run as package-service-user,
+       which only needs to read the scripts: the installer itself acts for
+       the initiator, whose administrator role PackageAPI checks again.
+
+       The formKeys use {{lastModified}}, not ${...}: Camunda evaluates task
+       formKeys as JUEL (which would swallow ${...}), while the tasks app
+       substitutes {{...}} itself for cache busting. -->
+
+  <bpmn:error id="Error_packages_uninstall_unauthorized" name="PackageUninstallUnauthorized"
+              errorCode="packages.install.unauthorized"/>
+
+  <bpmn:process id="package-uninstall" name="Uninstall Packages" isExecutable="true">
+    <bpmn:startEvent id="StartEvent_uninstall" name="Packages selected"
+                     camunda:formKey="cms:/etc/bpm/forms/system/packages/uninstall-start.html?t={{lastModified}}"
+                     camunda:initiator="initiator">
+      <bpmn:outgoing>Flow_start_inspect</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="ServiceTask_inspect" name="Inspect Uninstallation"
+                      camunda:class="org.mintjams.script.bpm.CmsDelegate"
+                      camunda:asyncBefore="true">
+      <bpmn:extensionElements>
+        <camunda:field name="path">
+          <camunda:string>/etc/bpm/scripts/system/packages/uninstall-inspect.groovy</camunda:string>
+        </camunda:field>
+        <camunda:field name="inputs">
+          <camunda:string>initiator,packageIds</camunda:string>
+        </camunda:field>
+        <camunda:field name="outputs">
+          <camunda:string>uninstallInspection,uninstallOk,packageCount</camunda:string>
+        </camunda:field>
+        <camunda:field name="runAs">
+          <camunda:string>package-service-user</camunda:string>
+        </camunda:field>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_start_inspect</bpmn:incoming>
+      <bpmn:outgoing>Flow_inspect_confirm</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- A non-administrator who bypassed the form's display gate lands here:
+         the script throws the unauthorized BpmnError and the process ends
+         without having touched anything. -->
+    <bpmn:boundaryEvent id="Boundary_unauthorized" name="Unauthorized"
+                        attachedToRef="ServiceTask_inspect">
+      <bpmn:outgoing>Flow_unauthorized_end</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_unauthorized" errorRef="Error_packages_uninstall_unauthorized"/>
+    </bpmn:boundaryEvent>
+
+    <bpmn:userTask id="UserTask_confirm" name="Confirm Package Uninstallation"
+                   camunda:formKey="cms:/etc/bpm/forms/system/packages/uninstall-confirm.html?t={{lastModified}}"
+                   camunda:assignee="${initiator}">
+      <bpmn:incoming>Flow_inspect_confirm</bpmn:incoming>
+      <bpmn:outgoing>Flow_confirm_gateway</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="Gateway_decision" name="Decision?" default="Flow_cancel_end">
+      <bpmn:incoming>Flow_confirm_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_uninstall</bpmn:outgoing>
+      <bpmn:outgoing>Flow_cancel_end</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="ServiceTask_uninstall" name="Uninstall Packages"
+                      camunda:class="org.mintjams.script.bpm.CmsDelegate"
+                      camunda:asyncBefore="true">
+      <bpmn:extensionElements>
+        <camunda:field name="path">
+          <camunda:string>/etc/bpm/scripts/system/packages/uninstall.groovy</camunda:string>
+        </camunda:field>
+        <camunda:field name="inputs">
+          <camunda:string>initiator,packageIds</camunda:string>
+        </camunda:field>
+        <camunda:field name="outputs">
+          <camunda:string>uninstallResult,uninstallError</camunda:string>
+        </camunda:field>
+        <camunda:field name="runAs">
+          <camunda:string>package-service-user</camunda:string>
+        </camunda:field>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_uninstall</bpmn:incoming>
+      <bpmn:outgoing>Flow_uninstall_result</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="UserTask_result" name="Package Uninstallation Result"
+                   camunda:formKey="cms:/etc/bpm/forms/system/packages/uninstall-result.html?t={{lastModified}}"
+                   camunda:assignee="${initiator}">
+      <bpmn:incoming>Flow_uninstall_result</bpmn:incoming>
+      <bpmn:outgoing>Flow_result_end</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:endEvent id="EndEvent_uninstalled" name="Uninstalled">
+      <bpmn:incoming>Flow_result_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:endEvent id="EndEvent_cancelled" name="Cancelled">
+      <bpmn:incoming>Flow_cancel_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:endEvent id="EndEvent_unauthorized" name="Rejected">
+      <bpmn:incoming>Flow_unauthorized_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_start_inspect" sourceRef="StartEvent_uninstall" targetRef="ServiceTask_inspect"/>
+    <bpmn:sequenceFlow id="Flow_inspect_confirm" sourceRef="ServiceTask_inspect" targetRef="UserTask_confirm"/>
+    <bpmn:sequenceFlow id="Flow_confirm_gateway" sourceRef="UserTask_confirm" targetRef="Gateway_decision"/>
+    <bpmn:sequenceFlow id="Flow_uninstall" name="uninstall" sourceRef="Gateway_decision" targetRef="ServiceTask_uninstall">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decision == 'uninstall'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_cancel_end" name="cancel" sourceRef="Gateway_decision" targetRef="EndEvent_cancelled"/>
+    <bpmn:sequenceFlow id="Flow_uninstall_result" sourceRef="ServiceTask_uninstall" targetRef="UserTask_result"/>
+    <bpmn:sequenceFlow id="Flow_result_end" sourceRef="UserTask_result" targetRef="EndEvent_uninstalled"/>
+    <bpmn:sequenceFlow id="Flow_unauthorized_end" sourceRef="Boundary_unauthorized" targetRef="EndEvent_unauthorized"/>
+  </bpmn:process>
+</bpmn:definitions>

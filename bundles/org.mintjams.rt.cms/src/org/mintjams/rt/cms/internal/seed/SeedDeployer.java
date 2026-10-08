@@ -85,6 +85,19 @@ public class SeedDeployer {
 	 * container image deploys from the workspace directory only.
 	 */
 	public static SeedDeployer create(Session session) {
+		Path seedPath = getSeedPath();
+		if (seedPath == null) {
+			return null;
+		}
+
+		return new SeedDeployer(session, seedPath);
+	}
+
+	/**
+	 * Returns the configured seed directory, or {@code null} outside the
+	 * container image.
+	 */
+	public static Path getSeedPath() {
 		String value = CmsService.getDefault().getBundleContext().getProperty(SEED_PATH_PROPERTY);
 		if (Strings.isEmpty(value)) {
 			value = System.getenv(SEED_PATH_ENV_VARIABLE);
@@ -93,7 +106,32 @@ public class SeedDeployer {
 			return null;
 		}
 
-		return new SeedDeployer(session, Path.of(value).toAbsolutePath());
+		return Path.of(value).toAbsolutePath();
+	}
+
+	/**
+	 * Returns the version of the running platform as recorded in the seed's
+	 * {@code VERSION} file, or {@code null} when there is no seed or the file
+	 * is missing: an installation outside the container image does not know
+	 * its version.
+	 */
+	public static String readPlatformVersion() {
+		Path seedPath = getSeedPath();
+		if (seedPath == null) {
+			return null;
+		}
+
+		Path versionPath = seedPath.resolve("VERSION");
+		if (!Files.isRegularFile(versionPath)) {
+			return null;
+		}
+
+		try {
+			String version = Files.readString(versionPath, StandardCharsets.UTF_8).trim();
+			return Strings.isEmpty(version) ? null : version;
+		} catch (IOException ex) {
+			return null;
+		}
 	}
 
 	public Path getProvisioningPath() {

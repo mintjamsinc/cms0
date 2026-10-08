@@ -103,6 +103,7 @@ public class Scripts {
 		ctx.setAttribute("cluster", cluster);
 		ctx.setAttribute(ClusterAPI.class.getSimpleName(), cluster);
 		ctx.setAttribute(SearchIndexAPI.class.getSimpleName(), new SearchIndexAPI(ctx));
+		ctx.setAttribute(PackageAPI.class.getSimpleName(), new PackageAPI(ctx));
 		if (ctx.getAttribute("request") != null) {
 			ctx.setAttribute(WebAPI.class.getSimpleName(), new WebAPI(ctx));
 		}

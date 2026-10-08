@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Install Package — Result</title>
+<style>
+	/* Everything this form draws with comes from wt-ui.css, injected by the
+	   wt-ui.esm.js bundle's initUi() (loaded via the form host's
+	   webtopBaseUrl). [v-cloak] has to stay inline to cover the paint before
+	   that sheet has loaded. */
+	[v-cloak] { display: none; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ t('result.title', null, 'Package Installation Result') }}</h1>
+	</div>
+
+	<div class="wt-form-body">
+		<div v-if="result" class="alert wt-success">
+			<i class="bi bi-check-circle"></i>
+			<div>{{ outcomeText }}</div>
+		</div>
+
+		<table v-if="result" class="wt wt-rows">
+			<tbody>
+				<tr><td>{{ t('result.created', null, 'Files created') }}</td><td style="text-align: right">{{ result.created }}</td></tr>
+				<tr><td>{{ t('result.updatedFiles', null, 'Files replaced') }}</td><td style="text-align: right">{{ result.updated }}</td></tr>
+				<tr><td>{{ t('result.removed', null, 'Files removed') }}</td><td style="text-align: right">{{ result.removed }}</td></tr>
+				<tr><td>{{ t('result.provisioning', null, 'Provisioning descriptors applied') }}</td><td style="text-align: right">{{ result.provisioningDescriptors }}</td></tr>
+				<tr><td>{{ t('result.duration', null, 'Duration') }}</td><td style="text-align: right">{{ t('result.seconds', { seconds: seconds }, seconds + ' s') }}</td></tr>
+			</tbody>
+		</table>
+
+		<div v-if="installError" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>
+				<div>{{ t('result.failed', null, 'The package could not be installed.') }}</div>
+				<div class="text-break">{{ installError }}</div>
+			</div>
+		</div>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<div class="wt-form-actions">
+			<button class="wt wt-primary" :disabled="busy" @click="onClose">{{ t('result.close', null, 'Complete task') }}</button>
+		</div>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.system.packages.';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	const App = {
+		data() {
+			return {
+				result: null,           // InstallResult as JSON, from the install task
+				installError: '',
+				busy: false,
+				errorMessage: '',
+				i18nRevision: 0,
+			};
+		},
+		computed: {
+			seconds() {
+				const ms = (this.result && Number(this.result.durationMillis)) || 0;
+				return Math.max(1, Math.round(ms / 1000));
+			},
+			outcomeText() {
+				void this.i18nRevision;
+				const r = this.result;
+				if (!r) return '';
+				const params = { title: r.title || r.id, version: r.version || '', from: r.previousVersion || '' };
+				if (r.action === 'upgrade') return this.t('result.updated', params, params.title + ' has been updated from ' + params.from + ' to ' + params.version + '.');
+				if (r.action === 'reinstall') return this.t('result.reinstalled', params, params.title + ' ' + params.version + ' has been reinstalled.');
+				return this.t('result.installed', params, params.title + ' ' + params.version + ' has been installed.');
+			},
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			async onMounted() {
+				try {
+					const ctx = host.context || {};
+					this.applyTheme(ctx.theme || host.theme);
+					this.applyLocalization(ctx.localization || host.localization);
+					this._unsubscribe = host.subscribe((type, payload) => {
+						if (type === 'theme') this.applyTheme(payload);
+						else if (type === 'localization') this.applyLocalization(payload);
+					});
+					if (ctx.mode !== 'task' || !ctx.task) {
+						this.errorMessage = this.t('result.openFromTask', null, 'Open this form from the "Package Installation Result" task.');
+						return;
+					}
+					const variables = await host.getProcessVariables();
+					for (const v of variables || []) {
+						if (v.name === 'installResult' && v.value) {
+							try { this.result = JSON.parse(String(v.value)); } catch { this.result = null; }
+						} else if (v.name === 'installError' && v.value) {
+							this.installError = String(v.value);
+						}
+					}
+					if (!this.result && !this.installError) {
+						this.errorMessage = this.t('result.missing', null, 'The installation left no result.');
+					}
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					host.notifyReady();
+				}
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+			},
+			async onClose() {
+				this.busy = true;
+				try {
+					await host.completeTask([]);
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					this.busy = false;
+				}
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

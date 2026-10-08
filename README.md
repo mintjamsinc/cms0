@@ -257,6 +257,21 @@ task shows every node live and supports abort and re-running failed
 nodes. See
 [`documents/search-index-rebuild.md`](documents/search-index-rebuild.md).
 
+### Installing packages
+
+Administrators install applications and extensions into a workspace from
+the Webtop **Tasks** app (*Start a process* → **Install Package**) from a
+package file: a ZIP with a `package.yml` manifest, the files to place
+under `deploy/` and the provisioning to apply under `provisioning/`. The
+package is read and checked first (manifest, layout, platform version,
+dependencies, version, reserved paths, provisioning); a confirmation task
+shows what installing it does before anything is written. Installing a
+newer version upgrades in place and removes what the previous version
+placed and the new one no longer ships. **Uninstall Packages** lists the
+installed packages, lets several be selected, checks that nothing left
+behind requires them, and removes what they placed. See
+[`documents/packages.md`](documents/packages.md).
+
 ### Webtop Mail
 
 The Webtop **Mail** app downloads IMAP mail in the background, the first time

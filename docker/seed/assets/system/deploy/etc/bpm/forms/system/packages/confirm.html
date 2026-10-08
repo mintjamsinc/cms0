@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Install Package — Confirm</title>
+<style>
+	/* Everything this form draws with comes from wt-ui.css, injected by the
+	   wt-ui.esm.js bundle's initUi() (loaded via the form host's
+	   webtopBaseUrl). [v-cloak] has to stay inline to cover the paint before
+	   that sheet has loaded. */
+	[v-cloak] { display: none; }
+	.package-paths { max-height: 12rem; overflow: auto; margin: 0; padding-left: 1.25rem; font-family: var(--wt-font-mono, monospace); font-size: 0.875em; }
+	.package-details summary { cursor: pointer; }
+	.package-details > div { margin-top: 0.75rem; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ heading }}</h1>
+		<p class="wt-form-subtitle">{{ t('confirm.subtitle', null, 'Only install packages from providers you trust.') }}</p>
+	</div>
+
+	<div class="wt-form-body">
+		<table v-if="inspection" class="wt wt-rows">
+			<tbody>
+				<tr>
+					<td>{{ t('common.version', null, 'Version') }}</td>
+					<td>
+						{{ manifest.version || '—' }}
+						<span v-if="inspection.installedVersion" class="text-muted">({{ t('common.currentVersion', { version: inspection.installedVersion }, 'currently ' + inspection.installedVersion) }})</span>
+					</td>
+				</tr>
+				<tr>
+					<td>{{ t('common.workspace', null, 'Workspace') }}</td>
+					<td>{{ inspection.workspace }}</td>
+				</tr>
+				<tr v-if="actionText">
+					<td>{{ t('confirm.action.label', null, 'Action') }}</td>
+					<td>{{ actionText }}</td>
+				</tr>
+				<tr v-if="manifest.description">
+					<td>{{ t('confirm.description', null, 'Description') }}</td>
+					<td class="wt-wrap">{{ manifest.description }}</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<div v-if="inspection">
+			<div class="fw-semibold">{{ t('confirm.findings', null, 'Checks') }}</div>
+			<div v-if="findings.length === 0" class="text-success">{{ t('confirm.noFindings', null, 'Every check passed.') }}</div>
+			<div v-for="(f, i) in findings" :key="i" class="alert" :class="f.severity === 'error' ? 'wt-danger' : 'wt-warning'">
+				<i class="bi" :class="f.severity === 'error' ? 'bi-exclamation-octagon' : 'bi-exclamation-triangle'"></i>
+				<div>
+					<div>{{ findingText(f) }}</div>
+					<div v-if="f.path" class="text-muted text-break">{{ f.path }}</div>
+				</div>
+			</div>
+		</div>
+
+		<details v-if="inspection" class="package-details">
+			<summary>{{ t('confirm.details', null, 'Details') }}</summary>
+			<div>
+				<table class="wt wt-rows">
+					<tbody>
+						<tr><td>{{ t('common.package', null, 'Package') }}</td><td class="text-break">{{ inspection.fileName || inspection.packagePath }}</td></tr>
+						<tr><td>{{ t('confirm.id', null, 'Package id') }}</td><td>{{ manifest.id || '—' }}</td></tr>
+						<tr><td>{{ t('confirm.platform', null, 'Platform') }}</td><td>{{ inspection.platformVersion || t('confirm.platformUnknown', null, 'unknown') }}<span v-if="manifest.requires && manifest.requires.platform" class="text-muted"> ({{ manifest.requires.platform }})</span></td></tr>
+					</tbody>
+				</table>
+				<div class="fw-semibold">{{ t('confirm.files', null, 'Files placed') }} <span class="text-muted">— {{ t('confirm.filesSummary', { count: inspection.fileCount || 0, size: formatSize(inspection.totalSize) }, (inspection.fileCount || 0) + ' files') }}</span></div>
+				<ul v-if="inspection.deployPaths && inspection.deployPaths.length" class="package-paths">
+					<li v-for="p in inspection.deployPaths" :key="p">{{ p }}</li>
+				</ul>
+				<div v-if="!inspection.deployPaths || !inspection.deployPaths.length" class="text-muted">{{ t('confirm.none', null, 'None') }}</div>
+				<div class="fw-semibold">{{ t('confirm.removed', null, 'Files of the installed version that are removed') }}</div>
+				<ul v-if="inspection.removedPaths && inspection.removedPaths.length" class="package-paths">
+					<li v-for="p in inspection.removedPaths" :key="p">{{ p }}</li>
+				</ul>
+				<div v-if="!inspection.removedPaths || !inspection.removedPaths.length" class="text-muted">{{ t('confirm.none', null, 'None') }}</div>
+				<div class="fw-semibold">{{ t('confirm.provisioning', null, 'Provisioning descriptors') }}</div>
+				<ul v-if="inspection.provisioning && inspection.provisioning.length" class="package-paths">
+					<li v-for="p in inspection.provisioning" :key="p">{{ p }}</li>
+				</ul>
+				<div v-if="!inspection.provisioning || !inspection.provisioning.length" class="text-muted">{{ t('confirm.none', null, 'None') }}</div>
+			</div>
+		</details>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<div class="wt-form-actions">
+			<button v-if="inspection && !ok" class="wt wt-primary" :disabled="busy" @click="onDecide('cancel')">{{ t('confirm.close', null, 'Close') }}</button>
+			<button v-if="inspection && ok" class="wt" :disabled="busy" @click="onDecide('cancel')">{{ t('confirm.cancel', null, 'Cancel') }}</button>
+			<button v-if="inspection && ok" class="wt wt-primary" :disabled="busy" @click="onDecide('install')">{{ installLabel }}</button>
+			<button v-if="!inspection" class="wt" :disabled="busy" @click="onDecide('cancel')">{{ t('confirm.close', null, 'Close') }}</button>
+		</div>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.system.packages.';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	const App = {
+		data() {
+			return {
+				inspection: null,       // PackageInspection as JSON, from the inspect task
+				busy: false,
+				errorMessage: '',
+				i18nRevision: 0,
+			};
+		},
+		computed: {
+			manifest() {
+				return (this.inspection && this.inspection.manifest) || {};
+			},
+			findings() {
+				return (this.inspection && this.inspection.findings) || [];
+			},
+			ok() {
+				return !!(this.inspection && this.inspection.ok && this.inspection.action);
+			},
+			displayTitle() {
+				return this.manifest.title || (this.inspection && this.inspection.fileName) || this.t('common.package', null, 'Package');
+			},
+			heading() {
+				void this.i18nRevision;
+				const title = this.displayTitle;
+				if (!this.inspection) return this.t('confirm.titleBlocked', { title }, title + ' cannot be installed');
+				if (!this.ok) return this.t('confirm.titleBlocked', { title }, title + ' cannot be installed');
+				if (this.inspection.action === 'upgrade') return this.t('confirm.titleUpgrade', { title }, 'Update ' + title + '?');
+				if (this.inspection.action === 'reinstall') return this.t('confirm.titleReinstall', { title }, 'Reinstall ' + title + '?');
+				return this.t('confirm.title', { title }, 'Install ' + title + '?');
+			},
+			actionText() {
+				void this.i18nRevision;
+				if (!this.inspection || !this.inspection.action) return '';
+				const to = this.manifest.version || '';
+				const from = this.inspection.installedVersion || '';
+				if (this.inspection.action === 'upgrade') return this.t('confirm.action.upgrade', { from, to }, 'Update from ' + from + ' to ' + to);
+				if (this.inspection.action === 'reinstall') return this.t('confirm.action.reinstall', null, 'Reinstall the installed version');
+				return this.t('confirm.action.install', null, 'New installation');
+			},
+			installLabel() {
+				void this.i18nRevision;
+				if (this.inspection && this.inspection.action === 'upgrade') return this.t('confirm.update', null, 'Update');
+				if (this.inspection && this.inspection.action === 'reinstall') return this.t('confirm.reinstall', null, 'Reinstall');
+				return this.t('confirm.install', null, 'Install');
+			},
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			// A finding is shown in the reader's language when its code has a
+			// text; otherwise the English message the check wrote.
+			findingText(f) {
+				return this.t('finding.' + f.code, null, f.message || f.code);
+			},
+			formatSize(bytes) {
+				const n = Number(bytes) || 0;
+				if (n < 1024) return n + ' B';
+				if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+				return (n / (1024 * 1024)).toFixed(1) + ' MB';
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			async onMounted() {
+				try {
+					const ctx = host.context || {};
+					this.applyTheme(ctx.theme || host.theme);
+					this.applyLocalization(ctx.localization || host.localization);
+					this._unsubscribe = host.subscribe((type, payload) => {
+						if (type === 'theme') this.applyTheme(payload);
+						else if (type === 'localization') this.applyLocalization(payload);
+					});
+					if (ctx.mode !== 'task' || !ctx.task) {
+						this.errorMessage = this.t('confirm.openFromTask', null, 'Open this form from the "Confirm Package Installation" task.');
+						return;
+					}
+					const variables = await host.getProcessVariables();
+					for (const v of variables || []) {
+						if (v.name === 'inspection' && v.value) {
+							try { this.inspection = JSON.parse(String(v.value)); } catch { this.inspection = null; }
+						}
+					}
+					if (!this.inspection) {
+						this.errorMessage = this.t('confirm.missing', null, 'The inspection left no result.');
+					}
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					host.notifyReady();
+				}
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+			},
+			async onDecide(decision) {
+				this.busy = true;
+				this.errorMessage = '';
+				try {
+					await host.completeTask([{ name: 'decision', value: decision }]);
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					this.busy = false;
+				}
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

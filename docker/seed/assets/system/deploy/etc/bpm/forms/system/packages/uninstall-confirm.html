@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uninstall Packages — Confirm</title>
+<style>
+	/* Everything this form draws with comes from wt-ui.css, injected by the
+	   wt-ui.esm.js bundle's initUi() (loaded via the form host's
+	   webtopBaseUrl). [v-cloak] has to stay inline to cover the paint before
+	   that sheet has loaded. */
+	[v-cloak] { display: none; }
+	.package-paths { max-height: 12rem; overflow: auto; margin: 0; padding-left: 1.25rem; font-family: var(--wt-font-mono, monospace); font-size: 0.875em; }
+	.package-details summary { cursor: pointer; }
+	.package-details > div { margin-top: 0.75rem; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ heading }}</h1>
+		<p class="wt-form-subtitle">{{ t('uninstall.confirm.subtitle', null, 'The files these packages placed are removed. Settings, data and accounts created for them stay.') }}</p>
+	</div>
+
+	<div class="wt-form-body">
+		<table v-if="inspection && packages.length" class="wt wt-rows">
+			<thead>
+				<tr>
+					<th>{{ t('common.package', null, 'Package') }}</th>
+					<th>{{ t('common.version', null, 'Version') }}</th>
+					<th>{{ t('uninstall.confirm.col.files', null, 'Files') }}</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr v-for="p in packages" :key="p.id">
+					<td class="wt-wrap">
+						<div>{{ p.title || p.id }}</div>
+						<div class="text-muted text-break">{{ p.id }}</div>
+					</td>
+					<td>{{ p.version || '—' }}</td>
+					<td>{{ t('common.fileCount', { count: p.fileCount || 0 }, (p.fileCount || 0) + ' files') }}</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<div v-if="inspection">
+			<div class="fw-semibold">{{ t('confirm.findings', null, 'Checks') }}</div>
+			<div v-if="findings.length === 0" class="text-success">{{ t('confirm.noFindings', null, 'Every check passed.') }}</div>
+			<div v-for="(f, i) in findings" :key="i" class="alert" :class="f.severity === 'error' ? 'wt-danger' : 'wt-warning'">
+				<i class="bi" :class="f.severity === 'error' ? 'bi-exclamation-octagon' : 'bi-exclamation-triangle'"></i>
+				<div>
+					<div>{{ findingText(f) }}</div>
+					<div v-if="f.path" class="text-muted text-break">{{ f.path }}</div>
+				</div>
+			</div>
+		</div>
+
+		<details v-if="inspection && packages.length" class="package-details">
+			<summary>{{ t('confirm.details', null, 'Details') }}</summary>
+			<div>
+				<div class="fw-semibold">{{ t('common.workspace', null, 'Workspace') }} <span class="text-muted">— {{ inspection.workspace }}</span></div>
+				<div v-for="p in packages" :key="p.id">
+					<div class="fw-semibold">{{ p.title || p.id }} <span class="text-muted">— {{ t('uninstall.confirm.filesRemoved', null, 'files removed') }}</span></div>
+					<ul v-if="p.files && p.files.length" class="package-paths">
+						<li v-for="f in p.files" :key="f">{{ f }}</li>
+					</ul>
+					<div v-if="!p.files || !p.files.length" class="text-muted">{{ t('confirm.none', null, 'None') }}</div>
+				</div>
+			</div>
+		</details>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<div class="wt-form-actions">
+			<button v-if="inspection && !ok" class="wt wt-primary" :disabled="busy" @click="onDecide('cancel')">{{ t('confirm.close', null, 'Close') }}</button>
+			<button v-if="inspection && ok" class="wt" :disabled="busy" @click="onDecide('cancel')">{{ t('confirm.cancel', null, 'Cancel') }}</button>
+			<button v-if="inspection && ok" class="wt wt-danger" :disabled="busy" @click="onDecide('uninstall')">{{ t('uninstall.confirm.uninstall', null, 'Uninstall') }}</button>
+			<button v-if="!inspection" class="wt" :disabled="busy" @click="onDecide('cancel')">{{ t('confirm.close', null, 'Close') }}</button>
+		</div>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.system.packages.';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	const App = {
+		data() {
+			return {
+				inspection: null,       // UninstallInspection as JSON, from the inspect task
+				busy: false,
+				errorMessage: '',
+				i18nRevision: 0,
+			};
+		},
+		computed: {
+			packages() {
+				return (this.inspection && this.inspection.packages) || [];
+			},
+			findings() {
+				return (this.inspection && this.inspection.findings) || [];
+			},
+			ok() {
+				return !!(this.inspection && this.inspection.ok && this.packages.length);
+			},
+			heading() {
+				void this.i18nRevision;
+				const count = this.packages.length;
+				if (!this.inspection || !this.ok) return this.t('uninstall.confirm.titleBlocked', null, 'The packages cannot be uninstalled');
+				if (count === 1) {
+					const title = this.packages[0].title || this.packages[0].id;
+					return this.t('uninstall.confirm.titleOne', { title }, 'Uninstall ' + title + '?');
+				}
+				return this.t('uninstall.confirm.title', { count }, 'Uninstall ' + count + ' packages?');
+			},
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			// A finding is shown in the reader's language when its code has a
+			// text; otherwise the English message the check wrote.
+			findingText(f) {
+				return this.t('finding.' + f.code, null, f.message || f.code);
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			async onMounted() {
+				try {
+					const ctx = host.context || {};
+					this.applyTheme(ctx.theme || host.theme);
+					this.applyLocalization(ctx.localization || host.localization);
+					this._unsubscribe = host.subscribe((type, payload) => {
+						if (type === 'theme') this.applyTheme(payload);
+						else if (type === 'localization') this.applyLocalization(payload);
+					});
+					if (ctx.mode !== 'task' || !ctx.task) {
+						this.errorMessage = this.t('uninstall.confirm.openFromTask', null, 'Open this form from the "Confirm Package Uninstallation" task.');
+						return;
+					}
+					const variables = await host.getProcessVariables();
+					for (const v of variables || []) {
+						if (v.name === 'uninstallInspection' && v.value) {
+							try { this.inspection = JSON.parse(String(v.value)); } catch { this.inspection = null; }
+						}
+					}
+					if (!this.inspection) {
+						this.errorMessage = this.t('confirm.missing', null, 'The inspection left no result.');
+					}
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					host.notifyReady();
+				}
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+			},
+			async onDecide(decision) {
+				this.busy = true;
+				this.errorMessage = '';
+				try {
+					await host.completeTask([{ name: 'decision', value: decision }]);
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					this.busy = false;
+				}
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

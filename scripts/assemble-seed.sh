@@ -84,6 +84,11 @@ copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/processes/webtop/chat" "${SEED_A
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/scripts/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/bpm/scripts/webtop/chat"
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/forms/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/bpm/forms/webtop/chat"
 copy_tree "${SEED_ASSETS}/system/deploy/etc/chat/cards" "${SEED_ASSETS}/workspace/deploy/etc/chat/cards"
+# package installation (Tasks app): every workspace installs its own packages
+copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/processes/system/packages" "${SEED_ASSETS}/workspace/deploy/etc/bpm/processes/system/packages"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/scripts/system/packages" "${SEED_ASSETS}/workspace/deploy/etc/bpm/scripts/system/packages"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/forms/system/packages" "${SEED_ASSETS}/workspace/deploy/etc/bpm/forms/system/packages"
+copy_tree "${SEED_ASSETS}/system/provisioning/packages.yml" "${SEED_ASSETS}/workspace/provisioning/packages.yml"
 
 echo "OK: seed assets laid down from ${WEBTOP_DIST}"
 echo "  system:    $(find "${SEED_ASSETS}/system" -type f | wc -l) files"

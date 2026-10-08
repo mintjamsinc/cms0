@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uninstall Packages — Result</title>
+<style>
+	/* Everything this form draws with comes from wt-ui.css, injected by the
+	   wt-ui.esm.js bundle's initUi() (loaded via the form host's
+	   webtopBaseUrl). [v-cloak] has to stay inline to cover the paint before
+	   that sheet has loaded. */
+	[v-cloak] { display: none; }
+</style>
+</head>
+<body>
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ t('uninstall.result.title', null, 'Package Uninstallation Result') }}</h1>
+	</div>
+
+	<div class="wt-form-body">
+		<div v-if="result" class="alert wt-success">
+			<i class="bi bi-check-circle"></i>
+			<div>{{ t('uninstall.result.done', { count: packages.length }, packages.length + ' packages have been uninstalled.') }}</div>
+		</div>
+
+		<div v-if="result" class="overflow-auto">
+			<table class="wt wt-rows">
+				<thead>
+					<tr>
+						<th>{{ t('common.package', null, 'Package') }}</th>
+						<th>{{ t('common.version', null, 'Version') }}</th>
+						<th>{{ t('uninstall.result.col.removed', null, 'Files removed') }}</th>
+						<th>{{ t('uninstall.result.col.missing', null, 'Already gone') }}</th>
+						<th>{{ t('uninstall.result.col.kept', null, 'Left to the platform') }}</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr v-for="p in packages" :key="p.id">
+						<td class="wt-wrap">
+							<div>{{ p.title || p.id }}</div>
+							<div class="text-muted text-break">{{ p.id }}</div>
+						</td>
+						<td>{{ p.version || '—' }}</td>
+						<td style="text-align: right">{{ p.removed }}</td>
+						<td style="text-align: right">{{ p.missing }}</td>
+						<td style="text-align: right">{{ p.kept }}</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<div v-if="result" class="text-muted">{{ t('result.duration', null, 'Duration') }}: {{ t('result.seconds', { seconds: seconds }, seconds + ' s') }}</div>
+
+		<div v-if="uninstallError" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>
+				<div>{{ t('uninstall.result.failed', null, 'The packages could not be uninstalled.') }}</div>
+				<div class="text-break">{{ uninstallError }}</div>
+			</div>
+		</div>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<div class="wt-form-actions">
+			<button class="wt wt-primary" :disabled="busy" @click="onClose">{{ t('result.close', null, 'Complete task') }}</button>
+		</div>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.system.packages.';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	const App = {
+		data() {
+			return {
+				result: null,           // UninstallResult as JSON, from the uninstall task
+				uninstallError: '',
+				busy: false,
+				errorMessage: '',
+				i18nRevision: 0,
+			};
+		},
+		computed: {
+			packages() {
+				return (this.result && this.result.packages) || [];
+			},
+			seconds() {
+				const ms = (this.result && Number(this.result.durationMillis)) || 0;
+				return Math.max(1, Math.round(ms / 1000));
+			},
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			async onMounted() {
+				try {
+					const ctx = host.context || {};
+					this.applyTheme(ctx.theme || host.theme);
+					this.applyLocalization(ctx.localization || host.localization);
+					this._unsubscribe = host.subscribe((type, payload) => {
+						if (type === 'theme') this.applyTheme(payload);
+						else if (type === 'localization') this.applyLocalization(payload);
+					});
+					if (ctx.mode !== 'task' || !ctx.task) {
+						this.errorMessage = this.t('uninstall.result.openFromTask', null, 'Open this form from the "Package Uninstallation Result" task.');
+						return;
+					}
+					const variables = await host.getProcessVariables();
+					for (const v of variables || []) {
+						if (v.name === 'uninstallResult' && v.value) {
+							try { this.result = JSON.parse(String(v.value)); } catch { this.result = null; }
+						} else if (v.name === 'uninstallError' && v.value) {
+							this.uninstallError = String(v.value);
+						}
+					}
+					if (!this.result && !this.uninstallError) {
+						this.errorMessage = this.t('uninstall.result.missing', null, 'The uninstallation left no result.');
+					}
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					host.notifyReady();
+				}
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+			},
+			async onClose() {
+				this.busy = true;
+				try {
+					await host.completeTask([]);
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					this.busy = false;
+				}
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>
