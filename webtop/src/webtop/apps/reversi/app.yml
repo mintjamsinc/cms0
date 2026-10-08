@@ -1,5 +1,6 @@
 identifier: d52bf8a8-ec9d-4c21-b37e-bd47c6cfb777
 title: Reversi
+category: games
 icon: assets/icons/icon.svg
 # Reversi against the computer (four levels, searched in ai-worker.js next to
 # app.js), between two people at the same desktop, or against another user

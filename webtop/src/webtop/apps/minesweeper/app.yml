@@ -1,5 +1,6 @@
 identifier: 4609baf9-1693-4e0e-80bf-f9c01189eaff
 title: Minesweeper
+category: games
 icon: assets/icons/icon.svg
 # Minesweeper alone, against the computer (time attack or territory), or
 # with another user of the Webtop: clearing one board together, or against

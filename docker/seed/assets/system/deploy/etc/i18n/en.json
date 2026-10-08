@@ -19,6 +19,7 @@
 	"common.maximize": "Maximize",
 	"webtop.appmenu.category.bpm": "Business Process Management",
 	"webtop.appmenu.category.eip": "Enterprise Integration",
+	"webtop.appmenu.category.games": "Games",
 
 	"webtop.menu.saveSessionAndSignOut": "Save session and sign out",
 	"webtop.menu.signOut": "Sign out",
