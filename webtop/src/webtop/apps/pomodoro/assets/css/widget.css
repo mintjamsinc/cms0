@@ -3,15 +3,26 @@
 /* ============================================================================
  * Pomodoro — the timer widget
  *
- * A small card: the plant on the left, the phase, the time left and the
- * buttons on the right. The accent follows the phase: warm for focus, cool
- * for a break, grey when idle. The shell adds only the grip on hover.
+ * A small card of frosted glass like the shell's toasts: the plant on the
+ * left, the phase, the time left and the buttons on the right. The page
+ * paints only a tint; the blur under it comes from the shell's .widget. The
+ * accent follows the phase: the shell's primary colour during focus and when
+ * ready to start, a cool green during a break.
  * ============================================================================ */
 
 :root {
-	--pw-focus: #ef5350;
 	--pw-break: #26a69a;
 	--pw-idle: #90a4ae;
+}
+
+:root[data-theme="light"] {
+	--pw-bg: rgb(241 240 245 / 0.6);
+	--pw-border-color: rgb(255 255 255 / 0.5);
+}
+
+:root[data-theme="dark"] {
+	--pw-bg: rgb(26 27 31 / 0.6);
+	--pw-border-color: rgb(255 255 255 / 0.1);
 }
 
 html,
@@ -21,30 +32,39 @@ body {
 
 .pw {
 	--pw-accent: var(--pw-idle);
+	--pw-main-bg: var(--primary-color);
+	--pw-main-color: var(--button-primary-color);
 	position: absolute;
 	inset: 0;
 	display: flex;
 	align-items: center;
-	gap: 0.5rem;
-	padding: 0.5rem 0.75rem 0.5rem 0.5rem;
-	border: 1px solid var(--island-border-color);
+	gap: 0.625rem;
+	padding: 0.625rem 0.75rem 0.625rem 0.625rem;
+	border: 1px solid var(--pw-border-color);
 	border-radius: 0.75rem;
-	background: var(--island-bg);
-	box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+	background: var(--pw-bg);
+	box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 12px 40px rgb(0 0 0 / 0.2);
 	overflow: hidden;
 	cursor: grab;
 }
 
-.pw-focus { --pw-accent: var(--pw-focus); }
+.pw-focus {
+	--pw-accent: var(--primary-color);
+}
+
 .pw-shortBreak,
-.pw-longBreak { --pw-accent: var(--pw-break); }
+.pw-longBreak {
+	--pw-accent: var(--pw-break);
+	--pw-main-bg: var(--pw-break);
+	--pw-main-color: #fff;
+}
 
 .pw-plant {
 	display: flex;
-	align-items: flex-end;
+	align-items: center;
 	justify-content: center;
 	flex: 0 0 auto;
-	width: 64px;
+	width: 80px;
 	height: 100%;
 }
 
@@ -140,11 +160,11 @@ body {
 }
 
 .pw-btn-main {
-	background: var(--pw-accent);
-	color: #fff;
+	background: var(--pw-main-bg);
+	color: var(--pw-main-color);
 }
 
 .pw-btn-main:hover:not(:disabled) {
-	background: var(--pw-accent);
-	filter: brightness(1.1);
+	background: var(--pw-main-bg);
+	filter: brightness(1.08);
 }

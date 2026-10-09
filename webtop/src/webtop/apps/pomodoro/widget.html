@@ -15,7 +15,8 @@
 </head>
 
 <body>
-	<!-- The timer widget (see widget.ts). The shell draws the grip and its
+	<!-- The timer widget (see widget.ts): a card of frosted glass, the blur
+	     under it drawn by the shell. The shell also draws the grip and its
 	     menu (move, put on the desktop, remove) on hover. -->
 	<div id="timer" v-cloak class="pw" :class="'pw-' + view.phase" @mounted="onMounted" @unmount="onUnmount">
 		<div class="pw-plant window-drag-region">

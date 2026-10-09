@@ -20,7 +20,7 @@ import { emptyData, type PomodoroData } from './timer.js';
 import { drawPlant } from './plant.js';
 import { timerView, type TimerView } from './view.js';
 
-const PLANT_SCALE = 3;
+const PLANT_SCALE = 4;
 
 let session: PomodoroSession | null = null;
 let drawnStage = -1;
