@@ -391,6 +391,7 @@ export const TARGET_NAMES = [
   'numberplace',
   'minesweeper',
   'sticky-notes',
+  'ambience',
 ];
 
 if (targetFilter) {

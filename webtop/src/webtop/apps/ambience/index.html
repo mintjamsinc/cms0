@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Ambience</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+
+		<!-- Readiness gate: compiled only after appLaunch() has loaded the
+		     component templates (wt-dialog) and flipped isReady. -->
+		<template v-if="isReady">
+
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group">
+				<button class="btn-icon am-play" :class="{ active: playing }" @click="togglePlay" :disabled="!anySound && !playing"
+					:title="playing ? t('app.ambience.stop', undefined, 'Stop') : t('app.ambience.play', undefined, 'Play')">
+					<i class="bi" :class="playing ? 'bi-pause-fill' : 'bi-play-fill'"></i>
+				</button>
+			</div>
+			<div class="am-volume">
+				<i class="bi" :class="volume === 0 ? 'bi-volume-mute-fill' : (volume > 50 ? 'bi-volume-up-fill' : 'bi-volume-down-fill')"></i>
+				<input type="range" min="0" max="100" step="1" :value="volume" @input="onVolumeInput"
+					:title="t('app.ambience.volume', undefined, 'Volume')">
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<div class="content-body am-body">
+			<!-- Mixes: built in, then the user's own. A click plays it. -->
+			<aside class="island am-side">
+				<div class="am-side-title">{{ t('app.ambience.mixes', undefined, 'Mixes') }}</div>
+				<button v-for="m in builtinMixes" :key="m.id" type="button" class="am-mix"
+					:class="{ active: activeMix && activeMix.id === m.id }" @click="applyMix(m.levels)">
+					<i class="bi bi-music-note-beamed"></i><span class="text-truncate">{{ builtinLabel(m) }}</span>
+				</button>
+
+				<div class="am-side-title mt-3">{{ t('app.ambience.myMixes', undefined, 'My mixes') }}</div>
+				<div v-if="mixes.length === 0" class="am-side-empty">{{ t('app.ambience.myMixesEmpty', undefined, 'Mixes you save appear here.') }}</div>
+				<div v-for="m in mixes" :key="m.id" class="am-mix am-mix-saved"
+					:class="{ active: activeMix && activeMix.id === m.id }" @click="applyMix(m.levels)">
+					<i class="bi bi-bookmark"></i><span class="text-truncate flex-grow-1">{{ m.name }}</span>
+					<button type="button" class="am-mix-delete" @click.stop="openDeleteDialog(m)" :title="t('common.delete', undefined, 'Delete')">
+						<i class="bi bi-x-lg"></i>
+					</button>
+				</div>
+
+				<span class="flex-grow-1"></span>
+				<button type="button" class="wt w-100 mt-3" @click="openSaveDialog" :disabled="!anySound || mixes.length >= maxMixes">
+					<i class="bi bi-bookmark-plus me-1"></i>{{ t('app.ambience.save', undefined, 'Save this mix') }}
+				</button>
+			</aside>
+
+			<!-- One tile per sound: the icon switches it on and off, the slider sets its level. -->
+			<section class="content-main island am-main">
+				<div class="am-grid">
+					<div v-for="s in sounds" :key="s.id" class="am-tile" :class="['am-sound-' + s.id, { on: levels[s.id] > 0 }]">
+						<button type="button" class="am-tile-toggle" @click="toggleSound(s.id)"
+							:title="levels[s.id] > 0 ? t('app.ambience.soundOff', undefined, 'Turn off') : t('app.ambience.soundOn', undefined, 'Turn on')">
+							<i class="bi" :class="s.icon"></i>
+						</button>
+						<div class="am-tile-name">{{ soundLabel(s) }}</div>
+						<input type="range" class="am-tile-level" min="0" max="100" step="1" :value="levels[s.id]"
+							@input="onLevelInput(s.id, event)" :title="soundLabel(s)">
+					</div>
+				</div>
+			</section>
+		</div>
+
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">
+					<i class="bi me-1" :class="playing ? 'bi-soundwave' : 'bi-pause'"></i>{{ statusText }}
+				</span>
+			</div>
+		</div>
+
+		<wt-dialog :open="saveDialog.visible" size="sm" @close="closeSaveDialog">
+			<template v-slot:title="d">
+				{{ t('app.ambience.save', undefined, 'Save this mix') }}
+			</template>
+			<template v-slot="d">
+				<label class="dialog-label">{{ t('app.ambience.save.name', undefined, 'Name') }}</label>
+				<input type="text" class="wt w-100" v-model="saveDialog.name" maxlength="60" @keydown.enter.prevent="confirmSave">
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeSaveDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" :disabled="!saveDialog.name.trim()" @click="confirmSave">
+					{{ t('app.ambience.save.confirm', undefined, 'Save') }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<wt-dialog :open="deleteDialog.visible" size="sm" @close="closeDeleteDialog">
+			<template v-slot:title="d">
+				{{ t('app.ambience.delete.title', undefined, 'Delete mix') }}
+			</template>
+			<template v-slot="d">
+				<p class="mb-0">{{ t('app.ambience.delete.confirm', { name: deleteDialog.mix ? deleteDialog.mix.name : '' }, 'Delete "{name}"?') }}</p>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="closeDeleteDialog">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button type="button" class="wt wt-danger" @click="confirmDelete">{{ t('common.delete', undefined, 'Delete') }}</button>
+			</template>
+		</wt-dialog>
+
+		</template>
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>
