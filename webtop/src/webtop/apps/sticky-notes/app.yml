@@ -1,0 +1,29 @@
+identifier: f4333b1f-4912-4948-9fa9-4edcc2e3dfa1
+title: Sticky Notes
+icon: assets/icons/icon.svg
+# Sticky notes on the desktop. Each note is a placement of the `note` widget
+# (widget.html next to this descriptor), put on the desktop from "Add
+# Widget…" or from this app's window. The window lists every note, so one
+# hidden under windows can be found and shown again. A note's text and colour
+# are kept per user under /home/users/<user>/sticky-notes/ in the system
+# workspace, one file per placement (notes.ts).
+actions:
+  open:
+    icon: open
+    label: Open
+minimumWidth: 560
+minimumHeight: 420
+customWindowControls: true
+# One list per desktop: a second launch focuses the running one.
+singleton: true
+widgets:
+  note:
+    title: Sticky Note
+    entry: widget.html
+    width: 240
+    height: 220
+    resizable: true
+    minWidth: 160
+    minHeight: 120
+    multiple: true
+    layer: desktop

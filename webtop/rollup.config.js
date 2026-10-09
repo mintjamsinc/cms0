@@ -332,6 +332,22 @@ const numberplaceConfigs = [
   }),
 ];
 
+// Sticky Notes: the note widget is a second page next to the list window
+// (widget.html + widget.js), placed on the desktop by the shell; both belong
+// to the one "sticky-notes" target.
+const stickyNotesConfigs = [
+  makeAppConfig('sticky-notes', {
+    extraCopyTargets: [
+      { src: 'src/webtop/apps/sticky-notes/widget.html', dest: 'dist/webtop/apps/sticky-notes', transform: stampVersion },
+    ],
+  }),
+  makeConfig({
+    name: 'sticky-notes',
+    input: 'src/webtop/apps/sticky-notes/widget.ts',
+    outputFile: 'dist/webtop/apps/sticky-notes/widget.js',
+  }),
+];
+
 // Every target by name, in build order. scripts/build.mjs reads this list to
 // run one rollup process per target, so a target added here is picked up by
 // `npm run build` without a second list to keep in sync. Targets with extra
@@ -347,6 +363,7 @@ const specialConfigs = {
   'chat': chatConfig,
   'reversi': reversiConfigs,
   'numberplace': numberplaceConfigs,
+  'sticky-notes': stickyNotesConfigs,
 };
 export const TARGET_NAMES = [
   'webtop',
@@ -373,6 +390,7 @@ export const TARGET_NAMES = [
   'reversi',
   'numberplace',
   'minesweeper',
+  'sticky-notes',
 ];
 
 if (targetFilter) {

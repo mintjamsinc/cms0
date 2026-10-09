@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Sticky Note</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/widget.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<!-- One note: a placement of the `note` widget (see widget.ts). The shell
+	     draws the grip and its menu (move, keep on top, remove) on hover. -->
+	<div id="note" v-cloak class="note" :style="noteStyle" @mounted="onMounted" @unmount="onUnmount">
+		<template v-if="isReady">
+			<div class="note-bar window-drag-region">
+				<button type="button" class="note-bar-btn" @click="openColorMenu(event)"
+					:title="t('app.sticky-notes.note.color', undefined, 'Color')">
+					<i class="bi bi-palette"></i>
+				</button>
+			</div>
+			<textarea class="note-text" v-model="text" @input="onInput" @blur="onBlur" spellcheck="false"
+				:placeholder="t('app.sticky-notes.note.placeholder', undefined, 'Write a note…')"></textarea>
+
+			<!-- Asked before a note with text is removed (the shell's "Remove from Desktop"). -->
+			<div v-if="confirmingRemove" class="note-confirm">
+				<p>{{ t('app.sticky-notes.note.removeConfirm', undefined, 'Remove this note? Its text will be deleted.') }}</p>
+				<div class="note-confirm-buttons">
+					<button type="button" class="wt" @click="answerRemove(false)">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+					<button type="button" class="wt wt-danger" @click="answerRemove(true)">{{ t('app.sticky-notes.note.remove', undefined, 'Remove') }}</button>
+				</div>
+			</div>
+		</template>
+	</div>
+
+	<script type="module" src="./widget.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

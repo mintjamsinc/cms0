@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Sticky Notes</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" @mounted="onMounted" @unmount="onUnmount">
+		<template v-if="isReady">
+
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="newNote" :title="t('app.sticky-notes.list.new', undefined, 'New note')">
+					<i class="bi bi-plus-lg"></i>
+				</button>
+			</div>
+
+			<!-- Narrows the list to the notes whose text contains the words. -->
+			<div class="sn-searchbar">
+				<div class="input-group">
+					<input type="search" v-model="search" @keydown.escape.prevent="search = ''"
+						:placeholder="t('app.sticky-notes.list.search', undefined, 'Search notes')">
+				</div>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<div class="content-body">
+			<section class="content-main island sn-main">
+				<div v-if="loading" class="sn-empty">
+					<span class="loader"></span>
+				</div>
+				<div v-else-if="notes.length === 0" class="sn-empty">
+					<i class="bi bi-sticky"></i>
+					<p>{{ t('app.sticky-notes.list.empty', undefined, 'There are no notes on the desktop yet.') }}</p>
+					<button type="button" class="wt wt-primary" @click="newNote">
+						<i class="bi bi-plus-lg me-1"></i>{{ t('app.sticky-notes.list.new', undefined, 'New note') }}
+					</button>
+				</div>
+				<div v-else-if="filteredNotes.length === 0" class="sn-empty">
+					<p>{{ t('app.sticky-notes.list.noMatch', undefined, 'No note contains these words.') }}</p>
+				</div>
+				<!-- A click shows the note above the windows until a window is used again. -->
+				<div v-else class="sn-grid">
+					<div v-for="note in filteredNotes" :key="note.id" class="sn-card"
+						:style="{ background: noteColor(note), color: textColor }"
+						:title="t('app.sticky-notes.list.reveal', undefined, 'Show on the desktop')"
+						@click="reveal(note)">
+						<div class="sn-card-text" :class="{ empty: !note.text.trim() }">{{ note.text.trim() ? note.text : t('app.sticky-notes.list.emptyNote', undefined, 'Empty note') }}</div>
+						<div class="sn-card-footer">
+							<span class="sn-card-time">{{ formatTime(note.updatedAt) }}</span>
+							<button type="button" class="sn-card-btn" :class="{ active: note.layer === 'pinned' }" @click.stop="togglePin(note)"
+								:title="note.layer === 'pinned' ? t('app.sticky-notes.list.unpin', undefined, 'Put back on the desktop') : t('app.sticky-notes.list.pin', undefined, 'Keep on top of windows')">
+								<i class="bi" :class="note.layer === 'pinned' ? 'bi-pin-angle-fill' : 'bi-pin-angle'"></i>
+							</button>
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+
+		<div class="status-bar window-drag-region">
+			<div class="status-group">
+				<span class="status-item">{{ t('app.sticky-notes.list.count', { count: notes.length }, '{count} notes') }}</span>
+			</div>
+		</div>
+
+		</template>
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

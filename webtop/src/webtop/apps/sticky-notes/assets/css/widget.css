@@ -1,0 +1,104 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Sticky Notes — the note widget
+ *
+ * The page fills the widget's frameless iframe. The note paints its own pale
+ * paper colour (notes.ts NOTE_COLORS) with dark text in either theme; the
+ * shell adds only the grip at the top centre on hover.
+ * ============================================================================ */
+
+html,
+body {
+	height: 100%;
+}
+
+.note {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	border-radius: 0.75rem;
+	box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08), 0 4px 14px rgb(0 0 0 / 0.18);
+	overflow: hidden;
+}
+
+/* Top strip: drag handle (empty area) and the colour button. Leaves the
+ * centre free for the shell's grip. */
+.note-bar {
+	display: flex;
+	align-items: center;
+	flex: 0 0 auto;
+	height: 1.625rem;
+	padding: 0 0.25rem;
+	cursor: grab;
+}
+
+.note-bar-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.375rem;
+	height: 1.375rem;
+	padding: 0;
+	border: 0;
+	border-radius: 0.375rem;
+	background: transparent;
+	color: inherit;
+	opacity: 0.45;
+	cursor: pointer;
+	transition: opacity 0.15s, background-color 0.15s;
+}
+
+.note:hover .note-bar-btn {
+	opacity: 0.8;
+}
+
+.note-bar-btn:hover {
+	background: rgb(0 0 0 / 0.08);
+	opacity: 1;
+}
+
+.note-text {
+	flex: 1 1 auto;
+	min-height: 0;
+	width: 100%;
+	padding: 0 0.75rem 0.75rem;
+	border: 0;
+	outline: none;
+	resize: none;
+	background: transparent;
+	color: inherit;
+	font-size: 14px;
+	line-height: 1.55;
+}
+
+.note-text::placeholder {
+	color: inherit;
+	opacity: 0.4;
+}
+
+/* "Remove this note?" — covers the note until answered. */
+.note-confirm {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.75rem;
+	padding: 1rem;
+	background: rgb(255 255 255 / 0.85);
+	backdrop-filter: blur(2px);
+	text-align: center;
+}
+
+.note-confirm p {
+	margin: 0;
+	font-size: 13px;
+}
+
+.note-confirm-buttons {
+	display: flex;
+	gap: 0.5rem;
+}
