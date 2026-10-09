@@ -39,6 +39,8 @@ import org.mintjams.rt.cms.internal.WorkspaceUserHomes;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutionContext;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
 import org.mintjams.rt.cms.internal.graphql.resolver.GroovyDataFetcher;
+import org.mintjams.rt.cms.internal.mcp.McpToolCompiler;
+import org.mintjams.rt.cms.internal.mcp.McpToolRegistry;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformBpmWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformEipWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformIdpWiringContributor;
@@ -121,6 +123,7 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	private final WorkspaceGraphQLEngineProviderConfiguration fConfig;
 	private final Closer fCloser = Closer.create();
 	private volatile GraphQL fGraphQL;
+	private volatile McpToolRegistry fMcpTools = McpToolRegistry.EMPTY;
 
 	public WorkspaceGraphQLEngineProvider(String workspaceName) {
 		fConfig = new WorkspaceGraphQLEngineProviderConfiguration(workspaceName);
@@ -140,6 +143,7 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	public synchronized void close() throws IOException {
 		fCloser.close();
 		fGraphQL = null;
+		fMcpTools = McpToolRegistry.EMPTY;
 	}
 
 	public String getWorkspaceName() {
@@ -163,6 +167,15 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	 */
 	public boolean isAvailable() {
 		return fGraphQL != null;
+	}
+
+	/**
+	 * The MCP tools the workspace defines in its {@code tools.yml} files, as
+	 * last deployed. They live under the same folders as the application
+	 * schema and are rebuilt with it.
+	 */
+	public McpToolRegistry getMcpTools() {
+		return fMcpTools;
 	}
 
 	/**
@@ -380,18 +393,27 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 				// invalid application SDL file — a type that redefines a platform base type
 				// or scalar, an interface/union with no type resolver, a dangling type
 				// reference — would otherwise take the WHOLE endpoint offline, including
-				// login. Guard against that: if the combined compile fails, fall back to a
-				// platform-only schema so the built-in API stays available. The broken
-				// application schema is logged and simply not served; a later edit triggers
-				// a recompile that picks it up once fixed.
+				// login. Guard against that: if the combined compile fails, keep the
+				// schema that was being served (every application that worked keeps
+				// working), or, when there is none yet, fall back to a platform-only
+				// schema so the built-in API stays available. The broken application
+				// schema is logged with the file at fault; a later edit triggers a
+				// recompile that picks it up once fixed.
 				if (roots.isEmpty()) {
 					throw appEx; // no application schema in play — this is a platform fault
 				}
-				CmsService.getLogger(getClass()).error("Failed to compile the application GraphQL schema for the"
-						+ " workspace: " + getWorkspaceName() + " — serving the platform schema only until the"
-						+ " application schema is fixed", appEx);
-				compiled = GraphQLSchemaCompiler.compile(session, getWorkspaceName(), List.of(),
-						platformContributors(), new GraphQLExceptionHandler());
+				if (fGraphQL != null) {
+					CmsService.getLogger(getClass()).error("Failed to compile the application GraphQL schema for the"
+							+ " workspace: " + getWorkspaceName() + " — keeping the previous schema until the"
+							+ " application schema is fixed", appEx);
+					compiled = fGraphQL;
+				} else {
+					CmsService.getLogger(getClass()).error("Failed to compile the application GraphQL schema for the"
+							+ " workspace: " + getWorkspaceName() + " — serving the platform schema only until the"
+							+ " application schema is fixed", appEx);
+					compiled = GraphQLSchemaCompiler.compile(session, getWorkspaceName(), List.of(),
+							platformContributors(), new GraphQLExceptionHandler());
+				}
 			}
 			fGraphQL = compiled;
 			if (compiled == null) {
@@ -402,6 +424,9 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 			CmsService.getLogger(getClass()).error("Failed to compile the GraphQL schema for the workspace: "
 					+ getWorkspaceName() + " (keeping the previous schema)", ex);
 		} finally {
+			if (session != null) {
+				rebuildMcpTools(session);
+			}
 			if (session != null) {
 				try {
 					session.logout();
@@ -418,6 +443,23 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	 * start, {@link #isStarted()} is {@code false} and {@link #getErrors()} carries
 	 * the GraphQL-spec error maps.
 	 */
+	/**
+	 * Deploys the workspace's {@code tools.yml} files. Separate from the schema
+	 * compile on purpose: a schema that fails to compile does not take the
+	 * tools down, and a tools file that fails leaves the schema as it is.
+	 */
+	private void rebuildMcpTools(Session session) {
+		try {
+			List<String> roots = fConfig.isEnabled() ? WATCHED_PATHS : List.of();
+			GraphQL graphQL = fGraphQL;
+			fMcpTools = McpToolCompiler.compile(session, getWorkspaceName(), roots, fMcpTools,
+					(graphQL == null) ? null : graphQL.getGraphQLSchema());
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).error("Failed to deploy the MCP tools of the workspace: "
+					+ getWorkspaceName() + " (keeping the previous tools)", ex);
+		}
+	}
+
 	public static final class SubscriptionStream {
 		private final Publisher<ExecutionResult> fPublisher;
 		private final List<Map<String, Object>> fErrors;

@@ -75,6 +75,10 @@ public final class McpTool {
 		return fName;
 	}
 
+	public String getTitle() {
+		return fTitle;
+	}
+
 	/** Whether the tool can change the repository, and so needs the write scope. */
 	public boolean isWrite() {
 		return fWrite;

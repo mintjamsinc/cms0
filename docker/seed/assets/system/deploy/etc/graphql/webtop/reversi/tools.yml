@@ -1,0 +1,83 @@
+# MCP tools of the Reversi app: what an MCP client (such as Claude) can do
+# with the caller's games without composing GraphQL itself. The file is
+# deployed, next to the schema beside it, whenever it changes; the GraphQL
+# query mcpToolDeployments says what was deployed and what was not.
+# The format is described in documents/mcp-server.md.
+#
+# Every tool runs as the caller: the rules the schema applies (who may read
+# a room, who may play) apply here unchanged.
+tools:
+
+  reversi_rooms:
+    title: Reversi rooms
+    description: >
+      The caller's Reversi games: those waiting for an answer, getting ready
+      or being played, then the ended ones, newest first. A room's moves are
+      the moves played so far; yourSide is the caller's colour.
+    graphql: |
+      query {
+        reversiRooms {
+          id size status yourSide host guestReady winner resignedBy
+          black { id displayName } white { id displayName }
+          moves createdAt startedAt finishedAt
+        }
+      }
+
+  reversi_room:
+    title: Reversi room
+    description: One Reversi room of the caller, by id, with its moves so far.
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id, from reversi_rooms.
+      required: [id]
+    graphql: |
+      query ($id: ID!) {
+        reversiRoom(id: $id) {
+          id size status yourSide host guestReady winner resignedBy
+          black { id displayName } white { id displayName }
+          moves createdAt startedAt finishedAt
+        }
+      }
+
+  reversi_board:
+    title: Reversi board
+    description: >
+      The board of a Reversi room as text, with whose turn it is, the legal
+      moves of the player to move and the disc count. Read it before playing
+      a move with reversi_play.
+    access: read
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id, from reversi_rooms.
+      required: [id]
+    script: tools/reversiBoard.groovy
+
+  reversi_play:
+    title: Play a Reversi move
+    description: >
+      Plays a move for the caller in a room that is being played. ply is the
+      number of moves made so far (the length of moves): a stale value is
+      refused, so read the room or the board first. A move is a column letter
+      followed by a row number, as in d3.
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id.
+        ply:
+          type: integer
+          description: The number of moves made so far.
+        move:
+          type: string
+          description: The move, e.g. d3.
+      required: [id, ply, move]
+    graphql: |
+      mutation ($id: ID!, $ply: Int!, $move: String!) {
+        reversiPlay(id: $id, ply: $ply, move: $move) {
+          id status moves winner
+        }
+      }

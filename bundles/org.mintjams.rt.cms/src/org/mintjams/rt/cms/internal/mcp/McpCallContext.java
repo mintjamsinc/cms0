@@ -84,6 +84,17 @@ public class McpCallContext {
 		return fServerLabel;
 	}
 
+	/** The caller's credentials: what every session a tool opens is logged in with. */
+	public Credentials getCredentials() {
+		return fCredentials;
+	}
+
+	/** The tools the workspace defines for itself (tools.yml); empty when it defines none. */
+	public McpToolRegistry getWorkspaceTools() {
+		WorkspaceGraphQLEngineProvider engine = CmsService.getWorkspaceGraphQLEngineProvider(fWorkspaceName);
+		return (engine == null) ? McpToolRegistry.EMPTY : engine.getMcpTools();
+	}
+
 	/**
 	 * Opens a JCR session on the workspace as the caller. The caller of this
 	 * method owns the session and must {@code logout()} it.

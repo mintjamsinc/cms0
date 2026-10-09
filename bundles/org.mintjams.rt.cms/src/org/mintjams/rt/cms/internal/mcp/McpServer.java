@@ -22,6 +22,7 @@
 
 package org.mintjams.rt.cms.internal.mcp;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -205,7 +206,10 @@ public final class McpServer {
 		if (context.canWrite()) {
 			sb.append("This connection may change content. write_file refuses to replace an existing file unless "
 					+ "overwrite is true: read the current content first and keep what you were not asked to "
-					+ "change, especially in configuration files such as web.yml and .web.yml.");
+					+ "change, especially in configuration files such as web.yml and .web.yml. ");
+			sb.append("The workspace can define further tools of its own in tools.yml files under /etc/graphql, "
+					+ "each a GraphQL operation or a script; they are deployed as soon as the file is written, and "
+					+ "the GraphQL query mcpToolDeployments reports what deployed and what did not.");
 		} else {
 			sb.append("This connection is read-only: tools that change content are not available.");
 		}
@@ -214,7 +218,11 @@ public final class McpServer {
 
 	private JsonObject listTools(McpCallContext context) {
 		JsonArray tools = new JsonArray();
-		for (McpTool tool : fTools.values()) {
+		List<McpTool> all = new ArrayList<>(fTools.values());
+		// The tools the workspace defines for itself come after the built-in
+		// ones; their names cannot collide (the compiler refuses a built-in name).
+		all.addAll(context.getWorkspaceTools().getTools());
+		for (McpTool tool : all) {
 			if (tool.isWrite() && !context.canWrite()) {
 				continue;
 			}
@@ -225,12 +233,17 @@ public final class McpServer {
 		return result;
 	}
 
+	private McpTool findTool(String name, McpCallContext context) {
+		McpTool tool = fTools.get(name);
+		return (tool != null) ? tool : context.getWorkspaceTools().getTool(name);
+	}
+
 	private JsonObject callTool(JsonElement id, JsonObject params, McpCallContext context) {
 		JsonElement name = params.get("name");
 		if (name == null || !name.isJsonPrimitive() || !((JsonPrimitive) name).isString()) {
 			return error(id, INVALID_PARAMS, "params.name is required");
 		}
-		McpTool tool = fTools.get(name.getAsString());
+		McpTool tool = findTool(name.getAsString(), context);
 		if (tool == null) {
 			return error(id, INVALID_PARAMS, "Unknown tool: " + name.getAsString());
 		}

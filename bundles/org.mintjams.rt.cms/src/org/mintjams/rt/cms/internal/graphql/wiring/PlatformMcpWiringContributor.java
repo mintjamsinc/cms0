@@ -36,8 +36,10 @@ import javax.jcr.Session;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutionContext;
+import org.mintjams.rt.cms.internal.graphql.engine.WorkspaceGraphQLEngineProvider;
 import org.mintjams.rt.cms.internal.mcp.McpConfiguration;
 import org.mintjams.rt.cms.internal.mcp.McpConnections;
+import org.mintjams.rt.cms.internal.mcp.McpToolRegistry;
 import org.mintjams.rt.cms.internal.util.ISO8601;
 
 import graphql.schema.DataFetcher;
@@ -61,6 +63,8 @@ public final class PlatformMcpWiringContributor implements WiringContributor {
 		return new SchemaContribution()
 				.sdl(loadSchema())
 				.dataFetcher("Query", "mcpConnection", (DataFetcher<Object>) PlatformMcpWiringContributor::mcpConnection)
+				.dataFetcher("Query", "mcpToolDeployments",
+						(DataFetcher<Object>) PlatformMcpWiringContributor::mcpToolDeployments)
 				.dataFetcher("Mutation", "setMcpConnection",
 						(DataFetcher<Object>) PlatformMcpWiringContributor::setMcpConnection);
 	}
@@ -96,6 +100,36 @@ public final class PlatformMcpWiringContributor implements WiringContributor {
 				+ (enabled ? "on" : "off") + ": user=" + session.getUserID() + " workspace="
 				+ context.getWorkspaceName() + (enabled ? " write=" + connection.isWrite() : ""));
 		return map(context.getWorkspaceName(), config, config.isEnabled(), connection);
+	}
+
+	private static Object mcpToolDeployments(DataFetchingEnvironment environment) throws Exception {
+		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
+		WorkspaceGraphQLEngineProvider engine = CmsService
+				.getWorkspaceGraphQLEngineProvider(context.getWorkspaceName());
+		List<Map<String, Object>> deployments = new ArrayList<>();
+		if (engine == null) {
+			return deployments;
+		}
+		for (McpToolRegistry.Deployment deployment : engine.getMcpTools().getDeployments().values()) {
+			Map<String, Object> d = new LinkedHashMap<>();
+			d.put("path", deployment.getPath());
+			d.put("deployedAt", ISO8601.format(Instant.ofEpochMilli(deployment.getDeployedAtMillis())));
+			d.put("stale", deployment.isStale());
+			List<Map<String, Object>> tools = new ArrayList<>();
+			for (McpToolRegistry.Entry entry : deployment.getEntries()) {
+				Map<String, Object> t = new LinkedHashMap<>();
+				t.put("name", entry.getTool().getName());
+				t.put("title", entry.getTool().getTitle());
+				t.put("kind", entry.getKind());
+				t.put("access", entry.getAccess());
+				t.put("enabled", entry.isEnabled());
+				tools.add(t);
+			}
+			d.put("tools", tools);
+			d.put("problems", deployment.getProblems());
+			deployments.add(d);
+		}
+		return deployments;
 	}
 
 	private static boolean isUser(Session session) {

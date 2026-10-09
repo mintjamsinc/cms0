@@ -160,7 +160,8 @@ public final class GraphQLSchemaCompiler {
 		Set<String> scriptExtensions = new HashSet<>(
 				Arrays.asList(Scripts.getScriptExtensions(CmsService.getWorkspaceScriptEngineManager(workspaceName))));
 
-		List<String> sdlSources = new ArrayList<>();
+		// path -> SDL, so that a parse error names the file at fault
+		Map<String, String> sdlSources = new LinkedHashMap<>();
 		// typeName -> (fieldName -> data fetcher) discovered by the folder scan
 		Map<String, Map<String, GroovyDataFetcher>> resolvers = new LinkedHashMap<>();
 		// typeName -> type resolver (interface/union)
@@ -216,8 +217,13 @@ public final class GraphQLSchemaCompiler {
 		for (String sdl : contributorSdl) {
 			registry.merge(parser.parse(sdl));
 		}
-		for (String sdl : sdlSources) {
-			registry.merge(parser.parse(sdl));
+		for (Map.Entry<String, String> source : sdlSources.entrySet()) {
+			try {
+				registry.merge(parser.parse(source.getValue()));
+			} catch (RuntimeException ex) {
+				throw new IllegalStateException("Invalid GraphQL schema file " + source.getKey() + ": "
+						+ ex.getMessage(), ex);
+			}
 		}
 
 		RuntimeWiring.Builder wiring = RuntimeWiring.newRuntimeWiring();
@@ -309,7 +315,7 @@ public final class GraphQLSchemaCompiler {
 		return builder.build();
 	}
 
-	private static void scan(Node node, String workspaceName, Set<String> scriptExtensions, List<String> sdlSources,
+	private static void scan(Node node, String workspaceName, Set<String> scriptExtensions, Map<String, String> sdlSources,
 			Map<String, Map<String, GroovyDataFetcher>> resolvers, List<String> wiringPaths) throws Exception {
 		String primaryType = node.getPrimaryNodeType().getName();
 
@@ -330,7 +336,7 @@ public final class GraphQLSchemaCompiler {
 			return;
 		}
 		if (name.endsWith(".graphqls") || name.endsWith(".graphql")) {
-			sdlSources.add(readText(node));
+			sdlSources.put(node.getPath(), readText(node));
 			return;
 		}
 
@@ -500,6 +506,10 @@ public final class GraphQLSchemaCompiler {
 			return (loaded instanceof Map) ? (Map<String, Object>) loaded : Map.of();
 		} catch (java.io.IOException ex) {
 			throw new RepositoryException("Failed to read GraphQL wiring file: " + fileNode, ex);
+		} catch (RuntimeException ex) {
+			// A YAML error names the file at fault, like an SDL error does.
+			throw new IllegalStateException("Invalid GraphQL wiring file " + fileNode.getPath() + ": "
+					+ ex.getMessage(), ex);
 		}
 	}
 

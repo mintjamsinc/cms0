@@ -32,7 +32,7 @@ jp.example.blog-1.2.0.zip
 │       ├── app.yml
 │       └── ...
 │   └── usr/local/classes/blog/       → /usr/local/classes/blog/  (hot-deployed)
-│   └── etc/graphql/blog/             → /etc/graphql/blog/
+│   └── etc/graphql/blog/             → /etc/graphql/blog/  (schema, resolvers, tools.yml)
 └── provisioning/                     descriptors applied at installation
     └── blog.yml                      (the schema of documents/cms-provisioning.md)
 ```
@@ -166,6 +166,36 @@ never be removed and that nobody watches. Workspaces separate content and
 its access control, not the accounts the applications run as. Where the
 accounts themselves must be separate, run a separate cms0 instance: that
 boundary is complete, and it is the one everybody understands.
+
+### Installing over an application deployed by hand
+
+An application that was put into the workspace before it was packaged, by
+upload or through the workspace's `etc/jcr/deploy/` folder, has no
+installation record. Installing its package over it works: a file the
+package ships is written over the file at that path (the result counts it
+as replaced), and from then on the record describes the installation. What
+the installer does not know about, it does not touch: **a file the earlier
+deployment placed and the package does not ship stays**, because no record
+names it. That matters when the file is something that runs — an EIP route,
+a BPMN process, a class — since it keeps running against the new version.
+
+Before the first installation, or right after it:
+
+1. List the places the application writes to (its README names them; for
+   a package, every folder under `deploy/`).
+2. Remove what is there and is not in the package. After the installation
+   the record `/etc/packages/<id>/MANIFEST` is the list to compare with:
+   a file in one of those places that the record does not name is a
+   leftover. Leave the application's configuration and data alone — they
+   are outside the package by design ([What belongs in a package](#what-belongs-in-a-package-and-what-does-not)).
+3. If the workspace's `etc/jcr/deploy/` or `etc/jcr/provisioning/` on the
+   file system still holds a copy of the application, remove it. The
+   deployment at boot writes a file whose modification time is newer than
+   the repository's, so a copy touched later would overwrite what the
+   package placed; the descriptor copy is harmless but applies twice.
+
+The cleanest order is to remove first and install second: the record then
+describes exactly what is in the workspace.
 
 ## Checks
 

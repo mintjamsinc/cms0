@@ -135,6 +135,17 @@ current one ("The game has moved on"), works out whose turn it is (a player
 with no legal move passes automatically, as in the app) and, when the game
 is over after the move, records the winner.
 
+## MCP tools
+
+`/etc/graphql/webtop/reversi/tools.yml` gives an MCP client (such as Claude)
+the game as four tools, so that it plays without composing GraphQL:
+`reversi_rooms` and `reversi_room` (the queries above), `reversi_play` (the
+mutation) and `reversi_board`, a script (`tools/reversiBoard.groovy`) that
+replays the room's moves with `ReversiRules` and returns the board as text
+with whose turn it is and the legal moves. Each runs as the caller, so the
+checks in the table above apply unchanged. The file format is described in
+documents/mcp-server.md.
+
 ## Live updates
 
 Every change to a room is announced to its two players as a **topic message**

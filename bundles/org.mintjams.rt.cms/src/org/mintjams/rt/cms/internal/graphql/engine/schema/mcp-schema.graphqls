@@ -55,3 +55,40 @@ input SetMcpConnectionInput {
   """Whether clients may change content. Defaults to false."""
   write: Boolean
 }
+
+# -----------------------------------------------------------------------------
+# The tools a workspace defines for itself: tools.yml files under /etc/graphql
+# (and /content/WEB-INF/graphql), deployed file by file whenever one changes.
+# The listing is how an author, or a client that just wrote a file, finds out
+# what was deployed and what was not. See documents/mcp-server.md.
+# -----------------------------------------------------------------------------
+
+extend type Query {
+  """The MCP tools this workspace defines in its tools.yml files, file by file, with what did not deploy and why."""
+  mcpToolDeployments: [McpToolDeployment!]!
+}
+
+"""What became of one tools.yml."""
+type McpToolDeployment {
+  """The repository path of the file."""
+  path: String!
+  """When the tools now served from this file were deployed."""
+  deployedAt: DateTime!
+  """True when the file could not be read on the last attempt and the tools of its last good version are still served."""
+  stale: Boolean!
+  tools: [McpToolInfo!]!
+  """What did not deploy, and why. Empty when everything did."""
+  problems: [String!]!
+}
+
+"""One tool of a tools.yml."""
+type McpToolInfo {
+  name: String!
+  title: String!
+  """graphql or script."""
+  kind: String!
+  """read, write or destructive: whether the tool is offered to a read-only connection, and what a client is told it does."""
+  access: String!
+  """False for a tool its definition turns off (enabled: false); it is not served."""
+  enabled: Boolean!
+}

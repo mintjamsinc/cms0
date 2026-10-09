@@ -252,6 +252,9 @@ running may have to reconnect before it sees the tools.
 | `delete_node` | write | Permanent delete. |
 | `graphql` | read / write | Any operation of the workspace GraphQL schema. Mutations need a connection that allows changes. |
 
+These are the built-in tools. A workspace adds its own by writing `tools.yml`
+files next to its GraphQL schema; see *Tools defined by the workspace* below.
+
 Paths are absolute repository paths. A relative path, or one containing `.` or
 `..`, is refused rather than guessed at.
 
@@ -319,6 +322,119 @@ The repository's query language is JCR XPath; JCR-SQL2 is not supported.
 /jcr:root/content//element(*, nt:file)[jcr:like(@jcr:mimeType, "image/%")]
 /jcr:root/content//element(*, nt:file)[jcr:contains(., "invoice")]      full text
 ```
+
+## Tools defined by the workspace
+
+The built-in tools are general. A workspace that has an application schema
+usually has a few operations a client runs again and again, and a generic
+`graphql` call for each of them costs the client an introspection, a document
+it has to compose, and a chance to get it wrong. A workspace therefore defines
+tools of its own, as content: a `tools.yml` file anywhere under `/etc/graphql`
+(or `/content/WEB-INF/graphql`), next to the schema it belongs to. The file is
+deployed when it is written, like the schema beside it; nothing is built,
+restarted or configured.
+
+```yaml
+# /etc/graphql/webtop/reversi/tools.yml
+tools:
+  reversi_room:
+    title: Reversi room
+    description: One Reversi room of the caller, by id, with its moves so far.
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id, from reversi_rooms.
+      required: [id]
+    graphql: |
+      query ($id: ID!) {
+        reversiRoom(id: $id) { id size status yourSide moves winner }
+      }
+
+  reversi_board:
+    title: Reversi board
+    description: The board of a room as text, with the legal moves of the player to move.
+    access: read
+    input:
+      properties:
+        id: { type: string }
+      required: [id]
+    script: tools/reversiBoard.groovy
+```
+
+A tool is one of two things:
+
+- **A GraphQL operation** (`graphql`). The tool's arguments are the operation's
+  variables, by name, and the result is the operation's `data`. A query is a
+  read tool, a mutation a write tool; the kind is read off the document when
+  the file is deployed, so a mutation cannot be passed off as `access: read`,
+  and a document whose operation cannot be told (several operations and no
+  `operationName`) is refused. The document is validated against the
+  workspace schema when the file is deployed, so a field that does not exist
+  is reported as a problem of the file rather than failing at the first
+  call. `graphql` is either the document or a map with `query` and
+  `operationName`.
+- **A script** (`script`), a path relative to the file or absolute, run the
+  way a GraphQL resolver is: as the caller, compiled once, with the platform
+  APIs a resolver has (`log`, `ScriptAPI`, `ProcessAPI`, `IntegrationAPI`, …)
+  and three bindings of its own: `args`, the arguments as a map; `graphql`,
+  the workspace schema (`graphql.data(document, variables)` returns the
+  `data`, `graphql.execute(...)` the whole response); and `mcp`, who is
+  calling and whether the connection may write. What the script returns is
+  the result: a string as text, anything else as JSON. A script is assumed to
+  change content unless its `access` says `read`.
+
+The keys of a tool:
+
+| Key | |
+| --- | --- |
+| `title` | Shown to the user. Defaults to the name. |
+| `description` | Required: it is what the model decides by. A string, or a list of lines. |
+| `input` | `properties` (name → JSON Schema, each with a `type`) and `required`. No `input` means no arguments. The schema is closed: an argument that is not declared is refused. |
+| `access` | `read`, `write` or `destructive`. Decides whether a read-only connection is shown the tool and may call it, and what the client is told (`readOnlyHint`, `destructiveHint`). |
+| `idempotent` | Calling it again with the same arguments changes nothing more. |
+| `enabled` | `false` keeps the tool out of the listing without deleting it. |
+| `graphql` / `script` | Exactly one. |
+
+The name is the key: 1 to 64 letters, digits, `_` or `-`, and not the name of
+a built-in tool. `runAs` is not accepted: a tool runs as the caller, always.
+The part that needs other rights goes into a GraphQL resolver with `runAs` in
+`wiring.yml`, which the tool then calls; that keeps every elevation in the one
+file an administrator reviews, and a tool a client wrote cannot grant itself
+anything.
+
+### One broken file does not take the others down
+
+Deployment is file by file, and within a file tool by tool. A `tools.yml` that
+cannot be parsed keeps the tools of its last good version in service, marked
+stale; a tool whose definition is wrong (no description, an unknown `access`,
+a script that does not exist, a name another file took first) is left out and
+the rest of the file is deployed. A script with a syntax error deploys and
+fails when it is called, as a resolver does. Each problem is written to the
+log and recorded on the file's deployment, which the GraphQL query
+`mcpToolDeployments` lists:
+
+```graphql
+{ mcpToolDeployments { path deployedAt stale problems tools { name kind access enabled } } }
+```
+
+This is also how a client that has just written a `tools.yml` finds out
+whether its tool exists. The server keeps no session and sends no
+`listChanged` notification; a client sees the new tool on its next
+`tools/list`.
+
+### A client can add tools
+
+Nothing about this is reserved for people. A client whose connection may write,
+and whose user may write under `/etc/graphql`, writes a `tools.yml` and a script
+with `write_file`, and the tool is served a moment later; the server
+instructions say so. What keeps that within bounds is what keeps everything
+else within bounds: the tool runs as the user who calls it, with that user's
+rights and nothing more; a read-only connection is never offered or allowed a
+tool that writes, whatever the file claims about a script; and the files live
+where only those allowed to change the application can change them. A tool that
+should wait for a review is written with `enabled: false` and turned on by
+hand.
 
 ## `explain_web_render`
 
@@ -595,9 +711,10 @@ await (await fetch('/bin/mcp.cgi/web', {
   registration only; a client id that is a URL is not fetched.
 - **Dedicated BPM and EIP tools.** Starting a process, completing a task or
   starting and stopping a route is possible today through `graphql`. Sending a
-  message into a route is not: the schema has no mutation for it. Tools that
-  resolve "start the approval for this document" into the right definition and
-  variables, and that confirm before starting, are the next step.
+  message into a route is not: the schema has no mutation for it. A tool that
+  resolves "start the approval for this document" into the right definition
+  and variables is a workspace's to define, in its `tools.yml`, since the
+  definition is the workspace's; the server does not ship one.
 - **Server-initiated messages.** No notifications and no subscriptions: a
   client cannot be told that a task was assigned or a process ended; it has to
   ask. A connection that outlives the browser session is what lets it keep
@@ -620,6 +737,8 @@ await (await fetch('/bin/mcp.cgi/web', {
 | `ContentTools` | The content tools. |
 | `WebRenderTools` | `explain_web_render`. |
 | `GraphQLTools` | `graphql`. |
+| `McpToolCompiler`, `McpToolRegistry` | The tools a workspace defines: reading its `tools.yml` files, file by file, into the registry the server consults next to the built-in tools. Rebuilt by `WorkspaceGraphQLEngineProvider` with the application schema. |
+| `GraphQLToolHandler`, `ScriptToolHandler`, `McpScriptGraphQL` | What a workspace-defined tool does when called: the operation, or the script and its `graphql` binding. |
 | `McpGraphQL` | The GraphQL the content tools are built from, and the reshaping of its responses into something compact for a model. |
 | `McpOAuth` | The authorization flow: metadata, registration, the approval page, the token endpoint. |
 | `McpConnections` | A user's connection to a workspace. |
@@ -637,7 +756,9 @@ Webtop's, and every rule a mutation enforces is enforced once, in one place.
 The JCR API is used directly only where GraphQL has nothing to offer: reading
 content, overwriting a file, and the walk `explain_web_render` performs.
 
-To add a tool, build it with `McpTool.named(…)` and return it from one of the
-`*Tools.all()` methods. Mark it `write()` or `destructive()` if it changes the
-repository: that one flag hides it from read-only clients, refuses their
-calls and sets its hints.
+To add a built-in tool, build it with `McpTool.named(…)` and return it from one
+of the `*Tools.all()` methods. Mark it `write()` or `destructive()` if it
+changes the repository: that one flag hides it from read-only clients, refuses
+their calls and sets its hints. A tool that belongs to one application, not to
+the server, is a `tools.yml` entry instead (see *Tools defined by the
+workspace*); the same flag is its `access`.

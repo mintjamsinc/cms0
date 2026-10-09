@@ -23,7 +23,10 @@
 package org.mintjams.rt.cms.internal.mcp;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The tools this server offers, in the order {@code tools/list} reports them:
@@ -33,6 +36,15 @@ import java.util.List;
 final class McpTools {
 
 	private McpTools() {}
+
+	/** The names of the built-in tools: a workspace cannot define a tool under one of them. */
+	static Set<String> names() {
+		Set<String> names = new LinkedHashSet<>();
+		for (McpTool tool : all()) {
+			names.add(tool.getName());
+		}
+		return Collections.unmodifiableSet(names);
+	}
 
 	static List<McpTool> all() {
 		List<McpTool> read = new ArrayList<>();
