@@ -249,6 +249,7 @@
 	"app.content-browser.filetype.yml": "YAML Document",
 	"app.content-browser.filetype.bpmn": "BPMN Document",
 	"app.content-browser.filetype.eipxml": "EIP/Route Document",
+	"app.content-browser.filetype.memo": "Memo",
 	"app.content-browser.dategroup.today": "Today",
 	"app.content-browser.dategroup.yesterday": "Yesterday",
 	"app.content-browser.dategroup.thisWeek": "This Week",

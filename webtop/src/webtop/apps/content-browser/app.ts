@@ -620,6 +620,9 @@ export const App = {
 				{ id: 'yml', label: 'YAML Document', labelKey: 'yml', extension: '.yml', mimeType: 'application/yaml' },
 				{ id: 'bpmn', label: 'BPMN Document', labelKey: 'bpmn', extension: '.bpmn', mimeType: 'application/bpmn+xml' },
 				{ id: 'eip.xml', label: 'EIP/Route Document', labelKey: 'eipxml', extension: '.eip.xml', mimeType: 'application/vnd.webtop.eip+xml' },
+				// Starts as the empty document the Memo app writes for a new memo.
+				{ id: 'memo', label: 'Memo', labelKey: 'memo', extension: '.memo', mimeType: 'application/vnd.mintjams.cms.memo+json',
+					content: JSON.stringify({ version: 1, type: 'tiptap', doc: { type: 'doc', content: [{ type: 'paragraph' }] } }) },
 			],
 			// Selection state. The Shift anchor and the keyboard cursor are held
 			// as item ids rather than row indexes: the list is re-sorted,
@@ -4239,8 +4242,8 @@ export const App = {
 
 			try {
 				const contentService = vm.instance.api.content;
-				// Create empty file with specified MIME type (empty content as base64)
-				await contentService.createFile(vm.currentPath, name, fileType.mimeType, '');
+				// Create the file with the type's initial content (ASCII, as base64), empty by default
+				await contentService.createFile(vm.currentPath, name, fileType.mimeType, fileType.content ? btoa(fileType.content) : '');
 				vm.closeNewFileDialog();
 				// Reload the current directory to show the new file
 				await vm.load(vm.currentPath);

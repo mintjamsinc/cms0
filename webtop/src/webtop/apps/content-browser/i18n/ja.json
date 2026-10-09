@@ -249,6 +249,7 @@
 	"app.content-browser.filetype.yml": "YAML ドキュメント",
 	"app.content-browser.filetype.bpmn": "BPMN ドキュメント",
 	"app.content-browser.filetype.eipxml": "EIP/ルートドキュメント",
+	"app.content-browser.filetype.memo": "メモ",
 	"app.content-browser.dategroup.today": "今日",
 	"app.content-browser.dategroup.yesterday": "昨日",
 	"app.content-browser.dategroup.thisWeek": "今週",
