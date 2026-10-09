@@ -52,7 +52,6 @@ are also available from the upstream project links below.
 | `bundle/org.apache.felix.http.webconsoleplugin-1.2.2.jar` | Apache Felix HTTP Web Console Plugin | Apache License 2.0 |
 | `bundle/org.apache.felix.http.whiteboard-4.0.0.jar` | Apache Felix HTTP Whiteboard | Apache License 2.0 |
 | `bundle/org.apache.felix.inventory-2.0.0.jar` | Apache Felix Inventory | Apache License 2.0 |
-| `bundle/org.apache.felix.log-1.2.2.jar` | Apache Felix Log Service | Apache License 2.0 |
 | `bundle/org.apache.felix.metatype-1.2.4.jar` | Apache Felix Metatype Service | Apache License 2.0 |
 | `bundle/org.apache.felix.scr-2.2.0.jar` | Apache Felix Declarative Services (SCR) | Apache License 2.0 |
 | `bundle/org.apache.felix.utils-1.11.0.jar` | Apache Felix Utils | Apache License 2.0 |

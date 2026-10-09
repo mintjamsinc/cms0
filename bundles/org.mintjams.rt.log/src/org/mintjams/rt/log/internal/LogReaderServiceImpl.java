@@ -25,9 +25,9 @@ package org.mintjams.rt.log.internal;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.Vector;
 
 import org.osgi.service.log.LogEntry;
 import org.osgi.service.log.LogListener;
@@ -52,7 +52,7 @@ public class LogReaderServiceImpl implements LogReaderService, Closeable {
 
 	@Override
 	public Enumeration<LogEntry> getLog() {
-		return new Vector<LogEntry>().elements();
+		return Collections.enumeration(Activator.getLogQueue().getHistory());
 	}
 
 	@Override

@@ -24,9 +24,12 @@ package org.mintjams.rt.log.internal;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
+import org.osgi.service.log.LogEntry;
 import org.osgi.service.log.LogListener;
 
 public class LogQueue implements Closeable {
@@ -35,8 +38,21 @@ public class LogQueue implements Closeable {
 	private boolean fCloseRequested;
 	private final Object fLock = new Object();
 	private final List<LogEntryImpl> fLogEntries = new ArrayList<>();
+	private final Deque<LogEntryImpl> fHistory = new ArrayDeque<>();
+	private int fMaxHistorySize = 100;
 
 	public LogQueue() {}
+
+	public LogQueue setMaxHistorySize(int maxHistorySize) {
+		synchronized (fLock) {
+			fMaxHistorySize = Math.max(0, maxHistorySize);
+			while (fHistory.size() > fMaxHistorySize) {
+				fHistory.removeLast();
+			}
+		}
+
+		return this;
+	}
 
 	public LogQueue open() {
 		if (fThread != null) {
@@ -57,10 +73,22 @@ public class LogQueue implements Closeable {
 	public LogQueue add(LogEntryImpl logEntry) {
 		synchronized (fLock) {
 			fLogEntries.add(logEntry);
+			if (fMaxHistorySize > 0) {
+				fHistory.addFirst(logEntry);
+				if (fHistory.size() > fMaxHistorySize) {
+					fHistory.removeLast();
+				}
+			}
 			fLock.notifyAll();
 		}
 
 		return this;
+	}
+
+	public List<LogEntry> getHistory() {
+		synchronized (fLock) {
+			return new ArrayList<>(fHistory);
+		}
 	}
 
 	@Override

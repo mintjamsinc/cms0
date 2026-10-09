@@ -98,7 +98,7 @@ public class Activator implements BundleActivator {
 				.build());
 		fBootstrapTracker.open();
 
-		fCloser.register(fLogQueue).open();
+		fCloser.register(fLogQueue.setMaxHistorySize(getMaxHistorySize())).open();
 
 		fLogReaderServiceFactory = new LogReaderServiceFactory();
 		fCloser.register(Registration.newBuilder(LogReaderService.class)
@@ -127,6 +127,19 @@ public class Activator implements BundleActivator {
 
 	private synchronized void close() throws IOException {
 		fCloser.close();
+	}
+
+	private int getMaxHistorySize() {
+		String value = fBundleContext.getProperty("org.mintjams.log.historySize");
+		if (value == null || value.isBlank()) {
+			return 100;
+		}
+
+		try {
+			return Integer.parseInt(value.trim());
+		} catch (NumberFormatException ex) {
+			return 100;
+		}
 	}
 
 	public void onLogListenerAdded(LogListener logListener) {
