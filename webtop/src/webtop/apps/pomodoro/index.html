@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Pomodoro</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="app" v-cloak class="d-flex flex-column" :class="'pm-' + view.phase" @mounted="onMounted" @unmount="onUnmount">
+		<template v-if="isReady">
+
+		<nav class="nav-bar window-drag-region">
+			<div class="toolbar-group">
+				<button class="wt" @click="putOnDesktop" :title="t('app.pomodoro.putOnDesktopHint', undefined, 'Keep a small timer above the windows')">
+					<i class="bi bi-pin-angle me-1"></i>{{ t('app.pomodoro.putOnDesktop', undefined, 'Put on the desktop') }}
+				</button>
+			</div>
+
+			<span class="nav-spacer"></span>
+
+			<!-- Right: Window Controls -->
+			<div class="window-controls">
+				<button class="btn-icon" @click="onMinimizeWindow" :title="t('common.minimize')">
+					<i class="bi bi-dash-lg"></i>
+				</button>
+				<button class="btn-icon" @click="onToggleMaximizeWindow" :title="t('common.maximize')">
+					<i class="bi bi-square"></i>
+				</button>
+				<button class="btn-icon window-control-close" @click="onCloseWindow" :title="t('common.close')">
+					<i class="bi bi-x-lg"></i>
+				</button>
+			</div>
+		</nav>
+
+		<div class="content-body pm-body">
+			<!-- The plant and how far it has grown. -->
+			<section class="island pm-plant">
+				<div class="pm-plant-stage">
+					<canvas ref="plant"></canvas>
+				</div>
+				<div class="pm-plant-name">{{ stageLabel }}</div>
+				<div class="pm-plant-bar"><div class="pm-plant-bar-fill" :style="{ width: (view.stageProgress * 100) + '%' }"></div></div>
+				<div class="pm-plant-note">{{ nextStageText }}</div>
+				<div class="pm-plant-total">{{ t('app.pomodoro.plant.total', { duration: duration(view.totalMinutes) }, 'Focused so far: {duration}') }}</div>
+			</section>
+
+			<section class="content-main pm-side">
+				<!-- The timer -->
+				<div class="island pm-timer">
+					<div class="pm-phase">
+						<span>{{ phaseLabel }}</span>
+						<span class="pm-dots"><i v-for="(done, i) in view.dots" :key="i" :class="{ done: done }"></i></span>
+					</div>
+					<div class="pm-clock" :class="{ paused: view.paused }">{{ view.clock }}</div>
+					<div class="pm-bar"><div class="pm-bar-fill" :style="{ width: (view.progress * 100) + '%' }"></div></div>
+					<div class="pm-buttons">
+						<button type="button" class="pm-btn" @click="reset" :disabled="!canReset"
+							:title="t('app.pomodoro.reset', undefined, 'Reset')">
+							<i class="bi bi-arrow-counterclockwise"></i>
+						</button>
+						<button type="button" class="pm-btn pm-btn-main" @click="toggle"
+							:title="view.running ? t('app.pomodoro.pause', undefined, 'Pause') : t('app.pomodoro.start', undefined, 'Start')">
+							<i class="bi" :class="view.running ? 'bi-pause-fill' : 'bi-play-fill'"></i>
+						</button>
+						<button type="button" class="pm-btn" @click="skip" :disabled="view.phase === 'idle'"
+							:title="t('app.pomodoro.skip', undefined, 'Skip')">
+							<i class="bi bi-skip-end-fill"></i>
+						</button>
+					</div>
+				</div>
+
+				<!-- The record -->
+				<div class="island pm-record">
+					<div class="pm-record-head">
+						<span class="pm-section-title">{{ t('app.pomodoro.record.title', undefined, 'Record') }}</span>
+						<span class="pm-record-today">{{ t('app.pomodoro.record.today', { sessions: view.todaySessions, duration: duration(view.todayMinutes) }, 'Today: {sessions} sessions, {duration}') }}</span>
+					</div>
+					<div class="pm-week">
+						<div v-for="d in week" :key="d.day" class="pm-week-day" :class="{ today: d.today }" :title="duration(d.minutes)">
+							<div class="pm-week-bar"><div class="pm-week-fill" :style="{ height: d.height + '%' }"></div></div>
+							<div class="pm-week-label">{{ d.label }}</div>
+						</div>
+					</div>
+					<div class="pm-record-week">{{ t('app.pomodoro.record.week', { duration: duration(weekMinutes) }, 'Last 7 days: {duration}') }}</div>
+				</div>
+
+				<!-- Settings -->
+				<div class="island pm-settings">
+					<div class="pm-section-title">{{ t('app.pomodoro.settings.title', undefined, 'Settings') }}</div>
+					<div class="pm-fields">
+						<label>{{ t('app.pomodoro.settings.focus', undefined, 'Focus (min)') }}</label>
+						<input type="number" class="wt" min="1" max="120" :value="settings.focusMinutes" @change="onNumberChange('focusMinutes', event, 1, 120)">
+						<label>{{ t('app.pomodoro.settings.shortBreak', undefined, 'Short break (min)') }}</label>
+						<input type="number" class="wt" min="1" max="60" :value="settings.shortBreakMinutes" @change="onNumberChange('shortBreakMinutes', event, 1, 60)">
+						<label>{{ t('app.pomodoro.settings.longBreak', undefined, 'Long break (min)') }}</label>
+						<input type="number" class="wt" min="1" max="120" :value="settings.longBreakMinutes" @change="onNumberChange('longBreakMinutes', event, 1, 120)">
+						<label>{{ t('app.pomodoro.settings.longBreakEvery', undefined, 'Long break after (sessions)') }}</label>
+						<input type="number" class="wt" min="2" max="12" :value="settings.longBreakEvery" @change="onNumberChange('longBreakEvery', event, 2, 12)">
+						<label>{{ t('app.pomodoro.settings.autoStartBreaks', undefined, 'Start breaks by themselves') }}</label>
+						<input type="checkbox" class="pm-check" :checked="settings.autoStartBreaks" @change="onAutoStartChange">
+						<label>{{ t('app.pomodoro.settings.ambience', undefined, 'Sound during focus') }}</label>
+						<select class="wt" @change="onMixChange">
+							<option value="" :selected="!settings.ambienceMixId">{{ t('app.pomodoro.settings.ambienceNone', undefined, 'None') }}</option>
+							<option v-for="m in mixes" :key="m.id" :value="m.id" :selected="settings.ambienceMixId === m.id">{{ mixLabel(m) }}</option>
+						</select>
+						<label>{{ t('app.pomodoro.settings.ambienceVolume', undefined, 'Sound volume') }}</label>
+						<input type="range" class="pm-range" min="0" max="100" step="1" :value="Math.round(settings.ambienceVolume * 100)"
+							:disabled="!settings.ambienceMixId" @input="onVolumeInput">
+					</div>
+					<div class="pm-hint">{{ t('app.pomodoro.settings.ambienceHint', undefined, 'The sound plays in the window or widget where focus was started. Mixes come from the Ambience app.') }}</div>
+				</div>
+			</section>
+		</div>
+
+		</template>
+	</div>
+
+	<script type="module" src="./app.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

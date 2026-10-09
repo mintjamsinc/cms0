@@ -348,6 +348,21 @@ const stickyNotesConfigs = [
   }),
 ];
 
+// Pomodoro: like Sticky Notes, the timer widget is a second page next to the
+// window (widget.html + widget.js); both belong to the one "pomodoro" target.
+const pomodoroConfigs = [
+  makeAppConfig('pomodoro', {
+    extraCopyTargets: [
+      { src: 'src/webtop/apps/pomodoro/widget.html', dest: 'dist/webtop/apps/pomodoro', transform: stampVersion },
+    ],
+  }),
+  makeConfig({
+    name: 'pomodoro',
+    input: 'src/webtop/apps/pomodoro/widget.ts',
+    outputFile: 'dist/webtop/apps/pomodoro/widget.js',
+  }),
+];
+
 // Every target by name, in build order. scripts/build.mjs reads this list to
 // run one rollup process per target, so a target added here is picked up by
 // `npm run build` without a second list to keep in sync. Targets with extra
@@ -364,6 +379,7 @@ const specialConfigs = {
   'reversi': reversiConfigs,
   'numberplace': numberplaceConfigs,
   'sticky-notes': stickyNotesConfigs,
+  'pomodoro': pomodoroConfigs,
 };
 export const TARGET_NAMES = [
   'webtop',
@@ -392,6 +408,7 @@ export const TARGET_NAMES = [
   'minesweeper',
   'sticky-notes',
   'ambience',
+  'pomodoro',
 ];
 
 if (targetFilter) {

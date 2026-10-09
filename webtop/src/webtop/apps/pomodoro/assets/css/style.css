@@ -1,0 +1,302 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Pomodoro — the window
+ *
+ * Theme tokens / shared components live in webtop-app.css. This file adds the
+ * plant pane, the timer, the record and the settings. The accent follows the
+ * phase as in the widget: warm for focus, cool for a break, grey when idle.
+ * ============================================================================ */
+
+:root {
+	--navbar-height: 2.5rem;
+	--pm-focus: #ef5350;
+	--pm-break: #26a69a;
+	--pm-idle: #90a4ae;
+}
+
+#app {
+	--pm-accent: var(--pm-idle);
+	height: 100%;
+}
+
+#app.pm-focus { --pm-accent: var(--pm-focus); }
+#app.pm-shortBreak,
+#app.pm-longBreak { --pm-accent: var(--pm-break); }
+
+.pm-body {
+	gap: 0.75rem;
+}
+
+.pm-section-title {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--text-muted-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Plant
+ * -------------------------------------------------------------------------- */
+
+.pm-plant {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.5rem;
+	width: 15rem;
+	flex-shrink: 0;
+	overflow-y: auto;
+}
+
+.pm-plant-stage {
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	width: 100%;
+	padding: 1rem 0 0.75rem;
+	border-radius: 0.75rem;
+	background: linear-gradient(to bottom, rgb(135 206 235 / 0.18), rgb(135 206 235 / 0.04) 70%, rgb(141 110 99 / 0.18) 70%);
+}
+
+.pm-plant-stage canvas {
+	image-rendering: pixelated;
+}
+
+.pm-plant-name {
+	font-size: 15px;
+	font-weight: 700;
+}
+
+.pm-plant-bar {
+	width: 100%;
+	height: 6px;
+	border-radius: 3px;
+	background: rgb(128 128 128 / 0.2);
+	overflow: hidden;
+}
+
+.pm-plant-bar-fill {
+	height: 100%;
+	background: #4caf50;
+}
+
+.pm-plant-note,
+.pm-plant-total {
+	font-size: 12px;
+	text-align: center;
+	color: var(--text-muted-color);
+}
+
+/* ----------------------------------------------------------------------------
+ * Timer, record, settings
+ * -------------------------------------------------------------------------- */
+
+.pm-side {
+	gap: 0.75rem;
+	overflow-y: auto;
+}
+
+.pm-timer {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.375rem;
+	flex-shrink: 0;
+}
+
+.pm-phase {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	color: var(--pm-accent);
+	font-weight: 700;
+}
+
+.pm-dots {
+	display: flex;
+	gap: 4px;
+}
+
+.pm-dots i {
+	width: 9px;
+	height: 9px;
+	border: 2px solid var(--pm-accent);
+	border-radius: 50%;
+}
+
+.pm-dots i.done {
+	background: var(--pm-accent);
+}
+
+.pm-clock {
+	font-size: 64px;
+	font-weight: 700;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+}
+
+.pm-clock.paused {
+	opacity: 0.5;
+}
+
+.pm-bar {
+	width: 70%;
+	height: 4px;
+	border-radius: 2px;
+	background: rgb(128 128 128 / 0.2);
+	overflow: hidden;
+}
+
+.pm-bar-fill {
+	height: 100%;
+	background: var(--pm-accent);
+	transition: width 0.5s linear;
+}
+
+.pm-buttons {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin-top: 0.25rem;
+}
+
+.pm-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.5rem;
+	height: 2.5rem;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: rgb(128 128 128 / 0.15);
+	color: inherit;
+	font-size: 1.1rem;
+	cursor: pointer;
+}
+
+.pm-btn:hover:not(:disabled) {
+	background: rgb(128 128 128 / 0.28);
+}
+
+.pm-btn:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.pm-btn-main {
+	width: 3.5rem;
+	height: 3.5rem;
+	background: var(--pm-accent);
+	color: #fff;
+	font-size: 1.6rem;
+}
+
+.pm-btn-main:hover:not(:disabled) {
+	background: var(--pm-accent);
+	filter: brightness(1.1);
+}
+
+.pm-record {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	flex-shrink: 0;
+}
+
+.pm-record-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.5rem;
+}
+
+.pm-record-today {
+	font-weight: 600;
+}
+
+.pm-record-week {
+	font-size: 12px;
+	color: var(--text-muted-color);
+}
+
+.pm-week {
+	display: grid;
+	grid-template-columns: repeat(7, 1fr);
+	gap: 0.375rem;
+	height: 5.5rem;
+}
+
+.pm-week-day {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.25rem;
+	min-height: 0;
+}
+
+.pm-week-bar {
+	display: flex;
+	align-items: flex-end;
+	flex: 1;
+	width: 60%;
+	border-radius: 4px;
+	background: rgb(128 128 128 / 0.1);
+	overflow: hidden;
+}
+
+.pm-week-fill {
+	width: 100%;
+	background: color-mix(in srgb, var(--pm-focus) 70%, transparent);
+}
+
+.pm-week-day.today .pm-week-fill {
+	background: var(--pm-focus);
+}
+
+.pm-week-label {
+	font-size: 11px;
+	color: var(--text-muted-color);
+}
+
+.pm-week-day.today .pm-week-label {
+	color: inherit;
+	font-weight: 700;
+}
+
+.pm-settings {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	flex-shrink: 0;
+}
+
+.pm-fields {
+	display: grid;
+	grid-template-columns: 1fr 9rem;
+	align-items: center;
+	gap: 0.375rem 0.75rem;
+}
+
+.pm-fields input[type="number"] {
+	width: 100%;
+}
+
+.pm-check {
+	justify-self: start;
+	width: 1rem;
+	height: 1rem;
+	accent-color: var(--pm-break);
+}
+
+.pm-range {
+	width: 100%;
+	accent-color: var(--pm-break);
+}
+
+.pm-hint {
+	font-size: 11px;
+	color: var(--text-muted-color);
+}

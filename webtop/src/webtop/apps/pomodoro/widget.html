@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no">
+	<title>Pomodoro</title>
+
+	<!-- Bootstrap Icons (bundled with webtop; see webtop/rollup.config.js) -->
+	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
+
+	<!-- Default CSS -->
+	<link href="./assets/css/widget.css?v=__BUILD_VERSION__" rel="stylesheet" />
+	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
+</head>
+
+<body>
+	<!-- The timer widget (see widget.ts). The shell draws the grip and its
+	     menu (move, put on the desktop, remove) on hover. -->
+	<div id="timer" v-cloak class="pw" :class="'pw-' + view.phase" @mounted="onMounted" @unmount="onUnmount">
+		<div class="pw-plant window-drag-region">
+			<canvas ref="plant"></canvas>
+		</div>
+		<div class="pw-main window-drag-region">
+			<div class="pw-phase">
+				<span>{{ phaseLabel }}</span>
+				<span class="pw-dots"><i v-for="(done, i) in view.dots" :key="i" :class="{ done: done }"></i></span>
+			</div>
+			<div class="pw-clock" :class="{ paused: view.paused }">{{ view.clock }}</div>
+			<div class="pw-bar"><div class="pw-bar-fill" :style="{ width: (view.progress * 100) + '%' }"></div></div>
+			<div class="pw-buttons" v-if="isReady">
+				<button type="button" class="pw-btn pw-btn-main" @click="toggle"
+					:title="view.running ? t('app.pomodoro.pause', undefined, 'Pause') : t('app.pomodoro.start', undefined, 'Start')">
+					<i class="bi" :class="view.running ? 'bi-pause-fill' : 'bi-play-fill'"></i>
+				</button>
+				<button type="button" class="pw-btn" @click="skip" :disabled="view.phase === 'idle'"
+					:title="t('app.pomodoro.skip', undefined, 'Skip')">
+					<i class="bi bi-skip-end-fill"></i>
+				</button>
+				<button type="button" class="pw-btn" @click="openApp" :title="t('app.pomodoro.openApp', undefined, 'Settings and record')">
+					<i class="bi bi-sliders"></i>
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<script type="module" src="./widget.js?v=__BUILD_VERSION__"></script>
+</body>
+
+</html>

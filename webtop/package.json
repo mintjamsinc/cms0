@@ -56,6 +56,8 @@
 		"build:sticky-notes:prod": "node scripts/build.mjs --prod sticky-notes",
 		"build:ambience": "node scripts/build.mjs ambience",
 		"build:ambience:prod": "node scripts/build.mjs --prod ambience",
+		"build:pomodoro": "node scripts/build.mjs pomodoro",
+		"build:pomodoro:prod": "node scripts/build.mjs --prod pomodoro",
 		"build:webtop-ui-standalone": "node scripts/build.mjs webtop-ui-standalone",
 		"build:webtop-ui-standalone:prod": "node scripts/build.mjs --prod webtop-ui-standalone",
 		"prepare": "npm run build",
