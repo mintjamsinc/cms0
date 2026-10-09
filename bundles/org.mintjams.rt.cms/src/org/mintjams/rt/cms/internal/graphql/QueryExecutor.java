@@ -1097,7 +1097,8 @@ public class QueryExecutor {
 	 * {@code apps(path: "/usr/share/webtop/apps", first: 100, after: "cursor") {
 	 *   edges { node { identifier name title icon path relPath modified editor
 	 *     contentTypes enableStartMenu isAdminOnly singleton customWindowControls
-	 *     minimumWidth minimumHeight actions { identifier label icon } } cursor }
+	 *     minimumWidth minimumHeight actions { identifier label icon }
+	 *     widgets { identifier title entry width height layer } } cursor }
 	 *   pageInfo { hasNextPage hasPreviousPage startCursor endCursor } totalCount } }
 	 */
 	public Map<String, Object> executeAppsQuery(GraphQLRequest request) throws Exception {
@@ -1306,6 +1307,8 @@ public class QueryExecutor {
 			}
 		}
 		app.put("actions", actions);
+
+		app.put("widgets", AppWidgets.fromDescriptor(data.get("widgets")));
 
 		return app;
 	}

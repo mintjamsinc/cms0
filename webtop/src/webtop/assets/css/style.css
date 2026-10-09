@@ -713,6 +713,166 @@ body {
 	z-index: 0;
 }
 
+/* Windows stack inside this layer (index.gsp), so their ever-growing z-index
+   stays below pinned widgets, the Dock and the menus. It spans the desktop
+   area but lets the pointer through to the icons, widgets and background;
+   each window takes the pointer back. */
+#window-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 200;
+	pointer-events: none;
+}
+
+#window-layer .window {
+	pointer-events: auto;
+}
+
+/* Desktop widgets (components/wt-widget.ts). .desktop-widgets is not
+   positioned, so each placement's z-index (index.ts WIDGET_Z_*) joins the
+   desktop's stacking context: 101.. under #window-layer, 301.. above it.
+   The page draws itself; the shell adds only the grip shown on hover. */
+.widget {
+	position: absolute;
+	border-radius: 0.75rem;
+}
+
+.widget-frame {
+	display: block;
+	width: 100%;
+	height: 100%;
+	border: 0;
+	border-radius: inherit;
+	background: transparent;
+}
+
+.widget-launching,
+.widget-launch-failed {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.5rem;
+	border-radius: inherit;
+	background: rgb(0 0 0 / 0.25);
+	color: #fff;
+	font-size: 12px;
+	text-align: center;
+	pointer-events: none;
+}
+
+.widget-grip {
+	position: absolute;
+	top: 4px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	height: 18px;
+	padding: 0 2px 0 8px;
+	border-radius: 9px;
+	background: rgb(0 0 0 / 0.45);
+	color: #fff;
+	font-size: 12px;
+	line-height: 1;
+	cursor: grab;
+	opacity: 0;
+	transition: opacity 0.15s;
+}
+
+.widget:hover .widget-grip,
+.widget.moving .widget-grip {
+	opacity: 1;
+}
+
+.widget.moving .widget-grip {
+	cursor: grabbing;
+}
+
+.widget-menu-button {
+	display: flex;
+	align-items: center;
+	height: 14px;
+	padding: 0 4px;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+
+.widget-menu-button:hover {
+	background: rgb(255 255 255 / 0.2);
+}
+
+.widget-resize {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 14px;
+	height: 14px;
+	cursor: nwse-resize;
+}
+
+/* "Already placed": a widget that is not `multiple` was asked for again. */
+.widget.highlighted {
+	animation: widget-highlight 0.6s ease-in-out 2;
+}
+
+@keyframes widget-highlight {
+	0%, 100% { box-shadow: 0 0 0 0 transparent; }
+	50% { box-shadow: 0 0 0 4px var(--primary-color, rgb(0 123 255 / 0.8)); }
+}
+
+/* "Add Widget" dialog */
+.widget-picker-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+	gap: 0.5rem;
+}
+
+.widget-picker-item {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.25rem;
+	min-width: 0;
+	padding: 0.75rem 0.5rem;
+	border: 2px solid transparent;
+	border-radius: 0.5rem;
+	background: var(--badge-bg, rgb(128 128 128 / 0.08));
+	color: inherit;
+	cursor: pointer;
+	transition: border-color 0.15s;
+}
+
+.widget-picker-item:hover:not(:disabled) {
+	border-color: var(--input-border-color);
+}
+
+.widget-picker-item:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.widget-picker-item img {
+	width: 2.5rem;
+	height: 2.5rem;
+}
+
+.widget-picker-title {
+	max-width: 100%;
+	font-weight: 600;
+}
+
+.widget-picker-app {
+	max-width: 100%;
+	font-size: 0.85em;
+	opacity: 0.7;
+}
+
 /* Desktop upload / conflict / delete dialogs all use the shared
    .session-overlay / .dialog-frame / .island pattern; only progress bar,
    error text and conflict path keep desktop-specific styling here. */

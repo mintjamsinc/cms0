@@ -1035,6 +1035,25 @@ type App {
   minimumWidth: Int
   minimumHeight: Int
   actions: [AppAction!]!
+  """Desktop widgets the app offers (the `widgets` map of app.yml)."""
+  widgets: [AppWidget!]!
+}
+
+"""A desktop widget: a page of the app the shell places on the desktop, outside any window."""
+type AppWidget {
+  identifier: String!
+  title: String
+  """Page inside the app directory, relative to it."""
+  entry: String!
+  width: Int!
+  height: Int!
+  minWidth: Int
+  minHeight: Int
+  resizable: Boolean!
+  """Whether the same widget may be placed more than once."""
+  multiple: Boolean!
+  """Layer a new placement starts on: desktop (under windows) or pinned (above them)."""
+  layer: String!
 }
 
 type AppAction {

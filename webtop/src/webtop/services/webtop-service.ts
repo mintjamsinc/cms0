@@ -1,5 +1,24 @@
 import { WebtopContext } from '../global.js';
 
+// A desktop widget declared in app.yml (`widgets:`): a page of the app the
+// shell places on the desktop outside any window. See WidgetInstance.
+export interface AppWidget {
+	identifier: string;
+	title?: string | null;
+	entry: string;                 // page inside the app directory
+	width: number;
+	height: number;
+	minWidth?: number | null;
+	minHeight?: number | null;
+	resizable: boolean;
+	multiple: boolean;             // may be placed more than once
+	layer: WidgetLayer;            // layer a new placement starts on
+}
+
+// desktop: above the wallpaper and icons, under every window.
+// pinned: above every window, under the Dock, menus and toasts.
+export type WidgetLayer = 'desktop' | 'pinned';
+
 export class Application {
 	#data;
 
@@ -35,6 +54,7 @@ export class Application {
 	// from the menu restores and focuses the existing window instead of opening
 	// a new one.
 	get singleton(): boolean { return !!this.#data.singleton; }
+	get widgets(): AppWidget[] { return this.#data.widgets || []; }
 }
 
 // =============================================================================
@@ -319,6 +339,65 @@ export class ApplicationInstance {
 	}
 
 	/**
+	 * Place one of this app's widgets on the desktop (e.g. a "Put on desktop"
+	 * button). Resolves to the placement id, or null when the widget is not
+	 * declared or the desktop is full. A widget that is not `multiple` and is
+	 * already placed is not placed again: the existing placement is
+	 * highlighted and its id returned.
+	 */
+	addWidget(widgetId: string, options?: { layer?: WidgetLayer }): Promise<string | null> {
+		return new Promise((resolve) => {
+			document.dispatchEvent(new CustomEvent('widget-add', {
+				detail: { appId: this.#app?.id, widgetId, layer: options?.layer, resolve },
+			}));
+		});
+	}
+
+	/** This app's placements on the desktop, oldest first. */
+	listWidgets(): Promise<{ id: string; widget: string; layer: WidgetLayer }[]> {
+		return new Promise((resolve) => {
+			document.dispatchEvent(new CustomEvent('widget-list', {
+				detail: { appId: this.#app?.id, resolve },
+			}));
+		});
+	}
+
+	/**
+	 * Show one of this app's placements above every window, highlighted,
+	 * until a window is used again (e.g. a note hidden under windows, picked
+	 * from the app's list).
+	 */
+	revealWidget(id: string): void {
+		document.dispatchEvent(new CustomEvent('widget-reveal', { detail: { appId: this.#app?.id, id } }));
+	}
+
+	/** Move one of this app's placements to the desktop or the pinned layer. */
+	setWidgetLayer(id: string, layer: WidgetLayer): void {
+		document.dispatchEvent(new CustomEvent('widget-set-layer', { detail: { appId: this.#app?.id, id, layer } }));
+	}
+
+	/**
+	 * Call back whenever placements change: placed, removed, moved, another
+	 * layer, or changed in another browser. Returns the unsubscribe; the
+	 * subscription also ends when this window closes.
+	 */
+	onWidgetsChanged(callback: () => void): () => void {
+		const onChange = () => {
+			try { callback(); } catch (error) { console.error('Error in widgets-changed callback:', error); }
+		};
+		const unsubscribe = () => {
+			document.removeEventListener('widget-placements-changed', onChange);
+			document.removeEventListener('app-instance-closed', onClosed);
+		};
+		const onClosed = (e: Event) => {
+			if ((e as CustomEvent).detail?.id === this.#id) unsubscribe();
+		};
+		document.addEventListener('widget-placements-changed', onChange);
+		document.addEventListener('app-instance-closed', onClosed);
+		return unsubscribe;
+	}
+
+	/**
 	 * Set a callback to be called before the window is closed.
 	 * If the callback returns false or a Promise that resolves to false, the close will be cancelled.
 	 * @param callback The callback function to call before closing
@@ -338,6 +417,82 @@ export class ApplicationInstance {
 			} catch (error) {
 				console.error('Error in beforeClose callback:', error);
 				return true; // Allow close on error
+			}
+		}
+		return true;
+	}
+}
+
+/**
+ * One widget placed on the desktop, handed to the widget page's
+ * `window.widgetLaunch(widget)`. The id is the placement's: it stays the same
+ * across reloads and browsers, so a widget keys its own data by it (e.g. the
+ * text of a sticky note). The shell keeps only where the placement is.
+ */
+export class WidgetInstance {
+	#app: Application;
+	#widget: AppWidget;
+	#id: string;
+	#layer: WidgetLayer;
+	#context: WebtopContext;
+	#beforeRemoveCallback: (() => Promise<boolean> | boolean) | null = null;
+	#popup: PopupService;
+
+	constructor(app: Application, widget: AppWidget, id: string, layer: WidgetLayer, context: WebtopContext) {
+		this.#app = app;
+		this.#widget = widget;
+		this.#id = id;
+		this.#layer = layer;
+		this.#context = context;
+		this.#popup = new PopupService(this.#id);
+	}
+
+	get id() { return this.#id; }
+	get app() { return this.#app; }
+	get widget() { return this.#widget; }
+	get currentUser() { return this.#context.currentUser; }
+	get api() { return this.#context.api; }
+	get util() { return this.#context.util; }
+	get popup() { return this.#popup; }
+
+	/** The layer the placement is on. A change is also posted to the page as `{ type: 'widget-layer-changed', layer }`. */
+	get layer(): WidgetLayer { return this.#layer; }
+
+	/** Called by the shell when the user moves the placement to another layer. */
+	applyLayer(layer: WidgetLayer): void {
+		this.#layer = layer;
+	}
+
+	notifyLaunched(): void {
+		document.dispatchEvent(new CustomEvent('widget-launched', { detail: { id: this.#id } }));
+	}
+
+	/** Open the app's window (a singleton app's running window is brought to the front). */
+	openApp(options?: Record<string, unknown>): void {
+		window.postMessage({ type: 'open-app', appId: this.#app.id, options }, window.location.origin);
+	}
+
+	/** Ask the shell to take this placement off the desktop; the beforeRemove callback is consulted first. */
+	remove(): void {
+		document.dispatchEvent(new CustomEvent('widget-remove-request', { detail: { id: this.#id } }));
+	}
+
+	/**
+	 * Set a callback consulted before the placement is removed: confirm with
+	 * the user, delete the widget's own data. Returning false (or a Promise
+	 * resolving to false) keeps the placement.
+	 */
+	setBeforeRemoveCallback(callback: (() => Promise<boolean> | boolean) | null): void {
+		this.#beforeRemoveCallback = callback;
+	}
+
+	async canRemove(): Promise<boolean> {
+		if (this.#beforeRemoveCallback) {
+			try {
+				return await this.#beforeRemoveCallback();
+			} catch (error) {
+				console.error('Error in beforeRemove callback:', error);
+				return true;
 			}
 		}
 		return true;

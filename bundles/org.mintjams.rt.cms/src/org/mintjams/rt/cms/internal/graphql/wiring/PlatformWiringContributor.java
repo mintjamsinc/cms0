@@ -70,6 +70,7 @@ import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.pubsub.TopicMessages;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
+import org.mintjams.rt.cms.internal.graphql.AppWidgets;
 import org.mintjams.rt.cms.internal.graphql.ClusterQueryExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
 import org.mintjams.rt.cms.internal.graphql.MultipartUploadManager;
@@ -790,6 +791,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 			}
 		}
 		app.put("actions", actions);
+		app.put("widgets", AppWidgets.fromDescriptor(data.get("widgets")));
 		return app;
 	}
 

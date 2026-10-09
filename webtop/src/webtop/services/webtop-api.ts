@@ -99,6 +99,8 @@ export class WebtopAPI {
 	get webtop() { return this.#webtopGraphQL; }
 	get idp() { return this.#idpGraphQL; }
 	get eventHub() { return this.#eventHub; }
+	/** Change events of the system workspace (e.g. files an app keeps in the user's home there). */
+	get systemEventHub() { return this.#systemEventHub; }
 	/** Content service for the system workspace (user home, preferences, etc.) */
 	get systemContent() { return this.#systemContentGraphQL; }
 
@@ -253,6 +255,13 @@ export class WebtopAPI {
 				});
 				this.#webtopGraphQL.postMessage({ type: 'preferences-changed-remotely' });
 			}
+			return;
+		}
+
+		if (event.category === 'widgets') {
+			// Desktop widget placements changed in another tab or browser
+			// (or this one's own save echoing back); the shell reconciles.
+			document.dispatchEvent(new CustomEvent('webtop-widgets-changed', { detail: event.data }));
 			return;
 		}
 

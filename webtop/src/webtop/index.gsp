@@ -100,7 +100,19 @@
 				<wt-desktop-icons :enabled="hasDesktopFolder" :desktopPath="desktopFolderPath"
 					:selectedIds="desktopSelectedIds" :dragOverItemID="desktopDragOverItemID"></wt-desktop-icons>
 				<div v-if="desktopDragSelection.active" class="desktop-selection-rect" :style="desktopSelectionStyle"></div>
-				<wt-window v-for="appInstance in appInstances" :key="appInstance.id" :appInstance="appInstance" :localization="localization"></wt-window>
+				<!-- Desktop widgets. Not a stacking context: each placement's
+				     z-index puts it in its layer's band, below (desktop) or above
+				     (pinned) #window-layer. See components/wt-widget.ts. -->
+				<div class="desktop-widgets">
+					<wt-widget v-for="placement in visibleWidgetPlacements" :key="placement.id" :placement="placement"
+						:z="widgetZIndexes[placement.id]" :desktopWidth="desktopSize.width" :desktopHeight="desktopSize.height"
+						:highlighted="highlightedWidgetID === placement.id" :localization="localization"></wt-widget>
+				</div>
+				<!-- Windows stack inside this layer, so their ever-growing z-index
+				     stays below pinned widgets, the Dock and the menus. -->
+				<div id="window-layer">
+					<wt-window v-for="appInstance in appInstances" :key="appInstance.id" :appInstance="appInstance" :localization="localization"></wt-window>
+				</div>
 			</main>
 			<div id="dock-overlay" v-if="openDockAppID" @click="closeDockList"></div>
 
@@ -418,6 +430,31 @@
 						<div class="dialog-footer">
 							<button class="wt" @click="closeDesktopDeleteDialog">{{ t('common.cancel') }}</button>
 							<button class="wt wt-danger" @click="submitDesktopDelete">{{ t('common.delete') }}</button>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Widget picker: "Add Widget…" on the desktop background -->
+			<div v-if="widgetPicker.visible" class="session-overlay" @click="closeWidgetPicker">
+				<div class="dialog-frame" style="max-width: 34rem;" @click.stop>
+					<div class="island p-2">
+						<div class="dialog-header">
+							<h3>{{ t('webtop.widget.picker.title') }}</h3>
+						</div>
+						<div class="dialog-body">
+							<div v-if="widgetPicker.entries.length === 0" class="mb-3">{{ t('webtop.widget.picker.empty') }}</div>
+							<div v-else class="widget-picker-grid">
+								<button v-for="entry in widgetPicker.entries" :key="entry.key" type="button" class="widget-picker-item"
+									:disabled="entry.placed" @click="pickWidget(entry)">
+									<img :src="iconURL(entry.app)">
+									<span class="widget-picker-title text-truncate">{{ widgetTitle(entry.app, entry.widget) }}</span>
+									<span class="widget-picker-app text-truncate">{{ entry.placed ? t('webtop.widget.picker.placed') : appTitle(entry.app) }}</span>
+								</button>
+							</div>
+						</div>
+						<div class="dialog-footer">
+							<button class="wt" @click="closeWidgetPicker">{{ t('common.cancel') }}</button>
 						</div>
 					</div>
 				</div>

@@ -2,6 +2,7 @@
 import { defineComponent } from '@mintjamsinc/ichigojs';
 import { BUILD_VERSION } from '../utils/build-version.js';
 import { translate, createLocalizationSnapshot } from '../composables/use-localization.js';
+import { attachFrameDragRegion } from '../lib/frame-drag.js';
 
 let zIndexSeed = 1;
 
@@ -89,8 +90,7 @@ defineComponent('wt-window', {
 				focusInListener: null as (() => void) | null,
 				frameTreeTeardown: null as (() => void) | null,
 				windowFocusInListener: null as ((e: FocusEvent) => void) | null,
-				iframeDragMouseDownListener: null as ((e: MouseEvent) => void) | null,
-				iframeDragDblClickListener: null as ((e: MouseEvent) => void) | null,
+				frameDragTeardown: null as (() => void) | null,
 			}),
 			appInstance: ai,
 			app: ai?.app,
@@ -439,79 +439,22 @@ defineComponent('wt-window', {
 							vm._.frameTreeTeardown = attachToDoc(frame.contentDocument);
 						} catch (_) { /* cross-origin */ }
 
-						// Drag region support: any element with `.window-drag-region` inside
-						// the iframe acts as a window drag handle. Clicks on interactive
-						// children (button, input, etc.) are excluded.
-						// Note: mousemove/mouseup are bound on BOTH the iframe document and
-						// the parent document because mouse-capture stays within whichever
-						// document received the original mousedown.
-						const isInteractiveTarget = (el: HTMLElement | null) => {
-							return !!el && !!el.closest('button, a, input, textarea, select, [contenteditable="true"], [role="button"], [role="textbox"]');
-						};
-						vm._.iframeDragMouseDownListener = (e: MouseEvent) => {
-							if (e.button !== 0) return;
-							const target = e.target as HTMLElement;
-							if (!target.closest('.window-drag-region')) return;
-							if (isInteractiveTarget(target)) return;
-							if (e.detail > 1) return;
-							if (vm.maximized) return;
-
-							vm.activate();
-							// preventDefault below would block focus from transferring to
-							// the iframe, which would silently break in-iframe keyboard
-							// shortcuts (Delete, Escape, Ctrl+I, ...). Force focus first.
-							try { frame.contentWindow?.focus(); } catch (_) { /* cross-origin */ }
-							// Disable pointer events on nested iframes inside the app
-							// (e.g. OSGi Console's Felix iframe) for the duration of the
-							// drag. Without this, mouse-capture transfers to the nested
-							// iframe as soon as the cursor crosses it and the drag stalls
-							// or hangs. See html.wt-window-dragging rule in webtop-app.css.
-							try { frame.contentDocument?.documentElement.classList.add('wt-window-dragging'); } catch (_) { /* cross-origin */ }
-							const rect0 = frame.getBoundingClientRect();
-							const startPageX = e.clientX + rect0.left;
-							const startPageY = e.clientY + rect0.top;
-							const startWinX = vm.x;
-							const startWinY = vm.y;
-
-							const updateFromIframe = (ev: MouseEvent) => {
-								const r = frame.getBoundingClientRect();
-								const cx = ev.clientX + r.left;
-								const cy = ev.clientY + r.top;
-								vm.x = startWinX + (cx - startPageX);
-								vm.y = Math.max(0, startWinY + (cy - startPageY));
-							};
-							const updateFromParent = (ev: MouseEvent) => {
-								vm.x = startWinX + (ev.clientX - startPageX);
-								vm.y = Math.max(0, startWinY + (ev.clientY - startPageY));
-							};
-							const cleanup = () => {
-								try {
-									frame.contentDocument?.removeEventListener('mousemove', updateFromIframe, true);
-									frame.contentDocument?.removeEventListener('mouseup', cleanup, true);
-									frame.contentDocument?.documentElement.classList.remove('wt-window-dragging');
-								} catch (_) { /* cross-origin */ }
-								document.removeEventListener('mousemove', updateFromParent, true);
-								document.removeEventListener('mouseup', cleanup, true);
-								vm.syncSessionState();
-							};
-							try {
-								frame.contentDocument?.addEventListener('mousemove', updateFromIframe, true);
-								frame.contentDocument?.addEventListener('mouseup', cleanup, true);
-							} catch (_) { /* cross-origin */ }
-							document.addEventListener('mousemove', updateFromParent, true);
-							document.addEventListener('mouseup', cleanup, true);
-							e.preventDefault();
-						};
-						vm._.iframeDragDblClickListener = (e: MouseEvent) => {
-							const target = e.target as HTMLElement;
-							if (!target.closest('.window-drag-region')) return;
-							if (isInteractiveTarget(target)) return;
-							vm.toggleMaximize();
-						};
-						try {
-							frame.contentDocument?.addEventListener('mousedown', vm._.iframeDragMouseDownListener, true);
-							frame.contentDocument?.addEventListener('dblclick', vm._.iframeDragDblClickListener, true);
-						} catch (_) { /* cross-origin */ }
+						// Drag region support: any element with `.window-drag-region`
+						// inside the iframe acts as a window drag handle.
+						let dragStart = { x: 0, y: 0 };
+						vm._.frameDragTeardown = attachFrameDragRegion(frame, {
+							canStart: () => !vm.maximized,
+							onStart: () => {
+								vm.activate();
+								dragStart = { x: vm.x, y: vm.y };
+							},
+							onMove: (dx: number, dy: number) => {
+								vm.x = dragStart.x + dx;
+								vm.y = Math.max(0, dragStart.y + dy);
+							},
+							onEnd: () => { vm.syncSessionState(); },
+							onDoubleClick: () => { vm.toggleMaximize(); },
+						});
 
 						const launchOptions = (vm._.originalAppInstance as any).launchOptions;
 						// appLaunch is async across all apps. Surface both a synchronous
@@ -616,17 +559,9 @@ defineComponent('wt-window', {
 					vm._.frameTreeTeardown = null;
 				}
 				vm._.focusInListener = null;
-				if (vm._.iframeDragMouseDownListener) {
-					try {
-						frame.contentDocument?.removeEventListener('mousedown', vm._.iframeDragMouseDownListener, true);
-					} catch (_) { /* cross-origin */ }
-					vm._.iframeDragMouseDownListener = null;
-				}
-				if (vm._.iframeDragDblClickListener) {
-					try {
-						frame.contentDocument?.removeEventListener('dblclick', vm._.iframeDragDblClickListener, true);
-					} catch (_) { /* cross-origin */ }
-					vm._.iframeDragDblClickListener = null;
+				if (vm._.frameDragTeardown) {
+					vm._.frameDragTeardown();
+					vm._.frameDragTeardown = null;
 				}
 			}
 			vm.removeOverlay();

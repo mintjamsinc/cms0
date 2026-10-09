@@ -1,0 +1,20 @@
+<template id="wt-widget">
+	<div class="widget" :class="{ moving: !!liveRect, highlighted: highlighted, pinned: placement.layer === 'pinned' }"
+		:data-id="placement.id" :style="widgetStyle"
+		@mounted.stop="onMounted" @unmount.stop="onUnmount" @mousedown="activate"
+		@widget-launched.document="onWidgetLaunched" @theme-changed.document="onThemeChanged"
+		@widget-remove-request.document="onRemoveRequest" @widget-layer-applied.document="onLayerApplied">
+		<iframe class="widget-frame" :src="contentURL" :style="frameStyle" :data-app-id="placement.id"></iframe>
+		<div v-if="!isLaunched && !isLaunchFailed" class="widget-launching"><span class="loader"></span></div>
+		<div v-if="isLaunchFailed" class="widget-launch-failed">
+			<span>{{ t('webtop.widget.launchFailed', undefined, 'The widget could not be started.') }}</span>
+		</div>
+		<!-- Shown on hover: the handle to move the widget and its menu. -->
+		<div class="widget-grip" @mousedown.prevent.stop="startDrag" @contextmenu.prevent.stop="openMenu(event)">
+			<i class="bi bi-grip-horizontal"></i>
+			<button type="button" class="widget-menu-button" :title="t('webtop.widget.menu', undefined, 'Widget menu')"
+				@mousedown.stop @click.stop="openMenu(event)"><i class="bi bi-three-dots"></i></button>
+		</div>
+		<div v-if="resizable" class="widget-resize" @mousedown.prevent.stop="startResize"></div>
+	</div>
+</template>

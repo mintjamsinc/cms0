@@ -2,11 +2,21 @@ import { WebtopContext } from './global.js';
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { WebtopAPI } from './services/webtop-api.js';
 import { User } from './services/user-service.js';
-import { Application, ApplicationInstance } from './services/webtop-service.js';
+import { Application, ApplicationInstance, type AppWidget, type WidgetLayer } from './services/webtop-service.js';
+import {
+	WidgetStore,
+	MAX_WIDGET_PLACEMENTS,
+	anchorRect,
+	parsePlacements,
+	placementRect,
+	type WidgetPlacement,
+	type WidgetRect,
+} from './services/widget-store.js';
 import type { SessionData, SessionEntry } from './services/session-manager.js';
 import { WebtopUtil } from './services/webtop-util.js';
 import './components/wt-window.js';
 import './components/wt-desktop-icons.js';
+import './components/wt-widget.js';
 import { loadSavedWindowSize } from './components/wt-window.js';
 import { UrlUtils, type UrlInfo } from './utils/url.js';
 import { BUILD_VERSION } from './utils/build-version.js';
@@ -67,6 +77,24 @@ const MAX_TOASTS = 4;
 // The notices the shell has seen in the store, so that a toast is shown for
 // each one that is new, wherever it came from. Module scope: not reactive.
 let knownNoticeIDs = new Set<string>();
+
+// Desktop widgets. z-index bands: placements on the desktop layer sit between
+// the icons and #window-layer (z-index 200 in style.css), pinned ones above it;
+// all of them stay below the Dock (1000). Module scope: not reactive (the store
+// has private fields, which a reactive proxy cannot reach).
+const WIDGET_Z_DESKTOP = 100;
+const WIDGET_Z_PINNED = 300;
+// A placement an app reveals (ApplicationInstance.revealWidget) shows above
+// the pinned ones until a window is used again.
+const WIDGET_Z_REVEALED = 400;
+const WIDGET_HIGHLIGHT_MS = 1200;
+const WIDGET_RESYNC_MS = 500;
+let widgetStore: WidgetStore | null = null;
+let widgetZSeed = 0;
+let widgetHighlightTimer: ReturnType<typeof setTimeout> | null = null;
+let widgetResyncTimer: ReturnType<typeof setTimeout> | null = null;
+let widgetResizeHandler: (() => void) | null = null;
+let widgetPageHideHandler: (() => void) | null = null;
 
 async function loadComponent(relPath: string): Promise<void> {
 	const res = await fetch(`./components/${relPath}?v=${BUILD_VERSION}`);
@@ -172,6 +200,22 @@ const WtDesktop = {
 			// feature won't have one — drop/paste then shows desktopAlert.
 			hasDesktopFolder: false,
 			desktopFolderPath: '' as string,
+			// Desktop widgets (components/wt-widget.ts, services/widget-store.ts).
+			// The array is never reordered: v-for would move the rows, and a
+			// moved iframe reloads. Stacking within a layer is widgetZ instead
+			// (placement id -> a seed that grows each time one is raised).
+			widgetPlacements: [] as WidgetPlacement[],
+			widgetZ: {} as Record<string, number>,
+			highlightedWidgetID: null as string | null,
+			revealedWidgetID: null as string | null,
+			desktopSize: { width: 0, height: 0 },
+			// "Add Widget" dialog. `at` is where the desktop was right-clicked,
+			// in #desktop-area coordinates.
+			widgetPicker: {
+				visible: false,
+				at: null as { x: number; y: number } | null,
+				entries: [] as { key: string; app: Application; widget: AppWidget; placed: boolean }[],
+			},
 			desktopAlert: {
 				visible: false,
 				title: '',
@@ -286,6 +330,33 @@ const WtDesktop = {
 		},
 		dockHidden() {
 			return (this as any).maximizedWindowIDs.length > 0;
+		},
+		// A placement whose app or widget is gone (uninstalled, no longer
+		// permitted) is kept but not shown; installing the app again brings it
+		// back where it was.
+		visibleWidgetPlacements() {
+			const vm = this as any;
+			const apps: Application[] = window.Webtop?.apps || [];
+			return vm.widgetPlacements.filter((p: WidgetPlacement) => {
+				const app = apps.find((a) => a.id === p.appId);
+				return !!app && app.widgets.some((w) => w.identifier === p.widget);
+			});
+		},
+		// z-index per placement: its layer's band plus its rank in that layer.
+		widgetZIndexes() {
+			const vm = this as any;
+			const out: Record<string, number> = {};
+			for (const layer of ['desktop', 'pinned'] as WidgetLayer[]) {
+				const band = layer === 'pinned' ? WIDGET_Z_PINNED : WIDGET_Z_DESKTOP;
+				vm.widgetPlacements
+					.filter((p: WidgetPlacement) => p.layer === layer)
+					.sort((a: WidgetPlacement, b: WidgetPlacement) => (vm.widgetZ[a.id] || 0) - (vm.widgetZ[b.id] || 0))
+					.forEach((p: WidgetPlacement, i: number) => { out[p.id] = band + 1 + i; });
+			}
+			if (vm.revealedWidgetID && out[vm.revealedWidgetID] !== undefined) {
+				out[vm.revealedWidgetID] = WIDGET_Z_REVEALED;
+			}
+			return out;
 		},
 		hoveredDockEntry() {
 			const id = (this as any).hoverDockAppID;
@@ -499,12 +570,61 @@ const WtDesktop = {
 			// アクティブウィンドウの追跡
 			document.addEventListener('window-activated', (event: CustomEvent) => {
 				vm.activeAppInstanceID = event.detail.id;
+				// A revealed widget goes back to its layer once a window is used.
+				vm.revealedWidgetID = null;
 			});
 			document.addEventListener('window-deactivated', (event: CustomEvent) => {
 				if (vm.activeAppInstanceID === event.detail.id) {
 					vm.activeAppInstanceID = null;
 				}
 			});
+
+			// Desktop widgets: wt-widget, WidgetInstance and the preferences
+			// subscription (webtop-api.ts) talk to the shell through these.
+			document.addEventListener('widget-add', (e: Event) => {
+				const d = (e as CustomEvent).detail || {};
+				vm.addWidget(d.appId, d.widgetId, { layer: d.layer })
+					.then((id: string | null) => { if (typeof d.resolve === 'function') d.resolve(id); });
+			});
+			document.addEventListener('widget-activated', (e: Event) => {
+				vm.raiseWidget((e as CustomEvent).detail?.id);
+			});
+			document.addEventListener('widget-moved', (e: Event) => {
+				const d = (e as CustomEvent).detail || {};
+				vm.onWidgetMoved(d.id, d.rect);
+			});
+			document.addEventListener('widget-removed', (e: Event) => {
+				vm.removeWidgetPlacement((e as CustomEvent).detail?.id);
+			});
+			document.addEventListener('webtop-widget-menu', (e: Event) => {
+				const d = (e as CustomEvent).detail || {};
+				vm.showWidgetMenu(d.id, d.x, d.y);
+			});
+			document.addEventListener('widget-list', (e: Event) => {
+				const d = (e as CustomEvent).detail || {};
+				if (typeof d.resolve !== 'function') return;
+				d.resolve(vm.widgetPlacements
+					.filter((p: WidgetPlacement) => p.appId === d.appId)
+					.map((p: WidgetPlacement) => ({ id: p.id, widget: p.widget, layer: p.layer })));
+			});
+			document.addEventListener('widget-reveal', (e: Event) => {
+				const d = (e as CustomEvent).detail || {};
+				vm.revealWidget(d.appId, d.id);
+			});
+			document.addEventListener('widget-set-layer', (e: Event) => {
+				const d = (e as CustomEvent).detail || {};
+				const placement = vm.widgetPlacements.find((p: WidgetPlacement) => p.id === d.id);
+				if (placement && placement.appId === d.appId && (d.layer === 'desktop' || d.layer === 'pinned')) {
+					vm.setWidgetLayer(d.id, d.layer);
+				}
+			});
+			document.addEventListener('webtop-widgets-changed', (e: Event) => {
+				vm.onWidgetsChanged((e as CustomEvent).detail || {});
+			});
+			widgetResizeHandler = () => vm.measureDesktop();
+			window.addEventListener('resize', widgetResizeHandler);
+			widgetPageHideHandler = () => { widgetStore?.flush(); };
+			window.addEventListener('pagehide', widgetPageHideHandler);
 
 			// iframeからのメッセージを受信
 			// Messages from iframes to the main window (e.g. context menu, open-app)
@@ -655,6 +775,10 @@ const WtDesktop = {
 				if (bootScreen) {
 					bootScreen.style.display = 'none';
 				}
+				// Widgets come back at every sign-in, whether or not a
+				// session is restored.
+				vm.measureDesktop();
+				vm.loadWidgets().catch((e: any) => console.warn('[Webtop] Failed to load widgets:', e));
 			});
 
 			// Check for saved sessions and show picker if any exist
@@ -669,6 +793,19 @@ const WtDesktop = {
 				vm.timerId = null;
 			}
 			vm.stopNotifications();
+			if (widgetResizeHandler) {
+				window.removeEventListener('resize', widgetResizeHandler);
+				widgetResizeHandler = null;
+			}
+			if (widgetPageHideHandler) {
+				window.removeEventListener('pagehide', widgetPageHideHandler);
+				widgetPageHideHandler = null;
+			}
+			if (widgetResyncTimer) {
+				clearTimeout(widgetResyncTimer);
+				widgetResyncTimer = null;
+			}
+			await widgetStore?.flush();
 		},
 		onTimer() {
 			const vm = this;
@@ -1159,7 +1296,7 @@ const WtDesktop = {
 			if (sourceAppId) {
 				// 該当するiframeを見つけてメッセージを送信
 				const appInstance = vm.appInstances.find((inst: ApplicationInstance) => inst.id === sourceAppId);
-				if (appInstance) {
+				if (appInstance || vm.widgetPlacements.some((p: WidgetPlacement) => p.id === sourceAppId)) {
 					const iframe = document.querySelector(`iframe[data-app-id="${sourceAppId}"]`) as HTMLIFrameElement;
 					if (iframe?.contentWindow) {
 						iframe.contentWindow.postMessage({
@@ -1428,8 +1565,8 @@ const WtDesktop = {
 			const notice = toNotice(payload);
 			if (!notice) return;
 			if (!notice.app) {
-				const instance = vm.instanceOfWindow(source);
-				if (instance?.app?.relPath) notice.app = instance.app.relPath;
+				const app = vm.instanceOfWindow(source)?.app ?? vm.widgetAppOfWindow(source);
+				if (app?.relPath) notice.app = app.relPath;
 			}
 			vm.receiveNotice(notice);
 		},
@@ -2111,7 +2248,7 @@ const WtDesktop = {
 			if (!target) return;
 			if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
 			// Focus inside an app window (or its iframe wrapper) → leave it to the app.
-			if (target.closest('wt-window, .wt-window')) return;
+			if (target.closest('wt-window, .wt-window, wt-widget')) return;
 			// Suppress while a modal overlay owns the screen.
 			if (vm.desktopRenameDialog.visible || vm.desktopDeleteDialog.visible
 				|| vm.desktopConflictDialog.visible || vm.desktopAlert.visible
@@ -2190,7 +2327,7 @@ const WtDesktop = {
 			if (event.button !== 0) return;
 			const target = event.target as HTMLElement | null;
 			if (target?.closest('.desktop-icon')) return;
-			if (target?.closest('wt-window, .wt-window')) return;
+			if (target?.closest('wt-window, .wt-window, wt-widget')) return;
 			const area = vm.$refs.desktopArea as HTMLElement | undefined;
 			if (!area) return;
 			const rect = area.getBoundingClientRect();
@@ -2276,7 +2413,7 @@ const WtDesktop = {
 			const vm = this as any;
 			const target = event.target as HTMLElement | null;
 			if (target?.closest('.desktop-icon')) return;
-			if (target?.closest('wt-window, .wt-window')) return;
+			if (target?.closest('wt-window, .wt-window, wt-widget')) return;
 			event.preventDefault();
 			vm.desktopSelectedIds = [];
 			vm.desktopLastSelectedIndex = -1;
@@ -2285,9 +2422,23 @@ const WtDesktop = {
 				{ type: 'separator', id: '', label: '' },
 				{ id: 'open-content-browser', label: vm.t('webtop.contextMenu.openInContentBrowser', undefined, 'Open in Content Browser'), icon: 'bi-folder2-open' },
 			];
+			if (widgetStore) {
+				items.push(
+					{ type: 'separator', id: '', label: '' },
+					{ id: 'add-widget', label: vm.t('webtop.contextMenu.addWidget', undefined, 'Add Widget…'), icon: 'bi-grid-1x2' },
+				);
+			}
+			const clickX = event.clientX;
+			const clickY = event.clientY;
 			vm.showContextMenu({
-				x: event.clientX, y: event.clientY, items,
-				onAction: (id: string) => vm.onDesktopContextAction(id, []),
+				x: clickX, y: clickY, items,
+				onAction: (id: string) => {
+					if (id === 'add-widget') {
+						vm.openWidgetPicker(clickX, clickY);
+						return;
+					}
+					vm.onDesktopContextAction(id, []);
+				},
 			});
 		},
 		async onDesktopContextAction(action: string, items: any[]) {
@@ -2523,6 +2674,309 @@ const WtDesktop = {
 			a.click();
 			document.body.removeChild(a);
 		},
+		// =====================================================================
+		// Desktop widgets (components/wt-widget.ts, services/widget-store.ts)
+		// =====================================================================
+		measureDesktop() {
+			const vm = this as any;
+			const area = vm.$refs.desktopArea as HTMLElement | undefined;
+			if (!area) return;
+			const width = area.clientWidth;
+			const height = area.clientHeight;
+			if (vm.desktopSize.width !== width || vm.desktopSize.height !== height) {
+				vm.desktopSize = { width, height };
+			}
+		},
+		async loadWidgets() {
+			const vm = this as any;
+			const user = window.Webtop.currentUser;
+			if (!user?.id || user.isAnonymous) return;
+			widgetStore = new WidgetStore(window.Webtop.api, user.id);
+			vm.reconcileWidgets(await widgetStore.load());
+		},
+		/**
+		 * Bring the shown placements in line with a stored list. In place:
+		 * rows that stay are updated, not replaced, so their iframes keep
+		 * running (see the note on widgetPlacements).
+		 */
+		reconcileWidgets(list: WidgetPlacement[]) {
+			const vm = this as any;
+			const incoming = new Map(list.map((p) => [p.id, p]));
+			for (let i = vm.widgetPlacements.length - 1; i >= 0; i--) {
+				if (!incoming.has(vm.widgetPlacements[i].id)) {
+					vm.widgetPlacements.splice(i, 1);
+				}
+			}
+			const z = { ...vm.widgetZ };
+			for (const p of list) {
+				const current = vm.widgetPlacements.find((c: WidgetPlacement) => c.id === p.id);
+				if (!current) {
+					vm.widgetPlacements.push({ ...p });
+					z[p.id] = ++widgetZSeed;
+					continue;
+				}
+				const layerChanged = current.layer !== p.layer;
+				for (const key of ['layer', 'anchor', 'dx', 'dy', 'width', 'height'] as const) {
+					if (current[key] !== p[key]) (current as any)[key] = p[key];
+				}
+				if (layerChanged) vm.applyWidgetLayer(p.id, p.layer);
+			}
+			for (const id of Object.keys(z)) {
+				if (!incoming.has(id)) delete z[id];
+			}
+			vm.widgetZ = z;
+			if (vm.revealedWidgetID && !incoming.has(vm.revealedWidgetID)) vm.revealedWidgetID = null;
+			vm.notifyWidgetsChanged();
+		},
+		/**
+		 * Placements changed in another tab or browser. While this one has a
+		 * save waiting or on its way the change may already be stale, so the
+		 * stored list is read again once this one's writes are done.
+		 */
+		onWidgetsChanged(data: Record<string, unknown>) {
+			const vm = this as any;
+			if (!widgetStore || widgetStore.isOwnWrite(data.widgetPlacements)) return;
+			if (widgetStore.busy) {
+				vm.scheduleWidgetResync();
+				return;
+			}
+			vm.reconcileWidgets(parsePlacements(data.widgetPlacements));
+		},
+		scheduleWidgetResync() {
+			const vm = this as any;
+			if (widgetResyncTimer) return;
+			widgetResyncTimer = setTimeout(async () => {
+				widgetResyncTimer = null;
+				if (!widgetStore) return;
+				if (widgetStore.busy) {
+					vm.scheduleWidgetResync();
+					return;
+				}
+				const list = await widgetStore.load();
+				// Changed again meanwhile: this one's save is the newer word.
+				if (widgetStore.busy) return;
+				vm.reconcileWidgets(list);
+			}, WIDGET_RESYNC_MS);
+		},
+		saveWidgets() {
+			widgetStore?.save((this as any).widgetPlacements);
+			(this as any).notifyWidgetsChanged();
+		},
+		/** Tell apps that placements changed (ApplicationInstance.onWidgetsChanged). */
+		notifyWidgetsChanged() {
+			document.dispatchEvent(new CustomEvent('widget-placements-changed'));
+		},
+		revealWidget(appId: string, id: string) {
+			const vm = this as any;
+			const placement = vm.widgetPlacements.find((p: WidgetPlacement) => p.id === id);
+			if (!placement || placement.appId !== appId) return;
+			vm.revealedWidgetID = id;
+			vm.highlightWidget(id);
+		},
+		/**
+		 * Place a widget. `at` is a point in #desktop-area coordinates (the
+		 * right-click of "Add Widget"); without it the widget goes to the
+		 * top-right corner, stepping down past placements already there.
+		 */
+		async addWidget(appId: string, widgetId: string, options?: { layer?: WidgetLayer; at?: { x: number; y: number } | null }): Promise<string | null> {
+			const vm = this as any;
+			const app: Application | undefined = (window.Webtop.apps || []).find((a: Application) => a.id === appId);
+			const def = app?.widgets.find((w) => w.identifier === widgetId);
+			if (!app || !def || !widgetStore) return null;
+			if (!def.multiple) {
+				const existing = vm.widgetPlacements.find((p: WidgetPlacement) => p.appId === appId && p.widget === widgetId);
+				if (existing) {
+					vm.highlightWidget(existing.id);
+					return existing.id;
+				}
+			}
+			if (vm.widgetPlacements.length >= MAX_WIDGET_PLACEMENTS) {
+				vm.showWidgetLimitAlert();
+				return null;
+			}
+			vm.measureDesktop();
+			const areaW = vm.desktopSize.width;
+			const areaH = vm.desktopSize.height;
+			const width = Math.min(def.width, areaW);
+			const height = Math.min(def.height, areaH);
+			const rect: WidgetRect = options?.at
+				? {
+					x: Math.max(0, Math.min(options.at.x, areaW - width)),
+					y: Math.max(0, Math.min(options.at.y, areaH - height)),
+					width,
+					height,
+				}
+				: vm.defaultWidgetRect(width, height);
+			const placement: WidgetPlacement = {
+				id: crypto.randomUUID(),
+				appId,
+				widget: widgetId,
+				layer: options?.layer === 'pinned' || options?.layer === 'desktop' ? options.layer : def.layer,
+				...anchorRect(rect, areaW, areaH),
+				width,
+				height,
+			};
+			vm.widgetPlacements.push(placement);
+			vm.widgetZ = { ...vm.widgetZ, [placement.id]: ++widgetZSeed };
+			vm.saveWidgets();
+			return placement.id;
+		},
+		defaultWidgetRect(width: number, height: number): WidgetRect {
+			const vm = this as any;
+			const MARGIN_X = 24, MARGIN_Y = 16, STEP = 24;
+			const areaW = vm.desktopSize.width;
+			const areaH = vm.desktopSize.height;
+			const taken = new Set(vm.widgetPlacements.map((p: WidgetPlacement) => {
+				const r = placementRect(p, areaW, areaH);
+				return `${r.x},${r.y}`;
+			}));
+			const x = Math.max(0, areaW - width - MARGIN_X);
+			let y = MARGIN_Y;
+			while (taken.has(`${x},${y}`) && y + STEP + height <= areaH) {
+				y += STEP;
+			}
+			return { x, y, width, height };
+		},
+		onWidgetMoved(id: string, rect: WidgetRect) {
+			const vm = this as any;
+			const placement = vm.widgetPlacements.find((p: WidgetPlacement) => p.id === id);
+			if (!placement || !rect) return;
+			const { anchor, dx, dy } = anchorRect(rect, vm.desktopSize.width, vm.desktopSize.height);
+			placement.anchor = anchor;
+			placement.dx = dx;
+			placement.dy = dy;
+			placement.width = rect.width;
+			placement.height = rect.height;
+			vm.saveWidgets();
+		},
+		raiseWidget(id: string) {
+			const vm = this as any;
+			if (!id || vm.widgetZ[id] === widgetZSeed) return;
+			vm.widgetZ = { ...vm.widgetZ, [id]: ++widgetZSeed };
+		},
+		highlightWidget(id: string) {
+			const vm = this as any;
+			vm.raiseWidget(id);
+			vm.highlightedWidgetID = id;
+			if (widgetHighlightTimer) clearTimeout(widgetHighlightTimer);
+			widgetHighlightTimer = setTimeout(() => {
+				widgetHighlightTimer = null;
+				vm.highlightedWidgetID = null;
+			}, WIDGET_HIGHLIGHT_MS);
+		},
+		/** Ask the placement's widget first (its beforeRemove callback); wt-widget answers with widget-removed. */
+		requestRemoveWidget(id: string) {
+			document.dispatchEvent(new CustomEvent('widget-remove-request', { detail: { id } }));
+		},
+		removeWidgetPlacement(id: string) {
+			const vm = this as any;
+			const index = vm.widgetPlacements.findIndex((p: WidgetPlacement) => p.id === id);
+			if (index === -1) return;
+			vm.widgetPlacements.splice(index, 1);
+			const z = { ...vm.widgetZ };
+			delete z[id];
+			vm.widgetZ = z;
+			if (vm.revealedWidgetID === id) vm.revealedWidgetID = null;
+			vm.saveWidgets();
+		},
+		setWidgetLayer(id: string, layer: WidgetLayer) {
+			const vm = this as any;
+			const placement = vm.widgetPlacements.find((p: WidgetPlacement) => p.id === id);
+			if (!placement || placement.layer === layer) return;
+			placement.layer = layer;
+			vm.raiseWidget(id);
+			vm.applyWidgetLayer(id, layer);
+			vm.saveWidgets();
+		},
+		applyWidgetLayer(id: string, layer: WidgetLayer) {
+			document.dispatchEvent(new CustomEvent('widget-layer-applied', { detail: { id, layer } }));
+		},
+		showWidgetMenu(id: string, x: number, y: number) {
+			const vm = this as any;
+			const placement = vm.widgetPlacements.find((p: WidgetPlacement) => p.id === id);
+			if (!placement) return;
+			const pinned = placement.layer === 'pinned';
+			const items: any[] = [
+				pinned
+					? { id: 'unpin', label: vm.t('webtop.widget.unpin', undefined, 'Put on Desktop'), icon: 'bi-pin' }
+					: { id: 'pin', label: vm.t('webtop.widget.pin', undefined, 'Keep on Top'), icon: 'bi-pin-angle' },
+				{ id: 'open-app', label: vm.t('webtop.widget.openApp', undefined, 'Open App'), icon: 'bi-box-arrow-up-right' },
+				{ type: 'separator', id: '', label: '' },
+				{ id: 'remove', label: vm.t('webtop.widget.remove', undefined, 'Remove from Desktop'), icon: 'bi-x-lg', danger: true },
+			];
+			vm.showContextMenu({
+				x, y, items,
+				onAction: (action: string) => {
+					switch (action) {
+						case 'pin': vm.setWidgetLayer(id, 'pinned'); break;
+						case 'unpin': vm.setWidgetLayer(id, 'desktop'); break;
+						case 'open-app': vm.openAppWithOptions({ appId: placement.appId }); break;
+						case 'remove': vm.requestRemoveWidget(id); break;
+					}
+				},
+			});
+		},
+		openWidgetPicker(clientX: number, clientY: number) {
+			const vm = this as any;
+			if (vm.widgetPlacements.length >= MAX_WIDGET_PLACEMENTS) {
+				vm.showWidgetLimitAlert();
+				return;
+			}
+			const area = vm.$refs.desktopArea as HTMLElement | undefined;
+			const r = area?.getBoundingClientRect();
+			const entries: { key: string; app: Application; widget: AppWidget; placed: boolean }[] = [];
+			for (const app of (window.Webtop.apps || []) as Application[]) {
+				for (const widget of app.widgets) {
+					entries.push({
+						key: `${app.id}/${widget.identifier}`,
+						app: vm.$markRaw(app),
+						widget,
+						placed: !widget.multiple && vm.widgetPlacements.some((p: WidgetPlacement) => p.appId === app.id && p.widget === widget.identifier),
+					});
+				}
+			}
+			vm.widgetPicker = {
+				visible: true,
+				at: r ? { x: clientX - r.left, y: clientY - r.top } : null,
+				entries,
+			};
+		},
+		closeWidgetPicker() {
+			const vm = this as any;
+			vm.widgetPicker = { visible: false, at: null, entries: [] };
+		},
+		pickWidget(entry: { app: Application; widget: AppWidget; placed: boolean }) {
+			const vm = this as any;
+			if (entry.placed) return;
+			const at = vm.widgetPicker.at;
+			vm.closeWidgetPicker();
+			vm.addWidget(entry.app.id, entry.widget.identifier, { at });
+		},
+		widgetTitle(app: Application, widget: AppWidget): string {
+			const vm = this as any;
+			const literal = widget.title || app.title || widget.identifier;
+			return translate(vm.localization, window.Webtop,
+				`app.${app.relPath}.widget.${widget.identifier}.title`, undefined, literal, app.relPath);
+		},
+		/** The app of the widget whose iframe is the window, or undefined. */
+		widgetAppOfWindow(source: Window | null): Application | undefined {
+			const vm = this as any;
+			if (!source) return undefined;
+			for (const iframe of Array.from(document.querySelectorAll('iframe[data-app-id]')) as HTMLIFrameElement[]) {
+				if (iframe.contentWindow === source) {
+					const id = iframe.getAttribute('data-app-id');
+					const placement = vm.widgetPlacements.find((p: WidgetPlacement) => p.id === id);
+					return placement ? (window.Webtop.apps || []).find((a: Application) => a.id === placement.appId) : undefined;
+				}
+			}
+			return undefined;
+		},
+		showWidgetLimitAlert() {
+			const vm = this as any;
+			vm.desktopAlert.title = vm.t('webtop.widget.limit.title');
+			vm.desktopAlert.message = vm.t('webtop.widget.limit.message', { max: MAX_WIDGET_PLACEMENTS });
+			vm.desktopAlert.visible = true;
+		},
 		showMissingDesktopAlert() {
 			const vm = this as any;
 			vm.desktopAlert = {
@@ -2662,6 +3116,7 @@ export class Webtop implements WebtopContext {
 		// connectedCallback (triggered by v-for instantiation) can find it.
 		await loadComponent('wt-window.html');
 		await loadComponent('wt-desktop-icons.html');
+		await loadComponent('wt-widget.html');
 
 		const app = VDOM.createApp(WtDesktop);
 		app.mount('#webtop');

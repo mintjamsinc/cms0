@@ -45,6 +45,18 @@ export const WEBTOP_QUERIES = {
               title
               handler
             }
+            widgets {
+              identifier
+              title
+              entry
+              width
+              height
+              minWidth
+              minHeight
+              resizable
+              multiple
+              layer
+            }
           }
           cursor
         }
