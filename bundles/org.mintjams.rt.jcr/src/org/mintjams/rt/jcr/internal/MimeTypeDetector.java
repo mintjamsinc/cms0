@@ -22,9 +22,12 @@
 
 package org.mintjams.rt.jcr.internal;
 
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -89,7 +92,15 @@ public class MimeTypeDetector extends FileTypeDetector implements Closeable, Ada
 
 		Path mimeTypesPath = getMimeTypesPath();
 		if (!Files.exists(mimeTypesPath)) {
-			Files.createFile(mimeTypesPath);
+			// The platform detector cannot be relied on for web assets: on
+			// Windows it reads the registry, which often has no content type
+			// for .js, and module scripts served as application/octet-stream
+			// are rejected by browsers.
+			try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(mimeTypesPath))) {
+				try (InputStream in = getClass().getResourceAsStream("mime.types")) {
+					IOs.copy(in, out);
+				}
+			}
 		}
 
 		try (BufferedReader in = Files.newBufferedReader(mimeTypesPath, StandardCharsets.UTF_8)) {
