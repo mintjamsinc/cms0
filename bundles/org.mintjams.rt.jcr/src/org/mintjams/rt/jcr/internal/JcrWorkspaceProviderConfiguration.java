@@ -256,7 +256,13 @@ public class JcrWorkspaceProviderConfiguration {
 	public List<Map<String, Object>> getAccessControlFilters() {
 		if (fAccessControlFilters == null) {
 			ExpressionContext el = ExpressionContext.create().setVariable("config", fConfig);
-			fAccessControlFilters = (List<Map<String, Object>>) el.evaluate("config.security.filters");
+			try {
+				fAccessControlFilters = (List<Map<String, Object>>) el.evaluate("config.security.filters");
+			} catch (Throwable ignore) {}
+			if (fAccessControlFilters == null) {
+				// No filters configured: access is decided by the ACLs alone.
+				fAccessControlFilters = new ArrayList<>();
+			}
 		}
 		return fAccessControlFilters;
 	}
