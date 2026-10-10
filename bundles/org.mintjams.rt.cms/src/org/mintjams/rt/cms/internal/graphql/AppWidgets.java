@@ -35,16 +35,16 @@ import java.util.regex.Pattern;
  *
  * <pre>
  * widgets:
- *   timer:
- *     title: Pomodoro
+ *   note:
+ *     title: Sticky Note
  *     entry: widget.html
- *     width: 220
- *     height: 140
- *     resizable: false
+ *     width: 240
+ *     height: 220
+ *     resizable: true
  *     minWidth: 160
- *     minHeight: 100
- *     multiple: false
- *     layer: pinned
+ *     minHeight: 120
+ *     multiple: true
+ *     layer: desktop
  * </pre>
  *
  * An entry without a usable {@code entry} page or size is dropped, so a
