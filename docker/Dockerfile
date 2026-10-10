@@ -18,8 +18,14 @@
 #   CMS_PUBLIC_BASE_URL              - external HTTP URL (e.g. http://localhost:8080)
 #   MINTJAMS_CMS_SECRET_KEY_PATH     - path to the encryption key file
 
+# The base is pinned to the Ubuntu 24.04 (noble) variant. The floating
+# "-jre" tag follows the newest Ubuntu LTS, whose image ships /usr/bin/pebble
+# (see below); noble does not, so every scanner sees the same thing the
+# container runs. Change UBUNTU_CODENAME together with the user handling
+# below when moving to a newer Ubuntu.
 ARG JAVA_VERSION=17
-FROM eclipse-temurin:${JAVA_VERSION}-jre AS runtime
+ARG UBUNTU_CODENAME=noble
+FROM eclipse-temurin:${JAVA_VERSION}-jre-${UBUNTU_CODENAME} AS runtime
 
 ARG FELIX_USER=felix
 ARG FELIX_UID=1000
@@ -45,9 +51,32 @@ LABEL org.opencontainers.image.title="MintJams CMS" \
       org.opencontainers.image.revision="${IMAGE_REVISION}" \
       org.opencontainers.image.created="${IMAGE_CREATED}"
 
-# eclipse-temurin:17-jre ships with a default user at UID/GID 1000 (currently
-# named "ubuntu"). Remove anyone occupying our target UID/GID before creating
-# felix, so file ownership matches typical host filesystems on bind mounts.
+# Apply the security updates Ubuntu published after the base image was
+# built, and drop wget: the base needed it to fetch the JDK while it was
+# being built, nothing in this image uses it. What remains after this step
+# are packages Ubuntu has not fixed yet; rebuilding the image picks their
+# fixes up when they are published.
+RUN set -e; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update; \
+    apt-get -y --no-install-recommends upgrade; \
+    apt-get -y purge wget; \
+    apt-get -y autoremove; \
+    rm -rf /var/lib/apt/lists/*
+
+# Ubuntu images from 26.04 on ship /usr/bin/pebble, a Go-built service
+# manager meant to be the container's PID 1. This image never runs it:
+# entrypoint.sh starts the JVM directly. Keeping it only adds the Go standard
+# library it was built with to the image's vulnerability scans. The binary is
+# not a package, so it and its state directory are removed by path; on noble
+# this is a no-op. Note that scanners which index every layer still see a
+# file deleted here, so this does not replace pinning the base above.
+RUN rm -rf /usr/bin/pebble /var/lib/pebble
+
+# eclipse-temurin:17-jre-noble ships with a default user at UID/GID 1000
+# (currently named "ubuntu"). Remove anyone occupying our target UID/GID
+# before creating felix, so file ownership matches typical host filesystems
+# on bind mounts.
 RUN set -e; \
     if getent passwd ${FELIX_UID} > /dev/null; then \
         userdel -r "$(getent passwd ${FELIX_UID} | cut -d: -f1)" 2>/dev/null || true; \

@@ -5,7 +5,7 @@ container with zero manual SAML configuration on first boot.
 
 ## Files
 
-- `Dockerfile`   — runtime image based on `eclipse-temurin:17-jre`
+- `Dockerfile`   — runtime image based on `eclipse-temurin:17-jre-noble`
 - `entrypoint.sh` — startup script that prepares persistent dirs, validates
    `CMS_PUBLIC_BASE_URL` and assembles `JAVA_TOOL_OPTIONS`
 - `cms-encrypt.sh` — installed as `cms-encrypt`; turns a value read from
@@ -236,6 +236,24 @@ docker buildx build \
   .
 ```
 
+## Vulnerability scans
+
+The image is built from `eclipse-temurin:17-jre-noble` (Ubuntu 24.04) and
+applies Ubuntu's security updates at build time, so a scan of a fresh build
+shows only packages Ubuntu has not fixed yet. Two things to know when reading
+a report:
+
+- A finding with a fixed version is cleared by rebuilding the image: the
+  build runs `apt-get upgrade` against the current Ubuntu repositories.
+- A finding marked "not fixed" has no fix in Ubuntu yet. It is cleared by a
+  later rebuild once Ubuntu publishes one.
+
+The floating `-jre` tag (Ubuntu 26.04 and later) ships a Go-built service
+manager at `/usr/bin/pebble` that this image never runs; its Go standard
+library is what a scanner reports as Go vulnerabilities. The base is pinned
+to noble for that reason, and the Dockerfile removes the binary anyway so a
+later move to a newer Ubuntu stays clean at runtime.
+
 ## Platform support
 
 The published image is a **multi-arch manifest covering `linux/amd64` and
@@ -254,7 +272,7 @@ native libraries under distinct `native/linux/<arch>/` paths, so shipping both
 in one image is harmless: at runtime the host bundle loads the libraries for
 the running architecture (resolved from `os.arch`) and ignores the rest. This
 is why a single `felix-dist/` yields a working image for both architectures —
-the base image (`eclipse-temurin:17-jre`) is itself multi-arch, and `buildx`
+the base image (`eclipse-temurin:17-jre-noble`) is itself multi-arch, and `buildx`
 selects the matching JRE layer per platform.
 
 > Adding a new architecture is purely additive: build the matching
