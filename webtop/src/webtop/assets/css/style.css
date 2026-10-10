@@ -731,14 +731,10 @@ body {
 /* Desktop widgets (components/wt-widget.ts). .desktop-widgets is not
    positioned, so each placement's z-index (index.ts WIDGET_Z_*) joins the
    desktop's stacking context: 101.. under #window-layer, 301.. above it.
-   The page draws itself over a frosted backdrop: the blur has to live here,
-   as a backdrop-filter inside the (transparent) iframe would not see the
-   desktop. A page that paints an opaque card just covers it. The shell adds
-   only the grip shown on hover. */
+   The page draws itself; the shell adds only the grip shown on hover. */
 .widget {
 	position: absolute;
 	border-radius: 0.75rem;
-	backdrop-filter: blur(4rem);
 }
 
 .widget-frame {
