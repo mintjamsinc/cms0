@@ -1,4 +1,5 @@
 import { initUi } from "../../ui/index.js";
+import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
@@ -43,7 +44,7 @@ import {
 // dataset-view.ts.
 import {
 	createDatasetViewExtension, refreshDatasetViews, DATASET_VIEW_NODE, DATASET_DROP_HANDLER, COLUMN_TYPES, suggestKey, typeIcon,
-	type DatasetPane, type ChoiceDraft, type ColumnDraft,
+	type DatasetPane, type ChoiceDraft, type ColumnDraft, type TemplateDraft, type TemplateScope,
 } from "./dataset-view.js";
 // Conversation block: a conversation shown inside the memo; see chat-view.ts.
 import { createChatViewExtension, refreshChatViews, CHAT_VIEW_NODE, type ChatThreadApi } from "./chat-view.js";
@@ -350,6 +351,18 @@ export const App = {
 				isLoading: false,
 				apply: null as null | ((draft: ColumnDraft) => Promise<void>),
 			},
+			// A dataset block's "Save as template…": the block hands over the
+			// template's name and place and what to do with them; the dialog
+			// stays open, with the error, when that fails (a template of that
+			// name exists: a second Save replaces it).
+			datasetTemplateDialog: {
+				visible: false,
+				name: '',
+				scope: 'personal' as TemplateScope,
+				errorMessage: '',
+				isLoading: false,
+				apply: null as null | ((draft: TemplateDraft) => Promise<void>),
+			},
 			// Editor width: false keeps the memo's text column (max-width 48rem),
 			// true lets the document use the whole pane. Persisted per user.
 			editorWide: false,
@@ -539,7 +552,7 @@ export const App = {
 				// single connectedCallback it gets. Both loads are idempotent
 				// enough for one call per window; appLaunch runs once per iframe.
 				try {
-					await Promise.all([initUi(), loadInspectorTemplate(), loadChatThreadTemplate()]);
+					await Promise.all([initUi({ popupAdapter: createShellPopupAdapter(instance) }), loadInspectorTemplate(), loadChatThreadTemplate()]);
 				} catch (e) {
 					console.warn('[Memo] Failed to load component templates:', e);
 				}
@@ -881,6 +894,59 @@ export const App = {
 		onDatasetColumnKeyInput(e: Event) {
 			this.datasetColumnDialog.keyTouched = (e.target as HTMLInputElement).value !== '';
 		},
+		// ---- Dataset save as template ----
+		promptDatasetTemplate(draft: TemplateDraft, apply: (draft: TemplateDraft) => Promise<void>) {
+			const vm = this;
+			const dialog = vm.datasetTemplateDialog;
+			dialog.name = draft.name;
+			dialog.scope = draft.scope;
+			dialog.errorMessage = '';
+			dialog.isLoading = false;
+			dialog.apply = apply;
+			dialog.visible = true;
+			vm.$nextTick(() => {
+				const input = vm.$refs.datasetTemplateNameInput as HTMLInputElement | undefined;
+				input?.focus();
+				input?.select();
+			});
+		},
+		closeDatasetTemplateDialog() {
+			const vm = this;
+			const dialog = vm.datasetTemplateDialog;
+			if (dialog.isLoading) return;
+			dialog.visible = false;
+			dialog.apply = null;
+		},
+		async submitDatasetTemplate() {
+			const vm = this;
+			const dialog = vm.datasetTemplateDialog;
+			const name = dialog.name.trim();
+			if (!name || dialog.isLoading || !dialog.apply) return;
+			dialog.isLoading = true;
+			dialog.errorMessage = '';
+			try {
+				await dialog.apply({ name, scope: dialog.scope });
+				dialog.visible = false;
+				dialog.apply = null;
+			} catch (e: any) {
+				dialog.errorMessage = e?.message || String(e);
+			} finally {
+				dialog.isLoading = false;
+			}
+		},
+		onDatasetTemplateKeydown(e: KeyboardEvent) {
+			if (e.isComposing) return;
+			if (e.key === 'Enter') { e.preventDefault(); void this.submitDatasetTemplate(); }
+		},
+		// "My templates" lives under the user's home folder: not on offer while
+		// the user is unknown.
+		datasetTemplateScopeItems(): { value: TemplateScope; label: string; disabled: boolean }[] {
+			const vm = this;
+			return [
+				{ value: 'personal', label: vm.t('app.memo.dataset.template.scope.personal', undefined, 'My templates'), disabled: !vm.instance?.currentUser?.id },
+				{ value: 'shared', label: vm.t('app.memo.dataset.template.scope.shared', undefined, 'Shared templates'), disabled: false },
+			];
+		},
 		datasetTypeLabel(type: string): string {
 			return this.t('app.memo.dataset.type.' + type, undefined, type);
 		},
@@ -1173,6 +1239,7 @@ export const App = {
 					confirmDelete: (title: string, message: string) => vm.confirmDatasetDelete(title, message),
 					promptRename: (name: string, apply: (name: string) => Promise<void>) => vm.promptDatasetRename(name, apply),
 					editColumn: (column: { name: string } | null, draft: ColumnDraft, apply: (draft: ColumnDraft) => Promise<void>) => vm.promptDatasetColumn(column, draft, apply),
+					saveTemplate: (draft: TemplateDraft, apply: (draft: TemplateDraft) => Promise<void>) => vm.promptDatasetTemplate(draft, apply),
 				}),
 				// Conversation block (see chat-view.ts). The memo's identifier is
 				// that of this editor's own tab, not of whichever tab is in front.

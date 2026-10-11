@@ -137,6 +137,11 @@ export interface DatasetViewHost {
 	// and writes the settings; when it rejects, the dialog shows the error and
 	// stays open.
 	editColumn(column: DatasetProperty | null, draft: ColumnDraft, apply: (draft: ColumnDraft) => Promise<void>): void;
+	// Ask the user for a template's name and where to save it in the app's own
+	// dialog, starting from `draft`; "My templates" cannot be chosen while the
+	// user is unknown. `apply` saves the template; when it rejects, the dialog
+	// shows the error and stays open.
+	saveTemplate(draft: TemplateDraft, apply: (draft: TemplateDraft) => Promise<void>): void;
 }
 
 // The block's Inspector face, handed to the host while the block is active.
@@ -232,7 +237,13 @@ interface TemplateDocument {
 	[extra: string]: any;
 }
 
-type TemplateScope = 'personal' | 'shared';
+export type TemplateScope = 'personal' | 'shared';
+
+// What the "Save as template" dialog edits.
+export interface TemplateDraft {
+	name: string;
+	scope: TemplateScope;
+}
 
 // A template as the setup screen lists it: where it is and what it is
 // called (the file name). Its contents are read when it is chosen.
@@ -1087,31 +1098,49 @@ class DatasetNodeView implements NodeView {
 		row.appendChild(create);
 		box.appendChild(row);
 		// The template to start from: none, or one of the user's own or the
-		// shared ones. The row shows once the list is read, and the select is
+		// shared ones, picked in the shell's popup (a native select would open
+		// inside the app's frame). The row shows once the list is read and is
 		// filled in place, so a name typed meanwhile is kept.
 		const templateRow = el('div', 'memo-dataset-setup-row');
 		templateRow.style.display = 'none';
 		templateRow.appendChild(el('span', 'memo-dataset-setup-caption', this.t('app.memo.dataset.setup.template', undefined, 'Template')));
-		const templateSelect = el('select', 'wt');
-		const noTemplate = el('option', undefined, this.t('app.memo.dataset.setup.templateNone', undefined, 'None (empty dataset)'));
-		noTemplate.value = '';
-		templateSelect.appendChild(noTemplate);
+		const noTemplateLabel = this.t('app.memo.dataset.setup.templateNone', undefined, 'None (empty dataset)');
+		let templatePath = '';
+		const templateSelect = el('div', 'wt-select');
+		const templateTrigger = el('button', 'wt-select-trigger');
+		templateTrigger.type = 'button';
+		const templateValue = el('span', 'wt-select-value', noTemplateLabel);
+		templateTrigger.appendChild(templateValue);
+		templateTrigger.appendChild(icon('bi-chevron-down wt-select-chevron'));
+		templateSelect.appendChild(templateTrigger);
 		templateRow.appendChild(templateSelect);
 		box.appendChild(templateRow);
 		void this.loadTemplates().then(entries => {
 			if (entries.length === 0 || this.destroyed) return;
-			for (const scope of ['personal', 'shared'] as TemplateScope[]) {
-				const ofScope = entries.filter(e => e.scope === scope);
-				if (ofScope.length === 0) continue;
-				const group = el('optgroup');
-				group.label = this.templateScopeLabel(scope);
-				for (const entry of ofScope) {
-					const option = el('option', undefined, entry.name);
-					option.value = entry.path;
-					group.appendChild(option);
-				}
-				templateSelect.appendChild(group);
-			}
+			templateTrigger.addEventListener('click', () => {
+				const popup = this.host.popup();
+				if (!popup) return;
+				const handle = popup.open({
+					anchor: anchorOf(templateTrigger),
+					placement: 'bottom-start',
+					minWidth: templateTrigger.getBoundingClientRect().width,
+					items: [
+						{ id: '', label: noTemplateLabel, selected: templatePath === '' },
+						...entries.map(entry => ({
+							id: entry.path,
+							label: entry.name,
+							description: this.templateScopeLabel(entry.scope),
+							icon: entry.scope === 'shared' ? 'bi bi-people' : 'bi bi-person',
+							selected: templatePath === entry.path,
+						})),
+					],
+				});
+				handle.result.then((id: string | null) => {
+					if (id == null) return;
+					templatePath = String(id);
+					templateValue.textContent = entries.find(e => e.path === templatePath)?.name || noTemplateLabel;
+				});
+			});
 			templateRow.style.display = '';
 		});
 		const hint = el('div', 'memo-dataset-hint', this.t('app.memo.dataset.setup.dropHint', undefined,
@@ -1131,7 +1160,12 @@ class DatasetNodeView implements NodeView {
 			errorLine.style.display = 'none';
 			try {
 				const parent = memoPath.slice(0, memoPath.lastIndexOf('/')) || '/';
-				const template = templateSelect.value ? await this.readTemplate(templateSelect.value) : null;
+				// A folder or file of that name next to the memo: the server
+				// would refuse it with a bare error.
+				if (await this.host.api().content.exists((parent === '/' ? '' : parent) + '/' + name)) {
+					throw new Error(this.t('app.memo.dataset.error.exists', { name }, `"${name}" already exists next to this memo. Choose another name, or drop that folder here if it is a dataset.`));
+				}
+				const template = templatePath ? await this.readTemplate(templatePath) : null;
 				const path = await this.createDataset(parent, name, template);
 				this.setAttrs({ path, ...(template ? templateViewAttrs(template.view) : {}) });
 			} catch (e: any) {
@@ -2544,92 +2578,35 @@ class DatasetNodeView implements NodeView {
 	// Save the dataset's columns and this block's view settings as a template,
 	// among the user's own templates or the shared ones. The rows are not part
 	// of it, nor is the id: a dataset made from the template gets its own. A
-	// template of the same name is replaced on a second Save.
+	// template of the same name is replaced on a second Save. Asked in the
+	// app's dialog, which shows what went wrong and stays open.
 	private openTemplateForm(): void {
 		if (!this.dataset) return;
-		const panel = el('div', 'memo-dataset-panel');
-		panel.appendChild(el('div', 'memo-dataset-panel-title', this.t('app.memo.dataset.template.title', undefined, 'Save as template')));
-		const nameField = el('label', 'wt-field');
-		nameField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.template.name', undefined, 'Template name')));
-		const input = el('input', 'wt');
-		input.type = 'text';
-		input.value = this.dataset.label || '';
-		nameField.appendChild(input);
-		panel.appendChild(nameField);
-		const scopeField = el('label', 'wt-field');
-		scopeField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.template.scope', undefined, 'Save to')));
-		const scope = el('select', 'wt');
-		for (const kind of ['personal', 'shared'] as TemplateScope[]) {
-			const option = el('option', undefined, this.templateScopeLabel(kind));
-			option.value = kind;
-			scope.appendChild(option);
-		}
-		if (!this.host.userId()) {
-			(scope.options[0] as HTMLOptionElement).disabled = true;
-			scope.value = 'shared';
-		}
-		scopeField.appendChild(scope);
-		panel.appendChild(scopeField);
-		panel.appendChild(el('div', 'memo-dataset-hint', this.t('app.memo.dataset.template.hint', undefined,
-			'The columns and this block\'s view settings are saved; the rows are not.')));
-		const errorLine = el('div', 'memo-dataset-message text-danger');
-		errorLine.style.display = 'none';
-		const buttons = el('div', 'memo-dataset-panel-buttons');
-		const save = el('button', 'wt wt-primary wt-slim', this.t('app.memo.dataset.save', undefined, 'Save'));
-		save.type = 'button';
-		const cancel = el('button', 'wt wt-slim', this.t('app.memo.dataset.cancel', undefined, 'Cancel'));
-		cancel.type = 'button';
 		// The template a second Save replaces: set once the first Save found
 		// one of that name at that place.
 		let replacing = '';
-		const fail = (message: string) => {
-			errorLine.textContent = message;
-			errorLine.style.display = '';
-			save.disabled = false;
+		const draft: TemplateDraft = {
+			name: this.dataset.label || '',
+			scope: this.host.userId() ? 'personal' : 'shared',
 		};
-		const submit = async () => {
-			const name = input.value.trim();
-			if (!name) {
-				input.focus();
-				return;
-			}
+		this.host.saveTemplate(draft, async (values) => {
+			const name = values.name.trim();
 			if (name.includes('/') || name.startsWith('.')) {
-				fail(this.t('app.memo.dataset.error.badName', undefined, 'A name cannot contain "/".'));
-				return;
+				throw new Error(this.t('app.memo.dataset.error.badName', undefined, 'A name cannot contain "/".'));
 			}
-			save.disabled = true;
-			errorLine.style.display = 'none';
-			try {
-				const content = this.host.api().content;
-				const folder = this.templateFolder(scope.value as TemplateScope);
-				const fileName = name + TEMPLATE_EXTENSION;
-				const target = `${folder}/${fileName}`;
-				if (replacing !== target && await content.exists(target)) {
-					replacing = target;
-					fail(this.t('app.memo.dataset.template.exists', { name }, `A template named "${name}" already exists. Save again to replace it.`));
-					return;
-				}
-				const template = await this.buildTemplate();
-				await this.ensureFolder(folder);
-				await writeTextFile(content, folder, fileName, TEMPLATE_MIME, JSON.stringify(template, null, 2) + '\n');
-				this.templates = null;
-				this.closePanel();
-			} catch (e: any) {
-				fail(e?.message || String(e));
+			const content = this.host.api().content;
+			const folder = this.templateFolder(values.scope);
+			const fileName = name + TEMPLATE_EXTENSION;
+			const target = `${folder}/${fileName}`;
+			if (replacing !== target && await content.exists(target)) {
+				replacing = target;
+				throw new Error(this.t('app.memo.dataset.template.exists', { name }, `A template named "${name}" already exists. Save again to replace it.`));
 			}
-		};
-		save.addEventListener('click', () => { void submit(); });
-		cancel.addEventListener('click', () => this.closePanel());
-		input.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') { e.preventDefault(); void submit(); }
-			else if (e.key === 'Escape') { e.preventDefault(); this.closePanel(); }
+			const template = await this.buildTemplate();
+			await this.ensureFolder(folder);
+			await writeTextFile(content, folder, fileName, TEMPLATE_MIME, JSON.stringify(template, null, 2) + '\n');
+			this.templates = null;
 		});
-		buttons.appendChild(save);
-		buttons.appendChild(cancel);
-		panel.appendChild(buttons);
-		panel.appendChild(errorLine);
-		this.showPanel(panel);
-		setTimeout(() => { input.focus(); input.select(); }, 0);
 	}
 
 	// Add a column, or edit one, in the host's dialog. The key and the type

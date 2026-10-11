@@ -369,13 +369,13 @@ The file name without `.json` is the template's name in the lists. Neither
 folder is created until the first template is saved into it; a folder that is
 missing or unreadable simply offers no templates.
 
-**Saving.** The dataset block's "⋯" menu has "Save as template…", a form in
-the pane: the template's name (the dataset's label to begin with) and where
+**Saving.** The dataset block's "⋯" menu has "Save as template…", a
+dialog asking for the template's name (the dataset's label to begin with) and where
 to save it, the user's own templates or the shared ones. It writes the
 descriptor as it is (a JSON descriptor keeps keys the block does not know),
 minus the id, together with this block's current view settings; the rows are
 not part of it. When a template of that name already exists at that place,
-the form says so and a second Save replaces it. A user without a known id
+the dialog says so and a second Save replaces it. A user without a known id
 can only save to the shared templates.
 
 **Using.** The setup screen of a new block (the one that offers to create a

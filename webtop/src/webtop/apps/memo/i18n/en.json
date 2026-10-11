@@ -179,6 +179,7 @@
 	"app.memo.dataset.error.notDataset": "Not a dataset folder: {path}",
 	"app.memo.dataset.error.staleShell": "The desktop is running an older version that does not know datasets. Reload the browser page and try again.",
 	"app.memo.dataset.error.badName": "A name cannot contain \"/\".",
+	"app.memo.dataset.error.exists": "\"{name}\" already exists next to this memo. Choose another name, or drop that folder here if it is a dataset.",
 	"app.memo.dataset.error.badKey": "The key must start with a letter and contain only letters, digits and underscores.",
 	"app.memo.dataset.error.duplicateKey": "A column with the key \"{key}\" already exists.",
 	"app.memo.dataset.view.table": "Table",

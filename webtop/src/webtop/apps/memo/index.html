@@ -508,6 +508,38 @@
 			</template>
 		</wt-dialog>
 
+		<!-- Dataset save as template (a dataset block's "Save as template…"). -->
+		<wt-dialog :open="datasetTemplateDialog.visible" size="sm" @close="closeDatasetTemplateDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-journal-plus me-2"></i>{{ t('app.memo.dataset.template.title', undefined, 'Save as template') }}
+			</template>
+			<template v-slot="d">
+				<div class="wt-fields">
+					<div class="wt-field">
+						<span class="wt-field-label">{{ t('app.memo.dataset.template.name', undefined, 'Template name') }}</span>
+						<input type="text" class="wt w-100" ref="datasetTemplateNameInput" v-model="datasetTemplateDialog.name"
+							:disabled="datasetTemplateDialog.isLoading"
+							@keydown="onDatasetTemplateKeydown" />
+					</div>
+					<div class="wt-field">
+						<span class="wt-field-label">{{ t('app.memo.dataset.template.scope', undefined, 'Save to') }}</span>
+						<wt-select v-model="datasetTemplateDialog.scope" :items="datasetTemplateScopeItems()"
+							:disabled="datasetTemplateDialog.isLoading"></wt-select>
+						<span class="wt-field-hint">{{ t('app.memo.dataset.template.hint', undefined, "The columns and this block's view settings are saved; the rows are not.") }}</span>
+					</div>
+					<div v-if="datasetTemplateDialog.errorMessage" class="text-danger">
+						<i class="bi bi-exclamation-circle me-1"></i>{{ datasetTemplateDialog.errorMessage }}
+					</div>
+				</div>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closeDatasetTemplateDialog" :disabled="datasetTemplateDialog.isLoading">{{ t('common.cancel', undefined, 'Cancel') }}</button>
+				<button class="wt wt-primary" @click="submitDatasetTemplate" :disabled="datasetTemplateDialog.isLoading || !datasetTemplateDialog.name.trim()">
+					<i class="bi bi-check-lg me-1"></i>{{ t('common.save', undefined, 'Save') }}
+				</button>
+			</template>
+		</wt-dialog>
+
 		<!-- Close Confirmation Dialog — no ✕ / Escape: the choice is explicit. -->
 		<wt-dialog :open="closeConfirmDialog.visible" :closable="false" :esc-close="false">
 			<template v-slot:title="d">

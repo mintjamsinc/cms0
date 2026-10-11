@@ -996,7 +996,7 @@ textarea.memo-dataset-input {
 }
 
 .memo-dataset-setup-row input,
-.memo-dataset-setup-row select {
+.memo-dataset-setup-row .wt-select {
 	flex: 1;
 	min-width: 0;
 }

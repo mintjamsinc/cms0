@@ -179,6 +179,7 @@
 	"app.memo.dataset.error.notDataset": "データセットのフォルダーではありません: {path}",
 	"app.memo.dataset.error.staleShell": "デスクトップが古いバージョンのまま動いていて、データセットを認識できません。ブラウザーのページを再読み込みしてからやり直してください。",
 	"app.memo.dataset.error.badName": "名前に「/」は使えません。",
+	"app.memo.dataset.error.exists": "このメモの隣に「{name}」は既にあります。別の名前にするか、それがデータセットのフォルダーならここにドロップしてください。",
 	"app.memo.dataset.error.badKey": "キーは英字で始め、英数字とアンダースコアだけで構成してください。",
 	"app.memo.dataset.error.duplicateKey": "キー「{key}」の列は既にあります。",
 	"app.memo.dataset.view.table": "表",
