@@ -162,7 +162,7 @@
 	"app.preferences.mcp.allowWrite": "クライアントによるコンテンツの変更を許可する",
 	"app.preferences.mcp.writeNotAllowed": "このサーバーでは、MCP 接続は読み取り専用です。",
 	"app.preferences.mcp.url": "サーバー URL",
-	"app.preferences.mcp.urlHint": "Claude デスクトップ版と claude.ai：「設定」›「コネクタ」›「カスタムコネクタを追加」に貼り付けます。",
+	"app.preferences.mcp.urlHint": "Claude デスクトップアプリと claude.ai：「設定」›「コネクタ」›「カスタムコネクタを追加」に貼り付けます。",
 	"app.preferences.mcp.command": "Claude Code",
 	"app.preferences.mcp.commandHint": "このコマンドをターミナルで実行します。",
 	"app.preferences.mcp.connectHint": "その後ブラウザーが開くので、接続を許可してください。",
