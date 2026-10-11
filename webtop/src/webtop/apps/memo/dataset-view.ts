@@ -33,6 +33,7 @@ import type { Editor } from '@tiptap/core';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { NodeView } from '@tiptap/pm/view';
 import type { Node as GNode, Dataset, DatasetProperty, DatasetPropertyType, PropertyInput } from '../../graphql/types.js';
+import { isFolderNode } from '../../graphql/types.js';
 import { Dates } from '../../utils/dates.js';
 import { SWATCH_COLOR_MAP, SWATCH_HIGHLIGHT_COLOR_MAP } from '../../lib/color-palette.js';
 import { propertyTypeIcon } from '../../lib/property-icons.js';
@@ -51,6 +52,16 @@ export const DATASET_DESCRIPTOR_NAME = '.dataset.yml';
 const DATASET_DESCRIPTOR_MIME = 'application/yaml';
 const MEMO_MIME = 'application/vnd.mintjams.cms.memo+json';
 const MEMO_EXTENSION = 'memo';
+// Dataset templates: the columns of a dataset and a block's view settings,
+// saved as a JSON file to start the next dataset from. The shared ones live
+// under /etc (a package may ship them there), a user's own under their home.
+// A template carries no id: every dataset made from one gets an id of its own.
+export const TEMPLATE_SHARED_FOLDER = '/etc/datasets/templates';
+const TEMPLATE_EXTENSION = '.json';
+const TEMPLATE_MIME = 'application/json';
+export function templatePersonalFolder(userId: string): string {
+	return `/home/users/${userId}/datasets/templates`;
+}
 // Rows read per block. A dataset is a working list, not an archive; past this
 // the pane says how many rows it left out.
 const ROW_LIMIT = 500;
@@ -102,6 +113,9 @@ export interface DatasetViewHost {
 	openPath(path: string): void;
 	// Path of the memo the block sits in; '' while the memo is unsaved.
 	activeMemoPath(): string;
+	// Id of the signed-in user, '' when unknown; their own templates live
+	// under their home folder.
+	userId(): string;
 	// The block that holds the cursor now: the host shows `pane.el` in the
 	// Inspector in place of the memo's own details, and deactivates the block
 	// that was active before. deactivatePane clears the pane only when it is
@@ -207,6 +221,27 @@ interface DescriptorChoice {
 	color?: string;
 }
 
+// A template file: a descriptor without an id, plus the view settings a
+// block made from it starts with (any DatasetViewAttrs but `path`, defaults
+// left out). An `id` in the file is ignored.
+interface TemplateDocument {
+	label?: string;
+	description?: string;
+	properties: DescriptorProperty[];
+	view?: Partial<Omit<DatasetViewAttrs, 'path'>>;
+	[extra: string]: any;
+}
+
+type TemplateScope = 'personal' | 'shared';
+
+// A template as the setup screen lists it: where it is and what it is
+// called (the file name). Its contents are read when it is chosen.
+interface TemplateEntry {
+	path: string;
+	scope: TemplateScope;
+	name: string;
+}
+
 // A choice while it is edited in the column dialog; `color` is a swatch key,
 // '' for none.
 export interface ChoiceDraft {
@@ -224,6 +259,15 @@ export interface ColumnDraft {
 	required: boolean;
 	print: boolean;
 	choices: ChoiceDraft[];
+}
+
+// The blocks on the page, so the app can have the ones still being set up
+// look again when their memo gets a path (its first save).
+const views = new Set<DatasetNodeView>();
+
+/** Has every block that is not linked to a folder yet draw its setup again. */
+export function refreshDatasetViews(): void {
+	for (const view of views) view.refreshSetup();
 }
 
 export function createDatasetViewExtension(host: DatasetViewHost) {
@@ -335,6 +379,69 @@ function toBase64(text: string): string {
 	return btoa(binary);
 }
 
+// Write a text file, replacing one of the same name.
+async function writeTextFile(content: any, parent: string, name: string, mimeType: string, text: string): Promise<void> {
+	const upload = await content.initiateMultipartUpload();
+	try {
+		await content.appendMultipartUploadData(upload.uploadId, text);
+		await content.completeMultipartUpload(upload.uploadId, parent, name, mimeType, true);
+	} catch (e) {
+		try { await content.abortMultipartUpload(upload.uploadId); } catch { /* ignore */ }
+		throw e;
+	}
+}
+
+// The view settings of a template as block attributes: only the attributes
+// the block has, each only when its value is one the block accepts (the file
+// may be hand-written). `path` is never taken from a template.
+function templateViewAttrs(view: any): Partial<DatasetViewAttrs> {
+	const out: Partial<DatasetViewAttrs> = {};
+	if (!view || typeof view !== 'object') return out;
+	const keyOf = (v: any) => typeof v === 'string' && NAME_PATTERN.test(v) ? v : null;
+	const keys = (v: any) => Array.isArray(v) ? v.filter(k => typeof k === 'string' && NAME_PATTERN.test(k)) : null;
+	if ((VIEWS as readonly string[]).includes(view.view)) out.view = view.view;
+	const hidden = keys(view.hidden);
+	if (hidden && hidden.length) out.hidden = hidden;
+	if (view.sort && typeof view.sort === 'object' && typeof view.sort.key === 'string' && (view.sort.dir === 'asc' || view.sort.dir === 'desc')) {
+		out.sort = { key: view.sort.key, dir: view.sort.dir };
+	}
+	for (const name of ['group', 'date', 'x', 'y', 'series', 'start', 'end'] as const) {
+		const value = keyOf(view[name]);
+		if (value) out[name] = value;
+	}
+	if ((CHART_KINDS as readonly string[]).includes(view.chart)) out.chart = view.chart;
+	if ((AGGREGATES as readonly string[]).includes(view.agg)) out.agg = view.agg;
+	if ((BUCKETS as readonly string[]).includes(view.bucket)) out.bucket = view.bucket;
+	if (view.widths && typeof view.widths === 'object' && !Array.isArray(view.widths)) {
+		const widths: Record<string, number> = {};
+		for (const [key, width] of Object.entries(view.widths)) {
+			if ((key === NAME_COLUMN_KEY || NAME_PATTERN.test(key)) && typeof width === 'number' && width >= MIN_COLUMN_WIDTH) widths[key] = width;
+		}
+		if (Object.keys(widths).length) out.widths = widths;
+	}
+	const order = keys(view.order);
+	if (order && order.length) out.order = order;
+	return out;
+}
+
+// A block's view settings for a template file: every attribute but `path`,
+// those at their default left out, as the HTML form does.
+function compactViewAttrs(attrs: DatasetViewAttrs): Partial<Omit<DatasetViewAttrs, 'path'>> {
+	const out: Partial<Omit<DatasetViewAttrs, 'path'>> = {};
+	if (attrs.view && attrs.view !== 'table') out.view = attrs.view;
+	if (attrs.hidden && attrs.hidden.length) out.hidden = [...attrs.hidden];
+	if (attrs.sort) out.sort = { ...attrs.sort };
+	for (const name of ['group', 'date', 'x', 'y', 'series', 'start', 'end'] as const) {
+		if (attrs[name]) out[name] = attrs[name];
+	}
+	if (attrs.chart && attrs.chart !== DEFAULT_CHART_KIND) out.chart = attrs.chart;
+	if (attrs.agg && attrs.agg !== 'count') out.agg = attrs.agg;
+	if (attrs.bucket && attrs.bucket !== DEFAULT_BUCKET) out.bucket = attrs.bucket;
+	if (attrs.widths && Object.keys(attrs.widths).length) out.widths = { ...attrs.widths };
+	if (attrs.order && attrs.order.length) out.order = [...attrs.order];
+	return out;
+}
+
 // A dataset id: a letter first, so the joined property name is a JCR name in
 // the default namespace and a single XPath token; the rest is time and chance.
 export function generateDatasetId(): string {
@@ -444,6 +551,10 @@ class DatasetNodeView implements NodeView {
 	// Redraws the chart when the shell switches theme: a canvas cannot follow
 	// CSS variables on its own.
 	private themeObserver: MutationObserver | null = null;
+	// The templates the setup screen offers, read once per block; null until
+	// asked for, and again after this block saved one.
+	private templates: TemplateEntry[] | null = null;
+	private templatesLoading: Promise<TemplateEntry[]> | null = null;
 
 	constructor(
 		private readonly host: DatasetViewHost,
@@ -471,6 +582,7 @@ class DatasetNodeView implements NodeView {
 			});
 			this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 		}
+		views.add(this);
 		this.render();
 		this.connect();
 	}
@@ -520,6 +632,7 @@ class DatasetNodeView implements NodeView {
 
 	destroy(): void {
 		this.destroyed = true;
+		views.delete(this);
 		this.deactivate();
 		this.disconnect();
 		this.destroyChart();
@@ -527,6 +640,13 @@ class DatasetNodeView implements NodeView {
 			this.themeObserver.disconnect();
 			this.themeObserver = null;
 		}
+	}
+
+	// Draw the setup screen again (see refreshDatasetViews); a linked block is
+	// left as it is.
+	refreshSetup(): void {
+		if (this.destroyed || this.attrs.path) return;
+		this.render();
 	}
 
 	// ---- activation ----
@@ -966,6 +1086,34 @@ class DatasetNodeView implements NodeView {
 		create.textContent = this.t('app.memo.dataset.setup.create', undefined, 'Create');
 		row.appendChild(create);
 		box.appendChild(row);
+		// The template to start from: none, or one of the user's own or the
+		// shared ones. The row shows once the list is read, and the select is
+		// filled in place, so a name typed meanwhile is kept.
+		const templateRow = el('div', 'memo-dataset-setup-row');
+		templateRow.style.display = 'none';
+		templateRow.appendChild(el('span', 'memo-dataset-setup-caption', this.t('app.memo.dataset.setup.template', undefined, 'Template')));
+		const templateSelect = el('select', 'wt');
+		const noTemplate = el('option', undefined, this.t('app.memo.dataset.setup.templateNone', undefined, 'None (empty dataset)'));
+		noTemplate.value = '';
+		templateSelect.appendChild(noTemplate);
+		templateRow.appendChild(templateSelect);
+		box.appendChild(templateRow);
+		void this.loadTemplates().then(entries => {
+			if (entries.length === 0 || this.destroyed) return;
+			for (const scope of ['personal', 'shared'] as TemplateScope[]) {
+				const ofScope = entries.filter(e => e.scope === scope);
+				if (ofScope.length === 0) continue;
+				const group = el('optgroup');
+				group.label = this.templateScopeLabel(scope);
+				for (const entry of ofScope) {
+					const option = el('option', undefined, entry.name);
+					option.value = entry.path;
+					group.appendChild(option);
+				}
+				templateSelect.appendChild(group);
+			}
+			templateRow.style.display = '';
+		});
 		const hint = el('div', 'memo-dataset-hint', this.t('app.memo.dataset.setup.dropHint', undefined,
 			'Or drop an existing dataset folder here from the Content Browser.'));
 		box.appendChild(hint);
@@ -983,8 +1131,9 @@ class DatasetNodeView implements NodeView {
 			errorLine.style.display = 'none';
 			try {
 				const parent = memoPath.slice(0, memoPath.lastIndexOf('/')) || '/';
-				const path = await this.createDataset(parent, name);
-				this.setAttrs({ path });
+				const template = templateSelect.value ? await this.readTemplate(templateSelect.value) : null;
+				const path = await this.createDataset(parent, name, template);
+				this.setAttrs({ path, ...(template ? templateViewAttrs(template.view) : {}) });
 			} catch (e: any) {
 				errorLine.textContent = e?.message || String(e);
 				errorLine.style.display = '';
@@ -2211,6 +2360,7 @@ class DatasetNodeView implements NodeView {
 				items.push({ id: 'showAll', label: this.t('app.memo.dataset.showAllColumns', { count: hidden.length }, `Show hidden columns (${hidden.length})`), icon: 'bi bi-eye' });
 			}
 			items.push({ id: 'rename', label: this.t('app.memo.dataset.rename', undefined, 'Rename dataset…'), icon: 'bi bi-pencil' });
+			items.push({ id: 'saveTemplate', label: this.t('app.memo.dataset.saveTemplate', undefined, 'Save as template…'), icon: 'bi bi-journal-plus' });
 		}
 		if (attrs.path) {
 			items.push({ id: 'unlink', label: this.t('app.memo.dataset.unlink', undefined, 'Unlink folder'), icon: 'bi bi-folder-minus' });
@@ -2230,6 +2380,7 @@ class DatasetNodeView implements NodeView {
 				case 'reload': void this.reload(); break;
 				case 'showAll': this.setAttrs({ hidden: [] }); break;
 				case 'rename': this.openRenameForm(); break;
+				case 'saveTemplate': this.openTemplateForm(); break;
 				case 'unlink': this.setAttrs({ path: '' }); break;
 				case 'remove': this.removeBlock(); break;
 				case 'removeAll': this.confirmDeleteDataset(); break;
@@ -2390,6 +2541,97 @@ class DatasetNodeView implements NodeView {
 		setTimeout(() => { input.focus(); input.select(); }, 0);
 	}
 
+	// Save the dataset's columns and this block's view settings as a template,
+	// among the user's own templates or the shared ones. The rows are not part
+	// of it, nor is the id: a dataset made from the template gets its own. A
+	// template of the same name is replaced on a second Save.
+	private openTemplateForm(): void {
+		if (!this.dataset) return;
+		const panel = el('div', 'memo-dataset-panel');
+		panel.appendChild(el('div', 'memo-dataset-panel-title', this.t('app.memo.dataset.template.title', undefined, 'Save as template')));
+		const nameField = el('label', 'wt-field');
+		nameField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.template.name', undefined, 'Template name')));
+		const input = el('input', 'wt');
+		input.type = 'text';
+		input.value = this.dataset.label || '';
+		nameField.appendChild(input);
+		panel.appendChild(nameField);
+		const scopeField = el('label', 'wt-field');
+		scopeField.appendChild(el('span', 'wt-field-label', this.t('app.memo.dataset.template.scope', undefined, 'Save to')));
+		const scope = el('select', 'wt');
+		for (const kind of ['personal', 'shared'] as TemplateScope[]) {
+			const option = el('option', undefined, this.templateScopeLabel(kind));
+			option.value = kind;
+			scope.appendChild(option);
+		}
+		if (!this.host.userId()) {
+			(scope.options[0] as HTMLOptionElement).disabled = true;
+			scope.value = 'shared';
+		}
+		scopeField.appendChild(scope);
+		panel.appendChild(scopeField);
+		panel.appendChild(el('div', 'memo-dataset-hint', this.t('app.memo.dataset.template.hint', undefined,
+			'The columns and this block\'s view settings are saved; the rows are not.')));
+		const errorLine = el('div', 'memo-dataset-message text-danger');
+		errorLine.style.display = 'none';
+		const buttons = el('div', 'memo-dataset-panel-buttons');
+		const save = el('button', 'wt wt-primary wt-slim', this.t('app.memo.dataset.save', undefined, 'Save'));
+		save.type = 'button';
+		const cancel = el('button', 'wt wt-slim', this.t('app.memo.dataset.cancel', undefined, 'Cancel'));
+		cancel.type = 'button';
+		// The template a second Save replaces: set once the first Save found
+		// one of that name at that place.
+		let replacing = '';
+		const fail = (message: string) => {
+			errorLine.textContent = message;
+			errorLine.style.display = '';
+			save.disabled = false;
+		};
+		const submit = async () => {
+			const name = input.value.trim();
+			if (!name) {
+				input.focus();
+				return;
+			}
+			if (name.includes('/') || name.startsWith('.')) {
+				fail(this.t('app.memo.dataset.error.badName', undefined, 'A name cannot contain "/".'));
+				return;
+			}
+			save.disabled = true;
+			errorLine.style.display = 'none';
+			try {
+				const content = this.host.api().content;
+				const folder = this.templateFolder(scope.value as TemplateScope);
+				const fileName = name + TEMPLATE_EXTENSION;
+				const target = `${folder}/${fileName}`;
+				if (replacing !== target && await content.exists(target)) {
+					replacing = target;
+					fail(this.t('app.memo.dataset.template.exists', { name }, `A template named "${name}" already exists. Save again to replace it.`));
+					return;
+				}
+				const template = await this.buildTemplate();
+				await this.ensureFolder(folder);
+				await writeTextFile(content, folder, fileName, TEMPLATE_MIME, JSON.stringify(template, null, 2) + '\n');
+				this.templates = null;
+				this.closePanel();
+			} catch (e: any) {
+				fail(e?.message || String(e));
+			}
+		};
+		save.addEventListener('click', () => { void submit(); });
+		cancel.addEventListener('click', () => this.closePanel());
+		input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') { e.preventDefault(); void submit(); }
+			else if (e.key === 'Escape') { e.preventDefault(); this.closePanel(); }
+		});
+		buttons.appendChild(save);
+		buttons.appendChild(cancel);
+		panel.appendChild(buttons);
+		panel.appendChild(errorLine);
+		this.showPanel(panel);
+		setTimeout(() => { input.focus(); input.select(); }, 0);
+	}
+
 	// Add a column, or edit one, in the host's dialog. The key and the type
 	// are fixed once a column exists: the stored property name is derived from
 	// the key, and the search index types a name once for the whole
@@ -2457,24 +2699,117 @@ class DatasetNodeView implements NodeView {
 
 	// ---- descriptor ----
 
-	// Create a dataset folder with an empty descriptor and return its path.
-	private async createDataset(parent: string, name: string): Promise<string> {
+	// Create a dataset folder with a descriptor and return its path: an empty
+	// descriptor, or the columns and description of `template` under a new id.
+	private async createDataset(parent: string, name: string, template: TemplateDocument | null = null): Promise<string> {
 		const content = this.host.api().content;
 		const folder: GNode = await content.createFolder(parent, name);
 		const path = folder?.path || (parent === '/' ? '' : parent) + '/' + name;
 		const doc: DescriptorDocument = { id: generateDatasetId(), label: name, properties: [] };
+		if (template) {
+			if (typeof template.description === 'string' && template.description) doc.description = template.description;
+			doc.properties = (template.properties || []).filter(p => p && typeof p.key === 'string').map(p => ({ ...p }));
+		}
 		await content.createFile(path, DATASET_DESCRIPTOR_NAME, DATASET_DESCRIPTOR_MIME, toBase64(JSON.stringify(doc, null, 2) + '\n'));
 		return path;
 	}
 
-	// Read the descriptor, apply `mutate`, write it back and reload. A
-	// descriptor the block wrote (or any JSON one) is edited in place, so keys
-	// this block does not know survive; a hand-written YAML one is rebuilt
-	// from the server's parsed view, which drops anything the server ignored.
+	// ---- templates ----
+
+	private templateFolder(scope: TemplateScope): string {
+		return scope === 'shared' ? TEMPLATE_SHARED_FOLDER : templatePersonalFolder(this.host.userId());
+	}
+
+	private templateScopeLabel(scope: TemplateScope): string {
+		return scope === 'shared'
+			? this.t('app.memo.dataset.template.scope.shared', undefined, 'Shared templates')
+			: this.t('app.memo.dataset.template.scope.personal', undefined, 'My templates');
+	}
+
+	// The templates on offer, the user's own before the shared ones, each
+	// group by name. A folder that is missing or cannot be read offers none.
+	private loadTemplates(): Promise<TemplateEntry[]> {
+		if (this.templates) return Promise.resolve(this.templates);
+		if (this.templatesLoading) return this.templatesLoading;
+		const content = this.host.api().content;
+		const scopes: TemplateScope[] = this.host.userId() ? ['personal', 'shared'] : ['shared'];
+		this.templatesLoading = Promise.all(scopes.map(async (scope): Promise<TemplateEntry[]> => {
+			try {
+				const result = await content.listChildren(this.templateFolder(scope), { first: 200 });
+				const nodes: GNode[] = (result?.edges || []).map((e: any) => e.node);
+				return nodes
+					.filter(n => n && !isFolderNode(n) && n.name.toLowerCase().endsWith(TEMPLATE_EXTENSION))
+					.map(n => ({ path: n.path, scope, name: n.name.slice(0, -TEMPLATE_EXTENSION.length) }))
+					.sort((a, b) => a.name.localeCompare(b.name));
+			} catch {
+				return [];
+			}
+		})).then(lists => {
+			this.templates = lists.flat();
+			this.templatesLoading = null;
+			return this.templates;
+		});
+		return this.templatesLoading;
+	}
+
+	private async readTemplate(path: string): Promise<TemplateDocument> {
+		const content = this.host.api().content;
+		const node: GNode | null = await content.getNode(path);
+		const response = node?.downloadUrl ? await fetch(node.downloadUrl) : null;
+		if (!response || !response.ok) {
+			throw new Error(this.t('app.memo.dataset.template.unreadable', { path }, `The template could not be read: ${path}`));
+		}
+		let parsed: any = null;
+		try { parsed = JSON.parse(await response.text()); } catch { /* reported below */ }
+		if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.properties)) {
+			throw new Error(this.t('app.memo.dataset.template.invalid', { path }, `Not a dataset template: ${path}`));
+		}
+		return parsed as TemplateDocument;
+	}
+
+	// This dataset's columns and this block's view settings as a template.
+	private async buildTemplate(): Promise<TemplateDocument> {
+		const doc = await this.readDescriptor();
+		const template: TemplateDocument = { properties: doc.properties || [] };
+		if (doc.label && doc.label !== doc.id) template.label = doc.label;
+		if (doc.description) template.description = doc.description;
+		const view = compactViewAttrs(this.attrs);
+		if (Object.keys(view).length > 0) template.view = view;
+		return template;
+	}
+
+	// Create `path` and the folders above it that are missing.
+	private async ensureFolder(path: string): Promise<void> {
+		const content = this.host.api().content;
+		if (await content.exists(path)) return;
+		const index = path.lastIndexOf('/');
+		const parent = index > 0 ? path.slice(0, index) : '/';
+		if (parent !== '/') await this.ensureFolder(parent);
+		await content.createFolder(parent, path.slice(index + 1));
+	}
+
+	// ---- descriptor ----
+
+	// Read the descriptor, apply `mutate`, write it back and reload.
 	private async rewriteDescriptor(mutate: (doc: DescriptorDocument) => void): Promise<void> {
 		const path = this.attrs.path;
 		const dataset = this.dataset;
 		if (!path || !dataset) return;
+		const content = this.host.api().content;
+		const doc = await this.readDescriptor();
+		mutate(doc);
+		await writeTextFile(content, path, DATASET_DESCRIPTOR_NAME, DATASET_DESCRIPTOR_MIME, JSON.stringify(doc, null, 2) + '\n');
+		await this.reload();
+	}
+
+	// The descriptor as a document to edit. A descriptor the block wrote (or
+	// any JSON one) is taken as it is, so keys this block does not know
+	// survive; a hand-written YAML one is rebuilt from the server's parsed
+	// view, which drops anything the server ignored.
+	private async readDescriptor(): Promise<DescriptorDocument> {
+		const path = this.attrs.path;
+		const dataset = this.dataset;
+		if (!path || !dataset) throw new Error(this.t('app.memo.dataset.pane.unlinked', undefined, 'This block is not linked to a dataset folder yet.'));
 		const content = this.host.api().content;
 		const descriptorPath = `${path}/${DATASET_DESCRIPTOR_NAME}`;
 		let doc: DescriptorDocument | null = null;
@@ -2513,17 +2848,7 @@ class DatasetNodeView implements NodeView {
 			if (dataset.label && dataset.label !== dataset.id) doc.label = dataset.label;
 			if (dataset.description) doc.description = dataset.description;
 		}
-		mutate(doc);
-		const body = JSON.stringify(doc, null, 2) + '\n';
-		const upload = await content.initiateMultipartUpload();
-		try {
-			await content.appendMultipartUploadData(upload.uploadId, body);
-			await content.completeMultipartUpload(upload.uploadId, path, DATASET_DESCRIPTOR_NAME, DATASET_DESCRIPTOR_MIME, true);
-		} catch (e) {
-			try { await content.abortMultipartUpload(upload.uploadId); } catch { /* ignore */ }
-			throw e;
-		}
-		await this.reload();
+		return doc;
 	}
 
 	// ---- drops ----

@@ -323,6 +323,71 @@ unsaved-changes one), not in the pane.
 reloads after a change, so edits from another memo, the Inspector or the
 Content Browser appear without a refresh.
 
+## Templates
+
+A dataset that is set up the same way again and again (a task list, a
+shipping ledger) is saved once as a template and the next dataset starts
+from it. A template is a JSON file:
+
+```json
+{
+  "label": "Tasks",
+  "description": "What is being worked on, by whom, and until when.",
+  "properties": [
+    { "key": "status", "label": "Status", "type": "STRING", "required": true,
+      "choices": [ { "value": "todo", "label": "To do" }, { "value": "doing", "label": "Doing", "color": "peacock" }, { "value": "done", "label": "Done", "color": "sage" } ] },
+    { "key": "owner", "label": "Owner", "type": "STRING" },
+    { "key": "due", "label": "Due", "type": "DATE" }
+  ],
+  "view": { "view": "board", "group": "status", "sort": { "key": "due", "dir": "asc" } }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `label` | What the template was saved from; informational. The lists show the file name, and a new dataset's `label` is the folder name the user types. |
+| `description` | Copied into the new descriptor. |
+| `properties` | The columns, in the descriptor's own form (key, label, type, multiple, required, print, choices). Copied as they are; the server's rules apply when it reads the new descriptor. |
+| `view` | The block attributes a block made from the template starts with: any of the attributes above but `path`, those at their default left out. Attributes the block does not know, and values it does not accept, are ignored. |
+
+A template carries **no id**. Every dataset made from one gets a freshly
+generated id, so two datasets from the same template store their values under
+different property names and never meet in the search index; an `id` that a
+hand-written template does carry is ignored. (A template that kept its id
+would let one XPath statement span every dataset made from it, at the price
+of every copy having to keep the same key → type registry; that is not what
+templates do.)
+
+Templates live in two places, both plain folders of `*.json` files:
+
+| Place | Path | Who |
+| --- | --- | --- |
+| The user's own | `/home/users/<userId>/datasets/templates/` | Saved and read by that user. |
+| Shared | `/etc/datasets/templates/` | Read by everyone; written by whoever has write access there, which is normally administrators. A package may ship templates here. |
+
+The file name without `.json` is the template's name in the lists. Neither
+folder is created until the first template is saved into it; a folder that is
+missing or unreadable simply offers no templates.
+
+**Saving.** The dataset block's "⋯" menu has "Save as template…", a form in
+the pane: the template's name (the dataset's label to begin with) and where
+to save it, the user's own templates or the shared ones. It writes the
+descriptor as it is (a JSON descriptor keeps keys the block does not know),
+minus the id, together with this block's current view settings; the rows are
+not part of it. When a template of that name already exists at that place,
+the form says so and a second Save replaces it. A user without a known id
+can only save to the shared templates.
+
+**Using.** The setup screen of a new block (the one that offers to create a
+folder next to the memo) gains a "Template" select once any template is
+found, the user's own first, then the shared ones. Creating the folder with a
+template chosen writes the template's columns and description into the new
+descriptor, under a new id, and sets the block's attributes from the
+template's `view`, so a board template opens as a board grouped by the right
+column. The template is read when "Create" is pressed, so an unreadable or
+malformed file fails the creation with a message rather than producing an
+empty dataset.
+
 ## Constraints to keep in mind
 
 - A column's key and type cannot change after creation, and a dataset's id

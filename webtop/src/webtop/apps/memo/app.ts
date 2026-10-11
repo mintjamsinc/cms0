@@ -42,7 +42,7 @@ import {
 // Dataset block: a folder of memos shown as an editable table; see
 // dataset-view.ts.
 import {
-	createDatasetViewExtension, DATASET_VIEW_NODE, DATASET_DROP_HANDLER, COLUMN_TYPES, suggestKey, typeIcon,
+	createDatasetViewExtension, refreshDatasetViews, DATASET_VIEW_NODE, DATASET_DROP_HANDLER, COLUMN_TYPES, suggestKey, typeIcon,
 	type DatasetPane, type ChoiceDraft, type ColumnDraft,
 } from "./dataset-view.js";
 // Conversation block: a conversation shown inside the memo; see chat-view.ts.
@@ -975,8 +975,9 @@ export const App = {
 			file.modified = nextModified;
 			file.inspectorItem = nodeToInspectorTarget(node);
 			// A memo saved for the first time now has the identifier its
-			// conversation is kept by.
+			// conversation is kept by, and the path a dataset is created next to.
 			refreshChatViews();
+			refreshDatasetViews();
 			if (idx === vm.currentFileIndex) {
 				vm.currentFile.mimeType = file.mimeType;
 				vm.currentFile.encoding = file.encoding;
@@ -1162,7 +1163,10 @@ export const App = {
 					timeZone: () => vm.localization?.timeZone || undefined,
 					locale: () => vm.localization?.locale || undefined,
 					openPath: (path: string) => { void vm.loadFile(path); },
-					activeMemoPath: () => vm.currentFile?.path || '',
+					// The path of this editor's own tab, not of whichever tab is in
+					// front: a block is drawn before its tab is selected.
+					activeMemoPath: () => (vm.files as MemoFile[]).find((f: MemoFile) => f.id === tabId)?.path || '',
+					userId: () => vm.instance?.currentUser?.id || '',
 					activatePane: (pane: DatasetPane) => vm.activateDatasetPane(pane),
 					deactivatePane: (pane: DatasetPane) => vm.deactivateDatasetPane(pane),
 					revealPane: () => vm.revealDatasetPane(),

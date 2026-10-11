@@ -995,8 +995,16 @@ textarea.memo-dataset-input {
 	align-items: center;
 }
 
-.memo-dataset-setup-row input {
+.memo-dataset-setup-row input,
+.memo-dataset-setup-row select {
 	flex: 1;
+	min-width: 0;
+}
+
+.memo-dataset-setup-caption {
+	flex: none;
+	color: var(--text-muted-color);
+	font-size: 0.875rem;
 }
 
 /* Forms and confirmations (rename, delete): in the Inspector pane while the
