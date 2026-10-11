@@ -157,7 +157,15 @@ public class WorkspaceProcessEngineProvider implements Closeable {
 		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FOLDER_NAME)) {
 			NodeIterator i = item.getNodes();
 			while (i.hasNext()) {
-				deploy(i.nextNode());
+				Node child = i.nextNode();
+				String childPath = child.getPath();
+				// One file that fails to deploy must not keep the files after it from
+				// being deployed, and only the failing file is named in the log.
+				try {
+					deploy(child);
+				} catch (Throwable ex) {
+					CmsService.getLogger(getClass()).error("Failed to deploy the process file: " + childPath, ex);
+				}
 			}
 			return;
 		}
@@ -311,8 +319,15 @@ public class WorkspaceProcessEngineProvider implements Closeable {
 							}
 
 							String type = event.getProperty("type").toString();
-							if (!type.equals(NodeType.NT_FILE_NAME)) {
+							// A moved folder is reported alone, not file by file, so the files
+							// under it are deployed from here or not at all.
+							boolean movedFolder = topic.endsWith("/MOVED") && type.equals(NodeType.NT_FOLDER_NAME);
+							if (!type.equals(NodeType.NT_FILE_NAME) && !movedFolder) {
 								continue;
+							}
+							if (movedFolder) {
+								CmsService.getLogger(getClass()).info("Deploying the process files under the moved folder: " + path
+										+ " (moved from " + event.getProperty("source_path") + ")");
 							}
 
 							Session session = null;

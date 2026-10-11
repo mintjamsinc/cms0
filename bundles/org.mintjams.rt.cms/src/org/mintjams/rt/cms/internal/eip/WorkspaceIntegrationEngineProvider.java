@@ -530,7 +530,15 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 		if (item.getPrimaryNodeType().getName().equals(NodeType.NT_FOLDER_NAME)) {
 			NodeIterator i = item.getNodes();
 			while (i.hasNext()) {
-				deployAggregationStrategy(i.nextNode(), rootPaths);
+				Node child = i.nextNode();
+				String childPath = child.getPath();
+				// One strategy that fails to load must not keep the strategies after it
+				// (and the routes waiting for them) from being deployed.
+				try {
+					deployAggregationStrategy(child, rootPaths);
+				} catch (Throwable ex) {
+					CmsService.getLogger(getClass()).error("Failed to deploy the aggregation strategy: " + childPath, ex);
+				}
 			}
 			return;
 		}
@@ -850,8 +858,15 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 							}
 
 							String type = event.getProperty("type").toString();
-							if (!type.equals(NodeType.NT_FILE_NAME)) {
+							// A moved folder is reported alone, not file by file, so the files
+							// under it are deployed from here or not at all.
+							boolean movedFolder = topic.endsWith("/MOVED") && type.equals(NodeType.NT_FOLDER_NAME);
+							if (!type.equals(NodeType.NT_FILE_NAME) && !movedFolder) {
 								continue;
+							}
+							if (movedFolder) {
+								CmsService.getLogger(getClass()).info("Deploying the aggregation strategies under the moved folder: " + path
+										+ " (moved from " + event.getProperty("source_path") + ")");
 							}
 
 							Session session = null;
