@@ -156,11 +156,15 @@ public class MessageCorrelator {
 				return null;
 			}
 
+			// The engine refuses a null map of correlation keys ("variables is
+			// null"); none set means none required.
+			Map<String, Object> correlationKeys = (fCorrelationKeys != null) ? fCorrelationKeys : new HashMap<>();
+			Map<String, Object> variables = (fVariables != null) ? fVariables : new HashMap<>();
 			if (!Strings.isEmpty(fBusinessKey)) {
-				runtime.correlateMessage(fMessageName, fBusinessKey, fCorrelationKeys, fVariables);
+				runtime.correlateMessage(fMessageName, fBusinessKey, correlationKeys, variables);
 				return null;
 			}
-			runtime.correlateMessage(fMessageName, fCorrelationKeys, fVariables);
+			runtime.correlateMessage(fMessageName, correlationKeys, variables);
 			return null;
 		});
 	}

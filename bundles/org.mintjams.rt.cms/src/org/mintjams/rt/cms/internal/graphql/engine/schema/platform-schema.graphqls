@@ -904,6 +904,10 @@ type Dataset {
   description: String
   """The columns, in declaration order."""
   properties: [DatasetProperty!]!
+  """Whether the rows are written by a process rather than by people; the Memo app then shows them without the means to edit."""
+  managed: Boolean!
+  """The view settings a Memo block starts with when it is linked to this dataset (the block's attributes, as a dataset template carries them), or null."""
+  view: JSON
 }
 
 """One column of a dataset."""

@@ -186,7 +186,23 @@ public final class Datasets {
 			}
 		}
 
-		return new Dataset(id, path, asString(parsed.get("label")), asString(parsed.get("description")), properties);
+		// `managed`: the rows are written by a process, not by people; the Memo
+		// app shows them without the means to edit. `view`: the block attributes
+		// a Memo block starts with when it is linked to the folder (the same map
+		// a dataset template carries). Both are carried, not interpreted.
+		Map<String, Object> view = null;
+		Object declaredView = parsed.get("view");
+		if (declaredView instanceof Map) {
+			view = new LinkedHashMap<>();
+			for (Map.Entry<?, ?> entry : ((Map<?, ?>) declaredView).entrySet()) {
+				if (entry.getKey() != null) {
+					view.put(entry.getKey().toString(), entry.getValue());
+				}
+			}
+		}
+
+		return new Dataset(id, path, asString(parsed.get("label")), asString(parsed.get("description")), properties,
+				isTrue(parsed.get("managed")), view);
 	}
 
 	private static Property toProperty(String datasetId, Object entry) {
@@ -292,13 +308,18 @@ public final class Datasets {
 		private final String fLabel;
 		private final String fDescription;
 		private final List<Property> fProperties;
+		private final boolean fManaged;
+		private final Map<String, Object> fView;
 
-		private Dataset(String id, String path, String label, String description, List<Property> properties) {
+		private Dataset(String id, String path, String label, String description, List<Property> properties,
+				boolean managed, Map<String, Object> view) {
 			fId = id;
 			fPath = path;
 			fLabel = label;
 			fDescription = description;
 			fProperties = Collections.unmodifiableList(new ArrayList<>(properties));
+			fManaged = managed;
+			fView = (view == null) ? null : Collections.unmodifiableMap(new LinkedHashMap<>(view));
 		}
 
 		/**
@@ -327,6 +348,16 @@ public final class Datasets {
 			return fProperties;
 		}
 
+		/** Whether the rows are written by a process rather than by people. */
+		public boolean isManaged() {
+			return fManaged;
+		}
+
+		/** The view settings a Memo block starts with when linked to this dataset, or {@code null}. */
+		public Map<String, Object> getView() {
+			return fView;
+		}
+
 		/** The column stored under {@code name}, or {@code null} when none is. */
 		public Property getPropertyByName(String name) {
 			for (Property property : fProperties) {
@@ -348,6 +379,8 @@ public final class Datasets {
 				properties.add(property.toMap());
 			}
 			result.put("properties", properties);
+			result.put("managed", fManaged);
+			result.put("view", fView);
 			return result;
 		}
 	}

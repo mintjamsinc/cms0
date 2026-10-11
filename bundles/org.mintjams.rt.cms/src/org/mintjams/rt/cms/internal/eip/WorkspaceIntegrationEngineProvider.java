@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -72,6 +73,13 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 	private final Map<String, List<String>> fDeployments = new HashMap<>();
 	private final Map<String, List<String>> fRouteConfigDeployments = new HashMap<>();
 	private final Map<String, AggregationStrategyImpl> fAggregationStrategies = new HashMap<>();
+	/**
+	 * Route files that failed to load because an aggregation strategy they name
+	 * was not deployed yet. A package install places routes and strategies in
+	 * one commit and the two deployers race; the route that loses is deployed
+	 * again here as soon as a strategy is deployed.
+	 */
+	private final Set<String> fRoutesWaitingForStrategies = new LinkedHashSet<>();
 	private WorkspaceCamelContext fCamelContext;
 	private ProducerTemplate fProducerTemplate;
 
@@ -271,6 +279,10 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 								+ " replaced or removed routes deployed from other files: " + displaced);
 					}
 
+					synchronized (fRoutesWaitingForStrategies) {
+						fRoutesWaitingForStrategies.remove(itemPath);
+					}
+
 					if (newRouteIds.isEmpty() && newConfigIds.isEmpty()) {
 						// Camel loads a document it cannot read as XML routes as nothing at all,
 						// logging only "Invalid XML document", so an empty result is the one
@@ -283,6 +295,13 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 								+ (newConfigIds.isEmpty() ? "" : " routeConfigurations=" + newConfigIds));
 					}
 				} catch (Throwable cause) {
+					if (isMissingAggregationStrategy(cause)) {
+						synchronized (fRoutesWaitingForStrategies) {
+							fRoutesWaitingForStrategies.add(itemPath);
+						}
+						CmsService.getLogger(getClass()).warn("The route file " + itemPath
+								+ " names an aggregation strategy that is not deployed yet; it is deployed again once one is.");
+					}
 					throw Cause.create(cause).wrap(IOException.class);
 				}
 
@@ -309,6 +328,39 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 				}
 			}
 			return;
+		}
+	}
+
+	/** Whether a route failed to build for want of an aggregation strategy, anywhere down the cause chain. */
+	private static boolean isMissingAggregationStrategy(Throwable cause) {
+		for (Throwable t = cause; t != null; t = (t.getCause() == t) ? null : t.getCause()) {
+			String message = t.getMessage();
+			if (message != null && message.contains("Cannot find AggregationStrategy")) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Deploys again the route files that waited for an aggregation strategy; one that still fails keeps waiting. */
+	private void redeployRoutesWaitingForStrategies(Session session) {
+		List<String> waiting;
+		synchronized (fRoutesWaitingForStrategies) {
+			waiting = new ArrayList<>(fRoutesWaitingForStrategies);
+		}
+		for (String path : waiting) {
+			try {
+				if (!session.nodeExists(path)) {
+					synchronized (fRoutesWaitingForStrategies) {
+						fRoutesWaitingForStrategies.remove(path);
+					}
+					continue;
+				}
+				CmsService.getLogger(getClass()).info("Deploying the route file again now that an aggregation strategy was deployed: " + path);
+				deployRoute(session.getNode(path));
+			} catch (Throwable ex) {
+				CmsService.getLogger(getClass()).warn("The route file " + path + " still could not be deployed: " + ex.getMessage());
+			}
 		}
 	}
 
@@ -470,6 +522,8 @@ public class WorkspaceIntegrationEngineProvider implements Closeable {
 						.put("workspace", getWorkspaceName())
 						.build());
 			}
+			// Outside the strategies lock: building a route asks for strategies.
+			redeployRoutesWaitingForStrategies(item.getSession());
 			return;
 		}
 

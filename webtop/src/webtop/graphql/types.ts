@@ -116,6 +116,10 @@ export interface Dataset {
   description?: string | null;
   /** The columns, in declaration order. */
   properties: DatasetProperty[];
+  /** The rows are written by a process, not by people: shown, not edited. */
+  managed: boolean;
+  /** The block attributes a block starts with when linked to the folder, or null. */
+  view?: Record<string, any> | null;
 }
 
 /** JCR property types a dataset column may declare. */

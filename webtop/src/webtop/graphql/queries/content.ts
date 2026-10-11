@@ -184,6 +184,8 @@ export const CONTENT_QUERIES = {
           path
           label
           description
+          managed
+          view
           properties {
             key
             name

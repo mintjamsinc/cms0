@@ -124,6 +124,8 @@
 	"app.memo.dataset.nameColumn": "名前",
 	"app.memo.dataset.newRow": "+ 新しい行",
 	"app.memo.dataset.empty": "まだ行がありません。下に名前を入力して追加してください。",
+	"app.memo.dataset.emptyManaged": "まだ行がありません。",
+	"app.memo.dataset.pane.managed": "行はプロセスが書きます。ここでは見るだけで、編集はできません。",
 	"app.memo.dataset.loading": "読み込み中…",
 	"app.memo.dataset.rowCount": "{count} 行",
 	"app.memo.dataset.truncated": "他 {count} 行は表示されていません",

@@ -566,6 +566,11 @@ class DatasetNodeView implements NodeView {
 	// asked for, and again after this block saved one.
 	private templates: TemplateEntry[] | null = null;
 	private templatesLoading: Promise<TemplateEntry[]> | null = null;
+	// Set when the block was just linked to a folder (dropped, or created from
+	// the setup screen): the descriptor's `view` becomes the block's attributes
+	// once the dataset is read. Only then - a reader who switched a board back
+	// to a table keeps the table.
+	private applyDescriptorView = false;
 
 	constructor(
 		private readonly host: DatasetViewHost,
@@ -796,6 +801,11 @@ class DatasetNodeView implements NodeView {
 				return;
 			}
 			this.dataset = folder.dataset;
+			if (this.applyDescriptorView) {
+				this.applyDescriptorView = false;
+				const view = templateViewAttrs(folder.dataset.view);
+				if (Object.keys(view).length > 0) this.setAttrs(view);
+			}
 			const statement = `/jcr:root${path}/element(*, nt:file)`;
 			const result = await content.xpathWithProperties(statement, { first: ROW_LIMIT });
 			if (seq !== this.loadSeq || this.destroyed) return;
@@ -1220,6 +1230,12 @@ class DatasetNodeView implements NodeView {
 				rows.textContent = text;
 			}
 			info.appendChild(rows);
+			if (this.managed) {
+				const note = el('div', 'text-muted small');
+				note.appendChild(icon('bi-lock me-1'));
+				note.appendChild(document.createTextNode(this.t('app.memo.dataset.pane.managed', undefined, 'The rows are written by a process; they are read here, not edited.')));
+				info.appendChild(note);
+			}
 			if (this.error) {
 				const msg = el('div', 'text-danger small');
 				msg.appendChild(icon('bi-exclamation-circle me-1'));
@@ -1380,21 +1396,25 @@ class DatasetNodeView implements NodeView {
 		}
 		if (this.rows.length === 0 && !this.loading) {
 			const tr = el('tr');
-			const td = el('td', 'memo-dataset-empty', this.t('app.memo.dataset.empty', undefined, 'No rows yet. Type a name below to add one.'));
+			const td = el('td', 'memo-dataset-empty', this.managed
+				? this.t('app.memo.dataset.emptyManaged', undefined, 'No rows yet.')
+				: this.t('app.memo.dataset.empty', undefined, 'No rows yet. Type a name below to add one.'));
 			td.colSpan = columns.length + 2;
 			tr.appendChild(td);
 			tbody.appendChild(tr);
 		}
 		table.appendChild(tbody);
 
-		const tfoot = el('tfoot');
-		const footRow = el('tr');
-		const footTd = el('td');
-		footTd.colSpan = columns.length + 2;
-		footTd.appendChild(this.renderNewRowInput());
-		footRow.appendChild(footTd);
-		tfoot.appendChild(footRow);
-		table.appendChild(tfoot);
+		if (!this.managed) {
+			const tfoot = el('tfoot');
+			const footRow = el('tr');
+			const footTd = el('td');
+			footTd.colSpan = columns.length + 2;
+			footTd.appendChild(this.renderNewRowInput());
+			footRow.appendChild(footTd);
+			tfoot.appendChild(footRow);
+			table.appendChild(tfoot);
+		}
 
 		wrap.appendChild(table);
 		return wrap;
@@ -1638,7 +1658,7 @@ class DatasetNodeView implements NodeView {
 			const cards = el('div', 'memo-dataset-cards');
 			for (const row of laneRows) cards.appendChild(this.renderCard(row, cardColumns));
 			laneEl.appendChild(cards);
-			laneEl.appendChild(this.renderNewRowInput(
+			if (!this.managed) laneEl.appendChild(this.renderNewRowInput(
 				lane.value !== null ? { column, text: lane.value } : undefined,
 				this.t('app.memo.dataset.board.newRow', undefined, '+ New'),
 			));
@@ -1657,7 +1677,7 @@ class DatasetNodeView implements NodeView {
 
 	private renderCard(row: Row, columns: DatasetProperty[]): HTMLElement {
 		const card = el('div', 'memo-dataset-card');
-		card.draggable = true;
+		card.draggable = !this.managed;
 		card.appendChild(this.renderRowLink(row));
 		for (const column of columns) {
 			const stored = row.values[column.name];
@@ -1669,7 +1689,7 @@ class DatasetNodeView implements NodeView {
 			line.appendChild(value);
 			card.appendChild(line);
 		}
-		this.makeRowDraggable(card, row);
+		if (!this.managed) this.makeRowDraggable(card, row);
 		card.addEventListener('contextmenu', (e) => { e.preventDefault(); this.openRowMenu(e, row); });
 		return card;
 	}
@@ -1688,6 +1708,7 @@ class DatasetNodeView implements NodeView {
 	// sits above the block and would refuse the drop, so propagation stops
 	// here for our payload.
 	private acceptRowDrops(target: HTMLElement, onDrop: (row: Row) => Promise<void>): void {
+		if (this.managed) return;
 		const isRowDrag = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes(ROW_DRAG_TYPE);
 		target.addEventListener('dragover', (e: DragEvent) => {
 			if (!isRowDrag(e)) return;
@@ -1836,7 +1857,7 @@ class DatasetNodeView implements NodeView {
 		if (time && time !== '00:00') chip.appendChild(el('span', 'memo-dataset-event-time', time + ' '));
 		chip.appendChild(this.renderRowLink(row));
 		// A row with several dates cannot be moved by dragging one of them.
-		if (!column.multiple) {
+		if (!column.multiple && !this.managed) {
 			chip.draggable = true;
 			this.makeRowDraggable(chip, row);
 		}
@@ -2110,6 +2131,7 @@ class DatasetNodeView implements NodeView {
 	// ---- cell editing ----
 
 	private startCellEdit(row: Row, column: DatasetProperty, td: HTMLElement): void {
+		if (this.managed) return;
 		if (this.editingCell) return;
 		this.editingCell = { rowPath: row.path, name: column.name };
 		const stored = row.values[column.name];
@@ -2362,11 +2384,13 @@ class DatasetNodeView implements NodeView {
 			anchor: { left: event.clientX, top: event.clientY },
 			placement: 'bottom-start',
 			minWidth: 200,
-			items: [
-				{ id: 'open', label: this.t('app.memo.dataset.row.open', undefined, 'Open'), icon: 'bi bi-box-arrow-up-right' },
-				{ id: 'rename', label: this.t('app.memo.dataset.row.rename', undefined, 'Rename…'), icon: 'bi bi-pencil' },
-				{ id: 'delete', label: this.t('app.memo.dataset.row.delete', undefined, 'Delete row…'), icon: 'bi bi-trash', danger: true },
-			],
+			items: this.managed
+				? [{ id: 'open', label: this.t('app.memo.dataset.row.open', undefined, 'Open'), icon: 'bi bi-box-arrow-up-right' }]
+				: [
+					{ id: 'open', label: this.t('app.memo.dataset.row.open', undefined, 'Open'), icon: 'bi bi-box-arrow-up-right' },
+					{ id: 'rename', label: this.t('app.memo.dataset.row.rename', undefined, 'Rename…'), icon: 'bi bi-pencil' },
+					{ id: 'delete', label: this.t('app.memo.dataset.row.delete', undefined, 'Delete row…'), icon: 'bi bi-trash', danger: true },
+				],
 		});
 		handle.result.then((id: string | null) => {
 			if (id === 'open') this.host.openPath(row.path);
@@ -2686,6 +2710,10 @@ class DatasetNodeView implements NodeView {
 		if (template) {
 			if (typeof template.description === 'string' && template.description) doc.description = template.description;
 			doc.properties = (template.properties || []).filter(p => p && typeof p.key === 'string').map(p => ({ ...p }));
+			// The folder remembers how it is meant to be shown, so a block it
+			// is dropped on later opens the same way.
+			const view = templateViewAttrs(template.view);
+			if (Object.keys(view).length > 0) doc.view = view;
 		}
 		await content.createFile(path, DATASET_DESCRIPTOR_NAME, DATASET_DESCRIPTOR_MIME, toBase64(JSON.stringify(doc, null, 2) + '\n'));
 		return path;
@@ -2835,7 +2863,13 @@ class DatasetNodeView implements NodeView {
 	private onDropItems(items: any[]): boolean {
 		const folder = items.find(it => it && it.isCollection && it.path);
 		if (!folder) return false;
+		this.applyDescriptorView = true;
 		this.setAttrs({ path: folder.path });
 		return true;
+	}
+
+	// Whether the rows belong to a process: shown here, never edited here.
+	private get managed(): boolean {
+		return !!this.dataset?.managed;
 	}
 }

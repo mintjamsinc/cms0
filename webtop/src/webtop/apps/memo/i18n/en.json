@@ -124,6 +124,8 @@
 	"app.memo.dataset.nameColumn": "Name",
 	"app.memo.dataset.newRow": "+ New row",
 	"app.memo.dataset.empty": "No rows yet. Type a name below to add one.",
+	"app.memo.dataset.emptyManaged": "No rows yet.",
+	"app.memo.dataset.pane.managed": "The rows are written by a process; they are read here, not edited.",
 	"app.memo.dataset.loading": "Loading…",
 	"app.memo.dataset.rowCount": "{count} rows",
 	"app.memo.dataset.truncated": "{count} more not shown",

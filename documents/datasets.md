@@ -48,6 +48,16 @@ properties:
 | `properties[].print` | `false` leaves the column out when the rows are printed (the Memo app hides it under `@media print`); absent means printed. |
 | `properties[].choices` | Allowed values, each `{ value, label, color }` or a bare scalar. `color` names a swatch of the shared palette (`webtop/src/webtop/lib/color-palette.ts`: `tomato`, `tangerine`, `banana`, `basil`, `sage`, `peacock`, `blueberry`, `lavender`, `grape`, `flamingo`, `graphite`); the server carries it, the client tints the value's chip with it, and an unknown name shows as no color. |
 
+Two more keys describe how the folder is used rather than what it holds:
+
+| Field | Meaning |
+| --- | --- |
+| `managed` | `true` when the rows are written by a process (a route, a BPMN step) and people only look. The Memo app's block then offers no way to add, edit, move, rename or delete a row - no new-row input, no cell editor, no dragging on the board or the calendar - and says so in its pane. Columns can still be edited. It is a courtesy, not a guard: write access is the folder's ACL. |
+| `view` | The block attributes a Memo block starts with when it is linked to the folder, in the shape a dataset template's `view` has (`view`, `group`, `date`, `sort`, `hidden`, `chart`, ...). Applied when a block is created for the folder or the folder is dropped on one, not on later reads, so a reader who switched the block to another view keeps it. A dataset created from a template carries the template's `view`. |
+
+Both are carried by `node.dataset` (`managed`, `view`) and ignored by the
+Inspector and the search.
+
 The descriptor is parsed by `Datasets.java` (`org.mintjams.rt.cms.internal.dataset`)
 with the same rules as `.web.yml`: a descriptor that is missing, unreadable or
 malformed means "no dataset" and never breaks a read. A column with an invalid
