@@ -173,7 +173,7 @@
 							<template v-if="userSubTab === 'profile'">
 								<div class="property-group">
 									<div class="property-group-title">{{ t('app.identity-manager.user.infoTitle', undefined, 'User Information') }}</div>
-									<wt-inline-message v-if="isSelf" type="info">{{ t('app.identity-manager.user.selfNote', undefined, 'This is your own account. You cannot disable it or change its roles here — manage your own profile from your account settings.') }}</wt-inline-message>
+									<wt-inline-message v-if="isSelf" type="info">{{ t('app.identity-manager.user.selfNote', undefined, 'This is your own account. You cannot disable it or change its roles here — manage your own profile from Preferences.') }}</wt-inline-message>
 									<wt-inline-message v-if="selectedUser.isService" type="info">{{ t('app.identity-manager.user.serviceNote', undefined, 'Service account — a non-interactive identity used by integrations (via runAs). It has no password and can never sign in.') }}</wt-inline-message>
 									<div class="form-row">
 										<wt-field class="flex-grow-1" :label="t('app.identity-manager.field.username', undefined, 'Username')">
