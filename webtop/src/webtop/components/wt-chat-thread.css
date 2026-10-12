@@ -121,6 +121,38 @@ wt-chat-thread {
 	background: var(--item-selected-bg);
 }
 
+/* --- the message boxes (lib/mention-editor.ts) --- */
+
+.wt-chat-input {
+	min-width: 0;
+	max-height: 160px;
+	overflow-y: auto;
+	outline: none;
+	color: var(--text-color);
+	font: inherit;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* The placeholder, while nothing is written (an emptied box is left without children). */
+.wt-chat-input:empty::before {
+	content: attr(data-placeholder);
+	color: var(--text-muted-color);
+	pointer-events: none;
+}
+
+/* A mention is one piece: it is removed whole and not broken over lines. */
+.wt-chat-input .wt-chat-mention {
+	white-space: nowrap;
+	cursor: default;
+}
+
+.wt-chat-input[aria-disabled="true"] {
+	opacity: 0.6;
+	pointer-events: none;
+}
+
 .wt-chat-gutter {
 	flex-shrink: 0;
 	width: 2rem;
@@ -443,10 +475,18 @@ wt-chat-thread {
 	display: flex;
 }
 
-.wt-chat-edit textarea {
+.wt-chat-edit-input {
 	display: block;
-	resize: vertical;
-	font: inherit;
+	min-height: 3.6em;
+	padding: 0.375rem 0.5rem;
+	border: 1px solid var(--input-border-color);
+	border-radius: 8px;
+	background: var(--input-bg);
+}
+
+.wt-chat-edit-input:focus {
+	border-color: var(--input-focus-border-color);
+	box-shadow: 0 0 0 2px var(--input-focus-ring-color);
 }
 
 .wt-chat-edit-actions,
@@ -567,17 +607,9 @@ wt-chat-thread {
 	flex-shrink: 0;
 }
 
-.wt-chat-composer-box textarea {
+.wt-chat-composer-box .wt-chat-input {
 	flex: 1;
-	min-width: 0;
 	padding: 0.3rem 0.25rem;
-	border: none;
-	outline: none;
-	background: none;
-	color: var(--text-color);
-	font: inherit;
-	line-height: 1.5;
-	resize: none;
 }
 
 .wt-chat-send {

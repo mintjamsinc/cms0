@@ -98,14 +98,20 @@ type ChatMessage {
   body: String!
   """Whether the caller is the author."""
   mine: Boolean!
-  """The user ids written as @name in the body."""
-  mentions: [String!]!
+  """The users written as @id in the body, with their names as they are now."""
+  mentions: [ChatMention!]!
   """Copies kept with the message; readable by whoever reads the conversation."""
   attachments: [ChatAttachment!]!
   """References to files and folders, as the caller's own session reads them."""
   links: [ChatLink!]!
   """The card the message carries, if any."""
   card: ChatCard
+}
+
+"""A user a message names as @id: a client shows the name in place of the id."""
+type ChatMention {
+  id: String!
+  displayName: String!
 }
 
 """

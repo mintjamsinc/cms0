@@ -70,6 +70,7 @@ import { createGraphQLClient, type GraphQLClient } from '../graphql/client.js';
 import { sha256Hex } from '../services/webtop-util.js';
 import { Identicon } from '../lib/identicon.js';
 import { renderChatMarkdown } from '../lib/chat-markdown.js';
+import { MentionEditor, type MentionUser } from '../lib/mention-editor.js';
 import { getFileIcon } from '../lib/inspector-utils.js';
 import { downloadUrl, openApp, openConversationInChat, openFileInEditor, revealInContentBrowser } from '../lib/open-file.js';
 import { Bytes } from '../utils/bytes.js';
@@ -99,7 +100,6 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 const BOTTOM_SLACK_PX = 48;
 // How near the start older messages are fetched.
 const TOP_SLACK_PX = 160;
-const COMPOSER_MAX_HEIGHT_PX = 160;
 // How long a message the reader was brought to stays marked.
 const FOCUS_MARK_MS = 2500;
 // Suggestions for an @mention being typed.
@@ -336,6 +336,13 @@ defineComponent('wt-chat-thread', {
 				focusTimer: null as ReturnType<typeof setTimeout> | null,
 				mentionTimer: null as ReturnType<typeof setTimeout> | null,
 				mentionSeq: 0,
+				// The message boxes (lib/mention-editor.ts) around the editable
+				// elements, made when the elements are, and the names of the
+				// users seen so far, so that an @id put back into a box shows
+				// as a name.
+				composerBox: null as MentionEditor | null,
+				editBox: null as MentionEditor | null,
+				names: new Map<string, string>(),
 				// The frames of the cards this thread shows, and what fits each
 				// to its page.
 				cardFrames: new Set<HTMLIFrameElement>(),
@@ -368,9 +375,10 @@ defineComponent('wt-chat-thread', {
 			editing: emptyEditing(),
 			confirmDeleteId: '',
 
-			// An @mention being typed in the message box: the name so far, the
-			// users it may be, and which of them is highlighted.
-			mention: { open: false, query: '', start: -1, items: [] as { id: string; name: string }[], index: 0 },
+			// An @mention being typed in a message box (the composer's or the
+			// edit's): the name so far, the users it may be, and which of them
+			// is highlighted.
+			mention: { open: false, box: '' as '' | 'compose' | 'edit', query: '', items: [] as { id: string; name: string }[], index: 0 },
 
 			// A card being added to the new message.
 			cardDraft: emptyCardDraft(),
@@ -908,8 +916,60 @@ defineComponent('wt-chat-thread', {
 		// Posting
 		// =====================================================================
 
+		/**
+		 * The box to write a new message in, made around the element the first
+		 * time it is asked for. The element is made anew when the composer is
+		 * shown again, and the draft written so far is put back into it.
+		 */
+		composerBox(this: any): MentionEditor | null {
+			const el = this.$refs.composer as HTMLElement | undefined;
+			if (!el) return null;
+			let box = this._.composerBox as MentionEditor | null;
+			if (!box || box.el !== el) {
+				box = new MentionEditor(el);
+				this._.composerBox = box;
+				if (String(this.draft || '')) box.setText(this.draft, this.knownNames());
+			}
+			return box;
+		},
+		/**
+		 * The box of the message under edit, made around its element the same
+		 * way, with the text under edit put into it; inside the v-for the ref
+		 * may come as a list of one.
+		 */
+		editBox(this: any): MentionEditor | null {
+			const ref = this.$refs.editor as HTMLElement | HTMLElement[] | undefined;
+			const el = Array.isArray(ref) ? ref[0] : ref;
+			if (!el) return null;
+			let box = this._.editBox as MentionEditor | null;
+			if (!box || box.el !== el) {
+				box = new MentionEditor(el);
+				this._.editBox = box;
+				if (String(this.editing.text || '')) box.setText(this.editing.text, this.knownNames());
+			}
+			return box;
+		},
+		/** The box the event happened in, if either. */
+		boxOf(this: any, target: EventTarget | null): MentionEditor | null {
+			const node = target as Node | null;
+			for (const box of [this._.composerBox, this._.editBox] as (MentionEditor | null)[]) {
+				if (box && node && box.el.contains(node)) return box;
+			}
+			return null;
+		},
+		rememberNames(this: any, users: MentionUser[] | null | undefined) {
+			for (const u of users || []) {
+				if (u.id) this._.names.set(u.id, u.displayName || u.id);
+			}
+		},
+		/** The users known by name: those seen in the messages, picked from the suggestions, or taking part. */
+		knownNames(this: any): MentionUser[] {
+			for (const m of this.messages as ChatMessage[]) this.rememberNames(m.mentions);
+			this.rememberNames(((this.info as ChatConversation | null)?.members || []).map((m) => ({ id: m.id, displayName: m.displayName || m.id })));
+			return Array.from((this._.names as Map<string, string>).entries(), ([id, displayName]) => ({ id, displayName }));
+		},
 		focusComposer(this: any) {
-			(this.$refs.composer as HTMLTextAreaElement | undefined)?.focus();
+			this.composerBox()?.focus(true);
 		},
 		onCompositionStart(this: any) {
 			this._.composing = true;
@@ -920,38 +980,45 @@ defineComponent('wt-chat-thread', {
 		/** Enter posts; Shift+Enter starts a new line. Enter that ends an IME conversion does neither. */
 		onComposerKeydown(this: any, event: KeyboardEvent) {
 			if (this.mention.open && this.onMentionKeydown(event)) return;
-			if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+			if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey) return;
 			if (event.isComposing || this._.composing || event.keyCode === 229) return;
 			event.preventDefault();
+			if (event.shiftKey) {
+				this.composerBox()?.insertLineBreak();
+				this.onComposerInput();
+				return;
+			}
 			this.send();
 		},
 		onComposerInput(this: any) {
-			this.growComposer();
-			this.trackMention();
+			const box = this.composerBox();
+			if (!box) return;
+			if (!this._.composing) box.tidy();
+			this.draft = box.getText();
+			this.trackMention(box, 'compose');
 		},
 
 		// =====================================================================
 		// @mentions
 		// =====================================================================
 
-		/** Whether an @name is being typed before the cursor; if so, looks the users up. */
-		trackMention(this: any) {
+		/** Whether an @name is being typed before the caret of the box; if so, looks the users up. */
+		trackMention(this: any, box: MentionEditor | null, which: 'compose' | 'edit') {
 			const vm = this;
-			const el = vm.$refs.composer as HTMLTextAreaElement | undefined;
-			if (!el || !vm.canAttach) {
+			const upToCaret = (box && vm.canAttach) ? box.textBeforeCaret() : null;
+			if (upToCaret == null) {
 				vm.closeMentions();
 				return;
 			}
-			const upToCaret = el.value.slice(0, el.selectionStart ?? el.value.length);
 			// What follows the @ is looked up by name, in any script: "@福田" finds
-			// the user by display name; what is put in is the user's id.
+			// the user by display name; what is put in is the user, shown by name.
 			const m = /(^|[^\w@])@([^\s@]*)$/.exec(upToCaret);
 			if (!m) {
 				vm.closeMentions();
 				return;
 			}
 			vm.mention.query = m[2] || '';
-			vm.mention.start = upToCaret.length - (m[2] || '').length - 1;
+			vm.mention.box = which;
 			vm.mention.open = true;
 			if (vm._.mentionTimer) clearTimeout(vm._.mentionTimer);
 			vm._.mentionTimer = setTimeout(() => {
@@ -977,9 +1044,9 @@ defineComponent('wt-chat-thread', {
 		},
 		closeMentions(this: any) {
 			this.mention.open = false;
+			this.mention.box = '';
 			this.mention.items = [];
 			this.mention.query = '';
-			this.mention.start = -1;
 			if (this._.mentionTimer) {
 				clearTimeout(this._.mentionTimer);
 				this._.mentionTimer = null;
@@ -1007,34 +1074,25 @@ defineComponent('wt-chat-thread', {
 			}
 			return false;
 		},
-		/** Puts the user into the message in place of what was typed after the @. */
-		pickMention(this: any, user: { id: string }) {
+		/** Puts the user into the message, as a chip, in place of the @ and what was typed after it. */
+		pickMention(this: any, user: { id: string; name?: string }) {
 			const vm = this;
-			const el = vm.$refs.composer as HTMLTextAreaElement | undefined;
-			const start = vm.mention.start as number;
-			if (!el || start < 0) {
-				vm.closeMentions();
-				return;
-			}
-			const end = el.selectionStart ?? el.value.length;
-			const inserted = `@${user.id} `;
-			vm.draft = el.value.slice(0, start) + inserted + el.value.slice(end);
+			const which = vm.mention.box as '' | 'compose' | 'edit';
+			const box = which === 'edit' ? vm.editBox() : (which === 'compose' ? vm.composerBox() : null);
+			const typed = 1 + String(vm.mention.query || '').length;
 			vm.closeMentions();
-			vm.$nextTick(() => {
-				el.focus();
-				const caret = start + inserted.length;
-				el.setSelectionRange(caret, caret);
-				vm.growComposer();
-			});
-		},
-		growComposer(this: any) {
-			const el = this.$refs.composer as HTMLTextAreaElement | undefined;
-			if (!el) return;
-			el.style.height = 'auto';
-			el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
+			if (!box) return;
+			const mentioned: MentionUser = { id: user.id, displayName: user.name || user.id };
+			vm.rememberNames([mentioned]);
+			box.focus();
+			box.replaceBeforeCaret(typed, mentioned);
+			if (which === 'edit') vm.editing.text = box.getText();
+			else vm.draft = box.getText();
 		},
 		async send(this: any) {
 			const vm = this;
+			const box = vm.composerBox() as MentionEditor | null;
+			if (box) vm.draft = box.getText();
 			const body = String(vm.draft || '').trim();
 			if (!vm.canSend || !vm.canPost) return;
 			vm.isSending = true;
@@ -1050,6 +1108,7 @@ defineComponent('wt-chat-thread', {
 				const message = await vm.api.chat.postMessage(vm.conversation, body, content);
 				if (epoch !== vm._.epoch) return;
 				vm.draft = '';
+				box?.clear();
 				vm.compose = makePending();
 				vm.cardDraft = emptyCardDraft();
 				if (!(vm.messages as ChatMessage[]).some((m) => m.id === message.id)) {
@@ -1059,7 +1118,6 @@ defineComponent('wt-chat-thread', {
 				vm.emitActivity();
 				vm.$emit('posted', message);
 				vm.$nextTick(() => {
-					vm.growComposer();
 					vm.scrollToBottom();
 					vm.markRead();
 				});
@@ -1224,11 +1282,21 @@ defineComponent('wt-chat-thread', {
 			this.uploadFiles(Array.from(dt.files || []));
 		},
 		/** A file on the clipboard (a screenshot, a copied file) is attached. */
+		/** Files pasted are attached; text pasted goes into the box as plain text. */
 		onPaste(this: any, event: ClipboardEvent) {
 			const files = Array.from(event.clipboardData?.files || []);
-			if (!files.length || !this.canAttach) return;
+			if (files.length && this.canAttach) {
+				event.preventDefault();
+				this.uploadFiles(files);
+				return;
+			}
+			const box = this.boxOf(event.target) as MentionEditor | null;
+			if (!box) return;
 			event.preventDefault();
-			this.uploadFiles(files);
+			const text = event.clipboardData?.getData('text/plain') || '';
+			if (text) box.insertText(text);
+			if (box === this._.editBox) this.onEditInput();
+			else this.onComposerInput();
 		},
 
 		// =====================================================================
@@ -1561,19 +1629,23 @@ defineComponent('wt-chat-thread', {
 		},
 		startEdit(this: any, m: ChatMessage) {
 			this.confirmDeleteId = '';
+			this.closeMentions();
+			this.rememberNames(m.mentions);
 			this.editing = { ...emptyEditing(), id: m.id, text: m.body, attachments: m.attachments.slice(), links: m.links.slice() };
 			this.$nextTick(() => {
-				// Inside the v-for the ref may come as a list of one.
-				const ref = this.$refs.editor as HTMLTextAreaElement | HTMLTextAreaElement[] | undefined;
-				const el = Array.isArray(ref) ? ref[0] : ref;
-				if (el) {
-					el.focus();
-					el.setSelectionRange(el.value.length, el.value.length);
-				}
+				(this.editBox() as MentionEditor | null)?.focus(true);
 			});
 		},
 		cancelEdit(this: any) {
+			this.closeMentions();
 			this.editing = emptyEditing();
+		},
+		onEditInput(this: any) {
+			const box = this.editBox() as MentionEditor | null;
+			if (!box) return;
+			if (!this._.composing) box.tidy();
+			this.editing.text = box.getText();
+			this.trackMention(box, 'edit');
 		},
 		/** Takes an attachment, or a link, off the message being edited. */
 		removeEditAttachment(this: any, a: ChatAttachment) {
@@ -1585,20 +1657,28 @@ defineComponent('wt-chat-thread', {
 			this.editing.links = this.editing.links.filter((x: ChatLink) => x.id !== l.id);
 		},
 		onEditKeydown(this: any, event: KeyboardEvent) {
+			if (this.mention.open && this.onMentionKeydown(event)) return;
 			if (event.key === 'Escape') {
 				event.preventDefault();
 				event.stopPropagation();
 				this.cancelEdit();
 				return;
 			}
-			if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+			if (event.key !== 'Enter' || event.ctrlKey || event.altKey || event.metaKey) return;
 			if (event.isComposing || this._.composing || event.keyCode === 229) return;
 			event.preventDefault();
+			if (event.shiftKey) {
+				this.editBox()?.insertLineBreak();
+				this.onEditInput();
+				return;
+			}
 			this.saveEdit();
 		},
 		async saveEdit(this: any) {
 			const vm = this;
 			const e = vm.editing;
+			const box = vm.editBox() as MentionEditor | null;
+			if (box) e.text = box.getText();
 			const body = String(e.text || '').trim();
 			if (!e.id || !vm.canSaveEdit) return;
 			e.saving = true;

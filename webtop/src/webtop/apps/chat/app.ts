@@ -43,6 +43,7 @@ import {
 // Side-effect import: registers the <wt-chat-thread> custom element.
 import { loadChatThreadTemplate } from "../../components/wt-chat-thread.js";
 import { getFileIcon } from "../../lib/inspector-utils.js";
+import { chatTextWithNames } from "../../lib/chat-markdown.js";
 import { Identicon } from "../../lib/identicon.js";
 import { sha256Hex } from "../../services/webtop-util.js";
 import { openFileInEditor, revealInContentBrowser } from "../../lib/open-file.js";
@@ -1005,6 +1006,10 @@ const App = {
 		},
 		hitTitle(h: ChatSearchHit): string {
 			return h.file ? h.file.name : (h.channel?.title || '');
+		},
+		/** The text of the hit, its mentions shown by name. */
+		hitText(h: ChatSearchHit): string {
+			return chatTextWithNames(h.message.body, h.message.mentions);
 		},
 		formatHitTime(value: string): string {
 			const locale = this.localization.locale || navigator.language || 'en';

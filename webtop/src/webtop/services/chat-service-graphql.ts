@@ -160,6 +160,12 @@ export interface ChatMessageContent {
 	follow?: boolean;
 }
 
+/** A user a message names as @id; a client shows the name in place of the id. */
+export interface ChatMention {
+	id: string;
+	displayName: string;
+}
+
 export interface ChatMessage {
 	id: string;
 	author: string | null;
@@ -170,8 +176,8 @@ export interface ChatMessage {
 	kind: 'user' | 'system';
 	body: string;
 	mine: boolean;
-	/** The user ids written as @name in the body. */
-	mentions: string[];
+	/** The users written as @id in the body, with their names as they are now. */
+	mentions: ChatMention[];
 	attachments: ChatAttachment[];
 	links: ChatLink[];
 	card: ChatCard | null;
@@ -209,7 +215,8 @@ const CONVERSATION_FIELDS = `
 	members { ${MEMBER_FIELDS} }
 `;
 const MESSAGE_FIELDS = `
-	id author authorName postedAt editedAt deleted kind body mine mentions
+	id author authorName postedAt editedAt deleted kind body mine
+	mentions { id displayName }
 	attachments { name path mimeType size }
 	links { id accessible name path mimeType isCollection }
 	card { path accessible label version fields bodyFromCard }

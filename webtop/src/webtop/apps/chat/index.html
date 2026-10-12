@@ -176,7 +176,7 @@
 							</div>
 							<div class="ch-hit-body">
 								<span class="ch-hit-author">{{ h.message.authorName || h.message.author }}</span>
-								<span class="ch-hit-text">{{ h.message.body }}</span>
+								<span class="ch-hit-text">{{ hitText(h) }}</span>
 							</div>
 						</button>
 						<div v-if="search.cursor" class="ch-search-more">

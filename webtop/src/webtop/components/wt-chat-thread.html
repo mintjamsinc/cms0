@@ -53,9 +53,20 @@
 
 						<!-- The author's own message, being changed -->
 						<div v-else-if="editing.id === row.m.id" class="wt-chat-edit">
-							<textarea class="wt w-100" ref="editor" rows="2" v-model="editing.text" :disabled="editing.saving"
-								@keydown="onEditKeydown($event)" @paste="onPaste($event)"
-								@compositionstart="onCompositionStart" @compositionend="onCompositionEnd"></textarea>
+							<!-- Users the @name being typed may be -->
+							<div v-if="mention.open && mention.box === 'edit' && mention.items.length" class="wt-chat-mentions">
+								<button v-for="(u, i) of mention.items" :key="u.id" type="button" class="wt-chat-mentions-item" :class="{ active: i === mention.index }"
+									@mousedown.prevent @click="pickMention(u)">
+									<i class="bi bi-person"></i>
+									<span class="wt-chat-mentions-name">{{ u.name }}</span>
+									<span class="wt-chat-mentions-id">{{ u.id }}</span>
+								</button>
+							</div>
+							<!-- The text, a mention shown as a chip (lib/mention-editor.ts) -->
+							<div ref="editor" class="wt-chat-input wt-chat-edit-input" contenteditable="true" role="textbox" aria-multiline="true"
+								:aria-disabled="editing.saving ? 'true' : null"
+								@input="onEditInput" @keydown="onEditKeydown($event)" @paste="onPaste($event)" @blur="closeMentions"
+								@compositionstart="onCompositionStart" @compositionend="onCompositionEnd"></div>
 
 							<div v-if="editing.attachments.length || editing.links.length || editing.pending.uploads.length || editing.pending.files.length || editing.pending.uploading" class="wt-chat-pending">
 								<span v-for="a of editing.attachments" :key="'kept-' + a.name" class="wt-chat-chip" :title="a.name">
@@ -184,7 +195,7 @@
 			<div v-if="sendError" class="wt-chat-error">{{ sendError }}</div>
 			<div v-if="compose.error" class="wt-chat-error">{{ compose.error }}</div>
 			<!-- Users the @name being typed may be -->
-			<div v-if="mention.open && mention.items.length" class="wt-chat-mentions">
+			<div v-if="mention.open && mention.box === 'compose' && mention.items.length" class="wt-chat-mentions">
 				<button v-for="(u, i) of mention.items" :key="u.id" type="button" class="wt-chat-mentions-item" :class="{ active: i === mention.index }"
 					@mousedown.prevent @click="pickMention(u)">
 					<i class="bi bi-person"></i>
@@ -280,10 +291,11 @@
 						:title="t('webtop.chat.card.add', undefined, 'Add a card')">
 						<i class="bi bi-postcard"></i>
 					</button>
-					<textarea ref="composer" rows="1" v-model="draft"
-						:placeholder="t('webtop.chat.composer.placeholder', undefined, 'Write a message')"
+					<!-- The message, a mention shown as a chip (lib/mention-editor.ts) -->
+					<div ref="composer" class="wt-chat-input" contenteditable="true" role="textbox" aria-multiline="true"
+						:data-placeholder="t('webtop.chat.composer.placeholder', undefined, 'Write a message')"
 						@input="onComposerInput" @keydown="onComposerKeydown($event)" @paste="onPaste($event)" @blur="closeMentions"
-						@compositionstart="onCompositionStart" @compositionend="onCompositionEnd"></textarea>
+						@compositionstart="onCompositionStart" @compositionend="onCompositionEnd"></div>
 					<button type="button" class="btn-icon wt-chat-send" :disabled="!canSend" @click="send"
 						:title="t('webtop.chat.composer.send', undefined, 'Send (Enter)')">
 						<i class="bi bi-send-fill"></i>

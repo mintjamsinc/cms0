@@ -7,6 +7,9 @@
  *
  *   **bold**  *italic*  ~~strike~~  `code`  ```code block```
  *   [label](https://…)  bare https://… links  > quote  - list item
+ *
+ * A mention is written as @id and shown as @name: the names come with the
+ * message, as the server knows them when it is read.
  */
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -19,9 +22,14 @@ function link(url: string, label: string): string {
 	return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
 }
 
+export interface ChatMentionName {
+	id: string;
+	displayName: string;
+}
+
 export interface ChatMarkdownOptions {
-	/** The user ids the message names as @name; those are marked up. */
-	mentions?: string[];
+	/** The users the message names as @id; those are marked up and shown by name. */
+	mentions?: ChatMentionName[];
 	/** The reader's user id: a mention of the reader is marked up more. */
 	me?: string;
 }
@@ -53,10 +61,12 @@ function renderInline(escaped: string, options: ChatMarkdownOptions): string {
 	if (mentions.length) {
 		text = text.replace(/(^|[^\w@])@([A-Za-z0-9][A-Za-z0-9_.-]{0,63})/g, (whole, before, name) => {
 			const id = name.replace(/[.-]+$/, '');
-			if (!mentions.includes(id)) return whole;
+			const user = mentions.find((m) => m.id === id);
+			if (!user) return whole;
 			const tail = name.slice(id.length);
 			const cls = id === options.me ? 'wt-chat-mention wt-chat-mention-me' : 'wt-chat-mention';
-			return `${before}<span class="${cls}">@${id}</span>${tail}`;
+			const shown = escapeHtml(user.displayName || id);
+			return `${before}<span class="${cls}" data-user-id="${escapeHtml(id)}" title="@${escapeHtml(id)}">@${shown}</span>${tail}`;
 		});
 	}
 
@@ -108,6 +118,21 @@ function renderLines(source: string, options: ChatMarkdownOptions): string {
 	flushLines();
 	flush();
 	return out.join('');
+}
+
+/**
+ * The text of a message with each mention shown by name: for a place that
+ * shows the text plain, such as a search hit or a notice.
+ */
+export function chatTextWithNames(source: string, mentions: ChatMentionName[] | null | undefined): string {
+	const text = source || '';
+	if (!mentions || !mentions.length) return text;
+	return text.replace(/(^|[^\w@])@([A-Za-z0-9][A-Za-z0-9_.-]{0,63})/g, (whole, before, name) => {
+		const id = name.replace(/[.-]+$/, '');
+		const user = mentions.find((m) => m.id === id);
+		if (!user) return whole;
+		return `${before}@${user.displayName || id}${name.slice(id.length)}`;
+	});
 }
 
 export function renderChatMarkdown(source: string, options: ChatMarkdownOptions = {}): string {

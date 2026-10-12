@@ -105,13 +105,17 @@ shown as text.
 
 **Enter** posts, **Shift+Enter** starts a new line.
 
-**@mentions.** Typing `@` in the message box offers users to pick from; a
-message names a user as `@user`. A name that is no user stays plain text. The
-mentioned user is told (the Chat app shows a notice and the mention is
-marked), the conversation of a file one was mentioned in appears in the
-mentioned user's sidebar, and the mention is shown marked in the message. A
-mention gives no access: a user mentioned in a conversation they cannot read
-sees nothing of it.
+**@mentions.** Typing `@` in the message box offers users to pick from, by
+display name or id; the one picked goes into the box as a chip that shows the
+display name and is removed whole. The message says the user's id (`@user`),
+which is what is stored and what the server finds a mention in, and every
+reader sees the display name in its place, as the name is when the message is
+read; the id is in the chip's tooltip. An `@user` typed by hand works the
+same; a name that is no user stays plain text. The mentioned user is told
+(the Chat app shows a notice and the mention is marked), the conversation of
+a file one was mentioned in appears in the mentioned user's sidebar, and the
+mention is shown marked in the message. A mention gives no access: a user
+mentioned in a conversation they cannot read sees nothing of it.
 
 **Search.** The search box in the toolbar finds messages whose text contains
 every word typed, newest first, across the channels the user takes part in and

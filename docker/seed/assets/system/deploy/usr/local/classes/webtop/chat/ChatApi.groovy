@@ -504,6 +504,9 @@ class ChatApi {
 	private Map toMessage(service, Map message) {
 		message.authorName = displayName(service, message.author as String, false);
 		message.mine = (message.author == userId);
+		message.mentions = ((message.mentions ?: []) as List<String>).collect { String id ->
+			[id: id, displayName: displayName(service, id, false)]
+		};
 		message.links = (message.remove('linkIds') as List<String>).collect { String id -> describeLink(id) };
 		message.card = describeCard(message.card as Map);
 		return message;
