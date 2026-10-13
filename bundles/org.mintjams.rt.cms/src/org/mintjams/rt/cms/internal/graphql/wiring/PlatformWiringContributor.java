@@ -1551,16 +1551,43 @@ public final class PlatformWiringContributor implements WiringContributor {
 
 	// ---- mutations (async jobs — Phase 2e) ---------------------------------
 	// Lifecycle drivers for background jobs (delete / download-archive /
-	// import-archive). Mirror MutationExecutor: job records are written under a
-	// privileged management session (openServiceSession running AS the caller, so
-	// audit identity is preserved), NOT the caller's request session. The work
-	// itself runs on a JobManager worker; progress is delivered via the
-	// jobProgress(jobId) subscription (Phase 3). All return a JobRef map.
+	// import-archive). Job records live under /var/jobs, which ordinary users
+	// can neither read nor write, so they are written under a privileged
+	// management session carrying the caller's user id (audit identity is
+	// preserved), NOT the caller's request session. Because that session sees
+	// every job, ownership is enforced here: a job is only reachable by the user
+	// recorded on it (or an administrator); any other jobId is reported as
+	// unknown. The work itself runs on a JobManager worker under the caller's
+	// own ACLs; progress is delivered via the jobProgress(jobId) subscription
+	// (Phase 3). All return a JobRef map.
 
-	/** Opens a privileged management session running as the caller (mirrors openManagementSession). */
+	/** Opens a privileged management session carrying the caller's user id. */
 	private static Session managementSession(DataFetchingEnvironment environment) throws RepositoryException {
 		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
 		return context.openServiceSession(context.getCallerSession().getUserID());
+	}
+
+	/**
+	 * Resolves a job node through the management session and asserts the caller
+	 * may act on it: the job's recorded user must be the caller, unless the
+	 * caller is an administrator. A job the caller may not touch is reported
+	 * exactly like a job that does not exist, so job ids cannot be probed.
+	 */
+	private static Node ownedJobNode(DataFetchingEnvironment environment, Session mgmt, String jobId)
+			throws RepositoryException {
+		Node jobNode = JobNodes.getJobNode(mgmt, jobId);
+		if (jobNode == null) {
+			throw new IllegalArgumentException("Unknown jobId: " + jobId);
+		}
+		Session caller = GraphQLExecutionContext.from(environment).getCallerSession();
+		String owner = JobNodes.getString(JobNodes.getContent(jobNode), JobNodes.PROP_JOB_USER_ID, null);
+		boolean isOwner = (owner != null && owner.equals(caller.getUserID()));
+		boolean isAdmin = (caller instanceof org.mintjams.jcr.Session)
+				&& ((org.mintjams.jcr.Session) caller).isAdmin();
+		if (!isOwner && !isAdmin) {
+			throw new IllegalArgumentException("Unknown jobId: " + jobId);
+		}
+		return jobNode;
 	}
 
 	private static Map<String, Object> jobRef(String jobId, String status, Long itemsAccepted, Long itemsTotal) {
@@ -1623,10 +1650,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		JobStatus current;
 		int accepted;
 		try {
-			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
-			if (jobNode == null) {
-				throw new IllegalArgumentException("Unknown jobId: " + jobId);
-			}
+			Node jobNode = ownedJobNode(environment, mgmt, jobId);
 			Node content = JobNodes.getContent(jobNode);
 			current = JobNodes.getStatus(content);
 			if (current != JobStatus.INIT) {
@@ -1675,7 +1699,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		long priority;
 		Session mgmt = managementSession(environment);
 		try {
-			Node content = startableJobContent(mgmt, jobId);
+			Node content = startableJobContent(environment, mgmt, jobId);
 			itemsTotal = JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L);
 			if (itemsTotal <= 0) {
 				throw new IllegalStateException("Cannot start job with no paths registered");
@@ -1739,7 +1763,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		long priority;
 		Session mgmt = managementSession(environment);
 		try {
-			Node content = startableJobContent(mgmt, jobId);
+			Node content = startableJobContent(environment, mgmt, jobId);
 			itemsTotal = JobNodes.getLong(content, JobNodes.PROP_ITEMS_TOTAL, 0L);
 			if (itemsTotal <= 0) {
 				throw new IllegalStateException("Cannot start job with no paths registered");
@@ -1797,17 +1821,24 @@ public final class PlatformWiringContributor implements WiringContributor {
 		String reportLocale = stringOr(input.get("locale"), "");
 		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
 		String workspaceName = context.getWorkspaceName();
-		String userId = context.getCallerSession().getUserID();
+		Session callerSession = context.getCallerSession();
+		String userId = callerSession.getUserID();
 		long priority;
 		Session mgmt = managementSession(environment);
 		try {
-			Node content = startableJobContent(mgmt, jobId);
+			Node content = startableJobContent(environment, mgmt, jobId);
 			priority = JobNodes.getLong(content, JobNodes.PROP_JOB_PRIORITY, 0L);
 			// Move the uploaded archive next to the job record (privileged), so it
 			// does not linger in the user's content tree. The job reads it there.
+			// The move runs privileged, so the caller must be able to remove the
+			// upload themselves; otherwise any readable path could be pulled into
+			// the job area.
 			String effectiveArchivePath = archivePath;
 			String siblingPath = JobNodes.archiveNodePath(jobId);
 			if (!archivePath.equals(siblingPath) && mgmt.nodeExists(archivePath)) {
+				if (!callerSession.hasPermission(archivePath, "read,remove")) {
+					throw new IllegalArgumentException("archivePath is not accessible: " + archivePath);
+				}
 				if (mgmt.nodeExists(siblingPath)) {
 					mgmt.getNode(siblingPath).remove();
 					mgmt.save();
@@ -2487,12 +2518,10 @@ public final class PlatformWiringContributor implements WiringContributor {
 		}
 	}
 
-	/** Resolves a job's content node and asserts it is still in INIT (startable). */
-	private static Node startableJobContent(Session mgmt, String jobId) throws RepositoryException {
-		Node jobNode = JobNodes.getJobNode(mgmt, jobId);
-		if (jobNode == null) {
-			throw new IllegalArgumentException("Unknown jobId: " + jobId);
-		}
+	/** Resolves a caller-owned job's content node and asserts it is still in INIT (startable). */
+	private static Node startableJobContent(DataFetchingEnvironment environment, Session mgmt, String jobId)
+			throws RepositoryException {
+		Node jobNode = ownedJobNode(environment, mgmt, jobId);
 		Node content = JobNodes.getContent(jobNode);
 		JobStatus current = JobNodes.getStatus(content);
 		if (current != JobStatus.INIT) {
@@ -2510,10 +2539,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 	private static String abortJob(DataFetchingEnvironment environment, String jobId) throws Exception {
 		Session mgmt = managementSession(environment);
 		try {
-			Node jobNode = JobNodes.getJobNode(mgmt, jobId);
-			if (jobNode == null) {
-				throw new IllegalArgumentException("Unknown jobId: " + jobId);
-			}
+			Node jobNode = ownedJobNode(environment, mgmt, jobId);
 			Node content = JobNodes.getContent(jobNode);
 			JobStatus current = JobNodes.getStatus(content);
 			if (current == null || current.isTerminal()) {

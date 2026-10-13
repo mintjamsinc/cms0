@@ -95,11 +95,21 @@ public final class GraphQLExecutionContext {
 	}
 
 	/**
-	 * Opens a session impersonating {@code runAsId} for this workspace. The caller
-	 * owns the returned session and must {@code logout()} it.
+	 * Opens a privileged service session for this workspace that carries
+	 * {@code runAsId} as its user id. ACLs are bypassed as with
+	 * {@link #openServiceSession()}, but {@code jcr:createdBy}/{@code jcr:lastModifiedBy}
+	 * and {@link Session#getUserID()} report the given user, so audit identity is
+	 * preserved. Used by resolvers that write internal records on the caller's
+	 * behalf (e.g. {@code /var/jobs}, which ordinary users cannot write). The
+	 * caller owns the returned session and must {@code logout()} it.
+	 *
+	 * <p>This is deliberately not a {@link ServiceUserCredentials} login: that
+	 * yields an ordinary user session gated by the user's ACLs (the job workers
+	 * use it for the actual work), and ordinary users have no access to the
+	 * record areas these resolvers write.
 	 */
 	public Session openServiceSession(String runAsId) throws RepositoryException {
-		return CmsService.getRepository().login(new ServiceUserCredentials(runAsId), fWorkspaceName);
+		return CmsService.getRepository().login(new CmsServiceCredentials(runAsId), fWorkspaceName);
 	}
 
 }
