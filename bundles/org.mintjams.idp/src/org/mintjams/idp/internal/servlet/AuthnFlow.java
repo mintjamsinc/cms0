@@ -120,6 +120,20 @@ final class AuthnFlow {
 		sendError(response, status, message, null);
 	}
 
+	/**
+	 * Sends {@code {"status": "error", "message": ..., "code": ...}}. The
+	 * message is English and meant for logs and unknown clients; the code is
+	 * what the login page shows in the visitor's language, so every error a
+	 * visitor can see carries one:
+	 * <ul>
+	 * <li>{@code MISSING_CREDENTIALS}, {@code INVALID_CREDENTIALS} — password step</li>
+	 * <li>{@code MISSING_CODE}, {@code INVALID_CODE}, {@code TOO_MANY_ATTEMPTS} — second factor</li>
+	 * <li>{@code SESSION_EXPIRED} — the step the client is on is no longer pending; start over</li>
+	 * <li>{@code NOT_AVAILABLE}, {@code INVALID_CREDENTIAL}, {@code UNKNOWN_CREDENTIAL} — passkey</li>
+	 * <li>{@code ACCOUNT_DISABLED}, {@code NO_REQUEST}, {@code UNTRUSTED_SP}</li>
+	 * <li>{@code SERVER_ERROR}, {@code UNKNOWN_ENDPOINT}</li>
+	 * </ul>
+	 */
 	static void sendError(HttpServletResponse response, int status, String message, String code) throws IOException {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("status", "error");
@@ -215,7 +229,7 @@ final class AuthnFlow {
 
 			if (!config.isTrustedSP(authnRequest.getIssuer())) {
 				LOG.warn("Untrusted SP: {}", authnRequest.getIssuer());
-				sendError(response, HttpServletResponse.SC_FORBIDDEN, "Untrusted Service Provider.");
+				sendError(response, HttpServletResponse.SC_FORBIDDEN, "Untrusted Service Provider.", "UNTRUSTED_SP");
 				return;
 			}
 
@@ -229,7 +243,7 @@ final class AuthnFlow {
 			sendSuccess(response, data);
 		} catch (Exception ex) {
 			LOG.error("Failed to build SAML response", ex);
-			sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.");
+			sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.", "SERVER_ERROR");
 		}
 	}
 

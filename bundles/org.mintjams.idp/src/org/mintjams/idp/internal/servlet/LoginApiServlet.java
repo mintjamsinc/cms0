@@ -61,8 +61,10 @@ import org.slf4j.LoggerFactory;
  * the sign-in with the same success payload.</p>
  *
  * <p>Errors are {@code {"status": "error", "message": "...", "code": "..."}}.
- * After too many failed second-factor attempts the code is {@code RESTART}
- * and the page has to start over from the password.</p>
+ * The message is English; the code is what a page translates (see
+ * {@link AuthnFlow#sendError(HttpServletResponse, int, String, String)} for
+ * the list). After {@code SESSION_EXPIRED} or {@code TOO_MANY_ATTEMPTS} the
+ * page has to start over from the password.</p>
  */
 public class LoginApiServlet extends HttpServlet {
 
@@ -88,7 +90,7 @@ public class LoginApiServlet extends HttpServlet {
 			secondFactor(request, response);
 			return;
 		}
-		AuthnFlow.sendError(response, HttpServletResponse.SC_NOT_FOUND, "Unknown endpoint.");
+		AuthnFlow.sendError(response, HttpServletResponse.SC_NOT_FOUND, "Unknown endpoint.", "UNKNOWN_ENDPOINT");
 	}
 
 	private void password(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -96,14 +98,14 @@ public class LoginApiServlet extends HttpServlet {
 		String username = body.getString("username");
 		String password = body.getString("password");
 		if (Strings.isBlank(username) || Strings.isBlank(password)) {
-			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Username and password are required.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "Username and password are required.", "MISSING_CREDENTIALS");
 			return;
 		}
 
 		IdpUser user = Activator.getDefault().getUserStore().authenticate(username, password);
 		if (user == null) {
 			LOG.warn("Authentication failed for user: {}", username);
-			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid username or password.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid username or password.", "INVALID_CREDENTIALS");
 			return;
 		}
 
@@ -117,7 +119,7 @@ public class LoginApiServlet extends HttpServlet {
 			}
 		} catch (Exception ex) {
 			LOG.error("Failed to read the second-factor state of {}", username, ex);
-			AuthnFlow.sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.", "SERVER_ERROR");
 			return;
 		}
 
@@ -137,7 +139,7 @@ public class LoginApiServlet extends HttpServlet {
 		HttpSession session = request.getSession(false);
 		IdpUser user = session == null ? null : AuthnFlow.pendingUser(session);
 		if (user == null) {
-			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Please sign in with your password first.", "RESTART");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Please sign in with your password first.", "SESSION_EXPIRED");
 			return;
 		}
 
@@ -145,7 +147,7 @@ public class LoginApiServlet extends HttpServlet {
 		String method = body.getString("method");
 		String code = body.getString("code");
 		if (Strings.isBlank(code)) {
-			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "A code is required.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "A code is required.", "MISSING_CODE");
 			return;
 		}
 
@@ -180,7 +182,7 @@ public class LoginApiServlet extends HttpServlet {
 			}
 		} catch (Exception ex) {
 			LOG.error("Failed to verify the second factor of {}", user.getUsername(), ex);
-			AuthnFlow.sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.", "SERVER_ERROR");
 			return;
 		}
 
@@ -189,7 +191,7 @@ public class LoginApiServlet extends HttpServlet {
 			if (AuthnFlow.recordFailedAttempt(session)) {
 				AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "The code is not valid.", "INVALID_CODE");
 			} else {
-				AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Too many attempts. Please sign in again.", "RESTART");
+				AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "Too many attempts. Please sign in again.", "TOO_MANY_ATTEMPTS");
 			}
 			return;
 		}

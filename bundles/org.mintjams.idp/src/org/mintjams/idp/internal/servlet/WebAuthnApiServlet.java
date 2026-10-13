@@ -87,7 +87,7 @@ public class WebAuthnApiServlet extends HttpServlet {
 			verify(request, response, config, rpId);
 			return;
 		}
-		AuthnFlow.sendError(response, HttpServletResponse.SC_NOT_FOUND, "Unknown endpoint.");
+		AuthnFlow.sendError(response, HttpServletResponse.SC_NOT_FOUND, "Unknown endpoint.", "UNKNOWN_ENDPOINT");
 	}
 
 	private void options(HttpServletRequest request, HttpServletResponse response, String rpId) throws IOException {
@@ -115,21 +115,21 @@ public class WebAuthnApiServlet extends HttpServlet {
 			session.removeAttribute(AuthnFlow.SESSION_WEBAUTHN_CHALLENGE_SINCE);
 		}
 		if (challenge == null || !(since instanceof Long) || System.currentTimeMillis() - (Long) since > AuthnFlow.STEP_TTL_MILLIS) {
-			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "The sign-in request has expired. Please try again.", "RESTART");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "The sign-in request has expired. Please try again.", "SESSION_EXPIRED");
 			return;
 		}
 
 		Map<String, Object> credential = AuthnFlow.readJson(request);
 		Object rawId = credential.containsKey("rawId") ? credential.get("rawId") : credential.get("id");
 		if (!(rawId instanceof String) || ((String) rawId).isEmpty()) {
-			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "The credential is incomplete.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "The credential is incomplete.", "INVALID_CREDENTIAL");
 			return;
 		}
 		byte[] credentialId;
 		try {
 			credentialId = Base64.getUrlDecoder().decode((String) rawId);
 		} catch (IllegalArgumentException ex) {
-			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "The credential is malformed.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_BAD_REQUEST, "The credential is malformed.", "INVALID_CREDENTIAL");
 			return;
 		}
 
@@ -171,7 +171,7 @@ public class WebAuthnApiServlet extends HttpServlet {
 			}
 		} catch (Exception ex) {
 			LOG.error("Passkey sign-in failed", ex);
-			AuthnFlow.sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.");
+			AuthnFlow.sendError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to process authentication request.", "SERVER_ERROR");
 			return;
 		}
 

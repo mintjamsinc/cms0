@@ -196,10 +196,20 @@ customLoginPageUrl: /bin/cms.cgi/system/content/public/auth/login.html
 ```
 
 Because the flow lives in `app.js`, a branded page keeps working when a
-later release adds a step. The flow reads `<html lang>` (English and
-Japanese are built in); `window.IDP_LOGIN = { lang, labels, mount }` set
-before the script loads overrides the language, individual labels, or the
-mount element.
+later release adds a step.
+
+The flow is in English and Japanese. It picks the language in this order:
+`window.IDP_LOGIN.lang`, the visitor's own choice (localStorage key
+`idp.login.lang`), `<html lang>` when the page sets one, then the browser's
+preferred languages; English when none matches. The bundled page offers the
+switch in its footer by writing that key and reloading, and translates its
+own frame (title, heading, footer) from a small table inline in the HTML
+when the flow reports the language in the `idp-login-ready` event's
+`detail.lang`. Server errors carry a `code`; the flow shows its own label
+for the code and falls back to the server's English `message` otherwise.
+`window.IDP_LOGIN = { lang, labels, mount }` set before the script loads
+pins the language, overrides individual labels, or changes the mount
+element.
 
 ---
 

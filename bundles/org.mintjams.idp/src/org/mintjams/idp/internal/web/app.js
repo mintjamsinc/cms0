@@ -13,10 +13,20 @@
  *
  * Optional page hooks, set before the script loads:
  *   window.IDP_LOGIN = {
- *     lang: 'ja',                       // default: <html lang> or the browser language
+ *     lang: 'ja',                       // pin the language (see below)
  *     labels: { signIn: '...' },        // overrides for any label below
  *     mount: '#idp-login',              // a different mount element
  *   };
+ *
+ * The language is the first of: IDP_LOGIN.lang, the choice the visitor
+ * stored under localStorage "idp.login.lang" (a page offers the switch by
+ * writing that key and reloading), <html lang> when the page sets one, the
+ * browser's preferred language; English when none of them is built in. The
+ * script sets <html lang> to the result and reports it as the "lang" of the
+ * "idp-login-ready" event detail, so the page can translate its own frame.
+ *
+ * Server errors carry a "code"; the flow shows the label for the code when
+ * it has one and falls back to the server's English message otherwise.
  */
 import { VDOM } from './ichigo.esm.min.js';
 
@@ -30,6 +40,26 @@ const API = {
 	webauthnVerify: BASE + 'api/webauthn/verify',
 };
 const LAST_METHOD_KEY = 'idp.login.method';
+const LANG_KEY = 'idp.login.lang';
+
+// Server error codes (see AuthnFlow.sendError) and the label shown for each.
+const CODE_LABELS = {
+	MISSING_CREDENTIALS: 'errMissingCredentials',
+	INVALID_CREDENTIALS: 'errInvalidCredentials',
+	MISSING_CODE: 'errCode',
+	INVALID_CODE: 'errInvalidCode',
+	TOO_MANY_ATTEMPTS: 'errTooManyAttempts',
+	SESSION_EXPIRED: 'errSessionExpired',
+	NO_REQUEST: 'errNoRequest',
+	UNTRUSTED_SP: 'errUntrustedSp',
+	NOT_AVAILABLE: 'passkeyUnavailable',
+	INVALID_CREDENTIAL: 'passkeyFailed',
+	UNKNOWN_CREDENTIAL: 'passkeyUnknown',
+	ACCOUNT_DISABLED: 'errAccountDisabled',
+	SERVER_ERROR: 'errServer',
+};
+// Codes after which the flow goes back to the first step.
+const RESTART_CODES = ['SESSION_EXPIRED', 'TOO_MANY_ATTEMPTS'];
 
 const LABELS = {
 	en: {
@@ -70,6 +100,17 @@ const LABELS = {
 		errNetwork: 'A network error occurred. Please try again.',
 		errGeneric: 'Authentication failed',
 		errRestart: 'Please sign in again.',
+		errMissingCredentials: 'Please enter your username and password',
+		errInvalidCredentials: 'Invalid username or password',
+		errInvalidCode: 'The code is not valid',
+		errTooManyAttempts: 'Too many attempts. Please sign in again.',
+		errSessionExpired: 'Your sign-in timed out. Please sign in again.',
+		errNoRequest: 'There is no sign-in request. Please start from the application.',
+		errUntrustedSp: 'This application is not allowed to use this sign-in.',
+		errAccountDisabled: 'This account cannot sign in.',
+		errServer: 'Something went wrong on the server. Please try again.',
+		passkeyUnavailable: 'Passkeys are not available.',
+		passkeyUnknown: 'This passkey is not registered.',
 	},
 	ja: {
 		serviceProvider: 'サービスプロバイダー',
@@ -109,6 +150,17 @@ const LABELS = {
 		errNetwork: 'ネットワークエラーが発生しました。もう一度お試しください。',
 		errGeneric: '認証に失敗しました',
 		errRestart: 'もう一度サインインしてください。',
+		errMissingCredentials: 'ユーザー名とパスワードを入力してください',
+		errInvalidCredentials: 'ユーザー名またはパスワードが正しくありません',
+		errInvalidCode: 'コードが正しくありません',
+		errTooManyAttempts: '試行回数が上限に達しました。もう一度サインインしてください。',
+		errSessionExpired: 'サインインの有効期限が切れました。もう一度サインインしてください。',
+		errNoRequest: 'サインイン要求がありません。アプリケーションから開始してください。',
+		errUntrustedSp: 'このアプリケーションはこのサインインを利用できません。',
+		errAccountDisabled: 'このアカウントではサインインできません。',
+		errServer: 'サーバーでエラーが発生しました。もう一度お試しください。',
+		passkeyUnavailable: 'パスキーは利用できません。',
+		passkeyUnknown: 'このパスキーは登録されていません。',
 	},
 };
 
@@ -262,10 +314,27 @@ const TEMPLATE = `
 </div>
 `;
 
+function storedLanguage() {
+	try {
+		return localStorage.getItem(LANG_KEY);
+	} catch (_) {
+		return null;
+	}
+}
+
 function pickLanguage(options) {
-	const requested = options.lang || document.documentElement.lang || navigator.language || 'en';
-	const short = String(requested).toLowerCase().split('-')[0];
-	return LABELS[short] ? short : 'en';
+	const candidates = [options.lang, storedLanguage(), document.documentElement.lang]
+		.concat(navigator.languages || [navigator.language]);
+	for (const requested of candidates) {
+		if (!requested) {
+			continue;
+		}
+		const short = String(requested).toLowerCase().split('-')[0];
+		if (LABELS[short]) {
+			return short;
+		}
+	}
+	return 'en';
 }
 
 function toBuffer(base64url) {
@@ -349,6 +418,7 @@ function mount() {
 		console.error('IdP login: mount element not found');
 		return;
 	}
+	document.documentElement.lang = lang;
 	const style = document.createElement('style');
 	style.textContent = STYLE;
 	document.head.insertBefore(style, document.head.firstChild);
@@ -395,7 +465,7 @@ function mount() {
 				}
 				this.step = this.methods.webauthn ? 'method' : 'username';
 				this.focus();
-				root.dispatchEvent(new CustomEvent('idp-login-ready', { bubbles: true }));
+				root.dispatchEvent(new CustomEvent('idp-login-ready', { bubbles: true, detail: { lang: lang, labels: labels } }));
 			},
 
 			focus() {
@@ -420,6 +490,13 @@ function mount() {
 			fail(message) {
 				this.errorMessage = message || this.t.errGeneric;
 				this.busy = false;
+			},
+
+			// Shows a server error: the label for its code, else the server's
+			// message, else the given label, else the generic one.
+			failWith(json, fallbackKey) {
+				const key = json && json.code ? CODE_LABELS[json.code] : null;
+				this.fail((key && this.t[key]) || (json && json.message) || (fallbackKey && this.t[fallbackKey]));
 			},
 
 			backToMethods() {
@@ -451,7 +528,7 @@ function mount() {
 				try {
 					const started = await postJson(API.webauthnOptions);
 					if (!started.ok || started.json.status !== 'success') {
-						this.fail(started.json.message || this.t.passkeyFailed);
+						this.failWith(started.json, 'passkeyFailed');
 						return;
 					}
 					const o = started.json.data;
@@ -487,7 +564,7 @@ function mount() {
 						postSamlResponse(verified.json.data);
 						return;
 					}
-					this.fail(verified.json.message || this.t.passkeyFailed);
+					this.failWith(verified.json, 'passkeyFailed');
 				} catch (err) {
 					if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
 						this.fail(this.t.passkeyCancelled);
@@ -542,7 +619,7 @@ function mount() {
 						this.focus();
 						return;
 					}
-					this.fail(result.json.message);
+					this.failWith(result.json);
 				} catch (_) {
 					this.fail(this.t.errNetwork);
 				}
@@ -566,13 +643,13 @@ function mount() {
 						postSamlResponse(result.json.data);
 						return;
 					}
-					if (result.json.code === 'RESTART') {
+					if (RESTART_CODES.includes(result.json.code)) {
 						this.startOver();
-						this.fail(result.json.message || this.t.errRestart);
+						this.failWith(result.json, 'errRestart');
 						return;
 					}
 					this.code = '';
-					this.fail(result.json.message);
+					this.failWith(result.json);
 					this.focus();
 				} catch (_) {
 					this.fail(this.t.errNetwork);
