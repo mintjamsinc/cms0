@@ -186,13 +186,15 @@ at `/idp/login/app.js` and renders itself into an element with the id
 `idp-login`; the page around it is yours. Start from the bundled template,
 which the Webtop ships at `/content/public/auth/login.html` in the system
 workspace (reachable as
-`/bin/cms.cgi/system/content/public/auth/login.html`): change the logo,
-colours (the `--idp-*` custom properties theme the flow), background and
-footer, keep the `idp-login` element and the module script, and point the
-IdP at it:
+`/bin/cms.cgi/system/content/public/auth/login.html`). Copy it to a path of
+your own first — the bundled file is a seed asset, and a later release
+replaces it in place, so edits made to it are lost on upgrade. In the copy,
+change the logo, colours (the `--idp-*` custom properties theme the flow),
+background and footer, keep the `idp-login` element and the module script,
+and point the IdP at the copy:
 
 ```yaml
-customLoginPageUrl: /bin/cms.cgi/system/content/public/auth/login.html
+customLoginPageUrl: /bin/cms.cgi/system/content/public/auth/my-login.html
 ```
 
 Because the flow lives in `app.js`, a branded page keeps working when a
