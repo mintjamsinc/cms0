@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
+import javax.jcr.AccessDeniedException;
 import javax.jcr.Binary;
 import javax.jcr.Credentials;
 import javax.jcr.Node;
@@ -115,6 +116,11 @@ public class DownloadServlet extends HttpServlet {
 				node = jcrSession.getNode(path);
 			} catch (PathNotFoundException ex) {
 				response.sendError(HttpServletResponse.SC_NOT_FOUND, "Node not found: " + path);
+				return;
+			} catch (AccessDeniedException ex) {
+				// The session may not read the node (a closed user home, for
+				// one): the caller's problem, not a failure of the server.
+				response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access denied: " + path);
 				return;
 			}
 
@@ -224,6 +230,14 @@ public class DownloadServlet extends HttpServlet {
 				// Nothing is wrong on the server side, and the response can no
 				// longer be changed, so neither an error log nor sendError applies.
 				CmsService.getLogger(getClass()).debug("Download aborted by client", ex);
+				return;
+			}
+
+			if (ex instanceof AccessDeniedException) {
+				// Denied past the node itself (its content, a property).
+				if (!response.isCommitted()) {
+					response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access denied");
+				}
 				return;
 			}
 
@@ -377,6 +391,8 @@ public class DownloadServlet extends HttpServlet {
 			} finally {
 				binary.dispose();
 			}
+		} catch (AccessDeniedException ex) {
+			response.sendError(HttpServletResponse.SC_FORBIDDEN, "Access denied");
 		} catch (RepositoryException ex) {
 			CmsService.getLogger(getClass()).error("Property download failed", ex);
 			response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Internal server error: " + ex.getMessage());
