@@ -25,6 +25,8 @@ import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
 const ACCEPTED_IMAGE_TYPES = /^image\/(png|jpeg|jpg|gif|webp|bmp|svg\+xml)$/;
 const AVATAR_ACCEPTED_TYPES = /^image\/(png|jpeg|jpg|gif)$/;
+// How long the completion toast at the bottom of the window stays.
+const TOAST_MS = 2500;
 
 /**
  * Render a locale code (e.g. "ja-jp", "en-us") as its own native language
@@ -182,8 +184,7 @@ const App = {
 				{ code: 'CNY', labelKey: 'app.preferences.currency.cny' },
 				{ code: 'KRW', labelKey: 'app.preferences.currency.krw' },
 			] as { code: string; labelKey: string }[],
-			localizationMessage: '',
-			localizationMessageType: 'success',
+			localizationError: '',
 
 			// Appearance - Wallpaper
 			wallpaperCatalog: [] as { id: string; url: string; timestamp: number }[],
@@ -199,8 +200,7 @@ const App = {
 			mail: '',
 			originalMail: '',
 			profileSaving: false,
-			profileMessage: '',
-			profileMessageType: 'success',
+			profileError: '',
 
 			// Security
 			passwordForm: {
@@ -209,16 +209,14 @@ const App = {
 				confirm: '',
 			},
 			passwordSaving: false,
-			passwordMessage: '',
-			passwordMessageType: 'success',
+			passwordError: '',
 
 			// Security - second factors
 			securityService: null as SecurityServiceGraphQL | null,
 			security: null as UserSecurity | null,
 			securityLoading: false,
 			securityBusy: false,
-			securityMessage: '',
-			securityMessageType: 'success',
+			securityError: '',
 			webauthnSupported: isWebAuthnSupported(),
 			passwordPrompt: {
 				visible: false,
@@ -258,8 +256,7 @@ const App = {
 			// Sessions
 			sessionList: [] as { id: string; displayName: string; savedAt: string }[],
 			sessionsLoading: false,
-			sessionMessage: '',
-			sessionMessageType: 'success',
+			sessionError: '',
 
 			// MCP
 			mcpService: null as McpServiceGraphQL | null,
@@ -270,9 +267,12 @@ const App = {
 			mcpCommand: '',
 			mcpLoading: false,
 			mcpBusy: false,
-			mcpMessage: '',
-			mcpMessageType: 'success',
+			mcpError: '',
 			mcpCopied: '',
+
+			// Completion toast at the bottom of the window
+			toast: '',
+			_toastTimer: null as ReturnType<typeof setTimeout> | null,
 
 			// Confirmation dialog
 			confirmDialog: {
@@ -400,6 +400,31 @@ const App = {
 			if (this.messageListener) {
 				window.removeEventListener('message', this.messageListener);
 			}
+			if (this._toastTimer) {
+				clearTimeout(this._toastTimer);
+				this._toastTimer = null;
+			}
+		},
+
+		// =====================================================================
+		// Completion toast
+		// =====================================================================
+
+		/**
+		 * Shows a completion note at the bottom of the window for a moment.
+		 * For a change the screen does not show by itself: a saved field, a
+		 * changed password. A change that is visible — a passkey in the list,
+		 * a replaced photo, a status that flipped — needs no note; errors stay
+		 * inline next to what failed, until the next attempt.
+		 */
+		showToast(text: string) {
+			const vm = this;
+			if (vm._toastTimer) clearTimeout(vm._toastTimer);
+			vm.toast = text;
+			vm._toastTimer = setTimeout(() => {
+				vm.toast = '';
+				vm._toastTimer = null;
+			}, TOAST_MS);
 		},
 
 		// =====================================================================
@@ -553,12 +578,10 @@ const App = {
 							currency: vm.currency,
 						},
 					});
-					vm.localizationMessage = vm.t('app.preferences.msg.saved', undefined, 'Saved');
-					vm.localizationMessageType = 'success';
+					vm.showToast(vm.t('app.preferences.msg.saved', undefined, 'Saved'));
 				} catch (e) {
 					console.warn('[Preferences] Failed to save localization to server:', e);
-					vm.localizationMessage = vm.t('app.preferences.msg.saveServerFailed', undefined, 'Failed to save to server');
-					vm.localizationMessageType = 'error';
+					vm.localizationError = vm.t('app.preferences.msg.saveServerFailed', undefined, 'Failed to save to server');
 				}
 			}
 			vm.instance.api.webtop.postMessage({
@@ -841,19 +864,17 @@ const App = {
 		async saveDisplayName() {
 			const vm = this;
 			vm.profileSaving = true;
-			vm.profileMessage = '';
+			vm.profileError = '';
 			try {
 				const username = vm.instance.currentUser.id;
 				const result = await vm.idp.updateMyProfile({
 					displayName: vm.displayName,
 				});
 				if (result.errors?.length) {
-					vm.profileMessage = result.errors[0].message;
-					vm.profileMessageType = 'error';
+					vm.profileError = result.errors[0].message;
 				} else {
 					vm.originalDisplayName = vm.displayName;
-					vm.profileMessage = vm.t('app.preferences.msg.displayNameUpdated', undefined, 'Display name updated.');
-					vm.profileMessageType = 'success';
+					vm.showToast(vm.t('app.preferences.msg.displayNameUpdated', undefined, 'Display name updated.'));
 					vm.instance.api.webtop.postMessage({ type: 'profile-changed', displayName: vm.displayName });
 					vm.idp.updatePreferences({
 						username,
@@ -862,8 +883,7 @@ const App = {
 					}).catch(e => console.warn('[Preferences] Failed to sync display name:', e));
 				}
 			} catch (e: any) {
-				vm.profileMessage = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
-				vm.profileMessageType = 'error';
+				vm.profileError = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
 			} finally {
 				vm.profileSaving = false;
 			}
@@ -873,27 +893,23 @@ const App = {
 			const vm = this;
 			const mail = vm.mail.trim();
 			if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
-				vm.profileMessage = vm.t('app.preferences.msg.invalidEmail', undefined, 'Enter a valid email address.');
-				vm.profileMessageType = 'error';
+				vm.profileError = vm.t('app.preferences.msg.invalidEmail', undefined, 'Enter a valid email address.');
 				return;
 			}
 			vm.profileSaving = true;
-			vm.profileMessage = '';
+			vm.profileError = '';
 			try {
 				const result = await vm.idp.updateMyProfile({ mail });
 				if (result.errors?.length) {
-					vm.profileMessage = result.errors[0].message;
-					vm.profileMessageType = 'error';
+					vm.profileError = result.errors[0].message;
 				} else {
 					vm.mail = result.user?.mail || '';
 					vm.originalMail = vm.mail;
-					vm.profileMessage = vm.t('app.preferences.msg.emailUpdated', undefined, 'Email address updated.');
-					vm.profileMessageType = 'success';
+					vm.showToast(vm.t('app.preferences.msg.emailUpdated', undefined, 'Email address updated.'));
 					vm.instance.api.webtop.postMessage({ type: 'profile-changed', mail: vm.mail });
 				}
 			} catch (e: any) {
-				vm.profileMessage = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
-				vm.profileMessageType = 'error';
+				vm.profileError = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
 			} finally {
 				vm.profileSaving = false;
 			}
@@ -946,18 +962,16 @@ const App = {
 		async uploadAvatarFile(file: File) {
 			const vm = this;
 			if (file.size > MAX_AVATAR_SIZE) {
-				vm.profileMessage = vm.t('app.preferences.msg.fileTooLarge', undefined, 'File is too large. Maximum size is 2MB.');
-				vm.profileMessageType = 'error';
+				vm.profileError = vm.t('app.preferences.msg.fileTooLarge', undefined, 'File is too large. Maximum size is 2MB.');
 				return;
 			}
 			if (!AVATAR_ACCEPTED_TYPES.test(file.type)) {
-				vm.profileMessage = vm.t('app.preferences.msg.invalidImageType', undefined, 'Only JPG, PNG, and GIF files are allowed.');
-				vm.profileMessageType = 'error';
+				vm.profileError = vm.t('app.preferences.msg.invalidImageType', undefined, 'Only JPG, PNG, and GIF files are allowed.');
 				return;
 			}
 
 			vm.profileSaving = true;
-			vm.profileMessage = '';
+			vm.profileError = '';
 
 			try {
 				const systemContent = vm.instance.api.systemContent;
@@ -980,13 +994,10 @@ const App = {
 					vm.avatarURL = `${avatarNode.downloadUrl}?t=${ts}`;
 				}
 
-				vm.profileMessage = vm.t('app.preferences.msg.photoUpdated', undefined, 'Profile photo updated.');
-				vm.profileMessageType = 'success';
 
 				vm.instance.api.webtop.postMessage({ type: 'avatar-changed' });
 			} catch (e: any) {
-				vm.profileMessage = e.message || vm.t('app.preferences.msg.photoUploadFailed', undefined, 'Failed to upload photo.');
-				vm.profileMessageType = 'error';
+				vm.profileError = e.message || vm.t('app.preferences.msg.photoUploadFailed', undefined, 'Failed to upload photo.');
 			} finally {
 				vm.profileSaving = false;
 			}
@@ -1004,16 +1015,13 @@ const App = {
 				iconClass: 'bi-exclamation-triangle-fill text-warning',
 				onConfirm: async () => {
 					vm.profileSaving = true;
-					vm.profileMessage = '';
+					vm.profileError = '';
 					try {
 						await vm.instance.api.systemContent.deleteNode(`/home/users/${username}/avatar`);
 						vm.avatarURL = null;
-						vm.profileMessage = vm.t('app.preferences.msg.photoRemoved', undefined, 'Profile photo removed.');
-						vm.profileMessageType = 'success';
 						vm.instance.api.webtop.postMessage({ type: 'avatar-changed' });
 					} catch (e: any) {
-						vm.profileMessage = e.message || vm.t('app.preferences.msg.photoRemoveFailed', undefined, 'Failed to remove photo.');
-						vm.profileMessageType = 'error';
+						vm.profileError = e.message || vm.t('app.preferences.msg.photoRemoveFailed', undefined, 'Failed to remove photo.');
 					} finally {
 						vm.profileSaving = false;
 					}
@@ -1091,13 +1099,12 @@ const App = {
 			if (!vm.canChangePassword) return;
 
 			if (vm.passwordForm.newPassword !== vm.passwordForm.confirm) {
-				vm.passwordMessage = vm.t('app.preferences.msg.passwordsNoMatch', undefined, 'Passwords do not match.');
-				vm.passwordMessageType = 'error';
+				vm.passwordError = vm.t('app.preferences.msg.passwordsNoMatch', undefined, 'Passwords do not match.');
 				return;
 			}
 
 			vm.passwordSaving = true;
-			vm.passwordMessage = '';
+			vm.passwordError = '';
 
 			try {
 				const username = vm.instance.currentUser.id;
@@ -1108,18 +1115,15 @@ const App = {
 				});
 
 				if (result.errors?.length) {
-					vm.passwordMessage = result.errors[0].message;
-					vm.passwordMessageType = 'error';
+					vm.passwordError = result.errors[0].message;
 				} else {
 					vm.passwordForm.current = '';
 					vm.passwordForm.newPassword = '';
 					vm.passwordForm.confirm = '';
-					vm.passwordMessage = vm.t('app.preferences.msg.passwordChanged', undefined, 'Password changed successfully.');
-					vm.passwordMessageType = 'success';
+					vm.showToast(vm.t('app.preferences.msg.passwordChanged', undefined, 'Password changed successfully.'));
 				}
 			} catch (e: any) {
-				vm.passwordMessage = e.message || vm.t('app.preferences.msg.passwordChangeFailed', undefined, 'Failed to change password.');
-				vm.passwordMessageType = 'error';
+				vm.passwordError = e.message || vm.t('app.preferences.msg.passwordChangeFailed', undefined, 'Failed to change password.');
 			} finally {
 				vm.passwordSaving = false;
 			}
@@ -1137,8 +1141,7 @@ const App = {
 				vm.security = await vm.securityService.getUserSecurity(vm.instance.currentUser.id);
 			} catch (e: any) {
 				console.warn('[Preferences] security load failed:', e);
-				vm.securityMessage = vm.t('app.preferences.msg.securityLoadFailed', undefined, 'Failed to load security settings.');
-				vm.securityMessageType = 'error';
+				vm.securityError = vm.t('app.preferences.msg.securityLoadFailed', undefined, 'Failed to load security settings.');
 			} finally {
 				vm.securityLoading = false;
 			}
@@ -1159,9 +1162,8 @@ const App = {
 			}
 		},
 
-		setSecurityMessage(message: string, type: 'success' | 'error' = 'success') {
-			this.securityMessage = message;
-			this.securityMessageType = type;
+		setSecurityError(message: string) {
+			this.securityError = message;
 		},
 
 		// ---- password prompt (re-authentication) ----
@@ -1211,7 +1213,7 @@ const App = {
 
 		startTotpEnrollment() {
 			const vm = this;
-			vm.securityMessage = '';
+			vm.securityError = '';
 			vm.openPasswordPrompt({
 				title: vm.t('app.preferences.security.totp.confirmPasswordTitle', undefined, 'Confirm your password'),
 				message: vm.t('app.preferences.security.totp.confirmPasswordMessage', undefined, 'Enter your current password to set up two-step verification.'),
@@ -1263,13 +1265,12 @@ const App = {
 					vm.totpDialog.error = vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					if (result.errors[0].code === 'NOT_ENROLLED') {
 						vm.closeTotpDialog();
-						vm.setSecurityMessage(vm.totpDialog.error, 'error');
+						vm.setSecurityError(vm.totpDialog.error);
 					}
 					return;
 				}
 				if (result.security) vm.security = result.security;
 				vm.closeTotpDialog();
-				vm.setSecurityMessage(vm.t('app.preferences.msg.totpEnabled', undefined, 'Two-step verification is on.'));
 				vm.openCodesDialog(result.backupCodes || []);
 			} catch (e: any) {
 				vm.totpDialog.error = e?.message || vm.t('app.preferences.msg.securityFailed', undefined, 'The change could not be saved.');
@@ -1279,7 +1280,7 @@ const App = {
 		},
 		askDisableTotp() {
 			const vm = this;
-			vm.securityMessage = '';
+			vm.securityError = '';
 			vm.openPasswordPrompt({
 				title: vm.t('app.preferences.security.totp.disableTitle', undefined, 'Turn off two-step verification'),
 				message: vm.t('app.preferences.security.totp.disableMessage', undefined, 'Enter your current password to continue.'),
@@ -1294,14 +1295,13 @@ const App = {
 						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					}
 					if (result.security) vm.security = result.security;
-					vm.setSecurityMessage(vm.t('app.preferences.msg.totpDisabled', undefined, 'Two-step verification is off.'));
 					return null;
 				},
 			});
 		},
 		askRegenerateBackupCodes() {
 			const vm = this;
-			vm.securityMessage = '';
+			vm.securityError = '';
 			vm.openPasswordPrompt({
 				title: vm.t('app.preferences.security.backupCodes.regenerateTitle', undefined, 'Get new backup codes'),
 				message: vm.t('app.preferences.security.backupCodes.regenerateMessage', undefined, 'Enter your current password to continue.'),
@@ -1315,7 +1315,6 @@ const App = {
 						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					}
 					if (result.security) vm.security = result.security;
-					vm.setSecurityMessage(vm.t('app.preferences.msg.backupCodesRegenerated', undefined, 'New backup codes issued.'));
 					vm.openCodesDialog(result.backupCodes || []);
 					return null;
 				},
@@ -1364,7 +1363,7 @@ const App = {
 
 		startPasskeyRegistration() {
 			const vm = this;
-			vm.securityMessage = '';
+			vm.securityError = '';
 			vm.openPasswordPrompt({
 				title: vm.t('app.preferences.security.passkeys.addTitle', undefined, 'Add a passkey'),
 				message: vm.t('app.preferences.security.passkeys.addMessage', undefined, 'Enter your current password. Your browser then asks you to create the passkey.'),
@@ -1393,12 +1392,12 @@ const App = {
 					credential = await createPasskey(options);
 				} catch (e: any) {
 					if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) {
-						vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyCancelled', undefined, 'The passkey prompt was closed before the passkey was created.'), 'error');
+						vm.setSecurityError(vm.t('app.preferences.msg.passkeyCancelled', undefined, 'The passkey prompt was closed before the passkey was created.'));
 					} else if (e && e.name === 'InvalidStateError') {
-						vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyCreateFailed', undefined, 'The passkey could not be created.') + ' ' + (e.message || ''), 'error');
+						vm.setSecurityError(vm.t('app.preferences.msg.passkeyCreateFailed', undefined, 'The passkey could not be created.') + ' ' + (e.message || ''));
 					} else {
 						console.warn('[Preferences] passkey creation failed:', e);
-						vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyCreateFailed', undefined, 'The passkey could not be created.'), 'error');
+						vm.setSecurityError(vm.t('app.preferences.msg.passkeyCreateFailed', undefined, 'The passkey could not be created.'));
 					}
 					return;
 				}
@@ -1407,11 +1406,10 @@ const App = {
 					credential,
 				});
 				if (result.errors?.length || !result.passkey) {
-					vm.setSecurityMessage(vm.securityError(result.errors, 'app.preferences.msg.passkeyCreateFailed', 'The passkey could not be created.'), 'error');
+					vm.setSecurityError(vm.securityError(result.errors, 'app.preferences.msg.passkeyCreateFailed', 'The passkey could not be created.'));
 					return;
 				}
 				if (result.security) vm.security = result.security;
-				vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyAdded', undefined, 'Passkey added.'));
 				vm.openPasskeyNameDialog({
 					title: vm.t('app.preferences.security.passkeys.nameNewTitle', undefined, 'Name this passkey'),
 					message: vm.t('app.preferences.security.passkeys.nameNewMessage', undefined, 'Give it a name you will recognize.'),
@@ -1424,7 +1422,7 @@ const App = {
 			}
 		},
 		askRenamePasskey(pk: Passkey) {
-			this.securityMessage = '';
+			this.securityError = '';
 			this.openPasskeyNameDialog({
 				title: this.t('app.preferences.security.passkeys.renameTitle', undefined, 'Rename passkey'),
 				message: '',
@@ -1468,7 +1466,6 @@ const App = {
 				}
 				if (result.security) vm.security = result.security;
 				vm.closePasskeyNameDialog();
-				vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyRenamed', undefined, 'Passkey renamed.'));
 			} catch (e: any) {
 				vm.passkeyNameDialog.error = e?.message || vm.t('app.preferences.msg.securityFailed', undefined, 'The change could not be saved.');
 			} finally {
@@ -1477,7 +1474,7 @@ const App = {
 		},
 		askDeletePasskey(pk: Passkey) {
 			const vm = this;
-			vm.securityMessage = '';
+			vm.securityError = '';
 			vm.openPasswordPrompt({
 				title: vm.t('app.preferences.security.passkeys.deleteTitle', undefined, 'Delete passkey'),
 				message: vm.t('app.preferences.security.passkeys.deleteMessage', { name: pk.displayName || vm.t('app.preferences.security.passkeys.unnamed', undefined, 'Passkey') }, 'Enter your current password to continue.'),
@@ -1493,7 +1490,6 @@ const App = {
 						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					}
 					if (result.security) vm.security = result.security;
-					vm.setSecurityMessage(vm.t('app.preferences.msg.passkeyDeleted', undefined, 'Passkey deleted.'));
 					return null;
 				},
 			});
@@ -1507,12 +1503,11 @@ const App = {
 			const vm = this;
 			if (!vm.instance) return;
 			vm.sessionsLoading = true;
-			vm.sessionMessage = '';
+			vm.sessionError = '';
 			try {
 				vm.sessionList = await vm.instance.api.session.listSessions();
 			} catch (e: any) {
-				vm.sessionMessage = e.message || 'Failed to load sessions.';
-				vm.sessionMessageType = 'error';
+				vm.sessionError = e.message || 'Failed to load sessions.';
 			} finally {
 				vm.sessionsLoading = false;
 			}
@@ -1535,11 +1530,8 @@ const App = {
 			try {
 				await vm.instance.api.session.deleteSession(id);
 				vm.sessionList = vm.sessionList.filter((s: any) => s.id !== id);
-				vm.sessionMessage = vm.t('app.preferences.msg.sessionDeleted', undefined, 'Session deleted.');
-				vm.sessionMessageType = 'success';
 			} catch (e: any) {
-				vm.sessionMessage = e.message || vm.t('app.preferences.msg.sessionDeleteFailed', undefined, 'Failed to delete session.');
-				vm.sessionMessageType = 'error';
+				vm.sessionError = e.message || vm.t('app.preferences.msg.sessionDeleteFailed', undefined, 'Failed to delete session.');
 			}
 		},
 
@@ -1551,13 +1543,13 @@ const App = {
 			const vm = this;
 			if (!vm.instance || !vm.mcpService || !vm.mcpWorkspace) return;
 			vm.mcpLoading = true;
-			vm.mcpMessage = '';
+			vm.mcpError = '';
 			vm.mcp = null;
 			try {
 				vm.applyMcpConnection(await vm.mcpService.getConnection(vm.mcpWorkspace));
 			} catch (e: any) {
 				console.warn('[Preferences] MCP connection load failed:', e);
-				vm.setMcpMessage(vm.t('app.preferences.msg.mcpLoadFailed', undefined, 'Failed to load the MCP connection.'), 'error');
+				vm.setMcpError(vm.t('app.preferences.msg.mcpLoadFailed', undefined, 'Failed to load the MCP connection.'));
 			} finally {
 				vm.mcpLoading = false;
 			}
@@ -1573,32 +1565,30 @@ const App = {
 			this.mcpCopied = '';
 		},
 
-		setMcpMessage(message: string, type: 'success' | 'error' = 'success') {
-			this.mcpMessage = message;
-			this.mcpMessageType = type;
+		setMcpError(message: string) {
+			this.mcpError = message;
 		},
 
-		async saveMcpConnection(enabled: boolean, write: boolean, successMessage: string) {
+		async saveMcpConnection(enabled: boolean, write: boolean, successMessage?: string) {
 			const vm = this;
 			vm.mcpBusy = true;
-			vm.mcpMessage = '';
+			vm.mcpError = '';
 			try {
 				const connection = await vm.mcpService!.setConnection(vm.mcpWorkspace, { enabled, write });
 				vm.applyMcpConnection(connection);
-				vm.setMcpMessage(successMessage);
+				if (successMessage) vm.showToast(successMessage);
 			} catch (e: any) {
 				console.warn('[Preferences] MCP connection save failed:', e);
 				// The checkbox may have moved ahead of what the server holds.
 				if (vm.mcp) vm.mcpWrite = vm.mcp.write;
-				vm.setMcpMessage(e?.message || vm.t('app.preferences.msg.mcpSaveFailed', undefined, 'The change could not be saved.'), 'error');
+				vm.setMcpError(e?.message || vm.t('app.preferences.msg.mcpSaveFailed', undefined, 'The change could not be saved.'));
 			} finally {
 				vm.mcpBusy = false;
 			}
 		},
 
 		turnOnMcp() {
-			return this.saveMcpConnection(true, false,
-				this.t('app.preferences.msg.mcpTurnedOn', undefined, 'The MCP connection is on.'));
+			return this.saveMcpConnection(true, false);
 		},
 
 		askTurnOffMcp() {
@@ -1609,8 +1599,7 @@ const App = {
 				confirmLabel: vm.t('app.preferences.mcp.turnOff', undefined, 'Turn off'),
 				danger: true,
 				iconClass: 'bi-exclamation-triangle-fill text-warning',
-				onConfirm: () => vm.saveMcpConnection(false, false,
-					vm.t('app.preferences.msg.mcpTurnedOff', undefined, 'The MCP connection is off.')),
+				onConfirm: () => vm.saveMcpConnection(false, false),
 			});
 		},
 
