@@ -570,7 +570,7 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		}, true, Privilege.JCR_ALL);
 		// The root lets everyone read: close the home, and leave the profile open.
 		UserHomeAccess.protect(userFolder, username);
-		UserHomeAccess.publishProfile(profileFile);
+		UserHomeAccess.publish(profileFile);
 		session.save();
 
 		// The caller's session has just proven it may create users; the hash itself

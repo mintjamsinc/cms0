@@ -1,5 +1,4 @@
-import { sha256Hex } from './webtop-util.js';
-import { Identicon } from '../lib/identicon.js';
+import { avatarURL } from './avatars.js';
 import type { IdpUser, IdpGroup } from '../graphql/types.js';
 
 export class User {
@@ -43,12 +42,8 @@ export class User {
 		return this.#data?.lastModified ? new Date(this.#data.lastModified) : new Date();
 	}
 
-	async getPhotoURL(): Promise<string> {
-		const hash = await sha256Hex(this.id || 'anonymous');
-		return new Identicon(hash, {
-			background: [245, 245, 245, 255],
-			margin: 0.2,
-			format: 'svg',
-		}).dataURL;
+	/** The user's picture: the photo set in Preferences, or an identicon (see services/avatars.ts). */
+	getPhotoURL(): Promise<string> {
+		return avatarURL(this.id);
 	}
 }

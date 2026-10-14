@@ -398,7 +398,7 @@ public class Provisioner implements Closeable {
 		JCRs.setAccessControlEntry(userFolder, userPrincipal(id), true, Privilege.JCR_ALL);
 		// The root lets everyone read: close the home, and leave the profile open.
 		UserHomeAccess.protect(userFolder, id);
-		UserHomeAccess.publishProfile(profile);
+		UserHomeAccess.publish(profile);
 		session.save();
 		if (Strings.isNotEmpty(password)) {
 			UserCredentials.setPassword(session, id, password);

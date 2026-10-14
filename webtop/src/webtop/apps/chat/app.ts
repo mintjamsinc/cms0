@@ -44,8 +44,7 @@ import {
 import { loadChatThreadTemplate } from "../../components/wt-chat-thread.js";
 import { getFileIcon } from "../../lib/inspector-utils.js";
 import { chatTextWithNames } from "../../lib/chat-markdown.js";
-import { Identicon } from "../../lib/identicon.js";
-import { sha256Hex } from "../../services/webtop-util.js";
+import { avatarURL } from "../../services/avatars.js";
 import { openFileInEditor, revealInContentBrowser } from "../../lib/open-file.js";
 import { setAppContext } from "../../lib/notifications.js";
 
@@ -134,7 +133,7 @@ const App = {
 			reloadCount: 0,
 			// A message the open conversation is to be brought to (a search hit).
 			focusMessageId: '' as string,
-			// Identicons of the other users of direct messages, by user id.
+			// Pictures of the other users of direct messages, by user id.
 			avatars: {} as Record<string, string>,
 			searchText: '',
 			search: {
@@ -443,16 +442,12 @@ const App = {
 			const channels = this.channels as ChatChannel[];
 			return channels.reduce((best, c) => ((c.lastMessageAt || '') > (best.lastMessageAt || '') ? c : best), channels[0]);
 		},
-		/** Identicons for the other users of the direct messages. */
+		/** The pictures of the other users of the direct messages: their photos, or identicons (services/avatars.ts). */
 		async loadAvatars() {
 			for (const c of this.channels as ChatChannel[]) {
 				const id = c.peerId;
 				if (!id || this.avatars[id]) continue;
-				this.avatars[id] = new Identicon(await sha256Hex(id), {
-					background: [245, 245, 245, 255],
-					margin: 0.2,
-					format: 'svg',
-				}).dataURL as string;
+				this.avatars[id] = await avatarURL(id);
 			}
 		},
 		isUnread(c: ChatChannel): boolean {

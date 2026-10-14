@@ -980,20 +980,31 @@ const App = {
 				const uploadInfo = await systemContent.initiateMultipartUpload();
 				await vm.uploadFileInChunks(systemContent, uploadInfo, file);
 
-				const avatarPath = `/home/users/${username}`;
+				const homePath = `/home/users/${username}`;
 				const avatarNode = await systemContent.completeMultipartUpload(
 					uploadInfo.uploadId,
-					avatarPath,
+					homePath,
 					'avatar',
 					file.type,
 					true,
 				);
 
+				// The home is closed to the other users; the photo is shown to
+				// them (the author of a message), so it is opened to every
+				// signed-in user, like the profile. The same entries the server
+				// puts on the profile (UserHomeAccess); a replaced photo keeps
+				// its node, so setting them again changes nothing.
+				await systemContent.setAccessControl(`${homePath}/avatar`, {
+					entries: [
+						{ principal: 'everyone', privileges: ['jcr:read'], allow: true },
+						{ principal: 'anonymous', privileges: ['jcr:read'], allow: false },
+					],
+				});
+
 				if (avatarNode?.downloadUrl) {
 					const ts = avatarNode.modified ? new Date(avatarNode.modified).getTime() : Date.now();
 					vm.avatarURL = `${avatarNode.downloadUrl}?t=${ts}`;
 				}
-
 
 				vm.instance.api.webtop.postMessage({ type: 'avatar-changed' });
 			} catch (e: any) {

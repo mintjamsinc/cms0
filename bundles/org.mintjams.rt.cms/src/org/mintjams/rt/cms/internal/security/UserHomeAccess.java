@@ -50,11 +50,17 @@ import org.mintjams.jcr.util.JCRs;
  * <pre>
  * /home/users/&lt;id&gt;            deny everyone jcr:read, allow &lt;id&gt; jcr:all
  * /home/users/&lt;id&gt;/profile    allow everyone jcr:read, deny anonymous jcr:read
+ * /home/users/&lt;id&gt;/avatar     allow everyone jcr:read, deny anonymous jcr:read
  * </pre>
  *
- * <p>The profile stays readable because the names of the other users are
- * shown throughout (an assignee, an author). It exists in the identity store
- * only, the {@code system} workspace; a content workspace holds no profile.</p>
+ * <p>The profile and the avatar stay readable because the other users are
+ * shown throughout (an assignee, the author of a message): their names, and
+ * the photo set in Preferences. Both exist in the identity store only, the
+ * {@code system} workspace; a content workspace holds neither.</p>
+ *
+ * <p>The avatar is a file the user uploads, so it cannot be opened before it
+ * exists: Preferences opens it right after the upload, and {@link #protectAll}
+ * brings along the avatars uploaded before they were opened.</p>
  *
  * <p>Entries apply in definition order, so the deny comes first and the
  * owner's grant after it. A home that predates this class carries the grant
@@ -65,6 +71,7 @@ public final class UserHomeAccess {
 
 	public static final String USERS_ROOT = "/home/users";
 	public static final String PROFILE_NAME = "profile";
+	public static final String AVATAR_NAME = "avatar";
 
 	private UserHomeAccess() {
 	}
@@ -105,14 +112,15 @@ public final class UserHomeAccess {
 	}
 
 	/**
-	 * Lets every signed-in user read the profile of a closed home. Does nothing
-	 * to a profile that already is readable. The caller saves the session.
+	 * Lets every signed-in user read a node of a closed home: the profile, the
+	 * avatar. Does nothing to a node that already is readable. The caller saves
+	 * the session.
 	 *
 	 * @return whether the access control list was changed
 	 */
-	public static boolean publishProfile(Node profile) throws RepositoryException {
-		AccessControlManager acm = profile.getSession().getAccessControlManager();
-		AccessControlList acl = (AccessControlList) JCRs.getAccessControlList(profile);
+	public static boolean publish(Node node) throws RepositoryException {
+		AccessControlManager acm = node.getSession().getAccessControlManager();
+		AccessControlList acl = (AccessControlList) JCRs.getAccessControlList(node);
 		for (AccessControlEntry entry : acl.getAccessControlEntries()) {
 			if (EveryonePrincipal.NAME.equals(entry.getPrincipal().getName()) && isAllow(entry)
 					&& covers(entry, Privilege.JCR_READ)) {
@@ -123,13 +131,13 @@ public final class UserHomeAccess {
 		acl.addAccessControlEntry(new EveryonePrincipal(), true, acm.privilegeFromName(Privilege.JCR_READ));
 		// Allowing everyone would give anonymous back what the root denies it.
 		acl.addAccessControlEntry(new GuestPrincipal(), false, acm.privilegeFromName(Privilege.JCR_READ));
-		acm.setPolicy(profile.getPath(), acl);
+		acm.setPolicy(node.getPath(), acl);
 		return true;
 	}
 
 	/**
-	 * Closes every home of the session's workspace and opens the profiles in
-	 * them. The session must be allowed to change access control; the caller
+	 * Closes every home of the session's workspace and opens the profiles and
+	 * the avatars in them. The session must be allowed to change access control; the caller
 	 * saves it.
 	 *
 	 * @return how many homes or profiles were changed
@@ -148,8 +156,10 @@ public final class UserHomeAccess {
 			if (protect(userFolder, userFolder.getName())) {
 				changed++;
 			}
-			if (userFolder.hasNode(PROFILE_NAME) && publishProfile(userFolder.getNode(PROFILE_NAME))) {
-				changed++;
+			for (String name : new String[] { PROFILE_NAME, AVATAR_NAME }) {
+				if (userFolder.hasNode(name) && publish(userFolder.getNode(name))) {
+					changed++;
+				}
 			}
 		}
 		return changed;

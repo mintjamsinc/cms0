@@ -67,8 +67,7 @@ import { defineComponent } from '@mintjamsinc/ichigojs';
 import { BUILD_VERSION } from '../utils/build-version.js';
 import { createLocalizationSnapshot, translate } from '../composables/use-localization.js';
 import { createGraphQLClient, type GraphQLClient } from '../graphql/client.js';
-import { sha256Hex } from '../services/webtop-util.js';
-import { Identicon } from '../lib/identicon.js';
+import { avatarURL, forgetAvatar } from '../services/avatars.js';
 import { renderChatMarkdown } from '../lib/chat-markdown.js';
 import { MentionEditor, type MentionUser } from '../lib/mention-editor.js';
 import { getFileIcon } from '../lib/inspector-utils.js';
@@ -286,9 +285,6 @@ function emptyCardDraft() {
 	};
 }
 
-// Identicons by user id, shared by every thread of the page.
-const avatarCache = new Map<string, string>();
-
 let templateReady: Promise<void> | undefined;
 
 /**
@@ -348,6 +344,8 @@ defineComponent('wt-chat-thread', {
 				cardFrames: new Set<HTMLIFrameElement>(),
 				cardObservers: new Map<HTMLIFrameElement, ResizeObserver>(),
 				themeObserver: null as MutationObserver | null,
+				// Told by the shell when the reader's photo changed (Preferences).
+				onMessage: null as ((e: MessageEvent) => void) | null,
 				previewTimer: null as ReturnType<typeof setTimeout> | null,
 			}),
 			info: null as ChatConversation | null,
@@ -515,6 +513,7 @@ defineComponent('wt-chat-thread', {
 		onMount(this: any) {
 			installCardHost();
 			this.watchTheme();
+			this.watchOwnAvatar();
 			this.openIfIdle();
 		},
 		onMounted(this: any) {
@@ -540,6 +539,10 @@ defineComponent('wt-chat-thread', {
 			if (this._.themeObserver) {
 				this._.themeObserver.disconnect();
 				this._.themeObserver = null;
+			}
+			if (this._.onMessage) {
+				window.removeEventListener('message', this._.onMessage);
+				this._.onMessage = null;
 			}
 			for (const frame of Array.from(this._.cardFrames as Set<HTMLIFrameElement>)) {
 				this.releaseCard(frame);
@@ -782,22 +785,26 @@ defineComponent('wt-chat-thread', {
 				this.$emit('activity', { lastMessageAt: shown[shown.length - 1].postedAt });
 			}
 		},
+		/** The pictures of the authors: their photos, or identicons (services/avatars.ts). */
 		async loadAvatars(this: any, messages: ChatMessage[]) {
 			const vm = this;
 			for (const m of messages) {
 				const id = m.author;
 				if (!id || vm.avatars[id]) continue;
-				let url = avatarCache.get(id);
-				if (!url) {
-					url = new Identicon(await sha256Hex(id), {
-						background: [245, 245, 245, 255],
-						margin: 0.2,
-						format: 'svg',
-					}).dataURL as string;
-					avatarCache.set(id, url);
-				}
-				vm.avatars[id] = url;
+				vm.avatars[id] = await avatarURL(id);
 			}
+		},
+		/** Shows the reader's own photo anew when it is changed in Preferences: the shell tells every app. */
+		watchOwnAvatar(this: any) {
+			const vm = this;
+			vm._.onMessage = (e: MessageEvent) => {
+				if (e.origin !== window.location.origin || e.data?.type !== 'avatar-changed') return;
+				const id = String(vm.api?.userId || '');
+				if (!id || !vm.avatars[id]) return;
+				forgetAvatar(id);
+				avatarURL(id).then((url) => { vm.avatars[id] = url; });
+			};
+			window.addEventListener('message', vm._.onMessage);
 		},
 
 		// =====================================================================

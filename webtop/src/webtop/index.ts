@@ -2,6 +2,7 @@ import { WebtopContext } from './global.js';
 import { VDOM } from '@mintjamsinc/ichigojs';
 import { WebtopAPI } from './services/webtop-api.js';
 import { User } from './services/user-service.js';
+import { forgetAvatar } from './services/avatars.js';
 import { Application, ApplicationInstance, type AppWidget, type WidgetLayer } from './services/webtop-service.js';
 import {
 	WidgetStore,
@@ -448,19 +449,8 @@ const WtDesktop = {
 				console.warn('[Webtop] Failed to initialize i18n bundles cache:', err);
 			});
 
-			// Load avatar: system workspace takes priority over Identicon
-			try {
-				const userId = window.Webtop.currentUser.id;
-				const avatarNode = await window.Webtop.api.systemContent.getNode(`/home/users/${userId}/avatar`);
-				if (avatarNode?.downloadUrl) {
-					const ts = avatarNode.modified ? new Date(avatarNode.modified).getTime() : Date.now();
-					vm.avatarURL = `url(${avatarNode.downloadUrl}?t=${ts})`;
-				} else {
-					vm.avatarURL = `url(${await window.Webtop.currentUser.getPhotoURL()})`;
-				}
-			} catch {
-				vm.avatarURL = `url(${await window.Webtop.currentUser.getPhotoURL()})`;
-			}
+			// The user's photo, or an identicon when none is set.
+			vm.avatarURL = `url(${await window.Webtop.currentUser.getPhotoURL()})`;
 
 			// Probe the user's Desktop folder. New users get one auto-created at
 			// registration time; existing users may not have one yet, in which
@@ -741,14 +731,9 @@ const WtDesktop = {
 				} else if (type === 'avatar-changed') {
 					const userId = window.Webtop.currentUser?.id;
 					if (userId) {
-						window.Webtop.api.systemContent.getNode(`/home/users/${userId}/avatar`).then(async node => {
-							if (node?.downloadUrl) {
-								vm.avatarURL = `url(${node.downloadUrl}?t=${Date.now()})`;
-							} else {
-								vm.avatarURL = `url(${await window.Webtop.currentUser.getPhotoURL()})`;
-							}
-						}).catch(async () => {
-							vm.avatarURL = `url(${await window.Webtop.currentUser.getPhotoURL()})`;
+						forgetAvatar(userId);
+						window.Webtop.currentUser.getPhotoURL().then((url: string) => {
+							vm.avatarURL = `url(${url})`;
 						});
 					}
 				}
