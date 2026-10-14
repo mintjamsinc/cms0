@@ -99,43 +99,8 @@ wt-inspector {
 	overflow-y: auto;
 }
 
-/* Details / Conversation tabs in the header. */
-.detail-panel-tabs {
-	display: flex;
-	gap: 0.125rem;
-}
-
-.detail-panel-tab {
-	position: relative;
-	padding: 0.2rem 0.625rem;
-	border: none;
-	border-radius: 6px;
-	background: none;
-	color: var(--text-soft-color);
-	font: inherit;
-	font-size: 12px;
-	cursor: pointer;
-}
-
-.detail-panel-tab:hover {
-	background: var(--item-hover-bg);
-}
-
-.detail-panel-tab.active {
-	background: var(--item-selected-bg);
-	color: var(--nav-current-color);
-	font-weight: 600;
-}
-
-.detail-panel-tab-dot {
-	position: absolute;
-	top: 0.2rem;
-	right: 0.2rem;
-	width: 0.4rem;
-	height: 0.4rem;
-	border-radius: 50%;
-	background: var(--primary-color);
-}
+/* Details / Conversation tabs in the header: .wt-tabs.wt-file and
+ * .wt-file-tab-dot (webtop-ui.css). */
 
 /* The conversation fills the frame and scrolls its own messages. */
 .detail-conversation {

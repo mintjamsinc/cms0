@@ -27,14 +27,15 @@
 		<div class="detail-panel-header">
 			<span class="detail-panel-title">{{ panelTitle }}</span>
 			<!-- Details / Conversation, for a single file or folder. The
-			     conversation is the same one the Chat app shows for the item. -->
-			<div v-if="conversationAvailable" class="detail-panel-tabs">
-				<button type="button" class="detail-panel-tab" :class="{ active: inspectorTab !== 'conversation' }" @click="showDetailsTab">
+			     conversation is the same one the Chat app shows for the item.
+			     Same look as the editors' file tabs (.wt-tabs.wt-file). -->
+			<div v-if="conversationAvailable" class="wt-tabs wt-file">
+				<button type="button" class="wt-tab" :class="{ active: inspectorTab !== 'conversation' }" @click="showDetailsTab">
 					{{ t('webtop.inspector.tab.details', undefined, 'Details') }}
 				</button>
-				<button type="button" class="detail-panel-tab" :class="{ active: inspectorTab === 'conversation' }" @click="showConversationTab">
+				<button type="button" class="wt-tab" :class="{ active: inspectorTab === 'conversation' }" @click="showConversationTab">
 					{{ t('webtop.inspector.tab.conversation', undefined, 'Conversation') }}
-					<span v-if="conversationUnread" class="detail-panel-tab-dot" :title="t('webtop.inspector.tab.unread', undefined, 'Unread messages')"></span>
+					<span v-if="conversationUnread" class="wt-file-tab-dot" :title="t('webtop.inspector.tab.unread', undefined, 'Unread messages')"></span>
 				</button>
 			</div>
 		</div>
