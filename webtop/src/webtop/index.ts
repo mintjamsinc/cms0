@@ -30,6 +30,7 @@ import {
 	translate,
 } from './composables/use-localization.js';
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from './services/content-delete.js';
+import { NEW_FILE_TYPES, withExtension, type NewFileType } from './lib/new-file-types.js';
 import type { JobStatus, TopicMessageEvent } from './graphql/types.js';
 import { notificationStore, notificationActions, type Notification, type NotificationText } from './stores/notification-store.js';
 import { NOTIFICATIONS_TOPIC, toNotice, type Notice } from './lib/notifications.js';
@@ -195,6 +196,9 @@ const WtDesktop = {
 				items: [] as { id: string; label: string; icon?: string; iconSvg?: string; swatch?: string; selected?: boolean; danger?: boolean; type?: string }[],
 				sourceAppId: null as string | null,
 				onAction: null as ((id: string) => void) | null,
+				// Raised from inside a shell dialog (e.g. the New File type
+				// selector): stacks the menu above .session-overlay.
+				overDialog: false,
 			},
 			// Desktop folder state. Set in onMounted by probing
 			// /home/users/{userID}/Desktop. Existing users created before this
@@ -228,6 +232,22 @@ const WtDesktop = {
 				visible: false,
 				item: null as any,
 				newName: '',
+				isLoading: false,
+				errorMessage: '',
+			},
+			// New Folder / New File dialogs for the empty-area menu. Both
+			// create in the Desktop folder, like Content Browser's do in the
+			// folder being browsed.
+			desktopNewFolderDialog: {
+				visible: false,
+				name: '',
+				isLoading: false,
+				errorMessage: '',
+			},
+			desktopNewFileDialog: {
+				visible: false,
+				name: '',
+				fileType: 'text',
 				isLoading: false,
 				errorMessage: '',
 			},
@@ -306,6 +326,19 @@ const WtDesktop = {
 	computed: {
 		currentDate() {
 			return new Date();
+		},
+		// The name is taken by an icon already on the desktop.
+		desktopNewFolderNameExists(): boolean {
+			const name = this.desktopNewFolderDialog.name.trim().toLowerCase();
+			if (!name) return false;
+			return this.desktopItems.some((i: any) => i.name.toLowerCase() === name);
+		},
+		desktopNewFileNameExists(): boolean {
+			const name = this.desktopNewFileDialog.name.trim();
+			if (!name) return false;
+			const fileType = NEW_FILE_TYPES.find(o => o.id === this.desktopNewFileDialog.fileType) || NEW_FILE_TYPES[0];
+			const fullName = withExtension(name, fileType).toLowerCase();
+			return this.desktopItems.some((i: any) => i.name.toLowerCase() === fullName);
 		},
 		popupStyle() {
 			const p = (this as any).popup;
@@ -1220,7 +1253,7 @@ const WtDesktop = {
 			return opts;
 		},
 		// Context menu methods
-		showContextMenu(payload: { x: number; y: number; items: any[]; variant?: 'list' | 'swatch-grid'; columns?: number; sourceAppId?: string | null; onAction?: (id: string) => void }) {
+		showContextMenu(payload: { x: number; y: number; items: any[]; variant?: 'list' | 'swatch-grid'; columns?: number; sourceAppId?: string | null; onAction?: (id: string) => void; overDialog?: boolean }) {
 			const vm = this;
 
 			const variant = payload.variant === 'swatch-grid' ? 'swatch-grid' : 'list';
@@ -1262,6 +1295,7 @@ const WtDesktop = {
 			vm.contextMenu.items = payload.items;
 			vm.contextMenu.sourceAppId = payload.sourceAppId || null;
 			vm.contextMenu.onAction = payload.onAction || null;
+			vm.contextMenu.overDialog = !!payload.overDialog;
 			vm.contextMenu.visible = true;
 		},
 		hideContextMenu() {
@@ -1271,6 +1305,7 @@ const WtDesktop = {
 			vm.contextMenu.items = [];
 			vm.contextMenu.sourceAppId = null;
 			vm.contextMenu.onAction = null;
+			vm.contextMenu.overDialog = false;
 		},
 		onContextMenuAction(action: string) {
 			const vm = this;
@@ -2267,6 +2302,7 @@ const WtDesktop = {
 			if (target.closest('wt-window, .wt-window, wt-widget')) return;
 			// Suppress while a modal overlay owns the screen.
 			if (vm.desktopRenameDialog.visible || vm.desktopDeleteDialog.visible
+				|| vm.desktopNewFolderDialog.visible || vm.desktopNewFileDialog.visible
 				|| vm.desktopConflictDialog.visible || vm.desktopAlert.visible
 				|| vm.desktopUploadMonitor || vm.desktopDeleteMonitor
 				|| vm.popup.visible || vm.restoringSession || vm.showSessionPicker) {
@@ -2433,9 +2469,15 @@ const WtDesktop = {
 			event.preventDefault();
 			vm.desktopSelectedIds = [];
 			vm.desktopLastSelectedIndex = -1;
-			const items: any[] = [
-				{ id: 'refresh', label: vm.t('webtop.contextMenu.refresh', undefined, 'Refresh'), icon: 'bi-arrow-clockwise' },
-			];
+			const items: any[] = [];
+			if (vm.hasDesktopFolder) {
+				items.push(
+					{ id: 'new-folder', label: vm.t('webtop.contextMenu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' },
+					{ id: 'new-file', label: vm.t('webtop.contextMenu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' },
+					{ type: 'separator', id: '', label: '' },
+				);
+			}
+			items.push({ id: 'refresh', label: vm.t('webtop.contextMenu.refresh', undefined, 'Refresh'), icon: 'bi-arrow-clockwise' });
 			if (vm.hasDesktopFolder) {
 				const manual = vm.desktopLayoutMode === 'manual';
 				items.push(
@@ -2475,6 +2517,12 @@ const WtDesktop = {
 			switch (action) {
 				case 'refresh':
 					document.dispatchEvent(new CustomEvent('webtop-desktop-reload'));
+					return;
+				case 'new-folder':
+					vm.showDesktopNewFolderDialog();
+					return;
+				case 'new-file':
+					vm.showDesktopNewFileDialog();
 					return;
 				case 'arrange-auto':
 					document.dispatchEvent(new CustomEvent('webtop-desktop-layout-mode', { detail: { mode: 'auto' } }));
@@ -2589,6 +2637,138 @@ const WtDesktop = {
 			} else if (event.key === 'Escape') {
 				event.preventDefault();
 				vm.closeDesktopRenameDialog();
+			}
+		},
+		showDesktopNewFolderDialog() {
+			const vm = this as any;
+			vm.desktopNewFolderDialog.name = '';
+			vm.desktopNewFolderDialog.errorMessage = '';
+			vm.desktopNewFolderDialog.isLoading = false;
+			vm.desktopNewFolderDialog.visible = true;
+			vm.$nextTick(() => {
+				(vm.$refs.desktopNewFolderInput as HTMLInputElement | undefined)?.focus();
+			});
+		},
+		closeDesktopNewFolderDialog() {
+			const vm = this as any;
+			vm.desktopNewFolderDialog.visible = false;
+			vm.desktopNewFolderDialog.name = '';
+			vm.desktopNewFolderDialog.errorMessage = '';
+			vm.desktopNewFolderDialog.isLoading = false;
+		},
+		async submitDesktopNewFolder() {
+			const vm = this as any;
+			const name = vm.desktopNewFolderDialog.name.trim();
+			if (!name) {
+				vm.desktopNewFolderDialog.errorMessage = vm.t('webtop.newFolder.nameEmpty', undefined, 'Folder name cannot be empty');
+				return;
+			}
+			vm.desktopNewFolderDialog.isLoading = true;
+			vm.desktopNewFolderDialog.errorMessage = '';
+			try {
+				await window.Webtop.api.content.createFolder(vm.desktopFolderPath, name);
+				vm.closeDesktopNewFolderDialog();
+				document.dispatchEvent(new CustomEvent('webtop-desktop-reload'));
+			} catch (err: any) {
+				vm.desktopNewFolderDialog.errorMessage = err?.message || vm.t('webtop.newFolder.failed', undefined, 'Failed to create folder');
+			} finally {
+				vm.desktopNewFolderDialog.isLoading = false;
+			}
+		},
+		onDesktopNewFolderKeydown(event: KeyboardEvent) {
+			const vm = this as any;
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				if (vm.desktopNewFolderDialog.name.trim() && !vm.desktopNewFolderNameExists) {
+					vm.submitDesktopNewFolder();
+				}
+			} else if (event.key === 'Escape') {
+				event.preventDefault();
+				vm.closeDesktopNewFolderDialog();
+			}
+		},
+		showDesktopNewFileDialog() {
+			const vm = this as any;
+			vm.desktopNewFileDialog.name = '';
+			vm.desktopNewFileDialog.fileType = 'text';
+			vm.desktopNewFileDialog.errorMessage = '';
+			vm.desktopNewFileDialog.isLoading = false;
+			vm.desktopNewFileDialog.visible = true;
+			vm.$nextTick(() => {
+				(vm.$refs.desktopNewFileInput as HTMLInputElement | undefined)?.focus();
+			});
+		},
+		closeDesktopNewFileDialog() {
+			const vm = this as any;
+			vm.desktopNewFileDialog.visible = false;
+			vm.desktopNewFileDialog.name = '';
+			vm.desktopNewFileDialog.fileType = 'text';
+			vm.desktopNewFileDialog.errorMessage = '';
+			vm.desktopNewFileDialog.isLoading = false;
+		},
+		desktopNewFileType(): NewFileType {
+			const id = (this as any).desktopNewFileDialog.fileType;
+			return NEW_FILE_TYPES.find(o => o.id === id) || NEW_FILE_TYPES[0];
+		},
+		// Localized "Label (.ext)" for a file type, as in Content Browser.
+		desktopFileTypeLabel(o: NewFileType): string {
+			return `${(this as any).t('webtop.fileType.' + o.labelKey, undefined, o.label)} (${o.extension})`;
+		},
+		// The type selector's list, opened under the trigger. The dialog sits
+		// in the shell, so the shell's own menu serves as the dropdown.
+		openDesktopNewFileTypeMenu(event: MouseEvent) {
+			const vm = this as any;
+			if (vm.desktopNewFileDialog.isLoading) return;
+			const trigger = event.currentTarget as HTMLElement | null;
+			if (!trigger) return;
+			const rect = trigger.getBoundingClientRect();
+			vm.showContextMenu({
+				x: rect.left,
+				y: rect.bottom + 4,
+				items: NEW_FILE_TYPES.map(o => ({
+					id: o.id,
+					label: vm.desktopFileTypeLabel(o),
+					selected: o.id === vm.desktopNewFileDialog.fileType,
+				})),
+				overDialog: true,
+				onAction: (id: string) => {
+					vm.desktopNewFileDialog.fileType = id;
+					(vm.$refs.desktopNewFileInput as HTMLInputElement | undefined)?.focus();
+				},
+			});
+		},
+		async submitDesktopNewFile() {
+			const vm = this as any;
+			const entered = vm.desktopNewFileDialog.name.trim();
+			if (!entered) {
+				vm.desktopNewFileDialog.errorMessage = vm.t('webtop.newFile.nameEmpty', undefined, 'File name cannot be empty');
+				return;
+			}
+			const fileType = vm.desktopNewFileType();
+			const name = withExtension(entered, fileType);
+			vm.desktopNewFileDialog.isLoading = true;
+			vm.desktopNewFileDialog.errorMessage = '';
+			try {
+				// The type's initial content (ASCII, as base64), empty by default.
+				await window.Webtop.api.content.createFile(vm.desktopFolderPath, name, fileType.mimeType, fileType.content ? btoa(fileType.content) : '');
+				vm.closeDesktopNewFileDialog();
+				document.dispatchEvent(new CustomEvent('webtop-desktop-reload'));
+			} catch (err: any) {
+				vm.desktopNewFileDialog.errorMessage = err?.message || vm.t('webtop.newFile.failed', undefined, 'Failed to create file');
+			} finally {
+				vm.desktopNewFileDialog.isLoading = false;
+			}
+		},
+		onDesktopNewFileKeydown(event: KeyboardEvent) {
+			const vm = this as any;
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				if (vm.desktopNewFileDialog.name.trim() && !vm.desktopNewFileNameExists) {
+					vm.submitDesktopNewFile();
+				}
+			} else if (event.key === 'Escape') {
+				event.preventDefault();
+				vm.closeDesktopNewFileDialog();
 			}
 		},
 		closeDesktopDeleteDialog() {

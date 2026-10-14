@@ -7,6 +7,7 @@ import { BUILD_VERSION } from "../../utils/build-version.js";
 import { Dates } from "../../utils/dates.js";
 import { nodeToInspectorTarget, THUMBNAIL_PROPERTY, type InspectorTarget } from "../../lib/inspector-target.js";
 import { SWATCH_COLORS, SWATCH_COLOR_MAP } from "../../lib/color-palette.js";
+import { NEW_FILE_TYPES, withExtension } from "../../lib/new-file-types.js";
 import { readArchiveManifest } from "./archive-manifest.js";
 import {
 	createLocalizationSnapshot,
@@ -608,22 +609,7 @@ export const App = {
 				errorMessage: '',
 			},
 			// versionHistoryDialog / propTypeOptions moved to wt-inspector.
-			fileTypeOptions: [
-				{ id: 'text', label: 'Text Document', labelKey: 'text', extension: '.txt', mimeType: 'text/plain' },
-				{ id: 'html', label: 'HTML Document', labelKey: 'html', extension: '.html', mimeType: 'text/html' },
-				{ id: 'css', label: 'CSS Stylesheet', labelKey: 'css', extension: '.css', mimeType: 'text/css' },
-				{ id: 'javascript', label: 'JavaScript', labelKey: 'javascript', extension: '.js', mimeType: 'application/javascript' },
-				{ id: 'json', label: 'JSON', labelKey: 'json', extension: '.json', mimeType: 'application/json' },
-				{ id: 'xml', label: 'XML Document', labelKey: 'xml', extension: '.xml', mimeType: 'application/xml' },
-				{ id: 'markdown', label: 'Markdown', labelKey: 'markdown', extension: '.md', mimeType: 'text/markdown' },
-				{ id: 'csv', label: 'CSV', labelKey: 'csv', extension: '.csv', mimeType: 'text/csv' },
-				{ id: 'yml', label: 'YAML Document', labelKey: 'yml', extension: '.yml', mimeType: 'application/yaml' },
-				{ id: 'bpmn', label: 'BPMN Document', labelKey: 'bpmn', extension: '.bpmn', mimeType: 'application/bpmn+xml' },
-				{ id: 'eip.xml', label: 'EIP/Route Document', labelKey: 'eipxml', extension: '.eip.xml', mimeType: 'application/vnd.webtop.eip+xml' },
-				// Starts as the empty document the Memo app writes for a new memo.
-				{ id: 'memo', label: 'Memo', labelKey: 'memo', extension: '.memo', mimeType: 'application/vnd.mintjams.cms.memo+json',
-					content: JSON.stringify({ version: 1, type: 'tiptap', doc: { type: 'doc', content: [{ type: 'paragraph' }] } }) },
-			],
+			fileTypeOptions: NEW_FILE_TYPES,
 			// Selection state. The Shift anchor and the keyboard cursor are held
 			// as item ids rather than row indexes: the list is re-sorted,
 			// filtered and reloaded underneath them, and a stale id resolves to
@@ -1143,10 +1129,7 @@ export const App = {
 			const name = this.newFileDialog.name.trim();
 			if (!name) return false;
 			const fileType = this.fileTypeOptions.find((opt: any) => opt.id === this.newFileDialog.fileType) || this.fileTypeOptions[0];
-			let fullName = name;
-			if (!name.toLowerCase().endsWith(fileType.extension.toLowerCase())) {
-				fullName = name + fileType.extension;
-			}
+			const fullName = withExtension(name, fileType);
 			return this.items.some((item: any) => item.name.toLowerCase() === fullName.toLowerCase());
 		},
 		// Detail panel: currently selected single item
@@ -4231,11 +4214,7 @@ export const App = {
 			}
 
 			const fileType = vm.getSelectedFileType();
-
-			// Add extension if not present
-			if (!name.toLowerCase().endsWith(fileType.extension.toLowerCase())) {
-				name += fileType.extension;
-			}
+			name = withExtension(name, fileType);
 
 			vm.newFileDialog.isLoading = true;
 			vm.newFileDialog.errorMessage = '';

@@ -237,6 +237,15 @@ body {
 	user-select: none;
 }
 
+/* A menu raised from a shell dialog (.session-overlay, z-index 10000). */
+#context-menu-overlay.over-dialog {
+	z-index: 10001;
+}
+
+#context-menu.over-dialog {
+	z-index: 10002;
+}
+
 .context-menu-item {
 	display: flex;
 	align-items: center;

@@ -151,9 +151,9 @@
 				</div>
 			</aside>
 			<!-- Context Menu -->
-			<div id="context-menu-overlay" v-if="contextMenu.visible" @click="hideContextMenu" @contextmenu.prevent="hideContextMenu"></div>
+			<div id="context-menu-overlay" v-if="contextMenu.visible" :class="{ 'over-dialog': contextMenu.overDialog }" @click="hideContextMenu" @contextmenu.prevent="hideContextMenu"></div>
 			<div id="context-menu" v-if="contextMenu.visible"
-				:class="{ 'swatch-grid': contextMenu.variant === 'swatch-grid' }"
+				:class="{ 'swatch-grid': contextMenu.variant === 'swatch-grid', 'over-dialog': contextMenu.overDialog }"
 				:style="contextMenu.variant === 'swatch-grid'
 					? { left: contextMenu.x + 'px', top: contextMenu.y + 'px', gridTemplateColumns: 'repeat(' + contextMenu.columns + ', 1fr)' }
 					: { left: contextMenu.x + 'px', top: contextMenu.y + 'px' }">
@@ -397,6 +397,68 @@
 							<button class="wt wt-primary" @click="submitDesktopRename" :disabled="desktopRenameDialog.isLoading || !desktopRenameDialog.newName.trim()">
 								<span v-if="desktopRenameDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
 								{{ t('webtop.rename.confirm') }}
+							</button>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Desktop new folder dialog -->
+			<div v-if="desktopNewFolderDialog.visible" class="session-overlay">
+				<div class="dialog-frame" style="max-width: 30rem;">
+					<div class="island p-2">
+						<div class="dialog-header">
+							<h3><i class="bi bi-folder-plus me-2"></i>{{ t('webtop.newFolder.title') }}</h3>
+						</div>
+						<div class="dialog-body">
+							<input type="text" class="wt w-100" ref="desktopNewFolderInput" v-model="desktopNewFolderDialog.name" @keydown="onDesktopNewFolderKeydown" :disabled="desktopNewFolderDialog.isLoading" :placeholder="t('webtop.newFolder.name')" />
+							<div v-if="desktopNewFolderNameExists" class="text-danger mt-2">{{ t('webtop.newFolder.nameExists') }}</div>
+							<div v-if="desktopNewFolderDialog.errorMessage" class="text-danger mt-2">
+								<i class="bi bi-exclamation-circle me-1"></i>{{ desktopNewFolderDialog.errorMessage }}
+							</div>
+						</div>
+						<div class="dialog-footer">
+							<button class="wt" @click="closeDesktopNewFolderDialog" :disabled="desktopNewFolderDialog.isLoading">{{ t('common.cancel') }}</button>
+							<button class="wt wt-primary" @click="submitDesktopNewFolder" :disabled="desktopNewFolderDialog.isLoading || !desktopNewFolderDialog.name.trim() || desktopNewFolderNameExists">
+								<span v-if="desktopNewFolderDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
+								{{ t('webtop.newFolder.confirm') }}
+							</button>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Desktop new file dialog -->
+			<div v-if="desktopNewFileDialog.visible" class="session-overlay">
+				<div class="dialog-frame" style="max-width: 32rem;">
+					<div class="island p-2">
+						<div class="dialog-header">
+							<h3><i class="bi bi-file-earmark-plus me-2"></i>{{ t('webtop.newFile.title') }}</h3>
+						</div>
+						<div class="dialog-body">
+							<div class="mb-3">
+								<label class="dialog-label">{{ t('webtop.newFile.name') }}</label>
+								<input type="text" class="wt w-100" ref="desktopNewFileInput" v-model="desktopNewFileDialog.name" @keydown="onDesktopNewFileKeydown" :disabled="desktopNewFileDialog.isLoading" :placeholder="t('webtop.newFile.namePlaceholder')" />
+								<div v-if="desktopNewFileNameExists" class="text-danger mt-1">{{ t('webtop.newFile.nameExists') }}</div>
+							</div>
+							<div>
+								<label class="dialog-label">{{ t('webtop.newFile.type') }}</label>
+								<div class="wt-select" :class="{ disabled: desktopNewFileDialog.isLoading }">
+									<button type="button" class="wt-select-trigger" @click.stop="openDesktopNewFileTypeMenu(event)" :disabled="desktopNewFileDialog.isLoading">
+										<span class="wt-select-value">{{ desktopFileTypeLabel(desktopNewFileType()) }}</span>
+										<i class="bi bi-chevron-down wt-select-chevron"></i>
+									</button>
+								</div>
+							</div>
+							<div v-if="desktopNewFileDialog.errorMessage" class="text-danger mt-2">
+								<i class="bi bi-exclamation-circle me-1"></i>{{ desktopNewFileDialog.errorMessage }}
+							</div>
+						</div>
+						<div class="dialog-footer">
+							<button class="wt" @click="closeDesktopNewFileDialog" :disabled="desktopNewFileDialog.isLoading">{{ t('common.cancel') }}</button>
+							<button class="wt wt-primary" @click="submitDesktopNewFile" :disabled="desktopNewFileDialog.isLoading || !desktopNewFileDialog.name.trim() || desktopNewFileNameExists">
+								<span v-if="desktopNewFileDialog.isLoading" class="spinner-border spinner-border-sm me-1"></span>
+								{{ t('webtop.newFile.confirm') }}
 							</button>
 						</div>
 					</div>
