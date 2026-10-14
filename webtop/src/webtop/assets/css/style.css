@@ -663,7 +663,12 @@ body {
 /* Desktop icons layer. Sits beneath app windows (windows manage their own
    z-index starting at 1). pointer-events: none on the container lets drag
    events on empty space fall through to #desktop-area's drop handler; each
-   icon re-enables interactivity for itself. */
+   icon re-enables interactivity for itself.
+
+   Two layouts share one grid: the flow (auto) layout wraps 6rem icons with a
+   0.5rem gap, and the manual layout puts each icon at a cell of the same
+   6.5rem column pitch and a 5.5rem row pitch (services/desktop-layout-store.ts
+   has these numbers too; keep them in step). */
 .desktop-icons {
 	position: absolute;
 	inset: 0;
@@ -674,6 +679,16 @@ body {
 	padding: 0.75rem;
 	pointer-events: none;
 	user-select: none;
+}
+
+.desktop-icons.manual {
+	display: block;
+}
+
+.desktop-icons.manual .desktop-icon {
+	position: absolute;
+	left: calc(0.75rem + var(--col, 0) * 6.5rem);
+	top: calc(0.75rem + var(--row, 0) * 5.5rem);
 }
 
 .desktop-icon {

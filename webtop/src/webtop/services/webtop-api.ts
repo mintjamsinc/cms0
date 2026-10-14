@@ -265,6 +265,13 @@ export class WebtopAPI {
 			return;
 		}
 
+		if (event.category === 'desktop') {
+			// Desktop icon layout changed in another tab or browser (or this
+			// one's own save echoing back); wt-desktop-icons reconciles.
+			document.dispatchEvent(new CustomEvent('webtop-desktop-layout-remote', { detail: event.data }));
+			return;
+		}
+
 		if (event.category === 'content-browser') {
 			// Forward content-browser preferences to app instances via postMessage
 			this.#webtopGraphQL.postMessage({

@@ -1,17 +1,37 @@
 // wt-desktop-icons custom element
 //
 // Renders the contents of the user's /home/users/{userID}/Desktop folder as a
-// flowing grid of icons sitting beneath the application windows. Icons are
-// name-sorted; positions are not persisted. Real-time updates are driven by an
+// grid of icons sitting beneath the application windows. In the default
+// `auto` layout the icons flow in name order and positions are not persisted;
+// in the `manual` layout each icon stays in the grid cell the user dropped it
+// in, and those cells are kept in the user's preferences
+// (services/desktop-layout-store.ts). Real-time updates are driven by an
 // eventHub.watchNode subscription so external changes (e.g. files dropped via
 // Content Browser into the Desktop folder) appear without manual refresh.
 //
 // The component is a thin renderer: selection, rubber-band, context menu,
 // upload progress and conflict dialog are all owned by the shell (index.ts).
 // We dispatch CustomEvents on `document` for the things the shell needs to
-// react to and accept selection state via a prop.
+// react to and accept selection state via a prop. The icon layout is the one
+// piece of state owned here; the shell learns the current mode through
+// `webtop-desktop-layout-changed` and drives it with the `webtop-desktop-*`
+// document events listed in the template.
 import { defineComponent } from '@mintjamsinc/ichigojs';
 import { isFolderNode } from '../graphql/types.js';
+import {
+	DesktopLayoutStore,
+	cellAt,
+	computeLayout,
+	flowCells,
+	gridFor,
+	nearestFreeCell,
+	parseLayout,
+	remPixels,
+} from '../services/desktop-layout-store.js';
+import type { DesktopCell, DesktopGrid, DesktopLayout, DesktopLayoutMode } from '../services/desktop-layout-store.js';
+
+/** How long after a remote change this tab waits for its own save to settle before re-reading. */
+const LAYOUT_RESYNC_MS = 1000;
 
 interface DesktopItem {
 	id: string;
@@ -26,15 +46,28 @@ interface DesktopItem {
 defineComponent('wt-desktop-icons', {
 	template: '#wt-desktop-icons',
 	props: ['enabled', 'desktopPath', 'selectedIds', 'dragOverItemID'],
-	emits: ['webtop-desktop-items-changed', 'webtop-desktop-icon-click', 'webtop-desktop-icon-contextmenu', 'webtop-desktop-icon-dragend', 'webtop-desktop-icon-dragover', 'webtop-desktop-icon-dragleave', 'webtop-desktop-icon-drop'],
+	emits: ['webtop-desktop-items-changed', 'webtop-desktop-icon-click', 'webtop-desktop-icon-contextmenu', 'webtop-desktop-icon-dragend', 'webtop-desktop-icon-dragover', 'webtop-desktop-icon-dragleave', 'webtop-desktop-icon-drop', 'webtop-desktop-layout-changed'],
 	data() {
 		return {
 			items: [] as DesktopItem[],
+			// Icon layout: the mode and, in manual mode, the stored cells.
+			layout: { mode: 'auto', positions: {} } as DesktopLayout,
+			// The cell each icon is shown in this render (manual mode only).
+			cells: {} as Record<string, DesktopCell>,
 			// Stored under a raw object so the unsubscribe callback isn't
 			// proxied by the reactive system.
 			_: this.$markRaw({
 				unsubscribe: null as (() => void) | null,
 				reloadTimer: null as any,
+				store: null as DesktopLayoutStore | null,
+				resizeHandler: null as (() => void) | null,
+				resizeTimer: null as any,
+				resyncTimer: null as any,
+				pageHideHandler: null as (() => void) | null,
+				// The icons being dragged and where the pointer grabbed the
+				// pressed one, so a drop on the desktop lands the icon where
+				// the user let go of it rather than snapping its corner there.
+				drag: null as null | { ids: string[]; anchorId: string; grabX: number; grabY: number },
 			}),
 		};
 	},
@@ -44,7 +77,20 @@ defineComponent('wt-desktop-icons', {
 	},
 	methods: {
 		onMounted() {
-			(this as any).refresh();
+			const vm = this as any;
+			// The grid is as big as the desktop: re-place icons that no longer
+			// fit (or fit again) when the window is resized.
+			vm._.resizeHandler = () => {
+				if (vm._.resizeTimer) clearTimeout(vm._.resizeTimer);
+				vm._.resizeTimer = setTimeout(() => {
+					vm._.resizeTimer = null;
+					vm.applyLayout();
+				}, 100);
+			};
+			window.addEventListener('resize', vm._.resizeHandler);
+			vm._.pageHideHandler = () => { vm._.store?.flush(); };
+			window.addEventListener('pagehide', vm._.pageHideHandler);
+			vm.refresh();
 		},
 		onUnmount() {
 			const vm = this as any;
@@ -53,18 +99,38 @@ defineComponent('wt-desktop-icons', {
 				clearTimeout(vm._.reloadTimer);
 				vm._.reloadTimer = null;
 			}
+			if (vm._.resizeTimer) {
+				clearTimeout(vm._.resizeTimer);
+				vm._.resizeTimer = null;
+			}
+			if (vm._.resyncTimer) {
+				clearTimeout(vm._.resyncTimer);
+				vm._.resyncTimer = null;
+			}
+			if (vm._.resizeHandler) {
+				window.removeEventListener('resize', vm._.resizeHandler);
+				vm._.resizeHandler = null;
+			}
+			if (vm._.pageHideHandler) {
+				window.removeEventListener('pagehide', vm._.pageHideHandler);
+				vm._.pageHideHandler = null;
+			}
+			vm._.store?.flush();
 		},
 		onReloadEvent() {
 			(this as any).loadItems();
 		},
-		refresh() {
+		async refresh() {
 			const vm = this as any;
 			if (vm.enabled && vm.desktopPath) {
-				vm.loadItems();
+				// The layout first, so the icons never flash in the other mode.
+				await vm.loadLayout();
+				await vm.loadItems();
 				vm.subscribe();
 			} else {
 				vm.unsubscribe();
 				vm.items = [];
+				vm.cells = {};
 				vm.$emit('webtop-desktop-items-changed', { items: [] }, { target: document });
 			}
 		},
@@ -87,11 +153,198 @@ defineComponent('wt-desktop-icons', {
 						downloadURL: url ? url + (url.includes('?') ? '&' : '?') + 'attachment' : null,
 					};
 				}).sort((a: DesktopItem, b: DesktopItem) => a.name.localeCompare(b.name));
+				vm.applyLayout();
 				// Notify shell so it can drop selectedIds that no longer exist.
 				vm.$emit('webtop-desktop-items-changed', { items: vm.items }, { target: document });
 			} catch (err) {
 				console.warn('[Webtop] Failed to load desktop items:', err);
 			}
+		},
+		// -----------------------------------------------------------------
+		// Icon layout (auto flow vs. manual grid cells).
+		// -----------------------------------------------------------------
+		async loadLayout() {
+			const vm = this as any;
+			const userId = (window as any).Webtop?.currentUser?.id;
+			const api = (window as any).Webtop?.api;
+			if (!userId || !api) {
+				vm._.store = null;
+				vm.setLayout({ mode: 'auto', positions: {} });
+				return;
+			}
+			if (!vm._.store) vm._.store = new DesktopLayoutStore(api, userId);
+			vm.setLayout(await vm._.store.load());
+		},
+		setLayout(layout: DesktopLayout) {
+			const vm = this as any;
+			const modeChanged = vm.layout.mode !== layout.mode;
+			vm.layout = layout;
+			if (modeChanged) vm.emitLayoutMode();
+		},
+		emitLayoutMode() {
+			const vm = this as any;
+			vm.$emit('webtop-desktop-layout-changed', { mode: vm.layout.mode }, { target: document });
+		},
+		measureGrid(): DesktopGrid {
+			const vm = this as any;
+			// The layer fills #desktop-area (inset: 0), so either one measures the grid.
+			const root = (vm.$refs.root as HTMLElement | undefined) || document.getElementById('desktop-area');
+			return gridFor(root?.clientWidth || 0, root?.clientHeight || 0, remPixels());
+		},
+		/**
+		 * Give every icon its cell for this render. Icons new to the store
+		 * are placed at the first free cell and that cell is stored, so a
+		 * file keeps the spot it first appeared in.
+		 */
+		applyLayout() {
+			const vm = this as any;
+			if (vm.layout.mode !== 'manual') {
+				if (Object.keys(vm.cells).length) vm.cells = {};
+				return;
+			}
+			const grid = vm.measureGrid();
+			const ids = vm.items.map((i: DesktopItem) => i.id);
+			const { cells, added } = computeLayout(ids, vm.layout.positions, grid);
+			vm.cells = cells;
+			if (grid.measured && Object.keys(added).length > 0) {
+				Object.assign(vm.layout.positions, added);
+				vm.persistLayout(true);
+			}
+		},
+		/** Save the layout; `prune` also drops cells of icons that are gone. */
+		persistLayout(prune: boolean) {
+			const vm = this as any;
+			if (prune && vm.items.length > 0) {
+				const alive = new Set(vm.items.map((i: DesktopItem) => i.id));
+				for (const id of Object.keys(vm.layout.positions)) {
+					if (!alive.has(id)) delete vm.layout.positions[id];
+				}
+			}
+			vm._.store?.save(vm.layout);
+		},
+		iconStyle(item: DesktopItem) {
+			const vm = this as any;
+			if (vm.layout.mode !== 'manual') return {};
+			const c = vm.cells[item.id];
+			if (!c) return {};
+			return { '--col': String(c.col), '--row': String(c.row) };
+		},
+		// Shell → component: switch the layout. Going manual keeps the icons
+		// where the flow had them; going auto drops the stored cells.
+		onLayoutModeEvent(event: CustomEvent) {
+			const vm = this as any;
+			const mode = (event.detail || {}).mode as DesktopLayoutMode;
+			if (mode !== 'auto' && mode !== 'manual') return;
+			if (mode === vm.layout.mode) return;
+			if (mode === 'manual') {
+				const grid = vm.measureGrid();
+				const ids = vm.items.map((i: DesktopItem) => i.id);
+				vm.layout = { mode, positions: grid.measured ? flowCells(ids, grid) : {} };
+			} else {
+				vm.layout = { mode, positions: {} };
+			}
+			vm.emitLayoutMode();
+			vm.applyLayout();
+			vm.persistLayout(false);
+		},
+		// Shell → component: in manual mode, line the icons up by name again
+		// (down each column, then right) and keep them there.
+		onArrangeEvent() {
+			const vm = this as any;
+			if (vm.layout.mode !== 'manual') return;
+			vm.layout = { mode: 'manual', positions: {} };
+			vm.applyLayout();
+		},
+		// Shell → component: the icons being dragged were dropped on empty
+		// desktop at (x, y) in desktop-area pixels. Move them there, keeping
+		// their arrangement relative to the one that was grabbed; an occupied
+		// cell sends an icon to the nearest free one.
+		onPlaceEvent(event: CustomEvent) {
+			const vm = this as any;
+			const drag = vm._.drag;
+			vm._.drag = null;
+			if (!drag || vm.layout.mode !== 'manual') return;
+			const d = event.detail || {};
+			if (typeof d.x !== 'number' || typeof d.y !== 'number') return;
+			const anchorCell = vm.cells[drag.anchorId];
+			if (!anchorCell) return;
+			const grid = vm.measureGrid();
+			if (!grid.measured) return;
+			const target = cellAt(d.x - drag.grabX, d.y - drag.grabY, remPixels());
+			const dCol = target.col - anchorCell.col;
+			const dRow = target.row - anchorCell.row;
+			const moving = drag.ids.filter((id: string) => !!vm.cells[id]);
+			const movingSet = new Set(moving);
+			const taken = new Set<string>();
+			for (const id of Object.keys(vm.cells)) {
+				if (movingSet.has(id)) continue;
+				const c = vm.cells[id];
+				taken.add(`${c.col}:${c.row}`);
+			}
+			// The grabbed icon first, so it gets the exact cell when it is free.
+			const order = [drag.anchorId, ...moving.filter((id: string) => id !== drag.anchorId)];
+			const positions = { ...vm.layout.positions };
+			for (const id of order) {
+				const cur = vm.cells[id];
+				const wanted = { col: Math.max(0, cur.col + dCol), row: Math.max(0, cur.row + dRow) };
+				const cell = nearestFreeCell(wanted, taken, grid);
+				taken.add(`${cell.col}:${cell.row}`);
+				positions[id] = cell;
+			}
+			vm.layout = { mode: 'manual', positions };
+			vm.applyLayout();
+			vm.persistLayout(true);
+		},
+		// Shell → component: an icon's id changed (a rename of a node whose
+		// id is its path). Carry its cell over so the icon stays put.
+		onRekeyEvent(event: CustomEvent) {
+			const vm = this as any;
+			const d = event.detail || {};
+			if (typeof d.from !== 'string' || typeof d.to !== 'string' || d.from === d.to) return;
+			const cell = vm.layout.positions[d.from];
+			if (!cell) return;
+			const positions = { ...vm.layout.positions };
+			delete positions[d.from];
+			positions[d.to] = cell;
+			vm.layout = { mode: vm.layout.mode, positions };
+			vm.persistLayout(false);
+		},
+		/**
+		 * The layout changed in another tab or browser (or this one's own
+		 * save echoing back). While this tab has a save waiting or on its way
+		 * the change may already be stale, so the stored layout is read again
+		 * once this tab's writes are done.
+		 */
+		onRemoteLayout(event: CustomEvent) {
+			const vm = this as any;
+			const store = vm._.store;
+			if (!store) return;
+			const raw = (event.detail || {})[DesktopLayoutStore.property];
+			if (store.isOwnWrite(raw)) return;
+			if (store.busy) {
+				vm.scheduleLayoutResync();
+				return;
+			}
+			vm.setLayout(parseLayout(raw));
+			vm.applyLayout();
+		},
+		scheduleLayoutResync() {
+			const vm = this as any;
+			if (vm._.resyncTimer) return;
+			vm._.resyncTimer = setTimeout(async () => {
+				vm._.resyncTimer = null;
+				const store = vm._.store;
+				if (!store) return;
+				if (store.busy) {
+					vm.scheduleLayoutResync();
+					return;
+				}
+				const layout = await store.load();
+				// Changed again meanwhile: this tab's save is the newer word.
+				if (store.busy) return;
+				vm.setLayout(layout);
+				vm.applyLayout();
+			}, LAYOUT_RESYNC_MS);
 		},
 		subscribe() {
 			const vm = this as any;
@@ -226,6 +479,18 @@ defineComponent('wt-desktop-icons', {
 			}
 			event.dataTransfer.setData('text/plain', dragItems.map(i => i.path).join('\n'));
 			vm._setDragImage(event, dragItems);
+			// Remembered for a drop on empty desktop in manual mode (onPlaceEvent).
+			try {
+				const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+				vm._.drag = {
+					ids: dragItems.map((i: DesktopItem) => i.id),
+					anchorId: item.id,
+					grabX: event.clientX - rect.left,
+					grabY: event.clientY - rect.top,
+				};
+			} catch {
+				vm._.drag = null;
+			}
 			try {
 				(window as any).__webtopDragData = {
 					items: payload,
@@ -235,6 +500,8 @@ defineComponent('wt-desktop-icons', {
 			} catch { /* ignore */ }
 		},
 		onItemDragEnd() {
+			// `dragend` follows `drop`, so a reposition has already read this.
+			(this as any)._.drag = null;
 			try { (window as any).__webtopDragData = null; } catch { /* ignore */ }
 			(this as any).$emit('webtop-desktop-icon-dragend', undefined, { target: document });
 		},

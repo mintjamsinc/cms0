@@ -256,6 +256,9 @@ const WtDesktop = {
 			// Selection state for desktop icons. Source-of-truth lives here so
 			// rubber-band, click and context-menu paths stay consistent.
 			desktopItems: [] as { id: string; path: string; name: string; isCollection: boolean; mimeType?: string; isReferenceable: boolean; downloadURL?: string | null }[],
+			// How the icons are laid out: owned by wt-desktop-icons and
+			// mirrored here for the context menu and drop handling.
+			desktopLayoutMode: 'auto' as 'auto' | 'manual',
 			desktopSelectedIds: [] as string[],
 			desktopLastSelectedIndex: -1,
 			desktopDragOverItemID: null as string | null,
@@ -688,6 +691,10 @@ const WtDesktop = {
 				if (vm.desktopLastSelectedIndex >= items.length) {
 					vm.desktopLastSelectedIndex = -1;
 				}
+			});
+			document.addEventListener('webtop-desktop-layout-changed', (e: Event) => {
+				const d = (e as CustomEvent).detail || {};
+				vm.desktopLayoutMode = d.mode === 'manual' ? 'manual' : 'auto';
 			});
 			document.addEventListener('webtop-desktop-icon-click', (e: Event) => {
 				const d = (e as CustomEvent).detail || {};
@@ -1753,11 +1760,24 @@ const WtDesktop = {
 			try {
 				const parentData = (window as any).__webtopDragData;
 				if (parentData && parentData.sourceFolderPath === vm.desktopFolderPath) {
-					// Same folder: Ctrl (copy) duplicates, plain move is forbidden (no-op).
-					return !event.ctrlKey;
+					// Same folder: Ctrl (copy) duplicates; a plain move is a
+					// reposition in the manual layout and a no-op in the flow.
+					return !event.ctrlKey && vm.desktopLayoutMode !== 'manual';
 				}
 			} catch { /* ignore */ }
 			return false;
+		},
+		// A plain drag of desktop icons onto empty desktop, in the manual
+		// layout: nothing moves in the repository, only the icons' cells.
+		_isDesktopReposition(event: DragEvent): boolean {
+			const vm = this as any;
+			if (vm.desktopLayoutMode !== 'manual' || event.ctrlKey) return false;
+			try {
+				const parentData = (window as any).__webtopDragData;
+				return !!parentData && parentData.sourceFolderPath === vm.desktopFolderPath;
+			} catch {
+				return false;
+			}
 		},
 		// Desktop background drop target. Accepts OS file drops AND internal
 		// Webtop drags (e.g. dragged out of Content Browser).
@@ -1799,6 +1819,17 @@ const WtDesktop = {
 			}
 
 			if (hasInternal) {
+				if (vm._isDesktopReposition(event)) {
+					const area = vm.$refs.desktopArea as HTMLElement | undefined;
+					const rect = area?.getBoundingClientRect();
+					if (rect) {
+						document.dispatchEvent(new CustomEvent('webtop-desktop-place', {
+							detail: { x: event.clientX - rect.left, y: event.clientY - rect.top },
+						}));
+					}
+					try { (window as any).__webtopDragData = null; } catch { /* ignore */ }
+					return;
+				}
 				if (vm._isInternalDropForbidden(event)) return;
 				const items = vm._getInternalDragItems(event);
 				if (!items || items.length === 0) return;
@@ -2404,9 +2435,22 @@ const WtDesktop = {
 			vm.desktopLastSelectedIndex = -1;
 			const items: any[] = [
 				{ id: 'refresh', label: vm.t('webtop.contextMenu.refresh', undefined, 'Refresh'), icon: 'bi-arrow-clockwise' },
+			];
+			if (vm.hasDesktopFolder) {
+				const manual = vm.desktopLayoutMode === 'manual';
+				items.push(
+					{ type: 'separator', id: '', label: '' },
+					{ id: 'arrange-auto', label: vm.t('webtop.contextMenu.autoArrangeIcons', undefined, 'Auto arrange icons'), icon: 'bi-grid-3x3-gap', selected: !manual },
+					{ id: 'arrange-manual', label: vm.t('webtop.contextMenu.arrangeIconsManually', undefined, 'Arrange icons manually'), icon: 'bi-arrows-move', selected: manual },
+				);
+				if (manual) {
+					items.push({ id: 'sort-icons-by-name', label: vm.t('webtop.contextMenu.sortIconsByName', undefined, 'Sort icons by name'), icon: 'bi-sort-alpha-down' });
+				}
+			}
+			items.push(
 				{ type: 'separator', id: '', label: '' },
 				{ id: 'open-content-browser', label: vm.t('webtop.contextMenu.openInContentBrowser', undefined, 'Open in Content Browser'), icon: 'bi-folder2-open' },
-			];
+			);
 			if (widgetStore) {
 				items.push(
 					{ type: 'separator', id: '', label: '' },
@@ -2431,6 +2475,15 @@ const WtDesktop = {
 			switch (action) {
 				case 'refresh':
 					document.dispatchEvent(new CustomEvent('webtop-desktop-reload'));
+					return;
+				case 'arrange-auto':
+					document.dispatchEvent(new CustomEvent('webtop-desktop-layout-mode', { detail: { mode: 'auto' } }));
+					return;
+				case 'arrange-manual':
+					document.dispatchEvent(new CustomEvent('webtop-desktop-layout-mode', { detail: { mode: 'manual' } }));
+					return;
+				case 'sort-icons-by-name':
+					document.dispatchEvent(new CustomEvent('webtop-desktop-arrange'));
 					return;
 				case 'open-content-browser':
 					vm.openAppWithOptions({ appId: '2468cf47-1a30-4053-b80a-9c5486954b08', options: { initialPath: vm.desktopFolderPath } });
@@ -2514,6 +2567,13 @@ const WtDesktop = {
 			try {
 				await window.Webtop.api.content.renameNode(item.path, newName);
 				vm.closeDesktopRenameDialog();
+				// An icon keyed by its path gets a new id from the rename; tell
+				// the icon layer so the icon keeps its cell in the manual layout.
+				if (item.id === item.path) {
+					const slash = item.path.lastIndexOf('/');
+					const newPath = item.path.substring(0, slash + 1) + newName;
+					document.dispatchEvent(new CustomEvent('webtop-desktop-rekey', { detail: { from: item.id, to: newPath } }));
+				}
 				document.dispatchEvent(new CustomEvent('webtop-desktop-reload'));
 			} catch (err: any) {
 				vm.desktopRenameDialog.errorMessage = err?.message || 'Failed to rename';

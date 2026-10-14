@@ -1,8 +1,16 @@
 <template id="wt-desktop-icons">
-	<div class="desktop-icons" @mounted="onMounted" @unmount="onUnmount" @webtop-desktop-reload.document="onReloadEvent">
+	<div class="desktop-icons" ref="root" :class="{ manual: layout.mode === 'manual' }"
+		@mounted="onMounted" @unmount="onUnmount"
+		@webtop-desktop-reload.document="onReloadEvent"
+		@webtop-desktop-layout-mode.document="onLayoutModeEvent"
+		@webtop-desktop-arrange.document="onArrangeEvent"
+		@webtop-desktop-place.document="onPlaceEvent"
+		@webtop-desktop-rekey.document="onRekeyEvent"
+		@webtop-desktop-layout-remote.document="onRemoteLayout">
 		<div v-for="item in items" :key="item.id"
 			class="desktop-icon"
 			:class="{ selected: isSelected(item), 'drop-target': dragOverItemID === item.id }"
+			:style="iconStyle(item)"
 			:data-item-id="item.id"
 			:draggable="true"
 			:title="item.name"
