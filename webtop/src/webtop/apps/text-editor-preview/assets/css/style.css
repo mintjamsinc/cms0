@@ -93,6 +93,7 @@
 	background-color: var(--window-controls-bg);
 	border: 1px solid var(--window-controls-border-color);
 	border-radius: 9999px;
+	box-shadow: var(--window-controls-shadow);
 	white-space: nowrap;
 	transition: background-color 0.15s;
 }

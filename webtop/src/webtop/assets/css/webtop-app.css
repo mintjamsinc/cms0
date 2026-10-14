@@ -104,15 +104,17 @@ html {
 		--button-warning-color: rgb(255 255 255 / 1);
 		--button-danger-color: rgb(255 255 255 / 1);
 		--badge-bg: rgb(241 240 245 / 1);
-		--island-bg: rgb(255 255 255 / 0.95);
+		--island-bg: rgb(249 250 253 / 0.96);
+		--island-rim-color: rgb(255 255 255 / 1);
 		--island-border-color: rgb(26 27 31 / 0.05);
-		--island-shadow: rgb(26 27 31 / .1) 0px 0.25rem 1.25rem 0.125rem;
+		--island-shadow: 0 0 0 1px rgb(26 27 31 / 0.04), 0 18px 40px -24px rgb(26 27 31 / 0.35);
 		--list-header-bg: rgb(241 240 245 / 1);
 		--list-header-color: var(--text-soft-color);
 		--section-header-bg: var(--list-header-bg);
 		--section-header-color: var(--list-header-color);
-		--window-controls-bg: rgb(241 240 245 / 0.4);
-		--window-controls-border-color: rgb(241 240 245 / 0.1);
+		--window-controls-bg: rgb(255 255 255 / 0.65);
+		--window-controls-border-color: rgb(255 255 255 / 1);
+		--window-controls-shadow: 0 0 0 1px rgb(26 27 31 / 0.1);
 		--btn-icon-hover-bg: rgb(0 0 0 / 0.06);
 		--pane-toggle-active-bg: rgb(0 91 193 / 1);
 		--scrollbar-track-bg: transparent;
@@ -166,15 +168,17 @@ html {
 		--button-warning-color: rgb(87 30 0 / 1);
 		--button-danger-color: rgb(105 0 5 / 1);
 		--badge-bg: rgb(47 48 52 / 1);
-		--island-bg: rgb(26 26 26 / 0.95);
+		--island-bg: rgb(33 34 40 / 0.94);
+		--island-rim-color: rgb(255 255 255 / 0.12);
 		--island-border-color: rgb(241 240 245 / 0.1);
-		--island-shadow: rgb(173 198 255 / .1) 0px 0.25rem 1.25rem 0.125rem;
+		--island-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 18px 40px -24px rgb(0 0 0 / 0.7);
 		--list-header-bg: rgb(47 48 52 / 1);
 		--list-header-color: var(--text-soft-color);
 		--section-header-bg: var(--list-header-bg);
 		--section-header-color: var(--list-header-color);
-		--window-controls-bg: rgb(47 48 52 / 0.4);
-		--window-controls-border-color: rgb(241 240 245 / 0.1);
+		--window-controls-bg: rgb(255 255 255 / 0.08);
+		--window-controls-border-color: rgb(255 255 255 / 0.12);
+		--window-controls-shadow: 0 0 0 1px rgb(0 0 0 / 0.3);
 		--btn-icon-hover-bg: rgb(255 255 255 / 0.1);
 		--pane-toggle-active-bg: rgb(173 198 255 / 1);
 		--scrollbar-track-bg: transparent;
@@ -444,11 +448,22 @@ html {
 	 * Island
 	 * Half-transparent panel that floats on top of the window.
 	 * Used for sidebar, main content, inspector, etc.
+	 *
+	 * Drawn as a lifted card, the way the games draw theirs: a 1.5px rim
+	 * (white on an off-white ground in light, a faint light line in dark),
+	 * a hairline around the outside and a shadow that falls below the panel
+	 * (negative spread) rather than a glow on every side. The edge stays
+	 * crisp on any wallpaper; the old all-round glow blurred it.
+	 *
+	 * The rim has its own token. --island-border-color is the colour of the
+	 * dividers drawn inside a panel (dialog header, tab strip, list rules)
+	 * and stays a faint line of the text colour; a white rim would make
+	 * those vanish.
 	 * ---------------------------------------------------------------------- */
 	.island {
 		position: relative;
 		background: var(--island-bg);
-		border: 1px solid var(--island-border-color);
+		border: 1.5px solid var(--island-rim-color);
 		border-radius: 1rem;
 		box-shadow: var(--island-shadow);
 		padding: 1rem;
@@ -1272,6 +1287,13 @@ html {
 	/* ------------------------------------------------------------------------
 	 * Pane toggles (pill group + active variant)
 	 *
+	 * The pill (and .toolbar-group / .view-tabs / .window-controls below) sits
+	 * on the window glass, whose tone is whatever the wallpaper is. It is
+	 * drawn like the island: a light-alpha fill so it is always a step
+	 * lighter than the glass, a rim and a hairline ring outside the rim, so
+	 * it keeps an edge on a white or a black backdrop. No drop shadow: the
+	 * pill is drawn flat, as a line, and only the island floats.
+	 *
 	 * Usage:
 	 *   <div class="pane-toggles">
 	 *     <button class="btn-icon pane-toggle-btn" :class="{active: sidebarVisible}"
@@ -1288,6 +1310,7 @@ html {
 		background-color: var(--window-controls-bg);
 		border: 1px solid var(--window-controls-border-color);
 		border-radius: 9999px;
+		box-shadow: var(--window-controls-shadow);
 	}
 
 	.pane-toggle-btn.active {
@@ -1315,6 +1338,7 @@ html {
 		background-color: var(--window-controls-bg);
 		border: 1px solid var(--window-controls-border-color);
 		border-radius: 9999px;
+		box-shadow: var(--window-controls-shadow);
 	}
 
 	.toolbar-group .btn-icon.active {
@@ -1345,6 +1369,7 @@ html {
 		background-color: var(--window-controls-bg);
 		border: 1px solid var(--window-controls-border-color);
 		border-radius: 9999px;
+		box-shadow: var(--window-controls-shadow);
 	}
 
 	.view-tab.active {
@@ -1372,6 +1397,7 @@ html {
 		background-color: var(--window-controls-bg);
 		border: 1px solid var(--window-controls-border-color);
 		border-radius: 9999px;
+		box-shadow: var(--window-controls-shadow);
 	}
 
 	.window-control-close:hover {
