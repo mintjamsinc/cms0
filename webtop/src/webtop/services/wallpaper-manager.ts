@@ -107,11 +107,12 @@ export class WallpaperManager {
 		this.#userID = this.#getUserID();
 		let id = await this.getCurrentWallpaperID();
 
-		const wallpapers: any[] = await this.#api.db.getAll('wallpapers');
-		const defaultKey = WebtopDatabase.buildKey('*', APP_ID, 'default');
-		if (!wallpapers.find(w => w.id === defaultKey)) {
-			await this.#registerDefaultWallpaper();
-		}
+		// Re-resolve the default wallpaper on every boot. Its download URL is
+		// bound to the workspace the webtop is served from, and the record is
+		// shared by every user of this browser ('*'). A URL recorded on an
+		// earlier boot may point at a workspace the current user cannot read,
+		// or one that no longer carries the webtop, so it must not be reused.
+		await this.#registerDefaultWallpaper();
 
 		if (!id) {
 			id = 'default';
@@ -187,19 +188,34 @@ export class WallpaperManager {
 		}
 	}
 
+	/**
+	 * Resolve the default wallpaper and (re)write its shared record.
+	 * Looks in the workspace the webtop is served from first — the user is
+	 * already reading the webtop there, so that URL is known to be readable —
+	 * and falls back to the system workspace. When neither has it, a stale
+	 * record is removed rather than left pointing at a dead URL.
+	 */
 	async #registerDefaultWallpaper() {
 		const fullPath = this.#api.context.getFullPath('/assets/wallpapers/wallpaper-default.jpg');
+		const key = WebtopDatabase.buildKey('*', APP_ID, 'default');
 
-		const contentService = this.#api.content;
-		const node = await contentService.getNode(fullPath);
+		let node: any = null;
+		for (const contentService of [this.#api.content, this.#api.systemContent]) {
+			try {
+				node = await contentService.getNode(fullPath);
+			} catch {
+				node = null;
+			}
+			if (node?.downloadUrl) break;
+		}
 
-		if (!node || !node.downloadUrl) {
+		if (!node?.downloadUrl) {
 			console.warn('Default wallpaper not found:', fullPath);
+			await this.#api.db.delete('wallpapers', key);
 			return;
 		}
 
 		const timestamp = node.modified ? new Date(node.modified).getTime() : Date.now();
-		const key = WebtopDatabase.buildKey('*', APP_ID, 'default');
 		await this.#api.db.put('wallpapers', {
 			id: key,
 			userID: '*',
