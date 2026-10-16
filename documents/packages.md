@@ -237,46 +237,59 @@ a text in `etc/i18n/packages-forms.*.json` under
 1. Open the **Tasks** app of the workspace and switch to **Start a process**.
 2. Select **Install Package**. Choose the package file (.zip) and continue.
    The form uploads the file to the staging area
-   (`/var/lib/packages/incoming/<id>/<file>`) and starts the process. The
-   button is shown to administrators only; the server enforces the role
-   again at every step.
-3. The process reads and checks the package, and a **Confirm Package
-   Installation** task appears in your task list. Its form shows the package
-   title and version, the workspace, whether this is a new installation, an
-   update or a reinstallation, the checks' findings, and under *Details* the
-   files it places, the files an update removes and the provisioning
-   descriptors it applies. **Install** (or **Update** / **Reinstall**) goes
-   ahead; **Cancel** discards the uploaded package. A package with an error
-   finding only offers **Close**.
-4. On **Install**, the process installs the package and a **Package
-   Installation Result** task shows what was done: files created, replaced
-   and removed, descriptors applied — or the error when it failed.
+   (`/var/lib/packages/incoming/<id>/<file>`), reads and checks it
+   (`Query.packageInspection`), and shows the package title and version,
+   the workspace, whether this is a new installation, an update or a
+   reinstallation, the checks' findings, and under *Details* the files it
+   places, the files an update removes, the provisioning descriptors it
+   applies and the file's SHA-256. The button is shown to administrators
+   only; the server enforces the role again at every step.
+3. **Install** (or **Update** / **Reinstall**) starts the process: starting
+   it is the decision. **Cancel**, or **Choose another file** for a package
+   with an error finding, removes the upload and goes back to choosing a
+   file. Closing the form without deciding removes the upload too (best
+   effort; nothing else owns it yet).
+4. A **Package Installation Progress** task appears in your task list. Its
+   form follows the installation live (`jobProgress`): the phase, the files
+   placed and removed against the total, and the file being written. **Abort**
+   stops it before the commit and rolls it back. When it ends, the form shows
+   what was done — files created, replaced and removed, descriptors applied
+   — or the error. **Try again** runs a failed or aborted installation again;
    **Complete task** ends the process.
 
-The uploaded package is removed from the staging area on every path:
-installed, failed or cancelled.
+The uploaded package is removed from the staging area when the progress task
+is completed, whatever the outcome; until then **Try again** installs it
+again.
 
 ```
-Start form ──▶ Inspect ──▶ Confirm (user task) ──▶ install? ──▶ Install ──▶ Result (user task) ──▶ ●
- (upload)   (asyncBefore)                            │        (asyncBefore)
-                 │                                   └── cancel ──▶ Discard ──▶ ●
-                 └── unauthorized ──▶ ●
+Start form ──▶ Dispatch ──▶ Progress (user task) ──▶ close ──▶ Discard ──▶ ●
+ (upload,          │   ▲                 │
+  inspect,         │   └──── rerun ──────┘
+  decide)          └── unauthorized ──▶ ●
 ```
+
+The dispatch service task only queues the installation as a background job
+(`PackageAPI.requestInstall`) and returns, as the search index rebuild does.
+The job runs on the node that queued it, inspects the package again, refuses
+it when a check now reports an error **or when its SHA-256 is no longer the
+one the start form showed** (the process carries it as `packageSha256`), and
+installs. Its phases are `waiting` (for the content-deployment lease a
+deployment or another installation holds), `inspecting`, `provisioning`,
+`placing`, `removing` and `committing`; `itemsTotal` counts the files placed
+plus the files an update removes. Progress and the result (`resultDetail`,
+the `InstallResult` as JSON) live on the job record under `/var/jobs`, never
+in process variables, which would emit Camunda history on every write; the
+process carries only the start form's inputs and `jobId`. A node restart
+during the job leaves it failed (nothing committed); **Try again** runs it
+anew.
 
 Files: `etc/bpm/processes/system/packages/package-install.bpmn`, the
-scripts under `etc/bpm/scripts/system/packages/` (`inspect.groovy`,
-`install.groovy`, `discard.groovy`), the forms under
-`etc/bpm/forms/system/packages/`, the texts in
-`etc/i18n/packages-forms.{en,ja}.json`, and `provisioning/packages.yml`.
-They are seed assets for every workspace.
-
-The inspection travels from the inspect task to the confirm form as a
-process variable. A string variable holds at most 4000 characters (the
-engine's `TEXT_` column), and the file lists of a package are longer, so the
-scripts set it as **bytes** (`JSON.stringify(result).getBytes('UTF-8')`),
-which the engine stores without a limit; the Tasks app's variable queries
-hand a bytes variable back as UTF-8 text, so the form parses it as before.
-Any script that passes a long text through a process variable does the same.
+scripts under `etc/bpm/scripts/system/packages/` (`dispatch.groovy`,
+`discard.groovy`), the forms under `etc/bpm/forms/system/packages/`
+(`start.html`, and `progress.html`, which both processes share), the texts
+in `etc/i18n/packages-forms.{en,ja}.json`, and `provisioning/packages.yml`.
+They are seed assets for every workspace. The job is
+`org.mintjams.rt.cms.internal.job.pkg.PackageJob`.
 
 ### Authorization
 
@@ -286,11 +299,17 @@ Any script that passes a long text through a process variable does the same.
   account that only needs to read the scripts. Every script validates the
   process **initiator**'s administrator role and throws the
   `packages.install.unauthorized` BPMN error otherwise, which ends the
-  process without reading the package.
+  process without queuing anything.
+- `Query.packageInspection` and `Query.packageUninstallInspection` go through
+  `PackageAPI` for the caller, so a caller without the administrator role
+  gets an error.
 - `PackageAPI` checks the administrator role once more for the user it acts
-  for, then does the work in a service session carrying that user's id. The
-  files placed and the installation record therefore name the administrator
-  who installed, while the script's own account can do nothing of the sort.
+  for, then does the work (and the job does the installation) in a service
+  session carrying that user's id. The files placed and the installation
+  record therefore name the administrator who installed, while the script's
+  own account can do nothing of the sort.
+- `abortPackageJob` is allowed to the user the job runs for and to
+  administrators, like every job abort.
 - The staging area `/var/lib/packages` is closed to everyone but
   administrators (an explicit deny, since the root of a workspace grants
   everyone read). `/etc/packages` is writable by administrators only.
@@ -334,27 +353,38 @@ package's id as its path.
 1. Open the **Tasks** app of the workspace and switch to **Start a process**.
 2. Select **Uninstall Packages**. The form lists the installed packages with
    their version, installation date and the packages that require them.
-   Select one or more and continue. The button is shown to administrators
-   only; the server enforces the role again at every step.
-3. The process checks the selection, and a **Confirm Package
-   Uninstallation** task appears in your task list. Its form shows the
-   packages, the checks' findings, and under *Details* the files each one
-   removes. **Uninstall** goes ahead; **Cancel** ends the process. A
-   selection with an error finding only offers **Close**.
-4. On **Uninstall**, the process removes the packages and a **Package
-   Uninstallation Result** task shows, per package, the files removed, the
+   Select one or more: each change of the selection is checked
+   (`Query.packageUninstallInspection`) and the form shows the checks'
+   findings and, under *Details*, the files each package removes. The
+   button is shown to administrators only; the server enforces the role
+   again at every step.
+3. **Uninstall** starts the process: starting it is the decision. It is
+   enabled only when the check of exactly the current selection found no
+   error. Leaving the form starts nothing.
+4. A **Package Uninstallation Progress** task appears in your task list. Its
+   form (the same `progress.html` as the installation's) follows the
+   uninstallation live: the phase, the files removed against the total, the
+   file being removed. **Abort** stops it before the commit and rolls it
+   back. When it ends, the form shows, per package, the files removed, the
    files that were already gone and the files left to the platform — or the
-   error when it failed. **Complete task** ends the process.
+   error. **Try again** runs a failed or aborted uninstallation again;
+   **Complete task** ends the process.
 
 ```
-Start form ──▶ Inspect ──▶ Confirm (user task) ──▶ uninstall? ──▶ Uninstall ──▶ Result (user task) ──▶ ●
- (select)   (asyncBefore)                            │           (asyncBefore)
-                 │                                   └── cancel ──▶ ●
-                 └── unauthorized ──▶ ●
+Start form ──▶ Dispatch ──▶ Progress (user task) ──▶ close ──▶ ●
+ (select,          │   ▲                 │
+  check,           │   └──── rerun ──────┘
+  decide)          └── unauthorized ──▶ ●
 ```
 
-Files: `package-uninstall.bpmn`, `uninstall-inspect.groovy`,
-`uninstall.groovy`, the `uninstall-*.html` forms, in the same folders as
+The dispatch queues the uninstallation as a background job
+(`PackageAPI.requestUninstall`), which checks the selection again and
+removes the packages together. Its phases are `waiting`, `inspecting`,
+`removing` and `committing`; `itemsTotal` counts the recorded files of the
+selected packages; `resultDetail` is the `UninstallResult` as JSON.
+
+Files: `package-uninstall.bpmn`, `uninstall-dispatch.groovy`,
+`uninstall-start.html` and the shared `progress.html`, in the same folders as
 the installation process. The start form lists the packages through the
 GraphQL query below.
 
@@ -376,6 +406,21 @@ The installation records of the workspace, sorted by id, read as the caller.
 the installed packages that require it. A portal app lists installed packages
 through the same query.
 
+### Inspection and job operations
+
+```graphql
+query { packageInspection(path: "/var/lib/packages/incoming/<id>/<file>.zip") }
+query { packageUninstallInspection(ids: ["com.example.app"]) }
+query { jobProgress(jobId: "<jobId>") { status phase itemsTotal itemsProcessed currentPath errorMessage resultDetail } }
+mutation { abortPackageJob(input: { jobId: "<jobId>" }) { jobId status } }
+```
+
+`packageInspection` and `packageUninstallInspection` return
+`PackageAPI.inspect` / `PackageAPI.inspectUninstall` (below) as JSON, for
+administrators only; the start forms show their confirmation from them.
+`jobProgress` (also as a subscription) follows a package job, and
+`abortPackageJob` stops one before its commit.
+
 ## One installer, two routes
 
 Every route uses the same installer, so every installation is inspected by
@@ -387,11 +432,13 @@ binding:
 
 | Method | Returns |
 | --- | --- |
-| `PackageAPI.inspect(path, userId)` | the inspection as plain data: `ok`, `action` (`install` / `upgrade` / `reinstall` / null), `manifest`, `installedVersion`, `platformVersion`, `findings[]` (`severity`, `code`, `message`, `path`), `fileCount`, `totalSize`, `deployPaths[]`, `removedPaths[]`, `provisioning[]` |
+| `PackageAPI.inspect(path, userId)` | the inspection as plain data: `ok`, `action` (`install` / `upgrade` / `reinstall` / null), `manifest`, `installedVersion`, `platformVersion`, `sha256` (of the package file), `findings[]` (`severity`, `code`, `message`, `path`), `fileCount`, `totalSize`, `deployPaths[]`, `removedPaths[]`, `provisioning[]` |
 | `PackageAPI.install(path, userId)` | the result: `action`, `id`, `title`, `version`, `previousVersion`, `created`, `updated`, `removed`, `provisioningDescriptors`, `durationMillis`; throws when a check reports an error |
+| `PackageAPI.requestInstall(path, userId, sha256)` | queues the installation as a background job on this node and returns its `jobId` at once; the job refuses a file whose SHA-256 differs from `sha256` (null or empty skips that check); progress and result through `jobProgress(jobId)` |
 | `PackageAPI.discard(path, userId)` | removes a staged package (under `/var/lib/packages/incoming` only) |
 | `PackageAPI.inspectUninstall(ids, userId)` | the inspection as plain data: `ok`, `packages[]` (each record plus `requiredBy[]` and `files[]`), `order[]`, `fileCount`, `findings[]`; `ids` is a collection, an array or one comma-separated string |
 | `PackageAPI.uninstall(ids, userId)` | the result: `packages[]` (`id`, `title`, `version`, `removed`, `missing`, `kept`), the totals, `durationMillis`; throws when a check reports an error |
+| `PackageAPI.requestUninstall(ids, userId)` | queues the uninstallation as a background job on this node and returns its `jobId` at once |
 | `PackageAPI.listInstalled()`, `PackageAPI.getInstalled(id)` | the installation records as plain data |
 | `PackageAPI.getStagingRoot()`, `PackageAPI.getPlatformVersion()` | the staging area; the running version, or null when unknown |
 
@@ -402,12 +449,14 @@ administrator role is refused.
 `org.mintjams.rt.cms.internal.pkg.PackageInstaller` on a privileged
 `org.mintjams.script.resource.Session` of the target workspace offers the
 same `inspect(path)`, `install(path, installedBy)`, `discard(path)`,
-`inspectUninstall(ids)` and `uninstall(ids, uninstalledBy)`;
-`PackageRecords` reads the records, and `Query.installedPackages` already
-lists them. A portal app's resolver uploads or fetches the package into the
-staging area, shows its own confirmation from the inspection, and calls the
-installer. Exposing the installer's own operations through GraphQL is part
-of the portal app work.
+`inspectUninstall(ids)` and `uninstall(ids, uninstalledBy)`; the
+installation and uninstallation also take a `PackageInstaller.Monitor` that
+follows the phases and files and may stop the work before the commit
+(`PackageJob` is the monitor the Tasks routes use). `PackageRecords` reads
+the records, and `Query.installedPackages` already lists them. A portal app
+uploads or fetches the package into the staging area, shows its own
+confirmation from `Query.packageInspection`, and has the installation
+queued the same way (`PackageAPI.requestInstall`, then `jobProgress`).
 
 ## Not yet
 

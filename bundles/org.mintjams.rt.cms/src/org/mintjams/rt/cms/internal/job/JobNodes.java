@@ -211,6 +211,18 @@ public final class JobNodes {
 	 */
 	public static final String PROP_REBUILD_ID = "jobRebuildId";
 
+	// Package jobs -----------------------------------------------------------
+	/** Package installation jobs: the staged package file to install. */
+	public static final String PROP_PACKAGE_PATH = "jobPackagePath";
+	/** Package uninstallation jobs: the ids of the packages to uninstall (multi-valued). */
+	public static final String PROP_PACKAGE_IDS = "jobPackageIds";
+	/**
+	 * Set on completion by jobs whose result is a small summary for the
+	 * completion screen rather than an artifact (package jobs): the summary as
+	 * JSON text.
+	 */
+	public static final String PROP_RESULT_DETAIL = "jobResultDetail";
+
 	/**
 	 * The error message recovery stamps on jobs that died with a node restart.
 	 * Services that can safely re-run their kind of job (e.g. the search index

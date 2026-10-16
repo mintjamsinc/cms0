@@ -1,8 +1,9 @@
-// Removes a staged package the initiator decided not to install.
+// Removes the staged package once the initiator closes the progress task,
+// whatever the installation's outcome.
 //
 // Invoked by the "Discard Package" service task of package-install.bpmn via
 // CmsDelegate with runAs=package-service-user. The ADMIN GATE validates the
-// process initiator (see inspect.groovy); PackageAPI removes only files
+// process initiator (see dispatch.groovy); PackageAPI removes only files
 // under the staging area.
 //
 // Inputs (process variables):

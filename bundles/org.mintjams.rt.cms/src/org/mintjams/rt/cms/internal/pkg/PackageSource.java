@@ -27,6 +27,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -121,6 +123,35 @@ public final class PackageSource {
 				}
 			}
 		} catch (ResourceException ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
+	/**
+	 * The SHA-256 of the package file, in lowercase hex. A route that shows an
+	 * inspection and installs later passes it back, so the installation can
+	 * tell the file is still the one that was shown.
+	 */
+	public String digest() throws IOException {
+		Resource resource;
+		try {
+			resource = fSession.getResource(fPath);
+		} catch (ResourceException ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+		try (InputStream in = resource.getContentAsStream()) {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			byte[] buffer = new byte[8192];
+			int n;
+			while ((n = in.read(buffer)) >= 0) {
+				digest.update(buffer, 0, n);
+			}
+			StringBuilder sb = new StringBuilder();
+			for (byte b : digest.digest()) {
+				sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+			}
+			return sb.toString();
+		} catch (ResourceException | NoSuchAlgorithmException ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}
 	}

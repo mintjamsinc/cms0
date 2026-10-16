@@ -107,6 +107,12 @@ type Query {
 
   """The packages installed in this workspace (the installation records under /etc/packages), sorted by id. See documents/packages.md."""
   installedPackages: [InstalledPackage!]!
+
+  """What installing the package file at the path (a staged upload) would do, and what the checks found: PackageAPI.inspect as JSON (ok, action, manifest, findings, sha256, deployPaths, ...). Administrators only. See documents/packages.md."""
+  packageInspection(path: String!): JSON
+
+  """What uninstalling the installed packages with these ids together would do, and what the checks found: PackageAPI.inspectUninstall as JSON (ok, packages, order, findings, ...). Administrators only. See documents/packages.md."""
+  packageUninstallInspection(ids: [String!]!): JSON
 }
 
 """An installed package: its installation record under /etc/packages/<id>/."""
@@ -246,6 +252,9 @@ type Mutation {
 
   """Signal one node's search index rebuild job to abort. Rebuild jobs are dispatched by the search-index-rebuild BPMN process (one per cluster node); a job running on another node is marked ABORTING and finalised by that node within its status-poll interval."""
   abortSearchIndexRebuild(input: AbortSearchIndexRebuildInput!): JobRef!
+
+  """Signal a package installation or uninstallation job to abort. Package jobs are queued by the package-install / package-uninstall BPMN processes; the work stops before its commit and is rolled back."""
+  abortPackageJob(input: AbortPackageJobInput!): JobRef!
 
   """
   Publishes a topic message to the subscribers of this workspace (Subscription.topicMessage), on every node of the cluster.
@@ -425,6 +434,8 @@ type JobProgressEvent {
   targetWorkspace: String
   """Set by jobs whose result is a downloadable artifact (archive jobs)."""
   downloadUrl: String
+  """Set on completion by jobs whose result is a summary for the completion screen (package jobs): the summary as JSON text."""
+  resultDetail: String
   """Server timestamp (ISO-8601) when this snapshot was emitted."""
   timestamp: DateTime
 }
@@ -685,6 +696,10 @@ input AbortDeleteNodesInput {
 }
 
 input AbortSearchIndexRebuildInput {
+  jobId: String!
+}
+
+input AbortPackageJobInput {
   jobId: String!
 }
 

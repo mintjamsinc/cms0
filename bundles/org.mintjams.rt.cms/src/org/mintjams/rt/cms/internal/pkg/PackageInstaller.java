@@ -24,6 +24,7 @@ package org.mintjams.rt.cms.internal.pkg;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.charset.StandardCharsets;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
@@ -76,8 +77,54 @@ import org.mintjams.tools.lang.Cause;
  * <p>The session must be privileged (an administrator, or a service session
  * acting for one): a package writes wherever its files say, within what
  * {@link org.mintjams.rt.cms.internal.pkg.checks.ReservedPathCheck} allows.</p>
+ *
+ * <h2>Progress</h2>
+ * <p>Installation and uninstallation report to a {@link Monitor}: the phase
+ * they are in, the number of files they go through, and every file as it is
+ * done. The monitor can also stop the work: until the commit, stopping rolls
+ * everything back like any other failure.</p>
  */
 public final class PackageInstaller {
+
+	/** Waiting for the content-deployment lease, which a deployment or another installation holds. */
+	public static final String PHASE_WAITING = "waiting";
+	/** Reading and checking the package, or the selection to uninstall. */
+	public static final String PHASE_INSPECTING = "inspecting";
+	/** Applying the provisioning descriptors. */
+	public static final String PHASE_PROVISIONING = "provisioning";
+	/** Writing the files under {@code deploy/}. */
+	public static final String PHASE_PLACING = "placing";
+	/** Removing the files a previous version, or an uninstalled package, placed. */
+	public static final String PHASE_REMOVING = "removing";
+	/** Writing the record and committing; the work can no longer be stopped. */
+	public static final String PHASE_COMMITTING = "committing";
+
+	/**
+	 * Follows an installation or uninstallation as it runs. Every method is
+	 * called on the thread doing the work.
+	 */
+	public interface Monitor {
+
+		/** A monitor that follows nothing and never stops the work. */
+		Monitor NONE = new Monitor() {};
+
+		/** A phase begins; one of the {@code PHASE_} constants. */
+		default void phase(String phase) {}
+
+		/**
+		 * The number of files the work goes through, known once the
+		 * inspection is done: every file placed and every file removed.
+		 */
+		default void total(int files) {}
+
+		/** One file has been placed or removed (or found already gone). */
+		default void worked(String path) {}
+
+		/** Polled between files; true stops the work, which is then rolled back. */
+		default boolean isCancelled() {
+			return false;
+		}
+	}
 
 	/** The area the installer keeps for itself; closed to everyone but administrators by provisioning. */
 	public static final String STAGING_AREA = "/var/lib/packages";
@@ -111,12 +158,14 @@ public final class PackageInstaller {
 		List<Finding> findings = new ArrayList<>();
 
 		String fileName = null;
+		String digest = null;
 		PackageContents contents = null;
 		try {
 			if (!source.exists()) {
 				findings.add(Finding.error("package.missing", "There is no package at " + packagePath + "."));
 			} else {
 				fileName = source.getFileName();
+				digest = source.digest();
 				contents = source.read();
 			}
 		} catch (IOException | ResourceException | RuntimeException ex) {
@@ -158,7 +207,7 @@ public final class PackageInstaller {
 			}
 		}
 
-		return new PackageInspection(workspaceName, packagePath, fileName, manifest, contents, installed,
+		return new PackageInspection(workspaceName, packagePath, fileName, digest, manifest, contents, installed,
 				action(manifest, installed), platformVersion, findings, removedPaths);
 	}
 
@@ -170,25 +219,52 @@ public final class PackageInstaller {
 	 * @throws PackageInstallException when the inspection has an error finding
 	 */
 	public InstallResult install(String packagePath, String installedBy) throws IOException {
+		return install(packagePath, installedBy, null, Monitor.NONE);
+	}
+
+	/**
+	 * Installs the package at the given repository path, reporting to the
+	 * monitor.
+	 *
+	 * @param packagePath    the package file in this workspace
+	 * @param installedBy    who is installing, recorded in the installation record
+	 * @param expectedDigest the SHA-256 of the package the installation was
+	 *                       decided on (see {@link PackageInspection#getDigest()}),
+	 *                       or {@code null} to install whatever the file holds now
+	 * @param monitor        follows the installation and may stop it
+	 * @throws PackageInstallException when the inspection has an error finding
+	 * @throws InterruptedIOException  when the monitor stopped the installation
+	 */
+	public InstallResult install(String packagePath, String installedBy, String expectedDigest, Monitor monitor)
+			throws IOException {
 		long started = System.currentTimeMillis();
 		ClusterLeaseStore.Lease lease = null;
 		ClusterLeaseStore leases = Adaptables.getAdapter(fSession.adaptTo(javax.jcr.Session.class), ClusterLeaseStore.class);
 		if (leases != null) {
+			monitor.phase(PHASE_WAITING);
 			lease = leases.lock(LEASE_NAME, LEASE_TTL_MILLIS);
 		}
 		try {
+			checkCancelled(monitor);
+			monitor.phase(PHASE_INSPECTING);
 			PackageInspection inspection = inspect(packagePath);
 			if (!inspection.isOk()) {
 				throw new PackageInstallException(inspection);
+			}
+			if (expectedDigest != null && !expectedDigest.equalsIgnoreCase(String.valueOf(inspection.getDigest()))) {
+				throw new IOException("The package file has changed since it was inspected; inspect it again.");
 			}
 			PackageManifest manifest = inspection.getManifest();
 			PackageContents contents = inspection.getContents();
 			InstalledPackage installed = inspection.getInstalled();
 			PackageSource source = new PackageSource(fSession, packagePath);
+			monitor.total(contents.getDeployFileCount() + inspection.getRemovedPaths().size());
+			checkCancelled(monitor);
 
 			// 1. Provisioning: namespaces, principals, folders and their ACLs,
 			//    so the files below land in an established structure. The
 			//    provisioner commits as it goes and is idempotent.
+			monitor.phase(PHASE_PROVISIONING);
 			List<Map<String, Object>> descriptors = new ArrayList<>();
 			for (Map.Entry<String, String> e : contents.getProvisioning().entrySet()) {
 				Map<String, Object> document = Provisioner.load(
@@ -205,6 +281,8 @@ public final class PackageInstaller {
 
 			// 2. Place every file, streaming it from the ZIP and digesting it on
 			//    the way, so the record can tell later whether a file changed.
+			checkCancelled(monitor);
+			monitor.phase(PHASE_PLACING);
 			Map<String, String> files = new LinkedHashMap<>();
 			int[] counters = new int[2]; // created, updated
 			source.walk((entry, in) -> {
@@ -212,6 +290,7 @@ public final class PackageInstaller {
 						|| entry.getName().length() <= PackageSource.DEPLOY_PREFIX.length()) {
 					return;
 				}
+				checkCancelled(monitor);
 				String path = "/" + entry.getName().substring(PackageSource.DEPLOY_PREFIX.length());
 				Resource resource = fSession.getResource(path);
 				boolean existed = resource.exists();
@@ -225,28 +304,33 @@ public final class PackageInstaller {
 				resource.write(new DigestInputStream(in, digest));
 				files.put(path, hex(digest.digest()));
 				counters[existed ? 1 : 0]++;
+				monitor.worked(path);
 			});
 
 			// 3. Remove what the previous version placed and this one does not.
 			int removed = 0;
 			if (installed != null) {
+				monitor.phase(PHASE_REMOVING);
 				Set<String> keptFolders = ancestors(files.keySet());
 				for (String path : installed.getFiles().keySet()) {
 					if (files.containsKey(path)) {
 						continue;
 					}
+					checkCancelled(monitor);
 					Resource resource = fSession.getResource(path);
-					if (!resource.exists() || resource.isCollection()) {
-						continue;
+					if (resource.exists() && !resource.isCollection()) {
+						Resource parent = resource.getParent();
+						resource.remove();
+						removed++;
+						removeEmptyFolders(parent, keptFolders);
 					}
-					Resource parent = resource.getParent();
-					resource.remove();
-					removed++;
-					removeEmptyFolders(parent, keptFolders);
+					monitor.worked(path);
 				}
 			}
 
 			// 4. Record, then commit everything at once.
+			checkCancelled(monitor);
+			monitor.phase(PHASE_COMMITTING);
 			new PackageRecords(fSession).write(manifest, files, installedBy,
 					installed != null ? installed.getVersion() : null, inspection.getFileName());
 			fSession.commit();
@@ -339,13 +423,27 @@ public final class PackageInstaller {
 	 *                     the errors
 	 */
 	public UninstallResult uninstall(List<String> ids, String uninstalledBy) throws IOException {
+		return uninstall(ids, uninstalledBy, Monitor.NONE);
+	}
+
+	/**
+	 * Uninstalls the given packages together, reporting to the monitor.
+	 *
+	 * @throws IOException            when the inspection has an error finding,
+	 *                                naming the errors
+	 * @throws InterruptedIOException when the monitor stopped the uninstallation
+	 */
+	public UninstallResult uninstall(List<String> ids, String uninstalledBy, Monitor monitor) throws IOException {
 		long started = System.currentTimeMillis();
 		ClusterLeaseStore.Lease lease = null;
 		ClusterLeaseStore leases = Adaptables.getAdapter(fSession.adaptTo(javax.jcr.Session.class), ClusterLeaseStore.class);
 		if (leases != null) {
+			monitor.phase(PHASE_WAITING);
 			lease = leases.lock(LEASE_NAME, LEASE_TTL_MILLIS);
 		}
 		try {
+			checkCancelled(monitor);
+			monitor.phase(PHASE_INSPECTING);
 			UninstallInspection inspection = inspectUninstall(ids);
 			if (!inspection.isOk()) {
 				StringBuilder sb = new StringBuilder("The packages cannot be uninstalled:");
@@ -369,7 +467,14 @@ public final class PackageInstaller {
 				}
 			}
 			Set<String> keptFolders = ancestors(others);
+			int total = 0;
+			for (InstalledPackage p : selected.values()) {
+				total += p.getFiles().size();
+			}
+			monitor.total(total);
+			checkCancelled(monitor);
 
+			monitor.phase(PHASE_REMOVING);
 			List<UninstallResult.Entry> entries = new ArrayList<>();
 			for (String id : inspection.getOrder()) {
 				InstalledPackage p = selected.get(id);
@@ -377,23 +482,25 @@ public final class PackageInstaller {
 				int missing = 0;
 				int kept = 0;
 				for (String path : p.getFiles().keySet()) {
+					checkCancelled(monitor);
+					Resource resource = fSession.getResource(path);
 					if (seedPaths.contains(path)) {
 						kept++;
-						continue;
-					}
-					Resource resource = fSession.getResource(path);
-					if (!resource.exists() || resource.isCollection()) {
+					} else if (!resource.exists() || resource.isCollection()) {
 						missing++;
-						continue;
+					} else {
+						Resource parent = resource.getParent();
+						resource.remove();
+						removed++;
+						removeEmptyFolders(parent, keptFolders);
 					}
-					Resource parent = resource.getParent();
-					resource.remove();
-					removed++;
-					removeEmptyFolders(parent, keptFolders);
+					monitor.worked(path);
 				}
 				records.remove(id);
 				entries.add(new UninstallResult.Entry(id, p.getTitle(), p.getVersion(), removed, missing, kept));
 			}
+			checkCancelled(monitor);
+			monitor.phase(PHASE_COMMITTING);
 			fSession.commit();
 
 			UninstallResult result = new UninstallResult(entries, System.currentTimeMillis() - started);
@@ -521,6 +628,12 @@ public final class PackageInstaller {
 			}
 		}
 		return ancestors;
+	}
+
+	private static void checkCancelled(Monitor monitor) throws InterruptedIOException {
+		if (monitor.isCancelled()) {
+			throw new InterruptedIOException("The work was stopped before it was committed and has been rolled back.");
+		}
 	}
 
 	private static String hex(byte[] bytes) {

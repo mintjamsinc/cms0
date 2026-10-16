@@ -87,6 +87,7 @@ import org.mintjams.rt.cms.internal.job.archive.ArchiveJob;
 import org.mintjams.rt.cms.internal.job.archive.ImportArchiveJob;
 import org.mintjams.rt.cms.internal.pkg.InstalledPackage;
 import org.mintjams.rt.cms.internal.pkg.PackageRecords;
+import org.mintjams.rt.cms.internal.script.PackageAPI;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
@@ -183,6 +184,9 @@ public final class PlatformWiringContributor implements WiringContributor {
 				.dataFetcher("Query", "effectiveAccessControl", (DataFetcher<Object>) PlatformWiringContributor::effectiveAccessControl)
 				.dataFetcher("Query", "searchPrincipals", (DataFetcher<Object>) PlatformWiringContributor::searchPrincipals)
 				.dataFetcher("Query", "installedPackages", (DataFetcher<Object>) PlatformWiringContributor::installedPackages)
+				.dataFetcher("Query", "packageInspection", (DataFetcher<Object>) PlatformWiringContributor::packageInspection)
+				.dataFetcher("Query", "packageUninstallInspection",
+						(DataFetcher<Object>) PlatformWiringContributor::packageUninstallInspection)
 				.dataFetcher("Query", "jobProgress", (DataFetcher<Object>) PlatformWiringContributor::jobProgressSnapshot)
 				.dataFetcher("Mutation", "createFolder", (DataFetcher<Object>) PlatformWiringContributor::createFolder)
 				.dataFetcher("Mutation", "createFile", (DataFetcher<Object>) PlatformWiringContributor::createFile)
@@ -239,6 +243,8 @@ public final class PlatformWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformWiringContributor::abortImportArchive)
 				.dataFetcher("Mutation", "abortSearchIndexRebuild",
 						(DataFetcher<Object>) PlatformWiringContributor::abortSearchIndexRebuild)
+				.dataFetcher("Mutation", "abortPackageJob",
+						(DataFetcher<Object>) PlatformWiringContributor::abortPackageJob)
 				.dataFetcher("Mutation", "publish",
 						(DataFetcher<Object>) PlatformWiringContributor::publish)
 				.dataFetcher("Subscription", "jobProgress",
@@ -596,6 +602,35 @@ public final class PlatformWiringContributor implements WiringContributor {
 			result.add(m);
 		}
 		return result;
+	}
+
+	/**
+	 * {@code Query.packageInspection(path)} — PackageAPI.inspect for the caller,
+	 * who must hold the administrator role (PackageAPI checks it, and acts in a
+	 * service session carrying the caller's id).
+	 */
+	private static Object packageInspection(DataFetchingEnvironment environment) throws Exception {
+		String path = environment.getArgument("path");
+		return withPackageAPI(environment, (api, userId) -> api.inspect(path, userId));
+	}
+
+	/** {@code Query.packageUninstallInspection(ids)} — PackageAPI.inspectUninstall for the caller (administrators only). */
+	private static Object packageUninstallInspection(DataFetchingEnvironment environment) throws Exception {
+		List<String> ids = environment.getArgument("ids");
+		return withPackageAPI(environment, (api, userId) -> api.inspectUninstall(ids, userId));
+	}
+
+	private interface PackageCall {
+		Object call(PackageAPI api, String userId) throws Exception;
+	}
+
+	private static Object withPackageAPI(DataFetchingEnvironment environment, PackageCall call) throws Exception {
+		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
+		String userId = context.getCallerSession().getUserID();
+		try (WorkspaceScriptContext script = new WorkspaceScriptContext(context.getWorkspaceName())) {
+			script.setCredentials(new CmsServiceCredentials(userId));
+			return call.call(new PackageAPI(script), userId);
+		}
 	}
 
 	private static Object searchPrincipals(DataFetchingEnvironment environment) throws Exception {
@@ -1732,6 +1767,15 @@ public final class PlatformWiringContributor implements WiringContributor {
 		return abortJobMutation(environment);
 	}
 
+	/**
+	 * Aborts a package installation or uninstallation job. The job stops at
+	 * its next file and rolls back; once it is committing, the abort comes too
+	 * late and the job completes.
+	 */
+	private static Object abortPackageJob(DataFetchingEnvironment environment) throws Exception {
+		return abortJobMutation(environment);
+	}
+
 	private static Object initDownloadArchive(DataFetchingEnvironment environment) throws Exception {
 		return initJob(environment, ArchiveJob.TYPE);
 	}
@@ -1989,6 +2033,10 @@ public final class PlatformWiringContributor implements WiringContributor {
 			String downloadUrl = JobNodes.getString(content, JobNodes.PROP_DOWNLOAD_URL, null);
 			if (downloadUrl != null) {
 				data.put("downloadUrl", downloadUrl);
+			}
+			String resultDetail = JobNodes.getString(content, JobNodes.PROP_RESULT_DETAIL, null);
+			if (resultDetail != null) {
+				data.put("resultDetail", resultDetail);
 			}
 			data.put("timestamp", ISO8601.now());
 			return data;

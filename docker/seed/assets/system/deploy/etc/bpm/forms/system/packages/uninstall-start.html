@@ -11,6 +11,9 @@
 	   that sheet has loaded. */
 	[v-cloak] { display: none; }
 	.package-select { width: 2rem; }
+	.package-paths { max-height: 12rem; overflow: auto; margin: 0; padding-left: 1.25rem; font-family: var(--wt-font-mono, monospace); font-size: 0.875em; }
+	.package-details summary { cursor: pointer; }
+	.package-details > div { margin-top: 0.75rem; }
 </style>
 </head>
 <body>
@@ -21,7 +24,7 @@
 	</div>
 
 	<div class="wt-form-body">
-		<p class="mt-0">{{ t('uninstall.start.description', null, 'Select the packages to uninstall. The selection is checked first; a confirmation task then shows what uninstalling removes, and nothing is removed until you confirm there. A package that another installed package requires can only be uninstalled together with it.') }}</p>
+		<p class="mt-0">{{ t('uninstall.start.description', null, 'Select the packages to uninstall. The selection is checked as you make it, and this form shows what uninstalling removes; nothing is removed until you decide here. A package that another installed package requires can only be uninstalled together with it. Settings, data and accounts created for the packages stay.') }}</p>
 
 		<div v-if="loading" class="text-muted">{{ t('uninstall.start.loading', null, 'Loading the installed packages…') }}</div>
 
@@ -40,7 +43,7 @@
 				</thead>
 				<tbody>
 					<tr v-for="p in packages" :key="p.id">
-						<td><wt-checkbox v-model="p.selected" :disabled="starting || started"></wt-checkbox></td>
+						<td><wt-checkbox v-model="p.selected" :disabled="starting || started" @change="onSelectionChange"></wt-checkbox></td>
 						<td class="wt-wrap">
 							<div>{{ p.title || p.id }}</div>
 							<div class="text-muted text-break">{{ p.id }}</div>
@@ -59,6 +62,34 @@
 			</table>
 		</div>
 
+		<div v-if="checking" class="text-muted">{{ t('uninstall.start.checking', null, 'Checking the selection…') }}</div>
+
+		<div v-if="inspection && !checking">
+			<div class="fw-semibold">{{ t('confirm.findings', null, 'Checks') }}</div>
+			<div v-if="findings.length === 0" class="text-success">{{ t('confirm.noFindings', null, 'Every check passed.') }}</div>
+			<div v-for="(f, i) in findings" :key="i" class="alert" :class="f.severity === 'error' ? 'wt-danger' : 'wt-warning'">
+				<i class="bi" :class="f.severity === 'error' ? 'bi-exclamation-octagon' : 'bi-exclamation-triangle'"></i>
+				<div>
+					<div>{{ findingText(f) }}</div>
+					<div v-if="f.path" class="text-muted text-break">{{ f.path }}</div>
+				</div>
+			</div>
+		</div>
+
+		<details v-if="inspection && !checking && inspectedPackages.length" class="package-details">
+			<summary>{{ t('confirm.details', null, 'Details') }}</summary>
+			<div>
+				<div class="fw-semibold">{{ t('common.workspace', null, 'Workspace') }} <span class="text-muted">— {{ inspection.workspace }}</span></div>
+				<div v-for="p in inspectedPackages" :key="p.id">
+					<div class="fw-semibold">{{ p.title || p.id }} <span class="text-muted">— {{ t('uninstall.start.filesRemoved', { count: (p.files || []).length }, (p.files || []).length + ' files removed') }}</span></div>
+					<ul v-if="p.files && p.files.length" class="package-paths">
+						<li v-for="f in p.files" :key="f">{{ f }}</li>
+					</ul>
+					<div v-if="!p.files || !p.files.length" class="text-muted">{{ t('confirm.none', null, 'None') }}</div>
+				</div>
+			</div>
+		</details>
+
 		<div v-if="isAdmin === false" class="alert wt-danger">
 			<i class="bi bi-shield-lock"></i>
 			<div>{{ t('common.adminRequired', null, 'Administrator role is required to install packages.') }}</div>
@@ -66,7 +97,7 @@
 
 		<div v-if="started" class="alert wt-success">
 			<i class="bi bi-check-circle"></i>
-			<div>{{ t('uninstall.start.started', null, 'The selection has been recorded. Open the "Confirm Package Uninstallation" task from your task list to review and uninstall.') }}</div>
+			<div>{{ t('uninstall.start.started', null, 'The uninstallation has started. Open the "Package Uninstallation Progress" task from your task list to follow it.') }}</div>
 		</div>
 
 		<div v-if="errorMessage" class="alert wt-danger">
@@ -79,13 +110,15 @@
 		<span v-if="isAdmin === null" class="text-muted">{{ t('common.checkingRole', null, 'Checking permissions…') }}</span>
 		<span v-if="isAdmin === true && selectedIds.length" class="text-muted">{{ t('uninstall.start.selected', { count: selectedIds.length }, selectedIds.length + ' selected') }}</span>
 		<div class="wt-form-actions">
-			<button class="wt wt-danger" :disabled="isAdmin !== true || !selectedIds.length || starting || started" @click="onStart">{{ t('uninstall.start.button', null, 'Continue') }}</button>
+			<button class="wt wt-danger" :disabled="!canUninstall" @click="onStart">{{ t('uninstall.start.button', null, 'Uninstall') }}</button>
 		</div>
 	</div>
 </main>
 
 <script type="module">
 const I18N_PREFIX = 'form.system.packages.';
+// A burst of checkbox clicks is checked once, after the last.
+const CHECK_DELAY_MILLIS = 300;
 const host = (() => {
 	try {
 		const h = window.parent && window.parent.TasksFormHost;
@@ -109,6 +142,9 @@ if (!host) {
 				isAdmin: null,          // null = checking, then true / false
 				loading: true,
 				packages: [],           // [{id, title, version, installedAt, installedBy, fileCount, requiredBy, selected}]
+				checking: false,
+				inspection: null,       // PackageAPI.inspectUninstall as JSON, for inspectedKey
+				inspectedKey: '',       // the selection the inspection is about, ids joined by ','
 				starting: false,
 				started: false,
 				errorMessage: '',
@@ -119,11 +155,29 @@ if (!host) {
 			selectedIds() {
 				return this.packages.filter((p) => p.selected).map((p) => p.id);
 			},
+			inspectedPackages() {
+				return (this.inspection && this.inspection.packages) || [];
+			},
+			findings() {
+				return (this.inspection && this.inspection.findings) || [];
+			},
+			// Only an inspection of exactly the current selection that found
+			// no error lets the uninstallation start.
+			canUninstall() {
+				return this.isAdmin === true && !this.checking && !this.starting && !this.started &&
+						this.selectedIds.length > 0 && !!this.inspection && this.inspection.ok &&
+						this.inspectedKey === this.selectedIds.join(',');
+			},
 		},
 		methods: {
 			t(id, params, fallback) {
 				void this.i18nRevision;
 				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			// A finding is shown in the reader's language when its code has a
+			// text; otherwise the English message the check wrote.
+			findingText(f) {
+				return this.t('finding.' + f.code, null, f.message || f.code);
 			},
 			applyTheme(theme) {
 				if (theme === 'light' || theme === 'dark') {
@@ -181,13 +235,46 @@ if (!host) {
 			},
 			onUnmount() {
 				if (this._unsubscribe) this._unsubscribe();
+				if (this._checkTimer) clearTimeout(this._checkTimer);
+			},
+			onSelectionChange() {
+				if (this._checkTimer) clearTimeout(this._checkTimer);
+				this.inspection = null;
+				this.errorMessage = '';
+				if (this.isAdmin !== true) return;
+				this.checking = this.selectedIds.length > 0;
+				this._checkTimer = setTimeout(() => this.check(), CHECK_DELAY_MILLIS);
+			},
+			async check() {
+				this._checkTimer = null;
+				const ids = this.selectedIds;
+				const key = ids.join(',');
+				if (!ids.length) {
+					this.checking = false;
+					return;
+				}
+				try {
+					const data = await host.graphql.query(
+							'query($ids: [String!]!) { packageUninstallInspection(ids: $ids) }', { ids });
+					// A newer selection supersedes this answer.
+					if (key !== this.selectedIds.join(',')) return;
+					this.inspection = (data && data.packageUninstallInspection) || null;
+					this.inspectedKey = key;
+					this.checking = false;
+				} catch (e) {
+					if (key !== this.selectedIds.join(',')) return;
+					this.checking = false;
+					this.errorMessage = this.t('uninstall.start.checkFailed', null, 'Could not check the selection: ')
+							+ ((e && e.message) || e);
+				}
 			},
 			async onStart() {
+				if (!this.canUninstall) return;
 				const ids = this.selectedIds;
-				if (!ids.length) return;
 				this.starting = true;
 				this.errorMessage = '';
 				try {
+					// Starting the process is the decision.
 					const key = 'uninstall-' + Date.now() + '-' + Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
 					await host.startProcess({
 						businessKey: key,

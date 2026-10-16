@@ -45,6 +45,7 @@ public final class PackageInspection {
 	private final String fWorkspaceName;
 	private final String fPackagePath;
 	private final String fFileName;
+	private final String fDigest;
 	private final PackageManifest fManifest;
 	private final PackageContents fContents;
 	private final InstalledPackage fInstalled;
@@ -53,12 +54,13 @@ public final class PackageInspection {
 	private final List<Finding> fFindings;
 	private final List<String> fRemovedPaths;
 
-	PackageInspection(String workspaceName, String packagePath, String fileName, PackageManifest manifest,
-			PackageContents contents, InstalledPackage installed, String action, String platformVersion,
-			List<Finding> findings, List<String> removedPaths) {
+	PackageInspection(String workspaceName, String packagePath, String fileName, String digest,
+			PackageManifest manifest, PackageContents contents, InstalledPackage installed, String action,
+			String platformVersion, List<Finding> findings, List<String> removedPaths) {
 		fWorkspaceName = workspaceName;
 		fPackagePath = packagePath;
 		fFileName = fileName;
+		fDigest = digest;
 		fManifest = manifest;
 		fContents = contents;
 		fInstalled = installed;
@@ -78,6 +80,11 @@ public final class PackageInspection {
 
 	public String getFileName() {
 		return fFileName;
+	}
+
+	/** The SHA-256 of the package file (lowercase hex); {@code null} when it could not be read. */
+	public String getDigest() {
+		return fDigest;
 	}
 
 	/** The manifest, or {@code null} when the package has none that parses. */
@@ -145,6 +152,7 @@ public final class PackageInspection {
 		m.put("workspace", fWorkspaceName);
 		m.put("packagePath", fPackagePath);
 		m.put("fileName", fFileName);
+		m.put("sha256", fDigest);
 		m.put("platformVersion", fPlatformVersion);
 		m.put("manifest", fManifest != null ? fManifest.toMap() : null);
 		m.put("installedVersion", fInstalled != null ? fInstalled.getVersion() : null);

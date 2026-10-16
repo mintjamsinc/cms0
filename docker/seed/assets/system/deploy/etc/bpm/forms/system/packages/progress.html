@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Packages — Progress</title>
+<style>
+	/* Everything this form draws with comes from wt-ui.css, injected by the
+	   wt-ui.esm.js bundle's initUi() (loaded via the form host's
+	   webtopBaseUrl). [v-cloak] has to stay inline to cover the paint before
+	   that sheet has loaded. */
+	[v-cloak] { display: none; }
+</style>
+</head>
+<body>
+<!-- The progress task of both package-install and package-uninstall: the
+     process variables tell which (packageIds is set by the uninstall start
+     form only). -->
+<main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
+	<div class="wt-form-header">
+		<h1 class="wt-form-title">{{ uninstalling ? t('progress.uninstallTitle', null, 'Package Uninstallation Progress') : t('progress.installTitle', null, 'Package Installation Progress') }}</h1>
+		<p v-if="subject" class="wt-form-subtitle text-break">{{ subject }}</p>
+	</div>
+
+	<div class="wt-form-body">
+		<div v-if="jobId">
+			<div>
+				<span class="fw-semibold" :class="statusClass">{{ statusLabel }}</span>
+				<span v-if="job.phase && !isTerminal" class="text-muted"> — {{ phaseLabel }}</span>
+			</div>
+			<div class="progress"><div class="progress-bar" :style="'width:' + percent + '%'"></div></div>
+			<div class="text-muted">{{ t('progress.files', { processed: job.itemsProcessed || 0, total: job.itemsTotal || 0 }, (job.itemsProcessed || 0) + ' / ' + (job.itemsTotal || 0) + ' files') }} ({{ percent }}%)</div>
+			<div v-if="job.currentPath && !isTerminal" class="text-muted text-break">{{ job.currentPath }}</div>
+		</div>
+
+		<!-- Installation result -->
+		<div v-if="installResult" class="alert wt-success">
+			<i class="bi bi-check-circle"></i>
+			<div>{{ installOutcome }}</div>
+		</div>
+		<table v-if="installResult" class="wt wt-rows">
+			<tbody>
+				<tr><td>{{ t('result.created', null, 'Files created') }}</td><td style="text-align: right">{{ installResult.created }}</td></tr>
+				<tr><td>{{ t('result.updatedFiles', null, 'Files replaced') }}</td><td style="text-align: right">{{ installResult.updated }}</td></tr>
+				<tr><td>{{ t('result.removed', null, 'Files removed') }}</td><td style="text-align: right">{{ installResult.removed }}</td></tr>
+				<tr><td>{{ t('result.provisioning', null, 'Provisioning descriptors applied') }}</td><td style="text-align: right">{{ installResult.provisioningDescriptors }}</td></tr>
+				<tr><td>{{ t('result.duration', null, 'Duration') }}</td><td style="text-align: right">{{ t('result.seconds', { seconds: seconds }, seconds + ' s') }}</td></tr>
+			</tbody>
+		</table>
+
+		<!-- Uninstallation result -->
+		<div v-if="uninstallResult" class="alert wt-success">
+			<i class="bi bi-check-circle"></i>
+			<div>{{ t('uninstall.result.done', { count: uninstalledPackages.length }, uninstalledPackages.length + ' packages have been uninstalled.') }}</div>
+		</div>
+		<div v-if="uninstallResult" class="overflow-auto">
+			<table class="wt wt-rows">
+				<thead>
+					<tr>
+						<th>{{ t('common.package', null, 'Package') }}</th>
+						<th>{{ t('common.version', null, 'Version') }}</th>
+						<th>{{ t('uninstall.result.col.removed', null, 'Files removed') }}</th>
+						<th>{{ t('uninstall.result.col.missing', null, 'Already gone') }}</th>
+						<th>{{ t('uninstall.result.col.kept', null, 'Left to the platform') }}</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr v-for="p in uninstalledPackages" :key="p.id">
+						<td class="wt-wrap">
+							<div>{{ p.title || p.id }}</div>
+							<div class="text-muted text-break">{{ p.id }}</div>
+						</td>
+						<td>{{ p.version || '—' }}</td>
+						<td style="text-align: right">{{ p.removed }}</td>
+						<td style="text-align: right">{{ p.missing }}</td>
+						<td style="text-align: right">{{ p.kept }}</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+		<div v-if="uninstallResult" class="text-muted">{{ t('result.duration', null, 'Duration') }}: {{ t('result.seconds', { seconds: seconds }, seconds + ' s') }}</div>
+
+		<div v-if="job.status === 'failed'" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>
+				<div>{{ uninstalling ? t('uninstall.result.failed', null, 'The packages could not be uninstalled.') : t('result.failed', null, 'The package could not be installed.') }}</div>
+				<div v-if="job.errorMessage" class="text-break">{{ job.errorMessage }}</div>
+			</div>
+		</div>
+
+		<div v-if="job.status === 'aborted'" class="alert wt-warning">
+			<i class="bi bi-exclamation-triangle"></i>
+			<div>{{ t('progress.aborted', null, 'The work was stopped before it was committed and has been rolled back.') }}</div>
+		</div>
+
+		<div v-if="errorMessage" class="alert wt-danger">
+			<i class="bi bi-exclamation-octagon"></i>
+			<div>{{ errorMessage }}</div>
+		</div>
+	</div>
+
+	<div class="wt-form-footer">
+		<span v-if="jobId && !isTerminal" class="text-muted">{{ t('progress.runningHint', null, 'The work is running. You can close this window; the task stays in your task list and shows the live state whenever you reopen it.') }}</span>
+		<div class="wt-form-actions">
+			<button v-if="jobId && !isTerminal" class="wt wt-danger" :disabled="busy || job.status === 'aborting' || job.phase === 'committing'" @click="onAbort">{{ t('progress.abort', null, 'Abort') }}</button>
+			<button v-if="isTerminal && job.status !== 'completed'" class="wt" :disabled="busy" @click="onRerun">{{ t('progress.rerun', null, 'Try again') }}</button>
+			<button v-if="isTerminal || !jobId" class="wt wt-primary" :disabled="busy" @click="onClose">{{ t('progress.close', null, 'Complete task') }}</button>
+		</div>
+	</div>
+</main>
+
+<script type="module">
+const I18N_PREFIX = 'form.system.packages.';
+const TERMINAL = ['completed', 'aborted', 'failed'];
+const PROGRESS_FIELDS = '{ jobId status itemsTotal itemsProcessed currentPath errorMessage phase resultDetail timestamp }';
+const host = (() => {
+	try {
+		const h = window.parent && window.parent.TasksFormHost;
+		// Host version 2 is the first that holds a loading overlay over this
+		// frame until notifyReady() is called; this form relies on that.
+		return (h && typeof h.version === 'number' && h.version >= 2) ? h : null;
+	} catch { return null; }
+})();
+
+if (!host) {
+	document.body.textContent = 'This form must be opened from the Tasks application.';
+} else {
+	// The webtop UI bundle: ichigo.js + wt-* components + wt-ui.css in one
+	// module, resolved through the host so the form stays deploy-agnostic.
+	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
+	await initUi();
+
+	// -------------------------------------------------------------------------
+	// Minimal graphql-sse client, single connection mode — the protocol webtop's
+	// SubscriptionClient speaks (the same client as the search index rebuild
+	// progress form). On a dropped connection everything is re-established
+	// and re-posted after a short delay.
+	// -------------------------------------------------------------------------
+	class MiniSubscriptionClient {
+		constructor(endpoint) {
+			this.endpoint = endpoint;
+			this.ops = new Map();
+			this.seq = 0;
+			this.token = null;
+			this.es = null;
+			this.connecting = null;
+			this.retryTimer = null;
+			this.closed = false;
+		}
+
+		subscribe(query, handler) {
+			const id = String(++this.seq);
+			this.ops.set(id, { query, handler });
+			this._ensure().then((ok) => { if (ok && !this.closed) this._post(id); });
+		}
+
+		_ensure() {
+			if (this.closed) return Promise.resolve(false);
+			if (this.es && this.es.readyState === EventSource.OPEN && this.token) return Promise.resolve(true);
+			if (this.connecting) return this.connecting;
+			this.connecting = this._open().finally(() => { this.connecting = null; });
+			return this.connecting;
+		}
+
+		async _open() {
+			try {
+				const reservation = await fetch(this.endpoint, { method: 'PUT', credentials: 'include' });
+				if (!reservation.ok) throw new Error('reservation failed');
+				this.token = (await reservation.text()).trim();
+				if (!this.token) throw new Error('empty token');
+				return await new Promise((resolve) => {
+					const es = new EventSource(this.endpoint + '?token=' + encodeURIComponent(this.token), { withCredentials: true });
+					this.es = es;
+					let settled = false;
+					es.onopen = () => { if (!settled) { settled = true; resolve(true); } };
+					es.onerror = () => { if (!settled) { settled = true; resolve(false); } this._onError(); };
+					es.addEventListener('next', (event) => this._onNext(event));
+				});
+			} catch {
+				this._scheduleRetry();
+				return false;
+			}
+		}
+
+		async _post(id) {
+			const op = this.ops.get(id);
+			if (!op || !this.token) return;
+			try {
+				const response = await fetch(this.endpoint + '?token=' + encodeURIComponent(this.token), {
+					method: 'POST',
+					credentials: 'include',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ query: op.query, extensions: { operationId: id } }),
+				});
+				if (response.status === 404) this._onError(); // token gone — re-establish
+			} catch {
+				this._onError();
+			}
+		}
+
+		_onNext(event) {
+			try {
+				const message = JSON.parse(event.data);
+				const op = message && this.ops.get(message.id);
+				const data = message && message.payload && message.payload.data;
+				if (op && data && typeof data === 'object') {
+					const value = Object.values(data)[0];
+					if (value !== undefined && value !== null) op.handler(value);
+				}
+			} catch { /* ignore malformed frames */ }
+		}
+
+		_onError() {
+			if (this.closed) return;
+			try { if (this.es) this.es.close(); } catch { /* ignore */ }
+			this.es = null;
+			this.token = null;
+			this._scheduleRetry();
+		}
+
+		_scheduleRetry() {
+			if (this.closed || this.retryTimer) return;
+			this.retryTimer = setTimeout(async () => {
+				this.retryTimer = null;
+				if (await this._ensure()) {
+					for (const id of this.ops.keys()) this._post(id);
+				}
+			}, 5000);
+		}
+
+		close() {
+			this.closed = true;
+			if (this.retryTimer) clearTimeout(this.retryTimer);
+			try { if (this.es) this.es.close(); } catch { /* ignore */ }
+			this.es = null;
+		}
+	}
+
+	const App = {
+		data() {
+			return {
+				jobId: '',
+				uninstalling: false,
+				subject: '',            // the package file, or the ids being uninstalled
+				job: { status: null, phase: null, itemsTotal: 0, itemsProcessed: 0, currentPath: '', errorMessage: '' },
+				result: null,           // the job's resultDetail, parsed
+				busy: false,
+				errorMessage: '',
+				i18nRevision: 0,
+			};
+		},
+		computed: {
+			isTerminal() {
+				return TERMINAL.includes(this.job.status);
+			},
+			percent() {
+				if (this.job.status === 'completed') return 100;
+				const total = Number(this.job.itemsTotal || 0);
+				const processed = Number(this.job.itemsProcessed || 0);
+				if (total <= 0) return 0;
+				return Math.min(100, Math.floor((processed / total) * 100));
+			},
+			statusLabel() {
+				void this.i18nRevision;
+				const s = this.job.status || 'queued';
+				return this.t('status.' + s, null, s);
+			},
+			// Maps the status onto one of the shared text-colour utilities.
+			statusClass() {
+				const s = this.job.status || 'queued';
+				if (s === 'completed') return 'text-success';
+				if (s === 'failed' || s === 'aborted') return 'text-danger';
+				return 'text-warning';
+			},
+			phaseLabel() {
+				void this.i18nRevision;
+				return this.t('phase.' + this.job.phase, null, this.job.phase);
+			},
+			installResult() {
+				return (!this.uninstalling && this.job.status === 'completed' && this.result) ? this.result : null;
+			},
+			uninstallResult() {
+				return (this.uninstalling && this.job.status === 'completed' && this.result) ? this.result : null;
+			},
+			uninstalledPackages() {
+				return (this.uninstallResult && this.uninstallResult.packages) || [];
+			},
+			seconds() {
+				const ms = (this.result && Number(this.result.durationMillis)) || 0;
+				return Math.max(1, Math.round(ms / 1000));
+			},
+			installOutcome() {
+				void this.i18nRevision;
+				const r = this.installResult;
+				if (!r) return '';
+				const params = { title: r.title || r.id, version: r.version || '', from: r.previousVersion || '' };
+				if (r.action === 'upgrade') return this.t('result.updated', params, params.title + ' has been updated from ' + params.from + ' to ' + params.version + '.');
+				if (r.action === 'reinstall') return this.t('result.reinstalled', params, params.title + ' ' + params.version + ' has been reinstalled.');
+				return this.t('result.installed', params, params.title + ' ' + params.version + ' has been installed.');
+			},
+		},
+		methods: {
+			t(id, params, fallback) {
+				void this.i18nRevision;
+				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			applyTheme(theme) {
+				if (theme === 'light' || theme === 'dark') {
+					document.documentElement.dataset.theme = theme;
+				} else {
+					delete document.documentElement.dataset.theme;
+				}
+			},
+			applyLocalization(loc) {
+				const locale = (loc && loc.locale) || '';
+				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.i18nRevision++;
+			},
+			async onMounted() {
+				try {
+					const ctx = host.context || {};
+					this.applyTheme(ctx.theme || host.theme);
+					this.applyLocalization(ctx.localization || host.localization);
+					this._unsubscribe = host.subscribe((type, payload) => {
+						if (type === 'theme') this.applyTheme(payload);
+						else if (type === 'localization') this.applyLocalization(payload);
+					});
+					if (ctx.mode !== 'task' || !ctx.task) {
+						this.errorMessage = this.t('progress.openFromTask', null, 'Open this form from its progress task.');
+						return;
+					}
+					const variables = await host.getProcessVariables();
+					let fileName = '';
+					for (const v of variables || []) {
+						if (v.name === 'jobId') this.jobId = String(v.value || '');
+						else if (v.name === 'packageFileName') fileName = String(v.value || '');
+						else if (v.name === 'packageIds' && v.value) {
+							this.uninstalling = true;
+							this.subject = String(v.value).split(',').join(', ');
+						}
+					}
+					if (!this.uninstalling) this.subject = fileName;
+					if (!this.jobId) {
+						this.errorMessage = this.t('progress.missing', null, 'The process has no job to follow.');
+						return;
+					}
+					this.watchJob();
+				} catch (e) {
+					this.errorMessage = (e && e.message) || String(e);
+				} finally {
+					host.notifyReady();
+				}
+			},
+			onUnmount() {
+				if (this._unsubscribe) this._unsubscribe();
+				if (this._sse) this._sse.close();
+			},
+			watchJob() {
+				// Snapshot first (renders even if the stream handshake is slow),
+				// then the live subscription; its first event is a snapshot too, so
+				// no update can fall between the two.
+				const jobId = this.jobId;
+				host.graphql.query('query($jobId: String!) { jobProgress(jobId: $jobId) ' + PROGRESS_FIELDS + ' }', { jobId })
+						.then((data) => { if (data && data.jobProgress) this.applyProgress(data.jobProgress); })
+						.catch(() => { /* the subscription still covers it */ });
+				this._sse = new MiniSubscriptionClient('/bin/graphql.cgi/' + host.workspace + '/stream');
+				this._sse.subscribe('subscription { jobProgress(jobId: "' + jobId + '") ' + PROGRESS_FIELDS + ' }',
+						(event) => this.applyProgress(event));
+			},
+			applyProgress(progress) {
+				if (!progress || progress.jobId !== this.jobId) return;
+				// A late snapshot never takes a finished job back to running.
+				if (this.isTerminal && !TERMINAL.includes(progress.status)) return;
+				const job = this.job;
+				job.status = progress.status || job.status;
+				job.phase = progress.phase || job.phase;
+				if (progress.itemsTotal != null) job.itemsTotal = progress.itemsTotal;
+				if (progress.itemsProcessed != null) job.itemsProcessed = progress.itemsProcessed;
+				job.currentPath = progress.currentPath || '';
+				job.errorMessage = progress.errorMessage || '';
+				if (progress.resultDetail && !this.result) {
+					try { this.result = JSON.parse(progress.resultDetail); } catch { this.result = null; }
+				}
+				if (this.isTerminal && this._sse) {
+					this._sse.close();
+					this._sse = null;
+				}
+			},
+			async run(fn) {
+				this.busy = true;
+				this.errorMessage = '';
+				try { await fn(); }
+				catch (e) { this.errorMessage = (e && e.message) || String(e); }
+				finally { this.busy = false; }
+			},
+			onAbort() {
+				return this.run(async () => {
+					await host.graphql.mutation(
+							'mutation($input: AbortPackageJobInput!) { abortPackageJob(input: $input) { jobId status } }',
+							{ input: { jobId: this.jobId } });
+					if (!this.isTerminal) this.job.status = 'aborting';
+				});
+			},
+			onRerun() {
+				return this.run(() => host.completeTask([{ name: 'action', value: 'rerun' }]));
+			},
+			onClose() {
+				return this.run(() => host.completeTask([{ name: 'action', value: 'close' }]));
+			},
+		},
+	};
+
+	VDOM.createApp(App).mount('#app');
+}
+</script>
+</body>
+</html>

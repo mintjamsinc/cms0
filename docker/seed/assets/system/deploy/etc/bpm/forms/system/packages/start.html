@@ -13,37 +13,110 @@
 	/* The native file input is driven by the button next to it; it stays in
 	   the document for the picker and the change event but is not shown. */
 	.package-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+	.package-paths { max-height: 12rem; overflow: auto; margin: 0; padding-left: 1.25rem; font-family: var(--wt-font-mono, monospace); font-size: 0.875em; }
+	.package-details summary { cursor: pointer; }
+	.package-details > div { margin-top: 0.75rem; }
 </style>
 </head>
 <body>
 <main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
 	<div class="wt-form-header">
-		<h1 class="wt-form-title">{{ t('start.title', null, 'Install Package') }}</h1>
-		<p class="wt-form-subtitle">{{ t('start.subtitle', null, 'Install an application or an extension into this workspace from a package file.') }}</p>
+		<h1 class="wt-form-title">{{ heading }}</h1>
+		<p class="wt-form-subtitle">{{ subtitle }}</p>
 	</div>
 
 	<div class="wt-form-body">
-		<p class="mt-0">{{ t('start.description', null, 'Choose the package file (.zip) you obtained from its provider. The package is read and checked first; a confirmation task then shows what it is and what installing it does, and nothing is installed until you confirm there.') }}</p>
+		<!-- 1. Choose and upload: the package is staged, then inspected. -->
+		<div v-if="!inspection">
+			<p class="mt-0">{{ t('start.description', null, 'Choose the package file (.zip) you obtained from its provider. The package is read and checked first and this form shows what it is and what installing it does; nothing is installed until you decide here.') }}</p>
 
-		<wt-field :label="t('start.file', null, 'Package file')" :error="fileError">
-			<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap">
-				<input id="package-file" type="file" class="package-file-input" accept=".zip,application/zip" @change="onFileChange" :disabled="starting || started">
-				<button class="wt" type="button" :disabled="starting || started" @click="onChoose">{{ t('start.choose', null, 'Choose file…') }}</button>
-				<span v-if="file" class="text-break">{{ file.name }} <span class="text-muted">({{ formatSize(file.size) }})</span></span>
-				<span v-if="!file" class="text-muted">{{ t('start.noFile', null, 'No file chosen') }}</span>
+			<wt-field :label="t('start.file', null, 'Package file')" :error="fileError">
+				<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap">
+					<input id="package-file" type="file" class="package-file-input" accept=".zip,application/zip" @change="onFileChange" :disabled="busy">
+					<button class="wt" type="button" :disabled="busy" @click="onChoose">{{ t('start.choose', null, 'Choose file…') }}</button>
+					<span v-if="file" class="text-break">{{ file.name }} <span class="text-muted">({{ formatSize(file.size) }})</span></span>
+					<span v-if="!file" class="text-muted">{{ t('start.noFile', null, 'No file chosen') }}</span>
+				</div>
+			</wt-field>
+
+			<div v-if="step === 'uploading'" class="text-muted">{{ t('start.uploading', { percent: uploadPercent }, 'Uploading… ' + uploadPercent + '%') }}</div>
+			<div v-if="step === 'inspecting'" class="text-muted">{{ t('start.inspecting', null, 'Reading and checking the package…') }}</div>
+		</div>
+
+		<!-- 2. Review: what the package is and what installing it does. -->
+		<table v-if="inspection" class="wt wt-rows">
+			<tbody>
+				<tr>
+					<td>{{ t('common.version', null, 'Version') }}</td>
+					<td>
+						{{ manifest.version || '—' }}
+						<span v-if="inspection.installedVersion" class="text-muted">({{ t('common.currentVersion', { version: inspection.installedVersion }, 'currently ' + inspection.installedVersion) }})</span>
+					</td>
+				</tr>
+				<tr>
+					<td>{{ t('common.workspace', null, 'Workspace') }}</td>
+					<td>{{ inspection.workspace }}</td>
+				</tr>
+				<tr v-if="actionText">
+					<td>{{ t('confirm.action.label', null, 'Action') }}</td>
+					<td>{{ actionText }}</td>
+				</tr>
+				<tr v-if="manifest.description">
+					<td>{{ t('confirm.description', null, 'Description') }}</td>
+					<td class="wt-wrap">{{ manifest.description }}</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<div v-if="inspection">
+			<div class="fw-semibold">{{ t('confirm.findings', null, 'Checks') }}</div>
+			<div v-if="findings.length === 0" class="text-success">{{ t('confirm.noFindings', null, 'Every check passed.') }}</div>
+			<div v-for="(f, i) in findings" :key="i" class="alert" :class="f.severity === 'error' ? 'wt-danger' : 'wt-warning'">
+				<i class="bi" :class="f.severity === 'error' ? 'bi-exclamation-octagon' : 'bi-exclamation-triangle'"></i>
+				<div>
+					<div>{{ findingText(f) }}</div>
+					<div v-if="f.path" class="text-muted text-break">{{ f.path }}</div>
+				</div>
 			</div>
-		</wt-field>
+		</div>
 
-		<div v-if="starting" class="text-muted">{{ t('start.uploading', { percent: uploadPercent }, 'Uploading…') }}</div>
+		<details v-if="inspection" class="package-details">
+			<summary>{{ t('confirm.details', null, 'Details') }}</summary>
+			<div>
+				<table class="wt wt-rows">
+					<tbody>
+						<tr><td>{{ t('common.package', null, 'Package') }}</td><td class="text-break">{{ inspection.fileName || inspection.packagePath }}</td></tr>
+						<tr><td>{{ t('confirm.id', null, 'Package id') }}</td><td>{{ manifest.id || '—' }}</td></tr>
+						<tr><td>{{ t('confirm.platform', null, 'Platform') }}</td><td>{{ inspection.platformVersion || t('confirm.platformUnknown', null, 'unknown') }}<span v-if="manifest.requires && manifest.requires.platform" class="text-muted"> ({{ manifest.requires.platform }})</span></td></tr>
+						<tr><td>SHA-256</td><td class="text-break text-muted">{{ inspection.sha256 || '—' }}</td></tr>
+					</tbody>
+				</table>
+				<div class="fw-semibold">{{ t('confirm.files', null, 'Files placed') }} <span class="text-muted">— {{ t('confirm.filesSummary', { count: inspection.fileCount || 0, size: formatSize(inspection.totalSize) }, (inspection.fileCount || 0) + ' files') }}</span></div>
+				<ul v-if="inspection.deployPaths && inspection.deployPaths.length" class="package-paths">
+					<li v-for="p in inspection.deployPaths" :key="p">{{ p }}</li>
+				</ul>
+				<div v-if="!inspection.deployPaths || !inspection.deployPaths.length" class="text-muted">{{ t('confirm.none', null, 'None') }}</div>
+				<div class="fw-semibold">{{ t('confirm.removed', null, 'Files of the installed version that are removed') }}</div>
+				<ul v-if="inspection.removedPaths && inspection.removedPaths.length" class="package-paths">
+					<li v-for="p in inspection.removedPaths" :key="p">{{ p }}</li>
+				</ul>
+				<div v-if="!inspection.removedPaths || !inspection.removedPaths.length" class="text-muted">{{ t('confirm.none', null, 'None') }}</div>
+				<div class="fw-semibold">{{ t('confirm.provisioning', null, 'Provisioning descriptors') }}</div>
+				<ul v-if="inspection.provisioning && inspection.provisioning.length" class="package-paths">
+					<li v-for="p in inspection.provisioning" :key="p">{{ p }}</li>
+				</ul>
+				<div v-if="!inspection.provisioning || !inspection.provisioning.length" class="text-muted">{{ t('confirm.none', null, 'None') }}</div>
+			</div>
+		</details>
 
 		<div v-if="isAdmin === false" class="alert wt-danger">
 			<i class="bi bi-shield-lock"></i>
 			<div>{{ t('common.adminRequired', null, 'Administrator role is required to install packages.') }}</div>
 		</div>
 
-		<div v-if="started" class="alert wt-success">
+		<div v-if="step === 'started'" class="alert wt-success">
 			<i class="bi bi-check-circle"></i>
-			<div>{{ t('start.started', null, 'The package has been uploaded. Open the "Confirm Package Installation" task from your task list to review and install it.') }}</div>
+			<div>{{ t('start.started', null, 'The installation has started. Open the "Package Installation Progress" task from your task list to follow it.') }}</div>
 		</div>
 
 		<div v-if="errorMessage" class="alert wt-danger">
@@ -55,15 +128,18 @@
 	<div class="wt-form-footer">
 		<span v-if="isAdmin === null" class="text-muted">{{ t('common.checkingRole', null, 'Checking permissions…') }}</span>
 		<div class="wt-form-actions">
-			<button class="wt wt-primary" :disabled="isAdmin !== true || !file || !!fileError || starting || started" @click="onStart">{{ t('start.button', null, 'Continue') }}</button>
+			<button v-if="!inspection" class="wt wt-primary" :disabled="isAdmin !== true || !file || !!fileError || busy" @click="onContinue">{{ t('start.button', null, 'Continue') }}</button>
+			<button v-if="inspection && step !== 'started'" class="wt" :class="ok ? '' : 'wt-primary'" :disabled="busy" @click="onDiscard">{{ ok ? t('confirm.cancel', null, 'Cancel') : t('start.chooseAnother', null, 'Choose another file') }}</button>
+			<button v-if="inspection && ok && step !== 'started'" class="wt wt-primary" :disabled="busy" @click="onInstall">{{ installLabel }}</button>
 		</div>
 	</div>
 </main>
 
 <script type="module">
 const I18N_PREFIX = 'form.system.packages.';
-// Where the package waits between the upload and the decision. Must match
-// PackageInstaller.STAGING_ROOT; the installer discards only files under it.
+// Where the package waits between the upload and the end of the process.
+// Must match PackageInstaller.STAGING_ROOT; the installer discards only
+// files under it.
 const STAGING_ROOT = '/var/lib/packages/incoming';
 const host = (() => {
 	try {
@@ -88,17 +164,70 @@ if (!host) {
 				isAdmin: null,          // null = checking, then true / false
 				file: null,
 				fileError: '',
-				starting: false,
-				started: false,
+				// choose → uploading → inspecting → review → starting → started
+				step: 'choose',
 				uploadPercent: 0,
+				staged: null,           // { stagingId, folder, packagePath, fileName } while uploaded and undecided
+				inspection: null,       // PackageAPI.inspect as JSON (Query.packageInspection)
 				errorMessage: '',
 				i18nRevision: 0,        // bumped on 'localization' so t() bindings repaint
 			};
+		},
+		computed: {
+			busy() {
+				return this.step === 'uploading' || this.step === 'inspecting' || this.step === 'starting' || this.step === 'started';
+			},
+			manifest() {
+				return (this.inspection && this.inspection.manifest) || {};
+			},
+			findings() {
+				return (this.inspection && this.inspection.findings) || [];
+			},
+			ok() {
+				return !!(this.inspection && this.inspection.ok && this.inspection.action);
+			},
+			displayTitle() {
+				return this.manifest.title || (this.inspection && this.inspection.fileName) || this.t('common.package', null, 'Package');
+			},
+			heading() {
+				void this.i18nRevision;
+				if (!this.inspection) return this.t('start.title', null, 'Install Package');
+				const title = this.displayTitle;
+				if (!this.ok) return this.t('confirm.titleBlocked', { title }, title + ' cannot be installed');
+				if (this.inspection.action === 'upgrade') return this.t('confirm.titleUpgrade', { title }, 'Update ' + title + '?');
+				if (this.inspection.action === 'reinstall') return this.t('confirm.titleReinstall', { title }, 'Reinstall ' + title + '?');
+				return this.t('confirm.title', { title }, 'Install ' + title + '?');
+			},
+			subtitle() {
+				void this.i18nRevision;
+				if (!this.inspection) return this.t('start.subtitle', null, 'Install an application or an extension into this workspace from a package file.');
+				return this.t('confirm.subtitle', null, 'Only install packages from providers you trust.');
+			},
+			actionText() {
+				void this.i18nRevision;
+				if (!this.inspection || !this.inspection.action) return '';
+				const to = this.manifest.version || '';
+				const from = this.inspection.installedVersion || '';
+				if (this.inspection.action === 'upgrade') return this.t('confirm.action.upgrade', { from, to }, 'Update from ' + from + ' to ' + to);
+				if (this.inspection.action === 'reinstall') return this.t('confirm.action.reinstall', null, 'Reinstall the installed version');
+				return this.t('confirm.action.install', null, 'New installation');
+			},
+			installLabel() {
+				void this.i18nRevision;
+				if (this.inspection && this.inspection.action === 'upgrade') return this.t('confirm.update', null, 'Update');
+				if (this.inspection && this.inspection.action === 'reinstall') return this.t('confirm.reinstall', null, 'Reinstall');
+				return this.t('confirm.install', null, 'Install');
+			},
 		},
 		methods: {
 			t(id, params, fallback) {
 				void this.i18nRevision;
 				return host.translate(I18N_PREFIX + id, params || undefined, fallback);
+			},
+			// A finding is shown in the reader's language when its code has a
+			// text; otherwise the English message the check wrote.
+			findingText(f) {
+				return this.t('finding.' + f.code, null, f.message || f.code);
 			},
 			applyTheme(theme) {
 				if (theme === 'light' || theme === 'dark') {
@@ -126,6 +255,11 @@ if (!host) {
 					if (type === 'theme') this.applyTheme(payload);
 					else if (type === 'localization') this.applyLocalization(payload);
 				});
+				// An upload nobody decided on has no process to discard it.
+				// The host lives in the parent window, so the call outlives
+				// this frame.
+				this._onPageHide = () => this.discardStaged();
+				window.addEventListener('pagehide', this._onPageHide);
 
 				// Display control only — the scripts enforce the administrator
 				// role server-side either way.
@@ -141,6 +275,8 @@ if (!host) {
 			},
 			onUnmount() {
 				if (this._unsubscribe) this._unsubscribe();
+				if (this._onPageHide) window.removeEventListener('pagehide', this._onPageHide);
+				this.discardStaged();
 			},
 			onChoose() {
 				const input = document.getElementById('package-file');
@@ -156,19 +292,25 @@ if (!host) {
 					this.fileError = this.t('start.notZip', null, 'Choose a .zip file.');
 				}
 			},
-			async onStart() {
+			// Best effort: removes the staged upload unless a process owns it.
+			discardStaged() {
+				const staged = this.staged;
+				if (!staged || this.step === 'started') return Promise.resolve();
+				this.staged = null;
+				return host.cms.deleteNode(staged.folder).catch(() => { /* best effort */ });
+			},
+			async onContinue() {
 				const file = this.file;
 				if (!file || this.fileError) return;
-				this.starting = true;
-				this.uploadPercent = 0;
 				this.errorMessage = '';
+				this.uploadPercent = 0;
+				this.step = 'uploading';
 
 				// One folder per upload keeps the original file name; the
 				// installer removes the folder with the file.
 				const stagingId = Date.now() + '-' + Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
 				const folder = STAGING_ROOT + '/' + stagingId;
 				const packagePath = folder + '/' + file.name;
-				let uploaded = false;
 				try {
 					const cms = host.cms;
 					const upload = await cms.initiateMultipartUpload();
@@ -179,30 +321,56 @@ if (!host) {
 							},
 						});
 						await cms.completeMultipartUpload(upload.uploadId, folder, file.name, 'application/zip', true);
-						uploaded = true;
 					} catch (e) {
 						try { await cms.abortMultipartUpload(upload.uploadId); } catch { /* best effort */ }
 						throw e;
 					}
+					this.staged = { stagingId, folder, packagePath, fileName: file.name };
 
+					this.step = 'inspecting';
+					const data = await host.graphql.query(
+							'query($path: String!) { packageInspection(path: $path) }', { path: packagePath });
+					const inspection = data && data.packageInspection;
+					if (!inspection) throw new Error(this.t('start.noInspection', null, 'The package could not be inspected.'));
+					this.inspection = inspection;
+					this.step = 'review';
+				} catch (e) {
+					this.errorMessage = this.t('start.uploadFailed', null, 'Could not read the package: ')
+							+ ((e && e.message) || e);
+					await this.discardStaged();
+					this.step = 'choose';
+				}
+			},
+			async onDiscard() {
+				this.errorMessage = '';
+				await this.discardStaged();
+				this.inspection = null;
+				this.file = null;
+				const input = document.getElementById('package-file');
+				if (input) input.value = '';
+				this.step = 'choose';
+			},
+			async onInstall() {
+				const staged = this.staged;
+				if (!staged || !this.ok) return;
+				this.errorMessage = '';
+				this.step = 'starting';
+				try {
+					// Starting the process is the decision; the sha256 lets the
+					// installation refuse a file that changed since it was shown.
 					await host.startProcess({
-						businessKey: stagingId,
+						businessKey: staged.stagingId,
 						variables: [
-							{ name: 'packagePath', value: packagePath },
-							{ name: 'packageFileName', value: file.name },
+							{ name: 'packagePath', value: staged.packagePath },
+							{ name: 'packageFileName', value: staged.fileName },
+							{ name: 'packageSha256', value: this.inspection.sha256 || '' },
 						],
 					});
-					this.started = true;
+					this.step = 'started';
 				} catch (e) {
 					this.errorMessage = this.t('start.failed', null, 'Could not start the installation: ')
 							+ ((e && e.message) || e);
-					if (uploaded) {
-						// The process never started, so nothing will discard the
-						// upload; do not leave it in the staging area.
-						try { await host.cms.deleteNode(folder); } catch { /* best effort */ }
-					}
-				} finally {
-					this.starting = false;
+					this.step = 'review';
 				}
 			},
 		},

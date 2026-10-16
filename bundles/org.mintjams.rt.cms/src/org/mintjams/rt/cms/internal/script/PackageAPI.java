@@ -27,7 +27,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import javax.jcr.Node;
+import javax.jcr.Session;
+
 import org.mintjams.jcr.security.User;
+import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.job.JobNodes;
+import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.job.pkg.PackageJob;
 import org.mintjams.rt.cms.internal.pkg.InstalledPackage;
 import org.mintjams.rt.cms.internal.pkg.PackageInstaller;
 import org.mintjams.rt.cms.internal.pkg.PackageRecords;
@@ -97,6 +104,47 @@ public class PackageAPI {
 		try (WorkspaceScriptContext context = openContext(userId)) {
 			return installer(context).install(requirePath(packagePath), userId).toMap();
 		}
+	}
+
+	/**
+	 * Queues the installation of the package at the repository path for the
+	 * given administrator, as a background job on this node, and returns the
+	 * job id at once. The job's progress and result are read with
+	 * {@code jobProgress(jobId)}; see
+	 * {@link org.mintjams.rt.cms.internal.job.pkg.PackageJob}.
+	 *
+	 * @param sha256 the SHA-256 of the package the installation was decided
+	 *               on (the inspection's {@code sha256}); the job refuses a
+	 *               file that has changed since. {@code null} or empty
+	 *               installs whatever the file holds when the job runs.
+	 */
+	public String requestInstall(String packagePath, String userId, String sha256) throws IOException {
+		requireAdministrator(userId);
+		String path = requirePath(packagePath);
+		String digest = Strings.isEmpty(sha256) ? null : sha256.trim();
+		String jobId = JobNodes.newJobId();
+		createJobRecord(jobId, PackageJob.TYPE_INSTALL, userId, path, null);
+		CmsService.getJobManager().submit(PackageJob.install(jobId, fContext.getWorkspaceName(), userId, path, digest));
+		return jobId;
+	}
+
+	/**
+	 * Queues the uninstallation of the given packages together for the given
+	 * administrator, as a background job on this node, and returns the job id
+	 * at once. {@code ids} is a collection or array of ids, or one
+	 * comma-separated string.
+	 */
+	public String requestUninstall(Object ids, String userId) throws IOException {
+		requireAdministrator(userId);
+		List<String> packageIds = ids(ids);
+		packageIds.removeIf(Strings::isEmpty);
+		if (packageIds.isEmpty()) {
+			throw new IOException("No package is selected.");
+		}
+		String jobId = JobNodes.newJobId();
+		createJobRecord(jobId, PackageJob.TYPE_UNINSTALL, userId, null, packageIds);
+		CmsService.getJobManager().submit(PackageJob.uninstall(jobId, fContext.getWorkspaceName(), userId, packageIds));
+		return jobId;
 	}
 
 	/**
@@ -179,6 +227,33 @@ public class PackageAPI {
 		}
 		if (user == null || !user.hasRole(ADMINISTRATOR_ROLE)) {
 			throw new IOException("User '" + userId + "' is not permitted to install packages.");
+		}
+	}
+
+	/** Persists the QUEUED record of a package job, owned by this node, attributed to the user. */
+	private void createJobRecord(String jobId, String jobType, String userId, String packagePath, List<String> ids)
+			throws IOException {
+		try {
+			Session session = CmsService.getRepository()
+					.login(new CmsServiceCredentials(userId), fContext.getWorkspaceName());
+			try {
+				Node content = JobNodes.getContent(JobNodes.createJobNode(session, jobId, jobType, userId, 0));
+				if (packagePath != null) {
+					content.setProperty(JobNodes.PROP_PACKAGE_PATH, packagePath);
+				}
+				if (ids != null) {
+					content.setProperty(JobNodes.PROP_PACKAGE_IDS, ids.toArray(new String[ids.size()]));
+				}
+				JobNodes.setNodeId(session, content);
+				JobNodes.setStatus(content, JobStatus.QUEUED);
+				session.save();
+			} finally {
+				try {
+					session.logout();
+				} catch (Throwable ignore) {}
+			}
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(IOException.class);
 		}
 	}
 
