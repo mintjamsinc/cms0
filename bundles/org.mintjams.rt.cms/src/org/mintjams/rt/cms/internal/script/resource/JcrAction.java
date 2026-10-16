@@ -22,6 +22,8 @@
 
 package org.mintjams.rt.cms.internal.script.resource;
 
+import java.util.Arrays;
+
 import javax.jcr.Node;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
@@ -32,6 +34,7 @@ import javax.jcr.nodetype.NodeType;
 import javax.jcr.version.Version;
 import javax.jcr.version.VersionManager;
 
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.tools.adapter.Adaptable;
 
 public class JcrAction implements Adaptable {
@@ -76,12 +79,25 @@ public class JcrAction implements Adaptable {
 
 	/**
 	 * Locks the node, passing the timeout hint through to the lock manager.
-	 * A non-positive timeout means the lock never times out.
+	 * A non-positive timeout means the lock never times out. A file is always
+	 * locked deep (see {@link #isDeepLock}).
 	 */
 	public JcrAction lock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws RepositoryException {
-		getLockManager().lock(getPath(), isDeep, isSessionScoped,
+		getLockManager().lock(getPath(), isDeepLock(getNode(), isDeep), isSessionScoped,
 				(timeoutSeconds > 0) ? timeoutSeconds : Long.MAX_VALUE, getSession().getUserID());
 		return this;
+	}
+
+	/**
+	 * Whether a lock on this node is to be deep. A file is always locked deep,
+	 * whatever was asked: its content lives in its {@code jcr:content} child,
+	 * and a shallow lock covers the locked node alone (JSR-283), so a shallow
+	 * lock on a file would leave its content writable by anyone. A folder is
+	 * locked as asked. Every way of locking — GraphQL, the Resource API, the
+	 * EIP {@code cms:lock} — applies this rule.
+	 */
+	public static boolean isDeepLock(Node node, boolean isDeep) throws RepositoryException {
+		return isDeep || JCRs.isFile(node);
 	}
 
 	public JcrAction unlock() throws RepositoryException {
@@ -118,42 +134,56 @@ public class JcrAction implements Adaptable {
 		return this;
 	}
 
+	/**
+	 * Refuses a change to the node while it is locked (on itself, or deep on
+	 * an ancestor) by a lock this session does not hold the token of — the
+	 * rule the JCR layer applies to the node's own properties.
+	 *
+	 * <p>Checked on the file node before its content is written, it also
+	 * refuses a write under a shallow lock on the file, which the JCR layer
+	 * lets through to {@code jcr:content}: files are locked deep now, but a
+	 * lock taken shallow before that is still honoured.
+	 */
 	public JcrAction checkLock() throws RepositoryException {
-		if (!getLockManager().isLocked(getNode().getPath())) {
+		Lock lock = findLock();
+		if (lock == null || holdsToken(lock)) {
 			return this;
 		}
 
-		Lock lock = getLockManager().getLock(getNode().getPath());
-		if (lock.isSessionScoped()) {
-			return this;
-		}
-
-		if (getLockManager().getLockTokens().length > 0) {
-			return this;
-		}
-
-		throw new LockException(getNode().getPath());
+		throw new LockException(lockedMessage(lock));
 	}
 
+	/** {@link #checkLock()} for a deep lock only: whether nodes may be added or removed beneath this one. */
 	public JcrAction checkDeepLock() throws RepositoryException {
-		if (!getLockManager().isLocked(getNode().getPath())) {
+		Lock lock = findLock();
+		if (lock == null || !lock.isDeep() || holdsToken(lock)) {
 			return this;
 		}
 
-		Lock lock = getLockManager().getLock(getNode().getPath());
-		if (lock.isSessionScoped()) {
-			return this;
-		}
+		throw new LockException(lockedMessage(lock));
+	}
 
-		if (!lock.isDeep()) {
-			return this;
+	private Lock findLock() throws RepositoryException {
+		try {
+			return getLockManager().getLock(getPath());
+		} catch (LockException ignore) {
+			return null;
 		}
+	}
 
-		if (getLockManager().getLockTokens().length > 0) {
-			return this;
-		}
+	/**
+	 * Whether this session holds the lock's token. An open-scoped lock's token
+	 * is held by every session of its owner; a session-scoped lock's by the
+	 * session that took it alone (see {@code documents/resource-locks.md}).
+	 */
+	private boolean holdsToken(Lock lock) throws RepositoryException {
+		String token = lock.getLockToken();
+		return token != null && Arrays.asList(getLockManager().getLockTokens()).contains(token);
+	}
 
-		throw new LockException(getNode().getPath());
+	private String lockedMessage(Lock lock) throws RepositoryException {
+		String owner = lock.getLockOwner();
+		return getPath() + " is locked" + ((owner != null && !owner.isEmpty()) ? " by " + owner : "") + ".";
 	}
 
 	public JcrAction addVersionControl() throws RepositoryException {

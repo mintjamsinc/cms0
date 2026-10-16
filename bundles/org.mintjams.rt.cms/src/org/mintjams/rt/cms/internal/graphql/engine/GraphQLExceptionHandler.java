@@ -34,6 +34,7 @@ import javax.jcr.AccessDeniedException;
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.LoginException;
 import javax.jcr.PathNotFoundException;
+import javax.jcr.lock.LockException;
 import javax.script.ScriptException;
 
 import org.mintjams.rt.cms.internal.CmsService;
@@ -157,6 +158,11 @@ final class GraphQLExceptionHandler implements DataFetcherExceptionHandler {
 		}
 		if (exception instanceof PathNotFoundException || exception instanceof ItemNotFoundException) {
 			return "NOT_FOUND";
+		}
+		// A write refused because someone else holds a lock: the caller is told
+		// what is locked, not that the server failed.
+		if (exception instanceof LockException) {
+			return "LOCKED";
 		}
 		if (exception instanceof IllegalStateException) {
 			return "UNAVAILABLE";

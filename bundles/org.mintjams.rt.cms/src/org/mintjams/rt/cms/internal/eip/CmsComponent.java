@@ -86,6 +86,7 @@ import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.ScriptReader;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
+import org.mintjams.rt.cms.internal.script.resource.JcrAction;
 import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.tools.adapter.Adaptables;
@@ -3105,8 +3106,10 @@ public class CmsComponent extends DefaultComponent {
 					throw new IllegalArgumentException("timeoutSeconds is only valid for session-scoped locks. For persistent locks, the lock lives until explicitly released by cms:unlock.");
 				}
 
-				Lock lock = session.getWorkspace().getLockManager()
-						.lock(path, isDeep, isSessionScoped, timeoutSeconds, session.getUserID());
+				// A file is always locked deep, so its content is covered.
+				Lock lock = session.getWorkspace().getLockManager().lock(path,
+						JcrAction.isDeepLock(session.getNode(path), isDeep), isSessionScoped, timeoutSeconds,
+						session.getUserID());
 
 				Map<String, Object> results = new LinkedHashMap<>();
 				results.put("lock", lock);

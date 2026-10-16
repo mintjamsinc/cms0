@@ -50,6 +50,28 @@ user, that is not a hypothetical.
 Because the lifecycles differ this much, `cms:lock` requires `isSessionScoped` to
 be stated rather than defaulted.
 
+## A file is always locked deep
+
+A file's content is not on the file node: it is the `jcr:data` of its
+`jcr:content` child, where its MIME type, encoding and custom properties live
+too. A shallow lock covers the locked node alone (JSR-283), so a shallow lock
+on a file leaves its content writable by anyone, and the JCR layer applies
+the specification as it stands.
+
+The platform therefore locks a file deep, whatever was asked: GraphQL
+`lockNode`, the Resource API's `lock` / `tryLock` and the EIP `cms:lock` all
+apply the rule (`JcrAction.isDeepLock`). A folder is locked as asked — the
+folder alone, or with `isDeep` everything beneath it as well; Webtop offers
+both ("Lock" and "Lock Including Contents"), and locks a file deep.
+
+A lock taken shallow on a file before this rule is still honoured on the way
+in: Resource writes, GraphQL `setProperties`, uploads that replace a file and
+the MCP `write_file` / `edit_file` check the lock of the file node itself
+(`JcrAction.checkLock`) before they write its content. The check refuses the
+write unless the session holds the lock's token — an open-scoped lock's
+token is held by every session of its owner, a session-scoped lock's by the
+session that took it alone.
+
 ## Timeouts
 
 A timeout bounds how long a crashed owner — process kill, OOM, power loss, cases

@@ -231,14 +231,15 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		byte[] bytes = updated.getBytes(charset);
 
 		try {
-			// The JCR layer does not refuse a write to a node someone else has
-			// locked; check it the way every Resource write does.
+			// A file is locked deep, and the JCR layer refuses the write to its
+			// content; a file locked shallow before that is refused here, as
+			// every Resource write refuses it.
 			JcrAction.create(file).addLockToken().checkLock();
 			JCRs.write(file, new ByteArrayInputStream(bytes));
 			session.save();
 		} catch (LockException ex) {
 			session.refresh(false);
-			throw new IllegalArgumentException(path + " is locked by someone else; nothing was changed.");
+			throw new IllegalArgumentException(ex.getMessage() + " Nothing was changed.");
 		} catch (VersionException ex) {
 			session.refresh(false);
 			throw new IllegalArgumentException(path + " is checked in, so it cannot be changed; nothing was"

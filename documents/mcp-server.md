@@ -398,8 +398,11 @@ Text is written in the encoding the existing file records (UTF-8 for a new
 file). The MIME type of a new file is derived from its name by the repository's
 type detector; an existing file keeps its type unless one is given.
 
-A checked-in versionable file, or a file locked by someone else, is refused by
-the repository as it would be for any other client.
+A checked-in versionable file, or a file locked by someone else, is refused as
+it would be for any other client, and the refusal names the lock's owner. A
+file is always locked deep, so the repository refuses the write to its
+content; a file locked shallow before that rule is checked on the file node
+itself (see `documents/resource-locks.md`).
 
 ### `graphql` — everything else
 

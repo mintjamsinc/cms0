@@ -89,6 +89,7 @@ import org.mintjams.rt.cms.internal.pkg.InstalledPackage;
 import org.mintjams.rt.cms.internal.pkg.PackageRecords;
 import org.mintjams.rt.cms.internal.script.PackageAPI;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
+import org.mintjams.rt.cms.internal.script.resource.JcrAction;
 import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
@@ -1066,6 +1067,10 @@ public final class PlatformWiringContributor implements WiringContributor {
 		}
 
 		Node node = session.getNode(path);
+		// The properties go to jcr:content, which the JCR layer protects only
+		// under a deep lock; a file locked shallow before files were always
+		// locked deep is refused here.
+		JcrAction.create(node).addLockToken().checkLock();
 		List<Map<String, Object>> errors = new ArrayList<>();
 		for (Object propObj : (List<Object>) propertiesObj) {
 			if (!(propObj instanceof Map)) {
@@ -1205,7 +1210,11 @@ public final class PlatformWiringContributor implements WiringContributor {
 				new PrincipalDisplayNameResolver(session));
 	}
 
-	/** {@code Mutation.lockNode(input)} — open-scoped by default so the lock persists across requests. */
+	/**
+	 * {@code Mutation.lockNode(input)} — open-scoped by default so the lock
+	 * persists across requests. A file is always locked deep, whatever
+	 * {@code isDeep} says, so its content is covered ({@link JcrAction#isDeepLock}).
+	 */
 	private static Object lockNode(DataFetchingEnvironment environment) throws Exception {
 		Session session = session(environment);
 		Map<String, Object> input = inputArg(environment);
@@ -1224,7 +1233,8 @@ public final class PlatformWiringContributor implements WiringContributor {
 			session.save();
 		}
 		LockManager lockManager = session.getWorkspace().getLockManager();
-		lockManager.lock(path, isDeep, isSessionScoped, Long.MAX_VALUE, session.getUserID());
+		lockManager.lock(path, JcrAction.isDeepLock(node, isDeep), isSessionScoped, Long.MAX_VALUE,
+				session.getUserID());
 		return NodeMapper.toGraphQL(session.getNode(path), astSelection(environment.getSelectionSet()),
 				new PrincipalDisplayNameResolver(session));
 	}

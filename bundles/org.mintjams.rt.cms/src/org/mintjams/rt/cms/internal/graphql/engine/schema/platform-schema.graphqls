@@ -186,7 +186,7 @@ type Mutation {
   """Copy a node (deep copy) under destPath, optionally renaming. Version mixins are stripped by the copy."""
   copyNode(input: CopyNodeInput!): Node!
 
-  """Lock a node (adds mix:lockable if needed). Open-scoped by default so the lock persists across requests."""
+  """Lock a node (adds mix:lockable if needed). Open-scoped by default so the lock persists across requests. A file is always locked deep, whatever isDeep says, so its content (jcr:content) is covered; a folder is locked as isDeep says."""
   lockNode(input: LockNodeInput!): Node!
 
   """Unlock a node; returns true."""
@@ -583,6 +583,7 @@ input CopyNodeInput {
 
 input LockNodeInput {
   path: String!
+  """Whether the lock covers the folder's descendants as well. Ignored for a file, which is always locked deep."""
   isDeep: Boolean = false
   isSessionScoped: Boolean = false
 }

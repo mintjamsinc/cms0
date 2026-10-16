@@ -42,6 +42,7 @@ import javax.jcr.Session;
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.script.resource.JcrAction;
 
 /**
  * Manages multipart file uploads for GraphQL mutations.
@@ -180,6 +181,10 @@ public class MultipartUploadManager {
 
 				// Overwrite existing node — preserve existing MIME type
 				fileNode = session.getNode(targetPath);
+				// The content is in jcr:content, which the JCR layer protects only
+				// under a deep lock; a file locked shallow before files were
+				// always locked deep is refused here.
+				JcrAction.create(fileNode).addLockToken().checkLock();
 				Node existingContent = JCRs.getContentNode(fileNode);
 				if (existingContent.hasProperty("jcr:mimeType")) {
 					mimeType = existingContent.getProperty("jcr:mimeType").getString();

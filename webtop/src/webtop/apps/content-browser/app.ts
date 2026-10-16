@@ -2748,9 +2748,14 @@ export const App = {
 			if (isSingleSelection) {
 				menuItems.push({ id: 'rename', label: vm.t('app.content-browser.menu.rename', undefined, 'Rename'), icon: 'bi-pencil' });
 			}
-			// Lock/Unlock options
+			// Lock/Unlock options. A file is always locked deep, so its content
+			// is covered; a folder is locked shallow (the folder itself) or, with
+			// "Lock Including Contents", deep (everything beneath it too).
 			if (hasUnlocked) {
 				menuItems.push({ id: 'lock', label: vm.t('app.content-browser.menu.lock', undefined, 'Lock'), icon: 'bi-lock' });
+			}
+			if (selectedItemObjects.some((i: any) => i.isCollection && !i.isLocked)) {
+				menuItems.push({ id: 'lock-deep', label: vm.t('app.content-browser.menu.lockDeep', undefined, 'Lock Including Contents'), icon: 'bi-lock-fill' });
 			}
 			if (hasLocked) {
 				menuItems.push({ id: 'unlock', label: vm.t('app.content-browser.menu.unlock', undefined, 'Unlock'), icon: 'bi-unlock' });
@@ -2918,7 +2923,10 @@ export const App = {
 					}
 					break;
 				case 'lock':
-					vm.lockItems(selectedItemObjects.filter((i: any) => !i.isLocked));
+					vm.lockItems(selectedItemObjects.filter((i: any) => !i.isLocked), false);
+					break;
+				case 'lock-deep':
+					vm.lockItems(selectedItemObjects.filter((i: any) => !i.isLocked), true);
 					break;
 				case 'unlock':
 					vm.unlockItems(selectedItemObjects.filter((i: any) => i.isLocked));
@@ -2961,7 +2969,10 @@ export const App = {
 					break;
 			}
 		},
-		async lockItems(items: ContentItem[]) {
+		// Locks the items: a file always deep (its content is in jcr:content,
+		// which a shallow lock would leave writable), a folder deep only when
+		// `folderDeep` asks for its contents to be locked as well.
+		async lockItems(items: ContentItem[], folderDeep: boolean) {
 			const vm = this;
 			if (items.length === 0) return;
 
@@ -2970,7 +2981,7 @@ export const App = {
 			try {
 				const contentService = vm.instance.api.content;
 				for (const item of items) {
-					await contentService.lockNode(item.path);
+					await contentService.lockNode(item.path, { isDeep: item.isCollection ? folderDeep : true });
 				}
 				// Reload the current directory to reflect the changes
 				await vm.load(vm.currentPath);

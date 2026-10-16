@@ -560,12 +560,13 @@ final class ContentTools {
 							+ previous.get("modifiedBy") + "). Nothing was written. If it should be replaced, read"
 							+ " it with read_file first, then call write_file again with overwrite set to true.");
 				}
-				// The JCR layer does not refuse a write to a node someone else
-				// has locked; check it the way every Resource write does.
+				// A file is locked deep, and the JCR layer refuses the write to
+				// its content; a file locked shallow before that is refused here,
+				// as every Resource write refuses it.
 				try {
 					JcrAction.create(file).addLockToken().checkLock();
 				} catch (LockException ex) {
-					throw new McpToolException(path + " is locked by someone else; nothing was written.");
+					throw new McpToolException(ex.getMessage() + " Nothing was written.");
 				}
 				result.put("replaced", previous);
 			} else {

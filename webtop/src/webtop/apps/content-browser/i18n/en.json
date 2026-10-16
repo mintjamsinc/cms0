@@ -142,6 +142,7 @@
 	"app.content-browser.menu.paste": "Paste",
 	"app.content-browser.menu.rename": "Rename",
 	"app.content-browser.menu.lock": "Lock",
+	"app.content-browser.menu.lockDeep": "Lock Including Contents",
 	"app.content-browser.menu.unlock": "Unlock",
 	"app.content-browser.menu.enableReferenceable": "Enable Referenceable",
 	"app.content-browser.menu.disableReferenceable": "Disable Referenceable",

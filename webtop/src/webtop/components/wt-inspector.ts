@@ -2595,8 +2595,11 @@ defineComponent('wt-inspector', {
 		},
 		actionLock(this: any) {
 			const vm = this;
+			// A file is always locked deep, so its content is covered; a folder
+			// shallow, as the content browser's plain "Lock" does.
+			const isDeep = !vm.singleTarget?.isCollection;
 			vm._runQuickAction(
-				(path: string) => vm.api.content.lockNode(path),
+				(path: string) => vm.api.content.lockNode(path, { isDeep }),
 				vm.t('webtop.inspector.action.lockFailed', undefined, 'Failed to lock'),
 			);
 		},

@@ -280,8 +280,8 @@ export interface UseNodeMutationsReturn {
   deleteNode: (path: string) => Promise<boolean>;
   /** Set properties */
   setProperties: (path: string, properties: PropertyInput[]) => Promise<{ node: Node | null; errors: Array<{ propertyName: string; message: string }> }>;
-  /** Lock a node */
-  lockNode: (path: string) => Promise<Node | null>;
+  /** Lock a node (a file is always locked deep, whatever isDeep says) */
+  lockNode: (path: string, options?: { isDeep?: boolean; isSessionScoped?: boolean }) => Promise<Node | null>;
   /** Unlock a node */
   unlockNode: (path: string) => Promise<boolean>;
   /** Current mutation state */
@@ -329,8 +329,8 @@ export function useNodeMutations(
       return result ?? { node: null, errors: [] };
     },
 
-    lockNode: (path) =>
-      wrap(() => contentService.lockNode(path)),
+    lockNode: (path, options) =>
+      wrap(() => contentService.lockNode(path, options)),
 
     unlockNode: (path) =>
       wrap(() => contentService.unlockNode(path)).then(r => r ?? false),
