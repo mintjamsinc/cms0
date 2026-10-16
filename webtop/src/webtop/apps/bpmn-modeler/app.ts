@@ -287,6 +287,155 @@ const REF_CONFIGS: Record<RefKind, RefConfig> = {
 // =============================================================================
 interface ChoiceOption { id: string; label: string; }
 
+/**
+ * One tile of the palette. `shape` picks the tile drawing in index.html; the
+ * rest is the preset a drop hands to addElement(), so a tile can stand for
+ * "a timer start event" rather than only for an element type.
+ */
+interface PaletteItem {
+	key: string;
+	label: string;
+	type: string;
+	shape: 'event' | 'task' | 'gateway' | 'subProcess' | 'dataObject' | 'dataStore' | 'textAnnotation' | 'pool' | 'lane';
+	/** event: start | intermediate | boundary | end; subProcess: collapsed | expanded | event | transaction */
+	variant?: string;
+	/** Colour class the same element has on the canvas (start-event, user-task, ...). */
+	cssClass?: string;
+	/** Sprite symbol drawn on the body. */
+	icon?: string;
+	subType?: string;
+	catching?: boolean;
+}
+
+interface PaletteCategory {
+	key: string;
+	label: string;
+	items: PaletteItem[];
+}
+
+/** What a palette drop creates, beyond the bare element type. */
+interface PalettePreset {
+	type: string;
+	subType?: string;
+	catching?: boolean;
+	variant?: string;
+}
+
+/** The drag payload is JSON (a preset); a bare type string still works. */
+function parsePalettePreset(raw: string): PalettePreset | null {
+	if (!raw.startsWith('{')) return { type: raw };
+	try {
+		const p = JSON.parse(raw);
+		return typeof p?.type === 'string' ? p as PalettePreset : null;
+	} catch {
+		return null;
+	}
+}
+
+const startTile = (key: string, label: string, subType?: string): PaletteItem => ({
+	key, label, type: 'startEvent', shape: 'event', variant: 'start', cssClass: 'start-event',
+	subType, icon: subType ? 'canvas-start-' + subType : undefined,
+});
+const endTile = (key: string, label: string, subType?: string): PaletteItem => ({
+	key, label, type: 'endEvent', shape: 'event', variant: 'end', cssClass: 'end-event',
+	subType, icon: subType ? 'canvas-end-' + subType : undefined,
+});
+// catching undefined: the trigger has one icon (timer, conditional); else -catch / -throw.
+const midTile = (key: string, label: string, subType?: string, catching?: boolean): PaletteItem => ({
+	key, label, type: 'intermediateEvent', shape: 'event', variant: 'intermediate', cssClass: 'intermediate-event',
+	subType, catching,
+	icon: subType ? 'canvas-intermediate-' + subType + (catching === undefined ? '' : catching ? '-catch' : '-throw') : undefined,
+});
+const boundaryTile = (key: string, label: string, subType: string): PaletteItem => ({
+	key, label, type: 'boundaryEvent', shape: 'event', variant: 'boundary', cssClass: 'boundary-event',
+	subType, icon: 'canvas-boundary-' + subType,
+});
+const taskTile = (key: string, label: string, cssClass: string, icon?: string): PaletteItem => ({
+	key, label, type: key, shape: 'task', cssClass, icon,
+});
+const gatewayTile = (key: string, label: string, kind: string, cssClass: string): PaletteItem => ({
+	key, label, type: key, shape: 'gateway', cssClass, icon: 'canvas-gateway-' + kind,
+});
+const subProcessTile = (key: string, label: string, variant: string, cssClass?: string): PaletteItem => ({
+	key, label, type: 'subProcess', shape: 'subProcess', variant, cssClass,
+	subType: variant === 'collapsed' ? undefined : variant,
+});
+
+const PALETTE_CATEGORIES: PaletteCategory[] = [
+	{ key: 'startEvents', label: 'Start Events', items: [
+		startTile('startEvent', 'Start Event'),
+		startTile('messageStartEvent', 'Message Start Event', 'message'),
+		startTile('timerStartEvent', 'Timer Start Event', 'timer'),
+		startTile('conditionalStartEvent', 'Conditional Start Event', 'conditional'),
+		startTile('signalStartEvent', 'Signal Start Event', 'signal'),
+	] },
+	{ key: 'intermediateEvents', label: 'Intermediate Events', items: [
+		midTile('intermediateEvent', 'Intermediate Event'),
+		midTile('messageCatchEvent', 'Message Catch Event', 'message', true),
+		midTile('messageThrowEvent', 'Message Throw Event', 'message', false),
+		midTile('timerIntermediateEvent', 'Timer Intermediate Event', 'timer'),
+		midTile('conditionalIntermediateEvent', 'Conditional Intermediate Event', 'conditional'),
+		midTile('signalCatchEvent', 'Signal Catch Event', 'signal', true),
+		midTile('signalThrowEvent', 'Signal Throw Event', 'signal', false),
+		midTile('linkCatchEvent', 'Link Catch Event', 'link', true),
+		midTile('linkThrowEvent', 'Link Throw Event', 'link', false),
+		midTile('escalationThrowEvent', 'Escalation Throw Event', 'escalation', false),
+		midTile('compensationThrowEvent', 'Compensation Throw Event', 'compensation', false),
+	] },
+	{ key: 'boundaryEvents', label: 'Boundary Events (drop on a task)', items: [
+		boundaryTile('timerBoundaryEvent', 'Timer Boundary Event', 'timer'),
+		boundaryTile('messageBoundaryEvent', 'Message Boundary Event', 'message'),
+		boundaryTile('errorBoundaryEvent', 'Error Boundary Event', 'error'),
+		boundaryTile('signalBoundaryEvent', 'Signal Boundary Event', 'signal'),
+		boundaryTile('escalationBoundaryEvent', 'Escalation Boundary Event', 'escalation'),
+		boundaryTile('conditionalBoundaryEvent', 'Conditional Boundary Event', 'conditional'),
+		boundaryTile('compensationBoundaryEvent', 'Compensation Boundary Event', 'compensation'),
+	] },
+	{ key: 'endEvents', label: 'End Events', items: [
+		endTile('endEvent', 'End Event'),
+		endTile('messageEndEvent', 'Message End Event', 'message'),
+		endTile('errorEndEvent', 'Error End Event', 'error'),
+		endTile('escalationEndEvent', 'Escalation End Event', 'escalation'),
+		endTile('signalEndEvent', 'Signal End Event', 'signal'),
+		endTile('terminateEndEvent', 'Terminate End Event', 'terminate'),
+	] },
+	{ key: 'tasks', label: 'Tasks', items: [
+		taskTile('task', 'Task', 'generic-task'),
+		taskTile('userTask', 'User Task', 'user-task', 'canvas-task-user'),
+		taskTile('serviceTask', 'Service Task', 'service-task', 'canvas-task-service'),
+		taskTile('scriptTask', 'Script Task', 'script-task', 'canvas-task-script'),
+		taskTile('manualTask', 'Manual Task', 'manual-task', 'canvas-task-manual'),
+		taskTile('sendTask', 'Send Task', 'send-task', 'canvas-task-send'),
+		taskTile('receiveTask', 'Receive Task', 'receive-task', 'canvas-task-receive'),
+		taskTile('businessRuleTask', 'Business Rule Task', 'business-rule-task', 'canvas-task-businessRule'),
+		taskTile('callActivity', 'Call Activity', 'call-activity'),
+	] },
+	{ key: 'gateways', label: 'Gateways', items: [
+		gatewayTile('exclusiveGateway', 'Exclusive Gateway', 'exclusive', 'exclusive-gateway'),
+		gatewayTile('parallelGateway', 'Parallel Gateway', 'parallel', 'parallel-gateway'),
+		gatewayTile('inclusiveGateway', 'Inclusive Gateway', 'inclusive', 'inclusive-gateway'),
+		gatewayTile('eventBasedGateway', 'Event-based Gateway', 'eventBased', 'event-based-gateway'),
+		gatewayTile('complexGateway', 'Complex Gateway', 'complex', 'complex-gateway'),
+	] },
+	{ key: 'subProcesses', label: 'Sub-Processes', items: [
+		subProcessTile('subProcess', 'Sub-Process', 'collapsed'),
+		subProcessTile('expandedSubProcess', 'Expanded Sub-Process', 'expanded'),
+		subProcessTile('eventSubProcess', 'Event Sub-Process', 'event', 'event-subprocess'),
+		subProcessTile('transaction', 'Transaction', 'transaction', 'transaction-subprocess'),
+	] },
+	{ key: 'data', label: 'Data', items: [
+		{ key: 'dataObject', label: 'Data Object', type: 'dataObject', shape: 'dataObject' },
+		{ key: 'dataStore', label: 'Data Store', type: 'dataStore', shape: 'dataStore' },
+	] },
+	{ key: 'artifacts', label: 'Artifacts', items: [
+		{ key: 'textAnnotation', label: 'Text Annotation', type: 'textAnnotation', shape: 'textAnnotation' },
+	] },
+	{ key: 'swimlanes', label: 'Swimlanes', items: [
+		{ key: 'pool', label: 'Pool', type: 'pool', shape: 'pool' },
+		{ key: 'lane', label: 'Lane (drop on a pool)', type: 'lane', shape: 'lane' },
+	] },
+];
+
 const TIMER_TYPE_OPTIONS: ChoiceOption[] = [
 	{ id: 'timeDate', label: 'app.bpmn-modeler.opt.timerType.timeDate' },
 	{ id: 'timeDuration', label: 'app.bpmn-modeler.opt.timerType.timeDuration' },
@@ -496,16 +645,20 @@ export const App = {
 			sidebarPanelVisible: true,
 			detailPanelVisible: true,
 			sidebarPanelWidth: 240,
-			// Palette collapsible sections
+			// Palette: the tiles, and which sections are open
+			paletteCategories: PALETTE_CATEGORIES,
 			paletteExpanded: {
-				events: true,
+				startEvents: true,
+				intermediateEvents: true,
+				boundaryEvents: true,
+				endEvents: true,
 				tasks: true,
 				gateways: true,
 				subProcesses: true,
 				data: true,
 				artifacts: true,
 				swimlanes: true,
-			},
+			} as Record<string, boolean>,
 			messageListener: null as ((e: MessageEvent) => void) | null,
 			// Viewport
 			zoom: 1,
@@ -3233,13 +3386,26 @@ export const App = {
 			const types = e.dataTransfer?.types ?? [];
 			if (types.includes('Files') || types.includes('application/x-webtop-file')
 				|| types.includes('application/x-webtop-save')) return;
-			const type = e.dataTransfer?.getData('text/plain');
-			if (!type) return;
+			const raw = e.dataTransfer?.getData('text/plain');
+			const preset = raw ? parsePalettePreset(raw) : null;
+			if (!preset) return;
+			const type = preset.type;
 
 			const container = e.currentTarget as HTMLElement;
 			const rect = container.getBoundingClientRect();
 			const x = (e.clientX - rect.left - vm.panX) / vm.zoom;
 			const y = (e.clientY - rect.top - vm.panY) / vm.zoom;
+
+			// A lane only exists inside a pool: the drop picks the pool.
+			if (type === 'lane') {
+				const pool = vm.findPoolAtPosition(x, y);
+				if (!pool) {
+					vm.showNotification(vm.t('app.bpmn-modeler.error.laneTarget'), 'warning');
+					return;
+				}
+				vm.addLaneToPool(pool);
+				return;
+			}
 
 			// Pools and Lanes never sit inside another container — drop them at root.
 			// For everything else, prefer a sub-process if the drop lands inside one;
@@ -3255,7 +3421,7 @@ export const App = {
 					if (parentPool) parentId = parentPool.id;
 				}
 			}
-			vm.addElement(type, x, y, parentId);
+			vm.addElement(type, x, y, parentId, preset);
 		},
 
 		/**
@@ -3313,8 +3479,9 @@ export const App = {
 		// Element Operations
 		// ==========================================================================
 
-		onPaletteDragStart(e: DragEvent, type: string) {
-			e.dataTransfer?.setData('text/plain', type);
+		onPaletteDragStart(e: DragEvent, item: PaletteItem) {
+			const preset: PalettePreset = { type: item.type, subType: item.subType, catching: item.catching, variant: item.variant };
+			e.dataTransfer?.setData('text/plain', JSON.stringify(preset));
 		},
 
 		onElementMouseDown(e: MouseEvent, element: BpmnElement | BpmnConnection) {
@@ -3484,7 +3651,7 @@ export const App = {
 			}) || null;
 		},
 
-		addElement(type: string, x: number, y: number, parentId?: string) {
+		addElement(type: string, x: number, y: number, parentId?: string, preset?: PalettePreset) {
 			const vm = this;
 			const size = ELEMENT_SIZES[type] || { width: 100, height: 80 };
 
@@ -3508,7 +3675,7 @@ export const App = {
 					height: 36,
 					attachedToRef: targetTask.id,
 					cancelActivity: true, // Default to Interrupting
-					subType: 'timer', // Default subType
+					subType: preset?.subType || 'timer',
 					parentId: targetTask.parentId, // Inherit parent from the attached task
 				};
 
@@ -3528,6 +3695,24 @@ export const App = {
 				height: size.height,
 				parentId, // Set parent sub-process ID if dropping inside one
 			};
+
+			// What the tile stood for beyond the type: the same fields the
+			// type-change menu sets, so a palette-made element and a converted
+			// one are indistinguishable.
+			if (preset?.subType) element.subType = preset.subType;
+			if (preset?.catching !== undefined) element.catching = preset.catching;
+			if (type === 'subProcess') {
+				if (preset?.variant === 'expanded' || preset?.variant === 'transaction') {
+					const big = preset.variant === 'transaction' ? ELEMENT_SIZES.transaction : ELEMENT_SIZES.expandedSubProcess;
+					element.width = big.width;
+					element.height = big.height;
+					element.x = Math.round((x - big.width / 2) / 10) * 10;
+					element.y = Math.round((y - big.height / 2) / 10) * 10;
+					element.isExpanded = true;
+				} else if (preset?.variant === 'event') {
+					element.triggeredByEvent = true;
+				}
+			}
 
 			// Set defaults for specific types
 			let isFirstPoolDrop = false;

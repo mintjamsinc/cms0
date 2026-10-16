@@ -107,192 +107,68 @@
 				:style="{ width: sidebarPanelWidth + 'px' }"
 				@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
 				<div class="sidebar-panel-content">
-				<!-- Events -->
-				<div class="sidebar-section">
-					<div class="sidebar-section-header" @click="paletteExpanded.events = !paletteExpanded.events">
-						<i class="bi" :class="paletteExpanded.events ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>{{ t('app.bpmn-modeler.palette.section.events') }}</span>
+				<!-- One template for every tile: the body is the canvas shape with
+				     its colour class and the glyph is the canvas sprite symbol, so a
+				     tile shows what its drop creates (see PALETTE_CATEGORIES). -->
+				<div v-for="category in paletteCategories" :key="category.key" class="sidebar-section">
+					<div class="sidebar-section-header" @click="paletteExpanded[category.key] = !paletteExpanded[category.key]">
+						<i class="bi" :class="paletteExpanded[category.key] ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+						<span>{{ t('app.bpmn-modeler.palette.section.' + category.key, undefined, category.label) }}</span>
 					</div>
-					<div v-show="paletteExpanded.events" class="sidebar-section-body px-2">
-					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'startEvent')" :title="t('app.bpmn-modeler.palette.startEvent', undefined, 'Start Event')">
-							<svg viewBox="0 0 36 36">
-								<circle cx="18" cy="18" r="15" fill="#27AE60" stroke="#1E8449" stroke-width="1.5"/>
-							</svg>
-						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'endEvent')" :title="t('app.bpmn-modeler.palette.endEvent', undefined, 'End Event')">
-							<svg viewBox="0 0 36 36">
-								<circle cx="18" cy="18" r="15" fill="#E74C3C" stroke="#C0392B" stroke-width="3"/>
-							</svg>
-						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'intermediateEvent')" :title="t('app.bpmn-modeler.palette.intermediateEvent', undefined, 'Intermediate Event')">
-							<svg viewBox="0 0 36 36">
-								<circle cx="18" cy="18" r="15" fill="#E67E22" stroke="#D35400" stroke-width="1.5"/>
-								<circle cx="18" cy="18" r="12" fill="none" stroke="white" stroke-width="1"/>
-							</svg>
-						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'boundaryEvent')" :title="t('app.bpmn-modeler.palette.boundaryEvent', undefined, 'Boundary Event (drop on task)')">
-							<svg viewBox="0 0 36 36">
-								<circle cx="18" cy="18" r="15" fill="#E67E22" stroke="#D35400" stroke-width="1.5"/>
-								<circle cx="18" cy="18" r="12" fill="none" stroke="white" stroke-width="1"/>
-								<circle cx="18" cy="18" r="5" fill="none" stroke="white" stroke-width="1"/>
-								<path d="M18 13 L18 18 L21 20" fill="none" stroke="white" stroke-width="1"/>
-							</svg>
-						</div>
-					</div>
-				</div>
-
-				</div>
-
-				<!-- Tasks -->
-				<div class="sidebar-section">
-					<div class="sidebar-section-header" @click="paletteExpanded.tasks = !paletteExpanded.tasks">
-						<i class="bi" :class="paletteExpanded.tasks ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>{{ t('app.bpmn-modeler.palette.section.tasks') }}</span>
-					</div>
-					<div v-show="paletteExpanded.tasks" class="sidebar-section-body px-2">
-					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'userTask')" :title="t('app.bpmn-modeler.palette.userTask', undefined, 'User Task')">
-							<svg viewBox="0 0 48 40">
-								<rect x="2" y="2" width="44" height="36" rx="4" fill="#3498DB" stroke="#2980B9" stroke-width="1.5"/>
-								<path d="M8 10 a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0 M6 20 Q12 16 18 20" fill="none" stroke="white" stroke-width="1"/>
-							</svg>
-						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'serviceTask')" :title="t('app.bpmn-modeler.palette.serviceTask', undefined, 'Service Task')">
-							<svg viewBox="0 0 48 40">
-								<rect x="2" y="2" width="44" height="36" rx="4" fill="#8E44AD" stroke="#6C3483" stroke-width="1.5"/>
-								<circle cx="12" cy="12" r="5" fill="none" stroke="white" stroke-width="1"/>
-								<circle cx="12" cy="12" r="2" fill="white"/>
-							</svg>
-						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'scriptTask')" :title="t('app.bpmn-modeler.palette.scriptTask', undefined, 'Script Task')">
-							<svg viewBox="0 0 48 40">
-								<rect x="2" y="2" width="44" height="36" rx="4" fill="#2C3E6E" stroke="#1A2540" stroke-width="1.5"/>
-								<path d="M8 8 L8 18 Q8 20 10 20 L14 20 Q16 20 16 22 L16 28" fill="none" stroke="white" stroke-width="1.5"/>
-							</svg>
-						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'manualTask')" :title="t('app.bpmn-modeler.palette.manualTask', undefined, 'Manual Task')">
-							<svg viewBox="0 0 48 40">
-								<rect x="2" y="2" width="44" height="36" rx="4" fill="#16A085" stroke="#0E6655" stroke-width="1.5"/>
-								<path d="M8 18 L12 14 L16 18 L12 22 Z" fill="none" stroke="white" stroke-width="1"/>
-							</svg>
+					<div v-show="paletteExpanded[category.key]" class="sidebar-section-body px-2">
+						<div class="palette-items">
+							<div v-for="item in category.items" :key="item.key" class="palette-item" draggable="true"
+								@dragstart="onPaletteDragStart(event, item)"
+								:title="t('app.bpmn-modeler.palette.' + item.key, undefined, item.label)">
+								<svg viewBox="0 0 36 36" class="palette-icon">
+									<!-- Events: the canvas ring at 36 units -->
+									<g v-if="item.shape === 'event'" :class="item.cssClass">
+										<circle class="element-shape event-shape" cx="18" cy="18" r="15"/>
+										<circle v-if="item.variant === 'intermediate' || item.variant === 'boundary'" cx="18" cy="18" r="11.5" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
+										<use v-if="item.icon" class="event-icon" :href="spriteUrl + '#' + item.icon" x="3" y="3" width="30" height="30"/>
+									</g>
+									<!-- Tasks and the call activity -->
+									<g v-else-if="item.shape === 'task'" :class="item.cssClass">
+										<rect class="element-shape task-shape" x="2" y="5" width="32" height="26"/>
+										<use v-if="item.icon" class="element-icon" :href="spriteUrl + '#' + item.icon" x="9" y="9" width="18" height="18"/>
+									</g>
+									<!-- Gateways -->
+									<g v-else-if="item.shape === 'gateway'" :class="item.cssClass">
+										<path class="element-shape gateway-shape" d="M18,2 L34,18 L18,34 L2,18 Z"/>
+										<use class="gateway-icon" :href="spriteUrl + '#' + item.icon" x="0" y="0" width="36" height="36"/>
+									</g>
+									<!-- Sub-processes -->
+									<g v-else-if="item.shape === 'subProcess'" class="subprocess" :class="item.cssClass">
+										<rect class="element-shape task-shape" x="2" y="5" width="32" height="26"/>
+										<rect v-if="item.variant === 'transaction'" x="4.5" y="7.5" width="27" height="21" rx="3" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
+										<use v-if="item.variant === 'expanded' || item.variant === 'transaction'" :href="spriteUrl + '#canvas-subprocess-minus'" x="23" y="8" width="8" height="8"/>
+										<use v-else :href="spriteUrl + '#canvas-subprocess-plus'" x="14" y="22" width="8" height="8"/>
+									</g>
+									<!-- Data object: page with a folded corner -->
+									<g v-else-if="item.shape === 'dataObject'">
+										<path d="M9,4 L22,4 L28,10 L28,32 L9,32 Z" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
+										<path d="M22,4 L22,10 L28,10" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
+									</g>
+									<!-- Data store: cylinder -->
+									<g v-else-if="item.shape === 'dataStore'">
+										<path d="M5,9 C5,5.5 12,3.5 18,3.5 C24,3.5 31,5.5 31,9 L31,27 C31,30.5 24,32.5 18,32.5 C12,32.5 5,30.5 5,27 Z" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
+										<ellipse cx="18" cy="9" rx="13" ry="5.5" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
+									</g>
+									<!-- Text annotation: open bracket with text lines -->
+									<g v-else-if="item.shape === 'textAnnotation'">
+										<path d="M12,4 L5,4 L5,32 L12,32" fill="none" stroke="var(--element-stroke)" stroke-width="1.5"/>
+										<path d="M9,12 H30 M9,18 H27 M9,24 H23" stroke="var(--element-stroke)" stroke-width="1" opacity="0.6"/>
+									</g>
+									<!-- Pool: header strip on the left; lane: the same, divided -->
+									<g v-else-if="item.shape === 'pool' || item.shape === 'lane'">
+										<rect x="3" y="5" width="30" height="26" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
+										<rect x="3" y="5" width="6" height="26" fill="var(--palette-section-bg)" stroke="var(--element-stroke)" stroke-width="1"/>
+										<path v-if="item.shape === 'lane'" d="M9,18 H33" stroke="var(--element-stroke)" stroke-width="1"/>
+									</g>
+								</svg>
+							</div>
 						</div>
 					</div>
-				</div>
-
-				</div>
-
-				<!-- Gateways -->
-				<div class="sidebar-section">
-					<div class="sidebar-section-header" @click="paletteExpanded.gateways = !paletteExpanded.gateways">
-						<i class="bi" :class="paletteExpanded.gateways ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>{{ t('app.bpmn-modeler.palette.section.gateways') }}</span>
-					</div>
-					<div v-show="paletteExpanded.gateways" class="sidebar-section-body px-2">
-					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'exclusiveGateway')" :title="t('app.bpmn-modeler.palette.exclusiveGateway', undefined, 'Exclusive Gateway')">
-							<svg viewBox="0 0 50 50">
-								<path d="M25 5 L45 25 L25 45 L5 25 Z" fill="#FFCC00" stroke="#CC9900" stroke-width="1.5"/>
-								<path d="M18 18 L32 32 M32 18 L18 32" stroke="#664400" stroke-width="2"/>
-							</svg>
-						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'parallelGateway')" :title="t('app.bpmn-modeler.palette.parallelGateway', undefined, 'Parallel Gateway')">
-							<svg viewBox="0 0 50 50">
-								<path d="M25 5 L45 25 L25 45 L5 25 Z" fill="#FFCC00" stroke="#CC9900" stroke-width="1.5"/>
-								<path d="M25 15 L25 35 M15 25 L35 25" stroke="#664400" stroke-width="2"/>
-							</svg>
-						</div>
-					</div>
-				</div>
-
-				</div>
-
-				<!-- Sub-Processes -->
-				<div class="sidebar-section">
-					<div class="sidebar-section-header" @click="paletteExpanded.subProcesses = !paletteExpanded.subProcesses">
-						<i class="bi" :class="paletteExpanded.subProcesses ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>{{ t('app.bpmn-modeler.palette.section.subProcesses') }}</span>
-					</div>
-					<div v-show="paletteExpanded.subProcesses" class="sidebar-section-body px-2">
-					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'subProcess')" :title="t('app.bpmn-modeler.palette.subProcess', undefined, 'Sub-Process')">
-							<svg viewBox="0 0 50 50">
-								<rect x="5" y="8" width="40" height="32" rx="4" ry="4" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
-								<rect x="20" y="32" width="10" height="8" fill="white" stroke="var(--element-stroke)" stroke-width="1"/>
-								<path d="M22.5 36 L27.5 36 M25 33.5 L25 38.5" stroke="var(--element-stroke)" stroke-width="1"/>
-							</svg>
-						</div>
-					</div>
-				</div>
-
-				</div>
-
-				<!-- Data Elements -->
-				<div class="sidebar-section">
-					<div class="sidebar-section-header" @click="paletteExpanded.data = !paletteExpanded.data">
-						<i class="bi" :class="paletteExpanded.data ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>{{ t('app.bpmn-modeler.palette.section.data') }}</span>
-					</div>
-					<div v-show="paletteExpanded.data" class="sidebar-section-body px-2">
-					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'dataObject')" :title="t('app.bpmn-modeler.palette.dataObject', undefined, 'Data Object')">
-							<svg viewBox="0 0 50 50">
-								<!-- Folded corner paper icon -->
-								<path d="M10 5 L32 5 L40 13 L40 45 L10 45 Z" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
-								<path d="M32 5 L32 13 L40 13" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
-							</svg>
-						</div>
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'dataStore')" :title="t('app.bpmn-modeler.palette.dataStore', undefined, 'Data Store')">
-							<svg viewBox="0 0 50 50">
-								<!-- Cylinder / database icon -->
-								<path d="M5 12 C5 7, 15 4, 25 4 C35 4, 45 7, 45 12 L45 38 C45 43, 35 46, 25 46 C15 46, 5 43, 5 38 Z" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
-								<ellipse cx="25" cy="12" rx="20" ry="8" fill="none" stroke="var(--element-stroke)" stroke-width="1"/>
-							</svg>
-						</div>
-					</div>
-				</div>
-
-				</div>
-
-				<!-- Artifacts -->
-				<div class="sidebar-section">
-					<div class="sidebar-section-header" @click="paletteExpanded.artifacts = !paletteExpanded.artifacts">
-						<i class="bi" :class="paletteExpanded.artifacts ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>{{ t('app.bpmn-modeler.palette.section.artifacts') }}</span>
-					</div>
-					<div v-show="paletteExpanded.artifacts" class="sidebar-section-body px-2">
-					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'textAnnotation')" :title="t('app.bpmn-modeler.palette.textAnnotation', undefined, 'Text Annotation')">
-							<svg viewBox="0 0 50 50">
-								<!-- Left bracket shape with text lines -->
-								<path d="M15 5 L5 5 L5 45 L15 45" fill="none" stroke="var(--element-stroke)" stroke-width="1.5"/>
-								<line x1="10" y1="15" x2="40" y2="15" stroke="var(--element-stroke)" stroke-width="0.5" opacity="0.5"/>
-								<line x1="10" y1="25" x2="35" y2="25" stroke="var(--element-stroke)" stroke-width="0.5" opacity="0.5"/>
-								<line x1="10" y1="35" x2="30" y2="35" stroke="var(--element-stroke)" stroke-width="0.5" opacity="0.5"/>
-							</svg>
-						</div>
-					</div>
-				</div>
-
-				</div>
-
-				<!-- Swimlanes -->
-				<div class="sidebar-section">
-					<div class="sidebar-section-header" @click="paletteExpanded.swimlanes = !paletteExpanded.swimlanes">
-						<i class="bi" :class="paletteExpanded.swimlanes ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>{{ t('app.bpmn-modeler.palette.section.swimlanes') }}</span>
-					</div>
-					<div v-show="paletteExpanded.swimlanes" class="sidebar-section-body px-2">
-					<div class="palette-items">
-						<div class="palette-item" draggable="true" @dragstart="onPaletteDragStart(event, 'pool')" :title="t('app.bpmn-modeler.palette.pool', undefined, 'Pool')">
-							<svg viewBox="0 0 50 50">
-								<!-- Pool icon - rectangle with header -->
-								<rect x="3" y="5" width="44" height="40" fill="var(--element-fill)" stroke="var(--element-stroke)" stroke-width="1.5"/>
-								<rect x="3" y="5" width="8" height="40" fill="var(--palette-section-bg)" stroke="var(--element-stroke)" stroke-width="1"/>
-							</svg>
-						</div>
-					</div>
-				</div>
 				</div>
 			</div>
 			</div>
@@ -615,7 +491,7 @@
 								<!-- User Task -->
 								<g v-if="element.type === 'userTask'" class="user-task">
 									<rect class="element-shape task-shape" x="0" y="0" width="100" height="80"/>
-									<use class="element-icon" :href="spriteUrl + '#canvas-task-user'" x="0" y="0" width="100" height="80"/>
+									<use class="element-icon" :href="spriteUrl + '#canvas-task-user'" x="6" y="6" width="22" height="22"/>
 									<foreignObject x="5" y="28" width="90" height="50">
 										<div class="task-label-text">{{ element.name || 'User Task' }}</div>
 									</foreignObject>
@@ -631,7 +507,7 @@
 								<!-- Service Task -->
 								<g v-if="element.type === 'serviceTask'" class="service-task">
 									<rect class="element-shape task-shape" x="0" y="0" width="100" height="80"/>
-									<use class="element-icon" :href="spriteUrl + '#canvas-task-service'" x="0" y="0" width="100" height="80"/>
+									<use class="element-icon" :href="spriteUrl + '#canvas-task-service'" x="6" y="6" width="22" height="22"/>
 									<foreignObject x="5" y="28" width="90" height="50">
 										<div class="task-label-text">{{ element.name || 'Service Task' }}</div>
 									</foreignObject>
@@ -647,7 +523,7 @@
 								<!-- Script Task -->
 								<g v-if="element.type === 'scriptTask'" class="script-task">
 									<rect class="element-shape task-shape" x="0" y="0" width="100" height="80"/>
-									<use class="element-icon" :href="spriteUrl + '#canvas-task-script'" x="0" y="0" width="100" height="80"/>
+									<use class="element-icon" :href="spriteUrl + '#canvas-task-script'" x="6" y="6" width="22" height="22"/>
 									<foreignObject x="5" y="28" width="90" height="50">
 										<div class="task-label-text">{{ element.name || 'Script Task' }}</div>
 									</foreignObject>
@@ -663,7 +539,7 @@
 								<!-- Manual Task -->
 								<g v-if="element.type === 'manualTask'" class="manual-task">
 									<rect class="element-shape task-shape" x="0" y="0" width="100" height="80"/>
-									<use class="element-icon" :href="spriteUrl + '#canvas-task-manual'" x="0" y="0" width="100" height="80"/>
+									<use class="element-icon" :href="spriteUrl + '#canvas-task-manual'" x="6" y="6" width="22" height="22"/>
 									<foreignObject x="5" y="28" width="90" height="50">
 										<div class="task-label-text">{{ element.name || 'Manual Task' }}</div>
 									</foreignObject>
@@ -679,7 +555,7 @@
 								<!-- Send Task (filled envelope icon) -->
 								<g v-if="element.type === 'sendTask'" class="send-task">
 									<rect class="element-shape task-shape" x="0" y="0" width="100" height="80"/>
-									<use class="element-icon" :href="spriteUrl + '#canvas-task-send'" x="0" y="0" width="100" height="80"/>
+									<use class="element-icon" :href="spriteUrl + '#canvas-task-send'" x="6" y="6" width="22" height="22"/>
 									<foreignObject x="5" y="28" width="90" height="50">
 										<div class="task-label-text">{{ element.name || 'Send Task' }}</div>
 									</foreignObject>
@@ -695,7 +571,7 @@
 								<!-- Receive Task (outline envelope icon) -->
 								<g v-if="element.type === 'receiveTask'" class="receive-task">
 									<rect class="element-shape task-shape" x="0" y="0" width="100" height="80"/>
-									<use class="element-icon" :href="spriteUrl + '#canvas-task-receive'" x="0" y="0" width="100" height="80"/>
+									<use class="element-icon" :href="spriteUrl + '#canvas-task-receive'" x="6" y="6" width="22" height="22"/>
 									<foreignObject x="5" y="28" width="90" height="50">
 										<div class="task-label-text">{{ element.name || 'Receive Task' }}</div>
 									</foreignObject>
@@ -711,7 +587,7 @@
 								<!-- Business Rule Task (table icon) -->
 								<g v-if="element.type === 'businessRuleTask'" class="business-rule-task">
 									<rect class="element-shape task-shape" x="0" y="0" width="100" height="80"/>
-									<use class="element-icon" :href="spriteUrl + '#canvas-task-businessRule'" x="0" y="0" width="100" height="80"/>
+									<use class="element-icon" :href="spriteUrl + '#canvas-task-businessRule'" x="6" y="6" width="22" height="22"/>
 									<foreignObject x="5" y="28" width="90" height="50">
 										<div class="task-label-text">{{ element.name || 'Business Rule Task' }}</div>
 									</foreignObject>
@@ -1022,13 +898,13 @@
 											<rect class="element-shape task-shape" x="0" y="0" width="100" height="80" rx="10" ry="10"
 												  :class="{ selected: selectedIds.includes(child.id), 'call-activity': child.type === 'callActivity' }"/>
 											<!-- Task Type Icon -->
-											<use v-if="child.type === 'userTask'" class="task-icon user-icon" :href="spriteUrl + '#canvas-child-task-user'" x="8" y="8" width="16" height="24"/>
-											<use v-if="child.type === 'serviceTask'" class="task-icon service-icon" :href="spriteUrl + '#canvas-child-task-service'" x="8" y="8" width="16" height="16"/>
-											<use v-if="child.type === 'scriptTask'" class="task-icon script-icon" :href="spriteUrl + '#canvas-child-task-script'" x="8" y="8" width="16" height="16"/>
-											<use v-if="child.type === 'manualTask'" class="task-icon manual-icon" :href="spriteUrl + '#canvas-child-task-manual'" x="8" y="8" width="16" height="16"/>
-											<use v-if="child.type === 'sendTask'" class="task-icon send-icon" :href="spriteUrl + '#canvas-child-task-send'" x="8" y="8" width="16" height="16"/>
-											<use v-if="child.type === 'receiveTask'" class="task-icon receive-icon" :href="spriteUrl + '#canvas-child-task-receive'" x="8" y="8" width="16" height="16"/>
-											<use v-if="child.type === 'businessRuleTask'" class="task-icon business-rule-icon" :href="spriteUrl + '#canvas-child-task-businessRule'" x="8" y="8" width="16" height="16"/>
+											<use v-if="child.type === 'userTask'" class="task-icon user-icon" :href="spriteUrl + '#canvas-task-user'" x="6" y="6" width="22" height="22"/>
+											<use v-if="child.type === 'serviceTask'" class="task-icon service-icon" :href="spriteUrl + '#canvas-task-service'" x="6" y="6" width="22" height="22"/>
+											<use v-if="child.type === 'scriptTask'" class="task-icon script-icon" :href="spriteUrl + '#canvas-task-script'" x="6" y="6" width="22" height="22"/>
+											<use v-if="child.type === 'manualTask'" class="task-icon manual-icon" :href="spriteUrl + '#canvas-task-manual'" x="6" y="6" width="22" height="22"/>
+											<use v-if="child.type === 'sendTask'" class="task-icon send-icon" :href="spriteUrl + '#canvas-task-send'" x="6" y="6" width="22" height="22"/>
+											<use v-if="child.type === 'receiveTask'" class="task-icon receive-icon" :href="spriteUrl + '#canvas-task-receive'" x="6" y="6" width="22" height="22"/>
+											<use v-if="child.type === 'businessRuleTask'" class="task-icon business-rule-icon" :href="spriteUrl + '#canvas-task-businessRule'" x="6" y="6" width="22" height="22"/>
 											<foreignObject x="5" y="25" width="90" height="50">
 												<div class="task-label-text">{{ child.name || '' }}</div>
 											</foreignObject>

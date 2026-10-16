@@ -182,6 +182,12 @@
 	height: 28px;
 }
 
+/* Tiles reuse the canvas colour classes; the corners scale down with the body. */
+.palette-item .task-shape {
+	rx: 4;
+	ry: 4;
+}
+
 /* ----------------------------------------------------------------------------
  * Canvas
  * -------------------------------------------------------------------------- */
@@ -453,6 +459,7 @@
 .call-activity .task-shape {
 	fill: #2C3E50;
 	stroke: #1A252F;
+	stroke-width: 3; /* the BPMN thick border; a stroke-width attribute loses to .task-shape */
 }
 .call-activity .task-label-text {
 	color: white;
