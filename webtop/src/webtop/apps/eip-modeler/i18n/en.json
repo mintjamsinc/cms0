@@ -57,6 +57,7 @@
 	"app.eip-modeler.canvas.node.stop": "Stop",
 	"app.eip-modeler.canvas.node.onException": "onException",
 	"app.eip-modeler.canvas.node.doTry": "doTry",
+	"app.eip-modeler.canvas.node.onCompletion": "onCompletion",
 	"app.eip-modeler.canvas.node.doTrySubtitle": "Try-Catch-Finally",
 	"app.eip-modeler.canvas.node.throttle": "Throttle",
 	"app.eip-modeler.canvas.node.aggregate": "Aggregate",

@@ -34,20 +34,20 @@ const ICON_TYPES = new Set([
 	'from', 'to', 'toD', 'log', 'setBody', 'setHeader', 'choice', 'filter', 'split',
 	'delay', 'bean', 'stop', 'merge', 'onException', 'doTry', 'throttle', 'aggregate',
 	'marshal', 'unmarshal', 'transform', 'multicast', 'recipientList', 'loop', 'wireTap',
-	'enrich', 'pollEnrich', 'threads', 'circuitBreaker',
+	'enrich', 'pollEnrich', 'threads', 'circuitBreaker', 'onCompletion',
 ]);
 // Types with a dedicated colour in eip-canvas.css; others fall back to .generic.
 const COLORED = new Set([
 	'from', 'to', 'toD', 'log', 'setBody', 'setHeader', 'transform', 'choice', 'filter',
 	'split', 'merge', 'marshal', 'unmarshal', 'delay', 'throttle', 'bean', 'onException',
 	'doTry', 'circuitBreaker', 'stop', 'aggregate', 'multicast', 'recipientList', 'loop',
-	'wireTap', 'enrich', 'pollEnrich', 'threads',
+	'wireTap', 'enrich', 'pollEnrich', 'threads', 'onCompletion',
 ]);
 // Display titles that don't follow plain camelCase→Title Case.
 const TITLES: Record<string, string> = {
 	toD: 'To D', setBody: 'Set Body', setHeader: 'Set Header', onException: 'onException',
 	doTry: 'doTry', wireTap: 'WireTap', pollEnrich: 'PollEnrich', recipientList: 'Recipients',
-	circuitBreaker: 'CircuitBreaker',
+	circuitBreaker: 'CircuitBreaker', onCompletion: 'onCompletion',
 };
 
 function titleOf(type: string): string {
@@ -65,6 +65,8 @@ interface RenderNode {
 	h: number;
 	rx: number;
 	iconId: string;
+	iconX: number;
+	iconY: number;
 	iconW: number;
 	iconH: number;
 	title: string;
@@ -159,18 +161,20 @@ defineComponent('eip-canvas', {
 					: type === 'merge' ? 'merge'
 					: CAPSULE.has(type) ? 'capsule' : 'rect';
 
-				let rx = 8, iconW = 60, iconH = 60, titleX = 90, titleY = 26, subY = 40;
+				// Icon boxes match the modeler's canvas (see assets/icons/icons.svg).
+				let rx = 8, iconX = 14, iconY = 14, iconW = 32, iconH = 32, titleX = 98, titleY = 26, subY = 40;
 				let titleClass = 'node-label-light';
 				let title = titleOf(type);
 				let subLabel = getShortLabel(proc as CamelProcessorSemantic);
 
 				if (kind === 'capsule') {
-					rx = 25; iconW = 56; iconH = 50; titleX = 70; titleY = 20; subY = 35;
+					rx = 25; iconW = 22; iconH = 22; titleY = 20; subY = 35;
+					titleX = type === 'onException' ? 95 : 82;
 				} else if (kind === 'choice') {
-					iconW = 100; iconH = 60; titleX = 50; titleY = 72; subY = 0;
+					iconX = 38; iconY = 18; iconW = 24; iconH = 24; titleX = 50; titleY = 72; subY = 0;
 					titleClass = 'node-label'; subLabel = '';
 				} else if (kind === 'merge') {
-					iconW = 50; iconH = 50; title = ''; subLabel = '';
+					iconX = 13; iconY = 13; iconW = 24; iconH = 24; title = ''; subLabel = '';
 				}
 
 				out.push({
@@ -182,7 +186,7 @@ defineComponent('eip-canvas', {
 					h: b.height,
 					rx,
 					iconId: ICON_TYPES.has(type) ? 'canvas-' + type : '',
-					iconW, iconH,
+					iconX, iconY, iconW, iconH,
 					title,
 					titleClass,
 					titleX, titleY,

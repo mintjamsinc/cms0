@@ -64,6 +64,11 @@
 	transition: stroke 0.15s, stroke-width 0.15s;
 }
 
+.eip-canvas .node-badge {
+	fill: white;
+	opacity: 0.3;
+}
+
 .eip-canvas .node-label-light {
 	font-size: 11px;
 	fill: white;
@@ -95,6 +100,7 @@
 .eip-canvas .node-body.bean { fill: #8E44AD; stroke: #6C3483; }
 .eip-canvas .node-body.onException,
 .eip-canvas .node-body.doTry { fill: #E74C3C; stroke: #C0392B; }
+.eip-canvas .node-body.onCompletion { fill: #5B5EA6; stroke: #3F4291; }
 .eip-canvas .node-body.circuitBreaker { fill: #F39C12; stroke: #D68910; }
 .eip-canvas .node-body.stop { fill: #95A5A6; stroke: #7F8C8D; }
 .eip-canvas .node-body.aggregate { fill: #27AE60; stroke: #1E8449; }

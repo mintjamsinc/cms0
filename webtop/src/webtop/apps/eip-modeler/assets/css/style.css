@@ -186,6 +186,12 @@
 	height: 28px;
 }
 
+/* The swatch reuses the canvas node colours; the canvas shadow does not scale down. */
+.palette-item .node-body {
+	filter: none;
+	stroke-width: 1.5;
+}
+
 /* ----------------------------------------------------------------------------
  * Canvas
  * -------------------------------------------------------------------------- */
@@ -243,6 +249,13 @@
 	transition: stroke 0.15s, stroke-width 0.15s;
 }
 
+/* Translucent disc behind the glyph of capsule nodes (From, To, onException) */
+.node-badge {
+	fill: white;
+	opacity: 0.3;
+	pointer-events: none;
+}
+
 .node-label {
 	font-size: 11px;
 	fill: var(--text-color);
@@ -274,6 +287,7 @@
 .node-body.bean { fill: #8E44AD; stroke: #6C3483; }
 .node-body.onException,
 .node-body.doTry { fill: #E74C3C; stroke: #C0392B; }
+.node-body.onCompletion { fill: #5B5EA6; stroke: #3F4291; }
 .node-body.circuitBreaker { fill: #F39C12; stroke: #D68910; }
 .node-body.stop { fill: #95A5A6; stroke: #7F8C8D; }
 .node-body.aggregate { fill: #27AE60; stroke: #1E8449; }

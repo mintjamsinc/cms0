@@ -28,8 +28,9 @@
 					<rect v-else class="node-body" :class="node.bodyClass"
 						  x="0" y="0" :width="node.w" :height="node.h" :rx="node.rx"/>
 
+					<circle v-if="node.kind === 'capsule'" class="node-badge" cx="25" cy="25" r="12"/>
 					<use v-if="spriteHref && node.iconId" :href="spriteHref + '#' + node.iconId"
-						 x="0" y="0" :width="node.iconW" :height="node.iconH"/>
+						 :x="node.iconX" :y="node.iconY" :width="node.iconW" :height="node.iconH"/>
 
 					<text v-if="node.title" :class="node.titleClass" :x="node.titleX" :y="node.titleY"
 						  text-anchor="middle" font-weight="600">{{ node.title }}</text>

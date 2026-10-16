@@ -77,7 +77,8 @@ interface PaletteItem {
 	label: string;
 	/** i18n message id for the palette item label; resolved at display time. */
 	labelKey?: string;
-	icon: string;
+	/** Swatch behind the glyph in the palette: the node's shape on the canvas. */
+	shape: 'capsule' | 'rect' | 'diamond';
 }
 
 /**
@@ -356,9 +357,9 @@ const App = {
 					name: 'Basic',
 					nameKey: 'app.eip-modeler.palette.category.basic',
 					items: [
-						{ type: 'from', label: 'From', labelKey: 'app.eip-modeler.palette.item.from', icon: 'icon-from' },
-						{ type: 'to', label: 'To', labelKey: 'app.eip-modeler.palette.item.to', icon: 'icon-to' },
-						{ type: 'toD', label: 'To D', labelKey: 'app.eip-modeler.palette.item.toD', icon: 'icon-tod' },
+						{ type: 'from', label: 'From', labelKey: 'app.eip-modeler.palette.item.from', shape: 'capsule' },
+						{ type: 'to', label: 'To', labelKey: 'app.eip-modeler.palette.item.to', shape: 'capsule' },
+						{ type: 'toD', label: 'To D', labelKey: 'app.eip-modeler.palette.item.toD', shape: 'capsule' },
 					],
 				},
 				{
@@ -366,10 +367,10 @@ const App = {
 					name: 'Transform',
 					nameKey: 'app.eip-modeler.palette.category.transform',
 					items: [
-						{ type: 'log', label: 'Log', labelKey: 'app.eip-modeler.palette.item.log', icon: 'icon-log' },
-						{ type: 'setBody', label: 'Set Body', labelKey: 'app.eip-modeler.palette.item.setBody', icon: 'icon-setbody' },
-						{ type: 'setHeader', label: 'Set Header', labelKey: 'app.eip-modeler.palette.item.setHeader', icon: 'icon-setheader' },
-						{ type: 'transform', label: 'Transform', labelKey: 'app.eip-modeler.palette.item.transform', icon: 'icon-transform' },
+						{ type: 'log', label: 'Log', labelKey: 'app.eip-modeler.palette.item.log', shape: 'rect' },
+						{ type: 'setBody', label: 'Set Body', labelKey: 'app.eip-modeler.palette.item.setBody', shape: 'rect' },
+						{ type: 'setHeader', label: 'Set Header', labelKey: 'app.eip-modeler.palette.item.setHeader', shape: 'rect' },
+						{ type: 'transform', label: 'Transform', labelKey: 'app.eip-modeler.palette.item.transform', shape: 'rect' },
 					],
 				},
 				{
@@ -377,14 +378,14 @@ const App = {
 					name: 'Routing',
 					nameKey: 'app.eip-modeler.palette.category.routing',
 					items: [
-						{ type: 'choice', label: 'Choice', labelKey: 'app.eip-modeler.palette.item.choice', icon: 'icon-choice' },
-						{ type: 'filter', label: 'Filter', labelKey: 'app.eip-modeler.palette.item.filter', icon: 'icon-filter' },
-						{ type: 'split', label: 'Split', labelKey: 'app.eip-modeler.palette.item.split', icon: 'icon-split' },
-						{ type: 'aggregate', label: 'Aggregate', labelKey: 'app.eip-modeler.palette.item.aggregate', icon: 'icon-aggregate' },
-						{ type: 'multicast', label: 'Multicast', labelKey: 'app.eip-modeler.palette.item.multicast', icon: 'icon-multicast' },
-						{ type: 'recipientList', label: 'Recipient List', labelKey: 'app.eip-modeler.palette.item.recipientList', icon: 'icon-recipientlist' },
-						{ type: 'loop', label: 'Loop', labelKey: 'app.eip-modeler.palette.item.loop', icon: 'icon-loop' },
-						{ type: 'merge', label: 'Merge', labelKey: 'app.eip-modeler.palette.item.merge', icon: 'icon-merge' },
+						{ type: 'choice', label: 'Choice', labelKey: 'app.eip-modeler.palette.item.choice', shape: 'diamond' },
+						{ type: 'filter', label: 'Filter', labelKey: 'app.eip-modeler.palette.item.filter', shape: 'rect' },
+						{ type: 'split', label: 'Split', labelKey: 'app.eip-modeler.palette.item.split', shape: 'rect' },
+						{ type: 'aggregate', label: 'Aggregate', labelKey: 'app.eip-modeler.palette.item.aggregate', shape: 'rect' },
+						{ type: 'multicast', label: 'Multicast', labelKey: 'app.eip-modeler.palette.item.multicast', shape: 'rect' },
+						{ type: 'recipientList', label: 'Recipient List', labelKey: 'app.eip-modeler.palette.item.recipientList', shape: 'rect' },
+						{ type: 'loop', label: 'Loop', labelKey: 'app.eip-modeler.palette.item.loop', shape: 'rect' },
+						{ type: 'merge', label: 'Merge', labelKey: 'app.eip-modeler.palette.item.merge', shape: 'diamond' },
 					],
 				},
 				{
@@ -392,12 +393,12 @@ const App = {
 					name: 'Control',
 					nameKey: 'app.eip-modeler.palette.category.control',
 					items: [
-						{ type: 'delay', label: 'Delay', labelKey: 'app.eip-modeler.palette.item.delay', icon: 'icon-delay' },
-						{ type: 'throttle', label: 'Throttle', labelKey: 'app.eip-modeler.palette.item.throttle', icon: 'icon-throttle' },
-						{ type: 'bean', label: 'Bean', labelKey: 'app.eip-modeler.palette.item.bean', icon: 'icon-bean' },
-						{ type: 'threads', label: 'Threads', labelKey: 'app.eip-modeler.palette.item.threads', icon: 'icon-threads' },
-						{ type: 'circuitBreaker', label: 'Circuit Breaker', labelKey: 'app.eip-modeler.palette.item.circuitBreaker', icon: 'icon-circuitbreaker' },
-						{ type: 'stop', label: 'Stop', labelKey: 'app.eip-modeler.palette.item.stop', icon: 'icon-stop' },
+						{ type: 'delay', label: 'Delay', labelKey: 'app.eip-modeler.palette.item.delay', shape: 'rect' },
+						{ type: 'throttle', label: 'Throttle', labelKey: 'app.eip-modeler.palette.item.throttle', shape: 'rect' },
+						{ type: 'bean', label: 'Bean', labelKey: 'app.eip-modeler.palette.item.bean', shape: 'rect' },
+						{ type: 'threads', label: 'Threads', labelKey: 'app.eip-modeler.palette.item.threads', shape: 'rect' },
+						{ type: 'circuitBreaker', label: 'Circuit Breaker', labelKey: 'app.eip-modeler.palette.item.circuitBreaker', shape: 'rect' },
+						{ type: 'stop', label: 'Stop', labelKey: 'app.eip-modeler.palette.item.stop', shape: 'rect' },
 					],
 				},
 				{
@@ -405,9 +406,9 @@ const App = {
 					name: 'Integration',
 					nameKey: 'app.eip-modeler.palette.category.integration',
 					items: [
-						{ type: 'wireTap', label: 'Wire Tap', labelKey: 'app.eip-modeler.palette.item.wireTap', icon: 'icon-wiretap' },
-						{ type: 'enrich', label: 'Enrich', labelKey: 'app.eip-modeler.palette.item.enrich', icon: 'icon-enrich' },
-						{ type: 'pollEnrich', label: 'Poll Enrich', labelKey: 'app.eip-modeler.palette.item.pollEnrich', icon: 'icon-pollenrich' },
+						{ type: 'wireTap', label: 'Wire Tap', labelKey: 'app.eip-modeler.palette.item.wireTap', shape: 'rect' },
+						{ type: 'enrich', label: 'Enrich', labelKey: 'app.eip-modeler.palette.item.enrich', shape: 'rect' },
+						{ type: 'pollEnrich', label: 'Poll Enrich', labelKey: 'app.eip-modeler.palette.item.pollEnrich', shape: 'rect' },
 					],
 				},
 				{
@@ -415,9 +416,9 @@ const App = {
 					name: 'Error Handling',
 					nameKey: 'app.eip-modeler.palette.category.errorHandling',
 					items: [
-						{ type: 'onException', label: 'On Exception', labelKey: 'app.eip-modeler.palette.item.onException', icon: 'icon-onexception' },
-						{ type: 'doTry', label: 'Try-Catch', labelKey: 'app.eip-modeler.palette.item.doTry', icon: 'icon-dotry' },
-						{ type: 'onCompletion', label: 'On Completion', labelKey: 'app.eip-modeler.palette.item.onCompletion', icon: 'icon-oncompletion' },
+						{ type: 'onException', label: 'On Exception', labelKey: 'app.eip-modeler.palette.item.onException', shape: 'capsule' },
+						{ type: 'doTry', label: 'Try-Catch', labelKey: 'app.eip-modeler.palette.item.doTry', shape: 'rect' },
+						{ type: 'onCompletion', label: 'On Completion', labelKey: 'app.eip-modeler.palette.item.onCompletion', shape: 'rect' },
 					],
 				},
 			] as PaletteCategory[],
