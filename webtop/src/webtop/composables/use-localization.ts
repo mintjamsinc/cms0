@@ -229,8 +229,9 @@ function translateOrLiteral(
 	instance: any,
 	messageId: string,
 	literal: string,
+	params?: Record<string, any>,
 ): string {
-	const text = translate(snapshot, instance, messageId);
+	const text = translate(snapshot, instance, messageId, params);
 	return text === messageId ? literal : text;
 }
 
@@ -252,7 +253,10 @@ export function bpmProcessName(
 /**
  * Reactively localize a user task name: the bundle entry under
  * {@link bpmTaskNameKey}, else the task's `name` (evaluated by the engine
- * when the task was created), else its definition key.
+ * when the task was created), else its definition key. The bundle entry may
+ * put that evaluated name in with `{name}`, so a BPMN `name` such as
+ * `${orderName}` carries the per-instance part and the bundle the words
+ * around it (`"Review {name}"`).
  */
 export function bpmTaskName(
 	snapshot: LocalizationSnapshot,
@@ -263,7 +267,7 @@ export function bpmTaskName(
 ): string {
 	const literal = name || taskDefinitionKey || '';
 	if (!processKey || !taskDefinitionKey) return literal;
-	return translateOrLiteral(snapshot, instance, bpmTaskNameKey(processKey, taskDefinitionKey), literal);
+	return translateOrLiteral(snapshot, instance, bpmTaskNameKey(processKey, taskDefinitionKey), literal, { name: literal });
 }
 
 /**

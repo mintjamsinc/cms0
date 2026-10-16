@@ -142,6 +142,13 @@ unit that deploys the process, next to its form strings (e.g. the package
 installer's names are in `packages-forms.<locale>.json`). Keep the `en` value
 equal to the BPMN `name`.
 
+A user task's name may hold a per-instance part (an order number, say), which
+a fixed bundle text would lose. The task key's text gets the name the engine
+evaluated as **`{name}`**: write only that part in the BPMN
+(`name="${orderName}"`) and the words around it in the bundles
+(`"Review {name}"` / `"確認：{name}"`). Without a bundle the BPMN part alone is
+shown, so the `en` value is then the BPMN `name` with the words added.
+
 App **action** labels (`app.yml` `actions.<id>.label`) are not surfaced in any
 shell UI today, so there is nothing to translate yet. When an action becomes
 visible (e.g. a future "open with" menu), localize it under

@@ -110,11 +110,12 @@ export class EventHub {
           if (event.task) {
             taskActions.addTask(event.task);
             // The task's name in the reader's language, under the same
-            // convention key the Tasks app reads (bpmTaskNameKey).
+            // convention key the Tasks app reads (bpmTaskNameKey), with the
+            // engine's name as {name} like bpmTaskName() passes it.
             const name = event.task.name || event.task.taskDefinitionKey;
             const processKey = event.task.processInstance?.definitionKey;
             const nameText = processKey && event.task.taskDefinitionKey
-              ? { id: bpmTaskNameKey(processKey, event.task.taskDefinitionKey), fallback: name }
+              ? { id: bpmTaskNameKey(processKey, event.task.taskDefinitionKey), params: { name }, fallback: name }
               : name;
             // Shown by the shell as a toast and in the notification
             // center; the texts are resolved in the reader's language there.

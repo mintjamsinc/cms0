@@ -39,7 +39,7 @@ notice published once to several users therefore reads right for each. A
 text given as a plain string is shown as it is. A placeholder value may
 itself be a message reference, resolved the same way before it is put in:
 the "task assigned" notice passes the task's name as
-`{ id: 'bpm.process.<processKey>.task.<taskDefinitionKey>.name', fallback: <name> }`.
+`{ id: 'bpm.process.<processKey>.task.<taskDefinitionKey>.name', params: { name: <name> }, fallback: <name> }`.
 
 The shell takes what is well-formed and drops the rest: a payload without a
 title is no notice; an `app` that is not installed leaves the notice with
