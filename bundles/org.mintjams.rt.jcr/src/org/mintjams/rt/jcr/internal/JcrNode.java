@@ -199,6 +199,16 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 	public void remove(UnaryOperator<Map<String, Object>> op) throws VersionException, LockException,
 			ConstraintViolationException, AccessDeniedException, RepositoryException {
+		remove(op, false);
+	}
+
+	/**
+	 * @param descendant whether this node goes because an ancestor is being
+	 *        removed: only the root of the removal changes a node that stays,
+	 *        its parent, so only there must the parent be checked out.
+	 */
+	private void remove(UnaryOperator<Map<String, Object>> op, boolean descendant) throws VersionException,
+			LockException, ConstraintViolationException, AccessDeniedException, RepositoryException {
 		Map<String, Object> options = new HashMap<>();
 		options.put("identifier", getIdentifier());
 		options.put("path", getPath());
@@ -216,6 +226,9 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 				JcrPath path = JcrPath.valueOf(getPath());
 				fSession.checkPrivileges(path.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
 				fSession.checkPrivileges(path.toString(), Privilege.JCR_REMOVE_NODE);
+				if (!descendant) {
+					checkParentCheckedOut();
+				}
 			}
 			checkRemovable();
 			if (adaptTo(JcrNodeTypeManager.class).isProtectedNode(getName())) {
@@ -225,7 +238,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 		for (NodeIterator i = getNodes(); i.hasNext();) {
 			JcrNode childItem = (JcrNode) i.nextNode();
-			childItem.remove(op);
+			childItem.remove(op, true);
 		}
 
 		if (hasProperty(JcrProperty.JCR_VERSION_HISTORY)) {
@@ -279,6 +292,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		JcrPath path = JcrPath.valueOf(getPath());
 		fSession.checkPrivileges(path.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
 		fSession.checkPrivileges(path.toString(), Privilege.JCR_REMOVE_NODE);
+		checkParentCheckedOut();
 		checkRemovable();
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedNode(getName())) {
 			throw new ConstraintViolationException("The node '" + getName() + "' is protected.");
@@ -323,8 +337,9 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			return 0;
 		}
 
-		// The guard remove() applies to the parent of a removed node.
+		// The guards remove() applies to the parent of a removed node.
 		fSession.checkPrivileges(getPath(), Privilege.JCR_REMOVE_CHILD_NODES);
+		checkCheckedOut();
 
 		WorkspaceQuery workspaceQuery = getWorkspaceQuery();
 		if (!(fSession.isAdmin() || fSession.isSystem() || fSession.isService())) {
@@ -397,6 +412,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			ConstraintViolationException, LockException, RepositoryException {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_NODE_TYPE_MANAGEMENT);
 		checkWritable();
+		checkCheckedOut();
 		NodeType type = adaptTo(JcrNodeTypeManager.class).getNodeType(mixinName);
 		if (!type.isMixin()) {
 			throw new NoSuchNodeTypeException("Node type '" + mixinName + "' is not mixin type.");
@@ -420,6 +436,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			ConstraintViolationException, RepositoryException {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_ADD_CHILD_NODES);
 		checkCanAddNode();
+		checkCheckedOut();
 		JcrPath path = JcrPath.valueOf(getPath()).resolve(relPath);
 		validateNamePrefixRegistered(path.getName().toString());
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedNode(path.getName().toString())) {
@@ -455,6 +472,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		}
 		fSession.checkPrivileges(getPath(), Privilege.JCR_ADD_CHILD_NODES);
 		checkCanAddNode();
+		checkCheckedOut();
 		JcrPath path = JcrPath.valueOf(getPath()).resolve(relPath);
 		validateNamePrefixRegistered(path.getName().toString());
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedNode(path.getName().toString())) {
@@ -498,6 +516,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 	public boolean canAddMixin(String mixinName) throws NoSuchNodeTypeException, RepositoryException {
 		try {
 			checkWritable();
+			checkCheckedOut();
 			NodeType type = adaptTo(JcrNodeTypeManager.class).getNodeType(mixinName);
 			if (!type.isMixin()) {
 				return false;
@@ -816,6 +835,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			ConstraintViolationException, LockException, RepositoryException {
 		fSession.checkPrivileges(getPath(), Privilege.JCR_NODE_TYPE_MANAGEMENT);
 		checkWritable();
+		checkCheckedOut();
 		try {
 			getWorkspaceQuery().items().removeMixin(getIdentifier(), mixinName);
 		} catch (IOException | SQLException ex) {
@@ -870,6 +890,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 		// TODO Auto-generated method stub
 		fSession.checkPrivileges(getPath(), Privilege.JCR_NODE_TYPE_MANAGEMENT);
 		checkWritable();
+		checkCheckedOut();
 		NodeType type = adaptTo(JcrNodeTypeManager.class).getNodeType(nodeTypeName);
 		if (!type.isMixin()) {
 			throw new NoSuchNodeTypeException("Node type '" + nodeTypeName + "' is mixin type.");
@@ -978,6 +999,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 		fSession.checkPrivileges(getPath(), Privilege.JCR_MODIFY_PROPERTIES);
 		checkWritable();
+		checkCheckedOut();
 		validateNamePrefixRegistered(name);
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(name)) {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
@@ -1013,6 +1035,7 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 
 		fSession.checkPrivileges(getPath(), Privilege.JCR_MODIFY_PROPERTIES);
 		checkWritable();
+		checkCheckedOut();
 		validateNamePrefixRegistered(name);
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(name)) {
 			throw new ConstraintViolationException("Unable to set a value for a protected property: " + name);
@@ -1175,6 +1198,35 @@ public class JcrNode implements org.mintjams.jcr.Node, Adaptable {
 			if (!Arrays.asList(adaptTo(JcrLockManager.class).getLockTokens()).contains(lock.getLockToken())) {
 				throw new LockException("Node '" + getPath() + "' is locked.");
 			}
+		}
+	}
+
+	/**
+	 * Refuses a change to this node while it, or the versionable node it lies
+	 * under, is checked in: a checked-in node and everything under it are
+	 * read-only until it is checked out again (JCR 2.0, 15.2.2).
+	 */
+	protected void checkCheckedOut() throws VersionException, RepositoryException {
+		checkCheckedOut(getIdentifier());
+	}
+
+	/**
+	 * Refuses adding or removing this node while its parent is read-only: the
+	 * parent is what changes (JCR 2.0, 15.2.2). The node itself may be checked
+	 * in; it goes, or moves, as a whole.
+	 */
+	protected void checkParentCheckedOut() throws VersionException, RepositoryException {
+		if (isRootNode()) {
+			return;
+		}
+		checkCheckedOut(fItemData.getString("parent_item_id"));
+	}
+
+	private void checkCheckedOut(String identifier) throws VersionException, RepositoryException {
+		Node checkedIn = adaptTo(JcrVersionManager.class).getCheckedInNode(identifier);
+		if (checkedIn != null) {
+			throw new VersionException("Node '" + checkedIn.getPath() + "' is checked in: check it out to change it"
+					+ " or what is under it.");
 		}
 	}
 

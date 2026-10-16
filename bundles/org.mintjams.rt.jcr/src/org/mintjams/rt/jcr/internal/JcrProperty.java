@@ -162,6 +162,7 @@ public class JcrProperty implements org.mintjams.jcr.Property, Adaptable {
 	public void remove() throws VersionException, LockException, ConstraintViolationException, AccessDeniedException,
 			RepositoryException {
 		fNode.checkWritable();
+		fNode.checkCheckedOut();
 		adaptTo(JcrSession.class).checkPrivileges(fNode.getPath(), Privilege.JCR_MODIFY_PROPERTIES);
 		if (adaptTo(JcrNodeTypeManager.class).isProtectedProperty(getName())) {
 			throw new ConstraintViolationException("The property \"'" + getName() + "\" is protected.");

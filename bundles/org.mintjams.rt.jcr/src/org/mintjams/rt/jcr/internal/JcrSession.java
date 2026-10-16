@@ -456,6 +456,10 @@ public class JcrSession implements Session, Adaptable {
 		checkPrivileges(srcPath.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
 		checkPrivileges(destPath.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES);
 
+		// Both parents change: neither may be checked in. The node itself may be.
+		((JcrNode) srcNode).checkParentCheckedOut();
+		((JcrNode) destParentNode).checkCheckedOut();
+
 		// Check locks
 		JcrLock srcLock = null;
 		try {

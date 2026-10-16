@@ -233,6 +233,9 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 		// Check permissions
 		fSession.checkPrivileges(destPath.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES);
 
+		// The destination parent gains a child: it must not be checked in.
+		((JcrNode) destParentNode).checkCheckedOut();
+
 		// Check locks
 		JcrLock srcLock = null;
 		try {
@@ -494,6 +497,10 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 		fSession.checkPrivileges(srcPath.toString(), Privilege.JCR_REMOVE_NODE);
 		fSession.checkPrivileges(srcPath.getParent().toString(), Privilege.JCR_REMOVE_CHILD_NODES);
 		fSession.checkPrivileges(destPath.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES);
+
+		// Both parents change: neither may be checked in. The node itself may be.
+		((JcrNode) srcNode).checkParentCheckedOut();
+		((JcrNode) destParentNode).checkCheckedOut();
 
 		// Check locks
 		JcrLock srcLock = null;

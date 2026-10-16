@@ -96,8 +96,14 @@ final class JcrImportContentHandler implements ImportContentHandler {
 		if (isUnderOverwriteRoot(tgtPath)) {
 			// A descendant of a node we are overwriting in place: overwrite it in
 			// place too. No separate checkout — the ancestor's checkout (and the
-			// later checkin) captures the whole subtree.
-			return new ResultImpl(Disposition.OVERWRITTEN, fSession.getNode(tgtPath));
+			// later checkin) captures the whole subtree — unless it is itself a
+			// checked-in versionable node, which keeps its subtree read-only.
+			Node existing = fSession.getNode(tgtPath);
+			if (existing.isNodeType(NodeType.MIX_VERSIONABLE) && !existing.isCheckedOut()) {
+				fSession.getWorkspace().getVersionManager().checkout(tgtPath);
+				fOverwriteRoots.add(tgtPath);
+			}
+			return new ResultImpl(Disposition.OVERWRITTEN, existing);
 		}
 
 		// Top-level path conflict: the user's path policy decides.

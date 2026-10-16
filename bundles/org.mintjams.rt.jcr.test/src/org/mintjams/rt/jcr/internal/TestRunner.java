@@ -61,7 +61,8 @@ public class TestRunner {
 			JcrReferenceIndexTest.class,
 			JcrRemoveChildTreesTest.class,
 			JcrPropertyNullAndEmptyTest.class,
-			JcrStoredBinaryTest.class
+			JcrStoredBinaryTest.class,
+			JcrCheckedInReadOnlyTest.class
 		};
 
 		// Run tests

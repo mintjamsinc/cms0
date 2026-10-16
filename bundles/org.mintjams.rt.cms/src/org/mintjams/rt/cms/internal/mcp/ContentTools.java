@@ -57,6 +57,7 @@ import javax.imageio.stream.ImageOutputStream;
 import javax.jcr.Node;
 import javax.jcr.Session;
 import javax.jcr.lock.LockException;
+import javax.jcr.version.VersionException;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
@@ -627,6 +628,9 @@ final class ContentTools {
 
 			try (InputStream in = new ByteArrayInputStream(bytes)) {
 				JCRs.write(file, in);
+			} catch (VersionException ex) {
+				throw new McpToolException(path + " is checked in, so it cannot be changed; nothing was written."
+						+ " Check it out first.");
 			}
 			Node contentNode = JCRs.getContentNode(file);
 			if (mimeType == null && !exists) {

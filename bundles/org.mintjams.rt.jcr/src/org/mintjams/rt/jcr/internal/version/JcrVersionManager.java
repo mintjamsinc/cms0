@@ -340,13 +340,28 @@ public class JcrVersionManager implements VersionManager, Adaptable {
 
 	@Override
 	public boolean isCheckedOut(String absPath) throws RepositoryException {
-		for (Node item = fWorkspace.getSession().getNode(absPath); item != null; item = item.getParent()) {
-			if (!item.hasProperty(Property.JCR_IS_CHECKED_OUT)) {
-				continue;
+		return (getCheckedInNode(fWorkspace.getSession().getNode(absPath).getIdentifier()) == null);
+	}
+
+	/**
+	 * The checked-in versionable node that makes the node with the given
+	 * identifier read-only, or {@code null} when it may be changed. The nearest
+	 * of the node and its ancestors that carries {@code jcr:isCheckedOut}
+	 * decides: a checked-in node and everything under it are read-only until it
+	 * is checked out again (JCR 2.0, 15.2.2).
+	 *
+	 * <p>The ancestors are read without the session's read check: a checked-in
+	 * folder the user cannot read still protects what is under it.
+	 */
+	public Node getCheckedInNode(String identifier) throws RepositoryException {
+		for (String id = identifier; id != null;) {
+			JcrNode item = (JcrNode) fWorkspace.getNodeByIdentifier(id);
+			if (item.hasProperty(Property.JCR_IS_CHECKED_OUT)) {
+				return item.getProperty(Property.JCR_IS_CHECKED_OUT).getBoolean() ? null : item;
 			}
-			return item.getProperty(Property.JCR_IS_CHECKED_OUT).getBoolean();
+			id = item.getRawData().getString("parent_item_id");
 		}
-		return true;
+		return null;
 	}
 
 	@Override
