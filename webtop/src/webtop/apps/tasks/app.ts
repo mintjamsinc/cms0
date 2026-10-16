@@ -34,6 +34,8 @@ import {
 	refreshLocalization,
 	handleLocalizationMessage,
 	translate,
+	bpmProcessName,
+	bpmTaskName,
 	formatDate,
 } from "../../composables/use-localization.js";
 import type {
@@ -577,8 +579,7 @@ export const App = {
 					suspended: false,
 				});
 				const all = conn.edges.map((e: ProcessDefinitionEdge) => e.node);
-				all.sort((a: ProcessDefinition, b: ProcessDefinition) => (a.name || a.key).localeCompare(b.name || b.key));
-				this.definitions = all;
+				this.definitions = this.sortDefinitions(all);
 				const map: Record<string, ProcessDefinition> = {};
 				for (const d of all) map[d.key] = d;
 				this.processDefByKey = map;
@@ -638,9 +639,31 @@ export const App = {
 			return aC - bC;
 		},
 
+		// Ordered by the names the user reads, so the order follows the
+		// language: re-run when the localization changes.
+		sortDefinitions(defs: ProcessDefinition[]): ProcessDefinition[] {
+			const locale = this.localization.locale || undefined;
+			return [...defs].sort((a, b) => this.processName(a).localeCompare(this.processName(b), locale));
+		},
+
 		resolveProcessName(task: Task): string {
 			const def = this.processDefByKey[task.processDefinitionKey];
-			return def?.name || task.processDefinitionKey || '';
+			return bpmProcessName(this.localization, this.instance, task.processDefinitionKey, def?.name);
+		},
+
+		/**
+		 * Display names of processes and user tasks: localized under the
+		 * `bpm.process.<key>...` convention keys, else the BPMN `name`. See
+		 * composables/use-localization.ts.
+		 */
+		processName(def: ProcessDefinition | null): string {
+			if (!def) return '';
+			return bpmProcessName(this.localization, this.instance, def.key, def.name);
+		},
+
+		taskName(task: Task | null): string {
+			if (!task) return '';
+			return bpmTaskName(this.localization, this.instance, task.processDefinitionKey, task.taskDefinitionKey, task.name);
 		},
 
 		// =====================================================================
@@ -679,7 +702,7 @@ export const App = {
 
 				if (q) {
 					const procName = this.resolveProcessName(t).toLowerCase();
-					const hay = `${t.name || ''} ${t.taskDefinitionKey || ''} ${t.description || ''} ${procName} ${t.businessKey || ''}`.toLowerCase();
+					const hay = `${this.taskName(t)} ${t.name || ''} ${t.taskDefinitionKey || ''} ${t.description || ''} ${procName} ${t.businessKey || ''}`.toLowerCase();
 					if (!hay.includes(q)) return false;
 				}
 				return true;
@@ -696,7 +719,7 @@ export const App = {
 				if (this.filters.favoritesOnly && !this.favorites[d.key]) return false;
 				if (this.filters.category && d.category !== this.filters.category) return false;
 				if (q) {
-					const hay = `${d.name || ''} ${d.key || ''} ${d.description || ''}`.toLowerCase();
+					const hay = `${this.processName(d)} ${d.name || ''} ${d.key || ''} ${d.description || ''}`.toLowerCase();
 					if (!hay.includes(q)) return false;
 				}
 				return true;
@@ -907,6 +930,9 @@ export const App = {
 			// documents). Same-origin only.
 			if (data && typeof data === 'object' && event.origin === window.location.origin) {
 				if (handleLocalizationMessage(data.type, this.localization, this.instance)) {
+					// Names may have changed language: re-sort and re-filter.
+					this.definitions = this.sortDefinitions(this.definitions);
+					this.filterList();
 					this.notifyForm('localization', this.buildLocalization());
 					return;
 				}
@@ -1791,7 +1817,7 @@ export const App = {
 				type: 'takeover',
 				data: {
 					taskId: t.id,
-					taskName: t.name || t.taskDefinitionKey,
+					taskName: this.taskName(t),
 					currentAssignee: t.assignee || '',
 				},
 			};
@@ -1816,7 +1842,7 @@ export const App = {
 				type: 'assign',
 				data: {
 					taskId: this.selectedTask.id,
-					taskName: this.selectedTask.name || this.selectedTask.taskDefinitionKey,
+					taskName: this.taskName(this.selectedTask),
 					assignee: '',
 					assigneeDisplayName: '',
 					searchResults: [] as IdpUser[],

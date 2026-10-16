@@ -1,4 +1,7 @@
 {
+	"bpm.process.search-index-rebuild.name": "検索インデックスの再構築",
+	"bpm.process.search-index-rebuild.task.UserTask_progress.name": "検索インデックス再構築の進捗",
+
 	"form.system.searchindex.common.checkingRole": "権限を確認しています…",
 	"form.system.searchindex.common.adminRequired": "検索インデックスの再構築には管理者ロールが必要です。",
 
@@ -8,7 +11,7 @@
 	"form.system.searchindex.start.note.progress": "開始するとタスク一覧に進捗確認タスクが作成されます。いつでも開いて全ノードの進捗確認・中止・失敗ノードの再実行ができます。",
 	"form.system.searchindex.start.note.duration": "リポジトリの規模によっては長時間かかることがあります。再構築は同時に 1 つだけ実行してください。",
 	"form.system.searchindex.start.button": "再構築を開始",
-	"form.system.searchindex.start.started": "再構築をリクエストしました。タスク一覧の「Search Index Rebuild Progress」タスクを開いて進捗を確認してください。",
+	"form.system.searchindex.start.started": "再構築をリクエストしました。タスク一覧の「検索インデックス再構築の進捗」タスクを開いて進捗を確認してください。",
 	"form.system.searchindex.start.failed": "再構築を開始できませんでした: ",
 
 	"form.system.searchindex.progress.title": "検索インデックス再構築の進捗",
@@ -25,7 +28,7 @@
 	"form.system.searchindex.progress.someFailed": "{count} 件のノードが完了しませんでした。",
 	"form.system.searchindex.progress.rerun": "失敗ノードを再実行",
 	"form.system.searchindex.progress.close": "タスクを完了",
-	"form.system.searchindex.progress.openFromTask": "このフォームは「Search Index Rebuild Progress」タスクから開いてください。",
+	"form.system.searchindex.progress.openFromTask": "このフォームは「検索インデックス再構築の進捗」タスクから開いてください。",
 
 	"form.system.searchindex.status.init": "準備中",
 	"form.system.searchindex.status.queued": "待機中",

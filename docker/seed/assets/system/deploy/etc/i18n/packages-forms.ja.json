@@ -1,4 +1,9 @@
 {
+	"bpm.process.package-install.name": "パッケージのインストール",
+	"bpm.process.package-install.task.UserTask_progress.name": "パッケージのインストールの進捗",
+	"bpm.process.package-uninstall.name": "パッケージのアンインストール",
+	"bpm.process.package-uninstall.task.UserTask_progress.name": "パッケージのアンインストールの進捗",
+
 	"form.system.packages.common.checkingRole": "権限を確認しています…",
 	"form.system.packages.common.adminRequired": "パッケージのインストールには管理者ロールが必要です。",
 	"form.system.packages.common.workspace": "ワークスペース",
@@ -17,7 +22,7 @@
 	"form.system.packages.start.inspecting": "パッケージを読み取ってチェックしています…",
 	"form.system.packages.start.button": "続ける",
 	"form.system.packages.start.chooseAnother": "別のファイルを選択",
-	"form.system.packages.start.started": "インストールを開始しました。タスク一覧の「Package Installation Progress」タスクを開くと進捗を確認できます。",
+	"form.system.packages.start.started": "インストールを開始しました。タスク一覧の「パッケージのインストールの進捗」タスクを開くと進捗を確認できます。",
 	"form.system.packages.start.uploadFailed": "パッケージを読み取れませんでした: ",
 	"form.system.packages.start.noInspection": "パッケージをチェックできませんでした。",
 	"form.system.packages.start.failed": "インストールを開始できませんでした: ",
@@ -98,7 +103,7 @@
 	"form.system.packages.uninstall.start.filesRemoved": "{count} ファイルを削除",
 	"form.system.packages.uninstall.start.selected": "{count} 件を選択中",
 	"form.system.packages.uninstall.start.button": "アンインストール",
-	"form.system.packages.uninstall.start.started": "アンインストールを開始しました。タスク一覧の「Package Uninstallation Progress」タスクを開くと進捗を確認できます。",
+	"form.system.packages.uninstall.start.started": "アンインストールを開始しました。タスク一覧の「パッケージのアンインストールの進捗」タスクを開くと進捗を確認できます。",
 	"form.system.packages.uninstall.start.failed": "アンインストールを開始できませんでした: ",
 
 	"form.system.packages.uninstall.result.done": "{count} 件のパッケージをアンインストールしました。",

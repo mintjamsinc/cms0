@@ -1,4 +1,7 @@
 {
+	"bpm.process.chat-maintenance.name": "Chat Maintenance",
+	"bpm.process.chat-maintenance.task.UserTask_result.name": "Chat Maintenance Result",
+
 	"form.webtop.chat.common.checkingRole": "Checking permissions…",
 	"form.webtop.chat.common.adminRequired": "Administrator role is required to run the chat maintenance.",
 

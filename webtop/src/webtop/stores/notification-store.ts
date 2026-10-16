@@ -33,7 +33,8 @@ export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 /**
  * A text of a notice: written out, or as an i18n message to resolve for the
  * reader (`id` in the bundles, `params` for its placeholders, `fallback`
- * when no bundle has it).
+ * when no bundle has it). A placeholder value may itself be such a message,
+ * resolved for the reader before it is put in.
  */
 export type NotificationText = string | { id: string; params?: Record<string, unknown>; fallback?: string };
 

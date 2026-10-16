@@ -1,4 +1,7 @@
 {
+	"bpm.process.search-index-rebuild.name": "Search Index Rebuild",
+	"bpm.process.search-index-rebuild.task.UserTask_progress.name": "Search Index Rebuild Progress",
+
 	"form.system.searchindex.common.checkingRole": "Checking permissions…",
 	"form.system.searchindex.common.adminRequired": "Administrator role is required to rebuild the search index.",
 

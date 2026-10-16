@@ -39,6 +39,8 @@ import {
 	refreshLocalization,
 	handleLocalizationMessage,
 	translate,
+	bpmProcessName,
+	bpmTaskName,
 	formatNumber,
 	formatDate,
 } from '../../composables/use-localization.js';
@@ -505,7 +507,7 @@ const App = {
 			} catch (_) { /* keep zeros */ }
 			const nameFor = (key: string): string => {
 				const d = defByKey[key];
-				return (d && (d.name || '')) || humanizeKey(key) || key || this.t('app.dashboard.fallback.process', undefined, 'Process');
+				return bpmProcessName(this.localization, this.instance, key, (d && d.name) || humanizeKey(key)) || this.t('app.dashboard.fallback.process', undefined, 'Process');
 			};
 
 			// ---- Today's Work (every user) ----------------------------------
@@ -588,7 +590,7 @@ const App = {
 				const bkey = (t.businessKey || (t.processInstance && t.processInstance.businessKey)) || '';
 				return {
 					id: t.id,
-					title: t.name || humanizeKey(t.taskDefinitionKey) || this.t('app.dashboard.fallback.task', undefined, 'Task'),
+					title: bpmTaskName(this.localization, this.instance, t.processDefinitionKey, t.taskDefinitionKey, t.name || humanizeKey(t.taskDefinitionKey)) || this.t('app.dashboard.fallback.task', undefined, 'Task'),
 					sub: bkey ? `${nameFor(t.processDefinitionKey)} · ${bkey}` : nameFor(t.processDefinitionKey),
 					pill,
 					pillClass,
@@ -604,7 +606,7 @@ const App = {
 				const key = `${pk} ${tk}`;
 				let g = groupsMap.get(key);
 				if (!g) {
-					g = { processKey: pk, taskKey: tk, taskName: t.name || humanizeKey(tk) || this.t('app.dashboard.fallback.task', undefined, 'Task'), count: 0, oldest: Number.POSITIVE_INFINITY };
+					g = { processKey: pk, taskKey: tk, taskName: bpmTaskName(this.localization, this.instance, pk, t.taskDefinitionKey, t.name || humanizeKey(tk)) || this.t('app.dashboard.fallback.task', undefined, 'Task'), count: 0, oldest: Number.POSITIVE_INFINITY };
 				}
 				g.count++;
 				const c = Date.parse(t.created);

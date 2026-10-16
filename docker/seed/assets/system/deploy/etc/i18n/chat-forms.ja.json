@@ -1,4 +1,7 @@
 {
+	"bpm.process.chat-maintenance.name": "チャットのメンテナンス",
+	"bpm.process.chat-maintenance.task.UserTask_result.name": "チャットのメンテナンス結果",
+
 	"form.webtop.chat.common.checkingRole": "権限を確認しています…",
 	"form.webtop.chat.common.adminRequired": "チャットのメンテナンスには管理者ロールが必要です。",
 
@@ -16,7 +19,7 @@
 	"form.webtop.chat.start.orphans": "もう存在しないファイルの会話を削除する",
 	"form.webtop.chat.start.note.irreversible": "削除したものは元に戻せません。",
 	"form.webtop.chat.start.button": "削除を実行",
-	"form.webtop.chat.start.started": "メンテナンスを開始しました。タスク一覧の「Chat Maintenance Result」タスクを開くと、削除した件数を確認できます。",
+	"form.webtop.chat.start.started": "メンテナンスを開始しました。タスク一覧の「チャットのメンテナンス結果」タスクを開くと、削除した件数を確認できます。",
 	"form.webtop.chat.start.failed": "メンテナンスを開始できませんでした: ",
 
 	"form.webtop.chat.result.title": "チャットのメンテナンス結果",
@@ -27,7 +30,7 @@
 	"form.webtop.chat.result.mentionDays": "削除したメンションの印の日数",
 	"form.webtop.chat.result.orphans": "削除したファイルの会話（削除済みファイルの分）",
 	"form.webtop.chat.result.errors": "削除できなかったフォルダー（サーバーログを参照）",
-	"form.webtop.chat.result.openFromTask": "このフォームは「Chat Maintenance Result」タスクから開いてください。",
+	"form.webtop.chat.result.openFromTask": "このフォームは「チャットのメンテナンス結果」タスクから開いてください。",
 	"form.webtop.chat.result.missing": "実行結果がありません。",
 	"form.webtop.chat.result.close": "タスクを完了"
 }

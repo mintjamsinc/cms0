@@ -565,7 +565,8 @@ export interface Task {
   // Flattened from `processInstance.businessKey` so callers can read it
   // without traversing the relation. Populated by listTasks/getTask.
   businessKey?: string | null;
-  processInstance?: { businessKey?: string | null } | null;
+  // `definitionKey` is selected by the task subscriptions (event-hub).
+  processInstance?: { businessKey?: string | null; definitionKey?: string | null } | null;
 }
 
 export interface TaskEdge {

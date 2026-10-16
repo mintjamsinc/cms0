@@ -1669,11 +1669,26 @@ const WtDesktop = {
 
 		/** A text of a notice in the reader's language, resolved in the sending app's scope. */
 		noticeText(n: Notification, which: 'title' | 'message'): string {
+			return this.resolveNoticeText(n[which], n.data?.app);
+		},
+		/**
+		 * One message reference in the reader's language. A placeholder value
+		 * may itself be a message reference (e.g. a task's localized name),
+		 * resolved the same way before it is put in.
+		 */
+		resolveNoticeText(value: NotificationText, app?: string): string {
 			const vm = this;
-			const value: NotificationText = n[which];
 			if (typeof value === 'string') return value;
 			if (!value || !value.id) return '';
-			return translate(vm.localization, window.Webtop, value.id, value.params as Record<string, any> | undefined, value.fallback ?? value.id, n.data?.app);
+			let params: Record<string, any> | undefined;
+			if (value.params) {
+				params = {};
+				for (const [name, param] of Object.entries(value.params)) {
+					const isRef = !!param && typeof param === 'object' && typeof (param as any).id === 'string';
+					params[name] = isRef ? vm.resolveNoticeText(param as NotificationText, app) : param;
+				}
+			}
+			return translate(vm.localization, window.Webtop, value.id, params, value.fallback ?? value.id, app);
 		},
 		noticeApp(n: Notification): Application | null {
 			const relPath = n.data?.app;

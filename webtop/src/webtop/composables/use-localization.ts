@@ -202,6 +202,71 @@ export function translate(
 }
 
 /**
+ * i18n key of a BPMN process's display name: `bpm.process.<processKey>.name`.
+ * The engine only knows the `name` attribute written in the BPMN file, so a
+ * process is localized by convention under this key, in a global bundle
+ * (`/etc/i18n/<unit>.<locale>.json`) shipped with the process.
+ */
+export function bpmProcessNameKey(processKey: string): string {
+	return `bpm.process.${processKey}.name`;
+}
+
+/**
+ * i18n key of a BPMN user task's display name:
+ * `bpm.process.<processKey>.task.<taskDefinitionKey>.name`.
+ */
+export function bpmTaskNameKey(processKey: string, taskDefinitionKey: string): string {
+	return `bpm.process.${processKey}.task.${taskDefinitionKey}.name`;
+}
+
+/**
+ * Translate a convention key, or show `literal` (the BPMN `name`) as written
+ * when no bundle has it. The literal is not run through ICU, so a name with
+ * braces or quotes shows unchanged.
+ */
+function translateOrLiteral(
+	snapshot: LocalizationSnapshot,
+	instance: any,
+	messageId: string,
+	literal: string,
+): string {
+	const text = translate(snapshot, instance, messageId);
+	return text === messageId ? literal : text;
+}
+
+/**
+ * Reactively localize a process name: the bundle entry under
+ * {@link bpmProcessNameKey}, else the BPMN `name`, else the key itself.
+ */
+export function bpmProcessName(
+	snapshot: LocalizationSnapshot,
+	instance: any,
+	processKey: string | null | undefined,
+	name?: string | null,
+): string {
+	const literal = name || processKey || '';
+	if (!processKey) return literal;
+	return translateOrLiteral(snapshot, instance, bpmProcessNameKey(processKey), literal);
+}
+
+/**
+ * Reactively localize a user task name: the bundle entry under
+ * {@link bpmTaskNameKey}, else the task's `name` (evaluated by the engine
+ * when the task was created), else its definition key.
+ */
+export function bpmTaskName(
+	snapshot: LocalizationSnapshot,
+	instance: any,
+	processKey: string | null | undefined,
+	taskDefinitionKey: string | null | undefined,
+	name?: string | null,
+): string {
+	const literal = name || taskDefinitionKey || '';
+	if (!processKey || !taskDefinitionKey) return literal;
+	return translateOrLiteral(snapshot, instance, bpmTaskNameKey(processKey, taskDefinitionKey), literal);
+}
+
+/**
  * Reactively format a number in the user's effective number-format locale.
  * Reads `snapshot.numberFormat` / `snapshot.locale` so it repaints on change.
  */

@@ -8,6 +8,7 @@
 import { SubscriptionClient, createSubscriptionClient } from './subscription-client.js';
 import { taskActions } from '../stores/task-store.js';
 import { notificationActions } from '../stores/notification-store.js';
+import { bpmTaskNameKey } from '../composables/use-localization.js';
 import type {
   NodeChangeEvent,
   PreferenceChangeEvent,
@@ -43,7 +44,7 @@ const SELECTIONS = {
     'itemsNew itemsOverwritten itemsSkipped itemsError errorSamples dryRunHasErrors ' +
     'dryRunNodeCount dryRunBinaryCount dryRunDetail currentPath errorMessage phase ' +
     'targetWorkspace downloadUrl timestamp',
-  task: 'eventType task { id name assignee taskDefinitionKey processInstanceId processDefinitionId } timestamp',
+  task: 'eventType task { id name assignee taskDefinitionKey processInstanceId processDefinitionId processInstance { definitionKey } } timestamp',
   process: 'eventType processInstance { id definitionId definitionKey businessKey } timestamp',
   route: 'routeId previousState currentState timestamp error',
   topic: 'topic payload userId messageId timestamp',
@@ -108,14 +109,21 @@ export class EventHub {
         (event) => {
           if (event.task) {
             taskActions.addTask(event.task);
+            // The task's name in the reader's language, under the same
+            // convention key the Tasks app reads (bpmTaskNameKey).
+            const name = event.task.name || event.task.taskDefinitionKey;
+            const processKey = event.task.processInstance?.definitionKey;
+            const nameText = processKey && event.task.taskDefinitionKey
+              ? { id: bpmTaskNameKey(processKey, event.task.taskDefinitionKey), fallback: name }
+              : name;
             // Shown by the shell as a toast and in the notification
             // center; the texts are resolved in the reader's language there.
             notificationActions.task(
               { id: 'webtop.notification.task.assigned.title', fallback: 'New task' },
               {
                 id: 'webtop.notification.task.assigned.body',
-                params: { name: event.task.name },
-                fallback: `Task "${event.task.name}" was assigned to you.`,
+                params: { name: nameText },
+                fallback: `Task "${name}" was assigned to you.`,
               },
               {
                 app: 'tasks',

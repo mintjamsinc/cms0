@@ -1,4 +1,9 @@
 {
+	"bpm.process.package-install.name": "Install Package",
+	"bpm.process.package-install.task.UserTask_progress.name": "Package Installation Progress",
+	"bpm.process.package-uninstall.name": "Uninstall Packages",
+	"bpm.process.package-uninstall.task.UserTask_progress.name": "Package Uninstallation Progress",
+
 	"form.system.packages.common.checkingRole": "Checking permissions…",
 	"form.system.packages.common.adminRequired": "Administrator role is required to install packages.",
 	"form.system.packages.common.workspace": "Workspace",

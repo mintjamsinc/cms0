@@ -109,6 +109,7 @@ Keys are hierarchical, dotted, **flat** (the JSON is not nested). Namespaces:
 | `webtop.*` | the shell (desktop, start menu, taskbar, window chrome, system dialogs) | `webtop.startMenu.signOut` |
 | `app.<appId>.*` | a single app; `<appId>` is the app folder name | `app.preferences.localization.title` |
 | `cms.*` | cross-cutting platform messages (validation, errors) surfaced by services | `cms.validation.string.tooLong` |
+| `bpm.*` | display names of BPMN processes and user tasks (see below) | `bpm.process.package-install.name` |
 
 Within an app, group by feature/section and suffix by role, e.g.
 `app.preferences.localization.currency.title` / `.desc` / `.auto`.
@@ -122,6 +123,24 @@ bundle edit, with no server or `app.yml` change. (We deliberately avoid an
 `app.yml` `titleKey` field: that metadata is parsed server-side and exposed over
 GraphQL, so a convention key keeps title localization fully client-side and
 consistent with the rest of the `app.<appId>.*` namespace.)
+
+**Process and user task names.** The engine knows only the `name` attribute
+written in the BPMN file, and a user task's name is evaluated once, when the
+task is created — so a name cannot follow the reader's language from the BPMN
+side. Names are localized by convention instead, under
+
+- **`bpm.process.<processKey>.name`** — the process (`<bpmn:process id>`), and
+- **`bpm.process.<processKey>.task.<taskDefinitionKey>.name`** — a user task
+  (`<bpmn:userTask id>`),
+
+falling back to the BPMN `name` as written when no bundle has the key. The
+Tasks app (start list, task list, filters, context bar), the dashboard and
+the "task assigned" notice read them through `bpmProcessName()` /
+`bpmTaskName()` in `composables/use-localization.ts`. These keys are read by
+several apps and the shell, so they go in a **global** bundle shipped by the
+unit that deploys the process, next to its form strings (e.g. the package
+installer's names are in `packages-forms.<locale>.json`). Keep the `en` value
+equal to the BPMN `name`.
 
 App **action** labels (`app.yml` `actions.<id>.label`) are not surfaced in any
 shell UI today, so there is nothing to translate yet. When an action becomes

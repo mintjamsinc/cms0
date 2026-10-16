@@ -138,7 +138,7 @@
 							<wt-checkbox v-for="def in definitions" :key="def.id" class="def-checkbox-item"
 								:model-value="!!selectedDefKeyMap[def.key]"
 								@change="toggleDefKey(def.key)">
-								<span class="def-checkbox-label">{{ def.name || def.key }}</span>
+								<span class="def-checkbox-label">{{ processName(def) }}</span>
 							</wt-checkbox>
 						</div>
 					</div>
@@ -217,7 +217,7 @@
 						<span v-else class="task-badge task-badge-other" :title="t('app.tasks.badge.assignedTo', { assignee: task.assignee }, 'Assigned to {assignee}')">
 							<i class="bi bi-person-fill"></i>
 						</span>
-						<span class="task-item-name">{{ task.name || task.taskDefinitionKey }}</span>
+						<span class="task-item-name">{{ taskName(task) }}</span>
 						<span v-if="task.priority >= 75" class="task-badge task-badge-priority" :title="t('app.tasks.badge.highPriority', undefined, 'High priority')">
 							<i class="bi bi-flag-fill"></i>
 						</span>
@@ -254,7 +254,7 @@
 							:title="favorites[def.key] ? t('app.tasks.action.removeFavorite', undefined, 'Remove from favorites') : t('app.tasks.action.addFavorite', undefined, 'Add to favorites')">
 							<i class="bi" :class="favorites[def.key] ? 'bi-star-fill' : 'bi-star'"></i>
 						</button>
-						<span class="def-item-name">{{ def.name || def.key }}</span>
+						<span class="def-item-name">{{ processName(def) }}</span>
 						<span class="def-item-version">{{ t('app.tasks.def.version', { version: def.version }, 'v{version}') }}</span>
 					</div>
 					<div class="def-item-row2">
@@ -282,12 +282,12 @@
 				<div class="form-context-info">
 					<span v-if="mode === 'start' && selectedDef" class="form-context-title">
 						<i class="bi bi-play-fill"></i>
-						<strong>{{ selectedDef.name || selectedDef.key }}</strong>
+						<strong>{{ processName(selectedDef) }}</strong>
 						<span class="form-context-sub">{{ t('app.tasks.def.version', { version: selectedDef.version }, 'v{version}') }}</span>
 					</span>
 					<span v-else-if="mode !== 'start' && selectedTask" class="form-context-title">
 						<i class="bi bi-card-checklist"></i>
-						<strong>{{ selectedTask.name || selectedTask.taskDefinitionKey }}</strong>
+						<strong>{{ taskName(selectedTask) }}</strong>
 						<span v-if="selectedTask.assignee" class="form-context-sub">
 							· {{ selectedTask.assignee === currentUserID ? t('app.tasks.context.me', undefined, 'me') : selectedTask.assignee }}
 						</span>
