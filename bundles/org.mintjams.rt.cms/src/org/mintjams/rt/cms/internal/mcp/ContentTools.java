@@ -22,8 +22,15 @@
 
 package org.mintjams.rt.cms.internal.mcp;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.Reader;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -34,14 +41,24 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageInputStream;
+import javax.imageio.stream.ImageOutputStream;
 import javax.jcr.Node;
 import javax.jcr.Session;
 
@@ -77,8 +94,19 @@ final class ContentTools {
 	private static final int DEFAULT_READ_CHARS = 100_000;
 	private static final int MAX_READ_CHARS = 500_000;
 
-	/** Largest image returned inline as an image block. */
-	private static final long MAX_IMAGE_BYTES = 1024L * 1024;
+	/**
+	 * Longest edge of an image handed to the model: a model downscales what
+	 * it is given to about this anyway, so a larger image costs transfer and
+	 * tokens without showing more. An image that is larger is scaled down
+	 * here; the file is not touched.
+	 */
+	private static final int MAX_IMAGE_EDGE = 1568;
+
+	/** An image up to this size that already fits is returned as it is, bytes unchanged. */
+	private static final long PASS_THROUGH_IMAGE_BYTES = 1024L * 1024;
+
+	/** Largest image returned unscaled when it cannot be decoded here (the model API's own limit). */
+	private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
 
 	private static final Set<String> INLINE_IMAGE_TYPES = new HashSet<>(
 			Arrays.asList("image/png", "image/jpeg", "image/gif", "image/webp"));
@@ -155,9 +183,11 @@ final class ContentTools {
 		return McpTool.named("read_file").title("Read file")
 				.description("Content of a file. Text is returned as text, decoded with the file's encoding (UTF-8",
 						"when none is recorded); long files are paged by character with offset and limit. PNG, JPEG,",
-						"GIF and WebP images up to 1 MB are returned as images. Other binary content is described but",
-						"not returned. To read an earlier version of a file, pass a frozenNodePath from",
-						"version_history.")
+						"GIF and WebP images are returned as images, scaled down to what a model can see when they",
+						"are large. PDF, Word, Excel, PowerPoint and other documents are returned as their extracted",
+						"text (title, author and page count when recorded), paged like text. Other binary content",
+						"is described but not returned. To read an earlier version of a file, pass a frozenNodePath",
+						"from version_history.")
 				.required("path", Schema.string("Absolute repository path of the file"))
 				.optional("offset", Schema.integer("Character offset to start reading at", 0, 0, Integer.MAX_VALUE))
 				.optional("limit",
@@ -203,18 +233,21 @@ final class ContentTools {
 
 			String type = mimeType.toLowerCase(Locale.ROOT);
 			if (INLINE_IMAGE_TYPES.contains(type)) {
-				if (size > MAX_IMAGE_BYTES) {
-					info.put("note", "The image is larger than " + MAX_IMAGE_BYTES + " bytes and is not returned.");
-					return McpToolResult.json(info);
-				}
-				try (InputStream in = JCRs.getContentAsStream(node)) {
-					return McpToolResult.json(info)
-							.addImage(Base64.getEncoder().encodeToString(in.readAllBytes()), type);
-				}
+				return imageResult(node, type, size, info);
 			}
 
-			if (!isTextType(type) && (isMediaType(type) || !looksLikeText(node, encoding))) {
-				info.put("note", "Binary content is not returned.");
+			// A document type is never read as text, even when its bytes happen
+			// to look like text (a small PDF can be pure ASCII).
+			if (!isTextType(type) && (isDocumentType(type) || isMediaType(type) || !looksLikeText(node, encoding))) {
+				// A document (PDF, Office, …) is read through the workspace's own
+				// documentText query, which every workspace has unless it was
+				// removed; the extractor lives there, not in the bundle.
+				if (!isMediaType(type) && context.hasQueryField("documentText")) {
+					return documentText(context, path, offset, limit, info);
+				}
+				info.put("note", isMediaType(type) ? "Binary content is not returned."
+						: "Binary content is not returned, and the workspace has no documentText query to extract"
+								+ " its text with.");
 				return McpToolResult.json(info);
 			}
 
@@ -249,6 +282,146 @@ final class ContentTools {
 			return McpToolResult.json(info).addText(text.toString());
 		} finally {
 			session.logout();
+		}
+	}
+
+	/**
+	 * The text of a document, through the workspace's {@code documentText}
+	 * query (seeded in every workspace; see {@code /etc/graphql/files}). The
+	 * query runs as the caller and pages by character like the text branch.
+	 */
+	private static McpToolResult documentText(McpCallContext context, String path, int offset, int limit,
+			Map<String, Object> info) throws McpToolException {
+		Map<String, Object> data = McpGraphQL.data(context,
+				"query($path: String!, $offset: Int, $limit: Int) { documentText(path: $path, offset: $offset,"
+						+ " limit: $limit) { extracted detectedType title author pages text truncated nextOffset"
+						+ " note } }",
+				vars("path", path, "offset", offset, "limit", limit));
+		Object doc = data.get("documentText");
+		if (!(doc instanceof Map)) {
+			throw new McpToolException("The server returned no document text for " + path + ".");
+		}
+		Map<?, ?> map = (Map<?, ?>) doc;
+		String text = (map.get("text") == null) ? "" : String.valueOf(map.get("text"));
+		for (String key : new String[] { "extracted", "detectedType", "title", "author", "pages" }) {
+			if (map.get(key) != null) {
+				info.put(key, map.get(key));
+			}
+		}
+		info.put("offset", offset);
+		info.put("returnedChars", text.length());
+		info.put("truncated", Boolean.TRUE.equals(map.get("truncated")));
+		if (map.get("nextOffset") != null) {
+			info.put("nextOffset", map.get("nextOffset"));
+		}
+		if (map.get("note") != null) {
+			info.put("note", map.get("note"));
+		}
+		return McpToolResult.json(info).addText(text);
+	}
+
+	/**
+	 * An image as an image block. A small image that already fits
+	 * {@link #MAX_IMAGE_EDGE} goes out as it is; a larger one is decoded with
+	 * subsampling (so a huge photo never fills the heap), scaled to fit, and
+	 * encoded as JPEG (or PNG when it has transparency). An image this JVM
+	 * cannot decode (WebP, an unusual JPEG) is passed through unchanged up to
+	 * {@link #MAX_IMAGE_BYTES}, and described beyond that.
+	 */
+	private static McpToolResult imageResult(Node node, String type, long size, Map<String, Object> info)
+			throws Exception {
+		int width = -1;
+		int height = -1;
+		BufferedImage decoded = null;
+		try (InputStream in = JCRs.getContentAsStream(node);
+				ImageInputStream input = ImageIO.createImageInputStream(in)) {
+			Iterator<ImageReader> readers = (input == null) ? Collections.emptyIterator()
+					: ImageIO.getImageReaders(input);
+			if (readers.hasNext()) {
+				ImageReader reader = readers.next();
+				try {
+					reader.setInput(input, true, true);
+					width = reader.getWidth(0);
+					height = reader.getHeight(0);
+					if (size > PASS_THROUGH_IMAGE_BYTES || Math.max(width, height) > MAX_IMAGE_EDGE) {
+						ImageReadParam param = reader.getDefaultReadParam();
+						int step = Math.max(1, Math.max(width, height) / (2 * MAX_IMAGE_EDGE));
+						param.setSourceSubsampling(step, step, 0, 0);
+						decoded = reader.read(0, param);
+					}
+				} finally {
+					reader.dispose();
+				}
+			}
+		} catch (Exception ex) {
+			decoded = null;
+		}
+		if (width > 0) {
+			info.put("width", width);
+			info.put("height", height);
+		}
+
+		if (decoded == null) {
+			if (size > MAX_IMAGE_BYTES) {
+				info.put("note", "The image is " + size + " bytes, more than the " + MAX_IMAGE_BYTES
+						+ " bytes a model accepts, and could not be decoded here to be scaled down.");
+				return McpToolResult.json(info);
+			}
+			try (InputStream in = JCRs.getContentAsStream(node)) {
+				return McpToolResult.json(info).addImage(Base64.getEncoder().encodeToString(in.readAllBytes()),
+						type);
+			}
+		}
+
+		int dw = decoded.getWidth();
+		int dh = decoded.getHeight();
+		double factor = Math.min(1.0, (double) MAX_IMAGE_EDGE / Math.max(dw, dh));
+		int tw = Math.max(1, (int) Math.round(dw * factor));
+		int th = Math.max(1, (int) Math.round(dh * factor));
+		boolean alpha = decoded.getColorModel().hasAlpha();
+		BufferedImage scaled = new BufferedImage(tw, th,
+				alpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = scaled.createGraphics();
+		try {
+			g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+			if (!alpha) {
+				g.setColor(Color.WHITE);
+				g.fillRect(0, 0, tw, th);
+			}
+			g.drawImage(decoded, 0, 0, tw, th, null);
+		} finally {
+			g.dispose();
+		}
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		String outType;
+		if (alpha) {
+			ImageIO.write(scaled, "png", out);
+			outType = "image/png";
+		} else {
+			writeJpeg(scaled, out);
+			outType = "image/jpeg";
+		}
+		Map<String, Object> returned = new LinkedHashMap<>();
+		returned.put("width", tw);
+		returned.put("height", th);
+		returned.put("mimeType", outType);
+		returned.put("size", out.size());
+		info.put("returned", returned);
+		info.put("note", "Returned scaled down to fit " + MAX_IMAGE_EDGE + " px; the file is unchanged.");
+		return McpToolResult.json(info).addImage(Base64.getEncoder().encodeToString(out.toByteArray()), outType);
+	}
+
+	private static void writeJpeg(BufferedImage image, OutputStream out) throws IOException {
+		ImageWriter writer = ImageIO.getImageWritersByFormatName("jpeg").next();
+		try (ImageOutputStream output = ImageIO.createImageOutputStream(out)) {
+			ImageWriteParam param = writer.getDefaultWriteParam();
+			param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+			param.setCompressionQuality(0.85f);
+			writer.setOutput(output);
+			writer.write(null, new IIOImage(image, null, null), param);
+		} finally {
+			writer.dispose();
 		}
 	}
 
@@ -739,6 +912,13 @@ final class ContentTools {
 	private static boolean isTextType(String mimeType) {
 		return mimeType.startsWith("text/") || mimeType.endsWith("+json") || mimeType.endsWith("+xml")
 				|| TEXT_TYPES.contains(mimeType);
+	}
+
+	/** Types whose text is extracted, never read raw: PDF, Office and OpenDocument, RTF, EPUB, e-mail. */
+	private static boolean isDocumentType(String mimeType) {
+		return mimeType.equals("application/pdf") || mimeType.startsWith("application/vnd.")
+				|| mimeType.equals("application/msword") || mimeType.equals("application/rtf")
+				|| mimeType.equals("application/epub+zip") || mimeType.equals("message/rfc822");
 	}
 
 	/** Types that are binary by definition; anything else unrecognised is inspected. */

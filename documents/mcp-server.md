@@ -239,7 +239,7 @@ running may have to reconnect before it sees the tools.
 | --- | --- | --- |
 | `get_node` | read | Metadata of a file or folder: type, size, MIME type, creation and modification, lock and version state, custom properties, and how a file is rendered over the web. |
 | `list_children` | read | The children of a folder. Paged. |
-| `read_file` | read | The content of a file. Text is paged by character; PNG, JPEG, GIF and WebP up to 1 MB come back as images; other binary content is described, not returned. |
+| `read_file` | read | The content of a file. Text is paged by character; PDF, Office and other documents come back as their extracted text (through the workspace's `documentText`, below); PNG, JPEG, GIF and WebP come back as images, scaled down when large; other binary content is described, not returned. |
 | `search` | read | Full-text search, most relevant first. |
 | `query` | read | A JCR XPath query. |
 | `version_history` | read | The versions of a versionable node. Each has a `frozenNodePath` that `read_file` accepts, to read the content as it was. |
@@ -266,22 +266,45 @@ MIME type does not say. MIME types are assigned from file names, and many source
 formats (templates, scripts, Markdown) map to types that reveal nothing about
 being text.
 
-### `read_document` and `edit_file`
+### Images and documents
 
-Two more tools come with every workspace, defined the way a workspace defines
+An image is handed to the model as an image block. A model sees at most
+about 1568 px along the longer edge whatever it is given, so a larger image
+is scaled down here before it is sent — decoded with subsampling, so a huge
+photo never fills the heap — and encoded as JPEG, or PNG when it has
+transparency; the result reports the original and the returned sizes, and
+the file is not touched. A small image that already fits goes out as it is,
+bytes unchanged (an animated GIF stays animated). An image this JVM cannot
+decode (WebP, an unusual JPEG) is passed through unchanged up to 5 MB, the
+model API's own limit, and described beyond that.
+
+A document — PDF, Word, Excel, PowerPoint, OpenDocument, RTF, EPUB, e-mail —
+is never read raw, even when its bytes happen to look like text: `read_file`
+runs the workspace's `documentText` query (below) and returns the text it
+extracts, paged by character like a text file, with title, author and page
+count when the document records them. A workspace without that query (one
+that removed the seeded `/etc/graphql/files`) gets the description and a note
+saying so.
+
+### Tools that come with every workspace
+
+Five more tools come with every workspace, defined the way a workspace defines
 its own (`/etc/graphql/files/tools.yml`, seeded from
 `docker/seed/assets/system/deploy/etc/graphql/files`). Each wraps one
 operation of the schema beside it, so what the tool does is also available to
-Webtop and to the `graphql` tool.
+Webtop and to the `graphql` tool, and the implementation is content — Groovy
+and GraphQL, deployed when written — not the bundle.
 
 | Tool | Needs | Operation | What it does |
 | --- | --- | --- | --- |
-| `read_document` | read | `Query.documentText` | The text of a document: PDF, Word, Excel, PowerPoint (old and new formats), OpenDocument, RTF, EPUB, e-mail and the other formats Apache Tika parses, and text files as they are. Paged by character like `read_file`; title, author and page count when the document records them. |
+| `read_document` | read | `Query.documentText` | The text of a document: PDF, Word, Excel, PowerPoint (old and new formats), OpenDocument, RTF, EPUB, e-mail and the other formats Apache Tika parses, and text files as they are. Paged by character; title, author and page count when the document records them. `read_file` leans on the same query. |
 | `edit_file` | write | `Mutation.editFile` | Replaces `oldText` with `newText` in a text file and leaves the rest as it is. |
+| `diff_versions` | read | `Query.fileDiff` | What changed in a versionable text file between two versions, or since a version: a unified diff with three lines of context. |
+| `grep_files` | read | `Query.grepFiles` | The lines matching a regular expression in the text files under a folder, with path and line number, as `grep -rn` prints them. |
+| `find_files` | read | `Query.findFiles` | The files, folders or both under a folder whose name matches a glob (`*.md`), with size, type and last modification. Paged. |
 
-`read_document` is the reader for everything `read_file` describes but does
-not return. The extractor is the one the search index uses, so what `search`
-finds in a document, `read_document` shows. Extraction stops at
+**`read_document`.** The extractor is the one the search index uses, so what
+`search` finds in a document, `read_document` shows. Extraction stops at
 `offset + limit` characters: a page deep in a long document costs a parse up
 to that point, and no more than the page is held in memory. A text file is
 read directly, in its encoding; an image, audio or video file is refused
@@ -289,7 +312,7 @@ read directly, in its encoding; an image, audio or video file is refused
 such; a document without text (a scanned PDF) comes back with an empty
 `text` and a `note` saying so.
 
-`edit_file` is how a model changes part of a file without rewriting it.
+**`edit_file`** is how a model changes part of a file without rewriting it.
 `oldText` has to match the file exactly, whitespace and indentation included,
 and exactly once: a text that matches nowhere, or in several places, changes
 nothing and the refusal says which, so the client reads the file and tries
@@ -299,6 +322,33 @@ a CRLF file and the replacement is written with CRLF. An empty `newText`
 deletes the matched text. The file keeps its encoding and MIME type, and the
 repository's rules apply as they do to `write_file`: a locked or checked-in
 file is refused. The result names the line the first replacement starts on.
+When the tool is present, the server instructions tell a client that may
+write to prefer it over `write_file` for a partial change.
+
+**`diff_versions`** compares two versions of a versionable file (`from`,
+`to`, names from `version_history`), or a version with the current content
+when `to` is omitted; without `from` it starts from the base version, so the
+path alone answers "what changed since the last check-in". Lines are compared
+with CRLF normalised to LF. The edit script is Myers' algorithm, as in git;
+for two texts that differ very widely it falls back to one hunk covering
+everything between the common head and tail, so memory stays bounded. `limit`
+cuts the diff text on a hunk boundary; `hunks` and `totalHunks` say how much
+was left out.
+
+**`grep_files`** is what `search` is not: an exact expression (a Java regular
+expression, or literal text with `regex` false), every text file under a
+folder, the line it is on. Files are found with an XPath query and read one
+at a time; a binary file, a media file, or a file larger than `maxFileSize`
+(4 MB by default) is skipped and counted, never read into memory. `namePattern`
+restricts the file names (a glob, case-insensitive); `maxMatches` (200 by
+default) stops the search, and `truncated` says it did.
+
+**`find_files`** matches a glob (`*` any run, `?` one character,
+case-insensitive) against names. Files come from an XPath query, which the
+search index answers without walking the tree; folders are not in the index,
+so a search for folders, or for both, walks the tree depth first and stops as
+soon as the page is full. For an exact name, `query` with
+`element(name, nt:file)` is the one-step answer.
 
 ### `write_file` does not replace by accident
 
@@ -415,8 +465,12 @@ A tool is one of two things:
   the workspace schema (`graphql.data(document, variables)` returns the
   `data`, `graphql.execute(...)` the whole response); and `mcp`, who is
   calling and whether the connection may write. What the script returns is
-  the result: a string as text, anything else as JSON. A script is assumed to
-  change content unless its `access` says `read`.
+  the result: a string as text, anything else as JSON. To hand the model an
+  image, the script returns `mcp.image(bytes, 'image/png')` (or a Base64
+  string in place of the bytes); the result it gets back takes further
+  blocks with `addText`, `addJson` and `addImage`, and `mcp.result(value)`
+  starts one from JSON instead. A script is assumed to change content unless
+  its `access` says `read`.
 
 The keys of a tool:
 

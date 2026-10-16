@@ -75,3 +75,123 @@ tools:
           path replacements line size modified modifiedBy
         }
       }
+
+  diff_versions:
+    title: Compare versions
+    description: >
+      What changed in a versionable text file, as a unified diff with line
+      numbers and three lines of context. from and to are version names from
+      version_history; without to the comparison is with the current content,
+      and without from it starts from the base (latest) version, so the path
+      alone answers "what changed since the last check-in". A file that is not
+      under version control has no earlier content to compare with.
+    access: read
+    idempotent: true
+    input:
+      properties:
+        path:
+          type: string
+          description: Absolute repository path of the file.
+        from:
+          type: string
+          description: The version to start from (default the base version).
+        to:
+          type: string
+          description: The version to compare with (default the current content).
+        limit:
+          type: integer
+          description: Maximum characters of diff to return (default 100000).
+          minimum: 1
+      required: [path]
+    graphql: |
+      query ($path: String!, $from: String, $to: String, $limit: Int) {
+        fileDiff(path: $path, from: $from, to: $to, limit: $limit) {
+          path from fromCreated to toCreated identical added removed hunks totalHunks diff truncated
+        }
+      }
+
+  grep_files:
+    title: Grep files
+    description: >
+      The lines matching a pattern in the text files under a folder, each with
+      its path and line number, as grep -rn prints them. The pattern is a Java
+      regular expression unless regex is false. Use it to find where something
+      is used or defined; search finds documents by their words, this finds the
+      exact place. Binary files, media files and files larger than maxFileSize
+      are skipped and counted. Stops at maxMatches: narrow the folder, the
+      pattern or namePattern when truncated is true.
+    access: read
+    idempotent: true
+    input:
+      properties:
+        path:
+          type: string
+          description: Absolute repository path of the folder to search under.
+        pattern:
+          type: string
+          description: The regular expression (or literal text when regex is false).
+        regex:
+          type: boolean
+          description: Whether pattern is a regular expression (default true).
+        ignoreCase:
+          type: boolean
+          description: Match regardless of case (default false).
+        namePattern:
+          type: string
+          description: Only files whose name matches this glob, e.g. "*.md" (case-insensitive).
+        maxMatches:
+          type: integer
+          description: Stop after this many matching lines (default 200).
+          minimum: 1
+        maxFileSize:
+          type: integer
+          description: Skip files larger than this many bytes (default 4194304).
+          minimum: 1
+      required: [path, pattern]
+    graphql: |
+      query ($path: String!, $pattern: String!, $regex: Boolean, $ignoreCase: Boolean, $namePattern: String, $maxMatches: Int, $maxFileSize: Int) {
+        grepFiles(path: $path, pattern: $pattern, regex: $regex, ignoreCase: $ignoreCase, namePattern: $namePattern, maxMatches: $maxMatches, maxFileSize: $maxFileSize) {
+          path pattern filesScanned filesSkipped filesMatched truncated
+          matches { path line text }
+        }
+      }
+
+  find_files:
+    title: Find files
+    description: >
+      The files (or folders, or both) under a folder whose name matches a
+      glob such as "*.md" or "index.*" (* any run, ? one character,
+      case-insensitive), with size, type and last modification. Paged with
+      offset and limit: when truncated is true, call again with offset set to
+      nextOffset. To list one folder's children, use list_children; to find a
+      file by an exact name, query can do it in one step.
+    access: read
+    idempotent: true
+    input:
+      properties:
+        path:
+          type: string
+          description: Absolute repository path of the folder to search under.
+        namePattern:
+          type: string
+          description: The glob the name has to match, e.g. "*.md".
+        type:
+          type: string
+          description: "file (default), folder or any."
+          enum: [file, folder, any]
+        offset:
+          type: integer
+          description: Matches to skip (default 0).
+          minimum: 0
+        limit:
+          type: integer
+          description: Maximum number of nodes to return (default 100).
+          minimum: 1
+      required: [path, namePattern]
+    graphql: |
+      query ($path: String!, $namePattern: String!, $type: String, $offset: Int, $limit: Int) {
+        findFiles(path: $path, namePattern: $namePattern, type: $type, offset: $offset, limit: $limit) {
+          path namePattern scanned offset truncated nextOffset
+          nodes { path nodeType size mimeType modified modifiedBy }
+        }
+      }

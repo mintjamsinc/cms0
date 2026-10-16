@@ -24,6 +24,9 @@ package org.mintjams.rt.cms.internal.mcp;
 
 import java.nio.file.Path;
 import java.nio.file.spi.FileTypeDetector;
+import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 import javax.jcr.Credentials;
@@ -132,6 +135,60 @@ public class McpCallContext {
 		} catch (Throwable ex) {
 			return null;
 		}
+	}
+
+	/**
+	 * Whether the workspace schema's {@code Query} type has this field. A
+	 * built-in tool uses it to lean on an operation the workspace defines for
+	 * itself (such as {@code documentText}) when it is there, and to say what
+	 * is missing when it is not.
+	 */
+	public boolean hasQueryField(String name) {
+		WorkspaceGraphQLEngineProvider engine = CmsService.getWorkspaceGraphQLEngineProvider(fWorkspaceName);
+		return engine != null && engine.hasQueryField(name);
+	}
+
+	/**
+	 * A tool result carrying {@code value} as JSON — for a script tool that
+	 * wants to add content blocks to its result (see {@link #image}); a script
+	 * that returns a map or a list gets the same without asking.
+	 */
+	public McpToolResult result(Object value) {
+		return McpToolResult.json(ScriptToolHandler.normalize(value));
+	}
+
+	/** A tool result that is plain text. */
+	public McpToolResult text(String text) {
+		return McpToolResult.text(text);
+	}
+
+	/**
+	 * A tool result carrying an image, for a script tool: {@code mcp.image(bytes,
+	 * 'image/png')}. The returned result accepts further blocks
+	 * ({@code addJson}, {@code addText}, {@code addImage}). A script's return
+	 * value is otherwise text or JSON; this is the only way a script hands the
+	 * model something to look at.
+	 */
+	public McpToolResult image(byte[] data, String mimeType) {
+		if (data == null || data.length == 0) {
+			throw new IllegalArgumentException("image: the data is empty.");
+		}
+		if (mimeType == null || !mimeType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+			throw new IllegalArgumentException("image: mimeType must be an image type such as image/png.");
+		}
+		return McpToolResult.json(new LinkedHashMap<String, Object>())
+				.addImage(Base64.getEncoder().encodeToString(data), mimeType);
+	}
+
+	/** {@link #image(byte[], String)} with the data already Base64-encoded. */
+	public McpToolResult image(String base64, String mimeType) {
+		if (base64 == null || base64.isEmpty()) {
+			throw new IllegalArgumentException("image: the data is empty.");
+		}
+		if (mimeType == null || !mimeType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+			throw new IllegalArgumentException("image: mimeType must be an image type such as image/png.");
+		}
+		return McpToolResult.json(new LinkedHashMap<String, Object>()).addImage(base64, mimeType);
 	}
 
 	/**

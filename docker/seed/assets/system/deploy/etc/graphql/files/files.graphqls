@@ -7,10 +7,17 @@
 #                 Paged by character.
 #   editFile      replaces one piece of a text file, leaving the rest as it
 #                 is: the way to change part of a file without rewriting it.
+#   fileDiff      what changed in a text file between two versions, or since
+#                 a version: a unified diff.
+#   grepFiles     the lines matching a pattern in the text files under a
+#                 folder, with paths and line numbers.
+#   findFiles     the files and folders under a folder whose name matches a
+#                 glob.
 #
-# Both are also MCP tools (tools.yml beside this file): read_document and
-# edit_file. Every operation runs as the caller: a file the caller cannot
-# read does not exist, and a file the caller cannot write is not changed.
+# Each is also an MCP tool (tools.yml beside this file): read_document,
+# edit_file, diff_versions, grep_files and find_files. Every operation runs
+# as the caller: a file the caller cannot read does not exist, and a file the
+# caller cannot write is not changed.
 
 """The text of a document, as documentText reads or extracts it."""
 type DocumentText {
@@ -52,9 +59,87 @@ type EditFileResult {
   modifiedBy: String
 }
 
+"""What changed in a text file between two of its versions, as fileDiff reports it."""
+type FileDiff {
+  path: String!
+  """The version the comparison starts from."""
+  from: String!
+  fromCreated: DateTime
+  """The version compared with, or `current` for the content as it is now."""
+  to: String!
+  toCreated: DateTime
+  """Whether the two are the same text (line endings aside)."""
+  identical: Boolean!
+  """Lines added and removed, over the whole file."""
+  added: Int!
+  removed: Int!
+  """Hunks in `diff`, and in the whole difference; fewer when `truncated`."""
+  hunks: Int!
+  totalHunks: Int!
+  """The unified diff, with three lines of context, as `diff -u` prints it."""
+  diff: String!
+  """Whether `diff` was cut short at `limit` characters, on a hunk boundary."""
+  truncated: Boolean!
+}
+
+"""One matching line of grepFiles."""
+type GrepMatch {
+  path: String!
+  """The line number, 1-based."""
+  line: Int!
+  """The line, cut at 500 characters."""
+  text: String!
+}
+
+type GrepResult {
+  path: String!
+  pattern: String!
+  """Text files read."""
+  filesScanned: Int!
+  """Files not read: binary, a media type, or larger than maxFileSize."""
+  filesSkipped: Int!
+  """Files with at least one match."""
+  filesMatched: Int!
+  matches: [GrepMatch!]!
+  """Whether the search stopped at maxMatches."""
+  truncated: Boolean!
+}
+
+"""A file or folder findFiles found."""
+type FoundNode {
+  path: String!
+  """nt:file or nt:folder."""
+  nodeType: String!
+  size: Long
+  mimeType: String
+  modified: DateTime
+  modifiedBy: String
+}
+
+type FindResult {
+  path: String!
+  namePattern: String!
+  """Nodes of the asked-for kind looked at under the folder."""
+  scanned: Int!
+  offset: Int!
+  nodes: [FoundNode!]!
+  """Whether more matches follow; continue from nextOffset."""
+  truncated: Boolean!
+  nextOffset: Int
+}
+
 extend type Query {
   """The text of a document. A text file is returned as it is, decoded with its recorded encoding; a PDF, Office or OpenDocument file, RTF, EPUB, e-mail or other document is handed to Apache Tika for its text. Paged by character: when `truncated` is true, read on from `nextOffset`. Images, audio and video have no text and are refused."""
   documentText(path: String!, offset: Int = 0, limit: Int = 50000): DocumentText!
+
+  """What changed in a versionable text file. `from` and `to` are version names from versionHistory; without `to` the comparison is with the current content, without `from` it starts from the base version, so the path alone answers "what changed since the last check-in". Lines are compared with CRLF normalised to LF. `limit` bounds the diff text."""
+  fileDiff(path: String!, from: String, to: String, limit: Int = 100000): FileDiff!
+
+  """The lines matching `pattern` in the text files under a folder, with path and line number. `pattern` is a Java regular expression unless `regex` is false; `namePattern` is a glob on file names (* and ?, case-insensitive). Binary files, media files and files larger than `maxFileSize` bytes are skipped and counted. Stops at `maxMatches` matches."""
+  grepFiles(path: String!, pattern: String!, regex: Boolean = true, ignoreCase: Boolean = false, namePattern: String, maxMatches: Int = 200, maxFileSize: Int = 4194304): GrepResult!
+
+  """The files (`type` file, the default), folders (folder) or both (any) under a folder whose name matches `namePattern`, a glob (* any run, ? one character, case-insensitive). Paged with offset and limit; `truncated` says more follow."""
+  findFiles(path: String!, namePattern: String!, type: String = "file", offset: Int = 0, limit: Int = 100): FindResult!
 }
 
 extend type Mutation {
