@@ -4689,8 +4689,10 @@ export const App = {
 			this.zoom = Math.max(0.1, this.zoom / 1.2);
 		},
 
-		fitToScreen() {
+		fitToScreen(retry?: number) {
 			const vm = this;
+			// The toolbar button passes its click event.
+			const attempt = typeof retry === 'number' ? retry : 0;
 			if (vm.getElementsForRendering().length === 0) {
 				vm.zoom = 1;
 				vm.panX = 100;
@@ -4711,6 +4713,12 @@ export const App = {
 			if (!canvas) return;
 
 			const rect = canvas.getBoundingClientRect();
+			// A canvas not laid out yet measures 0 and would give zoom 0, which
+			// zoomIn cannot leave. Measure again on a later frame.
+			if (rect.width === 0 || rect.height === 0) {
+				if (attempt < 10) requestAnimationFrame(() => vm.fitToScreen(attempt + 1));
+				return;
+			}
 			const padding = 50;
 
 			const contentWidth = maxX - minX + padding * 2;

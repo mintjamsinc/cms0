@@ -24,6 +24,7 @@ import {
 } from './bpmn-model-types.js';
 import { generateId } from './element-config.js';
 import { serializeElementToLines } from './xml-utils.js';
+import { layoutMissingDi } from './auto-layout.js';
 
 // Local names of <bpmn:extensionElements> children that the serializer
 // reconstructs from the semantic model. Every other child is unmodeled and is
@@ -1385,4 +1386,8 @@ export function parseBpmnXmlToStore(xml: string, store: BpmnModelStore): void {
 
 		store.addDiagram(diagram);
 	}
+
+	// Elements and flows without DI would not be drawn at all; give them a
+	// position so they show up and can be arranged by hand.
+	layoutMissingDi(store);
 }
