@@ -1,0 +1,77 @@
+# MCP tools over the file operations of files.graphqls: what an MCP client
+# (such as Claude) needs beyond the built-in tools to work on a workspace's
+# files the way a person does. Deployed, next to the schema beside it,
+# whenever it changes; the GraphQL query mcpToolDeployments says what was
+# deployed and what was not. The format is described in documents/mcp-server.md.
+#
+# Every tool runs as the caller: the repository's access control decides what
+# can be read and changed, and a read-only connection is not shown edit_file.
+tools:
+
+  read_document:
+    title: Read document
+    description: >
+      The text of a document: PDF, Word, Excel, PowerPoint (old and new formats),
+      OpenDocument, RTF, EPUB, e-mail and other formats whose text can be
+      extracted, and text files as they are. Use it when read_file says the
+      binary content is not returned. Paged by character: when truncated is
+      true, call again with offset set to nextOffset. Title, author and page
+      count are returned when the document records them. Images, audio and
+      video have no text; read_file returns images.
+    access: read
+    idempotent: true
+    input:
+      properties:
+        path:
+          type: string
+          description: Absolute repository path of the file.
+        offset:
+          type: integer
+          description: Character offset to start reading at (default 0).
+          minimum: 0
+        limit:
+          type: integer
+          description: Maximum number of characters to return (default 50000).
+          minimum: 1
+      required: [path]
+    graphql: |
+      query ($path: String!, $offset: Int, $limit: Int) {
+        documentText(path: $path, offset: $offset, limit: $limit) {
+          path mimeType size extracted detectedType title author pages
+          offset text truncated nextOffset note
+        }
+      }
+
+  edit_file:
+    title: Edit file
+    description: >
+      Replaces oldText with newText in a text file and leaves the rest of the
+      file as it is: the way to change part of a file without rewriting it.
+      oldText has to match the file exactly, whitespace and indentation
+      included, and exactly once: read the file first and copy the text from
+      it, with enough surrounding lines to make it unique, or set replaceAll to
+      replace every occurrence. Line endings are matched to the file's. An
+      empty newText deletes the matched text. The file keeps its encoding and
+      MIME type. To create a file or replace its whole content, use write_file.
+    access: destructive
+    input:
+      properties:
+        path:
+          type: string
+          description: Absolute repository path of the file.
+        oldText:
+          type: string
+          description: The text to replace, exactly as it is in the file.
+        newText:
+          type: string
+          description: The text to put in its place; empty to delete.
+        replaceAll:
+          type: boolean
+          description: Replace every occurrence instead of requiring a unique match.
+      required: [path, oldText, newText]
+    graphql: |
+      mutation ($path: String!, $oldText: String!, $newText: String!, $replaceAll: Boolean) {
+        editFile(path: $path, oldText: $oldText, newText: $newText, replaceAll: $replaceAll) {
+          path replacements line size modified modifiedBy
+        }
+      }

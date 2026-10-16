@@ -1,0 +1,63 @@
+# Files: what a reader that cannot open a file itself — an MCP client such as
+# Claude — needs beyond the platform's node fields.
+#
+#   documentText  the text of a document: a text file as it is, and the text
+#                 Apache Tika extracts from a PDF, an Office or OpenDocument
+#                 file, RTF, EPUB, e-mail and the other formats it parses.
+#                 Paged by character.
+#   editFile      replaces one piece of a text file, leaving the rest as it
+#                 is: the way to change part of a file without rewriting it.
+#
+# Both are also MCP tools (tools.yml beside this file): read_document and
+# edit_file. Every operation runs as the caller: a file the caller cannot
+# read does not exist, and a file the caller cannot write is not changed.
+
+"""The text of a document, as documentText reads or extracts it."""
+type DocumentText {
+  path: String!
+  """The file's recorded MIME type."""
+  mimeType: String!
+  """The file size in bytes."""
+  size: Long!
+  """Whether the text was extracted from a document (PDF, Office, …) rather than read from a text file."""
+  extracted: Boolean!
+  """The MIME type Apache Tika detected from the content, when the text was extracted."""
+  detectedType: String
+  """The document's title, when it records one."""
+  title: String
+  """The document's author, when it records one."""
+  author: String
+  """The number of pages (PDF, Word) or slides (PowerPoint), when the document records it."""
+  pages: Int
+  """The character offset the text starts at."""
+  offset: Int!
+  text: String!
+  """Whether more text follows; read on from nextOffset."""
+  truncated: Boolean!
+  nextOffset: Int
+  """Something the reader should know, e.g. that no text could be extracted."""
+  note: String
+}
+
+"""What editFile changed."""
+type EditFileResult {
+  path: String!
+  """How many occurrences of oldText were replaced."""
+  replacements: Int!
+  """The line (1-based) the first replacement starts on."""
+  line: Int!
+  """The file size in bytes after the edit."""
+  size: Long!
+  modified: DateTime
+  modifiedBy: String
+}
+
+extend type Query {
+  """The text of a document. A text file is returned as it is, decoded with its recorded encoding; a PDF, Office or OpenDocument file, RTF, EPUB, e-mail or other document is handed to Apache Tika for its text. Paged by character: when `truncated` is true, read on from `nextOffset`. Images, audio and video have no text and are refused."""
+  documentText(path: String!, offset: Int = 0, limit: Int = 50000): DocumentText!
+}
+
+extend type Mutation {
+  """Replaces `oldText` with `newText` in a text file and leaves the rest as it is. `oldText` has to occur exactly once unless `replaceAll` is true; the match is exact, except that line endings are matched to the file's (an `oldText` with LF matches a CRLF file). An empty `newText` deletes the matched text. The file keeps its encoding and MIME type."""
+  editFile(path: String!, oldText: String!, newText: String!, replaceAll: Boolean = false): EditFileResult!
+}

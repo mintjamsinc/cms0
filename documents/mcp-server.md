@@ -266,6 +266,40 @@ MIME type does not say. MIME types are assigned from file names, and many source
 formats (templates, scripts, Markdown) map to types that reveal nothing about
 being text.
 
+### `read_document` and `edit_file`
+
+Two more tools come with every workspace, defined the way a workspace defines
+its own (`/etc/graphql/files/tools.yml`, seeded from
+`docker/seed/assets/system/deploy/etc/graphql/files`). Each wraps one
+operation of the schema beside it, so what the tool does is also available to
+Webtop and to the `graphql` tool.
+
+| Tool | Needs | Operation | What it does |
+| --- | --- | --- | --- |
+| `read_document` | read | `Query.documentText` | The text of a document: PDF, Word, Excel, PowerPoint (old and new formats), OpenDocument, RTF, EPUB, e-mail and the other formats Apache Tika parses, and text files as they are. Paged by character like `read_file`; title, author and page count when the document records them. |
+| `edit_file` | write | `Mutation.editFile` | Replaces `oldText` with `newText` in a text file and leaves the rest as it is. |
+
+`read_document` is the reader for everything `read_file` describes but does
+not return. The extractor is the one the search index uses, so what `search`
+finds in a document, `read_document` shows. Extraction stops at
+`offset + limit` characters: a page deep in a long document costs a parse up
+to that point, and no more than the page is held in memory. A text file is
+read directly, in its encoding; an image, audio or video file is refused
+(images come back from `read_file`); an encrypted document is reported as
+such; a document without text (a scanned PDF) comes back with an empty
+`text` and a `note` saying so.
+
+`edit_file` is how a model changes part of a file without rewriting it.
+`oldText` has to match the file exactly, whitespace and indentation included,
+and exactly once: a text that matches nowhere, or in several places, changes
+nothing and the refusal says which, so the client reads the file and tries
+again with more context — or sets `replaceAll` to change every occurrence.
+Line endings are matched to the file's: an `oldText` with LF finds its text in
+a CRLF file and the replacement is written with CRLF. An empty `newText`
+deletes the matched text. The file keeps its encoding and MIME type, and the
+repository's rules apply as they do to `write_file`: a locked or checked-in
+file is refused. The result names the line the first replacement starts on.
+
 ### `write_file` does not replace by accident
 
 `write_file` refuses a path where a file already exists unless `overwrite` is

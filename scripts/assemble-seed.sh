@@ -89,6 +89,8 @@ copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/processes/system/packages" "${SE
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/scripts/system/packages" "${SEED_ASSETS}/workspace/deploy/etc/bpm/scripts/system/packages"
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/forms/system/packages" "${SEED_ASSETS}/workspace/deploy/etc/bpm/forms/system/packages"
 copy_tree "${SEED_ASSETS}/system/provisioning/packages.yml" "${SEED_ASSETS}/workspace/provisioning/packages.yml"
+# files: documentText / editFile and the MCP tools read_document / edit_file, in every workspace
+copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/files" "${SEED_ASSETS}/workspace/deploy/etc/graphql/files"
 
 echo "OK: seed assets laid down from ${WEBTOP_DIST}"
 echo "  system:    $(find "${SEED_ASSETS}/system" -type f | wc -l) files"
