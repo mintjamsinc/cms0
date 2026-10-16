@@ -166,6 +166,12 @@ public class NodeMapper {
 			result.put("dataset", Datasets.describe(node));
 		}
 
+		// What the caller may do with the node. Only when selected — never as
+		// part of includeAll — since every answer resolves the ACLs.
+		if (selectionSet != null && selectionSet.hasField("permissions")) {
+			result.put("permissions", NodePermissions.of(node));
+		}
+
 		// Processing based on node type
 		if ("nt:file".equals(nodeType)) {
 			mapFileNode(node, result, selectionSet, includeAll, resolver);

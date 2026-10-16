@@ -70,6 +70,8 @@ import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.pubsub.TopicMessages;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
+import org.mintjams.rt.cms.internal.files.Deadline;
+import org.mintjams.rt.cms.internal.files.SearchExcerpts;
 import org.mintjams.rt.cms.internal.graphql.AppWidgets;
 import org.mintjams.rt.cms.internal.graphql.ClusterQueryExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
@@ -167,6 +169,9 @@ import org.mintjams.rt.cms.internal.graphql.type.PropertyValueTypeResolver;
 public final class PlatformWiringContributor implements WiringContributor {
 
 	private static final String SCHEMA_RESOURCE = "/org/mintjams/rt/cms/internal/graphql/engine/schema/platform-schema.graphqls";
+
+	/** How long finding the passages of one page of search results may take. */
+	private static final long SEARCH_EXCERPT_MILLIS = 10_000;
 
 	@Override
 	public SchemaContribution contribute(String workspaceName) throws Exception {
@@ -510,6 +515,12 @@ public final class PlatformWiringContributor implements WiringContributor {
 		}
 
 		List<Map<String, Object>> edges = new ArrayList<>();
+		// Passages where the words occur, only when asked for: they are found in
+		// each result's own text, within one deadline for the whole page.
+		List<String> excerptTerms = environment.getSelectionSet().contains("edges/node/excerpts")
+				? SearchExcerpts.terms(text) : null;
+		Deadline excerptDeadline = (excerptTerms != null) ? Deadline.in(SEARCH_EXCERPT_MILLIS) : null;
+
 		int position = start;
 		int count = 0;
 		while (rows.hasNext() && count < first) {
@@ -519,6 +530,9 @@ public final class PlatformWiringContributor implements WiringContributor {
 			// Float scalar rejects NaN/Infinity, so coerce a non-finite score to null.
 			double score = row.getScore();
 			nodeData.put("score", Double.isFinite(score) ? Double.valueOf(score) : null);
+			if (excerptTerms != null) {
+				nodeData.put("excerpts", SearchExcerpts.find(row.getNode(), excerptTerms, excerptDeadline));
+			}
 			edges.add(edge(nodeData, position));
 			position++;
 			count++;

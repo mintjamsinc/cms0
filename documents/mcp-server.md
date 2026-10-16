@@ -237,16 +237,15 @@ running may have to reconnect before it sees the tools.
 
 | Tool | Needs | What it does |
 | --- | --- | --- |
-| `get_node` | read | Metadata of a file or folder: type, size, MIME type, creation and modification, lock and version state, custom properties, and how a file is rendered over the web. |
+| `get_node` | read | Metadata of a file or folder: type, size, MIME type, creation and modification, lock and version state, custom properties, how a file is rendered over the web, and what the user may do with it. |
 | `list_children` | read | The children of a folder. Paged. |
 | `read_file` | read | The content of a file. Text is paged by character; PDF, Office and other documents come back as their extracted text (through `documentText`, below); PNG, JPEG, GIF and WebP come back as images, scaled down when large; other media is described, not returned. |
-| `read_document` | read | The text of a document, as `read_file` returns it for one, without ever returning an image. |
-| `search` | read | Full-text search, most relevant first. |
+| `search` | read | Full-text search, PDF and Office documents included, most relevant first, with the passages where the words occur. |
 | `query` | read | A JCR XPath query. |
 | `grep_files` | read | The lines matching a regular expression in the text files under a folder, with path and line number. |
-| `find_files` | read | The files, folders or both under a folder whose name matches a glob. Paged. |
+| `find_files` | read | The files, folders or both under a folder whose name matches a glob, optionally modified since an instant or by a user, newest first. Paged. |
 | `version_history` | read | The versions of a versionable node. Each has a `frozenNodePath` that `read_file` accepts, to read the content as it was. |
-| `diff_versions` | read | What changed in a versionable text file between two versions, or since one: a unified diff. |
+| `diff_versions` | read | What changed in a versionable file between two versions, or since one: a unified diff of its text, a document's extracted text included. |
 | `explain_web_render` | read | Why a web path is, or is not, served the way it is. See below. |
 | `write_file` | write | Create a file, or replace the content of an existing one. |
 | `edit_file` | write | Replace one exact piece of a text file and leave the rest as it is. |
@@ -263,8 +262,11 @@ files next to its GraphQL schema; see *Tools defined by the workspace* below.
 Paths are absolute repository paths. A relative path, or one containing `.` or
 `..`, is refused rather than guessed at.
 
-Listings return a cursor: when `hasNextPage` is true, pass `endCursor` back as
-`after`.
+Listings (`list_children`, `search`, `query`, `find_files`) are paged one way:
+`first` sets the page size, and when `hasNextPage` is true, `endCursor` passed
+back as `after` reads the next page. Text is paged by character instead
+(`read_file`'s `offset` and `limit`): when `truncated` is true, `nextOffset`
+is where to read on. A search that stops at a limit says so in `stoppedBy`.
 
 Whether `read_file` treats a file as text is decided by its content when its
 MIME type does not say. MIME types are assigned from file names, and many source
@@ -312,22 +314,24 @@ since changing its bytes as text would corrupt it.
 
 ### Documents, edits, diffs, grep and find
 
-Five of the tools above wrap one operation each of the platform's files schema
-(`files-schema.graphqls`), so what the tool does is also available to Webtop
-and to the `graphql` tool. They are part of the server, not of a workspace:
-every installation has the same ones, and their names are reserved like those
-of the other built-in tools.
+Four of the tools above wrap one operation each of the platform's files schema
+(`files-schema.graphqls`), and `read_file` reads a document through a fifth,
+so what the tool does is also available to Webtop and to the `graphql` tool.
+They are part of the server, not of a workspace: every installation has the
+same ones, and their names are reserved like those of the other built-in
+tools.
 
 | Tool | Operation |
 | --- | --- |
-| `read_document` | `Query.documentText` |
+| `read_file` (a document) | `Query.documentText` |
 | `edit_file` | `Mutation.editFile` |
 | `diff_versions` | `Query.fileDiff` |
 | `grep_files` | `Query.grepFiles` |
 | `find_files` | `Query.findFiles` |
 
-**`read_document`.** The extractor is the one the search index uses, so what
-`search` finds in a document, `read_document` shows. Extraction stops at
+**A document's text** (`read_file`, `documentText`). The extractor is the one
+the search index uses, so what `search` finds in a document, `read_file`
+shows. Extraction stops at
 `offset + limit` characters: a page deep in a long document costs a parse up
 to that point, and no more than the page is held in memory. A text file is
 read directly, in its encoding; an image, audio or video file is refused
@@ -353,7 +357,12 @@ to prefer it over `write_file` for a partial change.
 **`diff_versions`** compares two versions of a versionable file (`from`,
 `to`, names from `version_history`), or a version with the current content
 when `to` is omitted; without `from` it starts from the base version, so the
-path alone answers "what changed since the last check-in". Lines are compared
+path alone answers "what changed since the last check-in". A PDF, Word,
+Excel, PowerPoint or other document is compared by its extracted text (the
+first 1,000,000 characters a side, as much as the search index reads, within
+30 s for both), so what changed in a contract or a deck reads as changed
+lines; `extracted` says so, and a `note` says when a side was cut short.
+Lines are compared
 with CRLF normalised to LF. The edit script is Myers' algorithm, as in git;
 for two texts that differ very widely it falls back to one hunk covering
 everything between the common head and tail, so memory stays bounded. `limit`
@@ -375,6 +384,78 @@ search index answers without walking the tree; folders are not in the index,
 so a search for folders, or for both, walks the tree depth first and stops as
 soon as the page is full. For an exact name, `query` with
 `element(name, nt:file)` is the one-step answer.
+
+It is also how a client answers "what changed recently": `modifiedSince` (an
+ISO-8601 instant) keeps what was modified since then, `modifiedBy` what one
+user modified last, and `orderBy: "modified"` puts the newest first — every
+match within the scan limit is collected and sorted, then paged. A folder's
+modification is its creation.
+
+**`get_node`** includes `permissions`: what the signed-in user may do with the
+node — `write` (its content and properties), `addChildren`, `remove`, `lock`,
+`manageVersions`, `readAccessControl`, `modifyAccessControl` — as the
+repository's access control answers for the user's principals. Access control
+is the only limit on what a client can do, and this lets it tell the user
+"you cannot change this" before trying. Locks and the check-in state are not
+part of the answer; `isLocked` and `isCheckedOut` say those.
+
+### `search` shows where
+
+A search result says which file mentions the words, and its `excerpts` say
+where: up to three passages, each with the character `offset` of the word —
+pass it to `read_file` as `offset` to read from there —
+and, in a text file, the `line`. The search index keeps no text to highlight
+from, so the passages are found in the file's own text, read as it is or
+extracted as `read_file` extracts it: the first 200,000 characters of
+each result, within 10 s for the whole page. A result whose passages lie
+further in, or could not be found in time, has none, and is still listed.
+The words are the search text's terms (a quoted phrase as one), without the
+excluded (`-term`) ones, matched regardless of case. `excerpts: false` leaves
+them out; GraphQL computes them only when `excerpts` is selected.
+
+### A change made since you read the file is not overwritten
+
+An MCP client works as its user, next to the user and everyone else in the
+workspace. Between reading a file and writing it back, a person may have
+saved it in Webtop. `read_file` (and `documentText`) return the file's
+`modified`; passed back as `ifModified` to `write_file` or `edit_file`, it
+makes the write conditional: when the file has been written since, nothing
+is written and the refusal says when and by whom, so the client reads it
+again and redoes its change on what is there now.
+
+```
+/content/docs/index.md has changed since it was read: it was last modified
+2026-10-16T14:21:07.112Z by alice, not 2026-10-16T14:02:31.540Z. Nothing was
+written. Read it again and make the change on what it holds now.
+```
+
+Every content write advances `jcr:content/jcr:lastModified`, so the instant
+is enough to tell; it is compared to the millisecond, whatever its notation.
+A file that no longer exists is refused too. The server instructions ask a
+client to pass it.
+
+### Limits
+
+Every tool is bounded in what it returns, what it reads and how long it
+runs. A request thread cannot be stopped from outside, so work that reaches a
+limit ends with what it has, and the result says which limit it was; an
+argument above a limit is lowered to it.
+
+| | Limit |
+| --- | --- |
+| Any tool call | 1,000,000 characters of text (JSON included) in the result; images are not counted. A larger result is not sent: the call fails with a message asking for less. This bounds `graphql` and the workspace's own tools, whose results are as large as the query asks. |
+| `read_file` | 500,000 characters a page. Extracting a document's text may take 30 s a call: a document that takes longer is returned as far as extraction got, with a `note` and no `nextOffset`, since every call parses from the start. |
+| `edit_file` | A text file of at most 4 MB; a larger one is replaced as a whole with `write_file`. |
+| `diff_versions` | Content of at most 4 MB on either side; 500,000 characters of diff. |
+| `grep_files` | 1,000 matches, files of at most 16 MB, 10,000 files looked at, 20 s. `stoppedBy` says which limit ended the search (`maxMatches`, `scanLimit`, `timeLimit`). A regular expression that backtracks past the time limit on one line is abandoned rather than allowed to hold the request. |
+| `find_files` | 500 nodes a page, 50,000 nodes looked at, 20 s; `stoppedBy` as above. A page that filled up has a next page (`hasNextPage`); a search stopped by a limit does not, because the next page would look at the same nodes again — narrow the folder or the pattern instead. |
+| Listings, `search`, `query` | 200 (`list_children`, `query`) or 100 (`search`) results a page. |
+| A request | 16 MB (`413` beyond). |
+
+The time limits are checked as the work proceeds: between files, between
+lines, and while a document's text is emitted. Work that emits nothing for a
+long time — a parser loading a very large PDF before its first page of text —
+runs until it emits.
 
 ### `write_file` does not replace by accident
 
@@ -769,10 +850,13 @@ MCP edit_file: user=admin workspace=web /content/docs/index.md replacements=1
 MCP set_properties: user=admin workspace=web /content/docs/index.md [web.template]
 MCP delete_node: user=admin workspace=web /content/a
 MCP graphql mutation: user=admin workspace=web operation=(anonymous)
+MCP reversi_play: user=admin workspace=web (workspace tool) arguments=[id, move]
 MCP connection turned off: user=admin workspace=web
 ```
 
-Read-only calls are not logged.
+A tool the workspace defines is logged by name and the names of its arguments
+— not their values, which may be content — when it changes content
+(`access` other than `read`) and succeeds. Read-only calls are not logged.
 
 ## Errors
 
@@ -853,7 +937,7 @@ await (await fetch('/bin/mcp.cgi/web', {
 | `McpTool`, `McpToolResult` | A tool's description, argument handling and result. |
 | `McpCallContext` | Who is calling, where, and with what limits. The only way a tool reaches the repository — always as the caller. |
 | `ContentTools` | The content tools. |
-| `FileTools` | `read_document`, `edit_file`, `diff_versions`, `grep_files`, `find_files`: each one operation of the files schema. |
+| `FileTools` | `edit_file`, `diff_versions`, `grep_files`, `find_files`: each one operation of the files schema. |
 | `WebRenderTools` | `explain_web_render`. |
 | `GraphQLTools` | `graphql`. |
 | `McpToolCompiler`, `McpToolRegistry` | The tools a workspace defines: reading its `tools.yml` files, file by file, into the registry the server consults next to the built-in tools. Rebuilt by `WorkspaceGraphQLEngineProvider` with the application schema. |

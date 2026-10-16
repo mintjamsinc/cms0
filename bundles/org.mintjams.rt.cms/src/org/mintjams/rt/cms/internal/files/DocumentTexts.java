@@ -31,9 +31,18 @@ import javax.jcr.RepositoryException;
 
 import org.apache.tika.Tika;
 import org.apache.tika.exception.EncryptedDocumentException;
+import org.apache.tika.exception.WriteLimitReachedException;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
+import org.apache.tika.parser.ParseContext;
+import org.apache.tika.parser.Parser;
+import org.apache.tika.sax.BodyContentHandler;
+import org.apache.tika.sax.ContentHandlerDecorator;
+import org.apache.tika.sax.WriteOutContentHandler;
 import org.mintjams.jcr.util.JCRs;
+import org.xml.sax.Attributes;
+import org.xml.sax.ContentHandler;
+import org.xml.sax.SAXException;
 
 /**
  * Reading the text of a file a page at a time: a text file straight from its
@@ -75,14 +84,16 @@ public final class DocumentTexts {
 	public static final class Extracted {
 		private final Page fPage;
 		private final boolean fEmpty;
+		private final boolean fTimedOut;
 		private final String fDetectedType;
 		private final String fTitle;
 		private final String fAuthor;
 		private final Integer fPages;
 
-		Extracted(Page page, boolean empty, Metadata metadata) {
+		Extracted(Page page, boolean empty, boolean timedOut, Metadata metadata) {
 			fPage = page;
 			fEmpty = empty;
+			fTimedOut = timedOut;
 			fDetectedType = metadata.get(Metadata.CONTENT_TYPE);
 			fTitle = metadata.get(TikaCoreProperties.TITLE);
 			fAuthor = metadata.get(TikaCoreProperties.CREATOR);
@@ -96,6 +107,11 @@ public final class DocumentTexts {
 		/** Whether the document has no text at all, at any offset (a scanned PDF, for example). */
 		public boolean isEmpty() {
 			return fEmpty;
+		}
+
+		/** Whether extraction stopped at the deadline, before the end of the page. */
+		public boolean isTimedOut() {
+			return fTimedOut;
 		}
 
 		/** The MIME type Tika detected from the content. */
@@ -157,44 +173,94 @@ public final class DocumentTexts {
 
 	/**
 	 * A page of the text extracted from a document (or other binary content)
-	 * with Apache Tika.
+	 * with Apache Tika. Extraction stops at {@code offset + limit} characters,
+	 * or when {@code deadline} passes; then {@link Extracted#isTimedOut()}
+	 * says so, and the page holds what was extracted by then.
 	 *
 	 * @throws IllegalArgumentException when the document is encrypted, or its
 	 *         text cannot be extracted; the message says which, for the reader
 	 */
-	public static Extracted extract(Node file, String path, int offset, int limit)
+	public static Extracted extract(Node file, String path, int offset, int limit, Deadline deadline)
 			throws RepositoryException, IOException {
 		// One more character than the page needs tells whether the document goes on.
 		int max = (offset > Integer.MAX_VALUE - limit - 1) ? Integer.MAX_VALUE : (offset + limit + 1);
 		Metadata metadata = new Metadata();
-		String all;
+		WriteOutContentHandler out = new WriteOutContentHandler(max);
+		boolean timedOut = false;
 		ClassLoader loader = Thread.currentThread().getContextClassLoader();
 		try (InputStream in = JCRs.getContentAsStream(file)) {
 			// Tika finds its parsers through the context class loader; on a
 			// request thread that is the web container's, which sees none.
 			Thread.currentThread().setContextClassLoader(Tika.class.getClassLoader());
-			all = tika().parseToString(in, metadata, max);
-		} catch (EncryptedDocumentException ex) {
-			throw new IllegalArgumentException(path + " is encrypted: its text cannot be extracted without the password.");
+			Parser parser = tika().getParser();
+			ParseContext context = new ParseContext();
+			context.set(Parser.class, parser);
+			parser.parse(in, new BodyContentHandler(new DeadlineHandler(out, deadline)), metadata, context);
 		} catch (RepositoryException ex) {
 			throw ex;
 		} catch (Exception ex) {
-			if (ex.getCause() instanceof EncryptedDocumentException) {
+			if (WriteLimitReachedException.isWriteLimitReached(ex)) {
+				// The page, and the one character that says more follows, are in.
+			} else if (causedBy(ex, Deadline.Exceeded.class)) {
+				timedOut = true;
+			} else if (causedBy(ex, EncryptedDocumentException.class)) {
 				throw new IllegalArgumentException(
 						path + " is encrypted: its text cannot be extracted without the password.");
+			} else {
+				String reason = (ex.getMessage() != null) ? ex.getMessage() : ex.getClass().getSimpleName();
+				throw new IllegalArgumentException("The text of " + path + " could not be extracted: " + reason);
 			}
-			String reason = (ex.getMessage() != null) ? ex.getMessage() : ex.getClass().getSimpleName();
-			throw new IllegalArgumentException("The text of " + path + " could not be extracted: " + reason);
 		} finally {
 			Thread.currentThread().setContextClassLoader(loader);
 		}
-		if (all == null) {
-			all = "";
-		}
+		String all = out.toString();
 		int start = Math.min(offset, all.length());
 		int end = (int) Math.min((long) offset + limit, all.length());
-		Page page = new Page(all.substring(start, end), all.length() > (long) offset + limit);
-		return new Extracted(page, all.trim().isEmpty(), metadata);
+		Page page = new Page(all.substring(start, end), timedOut || all.length() > (long) offset + limit);
+		return new Extracted(page, !timedOut && all.trim().isEmpty(), timedOut, metadata);
+	}
+
+	private static boolean causedBy(Throwable ex, Class<? extends Throwable> type) {
+		for (Throwable t = ex; t != null; t = (t.getCause() == t) ? null : t.getCause()) {
+			if (type.isInstance(t)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Passes the text on, and stops the parse once the deadline has passed. */
+	private static final class DeadlineHandler extends ContentHandlerDecorator {
+		private final Deadline fDeadline;
+
+		DeadlineHandler(ContentHandler handler, Deadline deadline) {
+			super(handler);
+			fDeadline = deadline;
+		}
+
+		@Override
+		public void characters(char[] ch, int start, int length) throws SAXException {
+			check();
+			super.characters(ch, start, length);
+		}
+
+		@Override
+		public void ignorableWhitespace(char[] ch, int start, int length) throws SAXException {
+			check();
+			super.ignorableWhitespace(ch, start, length);
+		}
+
+		@Override
+		public void startElement(String uri, String localName, String name, Attributes atts) throws SAXException {
+			check();
+			super.startElement(uri, localName, name, atts);
+		}
+
+		private void check() throws SAXException {
+			if (fDeadline != null && fDeadline.isPassed()) {
+				throw new SAXException(new Deadline.Exceeded());
+			}
+		}
 	}
 
 	private static Tika tika() {

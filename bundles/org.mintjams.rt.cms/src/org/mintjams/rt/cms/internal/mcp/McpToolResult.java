@@ -83,6 +83,18 @@ public final class McpToolResult {
 		return fError;
 	}
 
+	/** Characters in the text blocks (JSON included); images are not counted. */
+	public long getTextLength() {
+		long length = 0;
+		for (int i = 0; i < fContent.size(); i++) {
+			JsonObject block = fContent.get(i).getAsJsonObject();
+			if (block.has("text")) {
+				length += block.get("text").getAsString().length();
+			}
+		}
+		return length;
+	}
+
 	/** The {@code tools/call} result object. */
 	public JsonObject toJson() {
 		JsonObject result = new JsonObject();

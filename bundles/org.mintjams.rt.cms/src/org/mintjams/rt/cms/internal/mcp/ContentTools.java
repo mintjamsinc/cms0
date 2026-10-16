@@ -63,6 +63,7 @@ import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.files.DocumentTexts;
 import org.mintjams.rt.cms.internal.files.FileKind;
+import org.mintjams.rt.cms.internal.files.IfModified;
 import org.mintjams.rt.cms.internal.mcp.McpTool.Args;
 import org.mintjams.rt.cms.internal.mcp.McpTool.Schema;
 import org.mintjams.rt.cms.internal.script.resource.JcrAction;
@@ -136,15 +137,18 @@ final class ContentTools {
 	private static McpTool getNode() {
 		return McpTool.named("get_node").title("Get node")
 				.description("Metadata of one file or folder: node type, size, MIME type, who created and last",
-						"modified it and when, lock and version state, its custom properties, and for a file how",
-						"it is rendered when served over the web (webRender). Does not return file content; use",
-						"read_file for that.")
+						"modified it and when, lock and version state, its custom properties, for a file how it is",
+						"rendered when served over the web (webRender), and what the signed-in user may do with it",
+						"(permissions: write, addChildren, remove, lock, manageVersions, ...), so you can tell before",
+						"trying whether a change is allowed. Does not return file content; use read_file for that.")
 				.required("path", Schema.string("Absolute repository path, e.g. /content/docs/index.md"))
 				.handler((arguments, context) -> {
 					String path = Args.path(arguments, "path");
 					Map<String, Object> data = McpGraphQL.data(context,
 							"query($path: String!) { node(path: $path) { " + McpGraphQL.NODE_FIELDS + " downloadUrl "
-									+ McpGraphQL.WEB_RENDER_FIELDS + " " + McpGraphQL.PROPERTIES_FIELDS + " } }",
+									+ McpGraphQL.WEB_RENDER_FIELDS + " " + McpGraphQL.PROPERTIES_FIELDS
+									+ " permissions { read write addChildren remove lock manageVersions"
+									+ " readAccessControl modifyAccessControl } } }",
 							vars("path", path));
 					Map<String, Object> node = McpGraphQL.node(data.get("node"));
 					if (node == null) {
@@ -180,8 +184,9 @@ final class ContentTools {
 						"GIF and WebP images are returned as images, scaled down to what a model can see when they",
 						"are large. PDF, Word, Excel, PowerPoint and other documents are returned as their extracted",
 						"text (title, author and page count when recorded), paged like text. Other binary content",
-						"is described but not returned. To read an earlier version of a file, pass a frozenNodePath",
-						"from version_history.")
+						"is described but not returned. The result's modified is what write_file and edit_file take",
+						"as ifModified. To read an earlier version of a file, pass a frozenNodePath from",
+						"version_history.")
 				.required("path", Schema.string("Absolute repository path of the file"))
 				.optional("offset", Schema.integer("Character offset to start reading at", 0, 0, Integer.MAX_VALUE))
 				.optional("limit",
@@ -224,6 +229,9 @@ final class ContentTools {
 				info.put("encoding", encoding);
 			}
 			info.put("size", size);
+			// What write_file and edit_file take as ifModified, so that a change
+			// someone makes after this read is not overwritten.
+			info.put("modified", iso(JCRs.getLastModified(node)));
 
 			String type = mimeType.toLowerCase(Locale.ROOT);
 			if (INLINE_IMAGE_TYPES.contains(type)) {
@@ -263,12 +271,12 @@ final class ContentTools {
 	 * {@code info} next to what the caller already put there, and the text
 	 * follows as a block of its own.
 	 */
-	static McpToolResult documentText(McpCallContext context, String path, int offset, int limit,
+	private static McpToolResult documentText(McpCallContext context, String path, int offset, int limit,
 			Map<String, Object> info) throws McpToolException {
 		Map<String, Object> data = McpGraphQL.data(context,
 				"query($path: String!, $offset: Int, $limit: Int) { documentText(path: $path, offset: $offset,"
-						+ " limit: $limit) { mimeType size extracted detectedType title author pages text truncated"
-						+ " nextOffset note } }",
+						+ " limit: $limit) { mimeType size modified extracted detectedType title author pages text"
+						+ " truncated nextOffset note } }",
 				vars("path", path, "offset", offset, "limit", limit));
 		Object doc = data.get("documentText");
 		if (!(doc instanceof Map)) {
@@ -278,6 +286,7 @@ final class ContentTools {
 		String text = (map.get("text") == null) ? "" : String.valueOf(map.get("text"));
 		info.putIfAbsent("mimeType", map.get("mimeType"));
 		info.putIfAbsent("size", map.get("size"));
+		info.putIfAbsent("modified", map.get("modified"));
 		for (String key : new String[] { "extracted", "detectedType", "title", "author", "pages" }) {
 			if (map.get(key) != null) {
 				info.put(key, map.get(key));
@@ -402,19 +411,24 @@ final class ContentTools {
 
 	private static McpTool search() {
 		return McpTool.named("search").title("Full-text search")
-				.description("Full-text search over file content and metadata, most relevant first (score). Limited",
-						"to files the signed-in user can read. Paged like list_children.")
+				.description("Full-text search over file content and metadata, PDF and Office documents included, most",
+						"relevant first (score). Each result carries excerpts: up to three passages where the words",
+						"occur, each with its character offset (pass it to read_file as offset to read from there)",
+						"and, in a text file, its line. Words are separated by spaces; \"a phrase\"",
+						"in quotes is one. Limited to files the signed-in user can read. Paged like list_children.")
 				.required("text", Schema.string("Search text"))
 				.optional("path", Schema.string("Only search under this folder (default: the whole workspace)"))
 				.optional("first", Schema.integer("Maximum number of results to return", 20, 1, 100))
 				.optional("after", Schema.string("endCursor of the previous page"))
+				.optional("excerpts", Schema.bool("Return the passages where the words occur", true))
 				.handler((arguments, context) -> {
 					String path = Args.normalizePath(Args.optString(arguments, "path", "/"), "path");
+					boolean excerpts = Args.optBoolean(arguments, "excerpts", true);
 					Map<String, Object> data = McpGraphQL.data(context,
 							"query($text: String!, $path: String, $first: Int, $after: String) {"
 									+ " search(text: $text, path: $path, first: $first, after: $after) { "
 									+ CONNECTION_FIELDS + " edges { node { " + McpGraphQL.LIST_NODE_FIELDS
-									+ " score } } } }",
+									+ " score" + (excerpts ? " excerpts { offset line text }" : "") + " } } } }",
 							vars("text", Args.string(arguments, "text"), "path", path, "first",
 									Args.optInt(arguments, "first", 20, 1, 100), "after",
 									Args.optString(arguments, "after", null)));
@@ -504,7 +518,9 @@ final class ContentTools {
 				.description("Create a file, or replace the content of an existing one. Fails if a file already",
 						"exists at the path unless overwrite is true. Before overwriting, read the file and carry",
 						"over everything you were not asked to change: the whole content is replaced, not merged.",
-						"Give exactly one of content (text) or contentBase64 (binary).")
+						"Pass the modified that read_file returned as ifModified: the write is then refused if",
+						"someone changed the file after you read it, instead of overwriting their change. Give",
+						"exactly one of content (text) or contentBase64 (binary).")
 				.required("path", Schema.string("Absolute repository path of the file, including its name"))
 				.optional("content", Schema.string("The file content as text"))
 				.optional("contentBase64", Schema.string("The file content as Base64, for binary files"))
@@ -512,6 +528,9 @@ final class ContentTools {
 						Schema.string("MIME type. Default: derived from the file name for a new file, kept as it"
 								+ " is for an existing one"))
 				.optional("overwrite", Schema.bool("Replace the content if the file already exists", false))
+				.optional("ifModified",
+						Schema.string("The modified time read_file returned: refuse the write if the file has"
+								+ " changed since"))
 				.optional("createParents", Schema.bool("Create missing parent folders", true))
 				.handler(ContentTools::writeFile).build();
 	}
@@ -522,6 +541,7 @@ final class ContentTools {
 		String contentBase64 = Args.optString(arguments, "contentBase64", null);
 		String mimeType = Args.optString(arguments, "mimeType", null);
 		boolean overwrite = Args.optBoolean(arguments, "overwrite", false);
+		String ifModified = Args.optString(arguments, "ifModified", null);
 		boolean createParents = Args.optBoolean(arguments, "createParents", true);
 
 		if ((content == null) == (contentBase64 == null)) {
@@ -568,8 +588,18 @@ final class ContentTools {
 				} catch (LockException ex) {
 					throw new McpToolException(ex.getMessage() + " Nothing was written.");
 				}
+				try {
+					IfModified.check(file, path, ifModified);
+				} catch (IllegalArgumentException ex) {
+					throw new McpToolException(ex.getMessage());
+				}
 				result.put("replaced", previous);
 			} else {
+				try {
+					IfModified.checkGone(path, ifModified);
+				} catch (IllegalArgumentException ex) {
+					throw new McpToolException(ex.getMessage());
+				}
 				String parentPath = Args.parentOf(path);
 				if (!session.nodeExists(parentPath)) {
 					if (!createParents) {

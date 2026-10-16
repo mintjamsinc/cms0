@@ -24,7 +24,9 @@ package org.mintjams.rt.cms.internal.mcp;
 
 import static org.mintjams.rt.cms.internal.mcp.ContentTools.vars;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,8 +35,9 @@ import org.mintjams.rt.cms.internal.mcp.McpTool.Args;
 import org.mintjams.rt.cms.internal.mcp.McpTool.Schema;
 
 /**
- * The file tools: reading a document's text, editing part of a text file,
- * comparing versions, and finding files by content and by name.
+ * The file tools: editing part of a text file, comparing versions, and
+ * finding files by content and by name. (A document's text is read with
+ * read_file, which extracts it through the same schema.)
  *
  * <p>Each wraps one operation of the platform's files schema
  * ({@code files-schema.graphqls}), so Webtop and the {@code graphql} tool can
@@ -43,10 +46,6 @@ import org.mintjams.rt.cms.internal.mcp.McpTool.Schema;
  * tool that replaces one of them.
  */
 final class FileTools {
-
-	/** Characters of text read_document returns by default, and at most, per call. */
-	private static final int DEFAULT_DOCUMENT_CHARS = 50_000;
-	private static final int MAX_DOCUMENT_CHARS = 500_000;
 
 	private static final int DEFAULT_DIFF_CHARS = 100_000;
 	private static final int MAX_DIFF_CHARS = 500_000;
@@ -63,7 +62,6 @@ final class FileTools {
 
 	static List<McpTool> all() {
 		List<McpTool> tools = new ArrayList<>();
-		tools.add(readDocument());
 		tools.add(diffVersions());
 		tools.add(grepFiles());
 		tools.add(findFiles());
@@ -71,33 +69,13 @@ final class FileTools {
 		return tools;
 	}
 
-	private static McpTool readDocument() {
-		return McpTool.named("read_document").title("Read document")
-				.description("The text of a document: PDF, Word, Excel, PowerPoint (old and new formats),",
-						"OpenDocument, RTF, EPUB, e-mail and other formats whose text can be extracted, and text",
-						"files as they are. read_file returns the same text for a document; this tool never returns",
-						"an image. Paged by character: when truncated is true, call again with offset set to",
-						"nextOffset. Title, author and page count are returned when the document records them.",
-						"Images, audio and video have no text; read_file returns images.")
-				.required("path", Schema.string("Absolute repository path of the file"))
-				.optional("offset", Schema.integer("Character offset to start reading at", 0, 0, Integer.MAX_VALUE))
-				.optional("limit", Schema.integer("Maximum number of characters to return", DEFAULT_DOCUMENT_CHARS, 1,
-						MAX_DOCUMENT_CHARS))
-				.handler((arguments, context) -> {
-					String path = Args.path(arguments, "path");
-					int offset = Args.optInt(arguments, "offset", 0, 0, Integer.MAX_VALUE);
-					int limit = Args.optInt(arguments, "limit", DEFAULT_DOCUMENT_CHARS, 1, MAX_DOCUMENT_CHARS);
-					Map<String, Object> info = new LinkedHashMap<>();
-					info.put("path", path);
-					return ContentTools.documentText(context, path, offset, limit, info);
-				}).build();
-	}
-
 	private static McpTool diffVersions() {
 		return McpTool.named("diff_versions").title("Compare versions")
-				.description("What changed in a versionable text file, as a unified diff with line numbers and",
-						"three lines of context. from and to are version names from version_history; without to",
-						"the comparison is with the current content, and without from it starts from the base",
+				.description("What changed in a versionable file, as a unified diff with line numbers and three",
+						"lines of context. A text file is compared as it is; a PDF, Word, Excel, PowerPoint or other",
+						"document by its extracted text (extracted is true then), so what changed in a contract or a",
+						"deck reads as changed lines. from and to are version names from version_history; without",
+						"to the comparison is with the current content, and without from it starts from the base",
 						"(latest) version, so the path alone answers \"what changed since the last check-in\". A",
 						"file that is not under version control has no earlier content to compare with.")
 				.required("path", Schema.string("Absolute repository path of the file"))
@@ -109,8 +87,8 @@ final class FileTools {
 					Map<String, Object> data = McpGraphQL.data(context,
 							"query($path: String!, $from: String, $to: String, $limit: Int) {"
 									+ " fileDiff(path: $path, from: $from, to: $to, limit: $limit) {"
-									+ " path from fromCreated to toCreated identical added removed hunks totalHunks"
-									+ " diff truncated } }",
+									+ " path from fromCreated to toCreated identical extracted added removed hunks"
+									+ " totalHunks diff truncated note } }",
 							vars("path", Args.path(arguments, "path"), "from", Args.optString(arguments, "from", null),
 									"to", Args.optString(arguments, "to", null), "limit",
 									Args.optInt(arguments, "limit", DEFAULT_DIFF_CHARS, 1, MAX_DIFF_CHARS)));
@@ -125,8 +103,9 @@ final class FileTools {
 						"regex is false. Use it to find where something is used or defined; search finds documents",
 						"by their words, this finds the exact place. Files that are not text (PDF and Office",
 						"documents, media, other binary content) and files larger than maxFileSize are skipped and",
-						"counted. Stops at maxMatches: narrow the folder, the pattern or namePattern when truncated",
-						"is true.")
+						"counted. Stops at maxMatches, after looking at 10000 files, or after 20 seconds, and",
+						"stoppedBy says which (maxMatches, scanLimit, timeLimit): narrow the folder, the pattern or",
+						"namePattern when truncated is true.")
 				.required("path", Schema.string("Absolute repository path of the folder to search under"))
 				.required("pattern", Schema.string("The regular expression (or literal text when regex is false)"))
 				.optional("regex", Schema.bool("Whether pattern is a regular expression", true))
@@ -143,7 +122,7 @@ final class FileTools {
 									+ " $namePattern: String, $maxMatches: Int, $maxFileSize: Int) {"
 									+ " grepFiles(path: $path, pattern: $pattern, regex: $regex, ignoreCase: $ignoreCase,"
 									+ " namePattern: $namePattern, maxMatches: $maxMatches, maxFileSize: $maxFileSize) {"
-									+ " path pattern filesScanned filesSkipped filesMatched truncated"
+									+ " path pattern filesScanned filesSkipped filesMatched truncated stoppedBy"
 									+ " matches { path line text } } }",
 							vars("path", Args.path(arguments, "path"), "pattern", Args.string(arguments, "pattern"),
 									"regex", Args.optBoolean(arguments, "regex", true), "ignoreCase",
@@ -160,28 +139,79 @@ final class FileTools {
 		return McpTool.named("find_files").title("Find files")
 				.description("The files (or folders, or both) under a folder whose name matches a glob such as",
 						"\"*.md\" or \"index.*\" (* any run, ? one character, case-insensitive), with size, type and",
-						"last modification. Paged with offset and limit: when truncated is true, call again with",
-						"offset set to nextOffset. To list one folder's children, use list_children; to find a file",
-						"by an exact name, query can do it in one step.")
+						"last modification. To see what changed recently, set modifiedSince (and modifiedBy for one",
+						"person's changes) with orderBy modified, newest first. Paged like list_children: when",
+						"hasNextPage is true, call again with after set to the returned endCursor. The search stops",
+						"after looking at 50000 nodes or after 20 seconds, and stoppedBy says which (scanLimit,",
+						"timeLimit): narrow the folder or the pattern then. To list one folder's children, use",
+						"list_children; to find a file by an exact name, query can do it in one step.")
 				.required("path", Schema.string("Absolute repository path of the folder to search under"))
-				.required("namePattern", Schema.string("The glob the name has to match, e.g. \"*.md\""))
+				.optional("namePattern", Schema.string("The glob the name has to match, e.g. \"*.md\" (default: every"
+						+ " name)"))
 				.optional("type", Schema.choice("What to find", "file", "file", "folder", "any"))
-				.optional("offset", Schema.integer("Matches to skip", 0, 0, Integer.MAX_VALUE))
-				.optional("limit",
+				.optional("modifiedSince", Schema.string("Only what was modified at or after this ISO-8601 instant,"
+						+ " e.g. 2026-10-01T00:00:00Z"))
+				.optional("modifiedBy", Schema.string("Only what this user id modified last"))
+				.optional("orderBy", Schema.choice("found: the order found (stops early); modified: newest first",
+						"found", "found", "modified"))
+				.optional("first",
 						Schema.integer("Maximum number of nodes to return", DEFAULT_FIND_LIMIT, 1, MAX_FIND_LIMIT))
+				.optional("after", Schema.string("endCursor of the previous page"))
 				.handler((arguments, context) -> {
 					Map<String, Object> data = McpGraphQL.data(context,
-							"query($path: String!, $namePattern: String!, $type: String, $offset: Int, $limit: Int) {"
-									+ " findFiles(path: $path, namePattern: $namePattern, type: $type, offset: $offset,"
-									+ " limit: $limit) { path namePattern scanned offset truncated nextOffset"
+							"query($path: String!, $namePattern: String, $type: String, $modifiedSince: String,"
+									+ " $modifiedBy: String, $orderBy: String, $offset: Int, $limit: Int) {"
+									+ " findFiles(path: $path, namePattern: $namePattern, type: $type,"
+									+ " modifiedSince: $modifiedSince, modifiedBy: $modifiedBy, orderBy: $orderBy,"
+									+ " offset: $offset, limit: $limit) { scanned nextOffset stoppedBy"
 									+ " nodes { path nodeType size mimeType modified modifiedBy } } }",
 							vars("path", Args.path(arguments, "path"), "namePattern",
-									Args.string(arguments, "namePattern"), "type",
-									Args.optString(arguments, "type", "file"), "offset",
-									Args.optInt(arguments, "offset", 0, 0, Integer.MAX_VALUE), "limit",
-									Args.optInt(arguments, "limit", DEFAULT_FIND_LIMIT, 1, MAX_FIND_LIMIT)));
-					return McpToolResult.json(data.get("findFiles"));
+									Args.optString(arguments, "namePattern", "*"), "type",
+									Args.optString(arguments, "type", "file"), "modifiedSince",
+									Args.optString(arguments, "modifiedSince", null), "modifiedBy",
+									Args.optString(arguments, "modifiedBy", null), "orderBy",
+									"modified".equals(Args.optString(arguments, "orderBy", "found")) ? "modified" : null,
+									"offset", offsetOf(Args.optString(arguments, "after", null)), "limit",
+									Args.optInt(arguments, "first", DEFAULT_FIND_LIMIT, 1, MAX_FIND_LIMIT)));
+					// The listing shape every paged tool shares: nodes, hasNextPage, endCursor.
+					Map<?, ?> found = (Map<?, ?>) data.get("findFiles");
+					Map<String, Object> result = new LinkedHashMap<>();
+					result.put("nodes", found.get("nodes"));
+					Object nextOffset = found.get("nextOffset");
+					result.put("hasNextPage", nextOffset != null);
+					if (nextOffset != null) {
+						result.put("endCursor", cursorOf(((Number) nextOffset).intValue()));
+					}
+					result.put("scanned", found.get("scanned"));
+					if (found.get("stoppedBy") != null) {
+						result.put("stoppedBy", found.get("stoppedBy"));
+					}
+					return McpToolResult.json(result);
 				}).build();
+	}
+
+	private static final String CURSOR_PREFIX = "find:";
+
+	/** An opaque cursor for the page that starts at {@code offset}. */
+	private static String cursorOf(int offset) {
+		return Base64.getEncoder().encodeToString((CURSOR_PREFIX + offset).getBytes(StandardCharsets.UTF_8));
+	}
+
+	/** The offset a cursor from {@link #cursorOf} stands for; 0 without one. */
+	private static int offsetOf(String cursor) throws McpToolException {
+		if (cursor == null || cursor.isEmpty()) {
+			return 0;
+		}
+		try {
+			String decoded = new String(Base64.getDecoder().decode(cursor), StandardCharsets.UTF_8);
+			if (decoded.startsWith(CURSOR_PREFIX)) {
+				int offset = Integer.parseInt(decoded.substring(CURSOR_PREFIX.length()));
+				if (offset >= 0) {
+					return offset;
+				}
+			}
+		} catch (IllegalArgumentException ignore) {}
+		throw new McpToolException("after is not an endCursor that find_files returned.");
 	}
 
 	private static McpTool editFile() {
@@ -193,12 +223,17 @@ final class FileTools {
 						"replace every occurrence. Line endings are matched to the file's. An empty newText deletes",
 						"the matched text. The file keeps its encoding and MIME type. Only text files are edited: a",
 						"PDF or Office document is refused, since its text as read_file shows it is extracted, not",
-						"its bytes. To create a file or replace its whole content, use write_file.")
+						"its bytes. Pass the modified that read_file returned as ifModified: the edit is then refused",
+						"if someone changed the file after you read it. To create a file or replace its whole",
+						"content, use write_file.")
 				.required("path", Schema.string("Absolute repository path of the file"))
 				.required("oldText", Schema.string("The text to replace, exactly as it is in the file"))
 				.required("newText", Schema.string("The text to put in its place; empty to delete"))
 				.optional("replaceAll",
 						Schema.bool("Replace every occurrence instead of requiring a unique match", false))
+				.optional("ifModified",
+						Schema.string("The modified time read_file returned: refuse the edit if the file has"
+								+ " changed since"))
 				.handler((arguments, context) -> {
 					String path = Args.path(arguments, "path");
 					String oldText = Args.string(arguments, "oldText");
@@ -208,11 +243,13 @@ final class FileTools {
 								+ " oldText).");
 					}
 					Map<String, Object> data = McpGraphQL.data(context,
-							"mutation($path: String!, $oldText: String!, $newText: String!, $replaceAll: Boolean) {"
-									+ " editFile(path: $path, oldText: $oldText, newText: $newText,"
-									+ " replaceAll: $replaceAll) { path replacements line size modified modifiedBy } }",
+							"mutation($path: String!, $oldText: String!, $newText: String!, $replaceAll: Boolean,"
+									+ " $ifModified: String) { editFile(path: $path, oldText: $oldText, newText: $newText,"
+									+ " replaceAll: $replaceAll, ifModified: $ifModified) { path replacements line size"
+									+ " modified modifiedBy } }",
 							vars("path", path, "oldText", oldText, "newText", newText, "replaceAll",
-									Args.optBoolean(arguments, "replaceAll", false)));
+									Args.optBoolean(arguments, "replaceAll", false), "ifModified",
+									Args.optString(arguments, "ifModified", null)));
 					Object result = data.get("editFile");
 					Object replacements = (result instanceof Map) ? ((Map<?, ?>) result).get("replacements") : null;
 					ContentTools.log(context, "edit_file", path + " replacements=" + replacements);

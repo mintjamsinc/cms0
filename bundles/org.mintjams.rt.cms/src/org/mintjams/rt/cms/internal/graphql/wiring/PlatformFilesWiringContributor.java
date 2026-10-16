@@ -27,7 +27,12 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,8 +51,10 @@ import javax.jcr.version.VersionHistory;
 import javax.jcr.version.VersionManager;
 
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.cms.internal.files.Deadline;
 import org.mintjams.rt.cms.internal.files.DocumentTexts;
 import org.mintjams.rt.cms.internal.files.FileKind;
+import org.mintjams.rt.cms.internal.files.IfModified;
 import org.mintjams.rt.cms.internal.files.TextDiff;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutionContext;
 import org.mintjams.rt.cms.internal.script.resource.JcrAction;
@@ -61,10 +68,10 @@ import graphql.schema.DataFetchingEnvironment;
  * reading the text of a document, editing part of a text file, comparing
  * versions, and finding files by content and by name.
  *
- * <p>These are the operations behind the MCP tools {@code read_document},
- * {@code edit_file}, {@code diff_versions}, {@code grep_files} and
- * {@code find_files}, and {@code read_file} reads documents through
- * {@code documentText}. They are part of the platform, not of a workspace:
+ * <p>These are the operations behind the MCP tools {@code edit_file},
+ * {@code diff_versions}, {@code grep_files} and {@code find_files}, and
+ * {@code read_file} reads documents through {@code documentText}. They are
+ * part of the platform, not of a workspace:
  * every installation has the same ones, and a workspace cannot replace them.
  *
  * <p>Every operation runs in the caller's session. Whether a file is text, a
@@ -74,11 +81,45 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 
 	private static final String SCHEMA_RESOURCE = "/org/mintjams/rt/cms/internal/graphql/engine/schema/files-schema.graphqls";
 
+	// Every operation is bounded: in what it returns, in what it reads, and in
+	// how long it runs. A request thread cannot be stopped from outside, so a
+	// limit that is reached ends the work with what it has, and the result
+	// says which limit it was. A larger argument is lowered to the limit.
+
 	private static final int DEFAULT_TEXT_LIMIT = 50_000;
+	/** Characters of text documentText returns at most per call. */
+	private static final int MAX_TEXT_LIMIT = 500_000;
+	/** How long extracting a document's text may take per call. */
+	private static final long EXTRACT_MILLIS = 30_000;
+
+	/** The largest file editFile changes in place, and the largest content fileDiff compares. */
+	private static final long MAX_TEXT_FILE_BYTES = 4L * 1024 * 1024;
+
 	private static final int DEFAULT_DIFF_LIMIT = 100_000;
+	private static final int MAX_DIFF_LIMIT = 500_000;
+	/** Characters of a document's text fileDiff compares, a side (what the search index reads of it too). */
+	private static final int MAX_DOCUMENT_DIFF_CHARS = 1_000_000;
+
 	private static final int DEFAULT_MAX_MATCHES = 200;
+	private static final int MAX_MATCHES = 1000;
 	private static final int DEFAULT_MAX_FILE_SIZE = 4 * 1024 * 1024;
+	private static final int MAX_FILE_SIZE = 16 * 1024 * 1024;
+	/** Files grepFiles looks at per call. */
+	private static final int GREP_SCAN_LIMIT = 10_000;
+
 	private static final int DEFAULT_FIND_LIMIT = 100;
+	private static final int MAX_FIND_LIMIT = 500;
+	/** Files and folders findFiles looks at per call. */
+	private static final int FIND_SCAN_LIMIT = 50_000;
+
+	/** How long a search over a folder (grepFiles, findFiles) may take per call. */
+	private static final long SEARCH_MILLIS = 20_000;
+
+	/** Why a search stopped before it covered everything (the {@code stoppedBy} of its result). */
+	private static final String STOPPED_BY_MATCHES = "maxMatches";
+	private static final String STOPPED_BY_SCAN = "scanLimit";
+	private static final String STOPPED_BY_TIME = "timeLimit";
+
 	private static final int MAX_LINE_CHARS = 500;
 	/** Nodes a query hands back per round, while a search walks its results. */
 	private static final int QUERY_PAGE = 500;
@@ -105,7 +146,7 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		Session session = session(environment);
 		String path = absolutePath(environment.getArgument("path"));
 		int offset = intArgument(environment, "offset", 0);
-		int limit = intArgument(environment, "limit", DEFAULT_TEXT_LIMIT);
+		int limit = Math.min(intArgument(environment, "limit", DEFAULT_TEXT_LIMIT), MAX_TEXT_LIMIT);
 		if (offset < 0) {
 			throw new IllegalArgumentException("offset must be 0 or more.");
 		}
@@ -119,6 +160,7 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		result.put("path", path);
 		result.put("mimeType", mimeType);
 		result.put("size", JCRs.getContentLength(file));
+		result.put("modified", ISO8601.format(JCRs.getLastModified(file)));
 		result.put("extracted", false);
 		result.put("offset", offset);
 
@@ -128,17 +170,26 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 					path + " is " + mimeType + ": it has no text to extract. Images are returned by read_file.");
 		}
 		DocumentTexts.Page page;
+		boolean timedOut = false;
 		if (kind == FileKind.TEXT) {
 			page = DocumentTexts.readText(file, offset, limit);
 		} else {
-			DocumentTexts.Extracted extracted = DocumentTexts.extract(file, path, offset, limit);
+			DocumentTexts.Extracted extracted = DocumentTexts.extract(file, path, offset, limit,
+					Deadline.in(EXTRACT_MILLIS));
 			page = extracted.getPage();
+			timedOut = extracted.isTimedOut();
 			result.put("extracted", true);
 			result.put("detectedType", extracted.getDetectedType());
 			result.put("title", extracted.getTitle());
 			result.put("author", extracted.getAuthor());
 			result.put("pages", extracted.getPages());
-			if (extracted.isEmpty()) {
+			if (timedOut) {
+				// Every call parses from the start, so a later offset would stop
+				// at the same place: there is no next page to offer.
+				result.put("note", "Extraction stopped after " + (EXTRACT_MILLIS / 1000) + " s, at character "
+						+ (offset + page.getText().length()) + " of the text: the rest of this document cannot be"
+						+ " extracted within the time a call may take.");
+			} else if (extracted.isEmpty()) {
 				result.put("note", (offset == 0)
 						? "No text could be extracted: the document may hold only images (a scanned PDF, for example)."
 						: "There is no text at or after this offset.");
@@ -146,7 +197,7 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		}
 		result.put("text", page.getText());
 		result.put("truncated", page.isTruncated());
-		if (page.isTruncated()) {
+		if (page.isTruncated() && !timedOut) {
 			result.put("nextOffset", offset + page.getText().length());
 		}
 		return result;
@@ -188,6 +239,13 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 					+ ", not a text file: changing its bytes as text would corrupt it. Nothing was changed. To replace"
 					+ " it as a whole, use write_file.");
 		}
+		long size = JCRs.getContentLength(file);
+		if (size > MAX_TEXT_FILE_BYTES) {
+			throw new IllegalArgumentException(path + " is " + size + " bytes, more than the " + MAX_TEXT_FILE_BYTES
+					+ " bytes a file can be edited in place. Nothing was changed. To replace it as a whole, use"
+					+ " write_file.");
+		}
+		IfModified.check(file, path, emptyToNull(environment.getArgument("ifModified")));
 
 		Charset charset = charsetOf(file);
 		String content;
@@ -268,7 +326,7 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		String path = absolutePath(environment.getArgument("path"));
 		String fromName = emptyToNull(environment.getArgument("from"));
 		String toName = emptyToNull(environment.getArgument("to"));
-		int limit = intArgument(environment, "limit", DEFAULT_DIFF_LIMIT);
+		int limit = Math.min(intArgument(environment, "limit", DEFAULT_DIFF_LIMIT), MAX_DIFF_LIMIT);
 		if (limit < 1) {
 			throw new IllegalArgumentException("limit must be 1 or more.");
 		}
@@ -291,12 +349,22 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 
 		String fromLabel = "version " + fromVersion.getName();
 		String toLabel = (toVersion != null) ? "version " + toVersion.getName() : "current";
-		String fromText = textOf(fromVersion.getFrozenNode(), path, fromLabel);
-		String toText = textOf((toVersion != null) ? toVersion.getFrozenNode() : file, path, toLabel);
-		TextDiff diff = TextDiff.compare(fromText, toText, path + " (" + fromLabel + ")",
-				path + " (" + toLabel + ")", limit);
+		Deadline deadline = Deadline.in(EXTRACT_MILLIS);
+		DiffText from = textOf(fromVersion.getFrozenNode(), path, fromLabel, deadline);
+		DiffText to = textOf((toVersion != null) ? toVersion.getFrozenNode() : file, path, toLabel, deadline);
+		boolean extracted = from.fExtracted || to.fExtracted;
+		String kindLabel = extracted ? ", extracted text" : "";
+		TextDiff diff = TextDiff.compare(from.fText, to.fText, path + " (" + fromLabel + kindLabel + ")",
+				path + " (" + toLabel + kindLabel + ")", limit);
 
 		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("extracted", extracted);
+		if (!from.fComplete || !to.fComplete) {
+			result.put("note", "The text of " + ((!from.fComplete && !to.fComplete) ? "both sides"
+					: (!from.fComplete ? fromLabel : toLabel)) + " was compared only as far as it was extracted ("
+					+ MAX_DOCUMENT_DIFF_CHARS + " characters, or what " + (EXTRACT_MILLIS / 1000) + " s allowed):"
+					+ " a difference beyond that is not shown.");
+		}
 		result.put("path", path);
 		result.put("from", fromVersion.getName());
 		result.put("fromCreated", ISO8601.format(fromVersion.getCreated()));
@@ -323,14 +391,43 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 	}
 
 	/** The content of a file, or of the frozen node of one of its versions, as text. */
-	private static String textOf(Node node, String path, String label) throws Exception {
+	/** One side of a comparison: its text, whether it was extracted from a document, and whether it is whole. */
+	private static final class DiffText {
+		private final String fText;
+		private final boolean fExtracted;
+		private final boolean fComplete;
+
+		DiffText(String text, boolean extracted, boolean complete) {
+			fText = text;
+			fExtracted = extracted;
+			fComplete = complete;
+		}
+	}
+
+	/**
+	 * The text of a file, or of the frozen node of one of its versions, to
+	 * compare: a text file as it is; a document (PDF, Office, …) as its text
+	 * is extracted, so that what changed in a contract or a slide deck reads
+	 * as changed lines too.
+	 */
+	private static DiffText textOf(Node node, String path, String label, Deadline deadline) throws Exception {
 		FileKind kind = FileKind.of(node);
-		if (kind != FileKind.TEXT) {
+		if (kind == FileKind.MEDIA) {
 			throw new IllegalArgumentException(path + " (" + label + ") is " + describe(kind, JCRs.getMimeType(node))
-					+ ", not text: there is no line-by-line difference to show.");
+					+ ": it has no text, so there is no line-by-line difference to show.");
+		}
+		if (kind.isExtractable()) {
+			DocumentTexts.Extracted extracted = DocumentTexts.extract(node, path + " (" + label + ")", 0,
+					MAX_DOCUMENT_DIFF_CHARS, deadline);
+			return new DiffText(extracted.getPage().getText(), true, !extracted.getPage().isTruncated());
+		}
+		long size = JCRs.getContentLength(node);
+		if (size > MAX_TEXT_FILE_BYTES) {
+			throw new IllegalArgumentException(path + " (" + label + ") is " + size + " bytes, more than the "
+					+ MAX_TEXT_FILE_BYTES + " bytes that can be compared.");
 		}
 		try (InputStream in = JCRs.getContentAsStream(node)) {
-			return new String(in.readAllBytes(), charsetOf(node));
+			return new DiffText(new String(in.readAllBytes(), charsetOf(node)), false, true);
 		}
 	}
 
@@ -350,8 +447,8 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		boolean regex = !Boolean.FALSE.equals(environment.getArgument("regex"));
 		boolean ignoreCase = Boolean.TRUE.equals(environment.getArgument("ignoreCase"));
 		Pattern namePattern = glob(emptyToNull(environment.getArgument("namePattern")));
-		int maxMatches = intArgument(environment, "maxMatches", DEFAULT_MAX_MATCHES);
-		int maxFileSize = intArgument(environment, "maxFileSize", DEFAULT_MAX_FILE_SIZE);
+		int maxMatches = Math.min(intArgument(environment, "maxMatches", DEFAULT_MAX_MATCHES), MAX_MATCHES);
+		int maxFileSize = Math.min(intArgument(environment, "maxFileSize", DEFAULT_MAX_FILE_SIZE), MAX_FILE_SIZE);
 		if (patternText == null || patternText.isEmpty()) {
 			throw new IllegalArgumentException("pattern must not be empty.");
 		}
@@ -369,60 +466,74 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		}
 		folder(session, path, "Read it with read_file.");
 
+		Deadline deadline = Deadline.in(SEARCH_MILLIS);
 		List<Map<String, Object>> matches = new ArrayList<>();
+		int filesExamined = 0;
 		int filesScanned = 0;
 		int filesSkipped = 0;
 		int filesMatched = 0;
-		boolean truncated = false;
+		String stoppedBy = null;
 		long offset = 0;
-		outer: while (true) {
-			NodeIterator files = filesUnder(session, path, offset);
-			int returned = 0;
-			while (files.hasNext()) {
-				Node file = files.nextNode();
-				returned++;
-				if (namePattern != null && !namePattern.matcher(file.getName()).matches()) {
-					continue;
-				}
-				if (JCRs.getContentLength(file) > maxFileSize || FileKind.of(file) != FileKind.TEXT) {
-					filesSkipped++;
-					continue;
-				}
-				filesScanned++;
-				boolean matchedFile = false;
-				String filePath = file.getPath();
-				try (BufferedReader reader = new BufferedReader(JCRs.getContentAsReader(file))) {
-					int lineNo = 0;
-					String line;
-					while ((line = reader.readLine()) != null) {
-						lineNo++;
-						if (!pattern.matcher(line).find()) {
-							continue;
+		try {
+			outer: while (true) {
+				NodeIterator files = filesUnder(session, path, offset);
+				int returned = 0;
+				while (files.hasNext()) {
+					if (filesExamined >= GREP_SCAN_LIMIT) {
+						stoppedBy = STOPPED_BY_SCAN;
+						break outer;
+					}
+					deadline.check();
+					Node file = files.nextNode();
+					returned++;
+					filesExamined++;
+					if (namePattern != null && !namePattern.matcher(file.getName()).matches()) {
+						continue;
+					}
+					if (JCRs.getContentLength(file) > maxFileSize || FileKind.of(file) != FileKind.TEXT) {
+						filesSkipped++;
+						continue;
+					}
+					filesScanned++;
+					boolean matchedFile = false;
+					String filePath = file.getPath();
+					try (BufferedReader reader = new BufferedReader(JCRs.getContentAsReader(file))) {
+						int lineNo = 0;
+						String line;
+						while ((line = reader.readLine()) != null) {
+							lineNo++;
+							// The guarded line gives up on a pattern that backtracks past the deadline.
+							if (!pattern.matcher(deadline.guard(line)).find()) {
+								continue;
+							}
+							matchedFile = true;
+							Map<String, Object> match = new LinkedHashMap<>();
+							match.put("path", filePath);
+							match.put("line", lineNo);
+							match.put("text", (line.length() > MAX_LINE_CHARS)
+									? line.substring(0, MAX_LINE_CHARS) + "…" : line);
+							matches.add(match);
+							if (matches.size() >= maxMatches) {
+								stoppedBy = STOPPED_BY_MATCHES;
+								break;
+							}
 						}
-						matchedFile = true;
-						Map<String, Object> match = new LinkedHashMap<>();
-						match.put("path", filePath);
-						match.put("line", lineNo);
-						match.put("text", (line.length() > MAX_LINE_CHARS) ? line.substring(0, MAX_LINE_CHARS) + "…"
-								: line);
-						matches.add(match);
-						if (matches.size() >= maxMatches) {
-							truncated = true;
-							break;
+					} finally {
+						if (matchedFile) {
+							filesMatched++;
 						}
 					}
+					if (stoppedBy != null) {
+						break outer;
+					}
 				}
-				if (matchedFile) {
-					filesMatched++;
+				if (returned < QUERY_PAGE) {
+					break;
 				}
-				if (truncated) {
-					break outer;
-				}
+				offset += returned;
 			}
-			if (returned < QUERY_PAGE) {
-				break;
-			}
-			offset += returned;
+		} catch (Deadline.Exceeded ex) {
+			stoppedBy = STOPPED_BY_TIME;
 		}
 
 		Map<String, Object> result = new LinkedHashMap<>();
@@ -432,34 +543,46 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		result.put("filesSkipped", filesSkipped);
 		result.put("filesMatched", filesMatched);
 		result.put("matches", matches);
-		result.put("truncated", truncated);
+		result.put("truncated", stoppedBy != null);
+		result.put("stoppedBy", stoppedBy);
 		return result;
 	}
 
 	// ---- findFiles -----------------------------------------------------------
 
 	/**
-	 * {@code Query.findFiles(path, namePattern, type, offset, limit)}: the
-	 * files, folders or both under a folder whose name matches a glob. Files
-	 * come from an XPath query, which the search index answers without walking
-	 * the tree; folders are not in the index, so a search that includes them
-	 * walks the tree, depth first, and stops as soon as the page is full.
+	 * {@code Query.findFiles(path, namePattern, type, modifiedSince,
+	 * modifiedBy, orderBy, offset, limit)}: the files, folders or both under a
+	 * folder whose name matches a glob, and — when asked — that were modified
+	 * since an instant, or by a user: what changed recently. Files come from an
+	 * XPath query, which the search index answers without walking the tree;
+	 * folders are not in the index, so a search that includes them walks the
+	 * tree, depth first. In the order found, the search stops as soon as the
+	 * page is full; with {@code orderBy: "modified"} every match is collected
+	 * (within the scan limit) and the newest come first.
 	 */
 	private static Object findFiles(DataFetchingEnvironment environment) throws Exception {
 		Session session = session(environment);
 		String path = absolutePath(environment.getArgument("path"));
 		String namePatternText = emptyToNull(environment.getArgument("namePattern"));
+		if (namePatternText == null) {
+			namePatternText = "*";
+		}
 		String type = emptyToNull(environment.getArgument("type"));
 		if (type == null) {
 			type = "file";
 		}
+		Instant modifiedSince = instantArgument(environment, "modifiedSince");
+		String modifiedBy = emptyToNull(environment.getArgument("modifiedBy"));
+		String orderBy = emptyToNull(environment.getArgument("orderBy"));
 		int offset = intArgument(environment, "offset", 0);
-		int limit = intArgument(environment, "limit", DEFAULT_FIND_LIMIT);
-		if (namePatternText == null) {
-			throw new IllegalArgumentException("namePattern must not be empty.");
-		}
+		int limit = Math.min(intArgument(environment, "limit", DEFAULT_FIND_LIMIT), MAX_FIND_LIMIT);
 		if (!type.equals("file") && !type.equals("folder") && !type.equals("any")) {
 			throw new IllegalArgumentException("type must be file, folder or any.");
+		}
+		if (orderBy != null && !orderBy.equals("modified")) {
+			throw new IllegalArgumentException("orderBy must be modified (newest first), or left out for the order"
+					+ " found.");
 		}
 		if (offset < 0) {
 			throw new IllegalArgumentException("offset must be 0 or more.");
@@ -469,7 +592,8 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		}
 		Node folder = folder(session, path, null);
 
-		Finder finder = new Finder(glob(namePatternText), offset, limit);
+		Finder finder = new Finder(glob(namePatternText), modifiedSince, modifiedBy, orderBy != null, offset, limit,
+				Deadline.in(SEARCH_MILLIS));
 		if (type.equals("file")) {
 			long queryOffset = 0;
 			outer: while (true) {
@@ -489,6 +613,7 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		} else {
 			finder.walk(folder, type.equals("any"));
 		}
+		finder.finish();
 
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("path", path);
@@ -496,31 +621,76 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 		result.put("scanned", finder.fScanned);
 		result.put("offset", offset);
 		result.put("nodes", finder.fNodes);
-		result.put("truncated", finder.fTruncated);
+		result.put("truncated", finder.fTruncated || finder.fStoppedBy != null);
+		// A next page exists only when this one filled up: a search stopped by
+		// its scan or time limit returned every match in what it looked at, and
+		// a later offset would look at the same nodes again.
 		result.put("nextOffset", finder.fTruncated ? offset + finder.fNodes.size() : null);
+		result.put("stoppedBy", finder.fStoppedBy);
 		return result;
 	}
 
-	/** Collects the page of nodes whose name matches, counting what it looked at. */
+	/** Collects the page of nodes that match, counting what it looked at. */
 	private static final class Finder {
 		private final Pattern fPattern;
+		private final Instant fModifiedSince;
+		private final String fModifiedBy;
+		private final boolean fNewestFirst;
 		private final int fOffset;
 		private final int fLimit;
+		private final Deadline fDeadline;
 		private final List<Map<String, Object>> fNodes = new ArrayList<>();
+		/** Every match with its modification time, when they are sorted at the end. */
+		private final List<Map.Entry<Long, Map<String, Object>>> fAll = new ArrayList<>();
 		private int fScanned;
 		private int fMatched;
 		private boolean fTruncated;
+		private String fStoppedBy;
 
-		Finder(Pattern pattern, int offset, int limit) {
+		Finder(Pattern pattern, Instant modifiedSince, String modifiedBy, boolean newestFirst, int offset, int limit,
+				Deadline deadline) {
 			fPattern = pattern;
+			fModifiedSince = modifiedSince;
+			fModifiedBy = modifiedBy;
+			fNewestFirst = newestFirst;
 			fOffset = offset;
 			fLimit = limit;
+			fDeadline = deadline;
 		}
 
-		/** Looks at one node; true when the page is full and the search can stop. */
+		/** Whether a limit of the search is reached; records which. */
+		private boolean overBudget() {
+			if (fScanned >= FIND_SCAN_LIMIT) {
+				fStoppedBy = STOPPED_BY_SCAN;
+				return true;
+			}
+			if (fDeadline.isPassed()) {
+				fStoppedBy = STOPPED_BY_TIME;
+				return true;
+			}
+			return false;
+		}
+
+		/** Looks at one node; true when the page is full, or a limit is reached, and the search can stop. */
 		boolean consider(Node node) throws Exception {
+			if (overBudget()) {
+				return true;
+			}
 			fScanned++;
 			if (!fPattern.matcher(node.getName()).matches()) {
+				return false;
+			}
+			Date modified = JCRs.getLastModified(node);
+			String modifiedBy = JCRs.getLastModifiedBy(node);
+			if (fModifiedSince != null && (modified == null || modified.toInstant().isBefore(fModifiedSince))) {
+				return false;
+			}
+			if (fModifiedBy != null && !fModifiedBy.equals(modifiedBy)) {
+				return false;
+			}
+			if (fNewestFirst) {
+				fAll.add(new AbstractMap.SimpleEntry<>((modified != null) ? modified.getTime() : 0L,
+						info(node, modified, modifiedBy)));
 				return false;
 			}
 			fMatched++;
@@ -531,6 +701,23 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 				fTruncated = true;
 				return true;
 			}
+			fNodes.add(info(node, modified, modifiedBy));
+			return false;
+		}
+
+		/** Puts the collected matches in order and takes the page, when they are sorted. */
+		void finish() {
+			if (!fNewestFirst) {
+				return;
+			}
+			fAll.sort((a, b) -> Long.compare(b.getKey(), a.getKey()));
+			for (int i = fOffset; i < fAll.size() && fNodes.size() < fLimit; i++) {
+				fNodes.add(fAll.get(i).getValue());
+			}
+			fTruncated = fAll.size() > fOffset + fLimit;
+		}
+
+		private static Map<String, Object> info(Node node, Date modified, String modifiedBy) throws Exception {
 			boolean isFolder = JCRs.isFolder(node);
 			Map<String, Object> info = new LinkedHashMap<>();
 			info.put("path", node.getPath());
@@ -539,15 +726,20 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 				info.put("size", JCRs.getContentLength(node));
 				info.put("mimeType", JCRs.getMimeType(node));
 			}
-			info.put("modified", ISO8601.format(JCRs.getLastModified(node)));
-			info.put("modifiedBy", JCRs.getLastModifiedBy(node));
-			fNodes.add(info);
-			return false;
+			info.put("modified", (modified != null) ? ISO8601.format(modified) : null);
+			info.put("modifiedBy", modifiedBy);
+			return info;
 		}
 
 		/** Walks the tree under a folder, depth first; true when the page is full. */
 		boolean walk(Node parent, boolean files) throws Exception {
 			for (NodeIterator children = parent.getNodes(); children.hasNext();) {
+				// Files are walked past when only folders are looked for; the
+				// deadline still bounds the walk.
+				if (fDeadline.isPassed()) {
+					fStoppedBy = STOPPED_BY_TIME;
+					return true;
+				}
 				Node child = children.nextNode();
 				boolean isFolder = JCRs.isFolder(child);
 				if (!isFolder && !JCRs.isFile(child)) {
@@ -672,6 +864,23 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 	private static int intArgument(DataFetchingEnvironment environment, String name, int defaultValue) {
 		Object value = environment.getArgument(name);
 		return (value instanceof Number) ? ((Number) value).intValue() : defaultValue;
+	}
+
+	/** An ISO-8601 instant argument (with Z or an offset), or null when it is not given. */
+	private static Instant instantArgument(DataFetchingEnvironment environment, String name) {
+		String value = emptyToNull(environment.getArgument(name));
+		if (value == null) {
+			return null;
+		}
+		try {
+			return Instant.parse(value);
+		} catch (DateTimeParseException ignore) {}
+		try {
+			return OffsetDateTime.parse(value).toInstant();
+		} catch (DateTimeParseException ex) {
+			throw new IllegalArgumentException(name + " must be an ISO-8601 instant such as 2026-10-01T00:00:00Z or"
+					+ " 2026-10-01T09:00:00+09:00: " + value);
+		}
 	}
 
 	private static String emptyToNull(String value) {

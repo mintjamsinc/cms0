@@ -29,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.mintjams.rt.cms.internal.CmsService;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -60,6 +62,13 @@ public final class McpServer {
 
 	/** Offered when the client asks for a revision this server does not know. */
 	static final String FALLBACK_PROTOCOL_VERSION = "2025-06-18";
+
+	/**
+	 * Characters of text (JSON included) a tool call may return; images are
+	 * not counted. A model reads every character it is given, and the tools'
+	 * own limits (read_file's 500000 characters a page) stay under this one.
+	 */
+	static final long MAX_RESULT_CHARS = 1_000_000;
 
 	static final int PARSE_ERROR = -32700;
 	static final int INVALID_REQUEST = -32600;
@@ -209,6 +218,9 @@ public final class McpServer {
 					+ "change, especially in configuration files such as web.yml and .web.yml. ");
 			sb.append("To change part of a text file, use edit_file rather than write_file: it replaces one "
 					+ "exact piece of text and leaves the rest of the file as it is. ");
+			sb.append("People work in this workspace while you do: pass the modified that read_file returned as "
+					+ "ifModified to write_file and edit_file, so that a change someone made after you read the "
+					+ "file is refused rather than overwritten; then read it again. ");
 			sb.append("The workspace can define further tools of its own in tools.yml files under /etc/graphql, "
 					+ "each a GraphQL operation or a script; they are deployed as soon as the file is written, and "
 					+ "the GraphQL query mcpToolDeployments reports what deployed and what did not.");
@@ -271,6 +283,23 @@ public final class McpServer {
 				toolResult = McpToolResult.error(ex.getMessage());
 			} catch (Throwable ex) {
 				toolResult = McpToolResult.error(describe(ex));
+			}
+			// One bound for every tool, the graphql tool and the workspace's own
+			// above all: their results are as large as the query asks for.
+			long length = toolResult.getTextLength();
+			if (!toolResult.isError() && length > MAX_RESULT_CHARS) {
+				toolResult = McpToolResult.error("The result of " + tool.getName() + " is " + length
+						+ " characters, more than the " + MAX_RESULT_CHARS + " a tool call may return, and was not"
+						+ " sent. Ask for less: a page (first, limit), a smaller folder, fewer fields.");
+			}
+			// Every change made through MCP is logged with who made it. The
+			// built-in tools log their own changes, with what they changed; a
+			// tool the workspace defines is logged here, by name and the names
+			// of its arguments (their values may be content).
+			if (tool.isWrite() && !toolResult.isError() && !fTools.containsKey(tool.getName())) {
+				CmsService.getLogger(McpServer.class).info("MCP " + tool.getName() + ": user=" + context.getUserId()
+						+ " workspace=" + context.getWorkspaceName() + " (workspace tool) arguments="
+						+ arguments.keySet());
 			}
 		}
 		return result(id, toolResult.toJson());

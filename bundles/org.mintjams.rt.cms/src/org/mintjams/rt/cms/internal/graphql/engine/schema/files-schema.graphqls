@@ -14,15 +14,16 @@
 #                 Paged by character.
 #   editFile      replaces one piece of a text file, leaving the rest as it
 #                 is: the way to change part of a file without rewriting it.
-#   fileDiff      what changed in a text file between two versions, or since
-#                 a version: a unified diff.
+#   fileDiff      what changed in a file between two versions, or since a
+#                 version: a unified diff of its text, a document's text as
+#                 it is extracted.
 #   grepFiles     the lines matching a pattern in the text files under a
 #                 folder, with paths and line numbers.
 #   findFiles     the files and folders under a folder whose name matches a
 #                 glob.
 #
-# Each is also a built-in MCP tool: read_document, edit_file, diff_versions,
-# grep_files and find_files. Every operation runs as the caller: a file the
+# The MCP tools read_file (documentText), edit_file, diff_versions,
+# grep_files and find_files are built on them. Every operation runs as the caller: a file the
 # caller cannot read does not exist, and a file the caller cannot write is not
 # changed. Whether a file is text, a document or media is decided in one place
 # (FileKind) for all of them. See documents/mcp-server.md.
@@ -35,6 +36,8 @@ type DocumentText {
   mimeType: String!
   """The file size in bytes."""
   size: Long!
+  """When the content was last written: pass it as editFile's ifModified, so that a change made since is not overwritten."""
+  modified: DateTime
   """Whether the text was extracted from a document (PDF, Office, …) rather than read from a text file."""
   extracted: Boolean!
   """The MIME type Apache Tika detected from the content, when the text was extracted."""
@@ -89,6 +92,10 @@ type FileDiff {
   diff: String!
   """Whether `diff` was cut short at `limit` characters, on a hunk boundary."""
   truncated: Boolean!
+  """Whether the file is a document (PDF, Office, …) whose extracted text was compared, rather than a text file."""
+  extracted: Boolean!
+  """Something the reader should know, e.g. that a document's text was compared only as far as it was extracted."""
+  note: String
 }
 
 """One matching line of grepFiles."""
@@ -110,8 +117,10 @@ type GrepResult {
   """Files with at least one match."""
   filesMatched: Int!
   matches: [GrepMatch!]!
-  """Whether the search stopped at maxMatches."""
+  """Whether the search stopped before it covered every file; stoppedBy says why."""
   truncated: Boolean!
+  """Why the search stopped early: `maxMatches`, `scanLimit` (10000 files looked at) or `timeLimit` (20 s). Null when it covered every file. Narrow the folder, the pattern or namePattern to cover the rest."""
+  stoppedBy: String
 }
 
 """A file or folder findFiles found."""
@@ -132,26 +141,29 @@ type FindResult {
   scanned: Int!
   offset: Int!
   nodes: [FoundNode!]!
-  """Whether more matches follow; continue from nextOffset."""
+  """Whether more matches may follow: the page filled up (continue from nextOffset), or a limit stopped the search (stoppedBy)."""
   truncated: Boolean!
+  """Where the next page starts, when this one filled up."""
   nextOffset: Int
+  """Why the search stopped before it covered everything: `scanLimit` (50000 nodes looked at) or `timeLimit` (20 s). Null when it did not. A later offset looks at the same nodes again: narrow the folder or the pattern instead."""
+  stoppedBy: String
 }
 
 extend type Query {
-  """The text of a document. A text file is returned as it is, decoded with its recorded encoding; a PDF, Office or OpenDocument file, RTF, EPUB, e-mail or other document is handed to Apache Tika for its text. Paged by character: when `truncated` is true, read on from `nextOffset`. Images, audio and video have no text and are refused. `path` may be the frozenNodePath of a version."""
+  """The text of a document. A text file is returned as it is, decoded with its recorded encoding; a PDF, Office or OpenDocument file, RTF, EPUB, e-mail or other document is handed to Apache Tika for its text. Paged by character: when `truncated` is true, read on from `nextOffset`. `limit` is at most 500000. Extraction may take 30 s per call; a document that takes longer is returned as far as it got, with a `note` and no `nextOffset`. Images, audio and video have no text and are refused. `path` may be the frozenNodePath of a version."""
   documentText(path: String!, offset: Int = 0, limit: Int = 50000): DocumentText!
 
-  """What changed in a versionable text file. `from` and `to` are version names from versionHistory; without `to` the comparison is with the current content, without `from` it starts from the base version, so the path alone answers "what changed since the last check-in". Lines are compared with CRLF normalised to LF. `limit` bounds the diff text."""
+  """What changed in a versionable file. `from` and `to` are version names from versionHistory; without `to` the comparison is with the current content, without `from` it starts from the base version, so the path alone answers "what changed since the last check-in". A text file is compared as it is (at most 4 MB a side); a PDF, Office or other document by its extracted text (its first 1000000 characters, within 30 s for both sides), so what changed in a contract reads as changed lines too. Lines are compared with CRLF normalised to LF. `limit` bounds the diff text (at most 500000)."""
   fileDiff(path: String!, from: String, to: String, limit: Int = 100000): FileDiff!
 
-  """The lines matching `pattern` in the text files under a folder, with path and line number. `pattern` is a Java regular expression unless `regex` is false; `namePattern` is a glob on file names (* and ?, case-insensitive). Files that are not text (documents, media, other binary content) and files larger than `maxFileSize` bytes are skipped and counted. Stops at `maxMatches` matches."""
+  """The lines matching `pattern` in the text files under a folder, with path and line number. `pattern` is a Java regular expression unless `regex` is false; `namePattern` is a glob on file names (* and ?, case-insensitive). Files that are not text (documents, media, other binary content) and files larger than `maxFileSize` bytes (at most 16 MB) are skipped and counted. Stops at `maxMatches` matches (at most 1000), after looking at 10000 files, or after 20 s; `stoppedBy` says which."""
   grepFiles(path: String!, pattern: String!, regex: Boolean = true, ignoreCase: Boolean = false, namePattern: String, maxMatches: Int = 200, maxFileSize: Int = 4194304): GrepResult!
 
-  """The files (`type` file, the default), folders (folder) or both (any) under a folder whose name matches `namePattern`, a glob (* any run, ? one character, case-insensitive). Paged with offset and limit; `truncated` says more follow."""
-  findFiles(path: String!, namePattern: String!, type: String = "file", offset: Int = 0, limit: Int = 100): FindResult!
+  """The files (`type` file, the default), folders (folder) or both (any) under a folder whose name matches `namePattern`, a glob (* any run, ? one character, case-insensitive; every name when left out). `modifiedSince` (an ISO-8601 instant) and `modifiedBy` (a user id) keep only what was modified since then, or by that user — what changed recently; a folder's modification is its creation. In the order found by default; `orderBy: "modified"` puts the newest first. Paged with offset and limit (at most 500); `truncated` says more follow. Stops after looking at 50000 nodes, or after 20 s; `stoppedBy` says which."""
+  findFiles(path: String!, namePattern: String = "*", type: String = "file", modifiedSince: String, modifiedBy: String, orderBy: String, offset: Int = 0, limit: Int = 100): FindResult!
 }
 
 extend type Mutation {
-  """Replaces `oldText` with `newText` in a text file and leaves the rest as it is. `oldText` has to occur exactly once unless `replaceAll` is true; the match is exact, except that line endings are matched to the file's (an `oldText` with LF matches a CRLF file). An empty `newText` deletes the matched text. The file keeps its encoding and MIME type. Only text files are edited: a document (PDF, Office, …), media or other binary content is refused, since a change to its bytes as text would corrupt it."""
-  editFile(path: String!, oldText: String!, newText: String!, replaceAll: Boolean = false): EditFileResult!
+  """Replaces `oldText` with `newText` in a text file and leaves the rest as it is. `oldText` has to occur exactly once unless `replaceAll` is true; the match is exact, except that line endings are matched to the file's (an `oldText` with LF matches a CRLF file). An empty `newText` deletes the matched text. The file keeps its encoding and MIME type. Only text files up to 4 MB are edited: a document (PDF, Office, …), media or other binary content is refused, since a change to its bytes as text would corrupt it, and a larger file is replaced as a whole with write_file. With `ifModified` — the `modified` the file was read with — the edit is refused when the file has been written since, so a change made by someone else in the meantime is not lost."""
+  editFile(path: String!, oldText: String!, newText: String!, replaceAll: Boolean = false, ifModified: String): EditFileResult!
 }

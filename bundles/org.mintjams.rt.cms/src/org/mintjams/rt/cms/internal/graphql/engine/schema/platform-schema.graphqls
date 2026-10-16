@@ -863,8 +863,14 @@ type Node {
   """Base (current) version name of a versionable node."""
   baseVersionName: String
 
+  """What the caller may do with this node, from the repository's access control: computed only when selected."""
+  permissions: NodePermissions
+
   """Relevance score — populated only in `search` results."""
   score: Float
+
+  """Where the search's words occur in the file — populated only in `search` results, and computed only when selected: up to three passages from the start of the file (its first 200000 characters, extracted from a document), within 10 s for the whole page. Empty when none was found in time."""
+  excerpts: [SearchExcerpt!]
 
   """How this file is rendered when served over the web (nt:file)."""
   webRender: WebRender
@@ -878,6 +884,36 @@ type Node {
 
   """Non-jcr: prefixed properties (read from jcr:content for nt:file, otherwise from the node)."""
   properties: [Property!]!
+}
+
+"""The caller's effective privileges on a node, as the questions asked before acting. Locks and check-in state are not part of the answer: lockInfo and isCheckedOut say those."""
+type NodePermissions {
+  """jcr:read on the node."""
+  read: Boolean!
+  """jcr:modifyProperties where the node's content and properties live (a file's jcr:content): whether its content or properties can be changed."""
+  write: Boolean!
+  """jcr:addChildNodes on a folder: whether files and folders can be created in it. False for a file."""
+  addChildren: Boolean!
+  """jcr:removeNode on the node and jcr:removeChildNodes on its parent: whether it can be deleted, or moved away."""
+  remove: Boolean!
+  """jcr:lockManagement: whether it can be locked and unlocked."""
+  lock: Boolean!
+  """jcr:versionManagement: whether its versions can be created, checked in and out, and restored."""
+  manageVersions: Boolean!
+  """jcr:readAccessControl: whether its access control entries can be read."""
+  readAccessControl: Boolean!
+  """jcr:modifyAccessControl: whether its access control entries can be changed."""
+  modifyAccessControl: Boolean!
+}
+
+"""A passage of a search result where the search's words occur."""
+type SearchExcerpt {
+  """The character offset of the word in the file's text (as documentText reads it): the offset to read on from."""
+  offset: Int!
+  """The line (1-based) the word is on, in a text file; null in an extracted document."""
+  line: Int
+  """The passage, with whitespace collapsed; … where it is cut."""
+  text: String!
 }
 
 """Lock detail for a locked node (mirrors NodeMapper's lockInfo map)."""
