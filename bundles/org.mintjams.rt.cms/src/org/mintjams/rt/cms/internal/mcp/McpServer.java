@@ -207,10 +207,8 @@ public final class McpServer {
 			sb.append("This connection may change content. write_file refuses to replace an existing file unless "
 					+ "overwrite is true: read the current content first and keep what you were not asked to "
 					+ "change, especially in configuration files such as web.yml and .web.yml. ");
-			if (context.getWorkspaceTools().getTool("edit_file") != null) {
-				sb.append("To change part of a text file, use edit_file rather than write_file: it replaces one "
-						+ "exact piece of text and leaves the rest of the file as it is. ");
-			}
+			sb.append("To change part of a text file, use edit_file rather than write_file: it replaces one "
+					+ "exact piece of text and leaves the rest of the file as it is. ");
 			sb.append("The workspace can define further tools of its own in tools.yml files under /etc/graphql, "
 					+ "each a GraphQL operation or a script; they are deployed as soon as the file is written, and "
 					+ "the GraphQL query mcpToolDeployments reports what deployed and what did not.");

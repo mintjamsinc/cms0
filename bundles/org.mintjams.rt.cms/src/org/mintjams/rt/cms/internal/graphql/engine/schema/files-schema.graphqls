@@ -1,5 +1,12 @@
-# Files: what a reader that cannot open a file itself — an MCP client such as
-# Claude — needs beyond the platform's node fields.
+# =============================================================================
+# Platform files GraphQL schema
+# =============================================================================
+# Contributed by PlatformFilesWiringContributor, merged into the same
+# graphql-java schema as the core platform SDL. It `extend`s the core
+# Query/Mutation roots and reuses the core scalars DateTime and Long.
+#
+# What a reader that cannot open a file itself — an MCP client such as
+# Claude — needs beyond the node fields:
 #
 #   documentText  the text of a document: a text file as it is, and the text
 #                 Apache Tika extracts from a PDF, an Office or OpenDocument
@@ -14,10 +21,12 @@
 #   findFiles     the files and folders under a folder whose name matches a
 #                 glob.
 #
-# Each is also an MCP tool (tools.yml beside this file): read_document,
-# edit_file, diff_versions, grep_files and find_files. Every operation runs
-# as the caller: a file the caller cannot read does not exist, and a file the
-# caller cannot write is not changed.
+# Each is also a built-in MCP tool: read_document, edit_file, diff_versions,
+# grep_files and find_files. Every operation runs as the caller: a file the
+# caller cannot read does not exist, and a file the caller cannot write is not
+# changed. Whether a file is text, a document or media is decided in one place
+# (FileKind) for all of them. See documents/mcp-server.md.
+# =============================================================================
 
 """The text of a document, as documentText reads or extracts it."""
 type DocumentText {
@@ -96,7 +105,7 @@ type GrepResult {
   pattern: String!
   """Text files read."""
   filesScanned: Int!
-  """Files not read: binary, a media type, or larger than maxFileSize."""
+  """Files not read: not text (a document, media or other binary content), or larger than maxFileSize."""
   filesSkipped: Int!
   """Files with at least one match."""
   filesMatched: Int!
@@ -129,13 +138,13 @@ type FindResult {
 }
 
 extend type Query {
-  """The text of a document. A text file is returned as it is, decoded with its recorded encoding; a PDF, Office or OpenDocument file, RTF, EPUB, e-mail or other document is handed to Apache Tika for its text. Paged by character: when `truncated` is true, read on from `nextOffset`. Images, audio and video have no text and are refused."""
+  """The text of a document. A text file is returned as it is, decoded with its recorded encoding; a PDF, Office or OpenDocument file, RTF, EPUB, e-mail or other document is handed to Apache Tika for its text. Paged by character: when `truncated` is true, read on from `nextOffset`. Images, audio and video have no text and are refused. `path` may be the frozenNodePath of a version."""
   documentText(path: String!, offset: Int = 0, limit: Int = 50000): DocumentText!
 
   """What changed in a versionable text file. `from` and `to` are version names from versionHistory; without `to` the comparison is with the current content, without `from` it starts from the base version, so the path alone answers "what changed since the last check-in". Lines are compared with CRLF normalised to LF. `limit` bounds the diff text."""
   fileDiff(path: String!, from: String, to: String, limit: Int = 100000): FileDiff!
 
-  """The lines matching `pattern` in the text files under a folder, with path and line number. `pattern` is a Java regular expression unless `regex` is false; `namePattern` is a glob on file names (* and ?, case-insensitive). Binary files, media files and files larger than `maxFileSize` bytes are skipped and counted. Stops at `maxMatches` matches."""
+  """The lines matching `pattern` in the text files under a folder, with path and line number. `pattern` is a Java regular expression unless `regex` is false; `namePattern` is a glob on file names (* and ?, case-insensitive). Files that are not text (documents, media, other binary content) and files larger than `maxFileSize` bytes are skipped and counted. Stops at `maxMatches` matches."""
   grepFiles(path: String!, pattern: String!, regex: Boolean = true, ignoreCase: Boolean = false, namePattern: String, maxMatches: Int = 200, maxFileSize: Int = 4194304): GrepResult!
 
   """The files (`type` file, the default), folders (folder) or both (any) under a folder whose name matches `namePattern`, a glob (* any run, ? one character, case-insensitive). Paged with offset and limit; `truncated` says more follow."""
@@ -143,6 +152,6 @@ extend type Query {
 }
 
 extend type Mutation {
-  """Replaces `oldText` with `newText` in a text file and leaves the rest as it is. `oldText` has to occur exactly once unless `replaceAll` is true; the match is exact, except that line endings are matched to the file's (an `oldText` with LF matches a CRLF file). An empty `newText` deletes the matched text. The file keeps its encoding and MIME type."""
+  """Replaces `oldText` with `newText` in a text file and leaves the rest as it is. `oldText` has to occur exactly once unless `replaceAll` is true; the match is exact, except that line endings are matched to the file's (an `oldText` with LF matches a CRLF file). An empty `newText` deletes the matched text. The file keeps its encoding and MIME type. Only text files are edited: a document (PDF, Office, …), media or other binary content is refused, since a change to its bytes as text would corrupt it."""
   editFile(path: String!, oldText: String!, newText: String!, replaceAll: Boolean = false): EditFileResult!
 }

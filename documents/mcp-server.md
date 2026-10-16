@@ -239,12 +239,17 @@ running may have to reconnect before it sees the tools.
 | --- | --- | --- |
 | `get_node` | read | Metadata of a file or folder: type, size, MIME type, creation and modification, lock and version state, custom properties, and how a file is rendered over the web. |
 | `list_children` | read | The children of a folder. Paged. |
-| `read_file` | read | The content of a file. Text is paged by character; PDF, Office and other documents come back as their extracted text (through the workspace's `documentText`, below); PNG, JPEG, GIF and WebP come back as images, scaled down when large; other binary content is described, not returned. |
+| `read_file` | read | The content of a file. Text is paged by character; PDF, Office and other documents come back as their extracted text (through `documentText`, below); PNG, JPEG, GIF and WebP come back as images, scaled down when large; other media is described, not returned. |
+| `read_document` | read | The text of a document, as `read_file` returns it for one, without ever returning an image. |
 | `search` | read | Full-text search, most relevant first. |
 | `query` | read | A JCR XPath query. |
+| `grep_files` | read | The lines matching a regular expression in the text files under a folder, with path and line number. |
+| `find_files` | read | The files, folders or both under a folder whose name matches a glob. Paged. |
 | `version_history` | read | The versions of a versionable node. Each has a `frozenNodePath` that `read_file` accepts, to read the content as it was. |
+| `diff_versions` | read | What changed in a versionable text file between two versions, or since one: a unified diff. |
 | `explain_web_render` | read | Why a web path is, or is not, served the way it is. See below. |
 | `write_file` | write | Create a file, or replace the content of an existing one. |
+| `edit_file` | write | Replace one exact piece of a text file and leave the rest as it is. |
 | `create_folder` | write | Create a folder; no change when it exists. |
 | `set_properties` | write | Set or delete custom properties, all together or not at all. |
 | `move_node` | write | Move, rename, or both. |
@@ -280,28 +285,46 @@ model API's own limit, and described beyond that.
 
 A document — PDF, Word, Excel, PowerPoint, OpenDocument, RTF, EPUB, e-mail —
 is never read raw, even when its bytes happen to look like text: `read_file`
-runs the workspace's `documentText` query (below) and returns the text it
-extracts, paged by character like a text file, with title, author and page
-count when the document records them. A workspace without that query (one
-that removed the seeded `/etc/graphql/files`) gets the description and a note
-saying so.
+runs the `documentText` query (below) and returns the text it extracts, paged
+by character like a text file, with title, author and page count when the
+document records them. Binary content of no known type goes the same way, so
+the extractor can find what text it has.
 
-### Tools that come with every workspace
+### Text, documents and media
 
-Five more tools come with every workspace, defined the way a workspace defines
-its own (`/etc/graphql/files/tools.yml`, seeded from
-`docker/seed/assets/system/deploy/etc/graphql/files`). Each wraps one
-operation of the schema beside it, so what the tool does is also available to
-Webtop and to the `graphql` tool, and the implementation is content — Groovy
-and GraphQL, deployed when written — not the bundle.
+Whether a file is text, a document or media is decided in one place,
+`FileKind`, for every tool that reads, searches, edits or compares, so a file
+one tool treats as text is text to all of them. The MIME type decides when it
+says something:
 
-| Tool | Needs | Operation | What it does |
+| Kind | MIME types | Read | Searched by `grep_files`, edited, compared |
 | --- | --- | --- | --- |
-| `read_document` | read | `Query.documentText` | The text of a document: PDF, Word, Excel, PowerPoint (old and new formats), OpenDocument, RTF, EPUB, e-mail and the other formats Apache Tika parses, and text files as they are. Paged by character; title, author and page count when the document records them. `read_file` leans on the same query. |
-| `edit_file` | write | `Mutation.editFile` | Replaces `oldText` with `newText` in a text file and leaves the rest as it is. |
-| `diff_versions` | read | `Query.fileDiff` | What changed in a versionable text file between two versions, or since a version: a unified diff with three lines of context. |
-| `grep_files` | read | `Query.grepFiles` | The lines matching a regular expression in the text files under a folder, with path and line number, as `grep -rn` prints them. |
-| `find_files` | read | `Query.findFiles` | The files, folders or both under a folder whose name matches a glob (`*.md`), with size, type and last modification. Paged. |
+| Text | `text/*` (but RTF), `*+json`, `*+xml`, JSON, XML, JavaScript, YAML, GraphQL, SQL, shell, Groovy, TOML, SVG | as it is, in its encoding | yes |
+| Document | PDF, `application/vnd.*`, Word, RTF, EPUB, e-mail | extracted text | no |
+| Media | `image/*` (but SVG), `audio/*`, `video/*`, `font/*` | images as images; otherwise described | no |
+| Unknown | anything else | by its content: text when the first 4 KB hold no NUL byte and decode as UTF-8 (or the file records an encoding); otherwise extracted text | only when it is text |
+
+MIME types are assigned from file names, and many source formats (templates,
+scripts, Markdown) map to types that reveal nothing about being text; for
+those the content is the witness. A PDF is a document even when its first
+bytes look like ASCII: `grep_files` skips it and `edit_file` refuses it,
+since changing its bytes as text would corrupt it.
+
+### Documents, edits, diffs, grep and find
+
+Five of the tools above wrap one operation each of the platform's files schema
+(`files-schema.graphqls`), so what the tool does is also available to Webtop
+and to the `graphql` tool. They are part of the server, not of a workspace:
+every installation has the same ones, and their names are reserved like those
+of the other built-in tools.
+
+| Tool | Operation |
+| --- | --- |
+| `read_document` | `Query.documentText` |
+| `edit_file` | `Mutation.editFile` |
+| `diff_versions` | `Query.fileDiff` |
+| `grep_files` | `Query.grepFiles` |
+| `find_files` | `Query.findFiles` |
 
 **`read_document`.** The extractor is the one the search index uses, so what
 `search` finds in a document, `read_document` shows. Extraction stops at
@@ -321,9 +344,11 @@ Line endings are matched to the file's: an `oldText` with LF finds its text in
 a CRLF file and the replacement is written with CRLF. An empty `newText`
 deletes the matched text. The file keeps its encoding and MIME type, and the
 repository's rules apply as they do to `write_file`: a locked or checked-in
-file is refused. The result names the line the first replacement starts on.
-When the tool is present, the server instructions tell a client that may
-write to prefer it over `write_file` for a partial change.
+file is refused. Only a text file is edited: a document, media or other
+binary content is refused and nothing is written, since the text a model sees
+of a PDF is extracted, not its bytes. The result names the line the first
+replacement starts on. The server instructions tell a client that may write
+to prefer it over `write_file` for a partial change.
 
 **`diff_versions`** compares two versions of a versionable file (`from`,
 `to`, names from `version_history`), or a version with the current content
@@ -338,8 +363,9 @@ was left out.
 **`grep_files`** is what `search` is not: an exact expression (a Java regular
 expression, or literal text with `regex` false), every text file under a
 folder, the line it is on. Files are found with an XPath query and read one
-at a time; a binary file, a media file, or a file larger than `maxFileSize`
-(4 MB by default) is skipped and counted, never read into memory. `namePattern`
+at a time; a file that is not text (a document, media or other binary
+content), or larger than `maxFileSize` (4 MB by default), is skipped and
+counted, never read into memory. `namePattern`
 restricts the file names (a glob, case-insensitive); `maxMatches` (200 by
 default) stops the search, and `truncated` says it did.
 
@@ -736,6 +762,7 @@ changed it, not that the change came through MCP; the log can.
 MCP connection turned on: user=admin workspace=web write=false
 MCP client authorized: user=admin workspace=web client=Claude redirect=https://claude.ai
 MCP write_file: user=admin workspace=web path=/content/docs/.web.yml bytes=47 (replaced)
+MCP edit_file: user=admin workspace=web /content/docs/index.md replacements=1
 MCP set_properties: user=admin workspace=web /content/docs/index.md [web.template]
 MCP delete_node: user=admin workspace=web /content/a
 MCP graphql mutation: user=admin workspace=web operation=(anonymous)
@@ -823,6 +850,7 @@ await (await fetch('/bin/mcp.cgi/web', {
 | `McpTool`, `McpToolResult` | A tool's description, argument handling and result. |
 | `McpCallContext` | Who is calling, where, and with what limits. The only way a tool reaches the repository — always as the caller. |
 | `ContentTools` | The content tools. |
+| `FileTools` | `read_document`, `edit_file`, `diff_versions`, `grep_files`, `find_files`: each one operation of the files schema. |
 | `WebRenderTools` | `explain_web_render`. |
 | `GraphQLTools` | `graphql`. |
 | `McpToolCompiler`, `McpToolRegistry` | The tools a workspace defines: reading its `tools.yml` files, file by file, into the registry the server consults next to the built-in tools. Rebuilt by `WorkspaceGraphQLEngineProvider` with the application schema. |
@@ -837,6 +865,12 @@ await (await fetch('/bin/mcp.cgi/web', {
 Preferences reads and changes the connection through the workspace's GraphQL
 schema (`mcpConnection`, `setMcpConnection`; `mcp-schema.graphqls`, wired by
 `PlatformMcpWiringContributor`). Both act on the caller's own connection.
+
+The operations behind the file tools are in `files-schema.graphqls`, wired by
+`PlatformFilesWiringContributor`, with the parts they share in
+`org.mintjams.rt.cms.internal.files`: `FileKind` (text, document or media),
+`DocumentTexts` (a page of text, or of the text Apache Tika extracts) and
+`TextDiff` (the unified diff).
 
 The content tools go through the workspace GraphQL schema wherever a field or
 mutation already exists. That keeps an MCP client's view of a node identical to

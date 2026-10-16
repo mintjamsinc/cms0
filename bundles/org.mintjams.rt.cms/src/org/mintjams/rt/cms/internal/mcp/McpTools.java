@@ -49,7 +49,9 @@ final class McpTools {
 	static List<McpTool> all() {
 		List<McpTool> read = new ArrayList<>();
 		List<McpTool> write = new ArrayList<>();
-		for (McpTool tool : ContentTools.all()) {
+		List<McpTool> content = new ArrayList<>(ContentTools.all());
+		content.addAll(FileTools.all());
+		for (McpTool tool : content) {
 			(tool.isWrite() ? write : read).add(tool);
 		}
 

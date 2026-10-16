@@ -80,9 +80,6 @@ Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/mail.xml" "$SeedAsset
 Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/mail" "$SeedAssets/workspace/deploy/etc/graphql/webtop/mail"
 Copy-Tree "$SeedAssets/system/deploy/usr/local/classes/webtop/mail" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/mail"
 Copy-Tree "$SeedAssets/system/provisioning/mail.yml" "$SeedAssets/workspace/provisioning/mail.yml"
-# files: documentText / editFile and the MCP tools read_document / edit_file, in every workspace
-Copy-Tree "$SeedAssets/system/deploy/etc/graphql/files" "$SeedAssets/workspace/deploy/etc/graphql/files"
-
 $systemFiles = (Get-ChildItem -Recurse -File "$SeedAssets/system").Count
 $workspaceFiles = (Get-ChildItem -Recurse -File "$SeedAssets/workspace").Count
 Write-Host "OK: seed assets laid down from $WebtopDist"

@@ -43,6 +43,7 @@ import org.mintjams.rt.cms.internal.mcp.McpToolCompiler;
 import org.mintjams.rt.cms.internal.mcp.McpToolRegistry;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformBpmWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformEipWiringContributor;
+import org.mintjams.rt.cms.internal.graphql.wiring.PlatformFilesWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformIdpWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformMcpWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformSecurityWiringContributor;
@@ -67,7 +68,6 @@ import graphql.GraphQLError;
 import graphql.language.Definition;
 import graphql.language.OperationDefinition;
 import graphql.parser.Parser;
-import graphql.schema.GraphQLObjectType;
 
 /**
  * The per-workspace GraphQL engine that serves the unified {@code /bin/graphql.cgi}
@@ -177,20 +177,6 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	 */
 	public McpToolRegistry getMcpTools() {
 		return fMcpTools;
-	}
-
-	/**
-	 * Whether the compiled schema's {@code Query} type has a field of this
-	 * name — e.g. one a workspace adds for itself, which a built-in MCP tool
-	 * may then lean on when it is there.
-	 */
-	public boolean hasQueryField(String name) {
-		GraphQL graphQL = fGraphQL;
-		if (graphQL == null) {
-			return false;
-		}
-		GraphQLObjectType query = graphQL.getGraphQLSchema().getQueryType();
-		return query != null && query.getFieldDefinition(name) != null;
 	}
 
 	/**
@@ -383,7 +369,7 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 		return List.of(new PlatformWiringContributor(), new PlatformBpmWiringContributor(),
 				new PlatformWorkspaceWiringContributor(), new PlatformIdpWiringContributor(),
 				new PlatformSecurityWiringContributor(), new PlatformEipWiringContributor(),
-				new PlatformMcpWiringContributor());
+				new PlatformMcpWiringContributor(), new PlatformFilesWiringContributor());
 	}
 
 	/**

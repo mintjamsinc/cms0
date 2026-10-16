@@ -138,17 +138,6 @@ public class McpCallContext {
 	}
 
 	/**
-	 * Whether the workspace schema's {@code Query} type has this field. A
-	 * built-in tool uses it to lean on an operation the workspace defines for
-	 * itself (such as {@code documentText}) when it is there, and to say what
-	 * is missing when it is not.
-	 */
-	public boolean hasQueryField(String name) {
-		WorkspaceGraphQLEngineProvider engine = CmsService.getWorkspaceGraphQLEngineProvider(fWorkspaceName);
-		return engine != null && engine.hasQueryField(name);
-	}
-
-	/**
 	 * A tool result carrying {@code value} as JSON — for a script tool that
 	 * wants to add content blocks to its result (see {@link #image}); a script
 	 * that returns a map or a list gets the same without asking.

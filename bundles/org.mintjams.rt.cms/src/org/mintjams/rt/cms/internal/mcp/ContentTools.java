@@ -31,12 +31,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.Reader;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.charset.Charset;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -61,12 +56,16 @@ import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.ImageOutputStream;
 import javax.jcr.Node;
 import javax.jcr.Session;
+import javax.jcr.lock.LockException;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.files.DocumentTexts;
+import org.mintjams.rt.cms.internal.files.FileKind;
 import org.mintjams.rt.cms.internal.mcp.McpTool.Args;
 import org.mintjams.rt.cms.internal.mcp.McpTool.Schema;
+import org.mintjams.rt.cms.internal.script.resource.JcrAction;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -110,11 +109,6 @@ final class ContentTools {
 
 	private static final Set<String> INLINE_IMAGE_TYPES = new HashSet<>(
 			Arrays.asList("image/png", "image/jpeg", "image/gif", "image/webp"));
-
-	private static final Set<String> TEXT_TYPES = new HashSet<>(Arrays.asList("application/json", "application/xml",
-			"application/javascript", "application/x-javascript", "application/ecmascript", "application/yaml",
-			"application/x-yaml", "application/graphql", "application/sql", "application/x-sh",
-			"application/x-groovy", "application/toml", "image/svg+xml"));
 
 	private static final String CONNECTION_FIELDS = "totalCount pageInfo { hasNextPage endCursor }";
 
@@ -236,66 +230,45 @@ final class ContentTools {
 				return imageResult(node, type, size, info);
 			}
 
-			// A document type is never read as text, even when its bytes happen
-			// to look like text (a small PDF can be pure ASCII).
-			if (!isTextType(type) && (isDocumentType(type) || isMediaType(type) || !looksLikeText(node, encoding))) {
-				// A document (PDF, Office, …) is read through the workspace's own
-				// documentText query, which every workspace has unless it was
-				// removed; the extractor lives there, not in the bundle.
-				if (!isMediaType(type) && context.hasQueryField("documentText")) {
-					return documentText(context, path, offset, limit, info);
-				}
-				info.put("note", isMediaType(type) ? "Binary content is not returned."
-						: "Binary content is not returned, and the workspace has no documentText query to extract"
-								+ " its text with.");
+			// Whether a file is text, a document or media is decided by
+			// FileKind, for every tool alike: a document is never read as
+			// text, even when its bytes happen to look like text (a small PDF
+			// can be pure ASCII).
+			FileKind kind = FileKind.of(node);
+			if (kind == FileKind.MEDIA) {
+				info.put("note", "Binary content is not returned.");
 				return McpToolResult.json(info);
 			}
-
-			StringBuilder text = new StringBuilder();
-			boolean truncated;
-			try (Reader in = JCRs.getContentAsReader(node)) {
-				long toSkip = offset;
-				while (toSkip > 0) {
-					long skipped = in.skip(toSkip);
-					if (skipped <= 0) {
-						break;
-					}
-					toSkip -= skipped;
-				}
-				char[] buffer = new char[8192];
-				while (text.length() < limit) {
-					int n = in.read(buffer, 0, Math.min(buffer.length, limit - text.length()));
-					if (n == -1) {
-						break;
-					}
-					text.append(buffer, 0, n);
-				}
-				truncated = (text.length() >= limit) && (in.read() != -1);
+			if (kind.isExtractable()) {
+				return documentText(context, path, offset, limit, info);
 			}
 
+			DocumentTexts.Page page = DocumentTexts.readText(node, offset, limit);
 			info.put("offset", offset);
-			info.put("returnedChars", text.length());
-			info.put("truncated", truncated);
-			if (truncated) {
-				info.put("nextOffset", offset + text.length());
+			info.put("returnedChars", page.getText().length());
+			info.put("truncated", page.isTruncated());
+			if (page.isTruncated()) {
+				info.put("nextOffset", offset + page.getText().length());
 			}
-			return McpToolResult.json(info).addText(text.toString());
+			return McpToolResult.json(info).addText(page.getText());
 		} finally {
 			session.logout();
 		}
 	}
 
 	/**
-	 * The text of a document, through the workspace's {@code documentText}
-	 * query (seeded in every workspace; see {@code /etc/graphql/files}). The
-	 * query runs as the caller and pages by character like the text branch.
+	 * The text of a file through the platform's {@code documentText} query:
+	 * a text file as it is, a document as Apache Tika extracts it. The query
+	 * runs as the caller and pages by character. The metadata goes into
+	 * {@code info} next to what the caller already put there, and the text
+	 * follows as a block of its own.
 	 */
-	private static McpToolResult documentText(McpCallContext context, String path, int offset, int limit,
+	static McpToolResult documentText(McpCallContext context, String path, int offset, int limit,
 			Map<String, Object> info) throws McpToolException {
 		Map<String, Object> data = McpGraphQL.data(context,
 				"query($path: String!, $offset: Int, $limit: Int) { documentText(path: $path, offset: $offset,"
-						+ " limit: $limit) { extracted detectedType title author pages text truncated nextOffset"
-						+ " note } }",
+						+ " limit: $limit) { mimeType size extracted detectedType title author pages text truncated"
+						+ " nextOffset note } }",
 				vars("path", path, "offset", offset, "limit", limit));
 		Object doc = data.get("documentText");
 		if (!(doc instanceof Map)) {
@@ -303,6 +276,8 @@ final class ContentTools {
 		}
 		Map<?, ?> map = (Map<?, ?>) doc;
 		String text = (map.get("text") == null) ? "" : String.valueOf(map.get("text"));
+		info.putIfAbsent("mimeType", map.get("mimeType"));
+		info.putIfAbsent("size", map.get("size"));
 		for (String key : new String[] { "extracted", "detectedType", "title", "author", "pages" }) {
 			if (map.get(key) != null) {
 				info.put(key, map.get(key));
@@ -584,6 +559,13 @@ final class ContentTools {
 							+ " bytes, last modified " + previous.get("modified") + " by "
 							+ previous.get("modifiedBy") + "). Nothing was written. If it should be replaced, read"
 							+ " it with read_file first, then call write_file again with overwrite set to true.");
+				}
+				// The JCR layer does not refuse a write to a node someone else
+				// has locked; check it the way every Resource write does.
+				try {
+					JcrAction.create(file).addLockToken().checkLock();
+				} catch (LockException ex) {
+					throw new McpToolException(path + " is locked by someone else; nothing was written.");
 				}
 				result.put("replaced", previous);
 			} else {
@@ -900,57 +882,13 @@ final class ContentTools {
 				+ ", or the signed-in user is not allowed to read it.");
 	}
 
-	private static void log(McpCallContext context, String tool, String detail) {
+	static void log(McpCallContext context, String tool, String detail) {
 		CmsService.getLogger(ContentTools.class).info("MCP " + tool + ": user=" + context.getUserId()
 				+ " workspace=" + context.getWorkspaceName() + " " + detail);
 	}
 
 	private static String iso(java.util.Date date) {
 		return (date == null) ? null : date.toInstant().toString();
-	}
-
-	private static boolean isTextType(String mimeType) {
-		return mimeType.startsWith("text/") || mimeType.endsWith("+json") || mimeType.endsWith("+xml")
-				|| TEXT_TYPES.contains(mimeType);
-	}
-
-	/** Types whose text is extracted, never read raw: PDF, Office and OpenDocument, RTF, EPUB, e-mail. */
-	private static boolean isDocumentType(String mimeType) {
-		return mimeType.equals("application/pdf") || mimeType.startsWith("application/vnd.")
-				|| mimeType.equals("application/msword") || mimeType.equals("application/rtf")
-				|| mimeType.equals("application/epub+zip") || mimeType.equals("message/rfc822");
-	}
-
-	/** Types that are binary by definition; anything else unrecognised is inspected. */
-	private static boolean isMediaType(String mimeType) {
-		return mimeType.startsWith("image/") || mimeType.startsWith("audio/") || mimeType.startsWith("video/")
-				|| mimeType.startsWith("font/");
-	}
-
-	/**
-	 * Whether the start of the file reads as text: no NUL byte, and — unless
-	 * the file records its own encoding — well-formed UTF-8. MIME types are
-	 * assigned from file names and many source formats (templates, scripts,
-	 * Markdown) map to types that say nothing about being text, so the content
-	 * is the better witness.
-	 */
-	private static boolean looksLikeText(Node node, String encoding) throws Exception {
-		byte[] head;
-		try (InputStream in = JCRs.getContentAsStream(node)) {
-			head = in.readNBytes(4096);
-		}
-		for (byte b : head) {
-			if (b == 0) {
-				return false;
-			}
-		}
-		if (encoding != null && !encoding.isEmpty()) {
-			return true;
-		}
-		CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-				.onUnmappableCharacter(CodingErrorAction.REPORT);
-		// endOfInput=false: a multi-byte character cut off by the 4096-byte window is not an error.
-		return !decoder.decode(ByteBuffer.wrap(head), CharBuffer.allocate(head.length + 1), false).isError();
 	}
 
 }
