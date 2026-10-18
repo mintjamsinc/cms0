@@ -185,6 +185,33 @@ separate jars are shipped for those.
 
 ---
 
+## bundles/org.apache.felix.http.jetty
+
+- **Upstream project:** [Apache Felix HTTP](https://felix.apache.org/documentation/subprojects/apache-felix-http-service.html) Jetty 5.2.6 (embeds [Eclipse Jetty](https://eclipse.dev/jetty/) 11.0.26)
+- **Primary license:** Apache License 2.0
+- **Upstream LICENSE / NOTICE:**
+  - <https://github.com/apache/felix-dev/blob/master/LICENSE>
+  - <https://github.com/apache/felix-dev/blob/master/NOTICE>
+
+| JAR | Project | License |
+| --- | --- | --- |
+| `lib/org.apache.felix.http.jetty-5.2.6.jar` | Apache Felix HTTP Jetty (unmodified, patched by `src/`, see below) | Apache License 2.0 (Felix); embedded Jetty under Apache License 2.0 / Eclipse Public License 2.0 |
+| `compile-lib/websocket-jakarta-server-11.0.26.jar` | [Eclipse Jetty](https://eclipse.dev/jetty/) WebSocket (compile only, not distributed) | Apache License 2.0 / Eclipse Public License 2.0 |
+| `compile-lib/websocket-jetty-server-11.0.26.jar` | [Eclipse Jetty](https://eclipse.dev/jetty/) WebSocket (compile only, not distributed) | Apache License 2.0 / Eclipse Public License 2.0 |
+
+The bundle built from this directory embeds the unmodified upstream JAR
+and puts patched builds of
+`org.apache.felix.http.jetty.internal.JettyService` and `JettyConfig`, plus
+the new `SessionStoreFactoryTracker`, in front of it on the
+`Bundle-ClassPath`, so that a `SessionDataStoreFactory` /
+`SessionCacheFactory` registered as an OSGi service is handed to Jetty
+before the server starts. The manifest repeats the upstream headers and
+carries `X-MintJams-Patch: session-store-factory`. The patched sources and
+the unmodified originals are in `src/` and `upstream/` of this directory
+(see its README.md).
+
+---
+
 ## bundles/org.apache.tika
 
 - **Upstream project:** [Apache Tika](https://tika.apache.org/) 3.3.2

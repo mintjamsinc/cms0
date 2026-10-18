@@ -23,6 +23,7 @@
 package org.mintjams.jcr.security;
 
 public class GuestPrincipal implements UserPrincipal {
+	private static final long serialVersionUID = 1L;
 
 	public static final String NAME = "anonymous";
 

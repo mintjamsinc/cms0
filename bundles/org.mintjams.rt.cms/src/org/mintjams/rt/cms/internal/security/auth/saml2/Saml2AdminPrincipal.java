@@ -25,6 +25,7 @@ package org.mintjams.rt.cms.internal.security.auth.saml2;
 import org.mintjams.jcr.security.AdminPrincipal;
 
 public class Saml2AdminPrincipal extends Saml2UserPrincipal implements AdminPrincipal {
+	private static final long serialVersionUID = 1L;
 
 	public Saml2AdminPrincipal(Saml2Credentials credentials) {
 		super(credentials);

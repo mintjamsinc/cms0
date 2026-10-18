@@ -24,6 +24,7 @@ package org.mintjams.jcr.security;
 
 @Deprecated
 public class UnknownUserPrincipal extends UnknownPrincipal implements UserPrincipal {
+	private static final long serialVersionUID = 1L;
 
 	public UnknownUserPrincipal(String name) {
 		super(name);

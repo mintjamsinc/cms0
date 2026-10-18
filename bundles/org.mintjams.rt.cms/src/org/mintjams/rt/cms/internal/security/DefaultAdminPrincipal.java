@@ -25,6 +25,7 @@ package org.mintjams.rt.cms.internal.security;
 import org.mintjams.jcr.security.AdminPrincipal;
 
 public class DefaultAdminPrincipal extends DefaultUserPrincipal implements AdminPrincipal {
+	private static final long serialVersionUID = 1L;
 
 	public DefaultAdminPrincipal(String name) {
 		super(name);

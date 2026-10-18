@@ -22,6 +22,11 @@
 
 package org.mintjams.jcr.security;
 
+import java.io.Serializable;
 import java.security.Principal;
 
-public interface UserPrincipal extends Principal {}
+/**
+ * A user principal is {@link Serializable} so that credentials holding it can
+ * travel with the HTTP session through a cluster-shared session store.
+ */
+public interface UserPrincipal extends Principal, Serializable {}

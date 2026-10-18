@@ -22,6 +22,7 @@
 
 package org.mintjams.rt.cms.internal.security.auth.saml2;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +40,7 @@ public class Saml2Credentials implements Credentials {
 
 	public Saml2Credentials(Saml2Auth auth) {
 		fName = auth.getNameId();
-		fAttributes.putAll(auth.getAttributes());
+		copyAttributes(auth.getAttributes());
 	}
 
 	/**
@@ -48,8 +49,20 @@ public class Saml2Credentials implements Credentials {
 	 */
 	public Saml2Credentials(String name, Map<String, List<String>> attributes) {
 		fName = name;
-		if (attributes != null) {
-			fAttributes.putAll(attributes);
+		copyAttributes(attributes);
+	}
+
+	/**
+	 * Copies the attribute values into plain {@link ArrayList}s. The
+	 * credentials live in the HTTP session and must stay serializable
+	 * regardless of the list implementation the SAML layer hands over.
+	 */
+	private void copyAttributes(Map<String, List<String>> attributes) {
+		if (attributes == null) {
+			return;
+		}
+		for (Map.Entry<String, List<String>> e : attributes.entrySet()) {
+			fAttributes.put(e.getKey(), (e.getValue() == null) ? new ArrayList<>() : new ArrayList<>(e.getValue()));
 		}
 	}
 

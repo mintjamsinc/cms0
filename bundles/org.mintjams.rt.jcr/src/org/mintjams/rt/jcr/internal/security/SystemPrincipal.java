@@ -25,6 +25,7 @@ package org.mintjams.rt.jcr.internal.security;
 import org.mintjams.jcr.security.UserPrincipal;
 
 public class SystemPrincipal implements UserPrincipal {
+	private static final long serialVersionUID = 1L;
 
 	public static final String INTERNAL_NAME = "internal";
 

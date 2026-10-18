@@ -22,6 +22,7 @@
 
 package org.mintjams.idp.internal.model;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,7 +34,8 @@ import org.mintjams.idp.internal.Activator;
 /**
  * Represents an authenticated user in the IdP.
  */
-public class IdpUser {
+public class IdpUser implements Serializable {
+	private static final long serialVersionUID = 1L;
 
 	private String fUsername;
 	private String fDisplayName;

@@ -27,6 +27,7 @@ import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 
 public class Saml2UserPrincipal implements UserPrincipal, Adaptable {
+	private static final long serialVersionUID = 1L;
 
 	private final Saml2Credentials fCredentials;
 

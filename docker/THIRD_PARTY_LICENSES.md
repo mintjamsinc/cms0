@@ -46,7 +46,7 @@ are also available from the upstream project links below.
 | `bundle/org.apache.felix.coordinator-1.0.2.jar` | Apache Felix Coordinator Service | Apache License 2.0 |
 | `bundle/org.apache.felix.eventadmin-1.6.4.jar` | Apache Felix Event Admin Service | Apache License 2.0 |
 | `bundle/org.apache.felix.http.base-5.1.10.jar` | Apache Felix HTTP Service - Base | Apache License 2.0 |
-| `bundle/org.apache.felix.http.jetty-5.1.32.jar` | Apache Felix HTTP Service - Jetty (embeds [Eclipse Jetty](https://eclipse.dev/jetty/)) | Apache License 2.0 (Felix); embedded Jetty under Apache License 2.0 / Eclipse Public License 2.0 |
+| `bundle/org.apache.felix.http.jetty_5.2.6.jar` | Apache Felix HTTP Service - Jetty (embeds [Eclipse Jetty](https://eclipse.dev/jetty/) 11.0.26; patched for session store injection, see `bundles/org.apache.felix.http.jetty/README.md`) | Apache License 2.0 (Felix); embedded Jetty under Apache License 2.0 / Eclipse Public License 2.0 |
 | `bundle/org.apache.felix.http.servlet-api-3.0.0.jar` | Apache Felix HTTP Servlet API | Apache License 2.0 |
 | `bundle/org.apache.felix.http.sslfilter-proto-1.2.6.jar` | Apache Felix HTTP SSL Filter (X-Forwarded-Proto) | Apache License 2.0 |
 | `bundle/org.apache.felix.http.webconsoleplugin-1.2.2.jar` | Apache Felix HTTP Web Console Plugin | Apache License 2.0 |
