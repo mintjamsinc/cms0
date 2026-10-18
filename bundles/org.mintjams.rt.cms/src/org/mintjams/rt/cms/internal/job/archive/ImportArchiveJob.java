@@ -740,7 +740,7 @@ public class ImportArchiveJob implements Job {
 			throw new IllegalStateException("Archive not found: " + fArchivePath);
 		}
 		Node archive = session.getNode(fArchivePath);
-		Path temp = Files.createTempFile("cms-import-" + fJobId + "-", ".zip");
+		Path temp = Files.createTempFile(CmsService.getTemporaryDirectoryPath(), "cms-import-" + fJobId + "-", ".zip");
 		try (InputStream in = JCRs.getContentAsStream(archive);
 				OutputStream out = new BufferedOutputStream(Files.newOutputStream(temp))) {
 			byte[] buf = new byte[8192];

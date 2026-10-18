@@ -134,6 +134,7 @@ public class WorkspaceQuery implements Adaptable {
 			newUpdateBuilder("DELETE FROM jcr_properties WHERE is_deleted = TRUE").build().execute();
 		}
 
+		ClusterController markedCluster = null;
 		if (fJournalAffected) {
 			fJournalAffected = false;
 			// In a cluster, mark the transaction in the shared commit log so
@@ -144,10 +145,17 @@ public class WorkspaceQuery implements Adaptable {
 			if (clusterController.isClusterEnabled()) {
 				ClusterJournal.writeCommitMarker(getConnection(),
 						getSessionIdentifier().getTransactionIdentifier(), clusterController.getNodeId());
+				markedCluster = clusterController;
 			}
 		}
 
 		getConnection().commit();
+
+		if (markedCluster != null) {
+			// The marker is visible now: wake the other nodes' pollers so they
+			// read it without waiting for their next poll.
+			markedCluster.notifyCommitted();
+		}
 
 		if (!fDirtyItems.isEmpty()) {
 			adaptTo(NodeCache.class).invalidate(fDirtyItems);

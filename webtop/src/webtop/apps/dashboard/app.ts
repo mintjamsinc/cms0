@@ -89,6 +89,33 @@ function humanizeKey(key: string): string {
 	return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/** Both directions of a cluster connection up, one of them, or none. */
+function linkStateOf(link: { outbound?: string; inbound?: string } | null | undefined): 'both' | 'one' | 'none' {
+	const out = link?.outbound === 'connected';
+	const inb = link?.inbound === 'connected';
+	return out && inb ? 'both' : (out || inb) ? 'one' : 'none';
+}
+
+/**
+ * The connections between the live nodes, row to column, as each row's node
+ * reported its own outbound connection. Every node reports through the
+ * cluster, so the matrix is the same whichever node answered.
+ */
+function clusterMatrix(members: any[]): { nodes: string[]; rows: any[] } {
+	const live = members.filter((m) => m.alive);
+	const nodes = live.map((m) => m.nodeId as string);
+	const rows = live.map((from) => ({
+		nodeId: from.nodeId,
+		cells: nodes.map((to) => {
+			if (to === from.nodeId) return { to, state: 'self' };
+			const link = (from.reportedLinks || []).find((l: any) => l.nodeId === to);
+			const state = !link ? 'unknown' : link.outbound === 'connected' ? 'ok' : link.outbound === 'connecting' ? 'warn' : 'down';
+			return { to, state };
+		}),
+	}));
+	return { nodes, rows };
+}
+
 function ageLabel(fromIso: string | number | undefined, now: number): string {
 	if (fromIso == null) return '—';
 	const t = typeof fromIso === 'number' ? fromIso : Date.parse(fromIso);
@@ -140,7 +167,7 @@ const EMPTY_MODEL = () => ({
 	// state worth saying out loud) from "cluster with members". `stale`
 	// counts members whose heartbeat the SERVER judged stale — a presumed
 	// dead or partitioned node, which is an operational incident.
-	cluster: { enabled: false, nodeId: '', total: 0, alive: 0, stale: 0, members: [] as any[] },
+	cluster: { enabled: false, nodeId: '', total: 0, alive: 0, stale: 0, linkIssues: 0, members: [] as any[], matrix: { nodes: [] as string[], rows: [] as any[] } },
 	// Repository-wide workspace health. `starting` counts workspaces whose
 	// CMS services are still coming up; `failed` counts workspaces whose
 	// services failed to start (an outage needing intervention, not a wait);
@@ -273,7 +300,7 @@ const App = {
 			// itself.
 			const overall = (m.incidents.total > 0 || m.connections.down > 0 || m.cluster.stale > 0 || m.workspaces.engineIssues > 0 || m.workspaces.failed > 0)
 				? { cls: 'danger', label: this.t('app.dashboard.ops.overall.issues', undefined, 'Issues') }
-				: (failed > 0 || m.running.suspended > 0 || m.routes.stopped > 0 || m.workspaces.starting > 0)
+				: (failed > 0 || m.running.suspended > 0 || m.routes.stopped > 0 || m.workspaces.starting > 0 || m.cluster.linkIssues > 0)
 					? { cls: 'warning', label: this.t('app.dashboard.ops.overall.attention', undefined, 'Attention') }
 					: { cls: 'success', label: this.t('app.dashboard.ops.overall.healthy', undefined, 'Healthy') };
 			return {
@@ -794,11 +821,21 @@ const App = {
 					started: m.started,
 					lastHeartbeat: m.lastHeartbeat,
 					heartbeatAge: ageLabel(m.lastHeartbeat, now),
+					address: m.address || '',
+					// The connection as the node that answered sees it: both
+					// directions up, one of them, or none. Not shown for the
+					// answering node itself.
+					linkState: m.self ? '' : linkStateOf(m.link),
+					reportedLinks: m.reportedLinks || [],
 				}));
 				model.cluster.members = members;
 				model.cluster.total = members.length;
 				model.cluster.alive = members.filter((m) => m.alive).length;
 				model.cluster.stale = members.length - model.cluster.alive;
+				// A dead node is already counted as stale; only a live one
+				// without its connections points at the port or the firewall.
+				model.cluster.linkIssues = members.filter((m) => m.alive && !m.self && m.linkState !== 'both').length;
+				model.cluster.matrix = clusterMatrix(members);
 			} catch (_) { /* keep defaults (treated as standalone view) */ }
 		},
 

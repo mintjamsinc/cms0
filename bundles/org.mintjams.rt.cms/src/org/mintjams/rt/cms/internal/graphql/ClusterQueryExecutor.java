@@ -72,6 +72,9 @@ public class ClusterQueryExecutor {
 	 *       lastHeartbeat
 	 *       alive
 	 *       self
+	 *       address
+	 *       link { nodeId outbound connectedSince inbound lastWakeSent lastWakeReceived rejected dropped }
+	 *       reportedLinks { nodeId outbound inbound }
 	 *     }
 	 *   }
 	 * }
@@ -105,6 +108,17 @@ public class ClusterQueryExecutor {
 				e.put("lastHeartbeat", ISO8601.format(Instant.ofEpochMilli(member.getLastHeartbeat())));
 				e.put("alive", member.isAlive());
 				e.put("self", member.getNodeId() != null && member.getNodeId().equals(nodeId));
+				e.put("address", member.getAddress());
+				// As this node sees the member right now, and as the member
+				// reported its own connections (a few seconds old), so that
+				// a client can draw the whole matrix from either node.
+				ClusterCoordinator.Link link = member.getLink();
+				e.put("link", (link == null) ? null : toMap(link));
+				List<Map<String, Object>> reported = new ArrayList<>();
+				for (ClusterCoordinator.Link l : member.getReportedLinks()) {
+					reported.add(toMap(l));
+				}
+				e.put("reportedLinks", reported);
 				members.add(e);
 			}
 		}
@@ -113,6 +127,23 @@ public class ClusterQueryExecutor {
 		Map<String, Object> data = new HashMap<>();
 		data.put("cluster", cluster);
 		return data;
+	}
+
+	private static Map<String, Object> toMap(ClusterCoordinator.Link link) {
+		Map<String, Object> e = new HashMap<>();
+		e.put("nodeId", link.getNodeId());
+		e.put("outbound", link.getOutbound());
+		e.put("connectedSince", dateTime(link.getConnectedSince()));
+		e.put("inbound", link.getInbound());
+		e.put("lastWakeSent", dateTime(link.getLastWakeSent()));
+		e.put("lastWakeReceived", dateTime(link.getLastWakeReceived()));
+		e.put("rejected", (int) Math.min(link.getRejected(), Integer.MAX_VALUE));
+		e.put("dropped", (int) Math.min(link.getDropped(), Integer.MAX_VALUE));
+		return e;
+	}
+
+	private static String dateTime(long epochMillis) {
+		return (epochMillis <= 0) ? null : ISO8601.format(Instant.ofEpochMilli(epochMillis));
 	}
 
 }

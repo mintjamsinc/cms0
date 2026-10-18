@@ -47,13 +47,12 @@ blobstore:
 search:
     suggestion:
         propertyKeys: mi:suggestions
-    # The full-text search index is node-local: every node maintains its own,
-    # and a node that starts with an empty index directory builds it from the
-    # repository content. CMS_SEARCH_INDEX_PATH is the image's node-local
-    # volume (/data/index), which keeps Lucene off the shared storage; the
-    # node identifier below is the same guard the platform's own default uses,
-    # in case that volume is shared after all.
-    indexPath: ${env.CMS_SEARCH_INDEX_PATH}/${workspace.name}/nodes/${cluster.nodeId}
+    # The full-text search index is node-local data: every node keeps its own
+    # in its node-local directory (workspaces/<workspace>/search under
+    # CMS_NODE_LOCAL_PATH, the image's /data/local volume), never on the
+    # shared storage, and a node that starts without one builds it from the
+    # repository content. Set indexPath only to put it somewhere else.
+    #indexPath: /var/lib/cms/search/${workspace.name}
 
 security:
     filters: [

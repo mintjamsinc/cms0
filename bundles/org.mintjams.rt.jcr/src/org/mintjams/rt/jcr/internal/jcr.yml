@@ -32,11 +32,11 @@ defaultNodes:
 #  type: fs
 #  directory: ${workspace.home}/var/jcr/bin
 
-# Full-text search index. The index is node-local: in a clustered
-# deployment every node maintains its own index. When the workspace
-# directory itself lives on shared storage and indexPath is not set,
-# each node automatically uses <workspace>/var/search/nodes/<nodeId>.
-# Point indexPath at fast node-local storage for best performance.
+# Full-text search index. The index is node-local data: every node keeps
+# its own in workspaces/<workspace>/search under its node-local directory
+# (org.mintjams.jcr.repository.localdir / CMS_NODE_LOCAL_PATH, by default
+# var under the working directory), never in the workspace directory.
+# Set indexPath only to put it somewhere else.
 #
 #search:
 #  indexPath: /var/lib/cms/search/${workspace.name}

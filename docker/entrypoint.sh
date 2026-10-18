@@ -23,9 +23,10 @@ REPOSITORY_DIR="${CMS_REPOSITORY_PATH:-/data/repository}"
 SECRET_KEY_PATH="${MINTJAMS_CMS_SECRET_KEY_PATH:-/data/secrets/secret-key.yml}"
 SECRETS_DIR="$(dirname "${SECRET_KEY_PATH}")"
 SEED_DIR="${MINTJAMS_CMS_SEED_PATH:-/opt/cms/seed}"
+LOCAL_DIR="${CMS_NODE_LOCAL_PATH:-/data/local}"
 SEARCH_INDEX_DIR="${CMS_SEARCH_INDEX_PATH:-/data/index}"
 
-mkdir -p "${REPOSITORY_DIR}" "${SECRETS_DIR}" "${SEARCH_INDEX_DIR}"
+mkdir -p "${REPOSITORY_DIR}" "${SECRETS_DIR}" "${LOCAL_DIR}" "${SEARCH_INDEX_DIR}"
 
 if [[ -z "${CMS_PUBLIC_BASE_URL:-}" ]]; then
 	echo "ERROR: CMS_PUBLIC_BASE_URL is not set." >&2
@@ -81,6 +82,9 @@ JAVA_TOOL_OPTIONS="-Dorg.mintjams.jcr.repository.rootdir=${REPOSITORY_DIR}"
 JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} -Dmintjams.cms.secret-key.path=${SECRET_KEY_PATH}"
 if [[ -n "${CMS_CLUSTER_ENABLED:-}" ]]; then
 	JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} -Dorg.mintjams.jcr.cluster.enabled=${CMS_CLUSTER_ENABLED}"
+	# A clustered node keeps its HTTP sessions in the cluster's replicated
+	# table; Jetty waits for that store instead of starting with its own.
+	JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} -Dorg.apache.felix.http.session.store.require=${CMS_CLUSTER_ENABLED}"
 fi
 JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS} ${CMS_JVM_DEFAULT_OPTS:-} ${CMS_JAVA_OPTS:-}"
 export JAVA_TOOL_OPTIONS

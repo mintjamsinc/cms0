@@ -100,12 +100,36 @@ public class JcrRepositoryConfiguration implements Adaptable {
 	}
 
 	/**
+	 * Returns this node's local directory: the root of the data that belongs
+	 * to this node alone and can be rebuilt when lost — the temporary
+	 * directory and the search indexes. It is the counterpart of the
+	 * repository directory, which holds the data to keep (and, in a cluster,
+	 * the data every node shares). Resolved from the framework property
+	 * {@code org.mintjams.jcr.repository.localdir}, then the environment
+	 * variable {@code CMS_NODE_LOCAL_PATH}; defaults to {@code var} under the
+	 * working directory, next to {@code felix-cache} and the logs. Like the
+	 * node id it differs per node and never comes from the shared
+	 * configuration, and it must not be on storage another node uses.
+	 */
+	public Path getLocalPath() {
+		String value = getNodeSetting("org.mintjams.jcr.repository.localdir", "CMS_NODE_LOCAL_PATH");
+		return Path.of(Strings.defaultIfEmpty(value, "var")).normalize();
+	}
+
+	/**
+	 * Returns the directory of this node's own data of a workspace, under the
+	 * local directory.
+	 */
+	public Path getLocalWorkspacePath(String workspaceName) {
+		return getLocalPath().resolve("workspaces").resolve(workspaceName).normalize();
+	}
+
+	/**
 	 * Returns this node's temporary directory. The directory is wiped on
-	 * startup and must therefore never be shared between nodes: it can be
-	 * redirected per node via the framework property
-	 * {@code org.mintjams.jcr.repository.tmpdir} (e.g. to fast local disk),
-	 * and in cluster mode — where the repository directory itself usually
-	 * lives on shared storage — it defaults to a per-node subdirectory.
+	 * startup and must therefore never be shared between nodes: it is
+	 * {@code tmp} under the local directory, and the framework property
+	 * {@code org.mintjams.jcr.repository.tmpdir} can redirect it (e.g. to a
+	 * tmpfs).
 	 */
 	public Path getTmpPath() {
 		BundleContext bc = Activator.getDefault().getBundleContext();
@@ -113,10 +137,7 @@ public class JcrRepositoryConfiguration implements Adaptable {
 		if (Strings.isNotEmpty(configured)) {
 			return Path.of(configured.trim()).normalize();
 		}
-		if (isClusterEnabled()) {
-			return getRepositoryPath().resolve("tmp/nodes").resolve(getClusterNodeId()).normalize();
-		}
-		return getRepositoryPath().resolve("tmp").normalize();
+		return getLocalPath().resolve("tmp").normalize();
 	}
 
 	/**
@@ -156,7 +177,7 @@ public class JcrRepositoryConfiguration implements Adaptable {
 
 	/**
 	 * Returns the number of worker threads used to rebuild a workspace's search
-	 * index from scratch on startup (when {@code var/search} is missing),
+	 * index from scratch on startup (when its index directory is missing),
 	 * configured via {@code org.mintjams.jcr.searchindex.rebuildThreads}.
 	 * <p>
 	 * A from-scratch rebuild extracts the full text of every document (Tika),
@@ -433,6 +454,77 @@ public class JcrRepositoryConfiguration implements Adaptable {
 
 		fClusterNodeId = value.trim();
 		return fClusterNodeId;
+	}
+
+	/** The port of the cluster connections when none is configured. */
+	public static final int DEFAULT_CLUSTER_PORT = 9080;
+
+	/**
+	 * Returns the port on which this node accepts connections from the other
+	 * cluster nodes. Resolved from the framework property
+	 * {@code org.mintjams.jcr.cluster.port}, then the environment variable
+	 * {@code CMS_CLUSTER_PORT}; defaults to {@value #DEFAULT_CLUSTER_PORT}.
+	 * Give each node on the same host its own port.
+	 */
+	public int getClusterPort() {
+		String value = getNodeSetting("org.mintjams.jcr.cluster.port", "CMS_CLUSTER_PORT");
+		if (Strings.isEmpty(value)) {
+			return DEFAULT_CLUSTER_PORT;
+		}
+		return Integer.parseInt(value);
+	}
+
+	/**
+	 * Returns the address of the interface on which this node accepts
+	 * connections from the other cluster nodes — the management network's —
+	 * or {@code null} when none is configured. Resolved from the framework
+	 * property {@code org.mintjams.jcr.cluster.bindAddress}, then the
+	 * environment variable {@code CMS_CLUSTER_BIND_ADDRESS}.
+	 */
+	public String getClusterBindAddress() {
+		return getNodeSetting("org.mintjams.jcr.cluster.bindAddress", "CMS_CLUSTER_BIND_ADDRESS");
+	}
+
+	/**
+	 * Returns the address ({@code host} or {@code host:port}) under which the
+	 * other nodes reach this one, or {@code null} when none is configured.
+	 * Resolved from the framework property
+	 * {@code org.mintjams.jcr.cluster.advertiseAddress}, then the environment
+	 * variable {@code CMS_CLUSTER_ADVERTISE_ADDRESS}. Like the node id, it
+	 * differs per node and never comes from the shared configuration.
+	 */
+	public String getClusterAdvertiseAddress() {
+		return getNodeSetting("org.mintjams.jcr.cluster.advertiseAddress", "CMS_CLUSTER_ADVERTISE_ADDRESS");
+	}
+
+	/**
+	 * Returns the file holding the key that signs the frames between the
+	 * cluster nodes. Resolved from the framework property
+	 * {@code org.mintjams.jcr.cluster.secretKeyPath}, then the environment
+	 * variable {@code CMS_CLUSTER_SECRET_KEY_PATH}; defaults to
+	 * {@code <repository>/etc/cluster-secret-key.yml}, which every node shares
+	 * when the repository directory is on shared storage.
+	 */
+	public Path getClusterSecretKeyPath() {
+		String value = getNodeSetting("org.mintjams.jcr.cluster.secretKeyPath", "CMS_CLUSTER_SECRET_KEY_PATH");
+		if (Strings.isNotEmpty(value)) {
+			return Path.of(value).normalize();
+		}
+		return getEtcPath().resolve("cluster-secret-key.yml").normalize();
+	}
+
+	private String getNodeSetting(String propertyName, String environmentVariable) {
+		BundleContext bc = Activator.getDefault().getBundleContext();
+		String value = bc.getProperty(propertyName);
+		if (Strings.isEmpty(value)) {
+			try {
+				value = System.getenv(environmentVariable);
+			} catch (Throwable ignore) {}
+		}
+		if (Strings.isEmpty(value) || value.trim().isEmpty()) {
+			return null;
+		}
+		return value.trim();
 	}
 
 	public void validate() {

@@ -70,7 +70,7 @@ public class WorkspaceWebServlet extends HttpServlet {
 		try (WorkspaceScriptContext context = Webs.newActionScriptContext(fWorkspaceName, request)) {
 			context.setAttribute("request", request);
 			context.setAttribute("response", response);
-			context.setAttribute("session", request.getSession());
+			context.setAttribute("session", new ScriptSession(request));
 			context.setAttribute("application", request.getServletContext());
 			context.setCredentials(Webs.getCredentials(request));
 			request.getServletContext().setAttribute(ServletContext.TEMPDIR, CmsService.getTemporaryDirectoryPath().toFile());

@@ -33,10 +33,11 @@ defaultNodes:
 search:
     suggestion:
         propertyKeys: mi:suggestions
-    # The full-text search index is node-local: in a clustered deployment
-    # every node maintains its own index. When the workspace directory
-    # lives on shared storage and indexPath is not set, each node
-    # automatically uses <workspace>/var/search/nodes/<nodeId>.
+    # The full-text search index is node-local data: every node keeps its own
+    # in its node-local directory (workspaces/<workspace>/search under
+    # CMS_NODE_LOCAL_PATH, the image's /data/local volume), never on the
+    # shared storage, and a node that starts without one builds it from the
+    # repository content. Set indexPath only to put it somewhere else.
     #indexPath: /var/lib/cms/search/${workspace.name}
 
 security:

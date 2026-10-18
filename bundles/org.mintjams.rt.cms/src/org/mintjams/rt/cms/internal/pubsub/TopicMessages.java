@@ -73,8 +73,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * checks that.
  *
  * <p>Every message is posted locally as one OSGi event on {@link #TOPIC} and,
- * in a cluster, published on the signal bus so the other nodes re-emit it for
- * their own subscribers. The signal bus carries JSON scalars only, which is why
+ * in a cluster, sent as a cluster signal so the other nodes re-emit it for
+ * their own subscribers. Signals carry JSON scalars only, which is why
  * the payload and the recipients travel as strings.
  */
 public final class TopicMessages {
@@ -120,7 +120,7 @@ public final class TopicMessages {
 	 * @param recipients    the user ids the message is for, or null/empty for
 	 *                      no such restriction
 	 * @param path          the node whose readers the message is for, or null
-	 * @param clusterWide   whether to publish on the cluster signal bus as well
+	 * @param clusterWide   whether to send it to the other cluster nodes as well
 	 * @return the id of the message
 	 * @throws IllegalArgumentException when the topic, the payload or the
 	 *                                  recipients are not acceptable

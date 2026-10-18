@@ -24,6 +24,7 @@ package org.mintjams.rt.jcr.internal;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -68,6 +69,9 @@ import org.mintjams.jcr.security.ServiceCredentials;
 import org.mintjams.jcr.security.User;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.Authenticator;
+import org.mintjams.rt.jcr.internal.cluster.ClusterController;
+import org.mintjams.rt.jcr.internal.cluster.ClusterTransportImpl;
+import org.mintjams.rt.jcr.internal.observation.JournalObserver;
 import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
 import org.mintjams.rt.jcr.internal.security.SystemCredentials;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
@@ -75,6 +79,7 @@ import org.mintjams.tools.adapter.Adaptable;
 import org.mintjams.tools.adapter.Adaptables;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.io.IOs;
+import org.mintjams.tools.io.LockFile;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
 import org.mintjams.tools.osgi.BundleLocalization;
@@ -139,6 +144,7 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 	private boolean fLive = false;
 	private PrincipalProviderImpl fPrincipalProvider = new PrincipalProviderImpl();
 	private IdentityProviderImpl fIdentityProvider = new IdentityProviderImpl();
+	private ClusterTransportImpl fClusterTransport;
 
 	private JcrRepository(JcrRepositoryConfiguration configuration) throws IOException {
 		fConfiguration = configuration;
@@ -156,6 +162,7 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 	private void prepare() throws IOException {
 		prepareRepositoryDescriptors();
 
+		prepareLocalDirectory();
 		IOs.deleteIfExists(fConfiguration.getTmpPath());
 
 		for (Path path : new Path[] {
@@ -237,6 +244,126 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 		fDescriptors.put(Repository.REPOSITORY_TMP_PATH, fValueFactory.createValue(fConfiguration.getTmpPath().toAbsolutePath().toString()));
 	}
 
+	/**
+	 * Claims this node's local directory before anything in it is touched
+	 * (the temporary directory is wiped right after). The directory holds the
+	 * node's own data — the temporary directory and the search indexes — so
+	 * no other process may use it at the same time: a lock held for the life
+	 * of the repository refuses a second one. {@code node.id} records which
+	 * node the data belongs to; a directory that comes from another node (it
+	 * was copied, or the node was renamed) keeps its tree, and the search
+	 * indexes are left to the usual staleness check, which rebuilds them for
+	 * a node that has not consumed the journal.
+	 */
+	private void prepareLocalDirectory() throws IOException {
+		Path localPath = fConfiguration.getLocalPath();
+		Files.createDirectories(localPath);
+		try {
+			fCloser.add(LockFile.create(localPath.resolve("node.lock")));
+		} catch (IOException ex) {
+			throw new IOException("The node-local directory " + localPath.toAbsolutePath()
+					+ " is in use by another process. Every node needs a directory of its own"
+					+ " (org.mintjams.jcr.repository.localdir / CMS_NODE_LOCAL_PATH).", ex);
+		}
+
+		String nodeId = fConfiguration.getClusterNodeId();
+		Path nodeIdPath = localPath.resolve("node.id");
+		String recorded = null;
+		if (Files.exists(nodeIdPath)) {
+			recorded = Files.readString(nodeIdPath, StandardCharsets.UTF_8).trim();
+		}
+		if (!nodeId.equals(recorded)) {
+			if (Strings.isNotEmpty(recorded)) {
+				Activator.getDefault().getLogger(getClass()).warn("The node-local directory " + localPath.toAbsolutePath()
+						+ " was used by node '" + recorded + "' and is now used by node '" + nodeId + "'.");
+			}
+			Files.writeString(nodeIdPath, nodeId, StandardCharsets.UTF_8);
+		}
+
+		if (fConfiguration.isClusterEnabled()) {
+			Path repositoryPath = fConfiguration.getRepositoryPath().toAbsolutePath().normalize();
+			for (Path path : new Path[] { localPath, fConfiguration.getTmpPath() }) {
+				if (path.toAbsolutePath().normalize().startsWith(repositoryPath)) {
+					Activator.getDefault().getLogger(getClass()).warn("The node-local data at " + path.toAbsolutePath()
+							+ " is under the repository directory, which the cluster nodes usually share."
+							+ " Keep it on this node's own storage.");
+				}
+			}
+		}
+
+		removeLegacyTmpDirectory();
+		removeOrphanLocalWorkspaces();
+	}
+
+	/**
+	 * Removes the temporary directory this node used under the repository
+	 * directory before node-local data had a root of its own.
+	 */
+	private void removeLegacyTmpDirectory() {
+		Path tmpRoot = fConfiguration.getRepositoryPath().resolve("tmp").normalize();
+		Path legacy = fConfiguration.isClusterEnabled()
+				? tmpRoot.resolve("nodes").resolve(fConfiguration.getClusterNodeId()).normalize()
+				: tmpRoot;
+		Path current = fConfiguration.getTmpPath().toAbsolutePath().normalize();
+		if (!Files.exists(legacy) || legacy.toAbsolutePath().normalize().equals(current)
+				|| current.startsWith(legacy.toAbsolutePath().normalize())) {
+			return;
+		}
+		try {
+			IOs.deleteIfExists(legacy);
+			deleteIfEmpty(tmpRoot.resolve("nodes"));
+			deleteIfEmpty(tmpRoot);
+			Activator.getDefault().getLogger(getClass()).info("Removed the former temporary directory: " + legacy);
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(getClass()).warn("Could not remove the former temporary directory: " + legacy, ex);
+		}
+	}
+
+	/**
+	 * Removes this node's data of workspaces that no longer exist: a node that
+	 * was down while a workspace was deleted catches up here.
+	 */
+	private void removeOrphanLocalWorkspaces() {
+		Path root = fConfiguration.getLocalPath().resolve("workspaces");
+		// Without the workspace root (storage not mounted, say) nothing can be
+		// told apart; leave the local data alone.
+		if (!Files.isDirectory(root) || !Files.isDirectory(fConfiguration.getWorkspaceRootPath())) {
+			return;
+		}
+		try (Stream<Path> stream = Files.list(root)) {
+			stream.filter(Files::isDirectory).forEach(path -> {
+				String workspaceName = path.getFileName().toString();
+				if (Files.isDirectory(fConfiguration.getWorkspaceRootPath().resolve(workspaceName))) {
+					return;
+				}
+				removeLocalWorkspaceDirectory(workspaceName);
+			});
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(getClass()).warn("Could not check the node-local workspace data.", ex);
+		}
+	}
+
+	private void removeLocalWorkspaceDirectory(String workspaceName) {
+		Path path = fConfiguration.getLocalWorkspacePath(workspaceName);
+		if (!Files.exists(path)) {
+			return;
+		}
+		try {
+			IOs.deleteIfExists(path);
+			Activator.getDefault().getLogger(getClass()).info("Removed the node-local data of the workspace: " + workspaceName);
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(getClass()).warn("Could not remove the node-local data of the workspace: " + workspaceName, ex);
+		}
+	}
+
+	private static void deleteIfEmpty(Path directory) {
+		try (Stream<Path> stream = Files.list(directory)) {
+			if (stream.findAny().isEmpty()) {
+				Files.deleteIfExists(directory);
+			}
+		} catch (Throwable ignore) {}
+	}
+
 	private void prepareWorkspaces() throws IOException {
 		prepareSystemWorkspace();
 
@@ -270,6 +397,20 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 		fMimeTypeDetector = fCloser.register(MimeTypeDetector.create(this));
 		fMimeTypeDetector.open();
 
+		if (fConfiguration.isClusterEnabled()) {
+			// Opened before the workspaces, whose heartbeats register this
+			// node's address, and closed after them (the closer is LIFO). The
+			// system workspace runs on every node, so its registry is the
+			// repository-wide member list.
+			fClusterTransport = fCloser.register(ClusterTransportImpl.create(fConfiguration, () -> {
+				JcrWorkspaceProvider system = fWorkspaceProviders.get(JcrWorkspaceProvider.SYSTEM_WORKSPACE_NAME);
+				ClusterController controller = (system == null || !system.isLive()) ? null
+						: system.adaptTo(ClusterController.class);
+				return (controller == null) ? null : controller.listMembers();
+			}, this::wakeWorkspace));
+			fClusterTransport.open();
+		}
+
 		fCloser.register(fWorkspaceProviders.get(JcrWorkspaceProvider.SYSTEM_WORKSPACE_NAME)).open();
 
 		for (JcrWorkspaceProvider workspaceProvider : fWorkspaceProviders.values()) {
@@ -299,6 +440,26 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 
 	public boolean isLive() {
 		return fLive;
+	}
+
+	/**
+	 * Returns the connections to the other cluster nodes, or {@code null} in
+	 * standalone deployments.
+	 */
+	public ClusterTransportImpl getClusterTransport() {
+		return fClusterTransport;
+	}
+
+	/** Another node committed on the workspace: read its journal now. */
+	private void wakeWorkspace(String workspaceName) {
+		JcrWorkspaceProvider workspaceProvider = fWorkspaceProviders.get(workspaceName);
+		if (workspaceProvider == null || !workspaceProvider.isLive()) {
+			return;
+		}
+		JournalObserver journalObserver = workspaceProvider.adaptTo(JournalObserver.class);
+		if (journalObserver != null) {
+			journalObserver.wake();
+		}
 	}
 
 	@Override
@@ -528,6 +689,7 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 						.warn("An error occurred while stopping the workspace: " + workspaceName, ex);
 			}
 			deleteWorkspaceDirectory(workspaceProvider.getWorkspacePath());
+			removeLocalWorkspaceDirectory(workspaceName);
 			if (Files.exists(workspaceProvider.getWorkspacePath())) {
 				throw new RepositoryException(
 						"The workspace directory for '" + workspaceName + "' could not be fully removed.");
@@ -799,6 +961,21 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 
 			Activator.getDefault().getLogger(getClass())
 					.info("The directory of the JCR workspace '" + workspaceName + "' has been removed.");
+		}
+		removeLocalWorkspaceData(workspaceName);
+	}
+
+	@Override
+	public void removeLocalWorkspaceData(String workspaceName) throws RepositoryException {
+		if (workspaceName == null || !WORKSPACE_NAME_PATTERN.matcher(workspaceName).matches()) {
+			throw new RepositoryException("Invalid workspace name: " + workspaceName);
+		}
+
+		synchronized (fWorkspaceManagementLock) {
+			if (fWorkspaceProviders.containsKey(workspaceName)) {
+				throw new RepositoryException("The workspace '" + workspaceName + "' is still open on this node.");
+			}
+			removeLocalWorkspaceDirectory(workspaceName);
 		}
 	}
 

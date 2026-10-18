@@ -30,6 +30,7 @@ import org.apache.felix.webconsole.WebConsoleSecurityProvider2;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
+import org.mintjams.rt.cms.internal.web.ScriptSession;
 import org.mintjams.rt.cms.internal.web.Webs;
 
 public class FelixWebConsoleSecurityProvider implements WebConsoleSecurityProvider2 {
@@ -51,7 +52,7 @@ public class FelixWebConsoleSecurityProvider implements WebConsoleSecurityProvid
 		try (WorkspaceScriptContext context = Webs.newActionScriptContext("system", request)) {
 			context.setAttribute("request", request);
 			context.setAttribute("response", response);
-			context.setAttribute("session", request.getSession());
+			context.setAttribute("session", new ScriptSession(request));
 			context.setAttribute("application", request.getServletContext());
 			context.setCredentials(Webs.getCredentials(request));
 			request.getServletContext().setAttribute(ServletContext.TEMPDIR, CmsService.getTemporaryDirectoryPath().toFile());

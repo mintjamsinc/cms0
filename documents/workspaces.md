@@ -286,10 +286,15 @@ shared storage: they carry `etc/workspace.yml`, `etc/bpm/bpm.yml` and
 
 ### External databases and shared blob storage are managed by the operator
 
-With the embedded H2 default (standalone) a workspace's entire state —
-content tables, blobs and search index — lives under its directory, so
-creating and deleting workspaces is self-contained: delete removes
-everything, and creating the same name again starts from nothing.
+With the embedded H2 default (standalone) a workspace's durable state —
+content tables and blobs — lives under its directory, so creating and
+deleting workspaces is self-contained: delete removes everything, and
+creating the same name again starts from nothing. The search index is not
+in the workspace directory but in each node's node-local directory
+(`<node-local>/workspaces/<workspace>/search`, see `clustering.md`,
+*Architecture*); every node removes its own when the workspace is deleted,
+and an index left over from an earlier workspace of the same name is
+recognised and rebuilt.
 
 In a cluster the durable content lives **outside** the workspace
 directory: in the per-workspace database named by

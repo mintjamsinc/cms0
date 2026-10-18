@@ -175,6 +175,32 @@ export interface ClusterMember {
   alive: boolean;
   /** Whether this member is the node that served the request. */
   self: boolean;
+  /** Where the node accepts cluster connections (host:port); null when it accepts none. */
+  address: string | null;
+  /** The connection as the node that served the request sees it; null for that node itself. */
+  link: ClusterLink | null;
+  /** The member's own connections as it last reported them (a few seconds old). */
+  reportedLinks: Pick<ClusterLink, 'nodeId' | 'outbound' | 'inbound'>[];
+}
+
+/** A connection between two cluster nodes, as seen from one of them. */
+export interface ClusterLink {
+  /** The node at the other end. */
+  nodeId: string;
+  /** The connection this node opened: `connected`, `connecting` or `down`. */
+  outbound: string;
+  /** When the outbound connection was established (ISO-8601 date-time in UTC). */
+  connectedSince: string | null;
+  /** The connection the other node opened to this one: `connected` or `none`. */
+  inbound: string;
+  /** When this node last woke the other one after a commit. */
+  lastWakeSent: string | null;
+  /** When the other node last woke this one. */
+  lastWakeReceived: string | null;
+  /** Connections dropped for a wrong signature or clock. */
+  rejected: number;
+  /** Messages dropped because there was no connection or it could not keep up. */
+  dropped: number;
 }
 
 /** Cluster topology of a workspace, as reported by the `cluster` query. */

@@ -10,12 +10,15 @@ single source of truth for the current state.
 | 1 | Storage externalization: configurable workspace database (H2 / PostgreSQL) with a SQL dialect layer, pluggable blob storage, database-lease locking instead of the exclusive workspace lock file, cluster node registry, single-node execution of maintenance tasks | **Implemented** |
 | 2 | Cluster journal: nodes replay each other's committed transactions for search-index updates, cache invalidation (node cache, access control snapshot, subtree paths), and cross-node event propagation (OSGi events, and through them EIP route reloads, class loader reloads, CMS events, SSE/GraphQL subscriptions) | **Implemented** |
 | 3 | Failover hardening: logins made cluster-portable via an encrypted authentication token, cluster information API for application code (member listing), stale-node detection with heartbeat warnings | **Implemented** |
+| 4 | Cluster connections: direct, signed node-to-node connections on a management port; journal wake-ups, signals without the database, a replicated table holding the HTTP sessions and the owners of the subscription streams, forwarding of subscription changes | **Implemented** |
 
-> Sticky sessions are no longer required for staying signed in: the
-> authentication token re-establishes the login on whichever node
-> receives the request. They remain **recommended**, because session
-> attributes set by application code (and in-flight multi-step flows
-> such as a not-yet-completed TOTP verification) are still node-local.
+> Sticky sessions are **optional**. The authentication token
+> re-establishes the login on whichever node receives the request, HTTP
+> sessions (including an in-flight TOTP verification) are kept in the
+> cluster's replicated table, and a subscription change sent to another
+> node than the one holding the stream is forwarded to it. Sticky routing
+> still removes the remaining windows of a few milliseconds (see
+> *Sticky sessions* below).
 
 ## Architecture
 
@@ -26,7 +29,25 @@ splits into three categories:
 |-------|----------------------|-----------|
 | Content, properties, locks, ACLs, journal (`jcr_*` tables) | Embedded H2 (`<workspace>/var/jcr/data`) | Shared database (PostgreSQL or H2 server mode) |
 | Binaries (blobs) | Local files (`<workspace>/var/jcr/bin`) | Shared storage (same directory on NFS or similar), via the blob store |
-| Full-text search index (Lucene) | `<workspace>/var/search` | **Node-local** — each node maintains its own index (`<workspace>/var/search/nodes/<nodeId>` by default, or `jcr.yml#search.indexPath`) |
+| Full-text search index (Lucene) | `<node-local>/workspaces/<workspace>/search` | **Node-local** — each node maintains its own index in its node-local directory (or at `jcr.yml#search.indexPath`) |
+
+Next to the repository directory — the root of the data to keep, which a
+cluster shares — every node has a **node-local directory**: the root of the
+data that belongs to the node alone and can be rebuilt when lost. It never
+goes on storage another node uses:
+
+```
+<node-local>/                 org.mintjams.jcr.repository.localdir / CMS_NODE_LOCAL_PATH
+├── node.id                   the node the data belongs to
+├── node.lock                 held while the node runs
+├── tmp/                      the temporary directory, wiped on every start
+└── workspaces/<workspace>/
+    └── search/               the workspace's search index
+```
+
+It defaults to `var` under the node's working directory (where
+`felix-cache` and the logs are), in standalone and clustered deployments
+alike, so the repository directory holds only data worth backing up.
 
 The BPM engine (Camunda) already supports clustering natively through a
 shared database and competing job executors; point
@@ -93,8 +114,9 @@ use):
 
 - `jcr_cluster_nodes` — node registry; each node upserts its row and
   refreshes `last_heartbeat` every 30 seconds, and removes the row on
-  clean shutdown. Operations can query this table to see the live
-  cluster membership.
+  clean shutdown. The row also records `transport_address`, where the
+  node accepts cluster connections (see *Cluster connections* below).
+  Operations can query this table to see the live cluster membership.
 - `jcr_cluster_locks` — platform-internal leases (`lock_name`,
   `owner_id`, `lock_expires`) that serialize the repository's own
   bootstrap and maintenance work across nodes. A lease names its owning
@@ -102,8 +124,6 @@ use):
   longer than the lease's time-to-live. Application locks do not live
   here — they are ordinary JCR locks (see
   `documents/resource-locks.md`).
-- `jcr_cluster_signals` — the signal bus for short-lived control-plane
-  notifications (see *Cluster signal bus* below).
 
 The controller serializes the work that must not run on two nodes at
 once:
@@ -114,7 +134,6 @@ once:
 | `blob-cleaner` | `WorkspaceCleaner` | Removing deleted blobs from shared storage |
 | `blob-garbage-collection` | `WorkspaceGarbageCollection` | Sweeping unreferenced blobs |
 | `orphan-monitor` | `WorkspaceOrphanMonitor` | Orphan scan (avoids duplicate warnings) |
-| `cluster-signals-purge` | `ClusterController.SignalPoller` | Removing expired signal-bus rows |
 | `content-deployment` | `Session#deploy` (CMS layer) | Content deployment at startup |
 
 These leases are repository infrastructure, exposed to platform code as
@@ -172,7 +191,31 @@ back to the floor. Two framework properties control it (milliseconds):
   back-off and poll at a fixed rate.
 
 Both are read live, so they can be retuned without a restart, and have no
-effect on a standalone node (the poller does not run).
+effect on a standalone node (the poller does not run). With the cluster
+connections up, a node does not wait for its next poll after another
+node's commit: the committing node wakes it (see *Cluster connections*),
+so the ceiling mostly matters while a connection is down.
+
+The cluster connections are configured per node, from the framework
+properties or the environment (never the shared `repository.yml`, since the
+values differ per node):
+
+| Framework property | Environment variable | Meaning |
+|---|---|---|
+| `org.mintjams.jcr.cluster.port` | `CMS_CLUSTER_PORT` | Port on which the node accepts connections from the other nodes. Default `9080`; give nodes on one host different ports. |
+| `org.mintjams.jcr.cluster.bindAddress` | `CMS_CLUSTER_BIND_ADDRESS` | Interface the port listens on — the management network's. |
+| `org.mintjams.jcr.cluster.advertiseAddress` | `CMS_CLUSTER_ADVERTISE_ADDRESS` | Where the other nodes reach this one, `host` or `host:port`. |
+| `org.mintjams.jcr.cluster.secretKeyPath` | `CMS_CLUSTER_SECRET_KEY_PATH` | The key that signs the frames; default `<repository>/etc/cluster-secret-key.yml`. |
+| `org.mintjams.jcr.repository.localdir` | `CMS_NODE_LOCAL_PATH` | The node-local directory (see *Architecture*); default `var` under the working directory. Not cluster-specific: a standalone node uses it too. |
+
+When no advertise address is set, the bind address is used; when neither
+is set, the node uses its only non-loopback site-local address (and listens
+on it). With several such addresses, or none, the node logs a warning
+naming them, opens no cluster connections and keeps working through the
+database polling alone — set the two addresses then. Host names are not
+used by default (a container's host name usually cannot be resolved by the
+other containers), but an explicit advertise address may be a name, such as
+a Compose service name.
 
 ### `<workspace>/etc/jcr/jcr.yml` (per workspace)
 
@@ -186,9 +229,6 @@ datasource:
 blobstore:
   type: fs
   directory: /mnt/shared/cms/blobs/${workspace.name}
-
-search:
-  indexPath: ${env.CMS_SEARCH_INDEX_PATH}/${workspace.name}/nodes/${cluster.nodeId}
 ```
 
 `${...}` variables are substituted in `jdbcURL`, `username`, `password`,
@@ -254,12 +294,15 @@ Notes:
 - **blobstore.directory** — omit to use `<workspace>/var/jcr/bin`; when
   the whole repository directory is on shared storage the default is
   already correct.
-- **search.indexPath** — omit to use `<workspace>/var/search`
-  (standalone) or `<workspace>/var/search/nodes/<nodeId>` (cluster). A
-  node that starts with an empty index directory builds its index from
-  the repository content automatically; pointing this at node-local disk
-  avoids running Lucene over NFS. In the container image
-  `CMS_SEARCH_INDEX_PATH` is the node-local volume `/data/index`.
+- **search.indexPath** — omit to use `workspaces/<workspace>/search`
+  under the node-local directory (see *Architecture*), which is what a
+  node needs; a node that starts without an index builds it from the
+  repository content automatically. Set it only to put the index
+  somewhere else — never on shared storage, and since this file is shared,
+  only through a per-node value such as `${env.NAME}`. A `jcr.yml` placed
+  by an earlier container image still names
+  `${env.CMS_SEARCH_INDEX_PATH}/…` (`/data/index`); remove the line to move
+  the index under `/data/local`.
 
 ### `<workspace>/etc/bpm/bpm.yml` (per workspace)
 
@@ -316,13 +359,18 @@ Delivery semantics and operational notes:
   was offline longer than the retention can no longer catch up by
   replay; it detects this at startup, discards its search index, and
   rebuilds it from the repository content automatically.
-- **Lag.** Cross-node visibility of search results, caches, and events
-  is the current adaptive poll interval (the floor while the cluster is
-  active — sub-second by default — backing off toward the ceiling while
-  idle; see the cluster configuration above) plus, for search, indexing
-  time. A burst's first event after a quiet period pays the backed-off
-  interval; once it lands the cadence snaps to the floor for the rest of
-  the burst. Content reads go
+- **Lag.** After a commit that wrote a marker, the committing node sends
+  every connected node a **wake-up** (workspace name only, no content),
+  and their poller reads the journal at once — but never sooner than the
+  floor interval after its previous read, so wake-ups (genuine or forged)
+  cannot make it poll faster; one that arrives within the floor is served
+  when the floor has passed. Cross-node visibility is therefore the round
+  trip of a wake-up and a read (tens of milliseconds) plus, for search,
+  indexing time. The wake-up only shortens the wait: ordering,
+  deduplication and the content still come from the database, and
+  without a connection the adaptive poll interval applies (the floor
+  while the cluster is active — sub-second by default — backing off
+  toward the ceiling while idle). Content reads go
   through the shared database, but in front of it sits the per-node node
   cache: the committing node invalidates its own caches synchronously, so
   read-after-write on that node is immediate, while other nodes keep
@@ -334,51 +382,156 @@ Delivery semantics and operational notes:
   route a user's requests to one node (sticky sessions) so their own reads
   ride the synchronous local invalidation.
 
-### Cluster signal bus (Phase 3)
+### Cluster connections (Phase 4)
 
-The journal carries the events that ride a JCR transaction. Some
-notifications do not: they announce a change that is not itself a
-repository write — for example the workspace settings signal
-(`org/mintjams/rt/cms/workspace/SETTINGS_CHANGED`), which fires when a
+Besides the shared database, the nodes talk to each other directly. When the
+repository runs as part of a cluster, every node opens one plain TCP port —
+the **cluster port**, meant for the management network — and keeps one
+outbound connection to every other live node. Nothing is added to the public
+HTTP port, and nothing on these connections goes through a servlet.
+
+- **Membership comes from the heartbeat.** Who is alive, and at which
+  `transport_address` it listens, is read from `jcr_cluster_nodes` of the
+  system workspace (the one workspace running on every node). A connection is
+  only a means: a node without one keeps working through the database
+  polling, just more slowly.
+- **One connection per direction.** A node writes only to the connections it
+  opened and reads only from the ones it accepted (an answer to a request goes
+  back on the connection the request came in on). A broken connection is
+  reopened with exponential back-off.
+- **Signed, not encrypted.** Every frame carries an HMAC-SHA256 made with a
+  key derived from `cluster-secret-key.yml` (see *Identity files*), over the
+  frame's kind, id and body; the body names the sender and the time it was
+  sent. A wrongly signed frame, or one more than 30 seconds off this node's
+  clock, drops the connection, and the node logs it once per sender. A
+  connection from an address that is not a live member's (or the loopback,
+  for several nodes on one host) is dropped before anything is read. The
+  content is not encrypted, which is why the port belongs on the management
+  network.
+- **Sending never blocks.** Frames are queued per node and dropped when the
+  node is not connected or does not keep up; the counters show up in the
+  `cluster` query (see *Operational visibility*).
+
+Four things travel on the connections:
+
+| Frame | What it does |
+|---|---|
+| wake-up | After a commit that wrote a journal marker: "read this workspace's journal now" (see *Lag* above). Wake-ups for the same workspace that pile up while one is being sent go out as one. |
+| signal | A notification that is not a repository write (below). |
+| table write | A change of the replicated table (below). |
+| request / answer | A synchronous call to one node, used to forward subscription changes (below). |
+
+#### Signals
+
+Some notifications do not ride a JCR transaction: they announce a change
+that is not itself a repository write — for example the workspace settings
+signal (`org/mintjams/rt/cms/workspace/SETTINGS_CHANGED`), which fires when a
 workspace's display name, auto-start or engine switches are edited in the
-files every node reads. These would otherwise stay node-local, so a
-desktop connected to another node would not refresh until its next poll
-or reload. (A workspace's runtime state is not announced this way: every
-node records it as a repository write, see *Workspace operations across
-the cluster* below.)
+files every node reads, or a topic message
+([`topic-messages.md`](topic-messages.md)). (A workspace's runtime state is
+not announced this way: every node records it as a repository write, see
+*Workspace operations across the cluster* below.)
 
-The **signal bus** propagates them. `ClusterCoordinator.publish(topic,
-properties)` inserts a row into `jcr_cluster_signals` (publishing node,
-OSGi topic, JSON payload); each node's `ClusterController.SignalPoller`
-(every 2 seconds) reads the rows written by the *other* nodes and
-re-emits each as a **local OSGi event** under the recorded topic and
-properties — indistinguishable from a local post, so the existing
+`ClusterCoordinator.publish(topic, properties)` sends the topic and the
+properties (JSON scalars) to every connected node, which posts them as a
+**local OSGi event** — indistinguishable from a local post, so the existing
 event-driven layers (CMS events, SSE/GraphQL subscriptions) deliver it
 unchanged. The publishing node does not receive its own signal; a caller
 that wants the whole cluster posts the event locally *and* publishes it,
-which is exactly what `CmsService.postWorkspaceSettingsChanged` does,
-fanning the notification out over the **system** workspace's bus (the one
-workspace running on every node, hence the repository-wide channel).
+which is exactly what `CmsService.postWorkspaceSettingsChanged` does.
 
-Delivery semantics and operational notes:
+- **Ephemeral, not durable.** A signal is sent once, to the nodes connected
+  at that moment. A node that is down, or alive but not connected, does not
+  receive it (the drop is logged at debug level). Signals tell *live*
+  clients to refresh, so this loses nothing that matters; a durable fact is
+  a repository write.
+- **Ordering.** Signals from one node arrive in the order it sent them;
+  signals from different nodes have no common order.
+- **Standalone.** `publish` is a no-op; there are no other nodes to notify,
+  and the local post already reaches the local desktops.
 
-- **Ephemeral, not durable.** Signals tell *live* clients to refresh, so
-  a node that was down when one was published had no client to notify
-  and loses nothing — there is no per-node consumed offset, and a node
-  simply begins at the current head when it joins. This is the
-  deliberate difference from the journal, whose replay must be
-  exactly-once for index correctness.
-- **Ordering/stability.** Like the journal, the bus uses a
-  database-generated sequence and the same 10-second stability window:
-  signals are emitted immediately and deduplicated in memory, but the
-  consumed position only advances past a signal once nothing can still
-  surface behind it. The same clock-synchronization note applies.
-- **Retention.** Rows are purged after 5 minutes — long enough for every
-  live node to observe them — by whichever node holds the
-  `cluster-signals-purge` lease.
-- **Standalone.** `publish` is a no-op and the poller does not run; there
-  are no other nodes to notify, and the local post already reaches the
-  local desktops.
+(The signals used to go through a database table, `jcr_cluster_signals`,
+polled every 2 seconds. The table is dropped when a node starts.)
+
+#### The replicated table
+
+The connections carry a small in-memory table that every node holds in full:
+a write is applied locally at once and sent to every connected node, a read
+never leaves the node, and a node that connects receives the whole table.
+Of two values for one key the one with the later timestamp wins (ties are
+decided by the node id), and a removal is remembered for a minute so that an
+older value arriving late cannot bring it back. A value can carry a
+time-to-live; every node drops it on its own when it passes.
+
+The table is the place for state that may be lost but must be visible on
+every node quickly — it is empty again once every node has stopped. Values
+are small and their number is bounded; whatever must survive goes to the
+repository. Platform code reaches it through
+`org.mintjams.jcr.cluster.ClusterTransport`, an OSGi service the repository
+registers in a cluster (not part of `ClusterCoordinator`, which application
+code uses). It holds:
+
+- **HTTP sessions.** The CMS registers a Jetty session store backed by the
+  table (through the patched Felix Jetty bundle,
+  `bundles/org.apache.felix.http.jetty`), so a session — the sign-in, an
+  in-flight TOTP verification, an application's attributes — is the same on
+  every node. Jetty waits for the store before it starts when
+  `org.apache.felix.http.session.store.require=true`; the container image
+  sets it together with `CMS_CLUSTER_ENABLED=true`, other deployments set
+  it in `conf/config.properties`. A changed session is written back before
+  the response is committed; an unchanged one is written at most once a
+  minute.
+- **The owners of the subscription streams** (below).
+- **Each node's view of its connections**, refreshed every 10 seconds, for
+  the Dashboard.
+
+Session values travel as Java serialization, each class resolved through the
+bundle that defines it. A script's own class cannot be stored — the
+workspace class loader redefines it on every redeployment, so it would break
+on the next node or the next deployment — and the `session` that web
+scripts and templates see accepts **strings only** (structured values as
+JSON). A session is created only when a script writes to it. A value that
+cannot be serialized is left out with a warning, so it is gone on the next
+request. Keep state in the repository; the session carries who the user is.
+The servlet context (`application`) is not shared: it holds only what the
+node may lose.
+
+#### Subscription streams
+
+The subscription stream (`/bin/graphql.cgi/<ws>/stream`, graphql-sse single
+connection mode: `PUT` reserves a token, `GET` opens the stream, `POST` adds
+a subscription, `DELETE` stops one) stays in the memory of the node that
+holds it, and that node records (token → node, user) in the table. The four
+requests may reach different nodes:
+
+- A `GET` on another node than the `PUT` opens the stream there when its own
+  sign-in is the reserving user's; the reservation on the first node expires.
+- A `POST` or `DELETE` on another node is forwarded to the stream's node and
+  answered with its result. Every change of a stream is applied in one place,
+  in the order it arrives, and a `202` means the subscription is running.
+  The browser sends the changes of one stream one at a time
+  (`subscription-client.ts`), so a stop can never overtake the add it
+  follows.
+- An unknown token is `404`; a stream whose node cannot be reached is `503`.
+  The client reconnects in both cases. An entry of a node that died expires
+  with its time-to-live (a few heartbeats of the stream).
+
+#### Sticky sessions
+
+None of the above needs sticky routing, but two windows remain, as they would
+with an external session store:
+
+- **A few milliseconds.** A table write takes a moment to reach the other
+  nodes, so two requests a page fires in parallel can land on two nodes
+  before the first one's change has arrived. State that cannot tolerate
+  this travels with the request (the authentication token is a cookie).
+- **Reading back what another node wrote.** The node cache is invalidated by
+  the journal (a wake-up away), so a read on another node right after a write
+  can still see the old value for that long. A client that re-reads on a
+  signal and finds an older state than the signal announced should read
+  again after a short pause.
+
+Routing a user to one node closes both. It is a choice, not a requirement.
 
 ### Workspace operations across the cluster
 
@@ -400,7 +553,7 @@ resuming a route, record a **desired state** in the system workspace under
 The records are ordinary writes to the system workspace, so the cluster
 journal delivers them to every node as local node events: the write is
 both the durable state and the notification, and nothing depends on the
-ephemeral signal bus. Each node also runs a full pass every 30 seconds,
+ephemeral signals. Each node also runs a full pass every 30 seconds,
 which catches anything an event did not deliver.
 
 - **Convergence, not commands.** A node that was down converges when it
@@ -458,6 +611,7 @@ its own — which must never happen for the second and later nodes.
 | `etc/idp-keystore.p12` | Signing certificate of the built-in IdP. Service providers validate assertion signatures against the certificate published in the IdP metadata; assertions signed by a different per-node certificate fail validation. |
 | `etc/sp-keystore.p12` | SP signing/encryption keys. The IdP holds the SP metadata; a node with different keys cannot sign AuthnRequests or decrypt assertions. |
 | `etc/idp.yml`, `etc/saml2.yml` | Entity IDs, endpoints, and encrypted values — one external URL (`CMS_PUBLIC_BASE_URL`), one SAML entity. |
+| `etc/cluster-secret-key.yml` | Signs the frames between the nodes (see *Cluster connections*). Held by the repository bundle alone and separate from `secret-key.yml`, so that one leaking does not expose the other. Created only in cluster mode (or at `CMS_CLUSTER_SECRET_KEY_PATH`). A node with a different key has its connections refused — it logs a warning once per node and keeps working through the database polling. To replace the key, replace the file and restart every node. |
 
 With the repository directory on shared storage (the recommended
 layout), `etc/` is shared automatically and nothing needs to be done.
@@ -465,16 +619,39 @@ With node-local repository directories, start the first node once, let
 it generate these files, and copy `repository/etc` plus
 `secret-key.yml` to the other nodes **before** their first start.
 
-Node-local by design (never share between nodes): the search index
-(`var/search` or `search.indexPath`), the temporary directory,
-`felix-cache`, and logs. The temporary directory (`repository/tmp`) is
-**wiped on every node start**, so sharing it would let one node destroy
-another's in-use files; in cluster mode each node therefore
-automatically uses `repository/tmp/nodes/<nodeId>`, and the framework
-property `org.mintjams.jcr.repository.tmpdir` can redirect it per node
-(e.g. to fast local disk or tmpfs). The CMS layer obtains the directory
-from the repository descriptor `repository.tmp.path`, so all upload
-buffers, class loader caches, and file caches follow automatically.
+Node-local by design (never share between nodes): the node-local directory
+(see *Architecture* — the search indexes and the temporary directory),
+`felix-cache`, and logs. Keep the node's working directory, where all of
+them default to, off the shared storage.
+
+- **Temporary directory** (`<node-local>/tmp`) — **wiped on every node
+  start**. It holds the workspace class loaders' copies of `/lib`,
+  `/usr/local/{classes,lib}` and `/content/WEB-INF/{classes,lib}`, the file
+  caches of binary values and web resources, upload and archive buffers,
+  and the MIME index. The framework property
+  `org.mintjams.jcr.repository.tmpdir` can redirect it (e.g. to a tmpfs).
+  The CMS layer obtains the directory from the repository descriptor
+  `repository.tmp.path`, so everything follows automatically.
+- **`node.lock`** — held while the node runs; a second process given the
+  same node-local directory (two nodes pointed at one directory, or the
+  directory on shared storage) is refused at start.
+- **`node.id`** — the node the data belongs to. A directory that comes from
+  another node (copied, or the node renamed) is logged and taken over; its
+  search indexes are rebuilt when they do not match.
+- **Search indexes** record which workspace they were built for (the
+  workspace's root node identifier). An index found for a workspace that
+  was deleted and created again under the same name, or for a repository set
+  up anew, is discarded and rebuilt. When a workspace is deleted, every node
+  removes its own `<node-local>/workspaces/<workspace>`; a node that was down
+  then removes it at its next start.
+- In a cluster, a node-local directory (or a `tmpdir` / `search.indexPath`)
+  under the repository directory is reported as a warning at start.
+
+Earlier versions kept the index in `<workspace>/var/search` (cluster:
+`…/var/search/nodes/<nodeId>`) and the temporary directory in
+`<repository>/tmp` (cluster: `…/tmp/nodes/<nodeId>`). A node rebuilds its
+index in the new place and then removes its own old index and temporary
+directory; the other nodes' are left to them.
 
 > **First boot:** generation is a "create if missing" check, so on a
 > completely empty shared directory, start a single node first and bring
@@ -513,8 +690,10 @@ stopping every node and starting them all on the new image.
    operations across the cluster*). Blobs follow it unless
    `blobstore.directory` points at other shared storage.
 4. Configure `jcr.yml#datasource` and `bpm.yml#jdbcURL` identically on
-   all nodes; configure `search.indexPath` (or accept the per-node
-   default). With the shared configuration these are written once, and
+   all nodes. Give every node a node-local directory on its own storage
+   (the default, `var` under the working directory, is right as long as
+   the working directory is not shared). With the shared configuration
+   these are written once, and
    the per-deployment values come from the environment
    (`${env.CMS_DB_HOST}` and friends). To keep the database password out
    of the environment as well, encrypt it first — `cms-encrypt` mints
@@ -526,11 +705,23 @@ stopping every node and starting them all on the new image.
    (e.g. via `CMS_CLUSTER_NODE_ID`); keep node clocks NTP-synchronized.
    With the container image, `CMS_CLUSTER_ENABLED=true` does the former
    and also places the clustered configuration files on first start.
-7. Put the nodes behind a load balancer; sticky sessions are
-   recommended (application-set session attributes are node-local)
-   though logins survive node switches via the authentication token.
-   Verify membership in `jcr_cluster_nodes` and consumption progress in
-   `jcr_journal_offsets`.
+7. Let the nodes reach each other on the cluster port (default `9080`;
+   one port per node on a shared host) over the management network, and
+   keep it closed to everything else: bind it to the management
+   interface (`CMS_CLUSTER_BIND_ADDRESS`), leave it out of `ports:` and of
+   public Services, and where there is no management network firewall it
+   to the cluster's nodes. Set `CMS_CLUSTER_ADVERTISE_ADDRESS` when a node
+   has more than one site-local address. A node that cannot be reached is
+   only slower, not broken; each node logs once per peer that it could not
+   connect.
+8. Outside the container image, set
+   `org.apache.felix.http.session.store.require=true` in
+   `conf/config.properties` of every clustered node, so that Jetty starts
+   with the cluster's session store.
+9. Put the nodes behind a load balancer; sticky sessions are optional
+   (see *Sticky sessions*). Verify membership in `jcr_cluster_nodes`,
+   consumption progress in `jcr_journal_offsets`, and the connections on
+   the Dashboard's Cluster card.
 
 Migrating existing H2 data to PostgreSQL is a one-time export/import of
 the `jcr_*` tables; the schema is identical apart from the array
@@ -554,9 +745,10 @@ external resources by itself:
   `workspace-startup` lease, but not the database/schema container — create
   it (and grant the datasource user rights on it) beforehand, exactly as in
   step 1.
-- **Deleting** a workspace removes its directory and node-local search
-  index; the shared **database is not dropped** and shared blob storage is
-  not removed. Clean both up manually afterwards.
+- **Deleting** a workspace removes its directory, and every node removes
+  its own node-local data of it (the search index); the shared **database
+  is not dropped** and shared blob storage is not removed. Clean both up
+  manually afterwards.
 - Because schema creation is "create if missing", **recreating a workspace
   of the same name against a database that still holds the old tables
   resurrects the old content.** Drop or empty the database before reusing
@@ -581,10 +773,11 @@ switch does not log the user out.
   local session, but a stolen token stays usable until it expires, so
   keep the lifetime moderate.
 - **Factors** — the token carries the factors at login time
-  (`saml2`). A factor added later by application code (e.g. TOTP) lives
-  in the node-local session; after a node switch the user re-verifies
-  that factor. This is intentional: re-prompting is safe, silently
-  trusting is not.
+  (`saml2`). A factor added later (e.g. TOTP) lives in the session, which
+  the cluster shares (see *The replicated table*), so a node switch keeps
+  it. Should the session be lost — every node restarted, or it expired —
+  the user re-verifies that factor. This is intentional: re-prompting is
+  safe, silently trusting is not.
 - **Requirements** — all nodes must share `secret-key.yml` (see the
   identity files above); the cookie is `HttpOnly`, `SameSite=Lax`, and
   `Secure` on HTTPS.
@@ -637,15 +830,27 @@ The cluster state is part of the operations surface:
 - **GraphQL** — the `cluster` query (administrators only) reports
   `enabled`, the `nodeId` serving the request, and every registered
   member with `nodeId`, `hostName`, `started`, `lastHeartbeat`, `alive`,
-  and `self`. In standalone deployments `enabled` is `false` and
-  `members` is empty. See `documents/GRAPHQL_SCHEMA.graphql`.
+  `self` and `address` (its cluster port). `link` is the connection
+  between the serving node and the member as the serving node sees it
+  right now (`outbound` connected / connecting / down and since when,
+  `inbound` connected / none, the last wake-up sent and received, and how
+  many connections were refused for a wrong signature or clock and how
+  many messages were dropped); `reportedLinks` is the member's own view of
+  its connections, reported through the replicated table every 10
+  seconds, so the whole picture is available from any node. In
+  standalone deployments `enabled` is `false` and `members` is empty. See
+  `platform-schema.graphqls` (`Cluster`, `ClusterMember`, `ClusterLink`).
 - **Webtop dashboard** — the Dashboard app's Operations section
   (administrators only) shows a Cluster card listing every member with
-  its heartbeat health, plus a cluster KPI in the "Are operations
-  healthy?" hero; a member with a stale heartbeat turns the overall
-  status to "Issues". A standalone deployment is reported explicitly as
-  a single-node configuration — a normal, healthy state, not a degraded
-  cluster.
+  its heartbeat health and, in its own badge, its connection to the
+  node that answered (connected both ways, one way, or not connected —
+  the card names that node). With three nodes or more it adds a
+  node-by-node matrix of the reported connections. A cluster KPI sits in
+  the "Are operations healthy?" hero; a member with a stale heartbeat
+  turns the overall status to "Issues", a live member without its
+  connections to "Attention" (it only falls back to polling). A
+  standalone deployment is reported explicitly as a single-node
+  configuration — a normal, healthy state, not a degraded cluster.
 
 ### Built-in background jobs
 
@@ -674,8 +879,8 @@ The full-text index is node-local (see the state table above), so an
 administrator-triggered rebuild (`documents/search-index-rebuild.md`)
 targets **every** node: one job record per alive member is persisted
 under `/var/jobs`, all sharing a correlation id. The dispatch is
-deliberately content-based rather than signal-bus-based — the signal bus
-is ephemeral, while a persisted record reaches a running node through
+deliberately content-based rather than signal-based — a signal is
+ephemeral, while a persisted record reaches a running node through
 the replicated node events and reaches a node that was down at dispatch
 time through its startup scan.
 
@@ -692,6 +897,7 @@ Two behaviours extend the generic job lifecycle above:
 ## Future hardening
 
 - Server-side revocation of authentication tokens (logout everywhere).
-- Generic replication of application-set session attributes.
+- TLS on the cluster connections, for deployments without a management
+  network.
 - Finalising background jobs owned by a permanently removed node.
 - Automated cluster-wide consistency verification tooling.

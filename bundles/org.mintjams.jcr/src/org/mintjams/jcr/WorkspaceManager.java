@@ -70,4 +70,13 @@ public interface WorkspaceManager {
 	 */
 	void removeWorkspaceDirectory(String workspaceName) throws RepositoryException;
 
+	/**
+	 * Removes this node's own data of a workspace that is not open on this
+	 * node — its search index and whatever else the node keeps for it in its
+	 * node-local directory. Every node calls this for itself when a workspace
+	 * is deleted; the shared workspace directory is not touched. Does nothing
+	 * when there is no such data.
+	 */
+	void removeLocalWorkspaceData(String workspaceName) throws RepositoryException;
+
 }

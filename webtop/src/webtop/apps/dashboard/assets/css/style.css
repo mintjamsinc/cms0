@@ -341,3 +341,39 @@
 }
 
 /* Spinners: wt-spinner (webtop-ui.css) */
+
+/* Cluster connections, node to node (three nodes or more). */
+.dash-matrix-wrap {
+	overflow-x: auto;
+	padding: 0 0.4rem 0.4rem;
+}
+
+.dash-matrix {
+	border-collapse: collapse;
+	font-size: 11px;
+}
+
+.dash-matrix caption {
+	caption-side: top;
+	text-align: left;
+	color: var(--text-soft-color);
+	padding-bottom: 0.3rem;
+}
+
+.dash-matrix th {
+	font-weight: 600;
+	color: var(--text-soft-color);
+	padding: 0.2rem 0.4rem;
+	white-space: nowrap;
+	text-align: left;
+}
+
+.dash-matrix td {
+	text-align: center;
+	padding: 0.2rem 0.4rem;
+	color: var(--text-soft-color);
+}
+
+.dash-matrix td.is-ok { color: var(--success-color); }
+.dash-matrix td.is-warn { color: var(--warning-color); }
+.dash-matrix td.is-down { color: var(--danger-color); }

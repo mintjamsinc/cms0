@@ -102,6 +102,8 @@ public class JournalObserver implements Adaptable, Closeable {
 	private boolean fCloseRequested;
 	private final List<String> fTransactionIdentifiers = new ArrayList<>();
 	private final Object fRemoteLock = new Object();
+	// Set by wake(), cleared when the poller starts a read; guarded by fRemoteLock.
+	private boolean fWakeRequested;
 
 	// Serializes the commit pipeline (local Task + cluster RemotePoller, read
 	// side) against the final catch-up and swap of a staged rebuild (write
@@ -154,6 +156,20 @@ public class JournalObserver implements Adaptable, Closeable {
 		}
 
 		return this;
+	}
+
+	/**
+	 * Asks the cluster poller to read the journal now: another node has just
+	 * committed a transaction on this workspace. The poller still never reads
+	 * more often than its floor interval, so a burst of wake-ups (or forged
+	 * ones) cannot make it poll faster; a wake-up that arrives within the
+	 * floor is kept and served when the floor has passed.
+	 */
+	public void wake() {
+		synchronized (fRemoteLock) {
+			fWakeRequested = true;
+			fRemoteLock.notifyAll();
+		}
 	}
 
 	@Override
@@ -1601,6 +1617,7 @@ public class JournalObserver implements Adaptable, Closeable {
 			String nodeId = adaptTo(ClusterController.class).getNodeId();
 			long consumed = -1;
 			long pollInterval = -1;
+			long lastRead = 0L;
 			boolean appliedRemoteChange = false;
 			while (!fCloseRequested) {
 				if (Thread.interrupted()) {
@@ -1628,11 +1645,25 @@ public class JournalObserver implements Adaptable, Closeable {
 				}
 				appliedRemoteChange = false;
 
+				// Wait for the interval, or until another node's wake-up — but
+				// never read sooner than the floor after the previous read.
 				synchronized (fRemoteLock) {
+					long deadline = System.currentTimeMillis() + pollInterval;
 					try {
-						fRemoteLock.wait(pollInterval);
+						while (!fCloseRequested) {
+							long now = System.currentTimeMillis();
+							long due = fWakeRequested ? Math.min(deadline, Math.max(now, lastRead + floor)) : deadline;
+							if (now >= due) {
+								break;
+							}
+							fRemoteLock.wait(due - now);
+						}
 					} catch (InterruptedException ignore) {}
+					// This read covers every wake-up received so far; one that
+					// arrives while it runs is served by the next.
+					fWakeRequested = false;
 				}
+				lastRead = System.currentTimeMillis();
 
 				if (fCloseRequested) {
 					continue;
@@ -1664,6 +1695,18 @@ public class JournalObserver implements Adaptable, Closeable {
 						continue;
 					}
 
+					// Replaying reads the current committed state, which already
+					// includes the later transactions of this batch. Drop what all
+					// of them touched before replaying any: otherwise a node that a
+					// later transaction removed is still served from the cache while
+					// its properties are gone, and the replay fails on it.
+					for (AdaptableMap<String, Object> marker : markers) {
+						String transactionId = marker.getString("transaction_id");
+						if (!fProcessed.contains(transactionId)) {
+							invalidate(workspace, transactionId);
+						}
+					}
+
 					long stableCutoff = System.currentTimeMillis() - STABILITY_GRACE_MILLIS;
 					long newConsumed = consumed;
 					boolean stable = true;
@@ -1674,7 +1717,6 @@ public class JournalObserver implements Adaptable, Closeable {
 
 						String transactionId = marker.getString("transaction_id");
 						if (!fProcessed.contains(transactionId)) {
-							invalidate(workspace, transactionId);
 							processTransaction(workspace, transactionId);
 							fProcessed.add(transactionId);
 							// Real remote activity this cycle: keep polling at the floor.

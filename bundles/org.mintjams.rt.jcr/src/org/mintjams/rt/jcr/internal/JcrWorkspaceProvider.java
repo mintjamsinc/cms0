@@ -41,6 +41,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import javax.jcr.LoginException;
 import javax.jcr.PathNotFoundException;
@@ -134,20 +135,40 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 	/**
 	 * Returns the directory holding this node's search index. The index is
-	 * node-local: in a clustered deployment every node maintains its own
-	 * index, so the default location gains a per-node segment unless
-	 * {@code jcr.yml#search.indexPath} points somewhere else explicitly.
+	 * node-local data: it lives in {@code workspaces/<workspace>/search} under
+	 * the node-local directory, never in the workspace directory (which the
+	 * cluster nodes share), unless {@code jcr.yml#search.indexPath} points
+	 * somewhere else explicitly.
 	 */
 	public Path getWorkspaceSearchPath() {
 		Path configured = fConfig.getSearchIndexPath();
 		if (configured != null) {
 			return configured;
 		}
+		return fRepository.getConfiguration().getLocalWorkspacePath(getWorkspaceName()).resolve("search").normalize();
+	}
+
+	/**
+	 * Returns where the search index was kept before node-local data had a
+	 * root of its own: inside the workspace directory.
+	 */
+	private Path getLegacyWorkspaceSearchPath() {
 		if (fRepository.getConfiguration().isClusterEnabled()) {
 			return getWorkspacePath().resolve("var/search/nodes")
 					.resolve(fRepository.getConfiguration().getClusterNodeId()).normalize();
 		}
 		return getWorkspacePath().resolve("var/search").normalize();
+	}
+
+	/**
+	 * Returns the record of which workspace the search index was built for:
+	 * the identifier of the workspace's root node, which is generated when
+	 * the workspace's database is first populated. It tells a workspace that
+	 * was deleted and created again under the same name (or a repository that
+	 * was set up anew) from the one the node-local index belongs to.
+	 */
+	private Path getWorkspaceSearchIdentityPath() {
+		return getWorkspaceSearchPath().resolve(".workspace-id").normalize();
 	}
 
 	/**
@@ -223,7 +244,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 		fClusterController = fCloser.register(ClusterController.create(getWorkspaceName(), clusterEnabled,
 				fRepository.getConfiguration().getClusterNodeId(),
-				() -> getConnection(new SystemPrincipal())));
+				() -> getConnection(new SystemPrincipal()), fRepository.getClusterTransport()));
 		fClusterController.open();
 
 		boolean needsBuildSearchIndex;
@@ -242,6 +263,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			if (clusterEnabled) {
 				discardStaleSearchIndex();
 			}
+			discardForeignSearchIndex();
 			// Rebuild when the index directory is missing, or when a previous
 			// rebuild started but never finished (its marker is still present).
 			// The latter guards against the deferred single commit: a rebuild that
@@ -315,6 +337,8 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			Activator.getDefault().getLogger(getClass()).info("JCR search index has been created. Total indexed "
 					+ updateMonitor.getCount() + " nodes in " + (System.currentTimeMillis() - startedAt) + " ms.");
 		}
+		recordSearchIndexIdentity();
+		removeLegacySearchIndex();
 
 		fLive = true;
 		Activator.getDefault().getLogger(getClass())
@@ -333,6 +357,83 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 	 * rebuilt from the repository content and the node resumes consuming at
 	 * the current head.
 	 */
+	private String getRootNodeIdentifier() throws IOException {
+		try (JcrWorkspace workspace = createSession(new SystemPrincipal())) {
+			return workspace.getSession().getRootNode().getIdentifier();
+		} catch (IOException ex) {
+			throw ex;
+		} catch (Throwable ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
+	/**
+	 * Discards a search index that was built for another workspace of the
+	 * same name: the node-local index outlives the workspace directory, so a
+	 * workspace deleted and created again (or a repository set up anew while
+	 * this node's local directory was kept) must not find the old index. An
+	 * index without a record predates the record and is kept.
+	 */
+	private void discardForeignSearchIndex() throws IOException {
+		Path identityPath = getWorkspaceSearchIdentityPath();
+		if (!Files.exists(identityPath)) {
+			return;
+		}
+		String recorded = Files.readString(identityPath, StandardCharsets.UTF_8).trim();
+		if (recorded.equals(getRootNodeIdentifier())) {
+			return;
+		}
+		Activator.getDefault().getLogger(getClass()).warn("The search index at " + getWorkspaceSearchPath()
+				+ " was built for another workspace named '" + getWorkspaceName() + "' and will be rebuilt.");
+		IOs.deleteIfExists(getWorkspaceSearchPath());
+	}
+
+	/** Records which workspace the search index belongs to. */
+	private void recordSearchIndexIdentity() {
+		try {
+			Path identityPath = getWorkspaceSearchIdentityPath();
+			String identifier = getRootNodeIdentifier();
+			if (Files.exists(identityPath)
+					&& identifier.equals(Files.readString(identityPath, StandardCharsets.UTF_8).trim())) {
+				return;
+			}
+			Files.createDirectories(identityPath.getParent());
+			Files.writeString(identityPath, identifier, StandardCharsets.UTF_8);
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(getClass())
+					.warn("Could not record which workspace the search index belongs to.", ex);
+		}
+	}
+
+	/**
+	 * Removes the index this node kept inside the workspace directory before
+	 * node-local data had a root of its own, once the index in its current
+	 * place is complete. Only this node's own index is removed; in a cluster
+	 * the other nodes remove theirs.
+	 */
+	private void removeLegacySearchIndex() {
+		Path legacy = getLegacyWorkspaceSearchPath();
+		Path current = getWorkspaceSearchPath().toAbsolutePath().normalize();
+		if (!Files.exists(legacy) || legacy.toAbsolutePath().normalize().equals(current)
+				|| current.startsWith(legacy.toAbsolutePath().normalize())) {
+			return;
+		}
+		try {
+			IOs.deleteIfExists(legacy);
+			for (Path parent : new Path[] { getWorkspacePath().resolve("var/search/nodes"),
+					getWorkspacePath().resolve("var/search") }) {
+				try (Stream<Path> stream = Files.list(parent)) {
+					if (stream.findAny().isEmpty()) {
+						Files.deleteIfExists(parent);
+					}
+				} catch (Throwable ignore) {}
+			}
+			Activator.getDefault().getLogger(getClass()).info("Removed the former search index: " + legacy);
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(getClass()).warn("Could not remove the former search index: " + legacy, ex);
+		}
+	}
+
 	private void discardStaleSearchIndex() throws IOException {
 		try (Connection connection = getConnection(new SystemPrincipal())) {
 			try {

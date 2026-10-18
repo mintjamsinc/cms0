@@ -794,6 +794,51 @@ type ClusterMember {
 
   """Whether this member is the node that served the request."""
   self: Boolean!
+
+  """
+  Address (host:port) at which the node accepts connections from the other
+  nodes; null when it accepts none (its address could not be determined).
+  """
+  address: String
+
+  """
+  The connection between the node that served the request and this member, as
+  that node sees it right now; null for the serving node itself.
+  """
+  link: ClusterLink
+
+  """
+  This member's connections to the other nodes as the member itself last
+  reported them (a few seconds old at most); empty when it has not reported.
+  """
+  reportedLinks: [ClusterLink!]!
+}
+
+"""The connection between two cluster nodes, as seen from one of them."""
+type ClusterLink {
+  """The node at the other end."""
+  nodeId: String!
+
+  """The connection this node opened to the other one: connected, connecting or down."""
+  outbound: String!
+
+  """When the outbound connection was established (ISO-8601 date-time in UTC)."""
+  connectedSince: DateTime
+
+  """The connection the other node opened to this one: connected or none."""
+  inbound: String!
+
+  """When this node last woke the other one after a commit."""
+  lastWakeSent: DateTime
+
+  """When the other node last woke this one after a commit."""
+  lastWakeReceived: DateTime
+
+  """Connections from the other node's address dropped for a wrong signature or clock."""
+  rejected: Int!
+
+  """Messages for the other node dropped because there was no connection or it could not keep up."""
+  dropped: Int!
 }
 
 # -----------------------------------------------------------------------------

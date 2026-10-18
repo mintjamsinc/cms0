@@ -333,8 +333,8 @@ topic messages over the Webtop's event stream. See
 
 Applications tell their clients, live, that something happened by publishing
 **topic messages**: a general-purpose publish/subscribe channel carried on the
-Webtop's event stream (graphql-sse over HTTPS) and, in a cluster, on the
-signal bus. A script or a client publishes to a topic for named recipients,
+Webtop's event stream (graphql-sse over HTTPS) and, in a cluster, over the
+nodes' own connections. A script or a client publishes to a topic for named recipients,
 for the readers of a node, or for everyone; clients subscribe to a topic or a
 prefix. See [`documents/topic-messages.md`](documents/topic-messages.md).
 

@@ -12,7 +12,8 @@
 # Three named volumes are expected at runtime:
 #   /data/repository  - JCR repository, etc/*.yml, *.p12 keystores (persistent)
 #   /data/secrets     - secret-key.yml (persistent, restricted permissions)
-#   /data/index       - this node's search index (node-local, rebuildable)
+#   /data/local       - this node's own data: search indexes, temporary files
+#                       (node-local, rebuildable)
 #
 # Two environment variables drive the SAML configuration:
 #   CMS_PUBLIC_BASE_URL              - external HTTP URL (e.g. http://localhost:8080)
@@ -94,6 +95,7 @@ RUN set -e; \
 # MINTJAMS_CMS_SECRET_KEY_PATH, CMS_JVM_DEFAULT_OPTS and CMS_JAVA_OPTS.
 ENV FELIX_HOME=/opt/felix \
     CMS_REPOSITORY_PATH=/data/repository \
+    CMS_NODE_LOCAL_PATH=/data/local \
     CMS_SEARCH_INDEX_PATH=/data/index \
     MINTJAMS_CMS_SECRET_KEY_PATH=/data/secrets/secret-key.yml \
     MINTJAMS_CMS_SEED_PATH=/opt/cms/seed \
@@ -102,10 +104,12 @@ ENV FELIX_HOME=/opt/felix \
 # All three volumes are empty in the image: entrypoint.sh places the
 # configuration files from the seed, and secret-key.yml is created on first run
 # by FileSecretKeyProvider. Only the directories need to exist with felix
-# ownership. /data/index holds this node's search index, which is node-local
-# even in a cluster and must never be put on the shared storage.
-RUN mkdir -p /data/repository /data/secrets /data/index \
- && chown ${FELIX_USER}:${FELIX_USER} /data /data/repository /data/secrets /data/index
+# ownership. /data/local holds this node's own data (search indexes, temporary
+# files), which is node-local even in a cluster and must never be put on the
+# shared storage. /data/index is where earlier images kept the search index:
+# a jcr.yml placed by them still names it through CMS_SEARCH_INDEX_PATH.
+RUN mkdir -p /data/repository /data/secrets /data/local /data/index \
+ && chown ${FELIX_USER}:${FELIX_USER} /data /data/repository /data/secrets /data/local /data/index
 
 # The seed, read-only at runtime (see docker/README.md, "Bundled assets and
 # configuration"):
@@ -144,9 +148,9 @@ COPY --chown=root:root docker/cms-encrypt.sh /usr/local/bin/cms-encrypt
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/cms-encrypt
 
 # Volumes for state that must survive container recreation. /data/repository
-# and /data/secrets are shared by every node of a cluster; /data/index is this
+# and /data/secrets are shared by every node of a cluster; /data/local is this
 # node's own.
-VOLUME ["/data/repository", "/data/secrets", "/data/index"]
+VOLUME ["/data/repository", "/data/secrets", "/data/local"]
 
 EXPOSE 8080
 

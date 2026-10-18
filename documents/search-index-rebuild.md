@@ -140,7 +140,7 @@ worker to observe (about every 5 seconds).
 | `org.mintjams.jcr.searchindex.rebuildThreads` | framework property | one per processor, capped below the session pool | Worker threads of the traversal; `1` forces a single-threaded rebuild |
 | `org.mintjams.searchindex.ramBufferSizeMB` | framework property | Lucene default ×16 | Index writer RAM buffer; larger values reduce segment flushes during bulk indexing |
 | `org.mintjams.searchindex.maxContentLength` | framework property | 1,000,000 chars | Bound on extracted text per document |
-| `search.indexPath` | `<workspace>/etc/jcr/jcr.yml` | `var/search` (standalone), `var/search/nodes/<nodeId>` (clustered) | Location of the node-local index |
+| `search.indexPath` | `<workspace>/etc/jcr/jcr.yml` | `workspaces/<workspace>/search` under the node-local directory (`org.mintjams.jcr.repository.localdir` / `CMS_NODE_LOCAL_PATH`, default `var` under the working directory) | Location of the node-local index; see `clustering.md`, *Architecture* |
 
 On-disk layout of an index during and after a rebuild (all inside the
 index directory; everything except `documents/` and `suggestions/` is

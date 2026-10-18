@@ -28,7 +28,7 @@ import java.util.Map;
 
 /**
  * Exposes the cluster membership of the repository nodes that share a
- * workspace in a clustered deployment, and the signal bus between them.
+ * workspace in a clustered deployment, and the signals between them.
  * Obtained by adapting a workspace's session (or any object that adapts
  * to its workspace provider).
  *
@@ -70,9 +70,11 @@ public interface ClusterCoordinator {
 	 *
 	 * <p>Intended for ephemeral notifications that tell live clients to
 	 * refresh (for example {@code workspaceChanged}), not for durable state:
-	 * a node that is down when a signal is published never sees it, and
-	 * signals are retained only briefly. Best-effort and a no-op in
-	 * standalone deployments, where there are no other nodes; a delivery
+	 * the notification is sent once, straight to the nodes that are
+	 * connected, so a node that is down or not connected at that moment
+	 * never sees it. The notification reaches every node of the cluster,
+	 * whichever workspace's coordinator publishes it. Best-effort and a no-op
+	 * in standalone deployments, where there are no other nodes; a delivery
 	 * failure is logged and never propagated, so it can be called freely from
 	 * the operation that triggered it.
 	 *
@@ -110,6 +112,79 @@ public interface ClusterCoordinator {
 		 * coordinator so callers never hard-code the heartbeat interval.
 		 */
 		boolean isAlive();
+
+		/**
+		 * Returns the address ({@code host:port}) at which the node accepts
+		 * connections from the other nodes, or {@code null} when it does not
+		 * accept any (its address could not be determined).
+		 */
+		String getAddress();
+
+		/**
+		 * Returns the connection between this node and the member, as this
+		 * node sees it right now, or {@code null} for this node itself.
+		 */
+		Link getLink();
+
+		/**
+		 * Returns the member's connections to the other nodes as the member
+		 * itself last reported them (a few seconds old at most). Empty when
+		 * the member has not reported, for example while it is not
+		 * connected.
+		 */
+		List<Link> getReportedLinks();
+	}
+
+	/**
+	 * The connection between two nodes, as seen from one of them.
+	 */
+	interface Link {
+
+		/**
+		 * The node at the other end.
+		 */
+		String getNodeId();
+
+		/**
+		 * The connection this node opened to the other node:
+		 * {@code connected}, {@code connecting} or {@code down}.
+		 */
+		String getOutbound();
+
+		/**
+		 * When the outbound connection was established, in milliseconds since
+		 * the epoch, or {@code 0} when it is not connected.
+		 */
+		long getConnectedSince();
+
+		/**
+		 * The connection the other node opened to this one: {@code connected}
+		 * or {@code none}.
+		 */
+		String getInbound();
+
+		/**
+		 * When this node last sent a wake-up to the other node, or {@code 0}.
+		 */
+		long getLastWakeSent();
+
+		/**
+		 * When this node last received a wake-up from the other node, or
+		 * {@code 0}.
+		 */
+		long getLastWakeReceived();
+
+		/**
+		 * How many connections from the other node's address this node
+		 * refused because a frame was not correctly signed.
+		 */
+		long getRejected();
+
+		/**
+		 * How many messages for the other node were dropped because there
+		 * was no connection or the connection could not keep up.
+		 */
+		long getDropped();
 	}
 
 }

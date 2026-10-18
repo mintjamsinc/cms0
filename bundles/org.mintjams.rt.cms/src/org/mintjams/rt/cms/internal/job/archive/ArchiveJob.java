@@ -218,7 +218,7 @@ public class ArchiveJob implements Job {
 				if (fIncludeMetadata) {
 					openMetadata(jobSession);
 				}
-				tempZip = Files.createTempFile("cms-archive-" + fJobId + "-", ".zip");
+				tempZip = Files.createTempFile(CmsService.getTemporaryDirectoryPath(), "cms-archive-" + fJobId + "-", ".zip");
 				// One base path shared by every top-level item, so entry names stay
 				// unique: JCR paths are unique, and naming each entry relative to a
 				// single base preserves enough of the path to keep them apart.
@@ -354,7 +354,7 @@ public class ArchiveJob implements Job {
 
 	/** Open the local working area that accumulates the {@code .cms-archive/} sidecar. */
 	private void openMetadata(Session session) throws Exception {
-		fWorkDir = Files.createTempDirectory("cms-archive-meta-" + fJobId + "-");
+		fWorkDir = Files.createTempDirectory(CmsService.getTemporaryDirectoryPath(), "cms-archive-meta-" + fJobId + "-");
 		fNodesWriter = new BufferedWriter(new java.io.OutputStreamWriter(
 				Files.newOutputStream(fWorkDir.resolve("nodes.ndjson")), StandardCharsets.UTF_8));
 		// The serializer omits exactly what the repository protects by name, so an

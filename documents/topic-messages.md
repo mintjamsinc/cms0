@@ -111,15 +111,16 @@ topic, payload, publisher, audience, id and time are its properties. The
 subscription is an `OsgiEventPublisher` on that topic that filters by
 workspace, topic pattern and audience.
 
-In a cluster the publishing node also writes the event to the **cluster
-signal bus** (`jcr_cluster_signals`, see
-[`clustering.md`](clustering.md#cluster-signal-bus-phase-3)); every other
-node re-emits it as a local event within its poll interval (2 seconds), so
-its own subscribers receive it unchanged. The signal bus carries JSON scalars
-only, which is why the payload and the recipients travel as strings. The
-event stream itself is node-local: a client's subscriptions live on the node
-its stream is connected to, so the stream endpoint (`/bin/graphql.cgi/<ws>/stream`)
-needs the sticky routing that `clustering.md` already recommends.
+In a cluster the publishing node also sends the event to the other nodes as a
+**signal** over the cluster connections (see
+[`clustering.md`](clustering.md#signals)); every other node posts it as a
+local event as soon as it arrives, so its own subscribers receive it
+unchanged. A node that is not connected at that moment does not receive it.
+Signals carry JSON scalars only, which is why the payload and the recipients
+travel as strings. A client's subscriptions live on the node its stream is
+connected to; a subscription change sent to another node is forwarded there
+(`clustering.md`, *Subscription streams*), so the stream endpoint
+(`/bin/graphql.cgi/<ws>/stream`) needs no sticky routing.
 
 ## When to use what
 

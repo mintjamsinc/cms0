@@ -44,12 +44,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.jcr.Credentials;
+import javax.jcr.Session;
 import javax.servlet.AsyncContext;
 import javax.servlet.AsyncEvent;
 import javax.servlet.AsyncListener;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.mintjams.jcr.cluster.ClusterTransport;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.engine.WorkspaceGraphQLEngineProvider;
 import org.mintjams.rt.cms.internal.graphql.engine.WorkspaceGraphQLEngineProvider.SubscriptionStream;
@@ -91,6 +93,15 @@ import graphql.ExecutionResult;
  * (which no longer holds a JCR session — payload mappers read JCR on demand), so a
  * long-lived stream pins no DB connection. Closing the SSE stops every operation on
  * it and drops the token.
+ *
+ * <p>In a cluster the four requests need not reach the same node. The stream stays
+ * in the memory of the node that holds it; that node records (token → node, user) in
+ * the cluster's replicated table. A {@code GET} on another node than the
+ * {@code PUT} takes the reservation over when the signed-in user is the same, and a
+ * {@code POST} or {@code DELETE} on another node is forwarded to the stream's node
+ * and answered with its result, so the order of the client's changes is kept in one
+ * place and a {@code 202} means the operation is running. When the stream's node
+ * cannot be reached the answer is {@code 503}, and the client reconnects.
  */
 public final class GraphQLStreamHandler {
 
@@ -104,6 +115,17 @@ public final class GraphQLStreamHandler {
 	private static final long WRITE_STALL_SCAN_INTERVAL_MS = 15000L;
 	/** Outbound frames buffered past this depth mean the client cannot keep up. */
 	private static final int MAX_PENDING_FRAMES = 256;
+
+	/** The replicated table of stream owners: token → {node, user, workspace}. */
+	static final String STREAMS_TABLE = "graphql-sse/streams";
+	/** The cluster request that applies a forwarded POST or DELETE on the stream's node. */
+	static final String OPERATION_REQUEST = "graphql-sse/operation";
+	/** How long a forwarded POST or DELETE waits for the stream's node. */
+	private static final long FORWARD_TIMEOUT_MS = 5000L;
+	/** The pause before the owner is looked up again (a table write may be in flight). */
+	private static final long OWNER_RETRY_DELAY_MS = 50L;
+	/** An open stream's entry outlives a few missed heartbeats, then expires with a dead node. */
+	private static final long STREAM_OWNER_TTL_MS = HEARTBEAT_INTERVAL_MS * 3;
 
 	/** token -> connection. One per open client SSE stream. */
 	private static final ConcurrentMap<String, StreamConnection> CONNECTIONS = new ConcurrentHashMap<>();
@@ -179,13 +201,13 @@ public final class GraphQLStreamHandler {
 			reserve(response, credentials);
 			break;
 		case "GET":
-			openStream(request, response);
+			openStream(request, response, credentials);
 			break;
 		case "POST":
-			addOperation(request, response);
+			addOperation(request, response, credentials);
 			break;
 		case "DELETE":
-			stopOperation(request, response);
+			stopOperation(request, response, credentials);
 			break;
 		default:
 			response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED,
@@ -197,8 +219,14 @@ public final class GraphQLStreamHandler {
 	private void reserve(HttpServletResponse response, Credentials credentials) throws IOException {
 		String token = UUID.randomUUID().toString();
 		StreamConnection connection = new StreamConnection(fWorkspaceName, credentials, token);
+		ClusterTransport transport = CmsService.getClusterTransport();
+		if (transport != null) {
+			connection.fUserId = userIdOf(fWorkspaceName, credentials);
+		}
 		CONNECTIONS.put(token, connection);
 		connection.scheduleReservationTimeout();
+		// The stream may be opened on another node; it finds the reservation here.
+		connection.announce(RESERVATION_TIMEOUT_MS * 2);
 		response.setStatus(HttpServletResponse.SC_CREATED);
 		response.setContentType("text/plain; charset=UTF-8");
 		PrintWriter writer = response.getWriter();
@@ -207,9 +235,13 @@ public final class GraphQLStreamHandler {
 	}
 
 	/** {@code GET ?token} — open the one SSE stream for the token. */
-	private void openStream(HttpServletRequest request, HttpServletResponse response) throws IOException {
+	private void openStream(HttpServletRequest request, HttpServletResponse response, Credentials credentials)
+			throws IOException {
 		String token = request.getParameter("token");
 		StreamConnection connection = (token == null) ? null : CONNECTIONS.get(token);
+		if (connection == null && token != null) {
+			connection = takeOver(token, credentials);
+		}
 		if (connection == null) {
 			response.sendError(HttpServletResponse.SC_NOT_FOUND, "Unknown or expired stream token");
 			return;
@@ -231,11 +263,39 @@ public final class GraphQLStreamHandler {
 		response.flushBuffer();
 	}
 
+	/**
+	 * Opens on this node a stream that another node reserved, when the
+	 * {@code GET}'s own sign-in is the reserving user's. The stream runs with
+	 * the {@code GET}'s credentials; the other node's reservation simply
+	 * expires.
+	 */
+	private StreamConnection takeOver(String token, Credentials credentials) {
+		ClusterTransport transport = CmsService.getClusterTransport();
+		if (transport == null) {
+			return null;
+		}
+		Owner owner = Owner.of(transport, token);
+		if (owner == null || !fWorkspaceName.equals(owner.workspace)) {
+			return null;
+		}
+		String userId = userIdOf(fWorkspaceName, credentials);
+		if (userId == null || !userId.equals(owner.user)) {
+			return null;
+		}
+		StreamConnection connection = new StreamConnection(fWorkspaceName, credentials, token);
+		connection.fUserId = userId;
+		StreamConnection raced = CONNECTIONS.putIfAbsent(token, connection);
+		return (raced != null) ? raced : connection;
+	}
+
 	/** {@code POST ?token} — add one subscription operation to the token's stream. */
-	private void addOperation(HttpServletRequest request, HttpServletResponse response) throws IOException {
+	private void addOperation(HttpServletRequest request, HttpServletResponse response, Credentials credentials)
+			throws IOException {
 		String token = request.getParameter("token");
 		StreamConnection connection = (token == null) ? null : CONNECTIONS.get(token);
-		if (connection == null) {
+		ClusterTransport transport = CmsService.getClusterTransport();
+		boolean local = (connection != null && (connection.isBound() || transport == null));
+		if (!local && (token == null || transport == null)) {
 			response.sendError(HttpServletResponse.SC_NOT_FOUND, "Unknown or expired stream token");
 			return;
 		}
@@ -265,19 +325,199 @@ public final class GraphQLStreamHandler {
 			return;
 		}
 
+		if (!local) {
+			Map<String, Object> payload = new LinkedHashMap<>();
+			payload.put("action", "add");
+			payload.put("operationId", operationId);
+			payload.put("query", query);
+			payload.put("operationName", operationName);
+			payload.put("variables", variables);
+			forward(transport, token, payload, credentials, response);
+			return;
+		}
+
 		connection.addOperation(operationId, new GraphQLRequest(query, operationName, variables));
 		response.setStatus(HttpServletResponse.SC_ACCEPTED);
 	}
 
 	/** {@code DELETE ?token&operationId} — stop one operation. */
-	private void stopOperation(HttpServletRequest request, HttpServletResponse response) {
+	private void stopOperation(HttpServletRequest request, HttpServletResponse response, Credentials credentials)
+			throws IOException {
 		String token = request.getParameter("token");
 		String operationId = request.getParameter("operationId");
 		StreamConnection connection = (token == null) ? null : CONNECTIONS.get(token);
-		if (connection != null && operationId != null) {
-			connection.stopOperation(operationId);
+		ClusterTransport transport = CmsService.getClusterTransport();
+		if (connection != null && (connection.isBound() || transport == null)) {
+			if (operationId != null) {
+				connection.stopOperation(operationId);
+			}
+			response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+			return;
 		}
-		response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+		if (transport == null || token == null || operationId == null) {
+			response.setStatus(HttpServletResponse.SC_NO_CONTENT);
+			return;
+		}
+
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("action", "stop");
+		payload.put("operationId", operationId);
+		forward(transport, token, payload, credentials, response);
+	}
+
+	/**
+	 * Forwards a {@code POST} or {@code DELETE} to the node that holds the
+	 * token's stream and answers with that node's result. A stream that was
+	 * opened a moment ago may not be in this node's table yet, so a miss is
+	 * looked up once more after a short pause.
+	 */
+	private void forward(ClusterTransport transport, String token, Map<String, Object> payload,
+			Credentials credentials, HttpServletResponse response) throws IOException {
+		payload.put("workspace", fWorkspaceName);
+		payload.put("token", token);
+		payload.put("userId", userIdOf(fWorkspaceName, credentials));
+
+		int status = HttpServletResponse.SC_NOT_FOUND;
+		String forwardedTo = null;
+		for (int attempt = 0; attempt < 2; attempt++) {
+			if (attempt > 0) {
+				try {
+					Thread.sleep(OWNER_RETRY_DELAY_MS);
+				} catch (InterruptedException ex) {
+					Thread.currentThread().interrupt();
+					break;
+				}
+			}
+
+			Owner owner = Owner.of(transport, token);
+			if (owner == null) {
+				continue;
+			}
+			if (owner.node.equals(transport.getNodeId())) {
+				// Ours, but not open here yet: the GET may still be on its way.
+				StreamConnection connection = CONNECTIONS.get(token);
+				if (connection != null && connection.isBound()) {
+					status = intOf(applyForwarded(payload).get("status"));
+					break;
+				}
+				continue;
+			}
+			if (owner.node.equals(forwardedTo)) {
+				break;
+			}
+
+			forwardedTo = owner.node;
+			try {
+				status = intOf(transport.request(owner.node, OPERATION_REQUEST, payload, FORWARD_TIMEOUT_MS).get("status"));
+			} catch (IOException ex) {
+				CmsService.getLogger(GraphQLStreamHandler.class).debug("Could not forward a subscription "
+						+ payload.get("action") + " to cluster node '" + owner.node + "': " + ex.getMessage());
+				status = HttpServletResponse.SC_SERVICE_UNAVAILABLE;
+				break;
+			}
+			if (status != HttpServletResponse.SC_NOT_FOUND) {
+				break;
+			}
+		}
+
+		if (status == HttpServletResponse.SC_NOT_FOUND) {
+			response.sendError(status, "Unknown or expired stream token");
+		} else if (status == HttpServletResponse.SC_SERVICE_UNAVAILABLE) {
+			response.sendError(status, "The node holding the stream cannot be reached");
+		} else if (status == HttpServletResponse.SC_BAD_REQUEST) {
+			response.sendError(status, "Invalid subscription request");
+		} else {
+			response.setStatus(status);
+		}
+	}
+
+	/**
+	 * Registers the handler that applies the {@code POST}s and {@code DELETE}s
+	 * other nodes forward to the streams held here. Closing the returned handle
+	 * removes it.
+	 */
+	public static AutoCloseable registerClusterHandler(ClusterTransport transport) {
+		return transport.setRequestHandler(OPERATION_REQUEST, (fromNodeId, payload) -> applyForwarded(payload));
+	}
+
+	/**
+	 * Applies a forwarded change, when this node holds the token's open stream
+	 * and the user who sent the change is the stream's user.
+	 */
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> applyForwarded(Map<String, Object> payload) {
+		String token = asString(payload.get("token"));
+		String userId = asString(payload.get("userId"));
+		String operationId = asString(payload.get("operationId"));
+		StreamConnection connection = (token == null) ? null : CONNECTIONS.get(token);
+		if (connection == null || !connection.isBound() || userId == null || !userId.equals(connection.fUserId)
+				|| !connection.fWorkspaceName.equals(payload.get("workspace")) || operationId == null) {
+			return Map.of("status", HttpServletResponse.SC_NOT_FOUND);
+		}
+
+		String action = asString(payload.get("action"));
+		if ("add".equals(action)) {
+			String query = asString(payload.get("query"));
+			if (query == null || query.trim().isEmpty()) {
+				return Map.of("status", HttpServletResponse.SC_BAD_REQUEST);
+			}
+			Map<String, Object> variables = (payload.get("variables") instanceof Map)
+					? (Map<String, Object>) payload.get("variables") : null;
+			connection.addOperation(operationId,
+					new GraphQLRequest(query, asString(payload.get("operationName")), variables));
+			return Map.of("status", HttpServletResponse.SC_ACCEPTED);
+		}
+		if ("stop".equals(action)) {
+			connection.stopOperation(operationId);
+			return Map.of("status", HttpServletResponse.SC_NO_CONTENT);
+		}
+		return Map.of("status", HttpServletResponse.SC_BAD_REQUEST);
+	}
+
+	/**
+	 * The user the credentials sign in as on the workspace, or {@code null}
+	 * when they do not sign in. Independent of the credentials' class, so a
+	 * stream opened with a SAML login and a request carrying the
+	 * authentication token compare equal.
+	 */
+	private static String userIdOf(String workspaceName, Credentials credentials) {
+		Session session = null;
+		try {
+			session = CmsService.getRepository().login(credentials, workspaceName);
+			return session.getUserID();
+		} catch (Throwable ex) {
+			return null;
+		} finally {
+			if (session != null) {
+				try {
+					session.logout();
+				} catch (Throwable ignore) {}
+			}
+		}
+	}
+
+	private static int intOf(Object value) {
+		return (value instanceof Number) ? ((Number) value).intValue() : HttpServletResponse.SC_NOT_FOUND;
+	}
+
+	/** A stream's entry in the replicated table. */
+	private static final class Owner {
+		String node;
+		String user;
+		String workspace;
+
+		static Owner of(ClusterTransport transport, String token) {
+			String value = transport.getTable(STREAMS_TABLE).get(token);
+			if (value == null) {
+				return null;
+			}
+			try {
+				Owner owner = GSON.fromJson(value, Owner.class);
+				return (owner == null || owner.node == null) ? null : owner;
+			} catch (Exception ex) {
+				return null;
+			}
+		}
 	}
 
 	/** Reads the operationId from the request's {@code extensions.operationId} (or {@code ?operationId}). */
@@ -317,11 +557,51 @@ public final class GraphQLStreamHandler {
 		private volatile AsyncContext fAsyncContext;
 		private volatile ScheduledFuture<?> fHeartbeat;
 		private volatile ScheduledFuture<?> fReservationTimeout;
+		/** The signed-in user, recorded in a cluster only (forwarded changes must be theirs). */
+		private volatile String fUserId;
 
 		StreamConnection(String workspaceName, Credentials credentials, String token) {
 			fWorkspaceName = workspaceName;
 			fCredentials = credentials;
 			fToken = token;
+		}
+
+		/** Whether the SSE stream is open on this node (not just reserved). */
+		boolean isBound() {
+			return fAsyncContext != null;
+		}
+
+		/** Records in the cluster's table that this node holds the token. */
+		void announce(long ttlMillis) {
+			ClusterTransport transport = CmsService.getClusterTransport();
+			if (transport == null || fClosed.get()) {
+				return;
+			}
+			Map<String, Object> owner = new LinkedHashMap<>();
+			owner.put("node", transport.getNodeId());
+			owner.put("user", fUserId);
+			owner.put("workspace", fWorkspaceName);
+			try {
+				transport.getTable(STREAMS_TABLE).put(fToken, GSON.toJson(owner), ttlMillis);
+			} catch (Throwable ex) {
+				CmsService.getLogger(getClass()).debug("Could not record the stream in the cluster table.", ex);
+			}
+		}
+
+		/** Removes the token from the cluster's table, unless another node has taken it over. */
+		private void withdraw() {
+			ClusterTransport transport = CmsService.getClusterTransport();
+			if (transport == null) {
+				return;
+			}
+			try {
+				Owner owner = Owner.of(transport, fToken);
+				if (owner != null && transport.getNodeId().equals(owner.node)) {
+					transport.getTable(STREAMS_TABLE).remove(fToken);
+				}
+			} catch (Throwable ex) {
+				CmsService.getLogger(getClass()).debug("Could not remove the stream from the cluster table.", ex);
+			}
 		}
 
 		/** Drop the reservation if the SSE stream is never opened. */
@@ -362,6 +642,8 @@ public final class GraphQLStreamHandler {
 			});
 			fHeartbeat = SCHEDULER.scheduleAtFixedRate(this::sendHeartbeat,
 					HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+			// The stream is here now, whichever node reserved it.
+			announce(STREAM_OWNER_TTL_MS);
 		}
 
 		void addOperation(String operationId, GraphQLRequest request) {
@@ -407,6 +689,8 @@ public final class GraphQLStreamHandler {
 
 		private void sendHeartbeat() {
 			write(": heartbeat\n\n");
+			// Keeps the entry alive; it expires on its own when this node dies.
+			announce(STREAM_OWNER_TTL_MS);
 		}
 
 		/** {@code event: next} carrying {@code {id, payload}} for one operation. */
@@ -519,7 +803,8 @@ public final class GraphQLStreamHandler {
 			if (!fClosed.compareAndSet(false, true)) {
 				return;
 			}
-			CONNECTIONS.remove(fToken);
+			CONNECTIONS.remove(fToken, this);
+			withdraw();
 			ScheduledFuture<?> heartbeat = fHeartbeat;
 			if (heartbeat != null) {
 				heartbeat.cancel(false);

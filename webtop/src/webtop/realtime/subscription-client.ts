@@ -14,6 +14,11 @@
  * the browser to a single HTTP/2 stream regardless of how many subscriptions run
  * (distinct connections mode opened one stream each, which churned HTTP/2 and DB
  * connections).
+ *
+ * The POSTs and DELETEs of one stream change the same server-side state, so they
+ * are sent one at a time, in the order they were made: the next one leaves only
+ * after the previous one has been answered. Sent concurrently, a stop could be
+ * applied before the add it follows, leaving a subscription running.
  */
 
 export type SubscriptionHandler<T = unknown> = (data: T) => void;
@@ -54,6 +59,8 @@ export class SubscriptionClient {
   #reconnectDelay = 1000;
   #maxReconnectDelay = 30000;
   #reconnectTimer: number | null = null;
+  /** Tail of the stream's send queue: POST/DELETE run one after another. */
+  #sendQueue: Promise<void> = Promise.resolve();
 
   constructor(options: SubscriptionClientOptions) {
     this.#endpoint = options.endpoint;
@@ -154,31 +161,52 @@ export class SubscriptionClient {
     });
   }
 
-  async #postOperation(operationId: string): Promise<void> {
-    const operation = this.#operations.get(operationId);
-    if (!operation || !this.#token) {
-      return;
+  /**
+   * Queues a change of the current stream behind the ones already queued. The
+   * task runs only while the stream it was queued for is still the current one;
+   * after a reconnect every active operation is posted again anyway.
+   */
+  #enqueue(task: (token: string) => Promise<void>): Promise<void> {
+    const token = this.#token;
+    if (!token) {
+      return Promise.resolve();
     }
-    const response = await fetch(`${this.#endpoint}?token=${encodeURIComponent(this.#token)}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query: operation.document, extensions: { operationId } }),
+    const run = this.#sendQueue.then(() => (this.#token === token ? task(token) : undefined));
+    this.#sendQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  #postOperation(operationId: string): Promise<void> {
+    return this.#enqueue(async (token) => {
+      const operation = this.#operations.get(operationId);
+      if (!operation) {
+        // Unsubscribed while queued: nothing to add.
+        return;
+      }
+      const response = await fetch(`${this.#endpoint}?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: operation.document, extensions: { operationId } }),
+      });
+      if (response.status === 404 || response.status === 503) {
+        // Token gone (server dropped the connection), or the node holding the
+        // stream cannot be reached — re-establish and re-post.
+        this.#handleConnectionError(new Event('error'));
+      }
     });
-    if (response.status === 404) {
-      // Token gone (server dropped the connection) — re-establish and re-post.
-      this.#handleConnectionError(new Event('error'));
-    }
   }
 
   async #unsubscribe(operationId: string): Promise<void> {
     const existed = this.#operations.delete(operationId);
-    if (existed && this.#token) {
+    if (existed) {
       try {
-        await fetch(
-          `${this.#endpoint}?token=${encodeURIComponent(this.#token)}&operationId=${encodeURIComponent(operationId)}`,
-          { method: 'DELETE', credentials: 'include' }
-        );
+        await this.#enqueue(async (token) => {
+          await fetch(
+            `${this.#endpoint}?token=${encodeURIComponent(token)}&operationId=${encodeURIComponent(operationId)}`,
+            { method: 'DELETE', credentials: 'include' }
+          );
+        });
       } catch {
         /* best effort */
       }

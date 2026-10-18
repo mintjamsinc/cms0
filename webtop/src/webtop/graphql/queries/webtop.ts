@@ -127,6 +127,22 @@ export const WEBTOP_QUERIES = {
           lastHeartbeat
           alive
           self
+          address
+          link {
+            nodeId
+            outbound
+            connectedSince
+            inbound
+            lastWakeSent
+            lastWakeReceived
+            rejected
+            dropped
+          }
+          reportedLinks {
+            nodeId
+            outbound
+            inbound
+          }
         }
       }
     }

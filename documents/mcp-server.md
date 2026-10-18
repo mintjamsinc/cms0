@@ -758,9 +758,10 @@ connection is read from the repository, which every node shares.
 not on shared storage, keep the file identical on all nodes: a `notBefore` set
 on one node only is not applied by the others.
 
-The approval page keeps its form value in the node-local HTTP session. Without
-sticky sessions the decision can land on another node, which answers that the
-page had expired; nothing is approved, and pressing **Allow** again succeeds.
+The approval page keeps its form value in the HTTP session, which the cluster
+shares, so the decision may land on any node. Should the session be lost in
+between, the node answers that the page had expired; nothing is approved, and
+pressing **Allow** again succeeds.
 The record of redeemed authorization codes is node-local too: a code replayed
 on another node within its one minute is stopped by PKCE, not by that record.
 

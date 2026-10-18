@@ -401,6 +401,9 @@ public class WorkspaceReconciler implements Closeable {
 				workspaceManager.closeWorkspace(workspaceName);
 				CmsService.getDefault().forgetWorkspace(workspaceName);
 			}
+			// The shared directory is removed once by one node; the search index
+			// and the rest of this node's own data are every node's to remove.
+			workspaceManager.removeLocalWorkspaceData(workspaceName);
 			NodeReport report = describeLocal(workspaceName);
 			report.state = NodeState.CLOSED;
 			report.message = null;

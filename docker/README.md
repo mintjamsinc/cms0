@@ -24,6 +24,12 @@ container with zero manual SAML configuration on first boot.
 | `CMS_SP_KEYSTORE_PASSWORD` | Optional. Password for the auto-generated SP keystore (`etc/sp-keystore.p12`). If unset, a random password is generated on first boot and written to `/data/repository/SP_KEYSTORE_PASSWORD.txt` (mode 0600). Stored AES-encrypted in `etc/saml2.yml` either way. |
 | `CMS_IDP_KEYSTORE_PASSWORD` | Optional. Password for the auto-generated IdP keystore (`etc/idp-keystore.p12`). If unset, a random password is generated on first boot and written to `/data/repository/IDP_KEYSTORE_PASSWORD.txt` (mode 0600). Stored AES-encrypted in `etc/idp.yml` either way. |
 | `CMS_CLUSTER_ENABLED` | Optional, `true` or `false`. Selects the clustered or the standalone configuration files placed on first start, and when set overrides `etc/repository.yml#cluster.enabled`. See [Bundled assets and configuration](#bundled-assets-and-configuration). |
+| `CMS_CLUSTER_NODE_ID` | This node's identifier in the cluster; unique per node. |
+| `CMS_CLUSTER_PORT` | The port on which the node accepts connections from the other cluster nodes. Default `9080`. Keep it off `ports:` and the public network. |
+| `CMS_CLUSTER_BIND_ADDRESS` | Optional. The interface the cluster port listens on (the management network's). |
+| `CMS_CLUSTER_ADVERTISE_ADDRESS` | Optional. Where the other nodes reach this one, `host` or `host:port` (a Compose service name works: `node-1:9080`). Needed when the container has more than one site-local address. |
+| `CMS_CLUSTER_SECRET_KEY_PATH` | Optional. The key that signs the frames between the nodes. Default: `<repository>/etc/cluster-secret-key.yml`, created on first start. |
+| `CMS_NODE_LOCAL_PATH` | This node's own data: search indexes and the temporary directory. Default in this image: `/data/local`. Node-local — never point it at shared storage. |
 
 ## Configuration values from the environment
 
@@ -45,7 +51,7 @@ each configuration file. The clustered seed uses it for the database:
 | `CMS_DB_PORT` | Database port. Defaults to `5432`. |
 | `CMS_DB_USER` | Database user. **Required** with `CMS_CLUSTER_ENABLED=true`. |
 | `CMS_DB_PASSWORD` / `CMS_DB_PASSWORD_FILE` | Database password, directly or from a file. Not needed when the password is written into the configuration as `ENC[...]`. |
-| `CMS_SEARCH_INDEX_PATH` | Where this node keeps its search index. Default in this image: `/data/index`. Node-local — never point it at shared storage. |
+| `CMS_SEARCH_INDEX_PATH` | Kept for a `jcr.yml` placed by an earlier image, whose `search.indexPath` names it (`/data/index`). New installations do not use it: the search index is node-local data under `CMS_NODE_LOCAL_PATH`. |
 
 These names are the seed's convention, not a fixed list: `${env.ANYTHING}`
 works in any of the fields listed in
@@ -73,10 +79,16 @@ container. Use `CMS_JAVA_OPTS`. Never put a secret in either: the JVM echoes
 |---|---|
 | `/data/repository` | JCR content, generated SP/IdP keystores (`*.p12`), and the auto-generated `saml2.yml` / `idp.yml`. Losing this means starting from a blank repository. |
 | `/data/secrets` | The AES key that encrypts the keystore passwords in `*.yml` and any `ENC[...]` value. **Losing this makes those encrypted values unrecoverable** — back it up on its own schedule. |
-| `/data/index` | This node's search index. Rebuildable (a node that starts with an empty index directory builds it from the repository content), so it need not be backed up — but it must be **node-local**, never shared between nodes. |
+| `/data/local` | This node's own data (`CMS_NODE_LOCAL_PATH`): its search indexes and its temporary directory. Rebuildable (a node that starts without an index builds it from the repository content), so it need not be backed up — but it must be **node-local**, never shared between nodes. Without it the data lives in the container and is rebuilt whenever the container is recreated. |
 
 In a cluster, `/data/repository` and `/data/secrets` are the shared storage
-every node mounts; `/data/index` is each node's own.
+every node mounts; `/data/local` is each node's own.
+
+An installation started from an earlier image mounts `/data/index`, and its
+placed `jcr.yml` names it in `search.indexPath`. That keeps working; to move
+to the new layout, mount a volume at `/data/local` and remove the
+`indexPath` line from the placed `jcr.yml` files — each node then rebuilds
+its index there.
 
 ## Encrypting a value
 

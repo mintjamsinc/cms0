@@ -168,6 +168,6 @@ board and is legal there; in every other case, and when it looks at the app
 again after being hidden, it reads the room and brings the board up to date.
 The room is the record; a message is only what makes the app read it.
 
-In a cluster, the message reaches the other player's node over the cluster
-signal bus within its poll interval (2 seconds); the repository is shared,
+In a cluster, the message reaches the other player's node straight over the
+cluster connections (`clustering.md`, *Signals*); the repository is shared,
 so the room read on any node is the same.

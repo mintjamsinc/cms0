@@ -496,10 +496,39 @@
 									<span class="dash-list-rank"><i class="bi bi-hdd-network"></i></span>
 									<span class="dash-list-main">
 										<span class="dash-list-title">{{ m.name }}<wt-badge class="ms-1" variant="neutral" v-if="m.self">{{ t('app.dashboard.cluster.thisNode', undefined, 'This node') }}</wt-badge></span>
-										<span class="dash-list-sub">{{ m.nodeId }} · {{ t('app.dashboard.cluster.heartbeatAge', { age: m.heartbeatAge }, 'heartbeat ' + m.heartbeatAge + ' ago') }}</span>
+										<span class="dash-list-sub">{{ m.nodeId }} · {{ m.address || t('app.dashboard.cluster.noAddress', undefined, 'no cluster port') }} · {{ t('app.dashboard.cluster.heartbeatAge', { age: m.heartbeatAge }, 'heartbeat ' + m.heartbeatAge + ' ago') }}</span>
 									</span>
+									<!-- The connection, kept apart from the heartbeat: a live node
+									     without one points at the cluster port or the firewall. -->
+									<wt-badge v-if="m.alive && m.linkState" :variant="m.linkState === 'both' ? 'success' : m.linkState === 'one' ? 'warning' : 'danger'" :title="t('app.dashboard.cluster.link.hint', undefined, 'Cluster connection in both directions')">{{ m.linkState === 'both' ? t('app.dashboard.cluster.link.both', undefined, 'Connected') : m.linkState === 'one' ? t('app.dashboard.cluster.link.one', undefined, 'One way') : t('app.dashboard.cluster.link.none', undefined, 'Not connected') }}</wt-badge>
 									<wt-badge :variant="m.alive ? 'success' : 'danger'">{{ m.alive ? t('app.dashboard.cluster.alive', undefined, 'Alive') : t('app.dashboard.cluster.stale', undefined, 'Stale') }}</wt-badge>
 								</div>
+							</div>
+							<div class="dash-list-empty" v-if="cluster.nodeId">{{ t('app.dashboard.cluster.viewedFrom', { node: cluster.nodeId }, 'Connections as seen from ' + cluster.nodeId) }}</div>
+
+							<!-- Three nodes or more: every pair, as each node reports its own
+							     outbound connection (row to column), from whichever node answered. -->
+							<div class="dash-matrix-wrap" v-if="cluster.matrix.nodes.length >= 3">
+								<table class="dash-matrix">
+									<caption>{{ t('app.dashboard.cluster.matrix', undefined, 'Connections reported by each node (row to column)') }}</caption>
+									<thead>
+										<tr>
+											<th></th>
+											<th v-for="n in cluster.matrix.nodes" :key="n" scope="col">{{ n }}</th>
+										</tr>
+									</thead>
+									<tbody>
+										<tr v-for="row in cluster.matrix.rows" :key="row.nodeId">
+											<th scope="row">{{ row.nodeId }}</th>
+											<td v-for="c in row.cells" :key="c.to" :class="'is-' + c.state" :title="row.nodeId + ' → ' + c.to">
+												<i class="bi bi-check-circle-fill" v-if="c.state === 'ok'"></i>
+												<i class="bi bi-hourglass-split" v-else-if="c.state === 'warn'"></i>
+												<i class="bi bi-x-circle-fill" v-else-if="c.state === 'down'"></i>
+												<span v-else>—</span>
+											</td>
+										</tr>
+									</tbody>
+								</table>
 							</div>
 						</div>
 

@@ -27,6 +27,7 @@ import java.util.Map;
 
 import javax.jcr.Repository;
 
+import org.mintjams.jcr.cluster.ClusterTransport;
 import org.mintjams.jcr.service.Bootstrap;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.osgi.BundleLocalization;
@@ -89,6 +90,16 @@ public class JcrRepositoryService {
 					JcrRepository repository = fCloser.register(configuration.createRepository());
 					Activator.getDefault().getBootstrap().setRepository(repository);
 					repository.open();
+
+					// Before the repository, so that a bundle starting on the
+					// repository finds the cluster connections already there.
+					if (repository.getClusterTransport() != null) {
+						fCloser.add(Registration.newBuilder(ClusterTransport.class)
+								.setService(repository.getClusterTransport())
+								.setProperty(Constants.SERVICE_VENDOR, localization.getVendor())
+								.setBundleContext(fBundleContext)
+								.build());
+					}
 
 					fCloser.add(Registration.newBuilder(Repository.class)
 							.setService(repository)

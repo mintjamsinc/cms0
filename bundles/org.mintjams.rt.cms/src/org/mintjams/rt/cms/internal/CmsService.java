@@ -50,6 +50,7 @@ import org.mintjams.cms.security.Encryptor;
 import org.mintjams.cms.security.Encryptors;
 import org.mintjams.cms.security.SecretKeyProvider;
 import org.mintjams.jcr.Workspace;
+import org.mintjams.jcr.cluster.ClusterTransport;
 import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.AccessControlManager;
 import org.mintjams.jcr.security.GroupPrincipal;
@@ -80,6 +81,8 @@ import org.mintjams.rt.cms.internal.security.ServiceUserAuthenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Authenticator;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2PrincipalProvider;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2ServiceProvider;
+import org.mintjams.rt.cms.internal.web.ClusterSessionStore;
+import org.mintjams.rt.cms.internal.web.GraphQLStreamHandler;
 import org.mintjams.rt.cms.internal.web.RepositoryServletsProvider;
 import org.mintjams.rt.cms.internal.web.WorkspaceWebServletProvider;
 import org.mintjams.script.resource.ResourceException;
@@ -92,6 +95,7 @@ import org.mintjams.tools.osgi.Registration;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.Constants;
+import org.osgi.framework.ServiceReference;
 import org.osgi.framework.wiring.BundleWiring;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
@@ -170,13 +174,14 @@ public class CmsService {
 	private final Closer fCloser = Closer.create();
 	private JobManager fJobManager;
 	private WorkspaceReconciler fWorkspaceReconciler;
+	private volatile ClusterTransport fClusterTransport;
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
 	/**
 	 * EventAdmin topic posted when a workspace's shared settings are edited
 	 * (display name, auto-start, engine switches). The settings live in files
 	 * every node reads, so the change is a fact for the whole cluster: the event
-	 * is posted locally and broadcast over the cluster signal bus, and every
+	 * is posted locally and sent to the other nodes as a cluster signal, and every
 	 * workspace's event manager delivers it so any connected desktop can refresh
 	 * via the {@code workspaceChanged} subscription. It carries no path — only
 	 * the {@code workspace} property.
@@ -241,6 +246,30 @@ public class CmsService {
 	}
 
 	private synchronized void open() throws IOException, RepositoryException {
+		// The repository registers its cluster connections before itself, so
+		// they are here when this component starts, and they live as long as
+		// the repository this component is bound to.
+		ServiceReference<ClusterTransport> transportReference = fBundleContext.getServiceReference(ClusterTransport.class);
+		if (transportReference != null) {
+			fClusterTransport = fBundleContext.getService(transportReference);
+			fCloser.add(() -> {
+				fClusterTransport = null;
+				try {
+					fBundleContext.ungetService(transportReference);
+				} catch (Throwable ignore) {}
+			});
+		}
+		if (fClusterTransport != null) {
+			// First, so that a Jetty waiting for its session store starts now.
+			try {
+				fCloser.add(ClusterSessionStore.register(fBundleContext, fClusterTransport));
+			} catch (Throwable ex) {
+				fLoggerFactory.getLogger(getClass()).error("The cluster session store could not be registered;"
+						+ " HTTP sessions stay on the node that created them.", ex);
+			}
+			fCloser.add(GraphQLStreamHandler.registerClusterHandler(fClusterTransport));
+		}
+
 		fConfig = new CmsConfiguration();
 		fJobManager = fCloser.register(new JobManager(fConfig.getJobManagerWorkers()));
 		fCloser.register(new RepositoryServletsProvider(fConfig)).open();
@@ -551,7 +580,7 @@ public class CmsService {
 	 * must never derail the update that triggered it.
 	 *
 	 * <p>The notification reaches the whole cluster: it is posted locally for
-	 * the desktops connected here, and broadcast over the cluster signal bus so
+	 * the desktops connected here, and sent to the other nodes as a cluster signal so
 	 * the desktops connected to the other nodes refresh too. In a standalone
 	 * deployment the broadcast is a no-op.
 	 */
@@ -562,7 +591,7 @@ public class CmsService {
 	/**
 	 * Announces that a workspace was created. Creation is a fact for the whole
 	 * cluster — every node opens the new workspace — so, like a settings change,
-	 * the event is posted locally and broadcast over the cluster signal bus:
+	 * the event is posted locally and sent to the other nodes as a cluster signal:
 	 * every node receives it once, whichever node carried out the creation.
 	 * Best-effort.
 	 */
@@ -630,7 +659,7 @@ public class CmsService {
 
 	/**
 	 * Fans a notification out to the other cluster nodes. The system workspace
-	 * is the repository-wide channel: it runs on every node, so its signal bus
+	 * is the repository-wide channel: it runs on every node, so its coordinator
 	 * reaches them all regardless of which workspaces each node runs. Each
 	 * receiving node re-emits the notification as a local event,
 	 * indistinguishable from a local post. Best-effort, and a no-op outside a
@@ -919,6 +948,15 @@ public class CmsService {
 	 */
 	public static String getWorkspaceStartError(String workspaceName) {
 		return getDefault().fWorkspaceStartErrors.get(workspaceName);
+	}
+
+	/**
+	 * Returns the connections to the other cluster nodes, or {@code null} in
+	 * standalone deployments.
+	 */
+	public static ClusterTransport getClusterTransport() {
+		CmsService service = fCmsService;
+		return (service == null) ? null : service.fClusterTransport;
 	}
 
 	public static SecretKeyProvider getSecretKeyProvider() {
