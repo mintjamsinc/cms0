@@ -136,7 +136,8 @@ export const WEBTOP_QUERIES = {
             lastWakeSent
             lastWakeReceived
             rejected
-            dropped
+            droppedWhileDisconnected
+            droppedOnOverflow
           }
           reportedLinks {
             nodeId

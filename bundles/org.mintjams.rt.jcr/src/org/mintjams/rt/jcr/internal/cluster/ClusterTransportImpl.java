@@ -155,12 +155,15 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 	}
 
 	/**
-	 * Reads the cluster key and starts listening. When the key cannot be read
-	 * or this node's address cannot be determined, the node does not listen
-	 * and opens no connections — it keeps working through the database
-	 * polling alone — but the tables still work locally.
+	 * Reads the cluster key and starts listening. A node that cannot read the
+	 * key, or cannot determine or bind the address at which the other nodes
+	 * reach it, does not start at all: it would be half a cluster node — its
+	 * journal would follow through the database polling, but its sessions and
+	 * subscription streams would never reach the other nodes, and behind a
+	 * load balancer without sticky routing its users would fail at random.
+	 * The exception names the setting to fix.
 	 */
-	public synchronized ClusterTransportImpl open() {
+	public synchronized ClusterTransportImpl open() throws IOException {
 		fRequestExecutor = new ThreadPoolExecutor(0, MAX_REQUEST_THREADS, 60L, TimeUnit.SECONDS,
 				new LinkedBlockingQueue<>(MAX_QUEUED_REQUESTS), r -> {
 					Thread t = new Thread(r, "ClusterTransport-Request");
@@ -171,10 +174,14 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 		try {
 			fKey = ClusterSecretKey.derive(fConfiguration.getClusterSecretKeyPath(), "transport/v1");
 			listen();
-		} catch (Throwable ex) {
-			Activator.getDefault().getLogger(getClass()).error("The cluster connections could not be opened;"
-					+ " this node relies on the database polling alone.", ex);
+		} catch (IOException ex) {
 			closeServerSocket();
+			fRequestExecutor.shutdownNow();
+			throw new IOException("The cluster connections could not be opened: " + ex.getMessage(), ex);
+		} catch (RuntimeException ex) {
+			closeServerSocket();
+			fRequestExecutor.shutdownNow();
+			throw new IOException("The cluster connections could not be opened: " + ex, ex);
 		}
 
 		fMaintenance = new Thread(this::maintain, "ClusterTransport-Maintenance");
@@ -183,12 +190,32 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 		return this;
 	}
 
+	/**
+	 * Decides where to listen and where to be reached, then listens. The bind
+	 * address (where the port is opened) and the advertise address (what the
+	 * other nodes are told) are separate settings; without a bind address the
+	 * port is opened on the advertised address itself — never on every
+	 * interface, which would expose it on the public network of a host with
+	 * several — and without either the node's only site-local address is used
+	 * for both. Anything that does not resolve to one address of this host is
+	 * an error.
+	 */
 	private void listen() throws IOException {
 		int port = fConfiguration.getClusterPort();
 		String bind = fConfiguration.getClusterBindAddress();
 		String advertise = fConfiguration.getClusterAdvertiseAddress();
+		String settings = "org.mintjams.jcr.cluster.bindAddress (CMS_CLUSTER_BIND_ADDRESS) and"
+				+ " org.mintjams.jcr.cluster.advertiseAddress (CMS_CLUSTER_ADVERTISE_ADDRESS)";
 
-		InetAddress bindAddress = (bind == null) ? null : InetAddress.getByName(bind);
+		InetAddress bindAddress = null;
+		if (bind != null) {
+			try {
+				bindAddress = InetAddress.getByName(bind);
+			} catch (IOException ex) {
+				throw new IOException("The cluster bind address '" + bind + "' cannot be resolved; see " + settings + ".", ex);
+			}
+		}
+
 		String advertisedHost;
 		int advertisedPort = port;
 		if (advertise != null) {
@@ -197,18 +224,22 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 			if (hostPort[1] != null) {
 				advertisedPort = Integer.parseInt(hostPort[1]);
 			}
+			if (bindAddress == null) {
+				bindAddress = localAddressOf(advertisedHost);
+				if (bindAddress == null) {
+					throw new IOException("The cluster advertise address '" + advertise + "' does not name an address of"
+							+ " this host, so there is no interface to listen on. Set the bind address to the management"
+							+ " interface; see " + settings + ".");
+				}
+			}
 		} else if (bindAddress != null && !bindAddress.isAnyLocalAddress()) {
 			advertisedHost = bindAddress.getHostAddress();
 		} else {
 			List<InetAddress> candidates = listSiteLocalAddresses();
 			if (candidates.size() != 1) {
-				Activator.getDefault().getLogger(getClass()).warn("The address under which the other cluster nodes reach"
-						+ " this node could not be determined (site-local addresses: " + candidates + "). Set"
-						+ " org.mintjams.jcr.cluster.advertiseAddress (or CMS_CLUSTER_ADVERTISE_ADDRESS) and, to keep"
-						+ " the port off the public network, org.mintjams.jcr.cluster.bindAddress (or"
-						+ " CMS_CLUSTER_BIND_ADDRESS). Until then this node opens no cluster connections and relies on"
-						+ " the database polling alone.");
-				return;
+				throw new IOException("The address under which the other cluster nodes reach this node could not be"
+						+ " determined (site-local addresses: " + candidates + "). Set the advertise address and, to"
+						+ " keep the port off the public network, the bind address; see " + settings + ".");
 			}
 			advertisedHost = candidates.get(0).getHostAddress();
 			if (bindAddress == null) {
@@ -218,7 +249,13 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 
 		ServerSocket serverSocket = new ServerSocket();
 		serverSocket.setReuseAddress(true);
-		serverSocket.bind(new InetSocketAddress(bindAddress, port), 50);
+		try {
+			serverSocket.bind(new InetSocketAddress(bindAddress, port), 50);
+		} catch (IOException ex) {
+			closeQuietly(serverSocket);
+			throw new IOException("The cluster port could not be opened at " + bindAddress.getHostAddress() + ":" + port
+					+ " (" + ex.getMessage() + "); see org.mintjams.jcr.cluster.port (CMS_CLUSTER_PORT) and " + settings + ".", ex);
+		}
 		fServerSocket = serverSocket;
 		fAdvertisedAddress = joinHostPort(advertisedHost, advertisedPort);
 
@@ -228,6 +265,29 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 
 		Activator.getDefault().getLogger(getClass()).info("Cluster node '" + fNodeId + "' accepts cluster connections on "
 				+ serverSocket.getLocalSocketAddress() + " and is reached at " + fAdvertisedAddress + ".");
+	}
+
+	/**
+	 * Returns the address of this host that the name resolves to (the
+	 * loopback counts, for several nodes on one host), or {@code null} when
+	 * none of the resolved addresses belongs to this host.
+	 */
+	private static InetAddress localAddressOf(String host) throws IOException {
+		InetAddress[] resolved;
+		try {
+			resolved = InetAddress.getAllByName(host);
+		} catch (IOException ex) {
+			throw new IOException("The cluster advertise address '" + host + "' cannot be resolved.", ex);
+		}
+		for (InetAddress address : resolved) {
+			if (address.isAnyLocalAddress()) {
+				continue;
+			}
+			if (address.isLoopbackAddress() || NetworkInterface.getByInetAddress(address) != null) {
+				return address;
+			}
+		}
+		return null;
 	}
 
 	private static List<InetAddress> listSiteLocalAddresses() throws IOException {
@@ -387,10 +447,12 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 			return;
 		}
 		if (bytes.length > ClusterFrame.MAX_BODY_BYTES) {
-			if (fWarned.add("too-large:" + table.getName())) {
-				Activator.getDefault().getLogger(getClass()).warn("A value of the replicated table '" + table.getName()
-						+ "' is too large to send (" + bytes.length + " bytes); it stays on this node.");
-			}
+			// Not expected: the table refuses values past its limit. Said out
+			// loud all the same, since a value that stays here is a session or
+			// a stream that the other nodes do not know.
+			Activator.getDefault().getLogger(getClass()).warn("The value of the key '" + key + "' in the replicated table '"
+					+ table.getName() + "' is too large to send (" + bytes.length + " bytes; the limit is "
+					+ ClusterFrame.MAX_BODY_BYTES + "); it stays on this node and the other nodes do not see it.");
 			return;
 		}
 		for (Peer peer : fPeers.values()) {
@@ -452,7 +514,8 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 		String outbound = (peer == null) ? "down" : peer.fState;
 		long connectedSince = (peer != null && "connected".equals(outbound)) ? peer.fConnectedSince : 0L;
 		return new LinkImpl(nodeId, outbound, connectedSince, (stats.fInbound.get() > 0) ? "connected" : "none",
-				stats.fLastWakeSent, stats.fLastWakeReceived, stats.fRejected.get(), stats.fDropped.get());
+				stats.fLastWakeSent, stats.fLastWakeReceived, stats.fRejected.get(),
+				stats.fDroppedWhileDisconnected.get(), stats.fDroppedOnOverflow.get());
 	}
 
 	/**
@@ -696,7 +759,23 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 		if (fWarned.add("rejected:" + ((nodeId != null) ? nodeId : address.getHostAddress()))) {
 			Activator.getDefault().getLogger(getClass()).warn("Dropped the cluster connection from " + who + ": "
 					+ ex.getMessage() + " Check that every node uses the same cluster-secret-key.yml."
-					+ " Until then this node relies on the database polling for that node.");
+					+ " Until then this node relies on the database polling for that node, and without sticky"
+					+ " routing the sessions and subscription streams of the two nodes are not shared.");
+		}
+	}
+
+	/**
+	 * A frame from the node verified: when its connection had been refused,
+	 * says that it is accepted again, so that the log shows the fix worked.
+	 */
+	private void accepted(String nodeId, InetAddress address) {
+		boolean warned = fWarned.remove("rejected:" + nodeId);
+		if (address != null) {
+			warned |= fWarned.remove("rejected:" + address.getHostAddress());
+		}
+		if (warned) {
+			Activator.getDefault().getLogger(getClass()).info("The cluster connection from node '" + nodeId
+					+ "' is accepted again: its frames are correctly signed.");
 		}
 	}
 
@@ -831,6 +910,14 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 		}
 	}
 
+	private static void closeQuietly(ServerSocket socket) {
+		if (socket != null) {
+			try {
+				socket.close();
+			} catch (Throwable ignore) {}
+		}
+	}
+
 	// ---------------------------------------------------------------------
 	// Connections
 	// ---------------------------------------------------------------------
@@ -839,7 +926,10 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 	private static final class LinkStats {
 		final AtomicInteger fInbound = new AtomicInteger();
 		final AtomicLong fRejected = new AtomicLong();
-		final AtomicLong fDropped = new AtomicLong();
+		/** Messages for the node that were dropped because there was no connection to it. */
+		final AtomicLong fDroppedWhileDisconnected = new AtomicLong();
+		/** Messages dropped because the connection's queue was full (the node did not keep up). */
+		final AtomicLong fDroppedOnOverflow = new AtomicLong();
 		volatile long fLastWakeSent;
 		volatile long fLastWakeReceived;
 	}
@@ -887,7 +977,7 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 		void wake(String workspaceName) {
 			synchronized (this) {
 				if (!isConnected()) {
-					stats(fNodeId).fDropped.incrementAndGet();
+					stats(fNodeId).fDroppedWhileDisconnected.incrementAndGet();
 					return;
 				}
 				if (fPendingWakes.add(workspaceName)) {
@@ -898,8 +988,12 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 
 		boolean enqueue(ClusterFrame frame) {
 			synchronized (this) {
-				if (!isConnected() || fQueue.size() >= MAX_QUEUED_FRAMES) {
-					stats(fNodeId).fDropped.incrementAndGet();
+				if (!isConnected()) {
+					stats(fNodeId).fDroppedWhileDisconnected.incrementAndGet();
+					return false;
+				}
+				if (fQueue.size() >= MAX_QUEUED_FRAMES) {
+					stats(fNodeId).fDroppedOnOverflow.incrementAndGet();
 					return false;
 				}
 				fQueue.add(frame);
@@ -1098,7 +1192,14 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 			body.put("entries", batch);
 			byte[] bytes = encode(body);
 			if (bytes.length > ClusterFrame.MAX_BODY_BYTES) {
-				// One value alone exceeds the frame; it stays on its node.
+				List<Object> keys = new ArrayList<>();
+				for (Map<String, Object> entry : batch) {
+					keys.add(entry.get("k"));
+				}
+				Activator.getDefault().getLogger(ClusterTransportImpl.class).warn("The values of the keys " + keys
+						+ " in the replicated table '" + table.getName() + "' are too large to send to node '" + fNodeId
+						+ "' (" + bytes.length + " bytes; the limit is " + ClusterFrame.MAX_BODY_BYTES
+						+ "); they stay on this node and that node does not see them.");
 				return;
 			}
 			codec.write(out, new ClusterFrame(removed ? ClusterFrame.REMOVE : ClusterFrame.PUT, 0, bytes));
@@ -1110,6 +1211,7 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 			try {
 				ClusterFrame.Codec codec = new ClusterFrame.Codec(fKey);
 				DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
+				boolean verified = false;
 				for (;;) {
 					ClusterFrame frame = codec.read(in);
 					if (frame == null) {
@@ -1117,6 +1219,10 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 					}
 					Map<String, Object> body = decode(frame.fBody);
 					checkSender(body);
+					if (!verified) {
+						verified = true;
+						accepted(fNodeId, socket.getInetAddress());
+					}
 					if (frame.fKind != ClusterFrame.RESPONSE) {
 						continue;
 					}
@@ -1191,6 +1297,7 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 						fFromNodeId = nodeId;
 						stats(nodeId).fInbound.incrementAndGet();
 						fLinksChanged = true;
+						accepted(nodeId, fSocket.getInetAddress());
 					} else if (!fFromNodeId.equals(nodeId)) {
 						throw new ClusterFrame.SignatureException("The connection changed its sender.");
 					}
@@ -1252,10 +1359,11 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 		private final long fLastWakeSent;
 		private final long fLastWakeReceived;
 		private final long fRejected;
-		private final long fDropped;
+		private final long fDroppedWhileDisconnected;
+		private final long fDroppedOnOverflow;
 
 		LinkImpl(String nodeId, String outbound, long connectedSince, String inbound, long lastWakeSent,
-				long lastWakeReceived, long rejected, long dropped) {
+				long lastWakeReceived, long rejected, long droppedWhileDisconnected, long droppedOnOverflow) {
 			fNodeId = nodeId;
 			fOutbound = outbound;
 			fConnectedSince = connectedSince;
@@ -1263,7 +1371,8 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 			fLastWakeSent = lastWakeSent;
 			fLastWakeReceived = lastWakeReceived;
 			fRejected = rejected;
-			fDropped = dropped;
+			fDroppedWhileDisconnected = droppedWhileDisconnected;
+			fDroppedOnOverflow = droppedOnOverflow;
 		}
 
 		Map<String, Object> toMap() {
@@ -1275,14 +1384,16 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 			m.put("lastWakeSent", fLastWakeSent);
 			m.put("lastWakeReceived", fLastWakeReceived);
 			m.put("rejected", fRejected);
-			m.put("dropped", fDropped);
+			m.put("droppedWhileDisconnected", fDroppedWhileDisconnected);
+			m.put("droppedOnOverflow", fDroppedOnOverflow);
 			return m;
 		}
 
 		static LinkImpl fromMap(Map<?, ?> m) {
 			return new LinkImpl(String.valueOf(m.get("nodeId")), String.valueOf(m.get("outbound")),
 					longOf(m.get("connectedSince")), String.valueOf(m.get("inbound")), longOf(m.get("lastWakeSent")),
-					longOf(m.get("lastWakeReceived")), longOf(m.get("rejected")), longOf(m.get("dropped")));
+					longOf(m.get("lastWakeReceived")), longOf(m.get("rejected")),
+					longOf(m.get("droppedWhileDisconnected")), longOf(m.get("droppedOnOverflow")));
 		}
 
 		private static long longOf(Object value) {
@@ -1325,8 +1436,13 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 		}
 
 		@Override
-		public long getDropped() {
-			return fDropped;
+		public long getDroppedWhileDisconnected() {
+			return fDroppedWhileDisconnected;
+		}
+
+		@Override
+		public long getDroppedOnOverflow() {
+			return fDroppedOnOverflow;
 		}
 	}
 

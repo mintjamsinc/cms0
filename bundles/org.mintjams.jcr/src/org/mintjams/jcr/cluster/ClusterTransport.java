@@ -93,6 +93,13 @@ public interface ClusterTransport {
 	interface Table {
 
 		/**
+		 * The longest value a table accepts, in characters. A value travels
+		 * to the other nodes in one frame, so a longer one is refused by
+		 * {@link #put} outright rather than kept on one node only.
+		 */
+		int MAX_VALUE_LENGTH = 56 * 1024;
+
+		/**
 		 * Returns the value of the key, or {@code null} when there is none or
 		 * it has expired.
 		 */
@@ -102,6 +109,11 @@ public interface ClusterTransport {
 		 * Sets the value of the key. A positive time-to-live makes every node
 		 * drop the value on its own once it has passed; otherwise the value
 		 * lasts until it is removed.
+		 *
+		 * @throws IllegalArgumentException when the value is longer than
+		 *                                  {@link #MAX_VALUE_LENGTH}
+		 * @throws IllegalStateException    when the table holds as many keys
+		 *                                  as it may and this one is new
 		 */
 		void put(String key, String value, long ttlMillis);
 

@@ -837,8 +837,18 @@ type ClusterLink {
   """Connections from the other node's address dropped for a wrong signature or clock."""
   rejected: Int!
 
-  """Messages for the other node dropped because there was no connection or it could not keep up."""
-  dropped: Int!
+  """
+  Messages for the other node dropped because there was no connection to it at
+  the time (it was down, or the connection was being reopened). The database
+  polling covers them.
+  """
+  droppedWhileDisconnected: Int!
+
+  """
+  Messages for the other node dropped because the connection's queue was full:
+  the node, or the network to it, did not keep up.
+  """
+  droppedOnOverflow: Int!
 }
 
 # -----------------------------------------------------------------------------

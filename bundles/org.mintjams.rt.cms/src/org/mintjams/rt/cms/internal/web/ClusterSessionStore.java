@@ -145,6 +145,7 @@ public final class ClusterSessionStore {
 		public void doStore(String id, SessionData data, long lastSaveTime) throws Exception {
 			long now = System.currentTimeMillis();
 			ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+			Map<String, byte[]> attributes = new HashMap<>();
 			try (DataOutputStream out = new DataOutputStream(bytes)) {
 				out.writeByte(FORMAT);
 				out.writeUTF(data.getId());
@@ -157,7 +158,6 @@ public final class ClusterSessionStore {
 				out.writeLong(data.getMaxInactiveMs());
 				out.writeLong(now);
 
-				Map<String, byte[]> attributes = new HashMap<>();
 				for (String name : data.getKeys()) {
 					Object value = data.getAttribute(name);
 					if (value == null) {
@@ -184,7 +184,19 @@ public final class ClusterSessionStore {
 			long expiry = data.getExpiry();
 			long ttl = (expiry > 0) ? Math.max(expiry - now, 0L) + EXPIRY_GRACE_MILLIS
 					: NO_EXPIRY_TTL_HOURS * 3600000L;
-			fTable.put(key(id), expiry + "|" + Base64.getEncoder().encodeToString(bytes.toByteArray()), ttl);
+			String value = expiry + "|" + Base64.getEncoder().encodeToString(bytes.toByteArray());
+			try {
+				fTable.put(key(id), value, ttl);
+			} catch (IllegalArgumentException | IllegalStateException ex) {
+				// Said as a warning with the session named: the user of this
+				// session is signed out on their next request to another node,
+				// and nothing else would tell why.
+				CmsService.getLogger(ClusterSessionStore.class).warn("The HTTP session '" + id + "' (" + value.length()
+						+ " characters, " + attributes.size() + " attributes: " + attributes.keySet()
+						+ ") could not be put in the cluster's replicated table and is not shared with the other nodes: "
+						+ ex.getMessage());
+				throw ex;
+			}
 		}
 
 		@Override

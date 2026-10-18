@@ -182,9 +182,17 @@ public interface ClusterCoordinator {
 
 		/**
 		 * How many messages for the other node were dropped because there
-		 * was no connection or the connection could not keep up.
+		 * was no connection to it at the time (it was down, or the connection
+		 * was being reopened). The database polling covers what was dropped.
 		 */
-		long getDropped();
+		long getDroppedWhileDisconnected();
+
+		/**
+		 * How many messages for the other node were dropped because the
+		 * connection's queue was full: the node, or the network to it, did
+		 * not keep up with what this node sent.
+		 */
+		long getDroppedOnOverflow();
 	}
 
 }

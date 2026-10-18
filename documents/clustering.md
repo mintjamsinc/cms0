@@ -208,14 +208,22 @@ values differ per node):
 | `org.mintjams.jcr.cluster.secretKeyPath` | `CMS_CLUSTER_SECRET_KEY_PATH` | The key that signs the frames; default `<repository>/etc/cluster-secret-key.yml`. |
 | `org.mintjams.jcr.repository.localdir` | `CMS_NODE_LOCAL_PATH` | The node-local directory (see *Architecture*); default `var` under the working directory. Not cluster-specific: a standalone node uses it too. |
 
-When no advertise address is set, the bind address is used; when neither
-is set, the node uses its only non-loopback site-local address (and listens
-on it). With several such addresses, or none, the node logs a warning
-naming them, opens no cluster connections and keeps working through the
-database polling alone — set the two addresses then. Host names are not
-used by default (a container's host name usually cannot be resolved by the
-other containers), but an explicit advertise address may be a name, such as
-a Compose service name.
+The two addresses are separate settings: the bind address is where the port
+is opened, the advertise address is what the other nodes are told. When
+only the bind address is set, it is advertised too. When only the advertise
+address is set, the port is opened on that address itself — the name must
+then resolve to an address of this host (a Compose service name does) — and
+never on every interface, which on a host with a public and a management
+interface would expose the port on the public one. When neither is set, the
+node uses its only non-loopback site-local address for both. Anything else
+— several site-local addresses or none, a name that does not resolve to
+this host, a port that cannot be opened — stops the node from starting,
+with the setting to fix named in the error: a node whose connections do not
+work would follow the journal through the database polling, but its HTTP
+sessions and subscription streams would stay on it, and behind a load
+balancer without sticky routing its users would fail at random. Host names
+are not used by default (a container's host name usually cannot be resolved
+by the other containers).
 
 ### `<workspace>/etc/jcr/jcr.yml` (per workspace)
 
@@ -533,6 +541,18 @@ with an external session store:
 
 Routing a user to one node closes both. It is a choice, not a requirement.
 
+One more thing to know when running without sticky routing: the table is
+only shared over the cluster connections. While a node's connection to
+another node is down — the port is blocked, the keys differ, the other node
+is restarting — the journal still follows through the database, but the
+sessions and streams written on one side do not reach the other. A user
+whose requests are spread over the two nodes is then signed out (no shared
+session) or their subscription stream is answered `404`/`503` and reconnected,
+until the connection is back. The Dashboard's Cluster card shows the broken
+connection; the `rejected` and `droppedWhileDisconnected` counters of the
+`cluster` query say why. A node that cannot open its own port does not start
+at all, so this state only arises between nodes that both started.
+
 ### Workspace operations across the cluster
 
 Webtop cannot choose a node, so every operation on a workspace or an EIP
@@ -611,7 +631,7 @@ its own — which must never happen for the second and later nodes.
 | `etc/idp-keystore.p12` | Signing certificate of the built-in IdP. Service providers validate assertion signatures against the certificate published in the IdP metadata; assertions signed by a different per-node certificate fail validation. |
 | `etc/sp-keystore.p12` | SP signing/encryption keys. The IdP holds the SP metadata; a node with different keys cannot sign AuthnRequests or decrypt assertions. |
 | `etc/idp.yml`, `etc/saml2.yml` | Entity IDs, endpoints, and encrypted values — one external URL (`CMS_PUBLIC_BASE_URL`), one SAML entity. |
-| `etc/cluster-secret-key.yml` | Signs the frames between the nodes (see *Cluster connections*). Held by the repository bundle alone and separate from `secret-key.yml`, so that one leaking does not expose the other. Created only in cluster mode (or at `CMS_CLUSTER_SECRET_KEY_PATH`). A node with a different key has its connections refused — it logs a warning once per node and keeps working through the database polling. To replace the key, replace the file and restart every node. |
+| `etc/cluster-secret-key.yml` | Signs the frames between the nodes (see *Cluster connections*). Held by the repository bundle alone and separate from `secret-key.yml`, so that one leaking does not expose the other. Created only in cluster mode (or at `CMS_CLUSTER_SECRET_KEY_PATH`), written in one step so that a node starting at the same time never reads a half-written file. A node with a different key has its connections refused — it logs a warning once per node (and an info message once they are accepted again) and keeps following the journal through the database polling; but its HTTP sessions and subscription streams stay on it, so without sticky routing its users are signed out or reconnected at random until the key is fixed (see *Sticky sessions*). To replace the key, replace the file and restart every node. |
 
 With the repository directory on shared storage (the recommended
 layout), `etc/` is shared automatically and nothing needs to be done.
@@ -711,9 +731,14 @@ stopping every node and starting them all on the new image.
    interface (`CMS_CLUSTER_BIND_ADDRESS`), leave it out of `ports:` and of
    public Services, and where there is no management network firewall it
    to the cluster's nodes. Set `CMS_CLUSTER_ADVERTISE_ADDRESS` when a node
-   has more than one site-local address. A node that cannot be reached is
-   only slower, not broken; each node logs once per peer that it could not
-   connect.
+   has more than one site-local address; without a bind address the port is
+   then opened on the advertised address, not on every interface. A node
+   that cannot determine or open its own address does not start (the error
+   names the setting). A node that cannot reach another one keeps running
+   and logs once per peer that it could not connect; while the connection
+   is down the journal still follows through the database, but the two
+   nodes do not share HTTP sessions or subscription streams, which matters
+   without sticky routing (see *Sticky sessions*).
 8. Outside the container image, set
    `org.apache.felix.http.session.store.require=true` in
    `conf/config.properties` of every clustered node, so that Jetty starts
@@ -833,9 +858,12 @@ The cluster state is part of the operations surface:
   `self` and `address` (its cluster port). `link` is the connection
   between the serving node and the member as the serving node sees it
   right now (`outbound` connected / connecting / down and since when,
-  `inbound` connected / none, the last wake-up sent and received, and how
-  many connections were refused for a wrong signature or clock and how
-  many messages were dropped); `reportedLinks` is the member's own view of
+  `inbound` connected / none, the last wake-up sent and received, how
+  many connections were refused for a wrong signature or clock
+  (`rejected`), how many messages were dropped because there was no
+  connection at the time (`droppedWhileDisconnected`, covered by the
+  database polling) and how many because the connection's queue was full
+  (`droppedOnOverflow`)); `reportedLinks` is the member's own view of
   its connections, reported through the replicated table every 10
   seconds, so the whole picture is available from any node. In
   standalone deployments `enabled` is `false` and `members` is empty. See
@@ -848,7 +876,9 @@ The cluster state is part of the operations surface:
   node-by-node matrix of the reported connections. A cluster KPI sits in
   the "Are operations healthy?" hero; a member with a stale heartbeat
   turns the overall status to "Issues", a live member without its
-  connections to "Attention" (it only falls back to polling). A
+  connections to "Attention" (its journal falls back to polling, and
+  without sticky routing its sessions and streams are not shared — see
+  *Sticky sessions*). A
   standalone deployment is reported explicitly as a single-node
   configuration — a normal, healthy state, not a degraded cluster.
 

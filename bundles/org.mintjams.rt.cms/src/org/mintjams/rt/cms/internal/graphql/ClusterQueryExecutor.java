@@ -73,7 +73,8 @@ public class ClusterQueryExecutor {
 	 *       alive
 	 *       self
 	 *       address
-	 *       link { nodeId outbound connectedSince inbound lastWakeSent lastWakeReceived rejected dropped }
+	 *       link { nodeId outbound connectedSince inbound lastWakeSent lastWakeReceived rejected
+	 *              droppedWhileDisconnected droppedOnOverflow }
 	 *       reportedLinks { nodeId outbound inbound }
 	 *     }
 	 *   }
@@ -138,7 +139,8 @@ public class ClusterQueryExecutor {
 		e.put("lastWakeSent", dateTime(link.getLastWakeSent()));
 		e.put("lastWakeReceived", dateTime(link.getLastWakeReceived()));
 		e.put("rejected", (int) Math.min(link.getRejected(), Integer.MAX_VALUE));
-		e.put("dropped", (int) Math.min(link.getDropped(), Integer.MAX_VALUE));
+		e.put("droppedWhileDisconnected", (int) Math.min(link.getDroppedWhileDisconnected(), Integer.MAX_VALUE));
+		e.put("droppedOnOverflow", (int) Math.min(link.getDroppedOnOverflow(), Integer.MAX_VALUE));
 		return e;
 	}
 

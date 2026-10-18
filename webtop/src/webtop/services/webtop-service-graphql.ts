@@ -199,8 +199,10 @@ export interface ClusterLink {
   lastWakeReceived: string | null;
   /** Connections dropped for a wrong signature or clock. */
   rejected: number;
-  /** Messages dropped because there was no connection or it could not keep up. */
-  dropped: number;
+  /** Messages dropped because there was no connection to the node at the time (down, or reconnecting). */
+  droppedWhileDisconnected: number;
+  /** Messages dropped because the connection's queue was full (the node did not keep up). */
+  droppedOnOverflow: number;
 }
 
 /** Cluster topology of a workspace, as reported by the `cluster` query. */

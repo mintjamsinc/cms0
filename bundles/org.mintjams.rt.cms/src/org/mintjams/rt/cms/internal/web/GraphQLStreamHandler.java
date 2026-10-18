@@ -267,7 +267,10 @@ public final class GraphQLStreamHandler {
 	 * Opens on this node a stream that another node reserved, when the
 	 * {@code GET}'s own sign-in is the reserving user's. The stream runs with
 	 * the {@code GET}'s credentials; the other node's reservation simply
-	 * expires.
+	 * expires. The client sends the {@code GET} the moment the {@code PUT} is
+	 * answered, so the reserving node's table write may still be on its way:
+	 * a token that is not in the table is looked up once more after a short
+	 * pause before it is called unknown.
 	 */
 	private StreamConnection takeOver(String token, Credentials credentials) {
 		ClusterTransport transport = CmsService.getClusterTransport();
@@ -275,6 +278,15 @@ public final class GraphQLStreamHandler {
 			return null;
 		}
 		Owner owner = Owner.of(transport, token);
+		if (owner == null) {
+			try {
+				Thread.sleep(OWNER_RETRY_DELAY_MS);
+			} catch (InterruptedException ex) {
+				Thread.currentThread().interrupt();
+				return null;
+			}
+			owner = Owner.of(transport, token);
+		}
 		if (owner == null || !fWorkspaceName.equals(owner.workspace)) {
 			return null;
 		}
@@ -584,7 +596,11 @@ public final class GraphQLStreamHandler {
 			try {
 				transport.getTable(STREAMS_TABLE).put(fToken, GSON.toJson(owner), ttlMillis);
 			} catch (Throwable ex) {
-				CmsService.getLogger(getClass()).debug("Could not record the stream in the cluster table.", ex);
+				// A stream the table does not know is answered 404 by every
+				// other node, so the client keeps reconnecting: worth a warning.
+				CmsService.getLogger(getClass()).warn("The subscription stream of user '" + fUserId + "' on workspace '"
+						+ fWorkspaceName + "' could not be recorded in the cluster table; a change of it that reaches"
+						+ " another node is answered 404: " + ex.getMessage());
 			}
 		}
 

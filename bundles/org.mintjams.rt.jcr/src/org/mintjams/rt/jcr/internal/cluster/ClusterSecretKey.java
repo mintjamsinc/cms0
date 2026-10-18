@@ -28,8 +28,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
@@ -107,32 +109,57 @@ final class ClusterSecretKey {
 		throw new IOException("The cluster key file has no key tagged '" + TAG + "': " + path);
 	}
 
+	/**
+	 * Writes a new key. The file is written next to its final place and moved
+	 * there in one step, so that a node starting at the same time either sees
+	 * no file (and creates one of its own, which the first-boot rule of the
+	 * clustering guide avoids) or the whole file — never a half-written one,
+	 * which would keep that node from opening its connections until it is
+	 * restarted. When the file appears in the meantime, the new key is
+	 * discarded and the existing file is kept.
+	 */
 	private static void create(Path path) throws IOException {
 		byte[] key = new byte[KEY_BYTES];
 		new SecureRandom().nextBytes(key);
 
-		if (path.getParent() != null) {
-			Files.createDirectories(path.getParent());
-		}
-		try (Writer out = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-			out.append("keys:\n");
-			out.append("  - tag: ").append(TAG).append("\n");
-			out.append("    data: ").append(Base64.getEncoder().encodeToString(key)).append("\n");
-		}
-
+		Path directory = (path.getParent() != null) ? path.getParent() : Path.of(".");
+		Files.createDirectories(directory);
+		Path temp = Files.createTempFile(directory, path.getFileName().toString() + ".", ".tmp");
 		try {
-			Files.setPosixFilePermissions(path, Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
-		} catch (UnsupportedOperationException ex) {
-			File file = path.toFile();
-			file.setReadable(false, false);
-			file.setWritable(false, false);
-			file.setReadable(true, true);
-			file.setWritable(true, true);
-		} catch (Throwable ex) {
-			Activator.getDefault().getLogger(ClusterSecretKey.class).warn("Failed to set file permissions for the cluster key file '"
-					+ path.toAbsolutePath() + "'. Please ensure that the file is only accessible by the owner.", ex);
+			try (Writer out = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
+				out.append("keys:\n");
+				out.append("  - tag: ").append(TAG).append("\n");
+				out.append("    data: ").append(Base64.getEncoder().encodeToString(key)).append("\n");
+			}
+			restrictToOwner(temp, path);
+
+			if (Files.exists(path)) {
+				return;
+			}
+			try {
+				Files.move(temp, path, StandardCopyOption.ATOMIC_MOVE);
+			} catch (FileAlreadyExistsException ex) {
+				return;
+			}
+		} finally {
+			Files.deleteIfExists(temp);
 		}
 		Activator.getDefault().getLogger(ClusterSecretKey.class).info("The cluster key file has been created: " + path.toAbsolutePath());
+	}
+
+	private static void restrictToOwner(Path file, Path reportedAs) {
+		try {
+			Files.setPosixFilePermissions(file, Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+		} catch (UnsupportedOperationException ex) {
+			File f = file.toFile();
+			f.setReadable(false, false);
+			f.setWritable(false, false);
+			f.setReadable(true, true);
+			f.setWritable(true, true);
+		} catch (Throwable ex) {
+			Activator.getDefault().getLogger(ClusterSecretKey.class).warn("Failed to set file permissions for the cluster key file '"
+					+ reportedAs.toAbsolutePath() + "'. Please ensure that the file is only accessible by the owner.", ex);
+		}
 	}
 
 }

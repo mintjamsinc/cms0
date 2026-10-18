@@ -46,7 +46,12 @@ final class ReplicatedTable implements ClusterTransport.Table {
 
 	/** How long a removal is remembered. */
 	static final long TOMBSTONE_TTL_MILLIS = 60000L;
-	/** Tables are meant to stay small; a write past this many keys is refused. */
+	/**
+	 * Tables are meant to stay small; a write past this many keys is refused
+	 * with an exception, as is a value longer than {@link #MAX_VALUE_LENGTH},
+	 * so that the caller — not the operator reading the log weeks later —
+	 * learns that the value is not shared.
+	 */
 	static final int MAX_ENTRIES = 100000;
 
 	private final ClusterTransportImpl fTransport;
@@ -81,13 +86,18 @@ final class ReplicatedTable implements ClusterTransport.Table {
 			remove(key);
 			return;
 		}
+		if (value.length() > MAX_VALUE_LENGTH) {
+			throw new IllegalArgumentException("The value of the key '" + key + "' in the replicated table '" + fName
+					+ "' is " + value.length() + " characters long; the limit is " + MAX_VALUE_LENGTH + ".");
+		}
 		if (fEntries.size() >= MAX_ENTRIES && !fEntries.containsKey(key)) {
 			if (!fFullReported) {
 				fFullReported = true;
 				Activator.getDefault().getLogger(ReplicatedTable.class).warn("The replicated table '" + fName
 						+ "' holds " + MAX_ENTRIES + " keys; further keys are refused.");
 			}
-			return;
+			throw new IllegalStateException("The replicated table '" + fName + "' is full (" + MAX_ENTRIES
+					+ " keys); the key '" + key + "' was refused.");
 		}
 
 		long now = System.currentTimeMillis();

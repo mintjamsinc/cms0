@@ -37,6 +37,7 @@ import javax.servlet.DispatcherType;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 
 import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.util.JCRs;
@@ -77,15 +78,24 @@ public class Webs {
 
 	/**
 	 * Resolves the authenticated credentials of the request: from the HTTP
-	 * session when this node established the login, or from the
-	 * cluster-portable authentication token, which transparently
-	 * re-establishes the session on this node when the login happened on
-	 * another node (or before a restart). Returns {@code null} when the
-	 * request carries no authentication.
+	 * session when the login was established on it (the SAML sign-in writes
+	 * them there), or from the cluster-portable authentication token. The
+	 * token travels with every request and is read on whichever node the
+	 * request reaches, so credentials restored from it are kept as request
+	 * attributes only: a stateless call (GraphQL, MCP, a download) creates no
+	 * HTTP session, and in a cluster nothing is written to the shared session
+	 * store for it. Returns {@code null} when the request carries no
+	 * authentication.
 	 */
 	public static Credentials getCredentials(HttpServletRequest request) {
-		if (request.getSession(false) != null) {
-			Object credentials = request.getSession().getAttribute(Credentials.class.getName());
+		Object cached = request.getAttribute(Credentials.class.getName());
+		if (cached instanceof Credentials) {
+			return (Credentials) cached;
+		}
+
+		HttpSession session = request.getSession(false);
+		if (session != null) {
+			Object credentials = session.getAttribute(Credentials.class.getName());
 			if (credentials instanceof Credentials) {
 				return (Credentials) credentials;
 			}
@@ -96,8 +106,8 @@ public class Webs {
 			return null;
 		}
 
-		request.getSession().setAttribute(Credentials.class.getName(), restored.getCredentials());
-		request.getSession().setAttribute(AUTHENTICATED_FACTORS_ATTRIBUTE, restored.getAuthenticatedFactors());
+		request.setAttribute(Credentials.class.getName(), restored.getCredentials());
+		request.setAttribute(AUTHENTICATED_FACTORS_ATTRIBUTE, restored.getAuthenticatedFactors());
 		return restored.getCredentials();
 	}
 
