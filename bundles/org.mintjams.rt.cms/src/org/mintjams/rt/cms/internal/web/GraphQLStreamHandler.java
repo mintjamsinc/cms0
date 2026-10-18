@@ -106,7 +106,13 @@ import graphql.ExecutionResult;
 public final class GraphQLStreamHandler {
 
 	private static final Gson GSON = new GsonBuilder().serializeNulls().create();
-	private static final long HEARTBEAT_INTERVAL_MS = 30000L;
+	/**
+	 * Comment frames keep a quiet stream alive. Well under the HTTP connector's
+	 * idle timeout ({@code org.apache.felix.http.timeout}, 30 seconds in the
+	 * shipped configuration): at the same value the heartbeat raced the idle
+	 * timeout every period and a share of the idle streams was cut each time.
+	 */
+	private static final long HEARTBEAT_INTERVAL_MS = 15000L;
 	/** A reserved token is dropped if its SSE stream is not opened within this window. */
 	private static final long RESERVATION_TIMEOUT_MS = 30000L;
 	/** An in-flight write that has not completed within this window means a dead client. */
@@ -125,7 +131,7 @@ public final class GraphQLStreamHandler {
 	/** The pause before the owner is looked up again (a table write may be in flight). */
 	private static final long OWNER_RETRY_DELAY_MS = 50L;
 	/** An open stream's entry outlives a few missed heartbeats, then expires with a dead node. */
-	private static final long STREAM_OWNER_TTL_MS = HEARTBEAT_INTERVAL_MS * 3;
+	private static final long STREAM_OWNER_TTL_MS = 90000L;
 
 	/** token -> connection. One per open client SSE stream. */
 	private static final ConcurrentMap<String, StreamConnection> CONNECTIONS = new ConcurrentHashMap<>();

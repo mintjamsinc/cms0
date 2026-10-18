@@ -80,24 +80,79 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 		return new JcrAccessControlManager(workspace);
 	}
 
+	/**
+	 * The bits of the standard privileges by their prefixed name ({@code jcr:read}
+	 * and so on): the single definition behind {@link #load()} and the session-less
+	 * evaluation of {@link JcrWorkspaceProvider#hasPrivileges}. Aggregates
+	 * ({@code jcr:write}, {@code jcr:all}) carry the bits of their constituents.
+	 */
+	private static final Map<String, Long> STANDARD_BITS;
+	static {
+		long read = 1L << 0;
+		long modifyProperties = 1L << 1;
+		long addChildNodes = 1L << 2;
+		long removeNode = 1L << 3;
+		long removeChildNodes = 1L << 4;
+		long write = modifyProperties | addChildNodes | removeNode | removeChildNodes;
+		long readAccessControl = 1L << 5;
+		long modifyAccessControl = 1L << 6;
+		long lockManagement = 1L << 7;
+		long versionManagement = 1L << 8;
+		long nodeTypeManagement = 1L << 9;
+		long retentionManagement = 1L << 10;
+		long lifecycleManagement = 1L << 11;
+		Map<String, Long> m = new HashMap<>();
+		m.put(prefixedName(Privilege.JCR_READ), read);
+		m.put(prefixedName(Privilege.JCR_MODIFY_PROPERTIES), modifyProperties);
+		m.put(prefixedName(Privilege.JCR_ADD_CHILD_NODES), addChildNodes);
+		m.put(prefixedName(Privilege.JCR_REMOVE_NODE), removeNode);
+		m.put(prefixedName(Privilege.JCR_REMOVE_CHILD_NODES), removeChildNodes);
+		m.put(prefixedName(Privilege.JCR_WRITE), write);
+		m.put(prefixedName(Privilege.JCR_READ_ACCESS_CONTROL), readAccessControl);
+		m.put(prefixedName(Privilege.JCR_MODIFY_ACCESS_CONTROL), modifyAccessControl);
+		m.put(prefixedName(Privilege.JCR_LOCK_MANAGEMENT), lockManagement);
+		m.put(prefixedName(Privilege.JCR_VERSION_MANAGEMENT), versionManagement);
+		m.put(prefixedName(Privilege.JCR_NODE_TYPE_MANAGEMENT), nodeTypeManagement);
+		m.put(prefixedName(Privilege.JCR_RETENTION_MANAGEMENT), retentionManagement);
+		m.put(prefixedName(Privilege.JCR_LIFECYCLE_MANAGEMENT), lifecycleManagement);
+		m.put(prefixedName(Privilege.JCR_ALL), read | write | readAccessControl | modifyAccessControl | lockManagement
+				| versionManagement | nodeTypeManagement | retentionManagement | lifecycleManagement);
+		STANDARD_BITS = Collections.unmodifiableMap(m);
+	}
+
+	/** The {@code jcr:} prefixed form of a standard privilege name given in either form. */
+	private static String prefixedName(String privilegeName) {
+		return privilegeName.replace("{http://www.jcp.org/jcr/1.0}", "jcr:");
+	}
+
+	/**
+	 * The bits of a standard privilege by name (prefixed or expanded form), or
+	 * {@code 0} for a name that is not a standard privilege. Needs no session:
+	 * the names access control entries store are the prefixed ones.
+	 */
+	public static long standardPrivilegeBits(String privilegeName) {
+		Long bits = (privilegeName == null) ? null : STANDARD_BITS.get(prefixedName(privilegeName));
+		return (bits == null) ? 0L : bits;
+	}
+
 	public JcrAccessControlManager load() {
-		JcrPrivilege read = JcrPrivilege.create(Privilege.JCR_READ, fWorkspace).setBits(1L << 0);
-		JcrPrivilege modifyProperties = JcrPrivilege.create(Privilege.JCR_MODIFY_PROPERTIES, fWorkspace).setBits(1L << 1);
-		JcrPrivilege addChildNodes = JcrPrivilege.create(Privilege.JCR_ADD_CHILD_NODES, fWorkspace).setBits(1L << 2);
-		JcrPrivilege removeNode = JcrPrivilege.create(Privilege.JCR_REMOVE_NODE, fWorkspace).setBits(1L << 3);
-		JcrPrivilege removeChildNodes = JcrPrivilege.create(Privilege.JCR_REMOVE_CHILD_NODES, fWorkspace).setBits(1L << 4);
+		JcrPrivilege read = JcrPrivilege.create(Privilege.JCR_READ, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_READ));
+		JcrPrivilege modifyProperties = JcrPrivilege.create(Privilege.JCR_MODIFY_PROPERTIES, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_MODIFY_PROPERTIES));
+		JcrPrivilege addChildNodes = JcrPrivilege.create(Privilege.JCR_ADD_CHILD_NODES, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_ADD_CHILD_NODES));
+		JcrPrivilege removeNode = JcrPrivilege.create(Privilege.JCR_REMOVE_NODE, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_REMOVE_NODE));
+		JcrPrivilege removeChildNodes = JcrPrivilege.create(Privilege.JCR_REMOVE_CHILD_NODES, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_REMOVE_CHILD_NODES));
 		JcrPrivilege write = JcrPrivilege.create(Privilege.JCR_WRITE, fWorkspace)
 				.addAggregatePrivilege(modifyProperties)
 				.addAggregatePrivilege(addChildNodes)
 				.addAggregatePrivilege(removeNode)
 				.addAggregatePrivilege(removeChildNodes);
-		JcrPrivilege readAccessControl = JcrPrivilege.create(Privilege.JCR_READ_ACCESS_CONTROL, fWorkspace).setBits(1L << 5);
-		JcrPrivilege modifyAccessControl = JcrPrivilege.create(Privilege.JCR_MODIFY_ACCESS_CONTROL, fWorkspace).setBits(1L << 6);
-		JcrPrivilege lockManagement = JcrPrivilege.create(Privilege.JCR_LOCK_MANAGEMENT, fWorkspace).setBits(1L << 7);
-		JcrPrivilege versionManagement = JcrPrivilege.create(Privilege.JCR_VERSION_MANAGEMENT, fWorkspace).setBits(1L << 8);
-		JcrPrivilege nodeTypeManagement = JcrPrivilege.create(Privilege.JCR_NODE_TYPE_MANAGEMENT, fWorkspace).setBits(1L << 9);
-		JcrPrivilege retentionManagement = JcrPrivilege.create(Privilege.JCR_RETENTION_MANAGEMENT, fWorkspace).setBits(1L << 10);
-		JcrPrivilege lifeCycleManagement = JcrPrivilege.create(Privilege.JCR_LIFECYCLE_MANAGEMENT, fWorkspace).setBits(1L << 11);
+		JcrPrivilege readAccessControl = JcrPrivilege.create(Privilege.JCR_READ_ACCESS_CONTROL, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_READ_ACCESS_CONTROL));
+		JcrPrivilege modifyAccessControl = JcrPrivilege.create(Privilege.JCR_MODIFY_ACCESS_CONTROL, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_MODIFY_ACCESS_CONTROL));
+		JcrPrivilege lockManagement = JcrPrivilege.create(Privilege.JCR_LOCK_MANAGEMENT, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_LOCK_MANAGEMENT));
+		JcrPrivilege versionManagement = JcrPrivilege.create(Privilege.JCR_VERSION_MANAGEMENT, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_VERSION_MANAGEMENT));
+		JcrPrivilege nodeTypeManagement = JcrPrivilege.create(Privilege.JCR_NODE_TYPE_MANAGEMENT, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_NODE_TYPE_MANAGEMENT));
+		JcrPrivilege retentionManagement = JcrPrivilege.create(Privilege.JCR_RETENTION_MANAGEMENT, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_RETENTION_MANAGEMENT));
+		JcrPrivilege lifeCycleManagement = JcrPrivilege.create(Privilege.JCR_LIFECYCLE_MANAGEMENT, fWorkspace).setBits(standardPrivilegeBits(Privilege.JCR_LIFECYCLE_MANAGEMENT));
 		JcrPrivilege all = JcrPrivilege.create(Privilege.JCR_ALL, fWorkspace)
 				.addAggregatePrivilege(read)
 				.addAggregatePrivilege(write)

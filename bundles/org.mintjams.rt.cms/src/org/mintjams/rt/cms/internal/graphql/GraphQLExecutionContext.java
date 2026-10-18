@@ -55,7 +55,7 @@ public final class GraphQLExecutionContext {
 	public static final String CTX_EXECUTION_CONTEXT = "org.mintjams.graphql.executionContext";
 
 	private final String fWorkspaceName;
-	private final Session fCallerSession;
+	private volatile Session fCallerSession;
 	private final DataLoaderRegistry fDataLoaderRegistry;
 
 	public GraphQLExecutionContext(String workspaceName, Session callerSession, DataLoaderRegistry dataLoaderRegistry) {
@@ -76,9 +76,28 @@ public final class GraphQLExecutionContext {
 		return fWorkspaceName;
 	}
 
-	/** The caller's JCR session; repository ACLs govern what resolvers may read. */
+	/**
+	 * The caller's JCR session; repository ACLs govern what resolvers may read.
+	 *
+	 * @throws IllegalStateException after {@link #release()}
+	 */
 	public Session getCallerSession() {
-		return fCallerSession;
+		Session session = fCallerSession;
+		if (session == null) {
+			throw new IllegalStateException("The caller session has been released.");
+		}
+		return session;
+	}
+
+	/**
+	 * Drops the reference to the caller session once it has been logged out.
+	 * A subscription's publisher keeps the graphql-java execution context — and
+	 * with it this object — for the life of the stream, so without this the
+	 * logged-out session, its workspace and its node type registry stayed
+	 * reachable per subscription (about 100 KB each).
+	 */
+	public void release() {
+		fCallerSession = null;
 	}
 
 	public DataLoaderRegistry getDataLoaderRegistry() {

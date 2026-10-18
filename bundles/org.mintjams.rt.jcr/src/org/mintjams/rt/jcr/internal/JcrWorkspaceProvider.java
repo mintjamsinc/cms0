@@ -33,6 +33,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -51,6 +53,9 @@ import javax.xml.namespace.QName;
 
 import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.search.SearchIndexRebuilder;
+import org.mintjams.jcr.security.AdminPrincipal;
+import org.mintjams.jcr.security.EveryonePrincipal;
+import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.LoginTimedOutException;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.util.JCRs;
@@ -60,6 +65,7 @@ import org.mintjams.rt.jcr.internal.cluster.ClusterController;
 import org.mintjams.rt.jcr.internal.cluster.ClusterJournal;
 import org.mintjams.rt.jcr.internal.nodetype.JcrNodeType;
 import org.mintjams.rt.jcr.internal.observation.JournalObserver;
+import org.mintjams.rt.jcr.internal.security.JcrAccessControlManager;
 import org.mintjams.rt.jcr.internal.security.ServicePrincipal;
 import org.mintjams.rt.jcr.internal.security.SystemPrincipal;
 import org.mintjams.rt.jcr.internal.sql.DatabaseDialect;
@@ -1038,6 +1044,117 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 
 	public JcrWorkspaceProviderConfiguration getConfiguration() {
 		return fConfig;
+	}
+
+	/**
+	 * Decides whether a user holds the given privileges on a path from the
+	 * committed access control entries alone, without a session: the same rules
+	 * a session's access control manager applies (everything below
+	 * {@code /jcr:system} is readable and the node itself is not, administrators
+	 * and service users hold everything, public access filters grant read, and
+	 * otherwise the entries along the root-to-path chain for everyone, the
+	 * user's groups and the user decide), except that the access control changes
+	 * of an uncommitted transaction are not seen and the node need not exist.
+	 * The answer is as fresh as {@link #getAccessControlRevision()}.
+	 */
+	public boolean hasPrivileges(UserPrincipal user, Collection<GroupPrincipal> groups, String absPath, String... privileges)
+			throws RepositoryException {
+		if (user == null || absPath == null || !absPath.startsWith("/")) {
+			return false;
+		}
+		long required = 0;
+		for (String privilege : privileges) {
+			long bits = JcrAccessControlManager.standardPrivilegeBits(privilege);
+			if (bits == 0) {
+				// An unknown privilege can never be held.
+				return false;
+			}
+			required |= bits;
+		}
+		return (privilegesMask(user, groups, absPath) & required) == required;
+	}
+
+	/**
+	 * The revision of the committed access control entries this workspace
+	 * evaluates against; it changes whenever an access control change is
+	 * observed, so a decision taken at one revision stays valid while the
+	 * revision does.
+	 */
+	public long getAccessControlRevision() throws RepositoryException {
+		try {
+			return fAccessControlStore.getSnapshot().getRevision();
+		} catch (IOException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+	}
+
+	private long privilegesMask(UserPrincipal user, Collection<GroupPrincipal> groups, String absPath)
+			throws RepositoryException {
+		long all = JcrAccessControlManager.standardPrivilegeBits(javax.jcr.security.Privilege.JCR_ALL);
+		long read = JcrAccessControlManager.standardPrivilegeBits(javax.jcr.security.Privilege.JCR_READ);
+		if (user instanceof SystemPrincipal) {
+			return all;
+		}
+		String systemPath = "/" + JcrNode.JCR_SYSTEM_NAME;
+		if (absPath.equals(systemPath)) {
+			return 0;
+		}
+		if (absPath.startsWith(systemPath + "/")) {
+			return read;
+		}
+		if (user instanceof ServicePrincipal || user instanceof AdminPrincipal) {
+			return all;
+		}
+		if (fConfig.isPublicAccess(user.getName(), absPath)) {
+			return read;
+		}
+
+		List<String> principals = new ArrayList<>();
+		principals.add(new EveryonePrincipal().getName());
+		if (groups != null) {
+			for (GroupPrincipal group : groups) {
+				principals.add(group.getName());
+			}
+		}
+		principals.add(user.getName());
+
+		AccessControlStore.Snapshot snapshot;
+		try {
+			snapshot = fAccessControlStore.getSnapshot();
+		} catch (IOException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+
+		// Root first: allow adds bits, deny removes them, the deeper entry wins.
+		List<String> paths = new ArrayList<>();
+		for (String p = absPath;; ) {
+			paths.add(p);
+			if (p.equals("/")) {
+				break;
+			}
+			int i = p.lastIndexOf('/');
+			p = (i <= 0) ? "/" : p.substring(0, i);
+		}
+		Collections.reverse(paths);
+
+		long allowed = 0;
+		for (String p : paths) {
+			for (AccessControlStore.Entry entry : snapshot.getEntries(p)) {
+				if (!principals.contains(entry.getPrincipalName())) {
+					continue;
+				}
+				long bits = 0;
+				for (String privilegeName : entry.getPrivilegeNames()) {
+					bits |= JcrAccessControlManager.standardPrivilegeBits(privilegeName);
+				}
+				if (entry.isAllow()) {
+					allowed |= bits;
+				} else {
+					allowed &= ~bits;
+				}
+			}
+		}
+		return allowed;
 	}
 
 	@SuppressWarnings("unchecked")

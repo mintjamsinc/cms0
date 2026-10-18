@@ -33,12 +33,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-import javax.jcr.Session;
 
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.event.OsgiEventPublisher;
-import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
+import org.mintjams.rt.cms.internal.graphql.event.SubscriberAccessGate;
 import org.mintjams.rt.cms.internal.util.ISO8601;
 import org.osgi.service.event.Event;
 import org.reactivestreams.Publisher;
@@ -58,9 +57,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * <ul>
  *   <li>{@code recipients} — the user ids the message is for; nobody else sees
  *       it, however they subscribe;</li>
- *   <li>{@code path} — whoever can read that node of the workspace, checked
- *       for each subscriber in a session of their own (so the repository's
- *       access control decides, as for {@code nodeChanged});</li>
+ *   <li>{@code path} — whoever can read that node of the workspace, decided
+ *       for each subscriber by the repository's access control (as for
+ *       {@code nodeChanged});</li>
  *   <li>neither — every subscriber of the workspace.</li>
  * </ul>
  *
@@ -301,30 +300,17 @@ public final class TopicMessages {
 	}
 
 	/**
-	 * The costly part of the audience, run as the event is dispatched: whether the
-	 * subscriber can read the node the message is about. The subscriber is
-	 * impersonated in a short-lived session so that the repository's access
-	 * control decides.
+	 * The path-bound part of the audience, run as the event is dispatched: whether
+	 * the subscriber can read the node the message is about, decided by
+	 * {@link SubscriberAccessGate} from the repository's access control without a
+	 * session per subscriber.
 	 */
 	private static boolean isReader(Event event, String workspaceName, String subscriber) {
 		Object path = event.getProperty(PROP_PATH);
 		if (path == null) {
 			return true;
 		}
-		Session probe = null;
-		try {
-			probe = CmsService.getRepository().login(new ServiceUserCredentials(subscriber), workspaceName);
-			probe.getNode(path.toString());
-			return true;
-		} catch (Throwable notVisible) {
-			return false;
-		} finally {
-			if (probe != null) {
-				try {
-					probe.logout();
-				} catch (Throwable ignore) {}
-			}
-		}
+		return SubscriberAccessGate.canRead(workspaceName, subscriber, path.toString());
 	}
 
 	private static Map<String, Object> toMessage(Event event) {

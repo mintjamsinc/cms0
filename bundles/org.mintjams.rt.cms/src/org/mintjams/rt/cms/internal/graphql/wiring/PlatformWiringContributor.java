@@ -94,7 +94,6 @@ import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.resource.JcrAction;
 import org.mintjams.rt.cms.internal.job.delete.DeleteJob;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
-import org.mintjams.rt.cms.internal.security.ServiceUserCredentials;
 import org.mintjams.rt.cms.internal.util.ISO8601;
 import org.mintjams.searchindex.SearchIndex;
 import org.mintjams.tools.adapter.Adaptables;
@@ -110,6 +109,7 @@ import org.mintjams.rt.cms.internal.graphql.event.CmsEventPublisher;
 import org.mintjams.rt.cms.internal.graphql.event.ContentLengthPublisher;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutionContext;
 import org.mintjams.rt.cms.internal.graphql.event.OsgiEventPublisher;
+import org.mintjams.rt.cms.internal.graphql.event.SubscriberAccessGate;
 import org.mintjams.rt.cms.internal.graphql.type.PropertyValueTypeResolver;
 
 /**
@@ -2125,12 +2125,14 @@ public final class PlatformWiringContributor implements WiringContributor {
 	 * path-based matching; but a node that still exists and merely became unreadable
 	 * carries <em>no</em> path — emitting it would disclose exactly what this gate hides.
 	 *
-	 * <p>Readability is evaluated under a short-lived session impersonating the subscriber
-	 * (so repository ACLs decide), mirroring the per-event session pattern of the
-	 * preference/wallpaper mappers; a freshly logged-in session already reflects the
-	 * just-committed state. If readability cannot be determined the event is skipped
-	 * (returns {@code null}) — never emitted with a path — so an error can neither leak
-	 * metadata nor spuriously remove a valid item.
+	 * <p>Readability is decided by {@link SubscriberAccessGate} from the workspace's
+	 * committed access control entries for the subscriber's resolved identity — no
+	 * session is opened per event — and the gate's caches are dropped the moment an
+	 * access control or identity change is observed, so a revoked read is honoured at
+	 * the next event. Whether the node still exists is not checked here: the client
+	 * re-queries under its own session anyway, and a removal arrives as its own event.
+	 * A path the gate cannot decide counts as not readable, so an error can never leak
+	 * metadata.
 	 */
 	private static Map<String, Object> buildNodeChangedPayload(
 			String workspaceName, String subscriberId, CmsEvent event) {
@@ -2142,94 +2144,46 @@ public final class PlatformWiringContributor implements WiringContributor {
 		String sourcePath = event.getSourcePath();
 		boolean removed = "DELETED".equals(eventType);
 
-		Session probe = null;
-		try {
-			probe = CmsService.getRepository().login(new ServiceUserCredentials(subscriberId), workspaceName);
-
-			// Full payload only when the node still exists AND the subscriber can read it.
-			if (!removed && path != null && nodeReadableQuietly(probe, path)) {
-				Map<String, Object> data = new LinkedHashMap<>();
-				data.put("eventType", eventType);
-				data.put("path", path);
-				data.put("timestamp", ISO8601.now());
-				data.put("userId", event.getUserID());
-				if (identifier != null) {
-					data.put("identifier", identifier);
-				}
-				if (event.getType() != null) {
-					data.put("nodeType", event.getType());
-				}
-				if (sourcePath != null) {
-					data.put("sourcePath", sourcePath);
-				}
-				return data;
-			}
-
-			// Drop signal. The vacated old path may be sent only when its parent is
-			// readable: REMOVED leaves event.getPath(); a move to an unreadable dest leaves
-			// its sourcePath. A still-existing-but-unreadable node has no vacated path.
-			String oldPath = removed ? path : sourcePath;
-			String dropPath = (oldPath != null && parentReadableQuietly(probe, oldPath)) ? oldPath : null;
-
-			if (identifier == null && dropPath == null) {
-				return null;
-			}
+		// Full payload only when the subscriber can read the node.
+		if (!removed && path != null && SubscriberAccessGate.canRead(workspaceName, subscriberId, path)) {
 			Map<String, Object> data = new LinkedHashMap<>();
-			data.put("eventType", "DELETED");
-			if (dropPath != null) {
-				data.put("path", dropPath);
-			}
+			data.put("eventType", eventType);
+			data.put("path", path);
+			data.put("timestamp", ISO8601.now());
+			data.put("userId", event.getUserID());
 			if (identifier != null) {
 				data.put("identifier", identifier);
 			}
-			data.put("timestamp", ISO8601.now());
-			data.put("userId", event.getUserID());
-			return data;
-		} catch (Throwable t) {
-			// Could not determine readability — skip rather than risk a leak or a spurious
-			// removal. The next event (or a manual refresh) reconciles the view.
-			CmsService.getLogger(PlatformWiringContributor.class)
-					.debug("nodeChanged readability probe failed for " + path + "; skipping event", t);
-			return null;
-		} finally {
-			if (probe != null) {
-				try { probe.logout(); } catch (Throwable ignore) {}
+			if (event.getType() != null) {
+				data.put("nodeType", event.getType());
 			}
+			if (sourcePath != null) {
+				data.put("sourcePath", sourcePath);
+			}
+			return data;
 		}
-	}
 
-	/**
-	 * Whether the subscriber can read the node at {@code path}. A node that exists
-	 * but whose read access was just revoked makes {@code getNode} throw
-	 * {@link javax.jcr.AccessDeniedException} (and a removed node throws
-	 * {@link javax.jcr.PathNotFoundException}); both mean "not visible to this
-	 * subscriber" and map to {@code false} so the caller emits a drop signal. Any
-	 * other error propagates so the caller skips the event rather than spuriously
-	 * dropping a valid item.
-	 *
-	 * <p>{@code Session.nodeExists()} cannot be used for this gate: it swallows only
-	 * {@code PathNotFoundException}, so an {@code AccessDeniedException} from a
-	 * revoked-but-existing node would escape and skip the event — leaving the
-	 * now-unreadable item stranded in the client's list instead of auto-hiding it.
-	 */
-	private static boolean nodeReadableQuietly(Session session, String path) throws RepositoryException {
-		try {
-			session.getNode(path);
-			return true;
-		} catch (javax.jcr.PathNotFoundException | javax.jcr.AccessDeniedException notVisible) {
-			return false;
-		}
-	}
+		// Drop signal. The vacated old path may be sent only when its parent is
+		// readable: REMOVED leaves event.getPath(); a move to an unreadable dest leaves
+		// its sourcePath. A still-existing-but-unreadable node has no vacated path.
+		String oldPath = removed ? path : sourcePath;
+		String dropPath = (oldPath != null && SubscriberAccessGate.canReadParent(workspaceName, subscriberId, oldPath))
+				? oldPath : null;
 
-	/** True if the subscriber session can read the parent of {@code path} (quietly false on error). */
-	private static boolean parentReadableQuietly(Session session, String path) {
-		int i = path.lastIndexOf('/');
-		String parent = (i <= 0) ? "/" : path.substring(0, i);
-		try {
-			return session.nodeExists(parent);
-		} catch (Throwable t) {
-			return false;
+		if (identifier == null && dropPath == null) {
+			return null;
 		}
+		Map<String, Object> data = new LinkedHashMap<>();
+		data.put("eventType", "DELETED");
+		if (dropPath != null) {
+			data.put("path", dropPath);
+		}
+		if (identifier != null) {
+			data.put("identifier", identifier);
+		}
+		data.put("timestamp", ISO8601.now());
+		data.put("userId", event.getUserID());
+		return data;
 	}
 
 	/**

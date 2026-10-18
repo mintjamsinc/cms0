@@ -268,6 +268,11 @@ public class JcrWorkspaceProviderConfiguration {
 	}
 
 	public boolean isPublicAccess(JcrSession session, JcrPath absPath) {
+		return isPublicAccess(session.getUserID(), absPath.toString());
+	}
+
+	/** Whether a public access filter grants the user read on the path (no session needed). */
+	public boolean isPublicAccess(String userId, String absPath) {
 		for (Map<String, Object> e : getAccessControlFilters()) {
 			AdaptableMap<String, Object> filter = AdaptableMap.<String, Object>newBuilder().putAll(e).build();
 
@@ -278,22 +283,22 @@ public class JcrWorkspaceProviderConfiguration {
 
 			String path = filter.getString("path").trim();
 			if (path.endsWith("*")) {
-				if (!absPath.toString().startsWith(path.substring(0, path.length() - 1))) {
+				if (!absPath.startsWith(path.substring(0, path.length() - 1))) {
 					continue;
 				}
 			} else if (path.startsWith("*")) {
-				if (!absPath.toString().endsWith(path.substring(1))) {
+				if (!absPath.endsWith(path.substring(1))) {
 					continue;
 				}
 			} else {
-				if (!absPath.toString().equals(path)) {
+				if (!absPath.equals(path)) {
 					continue;
 				}
 			}
 
 			String user = filter.getString("user").trim();
 			if (Strings.isNotEmpty(user)) {
-				if (!session.getUserID().equals(user)) {
+				if (userId == null || !userId.equals(user)) {
 					continue;
 				}
 			}

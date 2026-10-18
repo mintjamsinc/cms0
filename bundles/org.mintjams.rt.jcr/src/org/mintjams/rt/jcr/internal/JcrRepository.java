@@ -587,6 +587,25 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 		return l.toArray(String[]::new);
 	}
 
+	@Override
+	public boolean hasPrivileges(String workspaceName, UserPrincipal user, Collection<GroupPrincipal> groups,
+			String absPath, String... privileges) throws RepositoryException {
+		return liveWorkspaceProvider(workspaceName).hasPrivileges(user, groups, absPath, privileges);
+	}
+
+	@Override
+	public long getAccessControlRevision(String workspaceName) throws RepositoryException {
+		return liveWorkspaceProvider(workspaceName).getAccessControlRevision();
+	}
+
+	private JcrWorkspaceProvider liveWorkspaceProvider(String workspaceName) throws NoSuchWorkspaceException {
+		JcrWorkspaceProvider workspaceProvider = (workspaceName == null) ? null : fWorkspaceProviders.get(workspaceName);
+		if (workspaceProvider == null || !workspaceProvider.isLive()) {
+			throw new NoSuchWorkspaceException("Invalid workspace name: " + workspaceName);
+		}
+		return workspaceProvider;
+	}
+
 	/**
 	 * Creates and starts a new workspace. The workspace directory is staged
 	 * under a dot-prefixed name and moved into place only when fully

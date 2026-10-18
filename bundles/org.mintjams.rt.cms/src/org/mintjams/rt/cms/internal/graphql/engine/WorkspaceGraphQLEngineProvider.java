@@ -64,6 +64,7 @@ import org.reactivestreams.Publisher;
 import graphql.ExecutionInput;
 import graphql.ExecutionResult;
 import graphql.GraphQL;
+import graphql.GraphQLContext;
 import graphql.GraphQLError;
 import graphql.language.Definition;
 import graphql.language.OperationDefinition;
@@ -222,10 +223,12 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	 *
 	 * <p>The caller session is <em>not</em> held for the lifetime of the stream:
 	 * subscription fetchers capture the subscriber's identity synchronously during
-	 * execution, and each event's payload mapper logs in on demand later, so the
-	 * shared session is released as soon as the Publisher is built (closing the
-	 * script context in the finally). A long-lived stream therefore pins no DB
-	 * connection.
+	 * execution, and each event's payload mapper decides what the subscriber may
+	 * see from that identity later (see {@code SubscriberAccessGate}), so the
+	 * shared session is logged out as soon as the Publisher is built (closing the
+	 * script context in the finally) and dropped from the execution context the
+	 * publisher keeps. A long-lived stream therefore pins no DB connection and
+	 * retains no session.
 	 */
 	public SubscriptionStream executeSubscription(GraphQLRequest request, Credentials credentials) {
 		GraphQL graphQL = fGraphQL;
@@ -238,8 +241,9 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 		}
 
 		WorkspaceScriptContext scriptContext = new WorkspaceScriptContext(getWorkspaceName());
+		ExecutionInput input = null;
 		try {
-			ExecutionInput input = newExecutionInput(request, credentials, scriptContext);
+			input = newExecutionInput(request, credentials, scriptContext);
 			ExecutionResult result = graphQL.execute(input);
 			if (!result.getErrors().isEmpty()) {
 				return SubscriptionStream.failed(toErrorMaps(result.getErrors()));
@@ -262,6 +266,18 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 			try {
 				scriptContext.close();
 			} catch (Throwable ignore) {}
+			// The publisher keeps the GraphQLContext (through graphql-java's
+			// ExecutionContext) for the life of the stream: drop the logged-out
+			// session and the script context (its writer buffers and API objects)
+			// from it, or they stay reachable per subscription.
+			if (input != null) {
+				GraphQLContext context = input.getGraphQLContext();
+				GraphQLExecutionContext executionContext = context.get(GraphQLExecutionContext.CTX_EXECUTION_CONTEXT);
+				if (executionContext != null) {
+					executionContext.release();
+				}
+				context.delete(GroovyDataFetcher.CTX_SCRIPT_CONTEXT);
+			}
 		}
 	}
 

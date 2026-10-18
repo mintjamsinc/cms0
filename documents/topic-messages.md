@@ -37,12 +37,13 @@ Who receives a message is the **audience** named when it is published:
 | Published with | Delivered to |
 |---|---|
 | `recipients` (user ids) | those users only, however they subscribe |
-| `path` (a node of the workspace) | whoever can read that node, decided by the repository's access control in a session of the subscriber's own (as `nodeChanged` does) |
+| `path` (a node of the workspace) | whoever can read that node, decided by the repository's access control for the subscriber's identity (as `nodeChanged` does) |
 | neither | every subscriber of the workspace, anonymous included |
 
-`recipients` costs nothing per subscriber; `path` logs a short-lived session
-in per message and subscriber, so it suits messages that are rare or that
-have few subscribers.
+`recipients` costs nothing per subscriber; `path` is decided per message
+and subscriber from the workspace's committed access control entries,
+without a session, and the decisions are cached until an access control
+or identity change is observed.
 
 A subscriber subscribes to one topic, to a topic followed by `/*` (that
 topic and everything under it), or to `*`. A pattern never widens the

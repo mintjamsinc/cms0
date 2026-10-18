@@ -22,8 +22,14 @@
 
 package org.mintjams.jcr;
 
+import java.util.Collection;
+
+import javax.jcr.RepositoryException;
+
+import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.UserPrincipal;
 
 public interface Repository extends javax.jcr.Repository {
 
@@ -42,5 +48,28 @@ public interface Repository extends javax.jcr.Repository {
 	PrincipalProvider getPrincipalProvider();
 
 	IdentityProvider getIdentityProvider();
+
+	/**
+	 * Decides whether a user holds the given privileges on a path of a workspace
+	 * from the committed access control entries, without opening a session. The
+	 * rules are those a session of the user would be subject to; the user and
+	 * the groups are the ones {@link #getPrincipalProvider()} resolves. The node
+	 * need not exist. Meant for callers that evaluate many paths for many users,
+	 * such as event delivery, where a login per decision would be the cost.
+	 *
+	 * @throws javax.jcr.NoSuchWorkspaceException when the workspace is not live
+	 */
+	boolean hasPrivileges(String workspaceName, UserPrincipal user, Collection<GroupPrincipal> groups, String absPath,
+			String... privileges) throws RepositoryException;
+
+	/**
+	 * The revision of the committed access control entries of a workspace. It
+	 * changes whenever an access control change is observed on this node, so a
+	 * decision of {@link #hasPrivileges} taken at one revision stays valid while
+	 * the revision does.
+	 *
+	 * @throws javax.jcr.NoSuchWorkspaceException when the workspace is not live
+	 */
+	long getAccessControlRevision(String workspaceName) throws RepositoryException;
 
 }
