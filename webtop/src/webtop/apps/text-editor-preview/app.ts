@@ -209,14 +209,25 @@ let htmlRenderSeq = 0;
 
 // Scroll preservation across preview refreshes. A live edit re-renders the
 // whole preview (markdown re-parsed, iframe reloaded), which would otherwise
-// snap the reader back to the top on every keystroke. We capture the current
-// scroll position just before a same-file content update and re-apply it once
-// the new content is laid out. A file switch skips capture so the new file
-// starts at the top. mode tells which container the offsets belong to:
+// snap the reader back to the top on every keystroke. readerScroll is where
+// the reader last scrolled the preview on screen, recorded from the scroll
+// events of the visible container (the markdown .preview-body, or the preview
+// iframe's document). It is deliberately never read back from the DOM when an
+// edit arrives: a refresh may still be in flight at that moment, and the
+// half-loaded document reports 0 — which used to overwrite the real position
+// and leave the preview stuck at the top whenever a keystroke landed mid-reload.
+// Every same-file refresh re-applies readerScroll once the new content is laid
+// out — for iframe previews in a hidden back frame that is only brought on
+// screen afterwards (see previewFrames), so the reader never sees the new page
+// at its top. A file switch clears it so the new file starts at the top. mode
+// tells which container the offsets belong to:
 //   'markdown' → the .preview-body scroll container (top)
 //   'iframe'   → the preview iframe's own document (x/y)
-let pendingScrollRestore = false;
-let savedScroll: { mode: 'markdown' | 'iframe'; top: number; x: number; y: number } | null = null;
+let readerScroll: { mode: 'markdown' | 'iframe'; top: number; x: number; y: number } | null = null;
+// The preview iframe document whose scroll events currently feed readerScroll.
+// Each reload is a new Document (the WindowProxy stays the same), so the
+// listener is attached per document and the old one goes away with its page.
+let scrollWatchedDocument: Document | null = null;
 
 // Window move/resize interaction watch. The shell (wt-window) toggles
 // wt-window-resizing / wt-window-dragging on our <html> for the duration of a
@@ -263,10 +274,24 @@ export const App = {
 			extEditing: false,
 			extInput: '',
 			previewHtml: '',
-			previewSrcDoc: '',
-			previewIframeUrl: '',
-			// filePath the current previewIframeUrl was rendered from, so a
-			// stale server render isn't shown after switching files.
+			// Double-buffered preview frames (see setPreviewFrame). A live
+			// edit loads into the slot that is NOT on screen; once that
+			// document has loaded and been scrolled back to the reader's
+			// position (onIframeLoad) the slots swap, so a refresh never
+			// flashes the new page at its top — the previous document stays
+			// visible until the new one is ready. Each slot holds either a
+			// real URL (service-worker frame or blob:) or a srcdoc, never both.
+			// Flat fields rather than an array of objects: ichigojs tracks
+			// bindings by identifier path, and a write into an array element
+			// does not reach a binding on `frames[1].url`.
+			frame0Url: '',
+			frame0SrcDoc: '',
+			frame1Url: '',
+			frame1SrcDoc: '',
+			// Index of the slot on screen.
+			previewFront: 0,
+			// filePath the current server render was produced from, so a
+			// stale render isn't shown after switching files.
 			renderedFilePath: '',
 			previewLoading: false,
 			previewError: '',
@@ -368,10 +393,7 @@ export const App = {
 				window.removeEventListener('message', vm.messageListener);
 				vm.messageListener = null;
 			}
-			if (vm.previewIframeUrl) {
-				try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
-				vm.previewIframeUrl = '';
-			}
+			vm.clearPreviewFrames();
 			// Drop this preview's document from the service-worker cache.
 			swDropFrame(vm.previewKey);
 		},
@@ -504,15 +526,16 @@ export const App = {
 			// the user's chosen output extension isn't clobbered on every
 			// keystroke (the editor re-sends a MIME-guessed default each time).
 			const fileChanged = (msg.filePath || '') !== vm.filePath;
-			// Same-file content edit: remember where the reader is so the
-			// refreshed preview lands back at the same spot. Capture now, while
-			// vm's mode flags and the DOM still reflect the preview on screen.
-			// A file switch starts fresh at the top instead (the markdown
-			// scroll container is reused across files, so reset it explicitly).
+			// A same-file content edit keeps readerScroll (the reader's own
+			// position, tracked from scroll events) so the refreshed preview
+			// lands back at the same spot. A file switch starts fresh at the
+			// top instead (the markdown scroll container is reused across
+			// files, so reset it explicitly).
 			if (fileChanged) {
-				vm.clearScrollCapture();
-			} else {
-				vm.captureScroll();
+				vm.clearReaderScroll();
+				// Nothing to keep on screen either: the new file loads straight
+				// into the front frame instead of behind the old file's page.
+				vm.clearPreviewFrames();
 			}
 			vm.fileName = msg.fileName || '';
 			vm.mimeType = msg.mimeType || 'text/plain';
@@ -561,63 +584,140 @@ export const App = {
 		getScrollContainer(): HTMLElement | null {
 			return (this.$refs.previewBody as HTMLElement) ?? null;
 		},
+		// The preview iframe on screen (the front slot of the double buffer).
 		getPreviewIframe(): HTMLIFrameElement | null {
-			return (this.$refs.previewIframe as HTMLIFrameElement) ?? null;
+			return (this.$refs['previewIframe' + this.previewFront] as HTMLIFrameElement) ?? null;
 		},
-		// Snapshot the current scroll position of whichever preview is on
-		// screen. Reads the live DOM so it reflects the actual rendered
-		// preview, independent of the mode flags about to be overwritten.
-		captureScroll() {
+		// ---- Preview frames (double buffering) ----
+		frameUrl(slot: number): string {
+			return slot === 0 ? this.frame0Url : this.frame1Url;
+		},
+		frameSrcDoc(slot: number): string {
+			return slot === 0 ? this.frame0SrcDoc : this.frame1SrcDoc;
+		},
+		frameHasContent(slot: number): boolean {
+			return !!(this.frameUrl(slot) || this.frameSrcDoc(slot));
+		},
+		hasPreviewFrame(): boolean {
+			return this.frameHasContent(0) || this.frameHasContent(1);
+		},
+		// Show new content. While a frame is on screen the content loads into
+		// the other slot, hidden, and onIframeLoad swaps the two once it is
+		// loaded and scrolled; a further edit arriving meanwhile simply
+		// reloads that same back slot. With nothing on screen (first render,
+		// after a file switch) it loads straight into the front.
+		setPreviewFrame(url: string, srcdoc: string) {
 			const vm = this;
-			if (vm.isHtml || vm.isServerRendered) {
-				const win = vm.getPreviewIframe()?.contentWindow;
-				if (win) {
-					try {
-						savedScroll = { mode: 'iframe', top: 0, x: win.scrollX || 0, y: win.scrollY || 0 };
-						pendingScrollRestore = true;
-						return;
-					} catch { /* cross-origin or not ready — skip */ }
-				}
-			} else if (vm.isMarkdown) {
-				const el = vm.getScrollContainer();
-				if (el) {
-					savedScroll = { mode: 'markdown', top: el.scrollTop || 0, x: 0, y: 0 };
-					pendingScrollRestore = true;
-					return;
-				}
+			const slot = vm.frameHasContent(vm.previewFront) ? 1 - vm.previewFront : vm.previewFront;
+			vm.releasePreviewFrame(slot);
+			if (slot === 0) {
+				vm.frame0Url = url;
+				vm.frame0SrcDoc = srcdoc;
+			} else {
+				vm.frame1Url = url;
+				vm.frame1SrcDoc = srcdoc;
 			}
-			vm.clearScrollCapture();
 		},
-		clearScrollCapture() {
-			pendingScrollRestore = false;
-			savedScroll = null;
+		// Empty a slot, revoking a blob: URL it owned (its document, if any,
+		// has finished loading by the time the slot is released).
+		releasePreviewFrame(slot: number) {
+			const url = this.frameUrl(slot);
+			if (url && url.startsWith('blob:')) {
+				try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+			}
+			if (slot === 0) {
+				this.frame0Url = '';
+				this.frame0SrcDoc = '';
+			} else {
+				this.frame1Url = '';
+				this.frame1SrcDoc = '';
+			}
 		},
-		// Re-apply a captured markdown scroll once the re-parsed HTML is in
+		clearPreviewFrames() {
+			this.releasePreviewFrame(0);
+			this.releasePreviewFrame(1);
+			this.previewFront = 0;
+		},
+		clearReaderScroll() {
+			readerScroll = null;
+			scrollWatchedDocument = null;
+		},
+		// The reader scrolled the markdown preview: remember where. Only the
+		// markdown mode scrolls .preview-body itself (iframe previews scroll
+		// inside their own document; the container is overflow: hidden then).
+		onPreviewBodyScroll(event: Event) {
+			if (!this.isMarkdown) return;
+			const el = event.currentTarget as HTMLElement | null;
+			if (!el) return;
+			readerScroll = { mode: 'markdown', top: el.scrollTop || 0, x: 0, y: 0 };
+		},
+		// Re-apply the reader's markdown scroll once the re-parsed HTML is in
 		// the DOM. Iframe previews restore on their load event instead (see
-		// onIframeLoad), because their content arrives asynchronously.
+		// onIframeLoad), because their content arrives asynchronously. The
+		// write runs before the browser's next scroll-event dispatch, so the
+		// scroll handler then sees the restored position (or its clamp when
+		// the document got shorter), not the intermediate one.
 		restoreMarkdownScroll() {
 			const vm = this;
-			const s = savedScroll;
-			if (!pendingScrollRestore || !s || s.mode !== 'markdown') return;
+			const s = readerScroll;
+			if (!s || s.mode !== 'markdown') return;
 			const top = s.top;
 			vm.$nextTick(() => {
 				const el = vm.getScrollContainer();
 				if (el) el.scrollTop = top;
-				vm.clearScrollCapture();
 			});
 		},
-		// Restore a captured iframe scroll after the reloaded document lays
-		// out. Fires for both the plain-HTML (srcdoc) and server-rendered
-		// (blob src) iframes; a no-op unless a same-file update captured a
-		// position first (a file switch / first load leaves it pending=false).
-		onIframeLoad(event: Event) {
-			const s = savedScroll;
-			if (!pendingScrollRestore || !s || s.mode !== 'iframe') return;
+		// True when the loaded iframe document is one this preview produced
+		// (srcdoc, the blob: fallback, or the service-worker frame), as opposed
+		// to a page the reader reached by following a link inside the preview:
+		// that is a different document and starts at its own top.
+		isOwnPreviewDocument(win: Window, slot: number): boolean {
+			let href = '';
+			try { href = win.location.href; } catch { return false; }
+			if (href === 'about:srcdoc') return true;
+			if (href.startsWith('blob:')) return href === this.frameUrl(slot);
+			return href.startsWith(swDocumentUrl(this.previewKey));
+		},
+		// A preview iframe document finished loading. For a same-file refresh,
+		// put the reader back where they were, whatever the keystroke timing:
+		// readerScroll survives any number of overlapping reloads, so a second
+		// edit arriving while the first reload is still loading no longer
+		// loses the position. Then follow the reader's scrolling in the new
+		// document, and — when this was the hidden back frame — bring it on
+		// screen in place of the previous document, which is released. A file
+		// switch cleared readerScroll, so a new file lands at the top.
+		onIframeLoad(event: Event, slot: number) {
+			const vm = this;
 			const win = (event.target as HTMLIFrameElement)?.contentWindow;
-			if (win) {
-				try { win.scrollTo(s.x, s.y); } catch { /* ignore */ }
+			if (!win) return;
+			if (!vm.isOwnPreviewDocument(win, slot)) return;
+			const s = readerScroll;
+			if (s && s.mode === 'iframe') {
+				// 'instant' sidesteps a page-level scroll-behavior: smooth,
+				// which would otherwise animate every refresh.
+				try { win.scrollTo({ left: s.x, top: s.y, behavior: 'instant' }); } catch { /* ignore */ }
 			}
-			this.clearScrollCapture();
+			vm.watchIframeScroll(win);
+			if (slot !== vm.previewFront) {
+				vm.previewFront = slot;
+				vm.releasePreviewFrame(1 - slot);
+			}
+		},
+		// Record the reader's scrolling in the preview iframe. Viewport scroll
+		// events fire on the Document, so listening there binds the handler to
+		// this particular loaded page; the next reload brings a new Document
+		// and gets its own listener via onIframeLoad.
+		watchIframeScroll(win: Window) {
+			let doc: Document | null = null;
+			try { doc = win.document; } catch { return; /* cross-origin — can't follow */ }
+			if (!doc || scrollWatchedDocument === doc) return;
+			scrollWatchedDocument = doc;
+			doc.addEventListener('scroll', () => {
+				if (scrollWatchedDocument !== doc) return;
+				const w = doc.defaultView;
+				if (!w) return;
+				readerScroll = { mode: 'iframe', top: 0, x: w.scrollX || 0, y: w.scrollY || 0 };
+			}, { passive: true });
 		},
 		// ---- Window interaction watch (move / resize) ----
 		hasInteractionClass(root: HTMLElement): boolean {
@@ -676,7 +776,6 @@ export const App = {
 			// settled edit triggers a fresh server render.
 			if (vm.isServerRendered) {
 				vm.previewHtml = '';
-				vm.previewSrcDoc = '';
 				vm.refreshServerPreview();
 				return;
 			}
@@ -721,17 +820,14 @@ export const App = {
 					swRenderFrame(vm.previewKey, patched, mountBase).then((frameUrl) => {
 						if (seq !== htmlRenderSeq) return; // superseded by a newer edit
 						if (frameUrl) {
-							vm.previewSrcDoc = '';
-							vm.previewIframeUrl = frameUrl;
+							vm.setPreviewFrame(frameUrl, '');
 						} else {
-							vm.previewIframeUrl = '';
-							vm.previewSrcDoc = patched;
+							vm.setPreviewFrame('', patched);
 						}
 					});
 					return;
 				}
-				vm.previewIframeUrl = '';
-				vm.previewSrcDoc = patched;
+				vm.setPreviewFrame('', patched);
 				return;
 			}
 		},
@@ -777,12 +873,11 @@ export const App = {
 			}
 
 			// Rendering a different file than the one currently shown: drop the
-			// stale iframe so we don't display another file's output while the
+			// stale frames so we don't display another file's output while the
 			// new render is in flight. Edits to the same file keep their render
-			// in place so the live update is seamless rather than flickering.
-			if (vm.filePath !== vm.renderedFilePath && vm.previewIframeUrl) {
-				try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
-				vm.previewIframeUrl = '';
+			// on screen until the new one is ready (see setPreviewFrame).
+			if (vm.filePath !== vm.renderedFilePath && vm.hasPreviewFrame()) {
+				vm.clearPreviewFrames();
 				vm.renderedFilePath = '';
 			}
 
@@ -796,7 +891,6 @@ export const App = {
 
 			vm.previewLoading = true;
 			vm.previewError = '';
-			vm.previewSrcDoc = '';
 
 			const targetPath = vm.filePath;
 			const body = JSON.stringify({ content: vm.content || '' });
@@ -824,13 +918,10 @@ export const App = {
 					// fetches) resolve to the preview mount exactly as published.
 					const frameUrl = await swRenderFrame(vm.previewKey, patched, vm.previewMountBase());
 					if (seq !== renderSeq) return;
-					if (vm.previewIframeUrl && vm.previewIframeUrl.startsWith('blob:')) {
-						try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
-					}
 					// Fall back to a blob: document when no worker controls us;
 					// relative assets still resolve via the injected <base>.
-					vm.previewIframeUrl = frameUrl
-						|| URL.createObjectURL(new Blob([patched], { type: contentType || 'text/html; charset=UTF-8' }));
+					vm.setPreviewFrame(frameUrl
+						|| URL.createObjectURL(new Blob([patched], { type: contentType || 'text/html; charset=UTF-8' })), '');
 					vm.renderedFilePath = targetPath;
 					vm.previewError = '';
 					return;
@@ -840,10 +931,7 @@ export const App = {
 				// A newer render started while we awaited the response — discard
 				// this one so the preview reflects the latest content.
 				if (seq !== renderSeq) return;
-				if (vm.previewIframeUrl && vm.previewIframeUrl.startsWith('blob:')) {
-					try { URL.revokeObjectURL(vm.previewIframeUrl); } catch { /* ignore */ }
-				}
-				vm.previewIframeUrl = URL.createObjectURL(blob);
+				vm.setPreviewFrame(URL.createObjectURL(blob), '');
 				vm.renderedFilePath = targetPath;
 				vm.previewError = '';
 			}).catch((e: any) => {

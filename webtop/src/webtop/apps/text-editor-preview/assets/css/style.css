@@ -55,14 +55,25 @@
 .preview-body.preview-body-iframe {
 	overflow: hidden;
 	padding: 0;
+	position: relative;
 }
 
+/* The two preview iframes are stacked (double buffer, see index.html); the
+ * back one is laid out at full size so its document loads and scrolls like
+ * the visible one, but stays hidden until it is swapped to the front. */
 .preview-iframe {
+	position: absolute;
+	inset: 0;
 	display: block;
 	width: 100%;
 	height: 100%;
 	border: 0;
 	background-color: #fff;
+}
+
+.preview-iframe.preview-iframe-back {
+	visibility: hidden;
+	pointer-events: none;
 }
 
 /* Templated output-extension chooser (click-to-edit, mirrors the

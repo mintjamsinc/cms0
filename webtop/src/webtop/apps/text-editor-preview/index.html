@@ -99,7 +99,10 @@
 		<!-- Body -->
 		<div class="content-body">
 			<div class="preview-main island p-0">
-				<div class="preview-body" ref="previewBody" :class="{ 'preview-body-iframe': isHtml || isServerRendered }">
+				<!-- @scroll feeds the reader's position for markdown previews,
+				     so a live edit can put them back where they were. -->
+				<div class="preview-body" ref="previewBody" :class="{ 'preview-body-iframe': isHtml || isServerRendered }"
+					@scroll="onPreviewBodyScroll">
 
 					<!-- Disconnected state (editor closed or tab closed) -->
 					<div v-if="disconnected" class="detail-panel-empty">
@@ -107,18 +110,41 @@
 						<span>{{ t('app.text-editor-preview.empty.disconnected') }}</span>
 					</div>
 
-					<!-- Server-rendered (templated or scriptable; real-time) -->
+					<!-- Server-rendered (templated or scriptable; real-time). The
+					     two iframes are the double buffer: a refresh loads into the
+					     hidden one (.preview-iframe-back) and they swap once it is
+					     loaded and scrolled, so the page never flashes at its top. -->
 					<template v-else-if="isServerRendered">
 						<div v-if="previewError" class="detail-panel-empty">
 							<i class="bi bi-exclamation-triangle"></i>
 							<span>{{ previewError }}</span>
 						</div>
-						<iframe v-else-if="previewIframeUrl"
-							class="preview-iframe" ref="previewIframe"
-							:src="previewIframeUrl"
-							@load="onIframeLoad"
+						<template v-else-if="hasPreviewFrame()">
+						<iframe v-if="frame0Url"
+							class="preview-iframe" :class="{ 'preview-iframe-back': previewFront !== 0 }" ref="previewIframe0"
+							:src="frame0Url"
+							@load="onIframeLoad($event, 0)"
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
 							referrerpolicy="no-referrer"></iframe>
+						<iframe v-else-if="frame0SrcDoc"
+							class="preview-iframe" :class="{ 'preview-iframe-back': previewFront !== 0 }" ref="previewIframe0"
+							:srcdoc="frame0SrcDoc"
+							@load="onIframeLoad($event, 0)"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+						<iframe v-if="frame1Url"
+							class="preview-iframe" :class="{ 'preview-iframe-back': previewFront !== 1 }" ref="previewIframe1"
+							:src="frame1Url"
+							@load="onIframeLoad($event, 1)"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+						<iframe v-else-if="frame1SrcDoc"
+							class="preview-iframe" :class="{ 'preview-iframe-back': previewFront !== 1 }" ref="previewIframe1"
+							:srcdoc="frame1SrcDoc"
+							@load="onIframeLoad($event, 1)"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+						</template>
 						<div v-else class="detail-panel-empty">
 							<wt-spinner v-if="previewLoading" size="lg"></wt-spinner>
 							<i v-else class="bi bi-eye"></i>
@@ -130,21 +156,34 @@
 					<div v-else-if="isMarkdown" class="markdown-body" v-html="previewHtml"></div>
 
 					<!-- Plain HTML (real-time client-side preview). When the service
-					     worker serves the document (previewIframeUrl set) the iframe
-					     loads a real same-origin URL so site-root-absolute assets
-					     resolve; otherwise it falls back to srcdoc, which still
-					     resolves relative assets via the injected <base>. -->
+					     worker serves the document (slot url set) the iframe loads a
+					     real same-origin URL so site-root-absolute assets resolve;
+					     otherwise it falls back to srcdoc, which still resolves
+					     relative assets via the injected <base>. Same double buffer
+					     as above. -->
 					<template v-else-if="isHtml">
-						<iframe v-if="previewIframeUrl"
-							class="preview-iframe" ref="previewIframe"
-							:src="previewIframeUrl"
-							@load="onIframeLoad"
+						<iframe v-if="frame0Url"
+							class="preview-iframe" :class="{ 'preview-iframe-back': previewFront !== 0 }" ref="previewIframe0"
+							:src="frame0Url"
+							@load="onIframeLoad($event, 0)"
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
 							referrerpolicy="no-referrer"></iframe>
-						<iframe v-else
-							class="preview-iframe" ref="previewIframe"
-							:srcdoc="previewSrcDoc"
-							@load="onIframeLoad"
+						<iframe v-else-if="frame0SrcDoc"
+							class="preview-iframe" :class="{ 'preview-iframe-back': previewFront !== 0 }" ref="previewIframe0"
+							:srcdoc="frame0SrcDoc"
+							@load="onIframeLoad($event, 0)"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+						<iframe v-if="frame1Url"
+							class="preview-iframe" :class="{ 'preview-iframe-back': previewFront !== 1 }" ref="previewIframe1"
+							:src="frame1Url"
+							@load="onIframeLoad($event, 1)"
+							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+							referrerpolicy="no-referrer"></iframe>
+						<iframe v-else-if="frame1SrcDoc"
+							class="preview-iframe" :class="{ 'preview-iframe-back': previewFront !== 1 }" ref="previewIframe1"
+							:srcdoc="frame1SrcDoc"
+							@load="onIframeLoad($event, 1)"
 							sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
 							referrerpolicy="no-referrer"></iframe>
 					</template>
