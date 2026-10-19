@@ -65,11 +65,6 @@ services:
       - cms-repository:/data/repository
       - cms-secrets:/data/secrets
       - cms-local:/data/local
-    # /opt/felix/tmp is for short-lived scratch files (uploads, expansions).
-    # Backing it with tmpfs keeps temp data off persistent storage and makes
-    # I/O faster. Resize if your workload writes large temp files.
-    tmpfs:
-      - /opt/felix/tmp:size=512m,mode=0700
 
 volumes:
   cms-repository:

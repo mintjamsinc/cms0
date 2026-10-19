@@ -45,9 +45,10 @@ goes on storage another node uses:
     └── search/               the workspace's search index
 ```
 
-It defaults to `var` under the node's working directory (where
-`felix-cache` and the logs are), in standalone and clustered deployments
-alike, so the repository directory holds only data worth backing up.
+It defaults to `repository-local` under the node's working directory (next
+to the default `repository` directory, where `felix-cache` and the logs
+are), in standalone and clustered deployments alike, so the repository
+directory holds only data worth backing up.
 
 The BPM engine (Camunda) already supports clustering natively through a
 shared database and competing job executors; point
@@ -206,7 +207,7 @@ values differ per node):
 | `org.mintjams.jcr.cluster.bindAddress` | `CMS_CLUSTER_BIND_ADDRESS` | Interface the port listens on — the management network's. |
 | `org.mintjams.jcr.cluster.advertiseAddress` | `CMS_CLUSTER_ADVERTISE_ADDRESS` | Where the other nodes reach this one, `host` or `host:port`. |
 | `org.mintjams.jcr.cluster.secretKeyPath` | `CMS_CLUSTER_SECRET_KEY_PATH` | The key that signs the frames; default `<repository>/etc/cluster-secret-key.yml`. |
-| `org.mintjams.jcr.repository.localdir` | `CMS_NODE_LOCAL_PATH` | The node-local directory (see *Architecture*); default `var` under the working directory. Not cluster-specific: a standalone node uses it too. |
+| `org.mintjams.jcr.repository.localdir` | `CMS_NODE_LOCAL_PATH` | The node-local directory (see *Architecture*); default `repository-local` under the working directory. Not cluster-specific: a standalone node uses it too. |
 
 The two addresses are separate settings: the bind address is where the port
 is opened, the advertise address is what the other nodes are told. When
@@ -711,7 +712,7 @@ stopping every node and starting them all on the new image.
    `blobstore.directory` points at other shared storage.
 4. Configure `jcr.yml#datasource` and `bpm.yml#jdbcURL` identically on
    all nodes. Give every node a node-local directory on its own storage
-   (the default, `var` under the working directory, is right as long as
+   (the default, `repository-local` under the working directory, is right as long as
    the working directory is not shared). With the shared configuration
    these are written once, and
    the per-deployment values come from the environment

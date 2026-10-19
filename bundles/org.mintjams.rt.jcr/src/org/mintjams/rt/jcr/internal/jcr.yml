@@ -35,7 +35,8 @@ defaultNodes:
 # Full-text search index. The index is node-local data: every node keeps
 # its own in workspaces/<workspace>/search under its node-local directory
 # (org.mintjams.jcr.repository.localdir / CMS_NODE_LOCAL_PATH, by default
-# var under the working directory), never in the workspace directory.
+# repository-local under the working directory), never in the workspace
+# directory.
 # Set indexPath only to put it somewhere else.
 #
 #search:

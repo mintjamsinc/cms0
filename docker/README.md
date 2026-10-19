@@ -90,6 +90,390 @@ to the new layout, mount a volume at `/data/local` and remove the
 `indexPath` line from the placed `jcr.yml` files — each node then rebuilds
 its index there.
 
+How to back these volumes up, and how to put a backup back, is described in
+[Backup and restore](#backup-and-restore).
+
+## Backup and restore
+
+### What to back up
+
+| Data | Back up? | Contents |
+|---|---|---|
+| `/data/repository` | **Yes** | Every workspace (its settings, its binaries under `workspaces/<workspace>/var/jcr/bin`, and in a standalone installation its embedded databases under `workspaces/<workspace>/var/jcr/data` and `var/bpm/data`), plus `etc/`: the keystores, `boot.id`, `saml2.yml`, `idp.yml` and, in a cluster, `cluster-secret-key.yml`. |
+| `/data/secrets` | **Yes** | `secret-key.yml`, the AES key. A repository restored without the key it was written with cannot decrypt its keystore passwords or its `ENC[...]` values. |
+| PostgreSQL databases (cluster only) | **Yes** | `jcr_<workspace>` and `bpm_<workspace>` for every workspace: the content, properties, ACLs and the process engine's data. |
+| `/data/local` | No | The search indexes and the temporary directory, rebuilt from the repository. On a restore it is emptied, so that the indexes are rebuilt from the restored content. |
+
+An installation started from an earlier image may still mount `/data/index`
+(see [Volumes](#volumes)). Treat it like `/data/local`: do not back it up,
+and empty it on a restore.
+
+The procedures below take the backup while the CMS is **stopped**. The
+database rows and the binary files are written together, so a copy taken
+while the CMS runs can pair rows with files that are not there yet, or catch
+an embedded database file in the middle of a write. Plan a maintenance
+window: the CMS is unavailable from the moment it is stopped until it is
+started again.
+
+### Before you start
+
+- The commands are for a Linux shell (bash) on the Docker host. Run them in
+  the directory that holds your `docker-compose.yml` — for the example in
+  this repository, `docker/`. They assume the service and the container are
+  both named `cms`, as in the example file; use your own names otherwise.
+- The archives are made by a short-lived helper container, `ubuntu:24.04`
+  (any image with GNU `tar` works). Docker downloads it on first use. It
+  runs as root, so that it can read every file and restore the original
+  owners.
+- **Find the volume names.** Compose puts the project name in front of the
+  names in the file: with the example file in `docker/`, `cms-repository`
+  becomes `docker_cms-repository`. Ask the container which volumes it
+  mounts:
+
+  ```bash
+  docker inspect cms --format '{{range .Mounts}}{{.Destination}}  {{.Name}}  {{.Source}}{{"\n"}}{{end}}'
+  ```
+
+  ```text
+  /data/repository  docker_cms-repository  /var/lib/docker/volumes/docker_cms-repository/_data
+  /data/secrets  docker_cms-secrets  /var/lib/docker/volumes/docker_cms-secrets/_data
+  /data/local  docker_cms-local  /var/lib/docker/volumes/docker_cms-local/_data
+  ```
+
+  The second column is the volume name. When it is empty, that mount is a
+  bind mount (a host directory): use the third column, the host path,
+  wherever the commands below say volume name.
+
+### Standalone installation
+
+#### Backing up
+
+1. **Set the names** found above, and a new directory for this backup:
+
+   ```bash
+   REPOSITORY_VOLUME=docker_cms-repository
+   SECRETS_VOLUME=docker_cms-secrets
+   BACKUP_DIR=/srv/backup/cms/$(date +%Y%m%d-%H%M%S)
+   mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
+   ```
+
+2. **Record the image** the installation runs. A backup is restored with the
+   same image version or a newer one (see
+   [Keeping backups safe](#keeping-backups-safe)):
+
+   ```bash
+   docker inspect cms --format '{{.Config.Image}}' > "$BACKUP_DIR/image.txt"
+   ```
+
+3. **Stop the CMS** and check that it is stopped:
+
+   ```bash
+   docker compose stop cms
+   docker compose ps --all cms
+   ```
+
+   The `STATUS` column must read `Exited`.
+
+4. **Archive the two volumes.** The volume is mounted read-only (`:ro`), so
+   the backup cannot change it; `umask 077` makes the archives readable by
+   root only.
+
+   ```bash
+   docker run --rm -v "$REPOSITORY_VOLUME":/volume:ro -v "$BACKUP_DIR":/backup ubuntu:24.04 \
+     sh -c 'umask 077 && tar -czpf /backup/repository.tar.gz --numeric-owner -C /volume .'
+   docker run --rm -v "$SECRETS_VOLUME":/volume:ro -v "$BACKUP_DIR":/backup ubuntu:24.04 \
+     sh -c 'umask 077 && tar -czpf /backup/secrets.tar.gz --numeric-owner -C /volume .'
+   ```
+
+5. **Start the CMS again:**
+
+   ```bash
+   docker compose start cms
+   ```
+
+6. **Check the archives.** Both must list files without an error, and the
+   secrets archive must contain `./secret-key.yml`:
+
+   ```bash
+   ls -l "$BACKUP_DIR"
+   docker run --rm -v "$BACKUP_DIR":/backup:ro ubuntu:24.04 tar -tzf /backup/repository.tar.gz | head
+   docker run --rm -v "$BACKUP_DIR":/backup:ro ubuntu:24.04 tar -tzf /backup/secrets.tar.gz
+   ```
+
+7. **Copy the backup off the host** (the archives belong to root, so use
+   `sudo`), keeping `secrets.tar.gz` apart from the rest — see
+   [Keeping backups safe](#keeping-backups-safe).
+
+#### Restoring
+
+Restoring replaces everything in the volumes with the backup. Changes made
+after the backup was taken are lost.
+
+1. **Get a stopped container whose volumes can be filled.**
+
+   - On the same host: stop the CMS.
+
+     ```bash
+     docker compose stop cms
+     ```
+
+   - On a new host: put your `docker-compose.yml` in place, set its `image:`
+     to the version in `image.txt` (or a newer one), and let Compose create
+     the container and empty volumes without starting anything:
+
+     ```bash
+     docker compose create
+     ```
+
+   Do not use `docker compose down -v` at any point: `-v` deletes the
+   volumes.
+
+2. **Set the names** (look them up with `docker inspect` as in
+   [Before you start](#before-you-start)) and the backup to restore:
+
+   ```bash
+   REPOSITORY_VOLUME=docker_cms-repository
+   SECRETS_VOLUME=docker_cms-secrets
+   LOCAL_VOLUME=docker_cms-local
+   BACKUP_DIR=/srv/backup/cms/20261019-030000
+   ```
+
+   When the backup was copied back from elsewhere, make sure `BACKUP_DIR`
+   holds both `repository.tar.gz` and `secrets.tar.gz`.
+
+3. **Empty the three volumes.** Emptying `/data/local` makes the CMS rebuild
+   its search indexes from the restored content; an index kept from before
+   would still show what was deleted since the backup.
+
+   ```bash
+   for volume in "$REPOSITORY_VOLUME" "$SECRETS_VOLUME" "$LOCAL_VOLUME"; do
+     docker run --rm -v "$volume":/volume ubuntu:24.04 find /volume -mindepth 1 -delete
+   done
+   ```
+
+4. **Unpack the backup** into the volumes:
+
+   ```bash
+   docker run --rm -v "$REPOSITORY_VOLUME":/volume -v "$BACKUP_DIR":/backup:ro ubuntu:24.04 \
+     tar -xzpf /backup/repository.tar.gz --numeric-owner -C /volume
+   docker run --rm -v "$SECRETS_VOLUME":/volume -v "$BACKUP_DIR":/backup:ro ubuntu:24.04 \
+     tar -xzpf /backup/secrets.tar.gz --numeric-owner -C /volume
+   ```
+
+5. **Start the CMS** and follow its log (press Ctrl+C to stop following; the
+   CMS keeps running):
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f cms
+   ```
+
+   The first start rebuilds every workspace's search index. Until that has
+   finished, search results can be incomplete; a large repository takes a
+   while.
+
+6. **Check the result:** sign in with an account that existed when the
+   backup was taken, and open a few documents and their binaries (images,
+   attachments).
+
+### Clustered installation
+
+This assumes the layout of the clustered seed and of
+[`documents/clustering.md`](../documents/clustering.md): the content in a
+shared PostgreSQL database per workspace, `/data/repository` and
+`/data/secrets` on storage that every node mounts, and a `/data/local` volume
+of its own on every node.
+
+All nodes are stopped for the whole backup: the databases and the shared
+storage have to be copied at the same moment, and with every node stopped
+nothing changes in between.
+
+Two more things belong in the backup when the installation uses them:
+
+- a `jcr.yml#blobstore.directory` outside the repository directory — the
+  binaries are then stored there; archive it the same way as the shared
+  storage, at the same time;
+- `CMS_CLUSTER_SECRET_KEY_PATH` pointing outside the repository directory —
+  copy that file too.
+
+The database commands use the PostgreSQL client tools (`psql`, `pg_dump`,
+`pg_restore`, `createdb`, `dropdb`), of the same major version as the server
+or newer. They read the connection from the `PG*` environment variables;
+connect as a user that may create and drop databases (for example
+`postgres`):
+
+```bash
+export PGHOST=db.example.internal PGPORT=5432 PGUSER=postgres
+export PGPASSWORD='…'   # or keep it in ~/.pgpass instead
+CMS_DB_USER=jcr         # the CMS's own database user (CMS_DB_USER)
+```
+
+When PostgreSQL runs in a container and its host has no client tools, the
+container's own tools can be used: run each command as
+`docker exec -i -e PGUSER -e PGPASSWORD <postgres-container> <command>`
+(leave `PGHOST` unset; the commands below read and write the dumps through
+standard input and output, so they work the same way through
+`docker exec`).
+
+#### Backing up
+
+1. **Stop every node.** On each node's host:
+
+   ```bash
+   docker compose stop cms
+   docker compose ps --all cms
+   ```
+
+   Go on only when every node reads `Exited`.
+
+2. **Make a directory for this backup and record the image** (on the host
+   where you run the following steps):
+
+   ```bash
+   BACKUP_DIR=/srv/backup/cms/$(date +%Y%m%d-%H%M%S)
+   mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
+   docker inspect cms --format '{{.Config.Image}}' > "$BACKUP_DIR/image.txt"
+   ```
+
+3. **Dump every workspace database.** With the seed's settings their names
+   are `jcr_<workspace>` and `bpm_<workspace>`; if you changed the `jdbcURL`s
+   in `jcr.yml` / `bpm.yml`, list your own names instead.
+
+   ```bash
+   psql -d postgres -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'jcr\_%' OR datname LIKE 'bpm\_%' ORDER BY 1"
+   ```
+
+   Check that the list holds one `jcr_` database per workspace (and a `bpm_`
+   one for each workspace that runs processes), then dump them all:
+
+   ```bash
+   umask 077
+   for db in $(psql -d postgres -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'jcr\_%' OR datname LIKE 'bpm\_%' ORDER BY 1"); do
+     echo "dumping $db"
+     pg_dump -Fc "$db" > "$BACKUP_DIR/$db.dump" || echo "FAILED: $db"
+   done
+   ```
+
+   Read the output: no line may say `FAILED`.
+
+4. **Archive the shared storage** — once, on one node's host, with that
+   node's volume names (from `docker inspect`):
+
+   ```bash
+   REPOSITORY_VOLUME=docker_cms-repository
+   SECRETS_VOLUME=docker_cms-secrets
+   docker run --rm -v "$REPOSITORY_VOLUME":/volume:ro -v "$BACKUP_DIR":/backup ubuntu:24.04 \
+     sh -c 'umask 077 && tar -czpf /backup/repository.tar.gz --numeric-owner -C /volume .'
+   docker run --rm -v "$SECRETS_VOLUME":/volume:ro -v "$BACKUP_DIR":/backup ubuntu:24.04 \
+     sh -c 'umask 077 && tar -czpf /backup/secrets.tar.gz --numeric-owner -C /volume .'
+   ```
+
+   A snapshot or copy taken on the storage server itself (for example of
+   the NFS export) serves just as well, provided it is taken now, while the
+   nodes are stopped.
+
+5. **Start the nodes again:** one node first, and when you can sign in
+   through it, the others.
+
+   ```bash
+   docker compose start cms
+   ```
+
+6. **Check the backup** as in the standalone procedure, and also
+   `ls -l "$BACKUP_DIR"`: every `.dump` file must have a size above zero.
+
+#### Restoring
+
+1. **Stop every node** (`docker compose stop cms` on each host) and check
+   that all of them read `Exited`. A node left running would write into the
+   databases while they are being replaced.
+
+2. **Set the backup to restore:**
+
+   ```bash
+   BACKUP_DIR=/srv/backup/cms/20261019-030000
+   ```
+
+3. **Restore every database.** Each one is dropped, created again for the
+   CMS's database user, and filled from its dump:
+
+   ```bash
+   for dump in "$BACKUP_DIR"/*.dump; do
+     db=$(basename "$dump" .dump)
+     echo "restoring $db"
+     dropdb --if-exists "$db" &&
+       createdb --owner="$CMS_DB_USER" "$db" &&
+       pg_restore --no-owner --role="$CMS_DB_USER" --dbname="$db" < "$dump" ||
+       echo "FAILED: $db"
+   done
+   ```
+
+   No line may say `FAILED`. A workspace created after the backup still has
+   its databases, but the restored shared storage no longer has its
+   directory: drop those databases (`dropdb jcr_<workspace>`,
+   `dropdb bpm_<workspace>`), since a workspace created later under the same
+   name would otherwise come back with their old content.
+
+4. **Restore the shared storage** — once, on one node's host. Empty the two
+   volumes, then unpack:
+
+   ```bash
+   REPOSITORY_VOLUME=docker_cms-repository
+   SECRETS_VOLUME=docker_cms-secrets
+   for volume in "$REPOSITORY_VOLUME" "$SECRETS_VOLUME"; do
+     docker run --rm -v "$volume":/volume ubuntu:24.04 find /volume -mindepth 1 -delete
+   done
+   docker run --rm -v "$REPOSITORY_VOLUME":/volume -v "$BACKUP_DIR":/backup:ro ubuntu:24.04 \
+     tar -xzpf /backup/repository.tar.gz --numeric-owner -C /volume
+   docker run --rm -v "$SECRETS_VOLUME":/volume -v "$BACKUP_DIR":/backup:ro ubuntu:24.04 \
+     tar -xzpf /backup/secrets.tar.gz --numeric-owner -C /volume
+   ```
+
+5. **Empty `/data/local` on every node.** On each node's host, with that
+   node's own volume name:
+
+   ```bash
+   LOCAL_VOLUME=docker_cms-local
+   docker run --rm -v "$LOCAL_VOLUME":/volume ubuntu:24.04 find /volume -mindepth 1 -delete
+   ```
+
+   This step is not optional: the restored databases record how far each
+   node had indexed at backup time, and an index kept from before would not
+   match them.
+
+6. **Start one node** and follow its log until it is up; sign in through it
+   and check a few documents, as in the standalone procedure:
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f cms
+   ```
+
+7. **Start the other nodes.** Each one rebuilds its own search index on its
+   first start.
+
+### Keeping backups safe
+
+- **Keep `secrets.tar.gz` apart from the rest.** Whoever holds both the key
+  and the repository (or the database dumps) can decrypt every encrypted
+  value. Store the key archive in a separate place with tighter access, and
+  keep it as long as any backup made with it: the key normally never
+  changes, so each repository backup needs a copy of the same key.
+- **The archives and dumps hold all content.** Store them encrypted or on
+  storage with restricted access, and copy them off the Docker host — a
+  backup on the same disk is lost together with it.
+- `INITIAL_PASSWORD.txt`, `SP_KEYSTORE_PASSWORD.txt` and
+  `IDP_KEYSTORE_PASSWORD.txt` in `/data/repository` hold passwords in plain
+  text and are in every backup taken while they still exist (see
+  [Required runtime configuration](#required-runtime-configuration)).
+  Delete them once you no longer need them.
+- **Restore with the image version in `image.txt` or a newer one.** An older
+  image brings the bundled assets back to its own state (see
+  [Bundled assets and configuration](#bundled-assets-and-configuration)).
+- **Practise a restore** now and then on a separate host (the procedure
+  for a new host above), so that the procedure and the backups are known to
+  work before they are needed.
+
 ## Encrypting a value
 
 ```console

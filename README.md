@@ -32,7 +32,6 @@ docker run --rm \
   -v cms-repository:/data/repository \
   -v cms-secrets:/data/secrets \
   -v cms-index:/data/index \
-  --tmpfs /opt/felix/tmp:size=512m,mode=0700 \
   mintjams/cms:0.1.34-beta
 ```
 
@@ -57,8 +56,6 @@ services:
       - cms-repository:/data/repository
       - cms-secrets:/data/secrets
       - cms-index:/data/index
-    tmpfs:
-      - /opt/felix/tmp:size=512m,mode=0700
 
 volumes:
   cms-repository:

@@ -106,14 +106,15 @@ public class JcrRepositoryConfiguration implements Adaptable {
 	 * repository directory, which holds the data to keep (and, in a cluster,
 	 * the data every node shares). Resolved from the framework property
 	 * {@code org.mintjams.jcr.repository.localdir}, then the environment
-	 * variable {@code CMS_NODE_LOCAL_PATH}; defaults to {@code var} under the
-	 * working directory, next to {@code felix-cache} and the logs. Like the
+	 * variable {@code CMS_NODE_LOCAL_PATH}; defaults to
+	 * {@code repository-local} under the working directory, next to the
+	 * default repository directory, {@code felix-cache} and the logs. Like the
 	 * node id it differs per node and never comes from the shared
 	 * configuration, and it must not be on storage another node uses.
 	 */
 	public Path getLocalPath() {
 		String value = getNodeSetting("org.mintjams.jcr.repository.localdir", "CMS_NODE_LOCAL_PATH");
-		return Path.of(Strings.defaultIfEmpty(value, "var")).normalize();
+		return Path.of(Strings.defaultIfEmpty(value, "repository-local")).normalize();
 	}
 
 	/**
