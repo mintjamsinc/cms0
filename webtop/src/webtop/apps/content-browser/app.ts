@@ -2595,8 +2595,19 @@ export const App = {
 			const contentList = target.closest('.content-list');
 			if (!contentList) return;
 
-			// Start drag selection
+			// The list's own scrollbars are inside its border box but outside
+			// its client box, so a press on them reaches here with the list as
+			// the target. Dragging a scrollbar must neither clear the selection
+			// nor start a rubber band, so leave such presses to the browser.
 			const rect = contentList.getBoundingClientRect();
+			const x = event.clientX - rect.left;
+			const y = event.clientY - rect.top;
+			if (x >= contentList.clientLeft + contentList.clientWidth ||
+				y >= contentList.clientTop + contentList.clientHeight) {
+				return;
+			}
+
+			// Start drag selection
 			vm.dragSelection.active = true;
 			vm.dragSelection.startX = event.clientX - rect.left + contentList.scrollLeft;
 			vm.dragSelection.startY = event.clientY - rect.top + contentList.scrollTop;
