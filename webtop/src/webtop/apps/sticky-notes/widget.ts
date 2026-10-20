@@ -3,13 +3,23 @@
  *
  * One note on the desktop. The shell places it and draws the grip; this page
  * is the note itself: its text, its colour, and the question asked before a
- * note with text is removed. The text is saved a moment after typing stops
- * (and when the note loses focus) to the placement's file (notes.ts), and a
- * change made to that file in another browser is shown here unless the note
- * is being edited.
+ * note with text is removed.
+ *
+ * The text is the same Tiptap editor as the Memo app, cut down to what a
+ * note needs: lists, checkboxes, bold, strike-through, one heading level, a
+ * quotation. There is no toolbar, menu or slash command — a decoration comes
+ * from typing it, as in Memo: "- " starts a list, "[ ] " a checkbox, "# " a
+ * heading, "> " a quotation, **bold**, ~~done~~, Ctrl+B / Ctrl+I. Text
+ * pasted from a memo keeps its decorations.
+ *
+ * The note is saved a moment after typing stops (and when the note loses
+ * focus) to the placement's file (notes.ts), and a change made to that file
+ * in another browser is shown here unless the note is being edited.
  */
 
 import { VDOM } from '@mintjamsinc/ichigojs';
+import { Editor } from '@tiptap/core';
+import { Placeholder } from '@tiptap/extension-placeholder';
 import type { WidgetInstance } from '../../services/webtop-service.js';
 import {
 	createLocalizationSnapshot,
@@ -21,16 +31,21 @@ import {
 	NoteStore,
 	NOTE_COLORS,
 	NOTE_TEXT_COLOR,
+	NOTE_FORMAT_VERSION,
 	DEFAULT_NOTE_COLOR,
 	noteColorValue,
+	noteContent,
 	type Note,
+	type NoteDoc,
 } from './notes.js';
+import { noteExtensions } from './note-editor.js';
 
 const SAVE_DELAY_MS = 600;
 const COLOR_ACTION = 'color:';
 
-// Outside reactive data: the store and timers are plain objects and
-// functions (see the radio app for the same split).
+// Outside reactive data: the editor, the store and the timers are plain
+// objects and functions (see the radio app for the same split).
+let editor: Editor | null = null;
 let store: NoteStore | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let saving: Promise<void> | null = null;
@@ -40,6 +55,23 @@ let removeAnswer: ((ok: boolean) => void) | null = null;
 // mistaken for an edit made elsewhere.
 const writerId = crypto.randomUUID();
 
+/**
+ * The note as plain text for the list window: one line per paragraph, list
+ * item or heading, without the blank lines Tiptap's getText() puts between
+ * nested blocks, and without trailing empty lines.
+ */
+function plainText(ed: Editor): string {
+	const lines: string[] = [];
+	ed.state.doc.descendants((node) => {
+		if (node.isTextblock) {
+			lines.push(node.textContent);
+			return false;
+		}
+		return true;
+	});
+	return lines.join('\n').replace(/\n+$/, '');
+}
+
 const Widget = {
 	data() {
 		return {
@@ -48,7 +80,6 @@ const Widget = {
 			pageHideListener: null as (() => void) | null,
 			localization: createLocalizationSnapshot(),
 			isReady: false,
-			text: '',
 			color: DEFAULT_NOTE_COLOR,
 			// Changed here and not yet saved.
 			dirty: false,
@@ -91,10 +122,7 @@ const Widget = {
 
 				store = new NoteStore({ userId: widget.currentUser?.id || '', content: widget.api.systemContent });
 				const note = await store.load(widget.id);
-				if (note) {
-					vm.text = note.text;
-					vm.color = note.color;
-				}
+				if (note) vm.color = note.color;
 
 				try {
 					unwatch = widget.api.systemEventHub.watchNode(store.pathOf(widget.id), () => vm.onFileChanged(), true);
@@ -103,7 +131,7 @@ const Widget = {
 				}
 
 				widget.setBeforeRemoveCallback(async () => {
-					if (vm.text.trim() && !(await vm.askRemove())) return false;
+					if (editor && !editor.isEmpty && !(await vm.askRemove())) return false;
 					if (saveTimer) {
 						clearTimeout(saveTimer);
 						saveTimer = null;
@@ -117,7 +145,12 @@ const Widget = {
 				});
 
 				vm.isReady = true;
-				vm.$nextTick(() => widget.notifyLaunched());
+				// The editor's host is inside the readiness gate, so it exists
+				// only after this render.
+				vm.$nextTick(() => {
+					vm.createEditor(noteContent(note));
+					widget.notifyLaunched();
+				});
 			};
 		},
 		onUnmount() {
@@ -125,6 +158,32 @@ const Widget = {
 			if (this.pageHideListener) window.removeEventListener('pagehide', this.pageHideListener);
 			unwatch?.();
 			unwatch = null;
+			editor?.destroy();
+			editor = null;
+		},
+
+		// --- the editor -----------------------------------------------------
+
+		createEditor(content: NoteDoc) {
+			const vm = this;
+			const host = vm.$refs.editorHost as HTMLElement | undefined;
+			if (!host || editor) return;
+			editor = new Editor({
+				element: host,
+				extensions: [
+					...noteExtensions(),
+					Placeholder.configure({
+						placeholder: () => vm.t('app.sticky-notes.note.placeholder', undefined, 'Write a note… (- for a list, [ ] for a checkbox)'),
+					}),
+				],
+				content,
+				autofocus: false,
+				editorProps: {
+					attributes: { spellcheck: 'false' },
+				},
+				onUpdate: () => vm.onInput(),
+				onBlur: () => vm.onBlur(),
+			});
 		},
 
 		// --- saving ---------------------------------------------------------
@@ -152,11 +211,12 @@ const Widget = {
 				saveTimer = null;
 			}
 			if (saving) await saving.catch(() => { /* the save below carries the newer text */ });
-			if (!vm.dirty || !store || !vm.widget) return;
+			if (!vm.dirty || !store || !vm.widget || !editor) return;
 			vm.dirty = false;
 			const note: Note = {
-				version: 1,
-				text: vm.text,
+				version: NOTE_FORMAT_VERSION,
+				text: plainText(editor),
+				doc: editor.getJSON() as NoteDoc,
 				color: vm.color,
 				updatedAt: new Date().toISOString(),
 				writer: writerId,
@@ -176,7 +236,8 @@ const Widget = {
 		async onFileChanged() {
 			const vm = this;
 			if (!store || !vm.widget) return;
-			const editing = document.activeElement?.classList.contains('note-text');
+			// The cursor is in the note (the window itself may be behind another).
+			const editing = !!editor && document.activeElement === editor.view.dom;
 			if (vm.dirty || editing) {
 				vm.remoteChanged = true;
 				return;
@@ -184,8 +245,8 @@ const Widget = {
 			vm.remoteChanged = false;
 			const note = await store.load(vm.widget.id);
 			if (!note || note.writer === writerId || vm.dirty) return;
-			vm.text = note.text;
 			vm.color = note.color;
+			editor?.commands.setContent(noteContent(note), { emitUpdate: false });
 		},
 
 		// --- colour ---------------------------------------------------------

@@ -17,6 +17,7 @@ import {
 	translate,
 } from '../../composables/use-localization.js';
 import { NoteStore, NOTE_TEXT_COLOR, noteColorValue, emptyNote } from './notes.js';
+import { noteHtml } from './note-editor.js';
 
 const NOTE_WIDGET = 'note';
 // Typing in a note saves every few hundred milliseconds; the list follows
@@ -26,7 +27,8 @@ const REFRESH_DELAY_MS = 800;
 interface NoteRow {
 	id: string;
 	layer: WidgetLayer;
-	text: string;
+	text: string;   // plain, for the search and the "empty" check
+	html: string;   // the document as the note shows it
 	color: string;
 	updatedAt: string;
 }
@@ -143,7 +145,7 @@ const App = {
 				.filter((p) => p.widget === NOTE_WIDGET)
 				.map((p) => {
 					const note = files.get(p.id) || emptyNote();
-					return { id: p.id, layer: p.layer, text: note.text, color: note.color, updatedAt: note.updatedAt };
+					return { id: p.id, layer: p.layer, text: note.text, html: note.text.trim() ? noteHtml(note) : '', color: note.color, updatedAt: note.updatedAt };
 				})
 				// Empty notes (never written) last; otherwise the latest edit first.
 				.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));

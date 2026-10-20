@@ -10,6 +10,7 @@
 	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
 
 	<!-- Default CSS -->
+	<link href="./assets/css/note.css?v=__BUILD_VERSION__" rel="stylesheet" />
 	<link href="./assets/css/style.css?v=__BUILD_VERSION__" rel="stylesheet" />
 	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
 </head>
@@ -70,7 +71,9 @@
 						:style="{ background: noteColor(note), color: textColor }"
 						:title="t('app.sticky-notes.list.reveal', undefined, 'Show on the desktop')"
 						@click="reveal(note)">
-						<div class="sn-card-text" :class="{ empty: !note.text.trim() }">{{ note.text.trim() ? note.text : t('app.sticky-notes.list.emptyNote', undefined, 'Empty note') }}</div>
+						<!-- The note's document, rendered as the note shows it (note-editor.ts). -->
+						<div v-if="note.text.trim()" class="sn-card-text sn-doc" v-html="note.html"></div>
+						<div v-else class="sn-card-text empty">{{ t('app.sticky-notes.list.emptyNote', undefined, 'Empty note') }}</div>
 						<div class="sn-card-footer">
 							<span class="sn-card-time">{{ formatTime(note.updatedAt) }}</span>
 							<button type="button" class="sn-card-btn" :class="{ active: note.layer === 'pinned' }" @click.stop="togglePin(note)"

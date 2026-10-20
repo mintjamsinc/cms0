@@ -11,7 +11,7 @@
 	"app.sticky-notes.list.unpin": "Put back on the desktop",
 	"app.sticky-notes.list.count": "{count} notes",
 	"app.sticky-notes.note.color": "Color",
-	"app.sticky-notes.note.placeholder": "Write a note…",
+	"app.sticky-notes.note.placeholder": "Write a note… (- for a list, [ ] for a checkbox)",
 	"app.sticky-notes.note.removeConfirm": "Remove this note? Its text will be deleted.",
 	"app.sticky-notes.note.remove": "Remove",
 	"app.sticky-notes.color.tomato": "Tomato",

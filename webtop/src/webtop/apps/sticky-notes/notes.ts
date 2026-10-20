@@ -8,19 +8,32 @@
  *
  *   /home/users/<user>/sticky-notes/<placement id>.json
  *
- * Both the widget (widget.ts) and the list window (app.ts) read them through
- * this store. A write carries the writer's id, so a widget can tell the change
- * events of its own saves from edits made in another browser.
+ * Version 2 keeps the note as a Tiptap document (`doc`, the same editor as
+ * the Memo app) next to its plain text (`text`), which the list window
+ * searches and shows. A version 1 file has only the text; it is read as
+ * plain paragraphs. Both the widget (widget.ts) and the list window (app.ts)
+ * read them through this store. A write carries the writer's id, so a widget
+ * can tell the change events of its own saves from edits made in another
+ * browser.
  */
 import { SWATCH_HIGHLIGHT_COLORS } from '../../lib/color-palette.js';
 
 export interface Note {
-	version: 1;
-	text: string;
+	version: 1 | 2;
+	text: string;       // plain text, one line per block
+	doc?: NoteDoc;      // the Tiptap document (version 2)
 	color: string;      // NOTE_COLORS key
 	updatedAt: string;  // ISO-8601
 	writer?: string;    // id of the widget page that wrote it
 }
+
+/** A ProseMirror document as Tiptap's getJSON() returns it. */
+export interface NoteDoc {
+	type: 'doc';
+	content?: unknown[];
+}
+
+export const NOTE_FORMAT_VERSION = 2;
 
 /** The pale palette, so dark text stays readable on every note. */
 export const NOTE_COLORS = SWATCH_HIGHLIGHT_COLORS;
@@ -33,15 +46,37 @@ export function noteColorValue(key: string | undefined): string {
 }
 
 export function emptyNote(): Note {
-	return { version: 1, text: '', color: DEFAULT_NOTE_COLOR, updatedAt: '' };
+	return { version: NOTE_FORMAT_VERSION, text: '', color: DEFAULT_NOTE_COLOR, updatedAt: '' };
+}
+
+/**
+ * What the editor shows for a note: its document, or (version 1) its text as
+ * one paragraph per line.
+ */
+export function noteContent(note: Note | null): NoteDoc {
+	if (note?.doc) return note.doc;
+	const lines = (note?.text || '').split(/\r?\n/);
+	return {
+		type: 'doc',
+		content: lines.map((line) => (line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' })),
+	};
+}
+
+function toDoc(value: unknown): NoteDoc | undefined {
+	if (!value || typeof value !== 'object') return undefined;
+	const v = value as Record<string, unknown>;
+	if (v.type !== 'doc') return undefined;
+	return Array.isArray(v.content) ? { type: 'doc', content: v.content } : { type: 'doc' };
 }
 
 function toNote(value: unknown): Note | null {
 	if (!value || typeof value !== 'object') return null;
 	const v = value as Record<string, unknown>;
+	const doc = toDoc(v.doc);
 	return {
-		version: 1,
+		version: doc ? NOTE_FORMAT_VERSION : 1,
 		text: typeof v.text === 'string' ? v.text : '',
+		doc,
 		color: NOTE_COLORS.some((c) => c.key === v.color) ? v.color as string : DEFAULT_NOTE_COLOR,
 		updatedAt: typeof v.updatedAt === 'string' ? v.updatedAt : '',
 		writer: typeof v.writer === 'string' ? v.writer : undefined,

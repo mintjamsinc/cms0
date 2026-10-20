@@ -1,0 +1,128 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * Sticky Notes — the note's document
+ *
+ * Shared by the note widget (the Tiptap editor under .note-text) and the list
+ * window (a card's rendering of the same document, see note-editor.ts). Both
+ * containers carry .sn-doc; the note's pale paper colour and dark text come
+ * from the container. No chrome: a decoration comes from typing it.
+ * ============================================================================ */
+
+.sn-doc {
+	line-height: 1.55;
+	/* webtop-app.css resets `* { font-weight: inherit }`; the document starts
+	   from a normal weight so <strong> below can be bolder. */
+	font-weight: normal;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.sn-doc > * + *,
+.sn-doc .ProseMirror > * + * {
+	margin-top: 0.35em;
+}
+
+.sn-doc p {
+	margin: 0;
+}
+
+.sn-doc strong,
+.sn-doc b {
+	font-weight: bolder;
+}
+
+.sn-doc h1 {
+	margin: 0;
+	font-size: 1.25em;
+	font-weight: 700;
+	line-height: 1.3;
+}
+
+.sn-doc > * + h1,
+.sn-doc .ProseMirror > * + h1 {
+	margin-top: 0.6em;
+}
+
+.sn-doc ul,
+.sn-doc ol {
+	margin: 0;
+	padding-left: 1.25rem;
+}
+
+.sn-doc ul {
+	list-style: disc;
+}
+
+.sn-doc ol {
+	list-style: decimal;
+}
+
+.sn-doc li {
+	margin: 0.1em 0;
+}
+
+.sn-doc li > p {
+	margin: 0;
+}
+
+/* Checklists */
+.sn-doc ul[data-type="taskList"] {
+	list-style: none;
+	padding-left: 0;
+}
+
+.sn-doc ul[data-type="taskList"] li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.4rem;
+}
+
+.sn-doc ul[data-type="taskList"] li > label {
+	display: inline-flex;
+	align-items: center;
+	/* One line box, so the box lines up with the first line of its text. */
+	height: 1.55em;
+	user-select: none;
+}
+
+.sn-doc ul[data-type="taskList"] li > label input[type="checkbox"] {
+	width: 1.05em;
+	height: 1.05em;
+	margin: 0;
+	accent-color: currentColor;
+	cursor: pointer;
+}
+
+.sn-doc ul[data-type="taskList"] li > div {
+	flex: 1;
+	min-width: 0;
+}
+
+.sn-doc ul[data-type="taskList"] li[data-checked="true"] > div {
+	opacity: 0.55;
+	text-decoration: line-through;
+}
+
+.sn-doc ul[data-type="taskList"] ul[data-type="taskList"] {
+	padding-left: 1.45rem;
+}
+
+.sn-doc blockquote {
+	margin: 0;
+	padding-left: 0.6rem;
+	border-left: 0.2rem solid currentColor;
+	opacity: 0.85;
+}
+
+.sn-doc code {
+	padding: 0 0.25em;
+	border-radius: 0.25rem;
+	background: rgb(0 0 0 / 0.07);
+	font-size: 0.9em;
+}
+
+.sn-doc a {
+	color: inherit;
+	text-decoration: underline;
+}

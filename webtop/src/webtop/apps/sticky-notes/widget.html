@@ -10,6 +10,7 @@
 	<link rel="stylesheet" href="../../vendor/bootstrap-icons/bootstrap-icons.min.css?v=__BUILD_VERSION__">
 
 	<!-- Default CSS -->
+	<link href="./assets/css/note.css?v=__BUILD_VERSION__" rel="stylesheet" />
 	<link href="./assets/css/widget.css?v=__BUILD_VERSION__" rel="stylesheet" />
 	<link href="../../assets/css/webtop-app.css?v=__BUILD_VERSION__" rel="stylesheet" />
 </head>
@@ -25,8 +26,8 @@
 					<i class="bi bi-palette"></i>
 				</button>
 			</div>
-			<textarea class="note-text" v-model="text" @input="onInput" @blur="onBlur" spellcheck="false"
-				:placeholder="t('app.sticky-notes.note.placeholder', undefined, 'Write a note…')"></textarea>
+			<!-- The Tiptap editor is mounted here (widget.ts createEditor). -->
+			<div class="note-text sn-doc" ref="editorHost"></div>
 
 			<!-- Asked before a note with text is removed (the shell's "Remove from Desktop"). -->
 			<div v-if="confirmingRemove" class="note-confirm">

@@ -5,7 +5,8 @@
  *
  * The page fills the widget's frameless iframe. The note paints its own pale
  * paper colour (notes.ts NOTE_COLORS) with dark text in either theme; the
- * shell adds only the grip at the top centre on hover.
+ * shell adds only the grip at the top centre on hover. The text is a Tiptap
+ * document (widget.ts) styled by note.css under .sn-doc.
  * ============================================================================ */
 
 html,
@@ -59,23 +60,33 @@ body {
 	opacity: 1;
 }
 
+/* The editor (Tiptap, see widget.ts). The host scrolls; the document fills
+ * it so a click below the last line still places the cursor. No toolbar: a
+ * decoration comes from typing it, so the note stays a sheet of paper. */
 .note-text {
 	flex: 1 1 auto;
 	min-height: 0;
-	width: 100%;
-	padding: 0 0.75rem 0.75rem;
-	border: 0;
-	outline: none;
-	resize: none;
-	background: transparent;
-	color: inherit;
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+	cursor: text;
 	font-size: 14px;
-	line-height: 1.55;
 }
 
-.note-text::placeholder {
+.note-text .ProseMirror {
+	flex: 1 0 auto;
+	padding: 0 0.75rem 0.75rem;
+	outline: none;
+	color: inherit;
+}
+
+.note-text .ProseMirror p.is-editor-empty:first-child::before {
+	content: attr(data-placeholder);
+	float: left;
+	height: 0;
 	color: inherit;
 	opacity: 0.4;
+	pointer-events: none;
 }
 
 /* "Remove this note?" — covers the note until answered. */
