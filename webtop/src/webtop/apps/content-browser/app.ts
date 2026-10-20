@@ -1047,6 +1047,9 @@ export const App = {
 				current: all[all.length - 1],
 			};
 		},
+		canGoToParent(): boolean {
+			return !this.xpathSearchActive && !!this.currentPath && this.currentPath !== '/';
+		},
 		// Back/forward navigation
 		canGoBack(): boolean {
 			return this.navStackIndex > 0;
@@ -4477,6 +4480,12 @@ export const App = {
 			}
 		},
 		// Back/forward navigation methods
+		// The parent folder. Undefined while the list shows search results
+		// (they come from no single folder) and at the root.
+		async goToParent() {
+			if (!this.canGoToParent) return;
+			await this.load(parentPathOf(this.currentPath));
+		},
 		async goBack() {
 			if (!this.canGoBack) return;
 			this.navStackIndex--;
@@ -5815,6 +5824,32 @@ export const App = {
 			if (event.altKey && event.key === 'ArrowRight') {
 				event.preventDefault();
 				vm.goForward();
+				return;
+			}
+			// Alt+Up / Backspace: the parent folder. Back and Forward already
+			// have Alt+Left / Alt+Right, so Backspace takes the one move the
+			// history keys do not cover; it reads as deleting the last segment
+			// of the breadcrumb. Checked before the plain Arrow keys so Alt+Up
+			// never steps the cursor instead.
+			if ((event.altKey && event.key === 'ArrowUp') || (!event.altKey && !event.ctrlKey && !event.metaKey && event.key === 'Backspace')) {
+				if (vm.canGoToParent) {
+					event.preventDefault();
+					vm.goToParent();
+				}
+				return;
+			}
+			// Enter: open the cursor row, exactly as a double-click does. Only
+			// for a single selection, since each file opens an app window. Left
+			// alone when a button or link has focus (Enter must still press it).
+			if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+				if (target.tagName === 'BUTTON' || target.tagName === 'A') return;
+				if (vm.selectedItems.length === 1) {
+					const item = vm.items.find((i: any) => i.id === vm.selectedItems[0]);
+					if (item) {
+						event.preventDefault();
+						vm.openItem(item);
+					}
+				}
 				return;
 			}
 

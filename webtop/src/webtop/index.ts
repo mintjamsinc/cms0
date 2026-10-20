@@ -2304,10 +2304,24 @@ const WtDesktop = {
 			await vm._executeInternalDropToDesktop(cb.items, vm.desktopFolderPath, isCopy);
 			if (cb.mode === 'cut') vm._clearDesktopClipboard();
 		},
-		// Routes Ctrl+C / Ctrl+X / Ctrl+V / F2 / Delete to the desktop. Only
-		// fires while the desktop surface holds focus (see the listener comment);
-		// we additionally bail out when typing in a field, when any blocking
-		// dialog/overlay is up, or when focus sits inside an app window's chrome.
+		// Open a desktop icon the way a double-click does: a folder in the
+		// Content Browser, a file in its editor app.
+		async openDesktopItem(item: any) {
+			const vm = this as any;
+			if (item.isCollection) {
+				vm.openAppWithOptions({ appId: '2468cf47-1a30-4053-b80a-9c5486954b08', options: { initialPath: item.path } });
+				return;
+			}
+			const editor = vm._findDesktopEditor(item.mimeType || '');
+			if (editor) {
+				await vm.openFileWithApp({ appId: editor.id, filePath: item.path, mimeType: item.mimeType });
+			}
+		},
+		// Routes Ctrl+C / Ctrl+X / Ctrl+V / F2 / Delete / Enter to the desktop.
+		// Only fires while the desktop surface holds focus (see the listener
+		// comment); we additionally bail out when typing in a field, when any
+		// blocking dialog/overlay is up, or when focus sits inside an app
+		// window's chrome.
 		onDesktopShellKeydown(event: KeyboardEvent) {
 			const vm = this as any;
 			const target = event.target as HTMLElement | null;
@@ -2343,6 +2357,18 @@ const WtDesktop = {
 				if (vm.desktopSelectedIds.length === 1) {
 					const item = vm.desktopItems.find((i: any) => i.id === vm.desktopSelectedIds[0]);
 					if (item) { event.preventDefault(); vm.showDesktopRenameDialog(item); }
+				}
+				return;
+			}
+			// Enter: open the selected icon, as a double-click does. Single
+			// selection only. Left alone when a button or link has focus
+			// (taskbar, launcher) so Enter still presses it. Backspace has no
+			// meaning on the desktop: there is no folder above it to go to.
+			if (event.key === 'Enter' && !ctrl && !event.altKey && !event.shiftKey) {
+				if (target.closest('button, a, [role="button"]')) return;
+				if (vm.desktopSelectedIds.length === 1) {
+					const item = vm.desktopItems.find((i: any) => i.id === vm.desktopSelectedIds[0]);
+					if (item) { event.preventDefault(); vm.openDesktopItem(item); }
 				}
 				return;
 			}
@@ -2552,17 +2578,7 @@ const WtDesktop = {
 					vm.openAppWithOptions({ appId: '2468cf47-1a30-4053-b80a-9c5486954b08', options: { initialPath: vm.desktopFolderPath } });
 					return;
 				case 'open':
-					if (items.length === 1) {
-						const item = items[0];
-						if (item.isCollection) {
-							vm.openAppWithOptions({ appId: '2468cf47-1a30-4053-b80a-9c5486954b08', options: { initialPath: item.path } });
-						} else {
-							const editor = vm._findDesktopEditor(item.mimeType || '');
-							if (editor) {
-								await vm.openFileWithApp({ appId: editor.id, filePath: item.path, mimeType: item.mimeType });
-							}
-						}
-					}
+					if (items.length === 1) await vm.openDesktopItem(items[0]);
 					return;
 				case 'download':
 					for (const item of items) {
