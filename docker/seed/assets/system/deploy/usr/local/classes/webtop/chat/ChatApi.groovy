@@ -22,6 +22,8 @@ class ChatApi {
 	static final int MAX_SEARCH_PAGE = 50;
 	// How many of the latest mentions bring a conversation into the sidebar.
 	static final int SIDEBAR_MENTIONS = 100;
+	// How many users one mentionReach answers for.
+	static final int MAX_REACH = 50;
 
 	def context;
 	def session;
@@ -786,24 +788,77 @@ class ChatApi {
 	}
 
 	/**
-	 * Leaves each mentioned user a mark, except the author and those who are
-	 * no participant of the channel: a mention gives no access, and a notice
-	 * of a conversation one cannot open would be noise. Who may read the
-	 * conversation of a file cannot be told for another user here; the
-	 * mentioned user's own listing drops what that user cannot read. Returns
-	 * the users marked.
+	 * Leaves each mentioned user a mark, except the author and those the
+	 * mention does not reach (reaches). Returns the users marked.
 	 */
 	private List<String> notifyMentions(service, Map conversation, String messageId, List<String> mentions) {
 		Map ref = (conversation.kind == 'file') ? [fileId: conversation.fileId] : [channelId: (conversation.channel as Map).id];
 		List<String> told = [];
 		mentions.findAll { it != userId }.each { String mentioned ->
-			if (conversation.kind == 'channel' && !isParticipant(service, (conversation.channel as Map).id as String, mentioned)) {
+			if (!reaches(service, conversation, mentioned)) {
 				return;
 			}
 			ChatStore.mention(service, mentioned, ref, messageId, userId);
 			told.add(mentioned);
 		};
 		return told;
+	}
+
+	/**
+	 * Whether a mention of the user in the conversation reaches the user: a
+	 * participant of the channel, or one who may read the file. A mention
+	 * gives no access, and a notice of a conversation one cannot open would
+	 * be noise, and would tell of a file one cannot read. Who may read the
+	 * file is asked of the repository's committed access control, the way
+	 * event delivery asks it, without a session of the user.
+	 */
+	private boolean reaches(service, Map conversation, String user) {
+		if (conversation.kind == 'channel') {
+			return isParticipant(service, (conversation.channel as Map).id as String, user);
+		}
+		return canReadAs(service, user, conversation.file.path as String);
+	}
+
+	/** Whether the user, with the groups the user is in, may read the path; false when undecidable. */
+	private static boolean canReadAs(service, String user, String path) {
+		try {
+			def principals = service.principalProvider;
+			def principal = principals.getUserPrincipal(user);
+			def groups;
+			try {
+				groups = principals.getMemberOf(principal);
+			} catch (Throwable ignore) {
+				groups = [];
+			}
+			def repository = service.adaptTo(javax.jcr.Session).repository;
+			return repository.hasPrivileges(service.workspace.name as String, principal, groups, path, ChatStore.READ);
+		} catch (Throwable ignore) {
+			return false;
+		}
+	}
+
+	/**
+	 * Whether a mention of each user in the conversation would reach the user
+	 * (notifyMentions): what a client tells the writer before the message is
+	 * sent. The writer's own name always reaches (no notice is sent, none is
+	 * missed); a name that is no user never does.
+	 */
+	List<Map> mentionReach(Map ref, List<String> userIds) {
+		List<String> ids = (userIds ?: []).collect { it as String }.findAll { it }.unique(false).take(MAX_REACH) as List<String>;
+		return asService { service ->
+			Map conversation = resolve(service, ref);
+			return ids.collect { String id ->
+				boolean user = false;
+				try {
+					user = service.userManager.getUser(id) != null;
+				} catch (Throwable ignore) {}
+				return [
+					id: id,
+					displayName: displayName(service, id, false),
+					reached: user && (id == userId || reaches(service, conversation, id)),
+				];
+			};
+		} as List<Map>;
 	}
 
 	/** Where the caller's own mention marks are: what a client watches for them. */

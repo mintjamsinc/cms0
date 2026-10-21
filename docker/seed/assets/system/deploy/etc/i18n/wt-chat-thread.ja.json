@@ -14,6 +14,8 @@
 	"webtop.chat.composer.placeholder": "メッセージを入力",
 	"webtop.chat.composer.send": "送信 (Enter)",
 	"webtop.chat.composer.hint": "Enter で送信、Shift+Enter で改行",
+	"webtop.chat.mention.person": "{name} さん",
+	"webtop.chat.mention.unreached": "{names} はこの会話を読めないため、通知されません。",
 
 	"webtop.chat.attach.pick": "ファイルを添付",
 	"webtop.chat.attach.drop": "ドロップしてメッセージに追加",

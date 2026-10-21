@@ -627,6 +627,14 @@ wt-chat-thread {
 	font-size: 11px;
 }
 
+/* Whom a mention does not reach: a line the writer may act on, or ignore */
+.wt-chat-reach {
+	display: flex;
+	align-items: baseline;
+	gap: 0.375rem;
+	font-size: 12px;
+}
+
 .wt-chat-closed {
 	display: flex;
 	align-items: center;

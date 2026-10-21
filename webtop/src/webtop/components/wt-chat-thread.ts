@@ -104,6 +104,22 @@ const FOCUS_MARK_MS = 2500;
 // Suggestions for an @mention being typed.
 const MENTION_SUGGESTIONS = 8;
 const MENTION_DELAY_MS = 150;
+// How long after the names in a box last changed they are checked for
+// whether a mention reaches them.
+const REACH_DELAY_MS = 300;
+// The users written as @id in a text, as the server reads them
+// (ChatMessages.mentionsIn): what is checked for reach.
+const MENTION_RE = /(?<![\w@])@([A-Za-z0-9][A-Za-z0-9_.\-]{0,63})/g;
+
+/** The user ids written as @id in the text, in order, each once. */
+function mentionsIn(text: string): string[] {
+	const ids: string[] = [];
+	for (const m of text.matchAll(MENTION_RE)) {
+		const id = m[1].replace(/[.-]+$/, '');
+		if (id && !ids.includes(id)) ids.push(id);
+	}
+	return ids;
+}
 // What one message may carry; the server holds the same limits.
 const MAX_ATTACHMENTS = 10;
 const MAX_LINKS = 10;
@@ -332,6 +348,13 @@ defineComponent('wt-chat-thread', {
 				focusTimer: null as ReturnType<typeof setTimeout> | null,
 				mentionTimer: null as ReturnType<typeof setTimeout> | null,
 				mentionSeq: 0,
+				// Whether a mention reaches each user named so far in this
+				// conversation (false: not told of the message), the names last
+				// checked per box, and the check pending.
+				reach: new Map<string, boolean>(),
+				reachIds: { compose: '', edit: '' } as Record<'compose' | 'edit', string>,
+				reachTimer: null as ReturnType<typeof setTimeout> | null,
+				reachSeq: 0,
 				// The message boxes (lib/mention-editor.ts) around the editable
 				// elements, made when the elements are, and the names of the
 				// users seen so far, so that an @id put back into a box shows
@@ -377,6 +400,9 @@ defineComponent('wt-chat-thread', {
 			// edit's): the name so far, the users it may be, and which of them
 			// is highlighted.
 			mention: { open: false, box: '' as '' | 'compose' | 'edit', query: '', items: [] as { id: string; name: string }[], index: 0 },
+			// The users named in each box whom a mention does not reach: told
+			// to the writer, who may still send.
+			unreached: { compose: [] as MentionUser[], edit: [] as MentionUser[] },
 
 			// A card being added to the new message.
 			cardDraft: emptyCardDraft(),
@@ -568,6 +594,7 @@ defineComponent('wt-chat-thread', {
 			vm.errorMessage = '';
 			vm.newBelow = false;
 			vm.closeMentions();
+			vm.clearReach();
 			vm.sendError = '';
 			vm.compose = makePending();
 			vm.cardDraft = emptyCardDraft();
@@ -1003,6 +1030,7 @@ defineComponent('wt-chat-thread', {
 			if (!this._.composing) box.tidy();
 			this.draft = box.getText();
 			this.trackMention(box, 'compose');
+			this.trackReach(box, 'compose');
 		},
 
 		// =====================================================================
@@ -1048,6 +1076,75 @@ defineComponent('wt-chat-thread', {
 			} catch (e) {
 				if (seq === vm._.mentionSeq) vm.mention.items = [];
 			}
+		},
+		/**
+		 * Notes the users named in the box and, once they stop changing, asks
+		 * whether a mention reaches each of them, to tell the writer of those
+		 * it does not. What was asked before is remembered for the
+		 * conversation; sending never waits for the answer.
+		 */
+		trackReach(this: any, box: MentionEditor | null, which: 'compose' | 'edit') {
+			const vm = this;
+			const ids = box ? mentionsIn(box.getText()) : [];
+			const key = ids.join('\n');
+			if (key === vm._.reachIds[which]) return;
+			vm._.reachIds[which] = key;
+			if (vm._.reachTimer) clearTimeout(vm._.reachTimer);
+			if (!ids.length) {
+				vm.unreached[which] = [];
+				return;
+			}
+			vm._.reachTimer = setTimeout(() => {
+				vm._.reachTimer = null;
+				vm.checkReach(which, ids);
+			}, REACH_DELAY_MS);
+		},
+		async checkReach(this: any, which: 'compose' | 'edit', ids: string[]) {
+			const vm = this;
+			const reach = vm._.reach as Map<string, boolean>;
+			const unknown = ids.filter((id) => !reach.has(id));
+			if (unknown.length && vm.api?.chat?.mentionReach) {
+				const epoch = vm._.epoch;
+				const seq = ++vm._.reachSeq;
+				try {
+					const found = await vm.api.chat.mentionReach(vm.conversation, unknown);
+					if (epoch !== vm._.epoch) return;
+					for (const r of found) {
+						reach.set(r.id, r.reached);
+						if (r.reached === false) vm.rememberNames([{ id: r.id, displayName: r.displayName }]);
+					}
+				} catch (e) {
+					// Not decided: nothing is said, and the server decides when the message is sent.
+					return;
+				}
+				// The names changed meanwhile: a later check answers for them.
+				if (seq !== vm._.reachSeq || vm._.reachIds[which] !== ids.join('\n')) return;
+			}
+			const names = vm._.names as Map<string, string>;
+			vm.unreached[which] = ids.filter((id) => reach.get(id) === false).map((id) => ({ id, displayName: names.get(id) || id }));
+		},
+		clearReach(this: any, which?: 'compose' | 'edit') {
+			if (this._.reachTimer) {
+				clearTimeout(this._.reachTimer);
+				this._.reachTimer = null;
+			}
+			for (const box of (which ? [which] : ['compose', 'edit']) as ('compose' | 'edit')[]) {
+				this._.reachIds[box] = '';
+				this.unreached[box] = [];
+			}
+			if (!which) (this._.reach as Map<string, boolean>).clear();
+		},
+		/** What tells the writer whom a mention does not reach. */
+		reachText(this: any, users: MentionUser[]): string {
+			const vm = this;
+			const names = users.map((u) => vm.t('webtop.chat.mention.person', { name: u.displayName || u.id }, '{name}'));
+			let list = names.join(', ');
+			try {
+				list = new Intl.ListFormat(vm.cardLocalization().locale, { style: 'long', type: 'conjunction' }).format(names);
+			} catch (e) {
+				// An old browser: the plain list.
+			}
+			return vm.t('webtop.chat.mention.unreached', { names: list }, '{names} cannot read this conversation and will not be notified.');
 		},
 		closeMentions(this: any) {
 			this.mention.open = false;
@@ -1095,6 +1192,7 @@ defineComponent('wt-chat-thread', {
 			box.replaceBeforeCaret(typed, mentioned);
 			if (which === 'edit') vm.editing.text = box.getText();
 			else vm.draft = box.getText();
+			vm.trackReach(box, which);
 		},
 		async send(this: any) {
 			const vm = this;
@@ -1116,6 +1214,7 @@ defineComponent('wt-chat-thread', {
 				if (epoch !== vm._.epoch) return;
 				vm.draft = '';
 				box?.clear();
+				vm.clearReach('compose');
 				vm.compose = makePending();
 				vm.cardDraft = emptyCardDraft();
 				if (!(vm.messages as ChatMessage[]).some((m) => m.id === message.id)) {
@@ -1640,11 +1739,14 @@ defineComponent('wt-chat-thread', {
 			this.rememberNames(m.mentions);
 			this.editing = { ...emptyEditing(), id: m.id, text: m.body, attachments: m.attachments.slice(), links: m.links.slice() };
 			this.$nextTick(() => {
-				(this.editBox() as MentionEditor | null)?.focus(true);
+				const box = this.editBox() as MentionEditor | null;
+				box?.focus(true);
+				this.trackReach(box, 'edit');
 			});
 		},
 		cancelEdit(this: any) {
 			this.closeMentions();
+			this.clearReach('edit');
 			this.editing = emptyEditing();
 		},
 		onEditInput(this: any) {
@@ -1653,6 +1755,7 @@ defineComponent('wt-chat-thread', {
 			if (!this._.composing) box.tidy();
 			this.editing.text = box.getText();
 			this.trackMention(box, 'edit');
+			this.trackReach(box, 'edit');
 		},
 		/** Takes an attachment, or a link, off the message being edited. */
 		removeEditAttachment(this: any, a: ChatAttachment) {

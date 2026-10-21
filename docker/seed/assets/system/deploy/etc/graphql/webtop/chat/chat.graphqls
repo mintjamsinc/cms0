@@ -115,6 +115,17 @@ type ChatMention {
 }
 
 """
+Whether a mention of the user in a conversation reaches the user: a
+participant of the channel, or one who may read the file. A mention gives no
+access, and one it does not reach is not told of the message.
+"""
+type ChatMentionReach {
+  id: ID!
+  displayName: String!
+  reached: Boolean!
+}
+
+"""
 A card design: a folder under /etc/chat/cards holding card.yml (the fields)
 and card.html (the page that shows the card). Offered to whoever can read it.
 The texts (labels, descriptions) are as card.yml writes them: each may be a
@@ -273,6 +284,9 @@ extend type Query {
   """The folder to watch with nodeChanged (deep) for mentions of the caller:
   a mark is added under it whenever a message names the caller as @user."""
   chatMentionWatchPath: String!
+  """Whether a mention of each user in the conversation would reach the user:
+  what to tell the writer before the message is sent."""
+  chatMentionReach(ref: ChatRef!, userIds: [ID!]!): [ChatMentionReach!]!
   """The card designs the caller can post: the folders under /etc/chat/cards
   the caller can read, by label."""
   chatCards: [ChatCardDesign!]!

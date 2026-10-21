@@ -67,6 +67,8 @@
 								:aria-disabled="editing.saving ? 'true' : null"
 								@input="onEditInput" @keydown="onEditKeydown($event)" @paste="onPaste($event)" @blur="closeMentions"
 								@compositionstart="onCompositionStart" @compositionend="onCompositionEnd"></div>
+							<!-- Those named whom the mention does not reach; the message may still be saved -->
+							<div v-if="unreached.edit.length" class="wt-chat-hint wt-chat-reach"><i class="bi bi-info-circle"></i><span>{{ reachText(unreached.edit) }}</span></div>
 
 							<div v-if="editing.attachments.length || editing.links.length || editing.pending.uploads.length || editing.pending.files.length || editing.pending.uploading" class="wt-chat-pending">
 								<span v-for="a of editing.attachments" :key="'kept-' + a.name" class="wt-chat-chip" :title="a.name">
@@ -302,6 +304,8 @@
 					</button>
 				</div>
 			</div>
+			<!-- Those named whom the mention does not reach; the message may still be sent -->
+			<div v-if="unreached.compose.length" class="wt-chat-hint wt-chat-reach"><i class="bi bi-info-circle"></i><span>{{ reachText(unreached.compose) }}</span></div>
 			<div class="wt-chat-hint">{{ t('webtop.chat.composer.hint', undefined, 'Enter to send, Shift+Enter for a new line') }}</div>
 		</div>
 		<div v-if="info && !canPost" class="wt-chat-closed">

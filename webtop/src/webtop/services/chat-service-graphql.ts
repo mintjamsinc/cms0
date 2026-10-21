@@ -166,6 +166,17 @@ export interface ChatMention {
 	displayName: string;
 }
 
+/**
+ * Whether a mention of the user in a conversation reaches the user: a
+ * participant of the channel, or one who may read the file. One it does not
+ * reach is not told of the message (a mention gives no access).
+ */
+export interface ChatMentionReach {
+	id: string;
+	displayName: string;
+	reached: boolean;
+}
+
 export interface ChatMessage {
 	id: string;
 	author: string | null;
@@ -311,6 +322,14 @@ export class ChatServiceGraphQL {
 	async mentionWatchPath(): Promise<string> {
 		const data = await this.#client.query<{ chatMentionWatchPath: string }>('query { chatMentionWatchPath }');
 		return data.chatMentionWatchPath;
+	}
+
+	/** Whether a mention of each user in the conversation would reach the user: what to tell the writer before sending. */
+	async mentionReach(ref: ChatRef, userIds: string[]): Promise<ChatMentionReach[]> {
+		const data = await this.#client.query<{ chatMentionReach: ChatMentionReach[] }>(
+			`query ($ref: ChatRef!, $userIds: [ID!]!) { chatMentionReach(ref: $ref, userIds: $userIds) { id displayName reached } }`,
+			{ ref: refInput(ref), userIds });
+		return data.chatMentionReach;
 	}
 
 	/** The card designs the caller can post, by label. */

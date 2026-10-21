@@ -14,6 +14,8 @@
 	"webtop.chat.composer.placeholder": "Write a message",
 	"webtop.chat.composer.send": "Send (Enter)",
 	"webtop.chat.composer.hint": "Enter to send, Shift+Enter for a new line",
+	"webtop.chat.mention.person": "{name}",
+	"webtop.chat.mention.unreached": "{names} cannot read this conversation and will not be notified.",
 
 	"webtop.chat.attach.pick": "Attach files",
 	"webtop.chat.attach.drop": "Drop files to add them to the message",
