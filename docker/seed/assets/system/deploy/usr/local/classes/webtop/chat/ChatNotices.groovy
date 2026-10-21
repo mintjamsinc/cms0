@@ -27,7 +27,7 @@ class ChatNotices {
 	 * unless told already.
 	 *
 	 * conversation: kind ('channel' or 'file'), with channel (id, kind, title)
-	 * or fileId and fileName. posted: the message (id, author, body).
+	 * or fileId and fileName. posted: the message (id, author, body, mentions).
 	 */
 	static void posted(eventAdmin, session, Map conversation, Map posted, List<String> marked) {
 		String author = posted.author as String;
@@ -36,7 +36,7 @@ class ChatNotices {
 			List<String> peers = ChatChannels.memberIds(session, (conversation.channel as Map).id as String).findAll { it != author };
 			if (peers) {
 				String authorName = displayName(session, author);
-				publish(eventAdmin, peers, notice(conversation, posted,
+				publish(eventAdmin, peers, notice(session, conversation, posted,
 					[id: 'app.chat.notify.direct.title', params: [author: authorName], fallback: authorName]));
 				told.addAll(peers);
 			}
@@ -62,11 +62,11 @@ class ChatNotices {
 			title = [id: 'app.chat.notify.mention.channel.title', params: [author: authorName, channel: channel],
 				fallback: "${authorName} mentioned you in \"${channel}\"".toString()];
 		}
-		publish(eventAdmin, users, notice(conversation, posted, title));
+		publish(eventAdmin, users, notice(session, conversation, posted, title));
 	}
 
 	/** The notice: what the Webtop shows, and where a click goes. */
-	private static Map notice(Map conversation, Map posted, Map title) {
+	private static Map notice(session, Map conversation, Map posted, Map title) {
 		Map options;
 		String key;
 		if (conversation.kind == 'file') {
@@ -80,7 +80,7 @@ class ChatNotices {
 		return [
 			app: 'chat',
 			title: title,
-			body: snippet(posted.body as String),
+			body: snippet(withNames(session, posted.body as String, posted.mentions as List<String>)),
 			icon: 'bi-chat-dots',
 			options: options,
 			// What the notice is about: not raised while the reader has the
@@ -101,6 +101,34 @@ class ChatNotices {
 			// A notice that cannot be published loses nothing that is kept:
 			// the message is there, with its unread and mention marks.
 		}
+	}
+
+	/**
+	 * The text with each mention shown by name, as the Chat app shows it: the
+	 * notice is plain text, so it cannot resolve the names itself. Only the
+	 * users the message names (its mentions) are replaced; an "@" in an
+	 * address or elsewhere stays as written.
+	 */
+	static String withNames(session, String body, List<String> mentions) {
+		String text = body ?: '';
+		if (!mentions) {
+			return text;
+		}
+		Map<String, String> names = [:];
+		def m = text =~ /(?<![\w@])@([A-Za-z0-9][A-Za-z0-9_.\-]{0,63})/;
+		StringBuffer out = new StringBuffer();
+		while (m.find()) {
+			String written = m.group(1);
+			String id = written.replaceFirst(/[.\-]+$/, '');
+			if (!mentions.contains(id)) {
+				m.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(m.group()));
+				continue;
+			}
+			String name = names.computeIfAbsent(id) { displayName(session, id) };
+			m.appendReplacement(out, java.util.regex.Matcher.quoteReplacement('@' + name + written.substring(id.length())));
+		}
+		m.appendTail(out);
+		return out.toString();
 	}
 
 	/** The first line or so of the message, as the toast shows it. */
