@@ -47,11 +47,11 @@
 	"app.radio.error.title": "再生できません",
 	"app.radio.error.generic": "ストリームを再生できませんでした。",
 	"app.radio.error.network": "局から応答がありません。",
-	"app.radio.error.unsupported": "このブラウザでは再生できない形式です。",
-	"app.radio.error.mixedContent": "この局は http の HLS 配信で、デスクトップは https で表示されているため、ブラウザが再生をブロックしました。",
-	"app.radio.error.hls": "このブラウザは HLS 配信を再生できません。",
+	"app.radio.error.unsupported": "このブラウザーでは再生できない形式です。",
+	"app.radio.error.mixedContent": "この局は http の HLS 配信で、デスクトップは https で表示されているため、ブラウザーが再生をブロックしました。",
+	"app.radio.error.hls": "このブラウザーは HLS 配信を再生できません。",
 	"app.radio.status.saved": "ライブラリを保存しました",
-	"app.radio.status.saveFailed": "ライブラリをサーバに保存できませんでした",
+	"app.radio.status.saveFailed": "ライブラリをサーバーに保存できませんでした",
 	"app.radio.status.stations": "{count} 局",
 	"app.radio.unit.kbps": "{bitrate} kbps",
 	"app.radio.discover.topVoted": "人気のステーション",
@@ -73,5 +73,5 @@
 	"app.radio.facet.more": "さらに表示",
 	"app.radio.facet.less": "閉じる",
 	"app.radio.search.run": "検索",
-	"app.radio.error.hlsNetwork": "HLS 配信を読み込めませんでした。局が停止しているか、ブラウザからの取得を許可していません。"
+	"app.radio.error.hlsNetwork": "HLS 配信を読み込めませんでした。局が停止しているか、ブラウザーからの取得を許可していません。"
 }

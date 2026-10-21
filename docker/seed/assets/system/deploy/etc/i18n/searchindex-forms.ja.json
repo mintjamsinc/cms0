@@ -6,7 +6,7 @@
 	"form.system.searchindex.common.adminRequired": "検索インデックスの再構築には管理者ロールが必要です。",
 
 	"form.system.searchindex.start.title": "検索インデックスの再構築",
-	"form.system.searchindex.start.subtitle": "全クラスタノードの全文検索インデックスをリポジトリの内容から再構築します。",
+	"form.system.searchindex.start.subtitle": "全クラスターノードの全文検索インデックスをリポジトリの内容から再構築します。",
 	"form.system.searchindex.start.description": "再構築は各ノードのバックグラウンドで実行されます。実行中も検索・コンテンツ更新は通常どおり動作し、完成した新しいインデックスが自動的に切り替わります。",
 	"form.system.searchindex.start.note.progress": "開始するとタスク一覧に進捗確認タスクが作成されます。いつでも開いて全ノードの進捗確認・中止・失敗ノードの再実行ができます。",
 	"form.system.searchindex.start.note.duration": "リポジトリの規模によっては長時間かかることがあります。再構築は同時に 1 つだけ実行してください。",

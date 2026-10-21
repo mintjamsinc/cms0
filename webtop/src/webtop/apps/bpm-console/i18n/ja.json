@@ -109,7 +109,7 @@
 	"app.bpm-console.action.showOnDiagramLong": "ダイアグラムに表示",
 	"app.bpm-console.detail.deploymentId": "デプロイメントID",
 	"app.bpm-console.detail.description": "説明",
-	"app.bpm-console.detail.category": "カテゴリ",
+	"app.bpm-console.detail.category": "カテゴリー",
 	"app.bpm-console.detail.userTask": "ユーザータスク",
 	"app.bpm-console.detail.taskId": "タスクID",
 	"app.bpm-console.detail.name": "名前",

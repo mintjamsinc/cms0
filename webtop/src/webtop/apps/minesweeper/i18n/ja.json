@@ -49,7 +49,7 @@
 	"app.minesweeper.dialog.board": "盤面",
 	"app.minesweeper.dialog.start": "はじめる",
 	"app.minesweeper.mode.solo": "ひとりで遊ぶ",
-	"app.minesweeper.mode.ai": "コンピュータと対戦",
+	"app.minesweeper.mode.ai": "コンピューターと対戦",
 	"app.minesweeper.mode.coop": "ほかの人と協力",
 	"app.minesweeper.mode.versus": "ほかの人と対戦",
 	"app.minesweeper.mode.coopShort": "協力",
