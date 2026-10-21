@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<camel>
+
+    <!--
+        Keeps a notice for the user a task is assigned to, and takes it back
+        when the task is done.
+
+        The process engine posts its task lifecycle on EventAdmin
+        (org/camunda/bpm/engine/task/Task/<ACTION>, bpm-eventadmin.md), after
+        the transaction committed. An ASSIGNED event with an assignee leaves
+        that user a notice in the notification center, opening the Tasks app
+        at the task; COMPLETED and DELETED take the notice back
+        (webtop.notices.TaskNotices). The record is written as the notice
+        service user, so the user finds it on every desktop they open.
+
+        The queue is kept short and what does not fit is dropped: a notice is
+        a convenience, and the task itself is in the Tasks app whatever
+        happens here.
+    -->
+    <route id="webtop-notices-task">
+        <routeProperty key="mi:history" value="failure"/>
+        <from id="webtop-notices-task-events" uri="eventadmin:org/camunda/bpm/engine/task/Task/*?maxQueueSize=1000&amp;rejectedPolicy=Discard"/>
+
+        <doTry id="webtop-notices-task-try">
+            <script id="webtop-notices-task-run">
+                <groovy>
+                <![CDATA[
+                    def event = exchange.getIn().getBody();
+                    exchange.setProperty('taskId', event.getProperty('taskId') as String);
+                    webtop.notices.TaskNotices.taskEvent(ScriptAPI, event);
+                ]]>
+                </groovy>
+            </script>
+
+            <doCatch id="webtop-notices-task-catch">
+                <exception>java.lang.Exception</exception>
+                <log id="webtop-notices-task-log" loggingLevel="WARN" message="Notice for task ${exchangeProperty.taskId} not kept: ${exception.message}"/>
+            </doCatch>
+        </doTry>
+    </route>
+
+</camel>

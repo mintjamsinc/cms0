@@ -11,6 +11,7 @@ import { GraphQLClient, createGraphQLClient } from '../graphql/client.js';
 import { ContentServiceGraphQL } from './content-service-graphql.js';
 import { BpmServiceGraphQL } from './bpm-service-graphql.js';
 import { EipServiceGraphQL } from './eip-service-graphql.js';
+import { NoticeServiceGraphQL } from './notice-service-graphql.js';
 import { EventHub, createEventHub } from '../realtime/event-hub.js';
 import { IdpServiceGraphQL } from './idp-service-graphql.js';
 import { User } from './user-service.js';
@@ -34,6 +35,7 @@ export class WebtopAPI {
 	#bpmGraphQL: BpmServiceGraphQL;
 	#eipGraphQL: EipServiceGraphQL;
 	#webtopGraphQL: WebtopServiceGraphQL;
+	#noticeGraphQL: NoticeServiceGraphQL;
 	#idpGraphQL: IdpServiceGraphQL;
 	#eventHub: EventHub;
 
@@ -65,6 +67,7 @@ export class WebtopAPI {
 		this.#bpmGraphQL = new BpmServiceGraphQL(this.#graphqlClient);
 		this.#eipGraphQL = new EipServiceGraphQL(this.#graphqlClient);
 		this.#webtopGraphQL = new WebtopServiceGraphQL(this.#graphqlClient, { rootPath: this.#context.rootPath });
+		this.#noticeGraphQL = new NoticeServiceGraphQL(this.#graphqlClient);
 		this.#idpGraphQL = new IdpServiceGraphQL();
 		this.#eventHub = createEventHub(this.#workspace);
 		this.#systemGraphQLClient = createGraphQLClient('system');
@@ -97,6 +100,8 @@ export class WebtopAPI {
 	get processes() { return this.#bpmGraphQL; }
 	get routes() { return this.#eipGraphQL; }
 	get webtop() { return this.#webtopGraphQL; }
+	/** The notices of the notification center, kept per user on the server. */
+	get notices() { return this.#noticeGraphQL; }
 	get idp() { return this.#idpGraphQL; }
 	get eventHub() { return this.#eventHub; }
 	/** Change events of the system workspace (e.g. files an app keeps in the user's home there). */

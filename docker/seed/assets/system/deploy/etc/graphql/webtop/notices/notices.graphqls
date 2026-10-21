@@ -1,0 +1,54 @@
+# The Webtop's notification center (webtop/src/webtop/index.ts, "Notices").
+#
+# A notice — "A sent you a message", "a task was assigned to you" — is kept
+# for the user it is for, under /var/lib/webtop/notices/<user>, so that the
+# center shows the same list on every desktop the user opens, and a notice
+# read or dismissed on one is read or dismissed on all. The logic is in
+# webtop.notices.Notices (/usr/local/classes/webtop/notices).
+#
+# These fields act on the caller's own list only, as the notice service user;
+# the caller holds no write access to the area (provisioning/notices.yml). A
+# notice is published by a script, through webtop.notices.Notices.publish.
+#
+# There is no subscription here. A client watches `webtopNoticeWatchPath`
+# with the platform's nodeChanged and reads the list again when something
+# under it changes.
+
+"""A notice kept for the caller, as the notification center shows it."""
+type WebtopNotice {
+  id: ID!
+  """Text, or an i18n message reference { id, params, fallback } the Webtop resolves for the reader."""
+  title: JSON!
+  body: JSON
+  """The app (its folder name under apps/) a click opens; the i18n scope of the texts."""
+  app: String
+  """A Bootstrap icon class, shown when the app has no icon."""
+  icon: String
+  """Launch options for the app."""
+  options: JSON
+  """What the notice is about, e.g. chat:channel:<id>."""
+  context: String
+  """Notices with the same key supersede one another."""
+  key: String
+  read: Boolean!
+  """When the notice was published."""
+  at: DateTime!
+}
+
+extend type Query {
+  """The caller's notices, newest first; at most a hundred are kept."""
+  webtopNotices: [WebtopNotice!]!
+  """The folder to watch with nodeChanged for changes to the caller's list."""
+  webtopNoticeWatchPath: String!
+}
+
+extend type Mutation {
+  """Marks a notice read. False when there is no such notice."""
+  webtopNoticeRead(id: ID!): Boolean!
+  """Marks every notice read. False when none was unread."""
+  webtopNoticesReadAll: Boolean!
+  """Dismisses a notice. False when there is no such notice."""
+  webtopNoticeRemove(id: ID!): Boolean!
+  """Dismisses every notice. False when there was none."""
+  webtopNoticesClear: Boolean!
+}

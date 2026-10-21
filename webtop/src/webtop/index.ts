@@ -34,6 +34,7 @@ import { NEW_FILE_TYPES, withExtension, type NewFileType } from './lib/new-file-
 import type { JobStatus, TopicMessageEvent } from './graphql/types.js';
 import { notificationStore, notificationActions, type Notification, type NotificationText } from './stores/notification-store.js';
 import { NOTIFICATIONS_TOPIC, toNotice, type Notice } from './lib/notifications.js';
+import type { WebtopNotice } from './services/notice-service-graphql.js';
 
 // Re-export GraphQL, services, stores, realtime, utilities, and composables for external use
 export * from './graphql/index.js';
@@ -43,6 +44,7 @@ export * from './services/webtop-i18n-service.js';
 export * from './services/bpm-service-graphql.js';
 export * from './services/eip-service-graphql.js';
 export * from './services/webtop-service-graphql.js';
+export * from './services/notice-service-graphql.js';
 export * from './stores/index.js';
 export * from './realtime/index.js';
 export { UrlUtils } from './utils/url.js';
@@ -76,6 +78,8 @@ let popupIframeEscHandler: ((e: KeyboardEvent) => void) | null = null;
 // How long a toast stays, and how many stack at the corner at once.
 const TOAST_MS = 8000;
 const MAX_TOASTS = 4;
+// How long after the last change to the user's notice list it is read again.
+const NOTICE_RELOAD_MS = 250;
 // The notices the shell has seen in the store, so that a toast is shown for
 // each one that is new, wherever it came from. Module scope: not reactive.
 let knownNoticeIDs = new Set<string>();
@@ -161,7 +165,9 @@ const WtDesktop = {
 			// while that window is active. See lib/notifications.ts.
 			instanceContext: {} as Record<string, string>,
 			// Notices: a mirror of the notification store (newest first) for
-			// the toasts and the notification center, kept for this session.
+			// the toasts and the notification center. Most are kept for the
+			// user on the server and read from there whenever the list
+			// changes; see startNotifications().
 			notifications: [] as Notification[],
 			unreadNotificationCount: 0,
 			// Ids of the notices shown as toasts right now, oldest first.
@@ -169,6 +175,8 @@ const WtDesktop = {
 			notificationCenterOpen: false,
 			_notificationUnsub: null as null | (() => void),
 			_notificationTopicUnwatch: null as null | (() => void),
+			_noticeFolderUnwatch: null as null | (() => void),
+			_noticeReloadTimer: null as any,
 			_toastTimers: {} as Record<string, any>,
 			// Session save overlay
 			showSaveSessionOverlay: false,
@@ -785,8 +793,9 @@ const WtDesktop = {
 			await i18nReady;
 
 			// 起動完了
-			// Notices for the reader: toasts and the notification center.
-			vm.startNotifications();
+			// Notices for the reader: toasts and the notification center. Not
+			// awaited: the list comes in behind the desktop.
+			void vm.startNotifications();
 
 			vm.isReady = true;
 
@@ -1535,10 +1544,12 @@ const WtDesktop = {
 		// =====================================================================
 
 		/**
-		 * Mirrors the notification store into the view-model and listens for
-		 * the notices published to this user on the Webtop's event stream.
+		 * Mirrors the notification store into the view-model, reads the
+		 * notices kept for the user on the server — again whenever the list
+		 * changes, on this desktop or another — and listens for the notices
+		 * published to this browser on the Webtop's event stream.
 		 */
-		startNotifications() {
+		async startNotifications() {
 			const vm = this;
 			vm.stopNotifications();
 			const mirror = (state: { notifications: Notification[]; unreadCount: number }) => {
@@ -1546,15 +1557,28 @@ const WtDesktop = {
 				vm.unreadNotificationCount = state.unreadCount;
 			};
 			mirror(notificationStore.state);
+			// The user's folder first, so that nothing changes unseen between
+			// reading the list and watching it.
+			try {
+				const path = await window.Webtop.api.notices.watchPath();
+				vm._noticeFolderUnwatch = window.Webtop.api.eventHub.watchNode(path, () => vm.scheduleNoticeReload());
+			} catch (e) {
+				console.warn('[Webtop] Notices cannot be watched:', e);
+			}
+			// What is there already goes to the center without a toast: the
+			// store is subscribed, and so the toasts begin, only after it.
+			await vm.loadNotices();
+			mirror(notificationStore.state);
 			knownNoticeIDs = new Set(notificationStore.state.notifications.map((n) => n.id));
 			vm._notificationUnsub = notificationStore.subscribe((state) => {
 				mirror(state);
-				// A toast for each notice that is new — a topic message, an
-				// app's notify, the shell's own task notices alike — oldest
-				// first; a toast whose notice is gone (cleared, superseded)
-				// goes with it.
+				// A toast for each notice that is new and unread — one kept
+				// on the server, a topic message, an app's notify alike —
+				// oldest first; a toast whose notice is gone (cleared,
+				// superseded) goes with it. A notice already read when it
+				// arrives was read on another desktop: no toast.
 				const alive = new Set(state.notifications.map((n) => n.id));
-				const fresh = state.notifications.filter((n) => !knownNoticeIDs.has(n.id)).reverse();
+				const fresh = state.notifications.filter((n) => !knownNoticeIDs.has(n.id) && !n.read).reverse();
 				knownNoticeIDs = alive;
 				for (const id of vm.toastIDs.slice()) {
 					if (!alive.has(id)) vm.dismissToast(id);
@@ -1580,11 +1604,67 @@ const WtDesktop = {
 				try { vm._notificationTopicUnwatch(); } catch { /* ignore */ }
 				vm._notificationTopicUnwatch = null;
 			}
+			if (vm._noticeFolderUnwatch) {
+				try { vm._noticeFolderUnwatch(); } catch { /* ignore */ }
+				vm._noticeFolderUnwatch = null;
+			}
+			if (vm._noticeReloadTimer) {
+				clearTimeout(vm._noticeReloadTimer);
+				vm._noticeReloadTimer = null;
+			}
 			for (const id of Object.keys(vm._toastTimers)) {
 				clearTimeout(vm._toastTimers[id]);
 			}
 			vm._toastTimers = {};
 			vm.toastIDs = [];
+		},
+		/** The list changed somewhere: read it again, once, when the changes stop coming. */
+		scheduleNoticeReload() {
+			const vm = this;
+			if (vm._noticeReloadTimer) clearTimeout(vm._noticeReloadTimer);
+			vm._noticeReloadTimer = setTimeout(() => {
+				vm._noticeReloadTimer = null;
+				void vm.loadNotices();
+			}, NOTICE_RELOAD_MS);
+		},
+		/**
+		 * Reads the notices kept for the user and puts them in the store in
+		 * place of those read before. A notice that is new here and about
+		 * what the reader is looking at is counted as read right away, for
+		 * every desktop, instead of being shown.
+		 */
+		async loadNotices() {
+			const vm = this;
+			let kept: WebtopNotice[];
+			try {
+				kept = await window.Webtop.api.notices.list();
+			} catch (e) {
+				console.warn('[Webtop] Notices cannot be read:', e);
+				return;
+			}
+			const notifications: Notification[] = [];
+			for (const record of kept) {
+				const notice = toNotice(record);
+				if (!notice) continue;
+				let read = record.read;
+				if (!read && !knownNoticeIDs.has(record.id) && notice.context && vm.isContextActive(notice.context)) {
+					read = true;
+					window.Webtop.api.notices.markRead(record.id).catch((e: unknown) => console.warn('[Webtop] Notice not marked read:', e));
+				}
+				const { title, body, ...data } = notice;
+				notifications.push({
+					id: record.id,
+					type: 'INFO',
+					title,
+					message: body ?? '',
+					severity: 'LOW',
+					timestamp: record.at,
+					read,
+					remote: true,
+					data,
+				});
+			}
+			notificationActions.replaceRemote(notifications);
 		},
 		/** A notice raised by an app's window; the app is the sender's unless named. */
 		notifyFromApp(source: Window | null, payload: Record<string, unknown>) {
@@ -1728,9 +1808,12 @@ const WtDesktop = {
 
 		// --- what a click does ---------------------------------------------------
 
-		/** Opens what the notice is about, and counts it as read. */
+		/** Opens what the notice is about, and counts it as read — on every desktop, for one kept on the server. */
 		openNotification(n: Notification) {
 			const vm = this;
+			if (n.remote && !n.read) {
+				window.Webtop.api.notices.markRead(n.id).catch((e: unknown) => console.warn('[Webtop] Notice not marked read:', e));
+			}
 			notificationActions.markAsRead(n.id);
 			vm.dismissToast(n.id);
 			vm.notificationCenterOpen = false;
@@ -1742,6 +1825,9 @@ const WtDesktop = {
 			vm.openAppWithOptions({ appId: app.id, options });
 		},
 		removeNotification(n: Notification) {
+			if (n.remote) {
+				window.Webtop.api.notices.remove(n.id).catch((e: unknown) => console.warn('[Webtop] Notice not dismissed:', e));
+			}
 			notificationActions.remove(n.id);
 		},
 		toggleNotificationCenter() {
@@ -1756,9 +1842,15 @@ const WtDesktop = {
 			this.notificationCenterOpen = false;
 		},
 		markAllNotificationsRead() {
+			if ((this.notifications as Notification[]).some((n) => n.remote && !n.read)) {
+				window.Webtop.api.notices.markAllRead().catch((e: unknown) => console.warn('[Webtop] Notices not marked read:', e));
+			}
 			notificationActions.markAllAsRead();
 		},
 		clearNotifications() {
+			if ((this.notifications as Notification[]).some((n) => n.remote)) {
+				window.Webtop.api.notices.clear().catch((e: unknown) => console.warn('[Webtop] Notices not cleared:', e));
+			}
 			notificationActions.clearAll();
 			this.notificationCenterOpen = false;
 		},

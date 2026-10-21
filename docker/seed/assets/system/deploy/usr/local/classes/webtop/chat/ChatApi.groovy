@@ -690,7 +690,7 @@ class ChatApi {
 				ChatMessages.KIND_USER, sources, links, mentions, card);
 			changed(service, conversation);
 			List<String> told = notifyMentions(service, conversation, posted.id as String, mentions);
-			ChatNotices.posted(context.getAttribute('EventAdminAPI'), service, conversation, posted, told);
+			ChatNotices.posted(context.getAttribute('ScriptAPI'), service, conversation, posted, told);
 			// Whoever posts about a file keeps its conversation in the sidebar,
 			// unless the application that shows the conversation says not to.
 			if (conversation.kind == 'file' && content.follow != false) {
@@ -735,7 +735,7 @@ class ChatApi {
 				(content.removeAttachments ?: []) as List<String>, links, mentions);
 			changed(service, conversation);
 			List<String> told = notifyMentions(service, conversation, messageId, newMentions);
-			ChatNotices.mentioned(context.getAttribute('EventAdminAPI'), service, conversation, edited, told);
+			ChatNotices.mentioned(context.getAttribute('ScriptAPI'), service, conversation, edited, told);
 			return toMessage(service, edited);
 		} as Map;
 		home.removeUploads(draftId);

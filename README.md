@@ -340,10 +340,13 @@ prefix. See [`documents/topic-messages.md`](documents/topic-messages.md).
 The Webtop shows a **toast** at the corner of the desktop, and keeps it in
 a **notification center** behind the bell in the menubar, when something is
 for the user — a direct message, a mention, a task — whether or not the app
-it concerns is open. Any app raises one by publishing a notice to
-`webtop/notifications` for named recipients, or from its window; the shell
-resolves its texts in the reader's language and a click opens the app at
-what the notice is about. See
+it concerns is open. A notice is kept for the user on the server, so the
+center is the same on every desktop the user opens and a notice read on
+one is read on all. Any app raises one from a script
+(`webtop.notices.Notices.publish`), on the topic `webtop/notifications` for
+what is of the moment only, or from its window; the shell resolves its
+texts in the reader's language and a click opens the app at what the
+notice is about. See
 [`documents/webtop-notifications.md`](documents/webtop-notifications.md).
 
 ---

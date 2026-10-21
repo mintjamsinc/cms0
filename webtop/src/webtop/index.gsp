@@ -116,8 +116,8 @@
 			</main>
 			<div id="dock-overlay" v-if="openDockAppID" @click="closeDockList"></div>
 
-			<!-- Notification center: what the toasts showed, kept for this
-			     session, newest first. See lib/notifications.ts. -->
+			<!-- Notification center: the notices kept for the user, newest
+			     first, the same on every desktop. See lib/notifications.ts. -->
 			<div id="notification-overlay" v-if="notificationCenterOpen"
 				@click="closeNotificationCenter" @contextmenu.prevent="closeNotificationCenter"></div>
 			<aside id="notification-center" v-if="notificationCenterOpen">

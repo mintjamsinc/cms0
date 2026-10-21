@@ -2,13 +2,14 @@
  * Notification Store
  *
  * What the shell shows in its toasts and in the notification center: one
- * entry per notice, newest first, kept for this session only (a reload
- * starts empty). Whatever is durable about a notice — an unread mark, a
- * task — lives in the repository; this is the list one glances at.
+ * entry per notice, newest first. Most are `remote`: kept for the user on
+ * the server (services/notice-service-graphql.ts), the same on every
+ * desktop, and put here by the shell whenever the user's list changes.
+ * The rest are for this browser only — a topic message on
+ * `webtop/notifications`, an app's `notify` message to the shell — and go
+ * with the session.
  *
- * A notice comes from a topic message on `webtop/notifications`, from an
- * app's `notify` message to the shell, or from the shell itself (the task
- * subscriptions in event-hub.ts). Its title and body are either plain text
+ * A notice's title and body are either plain text
  * or a reference to an i18n message, which the shell resolves in the
  * reader's language at render time — in the scope of the app that sent it
  * when `data.app` names one — so a notice published once reads right for
@@ -65,6 +66,8 @@ export interface Notification {
   severity: Severity;
   timestamp: string;
   read: boolean;
+  /** Kept for the user on the server: read and dismissed there too, and the same on every desktop. */
+  remote?: boolean;
   data?: NotificationData;
 }
 
@@ -99,12 +102,29 @@ export const notificationActions = createActions(notificationStore, (setState, g
       const key = notification.data?.key;
       // A notice about the same thing supersedes the earlier one, read or
       // not: the newest state of a conversation is what the list shows.
-      const kept = key ? prev.notifications.filter(n => n.data?.key !== key) : prev.notifications;
+      // Among the notices of this browser only: the server does the same
+      // among those it keeps.
+      const kept = key ? prev.notifications.filter(n => n.remote || n.data?.key !== key) : prev.notifications;
       const notifications = [newNotification, ...kept].slice(0, MAX_KEPT);
       return { notifications, unreadCount: countUnread(notifications) };
     });
 
     return newNotification.id;
+  },
+
+  /**
+   * Puts the user's list as the server keeps it in place of the remote
+   * notices held so far; the notices of this browser only stay. Newest
+   * first across both.
+   */
+  replaceRemote(remote: Notification[]) {
+    setState(prev => {
+      const local = prev.notifications.filter(n => !n.remote);
+      const notifications = [...remote.map(n => ({ ...n, remote: true })), ...local]
+        .sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0))
+        .slice(0, MAX_KEPT);
+      return { notifications, unreadCount: countUnread(notifications) };
+    });
   },
 
   remove(id: string) {

@@ -131,7 +131,8 @@ connected to; a subscription change sent to another node is forwarded there
 | Tell particular users something, or carry a small event, without a repository write per notification | a topic message with `recipients` |
 | Tell whoever can read a folder something that is not a node change | a topic message with `path` |
 | Keep a record of what happened | write it to the repository; publish a message so clients read it |
-| Tell a user something at the desktop, whichever app is open | a notice on `webtop/notifications` ([`webtop-notifications.md`](webtop-notifications.md)) |
+| Tell a user something at the desktop, whichever app is open, and keep it until they have seen it | a notice kept for the user, `webtop.notices.Notices.publish` ([`webtop-notifications.md`](webtop-notifications.md)) |
+| Tell a user something at the desktop that is of the moment only | a notice on `webtop/notifications` (the same document) |
 
 The Reversi app ([`webtop-reversi.md`](webtop-reversi.md)) is the model: the
 room is the record, each move is a repository write by a mutation, and a

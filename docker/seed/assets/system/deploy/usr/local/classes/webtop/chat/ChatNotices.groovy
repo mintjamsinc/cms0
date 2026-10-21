@@ -2,12 +2,12 @@ package webtop.chat;
 
 /**
  * Tells a user, at the desktop, that a message is for them: a direct
- * message, or a message that names them. Each is published as a notice on
- * the Webtop's notification topic to those users alone; the Webtop shows it
- * as a toast and keeps it in its notification center, and a click opens the
- * conversation at the message. (The notice is a notification, not a record:
- * a user who is not connected when it is published never sees it, and finds
- * the message by the unread mark and the mention mark instead.)
+ * message, or a message that names them. Each is kept as a notice of the
+ * Webtop's notification center for those users alone (webtop.notices.Notices):
+ * the Webtop shows it as a toast and in the center, on every desktop the
+ * user opens, and a click opens the conversation at the message. A notice
+ * that cannot be kept loses nothing: the message is there, with its unread
+ * mark and its mention mark.
  *
  * Nothing is published for an ordinary message in a channel: the channel's
  * unread mark, which the Chat app keeps, is enough there.
@@ -17,7 +17,6 @@ package webtop.chat;
  */
 class ChatNotices {
 
-	static final String TOPIC = 'webtop/notifications';
 	static final int SNIPPET_LENGTH = 140;
 
 	/**
@@ -29,23 +28,23 @@ class ChatNotices {
 	 * conversation: kind ('channel' or 'file'), with channel (id, kind, title)
 	 * or fileId and fileName. posted: the message (id, author, body, mentions).
 	 */
-	static void posted(eventAdmin, session, Map conversation, Map posted, List<String> marked) {
+	static void posted(scriptAPI, session, Map conversation, Map posted, List<String> marked) {
 		String author = posted.author as String;
 		List<String> told = [];
 		if (conversation.kind == 'channel' && (conversation.channel as Map).kind == ChatChannels.DIRECT) {
 			List<String> peers = ChatChannels.memberIds(session, (conversation.channel as Map).id as String).findAll { it != author };
 			if (peers) {
 				String authorName = displayName(session, author);
-				publish(eventAdmin, peers, notice(session, conversation, posted,
+				publish(scriptAPI, peers, notice(session, conversation, posted,
 					[id: 'app.chat.notify.direct.title', params: [author: authorName], fallback: authorName]));
 				told.addAll(peers);
 			}
 		}
-		mentioned(eventAdmin, session, conversation, posted, (marked ?: []).findAll { !told.contains(it) });
+		mentioned(scriptAPI, session, conversation, posted, (marked ?: []).findAll { !told.contains(it) });
 	}
 
 	/** A message names users it did not before (an edit): they are told they were mentioned. */
-	static void mentioned(eventAdmin, session, Map conversation, Map posted, List<String> marked) {
+	static void mentioned(scriptAPI, session, Map conversation, Map posted, List<String> marked) {
 		String author = posted.author as String;
 		List<String> users = (marked ?: []).findAll { it && it != author }.unique(false) as List<String>;
 		if (!users) {
@@ -62,7 +61,7 @@ class ChatNotices {
 			title = [id: 'app.chat.notify.mention.channel.title', params: [author: authorName, channel: channel],
 				fallback: "${authorName} mentioned you in \"${channel}\"".toString()];
 		}
-		publish(eventAdmin, users, notice(session, conversation, posted, title));
+		publish(scriptAPI, users, notice(session, conversation, posted, title));
 	}
 
 	/** The notice: what the Webtop shows, and where a click goes. */
@@ -91,14 +90,14 @@ class ChatNotices {
 		];
 	}
 
-	private static void publish(eventAdmin, List<String> recipients, Map notice) {
-		if (eventAdmin == null || !recipients) {
+	private static void publish(scriptAPI, List<String> recipients, Map notice) {
+		if (scriptAPI == null || !recipients) {
 			return;
 		}
 		try {
-			eventAdmin.publish(TOPIC, notice, [recipients: recipients]);
+			webtop.notices.Notices.publish(scriptAPI, notice, recipients);
 		} catch (Throwable ignore) {
-			// A notice that cannot be published loses nothing that is kept:
+			// A notice that cannot be kept loses nothing that is kept:
 			// the message is there, with its unread and mention marks.
 		}
 	}

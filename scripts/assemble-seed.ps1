@@ -75,6 +75,11 @@ Copy-Tree "$SeedAssets/system/deploy/content/WEB-INF/web.yml" "$SeedAssets/works
 Copy-Tree "$SeedAssets/system/provisioning/webtop.yml" "$SeedAssets/workspace/provisioning/webtop.yml"
 # content browser app: Server-side assets
 Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/media-metadata.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/media-metadata.xml"
+# notification center: Server-side assets
+Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/notices.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/notices.xml"
+Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/notices" "$SeedAssets/workspace/deploy/etc/graphql/webtop/notices"
+Copy-Tree "$SeedAssets/system/deploy/usr/local/classes/webtop/notices" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/notices"
+Copy-Tree "$SeedAssets/system/provisioning/notices.yml" "$SeedAssets/workspace/provisioning/notices.yml"
 # mail app: Server-side assets
 Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/mail.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/mail.xml"
 Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/mail" "$SeedAssets/workspace/deploy/etc/graphql/webtop/mail"

@@ -7,8 +7,6 @@
 
 import { SubscriptionClient, createSubscriptionClient } from './subscription-client.js';
 import { taskActions } from '../stores/task-store.js';
-import { notificationActions } from '../stores/notification-store.js';
-import { bpmTaskNameKey } from '../composables/use-localization.js';
 import type {
   NodeChangeEvent,
   PreferenceChangeEvent,
@@ -109,31 +107,10 @@ export class EventHub {
         (event) => {
           if (event.task) {
             taskActions.addTask(event.task);
-            // The task's name in the reader's language, under the same
-            // convention key the Tasks app reads (bpmTaskNameKey), with the
-            // engine's name as {name} like bpmTaskName() passes it.
-            const name = event.task.name || event.task.taskDefinitionKey;
-            const processKey = event.task.processInstance?.definitionKey;
-            const nameText = processKey && event.task.taskDefinitionKey
-              ? { id: bpmTaskNameKey(processKey, event.task.taskDefinitionKey), params: { name }, fallback: name }
-              : name;
-            // Shown by the shell as a toast and in the notification
-            // center; the texts are resolved in the reader's language there.
-            notificationActions.task(
-              { id: 'webtop.notification.task.assigned.title', fallback: 'New task' },
-              {
-                id: 'webtop.notification.task.assigned.body',
-                params: { name: nameText },
-                fallback: `Task "${name}" was assigned to you.`,
-              },
-              {
-                app: 'tasks',
-                options: { scope: 'assigned' },
-                icon: 'bi-check2-square',
-                key: `task:${event.task.id}`,
-                taskId: event.task.id,
-              }
-            );
+            // The notice ("a task was assigned to you") is not raised here:
+            // the server keeps one for the assignee on the task event
+            // (etc/eip/routes/webtop/notices.xml), and the shell shows it
+            // from the user's notice list — on every desktop, not just one.
           }
         }
       )

@@ -75,6 +75,11 @@ copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/mail.xml" "${SEED_
 copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/webtop/mail" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/mail"
 copy_tree "${SEED_ASSETS}/system/deploy/usr/local/classes/webtop/mail" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/mail"
 copy_tree "${SEED_ASSETS}/system/provisioning/mail.yml" "${SEED_ASSETS}/workspace/provisioning/mail.yml"
+# notification center: Server-side assets
+copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/notices.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/notices.xml"
+copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/webtop/notices" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/notices"
+copy_tree "${SEED_ASSETS}/system/deploy/usr/local/classes/webtop/notices" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/notices"
+copy_tree "${SEED_ASSETS}/system/provisioning/notices.yml" "${SEED_ASSETS}/workspace/provisioning/notices.yml"
 # chat app: Server-side assets
 copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/chat.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/chat.xml"
 copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/webtop/chat" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/chat"

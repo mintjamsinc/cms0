@@ -64,7 +64,7 @@ class ChatSystem {
 				ChatStore.mention(session, mentioned, target, posted.id as String, author);
 				told.add(mentioned);
 			};
-			ChatNotices.posted(service.getAttribute('EventAdminAPI'), session, conversation, posted, told);
+			ChatNotices.posted(service.getAttribute('ScriptAPI'), session, conversation, posted, told);
 			return posted;
 		} finally {
 			service.close();

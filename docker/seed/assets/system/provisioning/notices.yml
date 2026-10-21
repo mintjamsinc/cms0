@@ -1,0 +1,47 @@
+# Provisioning for the Webtop's notification center.
+#
+# A notice — "A sent you a message", "a task was assigned to you" — is kept
+# for the user it is for, so that the notification center shows the same
+# list on every desktop the user opens, and a notice read or dismissed on
+# one is read or dismissed on all. The records are written by
+# webtop-notice-service-user only, through webtop.notices.Notices
+# (/usr/local/classes/webtop/notices); the GraphQL resolvers
+# (etc/graphql/webtop/notices) act for the caller as the service user.
+#
+#   /var/lib/webtop/notices           closed to everyone; the service group
+#                                     owns it
+#   /var/lib/webtop/notices/<user>    one folder per user, created with the
+#                                     first notice and granted jcr:read to
+#                                     that user, who watches it with
+#                                     nodeChanged; one file per notice
+#
+# The root of a workspace grants jcr:read to everyone, so the area is closed
+# with an explicit deny.
+#
+# The notice: namespace names the properties of a record.
+
+namespaces:
+  - prefix: notice
+    uri: http://www.mintjams.jp/webtop/notices/1.0
+
+groups:
+  - { id: webtop-notice-service-group, displayName: Webtop Notice Service }
+
+users:
+  - id: webtop-notice-service-user
+    service: true
+    displayName: Webtop Notice Service
+    memberOf: [webtop-notice-service-group]
+
+nodes:
+  - path: /var/lib/webtop
+    primaryType: nt:folder
+  - path: /var/lib/webtop/notices
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny
+      - group: webtop-notice-service-group
+        privileges: jcr:all
+        effect: allow
