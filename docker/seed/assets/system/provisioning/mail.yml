@@ -1,16 +1,16 @@
 # Provisioning for the Webtop Mail app.
 #
 # The mail of a user lives in the user's home (/home/users/<user>/mail), which
-# the user already owns. What is provisioned here is for the background
-# synchronization (etc/eip/routes/webtop/mail.xml):
+# the user already owns: settings, state and messages, and the schedule of the
+# background synchronization as properties of the settings files. What is
+# provisioned here is for that synchronization (etc/eip/routes/webtop/mail.xml):
 #
-#   - mail-service-user runs the timer route. It owns the account index and the
-#     pass locks below and nothing else; each pass then runs as the account's
-#     owner, so the service user never reads a home.
-#   - /var/lib/mail/accounts: one entry per account (user id, account id,
-#     interval, "run now" requests), because the service user cannot list the
-#     homes to find the accounts. The Mail app writes it through the service
-#     user; it holds no settings and no secrets.
+#   - mail-service-user runs the timer route. It finds the accounts with a
+#     query, which returns the settings files whose folder grants its group
+#     read and modifyProperties (the Mail app grants that in the user's own
+#     session when the first account is saved); each pass then runs as the
+#     account's owner, so the service user never reads the rest of a home.
+#     Deleting a user takes the accounts away with the home.
 #   - /var/lock/mail: the pass locks (one file per account), kept out of the
 #     folders they guard so taking a lock raises no event there.
 #
@@ -30,14 +30,6 @@ users:
     memberOf: [mail-service-group]
 
 nodes:
-  - path: /var/lib/mail
-    primaryType: nt:folder
-    acl:
-      - group: mail-service-group
-        privileges: jcr:all
-        effect: allow
-  - path: /var/lib/mail/accounts
-    primaryType: nt:folder
   - path: /var/lock/mail
     primaryType: nt:folder
     acl:

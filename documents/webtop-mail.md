@@ -139,10 +139,9 @@ whichever workspace the Webtop runs in.
 
 | Path | What |
 |---|---|
-| `/home/users/<user>/mail/accounts/<account>.json` | Account settings. Passwords are properties of this file, encrypted with the installation key (`secret-key.yml`, see [clustering](clustering.md)); they are never returned by the API. |
+| `/home/users/<user>/mail/accounts/<account>.json` | Account settings. Passwords are properties of this file, encrypted with the installation key (`secret-key.yml`, see [clustering](clustering.md)); they are never returned by the API. The schedule of the background synchronization is in its `mail:*` properties too: `mail:accountId`, `mail:enabled`, `mail:intervalMinutes`, `mail:requested` ("run now") and `mail:nextRun`. |
 | `/home/users/<user>/mail/state/<account>.json` | Synchronization state: per folder UIDVALIDITY, highest UID, oldest date, CONDSTORE mark; the last run and error. |
 | `/home/users/<user>/mail/messages/<account>/<folder>/<UIDVALIDITY>/<UID/1000>/<UID>.eml` | The messages. What the list shows is kept in `mail:*` properties; the search index reads the full text from the `.eml`. |
-| `/var/lib/mail/accounts/<user>/<account>.json` | The account index of the background synchronization (owned by `mail-service-user`): interval, next run, "run now". No settings, no secrets. |
 | `/home/users/<user>/mail/messages/<account>/local/sent/<yyyy>/<MM>/<id>.eml` | Copies of the mail sent from the Webtop (`mail:local`); never synchronized. |
 | `/home/users/<user>/mail/drafts/<draft>.json` | Drafts; the files uploaded for a draft are in the folder `drafts/<draft>/` next to it. |
 | `/home/users/<user>/mail/labels.json` | The tags used so far, for suggestions and the filter list. |
@@ -154,23 +153,28 @@ whichever workspace the Webtop runs in.
 | `/etc/graphql/webtop/mail/` | The GraphQL schema (`mailAccounts`, `mailMessages`, `saveMailAccount` …) and its resolvers. |
 | `/usr/share/webtop/apps/mail/` | The app; `attachment.groovy` there serves attachments and the original messages. |
 
-`mail-service-user`, its group, the `mail:` namespace and the two `/var`
-folders are provisioned by `provisioning/mail.yml` of the system workspace.
+`mail-service-user`, its group, the `mail:` namespace and `/var/lock/mail` are
+provisioned by `provisioning/mail.yml` of the system workspace.
 
 ## Background synchronization
 
 Every minute the route `webtop-mail-sync` runs the passes that are due: an
 account's interval has elapsed (5 minutes by default) or the app asked for a run
-(new settings, the refresh button, a flag change, older mail). Each pass runs as
-the account's owner, so it can reach that user's mail and nothing else.
+(new settings, the refresh button, a flag change, older mail). The route runs as
+`mail-service-user`, which cannot list the homes: it finds the accounts with a
+query on the settings files. The `accounts` folder of a user grants the group
+`mail-service-group` read and modifyProperties, which the app sets in the user's
+own session when the first account is saved; the service user sees nothing else
+of the home, and a deleted user takes the accounts away with the home. Each pass
+runs as the account's owner, so it can reach that user's mail and nothing else.
 
 A pass downloads at most 400 messages or runs for 3 minutes, then asks for the
 next tick when more is left: a large download is spread over many short passes,
 each committed message by message, and resumes where it stopped after a restart.
 The status bar of the app shows the progress.
 
-To run a pass by hand, set `mail:requested` to `true` on the account's entry
-under `/var/lib/mail/accounts/<user>/`.
+To run a pass by hand, set `mail:requested` to `true` on the account's settings
+file under `/home/users/<user>/mail/accounts/`.
 
 ## Connection settings
 

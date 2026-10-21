@@ -164,7 +164,7 @@ class MailApi {
 			if (accounts.get(id) == null) {
 				throw new IllegalArgumentException("No such mail account: ${id}".toString());
 			}
-			MailAccounts.updateIndex(context, accounts.userId, id, [requested: true]);
+			accounts.requestRun(id);
 		};
 		return true;
 	}
@@ -415,7 +415,7 @@ class MailApi {
 			}
 		};
 		session.commit();
-		touched.each { MailAccounts.updateIndex(context, accounts.userId, it, [requested: true]); };
+		touched.each { accounts.requestRun(it); };
 		return count;
 	}
 

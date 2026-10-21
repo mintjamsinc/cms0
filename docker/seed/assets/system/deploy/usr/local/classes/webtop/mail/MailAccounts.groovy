@@ -15,15 +15,23 @@ import org.mintjams.cms.security.Encryptors;
  * properties of the settings file, never in its JSON, so reading the file does
  * not reveal them and the GraphQL API never returns them.
  *
- * The background synchronization cannot list /home/users, so every account also
- * has an entry in the service-owned index under INDEX_ROOT, written through the
- * mail service user.
+ * The background synchronization (MailScheduler) finds the accounts with a
+ * query on the mail: properties of the settings files, and keeps its schedule
+ * on them: mail:accountId, mail:enabled and mail:intervalMinutes are written
+ * with the settings, mail:requested asks for the next pass at once, and
+ * mail:nextRun is when the next regular pass is due. For that the accounts
+ * folder grants the mail service group read and modifyProperties
+ * (SERVICE_PRIVILEGES), the first time the user saves an account; the service
+ * user sees nothing else of the home. A deleted user takes the accounts away
+ * with the home, so nothing is left to synchronize.
  */
 class MailAccounts {
 
 	static final String SERVICE_USER = 'mail-service-user';
-	static final String INDEX_ROOT = '/var/lib/mail/accounts';
+	static final String SERVICE_GROUP = 'mail-service-group';
+	static final List<String> SERVICE_PRIVILEGES = ['jcr:read', 'jcr:modifyProperties'];
 	static final String LOCK_ROOT = '/var/lock/mail';
+	static final String HOMES = '/home/users';
 	static final String ACCOUNT_TYPE = 'application/vnd.mintjams.webtop.mail.account+json';
 	static final String STATE_TYPE = 'application/vnd.mintjams.webtop.mail.state+json';
 
@@ -52,7 +60,7 @@ class MailAccounts {
 	}
 
 	static String homeOf(String userId) {
-		return "/home/users/${userId}/mail".toString();
+		return "${HOMES}/${userId}/mail".toString();
 	}
 
 	String getRoot() {
@@ -137,7 +145,9 @@ class MailAccounts {
 
 		def file = session.getResource(accountPath(account.id as String));
 		if (!file.exists()) {
-			file.getParent().getOrCreateFolder();
+			def folder = file.getParent();
+			folder.getOrCreateFolder();
+			ensureServiceAccess(folder);
 			file.createFile();
 		}
 		Map stored = new LinkedHashMap(account);
@@ -152,14 +162,43 @@ class MailAccounts {
 		if (input.outgoingPassword) {
 			file.setProperty(OUTGOING_PASSWORD, Encryptors.getDefault().encrypt(input.outgoingPassword as String));
 		}
+		// What the background synchronization reads (see the class comment).
+		file.setProperty('mail:accountId', account.id as String);
+		file.setProperty('mail:enabled', !!account.enabled);
+		file.setProperty('mail:intervalMinutes', account.intervalMinutes as long);
+		file.setProperty('mail:requested', true);
 		session.commit();
-
-		updateIndex(context, userId, account.id as String, [
-			requested: true,
-			enabled: account.enabled,
-			intervalMinutes: account.intervalMinutes,
-		]);
 		return get(account.id as String);
+	}
+
+	/**
+	 * Grants the mail service group what the synchronization needs on the
+	 * accounts folder, unless it has it already. Runs in the user's session, the
+	 * only one that may change the home.
+	 */
+	private void ensureServiceAccess(folder) {
+		def acl = folder.getAccessControlList();
+		for (def entry : acl.getAccessControlEntries()) {
+			if (entry.isAllow() && entry.principal.name == SERVICE_GROUP) {
+				return;
+			}
+		}
+		def group = session.principalProvider.getPrincipal(SERVICE_GROUP);
+		if (group == null) {
+			throw new IllegalStateException("The group ${SERVICE_GROUP} is not provisioned (provisioning/mail.yml).".toString());
+		}
+		acl.addAccessControlEntry(group, true, SERVICE_PRIVILEGES as String[]);
+		folder.setAccessControlList(acl);
+	}
+
+	/** Asks the background synchronization to run a pass for the account at once. */
+	void requestRun(String id) {
+		def file = session.getResource(accountPath(id));
+		if (!file.exists()) {
+			return;
+		}
+		file.setProperty('mail:requested', true);
+		session.commit();
 	}
 
 	private Map normalize(Map input, Map existing) {
@@ -244,7 +283,6 @@ class MailAccounts {
 			}
 		};
 		session.commit();
-		removeIndex(context, userId, id);
 	}
 
 	// --- server URIs ------------------------------------------------------------
@@ -265,62 +303,6 @@ class MailAccounts {
 		}
 		String query = (s.security == 'starttls') ? '?starttls=required' : '';
 		return "smtp://${s.host}:${s.port}${query}".toString();
-	}
-
-	// --- synchronization index (service user) -----------------------------------
-
-	static String indexPath(String userId, String accountId) {
-		return "${INDEX_ROOT}/${userId}/${checkId(accountId)}.json".toString();
-	}
-
-	/**
-	 * Creates or updates the index entry of an account. Fields: requested (run the
-	 * next pass for this account at once), enabled, intervalMinutes.
-	 */
-	static void updateIndex(context, String userId, String accountId, Map fields) {
-		withService(context) { service ->
-			def session = service.session;
-			def file = session.getResource(indexPath(userId, accountId));
-			if (!file.exists()) {
-				file.getParent().getOrCreateFolder();
-				file.createFile();
-				file.write('{}');
-				file.setContentType('application/json');
-			}
-			file.setProperty('mail:userId', userId);
-			file.setProperty('mail:accountId', accountId);
-			if (fields.containsKey('requested')) {
-				file.setProperty('mail:requested', !!fields.requested);
-			}
-			if (fields.containsKey('enabled')) {
-				file.setProperty('mail:enabled', !!fields.enabled);
-			}
-			if (fields.intervalMinutes != null) {
-				file.setProperty('mail:intervalMinutes', fields.intervalMinutes as long);
-			}
-			session.commit();
-		};
-	}
-
-	static void removeIndex(context, String userId, String accountId) {
-		withService(context) { service ->
-			def session = service.session;
-			def file = session.getResource(indexPath(userId, accountId));
-			if (file.exists()) {
-				file.remove();
-				session.commit();
-			}
-		};
-	}
-
-	/** Runs the closure in a context of the mail service user. */
-	static Object withService(context, Closure closure) {
-		def service = context.getAttribute('ScriptAPI').createServiceUserContext(SERVICE_USER);
-		try {
-			return closure.call(service);
-		} finally {
-			service.close();
-		}
 	}
 
 }

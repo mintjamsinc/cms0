@@ -131,7 +131,7 @@ class MailSync {
 		state.fetchOlderDays = Math.max(1, Math.min(days, MailAccounts.MAX_INITIAL_DAYS));
 		writeState(context, accounts, accountId, state);
 		context.session.commit();
-		MailAccounts.updateIndex(context, accounts.userId, accountId, [requested: true]);
+		accounts.requestRun(accountId);
 	}
 
 	// --- pass -------------------------------------------------------------------
