@@ -7,7 +7,7 @@
 
 	"form.webtop.chat.start.title": "Chat Maintenance",
 	"form.webtop.chat.start.subtitle": "Remove old messages from the conversations of this workspace, and the conversations of files that are gone.",
-	"form.webtop.chat.start.description": "Messages are never removed on their own. This removes whole days of messages older than the days kept, with their attachments, and the signals and mention marks of the same days. Each day is removed on its own, so a run that is stopped keeps what it removed.",
+	"form.webtop.chat.start.description": "Messages are never removed on their own. This removes whole days of messages older than the days kept, with their attachments, and the signals of the same days. Each day is removed on its own, so a run that is stopped keeps what it removed.",
 	"form.webtop.chat.start.targets": "Remove old messages from",
 	"form.webtop.chat.start.target.channels": "Channels",
 	"form.webtop.chat.start.target.dm": "Direct messages",
@@ -27,7 +27,6 @@
 	"form.webtop.chat.result.days": "Days of messages removed",
 	"form.webtop.chat.result.conversations": "Conversations they were removed from",
 	"form.webtop.chat.result.signalDays": "Days of signals removed",
-	"form.webtop.chat.result.mentionDays": "Days of mention marks removed",
 	"form.webtop.chat.result.orphans": "Conversations of deleted files removed",
 	"form.webtop.chat.result.errors": "Folders that could not be removed (see the server log)",
 	"form.webtop.chat.result.openFromTask": "Open this form from the \"Chat Maintenance Result\" task.",

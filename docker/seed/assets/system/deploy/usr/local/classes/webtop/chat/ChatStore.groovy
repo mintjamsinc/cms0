@@ -31,15 +31,20 @@ import java.text.SimpleDateFormat;
 class ChatStore {
 
 	static final String SERVICE_USER = 'chat-service-user';
+	static final String SERVICE_GROUP = 'chat-service-group';
 	static final String ROOT = '/var/lib/chat';
 	static final String CHANNELS = ROOT + '/channels';
 	static final String FILES = ROOT + '/files';
 	static final String SIGNALS = ROOT + '/signals';
-	static final String MENTIONS = ROOT + '/mentions';
+	static final String HOMES = '/home/users';
+	static final String MENTIONS_FOLDER = 'chat/mentions';
+	// How many of a user's latest mention marks are kept; older ones go with the next mark.
+	static final int MAX_MENTIONS = 100;
 
 	static final String EVERYONE = 'everyone';
 	static final String ANONYMOUS = 'anonymous';
 	static final String READ = 'jcr:read';
+	static final String ALL = 'jcr:all';
 
 	private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -202,28 +207,27 @@ class ChatStore {
 		return userId;
 	}
 
-	/** Where the marks of a user's mentions are kept; only that user reads it. */
+	/**
+	 * Where the marks of a user's mentions are kept: a folder of the user's
+	 * home (/home/users/<user>/chat/mentions), which goes with the user —
+	 * deleting the user removes it, and a user made anew under the same id
+	 * starts with none. The user owns it and watches it; the service group is
+	 * granted it when it is created, and writes the marks.
+	 */
 	static String mentionRoot(String userId) {
-		return "${MENTIONS}/${checkUserId(userId)}".toString();
+		return "${HOMES}/${checkUserId(userId)}/${MENTIONS_FOLDER}".toString();
 	}
 
 	/**
 	 * Leaves a mark that the user was mentioned in a message: an nt:file named
-	 * by the message, under the day, carrying where the message is. The user's
-	 * folder is created, and granted to the user, the first time.
+	 * by the message, under the day, carrying where the message is. Written in
+	 * the service session; the first time, the user's folder is created as the
+	 * user (only the user may write the home) and granted to the service
+	 * group. The latest MAX_MENTIONS marks are kept, the older going now.
 	 */
-	static void mention(session, String userId, Map ref, String messageId, String author) {
-		def root = session.getResource(mentionRoot(userId));
-		if (!root.exists()) {
-			root.createFolder();
-			def principal = findPrincipal(session, userId);
-			if (principal != null) {
-				def acl = root.getAccessControlList();
-				acl.addAccessControlEntry(principal, true, READ);
-				root.setAccessControlList(acl);
-			}
-		}
-		def mark = session.getResource("${mentionRoot(userId)}/${dayOf(messageId)}/${messageId}".toString());
+	static void mention(scriptAPI, session, String userId, Map ref, String messageId, String author) {
+		def root = ensureMentionRoot(scriptAPI, session, userId);
+		def mark = root.getResource("${dayOf(messageId)}/${messageId}".toString());
 		if (mark.exists()) {
 			return;
 		}
@@ -236,7 +240,52 @@ class ChatStore {
 			mark.setProperty('chat:fileId', ref.fileId as String);
 		}
 		mark.setProperty('chat:author', author);
+		pruneMentions(root, MAX_MENTIONS);
 		session.commit();
+	}
+
+	/**
+	 * The user's mention folder as the service session sees it, created the
+	 * first time as the user through ScriptAPI.createUserContext, which also
+	 * makes sure of the user's home in this workspace. The owner's session
+	 * commits the folder on its own; the service session has nothing pending
+	 * when this returns.
+	 */
+	private static Object ensureMentionRoot(scriptAPI, session, String userId) {
+		String path = mentionRoot(userId);
+		def root = session.getResource(path);
+		if (root.exists()) {
+			return root;
+		}
+		Principal group = findPrincipal(session, SERVICE_GROUP);
+		if (group == null) {
+			throw new IllegalStateException("The group ${SERVICE_GROUP} is not provisioned (provisioning/chat.yml).".toString());
+		}
+		def owner = scriptAPI.createUserContext(userId);
+		try {
+			def ownerSession = owner.session;
+			try {
+				def folder = ownerSession.getResource(path);
+				if (!folder.exists()) {
+					folder.getParent().getOrCreateFolder();
+					folder.createFolder();
+					def acl = folder.getAccessControlList();
+					acl.addAccessControlEntry(group, true, ALL);
+					folder.setAccessControlList(acl);
+					ownerSession.commit();
+				}
+			} catch (Throwable ex) {
+				ownerSession.rollback();
+				throw ex;
+			}
+		} finally {
+			owner.close();
+		}
+		root = session.getResource(path);
+		if (!root.exists()) {
+			throw new IllegalStateException("The folder ${path} was created but the service user cannot read it.".toString());
+		}
+		return root;
 	}
 
 	/**
@@ -250,39 +299,83 @@ class ChatStore {
 		if (!root.exists()) {
 			return marks;
 		}
-		Closure names = { folder, boolean collections ->
-			List<String> l = [];
-			def children = folder.list();
-			while (children.hasNext()) {
-				def r = children.next();
-				if (r.isCollection() == collections) {
-					l.add(r.name as String);
+		eachMention(root) { mark ->
+			if (marks.size() >= max) {
+				return false;
+			}
+			marks.add([
+				messageId: mark.name as String,
+				channelId: mark.hasProperty('chat:channelId') ? mark.getProperty('chat:channelId').getString() : null,
+				fileId: mark.hasProperty('chat:fileId') ? mark.getProperty('chat:fileId').getString() : null,
+				author: mark.hasProperty('chat:author') ? mark.getProperty('chat:author').getString() : null,
+			]);
+			return true;
+		};
+		return marks;
+	}
+
+	/**
+	 * Removes the marks under the root beyond the newest `keep`, and the day,
+	 * month and year folders left empty. Nothing is committed here.
+	 */
+	private static void pruneMentions(root, int keep) {
+		int seen = 0;
+		for (String y : sortedNames(root, true)) {
+			def year = root.getResource(y);
+			for (String m : sortedNames(year, true)) {
+				def month = year.getResource(m);
+				for (String d : sortedNames(month, true)) {
+					def day = month.getResource(d);
+					List<String> ids = sortedNames(day, false);
+					for (String id : ids) {
+						if (++seen > keep) {
+							day.getResource(id).remove();
+						}
+					}
+					if (seen > keep && seen - ids.size() >= keep) {
+						// Every mark of the day went; nothing else is kept in a day.
+						day.remove();
+					}
+				}
+				if (seen > keep && sortedNames(month, true).isEmpty()) {
+					month.remove();
 				}
 			}
-			return l.sort().reverse();
-		};
-		for (String y : names(root, true)) {
+			if (seen > keep && sortedNames(year, true).isEmpty()) {
+				year.remove();
+			}
+		}
+	}
+
+	/** Calls the closure with each mark under the root, newest first, until it returns false. */
+	private static void eachMention(root, Closure each) {
+		for (String y : sortedNames(root, true)) {
 			def year = root.getResource(y);
-			for (String m : names(year, true)) {
+			for (String m : sortedNames(year, true)) {
 				def month = year.getResource(m);
-				for (String d : names(month, true)) {
+				for (String d : sortedNames(month, true)) {
 					def day = month.getResource(d);
-					for (String id : names(day, false)) {
-						if (marks.size() >= max) {
-							return marks;
+					for (String id : sortedNames(day, false)) {
+						if (!each.call(day.getResource(id))) {
+							return;
 						}
-						def mark = day.getResource(id);
-						marks.add([
-							messageId: id,
-							channelId: mark.hasProperty('chat:channelId') ? mark.getProperty('chat:channelId').getString() : null,
-							fileId: mark.hasProperty('chat:fileId') ? mark.getProperty('chat:fileId').getString() : null,
-							author: mark.hasProperty('chat:author') ? mark.getProperty('chat:author').getString() : null,
-						]);
 					}
 				}
 			}
 		}
-		return marks;
+	}
+
+	/** The names of the folders, or of the files, under the folder; the newest first. */
+	private static List<String> sortedNames(folder, boolean collections) {
+		List<String> l = [];
+		def children = folder.list();
+		while (children.hasNext()) {
+			def r = children.next();
+			if (r.isCollection() == collections) {
+				l.add(r.name as String);
+			}
+		}
+		return l.sort().reverse();
 	}
 
 	/** The principal of that name, or null when there is no such user or group. */

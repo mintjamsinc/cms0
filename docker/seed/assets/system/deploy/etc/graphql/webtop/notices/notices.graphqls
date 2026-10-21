@@ -1,14 +1,14 @@
 # The Webtop's notification center (webtop/src/webtop/index.ts, "Notices").
 #
 # A notice — "A sent you a message", "a task was assigned to you" — is kept
-# for the user it is for, under /var/lib/webtop/notices/<user>, so that the
-# center shows the same list on every desktop the user opens, and a notice
-# read or dismissed on one is read or dismissed on all. The logic is in
-# webtop.notices.Notices (/usr/local/classes/webtop/notices).
+# for the user it is for, in the user's home (/home/users/<user>/notices), so
+# that the center shows the same list on every desktop the user opens, and a
+# notice read or dismissed on one is read or dismissed on all. The logic is
+# in webtop.notices.Notices (/usr/local/classes/webtop/notices).
 #
-# These fields act on the caller's own list only, as the notice service user;
-# the caller holds no write access to the area (provisioning/notices.yml). A
-# notice is published by a script, through webtop.notices.Notices.publish.
+# These fields act on the caller's own list only, as the notice service user,
+# which is granted the folder when it is created (provisioning/notices.yml).
+# A notice is published by a script, through webtop.notices.Notices.publish.
 #
 # There is no subscription here. A client watches `webtopNoticeWatchPath`
 # with the platform's nodeChanged and reads the list again when something

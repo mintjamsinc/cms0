@@ -10,10 +10,13 @@ import java.text.SimpleDateFormat;
  * Messages are removed by the day: a day folder older than what is kept goes
  * as a whole, with the attachments in it, and nothing in it is looked at. The
  * days are UTC days, as the folders are: keeping N days keeps the UTC day of
- * today and the N-1 before it. The
- * signals and the mention marks of the same days go with it. Each folder is
- * committed on its own, so a run that is stopped has still removed what it
- * removed.
+ * today and the N-1 before it. The signals of the same days go with it. Each
+ * folder is committed on its own, so a run that is stopped has still removed
+ * what it removed.
+ *
+ * The mention marks are in the users' homes, which the service user cannot
+ * list; they are bounded on their own (ChatStore.MAX_MENTIONS) and need no
+ * maintenance.
  *
  * A conversation whose file is gone (the route that removes those missed it,
  * or its queue was full) is removed with its signals.
@@ -49,7 +52,7 @@ class ChatMaintenance {
 		if (keepDays != null && keepDays < MIN_KEEP_DAYS) {
 			throw new IllegalArgumentException("At least ${MIN_KEEP_DAYS} day of messages is kept.".toString());
 		}
-		Map result = [days: 0, conversations: 0, signalDays: 0, mentionDays: 0, orphans: 0, errors: 0];
+		Map result = [days: 0, conversations: 0, signalDays: 0, orphans: 0, errors: 0];
 		String cutoff = (keepDays != null) ? firstKeptDay(keepDays) : null;
 
 		if (cutoff != null) {
@@ -80,11 +83,6 @@ class ChatMaintenance {
 				};
 				childFolders(ChatStore.SIGNALS).each { String fileId ->
 					result.signalDays += removeDaysBefore(ChatStore.signalRoot(fileId), cutoff, result);
-				};
-			}
-			if (targets) {
-				childFolders(ChatStore.MENTIONS).each { String userId ->
-					result.mentionDays += removeDaysBefore(ChatStore.mentionRoot(userId), cutoff, result);
 				};
 			}
 		}

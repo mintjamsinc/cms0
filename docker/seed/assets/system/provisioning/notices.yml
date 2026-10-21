@@ -8,15 +8,18 @@
 # (/usr/local/classes/webtop/notices); the GraphQL resolvers
 # (etc/graphql/webtop/notices) act for the caller as the service user.
 #
-#   /var/lib/webtop/notices           closed to everyone; the service group
-#                                     owns it
-#   /var/lib/webtop/notices/<user>    one folder per user, created with the
-#                                     first notice and granted jcr:read to
-#                                     that user, who watches it with
-#                                     nodeChanged; one file per notice
+#   /home/users/<user>/notices    one file per notice, in the user's home,
+#                                 so that the list goes with the user:
+#                                 deleting the user removes it, and a user
+#                                 made anew under the same id starts with
+#                                 none. The home is the user's alone; the
+#                                 folder is created with the first notice,
+#                                 as the user, and granted jcr:all to the
+#                                 service group, which writes it from then
+#                                 on. The user watches it with nodeChanged.
 #
-# The root of a workspace grants jcr:read to everyone, so the area is closed
-# with an explicit deny.
+# Nothing is provisioned for the records themselves: the home exists, or is
+# made sure of, when the folder is created (ScriptAPI.createUserContext).
 #
 # The notice: namespace names the properties of a record.
 
@@ -32,16 +35,3 @@ users:
     service: true
     displayName: Webtop Notice Service
     memberOf: [webtop-notice-service-group]
-
-nodes:
-  - path: /var/lib/webtop
-    primaryType: nt:folder
-  - path: /var/lib/webtop/notices
-    primaryType: nt:folder
-    acl:
-      - principal: everyone
-        privileges: jcr:read
-        effect: deny
-      - group: webtop-notice-service-group
-        privileges: jcr:all
-        effect: allow

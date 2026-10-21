@@ -6,15 +6,21 @@ import java.security.SecureRandom;
 /**
  * The notices of the Webtop's notification center, kept per user.
  *
- *   /var/lib/webtop/notices/<user>/<id>    one file per notice, the notice as JSON
+ *   /home/users/<user>/notices/<id>    one file per notice, the notice as JSON
  *
  * A notice tells a user that something happened — a message for them, a task
  * assigned to them — and where a click goes (an app with launch options). It
  * is kept for the user it is for, so that the notification center shows the
  * same list on every desktop the user opens, and a notice read or dismissed
- * on one is read or dismissed on all. The user's folder is created with the
- * first notice and granted jcr:read to that user, who watches it with
- * nodeChanged; everything else in the area is closed (provisioning/notices.yml).
+ * on one is read or dismissed on all.
+ *
+ * The list is in the user's home, which the user alone may read, so that it
+ * goes with the user: deleting the user removes it with the home, and a user
+ * made anew under the same id starts with none. The folder is created with
+ * the first notice, as the user (ScriptAPI.createUserContext, which also
+ * makes sure of the home in this workspace), since only the user may write
+ * the home; it is granted to the notice service group then, which writes it
+ * from then on. The user watches it with nodeChanged.
  *
  * Every write is made by the notice service user: a script publishes through
  * {@link #publish} with its own ScriptAPI, and the GraphQL resolvers
@@ -31,12 +37,14 @@ import java.security.SecureRandom;
 class Notices {
 
 	static final String SERVICE_USER = 'webtop-notice-service-user';
-	static final String ROOT = '/var/lib/webtop/notices';
+	static final String SERVICE_GROUP = 'webtop-notice-service-group';
+	static final String HOMES = '/home/users';
+	static final String FOLDER = 'notices';
 	static final String TYPE = 'application/vnd.mintjams.webtop.notice+json';
 	static final String READ_PROPERTY = 'notice:read';
 	static final String KEY_PROPERTY = 'notice:key';
 	static final String APP_PROPERTY = 'notice:app';
-	static final String READ_PRIVILEGE = 'jcr:read';
+	static final String ALL_PRIVILEGES = 'jcr:all';
 
 	static final int MAX_KEPT = 100;
 	static final int MAX_TEXT = 500;
@@ -69,7 +77,7 @@ class Notices {
 			Throwable failed = null;
 			for (String user : users) {
 				try {
-					String id = record(service, user, checked);
+					String id = record(scriptAPI, service, user, checked);
 					if (id != null) {
 						ids.add(id);
 					}
@@ -150,19 +158,13 @@ class Notices {
 	/**
 	 * The folder a client watches with nodeChanged to learn that the caller's
 	 * list changed — on any desktop: a notice added, read, dismissed. Created
-	 * and granted to the caller when it is not there yet.
+	 * when it is not there yet.
 	 */
 	static String watchPath(context) {
 		String user = callerOf(context);
-		withService(scriptAPI(context)) { service ->
-			def session = service.session;
-			try {
-				ensureRoot(session, user);
-				session.commit();
-			} catch (Throwable ex) {
-				session.rollback();
-				throw ex;
-			}
+		def api = scriptAPI(context);
+		withService(api) { service ->
+			ensureRoot(api, service.session, user);
 		};
 		return userRoot(user);
 	}
@@ -248,7 +250,7 @@ class Notices {
 	 * when there is no such user. Two notices for one user may be written at
 	 * the same time, so a commit that fails is tried again.
 	 */
-	private static String record(service, String user, Map notice) {
+	private static String record(scriptAPI, service, String user, Map notice) {
 		def session = service.session;
 		String content = service.getAttribute('JSON').stringify(notice) as String;
 		if (content.getBytes('UTF-8').length > MAX_JSON) {
@@ -256,7 +258,7 @@ class Notices {
 		}
 		for (int attempt = 0; ; attempt++) {
 			try {
-				def root = ensureRoot(session, user);
+				def root = ensureRoot(scriptAPI, session, user);
 				if (root == null) {
 					return null;
 				}
@@ -339,22 +341,47 @@ class Notices {
 	}
 
 	/**
-	 * The user's folder, created and granted to the user the first time; null
-	 * when there is no such user, for whom nothing is kept.
+	 * The user's folder, as the service session sees it; null when there is no
+	 * such user, for whom nothing is kept. Created the first time, as the user
+	 * — only the user may write the home — and granted to the service group,
+	 * which writes it from then on. The owner's session commits the folder on
+	 * its own, so the service session has nothing pending when this returns.
 	 */
-	private static Object ensureRoot(session, String user) {
+	private static Object ensureRoot(scriptAPI, session, String user) {
 		def root = session.getResource(userRoot(user));
 		if (root.exists()) {
 			return root;
 		}
-		Principal principal = findPrincipal(session, user);
-		if (principal == null) {
+		if (!isUser(session, user)) {
 			return null;
 		}
-		root.createFolder();
-		def acl = root.getAccessControlList();
-		acl.addAccessControlEntry(principal, true, READ_PRIVILEGE);
-		root.setAccessControlList(acl);
+		Principal group = findPrincipal(session, SERVICE_GROUP);
+		if (group == null) {
+			throw new IllegalStateException("The group ${SERVICE_GROUP} is not provisioned (provisioning/notices.yml).".toString());
+		}
+		def owner = scriptAPI.createUserContext(user);
+		try {
+			def ownerSession = owner.session;
+			try {
+				def folder = ownerSession.getResource(userRoot(user));
+				if (!folder.exists()) {
+					folder.createFolder();
+					def acl = folder.getAccessControlList();
+					acl.addAccessControlEntry(group, true, ALL_PRIVILEGES);
+					folder.setAccessControlList(acl);
+					ownerSession.commit();
+				}
+			} catch (Throwable ex) {
+				ownerSession.rollback();
+				throw ex;
+			}
+		} finally {
+			owner.close();
+		}
+		root = session.getResource(userRoot(user));
+		if (!root.exists()) {
+			throw new IllegalStateException("The folder ${userRoot(user)} was created but the service user cannot read it.".toString());
+		}
 		return root;
 	}
 
@@ -450,8 +477,9 @@ class Notices {
 		return user;
 	}
 
+	/** The user's list: a folder of the user's home. */
 	static String userRoot(String user) {
-		return "${ROOT}/${checkUserId(user)}".toString();
+		return "${HOMES}/${checkUserId(user)}/${FOLDER}".toString();
 	}
 
 	static String checkId(String id) {
@@ -504,6 +532,15 @@ class Notices {
 			return session.principalProvider.getPrincipal(name);
 		} catch (Throwable ignore) {
 			return null;
+		}
+	}
+
+	/** Whether there is a user of that id — a group has no home, and no notices. */
+	private static boolean isUser(session, String name) {
+		try {
+			return session.userManager.getUser(name) != null;
+		} catch (Throwable ignore) {
+			return false;
 		}
 	}
 

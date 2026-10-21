@@ -61,7 +61,7 @@ class ChatSystem {
 				if (conversation.kind == 'channel' && !ChatApi.isParticipant(session, conversation.channelId as String, mentioned)) {
 					return;
 				}
-				ChatStore.mention(session, mentioned, target, posted.id as String, author);
+				ChatStore.mention(scriptAPI, session, mentioned, target, posted.id as String, author);
 				told.add(mentioned);
 			};
 			ChatNotices.posted(service.getAttribute('ScriptAPI'), session, conversation, posted, told);

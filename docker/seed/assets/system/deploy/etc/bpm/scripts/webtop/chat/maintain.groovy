@@ -13,7 +13,7 @@
 //   orphans   - whether to remove the conversations of files that are gone
 // Outputs:
 //   result    - JSON with the counts: days, conversations, signalDays,
-//               mentionDays, orphans, errors
+//               orphans, errors
 
 import org.camunda.bpm.engine.delegate.BpmnError
 

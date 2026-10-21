@@ -20,8 +20,8 @@ class ChatApi {
 	static final int MAX_FOUND = 100;
 	static final int SEARCH_PAGE = 20;
 	static final int MAX_SEARCH_PAGE = 50;
-	// How many of the latest mentions bring a conversation into the sidebar.
-	static final int SIDEBAR_MENTIONS = 100;
+	// How many of the latest mentions bring a conversation into the sidebar: all that are kept.
+	static final int SIDEBAR_MENTIONS = ChatStore.MAX_MENTIONS;
 	// How many users one mentionReach answers for.
 	static final int MAX_REACH = 50;
 
@@ -798,7 +798,7 @@ class ChatApi {
 			if (!reaches(service, conversation, mentioned)) {
 				return;
 			}
-			ChatStore.mention(service, mentioned, ref, messageId, userId);
+			ChatStore.mention(context.getAttribute('ScriptAPI'), service, mentioned, ref, messageId, userId);
 			told.add(mentioned);
 		};
 		return told;

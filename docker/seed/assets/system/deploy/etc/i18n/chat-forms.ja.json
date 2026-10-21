@@ -7,7 +7,7 @@
 
 	"form.webtop.chat.start.title": "チャットのメンテナンス",
 	"form.webtop.chat.start.subtitle": "このワークスペースの会話から古い発言を削除し、削除済みファイルの会話を掃除します。",
-	"form.webtop.chat.start.description": "発言は自動では削除されません。ここでは、残す日数より古い発言を日付フォルダーごと（添付も含めて）削除し、同じ日付の合図とメンションの印も削除します。日付ごとに確定するので、途中で止まっても削除した分はそのまま残ります。",
+	"form.webtop.chat.start.description": "発言は自動では削除されません。ここでは、残す日数より古い発言を日付フォルダーごと（添付も含めて）削除し、同じ日付の合図も削除します。日付ごとに確定するので、途中で止まっても削除した分はそのまま残ります。",
 	"form.webtop.chat.start.targets": "古い発言を削除する対象",
 	"form.webtop.chat.start.target.channels": "チャネル",
 	"form.webtop.chat.start.target.dm": "ダイレクトメッセージ",
@@ -27,7 +27,6 @@
 	"form.webtop.chat.result.days": "削除した発言の日数",
 	"form.webtop.chat.result.conversations": "削除があった会話の数",
 	"form.webtop.chat.result.signalDays": "削除した合図の日数",
-	"form.webtop.chat.result.mentionDays": "削除したメンションの印の日数",
 	"form.webtop.chat.result.orphans": "削除したファイルの会話（削除済みファイルの分）",
 	"form.webtop.chat.result.errors": "削除できなかったフォルダー（サーバーログを参照）",
 	"form.webtop.chat.result.openFromTask": "このフォームは「チャットのメンテナンス結果」タスクから開いてください。",

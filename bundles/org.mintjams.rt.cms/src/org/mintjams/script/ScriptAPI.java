@@ -26,6 +26,7 @@ import javax.jcr.GuestCredentials;
 import javax.script.ScriptException;
 
 import org.apache.commons.io.IOUtils;
+import org.mintjams.rt.cms.internal.WorkspaceUserHomes;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
@@ -92,6 +93,29 @@ public class ScriptAPI implements Adaptable {
 			context.setCredentials(new ServiceUserCredentials(userId));
 			Scripts.prepareAPIs(context);
 			context.getSession();  // Ensure that the session is created to validate the credentials
+			return context;
+		} catch (Throwable ex) {
+			IOUtils.closeQuietly(context);
+			throw new IllegalStateException(ex.getMessage(), ex);
+		}
+	}
+
+	/**
+	 * A context of the user, as a request of that user has it: the user's own
+	 * session, with the user's home in this workspace made sure of first, the
+	 * way a request makes sure of it. For a script that acts in the user's
+	 * home on the user's behalf, which only the user may write — a folder an
+	 * app keeps for the user and grants to its service account, say. A
+	 * service account has no home: for one, use
+	 * {@link #createServiceUserContext}.
+	 */
+	public ScriptingContext createUserContext(String userId) {
+		WorkspaceScriptContext context = null;
+		try {
+			context = new WorkspaceScriptContext(fContext.getWorkspaceName());
+			context.setCredentials(new ServiceUserCredentials(userId));
+			Scripts.prepareAPIs(context);
+			WorkspaceUserHomes.ensureUserHome(context.adaptTo(javax.jcr.Session.class));
 			return context;
 		} catch (Throwable ex) {
 			IOUtils.closeQuietly(context);

@@ -237,6 +237,17 @@ are shown throughout (an assignee, an author).
 | `/home/users/<id>` | deny `everyone` `jcr:read`; allow `<id>` `jcr:all` |
 | `/home/users/<id>/profile` (`system` only) | allow `everyone` `jcr:read`; deny `anonymous` `jcr:read` |
 
+An app that keeps records *for* a user, written by its service account
+rather than by the user — the notification center's notices, the Chat app's
+mention marks — keeps them in a folder of the home as well, so that they go
+with the user: deleting the user removes them, and a user made anew under
+the same id inherits none. Since only the owner may write the home, the app
+creates that folder as the user, through `ScriptAPI.createUserContext(userId)`
+(which also makes sure of the home in the workspace, as a request would),
+and grants it to its service group, which writes it from then on. A service
+account cannot list the homes, so such records are bounded by the app itself
+rather than swept by a maintenance run.
+
 Homes created before this rule carried the owner's grant only. Every boot
 checks the homes of each workspace and closes those that are still open,
 keeping any other entry an administrator added to them; a home that is

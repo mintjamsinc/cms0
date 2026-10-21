@@ -18,7 +18,6 @@
 #                             the file's identifier, readable by every
 #                             signed-in user. It names no file and holds no
 #                             message
-#   /var/lib/chat/mentions    one folder per user, readable by that user
 #
 # The root of a workspace grants jcr:read to everyone, so the area is closed
 # with an explicit deny. An entry lower down that allows everyone is followed
@@ -27,6 +26,10 @@
 #
 # What a user keeps (read positions, the conversations in the sidebar) is in
 # the user's home, /home/users/<user>/chat, written in the user's own session.
+# The marks of a user's mentions are there too (/home/users/<user>/chat/mentions),
+# so that they go with the user: the folder is created with the first mark,
+# as the user, and granted jcr:all to the service group, which writes the
+# marks (ChatStore.mention). Nothing is provisioned for them.
 #
 # The maintenance process (etc/bpm/processes/webtop/chat) runs its script as
 # the service user, which must be able to read the script folder. The
@@ -70,8 +73,6 @@ nodes:
       - user: anonymous
         privileges: jcr:read
         effect: deny
-  - path: /var/lib/chat/mentions
-    primaryType: nt:folder
   - path: /etc/bpm/scripts/webtop/chat
     primaryType: nt:folder
     acl:

@@ -372,7 +372,7 @@ Everything is in the workspace the Webtop runs in.
 | `/var/lib/chat/channels/<channel>/messages/<yyyy>/<MM>/<dd>/<id>.files/` | The attachments of the message `<id>`, in the same day folder as the message. |
 | `/var/lib/chat/files/<identifier>/messages/…` | The conversation of the file with that identifier, laid out like a channel's. Nobody is granted anything on it. |
 | `/var/lib/chat/channels/dm-<hash>/` | The direct messages of two users; the hash is of the two user ids, so the pair has one channel. |
-| `/var/lib/chat/mentions/<user>/<yyyy>/<MM>/<dd>/<id>` | A mark per mention of the user, readable by that user only: the message's id, with `chat:channelId` or `chat:fileId` and `chat:author`. |
+| `/home/users/<user>/chat/mentions/<yyyy>/<MM>/<dd>/<id>` | A mark per mention of the user, in the user's home, written by the service group: the message's id, with `chat:channelId` or `chat:fileId` and `chat:author`. The latest hundred are kept. |
 | `/var/lib/chat/signals/<identifier>/<yyyy>/<MM>/<dd>/<id>` | An empty folder for every change to that conversation, readable by every signed-in user (see below). |
 | `/home/users/<user>/chat/read/<key>` | How far the user has read a conversation (`chat:readAt`). |
 | `/home/users/<user>/chat/following/<key>` | The conversations in the user's sidebar: the public channels the user added (`channel-<id>`) and the conversations of files the user follows (`file-<identifier>`). |
@@ -447,15 +447,23 @@ else is always a download.
 
 ### Mentions
 
-A message that names a user as `@user` leaves that user a mark under
-`/var/lib/chat/mentions/<user>`, which the user's Chat app watches with
-`nodeChanged`. The mark names the conversation, not the message's text, and
-only the mentioned user can read it. Editing a message marks only the users it
-newly names; one's own name leaves no mark.
+A message that names a user as `@user` leaves that user a mark in the user's
+home, under `/home/users/<user>/chat/mentions`, which the user's Chat app
+watches with `nodeChanged`. The mark names the conversation, not the
+message's text, and only the mentioned user can read it. Editing a message
+marks only the users it newly names; one's own name leaves no mark.
+
+The marks are in the home so that they go with the user: deleting the user
+removes them, and a user made anew under the same id starts with none. Only
+the user may write the home, so the folder is created with the first mark
+as the user (`ScriptAPI.createUserContext`, which also makes sure of the
+home in the workspace) and granted to the chat service group, which writes
+the marks from then on. The latest hundred marks are kept; the older go with
+the next mark, so the folder needs no maintenance.
 
 The sidebar's *Files* section takes in the conversations of files from the
-user's latest hundred mention marks, so that a conversation one was pulled
-into is at hand without following it.
+user's mention marks, so that a conversation one was pulled into is at hand
+without following it.
 
 ### Search
 
@@ -507,8 +515,8 @@ workspace whose conversations are to be cleaned. The start form asks:
 - whether to remove the conversations of files that no longer exist.
 
 Messages are removed **by the day**: a day folder older than what is kept
-goes as a whole, with the attachments in it, and the signals and mention marks
-of the same days go with it. The days are UTC days, as the folders are:
+goes as a whole, with the attachments in it, and the signals of the same days
+go with it. The days are UTC days, as the folders are:
 keeping 1 day keeps the UTC day of today. Nothing in a day is looked at, so the run is as
 quick as removing folders. Each folder is committed on its own; a run that is
 stopped has still removed what it removed. A *Chat Maintenance Result* task
@@ -519,7 +527,8 @@ area; the administrator role of whoever started it is checked inside the
 script, as for the search index rebuild.
 
 Uploads for messages that were never posted stay in the users' homes
-(`chat/uploads`); the maintenance does not reach into homes.
+(`chat/uploads`), as do the mention marks (`chat/mentions`, bounded on their
+own); the maintenance does not reach into homes.
 
 ## Deployment notes
 

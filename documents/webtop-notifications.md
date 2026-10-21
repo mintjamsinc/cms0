@@ -6,11 +6,13 @@ the lower right of the desktop for a few seconds, and the **notification
 center**, opened from the bell or the clock in the menubar, keeps what the
 toasts showed. A click on either opens the app at what the notice is about.
 
-A notice is **kept for the user**, on the server, under
-`/var/lib/webtop/notices/<user>`: the notification center shows the same
+A notice is **kept for the user**, on the server, in the user's home
+(`/home/users/<user>/notices`): the notification center shows the same
 list on every desktop the user opens, a notice that arrived while the user
 was away is there when they come back, and one read or dismissed on one
 desktop is read or dismissed on all. The list holds the latest hundred.
+Being in the home, it goes with the user: deleting the user removes it, and
+a user made anew under the same id starts with none.
 Whatever a notice is about is in the repository besides — the message with
 its unread and mention marks, the task — and the app that owns it shows it
 on its own; the center is what one glances at to catch up, and what one
@@ -130,8 +132,13 @@ the server (`webtopNoticeRead`, `webtopNoticesReadAll`,
 `webtopNoticeRemove`, `webtopNoticesClear`), and every desktop follows.
 
 The resolvers act on the caller's own list only, as the notice service
-user; the caller holds no write access to the area, and reads their own
-folder only (`provisioning/notices.yml`).
+user. The folder is created with the first notice, as the user — only the
+user may write the home — through `ScriptAPI.createUserContext`, which also
+makes sure of the user's home in the workspace; it is granted to the notice
+service group then, which writes it from then on (`provisioning/notices.yml`).
+The user owns the folder as any of the home, and the shell and the server
+check the shape of what they read, so a record the user alters by hand is
+dropped, not shown.
 
 ## Not while the reader is looking
 
@@ -165,12 +172,12 @@ center shows one entry per conversation, the latest.
 
 | | |
 |---|---|
-| `/var/lib/webtop/notices/<user>/<id>` | one file per notice, the notice as JSON; `notice:read`, `notice:key`, `notice:app` as properties |
+| `/home/users/<user>/notices/<id>` | one file per notice, the notice as JSON; `notice:read`, `notice:key`, `notice:app` as properties |
 | `docker/seed/.../classes/webtop/notices/Notices.groovy` | the records: `publish`, `withdraw`, and what the resolvers do for the caller |
 | `docker/seed/.../classes/webtop/notices/TaskNotices.groovy` | the "task assigned" notice, from the engine's task events |
 | `docker/seed/.../etc/graphql/webtop/notices` | `webtopNotices`, `webtopNoticeWatchPath`, `webtopNoticeRead`, `webtopNoticesReadAll`, `webtopNoticeRemove`, `webtopNoticesClear` |
 | `docker/seed/.../etc/eip/routes/webtop/notices.xml` | the route that keeps a task's notice |
-| `docker/seed/.../provisioning/notices.yml` | the service user and the closed area |
+| `docker/seed/.../provisioning/notices.yml` | the service user and its group |
 | `webtop/src/webtop/lib/notifications.ts` | the notice's shape and the checks on it; `notify`, `setAppContext` for apps |
 | `webtop/src/webtop/services/notice-service-graphql.ts` | the shell's calls to the resolvers (`api.notices`) |
 | `webtop/src/webtop/stores/notification-store.ts` | the list the center shows, newest first, 100 at most |
