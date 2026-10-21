@@ -56,11 +56,11 @@ class ChatNotices {
 		if (conversation.kind == 'file') {
 			String file = (conversation.fileName as String) ?: '';
 			title = [id: 'app.chat.notify.mention.file.title', params: [author: authorName, file: file],
-				fallback: "${authorName} mentioned you about ${file}".toString()];
+				fallback: "${authorName} mentioned you about \"${file}\"".toString()];
 		} else {
 			String channel = ((conversation.channel as Map).title as String) ?: '';
 			title = [id: 'app.chat.notify.mention.channel.title', params: [author: authorName, channel: channel],
-				fallback: "${authorName} mentioned you in ${channel}".toString()];
+				fallback: "${authorName} mentioned you in \"${channel}\"".toString()];
 		}
 		publish(eventAdmin, users, notice(conversation, posted, title));
 	}
