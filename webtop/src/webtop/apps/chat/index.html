@@ -276,18 +276,21 @@
 				<i class="bi me-2" :class="channelDialog.id ? 'bi-gear' : 'bi-plus-lg'"></i>{{ channelDialog.id ? t('app.chat.channel.settings', undefined, 'Channel settings') : t('app.chat.toolbar.create', undefined, 'New channel') }}
 			</template>
 			<template v-slot="d">
-				<wt-field :label="t('app.chat.channel.name', undefined, 'Name')" required>
-					<input type="text" class="wt w-100" ref="channelTitle" v-model="channelDialog.title" maxlength="80"
-						@keydown.enter.prevent="saveChannel">
-				</wt-field>
-				<wt-field :label="t('app.chat.channel.description', undefined, 'Description')">
-					<input type="text" class="wt w-100" v-model="channelDialog.description" maxlength="500"
-						@keydown.enter.prevent="saveChannel">
-				</wt-field>
-				<wt-field v-if="!channelDialog.id" :label="t('app.chat.channel.kind', undefined, 'Who can read it')" :hint="kindHint">
-					<wt-select v-model="channelDialog.kind" :items="kindItems"></wt-select>
-				</wt-field>
-				<wt-inline-message v-if="channelDialog.error" type="error">{{ channelDialog.error }}</wt-inline-message>
+				<!-- .wt-fields (webtop-ui.css) spaces the fields; nothing here sets a margin of its own. -->
+				<div class="wt-fields">
+					<wt-field :label="t('app.chat.channel.name', undefined, 'Name')" required>
+						<input type="text" class="wt w-100" ref="channelTitle" v-model="channelDialog.title" maxlength="80"
+							@keydown.enter.prevent="saveChannel">
+					</wt-field>
+					<wt-field :label="t('app.chat.channel.description', undefined, 'Description')">
+						<input type="text" class="wt w-100" v-model="channelDialog.description" maxlength="500"
+							@keydown.enter.prevent="saveChannel">
+					</wt-field>
+					<wt-field v-if="!channelDialog.id" :label="t('app.chat.channel.kind', undefined, 'Who can participate')" :hint="kindHint">
+						<wt-select v-model="channelDialog.kind" :items="kindItems"></wt-select>
+					</wt-field>
+					<wt-inline-message v-if="channelDialog.error" type="error">{{ channelDialog.error }}</wt-inline-message>
+				</div>
 			</template>
 			<template v-slot:footer="d">
 				<button type="button" class="wt" @click="closeChannelDialog">{{ t('common.cancel') }}</button>
