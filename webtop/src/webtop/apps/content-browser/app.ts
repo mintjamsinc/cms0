@@ -5809,9 +5809,12 @@ export const App = {
 				return;
 			}
 
-			// Ignore keydown events when focus is on an input element
+			// Ignore keydown events when focus is on an input element. A
+			// contenteditable box counts too: the inspector's chat composer is
+			// one (lib/mention-editor.ts), and its Backspace, Enter, arrows and
+			// Ctrl+A/C/V must edit the message, not the list.
 			const target = event.target as HTMLElement;
-			if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+			if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable) {
 				return;
 			}
 
