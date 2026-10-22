@@ -1144,7 +1144,7 @@ defineComponent('wt-chat-thread', {
 			} catch (e) {
 				// An old browser: the plain list.
 			}
-			return vm.t('webtop.chat.mention.unreached', { names: list }, '{names} cannot read this conversation and will not be notified.');
+			return vm.t('webtop.chat.mention.unreached', { names: list }, '{names} are not participating in this conversation and will not be notified.');
 		},
 		closeMentions(this: any) {
 			this.mention.open = false;

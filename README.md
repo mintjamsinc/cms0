@@ -290,7 +290,7 @@ described in [`documents/webtop-mail.md`](documents/webtop-mail.md).
 
 ### Webtop Chat
 
-The Webtop **Chat** app holds conversations in private and public channels,
+The Webtop **Chat** app holds conversations in private and open channels,
 kept per workspace. The participants of a channel are the principals that can
 read its folder, and every write goes through a service user. Where the
 conversations are kept and how live updates work is described in

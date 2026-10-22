@@ -1,7 +1,7 @@
 # Webtop Chat
 
 The **Chat** app holds conversations in **channels**. A channel is private —
-read by the users and groups invited to it — or public, open to everyone. New
+joined by the users and groups invited to it — or open to everyone. New
 messages appear as they are posted, and a channel with messages not yet read is
 marked in the sidebar.
 
@@ -20,9 +20,9 @@ in its own repository.
 
 Anyone can create a channel; the creator is its first administrator.
 
-| | Private | Public |
+| | Private | Open |
 |---|---|---|
-| Who reads and posts | the users and groups added to it | everyone signed in |
+| Who participates | the users and groups added to it | everyone signed in |
 | Sidebar | appears for every participant | appears for those who add it (*Browse channels* → *Add to sidebar*) |
 | Leaving | *Leave channel* gives up one's own invitation | *Remove from sidebar* |
 
@@ -365,7 +365,7 @@ Everything is in the workspace the Webtop runs in.
 | Path | What |
 |---|---|
 | `/var/lib/chat` | Closed to everyone (`jcr:read` denied); owned by `chat-service-group`. |
-| `/var/lib/chat/channels/<channel>/` | One folder per channel. Its access control entries are the participants: the invited users and groups, or `everyone` for a public channel. |
+| `/var/lib/chat/channels/<channel>/` | One folder per channel. Its access control entries are the participants: the invited users and groups, or `everyone` for an open channel. |
 | `/var/lib/chat/channels/<channel>/.channel` | The settings, as `chat:*` properties: `chat:title`, `chat:description`, `chat:channelKind` (`public` / `private`), `chat:admins`, `chat:archived`. Written when the channel is managed, never when a message is posted. |
 | `/var/lib/chat/channels/<channel>/messages/<yyyy>/<MM>/<dd>/<id>.md` | One file per message (`text/markdown`), in the folder of the day (UTC) it was posted. `chat:author` is the user who posted it — `jcr:createdBy` is always the service user — with `chat:postedAt`, `chat:editedAt`, `chat:deleted` and `chat:kind` (`user`, or `system` for a script's). `chat:links` holds the identifiers of what the message links, `chat:mentions` the users it names. `chat:card` holds the card, as JSON (`path`, `fields`); `chat:cardBody` marks a text that is the card's summary. |
 | `/etc/chat/cards/<design>/` | A card design: `card.yml` and `card.html`. Written by administrators, read by whoever may post the card and whoever reads a message carrying it. |
@@ -375,7 +375,7 @@ Everything is in the workspace the Webtop runs in.
 | `/home/users/<user>/chat/mentions/<yyyy>/<MM>/<dd>/<id>` | A mark per mention of the user, in the user's home, written by the service group: the message's id, with `chat:channelId` or `chat:fileId` and `chat:author`. The latest hundred are kept. |
 | `/var/lib/chat/signals/<identifier>/<yyyy>/<MM>/<dd>/<id>` | An empty folder for every change to that conversation, readable by every signed-in user (see below). |
 | `/home/users/<user>/chat/read/<key>` | How far the user has read a conversation (`chat:readAt`). |
-| `/home/users/<user>/chat/following/<key>` | The conversations in the user's sidebar: the public channels the user added (`channel-<id>`) and the conversations of files the user follows (`file-<identifier>`). |
+| `/home/users/<user>/chat/following/<key>` | The conversations in the user's sidebar: the open channels the user added (`channel-<id>`) and the conversations of files the user follows (`file-<identifier>`). |
 | `/home/users/<user>/chat/uploads/<draft>/` | Files uploaded for a message not yet posted. Posting copies them next to the message and removes the folder. |
 | `/usr/local/classes/webtop/chat/` | The logic (`ChatApi`, `ChatChannels`, `ChatMessages`, `ChatHome`, `ChatStore`, `ChatCards`, `ChatSystem`). |
 | `/etc/graphql/webtop/chat/` | The GraphQL schema (`chatChannels`, `chatMessages`, `chatPostMessage`, `chatCards` …) and its resolvers. |

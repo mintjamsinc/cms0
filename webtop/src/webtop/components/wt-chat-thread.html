@@ -91,7 +91,7 @@
 									<i class="bi" :class="f.mode === 'link' ? 'bi-link-45deg' : 'bi-paperclip'"></i>
 									<span class="wt-chat-chip-name">{{ f.name }}</span>
 									<button v-if="!f.isCollection" type="button" class="wt-chat-chip-mode" @click="toggleFileMode(editing.pending, f)"
-										:title="t('webtop.chat.attach.modeHint', undefined, 'A link shows the file as it is now, to those who can read it. A copy is a snapshot everyone in the conversation can read.')">
+										:title="t('webtop.chat.attach.modeHint', undefined, 'A link shows the file as it is now, to those who have access to it. A copy is a snapshot that every participant of the conversation can open.')">
 										{{ f.mode === 'link' ? t('webtop.chat.attach.asLink', undefined, 'Link') : t('webtop.chat.attach.asCopy', undefined, 'Copy') }}
 									</button>
 									<button type="button" class="wt-chat-chip-x" @click="removeFile(editing.pending, f)" :title="t('common.remove')"><i class="bi bi-x"></i></button>
@@ -277,7 +277,7 @@
 						<i class="bi" :class="f.mode === 'link' ? 'bi-link-45deg' : 'bi-paperclip'"></i>
 						<span class="wt-chat-chip-name">{{ f.name }}</span>
 						<button v-if="!f.isCollection" type="button" class="wt-chat-chip-mode" @click="toggleFileMode(compose, f)"
-							:title="t('webtop.chat.attach.modeHint', undefined, 'A link shows the file as it is now, to those who can read it. A copy is a snapshot everyone in the conversation can read.')">
+							:title="t('webtop.chat.attach.modeHint', undefined, 'A link shows the file as it is now, to those who have access to it. A copy is a snapshot that every participant of the conversation can open.')">
 							{{ f.mode === 'link' ? t('webtop.chat.attach.asLink', undefined, 'Link') : t('webtop.chat.attach.asCopy', undefined, 'Copy') }}
 						</button>
 						<button type="button" class="wt-chat-chip-x" @click="removeFile(compose, f)" :title="t('common.remove')"><i class="bi bi-x"></i></button>
