@@ -43,6 +43,40 @@ class MailAccounts {
 	static final int DEFAULT_INTERVAL_MINUTES = 5;
 	static final int MAX_INITIAL_DAYS = 3650;
 
+	/** imap (any server, password), gmail and microsoft (a linked account, XOAUTH2). */
+	static final List<String> KINDS = ['imap', 'gmail', 'microsoft'];
+
+	/**
+	 * What a kind fixes: the servers, the provider of the linked account that
+	 * signs in, and whether a sent message is put into the server's Sent folder
+	 * (Gmail files what SMTP sends there by itself; Outlook does not).
+	 */
+	static final Map<String, Map> PRESETS = [
+		gmail: [
+			provider: 'google',
+			incoming: [host: 'imap.gmail.com', port: 993, security: 'ssl'],
+			outgoing: [host: 'smtp.gmail.com', port: 587, security: 'starttls'],
+			saveSentOnServer: false,
+		],
+		microsoft: [
+			provider: 'microsoft',
+			incoming: [host: 'outlook.office365.com', port: 993, security: 'ssl'],
+			outgoing: [host: 'smtp.office365.com', port: 587, security: 'starttls'],
+			saveSentOnServer: true,
+		],
+	];
+
+	/** The permission bundle of the linked account the Mail app uses. */
+	static final String BUNDLE = 'mail';
+
+	/** Tells javax.mail to sign in with the access token (SASL XOAUTH2) and nothing else. */
+	static final Map<String, String> XOAUTH2 = [
+		'mail.imap.auth.mechanisms': 'XOAUTH2',
+		'mail.imaps.auth.mechanisms': 'XOAUTH2',
+		'mail.smtp.auth.mechanisms': 'XOAUTH2',
+		'mail.smtps.auth.mechanisms': 'XOAUTH2',
+	];
+
 	def context;
 	def session;
 	def JSON;
@@ -201,7 +235,13 @@ class MailAccounts {
 		session.commit();
 	}
 
-	private Map normalize(Map input, Map existing) {
+	/**
+	 * The settings an input describes, validated: for a new account from scratch,
+	 * for an existing one on top of what is stored. A preset kind (gmail,
+	 * microsoft) fixes the servers and signs in with the linked account; the
+	 * input's servers are ignored then. Also used to probe unsaved settings.
+	 */
+	Map normalize(Map input, Map existing) {
 		Map account = (existing != null) ? new LinkedHashMap(existing) : [
 			id: UUID.randomUUID().toString().replace('-', '').substring(0, 16),
 			created: new Date().time,
@@ -217,10 +257,30 @@ class MailAccounts {
 		account.color = (input.color ?: '').toString().trim();
 		account.enabled = (input.enabled == null) ? true : !!input.enabled;
 
-		account.incoming = server(input.incoming as Map, 'ssl', 993, address);
-		Map outgoing = server(input.outgoing as Map, 'starttls', 587, address);
-		outgoing.sameAuthentication = (input.outgoing?.sameAuthentication == null) ? true : !!input.outgoing.sameAuthentication;
-		account.outgoing = outgoing;
+		String kind = (input.kind ?: existing?.kind ?: 'imap').toString();
+		if (!KINDS.contains(kind)) {
+			throw new IllegalArgumentException("Unknown account kind: ${kind}".toString());
+		}
+		Map preset = PRESETS[kind] as Map;
+		account.kind = kind;
+		account.auth = preset ? 'oauth' : 'password';
+		account.provider = preset ? preset.provider : null;
+		if (preset) {
+			account.incoming = server(preset.incoming as Map, 'ssl', 993, address);
+			Map outgoing = server(preset.outgoing as Map, 'starttls', 587, address);
+			outgoing.sameAuthentication = true;
+			account.outgoing = outgoing;
+		} else {
+			account.incoming = server(input.incoming as Map, 'ssl', 993, address);
+			Map outgoing = server(input.outgoing as Map, 'starttls', 587, address);
+			outgoing.sameAuthentication = (input.outgoing?.sameAuthentication == null) ? true : !!input.outgoing.sameAuthentication;
+			account.outgoing = outgoing;
+		}
+		if (input.saveSentOnServer != null) {
+			account.saveSentOnServer = !!input.saveSentOnServer;
+		} else if (existing?.saveSentOnServer == null) {
+			account.saveSentOnServer = preset ? !!preset.saveSentOnServer : true;
+		}
 
 		int days = (input.initialDays != null) ? (input.initialDays as int) : ((existing?.initialDays ?: DEFAULT_INITIAL_DAYS) as int);
 		if (days < 1 || days > MAX_INITIAL_DAYS) {
@@ -266,6 +326,42 @@ class MailAccounts {
 			security: security,
 			username: (input.username ?: address).toString().trim(),
 		];
+	}
+
+	/**
+	 * What a connection signs in with: username, password and the javax.mail
+	 * properties to set. `kind` is incoming or outgoing. An account that signs in
+	 * with a linked Google / Microsoft account gets an access token of the mail
+	 * bundle as the password and the XOAUTH2 properties; the Connections binding
+	 * renews the token as needed and throws ConsentRequiredException when the
+	 * user has to link or grant first (MailSync.describeError words it).
+	 */
+	Map credentials(Map account, String kind) {
+		if (account.auth == 'oauth') {
+			def connections = context.getAttribute('Connections');
+			if (connections == null) {
+				throw new IllegalStateException('The Connections binding is not available in this context.');
+			}
+			String token = connections.accessToken(account.provider as String, BUNDLE);
+			return [
+				username: ((account.incoming as Map)?.username ?: account.address) as String,
+				password: token,
+				properties: XOAUTH2,
+			];
+		}
+		Map outgoing = account.outgoing as Map;
+		boolean same = (kind != 'outgoing') || outgoing?.sameAuthentication == null || !!outgoing.sameAuthentication;
+		String username = same ? (((account.incoming as Map)?.username ?: account.address) as String) : (outgoing.username as String);
+		return [
+			username: username,
+			password: password(account.id as String, same ? 'incoming' : 'outgoing'),
+			properties: [:],
+		];
+	}
+
+	/** Whether an account signs in with a linked account rather than a password. */
+	static boolean isOAuth(Map account) {
+		return account?.auth == 'oauth';
 	}
 
 	/** "host:port (SSL/TLS)", to show which server was contacted. */

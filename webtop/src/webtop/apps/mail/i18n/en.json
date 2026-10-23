@@ -157,5 +157,22 @@
 	"app.mail.folderPicker.create": "Create",
 	"app.mail.folderPicker.loading": "Loading…",
 	"app.mail.folderPicker.noAccess": "You cannot save here.",
-	"app.mail.folderPicker.invalidName": "The name cannot contain / \\ : * ? \" < > |"
+	"app.mail.folderPicker.invalidName": "The name cannot contain / \\ : * ? \" < > |",
+	"app.mail.account.kind": "Account type",
+	"app.mail.account.kind.imap": "IMAP / SMTP",
+	"app.mail.account.kind.gmail": "Gmail",
+	"app.mail.account.kind.microsoft": "Microsoft (Outlook)",
+	"app.mail.account.kindHint": "The servers are set; the account signs in with your linked account, without a password.",
+	"app.mail.account.linked": "Linked account",
+	"app.mail.account.linkedOff": "Linking a {provider} account is not enabled on this server.",
+	"app.mail.account.linkedReady": "{provider} account {email} is linked and allowed to send and receive mail.",
+	"app.mail.account.linkedNoMail": "The {provider} account is linked, but mail is not allowed yet.",
+	"app.mail.account.linkedNone": "No {provider} account is linked yet.",
+	"app.mail.account.linkNow": "Link {provider} account",
+	"app.mail.account.error.providerOff": "Linking a {provider} account is not enabled on this server.",
+	"app.mail.account.error.notLinked": "Link the {provider} account and allow \"Send and receive mail\" first.",
+	"app.mail.account.error.popupBlocked": "The browser blocked the popup. Allow popups for this site and try again.",
+	"app.mail.account.saveSent": "Also put sent mail into the server's Sent folder",
+	"app.mail.account.saveSentHint": "Other mail clients then see what was sent here. Off: the copy stays in the Webtop only.",
+	"app.mail.account.saveSentGmail": "Gmail files sent mail by itself; leave this off to avoid duplicates."
 }

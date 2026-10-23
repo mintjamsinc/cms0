@@ -881,3 +881,12 @@
 	color: var(--text-muted-color);
 	pointer-events: none;
 }
+
+/* The linked-account line of a Gmail / Microsoft account */
+.ml-linked-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	font-size: 13px;
+}

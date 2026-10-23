@@ -157,5 +157,22 @@
 	"app.mail.folderPicker.create": "作成",
 	"app.mail.folderPicker.loading": "読み込み中…",
 	"app.mail.folderPicker.noAccess": "ここには保存できません。",
-	"app.mail.folderPicker.invalidName": "名前に / \\ : * ? \" < > | は使えません。"
+	"app.mail.folderPicker.invalidName": "名前に / \\ : * ? \" < > | は使えません。",
+	"app.mail.account.kind": "アカウントの種類",
+	"app.mail.account.kind.imap": "IMAP / SMTP",
+	"app.mail.account.kind.gmail": "Gmail",
+	"app.mail.account.kind.microsoft": "Microsoft (Outlook)",
+	"app.mail.account.kindHint": "サーバーは決まっています。パスワードではなく、連携したアカウントでサインインします。",
+	"app.mail.account.linked": "連携アカウント",
+	"app.mail.account.linkedOff": "このサーバーでは {provider} アカウントの連携が有効になっていません。",
+	"app.mail.account.linkedReady": "{provider} アカウント {email} が連携済みで、メールの送受信が許可されています。",
+	"app.mail.account.linkedNoMail": "{provider} アカウントは連携済みですが、メールの送受信はまだ許可されていません。",
+	"app.mail.account.linkedNone": "{provider} アカウントはまだ連携されていません。",
+	"app.mail.account.linkNow": "{provider} アカウントを連携",
+	"app.mail.account.error.providerOff": "このサーバーでは {provider} アカウントの連携が有効になっていません。",
+	"app.mail.account.error.notLinked": "先に {provider} アカウントを連携し、「メールの送受信」を許可してください。",
+	"app.mail.account.error.popupBlocked": "ブラウザーがポップアップをブロックしました。このサイトのポップアップを許可して、もう一度お試しください。",
+	"app.mail.account.saveSent": "送信したメールをサーバーの送信済みフォルダーにも保存する",
+	"app.mail.account.saveSentHint": "ほかのメールクライアントからも、ここで送ったメールが見えるようになります。オフにすると控えは Webtop だけに残ります。",
+	"app.mail.account.saveSentGmail": "Gmail は送信時に自動で保存するため、二重になるのを防ぐにはオフのままにします。"
 }

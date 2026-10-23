@@ -157,10 +157,11 @@ class MailSync {
 		saveState();
 
 		try {
-			String password = accounts.password(account.id as String, 'incoming');
+			Map creds = accounts.credentials(account, 'incoming');
 			def store = MailStore.Builder.create(MailAccounts.incomingURI(account)).
-					setUsername((account.incoming as Map).username as String).
-					setPassword(password).
+					setUsername(creds.username as String).
+					setPassword(creds.password as String).
+					setProperties(creds.properties as Map).
 					build();
 			try {
 				List<Map> folders = selectFolders(store.listFolders());
@@ -203,6 +204,36 @@ class MailSync {
 			t = t.cause;
 		}
 		String message = t.message ?: t.class.simpleName;
+		if (t instanceof org.mintjams.script.ConsentRequiredException) {
+			// The user has to link, grant or link again: say so in words.
+			def c = t as org.mintjams.script.ConsentRequiredException;
+			String provider = (c.provider == 'google') ? 'Google' : (c.provider == 'microsoft') ? 'Microsoft' : c.provider;
+			switch (c.reason) {
+				case 'not_configured':
+					message = "Linking a ${provider} account is not enabled on this server.".toString();
+					break;
+				case 'not_linked':
+					message = "Link the ${provider} account in Preferences › Linked accounts.".toString();
+					break;
+				case 'bundle_not_granted':
+					message = "Allow \"Send and receive mail\" for the ${provider} account in Preferences › Linked accounts.".toString();
+					break;
+				default:
+					message = "Link the ${provider} account again in Preferences › Linked accounts.".toString();
+			}
+		}
+		// A refused XOAUTH2 sign-in comes back as "334 <base64 JSON>": say what it says.
+		def challenge = (message =~ /^334 ([A-Za-z0-9+\/=]+)\s*$/);
+		if (challenge.matches()) {
+			try {
+				// {"status":"400","schemes":"Bearer","scope":"https://mail.google.com/"}; read
+				// with a pattern, since groovy.json is not available in the server.
+				String json = new String(Base64.decoder.decode(challenge.group(1)), 'UTF-8');
+				def status = (json =~ /"status"\s*:\s*"?([^",}]+)/);
+				def scope = (json =~ /"scope"\s*:\s*"([^"]*)"/);
+				message = "The token was refused (status ${status.find() ? status.group(1) : '?'}, scope ${scope.find() ? scope.group(1) : '?'}).".toString();
+			} catch (Throwable ignore) {}
+		}
 		return (message.length() > 500) ? message.substring(0, 500) : message;
 	}
 

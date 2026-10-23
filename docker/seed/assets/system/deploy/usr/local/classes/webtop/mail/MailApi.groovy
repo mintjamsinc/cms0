@@ -67,6 +67,10 @@ class MailApi {
 			personal: a.personal,
 			color: a.color,
 			enabled: a.enabled != false,
+			kind: a.kind ?: 'imap',
+			auth: a.auth ?: 'password',
+			provider: a.provider,
+			saveSentOnServer: (a.saveSentOnServer == null) ? true : !!a.saveSentOnServer,
 			incoming: a.incoming,
 			outgoing: a.outgoing,
 			initialDays: a.initialDays,
@@ -114,14 +118,27 @@ class MailApi {
 		Map stored = input.id ? accounts.get(input.id as String) : null;
 		Map result = [ok: true, messages: [], folders: []];
 
-		String address = (input.address ?: '').toString().trim();
-		String incomingPassword = (input.incomingPassword ?: (stored ? accounts.password(stored.id as String, 'incoming') : null)) as String;
-		Map incoming = null;
+		// The settings as they would be saved: a preset kind brings its servers and
+		// signs in with the linked account, so there is nothing typed to try.
+		Map probe;
 		try {
-			incoming = MailAccounts.server(input.incoming as Map, 'ssl', 993, address);
-			def store = MailStore.Builder.create(MailAccounts.incomingURI([incoming: incoming])).
-					setUsername(incoming.username as String).
-					setPassword(incomingPassword).
+			probe = accounts.normalize(input, stored);
+		} catch (IllegalArgumentException ex) {
+			result.ok = false;
+			result.messages.add(ex.message);
+			return result;
+		}
+		boolean oauth = MailAccounts.isOAuth(probe);
+		Map incoming = probe.incoming as Map;
+		String incomingPassword = oauth ? null :
+				((input.incomingPassword ?: (stored ? accounts.password(stored.id as String, 'incoming') : null)) as String);
+		try {
+			Map creds = oauth ? accounts.credentials(probe, 'incoming') :
+					[username: incoming.username, password: incomingPassword, properties: [:]];
+			def store = MailStore.Builder.create(MailAccounts.incomingURI(probe)).
+					setUsername(creds.username as String).
+					setPassword(creds.password as String).
+					setProperties(creds.properties as Map).
 					build();
 			try {
 				result.folders = store.listFolders().findAll { it.holdsMessages() }.collect { it.fullName };
@@ -131,29 +148,32 @@ class MailApi {
 			result.messages.add("IMAP ${MailAccounts.describeServer(incoming)}: OK (${result.folders.size()} folders)".toString());
 		} catch (Throwable ex) {
 			result.ok = false;
-			String target = incoming ? " ${MailAccounts.describeServer(incoming)}" : '';
-			result.messages.add("IMAP${target}: ${MailSync.describeError(ex)}".toString());
+			result.messages.add("IMAP ${MailAccounts.describeServer(incoming)}: ${MailSync.describeError(ex)}".toString());
 		}
 
-		Map outgoingInput = input.outgoing as Map;
-		if (outgoingInput?.host) {
-			Map outgoing = null;
-			try {
-				outgoing = MailAccounts.server(outgoingInput, 'starttls', 587, address);
-				boolean same = (outgoingInput.sameAuthentication == null) ? true : !!outgoingInput.sameAuthentication;
-				String username = same ? (incoming?.username ?: address) : outgoing.username;
-				String password = same ? incomingPassword : (input.outgoingPassword ?: (stored ? accounts.password(stored.id as String, 'outgoing') : null));
-				def transport = Transport.Builder.create(MailAccounts.outgoingURI([outgoing: outgoing])).
-						setUsername(username as String).
-						setPassword(password as String).
-						build();
-				transport.close();
-				result.messages.add("SMTP ${MailAccounts.describeServer(outgoing)}: OK".toString());
-			} catch (Throwable ex) {
-				result.ok = false;
-				String target = outgoing ? " ${MailAccounts.describeServer(outgoing)}" : '';
-				result.messages.add("SMTP${target}: ${MailSync.describeError(ex)}".toString());
+		Map outgoing = probe.outgoing as Map;
+		try {
+			Map creds;
+			if (oauth) {
+				creds = accounts.credentials(probe, 'outgoing');
+			} else {
+				boolean same = (outgoing.sameAuthentication == null) ? true : !!outgoing.sameAuthentication;
+				creds = [
+					username: same ? incoming.username : outgoing.username,
+					password: same ? incomingPassword : (input.outgoingPassword ?: (stored ? accounts.password(stored.id as String, 'outgoing') : null)),
+					properties: [:],
+				];
 			}
+			def transport = Transport.Builder.create(MailAccounts.outgoingURI(probe)).
+					setUsername(creds.username as String).
+					setPassword(creds.password as String).
+					setProperties(creds.properties as Map).
+					build();
+			transport.close();
+			result.messages.add("SMTP ${MailAccounts.describeServer(outgoing)}: OK".toString());
+		} catch (Throwable ex) {
+			result.ok = false;
+			result.messages.add("SMTP ${MailAccounts.describeServer(outgoing)}: ${MailSync.describeError(ex)}".toString());
 		}
 		return result;
 	}

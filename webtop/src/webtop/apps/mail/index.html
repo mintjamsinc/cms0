@@ -508,6 +508,10 @@
 
 					<div v-if="accountForm.visible" class="ml-accounts-form" @input="onFormInput">
 						<div class="ml-form-grid">
+							<wt-field :label="t('app.mail.account.kind', undefined, 'Account type')"
+								:hint="accountForm.kind === 'imap' ? '' : t('app.mail.account.kindHint', undefined, 'The servers are set; the account signs in with your linked account, without a password.')">
+								<wt-select v-model="accountForm.kind" :items="kindItems" :disabled="!!accountForm.id" @change="onKindChange"></wt-select>
+							</wt-field>
 							<wt-field :label="t('app.mail.account.address', undefined, 'Mail address')" required>
 								<input type="email" class="wt w-100" v-model="accountForm.address" @input="onAddressInput" :disabled="!!accountForm.id">
 							</wt-field>
@@ -522,6 +526,30 @@
 							</wt-field>
 						</div>
 
+						<!-- A preset kind (Gmail, Microsoft): the linked account signs in -->
+						<template v-if="accountForm.kind !== 'imap'">
+							<div class="ml-form-section">{{ t('app.mail.account.linked', undefined, 'Linked account') }}</div>
+							<div class="ml-form-grid">
+								<div class="ml-form-wide ml-linked-row">
+									<template v-if="!formProviderConfigured">
+										<i class="bi bi-info-circle me-1"></i>{{ t('app.mail.account.linkedOff', { provider: formProviderName }, 'Linking a {provider} account is not enabled on this server.') }}
+									</template>
+									<template v-else-if="formLinkedReady">
+										<i class="bi bi-check-circle-fill text-success me-1"></i>{{ t('app.mail.account.linkedReady', { provider: formProviderName, email: formLinkedAccount.email || formLinkedAccount.subject }, '{provider} account {email} is linked and allowed to send and receive mail.') }}
+									</template>
+									<template v-else>
+										<span class="me-2">{{ formLinkedAccount
+											? t('app.mail.account.linkedNoMail', { provider: formProviderName }, 'The {provider} account is linked, but mail is not allowed yet.')
+											: t('app.mail.account.linkedNone', { provider: formProviderName }, 'No {provider} account is linked yet.') }}</span>
+										<button type="button" class="wt wt-primary wt-slim" :disabled="accountsDialog.linking" @click="ensureLinked">
+											<wt-spinner v-if="accountsDialog.linking" size="sm" class="me-1"></wt-spinner>{{ t('app.mail.account.linkNow', { provider: formProviderName }, 'Link {provider} account') }}
+										</button>
+									</template>
+								</div>
+							</div>
+						</template>
+
+						<template v-if="accountForm.kind === 'imap'">
 						<div class="ml-form-section">{{ t('app.mail.account.incoming', undefined, 'Incoming mail (IMAP)') }}</div>
 						<div class="ml-form-grid">
 							<wt-field :label="t('app.mail.account.host', undefined, 'Server')" required>
@@ -565,6 +593,7 @@
 								<input type="password" class="wt w-100" v-model="accountForm.outgoingPassword" autocomplete="new-password">
 							</wt-field>
 						</div>
+						</template>
 
 						<div class="ml-form-section">{{ t('app.mail.account.sync', undefined, 'Synchronization') }}</div>
 						<div class="ml-form-grid">
@@ -577,6 +606,12 @@
 							</wt-field>
 							<div class="ml-form-wide">
 								<wt-checkbox v-model="accountForm.enabled" :label="t('app.mail.account.enabled', undefined, 'Synchronize this account')"></wt-checkbox>
+							</div>
+							<div class="ml-form-wide">
+								<wt-checkbox v-model="accountForm.saveSentOnServer" :label="t('app.mail.account.saveSent', undefined, 'Also put sent mail into the server\'s Sent folder')"></wt-checkbox>
+								<div class="text-muted fs-small ms-4">{{ accountForm.kind === 'gmail'
+									? t('app.mail.account.saveSentGmail', undefined, 'Gmail files sent mail by itself; leave this off to avoid duplicates.')
+									: t('app.mail.account.saveSentHint', undefined, 'Other mail clients then see what was sent here. Off: the copy stays in the Webtop only.') }}</div>
 							</div>
 						</div>
 

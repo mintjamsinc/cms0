@@ -40,6 +40,14 @@ type MailAccount {
   personal: String
   color: String
   enabled: Boolean!
+  """imap (any server, a password), gmail or microsoft (the servers are fixed; signs in with the linked account)."""
+  kind: String!
+  """password or oauth."""
+  auth: String!
+  """The provider of the linked account that signs in (google, microsoft); null for imap."""
+  provider: String
+  """Whether a sent message is also put into the server's Sent folder."""
+  saveSentOnServer: Boolean!
   incoming: MailServer!
   outgoing: MailServer!
   """Days of mail the first synchronization downloads."""
@@ -66,8 +74,13 @@ input MailAccountInput {
   personal: String
   color: String
   enabled: Boolean
-  incoming: MailServerInput!
-  outgoing: MailServerInput!
+  """imap (default), gmail or microsoft. A preset kind ignores incoming and outgoing."""
+  kind: String
+  """Omit to keep the stored value; the default is true, false for gmail."""
+  saveSentOnServer: Boolean
+  """Required for imap; ignored for a preset kind."""
+  incoming: MailServerInput
+  outgoing: MailServerInput
   """Leave empty to keep the stored password."""
   incomingPassword: String
   outgoingPassword: String
@@ -281,9 +294,10 @@ extend type Mutation {
   saveMailDraft(input: MailDraftInput!): MailDraft!
   """Removes the draft and the files uploaded for it."""
   removeMailDraft(id: ID!): Boolean!
-  """Sends the draft through the account's outgoing server, keeps a copy in the
-  Webtop (not on the mail server) and removes the draft. Returns the id of the
-  copy."""
+  """Sends the draft through the account's outgoing server, keeps a copy (in the
+  server's Sent folder as well when the account's saveSentOnServer is on) and
+  removes the draft. Returns the id of the copy, or null when the copy is on
+  the server only until the next synchronization."""
   sendMailDraft(id: ID!): ID
   """Saves an address for suggestions; saving it again updates its name."""
   saveMailAddress(name: String, address: String!): Boolean!

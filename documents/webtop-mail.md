@@ -106,9 +106,14 @@ message, opens the compose pane in place of the reader.
   saves it; saved addresses and one's own have no button. The × of a suggestion
   removes that address from both lists at once, without asking.
 
-What was sent is kept **in the Webtop only**: the copy is listed under *Sent*
-but is not appended to the server's Sent folder. Removing the account removes
-these copies, like the downloaded mail.
+The copy of what was sent is listed under *Sent*. With **Also put sent mail
+into the server's Sent folder** on (the account dialog), it is appended to
+the server's Sent folder as well, so other mail clients see it; the copy is
+stored under that folder with the UID the server gave it, so the next
+synchronization finds it in place instead of downloading it again. Off, the
+copy stays in the Webtop only. The setting is on for a new account, except
+for Gmail, which files what SMTP sends by itself. Removing the account
+removes the copies kept in the Webtop, like the downloaded mail.
 
 There is no signature: write it into the message.
 
@@ -201,6 +206,31 @@ The status bar of the app shows the progress.
 
 To run a pass by hand, set `mail:requested` to `true` on the account's settings
 file under `/home/users/<user>/mail/accounts/`.
+
+## Account types
+
+The account dialog offers three types:
+
+| Type | Servers | Signs in with |
+| --- | --- | --- |
+| IMAP / SMTP | typed in | a password, stored encrypted |
+| Gmail | imap.gmail.com 993 SSL/TLS, smtp.gmail.com 587 STARTTLS | the linked Google account |
+| Microsoft (Outlook) | outlook.office365.com 993 SSL/TLS, smtp.office365.com 587 STARTTLS | the linked Microsoft account |
+
+A Gmail or Microsoft account has no password field. It signs in with the
+account linked in *Preferences › Linked accounts* (see
+`documents/linked-accounts.md`), over IMAP and SMTP with SASL XOAUTH2: the
+access token of the *Send and receive mail* bundle is renewed by the platform
+as needed, so nothing of the sign-in is stored with the mail account. The
+dialog shows whether the account is linked and the bundle allowed, and offers
+to link right there; saving or testing opens the grant popup when something
+is missing. When the link is gone (unlinked, or the provider stopped
+accepting it), the synchronization stops with *Link the Google account in
+Preferences › Linked accounts* as the account's error, and runs again once the
+link is back. The type of an account cannot be changed after it is saved.
+
+Microsoft 365 tenants often have SMTP AUTH turned off; sending then fails
+while reading works. Sending through Microsoft Graph is not implemented yet.
 
 ## Connection settings
 

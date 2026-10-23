@@ -3,6 +3,8 @@ package webtop.mail;
 import javax.mail.internet.AddressException;
 import javax.mail.internet.InternetAddress;
 
+import org.mintjams.tools.mail.MailFolder;
+import org.mintjams.tools.mail.MailStore;
 import org.mintjams.tools.mail.Message;
 import org.mintjams.tools.mail.Transport;
 
@@ -15,8 +17,10 @@ import org.mintjams.tools.mail.Transport;
  *   /home/users/<user>/mail/drafts/<draft>/<key>  files uploaded for it
  *
  * A draft is sent through the account's outgoing server. The copy of what was
- * sent is kept in the Webtop only (it is not appended to the server's Sent
- * folder), under a folder key no IMAP folder can have:
+ * sent goes into the server's Sent folder when the account says so
+ * (saveSentOnServer), stored under that folder with the UID the server gave
+ * it; otherwise, or when the server has no Sent folder, it is kept in the
+ * Webtop only, under a folder key no IMAP folder can have:
  *
  *   <messages>/<account>/local/sent/<yyyy>/<MM>/<id>.eml
  */
@@ -312,13 +316,12 @@ class MailCompose {
 			raw.withOutputStream { out -> m.writeTo(out); };
 
 			Map outgoing = account.outgoing as Map;
-			boolean same = (outgoing.sameAuthentication == null) ? true : !!outgoing.sameAuthentication;
-			String username = same ? ((account.incoming as Map)?.username ?: address) : outgoing.username;
-			String password = api.accounts.password(account.id as String, same ? 'incoming' : 'outgoing');
 			try {
+				Map creds = api.accounts.credentials(account, 'outgoing');
 				Transport transport = Transport.Builder.create(MailAccounts.outgoingURI(account)).
-						setUsername(username as String).
-						setPassword(password).
+						setUsername(creds.username as String).
+						setPassword(creds.password as String).
+						setProperties(creds.properties as Map).
 						build();
 				try {
 					transport.send(m);
@@ -329,13 +332,35 @@ class MailCompose {
 				throw new IllegalStateException("SMTP ${MailAccounts.describeServer(outgoing)}: ${MailSync.describeError(ex)}".toString(), ex);
 			}
 
+			// The copy: in the server's Sent folder when the account says so (and
+			// stored at once under the UID the server gave it), else in the Webtop only.
 			String copy = null;
-			try {
-				copy = storeSent(account.id as String, raw, now);
-			} catch (Throwable ex) {
-				// The message is out; losing the copy must not make it look unsent.
-				log?.warn("The copy of a sent message could not be stored: ${ex.message}".toString());
-				session.rollback();
+			boolean onServer = (account.saveSentOnServer == null) ? true : !!account.saveSentOnServer;
+			if (onServer) {
+				try {
+					copy = appendSent(account, m, raw);
+				} catch (Throwable ex) {
+					// The message is out; a Sent folder that cannot be written must not
+					// make it look unsent. The copy is kept in the Webtop instead.
+					log?.warn("The sent message could not be put into the server's Sent folder: ${ex.message}".toString());
+					try {
+						session.rollback();
+					} catch (Throwable ignore) {}
+					copy = null;
+				}
+			}
+			if (copy == null) {
+				try {
+					copy = storeSent(account.id as String, raw, now);
+				} catch (Throwable ex) {
+					// The message is out; losing the copy must not make it look unsent.
+					log?.warn("The copy of a sent message could not be stored: ${ex.message}".toString());
+					session.rollback();
+				}
+			} else if (copy.isEmpty()) {
+				// On the server, but without a UID to store it under: the next
+				// synchronization brings it in.
+				copy = null;
 			}
 			if (d.originalId && d.mode in ['reply', 'replyAll']) {
 				try {
@@ -398,7 +423,51 @@ class MailCompose {
 		return '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body>' + body + '</body></html>';
 	}
 
-	/** Stores the copy of a sent message; returns its id. */
+	/**
+	 * Puts the sent message into the server's Sent folder (IMAP APPEND) and
+	 * stores the copy under that folder with the UID the server returned, the way
+	 * the synchronization would, so the next pass finds it in place instead of
+	 * downloading it again. Returns the path of the copy; the empty string when
+	 * the server did not return the UID (no UIDPLUS), so the synchronization
+	 * will fetch it; null when the server has no Sent folder.
+	 */
+	private String appendSent(Map account, Message m, File raw) {
+		Map creds = api.accounts.credentials(account, 'incoming');
+		MailStore store = MailStore.Builder.create(MailAccounts.incomingURI(account)).
+				setUsername(creds.username as String).
+				setPassword(creds.password as String).
+				setProperties(creds.properties as Map).
+				build();
+		try {
+			Map sent = MailSync.selectFolders(store.listFolders()).find { it.role == 'sent' };
+			if (sent == null) {
+				return null;
+			}
+			MailFolder f = store.openFolder(sent.fullName as String);
+			try {
+				long uid = f.append(m, true);
+				if (uid <= 0) {
+					return '';
+				}
+				long validity = f.getUIDValidity();
+				List summaries = f.fetch(uid);
+				if (!summaries) {
+					return '';
+				}
+				MailStorage storage = MailStorage.create(context, api.accounts.userId, account.id as String);
+				Map folder = [fullName: sent.fullName, role: 'sent', key: MailStorage.folderKey(sent.fullName as String)];
+				storage.store(folder, validity, summaries[0], raw);
+				session.commit();
+				return storage.messagePath(folder.key as String, validity, uid);
+			} finally {
+				f.close();
+			}
+		} finally {
+			store.close();
+		}
+	}
+
+	/** Stores the copy of a sent message in the Webtop only; returns its id. */
 	private String storeSent(String accountId, File raw, Date date) {
 		MailStorage storage = MailStorage.create(context, api.accounts.userId, accountId);
 		String name = UUID.randomUUID().toString().replace('-', '');

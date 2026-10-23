@@ -35,6 +35,7 @@ import { SWATCH_COLORS, SWATCH_COLOR_MAP } from "../../lib/color-palette.js";
 import {
 	MailApi,
 	attachmentUrl,
+	type AccountKind,
 	type ComposeFormat,
 	type ComposeMode,
 	type MailAccount,
@@ -50,6 +51,7 @@ import {
 	type Security,
 } from './api.js';
 import { currentToken, formatAddress, htmlToText, prefill, textToHtml } from './compose.js';
+import type { LinkedAccount, LinkedAccounts } from '../../graphql/types.js';
 
 type Box = 'inbox' | 'sent' | 'unread' | 'flagged' | 'trash' | 'drafts';
 
@@ -166,6 +168,12 @@ function randomKey(): string {
 	return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** The provider of the linked account a preset kind signs in with. */
+const PROVIDER_OF: Record<string, string> = { gmail: 'google', microsoft: 'microsoft' };
+
+/** Whether a sent message goes into the server's Sent folder, by kind, for a new account. */
+const SAVE_SENT_DEFAULT: Record<string, boolean> = { imap: true, gmail: false, microsoft: true };
+
 function emptyAccountForm() {
 	return {
 		visible: false,
@@ -175,6 +183,8 @@ function emptyAccountForm() {
 		personal: '',
 		color: '',
 		enabled: true,
+		kind: 'imap' as AccountKind,
+		saveSentOnServer: true,
 		incoming: { host: '', port: 993, security: 'ssl' as Security, username: '' },
 		outgoing: { host: '', port: 587, security: 'starttls' as Security, username: '', sameAuthentication: true },
 		incomingPassword: '',
@@ -227,7 +237,12 @@ const App = {
 			isResizing: false,
 
 			accountForm: emptyAccountForm(),
-			accountsDialog: { visible: false },
+			accountsDialog: {
+				visible: false,
+				/** The user's linked accounts, read when the dialog opens; null until then. */
+				linked: null as LinkedAccounts | null,
+				linking: false,
+			},
 			olderDialog: { visible: false, accountId: '', days: 90 },
 			confirmDialog: { visible: false, title: '', message: '' },
 			// Saving an attachment of the open message into a folder of the workspace.
@@ -385,6 +400,37 @@ const App = {
 				noAccess: this.t('app.mail.folderPicker.noAccess', undefined, 'You cannot save here.'),
 				invalidName: this.t('app.mail.folderPicker.invalidName', undefined, 'The name cannot contain / \\ : * ? " < > |'),
 			};
+		},
+		kindItems(): { value: AccountKind; label: string }[] {
+			return [
+				{ value: 'imap', label: this.t('app.mail.account.kind.imap', undefined, 'IMAP / SMTP') },
+				{ value: 'gmail', label: this.t('app.mail.account.kind.gmail', undefined, 'Gmail') },
+				{ value: 'microsoft', label: this.t('app.mail.account.kind.microsoft', undefined, 'Microsoft (Outlook)') },
+			];
+		},
+		/** The provider of the kind chosen in the form; '' for imap. */
+		formProvider(): string {
+			return PROVIDER_OF[this.accountForm.kind] || '';
+		},
+		/** Whether an administrator enabled the provider of the chosen kind. */
+		formProviderConfigured(): boolean {
+			const linked = this.accountsDialog.linked as LinkedAccounts | null;
+			return !!linked && linked.providers.some((p) => p.id === this.formProvider);
+		},
+		formProviderName(): string {
+			const linked = this.accountsDialog.linked as LinkedAccounts | null;
+			return linked?.providers.find((p) => p.id === this.formProvider)?.name
+				|| (this.formProvider === 'google' ? 'Google' : this.formProvider === 'microsoft' ? 'Microsoft' : '');
+		},
+		/** The linked account of the chosen kind's provider, or null. */
+		formLinkedAccount(): LinkedAccount | null {
+			const linked = this.accountsDialog.linked as LinkedAccounts | null;
+			return linked?.accounts.find((a) => a.provider === this.formProvider) || null;
+		},
+		/** Whether the linked account can sign in to mail right now. */
+		formLinkedReady(): boolean {
+			const a = this.formLinkedAccount as LinkedAccount | null;
+			return !!a && !a.needsReauth && a.bundles.includes('mail');
 		},
 		securityItems(): { value: Security; label: string }[] {
 			return [
@@ -1143,11 +1189,67 @@ const App = {
 
 		openAccounts() {
 			this.accountsDialog.visible = true;
+			this.loadLinkedAccounts();
 			if (!this.accounts.length) {
 				this.newAccount();
 			} else if (!this.accountForm.id) {
 				this.editAccount(this.accounts[0]);
 			}
+		},
+		/** The linked accounts, for the Gmail / Microsoft kinds. */
+		async loadLinkedAccounts() {
+			const connections = this.instance?.api.connections;
+			if (!connections) return;
+			try {
+				this.accountsDialog.linked = await connections.getLinkedAccounts();
+			} catch (e) {
+				console.warn('[Mail] Linked accounts could not be read:', e);
+			}
+		},
+		/**
+		 * Makes sure the linked account of the chosen kind can sign in to mail:
+		 * opens the link / grant popup when it cannot yet. Resolves false, with
+		 * the reason in the form, when the user has to act first.
+		 */
+		async ensureLinked(): Promise<boolean> {
+			const f = this.accountForm;
+			const provider = this.formProvider as string;
+			if (!provider) return true;
+			const connections = this.instance?.api.connections;
+			if (!connections) return false;
+			if (!this.formProviderConfigured) {
+				f.error = this.t('app.mail.account.error.providerOff', { provider: this.formProviderName },
+					'Linking a {provider} account is not enabled on this server.');
+				return false;
+			}
+			this.accountsDialog.linking = true;
+			try {
+				const ok = await connections.ensure(provider, 'mail');
+				await this.loadLinkedAccounts();
+				if (!ok) {
+					f.error = this.t('app.mail.account.error.notLinked', { provider: this.formProviderName },
+						'Link the {provider} account and allow "Send and receive mail" first.');
+				}
+				return ok;
+			} catch (e) {
+				f.error = (e instanceof Error && e.message === 'popup_blocked')
+					? this.t('app.mail.account.error.popupBlocked', undefined, 'The browser blocked the popup. Allow popups for this site and try again.')
+					: errorText(e);
+				return false;
+			} finally {
+				this.accountsDialog.linking = false;
+			}
+		},
+		/** The kind changed: the servers and the sent-copy default follow it. */
+		onKindChange() {
+			this.accountForm.testResult = null;
+			this.$nextTick(() => {
+				const f = this.accountForm;
+				f.error = '';
+				if (!f.id) {
+					f.saveSentOnServer = SAVE_SENT_DEFAULT[f.kind] ?? true;
+				}
+			});
 		},
 		closeAccounts() {
 			this.accountsDialog.visible = false;
@@ -1166,6 +1268,8 @@ const App = {
 				personal: a.personal || '',
 				color: a.color || '',
 				enabled: a.enabled,
+				kind: a.kind || 'imap',
+				saveSentOnServer: a.saveSentOnServer !== false,
 				incoming: {
 					host: a.incoming.host,
 					port: a.incoming.port,
@@ -1230,42 +1334,49 @@ const App = {
 				personal: f.personal.trim(),
 				color: f.color,
 				enabled: f.enabled,
-				incoming: {
+				kind: f.kind,
+				saveSentOnServer: f.saveSentOnServer,
+				initialDays: Number(f.initialDays),
+				intervalMinutes: Number(f.intervalMinutes),
+			};
+			if (f.kind === 'imap') {
+				// A preset kind brings its own servers and signs in with the linked account.
+				input.incoming = {
 					host: f.incoming.host.trim(),
 					port: Number(f.incoming.port),
 					security: f.incoming.security,
 					username: f.incoming.username.trim() || f.address.trim(),
-				},
-				outgoing: {
+				};
+				input.outgoing = {
 					host: f.outgoing.host.trim(),
 					port: Number(f.outgoing.port),
 					security: f.outgoing.security,
 					username: f.outgoing.username.trim() || f.address.trim(),
 					sameAuthentication: f.outgoing.sameAuthentication,
-				},
-				initialDays: Number(f.initialDays),
-				intervalMinutes: Number(f.intervalMinutes),
-			};
+				};
+				if (f.incomingPassword) input.incomingPassword = f.incomingPassword;
+				if (f.outgoingPassword) input.outgoingPassword = f.outgoingPassword;
+			}
 			if (f.id) input.id = f.id;
-			if (f.incomingPassword) input.incomingPassword = f.incomingPassword;
-			if (f.outgoingPassword) input.outgoingPassword = f.outgoingPassword;
 			return input;
 		},
 		validateForm(): boolean {
-			this.onHostBlur('incoming');
-			this.onHostBlur('outgoing');
 			const f = this.accountForm;
 			if (!/^[^@\s]+@[^@\s]+$/.test(f.address.trim())) {
 				f.error = this.t('app.mail.account.error.address', undefined, 'Enter a valid mail address.');
 				return false;
 			}
-			if (!f.incoming.host.trim() || !f.outgoing.host.trim()) {
-				f.error = this.t('app.mail.account.error.host', undefined, 'Enter the server host names.');
-				return false;
-			}
-			if (!f.id && !f.incomingPassword) {
-				f.error = this.t('app.mail.account.error.password', undefined, 'Enter the password.');
-				return false;
+			if (f.kind === 'imap') {
+				this.onHostBlur('incoming');
+				this.onHostBlur('outgoing');
+				if (!f.incoming.host.trim() || !f.outgoing.host.trim()) {
+					f.error = this.t('app.mail.account.error.host', undefined, 'Enter the server host names.');
+					return false;
+				}
+				if (!f.id && !f.incomingPassword) {
+					f.error = this.t('app.mail.account.error.password', undefined, 'Enter the password.');
+					return false;
+				}
 			}
 			const days = Number(f.initialDays);
 			if (!Number.isInteger(days) || days < 1 || days > 3650) {
@@ -1277,6 +1388,7 @@ const App = {
 		},
 		async testAccount() {
 			if (!api || !this.validateForm()) return;
+			if (!(await this.ensureLinked())) return;
 			const f = this.accountForm;
 			f.testing = true;
 			f.testResult = null;
@@ -1291,6 +1403,7 @@ const App = {
 		},
 		async saveAccount() {
 			if (!api || !this.validateForm()) return;
+			if (!(await this.ensureLinked())) return;
 			const f = this.accountForm;
 			f.saving = true;
 			try {
