@@ -4,7 +4,9 @@
 # template is replaced on every upgrade, the copy is never touched.
 #
 # Nothing is shipped. A provider without a clientID here is not offered to
-# anyone. The file is re-read when it changes; no restart is needed.
+# anyone. The file is re-read when it changes; no restart is needed. This
+# folder is closed to everyone but administrators (provisioning/connections.yml);
+# the platform reads it with a service session, so nothing else needs access.
 #
 # Register the client with the provider as a web application, with this
 # redirect URI (CMS_PUBLIC_BASE_URL is the public URL of this server):

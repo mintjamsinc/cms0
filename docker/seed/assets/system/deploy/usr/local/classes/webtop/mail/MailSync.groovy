@@ -422,6 +422,9 @@ class MailSync {
 					try {
 						storage.store(folder, validity, summary, raw);
 						session.commit();
+						if (folder.role == 'sent') {
+							dropLocalCopy(fs, validity, uid);
+						}
 					} catch (Throwable storeError) {
 						// The message was downloaded; keep it even if its metadata cannot
 						// be stored, so it is never lost.
@@ -463,6 +466,50 @@ class MailSync {
 		}
 		state.progress = null;
 		saveState();
+	}
+
+	/**
+	 * A message that arrived in the server's Sent folder may be one this Webtop
+	 * sent and kept a copy of in local/sent (a server that files sent mail by
+	 * itself, such as Gmail, or an APPEND that could not be done): the copy is
+	 * removed, so the message is listed once. Matched by Message-ID, which the
+	 * Webtop sets on what it sends. A locked copy stays.
+	 */
+	private void dropLocalCopy(Map fs, long validity, long uid) {
+		def file = storage.getMessage(fs.key as String, validity, uid);
+		if (!file.hasProperty('mail:messageId')) {
+			return;
+		}
+		String messageId = file.getProperty('mail:messageId').getString();
+		if (!messageId) {
+			return;
+		}
+		try {
+			def result = XPath.newBuilder().
+					append("${storage.root}/local//*".toString()).
+					append('[@mail:local=$local and @mail:messageId=$id]').
+					variable('local', true).
+					variable('id', messageId).
+					build().
+					limit(10L).
+					execute();
+			boolean removed = false;
+			for (def r : result.resources) {
+				if (MailLabels.isLocked(r)) {
+					continue;
+				}
+				r.remove();
+				removed = true;
+			}
+			if (removed) {
+				session.commit();
+			}
+		} catch (Throwable ex) {
+			try {
+				session.rollback();
+			} catch (Throwable ignore) {}
+			log?.warn("The Webtop copy of a sent message could not be removed: ${ex.message}".toString());
+		}
 	}
 
 	/** Applies the server's flags to the stored messages. */

@@ -112,8 +112,12 @@ the server's Sent folder as well, so other mail clients see it; the copy is
 stored under that folder with the UID the server gave it, so the next
 synchronization finds it in place instead of downloading it again. Off, the
 copy stays in the Webtop only. The setting is on for a new account, except
-for Gmail, which files what SMTP sends by itself. Removing the account
-removes the copies kept in the Webtop, like the downloaded mail.
+for Gmail, which files what SMTP sends by itself. Either way a message is
+listed once: when a message the Webtop sent arrives in the server's Sent
+folder through the synchronization (Gmail filed it, or the copy could not be
+appended), the Webtop's own copy is removed, matched by Message-ID; a locked
+copy stays. Removing the account removes the copies kept in the Webtop, like
+the downloaded mail.
 
 There is no signature: write it into the message.
 

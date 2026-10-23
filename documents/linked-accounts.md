@@ -58,7 +58,11 @@ administrator registers a client with it (next section).
    A secret may be written in the clear, as `ENC[v1:...]` (encrypted with the
    installation key), or as `${env.NAME}` to take it from the environment
    variable `NAME` or the file named by `NAME_FILE`. The file is re-read when
-   it changes; no restart is needed. Only administrators can read `/etc`.
+   it changes; no restart is needed. The folder `/etc/oauth` is closed to
+   everyone but administrators by provisioning (the root of a workspace lets
+   everyone read, so the folder carries an explicit deny); the platform reads
+   the file with a service session, which access control does not apply to,
+   so no user, service user or app needs to be granted anything on it.
 
    A provider section may also carry `endpoints:` (`authorization`, `token`,
    `userinfo`, `revocation`) to go through a proxy or a test double; normally

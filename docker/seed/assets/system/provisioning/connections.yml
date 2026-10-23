@@ -13,17 +13,26 @@
 #   - the oauth: namespace, which names the property that holds the grant
 #     (the platform registers it as well when it is missing, for an
 #     installation that predates this file);
+#   - /etc/oauth: where the administrator puts clients.yml (from the
+#     clients.yml.example deployed next to it), with the client secrets. The
+#     root of a workspace grants jcr:read to everyone, so the folder is closed
+#     with an explicit deny: administrators read and write it, and the
+#     platform reads it with a service session, which access control does not
+#     apply to. No user, service user or app needs to read it;
 #   - /var/lock/oauth: the per-account locks that keep two cluster nodes from
 #     renewing the same grant at once, kept out of the homes so taking a lock
 #     raises no event there.
-#
-# The clients themselves are an administrator's: /etc/oauth/clients.yml, from
-# the clients.yml.example next to it.
 
 namespaces:
   - prefix: oauth
     uri: http://www.mintjams.jp/webtop/oauth/1.0
 
 nodes:
+  - path: /etc/oauth
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny
   - path: /var/lock/oauth
     primaryType: nt:folder

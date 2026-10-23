@@ -43,8 +43,10 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
 
 /**
  * The OAuth clients this installation registered with the providers:
- * {@code /etc/oauth/clients.yml} in the system workspace, which only an
- * administrator can read or write.
+ * {@code /etc/oauth/clients.yml} in the system workspace. The folder is
+ * closed to everyone by provisioning (provisioning/connections.yml), so only
+ * an administrator reads or writes the file; this class reads it with a
+ * service session, which access control does not apply to.
  *
  * <pre>
  * google:

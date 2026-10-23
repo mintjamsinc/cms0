@@ -532,13 +532,15 @@
 							<div class="ml-form-grid">
 								<div class="ml-form-wide ml-linked-row">
 									<template v-if="!formProviderConfigured">
-										<i class="bi bi-info-circle me-1"></i>{{ t('app.mail.account.linkedOff', { provider: formProviderName }, 'Linking a {provider} account is not enabled on this server.') }}
+										<i class="bi bi-info-circle"></i>
+										<span class="ml-linked-text">{{ t('app.mail.account.linkedOff', { provider: formProviderName }, 'Linking a {provider} account is not enabled on this server.') }}</span>
 									</template>
 									<template v-else-if="formLinkedReady">
-										<i class="bi bi-check-circle-fill text-success me-1"></i>{{ t('app.mail.account.linkedReady', { provider: formProviderName, email: formLinkedAccount.email || formLinkedAccount.subject }, '{provider} account {email} is linked and allowed to send and receive mail.') }}
+										<i class="bi bi-check-circle-fill text-success"></i>
+										<span class="ml-linked-text">{{ t('app.mail.account.linkedReady', { provider: formProviderName, email: formLinkedAccount.email || formLinkedAccount.subject }, '{provider} account {email} is linked and allowed to send and receive mail.') }}</span>
 									</template>
 									<template v-else>
-										<span class="me-2">{{ formLinkedAccount
+										<span class="ml-linked-text">{{ formLinkedAccount
 											? t('app.mail.account.linkedNoMail', { provider: formProviderName }, 'The {provider} account is linked, but mail is not allowed yet.')
 											: t('app.mail.account.linkedNone', { provider: formProviderName }, 'No {provider} account is linked yet.') }}</span>
 										<button type="button" class="wt wt-primary wt-slim" :disabled="accountsDialog.linking" @click="ensureLinked">

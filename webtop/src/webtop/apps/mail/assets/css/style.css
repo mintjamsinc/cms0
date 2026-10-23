@@ -882,11 +882,41 @@
 	pointer-events: none;
 }
 
-/* The linked-account line of a Gmail / Microsoft account */
+/* The linked-account line of a Gmail / Microsoft account: an icon, the text
+   beside it (wrapping as needed), and a button at the end that keeps its size. */
 .ml-linked-row {
 	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
+	align-items: flex-start;
 	gap: 0.5rem;
 	font-size: 13px;
+	line-height: 20px;
+}
+
+.ml-linked-row > .bi {
+	flex: none;
+	line-height: 20px;
+}
+
+.ml-linked-text {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.ml-linked-row > button {
+	flex: none;
+}
+
+/* Checkbox rows of the account form sit on whole pixels: with the default
+   13px × 1.5 line height a row is 19.5px tall, the rows below land on
+   half-pixel offsets, and Chrome rasterizes the native box of each row at a
+   different sub-pixel position, so two boxes look slightly different in size
+   and shift on hover. */
+.ml-accounts-form .ml-form-wide wt-checkbox {
+	display: flex;
+}
+.ml-accounts-form .ml-form-wide .wt-checkbox {
+	line-height: 20px;
+}
+.ml-accounts-form .ml-form-wide .fs-small {
+	line-height: 16px;
 }

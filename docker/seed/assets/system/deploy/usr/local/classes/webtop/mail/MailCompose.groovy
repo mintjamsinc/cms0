@@ -443,7 +443,9 @@ class MailCompose {
 			if (sent == null) {
 				return null;
 			}
-			MailFolder f = store.openFolder(sent.fullName as String);
+			// Opened for writing, as pushPending does for flags; the one-argument
+			// form opens a folder read-only and APPEND is refused.
+			MailFolder f = store.openFolder(sent.fullName as String, true);
 			try {
 				long uid = f.append(m, true);
 				if (uid <= 0) {
