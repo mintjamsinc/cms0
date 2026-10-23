@@ -40,7 +40,12 @@ administrator registers a client with it (next section).
      platform *Web*. Set *Supported account types* to match the `tenant` you
      configure: `organizations` (work or school accounts of any organization,
      the default), `common` (those plus personal Microsoft accounts) or one
-     tenant id. Add a client secret.
+     tenant id. Add a client secret. The API permissions need not be listed
+     on the registration: the scopes of a bundle are asked for in the
+     authorization request, and the user consents to them there. A tenant
+     that does not let users consent needs an administrator to grant them
+     (list the permissions on the registration and grant admin consent).
+     Sending needs SMTP AUTH to be enabled for the mailbox.
 
 2. Copy `/etc/oauth/clients.yml.example` in the system workspace to
    `clients.yml` next to it and fill in the client id and secret:
