@@ -1,0 +1,61 @@
+# =============================================================================
+# Platform linked-accounts GraphQL schema
+# =============================================================================
+# Contributed by PlatformConnectionsWiringContributor, merged into the same
+# graphql-java schema as the core platform SDL. It `extend`s the core
+# Query/Mutation roots and reuses the core scalar DateTime.
+#
+# The Google / Microsoft accounts the caller linked to their Webtop account
+# (Preferences › Linked accounts), one per provider, and the permission
+# bundles granted to each. Linking and granting happen in the browser through
+# /bin/auth.cgi/oauth/authorize (see documents/linked-accounts.md); this
+# schema reads the result and takes grants away. Tokens are never returned.
+# =============================================================================
+
+extend type Query {
+  """The providers this server can link, and the caller's linked accounts."""
+  linkedAccounts: LinkedAccounts!
+}
+
+extend type Mutation {
+  """Removes the caller's link to the provider: the stored grant is deleted and, where the provider allows it, revoked. Apps that relied on it stop working until a new link is made. Returns false when there was no link."""
+  unlinkAccount(provider: String!): Boolean!
+  """Stops using a bundle of a linked account. The provider's own record of the consent is not changed (Google revokes only the whole grant, Microsoft nothing); the bundle has to be granted again to be used again."""
+  revokeLinkedAccountBundle(provider: String!, bundle: String!): LinkedAccount!
+}
+
+type LinkedAccounts {
+  """The providers an administrator configured in /etc/oauth/clients.yml, in catalogue order. Empty when none is."""
+  providers: [LinkedAccountProvider!]!
+  """The caller's linked accounts, at most one per provider."""
+  accounts: [LinkedAccount!]!
+  """Every bundle an app may ask for, in display order: mail, files, contacts, calendar."""
+  bundles: [String!]!
+  """Path of the page that starts a link or a grant: append ?provider=&bundle=&return=."""
+  authorizePath: String!
+  """Why the configuration file could not be used, when it could not; null otherwise."""
+  configurationError: String
+}
+
+type LinkedAccountProvider {
+  """google or microsoft."""
+  id: String!
+  """The provider's name as shown to the user."""
+  name: String!
+}
+
+type LinkedAccount {
+  provider: String!
+  """The provider's stable identifier of the account."""
+  subject: String!
+  """The account's email as the provider reported it when linked; a label, not an identity."""
+  email: String
+  displayName: String
+  """The bundles granted so far."""
+  bundles: [String!]!
+  linkedAt: DateTime!
+  """When a token was last renewed for the account; null until the first renewal."""
+  lastUsed: DateTime
+  """True when the provider stopped accepting the stored grant; the account has to be linked again."""
+  needsReauth: Boolean!
+}

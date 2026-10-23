@@ -49,11 +49,11 @@ import com.google.gson.JsonParser;
  * tag, and is opened only as the kind it claims to be: an authorization code
  * presented as an access token fails, and so does the reverse.
  */
-final class McpSealed {
+public final class McpSealed {
 
 	private McpSealed() {}
 
-	static String seal(Encryptor encryptor, String prefix, String type, JsonObject payload) {
+	public static String seal(Encryptor encryptor, String prefix, String type, JsonObject payload) {
 		payload.addProperty("t", type);
 		return prefix + Base64.getUrlEncoder().withoutPadding()
 				.encodeToString(encryptor.encrypt(payload.toString()).getBytes(StandardCharsets.UTF_8));
@@ -63,7 +63,7 @@ final class McpSealed {
 	 * Opens a sealed value, or returns {@code null} when it is not one this
 	 * server sealed as {@code type}.
 	 */
-	static JsonObject open(Encryptor encryptor, String prefix, String type, String value) {
+	public static JsonObject open(Encryptor encryptor, String prefix, String type, String value) {
 		if (value == null || !value.startsWith(prefix)) {
 			return null;
 		}

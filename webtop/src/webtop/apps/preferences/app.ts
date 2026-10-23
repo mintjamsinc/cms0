@@ -11,6 +11,11 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { SecurityServiceGraphQL, createPasskey, isWebAuthnSupported } from "../../services/security-service-graphql.js";
 import { McpServiceGraphQL, mcpServerName } from "../../services/mcp-service-graphql.js";
+import { CONNECTIONS_CHANNEL } from "../../services/connections-service-graphql.js";
+import type { LinkedAccount, LinkedAccountProvider, LinkedAccounts } from "../../graphql/types.js";
+
+// The channel the grant popup reports on; kept out of reactive data.
+let linkedChannel: BroadcastChannel | null = null;
 import type { IdpMutationError, McpConnection, Passkey, UserSecurity } from "../../graphql/types.js";
 import qrcode from 'qrcode-generator';
 import {
@@ -269,6 +274,12 @@ const App = {
 			mcpBusy: false,
 			mcpError: '',
 			mcpCopied: '',
+			// Linked accounts (Google / Microsoft)
+			linked: null as LinkedAccounts | null,
+			linkedLoading: false,
+			/** The provider being linked, granted or unlinked right now; '' when none. */
+			linkedBusy: '',
+			linkedError: '',
 
 			// Completion toast at the bottom of the window
 			toast: '',
@@ -370,6 +381,15 @@ const App = {
 				vm.securityService = this.$markRaw(new SecurityServiceGraphQL());
 				vm.mcpService = this.$markRaw(new McpServiceGraphQL());
 				vm.mcpWorkspace = instance.api.workspace;
+				// A grant finished in a popup opened by this or another app: show it.
+				if (!linkedChannel) {
+					try {
+						linkedChannel = new BroadcastChannel(CONNECTIONS_CHANNEL);
+						linkedChannel.onmessage = () => {
+							if (vm.section === 'linked' && !vm.linkedBusy) vm.refreshLinked();
+						};
+					} catch (_) { /* no BroadcastChannel */ }
+				}
 				refreshLocalization(vm.localization, vm.instance);
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
@@ -439,6 +459,8 @@ const App = {
 				await this.loadSecurity();
 			} else if (section === 'mcp') {
 				await this.loadMcp();
+			} else if (section === 'linked') {
+				await this.loadLinked();
 			}
 		},
 
@@ -1544,6 +1566,140 @@ const App = {
 			} catch (e: any) {
 				vm.sessionError = e.message || vm.t('app.preferences.msg.sessionDeleteFailed', undefined, 'Failed to delete session.');
 			}
+		},
+
+		// =====================================================================
+		// Linked accounts (Google / Microsoft)
+		// =====================================================================
+
+		async loadLinked() {
+			const vm = this;
+			if (!vm.instance) return;
+			vm.linkedLoading = true;
+			vm.linkedError = '';
+			try {
+				vm.linked = await vm.instance.api.connections.getLinkedAccounts();
+			} catch (e: any) {
+				console.warn('[Preferences] linked accounts load failed:', e);
+				vm.linkedError = vm.t('app.preferences.msg.linkedLoadFailed', undefined, 'Failed to load the linked accounts.');
+			} finally {
+				vm.linkedLoading = false;
+			}
+		},
+
+		/** Reloads quietly: after a grant popup reports, and when another app granted something. */
+		async refreshLinked() {
+			const vm = this;
+			if (!vm.instance) return;
+			try {
+				vm.linked = await vm.instance.api.connections.getLinkedAccounts();
+			} catch (e: any) {
+				console.warn('[Preferences] linked accounts refresh failed:', e);
+			}
+		},
+
+		accountOf(providerId: string): LinkedAccount | null {
+			return (this.linked?.accounts || []).find((a: LinkedAccount) => a.provider === providerId) || null;
+		},
+
+		hasBundle(providerId: string, bundle: string): boolean {
+			const account = this.accountOf(providerId);
+			return !!account && !account.needsReauth && account.bundles.includes(bundle);
+		},
+
+		providerIcon(providerId: string): string {
+			return providerId === 'google' ? 'bi-google' : providerId === 'microsoft' ? 'bi-microsoft' : 'bi-link-45deg';
+		},
+
+		bundleLabel(bundle: string): string {
+			return this.t(`app.preferences.linked.bundle.${bundle}`, undefined, bundle);
+		},
+
+		bundleDesc(bundle: string): string {
+			return this.t(`app.preferences.linked.bundle.${bundle}.desc`, undefined, '');
+		},
+
+		/** Opens the grant popup for a bundle, or for the link alone when no bundle is given. */
+		async grantOrLink(providerId: string, bundle: string | null) {
+			const vm = this;
+			if (!vm.instance || !vm.linked || vm.linkedBusy) return;
+			vm.linkedBusy = providerId;
+			vm.linkedError = '';
+			try {
+				const result = await vm.instance.api.connections.grant(providerId, bundle, vm.linked.authorizePath);
+				await vm.refreshLinked();
+				if (result.ok) {
+					vm.showToast(bundle
+						? vm.t('app.preferences.msg.bundleGranted', undefined, 'Permission granted.')
+						: vm.t('app.preferences.msg.accountLinked', undefined, 'Account linked.'));
+				} else if (result.error && result.error !== 'closed' && result.error !== 'timeout') {
+					vm.linkedError = result.error;
+				}
+			} catch (e: any) {
+				vm.linkedError = (e?.message === 'popup_blocked')
+					? vm.t('app.preferences.msg.popupBlocked', undefined, 'The browser blocked the popup. Allow popups for this site and try again.')
+					: (e?.message || vm.t('app.preferences.msg.linkFailed', undefined, 'The account could not be linked.'));
+			} finally {
+				vm.linkedBusy = '';
+			}
+		},
+
+		linkAccount(providerId: string) {
+			return this.grantOrLink(providerId, null);
+		},
+
+		grantBundle(providerId: string, bundle: string) {
+			return this.grantOrLink(providerId, bundle);
+		},
+
+		askRevokeBundle(provider: LinkedAccountProvider, bundle: string) {
+			const vm = this;
+			vm.openConfirmDialog({
+				title: vm.t('app.preferences.linked.revokeTitle', undefined, 'Stop using this permission'),
+				message: vm.t('app.preferences.linked.revokeMessage', { bundle: vm.bundleLabel(bundle), provider: provider.name }, 'The Webtop stops using "{bundle}" of your {provider} account. Apps that rely on it ask again when they need it. Continue?'),
+				confirmLabel: vm.t('app.preferences.linked.revoke', undefined, 'Revoke'),
+				danger: true,
+				iconClass: 'bi-exclamation-triangle-fill text-warning',
+				onConfirm: async () => {
+					if (!vm.instance) return;
+					vm.linkedBusy = provider.id;
+					vm.linkedError = '';
+					try {
+						await vm.instance.api.connections.revokeBundle(provider.id, bundle);
+						await vm.refreshLinked();
+						vm.showToast(vm.t('app.preferences.msg.bundleRevoked', undefined, 'Permission revoked.'));
+					} catch (e: any) {
+						vm.linkedError = e?.message || vm.t('app.preferences.msg.linkedSaveFailed', undefined, 'The change could not be saved.');
+					} finally {
+						vm.linkedBusy = '';
+					}
+				},
+			});
+		},
+
+		askUnlink(provider: LinkedAccountProvider) {
+			const vm = this;
+			vm.openConfirmDialog({
+				title: vm.t('app.preferences.linked.unlinkTitle', { provider: provider.name }, 'Unlink the {provider} account'),
+				message: vm.t('app.preferences.linked.unlinkMessage', { provider: provider.name }, 'Every permission granted to this Webtop by your {provider} account is given up. Apps that rely on it (such as a mail account signed in with it) stop working until you link again. Continue?'),
+				confirmLabel: vm.t('app.preferences.linked.unlink', undefined, 'Unlink'),
+				danger: true,
+				iconClass: 'bi-exclamation-triangle-fill text-warning',
+				onConfirm: async () => {
+					if (!vm.instance) return;
+					vm.linkedBusy = provider.id;
+					vm.linkedError = '';
+					try {
+						await vm.instance.api.connections.unlink(provider.id);
+						await vm.refreshLinked();
+						vm.showToast(vm.t('app.preferences.msg.accountUnlinked', undefined, 'Account unlinked.'));
+					} catch (e: any) {
+						vm.linkedError = e?.message || vm.t('app.preferences.msg.linkedSaveFailed', undefined, 'The change could not be saved.');
+					} finally {
+						vm.linkedBusy = '';
+					}
+				},
+			});
 		},
 
 		// =====================================================================

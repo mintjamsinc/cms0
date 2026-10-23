@@ -34,6 +34,7 @@ import javax.script.ScriptEngineFactory;
 import javax.script.ScriptEngineManager;
 
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.script.Connections;
 import org.mintjams.script.ISO8601;
 import org.mintjams.script.JSON;
 import org.mintjams.script.LoggerAPI;
@@ -108,6 +109,7 @@ public class Scripts {
 			ctx.setAttribute(WebAPI.class.getSimpleName(), new WebAPI(ctx));
 		}
 		ctx.setAttribute(ScriptAPI.class.getSimpleName(), new ScriptAPI(ctx));
+		ctx.setAttribute(Connections.class.getSimpleName(), new Connections(ctx));
 		ctx.setAttribute(ProcessAPI.class.getSimpleName(), new ProcessAPI(ctx));
 		ctx.setAttribute(IntegrationAPI.class.getSimpleName(), new IntegrationAPI(ctx));
 		ctx.setAttribute(XPath.class.getSimpleName(), new XPath(ctx));

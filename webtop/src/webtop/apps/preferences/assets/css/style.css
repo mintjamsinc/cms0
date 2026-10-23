@@ -544,3 +544,22 @@
 	flex: none;
 	white-space: nowrap;
 }
+
+/* Linked accounts: the bundle rows under a linked account */
+.pref-linked-bundles {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-top: 8px;
+}
+.pref-linked-bundles .pref-factor-row {
+	flex-wrap: wrap;
+}
+.pref-linked-bundle-desc {
+	flex: 1 1 100%;
+	order: 3;
+	padding-left: 1.6rem;
+}
+.pref-linked-badge-warn {
+	background: rgba(255, 170, 0, 0.18);
+}

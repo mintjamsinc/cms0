@@ -1,0 +1,39 @@
+# Template for /etc/oauth/clients.yml: the OAuth clients this server uses to
+# link Google and Microsoft accounts to Webtop accounts (Preferences › Linked
+# accounts). Copy it to clients.yml in the same folder and edit the copy: the
+# template is replaced on every upgrade, the copy is never touched.
+#
+# Nothing is shipped. A provider without a clientID here is not offered to
+# anyone. The file is re-read when it changes; no restart is needed.
+#
+# Register the client with the provider as a web application, with this
+# redirect URI (CMS_PUBLIC_BASE_URL is the public URL of this server):
+#
+#   <CMS_PUBLIC_BASE_URL>/bin/auth.cgi/oauth/callback
+#
+# A secret may be written in the clear, encrypted with the installation key
+# (ENC[v1:...], see the encrypt tool), or as ${env.NAME} to take it from the
+# environment variable NAME or the file named by NAME_FILE.
+#
+# See documents/linked-accounts.md for the registration steps and the scopes
+# each permission bundle asks for.
+
+# Google Cloud console › APIs & Services › Credentials › OAuth client ID
+# (type: Web application). A Google Workspace organization registers the app
+# as "Internal" and needs no verification; an app open to any Google account
+# has to be published and verified, because the mail bundle uses a restricted
+# scope. An app left in "Testing" issues refresh tokens that expire after
+# seven days.
+google:
+  clientID: ""
+  clientSecret: ""
+
+# Microsoft Entra admin center › App registrations (platform: Web). Set
+# "Supported account types" to match `tenant`:
+#   organizations   work or school accounts of any organization (default)
+#   common          those plus personal Microsoft accounts
+#   <tenant id>     one organization only
+microsoft:
+  clientID: ""
+  clientSecret: ""
+  tenant: organizations

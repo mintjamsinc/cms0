@@ -14,6 +14,7 @@ import { EipServiceGraphQL } from './eip-service-graphql.js';
 import { NoticeServiceGraphQL } from './notice-service-graphql.js';
 import { EventHub, createEventHub } from '../realtime/event-hub.js';
 import { IdpServiceGraphQL } from './idp-service-graphql.js';
+import { ConnectionsServiceGraphQL } from './connections-service-graphql.js';
 import { User } from './user-service.js';
 import type { PreferenceChangeEvent, WallpaperChangeEvent, AvatarChangeEvent } from '../graphql/types.js';
 
@@ -37,6 +38,7 @@ export class WebtopAPI {
 	#webtopGraphQL: WebtopServiceGraphQL;
 	#noticeGraphQL: NoticeServiceGraphQL;
 	#idpGraphQL: IdpServiceGraphQL;
+	#connectionsGraphQL: ConnectionsServiceGraphQL;
 	#eventHub: EventHub;
 
 	// System workspace services (for user home data: preferences, avatars, etc.)
@@ -69,6 +71,7 @@ export class WebtopAPI {
 		this.#webtopGraphQL = new WebtopServiceGraphQL(this.#graphqlClient, { rootPath: this.#context.rootPath });
 		this.#noticeGraphQL = new NoticeServiceGraphQL(this.#graphqlClient);
 		this.#idpGraphQL = new IdpServiceGraphQL();
+		this.#connectionsGraphQL = new ConnectionsServiceGraphQL(this.#graphqlClient);
 		this.#eventHub = createEventHub(this.#workspace);
 		this.#systemGraphQLClient = createGraphQLClient('system');
 		this.#systemContentGraphQL = new ContentServiceGraphQL(this.#systemGraphQLClient);
@@ -103,6 +106,8 @@ export class WebtopAPI {
 	/** The notices of the notification center, kept per user on the server. */
 	get notices() { return this.#noticeGraphQL; }
 	get idp() { return this.#idpGraphQL; }
+	/** The user's linked Google / Microsoft accounts, and the grant popup (ensure). */
+	get connections() { return this.#connectionsGraphQL; }
 	get eventHub() { return this.#eventHub; }
 	/** Change events of the system workspace (e.g. files an app keeps in the user's home there). */
 	get systemEventHub() { return this.#systemEventHub; }

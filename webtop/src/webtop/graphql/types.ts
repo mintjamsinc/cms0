@@ -1816,3 +1816,49 @@ export interface SetMcpConnectionInput {
   enabled: boolean;
   write?: boolean;
 }
+
+// =============================================================================
+// Linked accounts (Google / Microsoft)
+// =============================================================================
+
+/** A provider an administrator configured in /etc/oauth/clients.yml. */
+export interface LinkedAccountProvider {
+  /** google or microsoft. */
+  id: string;
+  name: string;
+}
+
+/** An account the user linked; at most one per provider. Never carries tokens. */
+export interface LinkedAccount {
+  provider: string;
+  /** The provider's stable identifier of the account. */
+  subject: string;
+  /** The account's email as the provider reported it when linked; a label. */
+  email: string | null;
+  displayName: string | null;
+  /** The permission bundles granted so far: mail, files, contacts, calendar. */
+  bundles: string[];
+  linkedAt: string;
+  lastUsed: string | null;
+  /** The provider stopped accepting the grant; the account has to be linked again. */
+  needsReauth: boolean;
+}
+
+export interface LinkedAccounts {
+  providers: LinkedAccountProvider[];
+  accounts: LinkedAccount[];
+  /** Every bundle, in display order. */
+  bundles: string[];
+  /** Path of the page that starts a link or a grant. */
+  authorizePath: string;
+  configurationError: string | null;
+}
+
+/** What the grant page posts on the `webtop-connections` BroadcastChannel when it is done. */
+export interface ConnectionEvent {
+  type: 'connection';
+  ok: boolean;
+  provider: string | null;
+  bundle: string | null;
+  error?: string;
+}

@@ -1,0 +1,29 @@
+# Provisioning for linked accounts (Preferences › Linked accounts).
+#
+# A user's Google / Microsoft account links live in the user's home, which
+# the user already owns:
+#
+#   /home/users/<user>/connections/<provider>.json   who the account is, what was granted
+#     oauth:refreshToken                              the grant, encrypted with the installation key
+#
+# They are read and written with the user's own session by the platform
+# (org.mintjams.rt.cms.internal.connections), so nothing has to be granted
+# for them. What is provisioned here:
+#
+#   - the oauth: namespace, which names the property that holds the grant
+#     (the platform registers it as well when it is missing, for an
+#     installation that predates this file);
+#   - /var/lock/oauth: the per-account locks that keep two cluster nodes from
+#     renewing the same grant at once, kept out of the homes so taking a lock
+#     raises no event there.
+#
+# The clients themselves are an administrator's: /etc/oauth/clients.yml, from
+# the clients.yml.example next to it.
+
+namespaces:
+  - prefix: oauth
+    uri: http://www.mintjams.jp/webtop/oauth/1.0
+
+nodes:
+  - path: /var/lock/oauth
+    primaryType: nt:folder
