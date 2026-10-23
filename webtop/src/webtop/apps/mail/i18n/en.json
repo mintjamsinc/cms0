@@ -144,5 +144,18 @@
 	"app.mail.compose.bulletList": "Bulleted list",
 	"app.mail.compose.orderedList": "Numbered list",
 	"app.mail.compose.quote": "Quote",
-	"app.mail.compose.clear": "Clear formatting"
+	"app.mail.compose.clear": "Clear formatting",
+	"app.mail.message.saveAttachment": "Save to a folder…",
+	"app.mail.message.saveAttachmentTitle": "Save attachment",
+	"app.mail.message.attachmentSaved": "{name} was saved to {path}.",
+	"app.mail.message.attachmentSaveFailed": "{name} could not be saved: {error}",
+	"app.mail.message.replaceFile": "Replace file",
+	"app.mail.message.attachmentExists": "{path} already has {name}. Replace it?",
+	"app.mail.folderPicker.select": "Save here",
+	"app.mail.folderPicker.newFolder": "New folder",
+	"app.mail.folderPicker.newFolderName": "Folder name",
+	"app.mail.folderPicker.create": "Create",
+	"app.mail.folderPicker.loading": "Loading…",
+	"app.mail.folderPicker.noAccess": "You cannot save here.",
+	"app.mail.folderPicker.invalidName": "The name cannot contain / \\ : * ? \" < > |"
 }

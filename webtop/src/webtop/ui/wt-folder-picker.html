@@ -1,0 +1,37 @@
+<template id="wt-folder-picker">
+	<div class="wt-folder-picker">
+		<wt-dialog :open="open" size="sm" :title="title" @update:open="setOpen($event.detail)">
+			<template v-slot="d">
+				<div class="wt-folder-picker-tree">
+					<wt-tree :items="items" :selected="selected" :expanded="expanded"
+						@update:selected="selected = $event.detail" @update:expanded="expanded = $event.detail"
+						@toggle="onToggle($event.detail)" @select="onSelect($event.detail)">
+						<template v-slot:item="n">
+							<i class="bi" :class="n.node.placeholder ? 'bi-three-dots' : (n.expanded ? 'bi-folder2-open' : 'bi-folder')"></i>
+							<span class="wt-tree-label">{{ n.node.label }}</span>
+							<i v-if="n.node.disabled && !n.node.placeholder" class="bi bi-lock wt-folder-picker-lock"
+								:title="text('noAccess', 'You cannot save here.')"></i>
+						</template>
+					</wt-tree>
+				</div>
+				<div v-if="creating" class="wt-folder-picker-create">
+					<input ref="newFolderInput" type="text" class="wt" :value="newName"
+						@input="newName = $event.target.value"
+						:placeholder="text('newFolderName', 'Folder name')"
+						@keydown.enter.prevent="create" @keydown.escape.stop="cancelCreate">
+					<button type="button" class="wt wt-primary" @click="create" :disabled="!newName.trim() || createBusy">
+						{{ text('create', 'Create') }}
+					</button>
+				</div>
+				<wt-inline-message v-if="error" type="error" class="mt-2">{{ error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button v-if="allowCreate" type="button" class="wt wt-folder-picker-new" @click="startCreate" :disabled="!canSelect">
+					<i class="bi bi-folder-plus me-1"></i>{{ text('newFolder', 'New folder') }}
+				</button>
+				<button type="button" class="wt" @click="close">{{ text('cancel', 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirm" :disabled="!canSelect">{{ text('select', 'Select') }}</button>
+			</template>
+		</wt-dialog>
+	</div>
+</template>

@@ -93,8 +93,11 @@ message, opens the compose pane in place of the reader.
   (written to the server by the next pass).
 - **Forwards** carry the original's attachments. They are read from the stored
   original when the message is sent, not copied.
-- **Attachments** are uploaded into the draft (button or drop onto the pane), up
-  to 25 MB in all.
+- **Attachments** are uploaded into the draft (button, drop of files from the
+  PC onto the pane, or drop of files from a Content Browser window), up to
+  25 MB in all. A file dropped from the Content Browser is read from the
+  workspace and uploaded into the draft like a file from the PC; folders are
+  skipped.
 - **Drafts** are saved as one types, in the Webtop only (the server's Drafts
   folder is not used). Closing the pane keeps the draft; *Drafts* in the left
   pane lists them.
@@ -108,6 +111,29 @@ but is not appended to the server's Sent folder. Removing the account removes
 these copies, like the downloaded mail.
 
 There is no signature: write it into the message.
+
+## Attachments of a message you read
+
+An attachment is listed under the message's header. Clicking it opens or
+downloads it (`attachment.groovy`, see *Where things live*). It can also be
+put into the workspace the Webtop is running in, in two ways:
+
+- **Drag it into a Content Browser window**, onto the file list or onto a
+  folder row. The Content Browser reads the file from the Mail app's
+  attachment URL and uploads it the way it uploads a file from the PC, so an
+  existing file of the same name asks before it is replaced, and a versioned
+  file is checked out and in as usual.
+- **The folder button on the attachment** opens a folder picker of the
+  workspace. Folders you may not create anything in are shown muted with a
+  lock and cannot be picked, but they open, so a writable folder below them
+  can be reached. *New folder* creates one in the picked folder. The folder
+  picked last is offered first the next time. An existing file of the same
+  name asks before it is replaced.
+
+Either way the copy is made by the browser: the attachment is read from the
+system workspace, where the mail lives, and written to the current workspace
+with the caller's own session, so the repository's access control decides
+where it can be saved. Nothing changes in the mail itself.
 
 ## Messages that are broken
 

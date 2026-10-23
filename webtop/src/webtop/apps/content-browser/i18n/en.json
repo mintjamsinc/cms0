@@ -292,5 +292,6 @@
 	"app.content-browser.error.folderNameEmpty": "Folder name cannot be empty",
 	"app.content-browser.error.createFolderFailed": "Failed to create folder",
 	"app.content-browser.error.fileNameEmpty": "File name cannot be empty",
-	"app.content-browser.error.createFileFailed": "Failed to create file"
+	"app.content-browser.error.createFileFailed": "Failed to create file",
+	"app.content-browser.error.attachmentReadFailed": "The attachment could not be read: {error}"
 }

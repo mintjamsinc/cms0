@@ -8,8 +8,10 @@
 //         </template>
 //     </wt-tree>
 //
-// Node shape is the app's own; `id-key` / `label-key` / `children-key`
-// adapt to it (defaults: id / label / children). Selection and expansion
+// Node shape is the app's own; `id-key` / `label-key` / `children-key` /
+// `disabled-key` adapt to it (defaults: id / label / children / disabled).
+// A disabled node is shown muted and cannot be selected, but it still
+// expands, so what lies below it stays reachable. Selection and expansion
 // work uncontrolled (internal state) or controlled via v-model:selected /
 // v-model:expanded (array of ids). Rendering flattens the visible nodes
 // into rows — no recursive templates needed — with indent per depth.
@@ -30,6 +32,8 @@ defineComponent('wt-tree', {
 		idKey: { type: String, default: 'id' },
 		labelKey: { type: String, default: 'label' },
 		childrenKey: { type: String, default: 'children' },
+		/** Property that marks a node as not selectable. */
+		disabledKey: { type: String, default: 'disabled' },
 	},
 	emits: ['select', 'toggle'],
 	data() {
@@ -47,7 +51,16 @@ defineComponent('wt-tree', {
 			this.localExpanded = [...(value ?? [])];
 		},
 	},
-	computed: {
+	methods: {
+		/**
+		 * The rows to draw: the visible nodes flattened, with depth and state.
+		 *
+		 * A method, not a computed: in ichigo 0.1.87 a computed that depends on
+		 * data a watcher assigns (localExpanded, set when the parent changes
+		 * `expanded`) is refreshed only on every second such change, so a tree
+		 * whose parent expands it once stayed collapsed. A method call in the
+		 * template is re-evaluated on every render and tracks its reads.
+		 */
 		visibleRows(this: any): any[] {
 			const rows: any[] = [];
 			const walk = (nodes: any[], depth: number) => {
@@ -59,7 +72,8 @@ defineComponent('wt-tree', {
 					const children = node[this.childrenKey];
 					const hasChildren = Array.isArray(children) && children.length > 0;
 					const expanded = hasChildren && this.localExpanded.includes(id);
-					rows.push({ id, node, depth, hasChildren, expanded, label: node[this.labelKey] });
+					const disabled = !!node[this.disabledKey];
+					rows.push({ id, node, depth, hasChildren, expanded, disabled, label: node[this.labelKey] });
 					if (expanded) {
 						walk(children, depth + 1);
 					}
@@ -68,9 +82,10 @@ defineComponent('wt-tree', {
 			walk(this.items, 0);
 			return rows;
 		},
-	},
-	methods: {
 		onSelect(this: any, row: any): void {
+			if (row.disabled) {
+				return;
+			}
 			this.localSelected = row.id;
 			this.$emit('update:selected', row.id);
 			this.$emit('select', row.node);

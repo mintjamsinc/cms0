@@ -1,7 +1,8 @@
 <template id="wt-tree">
 	<div class="wt-tree" role="tree">
-		<div v-for="row of visibleRows" :key="row.id" class="wt-tree-item" role="treeitem"
-			:class="{selected: row.id === localSelected}"
+		<div v-for="row of visibleRows()" :key="row.id" class="wt-tree-item" role="treeitem"
+			:class="{selected: row.id === localSelected, disabled: row.disabled}"
+			:aria-disabled="row.disabled ? 'true' : null"
 			:style="'padding-left: ' + (row.depth * 1.25 + 0.25) + 'rem'"
 			@click="onSelect(row)">
 			<span class="wt-tree-toggle" @click.stop="onToggle(row)">

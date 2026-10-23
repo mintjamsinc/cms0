@@ -268,6 +268,53 @@ export const CONTENT_QUERIES = {
     }
   `,
 
+  /**
+   * The folders of a folder, with whether the caller may create something in
+   * each, for the folder picker. Files come back too (the server does not
+   * filter by type); the caller drops them.
+   */
+  LIST_FOLDERS_PAGE: `
+    query ListFoldersPage($path: String!, $first: Int, $after: String) {
+      children(path: $path, first: $first, after: $after) {
+        edges {
+          node {
+            path
+            name
+            nodeType
+            mimeType
+            hasChildren
+            permissions {
+              addChildren
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  `,
+
+  /** The caller's privileges on one node */
+  GET_NODE_PERMISSIONS: `
+    query GetNodePermissions($path: String!) {
+      node(path: $path) {
+        path
+        permissions {
+          read
+          write
+          addChildren
+          remove
+          lock
+          manageVersions
+          readAccessControl
+          modifyAccessControl
+        }
+      }
+    }
+  `,
+
   /** Get references to a node */
   GET_REFERENCES: `
     query GetReferences($path: String!, $first: Int, $after: String) {

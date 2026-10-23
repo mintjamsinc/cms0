@@ -451,6 +451,20 @@ function compileFullTextSearch(input: string): { predicate: string | null; error
 // within a few frames.
 const NAV_SPINNER_DELAY_MS = 300;
 
+/**
+ * Drag type of an attachment dragged out of the Mail app: a list of
+ * `{ url, name, mimeType }`. The file is read from its URL (the Mail app's
+ * attachment script in the system workspace, this origin) and uploaded like a
+ * file from the PC, so conflicts and versioned files are handled the same way.
+ */
+const MAIL_ATTACHMENT_DRAG_TYPE = 'application/x-webtop-mail-attachment';
+
+interface MailAttachmentDrag {
+	url: string;
+	name: string;
+	mimeType?: string;
+}
+
 export const App = {
 	data() {
 		return {
@@ -2049,8 +2063,14 @@ export const App = {
 		onForbiddenDragOver(event: DragEvent) {
 			if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
 		},
-		// Center pane: accept internal drags, save-as chips, and OS file uploads.
+		// Center pane: accept internal drags, mail attachments, save-as chips, and
+		// OS file uploads.
 		onDragOver(event: DragEvent) {
+			// An attachment dragged out of the Mail app is copied in
+			if (this._hasMailAttachmentDrag(event)) {
+				if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+				return;
+			}
 			// Internal webtop file drags (same-iframe or cross-iframe)
 			if (this._hasInternalDragData(event)) {
 				if (event.dataTransfer) {
@@ -2128,6 +2148,13 @@ export const App = {
 		async onDrop(event: DragEvent) {
 			const vm = this;
 			vm.errorMessage = '';
+
+			// Attachments dragged out of the Mail app → copied into the current folder
+			const mailAttachments = vm._getMailAttachmentDrag(event);
+			if (mailAttachments) {
+				await vm.saveMailAttachments(mailAttachments, '');
+				return;
+			}
 
 			// Handle internal webtop file drags (same-iframe per-row handled by onItemDrop;
 			// cross-iframe or background drops handled here → move/copy to current directory)
@@ -3263,11 +3290,67 @@ export const App = {
 		},
 		_hasInternalDragData(event: DragEvent): boolean {
 			if (event.dataTransfer?.types.includes('application/x-webtop-files')) return true;
-			// Cross-iframe: check parent window drag data
+			// Cross-iframe: check parent window drag data. Other apps park their
+			// own payloads there too (mailAttachments), so only `items` counts.
 			try {
-				if ((window.parent as any).__webtopDragData) return true;
+				if (Array.isArray((window.parent as any).__webtopDragData?.items)) return true;
 			} catch (_) { /* cross-origin safety */ }
 			return false;
+		},
+		// ── Attachments dragged out of the Mail app ──────────────────────────
+		_hasMailAttachmentDrag(event: DragEvent): boolean {
+			if (event.dataTransfer?.types.includes(MAIL_ATTACHMENT_DRAG_TYPE)) return true;
+			try {
+				if (Array.isArray((window.parent as any).__webtopDragData?.mailAttachments)) return true;
+			} catch (_) { /* cross-origin safety */ }
+			return false;
+		},
+		_getMailAttachmentDrag(event: DragEvent): MailAttachmentDrag[] | null {
+			const raw = event.dataTransfer?.getData(MAIL_ATTACHMENT_DRAG_TYPE);
+			if (raw) {
+				try {
+					const list = JSON.parse(raw);
+					if (Array.isArray(list) && list.length) return list;
+				} catch (_) { /* not ours */ }
+			}
+			try {
+				const list = (window.parent as any).__webtopDragData?.mailAttachments;
+				if (Array.isArray(list) && list.length) return list;
+			} catch (_) { /* cross-origin safety */ }
+			return null;
+		},
+		/**
+		 * Reads each attachment from its URL and uploads it into `dir` (a folder
+		 * name under the current folder, or '' for the current folder itself),
+		 * through the same path as files from the PC.
+		 */
+		async saveMailAttachments(list: MailAttachmentDrag[], dir: string) {
+			const vm = this;
+			if (vm.currentFolderDeleted) return;
+			vm.errorMessage = '';
+			vm.uploadMonitor = {
+				isCanceled: false,
+				target: { currentFile: '', progressPercent: 0 },
+				cancel() { this.isCanceled = true; },
+			};
+			const files: { file: File; path: string }[] = [];
+			try {
+				for (const a of list) {
+					const name = (a.name || '').replace(/[\\/\u0000-\u001F\u007F]/g, '_').trim() || 'attachment';
+					vm.uploadMonitor.target.currentFile = name;
+					const response = await fetch(a.url, { credentials: 'same-origin' });
+					if (!response.ok) throw new Error(`HTTP ${response.status}`);
+					const blob = await response.blob();
+					files.push({
+						file: new File([blob], name, { type: a.mimeType || blob.type || 'application/octet-stream' }),
+						path: dir ? `${dir}/${name}` : name,
+					});
+				}
+			} catch (error: any) {
+				vm.errorMessage = vm.t('app.content-browser.error.attachmentReadFailed', { error: error?.message || String(error) }, 'The attachment could not be read: {error}');
+				return;
+			}
+			await vm._performUpload(files);
 		},
 		/**
 		 * Check if the current drag should be forbidden for the given destination.
@@ -3317,6 +3400,13 @@ export const App = {
 			// File rows have no drop semantics of their own — let the event
 			// bubble so the parent's onDragOver treats it as a background drop.
 			if (!item.isCollection) return;
+			// A mail attachment can be dropped on a folder row as well
+			if (this._hasMailAttachmentDrag(event)) {
+				event.stopPropagation();
+				if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+				this.dragOverFolderID = item.id;
+				return;
+			}
 			if (!this._hasInternalDragData(event)) return;
 			// Folder rows own this dragover. Stop propagation so the parent's
 			// onDragOver does not re-evaluate forbidden against currentPath
@@ -3341,6 +3431,14 @@ export const App = {
 			const vm = this;
 			vm.dragOverFolderID = null;
 			if (!item.isCollection) return;
+
+			// Attachments dragged out of the Mail app → copied into this folder
+			const mailAttachments = vm._getMailAttachmentDrag(event);
+			if (mailAttachments) {
+				event.stopPropagation();
+				await vm.saveMailAttachments(mailAttachments, item.name);
+				return;
+			}
 
 			const dragItems = vm._getInternalDragItems(event);
 			if (!dragItems || dragItems.length === 0) return;

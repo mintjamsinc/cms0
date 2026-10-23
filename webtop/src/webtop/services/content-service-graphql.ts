@@ -7,9 +7,12 @@
 import { GraphQLClient } from '../graphql/client.js';
 import { CONTENT_QUERIES, CONTENT_MUTATIONS } from '../graphql/queries/content.js';
 import { resolveLocale } from './webtop-i18n-service.js';
+import { isFolderNode } from '../graphql/types.js';
 import type {
   Node,
   NodeConnection,
+  NodePermissions,
+  FolderEntry,
   FacetConnection,
   PropertyInput,
   SetPropertiesResult,
@@ -159,6 +162,55 @@ export class ContentServiceGraphQL {
       }
       after = nextCursor;
     }
+  }
+
+  /**
+   * The folders directly in a folder, by name, each with whether the caller
+   * may create something in it. Files are left out. For the folder picker.
+   */
+  async listFolders(path: string, pageSize = 100): Promise<FolderEntry[]> {
+    const folders: FolderEntry[] = [];
+    let after: string | undefined;
+    let hasMore = true;
+    while (hasMore) {
+      const data = await this.#client.query<{
+        children: {
+          edges: { node: Pick<Node, 'path' | 'name' | 'nodeType' | 'mimeType' | 'hasChildren' | 'permissions'> }[];
+          pageInfo: { hasNextPage: boolean; endCursor?: string | null };
+        };
+      }>(CONTENT_QUERIES.LIST_FOLDERS_PAGE, { path, first: pageSize, after });
+      const result = data.children;
+      for (const { node } of result.edges) {
+        if (!isFolderNode(node)) continue;
+        folders.push({
+          path: node.path,
+          name: node.name,
+          nodeType: node.nodeType,
+          hasChildren: node.hasChildren === true,
+          addChildren: node.permissions?.addChildren === true,
+        });
+      }
+      hasMore = result.pageInfo.hasNextPage;
+      const nextCursor = result.pageInfo.endCursor ?? undefined;
+      if (hasMore && (!nextCursor || nextCursor === after)) {
+        break;
+      }
+      after = nextCursor;
+    }
+    folders.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }));
+    return folders;
+  }
+
+  /**
+   * The caller's privileges on a node, or null when there is no such node (or
+   * it cannot be read).
+   */
+  async getPermissions(path: string): Promise<NodePermissions | null> {
+    const data = await this.#client.query<{ node: { permissions: NodePermissions | null } | null }>(
+      CONTENT_QUERIES.GET_NODE_PERMISSIONS,
+      { path }
+    );
+    return data.node?.permissions ?? null;
   }
 
   /**

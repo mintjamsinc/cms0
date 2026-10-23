@@ -726,6 +726,14 @@
 			background-color: var(--item-selected-bg);
 			color: var(--item-selected-color);
 		}
+		&.disabled {
+			color: var(--text-muted-color);
+			cursor: default;
+
+			&:hover {
+				background-color: transparent;
+			}
+		}
 	}
 	.wt-tree-toggle {
 		width: 1rem;
@@ -746,6 +754,34 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	/* ------------------------------------------------------------------------
+	 * <wt-folder-picker> — modal that picks a folder
+	 * ---------------------------------------------------------------------- */
+	.wt-folder-picker-tree {
+		max-height: 18rem;
+		overflow: auto;
+		padding: 0.25rem;
+		border: 1px solid var(--input-border-color);
+		border-radius: var(--wt-radius-md);
+	}
+	.wt-folder-picker-lock {
+		font-size: 11px;
+		color: var(--text-muted-color);
+	}
+	.wt-folder-picker-create {
+		display: flex;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+
+		input.wt {
+			flex: 1;
+			min-width: 0;
+		}
+	}
+	.wt-folder-picker-new {
+		margin-right: auto;
 	}
 
 	/* ------------------------------------------------------------------------

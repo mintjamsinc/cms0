@@ -49,6 +49,7 @@ import './wt-file-tabs.js';
 import './wt-find-replace.js';
 import './wt-live-indicator.js';
 import './wt-dropzone.js';
+import './wt-folder-picker.js';
 
 /**
  * Registered component tags. One entry per component; kept in sync with the
@@ -75,6 +76,7 @@ const COMPONENT_TAGS = [
 	'wt-find-replace',
 	'wt-live-indicator',
 	'wt-dropzone',
+	'wt-folder-picker',
 ];
 
 let uiReady: Promise<void> | undefined;

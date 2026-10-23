@@ -264,3 +264,20 @@ browser knows:
 The codec, the sample rate and the channel count are not available to the
 browser. They would come from Tika through the `webtop-media-metadata` route,
 the way the orientation does, in properties of their own.
+
+## Drops from other apps
+
+Besides files from the PC and its own items, the file list accepts two kinds
+of drops from other Webtop windows. Apps run in their own frames, so a drag
+across windows carries its payload twice: in the drag data, which the browser
+hands over on drop, and on the parent window (`__webtopDragData`), which the
+list reads while the drag is still over it to choose the cursor.
+
+| Drag type | From | What happens |
+| --- | --- | --- |
+| `application/x-webtop-save` | Memo, text editor, BPMN and EIP modelers | The payload holds the content itself; it is uploaded as a new file, and the source app is told the path over the `webtop-save-as` channel. |
+| `application/x-webtop-mail-attachment` | Mail (an attachment of a message) | The payload holds the attachment's URL, name and type. The file is read from that URL (the Mail app's attachment script in the system workspace, same origin) and uploaded through the same path as a file from the PC: same conflict dialog, same handling of versioned files. Dropped on a folder row, it goes into that folder. |
+
+Only a payload with `items` on the parent window counts as an internal move
+or copy of the browser's own items; the other payloads are looked at by
+their own keys (`mailAttachments`).

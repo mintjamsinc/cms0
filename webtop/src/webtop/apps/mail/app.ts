@@ -126,6 +126,40 @@ function emptyCompose() {
 	};
 }
 
+/** Drag type of an attachment dragged out of the reader; the Content Browser accepts it. */
+const MAIL_ATTACHMENT_DRAG_TYPE = 'application/x-webtop-mail-attachment';
+
+/** An item dragged out of a Content Browser window (its application/x-webtop-files payload). */
+interface RepositoryDragItem {
+	path: string;
+	name: string;
+	isCollection: boolean;
+	mimeType?: string;
+	downloadURL?: string;
+}
+
+/** The repository items of a drag from a Content Browser, from the drag data or the parent window; null for other drags. */
+function repositoryDragItems(event: DragEvent): RepositoryDragItem[] | null {
+	const raw = event.dataTransfer?.getData('application/x-webtop-files');
+	if (raw) {
+		try {
+			const items = JSON.parse(raw);
+			if (Array.isArray(items)) return items;
+		} catch (_) { /* not ours */ }
+	}
+	try {
+		const data = (window.parent as any).__webtopDragData;
+		if (data && Array.isArray(data.items)) return data.items;
+	} catch (_) { /* cross-origin safety */ }
+	return null;
+}
+
+/** A file name the repository accepts: no path separators or control characters. */
+function safeFileName(name: string): string {
+	const clean = (name || '').replace(/[\\/\u0000-\u001F\u007F]/g, '_').trim();
+	return clean && clean !== '.' && clean !== '..' ? clean : 'attachment';
+}
+
 function randomKey(): string {
 	const bytes = new Uint8Array(16);
 	crypto.getRandomValues(bytes);
@@ -196,6 +230,13 @@ const App = {
 			accountsDialog: { visible: false },
 			olderDialog: { visible: false, accountId: '', days: 90 },
 			confirmDialog: { visible: false, title: '', message: '' },
+			// Saving an attachment of the open message into a folder of the workspace.
+			folderPicker: {
+				visible: false,
+				attachment: null as { index: number; name: string; mimeType: string } | null,
+				/** The folder picked last time, offered first the next time. */
+				lastPath: '',
+			},
 			statusMessage: '',
 
 			labels: { colors: [], tags: [] } as MailLabels,
@@ -325,6 +366,25 @@ const App = {
 		},
 		visibleAttachments(): { index: number; name: string; mimeType: string }[] {
 			return (this.current?.attachments || []).filter((a: { inline: boolean }) => !a.inline);
+		},
+		/** Content service of the workspace the Webtop runs in: where attachments are saved. */
+		contentService(): unknown {
+			return this.instance?.api.content ?? null;
+		},
+		workspaceName(): string {
+			return this.instance?.api.workspace || '/';
+		},
+		folderPickerLabels(): Record<string, string> {
+			return {
+				select: this.t('app.mail.folderPicker.select', undefined, 'Save here'),
+				cancel: this.t('common.cancel'),
+				newFolder: this.t('app.mail.folderPicker.newFolder', undefined, 'New folder'),
+				newFolderName: this.t('app.mail.folderPicker.newFolderName', undefined, 'Folder name'),
+				create: this.t('app.mail.folderPicker.create', undefined, 'Create'),
+				loading: this.t('app.mail.folderPicker.loading', undefined, 'Loading…'),
+				noAccess: this.t('app.mail.folderPicker.noAccess', undefined, 'You cannot save here.'),
+				invalidName: this.t('app.mail.folderPicker.invalidName', undefined, 'The name cannot contain / \\ : * ? " < > |'),
+			};
 		},
 		securityItems(): { value: Security; label: string }[] {
 			return [
@@ -967,6 +1027,80 @@ const App = {
 		rawHref(): string {
 			return this.current ? attachmentUrl(this.current.id, { raw: true }) : '#';
 		},
+		/**
+		 * Starts dragging an attachment. The Content Browser reads the payload from
+		 * the drag data (same frame) or from the parent window (another frame) and
+		 * copies the file from its URL into the folder it was dropped on.
+		 */
+		onAttachmentDragStart(a: { index: number; name: string; mimeType: string }, event: DragEvent) {
+			if (!this.current || !event.dataTransfer) return;
+			const payload = [{
+				url: new URL(attachmentUrl(this.current.id, { index: a.index }), window.location.href).toString(),
+				name: a.name,
+				mimeType: a.mimeType,
+			}];
+			event.dataTransfer.effectAllowed = 'copy';
+			event.dataTransfer.setData(MAIL_ATTACHMENT_DRAG_TYPE, JSON.stringify(payload));
+			try {
+				(window.parent as any).__webtopDragData = { mailAttachments: payload, sourceAppID: this.instance?.id };
+			} catch (_) { /* cross-origin safety */ }
+		},
+		onAttachmentDragEnd() {
+			try {
+				const data = (window.parent as any).__webtopDragData;
+				if (data?.mailAttachments) (window.parent as any).__webtopDragData = null;
+			} catch (_) { /* cross-origin safety */ }
+		},
+		/** Opens the folder picker for an attachment of the open message. */
+		saveAttachment(a: { index: number; name: string; mimeType: string }) {
+			if (!this.current) return;
+			this.folderPicker.attachment = { index: a.index, name: a.name, mimeType: a.mimeType };
+			this.folderPicker.visible = true;
+		},
+		async onFolderPicked(folder: string) {
+			const a = this.folderPicker.attachment;
+			const message = this.current as MailMessage | null;
+			const content = this.instance?.api.content;
+			if (!a || !message || !content) return;
+			this.folderPicker.lastPath = folder;
+			const name = safeFileName(a.name);
+			const dest = folder.endsWith('/') ? `${folder}${name}` : `${folder}/${name}`;
+			try {
+				const existing = await content.getNode(dest);
+				if (existing) {
+					this.openConfirm(
+						this.t('app.mail.message.replaceFile', undefined, 'Replace file'),
+						this.t('app.mail.message.attachmentExists', { name, path: folder }, '{path} already has {name}. Replace it?'),
+						() => { this.copyAttachmentTo(message.id, a, folder, name, true); },
+					);
+					return;
+				}
+				await this.copyAttachmentTo(message.id, a, folder, name, false);
+			} catch (e) {
+				this.showStatus(this.t('app.mail.message.attachmentSaveFailed', { name, error: errorText(e) }, '{name} could not be saved: {error}'));
+			}
+		},
+		/** Reads the attachment from the system workspace and writes it into the folder. */
+		async copyAttachmentTo(messageId: string, a: { index: number; name: string; mimeType: string }, folder: string, name: string, overwrite: boolean) {
+			const content = this.instance?.api.content;
+			if (!content) return;
+			try {
+				const response = await fetch(attachmentUrl(messageId, { index: a.index }), { credentials: 'same-origin' });
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				const blob = await response.blob();
+				const upload = await content.initiateMultipartUpload();
+				try {
+					await content.appendMultipartUploadData(upload.uploadId, blob);
+					await content.completeMultipartUpload(upload.uploadId, folder, name, a.mimeType || blob.type || 'application/octet-stream', overwrite);
+				} catch (e) {
+					try { await content.abortMultipartUpload(upload.uploadId); } catch { /* ignore */ }
+					throw e;
+				}
+				this.showStatus(this.t('app.mail.message.attachmentSaved', { name, path: folder }, '{name} was saved to {path}.'));
+			} catch (e) {
+				this.showStatus(this.t('app.mail.message.attachmentSaveFailed', { name, error: errorText(e) }, '{name} could not be saved: {error}'));
+			}
+		},
 
 		// =====================================================================
 		// Older mail
@@ -1587,10 +1721,34 @@ const App = {
 			this.attachFiles(files);
 		},
 		onComposeDrop(event: DragEvent) {
+			// Files dragged from a Content Browser window come as repository items.
+			const items = repositoryDragItems(event);
+			if (items) {
+				event.preventDefault();
+				this.attachRepositoryFiles(items);
+				return;
+			}
 			const files = Array.from(event.dataTransfer?.files || []);
 			if (!files.length) return;
 			event.preventDefault();
 			this.attachFiles(files);
+		},
+		/** Reads files of the workspace by their download URL and attaches them; folders are skipped. */
+		async attachRepositoryFiles(items: RepositoryDragItem[]) {
+			const c = this.compose;
+			const files: File[] = [];
+			for (const item of items) {
+				if (item.isCollection || !item.downloadURL) continue;
+				try {
+					const response = await fetch(item.downloadURL, { credentials: 'same-origin' });
+					if (!response.ok) throw new Error(`HTTP ${response.status}`);
+					const blob = await response.blob();
+					files.push(new File([blob], item.name, { type: item.mimeType || blob.type || 'application/octet-stream' }));
+				} catch (e) {
+					c.error = this.t('app.mail.compose.uploadFailed', { name: item.name, error: errorText(e) }, '{name} could not be attached: {error}');
+				}
+			}
+			if (files.length) await this.attachFiles(files);
 		},
 		/** Uploads files into the draft's folder, then records them in the draft. */
 		async attachFiles(files: File[]) {

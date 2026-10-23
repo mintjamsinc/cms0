@@ -144,5 +144,18 @@
 	"app.mail.compose.bulletList": "箇条書き",
 	"app.mail.compose.orderedList": "番号付きリスト",
 	"app.mail.compose.quote": "引用",
-	"app.mail.compose.clear": "書式をクリア"
+	"app.mail.compose.clear": "書式をクリア",
+	"app.mail.message.saveAttachment": "フォルダーに保存…",
+	"app.mail.message.saveAttachmentTitle": "添付ファイルを保存",
+	"app.mail.message.attachmentSaved": "{name} を {path} に保存しました。",
+	"app.mail.message.attachmentSaveFailed": "{name} を保存できませんでした: {error}",
+	"app.mail.message.replaceFile": "ファイルを置き換え",
+	"app.mail.message.attachmentExists": "{path} には {name} がすでにあります。置き換えますか？",
+	"app.mail.folderPicker.select": "ここに保存",
+	"app.mail.folderPicker.newFolder": "新しいフォルダー",
+	"app.mail.folderPicker.newFolderName": "フォルダー名",
+	"app.mail.folderPicker.create": "作成",
+	"app.mail.folderPicker.loading": "読み込み中…",
+	"app.mail.folderPicker.noAccess": "ここには保存できません。",
+	"app.mail.folderPicker.invalidName": "名前に / \\ : * ? \" < > | は使えません。"
 }

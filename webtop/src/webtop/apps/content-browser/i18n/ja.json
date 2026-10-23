@@ -292,5 +292,6 @@
 	"app.content-browser.error.folderNameEmpty": "フォルダー名を入力してください",
 	"app.content-browser.error.createFolderFailed": "フォルダーの作成に失敗しました",
 	"app.content-browser.error.fileNameEmpty": "ファイル名を入力してください",
-	"app.content-browser.error.createFileFailed": "ファイルの作成に失敗しました"
+	"app.content-browser.error.createFileFailed": "ファイルの作成に失敗しました",
+	"app.content-browser.error.attachmentReadFailed": "添付ファイルを読み取れませんでした: {error}"
 }

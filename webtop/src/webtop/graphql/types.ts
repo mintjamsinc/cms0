@@ -68,6 +68,33 @@ export interface Node {
   baseVersionName?: string;
   properties: Property[];
   score?: number;
+  /** The caller's effective privileges; fetched only by the queries that ask for it. */
+  permissions?: NodePermissions;
+}
+
+/** What the caller may do with a node, from the repository's access control. */
+export interface NodePermissions {
+  read: boolean;
+  write: boolean;
+  /** Whether files and folders can be created in it; false for a file. */
+  addChildren: boolean;
+  remove: boolean;
+  lock: boolean;
+  manageVersions: boolean;
+  readAccessControl: boolean;
+  modifyAccessControl: boolean;
+}
+
+/**
+ * A folder as the folder picker lists it: the node fields it needs and
+ * whether the caller may create something in it.
+ */
+export interface FolderEntry {
+  path: string;
+  name: string;
+  nodeType: string;
+  hasChildren: boolean;
+  addChildren: boolean;
 }
 
 export interface Property {
