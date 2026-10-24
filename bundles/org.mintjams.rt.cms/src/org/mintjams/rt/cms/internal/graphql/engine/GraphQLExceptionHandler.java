@@ -39,6 +39,7 @@ import javax.script.ScriptException;
 
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.resolver.AppResolverException;
+import org.mintjams.script.ConsentRequiredException;
 
 import graphql.GraphQLError;
 import graphql.GraphqlErrorBuilder;
@@ -166,6 +167,11 @@ final class GraphQLExceptionHandler implements DataFetcherExceptionHandler {
 		}
 		if (exception instanceof IllegalStateException) {
 			return "UNAVAILABLE";
+		}
+		// The user has to link an account or grant a bundle first: the client
+		// opens the grant page and calls again.
+		if (exception instanceof ConsentRequiredException) {
+			return "CONSENT_REQUIRED";
 		}
 		return "INTERNAL_ERROR";
 	}

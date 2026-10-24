@@ -274,6 +274,9 @@
 						<button class="btn-icon" @click="pickFiles" :title="t('app.mail.compose.attach', undefined, 'Attach files')">
 							<i class="bi bi-paperclip"></i>
 						</button>
+						<button class="btn-icon" @click="openCloudAttachMenu($event)" :title="t('app.mail.compose.attachCloud', undefined, 'Attach from cloud storage')">
+							<i class="bi bi-cloud-plus"></i>
+						</button>
 						<input type="file" multiple class="d-none" ref="composeFile" @change="onFilesPicked($event)">
 						<div class="ml-segment">
 							<button type="button" :class="{ active: compose.format === 'text' }" @click="setComposeFormat('text')">{{ t('app.mail.message.text', undefined, 'Text') }}</button>
@@ -664,6 +667,11 @@
 			:root-label="workspaceName" :initial-path="folderPicker.lastPath"
 			:title="t('app.mail.message.saveAttachmentTitle', undefined, 'Save attachment')"
 			:labels="folderPickerLabels" @select="onFolderPicked($event.detail)"></wt-folder-picker>
+		<!-- A file of the user's Google Drive / OneDrive to attach or link to. -->
+		<wt-cloud-picker v-model:open="cloudPicker.visible" :service="instance ? instance.api.cloud : null"
+			:provider="cloudPicker.provider" :provider-name="cloudPicker.providerName" mode="files" :multiple="cloudPicker.action === 'attach'"
+			:title="t('app.mail.compose.cloudTitle', { name: cloudPicker.providerName }, 'Choose from {name}')"
+			:labels="cloudPickerLabels" @select="onCloudPicked($event.detail)"></wt-cloud-picker>
 
 		<!-- Confirmation dialog -->
 		<wt-dialog v-model:open="confirmDialog.visible" size="sm" @close="closeConfirmDialog">

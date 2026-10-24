@@ -58,6 +58,14 @@
 
 			<span class="nav-spacer"></span>
 
+			<!-- Cloud files: import from, or export to, the user's Google Drive / OneDrive -->
+			<div class="toolbar-group">
+				<button class="btn-icon" @click="openCloudMenu(event)" :disabled="listLoading"
+					:title="t('app.content-browser.toolbar.cloud', undefined, 'Cloud storage')">
+					<i class="bi bi-cloud"></i>
+				</button>
+			</div>
+
 			<!-- Sort, for the grid view, which has no column headers to click -->
 			<div v-if="listViewMode === 'grid'" class="toolbar-group">
 				<button class="btn-icon" @click="openGridSortMenu(event)" :title="t('app.content-browser.toolbar.sort')">
@@ -1276,6 +1284,30 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- Cloud files: what to import, or where to export (the files bundle of a linked account). -->
+		<wt-cloud-picker v-model:open="cloudPicker.visible" :service="instance ? instance.api.cloud : null"
+			:provider="cloudPicker.provider" :provider-name="cloudPicker.providerName"
+			:mode="cloudPicker.mode" :multiple="cloudPicker.multiple"
+			:title="cloudPicker.action === 'export' ? t('app.content-browser.cloud.exportTitle', { name: cloudPicker.providerName }, 'Export to {name}') : t('app.content-browser.cloud.importTitle', { name: cloudPicker.providerName }, 'Import from {name}')"
+			:labels="cloudPickerLabels" @select="onCloudPicked($event.detail)"></wt-cloud-picker>
+
+		<!-- The outcome of an export, or a message about a cloud file: there is no status line to carry it. -->
+		<wt-dialog :open="cloudResult.visible" size="sm" :title="cloudResult.title" @close="closeCloudResult">
+			<template v-slot="d">
+				<ul v-if="cloudResult.entries.length" class="cb-cloud-result-list">
+					<li v-for="e in cloudResult.entries" :key="e.id">
+						<i class="bi bi-check-circle text-success me-1"></i>
+						<a v-if="e.webUrl" :href="e.webUrl" target="_blank" rel="noopener">{{ e.name }}</a>
+						<span v-else>{{ e.name }}</span>
+					</li>
+				</ul>
+				<wt-inline-message v-for="(error, i) in cloudResult.errors" :key="i" type="error" class="mt-2">{{ error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt wt-primary" @click="closeCloudResult">{{ t('app.content-browser.dialog.close', undefined, 'Close') }}</button>
+			</template>
+		</wt-dialog>
 
 		</template>
 		<!-- /Readiness gate -->

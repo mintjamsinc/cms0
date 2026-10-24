@@ -26,9 +26,18 @@
 # has to be published and verified, because the mail bundle uses a restricted
 # scope. An app left in "Testing" issues refresh tokens that expire after
 # seven days.
+#
+# The files bundle (Google Drive) chooses files with the Google Picker, which
+# runs in the browser and needs two more values from the same project:
+# apiKey, an API key (Credentials › API key; restrict it to the Google Picker
+# API and to this server's origin), and appId, the project number (Cloud
+# console › project settings). Neither is a secret. Without them the Drive
+# features show only the files this app created.
 google:
   clientID: ""
   clientSecret: ""
+  apiKey: ""
+  appId: ""
 
 # Microsoft Entra admin center › App registrations (platform: Web). Set
 # "Supported account types" to match `tenant`:

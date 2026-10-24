@@ -281,3 +281,24 @@ list reads while the drag is still over it to choose the cursor.
 Only a payload with `items` on the parent window counts as an internal move
 or copy of the browser's own items; the other payloads are looked at by
 their own keys (`mailAttachments`).
+
+## Cloud storage
+
+The cloud button in the toolbar lists, for each provider an administrator
+enabled (see `linked-accounts.md`), three actions on the user's own Google
+Drive or OneDrive:
+
+| Action | What happens |
+| --- | --- |
+| Import files… | The picked files are copied into the folder being browsed. A Google document is copied as its Office export (`.docx`, `.xlsx`, `.pptx`, otherwise PDF). A name the folder already has gets a number appended. |
+| Import as links… | A small file per picked item, of type `application/vnd.mintjams.webtop.cloud-link+json`, is written into the folder. Opening it opens the item where the provider shows it, in a new tab. Nothing is copied. |
+| Export selected files… | The selected files are uploaded to a folder of the drive the user picks. The outcome is shown in a dialog, with a link to each uploaded file. Folders are not exported. |
+
+The first use of a provider asks the user to link the account and allow the
+*files* bundle, in a popup; after that the picker opens at once. With Google
+the picker is Google's own dialog; with Microsoft it is the Webtop's, reading
+the drive a folder at a time. Imports run on the server in the user's own
+session: a folder the user cannot write to refuses them, and the copies carry
+the user as creator like an upload. The button is disabled while the list is
+loading, and the two imports while a search result is shown, since there is
+no folder to import into.

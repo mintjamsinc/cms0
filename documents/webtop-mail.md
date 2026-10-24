@@ -97,7 +97,11 @@ message, opens the compose pane in place of the reader.
   PC onto the pane, or drop of files from a Content Browser window), up to
   25 MB in all. A file dropped from the Content Browser is read from the
   workspace and uploaded into the draft like a file from the PC; folders are
-  skipped.
+  skipped. The cloud button attaches a file of the user's Google Drive or
+  OneDrive instead: it is copied into the draft on the server (a Google
+  document as its Office export), or, with *Insert a link to a file*, only a
+  link to it goes into the body. The first use asks to link the account and
+  allow the *files* bundle (see `linked-accounts.md`).
 - **Drafts** are saved as one types, in the Webtop only (the server's Drafts
   folder is not used). Closing the pane keeps the draft; *Drafts* in the left
   pane lists them.

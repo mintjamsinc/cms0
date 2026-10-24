@@ -60,7 +60,12 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
  *     authorization: https://...
  *     token: https://...
  *     userinfo: https://...
+ *     graph: https://...       # base of the Graph API (microsoft), drive: of the Drive API (google)
  * </pre>
+ *
+ * <p>The google section may also carry {@code apiKey} and {@code appId}: the
+ * browser key and the project number the Google Picker needs. They are not
+ * secrets, and they are the only values of this file that reach a browser.
  *
  * <p>Nothing is shipped: a provider without a client id here is not offered
  * to anyone. The file is re-read when it changes; no restart is needed. A
@@ -154,6 +159,8 @@ public final class ConnectionClients {
 			}
 			String secret = resolve(m.get("clientSecret"), source + ".clientSecret");
 			String tenant = resolve(m.get("tenant"), source + ".tenant");
+			String apiKey = blankToNull(resolve(m.get("apiKey"), source + ".apiKey"));
+			String appId = blankToNull(resolve(m.get("appId"), source + ".appId"));
 			Map<String, String> endpoints = new LinkedHashMap<>();
 			if (m.get("endpoints") instanceof Map) {
 				for (Map.Entry<?, ?> e : ((Map<?, ?>) m.get("endpoints")).entrySet()) {
@@ -164,9 +171,13 @@ public final class ConnectionClients {
 				}
 			}
 			clients.put(provider.getId(), new Client(provider, clientId.trim(),
-					(secret == null) ? "" : secret.trim(), tenant, endpoints));
+					(secret == null) ? "" : secret.trim(), tenant, apiKey, appId, endpoints));
 		}
 		return clients;
+	}
+
+	private static String blankToNull(String value) {
+		return (value == null || value.isBlank()) ? null : value.trim();
 	}
 
 	/**
@@ -211,14 +222,18 @@ public final class ConnectionClients {
 		private final String fClientId;
 		private final String fClientSecret;
 		private final String fTenant;
+		private final String fApiKey;
+		private final String fAppId;
 		private final Map<String, String> fEndpoints;
 
 		private Client(ConnectionProviders.Provider provider, String clientId, String clientSecret, String tenant,
-				Map<String, String> endpoints) {
+				String apiKey, String appId, Map<String, String> endpoints) {
 			fProvider = provider;
 			fClientId = clientId;
 			fClientSecret = clientSecret;
 			fTenant = tenant;
+			fApiKey = apiKey;
+			fAppId = appId;
 			fEndpoints = endpoints;
 		}
 
@@ -236,6 +251,25 @@ public final class ConnectionClients {
 
 		public String getTenant() {
 			return fTenant;
+		}
+
+		/**
+		 * The browser API key for the provider's client-side picker (Google
+		 * Picker), or null when none is set. It is a public key, meant for the
+		 * browser; the file still never leaves the server as a whole.
+		 */
+		public String getApiKey() {
+			return fApiKey;
+		}
+
+		/** The provider's application id (for Google, the Cloud project number), or null. */
+		public String getAppId() {
+			return fAppId;
+		}
+
+		/** The endpoint the file overrides under this name, or {@code fallback}. */
+		public String getEndpoint(String name, String fallback) {
+			return fEndpoints.getOrDefault(name, fallback);
 		}
 
 		public String getAuthorizationEndpoint() {

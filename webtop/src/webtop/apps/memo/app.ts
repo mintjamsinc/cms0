@@ -1,7 +1,7 @@
 import { initUi } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import type { Node } from "../../graphql/types.js";
+import type { CloudEntry, LinkedAccounts, Node } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
 import { SWATCH_COLORS, SWATCH_COLOR_MAP, SWATCH_HIGHLIGHT_COLORS } from "../../lib/color-palette.js";
@@ -231,6 +231,11 @@ function isImageFile(mimeType: string | undefined, fileName: string | undefined)
 	return IMAGE_EXTENSIONS.has(ext);
 }
 
+/** Text placed inside an HTML element or attribute of the exported document. */
+function escapeHtmlText(text: string): string {
+	return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
 export const App = {
 	data() {
 		return {
@@ -384,9 +389,35 @@ export const App = {
 			// native window.prompt). `hasExisting` toggles the "Remove link"
 			// button when the caret already sits on a link.
 			linkDialog: { visible: false, url: '', hasExisting: false },
+			// Exporting the memo to the user's Google Drive / OneDrive (the files
+			// bundle of a linked account): the destination folder picker and the
+			// outcome, which has nowhere else to show.
+			cloudPicker: {
+				visible: false,
+				provider: '',
+				providerName: '',
+				action: '' as '' | 'gdoc' | 'html',
+			},
+			cloudResult: {
+				visible: false,
+				title: '',
+				entry: null as CloudEntry | null,
+				error: '',
+				busy: false,
+			},
 		};
 	},
 	computed: {
+		cloudPickerLabels(): Record<string, string> {
+			return {
+				// The picker fills {name} itself; the message formatter needs a value for it.
+				selectFolder: this.t('app.memo.cloud.pickFolder', { name: '{name}' }, 'Export to {name}'),
+				cancel: this.t('app.memo.dialog.cancel', undefined, 'Cancel'),
+				loading: this.t('app.memo.cloud.loading', undefined, 'Loading…'),
+				empty: this.t('app.memo.cloud.empty', undefined, 'This folder is empty.'),
+				up: this.t('app.memo.cloud.up', undefined, 'Up'),
+			};
+		},
 		// Items for the wt-file-tabs strip.
 		fileTabItems(): { key: string; label: string; modified: boolean; title: string }[] {
 			return (this.files as MemoFile[]).map((f: MemoFile) => ({
@@ -443,6 +474,82 @@ export const App = {
 		},
 	},
 	methods: {
+		// ---- Export to cloud storage ------------------------------------------
+		//
+		// The memo's HTML goes up as a Google document (Drive converts it) or
+		// as an HTML file (OneDrive, or Google without conversion). The files
+		// bundle is asked for at that moment when the user has not granted it;
+		// the destination folder is picked in <wt-cloud-picker>.
+		async openCloudExportMenu(event: MouseEvent) {
+			const vm = this;
+			const connections = vm.instance?.api.connections;
+			const popup = vm.instance?.popup;
+			const el = event.currentTarget as HTMLElement | null;
+			if (!connections || !popup || !el) return;
+			const rect = el.getBoundingClientRect();
+			let linked: LinkedAccounts;
+			try {
+				linked = await connections.getLinkedAccounts();
+			} catch (e: any) {
+				vm.showCloudResult(vm.t('app.memo.cloud.title', undefined, 'Export to cloud storage'), null, e?.message || String(e));
+				return;
+			}
+			const items: any[] = [];
+			if (!linked.providers.length) {
+				items.push({ id: '__none', label: vm.t('app.memo.cloud.notConfigured', undefined, 'No cloud storage is enabled on this server.'), disabled: true });
+			}
+			for (const p of linked.providers) {
+				const group: any = { label: p.name, items: [] };
+				if (p.id === 'google') {
+					group.items.push({ id: `gdoc:${p.id}`, label: vm.t('app.memo.cloud.asGoogleDoc', undefined, 'Export as a Google document…'), icon: 'bi bi-file-earmark-text' });
+				}
+				group.items.push({ id: `html:${p.id}`, label: vm.t('app.memo.cloud.asHtml', undefined, 'Export as HTML…'), icon: 'bi bi-filetype-html' });
+				items.push(group);
+			}
+			const handle = popup.open({ anchor: rect, placement: 'bottom-start', minWidth: 240, items });
+			const picked = await handle.result;
+			if (picked == null || picked === '__none') return;
+			const [action, provider] = String(picked).split(':');
+			const providerName = linked.providers.find((p) => p.id === provider)?.name || provider;
+			let allowed = false;
+			try {
+				allowed = await connections.ensure(provider, 'files');
+			} catch (e: any) {
+				vm.showCloudResult(providerName, null, e?.message === 'popup_blocked'
+					? vm.t('app.memo.cloud.popupBlocked', undefined, 'The browser blocked the sign-in window. Allow popups for this site and try again.')
+					: (e?.message || String(e)));
+				return;
+			}
+			if (!allowed) return;
+			vm.cloudPicker = { visible: true, provider, providerName, action: action as 'gdoc' | 'html' };
+		},
+		async onCloudFolderPicked(folders: CloudEntry[]) {
+			const vm = this;
+			const picker = vm.cloudPicker;
+			const folder = folders && folders[0];
+			if (!folder || !picker.action) return;
+			const cloud = vm.instance?.api.cloud;
+			if (!cloud) return;
+			const ed = vm.activeEditor();
+			if (!ed) return;
+			const stem = (vm.currentFile.name || 'untitled').replace(/\.[^.]+$/, '') || 'untitled';
+			const title = stem;
+			const html = `<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>${escapeHtmlText(title)}</title></head><body>\n${ed.getHTML()}\n</body></html>\n`;
+			const name = picker.action === 'gdoc' ? stem : `${stem}.html`;
+			vm.cloudResult = { visible: true, title: vm.t('app.memo.cloud.exporting', { name: picker.providerName }, 'Exporting to {name}…'), entry: null, error: '', busy: true };
+			try {
+				const entry = await cloud.exportContent(picker.provider, name, 'text/html', html, { folderId: folder.id, convert: picker.action === 'gdoc' });
+				vm.showCloudResult(vm.t('app.memo.cloud.exportedTo', { name: picker.providerName, folder: folder.name }, 'Exported to {name}: {folder}'), entry, '');
+			} catch (e: any) {
+				vm.showCloudResult(vm.t('app.memo.cloud.exportFailed', { name: picker.providerName }, 'The memo could not be exported to {name}.'), null, e?.message || String(e));
+			}
+		},
+		showCloudResult(title: string, entry: CloudEntry | null, error: string) {
+			this.cloudResult = { visible: true, title, entry, error, busy: false };
+		},
+		closeCloudResult() {
+			this.cloudResult.visible = false;
+		},
 		// Reactive i18n lookup. Reads the localization snapshot so every binding
 		// repaints when the user switches language or a bundle hot-reloads.
 		t(messageId: string, params?: Record<string, any>, fallback?: string): string {
@@ -529,6 +636,9 @@ export const App = {
 
 			window.appLaunch = async (instance: ApplicationInstance, options?: LaunchOptions) => {
 				vm.instance = vm.$markRaw(instance);
+				// Handed to <wt-cloud-picker> as a prop: a class instance with
+				// private fields, which must not be read through a reactive proxy.
+				vm.$markRaw(instance.api.cloud);
 				vm.inspectorApi = vm.$markRaw({
 					content: instance.api.content,
 					eventHub: instance.api.eventHub,

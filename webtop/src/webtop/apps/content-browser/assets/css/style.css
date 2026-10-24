@@ -1744,3 +1744,18 @@
 	opacity: 0.5;
 	cursor: default;
 }
+
+/* The outcome of an export to cloud storage: one line per file, linked to where the provider shows it. */
+.cb-cloud-result-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	max-height: 14rem;
+	overflow: auto;
+}
+.cb-cloud-result-list li {
+	padding: 0.2rem 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

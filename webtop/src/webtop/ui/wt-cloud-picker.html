@@ -1,0 +1,39 @@
+<template id="wt-cloud-picker">
+	<div class="wt-cloud-picker">
+		<wt-dialog :open="open && browsing" size="md" :title="title" @update:open="setOpen($event.detail)">
+			<template v-slot="d">
+				<div class="wt-cloud-picker-path">
+					<button type="button" class="wt wt-slim wt-cloud-picker-up" @click="up" :disabled="path.length < 2 || loading"
+						:title="text('up', 'Up')">
+						<i class="bi bi-arrow-90deg-up"></i>
+					</button>
+					<nav class="wt-cloud-picker-crumbs">
+						<template v-for="(p, i) in path" :key="p.id || '__root'">
+							<i v-if="i > 0" class="bi bi-chevron-right wt-cloud-picker-crumb-sep"></i>
+							<button type="button" class="wt-cloud-picker-crumb" :class="{ current: i === path.length - 1 }"
+								@click="navigate(p)" :disabled="loading">{{ p.name }}</button>
+						</template>
+					</nav>
+				</div>
+				<div class="wt-cloud-picker-list" :class="{ loading: loading }">
+					<div v-if="loading" class="wt-cloud-picker-status"><wt-spinner size="sm" class="me-2"></wt-spinner>{{ text('loading', 'Loading…') }}</div>
+					<div v-else-if="!rows.length && !error" class="wt-cloud-picker-status">{{ text('empty', 'This folder is empty.') }}</div>
+					<template v-else>
+						<div v-for="e in rows" :key="e.id" class="wt-cloud-picker-row"
+							:class="{ selected: isSelected(e), folder: e.folder }"
+							@click="onRowClick(e, $event)" @dblclick="onRowDoubleClick(e)">
+							<i :class="iconFor(e)"></i>
+							<span class="wt-cloud-picker-name" :title="e.name">{{ e.name }}</span>
+							<span class="wt-cloud-picker-size">{{ formatSize(e.size) }}</span>
+						</div>
+					</template>
+				</div>
+				<wt-inline-message v-if="error" type="error" class="mt-2">{{ error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button type="button" class="wt" @click="close">{{ text('cancel', 'Cancel') }}</button>
+				<button type="button" class="wt wt-primary" @click="confirm" :disabled="!canSelect">{{ selectLabel }}</button>
+			</template>
+		</wt-dialog>
+	</div>
+</template>

@@ -42,6 +42,7 @@ import org.mintjams.rt.cms.internal.graphql.resolver.GroovyDataFetcher;
 import org.mintjams.rt.cms.internal.mcp.McpToolCompiler;
 import org.mintjams.rt.cms.internal.mcp.McpToolRegistry;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformBpmWiringContributor;
+import org.mintjams.rt.cms.internal.graphql.wiring.PlatformCloudWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformEipWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformFilesWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformIdpWiringContributor;
@@ -387,7 +388,7 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 				new PlatformWorkspaceWiringContributor(), new PlatformIdpWiringContributor(),
 				new PlatformSecurityWiringContributor(), new PlatformEipWiringContributor(),
 				new PlatformMcpWiringContributor(), new PlatformFilesWiringContributor(),
-				new PlatformConnectionsWiringContributor());
+				new PlatformConnectionsWiringContributor(), new PlatformCloudWiringContributor());
 	}
 
 	/**

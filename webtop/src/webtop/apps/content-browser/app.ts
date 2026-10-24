@@ -1,5 +1,5 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import { type Node, type JobStatus, type ContentLengthEvent } from "../../graphql/types.js";
+import { type Node, type JobStatus, type ContentLengthEvent, type CloudEntry, type CloudLink, CLOUD_LINK_MIME_TYPE } from "../../graphql/types.js";
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from "../../services/content-delete.js";
 import { downloadContentAsZip, importContentArchive, type ArchiveJobHandle, type ArchiveJobProgress, type ImportArchiveProgress } from "../../services/content-archive.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
@@ -501,6 +501,23 @@ export const App = {
 			// `localization-changed`. See `composables/use-localization.ts`.
 			localization: createLocalizationSnapshot(),
 			errorMessage: '',
+			// Cloud files (the files bundle of a linked account): the picker
+			// that chooses what to import or where to export, and the outcome
+			// of the last export, which has nowhere else to show.
+			cloudPicker: {
+				visible: false,
+				provider: '',
+				providerName: '',
+				mode: 'files' as 'files' | 'folder',
+				multiple: true,
+				action: '' as '' | 'import' | 'link' | 'export',
+			},
+			cloudResult: {
+				visible: false,
+				title: '',
+				entries: [] as CloudEntry[],
+				errors: [] as string[],
+			},
 			conflictDialog: {
 				visible: false,
 				resolve: null as null | ((action: string) => void),
@@ -1149,6 +1166,17 @@ export const App = {
 			const fullName = withExtension(name, fileType);
 			return this.items.some((item: any) => item.name.toLowerCase() === fullName.toLowerCase());
 		},
+		cloudPickerLabels(): Record<string, string> {
+			return {
+				select: this.t('app.content-browser.cloud.pick', undefined, 'Import'),
+				// The picker fills {name} itself; the message formatter needs a value for it.
+				selectFolder: this.t('app.content-browser.cloud.pickFolder', { name: '{name}' }, 'Export to {name}'),
+				cancel: this.t('app.content-browser.dialog.cancel', undefined, 'Cancel'),
+				loading: this.t('app.content-browser.cloud.loading', undefined, 'Loading…'),
+				empty: this.t('app.content-browser.cloud.empty', undefined, 'This folder is empty.'),
+				up: this.t('app.content-browser.toolbar.goToParent', undefined, 'Up'),
+			};
+		},
 		// Detail panel: currently selected single item
 		selectedItem(): any {
 			if (this.selectedItems.length !== 1) return null;
@@ -1303,6 +1331,9 @@ export const App = {
 				// Mark instance as raw (non-reactive) to prevent Proxy wrapping
 				// This is necessary because ApplicationInstance has private fields (#id, etc.)
 				vm.instance = this.$markRaw(instance);
+				// Handed to <wt-cloud-picker> as a prop: a class instance with
+				// private fields, which must not be read through a reactive proxy.
+				this.$markRaw(instance.api.cloud);
 				vm.idp = this.$markRaw(new IdpServiceGraphQL());
 				// Build the <wt-inspector> api surface once, marked raw so the
 				// reactive system never Proxy-wraps it. content/eventHub/popup
@@ -1844,6 +1875,11 @@ export const App = {
 				await this.load(item.path);
 				return;
 			}
+			// A reference to a cloud file opens where the provider shows it.
+			if (item.mimeType === CLOUD_LINK_MIME_TYPE) {
+				await this.openCloudLink(item);
+				return;
+			}
 			const editorApp = this.findEditorForMimeType(item.mimeType);
 			if (editorApp) {
 				window.parent.postMessage({
@@ -1852,6 +1888,181 @@ export const App = {
 					filePath: item.path,
 					mimeType: item.mimeType,
 				}, window.location.origin);
+			}
+		},
+		// ---- Cloud files: the user's Google Drive / OneDrive ----------------
+		//
+		// The toolbar's cloud menu offers, per provider an administrator
+		// configured, importing files, importing references to them, and
+		// exporting the selected files. What the user has not yet allowed is
+		// asked for at that moment (connections.ensure opens the grant popup);
+		// the picker then chooses the files or the destination folder, and the
+		// copies run on the server in the user's own session.
+		async openCloudMenu(event: MouseEvent) {
+			const vm = this;
+			const trigger = event.currentTarget as HTMLElement;
+			const connections = vm.instance?.api.connections;
+			if (!trigger || !vm.instance || !connections) return;
+			const rect = trigger.getBoundingClientRect();
+			let linked;
+			try {
+				linked = await connections.getLinkedAccounts();
+			} catch (e: any) {
+				vm.showCloudMessage(vm.t('app.content-browser.cloud.title', undefined, 'Cloud'), [], [e?.message || String(e)]);
+				return;
+			}
+			const hasSelectedFiles = vm.items.some((i: any) => vm.selectedItems.includes(i.id) && !i.isCollection);
+			const items: any[] = [];
+			if (!linked.providers.length) {
+				items.push({ id: '__none', label: vm.t('app.content-browser.cloud.notConfigured', undefined, 'No cloud storage is enabled on this server.'), disabled: true });
+			}
+			for (const p of linked.providers) {
+				items.push({
+					label: p.name,
+					items: [
+						{ id: `import:${p.id}`, label: vm.t('app.content-browser.cloud.import', undefined, 'Import files…'), icon: 'bi bi-cloud-download', disabled: vm.xpathSearchActive },
+						{ id: `link:${p.id}`, label: vm.t('app.content-browser.cloud.link', undefined, 'Import as links…'), icon: 'bi bi-link-45deg', disabled: vm.xpathSearchActive },
+						{ id: `export:${p.id}`, label: vm.t('app.content-browser.cloud.export', undefined, 'Export selected files…'), icon: 'bi bi-cloud-upload', disabled: !hasSelectedFiles },
+					],
+				});
+			}
+			const handle = vm.instance.popup.open({
+				anchor: rect,
+				placement: 'bottom-start',
+				minWidth: 240,
+				items,
+			});
+			const result = await handle.result;
+			if (result == null || result === '__none') return;
+			const [action, provider] = String(result).split(':');
+			const providerName = linked.providers.find((p: any) => p.id === provider)?.name || provider;
+			await vm.startCloudAction(action as 'import' | 'link' | 'export', provider, providerName);
+		},
+		async startCloudAction(action: 'import' | 'link' | 'export', provider: string, providerName: string) {
+			const vm = this;
+			const connections = vm.instance?.api.connections;
+			if (!connections) return;
+			let allowed = false;
+			try {
+				allowed = await connections.ensure(provider, 'files');
+			} catch (e: any) {
+				const blocked = e?.message === 'popup_blocked';
+				vm.showCloudMessage(providerName, [], [blocked
+					? vm.t('app.content-browser.cloud.popupBlocked', undefined, 'The browser blocked the sign-in window. Allow popups for this site and try again.')
+					: (e?.message || String(e))]);
+				return;
+			}
+			if (!allowed) return;
+			vm.cloudPicker = {
+				visible: true,
+				provider,
+				providerName,
+				mode: action === 'export' ? 'folder' : 'files',
+				multiple: true,
+				action,
+			};
+		},
+		async onCloudPicked(entries: CloudEntry[]) {
+			const vm = this;
+			const picker = vm.cloudPicker;
+			if (!entries || !entries.length || !picker.action) return;
+			if (picker.action === 'export') {
+				await vm.exportToCloud(picker.provider, picker.providerName, entries[0]);
+			} else {
+				await vm.importFromCloud(picker.provider, picker.providerName, entries, picker.action === 'link');
+			}
+		},
+		/** Copies the picked files (or writes references to them) into the folder being browsed. */
+		async importFromCloud(provider: string, providerName: string, entries: CloudEntry[], asLink: boolean) {
+			const vm = this;
+			const cloud = vm.instance?.api.cloud;
+			if (!cloud) return;
+			const folder = vm.currentPath;
+			vm.errorMessage = '';
+			vm.uploadMonitor = {
+				isCanceled: false,
+				target: { currentFile: '', progressPercent: 0 },
+				cancel() { this.isCanceled = true; },
+			};
+			const errors: string[] = [];
+			try {
+				let done = 0;
+				for (const entry of entries) {
+					if (vm.uploadMonitor?.isCanceled) break;
+					vm.uploadMonitor.target.currentFile = entry.name;
+					vm.uploadMonitor.target.progressPercent = Math.round((done / entries.length) * 100);
+					try {
+						if (asLink) {
+							await cloud.createLink(provider, entry.id, folder);
+						} else {
+							await cloud.importFile(provider, entry.id, folder);
+						}
+					} catch (e: any) {
+						errors.push(`${entry.name}: ${e?.message || String(e)}`);
+					}
+					done++;
+				}
+				if (vm.uploadMonitor) vm.uploadMonitor.target.progressPercent = 100;
+				await vm.load(vm.currentPath);
+			} finally {
+				if (errors.length) {
+					vm.errorMessage = vm.t('app.content-browser.cloud.importFailed', { name: providerName, n: errors.length, error: errors[0] }, '{n} file(s) could not be imported from {name}: {error}');
+				} else {
+					vm.uploadMonitor = null;
+				}
+			}
+		},
+		/** Uploads the selected files to the picked folder of the drive. */
+		async exportToCloud(provider: string, providerName: string, folder: CloudEntry) {
+			const vm = this;
+			const cloud = vm.instance?.api.cloud;
+			if (!cloud) return;
+			const files = vm.items.filter((i: any) => vm.selectedItems.includes(i.id) && !i.isCollection);
+			if (!files.length) return;
+			vm.errorMessage = '';
+			vm.uploadMonitor = {
+				isCanceled: false,
+				target: { currentFile: '', progressPercent: 0 },
+				cancel() { this.isCanceled = true; },
+			};
+			const exported: CloudEntry[] = [];
+			const errors: string[] = [];
+			try {
+				let done = 0;
+				for (const file of files) {
+					if (vm.uploadMonitor?.isCanceled) break;
+					vm.uploadMonitor.target.currentFile = file.name;
+					vm.uploadMonitor.target.progressPercent = Math.round((done / files.length) * 100);
+					try {
+						exported.push(await cloud.exportFile(provider, file.path, { folderId: folder.id }));
+					} catch (e: any) {
+						errors.push(`${file.name}: ${e?.message || String(e)}`);
+					}
+					done++;
+				}
+			} finally {
+				vm.uploadMonitor = null;
+			}
+			vm.showCloudMessage(vm.t('app.content-browser.cloud.exportedTo', { name: providerName, folder: folder.name }, 'Exported to {name}: {folder}'), exported, errors);
+		},
+		showCloudMessage(title: string, entries: CloudEntry[], errors: string[]) {
+			this.cloudResult = { visible: true, title, entries, errors };
+		},
+		closeCloudResult() {
+			this.cloudResult.visible = false;
+		},
+		/** Follows a cloud-link file to where the provider shows the file. */
+		async openCloudLink(item: any) {
+			const vm = this;
+			try {
+				if (!item.downloadURL) throw new Error(vm.t('app.content-browser.cloud.linkUnreadable', undefined, 'The link could not be read.'));
+				const response = await fetch(item.downloadURL, { credentials: 'same-origin', cache: 'no-store' });
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				const link = await response.json() as CloudLink;
+				if (!link.webUrl) throw new Error(vm.t('app.content-browser.cloud.linkNoUrl', undefined, 'The link has no address to open.'));
+				window.open(link.webUrl, '_blank', 'noopener');
+			} catch (e: any) {
+				vm.showCloudMessage(item.name, [], [e?.message || String(e)]);
 			}
 		},
 		// wt-inspector event handlers — thin wrappers that delegate to the

@@ -13,7 +13,7 @@ in words, and takes any of it back.
 | Bundle | Shown as | Used by |
 | --- | --- | --- |
 | `mail` | Send and receive mail | Mail (IMAP and SMTP with XOAUTH2) |
-| `files` | Read and write the files you pick | attachments from Drive / OneDrive, saving there |
+| `files` | Read and write the files you pick | Content Browser import and export, Mail attachments, Memo export (see *Files* below) |
 | `contacts` | Read contacts | recipient suggestions |
 | `calendar` | Read and write calendar events | calendar views, invitations |
 
@@ -70,8 +70,18 @@ administrator registers a client with it (next section).
    so no user, service user or app needs to be granted anything on it.
 
    A provider section may also carry `endpoints:` (`authorization`, `token`,
-   `userinfo`, `revocation`) to go through a proxy or a test double; normally
-   it is left out.
+   `userinfo`, `revocation`, and the API bases `drive` for Google and `graph`
+   for Microsoft) to go through a proxy or a test double; normally it is left
+   out.
+
+   For the `files` bundle with Google, add two more values from the same
+   project to the `google` section: `apiKey`, an API key (Credentials › Create
+   credentials › API key; restrict it to the Google Picker API and to the
+   server's origin), and `appId`, the project number (project settings). The
+   Google Picker, which runs in the browser, needs both. Neither is a secret;
+   they are the only values of the file a browser ever receives. Without them
+   the Drive features still work, but the user can reach only the files this
+   server created on their Drive, never pick one of their own (next section).
 
 3. Check *Preferences › Linked accounts* as any user: the provider is listed.
    A mistake in the file is shown there as a configuration error, without the
@@ -112,6 +122,54 @@ made is used rather than repeated.
 Everything in the user's home is read and written with the user's own
 session, so the home's access control applies and deleting the user takes the
 links away.
+
+## Files: Google Drive and OneDrive
+
+The `files` bundle lets apps copy files between the user's drive and the
+workspace, with the user's own grant. Nothing is synchronized or mounted:
+every copy is an action of the user, and what it produces is an ordinary file.
+
+- **Content Browser**: the cloud button in the toolbar offers, per provider,
+  *Import files*, *Import as links* and *Export selected files*. An import
+  copies the picked files into the folder being browsed; an export uploads the
+  selected files to a folder of the drive the user picks.
+- **Mail**: the compose pane attaches a file of the drive (it is copied into
+  the draft like an uploaded file) or inserts a link to one into the body.
+- **Memo**: a memo is exported as a Google document (Drive converts the HTML)
+  or as an HTML file.
+
+**Choosing a file differs per provider.** Google grants the app access only
+to the files the user picks for it, and to the files the app created (the
+`drive.file` scope). So with Google the user picks in the **Google Picker**,
+Google's own dialog, which runs in the browser with the user's token and the
+`apiKey` / `appId` from `clients.yml`; without those two values the dialog
+cannot run, and the Webtop's own list shows only what this server created.
+Microsoft's `Files.ReadWrite` reaches the whole OneDrive, so there the Webtop
+lists the drive itself, a folder at a time.
+
+**Google documents** (Docs, Sheets, Slides, ...) have no bytes of their own.
+An import exports one as an Office file (`.docx`, `.xlsx`, `.pptx`; other
+kinds as PDF) and adds the extension to the name. Exporting HTML, text or an
+Office file *as a Google document* does the reverse. OneDrive stores files as
+they are.
+
+**Cloud links** are small files of type
+`application/vnd.mintjams.webtop.cloud-link+json` holding
+`{provider, id, name, mimeType, folder, webUrl}`. Opening one in the Content
+Browser opens the file where the provider shows it, in a new tab. Nothing is
+copied, and the link grants nothing: whoever opens it needs their own access
+at the provider.
+
+**Names that collide** with a file of the folder get a number appended
+(`report (2).pdf`) unless the caller asks otherwise; the providers rename on
+their side the same way.
+
+The GraphQL fields behind this (`cloudPicker`, `cloudChildren`, `cloudFile`,
+`importCloudFile`, `exportCloudFile`, `exportCloudContent`,
+`createCloudLink`) are part of the platform schema of every workspace and run
+as the caller; the token is the caller's, the repository reads and writes
+are the caller's. A call made without the grant fails with the error code
+`CONSENT_REQUIRED`, and the app opens the grant popup and tries again.
 
 ## For scripts: the `Connections` binding
 

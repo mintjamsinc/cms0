@@ -15,6 +15,7 @@ import { NoticeServiceGraphQL } from './notice-service-graphql.js';
 import { EventHub, createEventHub } from '../realtime/event-hub.js';
 import { IdpServiceGraphQL } from './idp-service-graphql.js';
 import { ConnectionsServiceGraphQL } from './connections-service-graphql.js';
+import { CloudServiceGraphQL } from './cloud-service-graphql.js';
 import { User } from './user-service.js';
 import type { PreferenceChangeEvent, WallpaperChangeEvent, AvatarChangeEvent } from '../graphql/types.js';
 
@@ -39,11 +40,13 @@ export class WebtopAPI {
 	#noticeGraphQL: NoticeServiceGraphQL;
 	#idpGraphQL: IdpServiceGraphQL;
 	#connectionsGraphQL: ConnectionsServiceGraphQL;
+	#cloudGraphQL: CloudServiceGraphQL;
 	#eventHub: EventHub;
 
 	// System workspace services (for user home data: preferences, avatars, etc.)
 	#systemGraphQLClient: GraphQLClient;
 	#systemContentGraphQL: ContentServiceGraphQL;
+	#systemCloudGraphQL: CloudServiceGraphQL;
 	#systemEventHub: EventHub;
 	#preferenceUnsubscribers: Array<() => void> = [];
 
@@ -72,9 +75,11 @@ export class WebtopAPI {
 		this.#noticeGraphQL = new NoticeServiceGraphQL(this.#graphqlClient);
 		this.#idpGraphQL = new IdpServiceGraphQL();
 		this.#connectionsGraphQL = new ConnectionsServiceGraphQL(this.#graphqlClient);
+		this.#cloudGraphQL = new CloudServiceGraphQL(this.#graphqlClient);
 		this.#eventHub = createEventHub(this.#workspace);
 		this.#systemGraphQLClient = createGraphQLClient('system');
 		this.#systemContentGraphQL = new ContentServiceGraphQL(this.#systemGraphQLClient);
+		this.#systemCloudGraphQL = new CloudServiceGraphQL(this.#systemGraphQLClient);
 		this.#systemEventHub = createEventHub('system');
 
 		console.log('[WebtopAPI] Initialized with workspace:', this.#workspace);
@@ -108,11 +113,15 @@ export class WebtopAPI {
 	get idp() { return this.#idpGraphQL; }
 	/** The user's linked Google / Microsoft accounts, and the grant popup (ensure). */
 	get connections() { return this.#connectionsGraphQL; }
+	/** The user's Google Drive / OneDrive, and copies between it and this workspace (the files bundle). */
+	get cloud() { return this.#cloudGraphQL; }
 	get eventHub() { return this.#eventHub; }
 	/** Change events of the system workspace (e.g. files an app keeps in the user's home there). */
 	get systemEventHub() { return this.#systemEventHub; }
 	/** Content service for the system workspace (user home, preferences, etc.) */
 	get systemContent() { return this.#systemContentGraphQL; }
+	/** Cloud files copied into or out of the system workspace (a mail draft's attachments, say). */
+	get systemCloud() { return this.#systemCloudGraphQL; }
 
 	async initialize() {
 		await this.#db.open();

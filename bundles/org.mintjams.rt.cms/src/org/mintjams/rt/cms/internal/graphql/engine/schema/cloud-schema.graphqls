@@ -1,0 +1,96 @@
+# =============================================================================
+# Platform cloud files GraphQL schema
+# =============================================================================
+# Contributed by PlatformCloudWiringContributor, merged into the same
+# graphql-java schema as the core platform SDL. It `extend`s the core
+# Query/Mutation roots and reuses the core scalars DateTime and Long.
+#
+# The files bundle of a linked account (connections-schema.graphqls) at work:
+# the caller's Google Drive or OneDrive, read and written with the caller's
+# own grant, and files copied between it and the workspace this endpoint
+# serves. Every repository read and write runs as the caller.
+#
+# Google's drive.file scope reaches only the files the app created and the
+# files the user picked in the Google Picker, so for Google the browser runs
+# the Picker (cloudPicker hands it what it needs) and cloudChildren lists
+# little; OneDrive's Files.ReadWrite reaches the whole drive, so there
+# cloudChildren is the way to browse.
+#
+# A call that needs a grant the caller has not given fails with the error code
+# CONSENT_REQUIRED; the client then opens the grant page for the provider and
+# the bundle `files` and calls again.
+# =============================================================================
+
+"""A file or folder of the caller's drive."""
+type CloudEntry {
+  """google or microsoft."""
+  provider: String!
+  """The provider's id of the file; what every other operation takes."""
+  id: String!
+  name: String!
+  """The content type. A Google native document has an application/vnd.google-apps.* type; a folder has none."""
+  mimeType: String
+  """Bytes; null for a folder and for a Google native document, which has no bytes until exported."""
+  size: Long
+  folder: Boolean!
+  """Where the file opens in the provider's own editor or viewer."""
+  webUrl: String
+  modified: DateTime
+  """For a Google native document, its kind: document, spreadsheet, presentation, drawing, ... Null for an ordinary file."""
+  nativeType: String
+}
+
+"""What the browser needs to open the provider's own picker for the caller."""
+type CloudPicker {
+  provider: String!
+  """Whether the provider has a picker of its own the browser can run (Google). Otherwise the client browses with cloudChildren."""
+  available: Boolean!
+  """The caller's access token for the files bundle, for the picker to list the caller's files. Short-lived; never stored by the client."""
+  accessToken: String!
+  """The browser API key the picker needs (google.apiKey in clients.yml), when the administrator set one."""
+  apiKey: String
+  """The application id the picker needs (google.appId in clients.yml): the files the user picks are made reachable to this app."""
+  appId: String
+}
+
+"""A file written into the workspace from a cloud file."""
+type CloudImport {
+  """The repository path of the file written."""
+  path: String!
+  """Its name, which differs from the cloud file's when an extension was added or a number appended."""
+  name: String!
+  mimeType: String!
+  size: Long!
+  """The cloud file it was made from."""
+  entry: CloudEntry!
+}
+
+"""What to do when the folder already has a file of the name."""
+enum CloudConflict {
+  """Refuse."""
+  FAIL
+  """Replace the existing file's content."""
+  REPLACE
+  """Write under the name with a number appended: `name (2).ext`."""
+  RENAME
+}
+
+extend type Query {
+  """What the browser needs to run the provider's own file picker as the caller: the access token for the files bundle, and the browser key and application id the administrator configured. Fails with CONSENT_REQUIRED until the account is linked and the files bundle granted."""
+  cloudPicker(provider: String!): CloudPicker!
+  """The files and folders in a folder of the caller's drive, folders first; the drive's root when folderId is null. For Google only what the app created or the user picked is visible. At most 1000 entries."""
+  cloudChildren(provider: String!, folderId: String): [CloudEntry!]!
+  """One file or folder of the caller's drive by id, or null when there is none."""
+  cloudFile(provider: String!, id: String!): CloudEntry
+}
+
+extend type Mutation {
+  """Copies a cloud file into a folder of this workspace. A Google native document is exported — as exportMimeType, or as the usual Office type of its kind (Docs → .docx, Sheets → .xlsx, Slides → .pptx, others → PDF) — and the matching extension is added to its name. `name` replaces the cloud file's name. The folder must exist and be writable by the caller."""
+  importCloudFile(provider: String!, id: String!, folder: String!, name: String, exportMimeType: String, conflict: CloudConflict = RENAME): CloudImport!
+  """Uploads a file of this workspace to a folder of the caller's drive (the root when folderId is null), under its own name unless `name` says otherwise. With `convert`, Google turns HTML, text or an Office file into a Google document, spreadsheet or presentation; OneDrive ignores it. A file the drive already has under the name is kept: the new one is renamed by the provider."""
+  exportCloudFile(provider: String!, path: String!, folderId: String, name: String, convert: Boolean = false): CloudEntry!
+  """Uploads text content handed in directly — a memo's HTML, say — as a new file of the caller's drive; `convert` as for exportCloudFile. The content is written as UTF-8."""
+  exportCloudContent(provider: String!, folderId: String, name: String!, mimeType: String!, content: String!, convert: Boolean = false): CloudEntry!
+  """Writes a reference to a cloud file into a folder of this workspace: a file of type application/vnd.mintjams.webtop.cloud-link+json holding {provider, id, name, mimeType, folder, webUrl}, which an app opens by following webUrl. Nothing is copied."""
+  createCloudLink(provider: String!, id: String!, folder: String!, name: String, conflict: CloudConflict = RENAME): CloudImport!
+}

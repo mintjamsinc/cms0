@@ -1862,3 +1862,59 @@ export interface ConnectionEvent {
   bundle: string | null;
   error?: string;
 }
+
+// ---- Cloud files (the files bundle of a linked account) ----------------------
+
+/** A file or folder of the user's Google Drive or OneDrive. */
+export interface CloudEntry {
+  /** google or microsoft. */
+  provider: string;
+  /** The provider's id of the file; what every other operation takes. */
+  id: string;
+  name: string;
+  /** The content type; a Google native document has an application/vnd.google-apps.* type, a folder has none. */
+  mimeType: string | null;
+  /** Bytes; null for a folder and for a Google native document. */
+  size: number | null;
+  folder: boolean;
+  /** Where the file opens in the provider's own editor or viewer. */
+  webUrl: string | null;
+  modified: string | null;
+  /** For a Google native document, its kind: document, spreadsheet, presentation, ... */
+  nativeType: string | null;
+}
+
+/** What the browser needs to run the provider's own picker (Google Picker). */
+export interface CloudPicker {
+  provider: string;
+  /** Whether the provider's own picker can be run: Google with an API key configured. */
+  available: boolean;
+  /** The user's short-lived access token for the files bundle; never stored. */
+  accessToken: string;
+  apiKey: string | null;
+  appId: string | null;
+}
+
+/** A file written into the workspace from a cloud file. */
+export interface CloudImport {
+  path: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  entry: CloudEntry;
+}
+
+export type CloudConflict = 'FAIL' | 'REPLACE' | 'RENAME';
+
+/** The type of a reference to a cloud file kept in the workspace. */
+export const CLOUD_LINK_MIME_TYPE = 'application/vnd.mintjams.webtop.cloud-link+json';
+
+/** What a cloud-link file holds. */
+export interface CloudLink {
+  provider: string;
+  id: string;
+  name: string;
+  mimeType: string | null;
+  folder: boolean;
+  webUrl: string | null;
+}

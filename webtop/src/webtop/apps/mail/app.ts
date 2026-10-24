@@ -51,7 +51,7 @@ import {
 	type Security,
 } from './api.js';
 import { currentToken, formatAddress, htmlToText, prefill, textToHtml } from './compose.js';
-import type { LinkedAccount, LinkedAccounts } from '../../graphql/types.js';
+import type { CloudEntry, LinkedAccount, LinkedAccounts } from '../../graphql/types.js';
 
 type Box = 'inbox' | 'sent' | 'unread' | 'flagged' | 'trash' | 'drafts';
 
@@ -162,6 +162,26 @@ function safeFileName(name: string): string {
 	return clean && clean !== '.' && clean !== '..' ? clean : 'attachment';
 }
 
+/** The usual extension of a type a Google document is exported as. */
+const EXPORT_EXTENSIONS: Record<string, string> = {
+	'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+	'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+	'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+	'application/pdf': '.pdf',
+	'image/png': '.png',
+};
+
+/** The name an attachment imported from a cloud file is shown under: the exported format's extension added for a Google document. */
+function cloudAttachmentName(entry: CloudEntry, mimeType: string): string {
+	if (!entry.nativeType) return entry.name;
+	const extension = EXPORT_EXTENSIONS[mimeType] || '';
+	return extension && !entry.name.toLowerCase().endsWith(extension) ? entry.name + extension : entry.name;
+}
+
+function escapeForHtml(text: string): string {
+	return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
 function randomKey(): string {
 	const bytes = new Uint8Array(16);
 	crypto.getRandomValues(bytes);
@@ -209,6 +229,14 @@ const App = {
 	data() {
 		return {
 			instance: null as ApplicationInstance | null,
+			// Attaching from, or linking to, a file of the user's Google Drive /
+			// OneDrive (the files bundle of a linked account).
+			cloudPicker: {
+				visible: false,
+				provider: '',
+				providerName: '',
+				action: '' as '' | 'attach' | 'link',
+			},
 			messageListener: null as ((event: MessageEvent) => void) | null,
 			keyListener: null as ((event: KeyboardEvent) => void) | null,
 			localization: createLocalizationSnapshot(),
@@ -389,6 +417,15 @@ const App = {
 		workspaceName(): string {
 			return this.instance?.api.workspace || '/';
 		},
+		cloudPickerLabels(): Record<string, string> {
+			return {
+				select: this.t('app.mail.compose.cloudPick', undefined, 'Choose'),
+				cancel: this.t('common.cancel'),
+				loading: this.t('app.mail.folderPicker.loading', undefined, 'Loading…'),
+				empty: this.t('app.mail.compose.cloudEmpty', undefined, 'This folder is empty.'),
+				up: this.t('app.mail.compose.cloudUp', undefined, 'Up'),
+			};
+		},
 		folderPickerLabels(): Record<string, string> {
 			return {
 				select: this.t('app.mail.folderPicker.select', undefined, 'Save here'),
@@ -480,6 +517,9 @@ const App = {
 
 			window.appLaunch = async (instance: ApplicationInstance) => {
 				vm.instance = this.$markRaw(instance);
+				// Handed to <wt-cloud-picker> as a prop: a class instance with
+				// private fields, which must not be read through a reactive proxy.
+				this.$markRaw(instance.api.cloud);
 				refreshLocalization(vm.localization, vm.instance);
 				document.documentElement.dataset.theme = vm.instance.api.theme.currentTheme || 'light';
 
@@ -1862,6 +1902,113 @@ const App = {
 				}
 			}
 			if (files.length) await this.attachFiles(files);
+		},
+		/**
+		 * The cloud menu of the compose pane: per provider an administrator
+		 * configured, attach a file of the user's drive, or insert a link to one.
+		 * The files bundle is asked for at that moment when it is not granted.
+		 */
+		async openCloudAttachMenu(event: MouseEvent) {
+			const connections = this.instance?.api.connections;
+			const popup = this.instance?.popup;
+			const el = event.currentTarget as HTMLElement | null;
+			if (!connections || !popup || !el) return;
+			const rect = el.getBoundingClientRect();
+			let linked: LinkedAccounts;
+			try {
+				linked = await connections.getLinkedAccounts();
+			} catch (e) {
+				this.showError(e);
+				return;
+			}
+			if (!linked.providers.length) {
+				this.showStatus(this.t('app.mail.compose.cloudNotConfigured', undefined, 'No cloud storage is enabled on this server.'));
+				return;
+			}
+			const items = linked.providers.map((p) => ({
+				label: p.name,
+				items: [
+					{ id: `attach:${p.id}`, label: this.t('app.mail.compose.cloudAttach', undefined, 'Attach a file…'), icon: 'bi bi-paperclip' },
+					{ id: `link:${p.id}`, label: this.t('app.mail.compose.cloudLink', undefined, 'Insert a link to a file…'), icon: 'bi bi-link-45deg' },
+				],
+			}));
+			const handle = popup.open({ anchor: rect, placement: 'bottom-start', minWidth: 220, items });
+			const picked = await handle.result;
+			if (picked == null) return;
+			const [action, provider] = String(picked).split(':');
+			const providerName = linked.providers.find((p) => p.id === provider)?.name || provider;
+			let allowed = false;
+			try {
+				allowed = await connections.ensure(provider, 'files');
+			} catch (e: any) {
+				this.showStatus(e?.message === 'popup_blocked'
+					? this.t('app.mail.compose.cloudPopupBlocked', undefined, 'The browser blocked the sign-in window. Allow popups for this site and try again.')
+					: errorText(e));
+				return;
+			}
+			if (!allowed) return;
+			this.cloudPicker = { visible: true, provider, providerName, action: action as 'attach' | 'link' };
+		},
+		async onCloudPicked(entries: CloudEntry[]) {
+			const picker = this.cloudPicker;
+			if (!entries || !entries.length || !picker.action) return;
+			if (picker.action === 'link') {
+				this.insertCloudLinks(entries);
+				return;
+			}
+			await this.attachCloudFiles(picker.provider, entries);
+		},
+		/**
+		 * Copies the picked cloud files into the draft's folder on the server
+		 * (a Google document as its Office export) and records them as
+		 * attachments, the way uploaded files are.
+		 */
+		async attachCloudFiles(provider: string, entries: CloudEntry[]) {
+			const c = this.compose;
+			const cloud = this.instance?.api.systemCloud;
+			const userId = this.instance?.currentUser?.id;
+			if (!entries.length || !cloud || !userId) return;
+			const epoch = composeEpoch;
+			c.uploading += entries.length;
+			try {
+				const id = await this.ensureDraft();
+				if (!id) {
+					c.uploading -= entries.length;
+					return;
+				}
+				for (const entry of entries) {
+					try {
+						const key = randomKey();
+						const imported = await cloud.importFile(provider, entry.id, `/home/users/${userId}/mail/drafts/${id}`, { name: key, conflict: 'REPLACE' });
+						if (epoch !== composeEpoch) return;
+						c.attachments = [...c.attachments, { key, name: cloudAttachmentName(entry, imported.mimeType), mimeType: imported.mimeType, size: imported.size }];
+						c.dirty = true;
+						await this.saveDraft();
+					} catch (e) {
+						c.error = this.t('app.mail.compose.uploadFailed', { name: entry.name, error: errorText(e) }, '{name} could not be attached: {error}');
+					} finally {
+						c.uploading--;
+					}
+				}
+			} catch (e) {
+				c.uploading = 0;
+				this.showError(e);
+			}
+		},
+		/** Puts a link to each picked file into the body: a paragraph in HTML, a line in text. */
+		insertCloudLinks(entries: CloudEntry[]) {
+			const c = this.compose;
+			const linked = entries.filter((e) => e.webUrl);
+			if (!linked.length) return;
+			if (c.format === 'html' && editor) {
+				const html = linked.map((e) => `<p><a href="${escapeForHtml(e.webUrl as string)}">${escapeForHtml(e.name)}</a></p>`).join('');
+				editor.chain().focus().insertContent(html).run();
+			} else {
+				const lines = linked.map((e) => `${e.name}: ${e.webUrl}`).join('\n');
+				const text: string = c.text || '';
+				c.text = (text.trim() ? text.replace(/\s+$/, '') + '\n\n' : '') + lines + '\n';
+			}
+			c.dirty = true;
 		},
 		/** Uploads files into the draft's folder, then records them in the draft. */
 		async attachFiles(files: File[]) {
