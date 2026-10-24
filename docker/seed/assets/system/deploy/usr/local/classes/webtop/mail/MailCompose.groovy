@@ -27,7 +27,8 @@ import org.mintjams.tools.mail.Transport;
  *
  * Exchange files what Graph sends into Sent Items by itself, so after a Graph
  * send nothing is appended and no copy is kept: a synchronization pass is
- * asked for at once and brings it in.
+ * asked for at once, and one more a little later for a message Exchange files
+ * after the first pass has looked (GRAPH_FOLLOW_UP_SECONDS), and brings it in.
  */
 class MailCompose {
 
@@ -39,6 +40,8 @@ class MailCompose {
 	static final int MAX_REMEMBERED = 500;
 	static final int MAX_SAVED = 1000;
 	static final long MAX_TOTAL_SIZE = 25L * 1024 * 1024;
+	/** After a Graph send: the second synchronization pass, for a message Exchange files late. */
+	static final long GRAPH_FOLLOW_UP_SECONDS = 150L;
 
 	def context;
 	def session;
@@ -378,11 +381,12 @@ class MailCompose {
 			String copy = null;
 			boolean onServer = (account.saveSentOnServer == null) ? true : !!account.saveSentOnServer;
 			if (viaGraph && account.enabled != false) {
-				// Exchange filed it into Sent Items; the synchronization brings it in,
-				// asked for now. (A copy kept here would be listed twice meanwhile.)
+				// Exchange files it into Sent Items; the synchronization brings it in,
+				// asked for now and once more a little later, since Exchange may file
+				// it after the first pass. (A copy kept here would be listed twice.)
 				copy = '';
 				try {
-					api.accounts.requestRun(account.id as String);
+					api.accounts.requestRun(account.id as String, GRAPH_FOLLOW_UP_SECONDS);
 				} catch (Throwable ex) {
 					log?.warn("The synchronization could not be asked for after sending: ${ex.message}".toString());
 				}

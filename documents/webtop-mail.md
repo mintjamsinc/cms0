@@ -178,7 +178,7 @@ whichever workspace the Webtop runs in.
 
 | Path | What |
 |---|---|
-| `/home/users/<user>/mail/accounts/<account>.json` | Account settings. Passwords are properties of this file, encrypted with the installation key (`secret-key.yml`, see [clustering](clustering.md)); they are never returned by the API. The schedule of the background synchronization is in its `mail:*` properties too: `mail:accountId`, `mail:enabled`, `mail:intervalMinutes`, `mail:requested` ("run now") and `mail:nextRun`. |
+| `/home/users/<user>/mail/accounts/<account>.json` | Account settings. Passwords are properties of this file, encrypted with the installation key (`secret-key.yml`, see [clustering](clustering.md)); they are never returned by the API. The schedule of the background synchronization is in its `mail:*` properties too: `mail:accountId`, `mail:enabled`, `mail:intervalMinutes`, `mail:requested` ("run now"), `mail:followUp` (one more pass at that time) and `mail:nextRun`. |
 | `/home/users/<user>/mail/state/<account>.json` | Synchronization state: per folder UIDVALIDITY, highest UID, oldest date, CONDSTORE mark; the last run and error. |
 | `/home/users/<user>/mail/messages/<account>/<folder>/<UIDVALIDITY>/<UID/1000>/<UID>.eml` | The messages. What the list shows is kept in `mail:*` properties; the search index reads the full text from the `.eml`. |
 | `/home/users/<user>/mail/messages/<account>/local/sent/<yyyy>/<MM>/<id>.eml` | Copies of the mail sent from the Webtop (`mail:local`); never synchronized. |
@@ -254,8 +254,13 @@ What differs from SMTP:
 - Exchange files what Graph sends into *Sent Items* by itself, so **Also put
   sent mail into the server's Sent folder** does not apply and is not shown.
   No copy is kept in the Webtop either: a synchronization pass is asked for
-  right after sending and brings the message in from *Sent Items* (with the
-  account's synchronization off, the copy is kept in the Webtop as for Gmail).
+  right after sending, and one more about two and a half minutes later, and
+  brings the message in from *Sent Items* (with the account's synchronization
+  off, the copy is kept in the Webtop as for Gmail). Exchange files the
+  message there once it has accepted it for delivery, which can take a minute
+  or more, so the message appears under *Sent* at about the time it reaches
+  its recipients, not the moment the send returns; the next regular pass
+  (*Check every*) catches anything still missing.
 - A message whose MIME is within Graph's request limit (about 2.8 MB) goes out
   in one call. A larger one is created as a draft without its attachments, the
   attachments are added one by one (through an upload session when larger

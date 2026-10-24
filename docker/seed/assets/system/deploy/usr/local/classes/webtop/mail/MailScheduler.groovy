@@ -12,8 +12,9 @@ package webtop.mail;
  * each pass runs in a context of the account's owner, so it can touch nothing
  * else of the home.
  *
- * An account is due when its interval has elapsed or a run was requested (new
- * settings, the Refresh button, a flag change, older mail). The timer fires on
+ * An account is due when its interval has elapsed, a run was requested (new
+ * settings, the Refresh button, a flag change, older mail) or a follow-up pass
+ * has come due (mail:followUp, asked for along with a request). The timer fires on
  * every cluster node; the per-account lock makes sure one node runs a pass. The
  * lock is taken before the request is consumed, so a request made while a pass
  * is running stays queued for the next one.
@@ -86,12 +87,15 @@ class MailScheduler {
 			boolean enabled = !file.hasProperty('mail:enabled') || file.getProperty('mail:enabled').getBoolean();
 			boolean requested = file.hasProperty('mail:requested') && file.getProperty('mail:requested').getBoolean();
 			long nextRun = file.hasProperty('mail:nextRun') ? file.getProperty('mail:nextRun').getDate().getTimeInMillis() : 0L;
-			if (enabled && (requested || nextRun <= now)) {
+			long followUp = file.hasProperty('mail:followUp') ? file.getProperty('mail:followUp').getDate().getTimeInMillis() : 0L;
+			boolean followUpDue = followUp > 0 && followUp <= now;
+			if (enabled && (requested || followUpDue || nextRun <= now)) {
 				l.add([
 					path: file.path,
 					userId: m.group(1),
 					accountId: m.group(2),
 					requested: requested,
+					followUpDue: followUpDue,
 					nextRun: nextRun,
 					intervalMinutes: file.hasProperty('mail:intervalMinutes') ? file.getProperty('mail:intervalMinutes').getLong() : MailAccounts.DEFAULT_INTERVAL_MINUTES,
 				]);
@@ -115,6 +119,10 @@ class MailScheduler {
 				return;
 			}
 			file.setProperty('mail:requested', false);
+			if (entry.followUpDue && file.hasProperty('mail:followUp')) {
+				// Consumed; one asked for during this pass stays for a later tick.
+				file.removeProperty('mail:followUp');
+			}
 			file.setProperty('mail:nextRun', new Date(System.currentTimeMillis() + (entry.intervalMinutes as long) * 60000L));
 			session.commit();
 

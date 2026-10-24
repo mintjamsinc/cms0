@@ -18,8 +18,10 @@ import org.mintjams.cms.security.Encryptors;
  * The background synchronization (MailScheduler) finds the accounts with a
  * query on the mail: properties of the settings files, and keeps its schedule
  * on them: mail:accountId, mail:enabled and mail:intervalMinutes are written
- * with the settings, mail:requested asks for the next pass at once, and
- * mail:nextRun is when the next regular pass is due. For that the accounts
+ * with the settings, mail:requested asks for the next pass at once,
+ * mail:followUp asks for one more pass at that time (a sent message that the
+ * server files with a delay), and mail:nextRun is when the next regular pass
+ * is due. For that the accounts
  * folder grants the mail service group read and modifyProperties
  * (SERVICE_PRIVILEGES), the first time the user saves an account; the service
  * user sees nothing else of the home. A deleted user takes the accounts away
@@ -233,11 +235,23 @@ class MailAccounts {
 
 	/** Asks the background synchronization to run a pass for the account at once. */
 	void requestRun(String id) {
+		requestRun(id, 0L);
+	}
+
+	/**
+	 * Asks for a pass at once and, with {@code followUpSeconds} above zero, for
+	 * one more pass that many seconds later: for what the server has to do first,
+	 * such as Exchange filing a message sent through Graph into Sent Items.
+	 */
+	void requestRun(String id, long followUpSeconds) {
 		def file = session.getResource(accountPath(id));
 		if (!file.exists()) {
 			return;
 		}
 		file.setProperty('mail:requested', true);
+		if (followUpSeconds > 0) {
+			file.setProperty('mail:followUp', new Date(System.currentTimeMillis() + followUpSeconds * 1000L));
+		}
 		session.commit();
 	}
 
