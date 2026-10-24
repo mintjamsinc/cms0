@@ -75,7 +75,13 @@ class GraphTransport {
 		return new GraphTransport(context.getAttribute('JSON'), base, token);
 	}
 
-	/** The address of the mailbox the token belongs to: the connection test. */
+	/** An error in words, prefixed with the service's name once. */
+	static String describe(Throwable ex) {
+		String reason = MailSync.describeError(ex);
+		return reason.startsWith(NAME + ':') ? reason : "${NAME}: ${reason}".toString();
+	}
+
+	/** The address of the mailbox the token belongs to (needs User.Read): the connection test. */
 	String mailbox() {
 		Map me = json(request('/me?$select=mail,userPrincipalName').GET().build());
 		return (me.mail ?: me.userPrincipalName ?: '?') as String;

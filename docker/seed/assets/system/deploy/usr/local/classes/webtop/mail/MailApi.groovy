@@ -160,7 +160,7 @@ class MailApi {
 				result.messages.add("${GraphTransport.NAME}: OK (${mailbox})".toString());
 			} catch (Throwable ex) {
 				result.ok = false;
-				result.messages.add("${GraphTransport.NAME}: ${MailSync.describeError(ex)}".toString());
+				result.messages.add(GraphTransport.describe(ex));
 			}
 			return result;
 		}

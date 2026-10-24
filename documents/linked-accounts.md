@@ -24,7 +24,7 @@ The scopes behind a bundle, which the consent screen shows:
 
 | Bundle | Google | Microsoft |
 | --- | --- | --- |
-| `mail` | `https://mail.google.com/` | `IMAP.AccessAsUser.All` and `SMTP.Send` (Outlook), `Mail.Send` (Graph) |
+| `mail` | `https://mail.google.com/` | `IMAP.AccessAsUser.All` and `SMTP.Send` (Outlook), `Mail.Send` and `User.Read` (Graph) |
 | `files` | `drive.file` | `Files.ReadWrite` |
 | `contacts` | `contacts.readonly` | `Contacts.Read` |
 | `calendar` | `calendar.events` | `Calendars.ReadWrite` |

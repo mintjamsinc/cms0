@@ -352,8 +352,7 @@ class MailCompose {
 						graph.send(bare, spooled);
 					}
 				} catch (Throwable ex) {
-					String reason = MailSync.describeError(ex);
-					throw new IllegalStateException(reason.startsWith(GraphTransport.NAME) ? reason : "${GraphTransport.NAME}: ${reason}".toString(), ex);
+					throw new IllegalStateException(GraphTransport.describe(ex), ex);
 				}
 			} else {
 				Map outgoing = account.outgoing as Map;

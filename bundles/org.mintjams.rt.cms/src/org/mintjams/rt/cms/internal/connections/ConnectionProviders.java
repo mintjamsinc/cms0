@@ -95,10 +95,13 @@ public final class ConnectionProviders {
 		Map<String, List<Audience>> microsoftBundles = new LinkedHashMap<>();
 		// Mail is read and sent over IMAP and SMTP (Outlook); a tenant that has SMTP
 		// AUTH turned off sends through Graph instead, with the same consent.
+		// User.Read lets the connection test name the mailbox (GET /me); Mail.Send
+		// alone allows nothing but sending.
 		microsoftBundles.put(BUNDLE_MAIL, List.of(
 				new Audience(AUDIENCE_OUTLOOK, "https://outlook.office.com/IMAP.AccessAsUser.All",
 						"https://outlook.office.com/SMTP.Send"),
-				new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Mail.Send")));
+				new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Mail.Send",
+						"https://graph.microsoft.com/User.Read")));
 		microsoftBundles.put(BUNDLE_FILES, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Files.ReadWrite")));
 		microsoftBundles.put(BUNDLE_CONTACTS, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Contacts.Read")));
 		microsoftBundles.put(BUNDLE_CALENDAR, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Calendars.ReadWrite")));
