@@ -42,7 +42,8 @@ import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
  * binding.
  *
  * <pre>
- * String token = Connections.accessToken('google', 'mail');   // XOAUTH2, Drive, ...
+ * String token = Connections.accessToken('google', 'mail');            // XOAUTH2, Drive, ...
+ * String graph = Connections.accessToken('microsoft', 'mail', 'graph'); // the Graph API, same consent
  * </pre>
  *
  * <p>{@link #accessToken} returns a token from the cache or renews one; when
@@ -122,6 +123,39 @@ public class Connections {
 	 */
 	public String accessToken(String provider, String bundle) throws IOException, RepositoryException {
 		return ConnectionTokens.accessToken(userId(), provider, bundle);
+	}
+
+	/**
+	 * An access token of the user for one audience of the bundle. Microsoft
+	 * issues a token per resource: the {@code mail} bundle has {@code outlook}
+	 * (IMAP and SMTP, the default) and {@code graph} (sending through the
+	 * Graph API); the other bundles have {@code graph} only. Google's bundles
+	 * have one audience each, so the name may be left null.
+	 *
+	 * @throws ConsentRequiredException when the user has to link, grant or link again
+	 * @throws IOException when the provider could not be reached or refused
+	 * @throws IllegalArgumentException when the bundle has no such audience
+	 */
+	public String accessToken(String provider, String bundle, String audience) throws IOException, RepositoryException {
+		return ConnectionTokens.accessToken(userId(), provider, bundle, audience);
+	}
+
+	/**
+	 * The base URL of a provider API, as the administrator may have overridden
+	 * it in {@code clients.yml} ({@code endpoints:}), or {@code fallback}: the
+	 * Graph API is {@code endpoint('microsoft', 'graph', 'https://graph.microsoft.com/v1.0')}.
+	 * Null when the provider is not configured.
+	 */
+	public String endpoint(String provider, String name, String fallback) {
+		ConnectionClients.Client client = ConnectionClients.get().get(provider);
+		if (client == null) {
+			return null;
+		}
+		String url = client.getEndpoint(name, fallback);
+		while (url != null && url.endsWith("/")) {
+			url = url.substring(0, url.length() - 1);
+		}
+		return url;
 	}
 
 }

@@ -33,6 +33,8 @@ export interface MailSyncStatus {
 
 /** imap: any server with a password; gmail / microsoft: fixed servers, signed in with the linked account. */
 export type AccountKind = 'imap' | 'gmail' | 'microsoft';
+/** How mail goes out: the outgoing server, or Microsoft Graph (a Microsoft account whose tenant has SMTP AUTH off). */
+export type SendVia = 'smtp' | 'graph';
 
 export interface MailAccount {
 	id: string;
@@ -47,6 +49,7 @@ export interface MailAccount {
 	provider: string | null;
 	/** Whether a sent message is also put into the server's Sent folder. */
 	saveSentOnServer: boolean;
+	sendVia: SendVia;
 	incoming: MailServer;
 	outgoing: MailServer;
 	initialDays: number;
@@ -65,6 +68,7 @@ export interface MailAccountInput {
 	enabled: boolean;
 	kind: AccountKind;
 	saveSentOnServer: boolean;
+	sendVia: SendVia;
 	/** Left out for a preset kind: the server fills them in. */
 	incoming?: { host: string; port: number; security: Security; username: string };
 	outgoing?: { host: string; port: number; security: Security; username: string; sameAuthentication: boolean };
@@ -225,7 +229,7 @@ export interface MailDraftInput {
 const SERVER_FIELDS ='host port security username sameAuthentication';
 const ACCOUNT_FIELDS = `
 	id name address personal color enabled initialDays intervalMinutes
-	kind auth provider saveSentOnServer
+	kind auth provider saveSentOnServer sendVia
 	hasIncomingPassword hasOutgoingPassword
 	incoming { ${SERVER_FIELDS} }
 	outgoing { ${SERVER_FIELDS} }

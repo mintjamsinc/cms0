@@ -554,6 +554,17 @@
 							</div>
 						</template>
 
+						<!-- Microsoft: a tenant with SMTP AUTH turned off sends through Graph -->
+						<template v-if="accountForm.kind === 'microsoft'">
+							<div class="ml-form-section">{{ t('app.mail.account.sending', undefined, 'Sending') }}</div>
+							<div class="ml-form-grid">
+								<wt-field :label="t('app.mail.account.sendVia', undefined, 'Send through')"
+									:hint="t('app.mail.account.sendViaHint', undefined, 'Choose Microsoft Graph when the tenant has SMTP AUTH turned off. Exchange then files sent mail into Sent Items itself.')">
+									<wt-select v-model="accountForm.sendVia" :items="sendViaItems" @change="onFormInput"></wt-select>
+								</wt-field>
+							</div>
+						</template>
+
 						<template v-if="accountForm.kind === 'imap'">
 						<div class="ml-form-section">{{ t('app.mail.account.incoming', undefined, 'Incoming mail (IMAP)') }}</div>
 						<div class="ml-form-grid">
@@ -612,7 +623,10 @@
 							<div class="ml-form-wide">
 								<wt-checkbox v-model="accountForm.enabled" :label="t('app.mail.account.enabled', undefined, 'Synchronize this account')"></wt-checkbox>
 							</div>
-							<div class="ml-form-wide">
+							<div v-if="formSendsViaGraph" class="ml-form-wide text-muted fs-small">
+								{{ t('app.mail.account.saveSentGraph', undefined, 'Exchange files mail sent through Microsoft Graph into Sent Items by itself.') }}
+							</div>
+							<div v-else class="ml-form-wide">
 								<wt-checkbox v-model="accountForm.saveSentOnServer" :label="t('app.mail.account.saveSent', undefined, 'Also put sent mail into the server\'s Sent folder')"></wt-checkbox>
 								<div class="text-muted fs-small ms-4">{{ accountForm.kind === 'gmail'
 									? t('app.mail.account.saveSentGmail', undefined, 'Gmail files sent mail by itself; leave this off to avoid duplicates.')

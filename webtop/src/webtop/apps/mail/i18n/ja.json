@@ -183,5 +183,11 @@
 	"app.mail.account.error.popupBlocked": "ブラウザーがポップアップをブロックしました。このサイトのポップアップを許可して、もう一度お試しください。",
 	"app.mail.account.saveSent": "送信したメールをサーバーの送信済みフォルダーにも保存する",
 	"app.mail.account.saveSentHint": "ほかのメールクライアントからも、ここで送ったメールが見えるようになります。オフにすると控えは Webtop だけに残ります。",
-	"app.mail.account.saveSentGmail": "Gmail は送信時に自動で保存するため、二重になるのを防ぐにはオフのままにします。"
+	"app.mail.account.saveSentGmail": "Gmail は送信時に自動で保存するため、二重になるのを防ぐにはオフのままにします。",
+	"app.mail.account.saveSentGraph": "Microsoft Graph で送信したメールは、Exchange が送信済みアイテムに保存します。",
+	"app.mail.account.sending": "送信",
+	"app.mail.account.sendVia": "送信方法",
+	"app.mail.account.sendVia.smtp": "SMTP (smtp.office365.com)",
+	"app.mail.account.sendVia.graph": "Microsoft Graph",
+	"app.mail.account.sendViaHint": "テナントで SMTP AUTH が無効なときは Microsoft Graph を選びます。送信したメールは Exchange が送信済みアイテムに保存します。"
 }

@@ -71,6 +71,7 @@ class MailApi {
 			auth: a.auth ?: 'password',
 			provider: a.provider,
 			saveSentOnServer: (a.saveSentOnServer == null) ? true : !!a.saveSentOnServer,
+			sendVia: a.sendVia ?: 'smtp',
 			incoming: a.incoming,
 			outgoing: a.outgoing,
 			initialDays: a.initialDays,
@@ -149,6 +150,19 @@ class MailApi {
 		} catch (Throwable ex) {
 			result.ok = false;
 			result.messages.add("IMAP ${MailAccounts.describeServer(incoming)}: ${MailSync.describeError(ex)}".toString());
+		}
+
+		if (MailAccounts.sendsViaGraph(probe)) {
+			// Sending goes through Graph: the token of that audience and the mailbox
+			// it opens stand in for the SMTP sign-in.
+			try {
+				String mailbox = GraphTransport.create(context, probe).mailbox();
+				result.messages.add("${GraphTransport.NAME}: OK (${mailbox})".toString());
+			} catch (Throwable ex) {
+				result.ok = false;
+				result.messages.add("${GraphTransport.NAME}: ${MailSync.describeError(ex)}".toString());
+			}
+			return result;
 		}
 
 		Map outgoing = probe.outgoing as Map;

@@ -36,8 +36,12 @@ import java.util.Map;
  * {@code files}, never for individual scopes, and Preferences shows the user
  * what each bundle is used for. The scopes behind a bundle differ per provider.
  * Microsoft issues an access token per resource (Outlook, Graph), so there a
- * bundle is also the audience a token is requested for; Google issues one
- * token for every granted scope.
+ * bundle's scopes are grouped into <em>audiences</em>, one per resource, and
+ * a token is requested for one audience at a time: the {@code mail} bundle
+ * has {@code outlook} (IMAP and SMTP) and {@code graph} (sending through
+ * Graph). Google issues one token for every granted scope, so each of its
+ * bundles has a single audience. An app that names no audience gets the
+ * bundle's first.
  *
  * <p>The endpoints are the providers' documented ones; {@code clients.yml} may
  * override them, for a proxy or a test double.
@@ -57,16 +61,23 @@ public final class ConnectionProviders {
 
 	public static final String MICROSOFT_DEFAULT_TENANT = "organizations";
 
+	/** Google's one audience: a token carries every granted scope. */
+	public static final String AUDIENCE_GOOGLE = "google";
+	/** Microsoft: Outlook (IMAP and SMTP with XOAUTH2). */
+	public static final String AUDIENCE_OUTLOOK = "outlook";
+	/** Microsoft: the Graph API (sending mail, OneDrive, contacts, calendar). */
+	public static final String AUDIENCE_GRAPH = "graph";
+
 	private static final Map<String, Provider> PROVIDERS;
 
 	static {
 		Map<String, Provider> providers = new LinkedHashMap<>();
 
-		Map<String, List<String>> googleBundles = new LinkedHashMap<>();
-		googleBundles.put(BUNDLE_MAIL, List.of("https://mail.google.com/"));
-		googleBundles.put(BUNDLE_FILES, List.of("https://www.googleapis.com/auth/drive.file"));
-		googleBundles.put(BUNDLE_CONTACTS, List.of("https://www.googleapis.com/auth/contacts.readonly"));
-		googleBundles.put(BUNDLE_CALENDAR, List.of("https://www.googleapis.com/auth/calendar.events"));
+		Map<String, List<Audience>> googleBundles = new LinkedHashMap<>();
+		googleBundles.put(BUNDLE_MAIL, List.of(new Audience(AUDIENCE_GOOGLE, "https://mail.google.com/")));
+		googleBundles.put(BUNDLE_FILES, List.of(new Audience(AUDIENCE_GOOGLE, "https://www.googleapis.com/auth/drive.file")));
+		googleBundles.put(BUNDLE_CONTACTS, List.of(new Audience(AUDIENCE_GOOGLE, "https://www.googleapis.com/auth/contacts.readonly")));
+		googleBundles.put(BUNDLE_CALENDAR, List.of(new Audience(AUDIENCE_GOOGLE, "https://www.googleapis.com/auth/calendar.events")));
 		Map<String, String> googleAuthorize = new LinkedHashMap<>();
 		// A refresh token is issued only with offline access, and again only when
 		// the user is shown the consent screen; every grant here is an explicit
@@ -81,12 +92,16 @@ public final class ConnectionProviders {
 				"https://oauth2.googleapis.com/revoke",
 				List.of("openid", "email", "profile"), googleBundles, false, googleAuthorize));
 
-		Map<String, List<String>> microsoftBundles = new LinkedHashMap<>();
-		microsoftBundles.put(BUNDLE_MAIL, List.of("https://outlook.office.com/IMAP.AccessAsUser.All",
-				"https://outlook.office.com/SMTP.Send"));
-		microsoftBundles.put(BUNDLE_FILES, List.of("https://graph.microsoft.com/Files.ReadWrite"));
-		microsoftBundles.put(BUNDLE_CONTACTS, List.of("https://graph.microsoft.com/Contacts.Read"));
-		microsoftBundles.put(BUNDLE_CALENDAR, List.of("https://graph.microsoft.com/Calendars.ReadWrite"));
+		Map<String, List<Audience>> microsoftBundles = new LinkedHashMap<>();
+		// Mail is read and sent over IMAP and SMTP (Outlook); a tenant that has SMTP
+		// AUTH turned off sends through Graph instead, with the same consent.
+		microsoftBundles.put(BUNDLE_MAIL, List.of(
+				new Audience(AUDIENCE_OUTLOOK, "https://outlook.office.com/IMAP.AccessAsUser.All",
+						"https://outlook.office.com/SMTP.Send"),
+				new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Mail.Send")));
+		microsoftBundles.put(BUNDLE_FILES, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Files.ReadWrite")));
+		microsoftBundles.put(BUNDLE_CONTACTS, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Contacts.Read")));
+		microsoftBundles.put(BUNDLE_CALENDAR, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Calendars.ReadWrite")));
 		providers.put(MICROSOFT, new Provider(MICROSOFT, "Microsoft",
 				"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
 				"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
@@ -113,6 +128,25 @@ public final class ConnectionProviders {
 		return bundle != null && BUNDLES.contains(bundle);
 	}
 
+	/** The scopes of one resource within a bundle; the unit a Microsoft token is requested for. */
+	public static final class Audience {
+		private final String fName;
+		private final List<String> fScopes;
+
+		Audience(String name, String... scopes) {
+			fName = name;
+			fScopes = List.of(scopes);
+		}
+
+		public String getName() {
+			return fName;
+		}
+
+		public List<String> getScopes() {
+			return fScopes;
+		}
+	}
+
 	public static final class Provider {
 		private final String fId;
 		private final String fDisplayName;
@@ -121,13 +155,13 @@ public final class ConnectionProviders {
 		private final String fUserinfoEndpoint;
 		private final String fRevocationEndpoint;
 		private final List<String> fIdentityScopes;
-		private final Map<String, List<String>> fBundleScopes;
+		private final Map<String, List<Audience>> fBundles;
 		private final boolean fAudiencePerBundle;
 		private final Map<String, String> fAuthorizeParameters;
 
 		private Provider(String id, String displayName, String authorizationEndpoint, String tokenEndpoint,
 				String userinfoEndpoint, String revocationEndpoint, List<String> identityScopes,
-				Map<String, List<String>> bundleScopes, boolean audiencePerBundle,
+				Map<String, List<Audience>> bundles, boolean audiencePerBundle,
 				Map<String, String> authorizeParameters) {
 			fId = id;
 			fDisplayName = displayName;
@@ -136,7 +170,7 @@ public final class ConnectionProviders {
 			fUserinfoEndpoint = userinfoEndpoint;
 			fRevocationEndpoint = revocationEndpoint;
 			fIdentityScopes = identityScopes;
-			fBundleScopes = bundleScopes;
+			fBundles = bundles;
 			fAudiencePerBundle = audiencePerBundle;
 			fAuthorizeParameters = authorizeParameters;
 		}
@@ -172,27 +206,50 @@ public final class ConnectionProviders {
 			return fIdentityScopes;
 		}
 
-		/** The scopes behind a bundle; empty for an unknown bundle. */
+		/** Every scope behind a bundle, over all its audiences: what consent is asked for. Empty for an unknown bundle. */
 		public List<String> getBundleScopes(String bundle) {
-			List<String> scopes = fBundleScopes.get(bundle);
-			return (scopes == null) ? Collections.emptyList() : scopes;
+			List<String> scopes = new ArrayList<>();
+			for (Audience audience : getAudiences(bundle)) {
+				scopes.addAll(audience.getScopes());
+			}
+			return scopes;
+		}
+
+		/** The audiences of a bundle, the default first; empty for an unknown bundle. */
+		public List<Audience> getAudiences(String bundle) {
+			List<Audience> audiences = fBundles.get(bundle);
+			return (audiences == null) ? Collections.emptyList() : audiences;
+		}
+
+		/**
+		 * The audience of a bundle by name, or the bundle's first when {@code name}
+		 * is null; null when the bundle has no such audience.
+		 */
+		public Audience getAudience(String bundle, String name) {
+			for (Audience audience : getAudiences(bundle)) {
+				if (name == null || name.equals(audience.getName())) {
+					return audience;
+				}
+			}
+			return null;
 		}
 
 		/** The bundles whose scopes are all among {@code granted}. */
 		public List<String> bundlesGrantedBy(List<String> granted) {
 			List<String> bundles = new ArrayList<>();
-			for (Map.Entry<String, List<String>> e : fBundleScopes.entrySet()) {
-				if (!e.getValue().isEmpty() && granted.containsAll(e.getValue())) {
-					bundles.add(e.getKey());
+			for (String bundle : fBundles.keySet()) {
+				List<String> scopes = getBundleScopes(bundle);
+				if (!scopes.isEmpty() && granted.containsAll(scopes)) {
+					bundles.add(bundle);
 				}
 			}
 			return bundles;
 		}
 
 		/**
-		 * Whether an access token is bound to one bundle's resource, so each bundle
-		 * needs a token of its own (Microsoft), or one token serves every granted
-		 * scope (Google).
+		 * Whether an access token is bound to one resource, so each audience of a
+		 * bundle needs a token of its own and a token request names its scopes
+		 * (Microsoft), or one token serves every granted scope (Google).
 		 */
 		public boolean isAudiencePerBundle() {
 			return fAudiencePerBundle;

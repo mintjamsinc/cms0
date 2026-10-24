@@ -47,6 +47,12 @@ class MailAccounts {
 	static final List<String> KINDS = ['imap', 'gmail', 'microsoft'];
 
 	/**
+	 * How mail goes out: smtp (the outgoing server), or graph for a Microsoft
+	 * account whose tenant has SMTP AUTH turned off (GraphTransport).
+	 */
+	static final List<String> SEND_VIA = ['smtp', 'graph'];
+
+	/**
 	 * What a kind fixes: the servers, the provider of the linked account that
 	 * signs in, and whether a sent message is put into the server's Sent folder
 	 * (Gmail files what SMTP sends there by itself; Outlook does not).
@@ -281,6 +287,14 @@ class MailAccounts {
 		} else if (existing?.saveSentOnServer == null) {
 			account.saveSentOnServer = preset ? !!preset.saveSentOnServer : true;
 		}
+		String sendVia = (input.sendVia ?: existing?.sendVia ?: 'smtp').toString();
+		if (!SEND_VIA.contains(sendVia)) {
+			throw new IllegalArgumentException("Unknown sending method: ${sendVia}".toString());
+		}
+		if (sendVia == 'graph' && kind != 'microsoft') {
+			throw new IllegalArgumentException('Only a Microsoft account can send through Microsoft Graph.');
+		}
+		account.sendVia = sendVia;
 
 		int days = (input.initialDays != null) ? (input.initialDays as int) : ((existing?.initialDays ?: DEFAULT_INITIAL_DAYS) as int);
 		if (days < 1 || days > MAX_INITIAL_DAYS) {
@@ -362,6 +376,11 @@ class MailAccounts {
 	/** Whether an account signs in with a linked account rather than a password. */
 	static boolean isOAuth(Map account) {
 		return account?.auth == 'oauth';
+	}
+
+	/** Whether an account sends through Microsoft Graph instead of its outgoing server. */
+	static boolean sendsViaGraph(Map account) {
+		return account?.sendVia == 'graph';
 	}
 
 	/** "host:port (SSL/TLS)", to show which server was contacted. */

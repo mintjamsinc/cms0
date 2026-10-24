@@ -237,8 +237,37 @@ accepting it), the synchronization stops with *Link the Google account in
 Preferences › Linked accounts* as the account's error, and runs again once the
 link is back. The type of an account cannot be changed after it is saved.
 
-Microsoft 365 tenants often have SMTP AUTH turned off; sending then fails
-while reading works. Sending through Microsoft Graph is not implemented yet.
+### Sending through Microsoft Graph
+
+Microsoft 365 tenants often have SMTP AUTH turned off; sending over SMTP then
+fails with *535 5.7.139 SmtpClientAuthentication is disabled for the Tenant*
+while reading over IMAP works. A Microsoft account has a **Send through**
+setting for that: *SMTP* (the default) or *Microsoft Graph*. With Graph,
+reading stays on IMAP and only sending changes: the message goes out through
+the Graph API with the same linked account (the *Send and receive mail* bundle
+covers `Mail.Send` as well), **Test connection** opens the mailbox through
+Graph instead of signing in to SMTP, and the error of a refused SMTP sign-in
+points to the setting.
+
+What differs from SMTP:
+
+- Exchange files what Graph sends into *Sent Items* by itself, so **Also put
+  sent mail into the server's Sent folder** does not apply and is not shown.
+  No copy is kept in the Webtop either: a synchronization pass is asked for
+  right after sending and brings the message in from *Sent Items* (with the
+  account's synchronization off, the copy is kept in the Webtop as for Gmail).
+- A message whose MIME is within Graph's request limit (about 2.8 MB) goes out
+  in one call. A larger one is created as a draft without its attachments, the
+  attachments are added one by one (through an upload session when larger
+  than about 2.8 MB), and the draft is sent; the message as a whole is still
+  subject to the 25 MB attachment limit of the Webtop and to the tenant's
+  message size limit.
+- The *From* address has to be the mailbox's own address or one of its
+  aliases; Exchange refuses to send as anyone else.
+- A Microsoft account linked before Graph sending existed has the bundle
+  without `Mail.Send`: the first Graph send reports *Allow "Send and receive
+  mail" for the Microsoft account in Preferences › Linked accounts*, and
+  allowing it again adds the scope.
 
 ## Connection settings
 

@@ -12,13 +12,30 @@ in words, and takes any of it back.
 
 | Bundle | Shown as | Used by |
 | --- | --- | --- |
-| `mail` | Send and receive mail | Mail (IMAP and SMTP with XOAUTH2) |
+| `mail` | Send and receive mail | Mail (IMAP and SMTP with XOAUTH2; for a Microsoft account, sending through Microsoft Graph as well) |
 | `files` | Read and write the files you pick | Content Browser import and export, Mail attachments, Memo export (see *Files* below) |
 | `contacts` | Read contacts | recipient suggestions |
 | `calendar` | Read and write calendar events | calendar views, invitations |
 
 Nothing is shipped: a provider appears in Preferences only after an
 administrator registers a client with it (next section).
+
+The scopes behind a bundle, which the consent screen shows:
+
+| Bundle | Google | Microsoft |
+| --- | --- | --- |
+| `mail` | `https://mail.google.com/` | `IMAP.AccessAsUser.All` and `SMTP.Send` (Outlook), `Mail.Send` (Graph) |
+| `files` | `drive.file` | `Files.ReadWrite` |
+| `contacts` | `contacts.readonly` | `Contacts.Read` |
+| `calendar` | `calendar.events` | `Calendars.ReadWrite` |
+
+Microsoft issues an access token per resource, so the `mail` bundle's scopes
+are consented to together but used as two tokens: one for Outlook (IMAP and
+SMTP) and one for Graph. A Microsoft account linked before `Mail.Send` was
+part of the bundle keeps working over IMAP and SMTP; the first time something
+needs the Graph side, the provider refuses that scope, the bundle is taken off
+the account, and Preferences and the Mail app offer to allow it again (one
+consent screen, listing the added scope).
 
 ## For the administrator: enabling a provider
 
@@ -45,7 +62,9 @@ administrator registers a client with it (next section).
      authorization request, and the user consents to them there. A tenant
      that does not let users consent needs an administrator to grant them
      (list the permissions on the registration and grant admin consent).
-     Sending needs SMTP AUTH to be enabled for the mailbox.
+     Sending over SMTP needs SMTP AUTH to be enabled for the mailbox; a tenant
+     that keeps it off can send through Microsoft Graph instead (the Mail
+     account's *Send through* setting, see `documents/webtop-mail.md`).
 
 2. Copy `/etc/oauth/clients.yml.example` in the system workspace to
    `clients.yml` next to it and fill in the client id and secret:

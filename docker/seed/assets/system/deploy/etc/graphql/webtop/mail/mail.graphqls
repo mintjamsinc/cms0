@@ -48,6 +48,9 @@ type MailAccount {
   provider: String
   """Whether a sent message is also put into the server's Sent folder."""
   saveSentOnServer: Boolean!
+  """smtp (the outgoing server), or graph: a Microsoft account sends through the Graph API,
+  for tenants with SMTP AUTH turned off. Exchange then files the message into Sent Items itself."""
+  sendVia: String!
   incoming: MailServer!
   outgoing: MailServer!
   """Days of mail the first synchronization downloads."""
@@ -78,6 +81,8 @@ input MailAccountInput {
   kind: String
   """Omit to keep the stored value; the default is true, false for gmail."""
   saveSentOnServer: Boolean
+  """smtp (default) or graph (microsoft only). Omit to keep the stored value."""
+  sendVia: String
   """Required for imap; ignored for a preset kind."""
   incoming: MailServerInput
   outgoing: MailServerInput
@@ -294,10 +299,11 @@ extend type Mutation {
   saveMailDraft(input: MailDraftInput!): MailDraft!
   """Removes the draft and the files uploaded for it."""
   removeMailDraft(id: ID!): Boolean!
-  """Sends the draft through the account's outgoing server, keeps a copy (in the
-  server's Sent folder as well when the account's saveSentOnServer is on) and
-  removes the draft. Returns the id of the copy, or null when the copy is on
-  the server only until the next synchronization."""
+  """Sends the draft through the account's outgoing server (or Microsoft Graph,
+  by the account's sendVia), keeps a copy (in the server's Sent folder as well
+  when the account's saveSentOnServer is on) and removes the draft. Returns the
+  id of the copy, or null when the copy is on the server only until the next
+  synchronization (always after a Graph send, which asks for one at once)."""
   sendMailDraft(id: ID!): ID
   """Saves an address for suggestions; saving it again updates its name."""
   saveMailAddress(name: String, address: String!): Boolean!

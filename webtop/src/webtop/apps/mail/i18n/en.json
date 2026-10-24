@@ -183,5 +183,11 @@
 	"app.mail.account.error.popupBlocked": "The browser blocked the popup. Allow popups for this site and try again.",
 	"app.mail.account.saveSent": "Also put sent mail into the server's Sent folder",
 	"app.mail.account.saveSentHint": "Other mail clients then see what was sent here. Off: the copy stays in the Webtop only.",
-	"app.mail.account.saveSentGmail": "Gmail files sent mail by itself; leave this off to avoid duplicates."
+	"app.mail.account.saveSentGmail": "Gmail files sent mail by itself; leave this off to avoid duplicates.",
+	"app.mail.account.saveSentGraph": "Exchange files mail sent through Microsoft Graph into Sent Items by itself.",
+	"app.mail.account.sending": "Sending",
+	"app.mail.account.sendVia": "Send through",
+	"app.mail.account.sendVia.smtp": "SMTP (smtp.office365.com)",
+	"app.mail.account.sendVia.graph": "Microsoft Graph",
+	"app.mail.account.sendViaHint": "Choose Microsoft Graph when the tenant has SMTP AUTH turned off. Exchange then files sent mail into Sent Items itself."
 }

@@ -16,13 +16,18 @@ import org.mintjams.tools.mail.Transport;
  *   /home/users/<user>/mail/drafts/<draft>.json   the draft
  *   /home/users/<user>/mail/drafts/<draft>/<key>  files uploaded for it
  *
- * A draft is sent through the account's outgoing server. The copy of what was
- * sent goes into the server's Sent folder when the account says so
+ * A draft is sent through the account's outgoing server, or through Microsoft
+ * Graph when the account says so (sendVia, see GraphTransport). The copy of
+ * what was sent goes into the server's Sent folder when the account says so
  * (saveSentOnServer), stored under that folder with the UID the server gave
  * it; otherwise, or when the server has no Sent folder, it is kept in the
  * Webtop only, under a folder key no IMAP folder can have:
  *
  *   <messages>/<account>/local/sent/<yyyy>/<MM>/<id>.eml
+ *
+ * Exchange files what Graph sends into Sent Items by itself, so after a Graph
+ * send nothing is appended and no copy is kept: a synchronization pass is
+ * asked for at once and brings it in.
  */
 class MailCompose {
 
@@ -251,7 +256,9 @@ class MailCompose {
 			throw new IllegalArgumentException("A message can have at most ${MAX_RECIPIENTS} recipients.".toString());
 		}
 
+		boolean viaGraph = MailAccounts.sendsViaGraph(account);
 		List<Closeable> opened = [];
+		List<File> temporary = [];
 		File raw = null;
 		try {
 			Message m = Message.create();
@@ -273,6 +280,17 @@ class MailCompose {
 			m.setContent(text.endsWith('\n') ? text : text + '\n', 'text/plain');
 			if (d.format == 'html' && d.html) {
 				m.setContent(htmlDocument(d.html as String), 'text/html');
+			}
+
+			// For Graph, the MIME without the attachments as well: a message too
+			// large for one call is sent as a draft made from it, the attachments
+			// uploaded one by one from their own files.
+			File bare = null;
+			List<Map> spooled = [];
+			if (viaGraph) {
+				bare = File.createTempFile('webtop-mail-', '.eml');
+				temporary.add(bare);
+				bare.withOutputStream { out -> m.writeTo(out); };
 			}
 
 			long total = 0;
@@ -305,38 +323,71 @@ class MailCompose {
 					total += r.contentLength;
 					in = r.getContentAsStream();
 				}
+				String name = uniqueName(a.name as String, names);
+				if (viaGraph) {
+					File spool = File.createTempFile('webtop-mail-', '.att');
+					temporary.add(spool);
+					spool.withOutputStream { out -> out << in; };
+					in.close();
+					in = spool.newInputStream();
+					spooled.add([name: name, mimeType: a.mimeType as String, file: spool]);
+				}
 				// Message.addAttachment replaces a file of the same name.
-				m.addAttachment(in, uniqueName(a.name as String, names), a.mimeType as String);
+				m.addAttachment(in, name, a.mimeType as String);
 			}
 			if (total > MAX_TOTAL_SIZE) {
 				throw new IllegalArgumentException("The attachments are larger than ${MAX_TOTAL_SIZE.intdiv(1024 * 1024)} MB.".toString());
 			}
 
 			raw = File.createTempFile('webtop-mail-', '.eml');
+			temporary.add(raw);
 			raw.withOutputStream { out -> m.writeTo(out); };
 
-			Map outgoing = account.outgoing as Map;
-			try {
-				Map creds = api.accounts.credentials(account, 'outgoing');
-				Transport transport = Transport.Builder.create(MailAccounts.outgoingURI(account)).
-						setUsername(creds.username as String).
-						setPassword(creds.password as String).
-						setProperties(creds.properties as Map).
-						build();
+			if (viaGraph) {
 				try {
-					transport.send(m);
-				} finally {
-					transport.close();
+					GraphTransport graph = GraphTransport.create(context, account);
+					if (raw.length() <= GraphTransport.MIME_LIMIT) {
+						graph.send(raw);
+					} else {
+						graph.send(bare, spooled);
+					}
+				} catch (Throwable ex) {
+					String reason = MailSync.describeError(ex);
+					throw new IllegalStateException(reason.startsWith(GraphTransport.NAME) ? reason : "${GraphTransport.NAME}: ${reason}".toString(), ex);
 				}
-			} catch (Throwable ex) {
-				throw new IllegalStateException("SMTP ${MailAccounts.describeServer(outgoing)}: ${MailSync.describeError(ex)}".toString(), ex);
+			} else {
+				Map outgoing = account.outgoing as Map;
+				try {
+					Map creds = api.accounts.credentials(account, 'outgoing');
+					Transport transport = Transport.Builder.create(MailAccounts.outgoingURI(account)).
+							setUsername(creds.username as String).
+							setPassword(creds.password as String).
+							setProperties(creds.properties as Map).
+							build();
+					try {
+						transport.send(m);
+					} finally {
+						transport.close();
+					}
+				} catch (Throwable ex) {
+					throw new IllegalStateException("SMTP ${MailAccounts.describeServer(outgoing)}: ${MailSync.describeError(ex)}".toString(), ex);
+				}
 			}
 
 			// The copy: in the server's Sent folder when the account says so (and
 			// stored at once under the UID the server gave it), else in the Webtop only.
 			String copy = null;
 			boolean onServer = (account.saveSentOnServer == null) ? true : !!account.saveSentOnServer;
-			if (onServer) {
+			if (viaGraph && account.enabled != false) {
+				// Exchange filed it into Sent Items; the synchronization brings it in,
+				// asked for now. (A copy kept here would be listed twice meanwhile.)
+				copy = '';
+				try {
+					api.accounts.requestRun(account.id as String);
+				} catch (Throwable ex) {
+					log?.warn("The synchronization could not be asked for after sending: ${ex.message}".toString());
+				}
+			} else if (onServer && !viaGraph) {
 				try {
 					copy = appendSent(account, m, raw);
 				} catch (Throwable ex) {
@@ -378,7 +429,7 @@ class MailCompose {
 					c.close();
 				} catch (Throwable ignore) {}
 			};
-			raw?.delete();
+			temporary.each { f -> f.delete(); };
 		}
 	}
 

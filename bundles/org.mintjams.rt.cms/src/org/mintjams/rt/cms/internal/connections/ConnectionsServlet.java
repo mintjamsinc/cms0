@@ -265,7 +265,8 @@ public class ConnectionsServlet extends HttpServlet {
 
 		ConnectionTokens.Tokens tokens;
 		try {
-			tokens = ConnectionTokens.exchangeCode(client, code, callbackUrl(request), state.get("v").getAsString());
+			tokens = ConnectionTokens.exchangeCode(client, code, callbackUrl(request), state.get("v").getAsString(),
+					ConnectionTokens.tokenScopesFor(provider, bundle));
 		} catch (IOException ex) {
 			CmsService.getLogger(ConnectionsServlet.class).warn("The {} code could not be redeemed for {}: {}",
 					providerId, userId, ex.getMessage());

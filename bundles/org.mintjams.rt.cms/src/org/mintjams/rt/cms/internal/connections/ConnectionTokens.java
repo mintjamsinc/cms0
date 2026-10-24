@@ -34,8 +34,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.jcr.Node;
@@ -58,9 +60,9 @@ import com.google.gson.JsonParser;
  *
  * <p>Only the refresh token is stored ({@link LinkedAccounts}). An access
  * token lives an hour or so; it is kept in memory on the node that obtained
- * it, keyed by user, provider and audience, and renewed from the refresh
- * token a minute before it expires. Losing the cache (a restart, another
- * node) costs one renewal.
+ * it, keyed by user, provider, bundle and audience, and renewed from the
+ * refresh token a minute before it expires. Losing the cache (a restart,
+ * another node) costs one renewal.
  *
  * <p>Renewals of one account are serialized: in this JVM with a monitor, and
  * across the cluster with a lock on {@code /var/lock/oauth/<user>-<provider>},
@@ -73,6 +75,10 @@ import com.google.gson.JsonParser;
  * <p>A renewal the provider refuses with {@code invalid_grant} (the user
  * revoked access at the provider, the grant expired, the password changed)
  * marks the account as needing a new link and reports it as consent required.
+ * One refused because a scope of the bundle was never consented to (Microsoft
+ * says {@code consent_required}: the bundle gained a scope after the account
+ * was linked) takes the bundle off the account instead, so Preferences and
+ * the apps offer to allow it again; the other bundles keep working.
  */
 public final class ConnectionTokens {
 
@@ -147,24 +153,45 @@ public final class ConnectionTokens {
 	public static final class ProviderException extends IOException {
 		private static final long serialVersionUID = 1L;
 		private final String fError;
+		private final String fSuberror;
 
-		ProviderException(String error, String message) {
+		ProviderException(String error, String suberror, String message) {
 			super(message);
 			fError = error;
+			fSuberror = suberror;
 		}
 
 		public String getError() {
 			return fError;
 		}
+
+		/** Microsoft's refinement of the error ({@code consent_required}, ...); null when there is none. */
+		public String getSuberror() {
+			return fSuberror;
+		}
 	}
 
 	/**
-	 * An access token of the user for the bundle, from the cache or renewed.
+	 * An access token of the user for the bundle's default audience, from the
+	 * cache or renewed.
 	 *
 	 * @throws ConsentRequiredException when the user has to link, grant or link again
 	 * @throws IOException when the provider could not be reached or refused
 	 */
 	public static String accessToken(String userId, String provider, String bundle)
+			throws IOException, RepositoryException {
+		return accessToken(userId, provider, bundle, null);
+	}
+
+	/**
+	 * An access token of the user for one audience of the bundle (see
+	 * {@link ConnectionProviders.Audience}); the bundle's first when
+	 * {@code audience} is null.
+	 *
+	 * @throws ConsentRequiredException when the user has to link, grant or link again
+	 * @throws IOException when the provider could not be reached or refused
+	 */
+	public static String accessToken(String userId, String provider, String bundle, String audience)
 			throws IOException, RepositoryException {
 		ConnectionProviders.Provider p = ConnectionProviders.get(provider);
 		if (p == null) {
@@ -172,6 +199,11 @@ public final class ConnectionTokens {
 		}
 		if (!ConnectionProviders.isBundle(bundle)) {
 			throw new IllegalArgumentException("Unknown bundle: " + bundle);
+		}
+		ConnectionProviders.Audience a = p.getAudience(bundle, audience);
+		if (a == null) {
+			throw new IllegalArgumentException("The " + bundle + " bundle of " + provider + " has no audience "
+					+ audience + ".");
 		}
 		ConnectionClients.Client client = ConnectionClients.get().get(provider);
 		if (client == null) {
@@ -188,8 +220,7 @@ public final class ConnectionTokens {
 			throw new ConsentRequiredException(provider, bundle, ConsentRequiredException.BUNDLE_NOT_GRANTED);
 		}
 
-		String audience = p.isAudiencePerBundle() ? bundle : "";
-		String key = userId + "|" + provider + "|" + audience;
+		String key = userId + "|" + provider + "|" + (p.isAudiencePerBundle() ? bundle + ":" + a.getName() : "");
 		long now = System.currentTimeMillis();
 		Cached cached = fCache.get(key);
 		if (cached != null && cached.isFresh(now)) {
@@ -211,8 +242,21 @@ public final class ConnectionTokens {
 				}
 				Tokens tokens;
 				try {
-					tokens = refresh(client, refreshToken, p.isAudiencePerBundle() ? p.getBundleScopes(bundle) : null);
+					tokens = refresh(client, refreshToken, p.isAudiencePerBundle() ? a.getScopes() : null);
 				} catch (ProviderException ex) {
+					if ("invalid_grant".equals(ex.getError()) && "consent_required".equals(ex.getSuberror())) {
+						// The grant stands, but not for every scope of this bundle: it was
+						// linked before the bundle gained one. The bundle has to be allowed
+						// again; everything else keeps working.
+						fCache.keySet().removeIf(k -> k.startsWith(userId + "|" + provider + "|" + bundle + ":"));
+						Set<String> bundles = new LinkedHashSet<>(account.getBundles());
+						bundles.remove(bundle);
+						LinkedAccounts.save(userId, account.withBundles(bundles), null);
+						CmsService.getLogger(ConnectionTokens.class).info(
+								"The {} grant of {} does not cover the {} bundle any more; it has to be allowed again.",
+								provider, userId, bundle);
+						throw new ConsentRequiredException(provider, bundle, ConsentRequiredException.BUNDLE_NOT_GRANTED);
+					}
 					if ("invalid_grant".equals(ex.getError())) {
 						invalidate(userId, provider);
 						LinkedAccounts.save(userId, account.withNeedsReauth(true), null);
@@ -242,9 +286,14 @@ public final class ConnectionTokens {
 
 	// ---- the provider's endpoints ------------------------------------------------
 
-	/** Redeems an authorization code. */
+	/**
+	 * Redeems an authorization code. {@code scopes} names the scopes of the
+	 * token when the provider needs them (Microsoft issues a token for one
+	 * resource, while the authorization may have asked consent for several);
+	 * null leaves the choice to the provider.
+	 */
 	public static Tokens exchangeCode(ConnectionClients.Client client, String code, String redirectUri,
-			String codeVerifier) throws IOException {
+			String codeVerifier, List<String> scopes) throws IOException {
 		Map<String, String> form = new LinkedHashMap<>();
 		form.put("grant_type", "authorization_code");
 		form.put("code", code);
@@ -255,6 +304,9 @@ public final class ConnectionTokens {
 		}
 		if (codeVerifier != null) {
 			form.put("code_verifier", codeVerifier);
+		}
+		if (scopes != null && !scopes.isEmpty()) {
+			form.put("scope", String.join(" ", scopes));
 		}
 		return tokens(client.getTokenEndpoint(), form);
 	}
@@ -349,7 +401,7 @@ public final class ConnectionTokens {
 		if (response.statusCode() != 200 || json.has("error")) {
 			String error = json.has("error") ? json.get("error").getAsString() : "http_" + response.statusCode();
 			String description = json.has("error_description") ? json.get("error_description").getAsString() : "";
-			throw new ProviderException(error, "The token endpoint refused: " + error
+			throw new ProviderException(error, optional(json, "suberror"), "The token endpoint refused: " + error
 					+ (description.isEmpty() ? "" : " (" + description + ")"));
 		}
 		if (!json.has("access_token")) {
@@ -470,13 +522,37 @@ public final class ConnectionTokens {
 		}
 	}
 
-	/** For the servlet: the scopes of an authorization request, identity first. */
+	/** For the servlet: the scopes of an authorization request, identity first, then every scope of the bundle. */
 	static List<String> scopesFor(ConnectionProviders.Provider provider, String bundle) {
 		List<String> scopes = new ArrayList<>(provider.getIdentityScopes());
 		if (bundle != null) {
 			for (String scope : provider.getBundleScopes(bundle)) {
 				if (!scopes.contains(scope)) {
 					scopes.add(scope);
+				}
+			}
+		}
+		return scopes;
+	}
+
+	/**
+	 * For the servlet: the scopes to name when redeeming the code. A provider
+	 * that issues a token per resource gets the identity scopes and the
+	 * bundle's first audience, the one the consent was asked for alongside;
+	 * for the others the provider decides (null).
+	 */
+	static List<String> tokenScopesFor(ConnectionProviders.Provider provider, String bundle) {
+		if (!provider.isAudiencePerBundle()) {
+			return null;
+		}
+		List<String> scopes = new ArrayList<>(provider.getIdentityScopes());
+		if (bundle != null) {
+			ConnectionProviders.Audience audience = provider.getAudience(bundle, null);
+			if (audience != null) {
+				for (String scope : audience.getScopes()) {
+					if (!scopes.contains(scope)) {
+						scopes.add(scope);
+					}
 				}
 			}
 		}

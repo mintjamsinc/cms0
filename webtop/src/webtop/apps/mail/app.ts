@@ -36,6 +36,7 @@ import {
 	MailApi,
 	attachmentUrl,
 	type AccountKind,
+	type SendVia,
 	type ComposeFormat,
 	type ComposeMode,
 	type MailAccount,
@@ -205,6 +206,7 @@ function emptyAccountForm() {
 		enabled: true,
 		kind: 'imap' as AccountKind,
 		saveSentOnServer: true,
+		sendVia: 'smtp' as SendVia,
 		incoming: { host: '', port: 993, security: 'ssl' as Security, username: '' },
 		outgoing: { host: '', port: 587, security: 'starttls' as Security, username: '', sameAuthentication: true },
 		incomingPassword: '',
@@ -475,6 +477,17 @@ const App = {
 				{ value: 'starttls', label: this.t('app.mail.account.security.starttls', undefined, 'STARTTLS') },
 				{ value: 'none', label: this.t('app.mail.account.security.none', undefined, 'None') },
 			];
+		},
+		/** How a Microsoft account sends: its SMTP server, or the Graph API. */
+		sendViaItems(): { value: SendVia; label: string }[] {
+			return [
+				{ value: 'smtp', label: this.t('app.mail.account.sendVia.smtp', undefined, 'SMTP (smtp.office365.com)') },
+				{ value: 'graph', label: this.t('app.mail.account.sendVia.graph', undefined, 'Microsoft Graph') },
+			];
+		},
+		/** Whether sent mail is filed by the provider itself, so the Sent-folder copy has no meaning. */
+		formSendsViaGraph(): boolean {
+			return this.accountForm.kind === 'microsoft' && this.accountForm.sendVia === 'graph';
 		},
 		fromItems(): { value: string; label: string }[] {
 			return (this.accounts as MailAccount[]).map((a) => ({
@@ -1289,6 +1302,9 @@ const App = {
 				if (!f.id) {
 					f.saveSentOnServer = SAVE_SENT_DEFAULT[f.kind] ?? true;
 				}
+				if (f.kind !== 'microsoft') {
+					f.sendVia = 'smtp';
+				}
 			});
 		},
 		closeAccounts() {
@@ -1310,6 +1326,7 @@ const App = {
 				enabled: a.enabled,
 				kind: a.kind || 'imap',
 				saveSentOnServer: a.saveSentOnServer !== false,
+				sendVia: a.sendVia || 'smtp',
 				incoming: {
 					host: a.incoming.host,
 					port: a.incoming.port,
@@ -1376,6 +1393,7 @@ const App = {
 				enabled: f.enabled,
 				kind: f.kind,
 				saveSentOnServer: f.saveSentOnServer,
+				sendVia: f.kind === 'microsoft' ? f.sendVia : 'smtp',
 				initialDays: Number(f.initialDays),
 				intervalMinutes: Number(f.intervalMinutes),
 			};

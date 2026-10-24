@@ -234,6 +234,10 @@ class MailSync {
 				message = "The token was refused (status ${status.find() ? status.group(1) : '?'}, scope ${scope.find() ? scope.group(1) : '?'}).".toString();
 			} catch (Throwable ignore) {}
 		}
+		// Exchange Online with SMTP AUTH turned off (535 5.7.139): the account can send through Graph instead.
+		if (message =~ /5\.7\.139|SmtpClientAuthentication is disabled/) {
+			message += ' SMTP AUTH is turned off for this mailbox or tenant: choose Microsoft Graph as the sending method in the account settings.';
+		}
 		return (message.length() > 500) ? message.substring(0, 500) : message;
 	}
 
