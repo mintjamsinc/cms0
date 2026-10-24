@@ -45,6 +45,7 @@ import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 import javax.jcr.lock.LockException;
 import javax.jcr.lock.LockManager;
+import javax.jcr.nodetype.NodeType;
 
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
@@ -480,6 +481,14 @@ public final class ConnectionTokens {
 					if (!JCRs.exists(folder, name)) {
 						JCRs.createFile(folder, name);
 					}
+					session.save();
+				}
+				// A plain nt:file is not lockable (the resource layer adds the mixin to
+				// what it creates; JCRs does not), and the lock files made before this
+				// was noticed lack it too.
+				Node lockNode = session.getNode(path);
+				if (!lockNode.isNodeType(NodeType.MIX_LOCKABLE)) {
+					lockNode.addMixin(NodeType.MIX_LOCKABLE);
 					session.save();
 				}
 				LockManager lockManager = session.getWorkspace().getLockManager();
