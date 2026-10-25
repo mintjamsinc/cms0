@@ -1021,18 +1021,6 @@
 	}
 }
 
-.xpath-actions {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.25rem;
-	margin-top: 1rem;
-
-	.spacer {
-		flex: 1;
-	}
-}
-
 .xpath-error {
 	font-size: 0.8em;
 	color: #d32f2f;
@@ -1680,6 +1668,14 @@
 
 .facet-clear-btn:hover {
 	background-color: var(--item-hover-bg);
+}
+
+/* The same pill at the right end of a collapsible section's header; it keeps
+   its colour when the header's hover tints the title. */
+.sidebar-section-action {
+	margin-left: auto;
+	color: var(--text-soft-color);
+	line-height: 1.5;
 }
 
 .facet-item {

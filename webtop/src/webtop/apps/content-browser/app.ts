@@ -1004,6 +1004,21 @@ export const App = {
 			const s = this.facetSelection;
 			return (s.kind ? 1 : 0) + s.orientation.length + s.format.length + s.color.length + s.tag.length;
 		},
+		// Whether a schema condition has a value entered (applied or not yet).
+		xpathConditionsHaveValues(): boolean {
+			return (this.xpathConditions as any[]).some(c =>
+				c.stringValue.trim() !== '' ||
+				c.numberFrom !== '' ||
+				c.numberTo !== '' ||
+				c.booleanValue !== '' ||
+				c.dateMode !== 'none' ||
+				c.selectedChoices.length > 0);
+		},
+		// Whether the Narrow-down "Clear" has anything to clear: a facet or a
+		// schema condition value (see facetClearAll).
+		facetCanClear(): boolean {
+			return (this.facetSelectionCount as number) > 0 || (this.xpathConditionsHaveValues as boolean);
+		},
 		// The tags the Tags facet lists: the selected ones first, then the most
 		// frequent among the remaining results.
 		facetTagEntries(): { tag: string; count: number }[] {
@@ -5400,9 +5415,24 @@ export const App = {
 			}
 			this.xpathExecuteSearch();
 		},
+		// Clears the facet selection and the values of the schema conditions.
+		// The conditions themselves stay, so the same properties can be
+		// filled in again; the operator toggles (≥ / >) are not values and
+		// stay as they are.
 		facetClearAll() {
-			if (this.facetSelectionCount === 0) return;
+			if (!this.facetCanClear) return;
 			this.facetSelection = emptyFacetSelection();
+			for (const cond of this.xpathConditions as any[]) {
+				cond.stringValue = '';
+				cond.numberFrom = '';
+				cond.numberTo = '';
+				cond.booleanValue = '';
+				cond.dateMode = 'none';
+				cond.datePastN = 7;
+				cond.dateFrom = '';
+				cond.dateTo = '';
+				cond.selectedChoices = [];
+			}
 			this.xpathExecuteSearch();
 		},
 		// Forgets the selection and counts without running a search: the
@@ -5525,12 +5555,6 @@ export const App = {
 			// Reloading the folder is what ends the search: load() clears the
 			// search state as part of replacing the list.
 			await this.load(this.currentPath, true);
-		},
-		xpathClearAllConditions() {
-			this.xpathConditions = [];
-			this.xpathSelectedSchema = '';
-			this.fullTextKeyword = '';
-			this.xpathSearchError = '';
 		},
 		// Smart folder methods
 		// Whether there is a search to save: a schema condition, a keyword or

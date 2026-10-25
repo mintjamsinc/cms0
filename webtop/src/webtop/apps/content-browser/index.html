@@ -35,11 +35,11 @@
 			</div>
 
 			<!-- Full-text search. Scoped to the current folder; the Search section
-			     in the sidebar narrows the same query by schema condition.
-			     Unlike that section this sits outside the navigation busy shield,
-			     so it has to refuse to start a query itself while one is running —
-			     both writers replace the same list and the loser would clobber the
-			     winner's results. -->
+			     in the sidebar (shown once a search has started) narrows the same
+			     query by schema condition.
+			     It sits outside the navigation busy shield, so it has to refuse to
+			     start a query itself while one is running — both writers replace
+			     the same list and the loser would clobber the winner's results. -->
 			<div class="cb-searchbar">
 				<div class="input-group" :class="{invalid: fullTextCompiled.error}">
 					<input type="search" v-model="fullTextKeyword" :disabled="listLoading"
@@ -189,7 +189,8 @@
 				</div>
 
 				<!-- Favorites section (hidden while a search result is listed: the
-				     facets take the place of this and the next two sections) -->
+				     facets and the search section take the place of this and the
+				     next section) -->
 				<div v-if="!xpathSearchActive" class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('favorites')">
 						<i class="bi" :class="sidebarSectionExpanded.favorites ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
@@ -260,11 +261,126 @@
 					</div>
 				</div>
 
-				<!-- XPath Search section -->
-				<div v-if="!xpathSearchActive" class="sidebar-section">
+				<!-- Facets: shown while a search result is listed, in place of the
+				     favorites and smart folders sections. Each entry shows
+				     how many results choosing it leaves (see the Facets section of
+				     app.ts). -->
+				<div v-if="xpathSearchActive" class="facet-panel" :class="{ 'facet-panel-loading': facetLoading }">
+					<div class="facet-toolbar">
+						<span class="facet-toolbar-title">{{ t('app.content-browser.facet.title') }}</span>
+						<div class="facet-toolbar-actions">
+							<button v-if="facetCanClear" class="facet-clear-btn" @click="facetClearAll" :title="t('app.content-browser.facet.clearHint')">
+								<i class="bi bi-eraser me-1"></i>{{ t('app.content-browser.facet.clear') }}
+							</button>
+							<!-- Saving as a smart folder lives here: the folder keeps the
+							     keyword, the conditions and the selection. -->
+							<button class="facet-clear-btn" @click="smartFolderSaveCurrent" :disabled="!smartFolderCanSave"
+								:title="t('app.content-browser.facet.saveHint')">
+								<i class="bi bi-folder-plus me-1"></i>{{ t('app.content-browser.facet.save') }}
+							</button>
+						</div>
+					</div>
+
+					<!-- Kind (single choice) -->
+					<div class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('kind')">
+							<i class="bi" :class="facetSectionExpanded.kind ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.kind') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.kind" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="kind in facetKinds()" :key="'facet-kind-' + kind" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('kind', kind), 'facet-item-empty': !facetCount('kind', kind) }"
+								@click="facetSelectKind(kind)">
+								<i class="bi facet-icon" :class="facetKindIcon(kind)"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.kind.' + kind) }}</span>
+								<span class="facet-count">{{ facetCount('kind', kind) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Orientation (images and videos) -->
+					<div v-if="facetShowsOrientation" class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('orientation')">
+							<i class="bi" :class="facetSectionExpanded.orientation ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.orientation') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.orientation" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="orientation in facetOrientations()" :key="'facet-orientation-' + orientation" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('orientation', orientation), 'facet-item-empty': !facetCount('orientation', orientation) }"
+								@click="facetToggle('orientation', orientation)">
+								<i class="bi facet-icon" :class="facetIsSelected('orientation', orientation) ? 'bi-check-square' : 'bi-square'"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.orientation.' + orientation) }}</span>
+								<span class="facet-count">{{ facetCount('orientation', orientation) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Format (documents: PDF, Text, ...; scripts: Groovy, TypeScript, ...) -->
+					<div v-if="facetShowsFormat" class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('format')">
+							<i class="bi" :class="facetSectionExpanded.format ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.format') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.format" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="format in facetFormats()" :key="'facet-format-' + format" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('format', format), 'facet-item-empty': !facetCount('format', format) }"
+								@click="facetToggle('format', format)">
+								<i class="bi facet-icon" :class="facetIsSelected('format', format) ? 'bi-check-square' : 'bi-square'"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.format.' + format) }}</span>
+								<span class="facet-count">{{ facetCount('format', format) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Color (mi:color) -->
+					<div class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('color')">
+							<i class="bi" :class="facetSectionExpanded.color ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.color') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.color" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="c in facetColors()" :key="'facet-color-' + c.key" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('color', c.key), 'facet-item-empty': !facetCount('color', c.key) }"
+								@click="facetToggle('color', c.key)">
+								<span class="facet-color-dot" :style="{ backgroundColor: c.value }"></span>
+								<span class="facet-label">{{ t('app.content-browser.color.' + c.key) }}</span>
+								<span class="facet-count">{{ facetCount('color', c.key) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Tags (mi:tags): the selected ones, then the most frequent -->
+					<div class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('tag')">
+							<i class="bi" :class="facetSectionExpanded.tag ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.tag') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.tag" class="sidebar-section-body sidebar-section-body-list">
+							<div v-if="facetTagEntries.length === 0" class="sidebar-placeholder ps-3">{{ t('app.content-browser.facet.noTags') }}</div>
+							<div v-for="e in facetTagEntries" :key="'facet-tag-' + e.tag" class="facet-item"
+								:class="{ 'facet-item-active': facetIsSelected('tag', e.tag), 'facet-item-empty': !e.count }"
+								@click="facetToggle('tag', e.tag)" :title="e.tag">
+								<i class="bi facet-icon" :class="facetIsSelected('tag', e.tag) ? 'bi-check-square' : 'bi-square'"></i>
+								<span class="facet-label">{{ e.tag }}</span>
+								<span class="facet-count">{{ e.count }}</span>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<!-- XPath Search section: shown once a search has started, below the
+				     facets. It narrows the toolbar's query by schema condition; Apply
+				     runs the search again with them. Like the toolbar's search button
+				     it sits outside the navigation busy shield, so it refuses to start
+				     a query while one is running. -->
+				<div v-if="xpathSearchActive" class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('xpathSearch')">
 						<i class="bi" :class="sidebarSectionExpanded.xpathSearch ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
 						<span>{{ t('app.content-browser.search.title') }}</span>
+						<button class="facet-clear-btn sidebar-section-action" @click.stop="xpathExecuteSearch" :disabled="listLoading"
+							:title="t('app.content-browser.search.applyHint')">
+							<i class="bi bi-check-lg me-1"></i>{{ t('app.content-browser.search.apply') }}
+						</button>
 					</div>
 					<div v-show="sidebarSectionExpanded.xpathSearch" class="sidebar-section-body px-2">
 						<!-- Condition list (placed above Schema so newly-added conditions appear at top) -->
@@ -360,7 +476,7 @@
 
 						<!-- Schema selector -->
 						<div class="filter-group">
-							<label class="filter-label">{{ t('app.content-browser.search.schema') }}</label>
+							<label class="filter-label">{{ t('app.content-browser.search.addConditionLabel') }}</label>
 							<div class="wt-select xpath-schema-dropdown">
 								<button type="button" class="wt-select-trigger" @click.stop="openXpathSchemaDropdown(event)">
 									<span class="wt-select-value" :class="{placeholder: !xpathSelectedSchema}">
@@ -380,139 +496,8 @@
 							</button>
 						</div>
 
-						<!-- Search / Clear / Save buttons (always shown; act on full-text and/or schema conditions) -->
-						<div class="xpath-conditions-footer">
-							<div class="xpath-actions">
-								<button class="wt wt-primary" @click="xpathExecuteSearch"
-									:disabled="xpathSearchLoading || !hasSearchInput">
-									<i class="bi bi-search me-1"></i>
-									<span v-if="xpathSearchLoading">{{ t('app.content-browser.search.searching') }}</span>
-									<span v-else>{{ t('app.content-browser.search.search') }}</span>
-								</button>
-								<button class="wt wt-primary wt-outlined px-2" @click="xpathClearAllConditions"
-									:disabled="!hasSearchInput"
-									:title="t('app.content-browser.search.clearSearch')">
-									<i class="bi bi-eraser"></i>
-								</button>
-								<span class="spacer"></span>
-								<button class="wt wt-secondary px-2" @click="smartFolderSaveCurrent"
-									:disabled="!hasSearchInput"
-									:title="t('app.content-browser.search.saveAsSmartFolder')">
-									<i class="bi bi-bookmark-plus"></i>
-								</button>
-							</div>
-
-							<!-- Error message -->
-							<div v-if="xpathSearchError" class="xpath-error">{{ xpathSearchError }}</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Facets: shown while a search result is listed, in place of the
-				     favorites, smart folders and search sections. Each entry shows
-				     how many results choosing it leaves (see the Facets section of
-				     app.ts). -->
-				<div v-if="xpathSearchActive" class="facet-panel" :class="{ 'facet-panel-loading': facetLoading }">
-					<div class="facet-toolbar">
-						<span class="facet-toolbar-title">{{ t('app.content-browser.facet.title') }}</span>
-						<div class="facet-toolbar-actions">
-							<button v-if="facetSelectionCount > 0" class="facet-clear-btn" @click="facetClearAll" :title="t('app.content-browser.facet.clearHint')">
-								<i class="bi bi-eraser me-1"></i>{{ t('app.content-browser.facet.clear') }}
-							</button>
-							<!-- The search section's "Save as smart folder" is hidden while
-							     the facets show, so the facets offer it here: the folder
-							     keeps the keyword, the conditions and the selection. -->
-							<button class="facet-clear-btn" @click="smartFolderSaveCurrent" :disabled="!smartFolderCanSave"
-								:title="t('app.content-browser.facet.saveHint')">
-								<i class="bi bi-folder-plus me-1"></i>{{ t('app.content-browser.facet.save') }}
-							</button>
-						</div>
-					</div>
-
-					<!-- Kind (single choice) -->
-					<div class="sidebar-section">
-						<div class="sidebar-section-header" @click="toggleFacetSection('kind')">
-							<i class="bi" :class="facetSectionExpanded.kind ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-							<span>{{ t('app.content-browser.facet.kind') }}</span>
-						</div>
-						<div v-show="facetSectionExpanded.kind" class="sidebar-section-body sidebar-section-body-list">
-							<div v-for="kind in facetKinds()" :key="'facet-kind-' + kind" class="facet-item"
-								:class="{ 'facet-item-active': facetIsSelected('kind', kind), 'facet-item-empty': !facetCount('kind', kind) }"
-								@click="facetSelectKind(kind)">
-								<i class="bi facet-icon" :class="facetKindIcon(kind)"></i>
-								<span class="facet-label">{{ t('app.content-browser.facet.kind.' + kind) }}</span>
-								<span class="facet-count">{{ facetCount('kind', kind) }}</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Orientation (images and videos) -->
-					<div v-if="facetShowsOrientation" class="sidebar-section">
-						<div class="sidebar-section-header" @click="toggleFacetSection('orientation')">
-							<i class="bi" :class="facetSectionExpanded.orientation ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-							<span>{{ t('app.content-browser.facet.orientation') }}</span>
-						</div>
-						<div v-show="facetSectionExpanded.orientation" class="sidebar-section-body sidebar-section-body-list">
-							<div v-for="orientation in facetOrientations()" :key="'facet-orientation-' + orientation" class="facet-item"
-								:class="{ 'facet-item-active': facetIsSelected('orientation', orientation), 'facet-item-empty': !facetCount('orientation', orientation) }"
-								@click="facetToggle('orientation', orientation)">
-								<i class="bi facet-icon" :class="facetIsSelected('orientation', orientation) ? 'bi-check-square' : 'bi-square'"></i>
-								<span class="facet-label">{{ t('app.content-browser.facet.orientation.' + orientation) }}</span>
-								<span class="facet-count">{{ facetCount('orientation', orientation) }}</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Format (documents: PDF, Text, ...; scripts: Groovy, TypeScript, ...) -->
-					<div v-if="facetShowsFormat" class="sidebar-section">
-						<div class="sidebar-section-header" @click="toggleFacetSection('format')">
-							<i class="bi" :class="facetSectionExpanded.format ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-							<span>{{ t('app.content-browser.facet.format') }}</span>
-						</div>
-						<div v-show="facetSectionExpanded.format" class="sidebar-section-body sidebar-section-body-list">
-							<div v-for="format in facetFormats()" :key="'facet-format-' + format" class="facet-item"
-								:class="{ 'facet-item-active': facetIsSelected('format', format), 'facet-item-empty': !facetCount('format', format) }"
-								@click="facetToggle('format', format)">
-								<i class="bi facet-icon" :class="facetIsSelected('format', format) ? 'bi-check-square' : 'bi-square'"></i>
-								<span class="facet-label">{{ t('app.content-browser.facet.format.' + format) }}</span>
-								<span class="facet-count">{{ facetCount('format', format) }}</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Color (mi:color) -->
-					<div class="sidebar-section">
-						<div class="sidebar-section-header" @click="toggleFacetSection('color')">
-							<i class="bi" :class="facetSectionExpanded.color ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-							<span>{{ t('app.content-browser.facet.color') }}</span>
-						</div>
-						<div v-show="facetSectionExpanded.color" class="sidebar-section-body sidebar-section-body-list">
-							<div v-for="c in facetColors()" :key="'facet-color-' + c.key" class="facet-item"
-								:class="{ 'facet-item-active': facetIsSelected('color', c.key), 'facet-item-empty': !facetCount('color', c.key) }"
-								@click="facetToggle('color', c.key)">
-								<span class="facet-color-dot" :style="{ backgroundColor: c.value }"></span>
-								<span class="facet-label">{{ t('app.content-browser.color.' + c.key) }}</span>
-								<span class="facet-count">{{ facetCount('color', c.key) }}</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Tags (mi:tags): the selected ones, then the most frequent -->
-					<div class="sidebar-section">
-						<div class="sidebar-section-header" @click="toggleFacetSection('tag')">
-							<i class="bi" :class="facetSectionExpanded.tag ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-							<span>{{ t('app.content-browser.facet.tag') }}</span>
-						</div>
-						<div v-show="facetSectionExpanded.tag" class="sidebar-section-body sidebar-section-body-list">
-							<div v-if="facetTagEntries.length === 0" class="sidebar-placeholder ps-3">{{ t('app.content-browser.facet.noTags') }}</div>
-							<div v-for="e in facetTagEntries" :key="'facet-tag-' + e.tag" class="facet-item"
-								:class="{ 'facet-item-active': facetIsSelected('tag', e.tag), 'facet-item-empty': !e.count }"
-								@click="facetToggle('tag', e.tag)" :title="e.tag">
-								<i class="bi facet-icon" :class="facetIsSelected('tag', e.tag) ? 'bi-check-square' : 'bi-square'"></i>
-								<span class="facet-label">{{ e.tag }}</span>
-								<span class="facet-count">{{ e.count }}</span>
-							</div>
-						</div>
+						<!-- Error message -->
+						<div v-if="xpathSearchError" class="xpath-error">{{ xpathSearchError }}</div>
 					</div>
 				</div>
 
