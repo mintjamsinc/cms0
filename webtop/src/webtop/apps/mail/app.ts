@@ -193,7 +193,7 @@ function randomKey(): string {
 const PROVIDER_OF: Record<string, string> = { gmail: 'google', microsoft: 'microsoft' };
 
 /** Whether a sent message goes into the server's Sent folder, by kind, for a new account. */
-const SAVE_SENT_DEFAULT: Record<string, boolean> = { imap: true, gmail: false, microsoft: true };
+const SAVE_SENT_DEFAULT: Record<string, boolean> = { imap: true, gmail: false, microsoft: false };
 
 function emptyAccountForm() {
 	return {
@@ -471,6 +471,17 @@ const App = {
 			const a = this.formLinkedAccount as LinkedAccount | null;
 			return !!a && !a.needsReauth && a.bundles.includes('mail');
 		},
+		/**
+		 * Whether the address is fixed: a saved account keeps its address, and
+		 * a Gmail / Microsoft account takes the linked account's one. Only a
+		 * linked account that reported no email leaves it to be typed.
+		 */
+		formAddressLocked(): boolean {
+			if (this.accountForm.id) return true;
+			if (this.accountForm.kind === 'imap') return false;
+			const a = this.formLinkedAccount as LinkedAccount | null;
+			return !a || !!a.email;
+		},
 		securityItems(): { value: Security; label: string }[] {
 			return [
 				{ value: 'ssl', label: this.t('app.mail.account.security.ssl', undefined, 'SSL/TLS') },
@@ -484,10 +495,6 @@ const App = {
 				{ value: 'smtp', label: this.t('app.mail.account.sendVia.smtp', undefined, 'SMTP (smtp.office365.com)') },
 				{ value: 'graph', label: this.t('app.mail.account.sendVia.graph', undefined, 'Microsoft Graph') },
 			];
-		},
-		/** Whether sent mail is filed by the provider itself, so the Sent-folder copy has no meaning. */
-		formSendsViaGraph(): boolean {
-			return this.accountForm.kind === 'microsoft' && this.accountForm.sendVia === 'graph';
 		},
 		fromItems(): { value: string; label: string }[] {
 			return (this.accounts as MailAccount[]).map((a) => ({
@@ -1255,8 +1262,23 @@ const App = {
 			if (!connections) return;
 			try {
 				this.accountsDialog.linked = await connections.getLinkedAccounts();
+				this.fillLinkedAddress();
 			} catch (e) {
 				console.warn('[Mail] Linked accounts could not be read:', e);
+			}
+		},
+		/** A new Gmail / Microsoft account takes the address of the linked account. */
+		fillLinkedAddress() {
+			const f = this.accountForm;
+			if (f.id) return;
+			const linked = this.accountsDialog.linked as LinkedAccounts | null;
+			// An address filled in for another kind does not stay behind.
+			if (linked?.accounts.some((a) => a.email && a.email === f.address)) {
+				f.address = '';
+			}
+			const email = f.kind === 'imap' ? null : (this.formLinkedAccount as LinkedAccount | null)?.email;
+			if (email) {
+				f.address = email;
 			}
 		},
 		/**
@@ -1305,6 +1327,7 @@ const App = {
 				if (f.kind !== 'microsoft') {
 					f.sendVia = 'smtp';
 				}
+				this.fillLinkedAddress();
 			});
 		},
 		closeAccounts() {
@@ -1392,7 +1415,8 @@ const App = {
 				color: f.color,
 				enabled: f.enabled,
 				kind: f.kind,
-				saveSentOnServer: f.saveSentOnServer,
+				// Only an IMAP account offers the choice; Gmail / Microsoft keep it off.
+				saveSentOnServer: f.kind === 'imap' ? f.saveSentOnServer : false,
 				sendVia: f.kind === 'microsoft' ? f.sendVia : 'smtp',
 				initialDays: Number(f.initialDays),
 				intervalMinutes: Number(f.intervalMinutes),
@@ -1445,8 +1469,9 @@ const App = {
 			return true;
 		},
 		async testAccount() {
-			if (!api || !this.validateForm()) return;
-			if (!(await this.ensureLinked())) return;
+			if (!api) return;
+			// Linking first: a Gmail / Microsoft account takes its address from it.
+			if (!(await this.ensureLinked()) || !this.validateForm()) return;
 			const f = this.accountForm;
 			f.testing = true;
 			f.testResult = null;
@@ -1460,8 +1485,9 @@ const App = {
 			}
 		},
 		async saveAccount() {
-			if (!api || !this.validateForm()) return;
-			if (!(await this.ensureLinked())) return;
+			if (!api) return;
+			// Linking first: a Gmail / Microsoft account takes its address from it.
+			if (!(await this.ensureLinked()) || !this.validateForm()) return;
 			const f = this.accountForm;
 			f.saving = true;
 			try {

@@ -511,36 +511,20 @@
 
 					<div v-if="accountForm.visible" class="ml-accounts-form" @input="onFormInput">
 						<div class="ml-form-grid">
-							<wt-field :label="t('app.mail.account.kind', undefined, 'Account type')"
-								:hint="accountForm.kind === 'imap' ? '' : t('app.mail.account.kindHint', undefined, 'The servers are set; the account signs in with your linked account, without a password.')">
+							<wt-field class="ml-form-row" :label="t('app.mail.account.kind', undefined, 'Account type')"
+								:hint="accountForm.kind === 'imap' ? '' : t('app.mail.account.kindHint', undefined, 'Signs in with your linked account.')">
 								<wt-select v-model="accountForm.kind" :items="kindItems" :disabled="!!accountForm.id" @change="onKindChange"></wt-select>
 							</wt-field>
-							<wt-field :label="t('app.mail.account.address', undefined, 'Mail address')" required>
-								<input type="email" class="wt w-100" v-model="accountForm.address" @input="onAddressInput" :disabled="!!accountForm.id">
-							</wt-field>
-							<wt-field :label="t('app.mail.account.name', undefined, 'Account name')">
-								<input type="text" class="wt w-100" v-model="accountForm.name" :placeholder="accountForm.address">
-							</wt-field>
-							<wt-field :label="t('app.mail.account.personal', undefined, 'Your name')">
-								<input type="text" class="wt w-100" v-model="accountForm.personal">
-							</wt-field>
-							<wt-field :label="t('app.mail.account.color', undefined, 'Color')">
-								<input type="color" class="ml-color" v-model="accountForm.color">
-							</wt-field>
-						</div>
-
-						<!-- A preset kind (Gmail, Microsoft): the linked account signs in -->
-						<template v-if="accountForm.kind !== 'imap'">
-							<div class="ml-form-section">{{ t('app.mail.account.linked', undefined, 'Linked account') }}</div>
-							<div class="ml-form-grid">
-								<div class="ml-form-wide ml-linked-row">
+							<!-- A preset kind (Gmail, Microsoft): the linked account signs in -->
+							<wt-field v-if="accountForm.kind !== 'imap'" class="ml-form-wide" :label="t('app.mail.account.linked', undefined, 'Linked account')">
+								<div class="ml-linked-row">
 									<template v-if="!formProviderConfigured">
 										<i class="bi bi-info-circle"></i>
 										<span class="ml-linked-text">{{ t('app.mail.account.linkedOff', { provider: formProviderName }, 'Linking a {provider} account is not enabled on this server.') }}</span>
 									</template>
 									<template v-else-if="formLinkedReady">
 										<i class="bi bi-check-circle-fill text-success"></i>
-										<span class="ml-linked-text">{{ t('app.mail.account.linkedReady', { provider: formProviderName, email: formLinkedAccount.email || formLinkedAccount.subject }, '{provider} account {email} is linked and allowed to send and receive mail.') }}</span>
+										<span class="ml-linked-text">{{ t('app.mail.account.linkedReady', { provider: formProviderName }, 'The {provider} account is linked and allowed to send and receive mail.') }}</span>
 									</template>
 									<template v-else>
 										<span class="ml-linked-text">{{ formLinkedAccount
@@ -551,15 +535,27 @@
 										</button>
 									</template>
 								</div>
-							</div>
-						</template>
+							</wt-field>
+							<wt-field class="ml-form-row" :label="t('app.mail.account.address', undefined, 'Mail address')" required>
+								<input type="email" class="wt w-100" v-model="accountForm.address" @input="onAddressInput" :disabled="formAddressLocked">
+							</wt-field>
+							<wt-field class="ml-form-row" :label="t('app.mail.account.name', undefined, 'Account name')">
+								<input type="text" class="wt w-100" v-model="accountForm.name" :placeholder="accountForm.address">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.personal', undefined, 'Your name')">
+								<input type="text" class="wt w-100" v-model="accountForm.personal">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.color', undefined, 'Color')">
+								<input type="color" class="ml-color" v-model="accountForm.color">
+							</wt-field>
+						</div>
 
 						<!-- Microsoft: a tenant with SMTP AUTH turned off sends through Graph -->
 						<template v-if="accountForm.kind === 'microsoft'">
 							<div class="ml-form-section">{{ t('app.mail.account.sending', undefined, 'Sending') }}</div>
 							<div class="ml-form-grid">
-								<wt-field :label="t('app.mail.account.sendVia', undefined, 'Send through')"
-									:hint="t('app.mail.account.sendViaHint', undefined, 'Choose Microsoft Graph when the tenant has SMTP AUTH turned off. Exchange then files sent mail into Sent Items itself.')">
+								<wt-field class="ml-form-row" :label="t('app.mail.account.sendVia', undefined, 'Send through')"
+									:hint="t('app.mail.account.sendViaHint', undefined, 'If SMTP AUTH is disabled, choose Microsoft Graph.')">
 									<wt-select v-model="accountForm.sendVia" :items="sendViaItems" @change="onFormInput"></wt-select>
 								</wt-field>
 							</div>
@@ -613,24 +609,20 @@
 
 						<div class="ml-form-section">{{ t('app.mail.account.sync', undefined, 'Synchronization') }}</div>
 						<div class="ml-form-grid">
-							<wt-field :label="t('app.mail.account.initialDays', undefined, 'Download mail of the last (days)')"
+							<wt-field class="ml-form-row" :label="t('app.mail.account.initialDays', undefined, 'Download mail of the last (days)')"
 								:hint="t('app.mail.account.initialDaysHint', undefined, 'Used for the first download. Older mail can be downloaded later.')">
 								<input type="number" class="wt w-100" min="1" max="3650" v-model.number="accountForm.initialDays" :disabled="!!accountForm.id">
 							</wt-field>
-							<wt-field :label="t('app.mail.account.interval', undefined, 'Check every (minutes)')">
+							<wt-field class="ml-form-row" :label="t('app.mail.account.interval', undefined, 'Check every (minutes)')">
 								<input type="number" class="wt w-100" min="1" max="1440" v-model.number="accountForm.intervalMinutes">
 							</wt-field>
 							<div class="ml-form-wide">
 								<wt-checkbox v-model="accountForm.enabled" :label="t('app.mail.account.enabled', undefined, 'Synchronize this account')"></wt-checkbox>
 							</div>
-							<div v-if="formSendsViaGraph" class="ml-form-wide text-muted fs-small">
-								{{ t('app.mail.account.saveSentGraph', undefined, 'Exchange files mail sent through Microsoft Graph into Sent Items by itself.') }}
-							</div>
-							<div v-else class="ml-form-wide">
+							<!-- Gmail / Microsoft: no copy into the server's Sent folder -->
+							<div v-if="accountForm.kind === 'imap'" class="ml-form-wide">
 								<wt-checkbox v-model="accountForm.saveSentOnServer" :label="t('app.mail.account.saveSent', undefined, 'Also put sent mail into the server\'s Sent folder')"></wt-checkbox>
-								<div class="text-muted fs-small ms-4">{{ accountForm.kind === 'gmail'
-									? t('app.mail.account.saveSentGmail', undefined, 'Gmail files sent mail by itself; leave this off to avoid duplicates.')
-									: t('app.mail.account.saveSentHint', undefined, 'Other mail clients then see what was sent here. Off: the copy stays in the Webtop only.') }}</div>
+								<div class="text-muted fs-small ms-4">{{ t('app.mail.account.saveSentHint', undefined, 'Other mail clients then see what was sent here. Off: the copy stays in the Webtop only.') }}</div>
 							</div>
 						</div>
 

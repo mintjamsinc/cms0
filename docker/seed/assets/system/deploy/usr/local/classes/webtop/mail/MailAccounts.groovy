@@ -57,7 +57,7 @@ class MailAccounts {
 	/**
 	 * What a kind fixes: the servers, the provider of the linked account that
 	 * signs in, and whether a sent message is put into the server's Sent folder
-	 * (Gmail files what SMTP sends there by itself; Outlook does not).
+	 * (off for both: the copy stays in the Webtop).
 	 */
 	static final Map<String, Map> PRESETS = [
 		gmail: [
@@ -70,7 +70,7 @@ class MailAccounts {
 			provider: 'microsoft',
 			incoming: [host: 'outlook.office365.com', port: 993, security: 'ssl'],
 			outgoing: [host: 'smtp.office365.com', port: 587, security: 'starttls'],
-			saveSentOnServer: true,
+			saveSentOnServer: false,
 		],
 	];
 

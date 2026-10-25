@@ -171,10 +171,10 @@
 	"app.mail.account.kind.imap": "IMAP / SMTP",
 	"app.mail.account.kind.gmail": "Gmail",
 	"app.mail.account.kind.microsoft": "Microsoft (Outlook)",
-	"app.mail.account.kindHint": "サーバーは決まっています。パスワードではなく、連携したアカウントでサインインします。",
+	"app.mail.account.kindHint": "連携済みのアカウントを使用してサインインします。",
 	"app.mail.account.linked": "連携アカウント",
 	"app.mail.account.linkedOff": "このサーバーでは {provider} アカウントの連携が有効になっていません。",
-	"app.mail.account.linkedReady": "{provider} アカウント {email} が連携済みで、メールの送受信が許可されています。",
+	"app.mail.account.linkedReady": "{provider} アカウントが連携済みで、メールの送受信が許可されています。",
 	"app.mail.account.linkedNoMail": "{provider} アカウントは連携済みですが、メールの送受信はまだ許可されていません。",
 	"app.mail.account.linkedNone": "{provider} アカウントはまだ連携されていません。",
 	"app.mail.account.linkNow": "{provider} アカウントを連携",
@@ -183,11 +183,9 @@
 	"app.mail.account.error.popupBlocked": "ブラウザーがポップアップをブロックしました。このサイトのポップアップを許可して、もう一度お試しください。",
 	"app.mail.account.saveSent": "送信したメールをサーバーの送信済みフォルダーにも保存する",
 	"app.mail.account.saveSentHint": "ほかのメールクライアントからも、ここで送ったメールが見えるようになります。オフにすると控えは Webtop だけに残ります。",
-	"app.mail.account.saveSentGmail": "Gmail は送信時に自動で保存するため、二重になるのを防ぐにはオフのままにします。",
-	"app.mail.account.saveSentGraph": "Microsoft Graph で送信したメールは、Exchange が送信済みアイテムに保存します。",
 	"app.mail.account.sending": "送信",
 	"app.mail.account.sendVia": "送信方法",
 	"app.mail.account.sendVia.smtp": "SMTP (smtp.office365.com)",
 	"app.mail.account.sendVia.graph": "Microsoft Graph",
-	"app.mail.account.sendViaHint": "テナントで SMTP AUTH が無効なときは Microsoft Graph を選びます。送信したメールは Exchange が送信済みアイテムに保存します。"
+	"app.mail.account.sendViaHint": "SMTP AUTH が無効化されている場合は、Microsoft Graph を選択してください。"
 }

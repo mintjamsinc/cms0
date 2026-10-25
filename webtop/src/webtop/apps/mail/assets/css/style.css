@@ -597,6 +597,26 @@
 	grid-column: 1 / -1;
 }
 
+/* A field on a row of its own: the control keeps one column's width and
+ * the hint / error runs the full width of the row. */
+.ml-form-row {
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: subgrid;
+}
+.ml-form-row > .wt-field {
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: subgrid;
+	gap: 0.125rem normal;
+}
+.ml-form-row > .wt-field > * {
+	grid-column: 1;
+}
+.ml-form-row > .wt-field > :is(.wt-field-hint, .wt-field-error) {
+	grid-column: 1 / -1;
+}
+
 .ml-color {
 	width: 3rem;
 	height: 1.9rem;
