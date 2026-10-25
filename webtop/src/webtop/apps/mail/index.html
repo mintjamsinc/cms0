@@ -536,17 +536,17 @@
 									</template>
 								</div>
 							</wt-field>
-							<wt-field class="ml-form-row" :label="t('app.mail.account.address', undefined, 'Mail address')" required>
-								<input type="email" class="wt w-100" v-model="accountForm.address" @input="onAddressInput" :disabled="formAddressLocked">
-							</wt-field>
-							<wt-field class="ml-form-row" :label="t('app.mail.account.name', undefined, 'Account name')">
+							<wt-field :label="t('app.mail.account.name', undefined, 'Account name')">
 								<input type="text" class="wt w-100" v-model="accountForm.name" :placeholder="accountForm.address">
-							</wt-field>
-							<wt-field :label="t('app.mail.account.personal', undefined, 'Your name')">
-								<input type="text" class="wt w-100" v-model="accountForm.personal">
 							</wt-field>
 							<wt-field :label="t('app.mail.account.color', undefined, 'Color')">
 								<input type="color" class="ml-color" v-model="accountForm.color">
+							</wt-field>
+							<wt-field class="ml-form-row" :label="t('app.mail.account.address', undefined, 'Mail address')" required>
+								<input type="email" class="wt w-100" v-model="accountForm.address" @input="onAddressInput" :disabled="formAddressLocked">
+							</wt-field>
+							<wt-field :label="t('app.mail.account.personal', undefined, 'Your name')">
+								<input type="text" class="wt w-100" v-model="accountForm.personal">
 							</wt-field>
 						</div>
 
