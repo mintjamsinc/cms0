@@ -6,10 +6,8 @@ import org.mintjams.tools.mail.Message;
  * GET attachment.groovy?id=<message path>&index=<attachment index>[&inline=1]
  * GET attachment.groovy?id=<message path>&raw=1
  *
- * The mail lives in the caller's home in the system workspace, so the app calls
- * the copy of this script in the system workspace
- * (/bin/cms.cgi/system/usr/share/webtop/apps/mail/attachment.groovy) whichever
- * workspace it runs in. The message must be one of the caller's own
+ * The mail lives in the caller's home in the workspace this script is served
+ * from (the one the Webtop runs in). The message must be one of the caller's own
  * (webtop.mail.MailApi.messageResource); the caller's session reads it, so the
  * repository's access control applies as well.
  *

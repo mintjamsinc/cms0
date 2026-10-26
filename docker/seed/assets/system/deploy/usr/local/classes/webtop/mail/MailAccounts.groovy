@@ -5,7 +5,8 @@ import org.mintjams.cms.security.Encryptors;
 /**
  * Mail accounts of one user.
  *
- * Everything a user owns lives in the user's home in the system workspace:
+ * Everything a user owns lives in the user's home in the workspace the Mail
+ * app runs in (each workspace keeps its own mail):
  *
  *   /home/users/<user>/mail/accounts/<account>.json   settings (no secrets)
  *   /home/users/<user>/mail/state/<account>.json      synchronization state

@@ -12,9 +12,10 @@
  * are saved as one types and kept in the Webtop; sending goes through the
  * account's outgoing server, and the copy stays in the Webtop only.
  *
- * Every call goes to the system workspace, where the user's home and the Mail
- * GraphQL schema live (api.ts). Changes under the user's mail folder arrive as
- * nodeChanged events and refresh the view.
+ * Every call goes to the workspace the Webtop runs in, where the user's home
+ * and the Mail GraphQL schema live (api.ts): each workspace keeps its own mail,
+ * and a backup of the workspace carries it. Changes under the user's mail
+ * folder arrive as nodeChanged events and refresh the view.
  */
 
 import { VDOM } from '@mintjamsinc/ichigojs';
@@ -30,7 +31,6 @@ import {
 	handleLocalizationMessage,
 	translate,
 } from "../../composables/use-localization.js";
-import { createEventHub, type EventHub } from "../../realtime/event-hub.js";
 import { SWATCH_COLORS, SWATCH_COLOR_MAP } from "../../lib/color-palette.js";
 import {
 	MailApi,
@@ -64,7 +64,6 @@ interface Selection {
 
 // Kept out of reactive data: ichigo.js wraps data in deep Proxies.
 let api: MailApi | null = null;
-let hub: EventHub | null = null;
 let unwatch: (() => void) | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let seenTimer: ReturnType<typeof setTimeout> | null = null;
@@ -549,7 +548,7 @@ const App = {
 					console.warn('[Mail] Failed to load component templates:', e);
 				}
 
-				api = new MailApi();
+				api = new MailApi(instance.api.graphql);
 				instance.setBeforeCloseCallback(async () => {
 					await vm.closeCompose();
 					vm.stopWatching();
@@ -604,7 +603,10 @@ const App = {
 		startWatching() {
 			const userId = this.instance?.currentUser?.id;
 			if (!userId) return;
-			hub = createEventHub('system');
+			// The shell's hub for this workspace, shared with the other apps: only
+			// the watch is ours, so stopWatching unwatches and never disposes it.
+			const hub = this.instance?.api.eventHub;
+			if (!hub) return;
 			unwatch = hub.watchNode(`/home/users/${userId}/mail`, () => this.scheduleRefresh(), true);
 		},
 		stopWatching() {
@@ -612,8 +614,6 @@ const App = {
 				unwatch();
 				unwatch = null;
 			}
-			hub?.dispose();
-			hub = null;
 			if (refreshTimer) {
 				clearTimeout(refreshTimer);
 				refreshTimer = null;
@@ -1186,7 +1186,7 @@ const App = {
 				this.showStatus(this.t('app.mail.message.attachmentSaveFailed', { name, error: errorText(e) }, '{name} could not be saved: {error}'));
 			}
 		},
-		/** Reads the attachment from the system workspace and writes it into the folder. */
+		/** Reads the attachment through attachment.groovy and writes it into the folder. */
 		async copyAttachmentTo(messageId: string, a: { index: number; name: string; mimeType: string }, folder: string, name: string, overwrite: boolean) {
 			const content = this.instance?.api.content;
 			if (!content) return;
@@ -2009,7 +2009,7 @@ const App = {
 		 */
 		async attachCloudFiles(provider: string, entries: CloudEntry[]) {
 			const c = this.compose;
-			const cloud = this.instance?.api.systemCloud;
+			const cloud = this.instance?.api.cloud;
 			const userId = this.instance?.currentUser?.id;
 			if (!entries.length || !cloud || !userId) return;
 			const epoch = composeEpoch;
@@ -2057,7 +2057,7 @@ const App = {
 		/** Uploads files into the draft's folder, then records them in the draft. */
 		async attachFiles(files: File[]) {
 			const c = this.compose;
-			const content = this.instance?.api.systemContent;
+			const content = this.instance?.api.content;
 			const userId = this.instance?.currentUser?.id;
 			if (!files.length || !content || !userId) return;
 			const epoch = composeEpoch;

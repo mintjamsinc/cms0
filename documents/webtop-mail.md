@@ -144,9 +144,9 @@ put into the workspace the Webtop is running in, in two ways:
   name asks before it is replaced.
 
 Either way the copy is made by the browser: the attachment is read from the
-system workspace, where the mail lives, and written to the current workspace
-with the caller's own session, so the repository's access control decides
-where it can be saved. Nothing changes in the mail itself.
+message through the app's attachment script and written to the folder with the
+caller's own session, so the repository's access control decides where it can
+be saved. Nothing changes in the mail itself.
 
 ## Messages that are broken
 
@@ -173,8 +173,11 @@ two passes and then skipped, without holding up the messages after it.
 
 ## Where things live
 
-All of it is in the **system** workspace; the app calls the system workspace
-whichever workspace the Webtop runs in.
+All of it is in **the workspace the Webtop runs in**. Each workspace keeps its
+own mail, accounts included: a user who works in two workspaces sets up the
+account in each, and a backup of a workspace carries its mail. The server-side
+parts below are deployed to every workspace by the seed
+(`scripts/assemble-seed.sh` copies them from the system workspace's assets).
 
 | Path | What |
 |---|---|
@@ -193,7 +196,9 @@ whichever workspace the Webtop runs in.
 | `/usr/share/webtop/apps/mail/` | The app; `attachment.groovy` there serves attachments and the original messages. |
 
 `mail-service-user`, its group, the `mail:` namespace and `/var/lock/mail` are
-provisioned by `provisioning/mail.yml` of the system workspace.
+provisioned by `provisioning/mail.yml` in every workspace (the user and the
+group are identities and therefore live in the system workspace whichever
+descriptor declares them; the namespace and the lock folder are per workspace).
 
 ## Background synchronization
 

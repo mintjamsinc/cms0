@@ -5,8 +5,9 @@ icon: assets/icons/icon.svg
 # the background (/etc/eip/routes/webtop/mail.xml, webtop.mail.* in
 # /usr/local/classes): the first time only the last N days, set per account,
 # older mail when asked for, then what is new. Mail is kept per user under
-# /home/users/<user>/mail/ in the system workspace. attachment.groovy next to
-# this descriptor serves attachments from there.
+# /home/users/<user>/mail/ of the workspace the Webtop runs in, so each
+# workspace has its own mail and a backup of the workspace carries it.
+# attachment.groovy next to this descriptor serves attachments from there.
 actions:
   open:
     icon: open

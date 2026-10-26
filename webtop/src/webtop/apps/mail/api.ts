@@ -1,12 +1,13 @@
 /**
  * Mail GraphQL API.
  *
- * The mail of a user lives in the user's home in the system workspace, and the
- * Mail schema (/etc/graphql/webtop/mail) is deployed there, so every call goes
- * to the system workspace's endpoint whichever workspace the Webtop runs in.
+ * The mail of a user lives in the user's home in the workspace the Webtop runs
+ * in, and the Mail schema (/etc/graphql/webtop/mail) is deployed to every
+ * workspace, so every call goes to that workspace's endpoint: the one the
+ * shell hands the app as instance.api.graphql.
  */
 
-import { createGraphQLClient, type GraphQLClient } from '../../graphql/client.js';
+import { type GraphQLClient } from '../../graphql/client.js';
 
 export type Security = 'ssl' | 'starttls' | 'none';
 
@@ -252,8 +253,8 @@ const DRAFT_FIELDS = `
 export class MailApi {
 	#client: GraphQLClient;
 
-	constructor() {
-		this.#client = createGraphQLClient('system');
+	constructor(client: GraphQLClient) {
+		this.#client = client;
 	}
 
 	async listAccounts(): Promise<MailAccount[]> {
@@ -410,13 +411,12 @@ export class MailApi {
 }
 
 /**
- * URL of attachment.groovy in the system workspace's copy of this app. It is
- * derived from this page's own address, so it follows wherever the Webtop is
- * mounted.
+ * URL of attachment.groovy next to this app, in the workspace the Webtop runs
+ * in. It is derived from this page's own address, so it follows wherever the
+ * Webtop is mounted.
  */
 export function attachmentUrl(id: string, options: { index?: number; raw?: boolean; inline?: boolean }): string {
-	const path = window.location.pathname.replace(/^(\/bin\/cms\.cgi)\/[^/]+\//, '$1/system/');
-	const base = path.replace(/[^/]*$/, 'attachment.groovy');
+	const base = window.location.pathname.replace(/[^/]*$/, 'attachment.groovy');
 	const params = new URLSearchParams({ id });
 	if (options.raw) params.set('raw', '1');
 	if (options.index !== undefined) params.set('index', String(options.index));

@@ -120,7 +120,7 @@ export class WebtopAPI {
 	get systemEventHub() { return this.#systemEventHub; }
 	/** Content service for the system workspace (user home, preferences, etc.) */
 	get systemContent() { return this.#systemContentGraphQL; }
-	/** Cloud files copied into or out of the system workspace (a mail draft's attachments, say). */
+	/** Cloud files copied into or out of the system workspace (not used by the bundled apps; Mail works in the current workspace). */
 	get systemCloud() { return this.#systemCloudGraphQL; }
 
 	async initialize() {
