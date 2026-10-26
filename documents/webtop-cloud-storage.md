@@ -118,8 +118,51 @@ apply and are not shown.
 
 ## Search
 
-Searching from a cloud location is not available yet; the search field is
-disabled there and says so.
+The search field above the list searches a drive through its provider. What
+a search covers depends on the provider, and the search bar says which:
+
+| Provider | Scope | The search bar says |
+| --- | --- | --- |
+| Google | The whole drive the folder is in: My Drive, or the shared drive. Drive's API has no "below this folder" condition. | "Searching all of My Drive", "Searching all of shared drive “Sales”" |
+| Microsoft | The folder being browsed and everything below it. | "Searching in Documents" |
+
+The words go to the provider, which matches them against names and, where
+it indexes content, against content; the provider also decides the ranking.
+A search of My Drive on Google also finds files shared with the user, since
+Drive keeps them in the same corpus. The field is disabled above the drives
+(the drives and the shared drives listings): a drive has to be open first.
+
+Results arrive 100 at a time; the next page loads as the list is scrolled.
+The providers give no total, so the search bar counts what has been loaded
+("100 results so far", then "130 results"). The *Name* and *Date modified*
+headers sort what has been loaded, in either direction; the other headers do
+nothing, as in a listing.
+
+A result's folder is not the one being browsed, so the list gains a
+**Folder** column naming it; clicking the name opens that folder. Google
+tells only the id of the folder, so the names of each result's folder are
+looked up after the results are shown (one request per folder, remembered
+for a minute); the column shows "…" until then. Microsoft names the folders
+in the result itself. A Google file shared with the user has no folder of
+the user's, and the column is empty. The Inspector's **Location** follows the
+same look-up and says "Looking up…" meanwhile.
+
+While a result is listed, the sidebar shows the facets the provider offers
+in place of its other sections, without counts (the providers count
+nothing):
+
+| Facet | Choices | Providers |
+| --- | --- | --- |
+| Kind | Images, Videos, Audio, Documents, Folders (one at a time; choosing it again clears it) | both |
+| Modified | Today, Past 7 days, Past 30 days, Date range (two dates, in the user's time zone) | both |
+| Owner | Owned by me | Google |
+
+*Clear* in the panel's header removes every choice. Google applies the
+facets itself; Microsoft's search takes words only, so the server applies
+the kind and the dates to the answers, reading on until a page is full.
+A cloud search cannot be saved as a smart folder. Renaming or deleting a
+result runs the search again; closing the search (the × in the search bar)
+lists the folder again, with its breadcrumbs as they were.
 
 ## Where the pieces are
 

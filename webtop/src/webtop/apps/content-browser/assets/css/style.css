@@ -595,6 +595,22 @@
 	min-width: 5rem;
 }
 
+/* The folder of a cloud search result; its name opens the folder. */
+.content-list .folder-column {
+	min-width: 5rem;
+	max-width: 10rem;
+}
+
+.content-list .folder-link {
+	cursor: pointer;
+	text-decoration: underline;
+	text-decoration-color: transparent;
+}
+
+.content-list .folder-link:hover {
+	text-decoration-color: currentColor;
+}
+
 .content-list .modified-by-column {
 	min-width: 5rem;
 	max-width: 8rem;
@@ -1728,6 +1744,14 @@
 	margin-left: 0.25rem;
 	border-radius: 50%;
 	box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
+/* The dates of the Modified facet's range (a cloud search). */
+.cloud-facet-range {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	padding: 0.25rem 0.5rem 0.5rem;
 }
 
 .facet-toolbar-actions {

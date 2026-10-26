@@ -36,6 +36,8 @@
 	"webtop.inspector.field.shared": "共有",
 	"webtop.inspector.field.location": "場所",
 	"webtop.inspector.location.copy": "場所をコピー",
+	"webtop.inspector.location.pending": "取得中…",
+	"webtop.inspector.location.unknown": "場所を取得できませんでした。",
 	"webtop.inspector.action.openAtProvider": "プロバイダーで開く",
 
 	"webtop.inspector.field.color": "色",

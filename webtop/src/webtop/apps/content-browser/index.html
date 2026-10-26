@@ -42,13 +42,13 @@
 			     the same list and the loser would clobber the winner's results. -->
 			<div class="cb-searchbar">
 				<div class="input-group" :class="{invalid: fullTextCompiled.error}">
-					<input type="search" v-model="fullTextKeyword" :disabled="listLoading || isCloudLocation"
-						:placeholder="t('app.content-browser.search.fullTextPlaceholder')"
-						:title="isCloudLocation ? t('app.content-browser.cloud.searchUnavailable', undefined, 'Search is not available here yet.') : (fullTextCompiled.error || t('app.content-browser.search.fullTextHint'))"
+					<input type="search" v-model="fullTextKeyword" :disabled="listLoading || (isCloudLocation && !cloudSearchAvailable)"
+						:placeholder="searchPlaceholder"
+						:title="searchFieldTitle"
 						@keydown.enter.prevent="xpathExecuteSearch">
 					<div class="input-group-actions">
 						<button class="input-group-btn" @click="xpathExecuteSearch"
-							:disabled="listLoading || isCloudLocation"
+							:disabled="listLoading || (isCloudLocation && !cloudSearchAvailable)"
 							:title="t('app.content-browser.search.search')">
 							<i class="bi bi-search"></i>
 						</button>
@@ -283,7 +283,70 @@
 				     favorites and smart folders sections. Each entry shows
 				     how many results choosing it leaves (see the Facets section of
 				     app.ts). -->
-				<div v-if="xpathSearchActive" class="facet-panel" :class="{ 'facet-panel-loading': facetLoading }">
+				<div v-if="cloudSearchActive" class="facet-panel cloud-facet-panel">
+					<div class="facet-toolbar">
+						<span class="facet-toolbar-title">{{ t('app.content-browser.facet.title') }}</span>
+						<div class="facet-toolbar-actions">
+							<button v-if="cloudFacetSelectionCount > 0" class="facet-clear-btn" @click="cloudFacetClearAll" :title="t('app.content-browser.facet.clearCloudHint', undefined, 'Clear every facet')">
+								<i class="bi bi-eraser me-1"></i>{{ t('app.content-browser.facet.clear') }}
+							</button>
+						</div>
+					</div>
+
+					<!-- Kind (single choice; the provider counts nothing) -->
+					<div v-if="cloudFacetShows('KIND')" class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('kind')">
+							<i class="bi" :class="facetSectionExpanded.kind ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.kind') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.kind" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="k in cloudFacetKinds()" :key="'cloud-facet-kind-' + k.key" class="facet-item"
+								:class="{ 'facet-item-active': cloudFacetSelection.kind === k.key }"
+								@click="cloudFacetSelectKind(k.key)">
+								<i class="bi facet-icon" :class="k.icon"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.kind.' + k.key) }}</span>
+							</div>
+						</div>
+					</div>
+
+					<!-- Modified (single choice; a range takes two dates) -->
+					<div v-if="cloudFacetShows('MODIFIED')" class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('modified')">
+							<i class="bi" :class="facetSectionExpanded.modified ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.modified', undefined, 'Modified') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.modified" class="sidebar-section-body sidebar-section-body-list">
+							<div v-for="m in cloudFacetModifiedKeys()" :key="'cloud-facet-modified-' + m" class="facet-item"
+								:class="{ 'facet-item-active': cloudFacetSelection.modified === m }"
+								@click="cloudFacetSelectModified(m)">
+								<i class="bi facet-icon" :class="cloudFacetSelection.modified === m ? 'bi-record-circle' : 'bi-circle'"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.modified.' + m) }}</span>
+							</div>
+							<div v-if="cloudFacetSelection.modified === 'range'" class="cloud-facet-range">
+								<label class="filter-label">{{ t('app.content-browser.facet.from', undefined, 'From') }}</label>
+								<input type="date" class="wt w-100" v-model="cloudFacetSelection.from" @change="cloudFacetRangeChanged">
+								<label class="filter-label">{{ t('app.content-browser.facet.to', undefined, 'To') }}</label>
+								<input type="date" class="wt w-100" v-model="cloudFacetSelection.to" @change="cloudFacetRangeChanged">
+							</div>
+						</div>
+					</div>
+
+					<!-- Owner (Google: what the user owns) -->
+					<div v-if="cloudFacetShows('OWNER')" class="sidebar-section">
+						<div class="sidebar-section-header" @click="toggleFacetSection('owner')">
+							<i class="bi" :class="facetSectionExpanded.owner ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+							<span>{{ t('app.content-browser.facet.owner', undefined, 'Owner') }}</span>
+						</div>
+						<div v-show="facetSectionExpanded.owner" class="sidebar-section-body sidebar-section-body-list">
+							<div class="facet-item" :class="{ 'facet-item-active': cloudFacetSelection.ownedByMe }" @click="cloudFacetToggleOwner">
+								<i class="bi facet-icon" :class="cloudFacetSelection.ownedByMe ? 'bi-check-square' : 'bi-square'"></i>
+								<span class="facet-label">{{ t('app.content-browser.facet.owner.me', undefined, 'Owned by me') }}</span>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div v-if="xpathSearchActive && !isCloudLocation" class="facet-panel" :class="{ 'facet-panel-loading': facetLoading }">
 					<div class="facet-toolbar">
 						<span class="facet-toolbar-title">{{ t('app.content-browser.facet.title') }}</span>
 						<div class="facet-toolbar-actions">
@@ -391,7 +454,7 @@
 				     runs the search again with them. Like the toolbar's search button
 				     it sits outside the navigation busy shield, so it refuses to start
 				     a query while one is running. -->
-				<div v-if="xpathSearchActive" class="sidebar-section">
+				<div v-if="xpathSearchActive && !isCloudLocation" class="sidebar-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('xpathSearch')">
 						<i class="bi" :class="sidebarSectionExpanded.xpathSearch ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
 						<span>{{ t('app.content-browser.search.title') }}</span>
@@ -549,11 +612,15 @@
 			<div v-if="xpathSearchActive && !navEditMode" class="nav-breadcrumb xpath-search-bar">
 				<div class="xpath-search-bar-info">
 					<i class="bi bi-search xpath-search-bar-icon"></i>
-					<span class="xpath-search-bar-text">
+					<span v-if="cloudSearchActive" class="xpath-search-bar-text">
+						<span class="xpath-search-bar-path">{{ cloudSearchScopeText }}</span>
+					</span>
+					<span v-else class="xpath-search-bar-text">
 						{{ t('app.content-browser.search.searchingIn') }} <span class="xpath-search-bar-path">{{ currentPath }}</span>
 					</span>
 					<span v-if="!xpathSearchLoading && !xpathSearchHasMore" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.results', { count: xpathSearchTotalCount }) }}</span>
-					<span v-if="!xpathSearchLoading && xpathSearchHasMore" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.resultsLoaded', { loaded: items.length, count: xpathSearchTotalCount }) }}</span>
+					<span v-if="!xpathSearchLoading && xpathSearchHasMore && cloudSearchActive" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.resultsSoFar', { count: items.length }, '{count} results so far') }}</span>
+					<span v-if="!xpathSearchLoading && xpathSearchHasMore && !cloudSearchActive" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.resultsLoaded', { loaded: items.length, count: xpathSearchTotalCount }) }}</span>
 					<span v-if="xpathSearchLoading" class="xpath-search-bar-count">&mdash; {{ t('app.content-browser.search.searchingEllipsis') }}</span>
 				</div>
 				<button class="xpath-search-bar-close" @click="xpathClearSearch" :title="t('app.content-browser.search.closeSearch')">
@@ -681,6 +748,8 @@
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
+						<!-- The folder of a cloud search result: not the one being browsed. -->
+						<th v-if="cloudSearchActive" class="text-start th-inert">{{ t('app.content-browser.column.folder', undefined, 'Folder') }}</th>
 						<th class="text-start" :class="{ 'c-pointer': canSortColumn('modifiedBy'), 'th-inert': !canSortColumn('modifiedBy') }" @click="sortHeader('modifiedBy')">{{ t('app.content-browser.column.modifiedBy') }}
 							<span v-if="sortColumn == 'modifiedBy'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
@@ -725,6 +794,14 @@
 						<td class="date-column">
 							<div class="date-block pe-1 text-truncate">
 								<span>{{ item.attributes.displayDate }}</span>
+							</div>
+						</td>
+						<td v-if="cloudSearchActive" class="folder-column">
+							<div class="folder-block pe-1 text-truncate">
+								<span v-if="item.cloud && item.cloud.search && item.cloud.search.folderPath && !item.cloud.search.pending" class="folder-link"
+									:title="item.cloud.location" @click.stop="openCloudItemFolder(item)" @dblclick.stop>{{ cloudSearchFolderName(item) }}</span>
+								<span v-else-if="cloudSearchFolderName(item)" class="text-muted">{{ cloudSearchFolderName(item) }}</span>
+								<span v-else class="text-muted">&mdash;</span>
 							</div>
 						</td>
 						<td class="modified-by-column">

@@ -1,5 +1,5 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import { type Node, type JobStatus, type ContentLengthEvent, type CloudEntry, type CloudLink, type CloudStorage, type CloudOrder, CLOUD_LINK_MIME_TYPE } from "../../graphql/types.js";
+import { type Node, type JobStatus, type ContentLengthEvent, type CloudEntry, type CloudLink, type CloudStorage, type CloudOrder, type CloudQuery, type CloudKind, type CloudFacet, CLOUD_LINK_MIME_TYPE } from "../../graphql/types.js";
 import { isCloudPath, parseCloudPath, cloudPath, cloudProviderPath, CLOUD_MY_DRIVE, type CloudLocation } from "../../lib/cloud-location.js";
 import { CloudSource, cloudLocationText, type CloudCrumbs, type CloudItemInfo, type CloudLabels } from "./sources/cloud-source.js";
 import { RepositorySource } from "./sources/repository-source.js";
@@ -92,6 +92,39 @@ const PREFERENCES_APP_ID = 'ddae3624-7926-436f-b474-931bed669328';
 
 /** A cloud listing is read this many entries at a time; the next page loads as the list is scrolled. */
 const CLOUD_PAGE_SIZE = 200;
+
+/** A cloud search is read 100 results at a time (the providers' own page size for a search). */
+const CLOUD_SEARCH_PAGE_SIZE = 100;
+
+/** The Kind facet of a cloud search, in display order: the kinds the providers can be asked for. */
+const CLOUD_FACET_KINDS: { key: string; kind: CloudKind; icon: string }[] = [
+	{ key: 'image', kind: 'IMAGE', icon: 'bi-image' },
+	{ key: 'video', kind: 'VIDEO', icon: 'bi-film' },
+	{ key: 'audio', kind: 'AUDIO', icon: 'bi-music-note-beamed' },
+	{ key: 'document', kind: 'DOCUMENT', icon: 'bi-file-earmark-text' },
+	{ key: 'folder', kind: 'FOLDER', icon: 'bi-folder' },
+];
+
+/** The Modified facet of a cloud search: a window back from today, or a range the user enters. */
+const CLOUD_FACET_MODIFIED: { key: string; daysAgo: number | null }[] = [
+	{ key: 'today', daysAgo: 0 },
+	{ key: '7d', daysAgo: 7 },
+	{ key: '30d', daysAgo: 30 },
+	{ key: 'range', daysAgo: null },
+];
+
+/** What the user chose in the facets of a cloud search; nothing, at first. */
+function emptyCloudFacetSelection() {
+	return { kind: '' as string, modified: '' as string, from: '' as string, to: '' as string, ownedByMe: false };
+}
+
+/**
+ * The folders of search results, looked up once per folder while a search
+ * is shown (Google names only the parent's id; see
+ * CloudSource.resolveSearchFolder). Module-wide so the promises stay out of
+ * the reactive state; emptied when a search starts.
+ */
+const cloudSearchFolderCache = new Map<string, Promise<CloudCrumbs>>();
 
 /**
  * A folder's total content size in the list: null until requested, 'pending'
@@ -816,7 +849,13 @@ export const App = {
 				format: true,
 				color: true,
 				tag: true,
+				modified: true,
+				owner: true,
 			} as Record<string, boolean>,
+			// The facets of a cloud search (see the Cloud search section):
+			// the kind, the modification window and the owner the user chose.
+			// The providers count nothing, so there are no counts.
+			cloudFacetSelection: emptyCloudFacetSelection(),
 			// Full-text search keyword (combined with schema conditions in the Search section)
 			fullTextKeyword: '' as string,
 			// Smart folders (saved XPath queries)
@@ -960,6 +999,66 @@ export const App = {
 		// Result of compiling fullTextKeyword: predicate fragment (or null) and parse error.
 		fullTextCompiled(): { predicate: string | null; error: string | null } {
 			return compileFullTextSearch(this.fullTextKeyword as string);
+		},
+		// A cloud search is listed: the search state is the repository's, the
+		// query and the facets are the provider's.
+		cloudSearchActive(): boolean {
+			return (this.xpathSearchActive as boolean) && (this.isCloudLocation as boolean);
+		},
+		// The provider of the cloud location being shown, as the server describes it.
+		cloudStorage(): CloudStorage | null {
+			const provider = this.cloudLocation?.provider;
+			if (!provider) return null;
+			return (this.cloudStorages as CloudStorage[]).find((s: CloudStorage) => s.provider === provider) || null;
+		},
+		// Whether the search field can be used here: a drive or a folder of
+		// one, not the listings above the drives.
+		cloudSearchAvailable(): boolean {
+			return (this.isCloudLocation as boolean) && !(this.isCloudVirtualLocation as boolean);
+		},
+		// The facets the provider's search can be narrowed by (KIND, MODIFIED, OWNER).
+		cloudFacets(): CloudFacet[] {
+			return (this.cloudStorage as CloudStorage | null)?.facets || [];
+		},
+		cloudFacetSelectionCount(): number {
+			const s = this.cloudFacetSelection;
+			return (s.kind ? 1 : 0) + (s.modified ? 1 : 0) + (s.ownedByMe ? 1 : 0);
+		},
+		// What a search here covers, as the search bar says it: the folder
+		// (Microsoft) or the whole drive (Google).
+		cloudSearchScopeText(): string {
+			const location = this.cloudLocation as CloudLocation | null;
+			const crumbs = this.cloudCrumbs as CloudCrumbs | null;
+			if (!location || location.virtual) return '';
+			const labels = this.cloudLabels as CloudLabels;
+			const scope = (this.cloudStorage as CloudStorage | null)?.searchScope || 'FOLDER';
+			if (scope === 'DRIVE') {
+				const drive = location.driveId === CLOUD_MY_DRIVE
+					? labels.myDrive(location.provider)
+					: this.t('app.content-browser.cloud.sharedDriveNamed', { name: crumbs?.drive?.name || '…' }, 'shared drive "{name}"');
+				return this.t('app.content-browser.cloud.searchingDrive', { name: drive }, 'Searching all of {name}');
+			}
+			const folder = crumbs?.current?.name
+				|| (location.driveId === CLOUD_MY_DRIVE ? labels.myDrive(location.provider) : (crumbs?.drive?.name || '…'));
+			return this.t('app.content-browser.cloud.searchingFolder', { name: folder }, 'Searching in {name}');
+		},
+		// The placeholder of the search field: what a search here covers.
+		searchPlaceholder(): string {
+			if ((this.cloudStorage as CloudStorage | null)?.searchScope === 'DRIVE') {
+				return this.t('app.content-browser.cloud.searchDrivePlaceholder', undefined, 'Search this drive…');
+			}
+			return this.t('app.content-browser.search.fullTextPlaceholder');
+		},
+		// The tooltip of the search field: why it is disabled, the parse
+		// error, or how to use it.
+		searchFieldTitle(): string {
+			if (this.isCloudLocation) {
+				if (!this.cloudSearchAvailable) {
+					return this.t('app.content-browser.cloud.searchOpenDrive', undefined, 'Open a drive to search.');
+				}
+				return this.t('app.content-browser.cloud.searchHint', undefined, 'Searches names and content at the provider.');
+			}
+			return (this.fullTextCompiled as any).error || this.t('app.content-browser.search.fullTextHint');
 		},
 		// True when the Search section has anything to search by (full-text or schema condition).
 		hasSearchInput(): boolean {
@@ -1644,6 +1743,7 @@ export const App = {
 			vm.xpathSearchHasMore = false;
 			vm.xpathSearchLoadingMore = false;
 			vm._facetReset();
+			vm._cloudFacetReset();
 			vm.currentPath = path;
 			vm.addToPathHistory(path);
 			// Update browser-style navigation stack
@@ -2189,6 +2289,9 @@ export const App = {
 					known = { provider: location.provider, providerName: vm.cloudProviderLabel(location.provider), drive: null, virtual: null, ancestors: [], current: null, pending: true };
 				}
 				vm.cloudCrumbs = known;
+				// The listing comes in the provider's order: by name, or newest
+				// first; the header's arrow says so (a search may have turned it).
+				vm.sortDirection = vm.sortColumn === 'date' ? 'desc' : 'asc';
 				const listing = await source.listFolder(location, known, null, vm._cloudOrder(), CLOUD_PAGE_SIZE);
 				if (vm._navSeq !== seq) return null;
 				vm.items = vm._stampDates(listing.items);
@@ -2339,13 +2442,23 @@ export const App = {
 			}
 			if (info.virtual) return null;
 			if (!item.isCollection || !info.id) return null;
+			// A search result's crumbs are its folder's, once looked up; until
+			// then (or when the provider named only the folders) the folder is
+			// opened cold and looked up there.
+			if (info.search && !info.search.folderCrumbs) return null;
 			const entry: CloudEntry = {
 				provider: info.provider, driveId: info.driveId, id: info.id, name: item.name, mimeType: item.mimeType || null,
 				size: null, folder: true, webUrl: info.webUrl, modified: item.lastModified ? item.lastModified.toISOString() : null,
 				created: item.created ? item.created.toISOString() : null, nativeType: null, parentId: info.parentId, etag: info.etag,
 				owner: info.owner, shared: info.shared, hasThumbnail: false, path: null, contentUrl: info.contentUrl || '',
 			};
-			return source.crumbsBelow(info.crumbs, entry);
+			return source.crumbsBelow(info.search?.folderCrumbs || info.crumbs, entry);
+		},
+		/** The folder a search result is in: listed, with its names when they were looked up. */
+		async openCloudItemFolder(item: ContentItem) {
+			const hit = item.cloud?.search;
+			if (!hit || !hit.folderPath || hit.pending) return;
+			await this.load(hit.folderPath, false, { crumbs: hit.folderCrumbs });
 		},
 		/** A cloud row: a folder (or drive) is listed, a file opens where the provider shows it. */
 		async openCloudItem(item: ContentItem) {
@@ -2711,16 +2824,21 @@ export const App = {
 					this.sortDirection = 'asc';
 					return;
 				}
-				this.sortDirection = column === 'date' ? 'desc' : 'asc';
-				this.load(this.currentPath, true, { crumbs: this.cloudCrumbs });
-				return;
+				// A search result has no order the provider could repeat page
+				// by page (words are ranked), so it is sorted here, over the
+				// pages loaded, by either column in either direction.
+				if (!this.xpathSearchActive) {
+					this.sortDirection = column === 'date' ? 'desc' : 'asc';
+					this.load(this.currentPath, true, { crumbs: this.cloudCrumbs });
+					return;
+				}
 			}
 			// A search result is ordered by the server, one page at a time, so a
 			// column the index sorts by re-runs the search in the new order (a
 			// header click) or leaves the loaded pages as they came (a re-sort
 			// after a list update). Only a column the index cannot sort by is
 			// sorted here, over what has been loaded.
-			if (this.xpathSearchActive && SEARCH_SORT_FIELDS[column]) {
+			if (this.xpathSearchActive && !this.isCloudLocation && SEARCH_SORT_FIELDS[column]) {
 				if (!direction) {
 					this.xpathExecuteSearch();
 				}
@@ -4833,7 +4951,7 @@ export const App = {
 				if (item.cloud) {
 					await (vm._cloudSource as CloudSource).rename(item.cloud, newName);
 					vm.closeRenameDialog();
-					await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+					await vm.refreshList();
 					return;
 				}
 				// Use GraphQL API to rename the node
@@ -4903,7 +5021,7 @@ export const App = {
 					return;
 				}
 				vm.closeDeleteDialog();
-				await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+				await vm.refreshList();
 				return;
 			}
 
@@ -6205,8 +6323,11 @@ export const App = {
 		},
 		async xpathExecuteSearch() {
 			const vm = this;
-			// A cloud listing is searched through the provider in a later step.
-			if (vm.isCloudLocation) return;
+			// A cloud location is searched by its provider (see the Cloud search section).
+			if (vm.isCloudLocation) {
+				await vm.cloudExecuteSearch();
+				return;
+			}
 			// Surface a parse error from the full-text expression before kicking off the request.
 			const ft = vm.fullTextCompiled as any as { predicate: string | null; error: string | null };
 			if (ft.error) {
@@ -6487,6 +6608,10 @@ export const App = {
 			if (!vm.xpathSearchActive || !vm.xpathSearchHasMore || vm.xpathSearchLoading || vm.xpathSearchLoadingMore) {
 				return;
 			}
+			if (vm.isCloudLocation) {
+				await vm.cloudSearchLoadMore();
+				return;
+			}
 			const seq = vm._xpathSearchSeq;
 			const after = vm.xpathSearchCursor ?? undefined;
 			vm.xpathSearchLoadingMore = true;
@@ -6556,12 +6681,195 @@ export const App = {
 				await this.xpathExecuteSearch();
 				return;
 			}
-			await this.load(this.currentPath, true);
+			// A cloud location keeps its names (the crumbs are ignored elsewhere).
+			await this.load(this.currentPath, true, { crumbs: this.cloudCrumbs });
 		},
 		async xpathClearSearch() {
 			// Reloading the folder is what ends the search: load() clears the
 			// search state as part of replacing the list.
-			await this.load(this.currentPath, true);
+			await this.load(this.currentPath, true, { crumbs: this.cloudCrumbs });
+		},
+		// ---- Cloud search ----
+		//
+		// A cloud location is searched by its provider: in the folder being
+		// browsed (Microsoft) or in the whole drive it is in (Google, whose
+		// API has no "below this folder" condition; CloudStorage.searchScope
+		// says which). The words and the facets go to the server as one
+		// CloudQuery; what the provider cannot take, the server applies to
+		// the answers. The result is listed through the same state as a
+		// repository search (xpathSearchActive and the paging fields), so the
+		// search bar, the sidebar and the menus follow it; the provider
+		// counts nothing, so there is no total and the facets have no counts.
+		// A result's folder is not the one being browsed: the Folder column
+		// names it, and the Inspector's Location, once the names are known.
+		//
+		/** The query the search field and the facets make. */
+		_cloudQuery(): CloudQuery {
+			const s = this.cloudFacetSelection;
+			const query: CloudQuery = {};
+			const text = (this.fullTextKeyword as string).trim();
+			if (text) query.text = text;
+			const kind = CLOUD_FACET_KINDS.find(k => k.key === s.kind);
+			if (kind) query.kinds = [kind.kind];
+			const tz = this.localization.timeZone || undefined;
+			const span = CLOUD_FACET_MODIFIED.find(m => m.key === s.modified);
+			if (span && span.daysAgo !== null) {
+				query.modifiedAfter = Dates.startOfDay(tz, span.daysAgo).toISOString();
+			} else if (span) {
+				// A range of days, in the user's time zone: from the start of
+				// the first day to the end of the last.
+				const from = Dates.fromZonedInputValue(s.from ? `${s.from}T00:00` : null, tz);
+				if (from) query.modifiedAfter = from.toISOString();
+				const to = Dates.fromZonedInputValue(s.to ? `${s.to}T00:00` : null, tz);
+				if (to) query.modifiedBefore = new Date(to.getTime() + 24 * 3600 * 1000).toISOString();
+			}
+			if (s.ownedByMe) query.ownedByMe = true;
+			return query;
+		},
+		/** Runs the search of the cloud location from the first page. */
+		async cloudExecuteSearch() {
+			const vm = this;
+			const source = vm._cloudSource as CloudSource | null;
+			const location = vm.cloudLocation as CloudLocation | null;
+			const crumbs = vm.cloudCrumbs as CloudCrumbs | null;
+			if (!source || !location || !crumbs || !vm.cloudSearchAvailable) return;
+			vm._cancelFolderSizes();
+			vm.items = [];
+			// The listing's pages stop: the search's take their place.
+			vm._cloudSeq++;
+			vm.cloudCursor = null;
+			vm.cloudHasMore = false;
+			vm.cloudLoadingMore = false;
+			cloudSearchFolderCache.clear();
+			const seq = ++vm._xpathSearchSeq;
+			vm.xpathSearchLoading = true;
+			vm.xpathSearchLoadingMore = false;
+			vm.xpathSearchError = '';
+			vm.xpathSearchActive = true;
+			vm.xpathSearchTotalCount = 0;
+			vm.xpathSearchCursor = null;
+			vm.xpathSearchHasMore = false;
+			try {
+				const listing = await source.search(location, crumbs, vm._cloudQuery(), null, CLOUD_SEARCH_PAGE_SIZE);
+				if (seq !== vm._xpathSearchSeq) return;
+				vm.items = vm._stampDates(listing.items);
+				vm.xpathSearchTotalCount = vm.items.length;
+				vm.xpathSearchCursor = listing.nextCursor;
+				vm.xpathSearchHasMore = !!listing.nextCursor;
+				vm.sortItems(vm.sortColumn, vm.sortDirection);
+				vm._resolveCloudSearchFolders(listing.items, seq);
+			} catch (error: any) {
+				if (seq === vm._xpathSearchSeq) {
+					vm.xpathSearchError = vm._cloudSearchErrorText(error);
+				}
+			} finally {
+				if (seq === vm._xpathSearchSeq) {
+					vm.xpathSearchLoading = false;
+					vm._xpathFillViewport();
+				}
+			}
+		},
+		/** The next page of the cloud search, as the list is scrolled to its end. */
+		async cloudSearchLoadMore() {
+			const vm = this;
+			const source = vm._cloudSource as CloudSource | null;
+			const location = vm.cloudLocation as CloudLocation | null;
+			const crumbs = vm.cloudCrumbs as CloudCrumbs | null;
+			if (!source || !location || !crumbs) return;
+			const seq = vm._xpathSearchSeq;
+			vm.xpathSearchLoadingMore = true;
+			try {
+				const listing = await source.search(location, crumbs, vm._cloudQuery(), vm.xpathSearchCursor, CLOUD_SEARCH_PAGE_SIZE);
+				if (seq !== vm._xpathSearchSeq || !vm.xpathSearchActive) return;
+				const known = new Set((vm.items as ContentItem[]).map(i => i.id));
+				const appended = listing.items.filter(i => !known.has(i.id));
+				vm.items = (vm.items as ContentItem[]).concat(vm._stampDates(appended));
+				vm.xpathSearchTotalCount = vm.items.length;
+				// A cursor that did not advance would fetch the same page forever.
+				vm.xpathSearchHasMore = !!listing.nextCursor && listing.nextCursor !== vm.xpathSearchCursor;
+				vm.xpathSearchCursor = listing.nextCursor;
+				vm.sortItems(vm.sortColumn, vm.sortDirection);
+				vm._resolveCloudSearchFolders(appended, seq);
+			} catch (error: any) {
+				if (seq === vm._xpathSearchSeq) {
+					vm.xpathSearchError = vm._cloudSearchErrorText(error);
+					vm.xpathSearchHasMore = false;
+				}
+			} finally {
+				if (seq === vm._xpathSearchSeq) {
+					vm.xpathSearchLoadingMore = false;
+					vm._xpathFillViewport();
+				}
+			}
+		},
+		/** The folders of the results whose provider named only the parent's id, looked up while the search is shown. */
+		_resolveCloudSearchFolders(added: ContentItem[], seq: number) {
+			const vm = this;
+			const source = vm._cloudSource as CloudSource | null;
+			if (!source || seq !== vm._xpathSearchSeq) return;
+			// The listed items (not the page's own objects) are what the rows
+			// and the Inspector watch, so those are what get filled in.
+			const ids = new Set(added.filter(i => i.cloud?.search?.pending).map(i => i.id));
+			for (const item of vm.items as ContentItem[]) {
+				if (!ids.has(item.id)) continue;
+				source.resolveSearchFolder(item as any, cloudSearchFolderCache).catch(() => { /* marked on the item */ });
+			}
+		},
+		/** What the search bar says went wrong: a throttling provider, or the error itself. */
+		_cloudSearchErrorText(error: any): string {
+			if (error instanceof GraphQLError && error.code === 'RATE_LIMITED') {
+				return this.t('app.content-browser.cloud.rateLimited', undefined, 'The provider is busy; try again in a moment.');
+			}
+			return error?.message || String(error);
+		},
+		/** The Folder column of a search result: the folder's name, "…" while it is looked up, or nothing. */
+		cloudSearchFolderName(item: ContentItem): string {
+			const hit = item.cloud?.search;
+			if (!hit) return '';
+			if (hit.pending) return '…';
+			return hit.folderName || '';
+		},
+		cloudFacetKinds(): { key: string; icon: string }[] {
+			return CLOUD_FACET_KINDS;
+		},
+		cloudFacetModifiedKeys(): string[] {
+			return CLOUD_FACET_MODIFIED.map(m => m.key);
+		},
+		cloudFacetShows(facet: CloudFacet): boolean {
+			return (this.cloudFacets as CloudFacet[]).includes(facet);
+		},
+		/** The Kind facet is one choice; choosing it again clears it. */
+		cloudFacetSelectKind(kind: string) {
+			const s = this.cloudFacetSelection;
+			s.kind = s.kind === kind ? '' : kind;
+			this.cloudExecuteSearch();
+		},
+		/** The Modified facet is one choice; a range waits for its dates. */
+		cloudFacetSelectModified(key: string) {
+			const s = this.cloudFacetSelection;
+			s.modified = s.modified === key ? '' : key;
+			if (s.modified === 'range' && !s.from && !s.to) return;
+			this.cloudExecuteSearch();
+		},
+		/** A date of the range was entered: searched once there is one. */
+		cloudFacetRangeChanged() {
+			const s = this.cloudFacetSelection;
+			if (s.modified !== 'range' || (!s.from && !s.to)) return;
+			this.cloudExecuteSearch();
+		},
+		cloudFacetToggleOwner() {
+			const s = this.cloudFacetSelection;
+			s.ownedByMe = !s.ownedByMe;
+			this.cloudExecuteSearch();
+		},
+		cloudFacetClearAll() {
+			if (!(this.cloudFacetSelectionCount as number)) return;
+			this.cloudFacetSelection = emptyCloudFacetSelection();
+			this.cloudExecuteSearch();
+		},
+		/** Forgets the selection without searching: the search is over, or a new one starts from scratch. */
+		_cloudFacetReset() {
+			this.cloudFacetSelection = emptyCloudFacetSelection();
 		},
 		// Smart folder methods
 		// Whether there is a search to save: a schema condition, a keyword or

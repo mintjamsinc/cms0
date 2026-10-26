@@ -36,6 +36,8 @@
 	"webtop.inspector.field.shared": "Shared",
 	"webtop.inspector.field.location": "Location",
 	"webtop.inspector.location.copy": "Copy location",
+	"webtop.inspector.location.pending": "Looking up…",
+	"webtop.inspector.location.unknown": "The location could not be looked up.",
 	"webtop.inspector.action.openAtProvider": "Open at provider",
 
 	"webtop.inspector.field.color": "Color",

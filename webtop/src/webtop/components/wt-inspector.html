@@ -270,7 +270,10 @@
 				</wt-property-row>
 				<wt-property-row v-else :name="t('webtop.inspector.field.location', undefined, 'Location')">
 					<template v-slot:value="p">
-						<div class="d-flex align-items-start" style="word-break: break-all;">
+						<!-- A search result's folder is looked up after the result is listed. -->
+						<div v-if="singleTarget.cloud.search && singleTarget.cloud.search.pending" class="text-muted">{{ t('webtop.inspector.location.pending', undefined, 'Looking up…') }}</div>
+						<div v-else-if="singleTarget.cloud.search && singleTarget.cloud.search.failed" class="text-muted">{{ t('webtop.inspector.location.unknown', undefined, 'The location could not be looked up.') }}</div>
+						<div v-else class="d-flex align-items-start" style="word-break: break-all;">
 							<span class="flex-grow-1">{{ singleTarget.cloud.location }}</span>
 							<button class="detail-inline-btn ms-1 flex-shrink-0" @click="copyPathToClipboard(event)" :title="t('webtop.inspector.location.copy', undefined, 'Copy location')">
 								<i class="bi bi-clipboard"></i>

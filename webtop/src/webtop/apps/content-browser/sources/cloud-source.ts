@@ -12,7 +12,7 @@
 // and the Inspector's "Location" need no further request.
 
 import type { CloudServiceGraphQL } from '../../../services/cloud-service-graphql.js';
-import type { CloudDrive, CloudEntry, CloudOrder } from '../../../graphql/types.js';
+import type { CloudDrive, CloudEntry, CloudOrder, CloudQuery } from '../../../graphql/types.js';
 import type { InspectorTarget } from '../../../lib/inspector-target.js';
 import { cloudPath, cloudProviderPath, cloudSharedPath, CLOUD_MY_DRIVE, type CloudLocation } from '../../../lib/cloud-location.js';
 
@@ -53,8 +53,24 @@ export interface CloudItemInfo {
 	drive: CloudDrive | null;
 	/** The crumbs of the list the item was read in. */
 	crumbs: CloudCrumbs;
-	/** Where the item is, as names: "Google Drive › My Drive › 2026 › a.pdf". */
+	/** Where the item is, as names: "Google Drive › My Drive › 2026 › a.pdf". Empty while a search result's folder is still being looked up. */
 	location: string;
+	/** Set on a search result, whose folder the listing does not tell: the folder it is in, as far as it is known. */
+	search: CloudSearchHit | null;
+}
+
+/** The folder a search result is in. */
+export interface CloudSearchHit {
+	/** The folder's name; null when the entry has no folder the user can open (a file shared with a Google user, say). */
+	folderName: string | null;
+	/** The cloud path of the folder, when the entry has a parent. */
+	folderPath: string | null;
+	/** The crumbs of the folder, once looked up (Google tells only the parent's id). */
+	folderCrumbs: CloudCrumbs | null;
+	/** True while the folder's names are being looked up. */
+	pending: boolean;
+	/** True when the look-up failed: the location cannot be told. */
+	failed: boolean;
 }
 
 /** The labels the virtual rows and the breadcrumbs need, already translated. */
@@ -136,6 +152,7 @@ export function cloudEntryToContentItem(entry: CloudEntry, crumbs: CloudCrumbs, 
 			drive: null,
 			crumbs,
 			location: cloudLocationText(crumbs, labels, entry),
+			search: null,
 		},
 	};
 }
@@ -175,6 +192,7 @@ function virtualItem(provider: string, name: string, path: string, virtual: 'dri
 			drive,
 			crumbs,
 			location,
+			search: null,
 		},
 	};
 }
@@ -267,6 +285,87 @@ export class CloudSource {
 			nextCursor: page.nextCursor,
 			crumbs,
 		};
+	}
+
+	/**
+	 * One page of a search: in the folder (Microsoft) or the whole drive
+	 * (Google; see CloudStorage.searchScope). A result's folder is not the
+	 * listed one, so each item carries what the provider tells about it
+	 * (search): Microsoft names every folder above in `path`, Google only the
+	 * parent's id, which `resolveSearchFolder` turns into names afterwards.
+	 */
+	async search(location: CloudLocation, crumbs: CloudCrumbs, query: CloudQuery, cursor: string | null, first = 100): Promise<CloudListing> {
+		const page = await this.#cloud.search(location.provider, location.driveId as string, location.id, query, { after: cursor, first });
+		return {
+			items: page.entries.map(e => this.#searchHitItem(e, crumbs)),
+			nextCursor: page.nextCursor,
+			crumbs,
+		};
+	}
+
+	#searchHitItem(entry: CloudEntry, crumbs: CloudCrumbs): CloudContentItem {
+		// The drive's root crumbs stand in until the folder is known; a
+		// result's own folder is what `search` describes.
+		const root: CloudCrumbs = { ...crumbs, ancestors: [], current: null, pending: false };
+		const item = cloudEntryToContentItem(entry, root, this.#labels);
+		const folderPath = entry.parentId ? cloudPath(entry.provider, entry.driveId, entry.parentId) : null;
+		if (entry.path) {
+			// "/a/b/name": the names above are known at once.
+			const names = entry.path.split('/').filter(Boolean);
+			names.pop();
+			const parts = [this.#driveHead(crumbs), ...names, entry.name];
+			item.cloud.location = parts.join(' › ');
+			item.cloud.search = { folderName: names.length ? names[names.length - 1] : this.#driveLabel(crumbs), folderPath, folderCrumbs: null, pending: false, failed: false };
+		} else if (entry.parentId) {
+			item.cloud.location = '';
+			item.cloud.search = { folderName: null, folderPath, folderCrumbs: null, pending: true, failed: false };
+		} else {
+			// No parent the user can open (shared with the user, say): the name alone.
+			item.cloud.location = `${crumbs.providerName} › ${entry.name}`;
+			item.cloud.search = { folderName: null, folderPath: null, folderCrumbs: null, pending: false, failed: false };
+		}
+		return item;
+	}
+
+	/** "Google Drive › My Drive" / "Google Drive › Shared drives › Sales": the head of a location in the drive the crumbs describe. */
+	#driveHead(crumbs: CloudCrumbs): string {
+		return cloudLocationText({ ...crumbs, ancestors: [], current: null, pending: false }, this.#labels);
+	}
+
+	/** The name of the drive the crumbs describe, as the folder of an entry at its root. */
+	#driveLabel(crumbs: CloudCrumbs): string {
+		if (!crumbs.drive) return crumbs.providerName;
+		return crumbs.drive.kind === 'MINE' ? this.#labels.myDrive(crumbs.provider) : crumbs.drive.name;
+	}
+
+	/**
+	 * Fills in the folder of a search result whose provider told only the
+	 * parent's id: the folder's crumbs (one cloudFolder per distinct folder,
+	 * shared through `cache`) give the folder's name, the item's location
+	 * and the crumbs a click on the folder carries.
+	 */
+	async resolveSearchFolder(item: CloudContentItem, cache: Map<string, Promise<CloudCrumbs>>): Promise<void> {
+		const hit = item.cloud.search;
+		if (!hit || !hit.pending || !item.cloud.parentId) return;
+		const location: CloudLocation = { provider: item.cloud.provider, driveId: item.cloud.driveId, id: item.cloud.parentId, virtual: null };
+		const key = `${location.provider}|${location.driveId}|${location.id}`;
+		let pending = cache.get(key);
+		if (!pending) {
+			pending = this.folderCrumbs(location);
+			cache.set(key, pending);
+		}
+		try {
+			const folderCrumbs = await pending;
+			hit.folderCrumbs = folderCrumbs;
+			hit.folderName = folderCrumbs.current ? folderCrumbs.current.name : this.#driveLabel(folderCrumbs);
+			item.cloud.crumbs = folderCrumbs;
+			item.cloud.location = cloudLocationText(folderCrumbs, this.#labels, item);
+		} catch (_) {
+			cache.delete(key);
+			hit.failed = true;
+		} finally {
+			hit.pending = false;
+		}
 	}
 
 	/** The location text of a listed item, from the crumbs it carries (after they were resolved, say). */
