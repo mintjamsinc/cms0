@@ -223,7 +223,9 @@ public final class McpServer {
 					+ "file is refused rather than overwritten; then read it again. ");
 			sb.append("The workspace can define further tools of its own in tools.yml files under /etc/graphql, "
 					+ "each a GraphQL operation or a script; they are deployed as soon as the file is written, and "
-					+ "the GraphQL query mcpToolDeployments reports what deployed and what did not.");
+					+ "the GraphQL query mcpToolDeployments reports what deployed and what did not. Schema files, "
+					+ "resolvers and wiring.yml there are deployed the same way, and the GraphQL query "
+					+ "graphqlSchemaDeployment reports whether they compiled and which file is at fault when not.");
 		} else {
 			sb.append("This connection is read-only: tools that change content are not available.");
 		}

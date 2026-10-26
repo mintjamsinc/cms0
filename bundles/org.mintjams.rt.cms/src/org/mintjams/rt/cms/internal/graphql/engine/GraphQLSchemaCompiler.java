@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -53,6 +54,12 @@ import graphql.execution.AsyncExecutionStrategy;
 import graphql.execution.AsyncSerialExecutionStrategy;
 import graphql.execution.DataFetcherExceptionHandler;
 import graphql.execution.SubscriptionExecutionStrategy;
+import graphql.language.FieldDefinition;
+import graphql.language.InterfaceTypeDefinition;
+import graphql.language.InterfaceTypeExtensionDefinition;
+import graphql.language.ObjectTypeDefinition;
+import graphql.language.ObjectTypeExtensionDefinition;
+import graphql.language.TypeDefinition;
 import graphql.schema.DataFetcher;
 import graphql.schema.GraphQLScalarType;
 import graphql.schema.GraphQLSchema;
@@ -86,7 +93,7 @@ import org.mintjams.rt.cms.internal.graphql.wiring.WiringContributor;
  *       explicitly, supports {@code runAs} impersonation, and — uniquely —
  *       registers a {@code typeResolver} for {@code interface}/{@code union}
  *       types. Explicit entries override the filename convention. See
- *       {@code documents/appql-dynamic-graphql.md}.</li>
+ *       {@code documents/graphql.md}.</li>
  *   <li><b>Scalars</b>: every custom {@code scalar} declared in the SDL is wired
  *       automatically — a built-in coercing for well-known names
  *       ({@code Long}, {@code DateTime}, {@code JSON}, {@code Base64}) and a
@@ -141,11 +148,12 @@ public final class GraphQLSchemaCompiler {
 	 * {@code null} when neither the folders nor the contributors provide any SDL
 	 * (the engine then stays inert and exposes nothing).
 	 *
-	 * <p>Precedence on conflict (same {@code Type.field}, type resolver, or scalar
-	 * name): folder/script wiring overrides a contributor's, mirroring the
-	 * "explicit wiring overrides convention" rule. Contributor SDL is merged
-	 * before folder SDL so a workspace's files may {@code extend} contributor base
-	 * types.
+	 * <p>A workspace cannot replace what the platform defines. Folder SDL that
+	 * defines a field of the platform schema, and a resolver, type resolver or
+	 * scalar script for a field, type or scalar the platform defines, fail the
+	 * compile, naming the file. Contributor SDL is merged before folder SDL so a
+	 * workspace's files may {@code extend} contributor base types with fields of
+	 * their own.
 	 *
 	 * <p>{@code exceptionHandler}, when non-null, replaces graphql-java's default
 	 * resolver-exception handling on every execution strategy — the platform
@@ -157,6 +165,18 @@ public final class GraphQLSchemaCompiler {
 	 */
 	public static GraphQL compile(Session serviceSession, String workspaceName, List<String> roots,
 			List<WiringContributor> contributors, DataFetcherExceptionHandler exceptionHandler) throws Exception {
+		return compile(serviceSession, workspaceName, roots, contributors, exceptionHandler,
+				new GraphQLSchemaDeployment.Report());
+	}
+
+	/**
+	 * Compiles as {@link #compile(Session, String, List, List, DataFetcherExceptionHandler)}
+	 * and records in {@code report} the application files found and every error
+	 * and warning, with the file at fault where there is one.
+	 */
+	public static GraphQL compile(Session serviceSession, String workspaceName, List<String> roots,
+			List<WiringContributor> contributors, DataFetcherExceptionHandler exceptionHandler,
+			GraphQLSchemaDeployment.Report report) throws Exception {
 		Set<String> scriptExtensions = new HashSet<>(
 				Arrays.asList(Scripts.getScriptExtensions(CmsService.getWorkspaceScriptEngineManager(workspaceName))));
 
@@ -168,6 +188,8 @@ public final class GraphQLSchemaCompiler {
 		Map<String, GroovyTypeResolver> typeResolvers = new LinkedHashMap<>();
 		// scalarName -> script-defined scalar (overrides built-in / pass-through)
 		Map<String, GraphQLScalarType> scriptScalars = new LinkedHashMap<>();
+		// scalarName -> path of its script
+		Map<String, String> scriptScalarPaths = new LinkedHashMap<>();
 		// paths of wiring.yml manifests, applied after the convention scan so
 		// that explicit wiring overrides convention-named resolvers
 		List<String> wiringPaths = new ArrayList<>();
@@ -179,7 +201,7 @@ public final class GraphQLSchemaCompiler {
 			} catch (PathNotFoundException ignore) {
 				continue;
 			}
-			scan(node, workspaceName, scriptExtensions, sdlSources, resolvers, wiringPaths);
+			scan(node, workspaceName, scriptExtensions, sdlSources, resolvers, wiringPaths, report);
 		}
 
 		// Gather programmatic contributions (e.g. the built-in platform schema with
@@ -207,22 +229,100 @@ public final class GraphQLSchemaCompiler {
 		}
 
 		for (String wiringPath : wiringPaths) {
-			applyWiring(serviceSession, workspaceName, wiringPath, resolvers, typeResolvers, scriptScalars);
+			applyWiring(serviceSession, workspaceName, wiringPath, resolvers, typeResolvers, scriptScalars,
+					scriptScalarPaths, report);
+		}
+		for (Map<String, GroovyDataFetcher> fields : resolvers.values()) {
+			for (GroovyDataFetcher fetcher : fields.values()) {
+				report.file(fetcher.getScriptPath(), "resolver", fetcher.getTypeName() + "." + fetcher.getFieldName());
+			}
+		}
+		for (GroovyTypeResolver typeResolver : typeResolvers.values()) {
+			report.file(typeResolver.getScriptPath(), "typeResolver", typeResolver.getTypeName());
+		}
+		for (Map.Entry<String, String> scalar : scriptScalarPaths.entrySet()) {
+			report.file(scalar.getValue(), "scalar", scalar.getKey());
 		}
 
 		// Merge every SDL fragment into a single registry. Contributor (base) types
-		// first, so folder SDL may `extend` them.
+		// first, so folder SDL may `extend` them. The contributor SDL alone is what
+		// the platform defines, which a workspace's files must not replace.
 		SchemaParser parser = new SchemaParser();
 		TypeDefinitionRegistry registry = new TypeDefinitionRegistry();
+		TypeDefinitionRegistry platformRegistry = new TypeDefinitionRegistry();
 		for (String sdl : contributorSdl) {
 			registry.merge(parser.parse(sdl));
+			platformRegistry.merge(parser.parse(sdl));
 		}
+		Set<String> platformFields = definedFields(platformRegistry);
+		for (Map.Entry<String, Map<String, DataFetcher<?>>> typeEntry : contributorFetchers.entrySet()) {
+			for (String fieldName : typeEntry.getValue().keySet()) {
+				platformFields.add(typeEntry.getKey() + "." + fieldName);
+			}
+		}
+
+		// coordinate -> the folder SDL file that defines it
+		Map<String, String> applicationFields = new HashMap<>();
 		for (Map.Entry<String, String> source : sdlSources.entrySet()) {
+			TypeDefinitionRegistry sourceRegistry;
 			try {
-				registry.merge(parser.parse(source.getValue()));
+				sourceRegistry = parser.parse(source.getValue());
+				registry.merge(sourceRegistry);
 			} catch (RuntimeException ex) {
-				throw new IllegalStateException("Invalid GraphQL schema file " + source.getKey() + ": "
-						+ ex.getMessage(), ex);
+				String message = "Invalid GraphQL schema file " + source.getKey() + ": " + ex.getMessage();
+				report.error(source.getKey(), message);
+				throw new IllegalStateException(message, ex);
+			}
+			for (String coordinate : definedFields(sourceRegistry)) {
+				if (platformFields.contains(coordinate)) {
+					report.error(source.getKey(), source.getKey() + " defines " + coordinate
+							+ ", a field of the platform schema; a workspace cannot replace platform fields.");
+				} else if (applicationFields.containsKey(coordinate)) {
+					report.error(source.getKey(), source.getKey() + " defines " + coordinate + ", which "
+							+ applicationFields.get(coordinate) + " defines too.");
+				} else {
+					applicationFields.put(coordinate, source.getKey());
+				}
+			}
+		}
+
+		// A workspace's scripts must not take over what the platform wires.
+		for (Map<String, GroovyDataFetcher> fields : resolvers.values()) {
+			for (GroovyDataFetcher fetcher : fields.values()) {
+				String coordinate = fetcher.getTypeName() + "." + fetcher.getFieldName();
+				if (platformFields.contains(coordinate)) {
+					report.error(fetcher.getScriptPath(), fetcher.getScriptPath() + " resolves " + coordinate
+							+ ", a field of the platform schema; a workspace cannot replace platform fields.");
+				}
+			}
+		}
+		for (GroovyTypeResolver typeResolver : typeResolvers.values()) {
+			String typeName = typeResolver.getTypeName();
+			if (contributorTypeResolvers.containsKey(typeName) || platformRegistry.getType(typeName).isPresent()) {
+				report.error(typeResolver.getScriptPath(), typeResolver.getScriptPath() + " resolves the type "
+						+ typeName + " of the platform schema; a workspace cannot replace platform types.");
+			}
+		}
+		for (Map.Entry<String, String> scalar : scriptScalarPaths.entrySet()) {
+			if (contributorScalars.containsKey(scalar.getKey()) || platformRegistry.scalars().containsKey(scalar.getKey())) {
+				report.error(scalar.getValue(), scalar.getValue() + " defines the scalar " + scalar.getKey()
+						+ " of the platform schema; a workspace cannot replace platform scalars.");
+			}
+		}
+		if (report.hasErrors()) {
+			throw new IllegalStateException("The application GraphQL schema of the workspace " + workspaceName
+					+ " cannot be compiled: " + String.join(" ", report.errorMessages()));
+		}
+
+		// A script bound to a field no schema file defines is never called.
+		for (Map<String, GroovyDataFetcher> fields : resolvers.values()) {
+			for (GroovyDataFetcher fetcher : fields.values()) {
+				if (registry.getType(fetcher.getTypeName()).isPresent()
+						&& !fieldNames(registry, fetcher.getTypeName()).contains(fetcher.getFieldName())) {
+					report.warning(fetcher.getScriptPath(), fetcher.getScriptPath() + " resolves "
+							+ fetcher.getTypeName() + "." + fetcher.getFieldName()
+							+ ", which no schema file defines; it is not used.");
+				}
 			}
 		}
 
@@ -273,6 +373,15 @@ public final class GraphQLSchemaCompiler {
 			if (!registry.getType(typeName).isPresent()) {
 				CmsService.getLogger(GraphQLSchemaCompiler.class).warn(
 						"Ignoring wiring for unknown GraphQL type \"" + typeName + "\" in workspace: " + workspaceName);
+				for (GroovyDataFetcher fetcher : resolvers.getOrDefault(typeName, Map.of()).values()) {
+					report.warning(fetcher.getScriptPath(), fetcher.getScriptPath() + " resolves a field of "
+							+ typeName + ", a type no schema file defines; it is not used.");
+				}
+				if (typeResolvers.containsKey(typeName)) {
+					String path = typeResolvers.get(typeName).getScriptPath();
+					report.warning(path, path + " resolves " + typeName + ", a type no schema file defines;"
+							+ " it is not used.");
+				}
 				continue;
 			}
 			final Map<String, DataFetcher<?>> fields = allFetchers.getOrDefault(typeName, Map.of());
@@ -316,12 +425,13 @@ public final class GraphQLSchemaCompiler {
 	}
 
 	private static void scan(Node node, String workspaceName, Set<String> scriptExtensions, Map<String, String> sdlSources,
-			Map<String, Map<String, GroovyDataFetcher>> resolvers, List<String> wiringPaths) throws Exception {
+			Map<String, Map<String, GroovyDataFetcher>> resolvers, List<String> wiringPaths,
+			GraphQLSchemaDeployment.Report report) throws Exception {
 		String primaryType = node.getPrimaryNodeType().getName();
 
 		if (primaryType.equals(NodeType.NT_FOLDER_NAME)) {
 			for (NodeIterator i = node.getNodes(); i.hasNext();) {
-				scan(i.nextNode(), workspaceName, scriptExtensions, sdlSources, resolvers, wiringPaths);
+				scan(i.nextNode(), workspaceName, scriptExtensions, sdlSources, resolvers, wiringPaths, report);
 			}
 			return;
 		}
@@ -333,10 +443,12 @@ public final class GraphQLSchemaCompiler {
 		String name = node.getName();
 		if (name.equals("wiring.yml")) {
 			wiringPaths.add(node.getPath());
+			report.file(node.getPath(), "wiring", null);
 			return;
 		}
 		if (name.endsWith(".graphqls") || name.endsWith(".graphql")) {
 			sdlSources.put(node.getPath(), readText(node));
+			report.file(node.getPath(), "schema", null);
 			return;
 		}
 
@@ -347,7 +459,12 @@ public final class GraphQLSchemaCompiler {
 			String fieldName = parts[1];
 			GroovyDataFetcher fetcher = new GroovyDataFetcher(workspaceName, typeName, fieldName, node.getPath(),
 					parts[2], readText(node), null);
-			resolvers.computeIfAbsent(typeName, k -> new LinkedHashMap<>()).put(fieldName, fetcher);
+			GroovyDataFetcher replaced = resolvers.computeIfAbsent(typeName, k -> new LinkedHashMap<>())
+					.put(fieldName, fetcher);
+			if (replaced != null) {
+				report.warning(replaced.getScriptPath(), replaced.getScriptPath() + " is not used: "
+						+ node.getPath() + " resolves " + typeName + "." + fieldName + " too, and is found later.");
+			}
 		}
 	}
 
@@ -358,10 +475,11 @@ public final class GraphQLSchemaCompiler {
 	@SuppressWarnings("unchecked")
 	private static void applyWiring(Session serviceSession, String workspaceName, String wiringPath,
 			Map<String, Map<String, GroovyDataFetcher>> resolvers, Map<String, GroovyTypeResolver> typeResolvers,
-			Map<String, GraphQLScalarType> scriptScalars) throws RepositoryException {
+			Map<String, GraphQLScalarType> scriptScalars, Map<String, String> scriptScalarPaths,
+			GraphQLSchemaDeployment.Report report) throws RepositoryException {
 		Node wiringNode = serviceSession.getNode(wiringPath);
 		String basePath = wiringNode.getParent().getPath();
-		Map<String, Object> doc = parseYaml(wiringNode);
+		Map<String, Object> doc = parseYaml(wiringNode, report);
 
 		Object typesObj = doc.get("types");
 		if (typesObj instanceof Map) {
@@ -378,13 +496,19 @@ public final class GraphQLSchemaCompiler {
 						String fieldName = fieldEntry.getKey();
 						String[] sr = scriptAndRunAs(fieldEntry.getValue());
 						Node scriptNode = resolveScriptNode(serviceSession, basePath, sr, wiringPath,
-								typeName + "." + fieldName);
+								typeName + "." + fieldName, report);
 						if (scriptNode == null) {
 							continue;
 						}
 						GroovyDataFetcher fetcher = new GroovyDataFetcher(workspaceName, typeName, fieldName,
 								scriptNode.getPath(), extensionOf(scriptNode.getName()), readText(scriptNode), sr[1]);
-						resolvers.computeIfAbsent(typeName, k -> new LinkedHashMap<>()).put(fieldName, fetcher);
+						GroovyDataFetcher replaced = resolvers.computeIfAbsent(typeName, k -> new LinkedHashMap<>())
+								.put(fieldName, fetcher);
+						if (replaced != null && !replaced.getScriptPath().equals(scriptNode.getPath())) {
+							report.warning(replaced.getScriptPath(), replaced.getScriptPath() + " is not used: "
+									+ wiringPath + " binds " + typeName + "." + fieldName + " to " + scriptNode.getPath()
+									+ ".");
+						}
 					}
 				}
 
@@ -392,7 +516,7 @@ public final class GraphQLSchemaCompiler {
 				if (typeResolverObj != null) {
 					String[] sr = scriptAndRunAs(typeResolverObj);
 					Node scriptNode = resolveScriptNode(serviceSession, basePath, sr, wiringPath,
-							typeName + " typeResolver");
+							typeName + " typeResolver", report);
 					if (scriptNode != null) {
 						typeResolvers.put(typeName, new GroovyTypeResolver(workspaceName, typeName, scriptNode.getPath(),
 								extensionOf(scriptNode.getName()), readText(scriptNode), sr[1]));
@@ -406,10 +530,12 @@ public final class GraphQLSchemaCompiler {
 			for (Map.Entry<String, Object> scalarEntry : ((Map<String, Object>) scalarsObj).entrySet()) {
 				String scalarName = scalarEntry.getKey();
 				String[] sr = scriptAndRunAs(scalarEntry.getValue());
-				Node scriptNode = resolveScriptNode(serviceSession, basePath, sr, wiringPath, "scalar " + scalarName);
+				Node scriptNode = resolveScriptNode(serviceSession, basePath, sr, wiringPath, "scalar " + scalarName,
+						report);
 				if (scriptNode == null) {
 					continue;
 				}
+				scriptScalarPaths.put(scalarName, scriptNode.getPath());
 				// A scalar's coercing is part of the schema, so its script is
 				// evaluated once here, at compile time, to obtain the closures.
 				// It runs without the per-request platform APIs (no JCR session):
@@ -423,6 +549,9 @@ public final class GraphQLSchemaCompiler {
 				} catch (Exception ex) {
 					CmsService.getLogger(GraphQLSchemaCompiler.class)
 							.warn("Failed to build script scalar \"" + scalarName + "\" in " + wiringPath, ex);
+					report.warning(scriptNode.getPath(), "The scalar " + scalarName + " of " + wiringPath
+							+ " could not be built from " + scriptNode.getPath() + " and is passed through as it is: "
+							+ ex.getMessage());
 				} finally {
 					try {
 						context.close();
@@ -461,10 +590,12 @@ public final class GraphQLSchemaCompiler {
 	 * {@code wiring.yml}. Logs and returns {@code null} when missing.
 	 */
 	private static Node resolveScriptNode(Session serviceSession, String basePath, String[] scriptRef,
-			String wiringPath, String coordinate) throws RepositoryException {
+			String wiringPath, String coordinate, GraphQLSchemaDeployment.Report report) throws RepositoryException {
 		if (scriptRef == null) {
 			CmsService.getLogger(GraphQLSchemaCompiler.class)
 					.warn("Missing 'script' for " + coordinate + " in " + wiringPath);
+			report.warning(wiringPath, "Missing 'script' for " + coordinate + " in " + wiringPath
+					+ "; the entry is ignored.");
 			return null;
 		}
 		String scriptPath = scriptRef[0];
@@ -474,8 +605,47 @@ public final class GraphQLSchemaCompiler {
 		} catch (PathNotFoundException ex) {
 			CmsService.getLogger(GraphQLSchemaCompiler.class)
 					.warn("Resolver script not found for " + coordinate + " in " + wiringPath + ": " + absolute);
+			report.warning(wiringPath, "The script for " + coordinate + " in " + wiringPath + " does not exist: "
+					+ absolute + "; the entry is ignored.");
 			return null;
 		}
+	}
+
+	/** Every {@code Type.field} the registry defines on object and interface types, extensions included. */
+	private static Set<String> definedFields(TypeDefinitionRegistry registry) {
+		Set<String> typeNames = new LinkedHashSet<>(registry.types().keySet());
+		typeNames.addAll(registry.objectTypeExtensions().keySet());
+		typeNames.addAll(registry.interfaceTypeExtensions().keySet());
+		Set<String> coordinates = new LinkedHashSet<>();
+		for (String typeName : typeNames) {
+			for (String fieldName : fieldNames(registry, typeName)) {
+				coordinates.add(typeName + "." + fieldName);
+			}
+		}
+		return coordinates;
+	}
+
+	/** The fields of an object or interface type, from its definition and every extension of it. */
+	private static List<String> fieldNames(TypeDefinitionRegistry registry, String typeName) {
+		List<FieldDefinition> definitions = new ArrayList<>();
+		TypeDefinition<?> type = registry.types().get(typeName);
+		if (type instanceof ObjectTypeDefinition) {
+			definitions.addAll(((ObjectTypeDefinition) type).getFieldDefinitions());
+		} else if (type instanceof InterfaceTypeDefinition) {
+			definitions.addAll(((InterfaceTypeDefinition) type).getFieldDefinitions());
+		}
+		for (ObjectTypeExtensionDefinition extension : registry.objectTypeExtensions().getOrDefault(typeName, List.of())) {
+			definitions.addAll(extension.getFieldDefinitions());
+		}
+		for (InterfaceTypeExtensionDefinition extension : registry.interfaceTypeExtensions().getOrDefault(typeName,
+				List.of())) {
+			definitions.addAll(extension.getFieldDefinitions());
+		}
+		List<String> names = new ArrayList<>();
+		for (FieldDefinition definition : definitions) {
+			names.add(definition.getName());
+		}
+		return names;
 	}
 
 	private static String extensionOf(String name) {
@@ -498,7 +668,8 @@ public final class GraphQLSchemaCompiler {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static Map<String, Object> parseYaml(Node fileNode) throws RepositoryException {
+	private static Map<String, Object> parseYaml(Node fileNode, GraphQLSchemaDeployment.Report report)
+			throws RepositoryException {
 		Node content = fileNode.getNode(Node.JCR_CONTENT);
 		try (InputStream in = new BufferedInputStream(
 				content.getProperty(Property.JCR_DATA).getBinary().getStream())) {
@@ -508,8 +679,9 @@ public final class GraphQLSchemaCompiler {
 			throw new RepositoryException("Failed to read GraphQL wiring file: " + fileNode, ex);
 		} catch (RuntimeException ex) {
 			// A YAML error names the file at fault, like an SDL error does.
-			throw new IllegalStateException("Invalid GraphQL wiring file " + fileNode.getPath() + ": "
-					+ ex.getMessage(), ex);
+			String message = "Invalid GraphQL wiring file " + fileNode.getPath() + ": " + ex.getMessage();
+			report.error(fileNode.getPath(), message);
+			throw new IllegalStateException(message, ex);
 		}
 	}
 

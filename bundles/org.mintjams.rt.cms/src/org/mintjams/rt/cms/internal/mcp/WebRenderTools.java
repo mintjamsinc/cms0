@@ -131,6 +131,11 @@ final class WebRenderTools {
 							+ Webs.DEFAULT_WEB_YML_PATH + ". Filters run before the path is resolved and can"
 							+ " change or block a request; this tool does not evaluate them.");
 				}
+			} else if (servedWithDefaults(webYml)) {
+				webYml.put("config", Webs.defaultWebConfig());
+				findings.add(Webs.DEFAULT_WEB_YML_PATH + " is " + webYml.get("status") + ", so the workspace is served"
+						+ " with the defaults: the welcome files index.html and index.gsp, Content-Type"
+						+ " text/html; charset=utf-8, no filters and no error pages.");
 			} else {
 				findings.add(Webs.DEFAULT_WEB_YML_PATH + " is " + webYml.get("status")
 						+ (webYml.get("error") != null ? " (" + webYml.get("error") + ")" : "")
@@ -159,7 +164,7 @@ final class WebRenderTools {
 							findings);
 				}
 			}
-			if (!"OK".equals(webYml.get("status"))) {
+			if (!"OK".equals(webYml.get("status")) && !servedWithDefaults(webYml)) {
 				// The resolution below is what would be served; right now nothing is.
 				resolution.put("blockedBy", Webs.DEFAULT_WEB_YML_PATH);
 			}
@@ -504,6 +509,11 @@ final class WebRenderTools {
 			findings.add(descriptorPath + ": " + ignored + " entr" + (ignored == 1 ? "y" : "ies")
 					+ " under \"render\" lack a \"match\" or a \"template\" and are ignored when serving.");
 		}
+	}
+
+	/** Whether serving falls back to {@link Webs#defaultWebConfig()}: no web.yml, or an empty one. */
+	private static boolean servedWithDefaults(Map<String, Object> webYml) {
+		return "MISSING".equals(webYml.get("status")) || "EMPTY".equals(webYml.get("status"));
 	}
 
 	/**

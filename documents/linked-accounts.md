@@ -142,6 +142,15 @@ Everything in the user's home is read and written with the user's own
 session, so the home's access control applies and deleting the user takes the
 links away.
 
+The GraphQL fields that read and change the links (`linkedAccounts`,
+`unlinkAccount`, `revokeLinkedAccountBundle`) run, like every platform field,
+in the workspace the call came to, with the caller's session. The links are
+in the system workspace, so the Webtop asks the system workspace's endpoint
+(`/bin/graphql.cgi/system`) whichever workspace it runs in, as it does for
+users and groups. Asked in another workspace, the fields see that
+workspace's home, which holds no links (see `documents/graphql.md`,
+"Principles").
+
 ## Files: Google Drive and OneDrive
 
 The `files` bundle lets apps copy files between the user's drive and the

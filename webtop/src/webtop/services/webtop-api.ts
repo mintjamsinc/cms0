@@ -74,11 +74,12 @@ export class WebtopAPI {
 		this.#webtopGraphQL = new WebtopServiceGraphQL(this.#graphqlClient, { rootPath: this.#context.rootPath });
 		this.#noticeGraphQL = new NoticeServiceGraphQL(this.#graphqlClient);
 		this.#idpGraphQL = new IdpServiceGraphQL();
-		this.#connectionsGraphQL = new ConnectionsServiceGraphQL(this.#graphqlClient);
 		this.#cloudGraphQL = new CloudServiceGraphQL(this.#graphqlClient);
 		this.#eventHub = createEventHub(this.#workspace);
 		this.#systemGraphQLClient = createGraphQLClient('system');
 		this.#systemContentGraphQL = new ContentServiceGraphQL(this.#systemGraphQLClient);
+		// Linked accounts live in the user's home in the system workspace.
+		this.#connectionsGraphQL = new ConnectionsServiceGraphQL(this.#systemGraphQLClient);
 		this.#systemCloudGraphQL = new CloudServiceGraphQL(this.#systemGraphQLClient);
 		this.#systemEventHub = createEventHub('system');
 

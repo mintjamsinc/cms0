@@ -44,10 +44,11 @@ import org.mintjams.rt.cms.internal.graphql.engine.GraphQLSchemaCompiler;
  * Groovy resolvers. Built with a fluent API; not thread-safe — create one per
  * compile.
  *
- * <p>On conflict with folder/script wiring for the same {@code Type.field}, type
- * resolver, or scalar name, the folder/script wiring wins (mirroring the
- * "explicit wiring overrides convention" rule); contributor SDL is merged before
- * folder SDL so workspace files may {@code extend} contributor base types.
+ * <p>What a contribution defines belongs to the platform: folder SDL or
+ * folder/script wiring for the same {@code Type.field}, type resolver, or scalar
+ * name fails the workspace's compile instead of replacing it. Contributor SDL is
+ * merged before folder SDL so workspace files may {@code extend} contributor base
+ * types with fields of their own.
  */
 public final class SchemaContribution {
 

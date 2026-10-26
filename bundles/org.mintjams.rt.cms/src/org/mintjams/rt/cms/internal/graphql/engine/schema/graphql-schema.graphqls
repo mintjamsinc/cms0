@@ -1,0 +1,62 @@
+# =============================================================================
+# Platform GraphQL deployment schema
+# =============================================================================
+# Contributed by PlatformGraphQLWiringContributor, merged into the same
+# graphql-java schema as the core platform SDL. It `extend`s the core Query
+# root and reuses the core scalar DateTime.
+#
+# What became of the last deployment of this workspace's application schema
+# (the .graphqls files, resolvers and wiring.yml under /etc/graphql and
+# /content/WEB-INF/graphql): what is served, the files that took part, and why
+# a compile failed. Signed-in users only. See documents/graphql.md.
+# =============================================================================
+
+extend type Query {
+  """The last deployment of this workspace's application GraphQL schema: what is served, the files found, and what failed or was ignored."""
+  graphqlSchemaDeployment: GraphQLSchemaDeployment!
+}
+
+"""What became of the last compile of the workspace's application schema."""
+type GraphQLSchemaDeployment {
+  status: GraphQLSchemaStatus!
+  """When the last compile ran."""
+  attemptedAt: DateTime
+  """When the schema now served was compiled; null when nothing is served."""
+  servedSince: DateTime
+  """The application files the last compile found."""
+  files: [GraphQLSchemaFile!]!
+  """Why the last compile failed. Empty when it did not."""
+  errors: [GraphQLSchemaProblem!]!
+  """What the last compile ignored or could not use, without failing: a resolver of a field no schema file defines, a script wiring.yml names that does not exist, a resolver another one replaces, ..."""
+  warnings: [GraphQLSchemaProblem!]!
+}
+
+enum GraphQLSchemaStatus {
+  """The application files compiled and are served."""
+  DEPLOYED
+  """The last compile failed; the schema served before it still is."""
+  KEEPING_PREVIOUS
+  """The compile at start failed; only the platform schema is served until the files are fixed."""
+  PLATFORM_ONLY
+  """Application GraphQL is turned off for the workspace (graphql.yml); only the platform schema is served."""
+  DISABLED
+  """Nothing is served."""
+  UNAVAILABLE
+}
+
+"""One file of the application schema."""
+type GraphQLSchemaFile {
+  """The repository path."""
+  path: String!
+  """schema, wiring, resolver, typeResolver or scalar."""
+  kind: String!
+  """What the script is bound to: Type.field for a resolver, the type for a type resolver, the scalar's name. Null for schema and wiring files."""
+  target: String
+}
+
+"""An error or a warning of a compile."""
+type GraphQLSchemaProblem {
+  """The file it is about; null when the problem is not one file's."""
+  path: String
+  message: String!
+}

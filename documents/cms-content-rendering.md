@@ -18,6 +18,27 @@ So `GET /foo/index.html` is served by rendering the stored source `/foo/index.md
 through the template bound to it, for the `html` representation. The same source
 can be exposed at several outputs (e.g. `index.html` and `index.rss`).
 
+## The site configuration
+
+`/content/WEB-INF/web.yml` configures a workspace's web requests: welcome
+files, default response headers, filters, error pages and source extensions.
+The file is optional. A workspace without it, or with an empty one, is served
+as if it held:
+
+```yaml
+welcomeFiles: ["index.html", "index.gsp"]
+defaultResponseHeaders:
+    Content-Type: "text/html; charset=utf-8"
+```
+
+That means no filters, no error pages, and the source extension `md`. A file
+that exists is used as written. A key it leaves out keeps its own default
+(`welcomeFiles`, `sourceExtensions`) or is off (`defaultResponseHeaders`,
+`filters`, `errorPages`). A file that exists but cannot be parsed, or that the
+visitor's session cannot read, fails every web request of the workspace. It
+is never taken for a missing file, because its filters and error pages must
+not be skipped. The MCP tool `explain_web_render` reports which case applies.
+
 ## Source extensions
 
 `/content/WEB-INF/web.yml`:

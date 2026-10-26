@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.jcr.NamespaceException;
 import javax.jcr.NamespaceRegistry;
@@ -65,7 +66,10 @@ import com.google.gson.JsonParser;
  *
  * <p>Everything is read and written with a session of the user, so the
  * home's access control applies and the files are the user's own; deleting
- * the user takes them away with the home.
+ * the user takes them away with the home. The methods that take a user ID
+ * open that session on the system workspace, where linking stores the
+ * accounts and tokens are renewed from them; the ones that take a session use
+ * the caller's, in whichever workspace it is (the GraphQL API).
  */
 public final class LinkedAccounts {
 
@@ -79,7 +83,8 @@ public final class LinkedAccounts {
 	static final String NAMESPACE_URI = "http://www.mintjams.jp/webtop/oauth/1.0";
 	static final String REFRESH_TOKEN = NAMESPACE_PREFIX + ":refreshToken";
 
-	private static volatile boolean fNamespaceChecked;
+	// The workspaces whose namespace registry is known to have the oauth prefix.
+	private static final Set<String> fNamespaceChecked = ConcurrentHashMap.newKeySet();
 
 	private LinkedAccounts() {}
 
@@ -171,42 +176,52 @@ public final class LinkedAccounts {
 	public static Account get(String userId, String provider) throws RepositoryException {
 		Session session = openAs(userId);
 		try {
-			Node file;
-			try {
-				file = session.getNode(filePath(userId, provider));
-			} catch (PathNotFoundException ex) {
-				return null;
-			}
-			return read(file, provider);
+			return get(session, provider);
 		} finally {
 			session.logout();
 		}
 	}
 
+	/** The linked account of a provider in the home of the session's user, or null. */
+	public static Account get(Session session, String provider) throws RepositoryException {
+		Node file;
+		try {
+			file = session.getNode(filePath(session.getUserID(), provider));
+		} catch (PathNotFoundException ex) {
+			return null;
+		}
+		return read(file, provider);
+	}
+
 	/** Every linked account of the user, in catalogue order of the providers. */
 	public static List<Account> list(String userId) throws RepositoryException {
-		List<Account> accounts = new ArrayList<>();
 		Session session = openAs(userId);
 		try {
-			Node folder;
-			try {
-				folder = session.getNode(folderPath(userId));
-			} catch (PathNotFoundException ex) {
-				return accounts;
-			}
-			for (ConnectionProviders.Provider provider : ConnectionProviders.all()) {
-				String name = provider.getId() + FILE_SUFFIX;
-				if (JCRs.exists(folder, name)) {
-					Account account = read(folder.getNode(name), provider.getId());
-					if (account != null) {
-						accounts.add(account);
-					}
-				}
-			}
-			return accounts;
+			return list(session);
 		} finally {
 			session.logout();
 		}
+	}
+
+	/** Every linked account in the home of the session's user, in catalogue order of the providers. */
+	public static List<Account> list(Session session) throws RepositoryException {
+		List<Account> accounts = new ArrayList<>();
+		Node folder;
+		try {
+			folder = session.getNode(folderPath(session.getUserID()));
+		} catch (PathNotFoundException ex) {
+			return accounts;
+		}
+		for (ConnectionProviders.Provider provider : ConnectionProviders.all()) {
+			String name = provider.getId() + FILE_SUFFIX;
+			if (JCRs.exists(folder, name)) {
+				Account account = read(folder.getNode(name), provider.getId());
+				if (account != null) {
+					accounts.add(account);
+				}
+			}
+		}
+		return accounts;
 	}
 
 	private static Account read(Node file, String provider) {
@@ -246,61 +261,79 @@ public final class LinkedAccounts {
 	 * keeps it. The home must exist (it does for every user who has signed in).
 	 */
 	public static void save(String userId, Account account, String refreshToken) throws RepositoryException {
-		ensureNamespace();
+		ensureNamespace(SYSTEM_WORKSPACE);
 		Session session = openAs(userId);
 		try {
-			Node home = session.getNode(HOMES + "/" + userId);
-			Node folder = JCRs.getOrCreateFolder(home, FOLDER_NAME);
-			String name = account.getProvider() + FILE_SUFFIX;
-			Node file = JCRs.exists(folder, name) ? folder.getNode(name) : JCRs.createFile(folder, name);
-			JCRs.write(file, new ByteArrayInputStream(toJson(account).toString().getBytes(StandardCharsets.UTF_8)));
-			JCRs.setProperty(file, "jcr:mimeType", ACCOUNT_TYPE);
-			JCRs.setProperty(file, "jcr:encoding", "UTF-8");
-			if (refreshToken != null) {
-				JCRs.setProperty(file, REFRESH_TOKEN, encryptor().encrypt(refreshToken));
-			}
-			session.save();
+			save(session, account, refreshToken);
 		} finally {
 			session.logout();
 		}
+	}
+
+	/** Writes the account into the home of the session's user, as {@link #save(String, Account, String)}. */
+	public static void save(Session session, Account account, String refreshToken) throws RepositoryException {
+		if (refreshToken != null) {
+			ensureNamespace(session.getWorkspace().getName());
+		}
+		Node home = session.getNode(HOMES + "/" + session.getUserID());
+		Node folder = JCRs.getOrCreateFolder(home, FOLDER_NAME);
+		String name = account.getProvider() + FILE_SUFFIX;
+		Node file = JCRs.exists(folder, name) ? folder.getNode(name) : JCRs.createFile(folder, name);
+		JCRs.write(file, new ByteArrayInputStream(toJson(account).toString().getBytes(StandardCharsets.UTF_8)));
+		JCRs.setProperty(file, "jcr:mimeType", ACCOUNT_TYPE);
+		JCRs.setProperty(file, "jcr:encoding", "UTF-8");
+		if (refreshToken != null) {
+			JCRs.setProperty(file, REFRESH_TOKEN, encryptor().encrypt(refreshToken));
+		}
+		session.save();
 	}
 
 	/** The stored refresh token, decrypted, or null when there is none. */
 	public static String refreshToken(String userId, String provider) throws RepositoryException {
 		Session session = openAs(userId);
 		try {
-			Node file;
-			try {
-				file = session.getNode(filePath(userId, provider));
-			} catch (PathNotFoundException ex) {
-				return null;
-			}
-			Node content = JCRs.getContentNode(file);
-			if (!content.hasProperty(REFRESH_TOKEN)) {
-				return null;
-			}
-			return encryptor().decrypt(content.getProperty(REFRESH_TOKEN).getString());
+			return refreshToken(session, provider);
 		} finally {
 			session.logout();
 		}
+	}
+
+	/** The refresh token stored in the home of the session's user, decrypted, or null when there is none. */
+	public static String refreshToken(Session session, String provider) throws RepositoryException {
+		Node file;
+		try {
+			file = session.getNode(filePath(session.getUserID(), provider));
+		} catch (PathNotFoundException ex) {
+			return null;
+		}
+		Node content = JCRs.getContentNode(file);
+		if (!content.hasProperty(REFRESH_TOKEN)) {
+			return null;
+		}
+		return encryptor().decrypt(content.getProperty(REFRESH_TOKEN).getString());
 	}
 
 	/** Removes the account and its grant. Returns false when there was none. */
 	public static boolean remove(String userId, String provider) throws RepositoryException {
 		Session session = openAs(userId);
 		try {
-			Node file;
-			try {
-				file = session.getNode(filePath(userId, provider));
-			} catch (PathNotFoundException ex) {
-				return false;
-			}
-			file.remove();
-			session.save();
-			return true;
+			return remove(session, provider);
 		} finally {
 			session.logout();
 		}
+	}
+
+	/** Removes the account from the home of the session's user. Returns false when there was none. */
+	public static boolean remove(Session session, String provider) throws RepositoryException {
+		Node file;
+		try {
+			file = session.getNode(filePath(session.getUserID(), provider));
+		} catch (PathNotFoundException ex) {
+			return false;
+		}
+		file.remove();
+		session.save();
+		return true;
 	}
 
 	private static JsonObject toJson(Account account) {
@@ -329,11 +362,11 @@ public final class LinkedAccounts {
 	 * (provisioning/connections.yml), so an installation that predates it works
 	 * too.
 	 */
-	private static void ensureNamespace() throws RepositoryException {
-		if (fNamespaceChecked) {
+	private static void ensureNamespace(String workspaceName) throws RepositoryException {
+		if (fNamespaceChecked.contains(workspaceName)) {
 			return;
 		}
-		Session session = CmsService.getRepository().login(new CmsServiceCredentials(), SYSTEM_WORKSPACE);
+		Session session = CmsService.getRepository().login(new CmsServiceCredentials(), workspaceName);
 		try {
 			NamespaceRegistry registry = session.getWorkspace().getNamespaceRegistry();
 			try {
@@ -343,7 +376,7 @@ public final class LinkedAccounts {
 				CmsService.getLogger(LinkedAccounts.class).info("Registered namespace: {} -> {}", NAMESPACE_PREFIX,
 						NAMESPACE_URI);
 			}
-			fNamespaceChecked = true;
+			fNamespaceChecked.add(workspaceName);
 		} finally {
 			session.logout();
 		}

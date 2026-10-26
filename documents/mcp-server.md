@@ -619,7 +619,10 @@ log and recorded on the file's deployment, which the GraphQL query
 This is also how a client that has just written a `tools.yml` finds out
 whether its tool exists. The server keeps no session and sends no
 `listChanged` notification; a client sees the new tool on its next
-`tools/list`.
+`tools/list`. A client that writes schema files or resolvers asks
+`graphqlSchemaDeployment` in the same way (`documents/graphql.md`, "Seeing
+what deployed"): unlike tools, the schema compiles as one unit, so it reports
+the whole compile and the file at fault.
 
 ### A client can add tools
 
@@ -660,8 +663,8 @@ cannot drift from what is served.
 | `resolution.source`, `.template`, `.binding` | What is rendered, through which template, and whether the binding came from a `.web.yml` rule or the file's `web.template` property. |
 | `resolution.considered` | Every source that exists and was considered, and why each one was rejected: not bound to a template, output not allowed by the binding, template not found (with the template paths tried). |
 | `resolution.anonymous` | Whether an anonymous visitor can read the source and the template. |
-| `resolution.blockedBy` | Set to `web.yml` when it cannot be used: the resolution is what would be served, and right now nothing is. |
-| `webYml` | `/content/WEB-INF/web.yml`: its status, keys, parsed content, and who last modified it. |
+| `resolution.blockedBy` | Set to `web.yml` when it exists but cannot be used: the resolution is what would be served, and right now nothing is. A `MISSING` or `EMPTY` `web.yml` blocks nothing; the workspace is served with the defaults. |
+| `webYml` | `/content/WEB-INF/web.yml`: its status, keys, parsed content (the defaults when it is `MISSING` or `EMPTY`), and who last modified it. |
 | `descriptors` | Every `.web.yml` from the folder up to `/content`, nearest first — the order in which rules apply. Each with its status, its rules, and who last modified it. **Descriptors that exist but are broken are listed, not skipped.** |
 | `findings` | The conclusions in plain sentences. |
 

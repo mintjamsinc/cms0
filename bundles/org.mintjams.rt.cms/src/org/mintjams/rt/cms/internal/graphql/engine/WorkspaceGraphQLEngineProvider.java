@@ -45,6 +45,7 @@ import org.mintjams.rt.cms.internal.graphql.wiring.PlatformBpmWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformCloudWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformEipWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformFilesWiringContributor;
+import org.mintjams.rt.cms.internal.graphql.wiring.PlatformGraphQLWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformIdpWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformConnectionsWiringContributor;
 import org.mintjams.rt.cms.internal.graphql.wiring.PlatformMcpWiringContributor;
@@ -128,6 +129,10 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	private final Closer fCloser = Closer.create();
 	private volatile GraphQL fGraphQL;
 	private volatile McpToolRegistry fMcpTools = McpToolRegistry.EMPTY;
+	private volatile GraphQLSchemaDeployment fDeployment = NOT_COMPILED;
+
+	private static final GraphQLSchemaDeployment NOT_COMPILED = new GraphQLSchemaDeployment(
+			GraphQLSchemaDeployment.Status.UNAVAILABLE, 0, 0, new GraphQLSchemaDeployment.Report());
 
 	public WorkspaceGraphQLEngineProvider(String workspaceName) {
 		fConfig = new WorkspaceGraphQLEngineProviderConfiguration(workspaceName);
@@ -148,6 +153,7 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 		fCloser.close();
 		fGraphQL = null;
 		fMcpTools = McpToolRegistry.EMPTY;
+		fDeployment = NOT_COMPILED;
 	}
 
 	public String getWorkspaceName() {
@@ -180,6 +186,11 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	 */
 	public McpToolRegistry getMcpTools() {
 		return fMcpTools;
+	}
+
+	/** What became of the last compile of the workspace's schema. */
+	public GraphQLSchemaDeployment getSchemaDeployment() {
+		return fDeployment;
 	}
 
 	/**
@@ -388,7 +399,8 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 				new PlatformWorkspaceWiringContributor(), new PlatformIdpWiringContributor(),
 				new PlatformSecurityWiringContributor(), new PlatformEipWiringContributor(),
 				new PlatformMcpWiringContributor(), new PlatformFilesWiringContributor(),
-				new PlatformConnectionsWiringContributor(), new PlatformCloudWiringContributor());
+				new PlatformConnectionsWiringContributor(), new PlatformCloudWiringContributor(),
+				new PlatformGraphQLWiringContributor());
 	}
 
 	/**
@@ -398,14 +410,19 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 	 * schema on failure.
 	 */
 	private void rebuildSchema() {
+		long attemptedAt = System.currentTimeMillis();
+		GraphQLSchemaDeployment.Report report = new GraphQLSchemaDeployment.Report();
 		Session session = null;
 		try {
 			session = CmsService.getRepository().login(new CmsServiceCredentials(), getWorkspaceName());
 			List<String> roots = fConfig.isEnabled() ? WATCHED_PATHS : List.of();
 			GraphQL compiled;
+			GraphQLSchemaDeployment.Status status = fConfig.isEnabled() ? GraphQLSchemaDeployment.Status.DEPLOYED
+					: GraphQLSchemaDeployment.Status.DISABLED;
+			long servedSince = attemptedAt;
 			try {
 				compiled = GraphQLSchemaCompiler.compile(session, getWorkspaceName(), roots,
-						platformContributors(), new GraphQLExceptionHandler());
+						platformContributors(), new GraphQLExceptionHandler(), report);
 			} catch (Throwable appEx) {
 				// The platform's built-in schema (which serves login/`me` and the rest of
 				// the core API) and the workspace's application schema are compiled into a
@@ -422,27 +439,43 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 				if (roots.isEmpty()) {
 					throw appEx; // no application schema in play — this is a platform fault
 				}
+				if (!report.hasErrors()) {
+					report.error(null, appEx.getMessage());
+				}
 				if (fGraphQL != null) {
 					CmsService.getLogger(getClass()).error("Failed to compile the application GraphQL schema for the"
 							+ " workspace: " + getWorkspaceName() + " — keeping the previous schema until the"
 							+ " application schema is fixed", appEx);
 					compiled = fGraphQL;
+					status = GraphQLSchemaDeployment.Status.KEEPING_PREVIOUS;
+					servedSince = fDeployment.getServedSinceMillis();
 				} else {
 					CmsService.getLogger(getClass()).error("Failed to compile the application GraphQL schema for the"
 							+ " workspace: " + getWorkspaceName() + " — serving the platform schema only until the"
 							+ " application schema is fixed", appEx);
 					compiled = GraphQLSchemaCompiler.compile(session, getWorkspaceName(), List.of(),
 							platformContributors(), new GraphQLExceptionHandler());
+					status = GraphQLSchemaDeployment.Status.PLATFORM_ONLY;
 				}
 			}
 			fGraphQL = compiled;
 			if (compiled == null) {
 				CmsService.getLogger(getClass())
 						.info("No GraphQL schema present for the workspace: " + getWorkspaceName());
+				status = GraphQLSchemaDeployment.Status.UNAVAILABLE;
+				servedSince = 0;
 			}
+			fDeployment = new GraphQLSchemaDeployment(status, attemptedAt, servedSince, report);
 		} catch (Throwable ex) {
 			CmsService.getLogger(getClass()).error("Failed to compile the GraphQL schema for the workspace: "
 					+ getWorkspaceName() + " (keeping the previous schema)", ex);
+			if (!report.hasErrors()) {
+				report.error(null, String.valueOf(ex.getMessage()));
+			}
+			fDeployment = (fGraphQL != null)
+					? new GraphQLSchemaDeployment(GraphQLSchemaDeployment.Status.KEEPING_PREVIOUS, attemptedAt,
+							fDeployment.getServedSinceMillis(), report)
+					: new GraphQLSchemaDeployment(GraphQLSchemaDeployment.Status.UNAVAILABLE, attemptedAt, 0, report);
 		} finally {
 			if (session != null) {
 				rebuildMcpTools(session);

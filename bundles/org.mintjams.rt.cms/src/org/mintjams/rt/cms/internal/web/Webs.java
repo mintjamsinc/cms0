@@ -27,12 +27,16 @@ import java.io.UncheckedIOException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Locale;
 
 import javax.jcr.Credentials;
+import javax.jcr.RepositoryException;
+import javax.jcr.Session;
 import javax.servlet.DispatcherType;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.http.HttpServletRequest;
@@ -42,10 +46,13 @@ import javax.servlet.http.HttpSession;
 import org.apache.commons.lang3.StringUtils;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
+import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.script.Scripts;
+import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.auth.AuthToken;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.script.YAML;
+import org.mintjams.script.resource.Resource;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.tools.lang.Cause;
 import org.mintjams.tools.lang.Strings;
@@ -121,19 +128,57 @@ public class Webs {
 		return (WorkspaceScriptContext) request.getAttribute(WorkspaceScriptContext.class.getName());
 	}
 
+	/**
+	 * The site configuration, {@code /content/WEB-INF/web.yml}. A workspace
+	 * without the file (or with an empty one) is served with
+	 * {@link #defaultWebConfig()}. A file that exists but the caller cannot read
+	 * is not taken for a missing one: its filters and error pages must not be
+	 * skipped, so that stays an error.
+	 */
 	@SuppressWarnings("unchecked")
 	public static Map<String, Object> getWebConfig(ActionContext context) {
 		WorkspaceScriptContext ctx = Scripts.getWorkspaceScriptContext(context);
 		Map<String, Object> webConfig = (Map<String, Object>) ctx.getAttribute("webConfig");
 		if (webConfig == null) {
 			try {
-				webConfig = (Map<String, Object>) ctx.adaptTo(YAML.class).parse(ctx.getSession().getResource(DEFAULT_WEB_YML_PATH));
+				Resource resource = ctx.getSession().getResource(DEFAULT_WEB_YML_PATH);
+				if (!resource.exists() && !existsForService(ctx.getWorkspaceName(), DEFAULT_WEB_YML_PATH)) {
+					webConfig = defaultWebConfig();
+				} else {
+					webConfig = (Map<String, Object>) ctx.adaptTo(YAML.class).parse(resource);
+					if (webConfig == null) {
+						webConfig = defaultWebConfig();
+					}
+				}
 				ctx.setAttribute("webConfig", webConfig);
-			} catch (ResourceException | IOException ex) {
+			} catch (ResourceException | IOException | RepositoryException ex) {
 				throw Cause.create(ex).wrap(IllegalStateException.class);
 			}
 		}
 		return webConfig;
+	}
+
+	/**
+	 * What a workspace without {@code web.yml} is served with: the welcome files
+	 * {@code index.html} and {@code index.gsp}, HTML as the default content type,
+	 * no filters and no error pages.
+	 */
+	public static Map<String, Object> defaultWebConfig() {
+		Map<String, Object> headers = new LinkedHashMap<>();
+		headers.put("Content-Type", "text/html; charset=utf-8");
+		Map<String, Object> config = new LinkedHashMap<>();
+		config.put("welcomeFiles", new ArrayList<>(Arrays.asList("index.html", "index.gsp")));
+		config.put("defaultResponseHeaders", headers);
+		return config;
+	}
+
+	private static boolean existsForService(String workspaceName, String path) throws RepositoryException {
+		Session session = CmsService.getRepository().login(new CmsServiceCredentials(), workspaceName);
+		try {
+			return session.nodeExists(path);
+		} finally {
+			session.logout();
+		}
 	}
 
 	@SuppressWarnings("unchecked")

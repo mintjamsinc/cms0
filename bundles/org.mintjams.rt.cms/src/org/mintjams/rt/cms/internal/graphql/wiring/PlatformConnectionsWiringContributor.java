@@ -47,9 +47,12 @@ import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
 
 /**
- * The linked-accounts fields: what Preferences shows and does. The accounts
- * live in the user's home in the system workspace, whichever workspace's
- * endpoint is asked.
+ * The linked-accounts fields: what Preferences shows and does. Like every
+ * platform field, they run in the workspace the call came to, under the
+ * caller's session: the accounts are the ones in the caller's home there.
+ * Linking stores them in the system workspace and tokens are renewed from
+ * there, so the Webtop asks the system workspace's endpoint, as it does for
+ * the IdP.
  */
 public final class PlatformConnectionsWiringContributor implements WiringContributor {
 
@@ -81,7 +84,7 @@ public final class PlatformConnectionsWiringContributor implements WiringContrib
 		map.put("providers", providers);
 		List<Map<String, Object>> accounts = new ArrayList<>();
 		if (isUser(context.getCallerSession())) {
-			for (LinkedAccounts.Account account : LinkedAccounts.list(context.getCallerSession().getUserID())) {
+			for (LinkedAccounts.Account account : LinkedAccounts.list(context.getCallerSession())) {
 				accounts.add(map(account));
 			}
 		}
@@ -106,10 +109,10 @@ public final class PlatformConnectionsWiringContributor implements WiringContrib
 		// Tell the provider first, while the grant is still there to be named.
 		ConnectionClients.Client client = ConnectionClients.get().get(provider);
 		if (client != null) {
-			ConnectionTokens.revoke(client, LinkedAccounts.refreshToken(userId, provider));
+			ConnectionTokens.revoke(client, LinkedAccounts.refreshToken(session, provider));
 		}
 		ConnectionTokens.invalidate(userId, provider);
-		boolean removed = LinkedAccounts.remove(userId, provider);
+		boolean removed = LinkedAccounts.remove(session, provider);
 		if (removed) {
 			CmsService.getLogger(PlatformConnectionsWiringContributor.class).info("{} account unlinked: user={}",
 					provider, userId);
@@ -132,14 +135,14 @@ public final class PlatformConnectionsWiringContributor implements WiringContrib
 			throw new IllegalArgumentException("Unknown bundle: " + bundle);
 		}
 		String userId = session.getUserID();
-		LinkedAccounts.Account account = LinkedAccounts.get(userId, provider);
+		LinkedAccounts.Account account = LinkedAccounts.get(session, provider);
 		if (account == null) {
 			throw new IllegalStateException("No " + provider + " account is linked.");
 		}
 		Set<String> bundles = new LinkedHashSet<>(account.getBundles());
 		if (bundles.remove(bundle)) {
 			account = account.withBundles(bundles);
-			LinkedAccounts.save(userId, account, null);
+			LinkedAccounts.save(session, account, null);
 			ConnectionTokens.invalidate(userId, provider);
 			CmsService.getLogger(PlatformConnectionsWiringContributor.class).info(
 					"{} bundle {} revoked: user={}", provider, bundle, userId);

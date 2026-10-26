@@ -32,12 +32,14 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
@@ -1237,6 +1239,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		private HikariDataSource fSystemDataSource;
 		private HikariDataSource fServiceDataSource;
 		private DatabaseDialect fDialect;
+		private String fJdbcUrl;
 
 		public ConnectionPool open() throws IOException {
 			if (fUserDataSource != null) {
@@ -1269,6 +1272,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			} catch (IllegalArgumentException ex) {
 				throw new IOException(ex.getMessage(), ex);
 			}
+			fJdbcUrl = jdbcUrl;
 
 			// User data source
 			fUserDataSource = createDataSource(jdbcUrl, username, password, driverClassName, maxPoolSize, minIdle);
@@ -1346,12 +1350,61 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 				fUserDataSource.close();
 			} catch (Throwable ignore) {}
 			try {
-				fSystemDataSource.close();
-			} catch (Throwable ignore) {}
-			try {
 				fServiceDataSource.close();
 			} catch (Throwable ignore) {}
+			shutdownEmbeddedDatabase();
+			try {
+				fSystemDataSource.close();
+			} catch (Throwable ignore) {}
 			fCloseRequested = false;
+		}
+
+		/**
+		 * Closes an embedded H2 database for good. The default URL carries
+		 * {@code DB_CLOSE_DELAY=-1}, which keeps the database open in the JVM
+		 * after its last connection is closed: closing the pools alone would
+		 * leave it open, still holding the files of a deleted workspace, and a
+		 * workspace created again under the same name would reach that open
+		 * database through the same URL and see the deleted workspace's nodes.
+		 * A database reached over the network ({@code jdbc:h2:tcp:},
+		 * {@code jdbc:h2:ssl:}) may be shared with other nodes and is left alone.
+		 */
+		private void shutdownEmbeddedDatabase() {
+			if (fSystemDataSource == null || !isEmbeddedH2(fJdbcUrl)) {
+				return;
+			}
+			Connection connection = null;
+			Statement statement = null;
+			try {
+				connection = fSystemDataSource.getConnection();
+				statement = connection.createStatement();
+				statement.execute("SHUTDOWN");
+			} catch (Throwable ex) {
+				Activator.getDefault().getLogger(getClass())
+						.warn("An error occurred while shutting down the database of the JCR workspace '"
+								+ getWorkspaceName() + "'.", ex);
+			} finally {
+				// SHUTDOWN closes every connection of the database, this one
+				// included, so handing it back to the pool fails; that is expected.
+				try {
+					if (statement != null) {
+						statement.close();
+					}
+				} catch (Throwable ignore) {}
+				try {
+					if (connection != null) {
+						connection.close();
+					}
+				} catch (Throwable ignore) {}
+			}
+		}
+
+		private boolean isEmbeddedH2(String jdbcUrl) {
+			if (jdbcUrl == null || !jdbcUrl.startsWith("jdbc:h2:")) {
+				return false;
+			}
+			String location = jdbcUrl.substring("jdbc:h2:".length()).toLowerCase(Locale.ROOT);
+			return !location.startsWith("tcp:") && !location.startsWith("ssl:");
 		}
 	}
 
