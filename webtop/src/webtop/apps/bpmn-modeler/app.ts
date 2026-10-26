@@ -2,6 +2,7 @@ import { initUi } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance, PopupHandle, PopupItem } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
+import { saveAsLabels, saveAsFormatLabel, type SaveAsFormat, type SaveAsSaved } from "../../lib/save-as.js";
 import {
 	BpmnModelStore,
 	BpmnSemantic,
@@ -747,16 +748,26 @@ export const App = {
 			// Active handle for the type-change popup (rendered in shell
 			// realm via instance.popup). Stored to dismiss on selection change.
 			typeChangePopupHandle: null as PopupHandle | null,
-			// Save As dialog state
+			// "Save As": the dialog is <wt-save-as>.
 			saveAsDialog: {
 				visible: false,
 				fileName: '',
 			},
-			saveAsToken: '',
-			saveAsChannel: null as BroadcastChannel | null,
 		};
 	},
 	computed: {
+		saveAsLabels(): Record<string, string> {
+			return saveAsLabels((id, params, fallback) => this.t(id, params, fallback));
+		},
+		// "Save As" writes the diagram's BPMN XML, nothing else.
+		saveAsFormats(): SaveAsFormat[] {
+			const vm = this;
+			const t = (id: string, params?: Record<string, any>, fallback?: string) => vm.t(id, params, fallback);
+			return [
+				{ id: 'bpmn', label: saveAsFormatLabel(t, 'bpmn'), extension: 'bpmn', mimeType: vm.currentFile.mimeType || 'application/x-bpmn',
+					produce: () => serializeStoreToXml(bpmnModelStore) },
+			];
+		},
 		// Items for the wt-file-tabs strip.
 		fileTabItems(): { key: string; label: string; modified: boolean; title: string }[] {
 			return (this.files as BpmnFile[]).map((f: BpmnFile) => ({
@@ -2038,35 +2049,6 @@ export const App = {
 		onMounted() {
 			const vm = this;
 
-			// Set up Save As response channel
-			vm.saveAsChannel = new BroadcastChannel('webtop-save-as');
-			vm.saveAsChannel.onmessage = (event: MessageEvent) => {
-				if (event.data?.type === 'save-as-complete' && event.data.saveAsToken && event.data.saveAsToken === vm.saveAsToken) {
-					// Saved into cloud storage: the copy is there, and the open file
-					// stays what it was (this app writes cloud files in a later step).
-					if (event.data.cloud) {
-						vm.saveAsToken = '';
-						return;
-					}
-					vm.currentFile.path = event.data.path;
-					vm.currentFile.name = event.data.name;
-					vm.currentFile.mimeType = event.data.mimeType;
-					vm.isModified = false;
-					// Update file object after Save As
-					if (vm.currentFileIndex >= 0 && vm.currentFileIndex < vm.files.length) {
-						vm.files[vm.currentFileIndex].path = event.data.path;
-						vm.files[vm.currentFileIndex].name = event.data.name;
-						vm.files[vm.currentFileIndex].mimeType = event.data.mimeType;
-						vm.files[vm.currentFileIndex].isModified = false;
-						vm.files.splice(vm.currentFileIndex, 1, vm.files[vm.currentFileIndex]);
-					}
-					if (vm.instance) {
-						vm.instance.windowTitle = event.data.name;
-					}
-					vm.saveAsToken = '';
-				}
-			};
-
 			// Register message listener
 			vm.messageListener = async (event: MessageEvent) => {
 				if (event.origin !== window.location.origin) return;
@@ -2210,10 +2192,6 @@ export const App = {
 			const vm = this;
 			if (vm.messageListener) {
 				window.removeEventListener('message', vm.messageListener);
-			}
-			if (vm.saveAsChannel) {
-				vm.saveAsChannel.close();
-				vm.saveAsChannel = null;
 			}
 		},
 
@@ -2525,7 +2503,7 @@ export const App = {
 			}
 		},
 
-		// Save As
+		// Save As (<wt-save-as>: a chip dragged to the Content Browser or the Desktop)
 		openSaveAsDialog() {
 			this.saveAsDialog.fileName = this.currentFile.name || 'Untitled.bpmn';
 			this.saveAsDialog.visible = true;
@@ -2533,20 +2511,27 @@ export const App = {
 		closeSaveAsDialog() {
 			this.saveAsDialog.visible = false;
 		},
-		onSaveAsDragStart(event: DragEvent) {
-			if (!event.dataTransfer) return;
-			const content = serializeStoreToXml(bpmnModelStore);
-			const fileName = this.saveAsDialog.fileName || 'Untitled.bpmn';
-			this.saveAsToken = Date.now().toString(36) + Math.random().toString(36).slice(2);
-			event.dataTransfer.effectAllowed = 'copy';
-			event.dataTransfer.setData('application/x-webtop-save', JSON.stringify({
-				name: fileName,
-				mimeType: this.currentFile.mimeType || 'application/x-bpmn',
-				content: content,
-				saveAsToken: this.saveAsToken,
-			}));
-			event.dataTransfer.setData('text/plain', fileName);
-			setTimeout(() => { this.saveAsDialog.visible = false; }, 100);
+		// The chip has been written. A file in the repository becomes the open
+		// file; a copy in cloud storage (which this app does not write yet)
+		// leaves the open file as it is, and the dialog says so.
+		onSaveAsSaved(detail: SaveAsSaved) {
+			const vm = this;
+			if (detail.cloud) return;
+			detail.adopted = true;
+			vm.currentFile.path = detail.path;
+			vm.currentFile.name = detail.name;
+			vm.currentFile.mimeType = detail.mimeType;
+			vm.isModified = false;
+			if (vm.currentFileIndex >= 0 && vm.currentFileIndex < vm.files.length) {
+				vm.files[vm.currentFileIndex].path = detail.path;
+				vm.files[vm.currentFileIndex].name = detail.name;
+				vm.files[vm.currentFileIndex].mimeType = detail.mimeType;
+				vm.files[vm.currentFileIndex].isModified = false;
+				vm.files.splice(vm.currentFileIndex, 1, vm.files[vm.currentFileIndex]);
+			}
+			if (vm.instance) {
+				vm.instance.windowTitle = detail.name;
+			}
 		},
 
 		// ---- Pane toggles / resize ----

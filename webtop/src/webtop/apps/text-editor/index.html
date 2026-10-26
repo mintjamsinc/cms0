@@ -193,24 +193,10 @@
 			</div>
 		</div>
 
-		<!-- Save As Dialog -->
-		<wt-dialog :open="saveAsDialog.visible" size="sm" :title="t('app.text-editor.saveAs.title', undefined, 'Save As')" @close="closeSaveAsDialog">
-			<template v-slot="d">
-				<label class="dialog-label">{{ t('app.text-editor.saveAs.fileName', undefined, 'File Name') }}</label>
-				<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
-					placeholder="filename.txt" @keydown.enter="closeSaveAsDialog" />
-				<div class="save-as-chip-area mt-3"
-					@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
-					<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
-						<i class="bi bi-file-earmark-text me-1"></i>
-						<span>{{ saveAsDialog.fileName || 'untitled.txt' }}</span>
-					</div>
-					<p class="text-muted fs-small mt-2 mb-0">
-						{{ t('app.text-editor.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
-					</p>
-				</div>
-			</template>
-		</wt-dialog>
+		<!-- Save As: the name, the format and the chip to drag where the file goes -->
+		<wt-save-as v-model:open="saveAsDialog.visible" :file-name="saveAsDialog.fileName"
+			:formats="saveAsFormats" default-format="asNamed" :labels="saveAsLabels"
+			@saved="onSaveAsSaved($event.detail)"></wt-save-as>
 
 		<!-- Loading Overlay -->
 		<wt-spinner v-if="currentFile.isLoading" overlay size="lg"></wt-spinner>

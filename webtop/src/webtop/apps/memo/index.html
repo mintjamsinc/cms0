@@ -48,10 +48,6 @@
 					:title="t('app.memo.toolbar.print', undefined, 'Print (Ctrl+P)')">
 					<i class="bi bi-printer"></i>
 				</button>
-				<button class="btn-icon" @click="openCloudExportMenu($event)" :disabled="isSaving"
-					:title="t('app.memo.toolbar.cloud', undefined, 'Export to cloud storage')">
-					<i class="bi bi-cloud-upload"></i>
-				</button>
 			</div>
 
 			<!-- Left: undo/redo -->
@@ -294,45 +290,12 @@
 			</div>
 		</div>
 
-		<!-- Save As Dialog -->
-		<wt-dialog :open="saveAsDialog.visible" size="sm" :title="t('app.memo.saveAs.title', undefined, 'Save As')" @close="closeSaveAsDialog">
-			<template v-slot="d">
-				<label class="dialog-label">{{ t('app.memo.saveAs.fileName', undefined, 'File Name') }}</label>
-				<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
-					placeholder="untitled.memo" @keydown.enter="closeSaveAsDialog" />
-				<div class="save-as-chip-area mt-3"
-					@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
-					<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
-						<i class="bi bi-file-earmark-text me-1"></i>
-						<span>{{ saveAsDialog.fileName || 'untitled.memo' }}</span>
-					</div>
-					<p class="text-muted fs-small mt-2 mb-0">
-						{{ t('app.memo.saveAs.dragHint', undefined, 'Drag this file to Content Browser to save') }}
-					</p>
-				</div>
-			</template>
-		</wt-dialog>
+		<!-- Save As: the name, the format and the chip to drag where the file goes -->
+		<wt-save-as v-model:open="saveAsDialog.visible" :file-name="saveAsDialog.fileName"
+			:formats="saveAsFormats" :default-format="saveAsDialog.format" :labels="saveAsLabels"
+			@saved="onSaveAsSaved($event.detail)"></wt-save-as>
 
 		<!-- Link Dialog — standard webtop dialog format, replaces window.prompt. -->
-		<!-- Export to cloud storage: the destination folder, then the outcome. -->
-		<wt-cloud-picker v-model:open="cloudPicker.visible" :service="instance ? instance.api.cloud : null"
-			:provider="cloudPicker.provider" :provider-name="cloudPicker.providerName" mode="folder"
-			:title="t('app.memo.cloud.pickTitle', { name: cloudPicker.providerName }, 'Export to {name}')"
-			:labels="cloudPickerLabels" @select="onCloudFolderPicked($event.detail)"></wt-cloud-picker>
-		<wt-dialog :open="cloudResult.visible" size="sm" :title="cloudResult.title" :closable="!cloudResult.busy" :esc-close="!cloudResult.busy" @close="closeCloudResult">
-			<template v-slot="d">
-				<div v-if="cloudResult.busy" class="d-flex align-items-center"><wt-spinner size="sm" class="me-2"></wt-spinner>{{ t('app.memo.cloud.wait', undefined, 'Please wait…') }}</div>
-				<div v-else-if="cloudResult.entry">
-					<i class="bi bi-check-circle text-success me-1"></i>
-					<a v-if="cloudResult.entry.webUrl" :href="cloudResult.entry.webUrl" target="_blank" rel="noopener">{{ cloudResult.entry.name }}</a>
-					<span v-else>{{ cloudResult.entry.name }}</span>
-				</div>
-				<wt-inline-message v-if="cloudResult.error" type="error">{{ cloudResult.error }}</wt-inline-message>
-			</template>
-			<template v-slot:footer="d">
-				<button type="button" class="wt wt-primary" @click="closeCloudResult" :disabled="cloudResult.busy">{{ t('app.memo.dialog.close', undefined, 'Close') }}</button>
-			</template>
-		</wt-dialog>
 		<wt-dialog :open="linkDialog.visible" size="sm" @close="cancelLinkDialog">
 			<template v-slot:title="d">
 				<i class="bi bi-link-45deg me-2"></i>{{ t('app.memo.link.title', undefined, 'Link') }}

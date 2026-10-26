@@ -3248,24 +3248,10 @@
 			</div>
 		</div>
 
-		<!-- Save As Dialog -->
-		<wt-dialog :open="saveAsDialog.visible" size="sm" :title="t('app.bpmn-modeler.dialog.saveAs.title')" @close="closeSaveAsDialog">
-			<template v-slot="d">
-				<label class="dialog-label">{{ t('app.bpmn-modeler.dialog.saveAs.fileName') }}</label>
-				<input type="text" class="wt w-100" v-model="saveAsDialog.fileName"
-					:placeholder="t('app.bpmn-modeler.dialog.saveAs.fileName.placeholder')" @keydown.enter="closeSaveAsDialog" />
-				<div class="save-as-chip-area mt-3"
-					@dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
-					<div class="save-as-chip" draggable="true" @dragstart="onSaveAsDragStart">
-						<i class="bi bi-file-earmark-code me-1"></i>
-						<span>{{ saveAsDialog.fileName || t('app.bpmn-modeler.dialog.saveAs.untitled') }}</span>
-					</div>
-					<p class="text-muted fs-small mt-2 mb-0">
-						{{ t('app.bpmn-modeler.dialog.saveAs.dragHint') }}
-					</p>
-				</div>
-			</template>
-		</wt-dialog>
+		<!-- Save As: the name and the chip to drag where the file goes -->
+		<wt-save-as v-model:open="saveAsDialog.visible" :file-name="saveAsDialog.fileName"
+			:formats="saveAsFormats" default-format="bpmn" icon="bi-file-earmark-code" :labels="saveAsLabels"
+			@saved="onSaveAsSaved($event.detail)"></wt-save-as>
 
 		<!-- Definitions Management Dialog (Message / Signal / Error / Escalation) -->
 		<wt-dialog :open="managementDialog.visible" size="lg" @close="closeManagementDialog">

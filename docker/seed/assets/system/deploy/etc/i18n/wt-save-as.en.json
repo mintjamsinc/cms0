@@ -1,0 +1,20 @@
+{
+	"webtop.saveAs.title": "Save As",
+	"webtop.saveAs.fileName": "File name",
+	"webtop.saveAs.format": "Format",
+	"webtop.saveAs.dragHint": "Drag this file to where it should be saved: a folder in the Content Browser, or the Desktop.",
+	"webtop.saveAs.onlyTo": "This format can be saved to {targets} only.",
+	"webtop.saveAs.target.repository": "the repository",
+	"webtop.saveAs.target.google": "Google Drive",
+	"webtop.saveAs.target.microsoft": "OneDrive",
+	"webtop.saveAs.saved": "Saved {name}.",
+	"webtop.saveAs.open": "Open",
+	"webtop.saveAs.untitled": "untitled",
+	"webtop.saveAs.format.memo": "Memo",
+	"webtop.saveAs.format.html": "HTML",
+	"webtop.saveAs.format.googleDocument": "Google document",
+	"webtop.saveAs.format.text": "Plain text",
+	"webtop.saveAs.format.asNamed": "As named (the type follows the extension)",
+	"webtop.saveAs.format.bpmn": "BPMN XML",
+	"webtop.saveAs.format.eip": "EIP XML"
+}

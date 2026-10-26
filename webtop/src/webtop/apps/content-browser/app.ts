@@ -3030,6 +3030,10 @@ export const App = {
 					}
 				} catch (error: any) {
 					vm.errorMessage = error?.message || vm.t('app.content-browser.error.saveFailed', undefined, 'Save failed');
+				} finally {
+					// The chip's drag data is the source's to clear on dragend; a
+					// source gone by then (its dialog closed) leaves it, so it goes here too.
+					try { if ((window.parent as any).__webtopDragData?.save) (window.parent as any).__webtopDragData = null; } catch (_) { /* cross-origin safety */ }
 				}
 				return;
 			}

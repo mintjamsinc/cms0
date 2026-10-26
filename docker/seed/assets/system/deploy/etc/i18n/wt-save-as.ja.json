@@ -1,0 +1,20 @@
+{
+	"webtop.saveAs.title": "名前を付けて保存",
+	"webtop.saveAs.fileName": "ファイル名",
+	"webtop.saveAs.format": "形式",
+	"webtop.saveAs.dragHint": "このファイルを保存したい場所へドラッグしてください: コンテンツブラウザーのフォルダー、またはデスクトップ。",
+	"webtop.saveAs.onlyTo": "この形式は {targets} にだけ保存できます。",
+	"webtop.saveAs.target.repository": "リポジトリ",
+	"webtop.saveAs.target.google": "Google ドライブ",
+	"webtop.saveAs.target.microsoft": "OneDrive",
+	"webtop.saveAs.saved": "{name} を保存しました。",
+	"webtop.saveAs.open": "開く",
+	"webtop.saveAs.untitled": "untitled",
+	"webtop.saveAs.format.memo": "メモ",
+	"webtop.saveAs.format.html": "HTML",
+	"webtop.saveAs.format.googleDocument": "Google ドキュメント",
+	"webtop.saveAs.format.text": "プレーンテキスト",
+	"webtop.saveAs.format.asNamed": "ファイル名のとおり（種類は拡張子に従う）",
+	"webtop.saveAs.format.bpmn": "BPMN XML",
+	"webtop.saveAs.format.eip": "EIP XML"
+}

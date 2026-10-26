@@ -51,6 +51,7 @@ import './wt-live-indicator.js';
 import './wt-dropzone.js';
 import './wt-folder-picker.js';
 import './wt-cloud-picker.js';
+import './wt-save-as.js';
 
 /**
  * Registered component tags. One entry per component; kept in sync with the
@@ -79,6 +80,7 @@ const COMPONENT_TAGS = [
 	'wt-dropzone',
 	'wt-folder-picker',
 	'wt-cloud-picker',
+	'wt-save-as',
 ];
 
 let uiReady: Promise<void> | undefined;

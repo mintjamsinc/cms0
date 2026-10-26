@@ -175,13 +175,14 @@ shared drives or libraries by name. A shared drive looks the same to every
 member, under the same ids, so a location in one can be passed from one
 person to another; a location in someone's own drive cannot.
 
-**Where the apps use it.** The Content Browser's cloud button offers, per
-provider, *Import files*, *Import as links* and *Export selected files*; the
-picker starts with the drives and goes down a folder at a time. Mail attaches
-a file of a drive to a draft or inserts a link to one; Memo exports a memo as
-a Google document or an HTML file. (Browsing a drive as a location of the
-Content Browser, beside the repository's folders, is the next step and is
-described in `documents/webtop-cloud-storage.md` once it ships.)
+**Where the apps use it.** The Content Browser lists the user's drives as
+locations beside the repository's folders, and files move between the two
+by drag and drop, copy and paste, or *Copy to…* in the context menu
+(`documents/webtop-cloud-storage.md`). Mail attaches a file of a drive to a
+draft or inserts a link to one; the picker starts with the drives and goes
+down a folder at a time. The editors' *Save As* chip can be dropped into a
+folder of a drive, and Memo and the Text Editor offer a *Google document*
+format there (`documents/webtop-save-as.md`).
 
 **Google documents** (Docs, Sheets, Slides, ...) have no bytes of their own.
 An import exports one as an Office file (`.docx`, `.xlsx`, `.pptx`; other

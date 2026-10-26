@@ -2,6 +2,7 @@ import { initUi } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
+import { saveAsLabels, saveAsFormatLabel, type SaveAsFormat, type SaveAsSaved } from "../../lib/save-as.js";
 import { VDOM } from '@mintjamsinc/ichigojs';
 import {
 	createLocalizationSnapshot,
@@ -34,6 +35,10 @@ import {
 	getShortLabel as eipGetShortLabel,
 } from '../../lib/camel/engine.js';
 import { escapeXml, storeToXml } from '../../lib/camel/serializer.js';
+
+// The type a route file is saved as (app.yml, lib/new-file-types.ts). Files
+// of the former 'application/x-camel-route' still open.
+const EIP_MIME = 'application/vnd.webtop.eip+xml';
 
 // =============================================================================
 // Type Definitions
@@ -341,13 +346,11 @@ const App = {
 				resolve: null as null | ((result: 'save' | 'discard' | 'cancel') => void),
 			},
 
-			// Save As dialog state
+			// "Save As": the dialog is <wt-save-as>.
 			saveAsDialog: {
 				visible: false,
 				fileName: '',
 			},
-			saveAsToken: '',
-			saveAsChannel: null as BroadcastChannel | null,
 			messageListener: null as ((e: MessageEvent) => void) | null,
 
 			// Palette categories
@@ -426,6 +429,18 @@ const App = {
 	},
 
 	computed: {
+		saveAsLabels(): Record<string, string> {
+			return saveAsLabels((id, params, fallback) => this.t(id, params, fallback));
+		},
+		// "Save As" writes the route's EIP XML, nothing else.
+		saveAsFormats(): SaveAsFormat[] {
+			const vm = this;
+			const t = (id: string, params?: Record<string, any>, fallback?: string) => vm.t(id, params, fallback);
+			return [
+				{ id: 'eip', label: saveAsFormatLabel(t, 'eip'), extension: 'xml', mimeType: EIP_MIME,
+					produce: () => vm.activeStore ? storeToXml(vm.activeStore) : '' },
+			];
+		},
 		// Items for the wt-file-tabs strip.
 		fileTabItems(): { key: string; label: string; modified: boolean; title: string }[] {
 			return (this.files as CamelFile[]).map((f: CamelFile) => ({
@@ -671,30 +686,6 @@ const App = {
 			};
 			window.addEventListener('message', vm.messageListener);
 
-			// Set up Save As response channel
-			vm.saveAsChannel = new BroadcastChannel('webtop-save-as');
-			vm.saveAsChannel.onmessage = (event: MessageEvent) => {
-				if (event.data?.type === 'save-as-complete' && event.data.saveAsToken && event.data.saveAsToken === vm.saveAsToken) {
-					// Saved into cloud storage: the copy is there, and the open file
-					// stays what it was (this app writes cloud files in a later step).
-					if (event.data.cloud) {
-						vm.saveAsToken = '';
-						return;
-					}
-					const file = vm.currentFile;
-					if (file) {
-						file.path = event.data.path;
-						file.name = event.data.name;
-						file.mimeType = event.data.mimeType;
-						file.isModified = false;
-						if (vm.instance) {
-							vm.instance.windowTitle = event.data.name;
-						}
-					}
-					vm.saveAsToken = '';
-				}
-			};
-
 			// Register appLaunch callback
 			window.appLaunch = async (instance: ApplicationInstance, options?: LaunchOptions) => {
 				vm.instance = vm.$markRaw(instance);
@@ -782,10 +773,6 @@ const App = {
 				window.removeEventListener('message', this.messageListener);
 				this.messageListener = null;
 			}
-			if (this.saveAsChannel) {
-				this.saveAsChannel.close();
-				this.saveAsChannel = null;
-			}
 		},
 
 		// =========================================================================
@@ -822,7 +809,7 @@ const App = {
 				id: generateUUID(),
 				name: `Route-${this.files.length + 1}.camel.xml`,
 				path: '',
-				mimeType: 'application/x-camel-route',
+				mimeType: EIP_MIME,
 				store: this.$markRaw(store),
 				scale: 1.0,
 				panOffset: { x: 0, y: 0 },
@@ -984,7 +971,7 @@ const App = {
 							id: generateUUID(),
 							name: file.name,
 							path: '',
-							mimeType: 'application/x-camel-route',
+							mimeType: EIP_MIME,
 							store: vm.$markRaw(store),
 							scale: 1.0,
 							panOffset: { x: 0, y: 0 },
@@ -1037,7 +1024,7 @@ const App = {
 						id: generateUUID(),
 						name: node.name,
 						path: path,
-						mimeType: node.mimeType || 'application/x-camel-route',
+						mimeType: node.mimeType || EIP_MIME,
 						store: vm.$markRaw(store),
 						scale: 1.0,
 						panOffset: { x: 0, y: 0 },
@@ -1107,7 +1094,7 @@ const App = {
 		},
 
 		// =========================================================================
-		// Save As
+		// Save As (<wt-save-as>: a chip dragged to the Content Browser or the Desktop)
 		// =========================================================================
 
 		openSaveAsDialog() {
@@ -1119,21 +1106,21 @@ const App = {
 			this.saveAsDialog.visible = false;
 		},
 
-		onSaveAsDragStart(event: DragEvent) {
-			if (!event.dataTransfer || !this.activeStore) return;
-			const xml = storeToXml(this.activeStore);
-			const fileName = this.saveAsDialog.fileName || 'untitled.xml';
-			this.saveAsToken = Date.now().toString(36) + Math.random().toString(36).slice(2);
-			event.dataTransfer.effectAllowed = 'copy';
-			event.dataTransfer.setData('application/x-webtop-save', JSON.stringify({
-				name: fileName,
-				mimeType: 'application/x-camel-route',
-				content: xml,
-				saveAsToken: this.saveAsToken,
-			}));
-			event.dataTransfer.setData('text/plain', fileName);
-			// Close dialog after drag starts
-			setTimeout(() => { this.saveAsDialog.visible = false; }, 100);
+		// The chip has been written. A file in the repository becomes the open
+		// file; a copy in cloud storage (which this app does not write yet)
+		// leaves the open file as it is, and the dialog says so.
+		onSaveAsSaved(detail: SaveAsSaved) {
+			const vm = this;
+			const file = vm.currentFile;
+			if (detail.cloud || !file) return;
+			detail.adopted = true;
+			file.path = detail.path;
+			file.name = detail.name;
+			file.mimeType = detail.mimeType;
+			file.isModified = false;
+			if (vm.instance) {
+				vm.instance.windowTitle = detail.name;
+			}
 		},
 
 		// =========================================================================

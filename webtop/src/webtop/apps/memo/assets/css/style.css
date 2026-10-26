@@ -531,32 +531,6 @@
 	flex-wrap: wrap;
 }
 
-.save-as-chip-area {
-	text-align: center;
-}
-
-.save-as-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.5rem;
-	padding: 0.5rem 1rem;
-	background-color: var(--item-hover-bg);
-	border: 2px dashed var(--input-border-color);
-	border-radius: 9999px;
-	cursor: grab;
-	font-weight: 600;
-	transition: border-color 0.15s, background-color 0.15s;
-}
-
-.save-as-chip:hover {
-	border-color: var(--primary-color);
-	background-color: rgb(from var(--primary-color) r g b / 0.08);
-}
-
-.save-as-chip:active {
-	cursor: grabbing;
-}
-
 .fs-2 { font-size: 1.5rem !important; }
 
 

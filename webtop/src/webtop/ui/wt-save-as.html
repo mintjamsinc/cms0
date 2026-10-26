@@ -1,0 +1,32 @@
+<template id="wt-save-as">
+	<div class="wt-save-as" @mounted="onMounted" @unmount="onUnmount">
+		<wt-dialog :open="open" size="sm" :title="title || text('title', 'Save As')" :footer="false" @update:open="setOpen($event.detail)">
+			<template v-slot="d">
+				<label class="dialog-label">{{ text('fileName', 'File name') }}</label>
+				<input type="text" class="wt w-100" :value="name" @input="name = $event.target.value"
+					:placeholder="untitledName()" @keydown.enter.prevent>
+				<template v-if="formats.length > 1">
+					<label class="dialog-label mt-3">{{ text('format', 'Format') }}</label>
+					<select class="wt w-100 wt-save-as-format" @change="onFormatChange($event.target.value)">
+						<option v-for="f in formats" :key="f.id" :value="f.id" :selected="f.id === formatId">{{ f.label }}</option>
+					</select>
+				</template>
+				<div class="wt-save-as-chip-area mt-3" @dragover.prevent.stop="onForbiddenDragOver" @drop.prevent.stop>
+					<div class="wt-save-as-chip" draggable="true" @dragstart="onDragStart" @dragend="onDragEnd">
+						<i class="bi" :class="icon"></i>
+						<span>{{ chipName }}</span>
+					</div>
+					<p class="text-muted fs-small mt-2 mb-0">{{ text('dragHint', 'Drag this file to where it should be saved: a folder in the Content Browser, or the Desktop.') }}</p>
+					<p v-if="targetsText" class="text-muted fs-small mt-1 mb-0 wt-save-as-targets">{{ targetsText }}</p>
+				</div>
+				<wt-inline-message v-if="error" type="error" class="mt-2">{{ error }}</wt-inline-message>
+			</template>
+		</wt-dialog>
+		<div v-if="toast.visible" class="wt-save-as-toast" role="status" aria-live="polite">
+			<i class="bi bi-check-circle"></i>
+			<span>{{ toast.text }}</span>
+			<a v-if="toast.url" :href="toast.url" target="_blank" rel="noopener">{{ text('open', 'Open') }}</a>
+			<button type="button" class="btn-icon" @click="hideToast"><i class="bi bi-x-lg"></i></button>
+		</div>
+	</div>
+</template>

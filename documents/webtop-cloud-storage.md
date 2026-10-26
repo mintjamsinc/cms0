@@ -96,7 +96,7 @@ repository, and the cursor says what a drop would do:
 | Repository → cloud (a folder of the list, a drive's row, or a provider in the sidebar) | A copy; a folder with everything in it. |
 | Files from the PC → cloud | Uploaded, folders made first. A name the folder already has is asked about: overwrite replaces the file's content, skip leaves it. |
 | A mail attachment → cloud | Uploaded like a file from the PC. |
-| A save chip (an editor's *Save as*) → cloud | Written to the drive; a chip whose format is a Google document is accepted on Google Drive only. The editor keeps the file it has open; writing cloud files from the editors comes in a later step. |
+| A save chip (an editor's *Save As*, see `webtop-save-as.md`) → cloud | Written to the drive; a chip whose format is a Google document is accepted on Google Drive only. The editor keeps the file it has open and says the copy was saved, with a link to it at the provider; writing cloud files from the editors comes in a later step. |
 
 The listings above the drives (the drives, the shared drives) take nothing.
 Copy and paste do the same as a drop; a cut is a move, so it can only be

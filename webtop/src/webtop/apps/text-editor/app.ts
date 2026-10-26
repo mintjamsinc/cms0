@@ -3,6 +3,8 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node, Property } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
+import { NEW_FILE_TYPES } from "../../lib/new-file-types.js";
+import { saveAsLabels, saveAsFormatLabel, type SaveAsFormat, type SaveAsSaved } from "../../lib/save-as.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -203,6 +205,33 @@ function guessExtensionFromMime(mimeType: string): string {
 	return ext || 'html';
 }
 
+// Extension → MIME type, for "Save As" with a name whose extension differs
+// from the open file's: the types "New File" offers, plus the ones the
+// preview knows. The open file's own type wins when the extension is its own.
+const MIME_BY_EXTENSION: Record<string, string> = (() => {
+	const map: Record<string, string> = {};
+	for (const [mime, ext] of Object.entries(MIME_TO_EXTENSION)) map[ext] = mime;
+	for (const t of NEW_FILE_TYPES) map[t.extension.replace(/^\./, '').toLowerCase()] = t.mimeType;
+	map.htm = 'text/html';
+	map.markdown = 'text/markdown';
+	map.yml = 'application/yaml';
+	map.txt = 'text/plain';
+	return map;
+})();
+
+function extensionOf(name: string): string {
+	const m = /\.([^./]+)$/.exec(name || '');
+	return m ? m[1].toLowerCase() : '';
+}
+
+/** The MIME type a file of this name is saved as, given the open file's name and type. */
+function mimeTypeForName(name: string, currentName: string, currentMimeType: string): string {
+	const ext = extensionOf(name);
+	if (ext && ext === extensionOf(currentName) && currentMimeType) return currentMimeType;
+	if (ext && MIME_BY_EXTENSION[ext]) return MIME_BY_EXTENSION[ext];
+	return currentMimeType || 'text/plain';
+}
+
 // Whether a node is a templated source — i.e. the CMS serves it as rendered
 // output rather than raw bytes, so its preview must be server-rendered. The
 // server resolves this from the file's own `web.template` property OR a folder
@@ -272,7 +301,6 @@ const PREVIEW_PING_INTERVAL_MS = 2000;
 // any native method runs. Keep these in module scope — there is only ever
 // one text-editor instance per iframe.
 let previewChannelRef: BroadcastChannel | null = null;
-let saveAsChannelRef: BroadcastChannel | null = null;
 // Path that the companion preview window is currently pinned to. When the
 // matching tab is closed, the editor notifies the preview so it can drop the
 // pin and follow the new active tab.
@@ -426,14 +454,31 @@ export const App = {
 				visible: false,
 				resolve: null as null | ((result: 'save' | 'discard' | 'cancel') => void),
 			},
+			// "Save As": the dialog is <wt-save-as>.
 			saveAsDialog: {
 				visible: false,
 				fileName: '',
 			},
-			saveAsToken: '',
 		};
 	},
 	computed: {
+		saveAsLabels(): Record<string, string> {
+			return saveAsLabels((id, params, fallback) => this.t(id, params, fallback));
+		},
+		// What "Save As" can write: the text as named (the type follows the
+		// extension typed), or a Google document made from it by Drive, which
+		// only Google Drive takes.
+		saveAsFormats(): SaveAsFormat[] {
+			const vm = this;
+			const t = (id: string, params?: Record<string, any>, fallback?: string) => vm.t(id, params, fallback);
+			const produce = () => vm.currentFile.content;
+			return [
+				{ id: 'asNamed', label: saveAsFormatLabel(t, 'asNamed'), extension: '', mimeType: vm.currentFile.mimeType || 'text/plain',
+					mimeTypeOf: (name: string) => mimeTypeForName(name, vm.currentFile.name, vm.currentFile.mimeType), produce },
+				{ id: 'gdoc', label: saveAsFormatLabel(t, 'googleDocument'), extension: '', mimeType: vm.isHtml ? 'text/html' : 'text/plain',
+					convert: 'google-document', targets: ['cloud:google'], produce },
+			];
+		},
 		// Items for the wt-file-tabs strip.
 		fileTabItems(): { key: string; label: string; modified: boolean; title: string }[] {
 			return (this.files as TextFile[]).map((f: TextFile) => ({
@@ -530,39 +575,6 @@ export const App = {
 		// template — is awaited inside appLaunch(), ahead of the readiness gate.
 		onMounted() {
 			const vm = this;
-
-			// Save As response channel
-			saveAsChannelRef = new BroadcastChannel('webtop-save-as');
-			saveAsChannelRef.onmessage = (event: MessageEvent) => {
-				if (event.data?.type === 'save-as-complete' && event.data.saveAsToken && event.data.saveAsToken === vm.saveAsToken) {
-					// Saved into cloud storage: the copy is there, and the open file
-					// stays what it was (this app writes cloud files in a later step).
-					if (event.data.cloud) {
-						vm.saveAsToken = '';
-						return;
-					}
-					vm.currentFile.path = event.data.path;
-					vm.currentFile.name = event.data.name;
-					vm.currentFile.mimeType = event.data.mimeType;
-					vm.currentFile.isModified = false;
-					vm.currentFile.originalContent = vm.currentFile.content;
-					if (vm.instance) {
-						vm.instance.windowTitle = event.data.name;
-					}
-					vm.saveAsToken = '';
-					if (vm.currentFileIndex >= 0 && vm.currentFileIndex < vm.files.length) {
-						vm.files[vm.currentFileIndex].path = event.data.path;
-						vm.files[vm.currentFileIndex].name = event.data.name;
-						vm.files[vm.currentFileIndex].mimeType = event.data.mimeType;
-						vm.files[vm.currentFileIndex].isModified = false;
-						vm.files[vm.currentFileIndex].originalContent = vm.currentFile.content;
-						// The tab now has a backing node — wire the Inspector to it
-						// and pull the freshly created node's metadata.
-						vm.watchActiveFileNode();
-						vm.refreshActiveFileMetadata(event.data.path);
-					}
-				}
-			};
 
 			vm.messageListener = async (event: MessageEvent) => {
 				if (event.origin !== window.location.origin) return;
@@ -701,10 +713,6 @@ export const App = {
 			}
 			if (vm.editor) {
 				vm.editor.destroy();
-			}
-			if (saveAsChannelRef) {
-				saveAsChannelRef.close();
-				saveAsChannelRef = null;
 			}
 			for (const f of vm.files) editorStates.delete(f.id);
 		},
@@ -1485,7 +1493,7 @@ export const App = {
 				vm.isSaving = false;
 			}
 		},
-		// ---- Save As ----
+		// ---- Save As (<wt-save-as>: a chip dragged to the Content Browser or the Desktop) ----
 		openSaveAsDialog() {
 			this.saveAsDialog.fileName = this.currentFile.name || 'untitled.txt';
 			this.saveAsDialog.visible = true;
@@ -1493,20 +1501,32 @@ export const App = {
 		closeSaveAsDialog() {
 			this.saveAsDialog.visible = false;
 		},
-		onSaveAsDragStart(event: DragEvent) {
-			if (!event.dataTransfer) return;
-			const content = this.currentFile.content;
-			const fileName = this.saveAsDialog.fileName || 'untitled.txt';
-			this.saveAsToken = Date.now().toString(36) + Math.random().toString(36).slice(2);
-			event.dataTransfer.effectAllowed = 'copy';
-			event.dataTransfer.setData('application/x-webtop-save', JSON.stringify({
-				name: fileName,
-				mimeType: this.currentFile.mimeType || 'text/plain',
-				content: content,
-				saveAsToken: this.saveAsToken,
-			}));
-			event.dataTransfer.setData('text/plain', fileName);
-			setTimeout(() => { this.saveAsDialog.visible = false; }, 100);
+		// The chip has been written. A file in the repository becomes the open
+		// file; a copy in cloud storage (which this app does not write yet)
+		// leaves the open file as it is, and the dialog says so.
+		onSaveAsSaved(detail: SaveAsSaved) {
+			const vm = this;
+			if (detail.cloud || detail.format !== 'asNamed') return;
+			detail.adopted = true;
+			vm.currentFile.path = detail.path;
+			vm.currentFile.name = detail.name;
+			vm.currentFile.mimeType = detail.mimeType;
+			vm.currentFile.isModified = false;
+			vm.currentFile.originalContent = vm.currentFile.content;
+			if (vm.instance) {
+				vm.instance.windowTitle = detail.name;
+			}
+			if (vm.currentFileIndex >= 0 && vm.currentFileIndex < vm.files.length) {
+				vm.files[vm.currentFileIndex].path = detail.path;
+				vm.files[vm.currentFileIndex].name = detail.name;
+				vm.files[vm.currentFileIndex].mimeType = detail.mimeType;
+				vm.files[vm.currentFileIndex].isModified = false;
+				vm.files[vm.currentFileIndex].originalContent = vm.currentFile.content;
+				// The tab now has a backing node — wire the Inspector to it
+				// and pull the freshly created node's metadata.
+				vm.watchActiveFileNode();
+				vm.refreshActiveFileMetadata(detail.path);
+			}
 		},
 		// ---- Undo / Redo ----
 		undo() {

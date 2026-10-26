@@ -1883,8 +1883,18 @@ const WtDesktop = {
 		// =====================================================================
 		_hasInternalDragData(event: DragEvent): boolean {
 			if (event.dataTransfer?.types && Array.from(event.dataTransfer.types).includes('application/x-webtop-files')) return true;
-			try { if ((window as any).__webtopDragData) return true; } catch { /* ignore */ }
+			// The drag data of a save chip (`save`) is not an internal drag.
+			try { if (Array.isArray((window as any).__webtopDragData?.items)) return true; } catch { /* ignore */ }
 			return false;
+		},
+		// Whether a save chip ('application/x-webtop-save') may land in the
+		// repository: its format names where it may go (`__webtopDragData.save.targets`).
+		_saveChipAllowedHere(): boolean {
+			try {
+				const save = (window as any).__webtopDragData?.save;
+				if (save && Array.isArray(save.targets)) return save.targets.includes('repository');
+			} catch { /* ignore */ }
+			return true;
 		},
 		_getInternalDragItems(event: DragEvent): { path: string; name: string; isCollection: boolean }[] | null {
 			try {
@@ -1943,8 +1953,12 @@ const WtDesktop = {
 					try { cloud = !!(window as any).__webtopDragData?.items?.some((it: any) => it && it.cloud); } catch { /* ignore */ }
 					event.dataTransfer.dropEffect = (event.ctrlKey || cloud) ? 'copy' : 'move';
 				}
+			} else if (hasSaveAs) {
+				// An editor's save chip copies into the Desktop, unless its
+				// format cannot be saved in the repository.
+				event.dataTransfer.dropEffect = vm._saveChipAllowedHere() ? 'copy' : 'none';
 			} else {
-				// OS files and editor Save-As payloads both copy into the Desktop.
+				// OS files copy into the Desktop.
 				event.dataTransfer.dropEffect = 'copy';
 			}
 		},
@@ -1987,6 +2001,7 @@ const WtDesktop = {
 			// node directly on the Desktop. getData is read synchronously here
 			// (the DataTransfer is only valid for the duration of this event).
 			if (hasSaveAs) {
+				if (!vm._saveChipAllowedHere()) return;
 				const saveData = event.dataTransfer.getData('application/x-webtop-save');
 				if (saveData) {
 					try {
@@ -2039,6 +2054,7 @@ const WtDesktop = {
 			// that folder (saveAs was read synchronously from the drop event in
 			// wt-desktop-icons and forwarded here).
 			if (saveAs) {
+				if (!vm._saveChipAllowedHere()) return;
 				try {
 					const { name, mimeType, content, saveAsToken } = JSON.parse(saveAs);
 					await vm.saveDroppedContentToDesktop(targetPath, name, mimeType, content, saveAsToken);

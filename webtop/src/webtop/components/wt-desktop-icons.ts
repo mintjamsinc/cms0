@@ -43,6 +43,19 @@ interface DesktopItem {
 	downloadURL?: string | null;
 }
 
+/**
+ * Whether a save chip ('application/x-webtop-save') may land in the
+ * repository: its format names where it may go (`__webtopDragData.save.targets`
+ * on the top window during the drag); everywhere when it names nothing.
+ */
+function saveChipAllowedHere(): boolean {
+	try {
+		const save = (window as any).__webtopDragData?.save;
+		if (save && Array.isArray(save.targets)) return save.targets.includes('repository');
+	} catch { /* ignore */ }
+	return true;
+}
+
 defineComponent('wt-desktop-icons', {
 	template: '#wt-desktop-icons',
 	props: ['enabled', 'desktopPath', 'selectedIds', 'dragOverItemID'],
@@ -543,14 +556,19 @@ defineComponent('wt-desktop-icons', {
 			if (!item.isCollection) return;
 			if (!event.dataTransfer) return;
 			const types = Array.from(event.dataTransfer.types || []);
-			const hasInternal = types.includes('application/x-webtop-files') || !!(window as any).__webtopDragData;
+			const hasInternal = types.includes('application/x-webtop-files') || Array.isArray((window as any).__webtopDragData?.items);
 			const hasFiles = types.includes('Files');
 			// Editor "Save As" payload (text-editor, memo, bpmn/eip-modeler).
 			const hasSaveAs = types.includes('application/x-webtop-save');
 			if (!hasInternal && !hasFiles && !hasSaveAs) return;
 			event.preventDefault();
 			event.stopPropagation();
-			event.dataTransfer.dropEffect = hasInternal && event.ctrlKey ? 'copy' : (hasInternal ? 'move' : 'copy');
+			if (hasSaveAs && !hasInternal && !hasFiles) {
+				// The chip's format names where it may go; elsewhere the cursor says no.
+				event.dataTransfer.dropEffect = saveChipAllowedHere() ? 'copy' : 'none';
+			} else {
+				event.dataTransfer.dropEffect = hasInternal && event.ctrlKey ? 'copy' : (hasInternal ? 'move' : 'copy');
+			}
 			(this as any).$emit('webtop-desktop-icon-dragover', { itemId: item.id }, { target: document });
 		},
 		onItemDragLeave(item: DesktopItem) {
@@ -569,6 +587,7 @@ defineComponent('wt-desktop-icons', {
 			// Forward the editor Save-As payload (read synchronously while the
 			// DataTransfer is still valid) so the shell can save into this folder.
 			if (types.includes('application/x-webtop-save')) {
+				if (!saveChipAllowedHere()) return;
 				detail.saveAs = event.dataTransfer.getData('application/x-webtop-save');
 			}
 			(this as any).$emit('webtop-desktop-icon-drop', detail, { target: document });
