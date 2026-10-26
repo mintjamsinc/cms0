@@ -275,12 +275,32 @@ list reads while the drag is still over it to choose the cursor.
 
 | Drag type | From | What happens |
 | --- | --- | --- |
-| `application/x-webtop-save` | Memo, text editor, BPMN and EIP modelers | The payload holds the content itself; it is uploaded as a new file, and the source app is told the path over the `webtop-save-as` channel. |
-| `application/x-webtop-mail-attachment` | Mail (an attachment of a message) | The payload holds the attachment's URL, name and type. The file is read from that URL (the Mail app's attachment script in the system workspace, same origin) and uploaded through the same path as a file from the PC: same conflict dialog, same handling of versioned files. Dropped on a folder row, it goes into that folder. |
+| `application/x-webtop-save` | Memo, text editor, BPMN and EIP modelers | The payload holds the content itself; it is uploaded as a new file of the folder being browsed or of the folder row it was dropped on, and the source app is told the path over the `webtop-save-as` channel. Dropped into cloud storage, the content goes to the drive (`convert` in the payload turns it into a Google document) and the message carries `cloud` with the entry; `__webtopDragData.save.targets` names where the chip may land (`repository`, `cloud:google`, `cloud:microsoft`), and elsewhere the cursor says no. |
+| `application/x-webtop-mail-attachment` | Mail (an attachment of a message) | The payload holds the attachment's URL, name and type. The file is read from that URL (the Mail app's attachment script in the system workspace, same origin) and uploaded through the same path as a file from the PC: same conflict dialog, same handling of versioned files. Dropped on a folder row, it goes into that folder; into cloud storage, it goes to the drive. |
 
 Only a payload with `items` on the parent window counts as an internal move
 or copy of the browser's own items; the other payloads are looked at by
-their own keys (`mailAttachments`).
+their own keys (`mailAttachments`, `save`).
+
+### Between the repository and cloud storage
+
+The browser's own items carry `cloud` (`provider`, `driveId`, `id`) when they
+come from a drive, and the list decides by where they come from and where
+they land:
+
+| From → to | What happens |
+| --- | --- |
+| Repository → repository | A move; Ctrl copies. As before. |
+| Cloud → the same drive | A move; Ctrl copies. A folder cannot go into itself or below, and a plain move into the folder the items are in does nothing. |
+| Cloud → another drive of the same provider | Always a copy (the providers do not move between drives). |
+| Cloud → another provider | Nothing; the cursor says no. |
+| Cloud → repository, or the Desktop | A copy (`importCloudFile`), a folder with everything in it; a name the folder has gets a number. |
+| Repository → cloud | A copy (`exportCloudFile`), a folder with everything in it. |
+| Files from the PC → cloud | Uploaded through `/bin/cloud.cgi`, folders made first. A name the folder being browsed already has is asked about with the conflict dialog (overwrite replaces the content); on a folder row, a taken name gets a number. |
+| Anything → the listings above the drives | Nothing. A drive's row takes a drop for its root, and so does a provider in the sidebar (the own drive's root). |
+
+Copy and paste follow the same table; a cut is a move, so a cut pasted
+anywhere but a folder of the same drive is refused.
 
 ## Cloud storage
 

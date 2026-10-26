@@ -1308,11 +1308,24 @@ defineComponent('wt-chat-thread', {
 			this.api.content.deleteNode(`/home/users/${this.api.userId}/chat/uploads/${p.draftId}/${u.key}`).catch(() => undefined);
 		},
 		/** Adds repository files dragged in from the Content Browser, as links. */
-		async addRepositoryFiles(this: any, items: { path: string; name: string; isCollection?: boolean; mimeType?: string | null }[]) {
+		async addRepositoryFiles(this: any, items: { path: string; name: string; isCollection?: boolean; mimeType?: string | null; cloud?: any; webUrl?: string | null }[]) {
 			const vm = this;
 			if (!items.length || !vm.canAttach || !vm.canPost) return;
 			const p = vm.activePending() as Pending;
 			p.error = '';
+			// An entry of a cloud drive is not a node of the repository, and its
+			// Webtop URL opens only for the person who dropped it: what goes
+			// into the message is the provider's own link, as "name: URL".
+			const cloudItems = items.filter(i => i.cloud);
+			if (cloudItems.length) {
+				const box = vm.composerBox() as MentionEditor | null;
+				if (box) {
+					box.insertText(cloudItems.map(i => i.webUrl ? `${i.name}: ${i.webUrl}` : i.name).join('\n'));
+					vm.onComposerInput();
+				}
+				items = items.filter(i => !i.cloud);
+				if (!items.length) return;
+			}
 			for (const item of items) {
 				if (vm.carried(p).links >= MAX_LINKS) {
 					p.error = vm.t('webtop.chat.link.tooMany', { max: MAX_LINKS }, 'A message can carry up to {max} links.');

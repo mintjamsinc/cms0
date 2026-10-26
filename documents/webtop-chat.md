@@ -143,6 +143,12 @@ A message can carry files in two ways, up to ten of each.
 - A file **from the repository**, dragged in from the Content Browser, is
   linked. The author can switch it to a copy before posting. A folder can only
   be linked.
+- A file **from cloud storage** (Google Drive or OneDrive, dragged in from
+  the Content Browser) is neither attached nor linked: its name and the
+  provider's own link are put into the message as text, because that link is
+  the one thing another person can open, with their own access at the
+  provider. The Webtop's own URL of a cloud file opens only for the person
+  who dropped it.
 
 **A link gives nobody access.** It is kept by the file's identifier and
 resolved, each time the message is shown, in the session of whoever reads it.

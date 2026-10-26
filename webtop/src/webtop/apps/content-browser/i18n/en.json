@@ -173,7 +173,7 @@
 	"app.content-browser.cloud.copyFailed": "{n} item(s) could not be copied: {error}",
 	"app.content-browser.cloud.noLink": "This item has no link to copy.",
 	"app.content-browser.cloud.sortUnavailable": "Cloud storage lists by name or date only.",
-	"app.content-browser.cloud.dropUnavailable": "Dropping into cloud storage is not available yet.",
+	"app.content-browser.cloud.pasteUnavailable": "These items cannot be pasted here.",
 	"app.content-browser.menu.openAtProvider": "Open at {name}",
 	"app.content-browser.menu.copyLink": "Copy link",
 	"app.content-browser.menu.copyToRepository": "Copy to repository…",

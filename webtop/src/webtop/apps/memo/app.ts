@@ -568,6 +568,12 @@ export const App = {
 			saveAsChannelRef = new BroadcastChannel('webtop-save-as');
 			saveAsChannelRef.onmessage = (event: MessageEvent) => {
 				if (event.data?.type === 'save-as-complete' && event.data.saveAsToken && event.data.saveAsToken === vm.saveAsToken) {
+					// Saved into cloud storage: the copy is there, and the open file
+					// stays what it was (this app writes cloud files in a later step).
+					if (event.data.cloud) {
+						vm.saveAsToken = '';
+						return;
+					}
 					vm.currentFile.path = event.data.path;
 					vm.currentFile.name = event.data.name;
 					vm.currentFile.mimeType = event.data.mimeType;
@@ -2016,7 +2022,9 @@ export const App = {
 				const images = items.filter(isImg);
 				if (images.length > 0) await vm.insertImagesAtDrop(images, event);
 				for (const it of items) {
-					if (!isImg(it) && !it.isCollection && it?.path) await vm.loadFile(it.path);
+					// A cloud entry has no repository path to load from; apps open
+					// cloud files through a file handle in a later step.
+					if (!isImg(it) && !it.isCollection && it?.path && !it.cloud) await vm.loadFile(it.path);
 				}
 				return;
 			}

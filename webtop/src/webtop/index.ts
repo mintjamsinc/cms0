@@ -1938,7 +1938,10 @@ const WtDesktop = {
 				if (vm._isInternalDropForbidden(event)) {
 					event.dataTransfer.dropEffect = 'none';
 				} else {
-					event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
+					// An entry of a cloud drive is always copied into the Desktop.
+					let cloud = false;
+					try { cloud = !!(window as any).__webtopDragData?.items?.some((it: any) => it && it.cloud); } catch { /* ignore */ }
+					event.dataTransfer.dropEffect = (event.ctrlKey || cloud) ? 'copy' : 'move';
 				}
 			} else {
 				// OS files and editor Save-As payloads both copy into the Desktop.
@@ -2299,6 +2302,16 @@ const WtDesktop = {
 					if (vm.desktopUploadMonitor.isCanceled) break;
 					vm.desktopUploadMonitor.target.currentFile = dragItem.name;
 					vm.desktopUploadMonitor.target.progressPercent = 0;
+
+					// An entry of a cloud drive (dragged out of the Content Browser's
+					// cloud listing) is copied into the folder, never moved: the
+					// provider keeps it. A name the folder has gets a number.
+					const cloud = (dragItem as any).cloud;
+					if (cloud && cloud.id) {
+						await window.Webtop.api.cloud.importFile(cloud.provider, cloud.id, destPath, { driveId: cloud.driveId });
+						vm.desktopUploadMonitor.target.progressPercent = 100;
+						continue;
+					}
 
 					const sourceParent = dragItem.path.substring(0, dragItem.path.lastIndexOf('/'));
 					if (dragItem.isCollection && (destPath === dragItem.path || destPath.startsWith(dragItem.path + '/'))) {

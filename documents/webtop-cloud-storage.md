@@ -82,8 +82,30 @@ copied with everything in them, up to 1,000 entries per folder.
 The rows above a drive's folders (the drives, the shared drives) open and link
 and can be pinned; nothing is made in them.
 
-Dropping files or items into cloud storage, and dragging cloud items into the
-repository, is not available yet; the drop cursor says so.
+## Drops
+
+Items drag between the repository and cloud storage as they drag within the
+repository, and the cursor says what a drop would do:
+
+| From → to | What happens |
+| --- | --- |
+| Within one drive | A move; Ctrl copies. Not into itself, and a plain move into the folder the items are in does nothing. |
+| Between two drives of one provider | A copy, always (the providers do not move between drives). |
+| Between providers | Nothing. |
+| Cloud → repository (a folder of the list, or the Desktop) | A copy; a folder with everything in it. |
+| Repository → cloud (a folder of the list, a drive's row, or a provider in the sidebar) | A copy; a folder with everything in it. |
+| Files from the PC → cloud | Uploaded, folders made first. A name the folder already has is asked about: overwrite replaces the file's content, skip leaves it. |
+| A mail attachment → cloud | Uploaded like a file from the PC. |
+| A save chip (an editor's *Save as*) → cloud | Written to the drive; a chip whose format is a Google document is accepted on Google Drive only. The editor keeps the file it has open; writing cloud files from the editors comes in a later step. |
+
+The listings above the drives (the drives, the shared drives) take nothing.
+Copy and paste do the same as a drop; a cut is a move, so it can only be
+pasted into a folder of the same drive.
+
+A cloud item dropped on a chat conversation (the Chat app, a memo's
+conversation) is not linked like a repository file: its name and the
+provider's own link go into the message as text, since that link is what
+another person can open.
 
 ## The Inspector
 

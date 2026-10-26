@@ -2787,36 +2787,35 @@ export const App = {
 		// Center pane: accept internal drags, mail attachments, save-as chips, and
 		// OS file uploads.
 		onDragOver(event: DragEvent) {
-			// Drops into cloud storage (and drags out of it into the repository)
-			// come in a later step; until then nothing lands in a cloud listing.
-			if (this.isCloudLocation) {
-				if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
-				return;
-			}
-			// An attachment dragged out of the Mail app is copied in
-			if (this._hasMailAttachmentDrag(event)) {
-				if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-				return;
-			}
-			// Internal webtop file drags (same-iframe or cross-iframe)
-			if (this._hasInternalDragData(event)) {
-				if (event.dataTransfer) {
-					if (this._isDragForbidden(event)) {
-						event.dataTransfer.dropEffect = 'none';
-					} else {
-						event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
-					}
-				}
-				return;
-			}
 			if (!event.dataTransfer) return;
-			// Accept save-as drops from other apps
-			if (event.dataTransfer.types.includes('application/x-webtop-save')) {
-				event.dataTransfer.dropEffect = 'copy';
-				return;
+			event.dataTransfer.dropEffect = this._dropEffectFor(event, this.currentPath);
+		},
+		/**
+		 * The cursor for a drag over a location (the folder being browsed, or a
+		 * folder row): an attachment, a save chip and files from the PC copy in
+		 * anywhere but the listings above the drives; the browser's own items
+		 * follow the drop plan.
+		 */
+		_dropEffectFor(event: DragEvent, destPath: string): 'none' | 'copy' | 'move' {
+			const virtual = !!parseCloudPath(destPath)?.virtual;
+			if (this._hasMailAttachmentDrag(event)) {
+				return virtual ? 'none' : 'copy';
+			}
+			if (this._hasInternalDragData(event)) {
+				const parentData = (() => { try { return (window.parent as any).__webtopDragData; } catch (_) { return null; } })();
+				const items = parentData?.items;
+				if (!Array.isArray(items)) {
+					// Same-frame drag data only: its items are this list's own.
+					return virtual ? 'none' : (event.ctrlKey ? 'copy' : 'move');
+				}
+				return this._dropEffectOf(this._dropPlan(items, destPath, event.ctrlKey, parentData.sourceFolderPath), event.ctrlKey);
+			}
+			const types = event.dataTransfer ? Array.from(event.dataTransfer.types) : [];
+			if (types.includes('application/x-webtop-save')) {
+				return this._saveChipAllowedAt(destPath) ? 'copy' : 'none';
 			}
 			// OS file upload
-			event.dataTransfer.dropEffect = 'copy';
+			return virtual ? 'none' : 'copy';
 		},
 		// ── Upload from PC (native file picker) ──────────────────────────────
 		// Open the OS file chooser. The hidden <input> lives in index.html; its
@@ -2873,70 +2872,80 @@ export const App = {
 			}
 		},
 		async onDrop(event: DragEvent) {
+			await this._dropAt(event, this.currentPath);
+		},
+		/**
+		 * A drop on a location: the folder being browsed (the background) or a
+		 * folder row. Mail attachments, the browser's own items, a save chip and
+		 * files from the PC, in that order of recognition; each goes to the
+		 * repository or to cloud storage as the location says.
+		 */
+		async _dropAt(event: DragEvent, destPath: string) {
 			const vm = this;
 			vm.errorMessage = '';
+			if (parseCloudPath(destPath)?.virtual) return;
 
-			// Attachments dragged out of the Mail app → copied into the current folder
+			// Attachments dragged out of the Mail app → copied into the folder
 			const mailAttachments = vm._getMailAttachmentDrag(event);
 			if (mailAttachments) {
-				await vm.saveMailAttachments(mailAttachments, '');
+				await vm.saveMailAttachments(mailAttachments, destPath);
 				return;
 			}
 
-			// Handle internal webtop file drags (same-iframe per-row handled by onItemDrop;
-			// cross-iframe or background drops handled here → move/copy to current directory)
+			// The browser's own items (this window's, or another's through the parent window)
 			const internalItems = vm._getInternalDragItems(event);
 			if (internalItems && internalItems.length > 0) {
-				if (vm._isDragForbidden(event)) return;
-				await vm._executeInternalDrop(internalItems, vm.currentPath, event.ctrlKey);
+				if (vm._isDragForbidden(event, destPath)) return;
+				await vm._executeDrop(internalItems, destPath, event.ctrlKey);
 				return;
 			}
 
-			// Handle Save-As drops from other apps
+			// A save chip from an editor
 			const saveData = event.dataTransfer?.getData('application/x-webtop-save');
 			if (saveData) {
+				if (!vm._saveChipAllowedAt(destPath)) return;
 				try {
-					const { name, mimeType, content, saveAsToken } = JSON.parse(saveData);
-					await vm.saveDroppedContent(name, mimeType, content, saveAsToken);
-					await vm.load(vm.currentPath);
+					const { name, mimeType, content, saveAsToken, convert } = JSON.parse(saveData);
+					await vm.saveDroppedContent(name, mimeType, content, saveAsToken, destPath, convert);
+					if (destPath === vm.currentPath) {
+						await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+					}
 				} catch (error: any) {
 					vm.errorMessage = error?.message || vm.t('app.content-browser.error.saveFailed', undefined, 'Save failed');
 				}
 				return;
 			}
 
+			// Files from the PC: the entries keep folders; a browser without
+			// them (or a synthetic drop) hands over flat files.
 			const itemList = event.dataTransfer?.items;
-			if (!itemList || itemList.length === 0) return;
+			const entries = itemList ? Array.from(itemList).map(i => (i as any).webkitGetAsEntry?.()).filter(e => e) : [];
+			const flat = Array.from(event.dataTransfer?.files || []);
+			if (entries.length === 0 && flat.length === 0) return;
 
-			// Initialize upload monitor state
 			vm.uploadMonitor = {
 				isCanceled: false,
-				target: {
-					currentFile: '',
-					progressPercent: 0,
-				},
-				cancel() {
-					this.isCanceled = true;
-				},
+				target: { currentFile: '', progressPercent: 0 },
+				cancel() { this.isCanceled = true; },
 			};
-
 			try {
-				// Collect all file entries from drag event
-				const items = Array.from(itemList);
-				const entries = items.map(i => (i as any).webkitGetAsEntry?.()).filter(e => e);
-
-				if (entries.length === 0) return;
-
 				const files: { file: File; path: string }[] = [];
-				for (const entry of entries) {
-					await vm.collectEntry(entry, '', files);
+				if (entries.length) {
+					for (const entry of entries) {
+						await vm.collectEntry(entry, '', files);
+					}
+				} else {
+					for (const f of flat) files.push({ file: f, path: f.name });
 				}
-
-				// Upload all collected files
-				await vm.uploadFiles(files);
-
-				// Reload directory after upload
-				await vm.load(vm.currentPath);
+				if (isCloudPath(destPath)) {
+					await vm.uploadToCloud(files, destPath);
+				} else {
+					// The repository upload writes below the folder being browsed; a
+					// folder row is a sub-folder of it.
+					const dir = destPath === vm.currentPath ? '' : destPath.substring(vm.currentPath.length).replace(/^\/+/, '');
+					await vm.uploadFiles(dir ? files.map(f => ({ file: f.file, path: `${dir}/${f.path}` })) : files);
+				}
+				await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
 			} catch (error: any) {
 				if (!vm.uploadMonitor?.isCanceled) {
 					vm.errorMessage = error?.message || String(error) || vm.t('app.content-browser.error.uploadFailed', undefined, 'Upload failed');
@@ -3084,12 +3093,40 @@ export const App = {
 				}
 			}
 		},
-		async saveDroppedContent(name: string, mimeType: string, content: string, saveAsToken?: string) {
+		/**
+		 * Writes a save chip's content as a new file of a folder: the folder
+		 * being browsed, or the folder row it was dropped on. In cloud storage
+		 * the content goes to the drive (with `convert`, Google turns it into a
+		 * native document), and the source app is told the cloud location.
+		 */
+		async saveDroppedContent(name: string, mimeType: string, content: string, saveAsToken?: string, folderPath?: string, convert?: string | null) {
 			const vm = this;
 			const contentService = vm.instance.api.content;
+			const folder = folderPath || vm.currentPath;
+
+			if (isCloudPath(folder)) {
+				const location = parseCloudPath(folder) as CloudLocation;
+				const cloud = vm.instance.api.cloud;
+				const entry = await cloud.exportContent(location.provider, name, mimeType, content, {
+					driveId: location.driveId, folderId: location.id, convert: !!convert,
+				});
+				if (saveAsToken) {
+					const channel = new BroadcastChannel('webtop-save-as');
+					channel.postMessage({
+						type: 'save-as-complete',
+						path: cloudPath(entry.provider, entry.driveId, entry.id),
+						name: entry.name,
+						mimeType: entry.mimeType || mimeType,
+						saveAsToken,
+						cloud: { provider: entry.provider, driveId: entry.driveId, id: entry.id, etag: entry.etag, webUrl: entry.webUrl, contentUrl: entry.contentUrl },
+					});
+					channel.close();
+				}
+				return;
+			}
 
 			// Check if file already exists
-			const destPath = childPath(vm.currentPath, name);
+			const destPath = childPath(folder, name);
 			const existingNode = await contentService.getNode(destPath);
 			if (existingNode) {
 				// Set temporary uploadMonitor so conflict dialog can render
@@ -3106,7 +3143,7 @@ export const App = {
 			try {
 				await contentService.appendMultipartUploadData(uploadId, content);
 				await contentService.completeMultipartUpload(
-					uploadId, vm.currentPath, name, mimeType, existingNode ? true : false
+					uploadId, folder, name, mimeType, existingNode ? true : false
 				);
 
 				// Notify source app of saved path via BroadcastChannel
@@ -3872,8 +3909,8 @@ export const App = {
 		// =====================================================================
 		// Clipboard operations (copy / cut / paste)
 		// =====================================================================
-		_setSharedClipboard(mode: 'copy' | 'cut', items: { path: string; name: string; isCollection: boolean }[]) {
-			const data = { mode, items };
+		_setSharedClipboard(mode: 'copy' | 'cut', items: { path: string; name: string; isCollection: boolean }[], sourceFolderPath?: string) {
+			const data = { mode, items, sourceFolderPath: sourceFolderPath ?? null };
 			this.clipboard = data;
 			try {
 				(window.parent as any).__webtopClipboard = data;
@@ -3893,17 +3930,25 @@ export const App = {
 				(window.parent as any).__webtopClipboard = null;
 			} catch (_) { /* cross-origin safety */ }
 		},
+		/** What the clipboard keeps of an item: a cloud entry carries where it is, as the drag payload does. */
+		_clipboardItemOf(i: any): any {
+			const item: any = { path: i.path, name: i.name, isCollection: i.isCollection, mimeType: i.mimeType };
+			if (i.cloud && !i.cloud.virtual) {
+				item.cloud = { provider: i.cloud.provider, driveId: i.cloud.driveId, id: i.cloud.id };
+			}
+			return item;
+		},
 		clipboardCopy() {
 			const vm = this;
-			const selected = vm.items.filter((i: any) => vm.selectedItems.includes(i.id));
+			const selected = vm.items.filter((i: any) => vm.selectedItems.includes(i.id) && !i.cloud?.virtual);
 			if (selected.length === 0) return;
-			vm._setSharedClipboard('copy', selected.map((i: any) => ({ path: i.path, name: i.name, isCollection: i.isCollection })));
+			vm._setSharedClipboard('copy', selected.map((i: any) => vm._clipboardItemOf(i)), vm.currentPath);
 		},
 		clipboardCut() {
 			const vm = this;
-			const selected = vm.items.filter((i: any) => vm.selectedItems.includes(i.id));
+			const selected = vm.items.filter((i: any) => vm.selectedItems.includes(i.id) && !i.cloud?.virtual);
 			if (selected.length === 0) return;
-			vm._setSharedClipboard('cut', selected.map((i: any) => ({ path: i.path, name: i.name, isCollection: i.isCollection })));
+			vm._setSharedClipboard('cut', selected.map((i: any) => vm._clipboardItemOf(i)), vm.currentPath);
 		},
 		clipboardHasItems(): boolean {
 			const cb = this._getSharedClipboard();
@@ -3922,6 +3967,22 @@ export const App = {
 			const mode = cb.mode;
 			const items = [...cb.items];
 			vm.errorMessage = '';
+
+			// Across the sources, and within cloud storage, a paste does what a
+			// drop does. A cut is a move, which only one drive allows; a cut
+			// pasted anywhere else is refused rather than silently copied.
+			const crossing = vm.isCloudLocation || items.some((i: any) => i.cloud || isCloudPath(i.path));
+			if (crossing) {
+				const plan = vm._dropPlan(items, vm.currentPath, mode === 'copy', (cb as any).sourceFolderPath ?? null);
+				if (!plan || (mode === 'cut' && plan !== 'cloud-move')) {
+					vm.errorMessage = vm.t('app.content-browser.cloud.pasteUnavailable', undefined, 'These items cannot be pasted here.');
+					return;
+				}
+				try { (window.parent as any).__webtopDragData = { items, sourceFolderPath: (cb as any).sourceFolderPath ?? null }; } catch (_) { /* cross-origin safety */ }
+				await vm._executeDrop(items, vm.currentPath, mode === 'copy');
+				if (mode === 'cut') vm._clearSharedClipboard();
+				return;
+			}
 
 			// Set up uploadMonitor so the conflict dialog can be shown
 			vm.uploadMonitor = {
@@ -4146,13 +4207,15 @@ export const App = {
 			return null;
 		},
 		/**
-		 * Reads each attachment from its URL and uploads it into `dir` (a folder
-		 * name under the current folder, or '' for the current folder itself),
+		 * Reads each attachment from its URL and uploads it into `destPath` (the
+		 * folder being browsed, a folder row below it, or a cloud folder),
 		 * through the same path as files from the PC.
 		 */
-		async saveMailAttachments(list: MailAttachmentDrag[], dir: string) {
+		async saveMailAttachments(list: MailAttachmentDrag[], destPath: string) {
 			const vm = this;
 			if (vm.currentFolderDeleted) return;
+			const cloudDest = isCloudPath(destPath);
+			const dir = cloudDest || destPath === vm.currentPath ? '' : destPath.substring(vm.currentPath.length).replace(/^\/+/, '');
 			vm.errorMessage = '';
 			vm.uploadMonitor = {
 				isCanceled: false,
@@ -4176,6 +4239,19 @@ export const App = {
 				vm.errorMessage = vm.t('app.content-browser.error.attachmentReadFailed', { error: error?.message || String(error) }, 'The attachment could not be read: {error}');
 				return;
 			}
+			if (cloudDest) {
+				try {
+					await vm.uploadToCloud(files, destPath);
+					await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+				} catch (error: any) {
+					if (!vm.uploadMonitor?.isCanceled) {
+						vm.errorMessage = error?.message || String(error) || vm.t('app.content-browser.error.uploadFailed', undefined, 'Upload failed');
+					}
+				} finally {
+					if (!vm.errorMessage) vm.uploadMonitor = null;
+				}
+				return;
+			}
 			await vm._performUpload(files);
 		},
 		/**
@@ -4188,28 +4264,103 @@ export const App = {
 		 * destPath defaults to the current folder, which is the implicit
 		 * destination for background drops.
 		 */
+		// ---- Drops between the repository and cloud storage -------------------
+		//
+		// What a drop does depends on where the items come from and where they
+		// land (see documents/webtop-cloud-storage.md): within the repository
+		// a move (Ctrl: a copy); within one cloud drive a move (Ctrl: a copy);
+		// between two drives of one provider, and across the sources, always a
+		// copy; across providers, nothing. The listings above the drives take
+		// nothing; a drive's row stands for its root.
+		/** The folder a row stands for as a drop target, or null for a row that takes nothing. */
+		_dropDestOf(item: ContentItem): string | null {
+			if (!item.isCollection) return null;
+			if (item.cloud?.virtual === 'drive') return cloudPath(item.cloud.provider, item.cloud.driveId);
+			if (item.cloud?.virtual) return null;
+			return item.path;
+		},
+		/** The ids above and of a cloud destination, for the "into itself" check. */
+		_cloudDestChain(destPath: string): string[] {
+			const location = parseCloudPath(destPath);
+			if (!location || !location.id) return [];
+			let crumbs: CloudCrumbs | null = null;
+			if (destPath === this.currentPath) {
+				crumbs = this.cloudCrumbs as CloudCrumbs | null;
+			} else {
+				const row = (this.items as ContentItem[]).find(i => i.path === destPath);
+				if (row) crumbs = this.cloudCrumbsFor(row);
+			}
+			const chain = crumbs && !crumbs.pending ? crumbs.ancestors.map(a => a.id) : [];
+			chain.push(location.id);
+			return chain;
+		},
+		/**
+		 * What dropping `items` on `destPath` would do: 'repository' (the
+		 * existing move / copy), 'cloud-move', 'cloud-copy', 'import' (cloud →
+		 * repository), 'export' (repository → cloud), or null when nothing may
+		 * happen (across providers, into the listings above the drives, into
+		 * itself, or a plain move into the folder the items are in).
+		 */
+		_dropPlan(items: { path: string; isCollection: boolean; cloud?: { provider: string; driveId: string; id: string | null } | null }[], destPath: string, isCopy: boolean, sourceFolderPath?: string | null): 'repository' | 'cloud-move' | 'cloud-copy' | 'import' | 'export' | null {
+			if (!items.length) return null;
+			const dest = parseCloudPath(destPath);
+			if (dest?.virtual) return null;
+			const cloudItems = items.filter(i => i.cloud || isCloudPath(i.path));
+			if (cloudItems.length && cloudItems.length !== items.length) return null;
+			if (!cloudItems.length) {
+				if (!dest) {
+					// The repository's own rules: a plain move into the source folder is a no-op,
+					// and a folder cannot go into itself.
+					if (!isCopy && sourceFolderPath === destPath) return null;
+					for (const it of items) {
+						if (it.isCollection && (destPath === it.path || destPath.startsWith(it.path + '/'))) return null;
+					}
+					return 'repository';
+				}
+				return 'export';
+			}
+			const sources = cloudItems.map(i => i.cloud || parseCloudPath(i.path)).filter(Boolean) as { provider: string; driveId: string | null; id: string | null }[];
+			if (!dest) return 'import';
+			if (sources.some(s => s.provider !== dest.provider)) return null;
+			if (sources.every(s => s.driveId === dest.driveId)) {
+				// The same drive: a folder cannot go into itself or below, and a
+				// plain move into the folder the items are in is a no-op.
+				const chain = this._cloudDestChain(destPath);
+				for (const it of cloudItems) {
+					const id = it.cloud?.id ?? parseCloudPath(it.path)?.id ?? null;
+					if (it.isCollection && id && chain.includes(id)) return null;
+				}
+				if (!isCopy && sourceFolderPath === destPath) return null;
+				return isCopy ? 'cloud-copy' : 'cloud-move';
+			}
+			return 'cloud-copy';
+		},
+		/** The cursor a plan asks for. */
+		_dropEffectOf(plan: string | null, isCopy: boolean): 'none' | 'copy' | 'move' {
+			if (!plan) return 'none';
+			if (plan === 'repository' || plan === 'cloud-move') return isCopy ? 'copy' : 'move';
+			return 'copy';
+		},
+		/** Whether a save chip ('application/x-webtop-save') may land on a location: its formats name where they may go. */
+		_saveChipAllowedAt(destPath: string): boolean {
+			const location = parseCloudPath(destPath);
+			if (location?.virtual) return false;
+			try {
+				const save = (window.parent as any).__webtopDragData?.save;
+				if (save && Array.isArray(save.targets)) {
+					const target = location ? `cloud:${location.provider}` : 'repository';
+					return save.targets.includes(target);
+				}
+			} catch (_) { /* cross-origin safety */ }
+			return true;
+		},
 		_isDragForbidden(event: DragEvent, destPath?: string): boolean {
 			try {
 				const parentData = (window.parent as any).__webtopDragData;
 				if (!parentData) return false;
 				const dest = destPath ?? this.currentPath;
-				// Between the repository and cloud storage, and within it: a later step.
-				if (isCloudPath(dest)) return true;
-				if (Array.isArray(parentData.items) && parentData.items.some((it: any) => it && (it.cloud || isCloudPath(it.path)))) {
-					return true;
-				}
-				// Move into the source folder is a no-op
-				if (!event.ctrlKey && parentData.sourceFolderPath === dest) {
-					return true;
-				}
-				// Drop into self or a descendant of a dragged folder would cycle
 				if (Array.isArray(parentData.items)) {
-					for (const it of parentData.items) {
-						if (it && it.isCollection && it.path
-							&& (dest === it.path || dest.startsWith(it.path + '/'))) {
-							return true;
-						}
-					}
+					return this._dropPlan(parentData.items, dest, event.ctrlKey, parentData.sourceFolderPath) === null;
 				}
 			} catch (_) { /* cross-origin safety */ }
 			return false;
@@ -4231,31 +4382,22 @@ export const App = {
 			// File rows have no drop semantics of their own — let the event
 			// bubble so the parent's onDragOver treats it as a background drop.
 			if (!item.isCollection) return;
-			// A cloud folder takes no drops yet (see onDragOver).
-			if (item.cloud) {
-				event.stopPropagation();
-				if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
-				return;
-			}
-			// A mail attachment can be dropped on a folder row as well
-			if (this._hasMailAttachmentDrag(event)) {
-				event.stopPropagation();
-				if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-				this.dragOverFolderID = item.id;
-				return;
-			}
-			if (!this._hasInternalDragData(event)) return;
-			// Folder rows own this dragover. Stop propagation so the parent's
-			// onDragOver does not re-evaluate forbidden against currentPath
-			// and overwrite our dropEffect.
+			// Folder rows (and drive rows) own this dragover. Stop propagation
+			// so the parent's onDragOver does not re-evaluate the drop against
+			// the current folder and overwrite the cursor. OS files are the
+			// exception: they still go into the folder being browsed.
+			const dest = this._dropDestOf(item);
+			const types = event.dataTransfer ? Array.from(event.dataTransfer.types) : [];
+			const isOsFiles = !this._hasMailAttachmentDrag(event) && !this._hasInternalDragData(event) && !types.includes('application/x-webtop-save');
+			if (isOsFiles && !item.cloud) return;
 			event.stopPropagation();
-			if (event.dataTransfer) {
-				if (this._isDragForbidden(event, item.path)) {
-					event.dataTransfer.dropEffect = 'none';
-					if (this.dragOverFolderID === item.id) this.dragOverFolderID = null;
-					return;
-				}
-				event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
+			// Files from the PC go into a cloud folder row (the repository's rows
+			// leave them to the folder being browsed, above).
+			const effect = !dest ? 'none' : isOsFiles ? 'copy' : this._dropEffectFor(event, dest);
+			if (event.dataTransfer) event.dataTransfer.dropEffect = effect;
+			if (effect === 'none') {
+				if (this.dragOverFolderID === item.id) this.dragOverFolderID = null;
+				return;
 			}
 			this.dragOverFolderID = item.id;
 		},
@@ -4268,22 +4410,179 @@ export const App = {
 			const vm = this;
 			vm.dragOverFolderID = null;
 			if (!item.isCollection) return;
-
-			// Attachments dragged out of the Mail app → copied into this folder
-			const mailAttachments = vm._getMailAttachmentDrag(event);
-			if (mailAttachments) {
-				event.stopPropagation();
-				await vm.saveMailAttachments(mailAttachments, item.name);
-				return;
-			}
-
-			const dragItems = vm._getInternalDragItems(event);
-			if (!dragItems || dragItems.length === 0) return;
-			if (vm._isDragForbidden(event, item.path)) return;
-			// Stop propagation to prevent parent onDrop from interfering
+			const dest = vm._dropDestOf(item);
+			if (!dest) return;
+			// Files from the PC dropped on a repository folder row go into the
+			// folder being browsed (the parent's drop), as before.
+			const types = event.dataTransfer ? Array.from(event.dataTransfer.types) : [];
+			const isOsFiles = !vm._hasMailAttachmentDrag(event) && !vm._hasInternalDragData(event) && !types.includes('application/x-webtop-save');
+			if (isOsFiles && !item.cloud) return;
+			// The folder row owns this drop: the parent's handler must not run it again.
 			event.stopPropagation();
-
-			await vm._executeInternalDrop(dragItems, item.path, event.ctrlKey);
+			await vm._dropAt(event, dest);
+		},
+		// ---- The sidebar's provider items: a drop goes to the root of the own drive ----
+		onCloudStorageDragOver(storage: CloudStorage, event: DragEvent) {
+			if (!event.dataTransfer) return;
+			event.dataTransfer.dropEffect = this._dropEffectFor(event, cloudPath(storage.provider, CLOUD_MY_DRIVE));
+		},
+		async onCloudStorageDrop(storage: CloudStorage, event: DragEvent) {
+			await this._dropAt(event, cloudPath(storage.provider, CLOUD_MY_DRIVE));
+		},
+		/**
+		 * Runs a drop of the browser's own items by its plan: the repository's
+		 * own move / copy, a move or copy within a provider, a copy out of a
+		 * drive into the repository, or a copy of repository items into a drive.
+		 */
+		async _executeDrop(dragItems: any[], destPath: string, isCopy: boolean) {
+			const vm = this;
+			const sourceFolderPath = (() => { try { return (window.parent as any).__webtopDragData?.sourceFolderPath ?? null; } catch (_) { return null; } })();
+			const plan = vm._dropPlan(dragItems, destPath, isCopy, sourceFolderPath);
+			try {
+				if (plan === 'repository') {
+					await vm._executeInternalDrop(dragItems, destPath, isCopy);
+					return;
+				}
+				if (plan === 'import') {
+					const items = dragItems.map((d: any) => ({ name: d.name, isCollection: !!d.isCollection, cloud: d.cloud || parseCloudPath(d.path) }))
+						.filter((d: any) => d.cloud && d.cloud.id) as any[];
+					await vm.importFromCloud(items.map((d: any) => ({ ...d, cloud: { provider: d.cloud.provider, driveId: d.cloud.driveId || CLOUD_MY_DRIVE, id: d.cloud.id } })), destPath, false);
+					return;
+				}
+				if (plan === 'export') {
+					const location = parseCloudPath(destPath) as CloudLocation;
+					await vm.exportToCloud(location.provider, vm.cloudProviderLabel(location.provider),
+						{ driveId: location.driveId, id: location.id, name: vm._cloudFolderNameOf(destPath) }, dragItems);
+					if (destPath === vm.currentPath) await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+					return;
+				}
+				if (plan === 'cloud-move' || plan === 'cloud-copy') {
+					await vm._moveOrCopyInCloud(dragItems, destPath, plan === 'cloud-copy');
+				}
+			} finally {
+				try { (window.parent as any).__webtopDragData = null; } catch (_) { /* cross-origin safety */ }
+			}
+		},
+		/** The name of a cloud folder the list knows, for a message; the location text otherwise. */
+		_cloudFolderNameOf(destPath: string): string {
+			if (destPath === this.currentPath) {
+				const crumbs = this.cloudCrumbs as CloudCrumbs | null;
+				if (crumbs?.current) return crumbs.current.name;
+				if (crumbs?.drive) return crumbs.drive.name;
+			}
+			const row = (this.items as ContentItem[]).find(i => i.path === destPath);
+			return row ? row.name : destPath;
+		},
+		/** Moves (or copies) cloud items into a folder of a drive of their provider, one request each. */
+		async _moveOrCopyInCloud(dragItems: any[], destPath: string, isCopy: boolean) {
+			const vm = this;
+			const cloud = vm.instance?.api.cloud;
+			const location = parseCloudPath(destPath);
+			if (!cloud || !location) return;
+			vm.errorMessage = '';
+			vm.uploadMonitor = {
+				isCanceled: false,
+				target: { currentFile: '', progressPercent: 0 },
+				cancel() { this.isCanceled = true; },
+			};
+			const errors: string[] = [];
+			try {
+				let done = 0;
+				for (const d of dragItems) {
+					if (vm.uploadMonitor?.isCanceled) break;
+					const info = d.cloud || parseCloudPath(d.path);
+					if (!info || !info.id) continue;
+					vm.uploadMonitor.target.currentFile = d.name;
+					vm.uploadMonitor.target.progressPercent = Math.round((done / dragItems.length) * 100);
+					try {
+						if (isCopy) {
+							await cloud.copy(info.provider, info.driveId || CLOUD_MY_DRIVE, info.id, location.driveId as string, location.id);
+						} else {
+							await cloud.move(info.provider, info.driveId || CLOUD_MY_DRIVE, info.id, location.id);
+						}
+					} catch (e: any) {
+						errors.push(`${d.name}: ${e?.message || String(e)}`);
+					}
+					done++;
+				}
+				await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+			} finally {
+				vm.uploadMonitor = null;
+			}
+			if (errors.length) {
+				vm.errorMessage = vm.t('app.content-browser.cloud.copyFailed', { n: errors.length, error: errors[0] }, '{n} item(s) could not be copied: {error}');
+			}
+		},
+		/** The servlet URL that takes new files for a cloud folder. */
+		_cloudChildrenUrl(location: CloudLocation): string {
+			return `/bin/cloud.cgi/${encodeURIComponent(location.provider)}/${encodeURIComponent(location.driveId as string)}/${encodeURIComponent(location.id || 'root')}/children`;
+		},
+		/**
+		 * Uploads files from the PC (or mail attachments) into a cloud folder,
+		 * one request per file, folders made first. A name the folder being
+		 * browsed already has is asked about with the usual conflict dialog
+		 * (overwrite replaces the file's content); elsewhere the provider's
+		 * folder is not read first and a taken name gets a number.
+		 */
+		async uploadToCloud(files: { file: File; path: string }[], destPath: string) {
+			const vm = this;
+			const cloud = vm.instance?.api.cloud;
+			const location = parseCloudPath(destPath);
+			if (!cloud || !location || !vm.uploadMonitor) return;
+			const known = destPath === vm.currentPath ? (vm.items as ContentItem[]) : [];
+			// Folders by their relative path; the top level reuses one the listing shows.
+			const folders = new Map<string, string | null>();
+			folders.set('', location.id);
+			const folderIdFor = async (dir: string): Promise<string | null> => {
+				if (folders.has(dir)) return folders.get(dir) as string | null;
+				const slash = dir.lastIndexOf('/');
+				const parentDir = slash >= 0 ? dir.substring(0, slash) : '';
+				const name = slash >= 0 ? dir.substring(slash + 1) : dir;
+				const parentId = await folderIdFor(parentDir);
+				let id: string | null = null;
+				if (parentDir === '') {
+					const existing = known.find(i => i.isCollection && i.name === name && i.cloud?.id);
+					if (existing) id = existing.cloud!.id;
+				}
+				if (!id) {
+					const made = await cloud.createFolder(location.provider, location.driveId as string, parentId, name);
+					id = made.id;
+				}
+				folders.set(dir, id);
+				return id;
+			};
+			let overwriteAll = false;
+			let skipAll = false;
+			let done = 0;
+			for (const info of files) {
+				if (vm.uploadMonitor.isCanceled) break;
+				vm.uploadMonitor.target.currentFile = info.path;
+				vm.uploadMonitor.target.progressPercent = Math.round((done / files.length) * 100);
+				const slash = info.path.lastIndexOf('/');
+				const dir = slash >= 0 ? info.path.substring(0, slash) : '';
+				const name = slash >= 0 ? info.path.substring(slash + 1) : info.path;
+				let conflict: 'FAIL' | 'REPLACE' | 'RENAME' = 'RENAME';
+				if (dir === '' && known.some(i => !i.isCollection && i.name === name)) {
+					let action = overwriteAll ? 'overwrite' : skipAll ? 'skip' : await vm.askConflict();
+					if (action === 'overwriteAll') { overwriteAll = true; action = 'overwrite'; }
+					if (action === 'skipAll') { skipAll = true; action = 'skip'; }
+					if (action === 'cancel') { vm.uploadMonitor.cancel(); break; }
+					if (action === 'skip') { done++; continue; }
+					conflict = 'REPLACE';
+				}
+				const folderId = await folderIdFor(dir);
+				const form = new FormData();
+				form.append('conflict', conflict);
+				form.append('file', info.file, name);
+				const response = await fetch(vm._cloudChildrenUrl({ ...location, id: folderId }), { method: 'POST', credentials: 'same-origin', body: form });
+				if (!response.ok) {
+					let message = `HTTP ${response.status}`;
+					try { message = (await response.json()).message || message; } catch (_) { /* no JSON */ }
+					throw new Error(`${name}: ${message}`);
+				}
+				done++;
+				vm.uploadMonitor.target.progressPercent = Math.round((done / files.length) * 100);
+			}
 		},
 		/**
 		 * Execute internal move/copy of drag items into destPath.

@@ -173,7 +173,7 @@
 	"app.content-browser.cloud.copyFailed": "{n} 件をコピーできませんでした: {error}",
 	"app.content-browser.cloud.noLink": "この項目にはコピーできるリンクがありません。",
 	"app.content-browser.cloud.sortUnavailable": "クラウドストレージは名前か更新日時で並びます。",
-	"app.content-browser.cloud.dropUnavailable": "クラウドストレージへのドロップはまだ使えません。",
+	"app.content-browser.cloud.pasteUnavailable": "これらの項目はここには貼り付けられません。",
 	"app.content-browser.menu.openAtProvider": "{name} で開く",
 	"app.content-browser.menu.copyLink": "リンクをコピー",
 	"app.content-browser.menu.copyToRepository": "リポジトリにコピー…",

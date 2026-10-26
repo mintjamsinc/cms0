@@ -192,7 +192,8 @@
 					<div v-show="sidebarSectionExpanded.cloud" class="sidebar-section-body sidebar-section-body-list">
 						<div v-for="s in grantedStorages" :key="'sb-cloud-' + s.provider"
 							class="sidebar-fav-item sidebar-cloud-item" :class="{ 'sidebar-fav-item-active': isCloudStorageActive(s) }"
-							@click="openCloudStorage(s)" :title="cloudProviderLabel(s.provider)">
+							@click="openCloudStorage(s)" :title="cloudProviderLabel(s.provider)"
+							@dragover.prevent.stop="onCloudStorageDragOver(s, event)" @drop.prevent.stop="onCloudStorageDrop(s, event)">
 							<i class="bi sidebar-fav-icon" :class="s.provider === 'google' ? 'bi-google' : s.provider === 'microsoft' ? 'bi-microsoft' : 'bi-cloud'"></i>
 							<div class="sidebar-fav-content">
 								<span class="sidebar-fav-name">{{ cloudProviderLabel(s.provider) }}</span>

@@ -2042,6 +2042,12 @@ export const App = {
 			vm.saveAsChannel = new BroadcastChannel('webtop-save-as');
 			vm.saveAsChannel.onmessage = (event: MessageEvent) => {
 				if (event.data?.type === 'save-as-complete' && event.data.saveAsToken && event.data.saveAsToken === vm.saveAsToken) {
+					// Saved into cloud storage: the copy is there, and the open file
+					// stays what it was (this app writes cloud files in a later step).
+					if (event.data.cloud) {
+						vm.saveAsToken = '';
+						return;
+					}
 					vm.currentFile.path = event.data.path;
 					vm.currentFile.name = event.data.name;
 					vm.currentFile.mimeType = event.data.mimeType;
